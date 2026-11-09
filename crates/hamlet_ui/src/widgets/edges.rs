@@ -4,18 +4,18 @@
 //! whole, letters and all, and only darken or lighten together.
 
 use bevy::app::{App, PostUpdate};
-use bevy::color::{Alpha, Color};
+use bevy::color::{Alpha, Color, Mix};
 use bevy::ecs::change_detection::DetectChangesMut;
 use bevy::ecs::component::Component;
 use bevy::ecs::hierarchy::{ChildOf, Children};
-use bevy::ecs::query::With;
+use bevy::ecs::query::{With, Without};
 use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::system::Query;
 use bevy::picking::Pickable;
 use bevy::ui::{
     BackgroundColor, BackgroundGradient, ColorStop, ComputedNode,
-    LinearGradient, PositionType, UiRect, UiSystems, Val, percent,
-    px,
+    Gradient, LinearGradient, PositionType, UiGlobalTransform,
+    UiRect, UiSystems, Val, percent, px,
 };
 use bevy_fynix::scroll::ScrollGoal;
 use bevy_fynix::views::{BehaviorExt, FrameProps, column, frame};
@@ -26,11 +26,6 @@ use crate::styles::Fills;
 /// How far in from an end of a scroll area its fade reaches, in
 /// logical pixels.
 const REACH: f32 = 14.0;
-
-/// How opaque a fade is at its end at most. The fill it fades into is
-/// the plain ground, without the glows a panel lays over it, so a
-/// whole opacity would show as a band of another tone.
-const STRONGEST: f32 = 0.65;
 
 pub fn plugin(app: &mut App) {
     app.add_systems(PostUpdate, shade.after(UiSystems::Layout));
@@ -65,14 +60,27 @@ fn end(end: End) -> impl View {
         .tagged(end)
 }
 
-/// Fades each end into the first opaque fill behind its area, as
-/// strongly as there is more to scroll past it, up to a whole reach.
+/// Fades each end into the first opaque fill behind its area, in the
+/// colour that fill has there once its own gradient is laid on it,
+/// as strongly as there is more to scroll past the end, up to a
+/// whole reach.
 fn shade(
     mut ends: Query<(&End, &ChildOf, &mut BackgroundGradient)>,
-    areas: Query<&ComputedNode, With<ScrollGoal>>,
+    areas: Query<
+        (&ComputedNode, &UiGlobalTransform),
+        With<ScrollGoal>,
+    >,
     children: Query<&Children>,
     parents: Query<&ChildOf>,
-    fills: Query<&BackgroundColor>,
+    fills: Query<
+        (
+            &BackgroundColor,
+            Option<&BackgroundGradient>,
+            &ComputedNode,
+            &UiGlobalTransform,
+        ),
+        Without<End>,
+    >,
 ) {
     for (end, parent, mut gradient) in &mut ends {
         let parent = parent.parent();
@@ -84,12 +92,23 @@ fn shade(
         let ground = core::iter::once(parent)
             .chain(parents.iter_ancestors(parent))
             .filter_map(|entity| fills.get(entity).ok())
-            .map(|fill| fill.0)
-            .find(|fill| fill.alpha() >= 0.99);
-        let (Some(area), Some(ground)) = (area, ground) else {
+            .find(|(fill, ..)| fill.0.alpha() >= 0.99);
+        let (Some((area, at)), Some((fill, laid, node, node_at))) =
+            (area, ground)
+        else {
             gradient.set_if_neq(BackgroundGradient::default());
             continue;
         };
+        let edge = match end {
+            End::Top => at.translation.y - area.size().y / 2.0,
+            End::Bottom => at.translation.y + area.size().y / 2.0,
+        };
+        let along = (edge
+            - (node_at.translation.y - node.size().y / 2.0))
+            / node.size().y.max(1.0);
+        let ground = laid
+            .and_then(|laid| colour_at(laid, along))
+            .unwrap_or(fill.0);
         let reach = REACH / area.inverse_scale_factor();
         let visible = area.size().y - area.scrollbar_size.y;
         let scrolled = area.scroll_position.y;
@@ -98,8 +117,43 @@ fn shade(
             End::Bottom => area.content_size().y - visible - scrolled,
         };
         let shown = (past / reach).clamp(0.0, 1.0);
-        gradient.set_if_neq(fade(*end, ground, shown * STRONGEST));
+        gradient.set_if_neq(fade(*end, ground, shown));
     }
+}
+
+/// The colour of `laid`'s first top-to-bottom gradient at `along`
+/// of its node's height, from 0 at the top to 1, or `None` when it
+/// has no such gradient.
+fn colour_at(laid: &BackgroundGradient, along: f32) -> Option<Color> {
+    let Gradient::Linear(line) = laid.0.first()? else {
+        return None;
+    };
+    if (line.angle - LinearGradient::TO_BOTTOM).abs() > 1e-3 {
+        return None;
+    }
+    let at = |stop: &ColorStop| match stop.point {
+        Val::Percent(share) => share / 100.0,
+        _ => 0.0,
+    };
+    let along = along.clamp(0.0, 1.0);
+    let last = line.stops.last()?;
+    line.stops
+        .windows(2)
+        .find_map(|pair| {
+            let (from, to) = (at(&pair[0]), at(&pair[1]));
+            (along >= from && along <= to).then(|| {
+                let share = (along - from) / (to - from).max(1e-6);
+                pair[0].color.mix(&pair[1].color, share)
+            })
+        })
+        .or_else(|| {
+            let first = line.stops.first()?;
+            Some(if along < at(first) {
+                first.color
+            } else {
+                last.color
+            })
+        })
 }
 
 /// A gradient from `ground` at `shown` opacity at the end to clear.
