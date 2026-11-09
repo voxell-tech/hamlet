@@ -1,6 +1,5 @@
 //! What every panel is built from.
 
-pub mod cut;
 pub mod dial;
 pub mod disclosure;
 pub mod edges;
@@ -25,7 +24,6 @@ pub fn plugin(app: &mut App) {
         icons::plugin,
         effects::plugin,
         switch::plugin,
-        cut::CutPlugin,
         edges::plugin,
         floats::FloatsPlugin,
         pixels::plugin,
