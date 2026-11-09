@@ -36,16 +36,19 @@ pub(crate) enum Tool {
     Open,
     Read,
     Console,
+    Wait,
 }
 
 impl Tool {
-    const ALL: [Self; 3] = [Self::Open, Self::Read, Self::Console];
+    const ALL: [Self; 4] =
+        [Self::Open, Self::Read, Self::Console, Self::Wait];
 
     pub(crate) fn name(self) -> &'static str {
         match self {
             Self::Open => "web_open",
             Self::Read => "web_read",
             Self::Console => "web_console",
+            Self::Wait => "web_wait",
         }
     }
 
@@ -107,6 +110,28 @@ pub(crate) fn specs() -> Vec<ToolSpec> {
             json!({"type": "object", "properties": {}}),
             ToolSpecReplay::Safe,
         ),
+        spec(
+            Tool::Wait.name(),
+            "Wait for the page in your Web tab: for some text to show \
+             on it, for an element a CSS selector matches to be on \
+             it, or, given neither, for it to finish loading.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "text": {"type": "string"},
+                    "selector": {"type": "string"},
+                    "seconds": {
+                        "type": "number",
+                        "description": format!(
+                            "The most seconds to wait, at most {}. \
+                             Defaults to 10.",
+                            protocol::WEB_WAIT_MOST
+                        ),
+                    },
+                },
+            }),
+            ToolSpecReplay::Safe,
+        ),
     ]
 }
 
@@ -119,7 +144,7 @@ pub(crate) fn reaches_network(tool: Tool, arguments: &Value) -> bool {
             .and_then(Value::as_str)
             .and_then(web_address)
             .is_some_and(|address| !is_on_this_machine(&address)),
-        Tool::Read | Tool::Console => false,
+        Tool::Read | Tool::Console | Tool::Wait => false,
     }
 }
 
@@ -213,6 +238,28 @@ fn act_of(
             Ok(WebAct::Open { address })
         }
         Tool::Console => Ok(WebAct::Console {}),
+        Tool::Wait => {
+            let words = |key: &str| {
+                arguments
+                    .get(key)
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|words| !words.is_empty())
+                    .map(String::from)
+            };
+            let seconds = arguments
+                .get("seconds")
+                .and_then(Value::as_f64)
+                .filter(|seconds| seconds.is_finite())
+                .map_or(10.0, f64::ceil)
+                .clamp(1.0, f64::from(protocol::WEB_WAIT_MOST))
+                as u32;
+            Ok(WebAct::Wait {
+                text: words("text"),
+                selector: words("selector"),
+                seconds,
+            })
+        }
         Tool::Read => Ok(WebAct::Read {
             html: arguments
                 .get("html")
@@ -250,22 +297,22 @@ pub(crate) fn call(
                     net,
                     act,
                 };
+                let within = ANSWER_WITHIN
+                    + Duration::from_secs(u64::from(ask.act.waits()));
                 core.clients.send(
                     client,
                     &core.credentials,
                     ServerMessage::Web(ask),
                 )?;
-                Ok(waiting)
+                Ok((waiting, within))
             }
         },
     };
     Ok(async move {
         let outcome = match asked {
             Err(words) => Outcome::failed(words),
-            Ok(waiting) => {
-                match tokio::time::timeout(ANSWER_WITHIN, waiting)
-                    .await
-                {
+            Ok((waiting, within)) => {
+                match tokio::time::timeout(within, waiting).await {
                     Ok(Ok(answer)) if answer.failed => {
                         Outcome::failed(answer.text)
                     }
@@ -277,7 +324,7 @@ pub(crate) fn call(
                     ),
                     Err(_) => Outcome::failed(format!(
                         "The window did not answer within {} s.",
-                        ANSWER_WITHIN.as_secs()
+                        within.as_secs()
                     )),
                 }
             }
