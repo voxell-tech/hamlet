@@ -67,7 +67,7 @@ pub fn range(
         let groove = (row / 7.0).round().max(2.0);
         let thumb = ((row * 0.36).round(), (row * 0.64).round());
         let (well, accent, edge) =
-            (theme.fill(), theme.accent(), theme.edge());
+            (theme.groove(), theme.accent(), theme.edge());
         let border = theme.space.border;
         let span = most - least;
         let share = move |value: f32| {

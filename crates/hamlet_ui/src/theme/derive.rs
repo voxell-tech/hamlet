@@ -80,8 +80,8 @@ const LIGHT: Steps = Steps {
     code: 0.5,
     selected: 0.58,
     gold_hover: 0.10,
-    bottom: 0.15,
-    primary_low: 0.52,
+    bottom: 0.27,
+    primary_low: 0.72,
     primary_high: 1.0,
     pressable: 0.17,
     mark: 1.0,
@@ -112,7 +112,10 @@ const REFERENCE: f32 = 4.75;
 /// in progress by its hue.
 const REST_CHROMA: f32 = 0.02;
 const REST_HUE: f32 = 255.0;
-/// How far the hairline of a card is from the border toward the
+/// How far the border of a card, a bubble and a divider is from the
+/// ramp's border toward the mark: one firmness for every line.
+const BORDER_FIRM: f32 = 0.2;
+/// How far the hairline of a card is from that border toward the
 /// mark.
 const HAIRLINE: f32 = 0.15;
 
@@ -289,7 +292,8 @@ impl Palette {
         // The hairline of a card: the border, a little toward the
         // mark in both modes, so it is no more an outline in one
         // than in the other.
-        let gold_6 = border.mix(&mark, HAIRLINE);
+        let line = border.mix(&mark, BORDER_FIRM);
+        let gold_6 = line.mix(&mark, HAIRLINE);
         // The accent as it washes a surface and fills a tab: no more
         // saturated than `WASH_CHROMA`, and over paper no darker
         // than `WASH_LIGHTNESS`, so that a deep accent is a pastel
@@ -379,7 +383,7 @@ impl Palette {
             grey_1: on_fills(dim),
             button,
             button_hover,
-            border,
+            border: line,
             selected,
             gold_1: on_fills(body),
             gold_2: on_fills(body.mix(&warm, steps.pressable)),

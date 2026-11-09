@@ -374,7 +374,7 @@ fn said<B: Board>(
             .border_color(rewind::ringed(
                 session,
                 id.clone(),
-                if mine { palette.gold_6 } else { palette.border },
+                palette.gold_6,
                 palette.accent,
             ))
             .corners({
