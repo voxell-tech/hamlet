@@ -817,34 +817,6 @@ pub fn progress_bar(fraction: f32, kind: StatusKind) -> impl View {
     })
 }
 
-/// Parts of a whole as one bar on one track, each part as wide as
-/// its weight and in the mark of its status, a hairline between:
-/// green done, orange waiting, ochre in progress, neutral at rest.
-pub fn stacked_bar(parts: Vec<(f32, StatusKind)>) -> impl View {
-    with_cx(move |cx| {
-        let theme = cx.theme();
-        let height = 9.0;
-        let segments = parts
-            .iter()
-            .filter(|(weight, _)| *weight > 0.0)
-            .map(|(weight, kind)| {
-                frame()
-                    .grow(*weight)
-                    .height(percent(100.0))
-                    .radius(height / 2.0)
-                    .fill(theme.palette.status.get(*kind).mark)
-                    .boxed()
-            })
-            .collect::<Vec<_>>();
-        row(segments)
-            .gap(1.5)
-            .width(percent(100.0))
-            .height(px(height))
-            .radius(height / 2.0)
-            .fill(theme.palette.button_hover)
-    })
-}
-
 /// A reference, such as a branch, a folder or an id: a small chip
 /// of the info tint with its words in the code face.
 pub fn reference(text: impl Into<Prop<String>>) -> impl View {

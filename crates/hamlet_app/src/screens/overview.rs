@@ -31,8 +31,7 @@ use hamlet_realm::harbor::glide_to_other_pier;
 use hamlet_realm::pick::{Selected, Thing, select};
 use hamlet_ui::styles::{
     Fills, ICON, action, bad_action, bare, buttons, close, framed,
-    group, note, raised, scroll_area, small_rules, stacked_bar,
-    title,
+    group, note, raised, scroll_area, small_rules, title,
 };
 use hamlet_ui::theme::StatusKind;
 use hamlet_ui::widgets::effects::lit_panels;
@@ -387,8 +386,6 @@ struct HamletCard {
     hamlet: Entity,
     title: String,
     standing: (Glyph, String, StatusKind),
-    /// Its agents by what they do: waiting, working, at rest.
-    mix: [usize; 3],
     mayor: Option<String>,
     account: String,
     spent: Option<f32>,
@@ -421,13 +418,6 @@ fn hamlet_cards(world: &World) -> Vec<HamletCard> {
                     how_many(Standing::Works),
                     how_many(Standing::Waits),
                 ),
-                mix: [
-                    how_many(Standing::Waits),
-                    how_many(Standing::Works),
-                    living.len()
-                        - how_many(Standing::Waits)
-                        - how_many(Standing::Works),
-                ],
                 mayor,
                 // A card shows its budget only once something is
                 // spent.
@@ -458,19 +448,6 @@ fn hamlets() -> AnyView {
             let mut lines = Vec::from_iter(
                 card.mayor.map(|mayor| note(mayor).boxed()),
             );
-            // Its agents as one bar, from two agents up.
-            if card.mix.iter().sum::<usize>() > 1 {
-                let [waits, works, rests] = card.mix;
-                lines.push(
-                    column((stacked_bar(vec![
-                        (waits as f32, StatusKind::Attention),
-                        (works as f32, StatusKind::Warning),
-                        (rests as f32, StatusKind::Rest),
-                    ]),))
-                    .max_width(px(160.0))
-                    .boxed(),
-                );
-            }
             if !card.account.is_empty() {
                 lines.push(budget(card.account, card.spent));
             }

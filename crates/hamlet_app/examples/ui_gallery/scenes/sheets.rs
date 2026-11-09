@@ -387,12 +387,6 @@ pub(super) fn status_sheet() -> Ui {
                     .boxed(),
                 styles::progress_bar(0.4, StatusKind::Warning)
                     .boxed(),
-                styles::stacked_bar(vec![
-                    (3.0, StatusKind::Success),
-                    (1.0, StatusKind::Rest),
-                    (2.0, StatusKind::Warning),
-                ])
-                .boxed(),
             ))
             .gap(10.0)
             .width(px(420.0))

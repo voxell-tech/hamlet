@@ -27,8 +27,7 @@ room stays dark so that the world stays the bright thing on screen.
 | A state icon | An icon alone beside a name, with its word under the pointer: an orange bell for what needs you, a red stop for a fault, an ochre bolt with a soft round lamp glow under it while it works, a cool grey moon at rest, a purple merge mark, a red struck ring for a refusal | What an agent or a hamlet is doing |
 | A status pill | A solid pill in one hue with an icon and light words | How something that is gone ended, such as merged into another |
 | A status mark | An icon in a solid circle with a soft halo of its hue, before a bold title; work in progress is an open ring on one tinted circle | The outcome of something: a toast, a wait, a failed call |
-| A stacked bar | One bar of parts as wide as their share: orange waiting, ochre at work, grey at rest | How a hamlet's agents divide |
-| A solid button | A button filled with its hue: green restores or allows, purple merges, red refuses | This completes the action, in the hue of what it does |
+| A solid button | A button filled with its hue: green restores or allows, purple merges, yellow tries again, red refuses | This completes the action, in the hue of what it does |
 | A blue chip | A small blue box in the code face | A name that commands use, such as a hamlet's id |
 | A speaker's paint | In the chat, a speaker's name and disc are in the paint of its robot | Who said it. The world's colours mark speakers and nothing else |
 | An icon | A small line drawing before a word, in the word's own tone | What the word is, found sooner |
