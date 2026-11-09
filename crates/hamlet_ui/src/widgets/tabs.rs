@@ -4,7 +4,6 @@
 //! that lists them all.
 
 use bevy::app::{App, Update};
-use bevy::color::Color;
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::hierarchy::Children;
@@ -22,7 +21,7 @@ use bevy_fynix::{ScopedExt, ViewExt, style};
 use super::effects::Underglow;
 use super::icons::Glyph;
 use super::platform::show;
-use crate::styles::{ICON, hairline, headed};
+use crate::styles::{ICON, hairline, headed, transparent};
 use crate::theme::HamletTheme;
 use crate::{Cx, View, with_cx};
 
@@ -53,7 +52,9 @@ pub struct Listed;
 pub fn tab_look(cx: &mut Cx) {
     style::<HamletTheme>()
         .frame(|f, t| {
-            f.fill(Color::NONE)
+            // The hover colour, clear, so a fill fades in rather than
+            // passing through black.
+            f.fill(transparent(t.palette.button))
                 .radius(0.0)
                 .padding(UiRect::axes(px(t.space.gap / 2.0), px(0.0)))
                 .min_height(px(t.space.tab_height))
@@ -69,7 +70,10 @@ pub fn tab_look(cx: &mut Cx) {
                 .tone(Tone::Faint)
         })
         // The light its underglow lays on it is its fill.
-        .when::<Shown>(|s| s.fill(|_| Color::NONE).tone(Tone::Body))
+        .when::<Shown>(|s| {
+            s.fill(|t: &HamletTheme| transparent(t.palette.button))
+                .tone(Tone::Body)
+        })
         .transition(Motion::Interact)
         .apply(cx);
 }

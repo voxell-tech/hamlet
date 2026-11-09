@@ -710,9 +710,10 @@ impl SurfaceTokens for HamletTheme {
     }
 
     /// The tab in front has no fill of its own: the light rising from
-    /// its underline is what marks it.
+    /// its underline is what marks it. Clear of the hover colour, so
+    /// that a fill fading to or from it passes through no black.
     fn current(&self) -> Color {
-        Color::NONE
+        self.palette.button.with_alpha(0.0)
     }
 
     fn panel(&self) -> Color {

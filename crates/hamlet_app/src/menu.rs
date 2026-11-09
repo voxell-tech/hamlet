@@ -1,7 +1,6 @@
 //! The menus in the top bar.
 
 use bevy::app::{App, First, Update};
-use bevy::color::Color;
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::resource::Resource;
@@ -26,7 +25,7 @@ use bevy_fynix::views::{
 };
 use bevy_fynix::{ScopedExt, ViewExt, keyed, style};
 use hamlet_realm::pick::Taken;
-use hamlet_ui::styles::{ICON, hairline};
+use hamlet_ui::styles::{ICON, hairline, transparent};
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::effects::Underglow;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
@@ -174,7 +173,9 @@ fn open(world: &mut World, menu: Menu, title: Entity) {
 pub fn nav(cx: &mut Cx) {
     style::<HamletTheme>()
         .frame(|f, t| {
-            f.fill(Color::NONE)
+            // Clear of its hover fill, so that fades in rather than
+            // passing through black.
+            f.fill(transparent(t.palette.button_hover))
                 .height(percent(100.0))
                 .radius(t.space.round)
                 .padding(UiRect::axes(
