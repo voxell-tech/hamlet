@@ -85,15 +85,18 @@ const ROW: f32 = 32.0;
 /// The column at the rail's edge that holds every chevron.
 const CHEVRON: f32 = 14.0;
 
-/// How far each step down a tree is set in: a chevron's room and a
-/// little more, so a guide under a chevron leads to the next one.
-const STEP_IN: f32 = 18.0;
-
-/// The deepest a row is set in; deeper rows line up with it.
-const DEEPEST: u8 = 6;
-
-/// The room between an elbow's end and the row it leads to.
+/// The room between a guide and the chevron beside it, and between an
+/// elbow's end and the icon it leads to.
 const GAP: f32 = 3.0;
+
+/// How far each step down a tree is set in: half a chevron and the
+/// gap, so that a row's chevron stands just past its lead's guide,
+/// which runs under the middle of the lead's chevron.
+const STEP_IN: f32 = CHEVRON / 2.0 + GAP;
+
+/// The deepest a row is drawn set in, for the rail's width; deeper
+/// rows line up with it.
+const DEEPEST: u8 = 8;
 
 /// The room inside a row's ends.
 const ROW_INSET: f32 = 6.0;
@@ -1484,16 +1487,34 @@ fn expanded(line: &Line) -> AnyView {
         ),
         None => frame().width(px(CHEVRON)).shrink(0.0).boxed(),
     };
+    // The chevron on the middle of the row's first line, where an
+    // elbow would meet it.
+    let one_line = title.is_empty();
+    let fold = column((fold,))
+        .height(px(2.0 * elbow_at(one_line)))
+        .justify(JustifyContent::Center)
+        .shrink(0.0);
     let step = frame()
         .width(px(f32::from(line.depth) * STEP_IN))
         .shrink(0.0);
-    let mut parts = vec![step.boxed(), fold, shown];
-    parts.extend(tree_lines(line, title.is_empty()));
+    let mut parts = vec![step.boxed(), fold.boxed(), shown];
+    parts.extend(tree_lines(line, one_line));
     row(parts)
         .gap(0.0)
-        .align(AlignItems::Center)
+        .align(AlignItems::FlexStart)
         .width(percent(100.0))
         .boxed()
+}
+
+/// How far down a row the middle of its first line is: where its
+/// icon and its chevron stand and an elbow meets it. A row of
+/// `one_line` has its icon on its middle.
+fn elbow_at(one_line: bool) -> f32 {
+    4.0 + if one_line {
+        (ROW - 8.0) / 2.0
+    } else {
+        2.0 + ICON / 2.0
+    }
 }
 
 /// The tree's lines over a row, on a grid of [`STEP_IN`]: for each
@@ -1511,13 +1532,7 @@ fn tree_lines(line: &Line, one_line: bool) -> Vec<AnyView> {
     let guide =
         |level: usize| level as f32 * STEP_IN + CHEVRON / 2.0 - 0.5;
     let lead = usize::from(line.depth) - 1;
-    // Where the elbow meets the row, and where it stops.
-    let elbow = 4.0
-        + if one_line {
-            (ROW - 8.0) / 2.0
-        } else {
-            2.0 + ICON / 2.0
-        };
+    let elbow = elbow_at(one_line);
     // A line laid over the row, `left` and `top` in from its edges;
     // one with no height runs to its foot.
     let over =
@@ -1549,16 +1564,16 @@ fn tree_lines(line: &Line, one_line: bool) -> Vec<AnyView> {
         .filter(|(_, on)| **on)
         .map(|(level, _)| over(guide(level), 0.0, 1.0, None))
         .collect::<Vec<_>>();
-    // The elbow from its lead, stopping short of its own chevron, or
-    // of its icon where it has no chevron.
-    let start = f32::from(line.depth) * STEP_IN;
-    let end = match line.fold {
-        Some(_) => start - GAP,
-        None => start + CHEVRON + ROW_INSET - GAP,
-    };
+    // Down from its lead to the middle of its first line. A row with
+    // a chevron has the chevron there, beside the guide; one without
+    // has an elbow across to just short of its icon.
     let x = guide(lead);
     lines.push(over(x, 0.0, 1.0, Some(elbow + 1.0)));
-    lines.push(over(x, elbow, end - x, Some(1.0)));
+    if line.fold.is_none() {
+        let icon =
+            f32::from(line.depth) * STEP_IN + CHEVRON + ROW_INSET;
+        lines.push(over(x, elbow, icon - GAP - x, Some(1.0)));
+    }
     if !line.last {
         lines.push(over(x, elbow, 1.0, None));
     }
