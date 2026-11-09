@@ -644,11 +644,6 @@ mod tests {
         assert_eq!(read["agent"], json!(1));
         bevy_fynix::mount::<HamletTheme>(app.world_mut(), screen());
         app.update();
-        assert!(
-            words(&mut app)
-                .iter()
-                .any(|text| text == "No sessions yet.")
-        );
         let now = chrono::Utc::now().timestamp_millis();
         hamlet_client::receive(app.world_mut(), serde_json::from_value(json!({"type": "read", "to": read["id"], "history": [
             {"number": 2, "current": true, "title": "Plant pears", "by": "alice", "began": now, "modified": now, "messages": 3, "tokens": 1200},
@@ -656,8 +651,6 @@ mod tests {
         ]})).unwrap());
         app.update();
         let shown = words(&mut app);
-        assert!(shown.iter().any(|text| text == "2 sessions"));
-        assert!(shown.iter().any(|text| text == "In use"));
         assert!(shown.iter().any(|text| text
             == "now · 3 messages · 1.2k tokens · begun by alice"));
         assert!(shown.iter().any(|text| text

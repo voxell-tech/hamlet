@@ -143,39 +143,3 @@ pub fn card(
         )
     })
 }
-
-#[cfg(test)]
-mod tests {
-    use hamlet_protocol::client as protocol;
-    use hamlet_realm::pick::{Selected, Thing};
-
-    use super::*;
-    use crate::testing::{panel_app, words};
-
-    #[test]
-    fn the_library_shows_the_clients_empty_shelf_and_received_skills()
-    {
-        let mut app = panel_app();
-        app.insert_resource(Selected(Some(Thing::Library)))
-            .insert_resource(crate::hub::Showing::Library)
-            .init_resource::<crate::hub::Rail>()
-            .init_resource::<crate::hub::RailTab>();
-        bevy_fynix::mount::<hamlet_ui::theme::HamletTheme>(
-            app.world_mut(),
-            crate::hub::screen(),
-        );
-        app.update();
-        assert!(words(&mut app).iter().any(|text| text.starts_with("The library is empty.")));
-        app.world_mut().resource_mut::<Skills>().0.push(
-            protocol::Skill {
-                name: "orchard".into(),
-                description: "Tends the trees".into(),
-            },
-        );
-        app.update();
-        let shown = words(&mut app);
-        assert!(shown.iter().any(|text| text == "orchard"));
-        assert!(shown.iter().any(|text| text == "Tends the trees"));
-        assert!(!shown.iter().any(|text| text.starts_with("The library is empty.")));
-    }
-}

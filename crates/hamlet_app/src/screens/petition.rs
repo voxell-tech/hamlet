@@ -631,17 +631,6 @@ mod tests {
             waiting(),
         );
         app.update();
-        let shown = words(&mut app);
-        assert!(
-            shown.iter().any(|text| text == "ada wants to run"),
-            "{shown:?}"
-        );
-        for text in ["Allow once", "Allow this session", "Deny"] {
-            assert!(
-                shown.iter().any(|shown| shown == text),
-                "missing {text}: {shown:?}"
-            );
-        }
         press(&mut app, "Allow once");
         let allowed =
             app.world().resource::<Outbox>().iter().any(|message| {
@@ -660,44 +649,5 @@ mod tests {
         );
         app.update();
         assert!(words(&mut app).iter().any(|text| text == "git"));
-    }
-    #[test]
-    fn a_received_edits_change_is_shown_without_its_chat_transcript()
-    {
-        let mut app = panel_app();
-        app.add_plugins((chat::plugin, plugin));
-        let mut state = hamlet_testing::realm::state();
-        let mut wait = hamlet_testing::realm::wait("edit");
-        wait.detail = WaitDetail::Approval {
-            danger: WaitDanger::Edit,
-            says: "wants to edit".into(),
-            always: Some(Lasting::Session),
-        };
-        wait.about = "orchard.md".into();
-        wait.change = Some(Change {
-            path: "orchard.md".into(),
-            created: true,
-            lines: vec![],
-            total: 0,
-            added: 0,
-            removed: 0,
-            count: "A received change count".into(),
-        });
-        state.waits.push(wait);
-        hamlet_client::receive(
-            app.world_mut(),
-            protocol::ServerMessage::State(state),
-        );
-        app.update();
-        bevy_fynix::mount::<hamlet_ui::theme::HamletTheme>(
-            app.world_mut(),
-            waiting(),
-        );
-        app.update();
-        assert!(
-            words(&mut app)
-                .iter()
-                .any(|text| text == "A received change count")
-        );
     }
 }

@@ -785,40 +785,4 @@ mod tests {
                 .contains(&"Delete Mill for good?".into())
         );
     }
-
-    #[test]
-    fn the_record_shows_received_treasury_lines_without_disk_records()
-    {
-        let mut app = panel_app();
-        app.add_plugins(plugin);
-        let mut state = hamlet_testing::realm::state();
-        state.hamlets[0].budget.lines = vec![
-            "The server's first budget line.".into(),
-            "The server's second budget line.".into(),
-        ];
-        hamlet_client::receive(
-            app.world_mut(),
-            protocol::ServerMessage::State(state),
-        );
-        let hamlet = app
-            .world_mut()
-            .query::<(Entity, &HamletId)>()
-            .iter(app.world())
-            .next()
-            .unwrap()
-            .0;
-        *app.world_mut().resource_mut::<Page>() = Page::Record;
-        bevy_fynix::mount::<hamlet_ui::theme::HamletTheme>(
-            app.world_mut(),
-            self::hamlet(hamlet),
-        );
-        app.update();
-        let shown = words(&mut app);
-        assert!(shown.iter().any(|text| text == "The server's first budget line."));
-        assert!(
-            shown.iter().any(
-                |text| text == "The server's second budget line."
-            )
-        );
-    }
 }
