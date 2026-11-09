@@ -10,7 +10,7 @@ use bevy::ecs::query::Has;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::system::{Commands, Query, Res, ResMut};
 use bevy::ecs::world::World;
-use bevy::ui::{AlignItems, Overflow, UiRect, Val, percent, px};
+use bevy::ui::{AlignItems, Overflow, UiRect, Val, percent, px, vh};
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, TooltipExt, button, column, dropdown,
@@ -425,9 +425,11 @@ fn waits(agent: Entity) -> impl View {
                 .boxed()
         },
     )
-    // As tall as the cards, but never more than part of the page, so
-    // the chat stays in view; the rest scrolls.
-    .within(bare().shrink(0.0).max_height(percent(40.0)))
+    // As tall as the cards, but never more than part of the window,
+    // so the chat stays in view; the rest scrolls. A share of the
+    // page cut the cards short: the page's height is not known
+    // when the cards are laid out.
+    .within(bare().shrink(0.0).max_height(vh(40.0)))
 }
 
 /// Its state, by its name, and what it works on while it works.
