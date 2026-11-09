@@ -4396,6 +4396,7 @@ dependencies = [
  "hamlet_realm",
  "hamlet_testing",
  "hamlet_ui",
+ "hamlet_update",
  "hamlet_vfx",
  "image",
  "parley",

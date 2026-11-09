@@ -26,6 +26,7 @@ hamlet_protocol.workspace = true
 hamlet_ui.workspace = true
 hamlet_realm.workspace = true
 hamlet_vfx.workspace = true
+hamlet_update = { workspace = true, features = ["check"] }
 anyhow.workspace = true
 # The product's Bevy: each library names only what its own code
 # needs. `system_clipboard` has copy and paste in a text box use the

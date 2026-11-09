@@ -46,6 +46,7 @@ use crate::convo::Convo;
 use crate::hub::Showing;
 use crate::screens::petition::{Need, answers};
 use crate::standing::Standing;
+use crate::updates::{self, Offer, Ready};
 use crate::{PanelSystems, chat};
 
 /// The most toasts on show at once.
@@ -109,6 +110,8 @@ enum What {
         name: String,
         housed: bool,
     },
+    /// A newer Hamlet, which stays until it is taken or closed.
+    Update(Offer),
 }
 
 /// The node of a toast, whose hover keeps it.
@@ -126,6 +129,30 @@ impl Toasts {
         });
         let over = self.shown.len().saturating_sub(MOST);
         self.shown.drain(..over);
+    }
+
+    /// Something that happened, which nothing answers.
+    pub(crate) fn note(
+        &mut self,
+        tone: Tone,
+        head: String,
+        line: String,
+        now: f32,
+    ) {
+        self.push(What::Notice { tone, head, line }, now);
+    }
+
+    /// Offers `offer` in a toast that does not fade, unless one is on
+    /// show already.
+    pub(crate) fn offer(&mut self, offer: Offer, now: f32) {
+        let what = What::Update(offer);
+        if self.shown.iter().any(|toast| toast.what == what) {
+            return;
+        }
+        self.push(what, now);
+        if let Some(toast) = self.shown.last_mut() {
+            toast.until = f32::INFINITY;
+        }
     }
 }
 
@@ -337,7 +364,7 @@ fn keep(
         if over.iter().any(|(hovered, body)| {
             hovered.get() && body.0 == toast.id
         }) {
-            toast.until = now + STAYS;
+            toast.until = toast.until.max(now + STAYS);
         }
         toast.opacity =
             ((toast.until + FADES - now) / FADES).clamp(0.0, 1.0);
@@ -351,7 +378,9 @@ fn keep(
                         by.is_none_or(|by| Some(by.0) != chatting)
                     })
                 }
-                What::Notice { .. } | What::Verdict { .. } => true,
+                What::Notice { .. }
+                | What::Verdict { .. }
+                | What::Update(_) => true,
             }
     });
     if next != toasts.shown {
@@ -481,6 +510,53 @@ fn card(toast: &Toast) -> AnyView {
                     .boxed(),
                 )
             }
+            What::Update(offer) => {
+                let version = offer.version;
+                let (line, button) = match &offer.ready {
+                    Ready::File(file) => {
+                        let file = file.clone();
+                        (
+                            "Restart to update. Agents pause while \
+                             Hamlet restarts, and carry on after."
+                                .to_string(),
+                            action(
+                                Glyph::Restore,
+                                "Restart",
+                                move |world| {
+                                    updates::restart(
+                                        world, version, &file,
+                                    );
+                                },
+                            ),
+                        )
+                    }
+                    Ready::Page(page) => {
+                        let page = page.clone();
+                        (
+                            "This copy cannot update itself. \
+                             Download the new one from its page."
+                                .to_string(),
+                            action(
+                                Glyph::Globe,
+                                "Download",
+                                move |_| {
+                                    hamlet_desktop::open::browse(
+                                        &page,
+                                    );
+                                },
+                            ),
+                        )
+                    }
+                };
+                (
+                    Some((Glyph::Hamlet, Tone::Accent)),
+                    format!("Hamlet {version} is out"),
+                    String::new(),
+                    Tone::Accent,
+                    line,
+                    buttons(vec![button]).boxed(),
+                )
+            }
         };
         let mark = match mark {
             Some((which, tone)) => {
@@ -578,8 +654,12 @@ fn fading(id: u64) -> impl FnOnce(&mut Cx) + Send + Sync + 'static {
     }
 }
 
-/// Takes `what`'s toast away. A petition stays among the waits.
+/// Takes `what`'s toast away. A petition stays among the waits, and
+/// a closed update is not offered again while the window is open.
 fn dismiss(world: &mut World, what: &What) {
+    if let What::Update(offer) = what {
+        updates::decline(world, offer.version);
+    }
     world
         .resource_mut::<Toasts>()
         .shown
@@ -702,6 +782,29 @@ mod tests {
         assert_eq!(app.world().resource::<Toasts>().shown.len(), 1);
         app.world_mut().entity_mut(body).insert(Hovered(false));
         app.update();
+        assert!(app.world().resource::<Toasts>().shown.is_empty());
+    }
+
+    #[test]
+    fn an_update_stays_on_show_until_it_is_taken_or_closed() {
+        let mut app = panel_app();
+        app.add_plugins(plugin);
+        let step = Duration::from_secs_f32(STAYS + FADES + 1.0);
+        app.insert_resource(TimeUpdateStrategy::ManualDuration(step));
+        app.world_mut()
+            .resource_mut::<Time<Virtual>>()
+            .set_max_delta(step);
+        let offer = Offer {
+            version: hamlet_protocol::Version::new(0, 2, 0),
+            ready: Ready::Page("https://example.com".into()),
+        };
+        let mut toasts = app.world_mut().resource_mut::<Toasts>();
+        toasts.offer(offer.clone(), 0.0);
+        toasts.offer(offer.clone(), 0.0);
+        app.update();
+        app.update();
+        assert_eq!(app.world().resource::<Toasts>().shown.len(), 1);
+        dismiss(app.world_mut(), &What::Update(offer));
         assert!(app.world().resource::<Toasts>().shown.is_empty());
     }
 

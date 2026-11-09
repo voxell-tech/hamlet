@@ -36,6 +36,7 @@ mod status;
 mod testing;
 pub mod toasts;
 mod tuning;
+mod updates;
 pub mod welcome;
 mod window;
 pub mod world_menu;
@@ -130,6 +131,7 @@ impl Plugin for UiPlugin {
                 history::plugin,
                 welcome::plugin,
                 toasts::plugin,
+                updates::plugin,
             ),
             (
                 world_view::plugin,
