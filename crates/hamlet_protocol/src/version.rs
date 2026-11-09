@@ -10,8 +10,18 @@ use serde::{Deserialize, Serialize};
 /// A version in semver's `major.minor.patch` form.
 ///
 /// Every protocol stays at 0.1.0 until Hamlet's first release.
+/// Versions order by major, then minor, then patch.
 #[derive(
-    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize,
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    PartialOrd,
+    Ord,
+    Serialize,
+    Deserialize,
 )]
 #[serde(try_from = "String", into = "String")]
 pub struct Version {
