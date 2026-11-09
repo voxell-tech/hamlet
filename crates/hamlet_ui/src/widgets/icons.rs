@@ -87,6 +87,8 @@ pub enum Glyph {
     CheckAll,
     /// An arrow to the left: back to where this was reached from.
     Back,
+    /// An arrow to the right: on to where [`Glyph::Back`] came from.
+    Forward,
     /// A crown.
     Mayor,
     /// A house.
@@ -238,12 +240,13 @@ enum Shape {
 
 impl Glyph {
     /// Every icon.
-    pub const ALL: [Glyph; 69] = [
+    pub const ALL: [Glyph; 70] = [
         Glyph::Plus,
         Glyph::Cross,
         Glyph::Check,
         Glyph::CheckAll,
         Glyph::Back,
+        Glyph::Forward,
         Glyph::Mayor,
         Glyph::Hamlet,
         Glyph::Hearth,
@@ -345,6 +348,10 @@ impl Glyph {
             Glyph::Back => &[
                 Line(3.0, 8.0, 13.0, 8.0),
                 Path(&[[7.0, 4.0], [3.0, 8.0], [7.0, 12.0]]),
+            ],
+            Glyph::Forward => &[
+                Line(3.0, 8.0, 13.0, 8.0),
+                Path(&[[9.0, 4.0], [13.0, 8.0], [9.0, 12.0]]),
             ],
             Glyph::Mayor => &[Loop(&[
                 [3.5, 12.5],

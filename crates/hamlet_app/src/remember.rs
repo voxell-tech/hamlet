@@ -1,6 +1,7 @@
 //! The view kept between launches: the desks, the sky as the Sight
 //! page sets it, the appearance and the selection.
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -33,6 +34,7 @@ use crate::appearance::{Appearance, Pick, Zoom};
 use crate::convo::Convo;
 use crate::desk::{self, Desks, Part};
 use crate::roll::Roll;
+use crate::screens::web;
 use crate::world_menu::{Favorites, LastSide};
 use crate::world_view::{NorthTarget, TimeOfDay};
 
@@ -142,6 +144,9 @@ pub struct View {
     /// How large the panels are drawn.
     #[serde(default)]
     zoom: Zoom,
+    /// The address each Web panel showed, by panel id.
+    #[serde(default)]
+    web_addresses: BTreeMap<String, String>,
 }
 
 /// The view kept in the window's folder, as read at launch; none
@@ -342,6 +347,7 @@ pub fn restore(world: &mut World) {
     world.insert_resource(desks);
     world.insert_resource(view.favorite_models);
     world.insert_resource(view.model_side);
+    world.insert_resource(web::Addresses(view.web_addresses));
 }
 
 /// Puts back the kept appearance and zoom.
@@ -384,12 +390,13 @@ pub fn keep(
     sound: Res<SoundSettings>,
     quality: Res<Quality>,
     awake: Res<KeepAwake>,
-    (pending, kept, north, favorites, side): (
+    (pending, kept, north, favorites, side, addresses): (
         Res<Pending>,
         Res<Kept>,
         Res<NorthTarget>,
         Res<Favorites>,
         Res<LastSide>,
+        Res<web::Addresses>,
     ),
     (fog, far, wind, appearance, zoom): (
         Res<VolumetricFogSettings>,
@@ -416,6 +423,7 @@ pub fn keep(
         || side.is_changed()
         || appearance.is_changed()
         || zoom.is_changed()
+        || addresses.is_changed()
     {
         *due = Some(now + SETTLE);
     }
@@ -445,6 +453,7 @@ pub fn keep(
         model_side: side.clone(),
         appearance: appearance.0.clone(),
         zoom: *zoom,
+        web_addresses: addresses.0.clone(),
     };
     if written.as_ref() == Some(&view) {
         return;
@@ -503,6 +512,10 @@ mod tests {
             model_side: LastSide("faux".into()),
             appearance: None,
             zoom: Zoom::default(),
+            web_addresses: BTreeMap::from([(
+                "web-2".into(),
+                "http://localhost:5173/".into(),
+            )]),
         }
     }
 

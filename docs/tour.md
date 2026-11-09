@@ -117,6 +117,17 @@ and draws a picture through `PictureView`, which the app's `links` and
 `panel_sets` orders them, and the apps in `testing.rs` add it, so a UI
 test settles in one update.
 
+The Web panels are only in a macOS window built with `hamlet_app`'s
+`web` feature: `dev --web` builds it with `hamlet_web_helper` beside
+it, the process the engine starts for each page. Building it needs
+cmake and ninja on the path. The engine, CEF, is read from `CEF_PATH`,
+else from `~/Library/Caches/Hamlet/cef/<version>`, which a Web panel
+fetches into when it is not there; the window starts the engine at
+launch, so a fetched engine is used from the next one. Each page is
+an entity of its own that `screens/web/page.rs` hangs off its panel's
+node while the panel is the tab in front, since the dock builds its
+nodes again as it changes.
+
 ## The store and the repositories
 
 `hamlet_store` is the only crate that knows the database's layout. Its
@@ -250,6 +261,7 @@ built-in ones.
 | A panel or right-click menu | `hamlet_app/src/screens/`, `world_menu/items.rs` |
 | The Hub: its rail, a thread, its details sheet, scholar and hamlet pages | `hamlet_app/src/screens/hub.rs`, `hub/` (`rail.rs`, `thread.rs`, `details.rs`, `scholar.rs`) |
 | Toasts that answer petitions in place | `hamlet_app/src/toasts.rs` |
+| Web panels: the page, its address bar and keys, the web engine and fetching it | `hamlet_app/src/screens/web.rs`, `screens/web/`; the engine's helper, `hamlet_app/src/web_helper.rs`; [ADR 0014](adr/0014-web-panels-draw-chromium-through-cef-in-the-scene.md) |
 | The starting desk | `hamlet_app/src/dock.rs` |
 | The two islands, where the hamlet island lies | `hamlet_realm/src/generator/land.rs`, `land/`; [`islands.md`](islands.md) |
 | The city: the Hand's tower, scholars' houses, newcomers | `hamlet_realm/src/city.rs`, `city/`; the spots in `hamlet_server/src/society/city.rs` |

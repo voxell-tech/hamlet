@@ -83,10 +83,10 @@ pub(crate) trait PanelAppExt {
     /// Registers a panel that opens more than once: `id` now, and
     /// each other as it is opened or laid out.
     #[cfg_attr(
-        not(test),
+        not(any(test, all(feature = "web", target_os = "macos"))),
         expect(
             dead_code,
-            reason = "no panel opens more than once yet"
+            reason = "only the Web panels open more than once"
         )
     )]
     fn add_numbered_panel(
@@ -151,10 +151,6 @@ fn tabs_of(parts: &[Part]) -> impl Iterator<Item = &String> {
 }
 
 /// Whether a desk holds the panel `id`.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "no panel opens more than once yet")
-)]
 pub(crate) fn on_a_desk(world: &World, id: &str) -> bool {
     world.get_resource::<Desks>().is_some_and(|desks| {
         desks
@@ -316,8 +312,8 @@ pub fn highlight_panel(
 /// A panel whose contents reach its edges, for a canvas or a picture
 /// that draws its own margins.
 #[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "no panel is flush yet")
+    not(any(test, all(feature = "web", target_os = "macos"))),
+    expect(dead_code, reason = "only the Web panels are flush")
 )]
 pub fn flush_panel(view: impl View) -> AnyView {
     padded_panel(view, Highlight::default(), Some(0.0))
