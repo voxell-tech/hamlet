@@ -82,6 +82,17 @@ in `hamlet_app/src/lib.rs`. Panels live in `hamlet_app/src/screens/` and
 register their dock window in `dock.rs`; they are built from
 `hamlet_ui`, which reads no client state.
 
+The Web panels are only in a macOS window built with `hamlet_app`'s
+`web` feature: `dev --web` builds it with `hamlet_web_helper` beside
+it, the process the engine starts for each page. Building it needs
+cmake and ninja on the path. The engine, CEF, is read from `CEF_PATH`,
+else from `~/Library/Caches/Hamlet/cef/<version>`, which a Web panel
+fetches into when it is not there; the window starts the engine at
+launch, so a fetched engine is used from the next one. Each page is
+an entity of its own that `screens/web/page.rs` hangs off its panel's
+node while the panel is the tab in front, since the dock builds its
+nodes again as it changes.
+
 ## The store and the repositories
 
 `hamlet_store` is the only crate that knows the database's layout.
@@ -164,6 +175,7 @@ Search the module names above first. The ones that are not obvious:
 | Client protocol | `hamlet_protocol/src/client/`, then `cargo test -p hamlet_protocol`; [`protocol.md`](protocol.md) |
 | Runtime protocol | `hamlet_protocol/src/runtime/`, then `cargo test -p hamlet_protocol`; [`harness.md`](harness.md) |
 | The Hubs and desks | `hamlet_app/src/screens/hub.rs`, `desk.rs` |
+| Web panels | `hamlet_app/src/screens/web.rs`, `screens/web/`, `web_helper.rs`; [ADR 0014](adr/0014-web-panels-draw-chromium-through-cef-in-the-scene.md) |
 | The two islands | `hamlet_realm/src/generator/land.rs`; [`islands.md`](islands.md) |
 | Robot motion | `hamlet_realm/src/keeper/acts/`; [`robots.md`](robots.md) |
 | Panels' colors, sizes and icons | `assets/themes/`, `hamlet_ui/src/theme.rs`, `styles.rs` |
