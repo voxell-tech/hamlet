@@ -1,23 +1,20 @@
 //! The icons of the panels (docs/icons.md): one family of line
 //! drawings, made in code and tinted by a text tone.
 
-use core::f32::consts::TAU;
-
-use bevy::app::{App, Startup, Update};
+use bevy::app::{App, Startup};
 use bevy::asset::uuid::Uuid;
 use bevy::asset::{Assets, Handle, RenderAssetUsages};
-use bevy::ecs::component::Component;
-use bevy::ecs::query::With;
-use bevy::ecs::system::{Query, Res, ResMut};
+use bevy::ecs::system::ResMut;
+use bevy::ecs::world::World;
 use bevy::image::Image;
-use bevy::math::{Rot2, Vec2};
+use bevy::math::Vec2;
 use bevy::render::render_resource::{
     Extent3d, TextureDimension, TextureFormat,
 };
 use bevy::time::Time;
-use bevy::ui::UiTransform;
 use bevy_fynix::dock::DockIcons;
 use bevy_fynix::views::{Icon, icon};
+use bevy_fynix::{derived, every_frame};
 
 use self::Shape::{
     Arc, Curve, Dot, Fill, Line, Loop, Path, Ring, Round,
@@ -60,30 +57,19 @@ const BOLT: [[f32; 2]; 6] = [
     [8.25, 7.0],
 ];
 
-/// The seconds a [`Spin`] takes to turn once.
+/// The seconds the open ring of [`Glyph::Progress`] takes to turn
+/// once.
 const SPIN_PERIOD: f64 = 1.2;
 
-/// A node that turns around its middle, once every `SPIN_PERIOD`
-/// seconds, for as long as it exists: the open ring of
-/// [`Glyph::Progress`] spins like a loading ring, with its dot still.
-#[derive(Component)]
-#[require(UiTransform)]
-pub struct Spin;
-
 pub fn plugin(app: &mut App) {
-    app.insert_resource(dock())
-        .add_systems(Startup, draw)
-        .add_systems(Update, spin);
+    app.insert_resource(dock()).add_systems(Startup, draw);
 }
 
-fn spin(
-    time: Res<Time>,
-    mut turning: Query<&mut UiTransform, With<Spin>>,
-) {
-    let turn = time.elapsed_secs_f64() % SPIN_PERIOD / SPIN_PERIOD;
-    for mut pose in &mut turning {
-        pose.rotation = Rot2::radians(turn as f32 * TAU);
-    }
+/// How far the open ring has turned, in degrees clockwise, by the
+/// clock: every ring shows the same turn, wherever it is.
+fn spin(world: &World) -> f32 {
+    let now = world.resource::<Time>().elapsed_secs_f64();
+    (now % SPIN_PERIOD / SPIN_PERIOD * 360.0) as f32
 }
 
 /// An icon of the panels.
@@ -126,7 +112,7 @@ pub enum Glyph {
     /// A bolt: at work.
     Bolt,
     /// An open ring with a dot in it: in progress, for an outcome
-    /// that is not an agent's state. Where it shows it is a [`Spin`].
+    /// that is not an agent's state. It spins wherever it shows.
     Progress,
     /// A bell: something waits for the chief.
     Bell,
@@ -783,9 +769,16 @@ impl Glyph {
     }
 }
 
-/// `which` as an icon with a side of `size`.
+/// `which` as an icon with a side of `size`. The open ring of
+/// [`Glyph::Progress`] spins like a loading ring, with its dot still,
+/// wherever it is drawn.
 pub fn glyph(which: Glyph, size: f32) -> Icon {
-    icon(which.image(size)).size(size)
+    let drawn = icon(which.image(size)).size(size);
+    if which == Glyph::Progress {
+        drawn.rotation(derived(spin).when(every_frame()))
+    } else {
+        drawn
+    }
 }
 
 /// The cross that closes a tab of the dock and the plus that adds

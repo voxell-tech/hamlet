@@ -21,7 +21,7 @@ use crate::theme::{HamletTheme, StatusKind, TextSizes};
 use crate::widgets::edges::faded;
 use crate::widgets::effects::{Underglow, Variant};
 use crate::widgets::ellipsis::one_line;
-use crate::widgets::icons::{Glyph, Spin, glyph};
+use crate::widgets::icons::{Glyph, glyph};
 use crate::widgets::platform::{DisplayText, MonoText, Wraps};
 use crate::{AnyView, Cx, View, with_cx};
 
@@ -628,6 +628,9 @@ fn status_label_at(
 /// How many sides of its icon wide the lamp of a [`status_icon`] is.
 const LAMP_SIDE: f32 = 2.6;
 
+/// The room beside and above a [`status_icon`], in pixels.
+pub const STATUS_PAD: (f32, f32) = (3.0, 2.0);
+
 /// The state of something beside its name, as its icon alone in the
 /// mark of `kind`, with `words` under the pointer. What is in
 /// progress has a small glow under its icon while it lasts.
@@ -639,7 +642,22 @@ pub fn status_icon(
     let words = words.into();
     with_cx(move |cx| {
         let size = cx.theme().text.body;
-        let (across, down) = (size + 6.0, size + 4.0);
+        status_icon_at(which, words.clone(), kind, size).boxed()
+    })
+}
+
+/// [`status_icon`] with an icon `size` wide, and a few pixels about
+/// it for its lamp.
+pub fn status_icon_at(
+    which: Glyph,
+    words: impl Into<String>,
+    kind: StatusKind,
+    size: f32,
+) -> impl View {
+    let words = words.into();
+    with_cx(move |_| {
+        let (across, down) =
+            (size + STATUS_PAD.0 * 2.0, size + STATUS_PAD.1 * 2.0);
         let mark = glyph(which, size).tone(kind.tone());
         let words = words.clone();
         if kind == StatusKind::Warning {
@@ -656,13 +674,19 @@ pub fn status_icon(
                 })
                 .tagged(Underglow::lamp());
             row((lamp, mark))
-                .padding(UiRect::axes(px(3.0), px(2.0)))
+                .padding(UiRect::axes(
+                    px(STATUS_PAD.0),
+                    px(STATUS_PAD.1),
+                ))
                 .shrink(0.0)
                 .tooltip(move || note(words.clone()))
                 .boxed()
         } else {
             row((mark,))
-                .padding(UiRect::axes(px(3.0), px(2.0)))
+                .padding(UiRect::axes(
+                    px(STATUS_PAD.0),
+                    px(STATUS_PAD.1),
+                ))
                 .shrink(0.0)
                 .tooltip(move || note(words.clone()))
                 .boxed()
@@ -716,21 +740,17 @@ pub fn status_mark(
         let status = theme.palette.status.get(kind);
         if kind == StatusKind::Warning {
             let outer = size * 1.4;
-            let mark = glyph(which, size * 0.8).tone(Tone::Warning);
-            let mark = if which == Glyph::Progress {
-                row((mark,)).tagged(Spin).boxed()
-            } else {
-                mark.boxed()
-            };
-            return row((mark,))
-                .width(px(outer))
-                .height(px(outer))
-                .radius(outer / 2.0)
-                .fill(status.fill)
-                .shrink(0.0)
-                .justify(JustifyContent::Center)
-                .align(AlignItems::Center)
-                .boxed();
+            return row((
+                glyph(which, size * 0.8).tone(Tone::Warning),
+            ))
+            .width(px(outer))
+            .height(px(outer))
+            .radius(outer / 2.0)
+            .fill(status.fill)
+            .shrink(0.0)
+            .justify(JustifyContent::Center)
+            .align(AlignItems::Center)
+            .boxed();
         }
         let circle =
             row((glyph(which, size * 0.55).tone(Tone::OnSolid),))

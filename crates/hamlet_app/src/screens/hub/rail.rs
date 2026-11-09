@@ -43,8 +43,8 @@ use hamlet_client::waits::Waiting;
 use hamlet_protocol::client as protocol;
 use hamlet_realm::pick::{Selected, Thing, bring_into_view, select};
 use hamlet_ui::styles::{
-    ICON, description_rules, note, note_rules, quoted, scroll_area,
-    text_input, transparent,
+    ICON, STATUS_PAD, description_rules, note, note_rules, quoted,
+    scroll_area, status_icon_at, text_input, transparent,
 };
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::effects::{Variant, lit_panels};
@@ -1327,11 +1327,14 @@ fn current_rules(cx: &mut Cx) {
 /// not there is one, so that marks line up from row to row.
 fn mark_icon(mark: Option<Standing>) -> AnyView {
     match mark {
-        Some(standing) => glyph(standing.glyph(), ICON)
-            .tone(standing.tone())
-            .tooltip(move || note(standing.word()))
-            .boxed(),
-        None => frame().width(px(ICON)).boxed(),
+        Some(standing) => status_icon_at(
+            standing.glyph(),
+            standing.word(),
+            standing.kind(),
+            ICON,
+        )
+        .boxed(),
+        None => frame().width(px(ICON + STATUS_PAD.0 * 2.0)).boxed(),
     }
 }
 

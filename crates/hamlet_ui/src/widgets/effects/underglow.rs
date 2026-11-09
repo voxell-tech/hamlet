@@ -15,21 +15,27 @@ use bevy::ui::{
 };
 
 use super::control::ControlEffect;
-use super::{EffectColors, EffectSettings, ease, lit_panels, pool};
+use super::{EffectColors, EffectSettings, ease, lit_panels};
 use crate::theme::Themed;
 
-/// The opacity of a lamp's middle at its brightest, over a dark
-/// panel and over a light one. The mark sits on the middle, so these
-/// are the most light that keeps the mark at 3:1.
-const LAMP_PEAK_DARK: f32 = 0.34;
-const LAMP_PEAK_LIGHT: f32 = 0.40;
-/// How sharply a lamp's glow falls off, as in [`pool`]: to nothing
-/// before its edge.
-const LAMP_SHARP: f32 = 6.0;
+/// The opacity of a lamp's glow about its mark at its brightest,
+/// over a dark panel and over a light one. Deep amber on cream steps
+/// far less than bright amber on dark, so light needs far more to
+/// step the same, about 1.15:1, at the ring about the mark.
+const LAMP_PEAK_DARK: f32 = 0.045;
+const LAMP_PEAK_LIGHT: f32 = 0.66;
+/// How much of its peak a lamp has under its mark, and how far out,
+/// as a share of the lamp's radius, it reaches the whole peak: the
+/// glow is about the mark, and the mark keeps 3:1 on it.
+const LAMP_CORE: f32 = 0.2;
+const LAMP_RISE: f32 = 0.4;
+/// How sharply a lamp's glow falls off from its middle, as in
+/// [`pool`]: `exp(-sharp * t * t)`.
+const LAMP_SHARP: f32 = 2.6;
 /// A lamp's level swings by `LAMP_SWING` around `LAMP_LEVEL`, once
 /// every `LAMP_PERIOD` seconds: a slow breath.
-const LAMP_LEVEL: f32 = 0.85;
-const LAMP_SWING: f32 = 0.15;
+const LAMP_LEVEL: f32 = 0.9;
+const LAMP_SWING: f32 = 0.1;
 const LAMP_PERIOD: f32 = 4.0;
 
 /// A title or a tab that glows from below under the pointer, at a
@@ -170,12 +176,31 @@ pub(super) fn update_underglow(
     }
 }
 
-/// A round glow in `hue`, `peak` opaque in the middle of its node and
-/// nothing at the closest side, so that it has no rim to it.
+/// A round glow in `hue`, `peak` opaque about the mark and nothing at
+/// the closest side of its node, so that it has no rim to it. Under
+/// the mark itself it is only `LAMP_CORE` of that, so the mark keeps
+/// its contrast on it.
 fn lamp_glow(hue: Color, peak: f32) -> Gradient {
+    const STOPS: u8 = 16;
+    // What the bell has left at its edge is taken off, so that it
+    // ends at nothing.
+    let rim = (-LAMP_SHARP).exp();
+    let stops = (0..=STOPS)
+        .map(|step| {
+            let t = f32::from(step) / f32::from(STOPS);
+            let bell =
+                ((-LAMP_SHARP * t * t).exp() - rim) / (1.0 - rim);
+            let core = LAMP_CORE
+                + (1.0 - LAMP_CORE) * (t / LAMP_RISE).min(1.0);
+            ColorStop::new(
+                hue.with_alpha(peak * bell * core),
+                percent(t * 100.0),
+            )
+        })
+        .collect();
     Gradient::from(RadialGradient::new(
         UiPosition::CENTER,
         RadialGradientShape::ClosestSide,
-        pool(LAMP_SHARP, |near| hue.with_alpha(peak * near)),
+        stops,
     ))
 }
