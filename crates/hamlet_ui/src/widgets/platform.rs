@@ -134,10 +134,10 @@ fn install_emoji(cx: &mut FontCx) {
 const SOFT: f32 = 100.0;
 
 /// Sets the display face on tagged labels and on the dock's tab
-/// names, when a label is new or was styled again: soft, drawn for
-/// the size it is set at, and no bolder than semibold. Words in
-/// capitals, as a tab's name, are tracked apart; words in lower case
-/// are set close.
+/// names, when a label is new, was styled again or says something
+/// else: soft, drawn for the size it is set at, and no bolder than
+/// semibold. Words in capitals, as a tab's name, are tracked apart;
+/// words in lower case are set close.
 pub fn apply_display(
     mut commands: Commands,
     display: Res<Display>,
@@ -152,7 +152,7 @@ pub fn apply_display(
             Option<&LetterSpacing>,
             Has<DisplayText>,
         ),
-        Or<(Changed<TextFont>, Added<DisplayText>)>,
+        Or<(Changed<TextFont>, Changed<Text>, Added<DisplayText>)>,
     >,
 ) {
     let tab_size = FontSize::Px(theme.text.small);
