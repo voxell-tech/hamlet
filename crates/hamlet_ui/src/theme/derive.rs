@@ -14,7 +14,8 @@ use super::{Palette, Status, Statuses};
 /// How far each role is taken from one colour toward another, and
 /// how far a tinted fill is from its panel, in one mode.
 struct Steps {
-    /// A card, from the surface toward its end of the ramp.
+    /// A card, from the surface toward the button in dark and the
+    /// field in light: a step in from the background either way.
     card: f32,
     /// A button under the pointer, from the button toward the
     /// hairline.
@@ -275,11 +276,13 @@ impl Palette {
         let dark = mode == Mode::Dark;
         let steps = if dark { &DARK } else { &LIGHT };
         let ramp = base.ramp();
-        let [input, surface, ..] = ramp;
+        // The background is the end of the ramp, darkest in dark and
+        // lightest in light, and a field a step in from it.
+        let [surface, input, ..] = ramp;
         let [_, _, button, border, _, mark, _, dim, body] = ramp;
         // The lightest end of the ramp is the text's in dark and the
         // paper's in light; solids carry it as their words.
-        let lightest = if dark { body } else { input };
+        let lightest = if dark { body } else { surface };
         let accent = base.hue(base.accent);
 
         let card = surface
@@ -340,10 +343,8 @@ impl Palette {
         let danger_hover = statuses.danger.fill_hover;
         let green_deep = statuses.success.fill;
         let selected = surface.mix(&glow, steps.selected);
-        let gold_hover = if dark { surface } else { input }
-            .mix(&wash, steps.gold_hover);
-        let primary_low = if dark { surface } else { input }
-            .mix(&wash, steps.primary_low);
+        let gold_hover = surface.mix(&wash, steps.gold_hover);
+        let primary_low = surface.mix(&wash, steps.primary_low);
         let primary_high = surface.mix(&wash, steps.primary_high);
 
         // What a button is while it is pressed.
