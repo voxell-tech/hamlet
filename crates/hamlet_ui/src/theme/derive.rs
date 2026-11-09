@@ -60,7 +60,8 @@ const DARK: Steps = Steps {
     code: 0.75,
     selected: 0.20,
     gold_hover: 0.21,
-    bottom: 0.09,
+    // Panels are flat in both modes: no glow gathers at the bottom.
+    bottom: 0.0,
     primary_low: 0.27,
     primary_high: 0.42,
     pressable: 0.38,
@@ -80,7 +81,6 @@ const LIGHT: Steps = Steps {
     code: 0.5,
     selected: 0.58,
     gold_hover: 0.10,
-    // Paper is flat: no glow gathers at its bottom.
     bottom: 0.0,
     primary_low: 0.72,
     primary_high: 1.0,
