@@ -24,10 +24,11 @@ use hamlet_protocol::client::{
     self as protocol, ClientMessage, RequestId, WebAct, WebAnswer,
     WebWindow, is_on_this_machine,
 };
+use serde_json::json;
 
 use super::page::{self, Page};
 use super::panel::{PanelId, is_panel};
-use super::{Addresses, AgentTabs, PANEL};
+use super::{Addresses, AgentTabs, PANEL, bridge};
 use crate::dock::open_numbered;
 
 /// How long a page is waited for before the agent is told it is still
@@ -99,7 +100,7 @@ fn announce(
 }
 
 /// Sends the answer `text` to the ask `id`.
-fn answer(
+pub(super) fn answer(
     world: &mut World,
     id: RequestId,
     text: String,
@@ -156,7 +157,37 @@ fn act(world: &mut World) {
                     );
                 }
             }
+            WebAct::Read { html } => {
+                on_page(
+                    world,
+                    &panel,
+                    ask.id,
+                    "read",
+                    json!({"html": html}),
+                );
+            }
         }
+    }
+}
+
+/// Asks the page of `panel` to carry out `act`, or answers that the
+/// tab has none yet.
+fn on_page(
+    world: &mut World,
+    panel: &PanelId,
+    id: RequestId,
+    act: &str,
+    arguments: serde_json::Value,
+) {
+    match page::of(world, panel) {
+        Some(page) => bridge::ask(world, page, id, act, arguments),
+        None => answer(
+            world,
+            id,
+            "Your Web tab has no page yet. Open one with web_open."
+                .into(),
+            true,
+        ),
     }
 }
 
