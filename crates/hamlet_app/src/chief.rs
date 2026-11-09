@@ -35,7 +35,9 @@ use hamlet_realm::generator::society::Ground;
 use hamlet_realm::library::{Library, Stood};
 use hamlet_realm::moving;
 use hamlet_realm::palette::Palette;
-use hamlet_realm::pick::{Selected, Thing, bring_into_view, select};
+use hamlet_realm::pick::{
+    Selected, Thing, bring_into_view, focus_on, select,
+};
 use hamlet_ui::styles::{
     Fills, action, breadcrumb, choice, filling, group, scroll_area,
     section, segmented_words, status_label, title,
@@ -515,7 +517,7 @@ fn figure(facts: &Facts) -> impl View {
 
 /// The chief's figure beside its name, where it is, and the way to
 /// it in the world.
-fn portrait(facts: &Facts) -> impl View {
+fn portrait(chief: Entity, facts: &Facts) -> impl View {
     let (place, mark, tone) = match &facts.with {
         Some(agent) => {
             (format!("With {agent}"), Glyph::Robot, Tone::Accent)
@@ -526,7 +528,13 @@ fn portrait(facts: &Facts) -> impl View {
         title(facts.name.clone()),
         status_label(mark, place, tone),
         // In a row of its own, so it is as wide as its words.
-        row((action(Glyph::Aim, "Find me in the world", go_home),)),
+        row((action(
+            Glyph::Aim,
+            "Find me in the world",
+            move |world| {
+                focus_on(world, Thing::Chief(chief), false);
+            },
+        ),)),
     ))
     .gap(6.0)
     .grow(1.0)
@@ -631,7 +639,10 @@ pub fn panel(chief: Entity) -> AnyView {
                 facts.name.clone(),
                 |world, _| select(world, None),
             ),
-            scroll_area((portrait(facts), wardrobe(chief, facts))),
+            scroll_area((
+                portrait(chief, facts),
+                wardrobe(chief, facts),
+            )),
         );
         with_cx(move |cx| {
             column(views).fills_height().gap(cx.theme().space.section)
