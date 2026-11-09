@@ -56,7 +56,7 @@ use hamlet_ui::{AnyView, Cx, View, with_cx};
 use super::{Showing, show};
 use crate::age::Age;
 use crate::convo::{Convo, talk_to, talk_to_hand};
-use crate::standing::Standing;
+use crate::standing::{Standing, need_you};
 use crate::status::now_ms;
 
 /// The width of the rail at first, the least it is dragged to, so a
@@ -949,15 +949,21 @@ pub(super) fn sections(world: &World) -> Vec<Section> {
     let all = agents(world);
     let mut sections = Vec::new();
 
-    // The realm, and the Hand with what it started outside any
-    // hamlet.
+    // The realm, with how many wait for the chief in it, and the
+    // Hand with what it started outside any hamlet.
+    let waiting = world
+        .try_query::<&Waiting>()
+        .map_or(0, |mut waits| waits.iter(world).count());
     let mut top = vec![page_line(
         world,
         Target::Realm,
         Glyph::Globe,
         "Realm",
-        String::new(),
-        None,
+        match waiting {
+            0 => String::new(),
+            n => format!("{n} {}", need_you(n)),
+        },
+        (waiting > 0).then_some(Standing::Waits),
     )];
     if let Some(hand) =
         all.iter().find(|a| a.kind == protocol::AgentKind::Hand)

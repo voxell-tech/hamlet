@@ -28,8 +28,7 @@ use hamlet_ui::{AnyView, View, built, with_cx};
 use crate::PanelSystems;
 use crate::convo::Convo;
 use crate::links::Aimed;
-use crate::petition::Queue;
-use crate::standing::{Standing, need_you};
+use crate::standing::Standing;
 
 pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<Bar>().add_systems(
@@ -226,23 +225,6 @@ fn confinement() -> AnyView {
     .boxed()
 }
 
-/// The number that wait for the chief, behind a bell. Nothing while
-/// none does.
-fn waiting() -> impl View {
-    keyed(resource::<Queue, _>(Queue::len), |waiting| match waiting {
-        0 => frame().boxed(),
-        n => pair(
-            mark(Standing::Waits.glyph(), Standing::Waits.tone()),
-            alarm(
-                format!("{n} {}", need_you(*n)),
-                Standing::Waits.words(),
-            ),
-        )
-        .boxed(),
-    })
-    .within(row(()).gap(0.0))
-}
-
 /// How the agents reach their models: what confines their commands,
 /// the default model and the link.
 fn setup() -> impl View {
@@ -351,7 +333,6 @@ pub fn status_bar() -> impl View {
                     setup(),
                     session(),
                     aimed(),
-                    waiting(),
                     pair(
                         with_cx(|cx| {
                             let side = cx.theme().space.status_icon;
