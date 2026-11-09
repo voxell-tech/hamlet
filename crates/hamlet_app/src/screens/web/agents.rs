@@ -50,6 +50,7 @@ pub(super) fn plugin(app: &mut App) {
         .init_resource::<Waits>()
         .init_resource::<AgentNames>()
         .init_resource::<Consoles>()
+        .init_resource::<Nets>()
         .add_observer(wrote)
         .add_observer(loading)
         .add_observer(asked)
@@ -87,6 +88,11 @@ struct Wait {
     net: bool,
     until: Duration,
 }
+
+/// Whether each agent's page may be on another machine, as its
+/// agent's last ask said, by panel id.
+#[derive(Resource, Default)]
+struct Nets(BTreeMap<String, bool>);
 
 /// Whether a page is loading, as the engine last said.
 #[derive(Component)]
@@ -199,6 +205,10 @@ fn act(world: &mut World) {
             continue;
         };
         page::wake(world, &panel);
+        world
+            .resource_mut::<Nets>()
+            .0
+            .insert(panel.0.clone(), ask.net);
         match ask.act {
             WebAct::Open { address } => {
                 world
@@ -280,6 +290,16 @@ fn act(world: &mut World) {
                     "wait",
                     json!({"text": text, "selector": selector, "seconds": seconds}),
                     Duration::from_secs(u64::from(seconds)),
+                );
+            }
+            WebAct::Click { target } => {
+                on_page(
+                    world,
+                    &panel,
+                    ask.id,
+                    "click",
+                    json!({"target": target}),
+                    Duration::ZERO,
                 );
             }
             WebAct::Console {} => {
@@ -396,31 +416,40 @@ fn loaded(
     let (panel, title, status) =
         (panel.clone(), title.0.clone(), loaded.http_status_code);
     commands.queue(move |world: &mut World| {
-        let Some(wait) =
-            world.resource_mut::<Waits>().0.remove(&panel.0)
-        else {
-            return;
-        };
+        let wait = world.resource_mut::<Waits>().0.remove(&panel.0);
         let address = world
             .resource::<Addresses>()
             .0
             .get(&panel.0)
             .cloned()
             .unwrap_or_default();
-        if !wait.net && !is_on_this_machine(&address) {
+        // An agent's page leaves for another machine only with the
+        // network, however it got there: opened, or by a click.
+        let agents =
+            world.resource::<AgentTabs>().0.contains_key(&panel.0);
+        let net = wait.as_ref().map(|wait| wait.net).or_else(|| {
+            world.resource::<Nets>().0.get(&panel.0).copied()
+        });
+        if agents
+            && net == Some(false)
+            && !is_on_this_machine(&address)
+        {
             page::navigate(world, &panel, "about:blank".into());
-            answer(
-                world,
-                wait.id,
-                format!(
-                    "{address} is on another machine, which your \
-                     page may reach only with the network. It was \
-                     left."
-                ),
-                true,
+            let words = format!(
+                "{address} is on another machine, which your page \
+                 may reach only with the network. It was left."
             );
+            world
+                .resource_mut::<Consoles>()
+                .keep(&panel.0, format!("[error] {words}"));
+            if let Some(wait) = wait {
+                answer(world, wait.id, words, true);
+            }
             return;
         }
+        let Some(wait) = wait else {
+            return;
+        };
         let named = if title.is_empty() {
             String::new()
         } else {

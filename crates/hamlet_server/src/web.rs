@@ -37,11 +37,17 @@ pub(crate) enum Tool {
     Read,
     Console,
     Wait,
+    Click,
 }
 
 impl Tool {
-    const ALL: [Self; 4] =
-        [Self::Open, Self::Read, Self::Console, Self::Wait];
+    const ALL: [Self; 5] = [
+        Self::Open,
+        Self::Read,
+        Self::Console,
+        Self::Wait,
+        Self::Click,
+    ];
 
     pub(crate) fn name(self) -> &'static str {
         match self {
@@ -49,6 +55,7 @@ impl Tool {
             Self::Read => "web_read",
             Self::Console => "web_console",
             Self::Wait => "web_wait",
+            Self::Click => "web_click",
         }
     }
 
@@ -132,7 +139,30 @@ pub(crate) fn specs() -> Vec<ToolSpec> {
             }),
             ToolSpecReplay::Safe,
         ),
+        spec(
+            Tool::Click.name(),
+            "Click an element of the page in your Web tab: a link, \
+             button or field, by the number web_read gave it or by a \
+             CSS selector. It does not wait for a page it opens; use \
+             web_wait for that.",
+            json!({
+                "type": "object",
+                "required": ["target"],
+                "properties": {"target": target_schema()},
+            }),
+            ToolSpecReplay::Unsafe,
+        ),
     ]
+}
+
+/// The schema of the element a tool acts on.
+fn target_schema() -> Value {
+    json!({
+        "type": ["integer", "string"],
+        "description":
+            "The element's number from your last web_read, or a CSS \
+             selector.",
+    })
 }
 
 /// Whether a call of `tool` with `arguments` reaches beyond this
@@ -144,7 +174,9 @@ pub(crate) fn reaches_network(tool: Tool, arguments: &Value) -> bool {
             .and_then(Value::as_str)
             .and_then(web_address)
             .is_some_and(|address| !is_on_this_machine(&address)),
-        Tool::Read | Tool::Console | Tool::Wait => false,
+        Tool::Read | Tool::Console | Tool::Wait | Tool::Click => {
+            false
+        }
     }
 }
 
@@ -216,6 +248,21 @@ fn cut(text: &str) -> String {
     )
 }
 
+/// The element a call names in its `target`.
+fn target(
+    arguments: &BTreeMap<String, Value>,
+) -> Result<String, String> {
+    match arguments.get("target") {
+        Some(Value::Number(number)) => Ok(number.to_string()),
+        Some(Value::String(words)) if !words.trim().is_empty() => {
+            Ok(words.trim().to_owned())
+        }
+        _ => Err("Name the element by its number from web_read, or \
+                  by a CSS selector."
+            .into()),
+    }
+}
+
 /// The act a call of `tool` with `arguments` asks for, or the words
 /// of one that cannot be asked.
 fn act_of(
@@ -238,6 +285,9 @@ fn act_of(
             Ok(WebAct::Open { address })
         }
         Tool::Console => Ok(WebAct::Console {}),
+        Tool::Click => Ok(WebAct::Click {
+            target: target(arguments)?,
+        }),
         Tool::Wait => {
             let words = |key: &str| {
                 arguments
