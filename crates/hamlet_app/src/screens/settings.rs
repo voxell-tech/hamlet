@@ -35,9 +35,10 @@ use hamlet_protocol::{Effort, client as protocol};
 use hamlet_realm::sky::Quality;
 use hamlet_realm::sound::SoundSettings;
 use hamlet_ui::styles::{
-    Fills, ICON, action, bad_action, bare, beside, buttons, close,
-    description, filling, list, nav_list, note, page_head, parts,
-    path, pill, section, small_rules, text_input, title, valued_row,
+    Fills, ICON, action, bad_action, bare, beside, breadcrumb,
+    buttons, close, description, filling, list, nav_list, note,
+    page_head, parts, pill, section, small_rules, text_input, title,
+    valued_row,
 };
 use hamlet_ui::widgets::edges::faded;
 use hamlet_ui::widgets::ellipsis::cut;
@@ -899,9 +900,13 @@ fn parts_of(pane: Pane) -> (AnyView, AnyView) {
         Pane::Front | Pane::Sound => sound().boxed(),
     };
     let head = page_head(
-        path(vec!["Settings".into()], |world, _| {
-            *world.resource_mut::<Pane>() = Pane::Front;
-        }),
+        breadcrumb(
+            vec!["Settings".into()],
+            pane.title(),
+            |world, _| {
+                *world.resource_mut::<Pane>() = Pane::Front;
+            },
+        ),
         match pane {
             Pane::Charter => beside((
                 title(pane.title()),

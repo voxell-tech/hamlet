@@ -20,7 +20,7 @@ use hamlet_client::realm::{
 use hamlet_protocol::client as protocol;
 use hamlet_ui::styles::{
     Fills, ICON, action, back_link, bad_action, bare, beside,
-    buttons, filling, good_action, note, page_head, path,
+    breadcrumb, buttons, filling, good_action, note, page_head,
     scroll_area, text_input, title,
 };
 use hamlet_ui::widgets::effects::Variant;
@@ -803,8 +803,9 @@ fn body(shown: &Shown) -> AnyView {
         // The head stays at the top while the rest scrolls under it.
         column((
             page_head(
-                path(
+                breadcrumb(
                     vec!["Realm".into(), "City".into()],
+                    name.clone(),
                     |world, at| {
                         show(world, Showing::Realm);
                         // The city is the rail's tab that lists it.

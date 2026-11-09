@@ -1042,34 +1042,14 @@ pub fn breadcrumb(
     current: impl Into<Prop<String>>,
     go: impl Fn(&mut World, usize) + Clone + Send + Sync + 'static,
 ) -> impl View {
-    let mut parts = above(trail, go);
-    parts.push(crumb_here(current).boxed());
-    crumbs(parts)
-}
-
-/// The path to a page whose [`title`] names it under the path: each
-/// page above it, from the top, as a [`crumb`] with a
-/// [`crumb_slash`] after it, and not the page itself again. A press
-/// hands `go` the place in `trail` of its page.
-pub fn path(
-    trail: Vec<String>,
-    go: impl Fn(&mut World, usize) + Clone + Send + Sync + 'static,
-) -> impl View {
-    crumbs(above(trail, go))
-}
-
-/// Each page of `trail` as a [`crumb`], a [`crumb_slash`] after each.
-fn above(
-    trail: Vec<String>,
-    go: impl Fn(&mut World, usize) + Clone + Send + Sync + 'static,
-) -> Vec<AnyView> {
     let mut parts = Vec::new();
     for (at, text) in trail.into_iter().enumerate() {
         let go = go.clone();
         parts.push(crumb(text, move |world| go(world, at)).boxed());
         parts.push(crumb_slash().boxed());
     }
-    parts
+    parts.push(crumb_here(current).boxed());
+    crumbs(parts)
 }
 
 /// The parts of a breadcrumb in a row, wrapping in a narrow panel.
