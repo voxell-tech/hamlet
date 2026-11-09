@@ -750,18 +750,12 @@ fn needs(world: &World, all: &[Agent]) -> (Vec<Line>, usize) {
             {
                 (Target::Hand, Glyph::Tower, "The Hand".to_string())
             }
-            // What it goes by, and the hamlet it is in.
+            // What it goes by; its address, hamlet and all, is the
+            // row's tooltip.
             Some(agent) => (
                 Target::Agent(agent.entity),
                 kind_glyph(agent),
-                match agent.hamlet {
-                    Some(hamlet) => format!(
-                        "{} · {}",
-                        agent.called,
-                        name_of(world, hamlet)
-                    ),
-                    None => agent.called.clone(),
-                },
+                agent.called.clone(),
             ),
             // The realm's page has every wait in full.
             None => (Target::Realm, Glyph::Bell, wait.shown.clone()),
