@@ -1,6 +1,7 @@
 //! The window's own frame: it has no title bar from the system, so
 //! the top bar moves it, three buttons minimise, maximise and close
-//! it, and its edges resize it.
+//! it, and its edges resize it. On macOS the system's own buttons
+//! stand at the start of the top bar instead.
 
 use bevy::app::{App, Startup, Update};
 use bevy::asset::{Assets, Handle, RenderAssetUsages};
@@ -26,13 +27,15 @@ use bevy::render::render_resource::{
 };
 use bevy::text::EditableText;
 use bevy::time::Time;
-use bevy::ui::{AlignItems, px};
+use bevy::ui::{AlignItems, percent, px};
 use bevy::ui_widgets::Button as ButtonBehavior;
 use bevy::window::{
     PrimaryWindow, SystemCursorIcon, Window, WindowCloseRequested,
 };
 use bevy_fynix::tokens::Motion;
-use bevy_fynix::views::{BehaviorExt, FrameProps, button, icon, row};
+use bevy_fynix::views::{
+    BehaviorExt, FrameProps, button, frame, icon, row,
+};
 use bevy_fynix::{OverrideCursor, ScopedExt, style};
 use hamlet_desktop::title_bar::TitleBarDrag;
 use hamlet_ui::styles::transparent;
@@ -47,18 +50,35 @@ pub(crate) fn plugin(app: &mut App) {
         .add_systems(Update, (resize_by_edge, hold_title_bar));
 }
 
+/// Whether the system draws the window's buttons: on macOS, at the
+/// leading edge of the top bar, where they are looked for.
+const SYSTEM_BUTTONS: bool = cfg!(target_os = "macos");
+
+/// The room the system's buttons take at the leading edge of the
+/// top bar, past its padding.
+const SYSTEM_ROOM: f32 = 64.0;
+
 /// A window with no title bar from the system. On macOS the system
-/// keeps the frame and hides its bar and buttons. Elsewhere the
-/// window has no frame at all.
+/// keeps the frame and its buttons over the top bar, and hides its
+/// bar. Elsewhere the window has no frame at all.
 pub fn bare() -> Window {
     Window {
         decorations: cfg!(target_os = "macos"),
         titlebar_transparent: true,
         titlebar_show_title: false,
-        titlebar_show_buttons: false,
+        titlebar_show_buttons: SYSTEM_BUTTONS,
         fullsize_content_view: true,
         ..Window::default()
     }
+}
+
+/// The room for the system's buttons at the start of the top bar,
+/// where it draws them; nothing where the window draws its own.
+pub fn system_room() -> impl View {
+    frame()
+        .width(px(if SYSTEM_BUTTONS { SYSTEM_ROOM } else { 0.0 }))
+        .height(percent(100.0))
+        .tagged(Grip)
 }
 
 /// A part of the window that moves it when dragged, and maximises it
@@ -203,9 +223,13 @@ fn close(world: &mut World) {
     }
 }
 
-/// The three buttons of the window, for the end of the top bar.
+/// The three buttons of the window, for the end of the top bar;
+/// none where the system draws its own.
 pub fn buttons() -> impl View {
     built(|cx| {
+        if SYSTEM_BUTTONS {
+            return cx.build(frame());
+        }
         let side = cx.world.resource::<ChromeSettings>().button;
         let marks = cx.world.resource::<Marks>();
         let (small, large, shut) = (

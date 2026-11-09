@@ -178,6 +178,7 @@ fn toolbar(cx: &Cx) -> impl View {
     let palette = &cx.theme().palette;
     column((
         row((
+            chrome::system_room(),
             menu::titles(),
             // No desk is open under first-run setup. Adding a place
             // for models dims the desk and keeps it.
