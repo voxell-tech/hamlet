@@ -851,11 +851,13 @@ fn shared(_: &fs::Metadata) -> Option<&'static str> {
 }
 
 /// The checkout's `name` executable as Cargo builds it, with the
-/// cargo `features` given, else the one `variable` names.
+/// cargo `features` given and the executables `beside` it, else the
+/// one `variable` names.
 async fn dev_binary(
     name: &str,
     variable: &str,
     features: &[&str],
+    beside: &[&str],
 ) -> Result<PathBuf> {
     if let Some(path) = nonempty(variable) {
         return Ok(path.into());
@@ -876,6 +878,7 @@ async fn dev_binary(
             "--message-format=json-render-diagnostics",
         ])
         .args(features.iter().flat_map(|f| ["--features", f]))
+        .args(beside.iter().flat_map(|b| ["--bin", b]))
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit());
     // `cargo run` set these for this process. Build scripts such as
@@ -976,23 +979,42 @@ fn window_closed(
     Ok(())
 }
 
+/// What `hamlet dev` builds the window with.
+#[derive(Clone, Copy, Default, Debug)]
+pub struct Built {
+    /// The window reloads saved shaders and tuning files.
+    pub hot: bool,
+    /// The window has Web panels, and the web engine's helper is
+    /// built beside it.
+    pub web: bool,
+}
+
 /// Serves a scratch home from the checkout's server and opens the
-/// checkout's window on it. With `hot`, the window reloads saved
-/// shaders and tuning files.
+/// checkout's window on it, built as `built` says.
 pub async fn develop(
     port: u16,
     faux: Option<&str>,
     chosen: Option<&str>,
     isolation: Isolation,
-    hot: bool,
+    built: Built,
 ) -> Result<i32> {
+    let Built { hot, web } = built;
     let home = dev_home(chosen)?;
     let server =
-        dev_binary("hamlet_server", "HAMLET_SERVER_BIN", &[]).await?;
-    let features: &[&str] =
-        if hot { &["hamlet_app/hot-reload"] } else { &[] };
+        dev_binary("hamlet_server", "HAMLET_SERVER_BIN", &[], &[])
+            .await?;
+    let mut features = Vec::new();
+    if hot {
+        features.push("hamlet_app/hot-reload");
+    }
+    if web {
+        features.push("hamlet_app/web");
+    }
+    let beside: &[&str] =
+        if web { &["hamlet_web_helper"] } else { &[] };
     let app =
-        dev_binary("hamlet_app", "HAMLET_APP", features).await?;
+        dev_binary("hamlet_app", "HAMLET_APP", &features, beside)
+            .await?;
     let mut stops = Stops::new()?;
     let mut command =
         server_command(&server, &home, port, faux, isolation);

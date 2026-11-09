@@ -9,7 +9,7 @@
 use std::path::PathBuf;
 
 use anyhow::{Result, bail};
-use hamlet_cli::process::{self, Action, Isolation};
+use hamlet_cli::process::{self, Action, Built, Isolation};
 use hamlet_cli::{chat, terminal};
 
 const USAGE: &str = "usage: hamlet [--insecure]
@@ -17,7 +17,7 @@ const USAGE: &str = "usage: hamlet [--insecure]
        hamlet status
        hamlet server [--port <n>] [--faux <script.json>] [--insecure]
        hamlet dev [--port <n>] [--faux <script.json>] [--home <dir>] \
-                     [--insecure] [--hot]
+                     [--insecure] [--hot] [--web]
        hamlet window
        hamlet chat [--to <hand|hire#<id>|mayor@<hamlet>>] [--attach \
                      <path>]...
@@ -34,7 +34,8 @@ Closing a window stops no agent. hamlet stop stops the local server.
 dev builds the checkout's server and window and serves a scratch \
                      realm; Ctrl-C stops both. --hot builds a \
                      window that reloads saved shaders and tuning \
-                     files.
+                     files. --web builds a window with Web panels, \
+                     on macOS.
 server serves in the foreground; Ctrl-C stops it.
 --insecure, on Windows only, runs agents' commands with no sandbox.
 
@@ -60,8 +61,7 @@ enum Command {
         faux: Option<String>,
         home: Option<String>,
         isolation: Isolation,
-        /// The window reloads saved shaders and tuning files.
-        hot: bool,
+        built: Built,
     },
     Window,
     Chat {
@@ -108,6 +108,7 @@ fn parse(args: &[String]) -> Result<Command> {
             let mut home = None;
             let mut isolation = Isolation::Sandboxed;
             let mut hot = false;
+            let mut web = false;
             let mut to = hamlet_protocol::HAND.to_owned();
             let mut attach = Vec::new();
             let mut flags = rest.iter();
@@ -119,6 +120,10 @@ fn parse(args: &[String]) -> Result<Command> {
                 }
                 if flag == "--hot" && name == "dev" {
                     hot = true;
+                    continue;
+                }
+                if flag == "--web" && name == "dev" {
+                    web = true;
                     continue;
                 }
                 let needs = match flag {
@@ -176,7 +181,7 @@ fn parse(args: &[String]) -> Result<Command> {
                     faux,
                     home,
                     isolation,
-                    hot,
+                    built: Built { hot, web },
                 },
                 _ => Command::Chat { to, attach },
             })
@@ -351,14 +356,14 @@ fn main() {
                     faux,
                     home,
                     isolation,
-                    hot,
+                    built,
                 } => {
                     process::develop(
                         port,
                         faux.as_deref(),
                         home.as_deref(),
                         isolation,
-                        hot,
+                        built,
                     )
                     .await
                 }
