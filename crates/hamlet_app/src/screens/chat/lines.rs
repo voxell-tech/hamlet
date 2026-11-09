@@ -142,7 +142,23 @@ pub(super) fn rows(
     // Whether the last row is a fold that opened its turn, and
     // whether the last entry was a reply.
     let (mut opening, mut replied) = (false, false);
+    // The fault the last row says, if it says one: the same fault
+    // again, as each try that fails the same way raises, stands in
+    // its place, so a run of them is one row, its last.
+    let mut fault: Option<&str> = None;
     for item in transcript.items() {
+        if let Entry::Error(said) = &item.entry {
+            if fault == Some(said.as_str()) {
+                rows.pop();
+            }
+            fault = Some(said.as_str());
+        } else if !matches!(
+            &item.entry,
+            Entry::Assistant(text) if text.trim().is_empty()
+        ) {
+            // A reply that says nothing makes no row to part them.
+            fault = None;
+        }
         let step = match &item.entry {
             // Nothing said is no message: a model that calls a tool
             // often says nothing with it, and that neither makes a
