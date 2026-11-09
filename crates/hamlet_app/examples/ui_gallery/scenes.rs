@@ -22,9 +22,10 @@ use bevy_fynix::{AnyView, Bevy, FynixPlugin, mount};
 use hamlet_app::appearance::Appearance;
 use hamlet_app::history::History;
 use hamlet_app::{Bar, Roll, asking, chrome, menu, select, welcome};
+use hamlet_assets::Tuning;
 use hamlet_desktop::color_scheme::ColorScheme;
 use hamlet_realm::sound::{Cue, SoundSettings};
-use hamlet_ui::theme::{self, HamletTheme, Themes};
+use hamlet_ui::theme::{self, HamletTheme, Measures, Themes};
 
 use self::dock::{open_settings, panels, seed_dock};
 use self::sample::{first_run, setup};
@@ -46,6 +47,12 @@ impl Plugin for GalleryPlugin {
             DockPlugin::<HamletTheme>::default(),
         ));
         theme::show(app.world_mut(), HamletTheme::designed());
+        if let Some((theme, shade)) = chosen() {
+            // As the computer says, so the Appearance page follows
+            // it.
+            app.insert_resource(ColorScheme::Says(shade));
+            theme::show(app.world_mut(), theme);
+        }
         app.add_plugins(theme::weight_plugin);
         app.insert_resource(self.0)
             // No pointer moves here, so a held hover stays held.
@@ -114,6 +121,30 @@ impl Plugin for GalleryPlugin {
                 select::plugin,
             ));
     }
+}
+
+/// The theme `GALLERY_THEME` names as `<family>:<light|dark>`, as
+/// `Hamlet:light`, and the shade it is shown in. None when it is not
+/// set; a name that matches no family or shade panics.
+fn chosen() -> Option<(HamletTheme, WindowTheme)> {
+    let named = std::env::var("GALLERY_THEME").ok()?;
+    let (family, shade) = named
+        .split_once(':')
+        .expect("GALLERY_THEME is <family>:<light|dark>");
+    let shade = match shade.to_lowercase().as_str() {
+        "light" => WindowTheme::Light,
+        "dark" => WindowTheme::Dark,
+        other => {
+            panic!("GALLERY_THEME shade {other} is not light or dark")
+        }
+    };
+    let themes = Themes::shipped();
+    let family = themes
+        .iter()
+        .find(|theme| theme.name.eq_ignore_ascii_case(family))
+        .expect("GALLERY_THEME names a shipped family");
+    let palette = family.variants.get(shade).palette.clone();
+    Some((HamletTheme::new(palette, &Measures::designed()), shade))
 }
 
 /// The scene a gallery shows.
