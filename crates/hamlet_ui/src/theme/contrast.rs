@@ -367,6 +367,21 @@ impl Report {
                     (own("ink", status.ink), ground.clone())
                 })
                 .collect::<Vec<_>>();
+            let mut marks = on_status
+                .iter()
+                .map(|ground| {
+                    (own("mark", status.mark), ground.clone())
+                })
+                .collect::<Vec<_>>();
+            marks.push((own("mark", status.mark), fill.clone()));
+            for (front, back) in marks {
+                report.pairs.push(Pair::new(
+                    front,
+                    back,
+                    Need::Mark,
+                    Gate::Fail,
+                ));
+            }
             pairs.push((own("ink", status.ink), fill.clone()));
             pairs.push((own("ink", status.ink), hovered));
             pairs.push((own("on_fill", status.on_fill), fill));

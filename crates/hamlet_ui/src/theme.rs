@@ -262,11 +262,16 @@ pub struct Palette {
     pub status: Statuses,
 }
 
-/// How one status is drawn: its ink for words and icons, a tinted
-/// fill with the ink to use on it, and its solid form for a pill, a
-/// circle or a button, with the colour of what is on it.
+/// How one status is drawn: its mark for icons, dots and bars, its ink
+/// for words, a tinted fill with the ink to use on it, and its solid
+/// form for a pill, a circle or a button, with the colour of what is
+/// on it.
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub struct Status {
+    /// The hue kept as far as a shape needs only its contrast of a
+    /// mark.
+    pub mark: Color,
+    /// The hue moved until words of it read.
     pub ink: Color,
     /// A plate under the ink: pale in light, deep in dark.
     pub fill: Color,
@@ -297,7 +302,8 @@ pub enum StatusKind {
 }
 
 impl StatusKind {
-    /// The tone of its ink.
+    /// The tone of its mark, for an icon, a dot or a bar. Words beside
+    /// it stay in the body tone, and a danger is red either way.
     pub fn tone(self) -> Tone {
         match self {
             Self::Success => Tone::Success,
@@ -630,11 +636,12 @@ impl TextTokens for HamletTheme {
                 palette.gold_4,
             ),
             Tone::Critical => palette.status.danger.ink,
-            Tone::Success => palette.status.success.ink,
-            Tone::Merged => palette.status.merged.ink,
-            Tone::Warning => palette.status.warning.ink,
-            Tone::Info => palette.status.info.ink,
-            Tone::Attention => palette.status.attention.ink,
+            Tone::Success => palette.status.success.mark,
+            Tone::Merged => palette.status.merged.mark,
+            Tone::Warning => palette.status.warning.mark,
+            Tone::Info => palette.status.info.mark,
+            Tone::Attention => palette.status.attention.mark,
+            Tone::Reference => palette.status.info.ink,
             Tone::OnSolid => palette.status.success.on_solid,
         }
     }

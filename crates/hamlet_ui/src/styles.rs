@@ -628,7 +628,9 @@ fn status_label_at(
 }
 
 /// The main state of something, beside its name: a solid pill in
-/// the hue of `kind`, with an icon and light words.
+/// the hue of `kind`, with an icon and light words. What is in
+/// progress is no pill but its [`status_mark`] and words in the body
+/// tone; what is at rest is its icon and words, dim.
 pub fn status_pill(
     which: Glyph,
     text: impl Into<Prop<String>>,
@@ -638,6 +640,23 @@ pub fn status_pill(
     with_cx(move |cx| {
         let theme = cx.theme();
         let size = theme.text.small;
+        if matches!(kind, StatusKind::Warning | StatusKind::Rest) {
+            let (mark, tone) = match kind {
+                StatusKind::Warning => (
+                    status_mark(which, kind, size).boxed(),
+                    Tone::Body,
+                ),
+                _ => (glyph(which, size).tone(Tone::Dim).boxed(), Tone::Dim),
+            };
+            return row((
+                mark,
+                label(text).size(size).tone(tone).wrap(false),
+            ))
+            .gap(theme.space.status_icon_gap)
+            .align(AlignItems::Center)
+            .shrink(0.0)
+            .boxed();
+        }
         row((
             glyph(which, size).tone(Tone::OnSolid),
             label(text)
@@ -652,6 +671,7 @@ pub fn status_pill(
         .shrink(0.0)
         .fill(theme.palette.status.get(kind).solid)
         .radius(size + 4.0)
+        .boxed()
     })
 }
 
@@ -660,6 +680,8 @@ const SUMMARY_CIRCLE: f32 = 30.0;
 
 /// `which` in a solid circle `size` wide, in the hue of `kind`, with
 /// a soft halo of the same hue around it, a fifth of `size` wide.
+/// What is in progress is lighter: its open ring in the mark of its
+/// hue on one tinted circle, with no solid and no halo.
 pub fn status_mark(
     which: Glyph,
     kind: StatusKind,
@@ -668,6 +690,18 @@ pub fn status_mark(
     with_cx(move |cx| {
         let theme = cx.theme();
         let status = theme.palette.status.get(kind);
+        if kind == StatusKind::Warning {
+            let outer = size * 1.4;
+            return row((glyph(which, size * 0.8).tone(Tone::Warning),))
+                .width(px(outer))
+                .height(px(outer))
+                .radius(outer / 2.0)
+                .fill(status.fill)
+                .shrink(0.0)
+                .justify(JustifyContent::Center)
+                .align(AlignItems::Center)
+                .boxed();
+        }
         let circle =
             row((glyph(which, size * 0.55).tone(Tone::OnSolid),))
                 .width(px(size))
@@ -685,6 +719,7 @@ pub fn status_mark(
             .shrink(0.0)
             .justify(JustifyContent::Center)
             .align(AlignItems::Center)
+            .boxed()
     })
 }
 
@@ -723,8 +758,36 @@ pub fn progress_bar(fraction: f32, kind: StatusKind) -> impl View {
             .width(percent(fraction.clamp(0.0, 1.0) * 100.0))
             .height(percent(100.0))
             .radius(height / 2.0)
-            .fill(theme.palette.status.get(kind).solid);
+            .fill(theme.palette.status.get(kind).mark);
         row((fill,))
+            .width(percent(100.0))
+            .height(px(height))
+            .radius(height / 2.0)
+            .fill(theme.palette.button_hover)
+    })
+}
+
+/// Parts of a whole as one bar on one track, each part as wide as
+/// its weight and in the mark of its status, a hairline between:
+/// green done, orange waiting, ochre in progress, neutral at rest.
+pub fn stacked_bar(parts: Vec<(f32, StatusKind)>) -> impl View {
+    with_cx(move |cx| {
+        let theme = cx.theme();
+        let height = 6.0;
+        let segments = parts
+            .iter()
+            .filter(|(weight, _)| *weight > 0.0)
+            .map(|(weight, kind)| {
+                frame()
+                    .grow(*weight)
+                    .height(percent(100.0))
+                    .radius(height / 2.0)
+                    .fill(theme.palette.status.get(*kind).mark)
+                    .boxed()
+            })
+            .collect::<Vec<_>>();
+        row(segments)
+            .gap(1.5)
             .width(percent(100.0))
             .height(px(height))
             .radius(height / 2.0)
@@ -740,7 +803,7 @@ pub fn reference(text: impl Into<Prop<String>>) -> impl View {
         let theme = cx.theme();
         row((label(text)
             .size(theme.text.small)
-            .tone(Tone::Info)
+            .tone(Tone::Reference)
             .wrap(false)
             .tagged(MonoText),))
         .padding(UiRect::axes(px(6.0), px(1.0)))

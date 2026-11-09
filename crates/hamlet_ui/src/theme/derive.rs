@@ -48,7 +48,8 @@ struct Steps {
     fill_chroma: f32,
     fill_hover: f32,
     fill_hover_chroma: f32,
-    /// The contrast an ink of a status reaches, above [`TEXT`].
+    /// The contrast the ink of a status, its words, reaches above
+    /// [`TEXT`]. Its mark needs far less, and keeps the hue.
     ink: f32,
 }
 
@@ -91,6 +92,16 @@ const LIGHT: Steps = Steps {
     fill_hover_chroma: 0.04,
     ink: 7.0,
 };
+
+/// What is in progress is a mustard: the yellow with its lightness
+/// and chroma scaled by these and its hue turned this many degrees
+/// toward green, so it cannot be taken for the accent gold.
+const OCHRE_LIGHTNESS: f32 = 0.86;
+const OCHRE_CHROMA: f32 = 0.75;
+const OCHRE_HUE: f32 = 8.0;
+/// How much of its chroma the mark of what is at rest keeps: it is a
+/// neutral, not a tan.
+const REST_CHROMA: f32 = 0.3;
 
 /// The lightness the glow keeps at most over paper, where the bright
 /// hue of the lamp would not be seen.
@@ -357,6 +368,16 @@ impl Palette {
     }
 }
 
+/// The mustard of what is in progress, made from `yellow`.
+fn ochre(yellow: Color) -> Color {
+    let paint = lch(yellow);
+    oklch(
+        paint.lightness * OCHRE_LIGHTNESS,
+        paint.chroma * OCHRE_CHROMA,
+        paint.hue + OCHRE_HUE,
+    )
+}
+
 /// The colours a status is read on.
 struct Grounds {
     surface: Color,
@@ -397,8 +418,25 @@ impl Statuses {
                 fill_hover,
             ];
             let ink = reach(hue, &grounds, steps.ink, Way::Nearest);
+            // A mark is read as a shape, so it keeps its hue as far as
+            // it can: it needs only the contrast of a mark.
+            let marks = [
+                on.surface,
+                on.card,
+                on.input,
+                on.code,
+                on.button,
+                on.button_hover,
+                fill,
+            ];
             Status {
                 ink,
+                mark: reach(
+                    hue,
+                    &marks,
+                    MARK + MARK_MARGIN,
+                    Way::Nearest,
+                ),
                 fill,
                 fill_hover,
                 on_fill: reach(ink, &[fill], TEXT, Way::Nearest),
@@ -416,15 +454,27 @@ impl Statuses {
                 on.button,
                 on.button_hover,
             ];
+            let paint = lch(on.dim);
+            let neutral = oklch(
+                paint.lightness,
+                paint.chroma * REST_CHROMA,
+                paint.hue,
+            );
             let ink =
-                reach(on.dim, &grounds, steps.ink, Way::Nearest);
+                reach(neutral, &grounds, steps.ink, Way::Nearest);
             Status {
                 ink,
+                mark: reach(
+                    neutral,
+                    &grounds,
+                    MARK + MARK_MARGIN,
+                    Way::Nearest,
+                ),
                 fill,
                 fill_hover: on.button_hover,
                 on_fill: reach(ink, &[fill], TEXT, Way::Nearest),
                 solid: reach(
-                    on.dim,
+                    neutral,
                     &[on.lightest],
                     SOLID,
                     Way::Darker,
@@ -435,7 +485,7 @@ impl Statuses {
         Self {
             success: status(base.green),
             merged: status(base.purple),
-            warning: status(base.yellow),
+            warning: status(ochre(base.yellow)),
             danger: status(base.red),
             info: status(base.blue),
             attention: status(base.orange),

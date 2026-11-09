@@ -40,7 +40,8 @@ as the volumetric fog on the Sight page of Settings.
 
 An agent's state has one glyph, tone and word wherever it is shown, set
 in `hamlet_app/src/standing.rs`: `Bell` waiting for the chief, `Stop`
-stopped, `Bolt` at work, `Moon` at rest, `Gone` gone.
+stopped, `Progress` (an open ring with a dot) at work, `Moon` at rest,
+`Gone` gone.
 
 ## One meaning each
 

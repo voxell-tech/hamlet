@@ -85,8 +85,8 @@ pub enum Glyph {
     Stop,
     /// At rest, and the night.
     Moon,
-    /// A bolt: at work.
-    Bolt,
+    /// An open ring with a dot in it: in progress, at work.
+    Progress,
     /// A bell: something waits for the chief.
     Bell,
     /// A shield: the sandbox.
@@ -217,7 +217,7 @@ impl Glyph {
         Glyph::Delete,
         Glyph::Stop,
         Glyph::Moon,
-        Glyph::Bolt,
+        Glyph::Progress,
         Glyph::Bell,
         Glyph::Shield,
         Glyph::Chip,
@@ -410,14 +410,10 @@ impl Glyph {
                 Arc(7.5, 8.5, 5.5, 10.24, 259.76),
                 Arc(10.75, 5.25, 4.75, 62.9, 207.1),
             ],
-            Glyph::Bolt => &[Loop(&[
-                [9.5, 1.75],
-                [3.75, 9.0],
-                [7.75, 9.0],
-                [6.5, 14.25],
-                [12.25, 7.0],
-                [8.25, 7.0],
-            ])],
+            Glyph::Progress => &[
+                Arc(8.0, 8.0, 5.75, 300.0, 570.0),
+                Dot(8.0, 8.0, 2.0),
+            ],
             Glyph::Bell => &[
                 Arc(8.0, 7.0, 3.5, 180.0, 360.0),
                 Path(&[
