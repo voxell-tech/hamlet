@@ -277,7 +277,7 @@ fn figure(
         // narrow page.
         .padding(UiRect::axes(px(8.0), px(space.card_padding_y)))
         .border(space.border)
-        .border_color(theme.palette.gold_6)
+        .border_color(theme.palette.border)
         .radius(space.round)
         .fill(theme.palette.card)
         // As wide as its words, and the row's room left shared out.

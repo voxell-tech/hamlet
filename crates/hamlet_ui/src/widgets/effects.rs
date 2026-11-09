@@ -270,7 +270,11 @@ impl EffectColors {
             drag_border: p.gold_5,
             attention: lamp(p.glow),
             flash: p.agent,
-            underglow: lamp(p.glow),
+            underglow: if lit_panels(theme) {
+                p.glow.mix(&p.accent, UNDERGLOW_DEEPEN)
+            } else {
+                p.glow
+            },
             drop_hint: lamp(p.glow),
             drag_ghost: p.surface,
         }
@@ -279,6 +283,10 @@ impl EffectColors {
 
 /// How far a glow over a light panel is taken toward the accent.
 const LIGHT_DEEPEN: f32 = 0.45;
+
+/// The same for the glow under a title or a tab, which marks the tab
+/// shown and so is taken further.
+const UNDERGLOW_DEEPEN: f32 = 0.75;
 
 /// Whether `theme`'s panels are light: dark words read better on
 /// them than light ones.

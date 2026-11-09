@@ -137,7 +137,7 @@ pub fn card(
                 px(space.card_padding_y),
             ))
             .border(space.border)
-            .border_color(cx.theme().palette.gold_6)
+            .border_color(cx.theme().palette.border)
             .radius(space.round)
             .fill(cx.theme().palette.card)
             .appear(hidden)
