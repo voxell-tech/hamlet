@@ -43,7 +43,7 @@ chief is talking to.
 | `/grants`, `/revoke <address> <network\|unconfined>` | The lasting permissions, and taking one back |
 | `/hamlets`, `/found <hamlet> [scholar#id] [purpose]` | List hamlets, or found one with a scholar as its mayor, a new scholar named Mayor by default (H6) |
 | `/name-hamlet <hamlet> [name]`, `/move-hamlet <hamlet> <x> <z>` | Give a hamlet a name to be shown by, or set it down elsewhere on the hamlet island (H32) |
-| `/remove-hamlet <hamlet> <reason>`, `/restore-hamlet <hamlet> [reason]`, `/erase-hamlet <hamlet>` | Remove, restore or permanently erase a hamlet (H19, H20) |
+| `/remove-hamlet <hamlet> [reason]`, `/restore-hamlet <hamlet> [reason]`, `/erase-hamlet <hamlet>` | Remove, restore or permanently erase a hamlet (H19, H20) |
 | `/tier <50\|100\|200\|500>` | Set how many hires the hamlet holds (H40) |
 | `/mayor <address> <reason>` | Give the hamlet's office to another hire (H18) |
 | `/hire <scholar#id>[@<version>] [in <hamlet>] [under <address>] [purpose]` | Hire a scholar into the hamlet (H40) |
