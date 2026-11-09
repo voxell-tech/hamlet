@@ -570,13 +570,12 @@ fn grid() -> AnyView {
 }
 
 /// Where `item` comes from, in words: its kind, or that it is built
-/// in or an example.
+/// in.
 fn origin(item: &Item) -> String {
     match &item.source {
         Source::File(_) => item.kind.word().to_owned(),
-        Source::BuiltIn => "Built-in mesh".to_owned(),
-        Source::Example(_) => {
-            format!("Example {}", item.kind.word().to_lowercase())
+        Source::BuiltIn | Source::Example(_) => {
+            format!("Built-in {}", item.kind.word().to_lowercase())
         }
     }
 }

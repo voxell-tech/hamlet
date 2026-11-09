@@ -59,10 +59,12 @@ impl TownStyle {
 
 /// Each graph of Hamlet's own book of the house as a book of its own,
 /// by its name and text, the way a library lists one asset per graph.
+/// The house comes first.
 pub fn blueprints() -> &'static [(&'static str, &'static str)] {
     static EACH: LazyLock<Vec<(&'static str, &'static str)>> =
         LazyLock::new(|| {
-            own()
+            let book = own();
+            let mut each = book
                 .sheets
                 .into_iter()
                 .map(|(name, sheet)| {
@@ -72,7 +74,9 @@ pub fn blueprints() -> &'static [(&'static str, &'static str)] {
                         );
                     (&*name.leak(), &*text.leak())
                 })
-                .collect()
+                .collect::<Vec<_>>();
+            each.sort_by_key(|(name, _)| *name != book.entry);
+            each
         });
     &EACH
 }

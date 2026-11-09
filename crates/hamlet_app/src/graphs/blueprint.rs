@@ -87,26 +87,8 @@ pub(crate) const SETUP: Setup = Setup {
     nesting: Nesting::Runs,
     outputs: true,
     room: 0.0,
-    // The small examples first, each one idea; the house runs the
-    // three after it.
-    examples: &[
-        ("fence", include_str!("examples/fence.ron")),
-        ("stone_wall", include_str!("examples/stone_wall.ron")),
-        ("window", include_str!("examples/window.ron")),
-        ("stone_tower", include_str!("examples/stone_tower.ron")),
-        (
-            "stepping_stones",
-            include_str!("examples/stepping_stones.ron"),
-        ),
-        ("garden_bed", include_str!("examples/garden_bed.ron")),
-        ("house_wall", include_str!("examples/house_wall.ron")),
-        ("house_roof", include_str!("examples/house_roof.ron")),
-        ("house_window", include_str!("examples/house_window.ron")),
-        (
-            "medieval_house",
-            include_str!("examples/medieval_house.ron"),
-        ),
-    ],
+    // The graphs the realm builds every house from, the house first.
+    examples: house::blueprints,
 };
 
 /// Adds the blueprint editor in a panel of the dock, run again on
@@ -130,10 +112,6 @@ pub(super) fn plugin(app: &mut App) {
         preview::plugin,
         gizmo::plugin,
     ));
-    // The graphs the realm builds every house from.
-    app.world_mut()
-        .resource_mut::<Library>()
-        .add_examples(Kind::Blueprint, house::blueprints());
 }
 
 /// The editor's panel: the toolbar with the export tool and what the
@@ -463,9 +441,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn every_example_runs_with_the_others_available_and_puts_something_down()
+    fn every_built_in_graph_runs_with_the_others_and_the_house_puts_something_down()
      {
-        let all = || SETUP.examples.iter().chain(house::blueprints());
+        let all = || (SETUP.examples)().iter();
         let sheets = all()
             .map(|(name, text)| {
                 let book = parse_book(text).unwrap_or_else(|| {
@@ -494,12 +472,10 @@ mod tests {
             evaluate(&mut editor, &mut got);
             // A part of the house may put nothing down by its
             // defaults, as a garden that is none.
-            let example =
-                SETUP.examples.iter().any(|(n, _)| n == name);
             match &got.outcome {
                 Ok(objects) => {
                     assert!(
-                        !example || !objects.is_empty(),
+                        *name != "house" || !objects.is_empty(),
                         "{name}"
                     );
                 }

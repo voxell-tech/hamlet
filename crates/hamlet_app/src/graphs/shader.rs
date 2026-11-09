@@ -43,20 +43,19 @@ pub(crate) const SETUP: Setup = Setup {
     nesting: Nesting::Never,
     outputs: false,
     room: swatch::SIZE + 8.0,
-    examples: &[
-        ("plaster", include_str!("shader/examples/plaster.ron")),
-        (
-            "stone_wall",
-            include_str!("shader/examples/stone_wall.ron"),
-        ),
-        ("wood", include_str!("shader/examples/wood.ron")),
-        (
-            "emissive_runes",
-            include_str!("shader/examples/emissive_runes.ron"),
-        ),
-        ("water", include_str!("shader/examples/water.ron")),
-    ],
+    examples: || EXAMPLES,
 };
+
+const EXAMPLES: &[(&str, &str)] = &[
+    ("plaster", include_str!("shader/examples/plaster.ron")),
+    ("stone_wall", include_str!("shader/examples/stone_wall.ron")),
+    ("wood", include_str!("shader/examples/wood.ron")),
+    (
+        "emissive_runes",
+        include_str!("shader/examples/emissive_runes.ron"),
+    ),
+    ("water", include_str!("shader/examples/water.ron")),
+];
 
 /// Adds the shader editor in a panel of the dock, compiled again on
 /// every change, its preview floating over the canvas.
@@ -187,11 +186,11 @@ fn evaluate(editor: &mut Editor<ShaderGraph>, got: &mut Got) {
 mod tests {
     use hamlet_graph_editor::library::{lone, parse_book};
 
-    use super::SETUP;
+    use super::EXAMPLES;
 
     #[test]
     fn every_example_compiles() {
-        for (name, text) in SETUP.examples {
+        for (name, text) in EXAMPLES {
             let sheet = lone(parse_book(text).unwrap());
             let compiled = hamlet_shader::compile(&sheet.graph)
                 .unwrap_or_else(|error| panic!("{name}: {error}"));
