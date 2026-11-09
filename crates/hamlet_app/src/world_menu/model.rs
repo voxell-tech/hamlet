@@ -44,8 +44,8 @@ use hamlet_client::realm::{
 };
 use hamlet_protocol::{Effort, client as protocol};
 use hamlet_ui::styles::{
-    ICON, description, hairline, note, radio, rail_item, small_rules,
-    upright,
+    ICON, RailRow, description, hairline, note, radio, rail_item,
+    small_rules, upright,
 };
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::ellipsis::one_line;
@@ -740,24 +740,27 @@ fn rail() -> impl View {
         .when(every_frame()),
         |(providers, on, searching)| {
             let searching = *searching;
-            // Faded while a search runs over every provider.
-            let shown = if searching { 0.45 } else { 1.0 };
             let tab = |side: Side, face: AnyView, name: String| {
                 let chosen = *on == side;
-                let item = rail_item(
-                    face,
-                    name,
-                    chosen && !searching,
-                    shown,
-                )
-                .on_activate(move |world| {
-                    let mut picking = world.resource_mut::<Picking>();
-                    picking.side = side.clone();
-                    picking.focus = Some(Want::Part(Part::Rail));
-                    world
-                        .resource_mut::<LastSide>()
-                        .set_if_neq(LastSide(side.kept()));
-                });
+                // Faded while a search runs over every provider.
+                let state = if searching {
+                    RailRow::Dimmed
+                } else if chosen {
+                    RailRow::Chosen
+                } else {
+                    RailRow::Plain
+                };
+                let item = rail_item(face, name, state).on_activate(
+                    move |world| {
+                        let mut picking =
+                            world.resource_mut::<Picking>();
+                        picking.side = side.clone();
+                        picking.focus = Some(Want::Part(Part::Rail));
+                        world
+                            .resource_mut::<LastSide>()
+                            .set_if_neq(LastSide(side.kept()));
+                    },
+                );
                 if chosen {
                     item.tagged(Chosen).boxed()
                 } else {

@@ -593,19 +593,23 @@ impl SurfaceTokens for HamletTheme {
     }
 }
 
+/// How far above [`contrast::TEXT`] the words of an empty field are
+/// held.
+const HINT_MARGIN: f32 = 2.0;
+
 impl HamletTheme {
     /// How opaque the words of an empty field are: as faint as dim
     /// text can be while it still reads on the field.
     pub fn hint_opacity(&self) -> f32 {
         (0..=100)
             .map(|step| step as f32 / 100.0)
-            // Above the need by a little, so the colour rounded to
-            // 8 bits still meets it.
+            // Above the need by enough that thin, antialiased letters
+            // still meet it on screen.
             .find(|&opacity| {
                 contrast::contrast(
                     self.hint(opacity),
                     self.palette.input,
-                ) >= contrast::TEXT + 0.1
+                ) >= contrast::TEXT + HINT_MARGIN
             })
             .unwrap_or(1.0)
     }

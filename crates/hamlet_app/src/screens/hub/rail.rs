@@ -1661,7 +1661,7 @@ fn sections_view(sections: &[Section], first_above: f32) -> AnyView {
 
 /// How strong the glow is where the light over what the panel shows
 /// starts, over dark panels and over light ones.
-const LIT: [f32; 2] = [0.2, 0.5];
+const LIT: [f32; 2] = [0.12, 0.65];
 
 /// How far the glow over light panels is taken toward the gold ink:
 /// the pale glow alone is all but unseen on cream.

@@ -16,6 +16,10 @@ use super::control::ControlEffect;
 use super::{EffectColors, EffectSettings, ease};
 use crate::theme::Themed;
 
+/// The most a light panel's gain strengthens an underglow: past it
+/// the glow pools into an orange smudge in its box.
+const GAIN_CAP: f32 = 2.0;
+
 /// A title or a tab that glows from below under the pointer, at a
 /// press, and for as long as it is `held`.
 #[derive(Component, Default)]
@@ -63,7 +67,7 @@ pub(super) fn update_underglow(
         glow.level = level;
         let strength = (set.underglow * level
             + set.underglow_press * flare)
-            * set.gain(&theme);
+            * set.gain(&theme).min(GAIN_CAP);
         if strength <= 0.0 {
             commands.entity(node).try_remove::<BackgroundGradient>();
             continue;

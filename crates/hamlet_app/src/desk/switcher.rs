@@ -343,6 +343,7 @@ fn indicator() -> impl View {
         let glow = underline_glow(
             cx.world.resource::<DeskSettings>(),
             palette.glow,
+            effects.gain(theme),
         );
         let radius =
             (space.track_radius - space.track_padding).max(0.0);
@@ -386,9 +387,11 @@ fn indicator() -> impl View {
 fn underline_glow(
     settings: &DeskSettings,
     color: Color,
+    gain: f32,
 ) -> BoxShadow {
     BoxShadow(vec![ShadowStyle {
-        color: color.with_alpha(settings.underline_glow),
+        color: color
+            .with_alpha((settings.underline_glow * gain).min(1.0)),
         x_offset: px(0.0),
         y_offset: px(0.0),
         spread_radius: px(0.0),
@@ -399,11 +402,16 @@ fn underline_glow(
 /// Sets the underline's glow again as the tuning changes.
 fn retune_underline_glow(
     settings: Res<DeskSettings>,
+    effects: Res<EffectSettings>,
     theme: Themed,
     mut lines: Query<&mut BoxShadow, With<Underline>>,
 ) {
     for mut line in &mut lines {
-        *line = underline_glow(&settings, theme.palette.glow);
+        *line = underline_glow(
+            &settings,
+            theme.palette.glow,
+            effects.gain(&theme),
+        );
     }
 }
 

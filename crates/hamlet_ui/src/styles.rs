@@ -244,15 +244,26 @@ pub fn upright() -> impl View {
     })
 }
 
+/// How a row of a rail of providers stands.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum RailRow {
+    /// Open to be chosen.
+    Plain,
+    /// The one chosen: in the accent, on the selected fill.
+    Chosen,
+    /// As faint as an empty field's words.
+    Dimmed,
+}
+
 /// A row of a rail of providers: `face` and `name` on one line, small
-/// and bold at `shown` opacity, lit under the pointer or the focus,
-/// and in the accent while `chosen`.
+/// and bold, lit under the pointer or the focus, and as `state` says.
 pub fn rail_item(
     face: impl View,
     name: impl Into<Prop<String>>,
-    chosen: bool,
-    shown: f32,
+    state: RailRow,
 ) -> impl View {
+    let chosen = state == RailRow::Chosen;
+    let dimmed = state == RailRow::Dimmed;
     let tone = if chosen { Tone::Accent } else { Tone::Faint };
     menu_item(
         row((face, one_line(label(name))))
@@ -264,9 +275,15 @@ pub fn rail_item(
     .rules(
         style::<HamletTheme>()
             .label(move |l, t| {
-                l.size(t.text.small).bold(true).opacity(shown)
+                l.size(t.text.small).bold(true).opacity(if dimmed {
+                    t.hint_opacity()
+                } else {
+                    1.0
+                })
             })
-            .icon(move |i, _| i.opacity(shown))
+            .icon(move |i, t| {
+                i.opacity(if dimmed { t.hint_opacity() } else { 1.0 })
+            })
             .tone(tone)
             .frame(move |f, t| {
                 let f = f.radius(t.space.round);

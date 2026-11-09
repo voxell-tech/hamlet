@@ -176,7 +176,7 @@ pub fn nav(cx: &mut Cx) {
         .frame(|f, t| {
             f.fill(Color::NONE)
                 .height(percent(100.0))
-                .radius(0.0)
+                .radius(t.space.round)
                 .padding(UiRect::axes(
                     px(t.space.title_padding),
                     px(0.0),
