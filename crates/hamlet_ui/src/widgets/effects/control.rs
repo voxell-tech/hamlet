@@ -202,7 +202,10 @@ pub(super) fn answer(
     };
     match variant.copied().unwrap_or_default() {
         Variant::Input => {}
-        Variant::Subtle | Variant::Default | Variant::Text => {
+        Variant::Subtle
+        | Variant::Default
+        | Variant::Text
+        | Variant::Tinted(_) => {
             effect.pulse = 1.0;
         }
         Variant::Primary => {
@@ -285,7 +288,7 @@ pub(super) fn animate(
         let (rest, near, done) = match variant {
             Variant::Subtle => (0.0, 0.0, 0.0),
             Variant::Input => (0.0, set.glow_input, 0.0),
-            Variant::Default | Variant::Text => {
+            Variant::Default | Variant::Text | Variant::Tinted(_) => {
                 (0.0, set.glow_default, set.done_boost * pulse)
             }
             Variant::Primary => {
@@ -340,6 +343,7 @@ pub(super) fn animate(
 fn hues(variant: Variant, colors: &EffectColors) -> (Color, Color) {
     match variant {
         Variant::Danger => (colors.glow_danger, colors.particle),
+        Variant::Tinted(kind) => colors.tint(kind),
         _ => (colors.glow, colors.glow_core),
     }
 }

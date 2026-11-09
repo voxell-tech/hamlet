@@ -365,7 +365,7 @@ pub(super) fn status_sheet() -> Ui {
                 Glyph::Merge,
                 "Merge",
                 styles::merge_button,
-                Variant::Default,
+                Variant::Tinted(StatusKind::Merged),
             ),
         ),
         part(
@@ -374,7 +374,7 @@ pub(super) fn status_sheet() -> Ui {
                 Glyph::Restore,
                 "Restore",
                 styles::success_button,
-                Variant::Default,
+                Variant::Tinted(StatusKind::Success),
             ),
         ),
         part("Pills", row(pills).gap(10.0).boxed()),

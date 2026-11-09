@@ -234,7 +234,7 @@ fn button(need: &Need, at: usize) -> AnyView {
                 Check,
                 "Allow once",
                 success_button,
-                Variant::Default,
+                Variant::Tinted(StatusKind::Success),
             ),
             Choice::Always => {
                 (CheckAll, always, styles::button, Variant::Default)
@@ -243,7 +243,8 @@ fn button(need: &Need, at: usize) -> AnyView {
                 (Cross, "Deny", danger_button, Variant::Danger)
             }
             Choice::Go => {
-                (Check, "Go ahead", success_button, Variant::Default)
+                let tint = Variant::Tinted(StatusKind::Success);
+                (Check, "Go ahead", success_button, tint)
             }
             Choice::Withdraw => {
                 (Restore, "Withdraw", danger_button, Variant::Danger)
@@ -273,7 +274,7 @@ fn button(need: &Need, at: usize) -> AnyView {
                 Check,
                 "Welcome into the city",
                 success_button,
-                Variant::Default,
+                Variant::Tinted(StatusKind::Success),
             ),
         };
     let scope = matches!(choice, Choice::Always)

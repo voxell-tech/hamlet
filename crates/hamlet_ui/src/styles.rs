@@ -901,8 +901,8 @@ pub fn success_action(
     text: &'static str,
     act: impl Fn(&mut World) + Send + Sync + 'static,
 ) -> AnyView {
-    acting(which, text, (success_button, Variant::Default), act)
-        .boxed()
+    let tint = Variant::Tinted(StatusKind::Success);
+    acting(which, text, (success_button, tint), act).boxed()
 }
 
 /// A [`warning_button`] with an icon before its text, that runs
@@ -912,8 +912,8 @@ pub fn warning_action(
     text: &'static str,
     act: impl Fn(&mut World) + Send + Sync + 'static,
 ) -> AnyView {
-    acting(which, text, (warning_button, Variant::Default), act)
-        .boxed()
+    let tint = Variant::Tinted(StatusKind::Warning);
+    acting(which, text, (warning_button, tint), act).boxed()
 }
 
 /// A [`merge_button`] with an icon before its text, that runs `act`.
@@ -922,7 +922,8 @@ pub fn merge_action(
     text: &'static str,
     act: impl Fn(&mut World) + Send + Sync + 'static,
 ) -> AnyView {
-    acting(which, text, (merge_button, Variant::Default), act).boxed()
+    let tint = Variant::Tinted(StatusKind::Merged);
+    acting(which, text, (merge_button, tint), act).boxed()
 }
 
 /// Buttons in a row that wraps: in a narrow panel they go on to a

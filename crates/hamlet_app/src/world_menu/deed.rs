@@ -23,6 +23,7 @@ use hamlet_realm::orders;
 use hamlet_ui::styles::{
     button, danger_button, lettered, merge_button,
 };
+use hamlet_ui::theme::StatusKind;
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::{Cx, View, built};
 
@@ -311,7 +312,9 @@ pub(crate) fn question(deed: Deed, anchor: Rect) -> impl View {
         let done = deed.clone();
         // A merge that completes is purple; the rest end something.
         let (confirm, variant): (fn(&mut Cx), Variant) = match &deed {
-            Deed::Merge { .. } => (merge_button, Variant::Default),
+            Deed::Merge { .. } => {
+                (merge_button, Variant::Tinted(StatusKind::Merged))
+            }
             _ => (danger_button, Variant::Danger),
         };
         let (gap, section, padding, heading) = {

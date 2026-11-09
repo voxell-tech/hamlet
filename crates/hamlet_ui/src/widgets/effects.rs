@@ -30,7 +30,7 @@ pub use self::highlight::{
 pub use self::underglow::Underglow;
 pub use self::wash::{Edge, Wash, wash};
 use crate::theme::contrast::contrast;
-use crate::theme::{HamletTheme, deepen};
+use crate::theme::{HamletTheme, StatusKind, Statuses, deepen};
 
 /// The effects of the controls, the dock's drop hint and the
 /// panels' highlights.
@@ -102,6 +102,9 @@ pub enum Variant {
     Danger,
     /// A text input, which glows while it is typed in.
     Input,
+    /// A lettered button in a status's colour, which glows as a
+    /// default one does, in that colour.
+    Tinted(StatusKind),
 }
 
 impl Variant {
@@ -109,7 +112,11 @@ impl Variant {
     fn has_tick(self) -> bool {
         matches!(
             self,
-            Self::Default | Self::Text | Self::Primary | Self::Danger
+            Self::Default
+                | Self::Text
+                | Self::Primary
+                | Self::Danger
+                | Self::Tinted(_)
         )
     }
 }
@@ -270,6 +277,18 @@ pub struct EffectColors {
     /// dragged.
     pub drop_hint: Color,
     pub drag_ghost: Color,
+    /// The colours of each status, for the glow of a tinted button:
+    /// its mark, and its ink at the centre.
+    pub statuses: Statuses,
+}
+
+impl EffectColors {
+    /// The glow of a button tinted `kind` and the centre of that
+    /// glow.
+    pub fn tint(&self, kind: StatusKind) -> (Color, Color) {
+        let status = self.statuses.get(kind);
+        (status.mark, status.ink)
+    }
 }
 
 impl EffectColors {
@@ -298,6 +317,7 @@ impl EffectColors {
             underglow: lamp(p.glow),
             drop_hint: lamp(p.glow),
             drag_ghost: p.surface,
+            statuses: p.status,
         }
     }
 }
