@@ -728,6 +728,19 @@ impl SurfaceTokens for HamletTheme {
             .unwrap_or(border)
     }
 
+    /// A menu row under the pointer: the card a popup is drawn on,
+    /// toward the border until the row stands out from it.
+    fn menu_hover(&self) -> Color {
+        let (card, border) = (self.palette.card, self.palette.border);
+        (0..=20)
+            .map(|step| step as f32 / 20.0)
+            .map(|share| card.mix(&border, share))
+            .find(|row| {
+                contrast::contrast(*row, card) >= MENU_HOVER_NEED
+            })
+            .unwrap_or(border)
+    }
+
     fn selection(&self) -> Color {
         self.palette.gold_6
     }
@@ -763,6 +776,8 @@ const EDGE_FIRM: f32 = 0.7;
 /// The contrast an edge has against a field's fill and the panel at
 /// least, in every theme: more firmness is added until it has it.
 const EDGE_NEED: f32 = 3.0;
+/// The contrast a menu row under the pointer has against the menu.
+const MENU_HOVER_NEED: f32 = 1.3;
 /// How far the groove of a slider is from the button's fill toward
 /// the border.
 const GROOVE: f32 = 0.6;
