@@ -159,3 +159,34 @@ async fn web_read_asks_for_the_page_and_gives_what_the_window_read() {
         [("web_read".to_owned(), None)]
     );
 }
+
+#[tokio::test]
+async fn web_console_asks_for_the_page_console() {
+    let faux = Faux::new()
+        .agent(2, [call("web_console", json!({})), words("Done.")]);
+    let mut s = Session::start(faux).await;
+    let ada = s.found("docs", "ada", "keep the docs").await;
+    let now = chat(ada);
+    s.chief.open(&now).await;
+    s.chief.send(ClientMessage::WebWindow(WebWindow {})).await;
+    s.chief.tell(ada, "Look at the console.").await;
+    s.chief
+        .until("the server to ask for the console", |c| {
+            !asks(c).is_empty()
+        })
+        .await;
+    let ask = asks(&s.chief).remove(0);
+    assert_eq!(ask.act, WebAct::Console {});
+    s.chief
+        .send(ClientMessage::Web(WebAnswer {
+            to: ask.id,
+            text: "[error] boom (app.js:3)".into(),
+            failed: false,
+        }))
+        .await;
+    s.chief.shows(&now, "Done.").await;
+    assert_eq!(
+        tools(&s.chief, &now),
+        [("web_console".to_owned(), None)]
+    );
+}
