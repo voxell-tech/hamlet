@@ -30,6 +30,7 @@ use hamlet_graph_editor::library::{
 use hamlet_graph_editor::{
     Dropped, Editor, Nesting, Setup, editor, toolbar,
 };
+use hamlet_realm::generator::house;
 use hamlet_realm::objects::Models;
 use hamlet_ui::AnyView;
 use hamlet_ui::styles::{self, description, tool};
@@ -105,8 +106,6 @@ pub(crate) const SETUP: Setup = Setup {
             "medieval_house",
             include_str!("examples/medieval_house.ron"),
         ),
-        // The book the realm builds every house from.
-        ("house", hamlet_realm::generator::house::BOOK),
     ],
 };
 
@@ -131,6 +130,10 @@ pub(super) fn plugin(app: &mut App) {
         preview::plugin,
         gizmo::plugin,
     ));
+    // The graphs the realm builds every house from.
+    app.world_mut()
+        .resource_mut::<Library>()
+        .add_examples(Kind::Blueprint, house::blueprints());
 }
 
 /// The editor's panel: the toolbar with the export tool and what the
@@ -462,9 +465,8 @@ mod tests {
     #[test]
     fn every_example_runs_with_the_others_available_and_puts_something_down()
      {
-        let sheets = SETUP
-            .examples
-            .iter()
+        let all = || SETUP.examples.iter().chain(house::blueprints());
+        let sheets = all()
             .map(|(name, text)| {
                 let book = parse_book(text).unwrap_or_else(|| {
                     panic!("{name} does not parse")
@@ -474,7 +476,7 @@ mod tests {
             .collect::<BTreeMap<_, _>>();
         let mut editor = Editor::<Blueprint>::new(SETUP);
         let mut got = Got::default();
-        for (name, text) in SETUP.examples {
+        for (name, text) in all() {
             editor.open(
                 (*name).to_owned(),
                 Source::Example(text),
@@ -490,9 +492,16 @@ mod tests {
                     .collect(),
             );
             evaluate(&mut editor, &mut got);
+            // A part of the house may put nothing down by its
+            // defaults, as a garden that is none.
+            let example =
+                SETUP.examples.iter().any(|(n, _)| n == name);
             match &got.outcome {
                 Ok(objects) => {
-                    assert!(!objects.is_empty(), "{name}");
+                    assert!(
+                        !example || !objects.is_empty(),
+                        "{name}"
+                    );
                 }
                 Err(error) => panic!("{name}: {error}"),
             }

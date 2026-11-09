@@ -1,10 +1,13 @@
 //! Houses: one mesh per agent, put down by a ruleset from the traits
 //! the agent's id picks, so each agent's house is its own and always
-//! the same. Hamlet's own ruleset is the book `house.ron`.
+//! the same. Hamlet's own ruleset is the book
+//! `assets/blueprints/house.ron`, whose graphs a library lists one by
+//! one.
 
 use std::collections::BTreeMap;
 use std::f32::consts::FRAC_PI_2;
-use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, LazyLock};
 
 use bevy::math::Affine3A;
 use bevy::prelude::*;
@@ -17,13 +20,9 @@ use super::noise::key;
 use super::society::AgentId;
 use super::yard::{self, Yard};
 use crate::meshes::{Meshing, Rng};
-use crate::objects::{self, Paints, Target};
+use crate::objects::{self, Model, Paints, Target};
 use crate::palette::Palette;
 pub use crate::palette::TownStyle;
-
-/// Hamlet's own book of the house, which makes every house until a
-/// realm's host chooses another.
-pub const BOOK: &str = include_str!("house.ron");
 
 /// The remains of an archived agent's house.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, serde::Deserialize)]
@@ -58,25 +57,73 @@ impl TownStyle {
     }
 }
 
-/// The ruleset houses are made by, and the kinds of node it is
-/// checked against.
+/// Each graph of Hamlet's own book of the house as a book of its own,
+/// by its name and text, the way a library lists one asset per graph.
+pub fn blueprints() -> &'static [(&'static str, &'static str)] {
+    static EACH: LazyLock<Vec<(&'static str, &'static str)>> =
+        LazyLock::new(|| {
+            own()
+                .sheets
+                .into_iter()
+                .map(|(name, sheet)| {
+                    let text =
+                        Book::of(&name, sheet).to_ron().expect(
+                            "a sheet of Hamlet's own book writes",
+                        );
+                    (&*name.leak(), &*text.leak())
+                })
+                .collect()
+        });
+    &EACH
+}
+
+/// Hamlet's own book of the house, which makes every house until the
+/// chief builds with their own assets.
+fn own() -> Book {
+    Book::from_ron(hamlet_assets::HOUSE.text())
+        .expect("Hamlet's own house book reads")
+}
+
+/// The ruleset houses are made by, the kinds of node it is checked
+/// against and the models of its assets that are meshes. Each one
+/// made has a revision of its own, so that what it built is known to
+/// be built again.
 #[derive(Resource, Clone)]
-pub struct HouseRules(Arc<(Ruleset, Registry)>);
+pub struct HouseRules(Arc<Rules>);
+
+struct Rules {
+    ruleset: Ruleset,
+    registry: Registry,
+    models: BTreeMap<String, Model>,
+    revision: u64,
+}
 
 impl HouseRules {
-    pub fn new(ruleset: Ruleset) -> Self {
-        Self(Arc::new((ruleset, hamlet_blueprint::registry())))
+    /// `ruleset`, its assets that are meshes drawn as `models`, by
+    /// the asset's name.
+    pub fn new(
+        ruleset: Ruleset,
+        models: BTreeMap<String, Model>,
+    ) -> Self {
+        static MADE: AtomicU64 = AtomicU64::new(0);
+        Self(Arc::new(Rules {
+            ruleset,
+            registry: hamlet_blueprint::registry(),
+            models,
+            revision: MADE.fetch_add(1, Ordering::Relaxed),
+        }))
+    }
+
+    /// Unlike that of any other rules made.
+    pub fn revision(&self) -> u64 {
+        self.0.revision
     }
 }
 
 impl Default for HouseRules {
-    /// Hamlet's own, from [`BOOK`].
+    /// Hamlet's own, from its book of the house.
     fn default() -> Self {
-        Self::new(
-            Book::from_ron(BOOK)
-                .expect("Hamlet's own house book reads")
-                .ruleset(),
-        )
+        Self::new(own().ruleset(), BTreeMap::new())
     }
 }
 
@@ -322,7 +369,7 @@ pub fn house(
     let pal = &land.pal;
     let style = &TownStyle::of(land, site);
     let look = Look::of(land, agent, hall);
-    let (ruleset, registry) = &*rules.0;
+    let rules = &*rules.0;
     let realm = Seed(u64::from(land.seed));
     let seeds = Seeds {
         realm,
@@ -330,8 +377,8 @@ pub fn house(
         item: realm.mix(u64::from(agent.0)),
     };
     let objects = match evaluate(
-        registry,
-        ruleset,
+        &rules.registry,
+        &rules.ruleset,
         seeds,
         &look.inputs(hall, banner, wings, yard),
     ) {
@@ -352,7 +399,7 @@ pub fn house(
     let marks = draw(
         &mut body,
         &mut panes,
-        ruleset,
+        rules,
         &objects,
         &look.paints(pal, style),
         seeds.item,
@@ -371,12 +418,12 @@ pub fn house(
     }
 }
 
-/// Draws `objects` as `ruleset`'s catalogue has their assets, into
+/// Draws `objects` as the catalogue of `rules` has their assets, into
 /// `body` and `panes`. Gives where each mark was put, by name.
 fn draw(
     body: &mut Meshing,
     panes: &mut Meshing,
-    ruleset: &Ruleset,
+    rules: &Rules,
     objects: &[Object],
     paints: &Paints,
     seed: Seed,
@@ -387,7 +434,7 @@ fn draw(
         panes: Some(panes),
     };
     for object in objects {
-        let asset = ruleset.assets.get(&object.asset);
+        let asset = rules.ruleset.assets.get(&object.asset);
         if asset
             .as_ref()
             .is_some_and(|asset| asset.shape == Shape::Mark)
@@ -403,7 +450,7 @@ fn draw(
             &object.frame,
             &object.asset,
             asset.as_ref(),
-            None,
+            rules.models.get(&object.asset),
             Some(paints),
             seed.mix(object.id.0).0,
         );
@@ -672,7 +719,9 @@ mod tests {
     fn hamlets_own_book_builds_every_kind_of_house() {
         let land = land(7);
         let rules = HouseRules::default();
-        let (ruleset, registry) = &*rules.0;
+        let Rules {
+            ruleset, registry, ..
+        } = &*rules.0;
         let kinds = [
             (false, Banner::None, 0),
             (false, Banner::Flown, 2),

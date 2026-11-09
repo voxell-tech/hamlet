@@ -152,6 +152,7 @@ pub fn plugin(app: &mut App) {
             sync.run_if(
                 reshaped
                     .or_eager(resource_changed::<Land>)
+                    .or_eager(resource_changed::<house::HouseRules>)
                     .or_eager(resource_changed::<GeneratorOptions>),
             ),
             tell_states.run_if(resource_changed::<Society>),

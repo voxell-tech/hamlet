@@ -1,6 +1,7 @@
 //! The files under `assets/`, built into the app: the tuning values,
-//! the colours and the typefaces. A tuning file is also a Bevy asset,
-//! so a saved change reaches an app run with `hot-reload`.
+//! the colours, the house's blueprints and the typefaces. A tuning
+//! file is also a Bevy asset, so a saved change reaches an app run
+//! with `hot-reload`.
 
 pub mod tint;
 
@@ -57,6 +58,10 @@ pub const EFFECTS: File = file!("effects.toml");
 /// The panels' lettering, spacing, shadow fall and motion, shared by
 /// every theme.
 pub const MEASURES: File = file!("measures.toml");
+
+/// The blueprint book every house is built from until a chief builds
+/// with their own assets.
+pub const HOUSE: File = file!("blueprints/house.ron");
 
 /// The themes a chief can pick, one family a file. The file's name,
 /// less `.toml`, is the theme's id.

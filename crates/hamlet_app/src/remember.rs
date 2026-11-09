@@ -1,5 +1,6 @@
 //! The view kept between launches: the desks, the sky as the Sight
-//! page sets it, the appearance and the selection.
+//! page sets it, the appearance, the folder of assets and the
+//! selection.
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -30,6 +31,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::PanelSystems;
 use crate::appearance::{Appearance, Pick};
+use crate::assets_folder::AssetChoice;
 use crate::convo::Convo;
 use crate::desk::{self, Desks, Part};
 use crate::roll::Roll;
@@ -50,6 +52,7 @@ pub(crate) fn plugin(app: &mut App) {
         .init_resource::<Kept>()
         .init_resource::<Favorites>()
         .init_resource::<LastSide>()
+        .init_resource::<AssetChoice>()
         // Before the first theme is shown.
         .add_systems(Startup, restore_appearance)
         .add_systems(
@@ -138,6 +141,10 @@ pub struct View {
         deserialize_with = "kept_or_designed"
     )]
     appearance: Option<Pick>,
+    /// The folder of assets chosen, and whether the realm builds
+    /// with them.
+    #[serde(default, deserialize_with = "kept_or_designed")]
+    assets: AssetChoice,
 }
 
 /// The view kept in the window's folder, as read at launch; none
@@ -338,6 +345,7 @@ pub fn restore(world: &mut World) {
     world.insert_resource(desks);
     world.insert_resource(view.favorite_models);
     world.insert_resource(view.model_side);
+    world.insert_resource(view.assets);
 }
 
 /// Puts back the kept appearance.
@@ -385,11 +393,12 @@ pub fn keep(
         Res<Favorites>,
         Res<LastSide>,
     ),
-    (fog, far, wind, appearance): (
+    (fog, far, wind, appearance, assets): (
         Res<VolumetricFogSettings>,
         Res<DistanceFogSettings>,
         Res<WindChoice>,
         Res<Appearance>,
+        Res<AssetChoice>,
     ),
     mut written: Local<Option<View>>,
     mut due: Local<Option<f32>>,
@@ -408,6 +417,7 @@ pub fn keep(
         || favorites.is_changed()
         || side.is_changed()
         || appearance.is_changed()
+        || assets.is_changed()
     {
         *due = Some(now + SETTLE);
     }
@@ -436,6 +446,7 @@ pub fn keep(
         favorite_models: favorites.clone(),
         model_side: side.clone(),
         appearance: appearance.0.clone(),
+        assets: assets.clone(),
     };
     if written.as_ref() == Some(&view) {
         return;
@@ -492,6 +503,7 @@ mod tests {
             selected: Some(Chosen::House("juniper".into())),
             favorite_models: Favorites(vec!["faux::faux-1".into()]),
             model_side: LastSide("faux".into()),
+            assets: AssetChoice::default(),
             appearance: None,
         }
     }

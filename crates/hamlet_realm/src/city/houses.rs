@@ -154,14 +154,16 @@ pub(super) fn tend(
 ) {
     let living = agents.iter().map(|id| id.0.0).collect::<Vec<_>>();
     let wanted = wanted(&land, &scholars, &living);
+    // New rules build every house again.
+    let anew = rules.is_changed() && !rules.is_added();
     for (entity, home) in &homes {
-        if !wanted.contains(home) {
+        if anew || !wanted.contains(home) {
             commands.entity(entity).despawn();
         }
     }
     let (radius, tall) = pick.house;
     for want in wanted {
-        if homes.iter().any(|(_, home)| *home == want) {
+        if !anew && homes.iter().any(|(_, home)| *home == want) {
             continue;
         }
         let Ok((_, scholar)) = scholars.get(want.scholar) else {

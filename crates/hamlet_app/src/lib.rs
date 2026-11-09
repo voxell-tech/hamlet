@@ -5,6 +5,7 @@
 mod age;
 pub mod appearance;
 pub mod asking;
+pub mod assets_folder;
 mod browser;
 mod chief;
 pub mod chrome;
@@ -143,6 +144,7 @@ impl Plugin for UiPlugin {
                 tuning::plugin,
                 graphs::plugin,
                 graphs::faint,
+                assets_folder::plugin,
                 browser::plugin,
                 cursor::plugin,
                 sounds::plugin,

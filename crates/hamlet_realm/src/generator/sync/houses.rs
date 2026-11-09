@@ -35,6 +35,7 @@ impl Pass<'_, '_, '_> {
                 cleared: agent.cleared,
                 mayor: town.mayor == agent.id,
                 wings: agent.wings,
+                rules: self.rules.revision(),
             };
             let spot = plot(land, town.site, agent.plot);
             let yard = house::yard_of(

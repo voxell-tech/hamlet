@@ -966,6 +966,7 @@ pub async fn develop(
         );
         let mut command = window_command(&app, &address);
         command.env("HAMLET_VIEW", home.join("window"));
+        command.env("HAMLET_ASSETS", home.join("assets"));
         // Bevy watches the files under CARGO_MANIFEST_DIR, which must
         // be the checkout for it to see the saved shaders and tuning.
         if hot {

@@ -252,10 +252,11 @@ built-in ones.
 | Panels' colors, sizes, controls and icons | `assets/themes/`, `measures.toml`, `effects.toml`; `hamlet_app/src/appearance.rs`, `screens/settings/appearance.rs`; `hamlet_ui/src/theme.rs`, `styles.rs`, `widgets/effects/`, `widgets/icons.rs` |
 | World colors, size or timing | `assets/palette.toml`, `world.toml`, `vfx.toml`, `ui.toml` |
 | Ground, houses and roads | `hamlet_realm/src/generator/`; `LandData::surface` is the drawn surface |
+| What a house is made of | `assets/blueprints/house.ron`, the blueprint book every house is built from, each of its graphs listed in the library as a built-in blueprint; `hamlet_realm/src/generator/house.rs` for the traits it is given; `hamlet_realm/src/objects.rs` and `objects/` for drawing what it puts down; `hamlet_app/src/assets_folder.rs` for building with the chief's own assets instead |
 | Procedural graph nodes, or the BLUEPRINT panel | `hamlet_blueprint/src/nodes/`; `hamlet_graph_editor/src/` for the editor every kind of graph shares; `hamlet_app/src/graphs/` for the blueprint and shader editors, each its setup, its panel's layout and what runs its graph, whose `examples/` folders hold the example graphs they offer, one graph to a file, the first of which each opens with |
 | Shader graph nodes, or the SHADER panel | `hamlet_shader/src/kinds.rs` for the nodes, `compile.rs` for the shader they compile to; `hamlet_app/src/graphs/shader.rs` and `shader/` for the editor and its preview |
 | What is open in a graph editor, its Save, Save as, rename, Import and Export, and the toolbar | `hamlet_graph_editor/src/files.rs` and `toolbar.rs`; the editor's `open`, dirty flag and other assets in `lib.rs` and `others.rs`; the window's folder keeps which asset was open and its unsaved changes in `<FOLDER>/open.ron` |
-| The ASSETS panel and the asset library | `hamlet_graph_editor/src/library.rs` for the library, its `catalogue.ron` and the file each mesh follows in `sources.ron`; `library/folders.rs` for its folders in `folders.ron`; `hamlet_app/src/browser.rs` for the panel, its grid and the selected asset's details beside it; `hamlet_app/src/graphs/assets.rs` for a mesh's part of the details; `hamlet_app/src/browser/material.rs` for a material's |
+| The ASSETS panel and the asset library | `hamlet_graph_editor/src/library.rs` for the library in the folder `hamlet_app/src/assets_folder.rs` gives it and `screens/settings/assets.rs` chooses, its `catalogue.ron` and the file each mesh follows in `sources.ron`; `library/folders.rs` for its folders in `folders.ron`; `hamlet_app/src/browser.rs` for the panel, its grid and the selected asset's details beside it; `hamlet_app/src/graphs/assets.rs` for a mesh's part of the details; `hamlet_app/src/browser/material.rs` for a material's |
 | Materials | `hamlet_graph/src/material.rs` for what a material holds, the value it gives each input of its shader and its Errors; files in the library's `materials/` |
 | Mesh pictures and the mesh picker | `hamlet_graph_editor/src/library/thumbnails.rs` for what is asked for and when it is drawn again, `library/picker.rs` for the view that takes a callback; `hamlet_app/src/graphs/thumbnails.rs` for the camera that draws them |
 | The assets a graph puts down | `hamlet_graph/src/catalogue.rs` for the built-in ones and what an entry holds; `hamlet_app/src/graphs/assets.rs` for importing a `.glb`, following the file it came from when it is saved again, its sockets, and drawing it in the preview |
@@ -297,5 +298,6 @@ reports an error and keeps the last good values.
 
 `style_test` and `town_gen` open windows. For live work use
 `HAMLET_HOME=/tmp/hamlet-try cargo xtask dev`; it builds both Rust processes and
-sets `HAMLET_VIEW=<realm folder>/window`. Closing the window leaves the server;
+sets `HAMLET_VIEW=<realm folder>/window` and
+`HAMLET_ASSETS=<realm folder>/assets`. Closing the window leaves the server;
 Ctrl-C in the dev terminal stops it. Use Node from `harnesses/pi/.nvmrc`.

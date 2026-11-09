@@ -1,5 +1,6 @@
-//! The library: every asset the editors share, in one folder in the
-//! window's folder. Meshes are `.glb` files in `meshes/`, each named
+//! The library: every asset the editors share, in the folder the
+//! window gives it as [`LibraryFolder`]. Meshes are `.glb` files in
+//! `meshes/`, each named
 //! in `catalogue.ron` with its slots' colours and its sockets, and in
 //! `sources.ron` with the file outside the library it was added from
 //! and follows; blueprint and shader graphs are `.ron` files in
@@ -23,7 +24,6 @@ use bevy::ecs::component::Component;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::system::{Res, ResMut};
 use bevy::time::Time;
-use hamlet_client::ViewFolder;
 use hamlet_graph::material::Material;
 use hamlet_graph::{Asset, Book, Catalogue, Does, Shape, Sheet};
 use hamlet_ui::widgets::icons::Glyph;
@@ -39,15 +39,20 @@ pub mod thumbnails;
 /// window.
 const RESCAN: Duration = Duration::from_secs(3);
 
-/// Adds the [`Library`] and the systems that find and read its
+/// Adds the [`Library`] and the systems that follow and read its
 /// folder, the pickers of its meshes, and the card a dragged tile
 /// shows.
 pub fn plugin(app: &mut App) {
     app.init_resource::<Library>()
         .init_resource::<thumbnails::Thumbnails>()
         .add_plugins((picker::plugin, carry::plugin))
-        .add_systems(Update, (find, rescan));
+        .add_systems(Update, (follow, rescan));
 }
+
+/// The folder the library is kept in. None is kept until the window
+/// gives one.
+#[derive(Resource, Clone, PartialEq, Eq, Debug)]
+pub struct LibraryFolder(pub PathBuf);
 
 /// The kind of an asset.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
@@ -804,18 +809,19 @@ pub fn mesh_file(name: &str) -> String {
     )
 }
 
-/// Finds the library's folder once the window's folder is known.
-fn find(
-    folder: Option<Res<ViewFolder>>,
+/// Reads the library from the folder the window gives, and again
+/// from another when it gives that.
+fn follow(
+    folder: Option<Res<LibraryFolder>>,
     mut library: ResMut<Library>,
 ) {
     let Some(folder) = folder else {
         return;
     };
-    if library.root.is_some() {
+    if library.root.as_ref() == Some(&folder.0) {
         return;
     }
-    library.root = Some(folder.0.join("library"));
+    library.root = Some(folder.0.clone());
     library.scan();
 }
 

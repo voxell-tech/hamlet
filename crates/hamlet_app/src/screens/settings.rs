@@ -2,6 +2,7 @@
 //! of its own.
 
 mod appearance;
+mod assets;
 mod sight;
 pub(crate) mod workspace;
 
@@ -43,6 +44,7 @@ use hamlet_ui::widgets::switch::switch;
 use hamlet_ui::{AnyView, Cx, View, built, with_cx};
 
 use crate::appearance::Appearance;
+use crate::assets_folder::AssetChoice;
 use crate::dock::{PanelAppExt, panel};
 use crate::roll::{either, moved};
 use crate::root::Lasting;
@@ -100,10 +102,13 @@ pub enum Pane {
     Sight,
     /// Light, dark, or as the computer is set.
     Appearance,
+    /// The folder of the chief's assets, and whether the realm builds
+    /// with them.
+    Assets,
 }
 
 impl Pane {
-    const PAGES: [Pane; 9] = [
+    const PAGES: [Pane; 10] = [
         Pane::Endpoints,
         Pane::Models,
         Pane::Agents,
@@ -113,6 +118,7 @@ impl Pane {
         Pane::Sound,
         Pane::Sight,
         Pane::Appearance,
+        Pane::Assets,
     ];
 
     fn title(self) -> &'static str {
@@ -127,6 +133,7 @@ impl Pane {
             Pane::Sound => "Sound",
             Pane::Sight => "Sight",
             Pane::Appearance => "Appearance",
+            Pane::Assets => "Assets",
         }
     }
 
@@ -142,6 +149,7 @@ impl Pane {
             Pane::Sound => Glyph::Speaker,
             Pane::Sight => Glyph::Sun,
             Pane::Appearance => Glyph::Eye,
+            Pane::Assets => Glyph::Folder,
         }
     }
 
@@ -202,6 +210,14 @@ impl Pane {
             }
             Pane::Appearance => shown::<Appearance>(|appearance| {
                 appearance.pick().mode.name().to_string()
+            }),
+            Pane::Assets => shown::<AssetChoice>(|choice| {
+                if choice.in_realm {
+                    "In the realm"
+                } else {
+                    "Built-in"
+                }
+                .to_string()
             }),
             Pane::Front | Pane::Realm => return None,
         })
@@ -863,6 +879,7 @@ pub fn screen() -> AnyView {
             Pane::Realm => crate::limits::realm().boxed(),
             Pane::Sight => sight::page().boxed(),
             Pane::Appearance => appearance::page().boxed(),
+            Pane::Assets => assets::page().boxed(),
             Pane::Front | Pane::Sound => sound().boxed(),
         };
         let head = page_head(

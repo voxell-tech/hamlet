@@ -79,7 +79,8 @@ surface, and the command table in [`spec/hamlet.md`](spec/hamlet.md#chiefs).
 
 `hamlet dev` chooses its realm folder from `--home`, then `HAMLET_HOME`, then a
 per-user temporary folder kept between runs. It refuses `~/.hamlet` and
-sets `HAMLET_VIEW=<folder>/window`. Closing its window keeps the server
+sets `HAMLET_VIEW=<folder>/window` and `HAMLET_ASSETS=<folder>/assets`.
+Closing its window keeps the server
 running; Ctrl-C stops both. `dev` builds the checkout's server and window
 and uses Cargo's reported executable paths, unless `HAMLET_SERVER_BIN`
 or `HAMLET_APP` selects the corresponding existing binary.
@@ -94,7 +95,9 @@ The window has no realm claim and runs no agent. It finds a local server
 through the realm's `server.json` and connection token, or uses
 `HAMLET_SERVER` and `HAMLET_TOKEN`. Its own size, layout, appearance, chief's look
 and places live on its machine under `HAMLET_VIEW`, else the OS's config folder
-for Hamlet. It reads them once at launch: a missing file is the default,
+for Hamlet. The asset library is in the folder chosen on the
+Settings' Assets page, else `HAMLET_ASSETS`, else `Hamlet` in the
+documents folder. It reads them once at launch: a missing file is the default,
 and one that does not parse stops it with an error naming the file, which
 it leaves as it is. Local links and pictures resolve there too: existing absolute
 paths or paths under the received work folder, never the server's realm folder.

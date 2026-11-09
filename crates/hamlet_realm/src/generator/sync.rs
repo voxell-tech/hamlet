@@ -32,6 +32,8 @@ pub(super) struct HouseSignature {
     pub(super) cleared: bool,
     pub(super) mayor: bool,
     pub(super) wings: u8,
+    /// The revision of the rules it was built by.
+    pub(super) rules: u64,
 }
 
 pub(super) struct RoadDrawn {
