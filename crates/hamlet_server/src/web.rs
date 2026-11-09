@@ -38,15 +38,17 @@ pub(crate) enum Tool {
     Console,
     Wait,
     Click,
+    Type,
 }
 
 impl Tool {
-    const ALL: [Self; 5] = [
+    const ALL: [Self; 6] = [
         Self::Open,
         Self::Read,
         Self::Console,
         Self::Wait,
         Self::Click,
+        Self::Type,
     ];
 
     pub(crate) fn name(self) -> &'static str {
@@ -56,6 +58,7 @@ impl Tool {
             Self::Console => "web_console",
             Self::Wait => "web_wait",
             Self::Click => "web_click",
+            Self::Type => "web_type",
         }
     }
 
@@ -152,6 +155,28 @@ pub(crate) fn specs() -> Vec<ToolSpec> {
             }),
             ToolSpecReplay::Unsafe,
         ),
+        spec(
+            Tool::Type.name(),
+            "Type into a field of the page in your Web tab, by the \
+             number web_read gave it or by a CSS selector. The text \
+             takes the place of what the field held. With submit, \
+             Enter is pressed after it, as for a search or a login.",
+            json!({
+                "type": "object",
+                "required": ["target", "text"],
+                "properties": {
+                    "target": target_schema(),
+                    "text": {"type": "string"},
+                    "submit": {
+                        "type": "boolean",
+                        "description":
+                            "Press Enter after the text. Defaults to \
+                             false.",
+                    },
+                },
+            }),
+            ToolSpecReplay::Unsafe,
+        ),
     ]
 }
 
@@ -174,9 +199,11 @@ pub(crate) fn reaches_network(tool: Tool, arguments: &Value) -> bool {
             .and_then(Value::as_str)
             .and_then(web_address)
             .is_some_and(|address| !is_on_this_machine(&address)),
-        Tool::Read | Tool::Console | Tool::Wait | Tool::Click => {
-            false
-        }
+        Tool::Read
+        | Tool::Console
+        | Tool::Wait
+        | Tool::Click
+        | Tool::Type => false,
     }
 }
 
@@ -287,6 +314,18 @@ fn act_of(
         Tool::Console => Ok(WebAct::Console {}),
         Tool::Click => Ok(WebAct::Click {
             target: target(arguments)?,
+        }),
+        Tool::Type => Ok(WebAct::Type {
+            target: target(arguments)?,
+            text: arguments
+                .get("text")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_owned(),
+            submit: arguments
+                .get("submit")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
         }),
         Tool::Wait => {
             let words = |key: &str| {
