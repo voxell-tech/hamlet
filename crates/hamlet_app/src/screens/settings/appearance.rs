@@ -27,8 +27,10 @@ use crate::appearance::{Appearance, Mode};
 use crate::roll::{either, moved};
 use crate::root::Lasting;
 
-/// The width of a theme's small painted panel.
-const SWATCH: f32 = 128.0;
+/// The width of each variant's painted panel on a theme's tile, and
+/// the gap between the two.
+const TILE_SWATCH: f32 = 104.0;
+const TILE_GAP: f32 = 6.0;
 /// The width of what a mode's card holds.
 const CHOICE: f32 = 120.0;
 
@@ -159,10 +161,11 @@ fn themes() -> AnyView {
             .collect::<Vec<_>>();
         field(
             "Theme",
+            // Tiles of one width that wrap, as a gallery.
             with_cx(move |cx| {
                 row(cards)
                     .gap(cx.theme().space.gap)
-                    .align(AlignItems::FlexStart)
+                    .align(AlignItems::Stretch)
                     .tagged(Wraps)
             }),
         )
@@ -172,15 +175,17 @@ fn themes() -> AnyView {
     .boxed()
 }
 
-/// A theme: its name over each of its variants painted in its own
-/// colours, light first.
+/// A theme as a tile: its name over each of its variants painted in
+/// its own colours, light first, side by side.
 fn theme_card(theme: &Theme, picked: bool) -> AnyView {
     let id = theme.id.clone();
     let variants = theme
         .variants
         .iter()
         .map(|(_, variant)| {
-            row((swatch(&variant.palette),)).width(px(SWATCH)).boxed()
+            row((swatch(&variant.palette),))
+                .width(px(TILE_SWATCH))
+                .boxed()
         })
         .collect::<Vec<_>>();
     picked_card(
@@ -188,9 +193,11 @@ fn theme_card(theme: &Theme, picked: bool) -> AnyView {
         picked,
         column((
             card_name(theme.name.clone(), Tone::Body),
-            row(variants).gap(12.0).tagged(Wraps),
+            row(variants).gap(TILE_GAP),
         ))
-        .gap(8.0),
+        .gap(8.0)
+        // As wide as two variants, so that every tile is one width.
+        .width(px(TILE_SWATCH * 2.0 + TILE_GAP)),
         move |world| {
             world.resource_mut::<Appearance>().pick_theme(id.clone());
         },
