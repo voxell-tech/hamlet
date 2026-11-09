@@ -40,6 +40,7 @@ use bevy_fynix::{OverrideCursor, ScopedExt, style};
 use hamlet_desktop::title_bar::TitleBarDrag;
 use hamlet_ui::styles::transparent;
 use hamlet_ui::theme::{HamletTheme, Palette};
+use hamlet_ui::widgets::spoken::Spoken;
 use hamlet_ui::{Cx, View, built};
 
 pub(crate) fn plugin(app: &mut App) {
@@ -238,12 +239,14 @@ pub fn buttons() -> impl View {
             marks.close.clone(),
         );
         let one = move |image: Handle<Image>,
+                        name: &'static str,
                         under: fn(&Palette) -> Color,
                         act: fn(&mut World)| {
             button(icon(image).size(MARK))
                 .width(px(side + 8.0))
                 .height(px(side))
                 .rules(plate(under))
+                .tagged(Spoken::new(name))
                 .on_activate(move |world| {
                     crate::sounds::window_button(world);
                     act(world);
@@ -251,9 +254,9 @@ pub fn buttons() -> impl View {
         };
         cx.build(
             row((
-                one(small, |p| p.gold_hover, minimise),
-                one(large, |p| p.gold_hover, maximise),
-                one(shut, |p| p.red, close),
+                one(small, "Minimise", |p| p.gold_hover, minimise),
+                one(large, "Maximise", |p| p.gold_hover, maximise),
+                one(shut, "Close", |p| p.red, close),
             ))
             .gap(2.0)
             .align(AlignItems::Center),

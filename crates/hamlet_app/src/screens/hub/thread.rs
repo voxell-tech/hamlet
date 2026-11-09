@@ -29,8 +29,8 @@ use hamlet_client::waits::Waiting;
 use hamlet_protocol::client as protocol;
 use hamlet_realm::pick::{Thing, select};
 use hamlet_ui::styles::{
-    Fills, ICON, Looks, action, bare, card_name, choice, close,
-    crumb, crumb_here, crumb_slash, crumbs, filling, framed,
+    Fills, ICON, Looks, Tipped, action, bare, card_name, choice,
+    close, crumb, crumb_here, crumb_slash, crumbs, filling, framed,
     hairline, more_button, note, page_head, scroll_area,
     sentence_title, status_icon, title,
 };
@@ -656,7 +656,7 @@ fn mode_chip(agent: Entity) -> impl View {
 fn gifts(agent: Entity) -> impl View {
     row((button(glyph(Glyph::Plus, ICON))
         .padding(UiRect::axes(px(8.0), px(0.0)))
-        .tooltip(|| note("Give it a skill"))
+        .tip("Give it a skill")
         .rules(choice(false))
         .tagged(Variant::Text)
         .on_activate(move |world| {
@@ -705,7 +705,7 @@ fn send_or_stop(agent: Entity) -> impl View {
                 round(square.boxed())
                     .variant(Variant::Danger)
                     .tagged(Stopping)
-                    .tooltip(|| note("Stop"))
+                    .tip("Stop")
                     .on_activate(move |world| {
                         world_menu::stop(world, agent);
                     })
@@ -713,7 +713,7 @@ fn send_or_stop(agent: Entity) -> impl View {
             } else {
                 round(glyph(Glyph::Send, 16.0).boxed())
                     .variant(Variant::Primary)
-                    .tooltip(|| note("Send"))
+                    .tip("Send")
                     .on_activate(chat::send_typed)
                     .boxed()
             }

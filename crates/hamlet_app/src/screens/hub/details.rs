@@ -21,8 +21,8 @@ use hamlet_client::realm::{
 use hamlet_protocol::client as protocol;
 use hamlet_realm::orders;
 use hamlet_ui::styles::{
-    Fills, ICON, Looks, action, bare, hairline, lettered, note,
-    scroll_area, text_input,
+    Fills, ICON, Looks, Tipped, action, bare, hairline, lettered,
+    note, scroll_area, text_input,
 };
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::effects::Variant;
@@ -370,7 +370,7 @@ fn roads(agent: Entity, facts: &Facts) -> AnyView {
         let cut = button(glyph(Glyph::Cross, ICON).tone(Tone::Faint))
             .padding(UiRect::all(px(2.0)))
             .rules(bevy_fynix::views::tint)
-            .tooltip(|| note("Take up the road"))
+            .tip("Take up the road")
             .on_activate(move |world| {
                 orders::part(world, agent, other);
             });

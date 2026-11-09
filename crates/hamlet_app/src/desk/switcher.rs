@@ -54,8 +54,8 @@ use bevy_fynix::{
     style,
 };
 use hamlet_ui::styles::{
-    ICON, action, bad_action, close_button, description, note,
-    section, text_input,
+    ICON, Tipped, action, bad_action, close_button, description,
+    note, section, text_input,
 };
 use hamlet_ui::theme::{HamletTheme, Themed};
 use hamlet_ui::widgets::effects::{Edge, EffectSettings, wash};
@@ -264,7 +264,7 @@ pub(crate) fn switcher() -> impl View {
             let anchor = rect_of(world, node).unwrap_or_default();
             *world.resource_mut::<Opened>() = Opened::All { anchor };
         })
-        .tooltip(|| note("All desks"));
+        .tip("All desks");
         let track = row((strip, new, all))
             .height(px(space.bar - 2.0 * space.track_inset))
             .min_width(px(0.0))

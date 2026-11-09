@@ -22,8 +22,8 @@ use bevy::ui::{
 use bevy_fynix::scroll::ScrollGoal;
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, TooltipExt, button, column, frame,
-    ghost, label, overlay, row, scroll,
+    BehaviorExt, FrameProps, button, column, frame, ghost, label,
+    overlay, row, scroll,
 };
 use bevy_fynix::{
     ScopedExt, ViewExt, derived, each, every_frame, resource,
@@ -32,7 +32,9 @@ use hamlet_client::chats::{self, Entry, Transcript};
 use hamlet_client::messages::Response;
 use hamlet_client::outbox::Outbox;
 use hamlet_protocol::client as protocol;
-use hamlet_ui::styles::{Fills, lettered, note, small_rules};
+use hamlet_ui::styles::{
+    Fills, Looks, Tipped, lettered, note, small_rules,
+};
 use hamlet_ui::widgets::edges::faded;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::{View, with_cx};
@@ -953,9 +955,8 @@ pub fn transcript() -> impl View {
                 hamlet_ui::styles::ICON,
             )))
             .padding(UiRect::all(px(8.0)))
-            .tooltip(|| note("Scroll to the latest"))
-            .rules(hamlet_ui::styles::back_link)
-            .tagged(hamlet_ui::widgets::effects::Variant::Text)
+            .variant(hamlet_ui::widgets::effects::Variant::Text)
+            .tip("Scroll to the latest")
             .on_activate(super::to_end)
             .boxed()
         },

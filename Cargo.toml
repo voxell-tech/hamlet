@@ -54,6 +54,8 @@ bevy = { version = "0.20", default-features = false }
 bevy_hanabi = { git = "https://github.com/djeedai/bevy_hanabi", rev = "d277555d4a2350da6787245d15c56c62c739594d", default-features = false, features = ["3d"] }
 
 # other
+# The version bevy_a11y uses, which it no longer re-exports.
+accesskit = { version = "0.24", default-features = false }
 anyhow = "1"
 base64 = "0.22"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }

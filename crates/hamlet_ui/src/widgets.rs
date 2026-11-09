@@ -12,6 +12,7 @@ pub mod pixels;
 pub mod platform;
 pub mod providers;
 pub mod range;
+pub mod spoken;
 pub mod switch;
 pub mod tabs;
 
@@ -30,5 +31,6 @@ pub fn plugin(app: &mut App) {
         ellipsis::plugin,
         hint::plugin,
         providers::plugin,
+        spoken::plugin,
     ));
 }

@@ -23,6 +23,7 @@ use crate::widgets::effects::{Underglow, Variant};
 use crate::widgets::ellipsis::one_line;
 use crate::widgets::icons::{Glyph, glyph};
 use crate::widgets::platform::{DisplayText, MonoText, Wraps};
+use crate::widgets::spoken::Spoken;
 use crate::{AnyView, Cx, View, with_cx};
 
 /// The least height of any button (macOS default control size, 28
@@ -907,6 +908,16 @@ pub trait Looks: View + Sized {
 
 impl<V: View> Looks for V {}
 
+/// Gives a view a tooltip of `words`, which a screen reader also
+/// says it is: the one name of a button that shows only an icon.
+pub trait Tipped: View + Sized {
+    fn tip(self, words: &'static str) -> impl View {
+        self.tagged(Spoken::new(words)).tooltip(move || note(words))
+    }
+}
+
+impl<V: View> Tipped for V {}
+
 /// A button in the colour of `kind` with an icon before its text,
 /// that runs `act`.
 pub fn tinted_action(
@@ -1114,6 +1125,7 @@ pub fn close_button(
 ) -> impl View {
     tinted_icon(Glyph::Cross.image(ICON))
         .hover(Tone::Critical)
+        .tagged(Spoken::new("Close"))
         .on_activate(act)
 }
 
@@ -1136,7 +1148,7 @@ pub fn more_button(
         .padding(UiRect::axes(px(8.0), px(4.0)))
         .min_height(px(CONTROL))
         .variant(Variant::Default)
-        .tooltip(move || note(tip))
+        .tip(tip)
         .on_activate(act)
         .boxed()
 }

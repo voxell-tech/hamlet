@@ -18,13 +18,11 @@ use bevy::picking::hover::Hovered;
 use bevy::ui::{
     ComputedNode, JustifyContent, UiGlobalTransform, UiRect, px,
 };
-use bevy_fynix::views::{
-    BehaviorExt, FrameProps, TooltipExt, button, column,
-};
+use bevy_fynix::views::{BehaviorExt, FrameProps, button, column};
 use bevy_fynix::{Signal, Visual, resource};
 use hamlet_client::chats::{Chat, Status};
 use hamlet_client::messages::Rewound;
-use hamlet_ui::styles::{ICON, Looks, note};
+use hamlet_ui::styles::{ICON, Looks, Tipped};
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::{Cx, View, built};
@@ -68,7 +66,7 @@ pub(super) fn mark(session: Entity, entry: String) -> impl View {
     built(move |cx| {
         let back = button(glyph(Glyph::Restore, ICON))
             .padding(UiRect::all(px(AROUND)))
-            .tooltip(|| note("Rewind to here"))
+            .tip("Rewind to here")
             .variant(Variant::Text)
             .on_activate(move |world| ask(world, session, &entry));
         let node = cx.build(
