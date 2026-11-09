@@ -14,7 +14,10 @@ use bevy::ecs::system::{Local, Query, Res, ResMut};
 use bevy::ecs::world::World;
 use bevy::time::{Real, Time};
 use bevy::window::{PrimaryWindow, Window};
-use bevy_cef::prelude::{LoadError, LoadFinished, WebviewTitle};
+use bevy_cef::prelude::{
+    ConsoleLevel, ConsoleMessage, LoadError, LoadFinished,
+    WebviewTitle,
+};
 use bevy_fynix::dock::{DockTree, DropTarget, Edge};
 use hamlet_client::connection::Contact;
 use hamlet_client::outbox::Outbox;
@@ -38,10 +41,15 @@ const LOAD_WITHIN: Duration = Duration::from_secs(25);
 /// The error Chromium gives a load another load replaced.
 const ABORTED: i32 = -3;
 
+/// The most console lines kept of a page, the newest.
+const CONSOLE_MOST: usize = 200;
+
 pub(super) fn plugin(app: &mut App) {
     app.init_resource::<Asks>()
         .init_resource::<Waits>()
         .init_resource::<AgentNames>()
+        .init_resource::<Consoles>()
+        .add_observer(wrote)
         .add_observer(asked)
         .add_observer(loaded)
         .add_observer(failed)
@@ -76,6 +84,52 @@ struct Wait {
     id: RequestId,
     net: bool,
     until: Duration,
+}
+
+/// What each agent's page wrote to its console since its agent last
+/// looked, by panel id.
+#[derive(Resource, Default)]
+struct Consoles(BTreeMap<String, Vec<String>>);
+
+impl Consoles {
+    fn keep(&mut self, panel: &str, line: String) {
+        let lines = self.0.entry(panel.to_owned()).or_default();
+        lines.push(line);
+        if lines.len() > CONSOLE_MOST {
+            let over = lines.len() - CONSOLE_MOST;
+            lines.drain(..over);
+        }
+    }
+}
+
+/// Keeps what an agent's page wrote to its console.
+fn wrote(
+    message: On<ConsoleMessage>,
+    pages: Query<&Page>,
+    agents: Res<AgentTabs>,
+    mut consoles: ResMut<Consoles>,
+) {
+    let Ok(Page(panel)) = pages.get(message.webview) else {
+        return;
+    };
+    if !agents.0.contains_key(&panel.0) {
+        return;
+    }
+    let level = match message.level {
+        ConsoleLevel::Error => "error",
+        ConsoleLevel::Warning => "warning",
+        ConsoleLevel::Info => "info",
+        ConsoleLevel::Verbose => "debug",
+    };
+    let from = if message.source.is_empty() {
+        String::new()
+    } else {
+        format!(" ({}:{})", message.source, message.line)
+    };
+    consoles.keep(
+        &panel.0,
+        format!("[{level}] {}{from}", message.message),
+    );
 }
 
 fn asked(ask: On<WebAsked>, mut asks: ResMut<Asks>) {
@@ -156,6 +210,21 @@ fn act(world: &mut World) {
                         true,
                     );
                 }
+            }
+            WebAct::Console {} => {
+                let lines = world
+                    .resource_mut::<Consoles>()
+                    .0
+                    .remove(&panel.0)
+                    .unwrap_or_default();
+                let text = if lines.is_empty() {
+                    "Nothing was written to the console since you \
+                     last looked."
+                        .to_owned()
+                } else {
+                    lines.join("\n")
+                };
+                answer(world, ask.id, text, false);
             }
             WebAct::Read { html } => {
                 on_page(
@@ -308,6 +377,15 @@ fn failed(
     let (panel, url, code) =
         (panel.clone(), failed.url.clone(), failed.error_code);
     commands.queue(move |world: &mut World| {
+        if world.resource::<AgentTabs>().0.contains_key(&panel.0) {
+            world.resource_mut::<Consoles>().keep(
+                &panel.0,
+                format!(
+                    "[error] {url} did not load: Chromium's error \
+                     {code}"
+                ),
+            );
+        }
         if let Some(wait) =
             world.resource_mut::<Waits>().0.remove(&panel.0)
         {

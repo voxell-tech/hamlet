@@ -55,6 +55,11 @@ pub enum WebAct {
     /// text and elements.
     #[serde(rename = "read")]
     Read { html: bool },
+    /// Gives what the page wrote to its console, the errors that went
+    /// uncaught in it and the loads that failed, since the agent last
+    /// asked.
+    #[serde(rename = "console")]
+    Console {},
 }
 
 /// A window's answer to the [`WebAsk`] `to`: words for the agent,
