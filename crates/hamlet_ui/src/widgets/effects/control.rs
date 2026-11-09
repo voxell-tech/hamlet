@@ -83,20 +83,39 @@ pub(super) fn arm(
 
 type Entered = (Changed<Hovered>, With<ControlEffect>);
 
+/// The pointer coming onto a button is heard, unless the button
+/// cannot be pressed.
 pub(super) fn hover_tick(
-    buttons: Query<(&Hovered, Option<&Variant>), Entered>,
+    buttons: Query<
+        (&Hovered, Option<&Variant>, Has<InteractionDisabled>),
+        Entered,
+    >,
     mut sounds: MessageWriter<ControlSound>,
 ) {
-    let heard = |(hovered, variant): (&Hovered, Option<&Variant>)| {
-        hovered.0 && variant.is_some_and(|variant| variant.has_tick())
+    let heard = |(hovered, variant, disabled): (
+        &Hovered,
+        Option<&Variant>,
+        bool,
+    )| {
+        hovered.0
+            && !disabled
+            && variant.is_some_and(|variant| variant.has_tick())
     };
     if buttons.iter().any(heard) {
         sounds.write(ControlSound::Hover);
     }
 }
 
+/// A press is heard, unless the button cannot be pressed.
 pub(super) fn press_tap(
-    pressed: Query<(), (Added<Pressed>, With<ControlEffect>)>,
+    pressed: Query<
+        (),
+        (
+            Added<Pressed>,
+            With<ControlEffect>,
+            Without<InteractionDisabled>,
+        ),
+    >,
     mut sounds: MessageWriter<ControlSound>,
 ) {
     if !pressed.is_empty() {
@@ -248,8 +267,13 @@ pub(super) fn animate(
         };
         let heat =
             ease(effect.heat, f32::from(over), set.glow_rate, dt);
-        let press =
-            ease(effect.press, f32::from(held), set.press_rate, dt);
+        // Nor does it give under a press.
+        let press = ease(
+            effect.press,
+            f32::from(held && !disabled),
+            set.press_rate,
+            dt,
+        );
         let pulse = ease(effect.pulse, 0.0, set.pulse_decay, dt);
         let shake = ease(effect.shake, 0.0, set.pulse_decay, dt);
         let still = heat == effect.heat
