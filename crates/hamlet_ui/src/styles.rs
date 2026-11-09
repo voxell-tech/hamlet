@@ -145,7 +145,7 @@ pub fn text_input(cx: &mut Cx) {
         .frame(|f, t| {
             f.fill(t.palette.input)
                 .border(t.space.border)
-                .border_color(t.palette.border)
+                .border_color(t.hairline())
                 .radius(t.space.round)
         })
         .hovered(|s| {
@@ -384,8 +384,6 @@ pub fn inset(content: impl View) -> impl View {
             .min_width(px(0.0))
             .padding(UiRect::axes(px(10.0), px(8.0)))
             .fill(theme.palette.code)
-            .border(theme.space.border)
-            .border_color(theme.palette.gold_6)
             .radius(theme.space.round)
     })
 }
@@ -782,7 +780,7 @@ pub fn progress_bar(fraction: f32, kind: StatusKind) -> impl View {
 pub fn stacked_bar(parts: Vec<(f32, StatusKind)>) -> impl View {
     with_cx(move |cx| {
         let theme = cx.theme();
-        let height = 6.0;
+        let height = 9.0;
         let segments = parts
             .iter()
             .filter(|(weight, _)| *weight > 0.0)
@@ -1428,12 +1426,16 @@ pub fn card_choice(
     }
 }
 
-/// The fill of a [`card_choice`]: the card's, or the selected fill
+/// How far a picked card's fill is taken toward the glow: a soft
+/// wash inside its ring, the same in both modes.
+const PICKED_WASH: f32 = 0.12;
+
+/// The fill of a [`card_choice`]: the card's, washed with the glow
 /// while it is `picked`.
 fn card_fill(theme: &HamletTheme, picked: bool) -> Color {
     let palette = &theme.palette;
     if picked {
-        palette.selected
+        palette.card.mix(&palette.glow, PICKED_WASH)
     } else {
         palette.card
     }

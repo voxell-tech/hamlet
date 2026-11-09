@@ -285,8 +285,6 @@ fn code_view(cx: &Cx, lang: &str, text: &str) -> impl View {
         .padding(UiRect::axes(px(10.0), px(8.0)))
         .min_width(px(0.0))
         .fill(theme.palette.code)
-        .border(theme.space.border)
-        .border_color(theme.palette.gold_6)
         .radius(theme.space.round)
 }
 

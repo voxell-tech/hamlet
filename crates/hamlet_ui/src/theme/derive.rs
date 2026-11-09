@@ -19,7 +19,8 @@ struct Steps {
     /// A button under the pointer, from the button toward the
     /// hairline.
     hover: f32,
-    /// A code block, from the card or surface toward the button.
+    /// A code block, from the card toward the button under the
+    /// pointer in dark, from the surface toward the button in light.
     code: f32,
     /// What is selected, from the surface toward the glow.
     selected: f32,
@@ -56,10 +57,10 @@ struct Steps {
 const DARK: Steps = Steps {
     card: 0.5,
     hover: 0.43,
-    code: 0.5,
+    code: 0.75,
     selected: 0.20,
     gold_hover: 0.21,
-    bottom: 0.05,
+    bottom: 0.09,
     primary_low: 0.27,
     primary_high: 0.42,
     pressable: 0.38,
@@ -96,14 +97,24 @@ const LIGHT: Steps = Steps {
 /// What is in progress is a mustard: the yellow with its lightness
 /// and chroma scaled by these and its hue turned this many degrees
 /// toward green, so it cannot be taken for the accent gold.
-const OCHRE_LIGHTNESS: f32 = 0.86;
-const OCHRE_CHROMA: f32 = 0.75;
-const OCHRE_HUE: f32 = 8.0;
+const OCHRE_LIGHTNESS: f32 = 0.82;
+const OCHRE_CHROMA: f32 = 1.0;
+const OCHRE_HUE: f32 = 4.0;
+/// The hue of a true blue in OKLCH, and how far of the way a
+/// theme's blue is turned toward it for the info status.
+const INFO_HUE: f32 = 250.0;
+const INFO_PULL: f32 = 0.6;
+/// The contrast of the ink of a reference: a name or a link in
+/// blue, which need not be as dark as an error.
+const REFERENCE: f32 = 4.75;
 /// What is at rest is a cool grey of the ramp's lightness, with no
 /// brown or gold in it, so that it is told from the ochre of what is
 /// in progress by its hue.
-const REST_CHROMA: f32 = 0.012;
-const REST_HUE: f32 = 250.0;
+const REST_CHROMA: f32 = 0.02;
+const REST_HUE: f32 = 255.0;
+/// How far the hairline of a card is from the surface toward the
+/// button under the pointer.
+const HAIRLINE: f32 = 0.9;
 
 /// The lightness the glow keeps at most over paper, where the bright
 /// hue of the lamp would not be seen.
@@ -120,6 +131,9 @@ const PARTICLE_YELLOW: f32 = 0.2;
 /// never browner, so that a strong glow on cream is clean light.
 const DEEPEN_LIGHTNESS: f32 = 0.9;
 const DEEPEN_CHROMA: f32 = 1.25;
+/// The least chroma a deepened glow has, so that the pale core of a
+/// glow does not turn to a grey-beige.
+const DEEPEN_FLOOR: f32 = 0.11;
 /// The lightness of the agents' colour over paper.
 const AGENT_LIGHTNESS: f32 = 0.60;
 /// How far the accent's ink is turned toward orange over paper, where
@@ -250,15 +264,14 @@ impl Palette {
             .mix(&if dark { ramp[2] } else { input }, steps.card);
         let button_hover = button.mix(&border, steps.hover);
         let code = if dark {
-            card.mix(&button, steps.code)
+            card.mix(&button_hover, steps.code)
         } else {
             surface.mix(&button, steps.code)
         };
-        let gold_6 = if dark {
-            button_hover.mix(&border, 0.5)
-        } else {
-            surface.mix(&button, 0.8)
-        };
+        // The hairline of a card: one step from the surface in both
+        // modes, so it is no more an outline in one than in the
+        // other.
+        let gold_6 = surface.mix(&button_hover, HAIRLINE);
         let glow = if dark {
             accent
         } else {
@@ -389,9 +402,21 @@ pub fn deepen(glow: Color) -> Color {
     let paint = lch(glow);
     oklch(
         paint.lightness * DEEPEN_LIGHTNESS,
-        paint.chroma * DEEPEN_CHROMA,
+        (paint.chroma * DEEPEN_CHROMA).max(DEEPEN_FLOOR),
         paint.hue,
     )
+}
+
+/// `blue` turned toward a true blue, as far as `INFO_PULL` of the
+/// way: a theme's blue may be a teal, and a reference reads as blue.
+fn bluer(blue: Color) -> Color {
+    let paint = lch(blue);
+    let hue = if (120.0..300.0).contains(&paint.hue) {
+        paint.hue + (INFO_HUE - paint.hue) * INFO_PULL
+    } else {
+        paint.hue
+    };
+    oklch(paint.lightness, paint.chroma, hue)
 }
 
 /// The mustard of what is in progress, made from `yellow`.
@@ -421,7 +446,7 @@ struct Grounds {
 impl Statuses {
     fn derive(base: &Base, on: &Grounds, steps: &Steps) -> Self {
         let surface_lightness = lch(on.surface).lightness;
-        let status = |hue: Color| {
+        let status = |hue: Color, need: f32| {
             let paint = lch(hue);
             let fill = oklch(
                 surface_lightness + steps.fill,
@@ -443,7 +468,7 @@ impl Statuses {
                 fill,
                 fill_hover,
             ];
-            let ink = reach(hue, &grounds, steps.ink, Way::Nearest);
+            let ink = reach(hue, &grounds, need, Way::Nearest);
             // A mark is read as a shape, so it keeps its hue as far
             // as it can: it needs only the contrast of a mark.
             let marks = [
@@ -470,49 +495,17 @@ impl Statuses {
                 on_solid: on.lightest,
             }
         };
-        let rest = {
-            let fill = on.button;
-            let grounds = [
-                on.surface,
-                on.card,
-                on.input,
-                on.code,
-                on.button,
-                on.button_hover,
-            ];
-            let paint = lch(on.dim);
-            let neutral =
-                oklch(paint.lightness, REST_CHROMA, REST_HUE);
-            let ink =
-                reach(neutral, &grounds, steps.ink, Way::Nearest);
-            Status {
-                ink,
-                mark: reach(
-                    neutral,
-                    &grounds,
-                    MARK + MARK_MARGIN,
-                    Way::Nearest,
-                ),
-                fill,
-                fill_hover: on.button_hover,
-                on_fill: reach(ink, &[fill], TEXT, Way::Nearest),
-                solid: reach(
-                    neutral,
-                    &[on.lightest],
-                    SOLID,
-                    Way::Darker,
-                ),
-                on_solid: on.lightest,
-            }
-        };
+        // What is at rest is a cool grey, tinted as the others are.
+        let neutral =
+            oklch(lch(on.dim).lightness, REST_CHROMA, REST_HUE);
         Self {
-            success: status(base.green),
-            merged: status(base.purple),
-            warning: status(ochre(base.yellow)),
-            danger: status(base.red),
-            info: status(base.blue),
-            attention: status(base.orange),
-            rest,
+            success: status(base.green, steps.ink),
+            merged: status(base.purple, steps.ink),
+            warning: status(ochre(base.yellow), steps.ink),
+            danger: status(base.red, steps.ink),
+            info: status(bluer(base.blue), REFERENCE),
+            attention: status(base.orange, steps.ink),
+            rest: status(neutral, steps.ink),
         }
     }
 

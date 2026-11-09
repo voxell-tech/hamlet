@@ -689,7 +689,9 @@ impl SurfaceTokens for HamletTheme {
     }
 
     fn hairline(&self) -> Color {
-        self.palette.border
+        // Firmer than the border of a card: an input's edge and a
+        // slider's groove are what find them.
+        self.palette.border.mix(&self.palette.gold_5, HAIRLINE_FIRM)
     }
 
     fn selection(&self) -> Color {
@@ -717,7 +719,9 @@ impl SurfaceTokens for HamletTheme {
 
 /// How far above [`contrast::TEXT`] the words of an empty field are
 /// held.
-const HINT_MARGIN: f32 = 2.0;
+const HINT_MARGIN: f32 = 2.8;
+/// How far the hairline is from the border toward the mark.
+const HAIRLINE_FIRM: f32 = 0.2;
 
 impl HamletTheme {
     /// How opaque the words of an empty field are: as faint as dim
