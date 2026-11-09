@@ -5,7 +5,7 @@
 //! agent works and rests; only its mark changes.
 
 use bevy::app::{App, Update};
-use bevy::color::{Alpha, Color, Mix};
+use bevy::color::Alpha;
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::hierarchy::{ChildOf, Children};
@@ -19,8 +19,9 @@ use bevy::picking::events::{
 };
 use bevy::text::EditableText;
 use bevy::ui::{
-    AlignItems, ComputedNode, Display, JustifyContent, Overflow,
-    PositionType, UiGlobalTransform, UiRect, Val, percent, px,
+    AlignItems, BackgroundGradient, ColorStop, ComputedNode, Display,
+    JustifyContent, LinearGradient, Overflow, PositionType,
+    UiGlobalTransform, UiRect, Val, percent, px,
 };
 use bevy::window::SystemCursorIcon;
 use bevy_fynix::tokens::{Motion, SurfaceTokens, Tone};
@@ -46,7 +47,7 @@ use hamlet_ui::styles::{
     text_input, transparent,
 };
 use hamlet_ui::theme::{HamletTheme, Palette};
-use hamlet_ui::widgets::effects::Variant;
+use hamlet_ui::widgets::effects::{Underglow, Variant};
 use hamlet_ui::widgets::ellipsis::{cut, one_line};
 use hamlet_ui::widgets::hint::search;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
@@ -92,9 +93,11 @@ const STEP_IN: f32 = 16.0;
 /// The room inside a row's ends.
 const ROW_INSET: f32 = 6.0;
 
-/// How far the current row's fill goes from a button's toward the
-/// accent.
-const CURRENT_TINT: f32 = 0.12;
+/// How strong the accent is at the left of what the panel shows.
+const LIT: f32 = 0.16;
+
+/// The room over a section's header inside its block.
+const BLOCK_PAD: f32 = 4.0;
 
 /// The space over each part of the rail: what waits, the tabs and
 /// each hamlet, so that the parts stand apart and evenly.
@@ -1307,27 +1310,22 @@ fn row_rules(cx: &mut Cx) {
         .apply(cx);
 }
 
-/// The row of what the panel shows: tinted with the accent and
-/// outlined in it, so it stands out from a row under the pointer.
+/// The row of what the panel shows: bare, for the [`lit`] gradient
+/// laid on it, and filled under the pointer as any row is.
 fn current_rules(cx: &mut Cx) {
     style::<HamletTheme>()
         .frame(|f, t| {
-            f.fill(current_fill(&t.palette))
+            f.fill(transparent(t.palette.button))
                 .border(t.space.border)
-                .border_color(t.palette.accent.with_alpha(0.55))
+                .border_color(transparent(t.palette.accent))
                 .radius(4.0)
                 .justify(JustifyContent::FlexStart)
                 .align(AlignItems::Stretch)
                 .padding(UiRect::axes(px(ROW_INSET), px(4.0)))
         })
+        .hovered(|s| s.frame(|f, t| f.fill(t.palette.button)))
         .transition(Motion::Interact)
         .apply(cx);
-}
-
-/// The fill of the current row: a button's, a little of the way to
-/// the accent.
-fn current_fill(palette: &Palette) -> Color {
-    palette.button.mix(&palette.accent, CURRENT_TINT)
 }
 
 /// The mark at the end of a row or a header, in its place whether or
@@ -1436,6 +1434,14 @@ fn expanded(line: &Line, tree: Tree) -> AnyView {
         .rules(rules)
         .tagged(Variant::Default)
         .on_activate(move |world| go(world, target));
+    let shown = if line.current {
+        with_cx(move |cx| {
+            shown.tagged(lit(&cx.theme().palette, Fall::Across))
+        })
+        .boxed()
+    } else {
+        shown.boxed()
+    };
     let shown = if address.is_empty() || address == line.name {
         shown.boxed()
     } else {
@@ -1545,9 +1551,11 @@ fn header(section: &Section, above: f32) -> AnyView {
     let title =
         crate::overview::part_title(section.title.clone(), tone);
     parts.push(match section.opens {
+        // It glows under the pointer, as a title that opens does.
         Some(target) => button(title)
             .padding(UiRect::all(px(0.0)))
             .rules(views::tint)
+            .tagged(Underglow::new(false))
             .on_activate(move |world| go(world, target))
             .boxed(),
         None => title.boxed(),
@@ -1578,19 +1586,25 @@ fn header(section: &Section, above: f32) -> AnyView {
 fn sections_view(sections: &[Section], first_above: f32) -> AnyView {
     let mut parts = Vec::new();
     for section in sections {
+        let mut block = Vec::new();
+        // The room over a header is kept outside its block, so a lit
+        // block starts at its header.
+        let mut above = 0.0;
         if !section.title.is_empty() {
-            let above = if parts.is_empty() {
+            above = if parts.is_empty() {
                 first_above
             } else {
                 PART_GAP
             };
-            parts.push(header(section, above));
+            block.push(header(section, BLOCK_PAD));
+            above = (above - BLOCK_PAD).max(0.0);
         }
-        if section.folded {
-            continue;
-        }
-        let lines = &section.lines;
-        parts.extend(lines.iter().enumerate().map(|(at, line)| {
+        let lines = if section.folded {
+            &[][..]
+        } else {
+            &section.lines[..]
+        };
+        block.extend(lines.iter().enumerate().map(|(at, line)| {
             // Set in under the row above, which is its lead or
             // another of the lead's.
             let under_lead = line.nested
@@ -1611,8 +1625,48 @@ fn sections_view(sections: &[Section], first_above: f32) -> AnyView {
                 },
             )
         }));
+        let block = column(block)
+            .gap(0.0)
+            .margin(UiRect::top(px(above)))
+            .radius(4.0);
+        // The hamlet whose page is shown, lit whole.
+        let lit_block = section.current
+            && matches!(section.group, Group::Hamlet(_));
+        parts.push(if lit_block {
+            with_cx(move |cx| {
+                block.tagged(lit(&cx.theme().palette, Fall::Down))
+            })
+            .boxed()
+        } else {
+            block.boxed()
+        });
     }
     column(parts).gap(0.0).boxed()
+}
+
+/// The way the light over what the panel shows fades.
+#[derive(Clone, Copy)]
+enum Fall {
+    /// Across a row, from its left.
+    Across,
+    /// Down a hamlet's block, from its header.
+    Down,
+}
+
+/// The light over what the panel shows: the accent, fading to nothing
+/// the way `fall` says.
+fn lit(palette: &Palette, fall: Fall) -> BackgroundGradient {
+    let stops = vec![
+        ColorStop::new(palette.accent.with_alpha(LIT), percent(0.0)),
+        ColorStop::new(
+            palette.accent.with_alpha(0.0),
+            percent(100.0),
+        ),
+    ];
+    BackgroundGradient::from(match fall {
+        Fall::Across => LinearGradient::to_right(stops),
+        Fall::Down => LinearGradient::to_bottom(stops),
+    })
 }
 
 /// Whether `section` is of the realm's own, over the tabs: the realm,
