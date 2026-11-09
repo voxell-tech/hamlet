@@ -26,7 +26,7 @@ use hamlet_desktop::color_scheme::ColorScheme;
 use hamlet_realm::sound::{Cue, SoundSettings};
 use hamlet_ui::theme::{self, HamletTheme, Themes};
 
-use self::dock::{open_settings, panels, seed_dock};
+use self::dock::{open_explorer, open_settings, panels, seed_dock};
 use self::sample::{first_run, setup};
 use self::sheets::{
     ask_rewind, controls, hold, hold_message, icon_sheet,
@@ -84,7 +84,7 @@ impl Plugin for GalleryPlugin {
                 PostStartup,
                 (seed_dock, mount_scene).chain(),
             )
-            .add_systems(PostUpdate, open_settings)
+            .add_systems(PostUpdate, (open_settings, open_explorer))
             .add_systems(
                 Update,
                 (
@@ -103,6 +103,7 @@ impl Plugin for GalleryPlugin {
                 hamlet_app::world_menu::plugin,
                 hamlet_app::search::plugin,
                 hamlet_app::desk::plugin,
+                hamlet_app::explorer::plugin,
                 menu::plugin,
                 hamlet_app::toasts::plugin,
                 hamlet_app::secret::plugin,
@@ -171,6 +172,9 @@ pub enum Scene {
     Hamlet,
     /// The running of that hamlet: its budget, models and limits.
     Bylaws,
+    /// The Files panel beside the world, on the folder that hamlet
+    /// works on with a file of it open.
+    Explorer,
     /// The Hub's sessions page, with its list of sessions.
     History,
     /// The Hub's sessions page, with one session being read.

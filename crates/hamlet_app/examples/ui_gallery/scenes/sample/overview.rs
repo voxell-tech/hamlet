@@ -1,5 +1,7 @@
 //! The overview and hamlet gallery scenes.
 
+use std::path::PathBuf;
+
 use bevy::ecs::resource::Resource;
 use bevy::ecs::system::{Commands, ResMut};
 use bevy::ecs::world::World;
@@ -15,6 +17,7 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
         Scene::Overview
             | Scene::Hamlet
             | Scene::Bylaws
+            | Scene::Explorer
             | Scene::Hub
             | Scene::Scholar
             | Scene::Realm
@@ -81,7 +84,10 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
         let mut hamlet = hamlet_testing::realm::hamlet(id, first);
         hamlet.name = title.into();
         if id == "home" {
-            hamlet.folder = Some("/projects/orchard-almanac".into());
+            hamlet.folder = Some(match scene {
+                Scene::Explorer => project().display().to_string(),
+                _ => "/projects/orchard-almanac".into(),
+            });
             hamlet.mode_words = "Agents ask before each edit and \
                                  command on the server."
                 .into();
@@ -244,7 +250,9 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
         .map(|(entity, _)| entity)
         .unwrap();
     world.insert_resource(Selected(match scene {
-        Scene::Hamlet | Scene::Bylaws => Some(Thing::Common(first)),
+        Scene::Hamlet | Scene::Bylaws | Scene::Explorer => {
+            Some(Thing::Common(first))
+        }
         _ => None,
     }));
     world.insert_resource(hamlet_app::overview::Annals::received(
@@ -260,6 +268,51 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
     if scene == Scene::Bylaws {
         world.insert_resource(hamlet_app::overview::Page::Bylaws);
     }
+    if scene == Scene::Explorer {
+        let apples = project().join("src/press/apples.rs");
+        hamlet_app::explorer::show_file(world, first, &apples);
+        world.insert_resource(hamlet_app::explorer::Browsing(Some(
+            first,
+        )));
+    }
+}
+
+/// A small project on the disk, with a folder and a file git
+/// ignores, for the Explorer to show.
+fn project() -> PathBuf {
+    let folder = std::env::temp_dir().join("hamlet-gallery-orchard");
+    if folder.join("Cargo.toml").exists() {
+        return folder;
+    }
+    for inside in [".git", "src/press", "assets", "target/debug"] {
+        std::fs::create_dir_all(folder.join(inside))
+            .expect("a folder");
+    }
+    let files = [
+        (".gitignore", "target/\n*.log\n"),
+        ("Cargo.toml", ""),
+        ("README.md", ""),
+        ("press.log", ""),
+        ("src/main.rs", ""),
+        ("src/ledger.rs", ""),
+        ("src/press/mod.rs", ""),
+        (
+            "src/press/apples.rs",
+            "//! The apples of the press, by the row they grew \
+             in.\n\npub struct Apple {\n    pub row: u32,\n    pub \
+             weight_grams: f32,\n}\n\nimpl Apple {\n    /// Whether \
+             it is heavy enough for the press.\n    pub fn \
+             pressable(&self) -> bool {\n        self.weight_grams \
+             >= 150.0\n    }\n}\n",
+        ),
+        ("src/press/pears.rs", ""),
+        ("src/press/cider10.rs", ""),
+        ("src/press/cider9.rs", ""),
+    ];
+    for (file, text) in files {
+        std::fs::write(folder.join(file), text).expect("a file");
+    }
+    folder
 }
 
 /// A state to receive a few frames after the first, and the frames

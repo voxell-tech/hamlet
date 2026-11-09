@@ -63,6 +63,10 @@ pub(super) fn seed_dock(world: &mut World) {
         .icon(Glyph::Tree.image(ICON)),
     );
     registry.register(
+        hamlet_app::explorer::PANEL,
+        hamlet_app::explorer::window(),
+    );
+    registry.register(
         "settings",
         DockWindowKind::new("SETTINGS", || panel(settings::screen()))
             .icon(Glyph::Sliders.image(ICON)),
@@ -105,6 +109,22 @@ pub(super) fn open_settings(
     let mut tree = world.resource_mut::<DockTree>();
     if let Some(side) = tree.find_leaf_with_window("hub") {
         tree.add_tab(side, "settings");
+    }
+}
+
+/// Opens the Files panel beside the world in its scene, after the
+/// desk has laid its dock out, as [`open_settings`] does.
+pub(super) fn open_explorer(
+    world: &mut World,
+    mut opened: bevy::ecs::system::Local<bool>,
+) {
+    if *opened || *world.resource::<Scene>() != Scene::Explorer {
+        return;
+    }
+    *opened = true;
+    let mut tree = world.resource_mut::<DockTree>();
+    if let Some(centre) = tree.find_leaf_with_window("world") {
+        tree.add_tab(centre, hamlet_app::explorer::PANEL);
     }
 }
 
