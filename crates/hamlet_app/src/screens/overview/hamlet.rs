@@ -1,6 +1,8 @@
 //! One hamlet's page of the Hub: what it is, what can be done to it,
 //! and its agents, its bylaws and its record as tabs.
 
+use std::f32::consts::TAU;
+
 use bevy::color::Color;
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
@@ -9,16 +11,19 @@ use bevy::ecs::query::With;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::world::World;
 use bevy::text::EditableText;
-use bevy::ui::{AlignItems, PositionType, UiRect, Val, percent, px};
+use bevy::ui::{
+    AlignItems, AngularColorStop, BackgroundGradient, ConicGradient,
+    PositionType, UiPosition, UiRect, Val, px,
+};
 use bevy_fynix::tokens::{Motion, SurfaceTokens, Tone};
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, TooltipExt, button, column, dropdown,
     frame, label, row, text_field,
 };
 use bevy_fynix::{
-    ScopedExt, ViewExt, derived, keyed, resource, style,
+    ScopedExt, ViewExt, derived, every_frame, keyed, resource, style,
 };
-use hamlet_client::realm::Deeds;
+use hamlet_client::realm::{Deeds, Works};
 use hamlet_realm::orders::Decree;
 use hamlet_realm::pick::{Thing, select};
 use hamlet_ui::styles::{
@@ -128,8 +133,9 @@ fn decree(world: &mut World, id: &str, text: String) {
 /// The tiers a hamlet may hold, in hires.
 const TIERS: [&str; 4] = ["50", "100", "200", "500"];
 
-/// How many hires the hamlet `id` may hold, chosen from its tiers.
-fn size(id: String) -> AnyView {
+/// How many hires the hamlet `id` may hold, chosen from its tiers,
+/// showing the one it holds now.
+fn size(hamlet: Entity, id: String) -> AnyView {
     let names = TIERS
         .iter()
         .map(|tier| format!("Holds up to {tier} hires"))
@@ -138,7 +144,16 @@ fn size(id: String) -> AnyView {
         label("Size").tone(Tone::Faint).wrap(false),
         dropdown(
             names,
-            TIERS.len(),
+            derived(move |world: &World| {
+                let tier = world
+                    .get::<Works>(hamlet)
+                    .map(|works| works.tier.to_string());
+                TIERS
+                    .iter()
+                    .position(|t| Some(*t) == tier.as_deref())
+                    .unwrap_or(TIERS.len())
+            })
+            .when(every_frame()),
             Glyph::Chevron.image(ICON),
             move |world, chosen| {
                 if let Some(tier) = TIERS.get(chosen) {
@@ -435,34 +450,45 @@ fn row_look(cx: &mut Cx) {
         .apply(cx);
 }
 
-/// The width of the bar of a hamlet's budget.
-const METER: f32 = 120.0;
+/// The width of the circle of a hamlet's budget.
+const METER: f32 = 14.0;
 
-/// What the hamlet spent of its budget, in words and, when it has a
-/// cap, as a bar filled as far as `spent` says.
+/// What the hamlet spent of its budget: when it has a cap, a circle
+/// filled clockwise from the top as far as `spent` says, then the
+/// words.
 pub(super) fn budget(words: String, spent: Option<f32>) -> AnyView {
     with_cx(move |cx| {
         let palette = &cx.theme().palette;
-        let mut parts = vec![note(words.clone()).boxed()];
+        let mut parts = Vec::new();
         if let Some(spent) = spent {
             let fill = if spent >= 1.0 {
                 palette.red
             } else {
                 palette.accent
             };
+            let turn = spent.clamp(0.0, 1.0) * TAU;
+            let pie = ConicGradient::new(
+                UiPosition::CENTER,
+                vec![
+                    AngularColorStop::new(fill, 0.0),
+                    AngularColorStop::new(fill, turn),
+                    AngularColorStop::new(palette.gold_6, turn),
+                    AngularColorStop::new(palette.gold_6, TAU),
+                ],
+            );
             parts.push(
-                row((frame()
-                    .width(percent(spent * 100.0))
-                    .height(percent(100.0))
-                    .radius(3.0)
-                    .fill(fill),))
-                .width(px(METER))
-                .height(px(6.0))
-                .radius(3.0)
-                .fill(palette.gold_6)
-                .boxed(),
+                frame()
+                    .width(px(METER))
+                    .height(px(METER))
+                    .shrink(0.0)
+                    .radius(METER / 2.0)
+                    .border(cx.theme().space.border)
+                    .border_color(palette.gold_5)
+                    .tagged(BackgroundGradient::from(pie))
+                    .boxed(),
             );
         }
+        parts.push(note(words.clone()).boxed());
         row(parts)
             .gap(cx.theme().space.gap)
             .align(AlignItems::Center)
@@ -575,7 +601,7 @@ pub fn hamlet(hamlet: Entity) -> impl View {
             );
         }
         if *tier {
-            top.push(size(facts.id.clone()));
+            top.push(size(hamlet, facts.id.clone()));
         }
         group(top).boxed()
     })
