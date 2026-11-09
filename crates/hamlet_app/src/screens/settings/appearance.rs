@@ -12,10 +12,11 @@ use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, button, column, frame, row,
 };
-use bevy_fynix::{ScopedExt, ViewExt, derived, keyed};
+use bevy_fynix::{ScopedExt, ViewExt, derived, keyed, resource};
 use hamlet_desktop::color_scheme::ColorScheme;
 use hamlet_ui::styles::{
     ICON, bare, card_choice, card_name, group, note, parts,
+    segmented_words,
 };
 use hamlet_ui::theme::{Palette, Theme, Themes};
 use hamlet_ui::widgets::icons::{Glyph, glyph};
@@ -23,7 +24,7 @@ use hamlet_ui::widgets::platform::Wraps;
 use hamlet_ui::{AnyView, View, with_cx};
 
 use super::field;
-use crate::appearance::{Appearance, Mode};
+use crate::appearance::{Appearance, Mode, ZOOMS, Zoom};
 use crate::roll::{either, moved};
 use crate::root::Lasting;
 
@@ -35,7 +36,26 @@ const TILE_GAP: f32 = 6.0;
 const CHOICE: f32 = 120.0;
 
 pub(super) fn page() -> impl View {
-    parts((modes(), themes()))
+    parts((modes(), zoom(), themes()))
+}
+
+/// How large the panels are drawn.
+fn zoom() -> AnyView {
+    keyed(resource::<Zoom, _>(|zoom| zoom.at()), |at| {
+        field(
+            "Zoom",
+            segmented_words(
+                ZOOMS.iter().map(|(_, name)| *name),
+                *at,
+                |world, at| {
+                    world.resource_mut::<Zoom>().0 = ZOOMS[at].0;
+                },
+            ),
+        )
+        .boxed()
+    })
+    .within(bare())
+    .boxed()
 }
 
 /// The three modes, and why the panels stay as they are where the

@@ -11,7 +11,8 @@ use bevy::input::keyboard::KeyCode;
 use bevy::input::mouse::MouseButton;
 use bevy::math::Rect;
 use bevy::ui::{
-    AlignItems, ComputedNode, UiGlobalTransform, UiRect, percent, px,
+    AlignItems, ComputedNode, UiGlobalTransform, UiRect, UiScale,
+    percent, px,
 };
 use bevy::window::Window;
 use bevy_fynix::shortcut::{
@@ -138,7 +139,10 @@ fn dismiss(world: &mut World) {
         world.try_query::<&Window>().and_then(|mut windows| {
             windows.iter(world).find_map(Window::cursor_position)
         });
-    let Some(pointer) = pointer else {
+    // In the panels' pixels, as the titles' rects are.
+    let Some(pointer) =
+        pointer.map(|at| at / world.resource::<UiScale>().0)
+    else {
         return;
     };
     let pressed = world

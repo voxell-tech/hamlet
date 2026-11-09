@@ -15,12 +15,12 @@ use bevy::ecs::component::{Component, Mutable};
 use bevy::ecs::entity::Entity;
 use bevy::ecs::observer::On;
 use bevy::ecs::resource::Resource;
-use bevy::ecs::system::{Query, ResMut};
+use bevy::ecs::system::{Query, Res, ResMut};
 use bevy::ecs::world::World;
 use bevy::math::{Rect, Vec2};
 use bevy::picking::events::PointerPress;
 use bevy::picking::pointer::PointerButton;
-use bevy::ui::px;
+use bevy::ui::{UiScale, px};
 use bevy::window::Window;
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, column, frame, label, menu_item,
@@ -106,10 +106,12 @@ pub(crate) fn answer_ask(
     mut asked: ResMut<Asked>,
     mut ground: ResMut<AskedGround>,
     mut open: ResMut<Open>,
+    scale: Res<UiScale>,
 ) {
-    let ground = ground.0.take();
+    // Asked at a place in the window, opened at one in the panels.
+    let ground = ground.0.take().map(|at| at / scale.0);
     if let Some((thing, at)) = asked.0.take() {
-        *open = Open::Menu(thing, at);
+        *open = Open::Menu(thing, at / scale.0);
         return;
     }
     let Some(at) = ground else {
@@ -157,13 +159,14 @@ pub(super) fn stop(world: &mut World, agent: Entity) {
     world.flush();
 }
 
-/// The place of the pointer in the window.
+/// The place of the pointer, in the panels' pixels.
 fn pointer(world: &mut World) -> Vec2 {
-    world
+    let at = world
         .query::<&Window>()
         .iter(world)
         .find_map(Window::cursor_position)
-        .unwrap_or_default()
+        .unwrap_or_default();
+    at / world.resource::<UiScale>().0
 }
 
 /// Opens the menu of `thing` at the pointer, as a right click on

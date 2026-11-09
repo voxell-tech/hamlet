@@ -255,10 +255,10 @@ fn set_rich(spans: &[Span], ink: Ink, setting: Setting) -> AnyView {
 
 fn code_view(cx: &Cx, lang: &str, text: &str) -> impl View {
     let theme = cx.theme();
-    let text = text.to_string();
+    let (text, size) = (text.to_string(), theme.text.small);
     let body = AnyView::new(move |cx: &mut Cx| {
         // A long line wraps: nothing in the chat scrolls sideways.
-        let node = cx.build(label(text).size(13.0));
+        let node = cx.build(label(text).size(size));
         let mono =
             cx.world.get_resource::<Mono>().map(|m| m.0.clone());
         let mut entity = cx.world.entity_mut(node);

@@ -126,7 +126,7 @@ fn counted(text: &str, count: usize) -> AnyView {
 }
 
 /// The size of a figure of the day.
-const FIGURE: f32 = 22.0;
+const FIGURE: f32 = 24.0;
 
 /// The realm at a glance: its figures, what waits for the chief in
 /// full, then the hamlets, open and closed down. The hamlets and the

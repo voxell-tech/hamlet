@@ -20,7 +20,7 @@ use bevy::text::TextColor;
 use bevy::time::Time;
 use bevy::ui::{
     BackgroundColor, BorderColor, ComputedNode, Node, OverrideClip,
-    PositionType, UiRect, UiTransform, Val, px,
+    PositionType, UiRect, UiScale, UiTransform, Val, px,
 };
 use bevy::window::{PrimaryWindow, Window};
 use bevy_fynix::tokens::Tone;
@@ -496,6 +496,7 @@ pub fn place(
     time: Res<Time>,
     set: Res<EffectSettings>,
     window: Query<&Window, With<PrimaryWindow>>,
+    scale: Res<UiScale>,
     mut boxes: Query<
         (
             Entity,
@@ -515,7 +516,9 @@ pub fn place(
     let Some(window) = window.iter().next() else {
         return;
     };
-    let pointer = window.cursor_position();
+    // The pointer and the window in the panels' pixels.
+    let zoom = scale.0;
+    let pointer = window.cursor_position().map(|at| at / zoom);
     let wanted = card.shown && pointer.is_some();
     let step = time.delta_secs()
         / if wanted { set.hover_in } else { set.hover_out };
@@ -573,7 +576,7 @@ pub fn place(
             continue;
         };
         let full = computed.size() * computed.inverse_scale_factor();
-        let room = (window.width(), window.height());
+        let room = (window.width() / zoom, window.height() / zoom);
         // Below and right of the pointer, or above and left where
         // the window ends.
         let left = if at.x + 18.0 + full.x > room.0 {

@@ -3,10 +3,10 @@
 # means is written beside its field in crates/hamlet_ui/src/theme.rs.
 
 [text]
-body = 14.0
-small = 13.0
-heading = 15.0
-title = 21.0
+body = 16.0
+small = 15.0
+heading = 17.0
+title = 23.0
 tracking = 1.0
 dark_ink_weight = 460
 

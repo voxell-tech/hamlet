@@ -29,7 +29,7 @@ use hamlet_vfx::wind::WindChoice;
 use serde::{Deserialize, Serialize};
 
 use crate::PanelSystems;
-use crate::appearance::{Appearance, Pick};
+use crate::appearance::{Appearance, Pick, Zoom};
 use crate::convo::Convo;
 use crate::desk::{self, Desks, Part};
 use crate::roll::Roll;
@@ -138,6 +138,9 @@ pub struct View {
         deserialize_with = "kept_or_designed"
     )]
     appearance: Option<Pick>,
+    /// How large the panels are drawn.
+    #[serde(default)]
+    zoom: Zoom,
 }
 
 /// The view kept in the window's folder, as read at launch; none
@@ -340,13 +343,15 @@ pub fn restore(world: &mut World) {
     world.insert_resource(view.model_side);
 }
 
-/// Puts back the kept appearance.
+/// Puts back the kept appearance and zoom.
 pub(crate) fn restore_appearance(
     remembered: Res<Remembered>,
     mut appearance: ResMut<Appearance>,
+    mut zoom: ResMut<Zoom>,
 ) {
     if let Some(view) = &remembered.0 {
         appearance.0.clone_from(&view.appearance);
+        *zoom = view.zoom;
     }
 }
 
@@ -385,11 +390,12 @@ pub fn keep(
         Res<Favorites>,
         Res<LastSide>,
     ),
-    (fog, far, wind, appearance): (
+    (fog, far, wind, appearance, zoom): (
         Res<VolumetricFogSettings>,
         Res<DistanceFogSettings>,
         Res<WindChoice>,
         Res<Appearance>,
+        Res<Zoom>,
     ),
     mut written: Local<Option<View>>,
     mut due: Local<Option<f32>>,
@@ -408,6 +414,7 @@ pub fn keep(
         || favorites.is_changed()
         || side.is_changed()
         || appearance.is_changed()
+        || zoom.is_changed()
     {
         *due = Some(now + SETTLE);
     }
@@ -436,6 +443,7 @@ pub fn keep(
         favorite_models: favorites.clone(),
         model_side: side.clone(),
         appearance: appearance.0.clone(),
+        zoom: *zoom,
     };
     if written.as_ref() == Some(&view) {
         return;
@@ -493,6 +501,7 @@ mod tests {
             favorite_models: Favorites(vec!["faux::faux-1".into()]),
             model_side: LastSide("faux".into()),
             appearance: None,
+            zoom: Zoom::default(),
         }
     }
 

@@ -137,7 +137,7 @@ fn block(lines: &[Line]) -> AnyView {
 }
 
 /// The size of a change's lines.
-const SIZE: f32 = 13.0;
+const SIZE: f32 = 15.0;
 
 /// The room between a change's plate and its words, across and down.
 const PAD: f32 = 10.0;
