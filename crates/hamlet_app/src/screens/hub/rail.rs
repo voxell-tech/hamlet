@@ -5,7 +5,7 @@
 //! agent works and rests; only its mark changes.
 
 use bevy::app::{App, Update};
-use bevy::color::{Alpha, Mix};
+use bevy::color::Alpha;
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::hierarchy::{ChildOf, Children};
@@ -1663,25 +1663,13 @@ fn sections_view(sections: &[Section], first_above: f32) -> AnyView {
 /// starts, over dark panels and over light ones.
 const LIT: [f32; 2] = [0.12, 0.65];
 
-/// How far the glow over light panels is taken toward the gold ink:
-/// the pale glow alone is all but unseen on cream.
-const DEEPEN: f32 = 0.4;
-
 /// The light over what the panel shows: the glow, strong at the left
 /// and fading to nothing toward the right.
 fn lit(theme: &HamletTheme) -> BackgroundGradient {
-    let on_cream = lit_panels(theme);
-    let palette = &theme.palette;
-    let glow = if on_cream {
-        palette.glow.mix(&palette.gold_3, DEEPEN)
-    } else {
-        palette.glow
-    };
+    let glow = theme.palette.glow;
+    let on_cream = usize::from(lit_panels(theme));
     BackgroundGradient::from(LinearGradient::to_right(vec![
-        ColorStop::new(
-            glow.with_alpha(LIT[usize::from(on_cream)]),
-            percent(0.0),
-        ),
+        ColorStop::new(glow.with_alpha(LIT[on_cream]), percent(0.0)),
         ColorStop::new(glow.with_alpha(0.0), percent(100.0)),
     ]))
 }

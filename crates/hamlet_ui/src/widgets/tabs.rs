@@ -69,7 +69,7 @@ pub fn tab_look(cx: &mut Cx) {
                 .tone(Tone::Faint)
         })
         .when::<Shown>(|s| {
-            s.fill(|t: &HamletTheme| t.palette.button_hover)
+            s.fill(|t: &HamletTheme| t.palette.selected)
                 .tone(Tone::Body)
         })
         .transition(Motion::Interact)

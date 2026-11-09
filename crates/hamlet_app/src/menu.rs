@@ -186,18 +186,18 @@ pub fn nav(cx: &mut Cx) {
             l.tone(Tone::Faint).size(t.text.heading).bold(true)
         })
         .hovered(|s| {
-            s.fill(|t: &HamletTheme| t.palette.button)
+            s.fill(|t: &HamletTheme| t.palette.button_hover)
                 .tone(Tone::Body)
         })
         .pressed(|s| {
-            s.fill(|t: &HamletTheme| t.palette.button_hover)
+            s.fill(|t: &HamletTheme| t.palette.selected)
                 .tone(Tone::Dim)
         })
         .transition(Motion::Interact)
         .apply(cx);
 }
 
-/// Holds a title lit while its menu is open.
+/// Holds a title lit, with the selected fill, while its menu is open.
 pub(crate) fn light_titles(
     open: Res<OpenMenu>,
     mut titles: Query<(&Menu, &mut Underglow)>,

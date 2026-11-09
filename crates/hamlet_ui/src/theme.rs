@@ -562,6 +562,10 @@ impl SurfaceTokens for HamletTheme {
         self.palette.button_hover.mix(&self.palette.selected, 0.5)
     }
 
+    fn current(&self) -> Color {
+        self.palette.selected
+    }
+
     fn panel(&self) -> Color {
         self.palette.surface
     }

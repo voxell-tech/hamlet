@@ -574,7 +574,7 @@ fn chip_look(cx: &mut Cx) {
         })
         .when::<ChipOpen>(|s| {
             s.frame(|f, t| {
-                f.fill(t.palette.primary_low)
+                f.fill(t.palette.selected)
                     .border_color(t.palette.gold_4)
             })
             .tone(Tone::Body)

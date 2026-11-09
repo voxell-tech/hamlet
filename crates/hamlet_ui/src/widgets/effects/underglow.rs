@@ -8,8 +8,8 @@ use bevy::ecs::system::{Commands, Query, Res};
 use bevy::picking::hover::Hovered;
 use bevy::time::Time;
 use bevy::ui::{
-    BackgroundGradient, ColorStop, RadialGradient,
-    RadialGradientShape, UiPosition, percent,
+    BackgroundGradient, ColorStop, Gradient, LinearGradient,
+    RadialGradient, RadialGradientShape, UiPosition, percent,
 };
 
 use super::control::ControlEffect;
@@ -18,20 +18,27 @@ use crate::theme::Themed;
 
 /// The most a light panel's gain strengthens an underglow: past it
 /// the glow pools into an orange smudge in its box.
-const GAIN_CAP: f32 = 2.0;
+const GAIN_CAP: f32 = 1.5;
 
 /// A title or a tab that glows from below under the pointer, at a
-/// press, and for as long as it is `held`.
+/// press, and for as long as it is `held`, when it also takes the
+/// selected fill under the glow.
 #[derive(Component, Default)]
 pub struct Underglow {
     pub held: bool,
     level: f32,
+    /// Whether the gradient last set has the selected fill in it.
+    filled: bool,
 }
 
 impl Underglow {
     /// An underglow at rest, or held on.
     pub fn new(held: bool) -> Self {
-        Self { held, level: 0.0 }
+        Self {
+            held,
+            level: 0.0,
+            filled: false,
+        }
     }
 }
 
@@ -60,15 +67,28 @@ pub(super) fn update_underglow(
         let want = f32::from(over || glow.held);
         let level = ease(glow.level, want, set.glow_rate, dt);
         let flare = effect.map_or(0.0, |effect| effect.pulse);
-        let steady = level == glow.level && flare == 0.0;
+        let steady = level == glow.level
+            && flare == 0.0
+            && glow.filled == glow.held;
         if steady && (shown || level == 0.0) {
             continue;
         }
         glow.level = level;
+        glow.filled = glow.held;
         let strength = (set.underglow * level
             + set.underglow_press * flare)
             * set.gain(&theme).min(GAIN_CAP);
-        if strength <= 0.0 {
+        let mut layers = Vec::new();
+        if glow.held {
+            let fill = theme.palette.selected;
+            layers.push(Gradient::from(LinearGradient::to_right(
+                vec![
+                    ColorStop::new(fill, percent(0.0)),
+                    ColorStop::new(fill, percent(100.0)),
+                ],
+            )));
+        }
+        if strength <= 0.0 && layers.is_empty() {
             commands.entity(node).try_remove::<BackgroundGradient>();
             continue;
         }
@@ -91,15 +111,14 @@ pub(super) fn update_underglow(
             ),
             ColorStop::new(hue.with_alpha(0.0), percent(100.0)),
         ];
-        commands.entity(node).try_insert(BackgroundGradient::from(
-            RadialGradient::new(
-                UiPosition::BOTTOM,
-                RadialGradientShape::Ellipse(
-                    percent(80.0),
-                    percent(150.0 + 30.0 * flare),
-                ),
-                stops,
+        layers.push(Gradient::from(RadialGradient::new(
+            UiPosition::BOTTOM,
+            RadialGradientShape::Ellipse(
+                percent(80.0),
+                percent(150.0 + 30.0 * flare),
             ),
-        ));
+            stops,
+        )));
+        commands.entity(node).try_insert(BackgroundGradient(layers));
     }
 }

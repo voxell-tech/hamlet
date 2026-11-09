@@ -1,7 +1,7 @@
 //! The styles of the buttons and fields, and the view shapes the
 //! panels share.
 
-use bevy::color::{Alpha, Color, Mix};
+use bevy::color::{Alpha, Color};
 use bevy::ecs::component::Component;
 use bevy::ecs::world::World;
 use bevy::ui::{
@@ -19,7 +19,7 @@ use bevy_fynix::{
 
 use crate::theme::{HamletTheme, TextSizes};
 use crate::widgets::edges::faded;
-use crate::widgets::effects::{Variant, lit_panels};
+use crate::widgets::effects::Variant;
 use crate::widgets::ellipsis::one_line;
 use crate::widgets::icons::{Glyph, glyph};
 use crate::widgets::platform::{DisplayText, MonoText, Wraps};
@@ -725,14 +725,13 @@ fn segment(
         });
     let rules = if picked {
         base.frame(|f, t| {
-            f.fill(t.palette.primary_low)
-                .border_color(t.palette.gold_4)
+            f.fill(t.palette.selected).border_color(t.palette.gold_4)
         })
         .tone(Tone::Body)
         .icon(|i, _| i.tone(Tone::Body))
         .hovered(|s| {
             s.frame(|f, t| {
-                f.fill(t.palette.primary_low)
+                f.fill(t.palette.selected)
                     .border_color(t.palette.accent)
             })
         })
@@ -773,13 +772,12 @@ pub fn choice(
         });
     let rules = if picked {
         base.frame(|f, t| {
-            f.fill(t.palette.primary_low)
-                .border_color(t.palette.gold_4)
+            f.fill(t.palette.selected).border_color(t.palette.gold_4)
         })
         .tone(Tone::Body)
         .hovered(|s| {
             s.frame(|f, t| {
-                f.fill(t.palette.primary_low)
+                f.fill(t.palette.selected)
                     .border_color(t.palette.accent)
             })
         })
@@ -1178,23 +1176,15 @@ pub fn card_choice(
     }
 }
 
-/// How far a picked card's fill is taken toward the glow, over dark
-/// panels and over light ones, where the pale gold needs more.
-const PICKED_WASH: (f32, f32) = (0.1, 0.32);
-
-/// The fill of a [`card_choice`]: the card's, washed with the glow
+/// The fill of a [`card_choice`]: the card's, or the selected fill
 /// while it is `picked`.
 fn card_fill(theme: &HamletTheme, picked: bool) -> Color {
     let palette = &theme.palette;
-    if !picked {
-        return palette.card;
-    }
-    let wash = if lit_panels(theme) {
-        PICKED_WASH.1
+    if picked {
+        palette.selected
     } else {
-        PICKED_WASH.0
-    };
-    palette.card.mix(&palette.glow, wash)
+        palette.card
+    }
 }
 
 /// A ring, filled while it is the one chosen, as a radio button's.

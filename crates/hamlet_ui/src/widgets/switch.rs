@@ -14,7 +14,7 @@ use bevy::time::Time;
 use bevy::ui::{AlignItems, Checked, Node, px};
 use bevy::ui_widgets::{Checkbox as CheckboxBehavior, ValueChange};
 use bevy::window::SystemCursorIcon;
-use bevy_fynix::tokens::{Motion, Tone};
+use bevy_fynix::tokens::{Motion, SurfaceTokens, TextTokens, Tone};
 use bevy_fynix::views::{FrameProps, frame, label, row};
 use bevy_fynix::{EntityCursor, Prop, component, style};
 
@@ -79,9 +79,10 @@ fn switch_of(
         );
         let knob = height - 2.0 * (border + inset);
         let travel = width - height;
-        let tracks = (palette.gold_5, palette.button);
-        let frames = (palette.gold_5, palette.gold_5);
-        let knobs = (palette.glow_core, palette.grey_1);
+        let accent = theme.accent();
+        let tracks = (accent, palette.button);
+        let frames = (accent, palette.gold_5);
+        let knobs = (theme.tone(Tone::OnAccent), palette.grey_1);
         cx.scope(|cx| {
             style::<HamletTheme>()
                 .tone(Tone::Faint)
