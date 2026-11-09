@@ -4631,6 +4631,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "hamlet_update"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64 0.22.1",
+ "hamlet_protocol",
+ "reqwest",
+ "ring",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tokio",
+]
+
+[[package]]
 name = "hamlet_vfx"
 version = "0.1.0"
 dependencies = [

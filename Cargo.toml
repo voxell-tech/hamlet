@@ -31,6 +31,7 @@ hamlet_store = { version = "0.1.0", path = "crates/hamlet_store" }
 hamlet_git = { version = "0.1.0", path = "crates/hamlet_git" }
 hamlet_sandbox = { version = "0.1.0", path = "crates/hamlet_sandbox" }
 hamlet_workspace_wire = { version = "0.1.0", path = "crates/hamlet_workspace_wire" }
+hamlet_update = { version = "0.1.0", path = "crates/hamlet_update" }
 
 # fynix
 bevy_fynix = { path = "vendor/fynix/crates/bevy_fynix" }
