@@ -75,8 +75,9 @@ or treatment that exists in one mode only caps the score at 6.
    gain, or after eight rounds, and take the scores and the open
    questions to the owner.
 
-The lead posts one short line per round to the owner: the score, the
-parts that moved, and any call that is the owner's to make, such as
+After every review the lead posts to the owner: the score, the parts
+that moved, the key screenshots of the round inline (light beside dark
+for the main scenes), and any call that is the owner's to make, such as
 removing something the owner asked for. Changes to the brief go to the
 running agent as a message, and into the rubric for later rounds.
 
