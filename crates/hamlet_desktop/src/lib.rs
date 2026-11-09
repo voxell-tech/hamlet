@@ -1,7 +1,8 @@
 //! The machine the app runs on: kept awake while an agent works
 //! (`awake`), the programs of the system that show a file or a link
 //! (`open`), temporary documents watched for saves (`editor`), its
-//! dialog a folder is chosen in (`folder`), the app's icon
+//! folders listed and watched (`files`), its dialog a folder is
+//! chosen in (`folder`), the app's icon
 //! (`app_icon`), whether the computer is light or dark
 //! (`color_scheme`) and the window's drag by its title bar
 //! (`title_bar`).
@@ -10,6 +11,7 @@ pub mod app_icon;
 pub mod awake;
 pub mod color_scheme;
 pub mod editor;
+pub mod files;
 pub mod folder;
 pub mod open;
 pub mod title_bar;

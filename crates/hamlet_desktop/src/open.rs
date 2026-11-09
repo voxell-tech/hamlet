@@ -126,6 +126,17 @@ pub fn show(path: &Path, roots: &[PathBuf]) -> Launch {
     started(&mut program(&path, way(&path)))
 }
 
+/// Shows `path` in its folder, unopened, if it is still under
+/// `roots`.
+pub fn reveal(path: &Path, roots: &[PathBuf]) -> Launch {
+    let Some(path) =
+        path.to_str().and_then(|path| locate(path, roots))
+    else {
+        return Launch::Failed;
+    };
+    started(&mut program(&path, Way::Reveal))
+}
+
 /// Shows the file `path` if it is still there, with no link leading
 /// out of its folder.
 pub fn show_file(path: &Path) -> Launch {
