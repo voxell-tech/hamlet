@@ -113,17 +113,23 @@ pub struct Variant {
     pub palette: Palette,
 }
 
-/// Every shipped family, Hamlet first, then by name.
+/// Every shipped family: Hamlet first, then Hamlet's others, then the
+/// rest, each by name.
 #[derive(Resource, Clone, Debug)]
 pub struct Themes(Vec<Theme>);
 
 impl Themes {
     /// The built-in files. Panics naming a file that does not read.
     pub fn shipped() -> Self {
+        let hamlet = ThemeId::default();
         let mut themes =
             THEMES.iter().map(shipped).collect::<Vec<_>>();
         themes.sort_by_key(|theme| {
-            (theme.id != ThemeId::default(), theme.name.clone())
+            (
+                theme.id != hamlet,
+                !theme.id.0.starts_with(&hamlet.0),
+                theme.name.clone(),
+            )
         });
         Self(themes)
     }
