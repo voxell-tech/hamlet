@@ -25,7 +25,12 @@ use crate::styles::Fills;
 
 /// How far in from an end of a scroll area its fade reaches, in
 /// logical pixels.
-const REACH: f32 = 28.0;
+const REACH: f32 = 14.0;
+
+/// How opaque a fade is at its end at most. The fill it fades into is
+/// the plain ground, without the glows a panel lays over it, so a
+/// whole opacity would show as a band of another tone.
+const STRONGEST: f32 = 0.65;
 
 pub fn plugin(app: &mut App) {
     app.add_systems(PostUpdate, shade.after(UiSystems::Layout));
@@ -93,7 +98,7 @@ fn shade(
             End::Bottom => area.content_size().y - visible - scrolled,
         };
         let shown = (past / reach).clamp(0.0, 1.0);
-        gradient.set_if_neq(fade(*end, ground, shown));
+        gradient.set_if_neq(fade(*end, ground, shown * STRONGEST));
     }
 }
 

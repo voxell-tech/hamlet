@@ -332,6 +332,11 @@ fn tabs_view(tabs: &Tabs) -> impl View {
     })
 }
 
+/// How far up the shown segment its inner light is three tenths as
+/// strong, and how far up it is gone, in percent of the height.
+const LIGHT_FOOT: f32 = 14.0;
+const LIGHT_TOP: f32 = 40.0;
+
 /// The raised segment under the shown tab, lit inside from below
 /// and underlined with a glowing line.
 fn indicator() -> impl View {
@@ -349,10 +354,19 @@ fn indicator() -> impl View {
             (space.track_radius - space.track_padding).max(0.0);
         let light =
             EffectColors::of(theme).underglow.with_alpha(underglow);
+        // The light stays under the label's feet, so the label keeps
+        // 4.5:1 along its height.
         let inner =
             BackgroundGradient::from(LinearGradient::to_top(vec![
                 ColorStop::new(light, percent(0.0)),
-                ColorStop::new(light.with_alpha(0.0), percent(100.0)),
+                ColorStop::new(
+                    light.with_alpha(underglow * 0.3),
+                    percent(LIGHT_FOOT),
+                ),
+                ColorStop::new(
+                    light.with_alpha(0.0),
+                    percent(LIGHT_TOP),
+                ),
             ]));
         let line = frame()
             .position(PositionType::Absolute)
