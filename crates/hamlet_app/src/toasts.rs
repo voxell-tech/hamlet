@@ -525,7 +525,9 @@ fn card(toast: &Toast) -> AnyView {
                                 "Restart",
                                 move |world| {
                                     updates::restart(
-                                        world, version, &file,
+                                        world,
+                                        version,
+                                        file.clone(),
                                     );
                                 },
                             ),

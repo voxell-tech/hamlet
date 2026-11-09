@@ -173,26 +173,45 @@ pub(crate) fn decline(world: &mut World, version: Version) {
     }
 }
 
-/// Hands the update in `file` to the launcher beside the window,
-/// which stops the server, puts it in place and opens Hamlet again,
-/// and closes the window.
+/// The update the window hands over as it closes.
+#[derive(Resource)]
+struct Restarting {
+    version: Version,
+    file: PathBuf,
+}
+
+/// Closes the window and, once its editor saves are confirmed or the
+/// chief closes with copies, hands the update in `file` to the
+/// launcher beside it, which stops the server, puts it in place and
+/// opens Hamlet again.
 pub(crate) fn restart(
     world: &mut World,
     version: Version,
-    file: &Path,
+    file: PathBuf,
 ) {
-    match hand_over(version, file) {
-        Ok(()) => crate::saving::close(world),
-        Err(error) => {
-            let now = world.resource::<Time>().elapsed_secs();
-            world.resource_mut::<Toasts>().note(
-                StatusKind::Danger,
-                "Hamlet could not restart".into(),
-                format!("{error:#}"),
-                now,
-            );
-        }
-    }
+    world.insert_resource(Restarting { version, file });
+    crate::saving::close_then(world, Some(hand));
+}
+
+/// Hands the update over, or keeps the window open with the reason
+/// it could not.
+fn hand(world: &mut World) -> bool {
+    let Some(Restarting { version, file }) =
+        world.remove_resource::<Restarting>()
+    else {
+        return true;
+    };
+    let Err(error) = hand_over(version, &file) else {
+        return true;
+    };
+    let now = world.resource::<Time>().elapsed_secs();
+    world.resource_mut::<Toasts>().note(
+        StatusKind::Danger,
+        "Hamlet could not restart".into(),
+        format!("{error:#}"),
+        now,
+    );
+    false
 }
 
 /// Notes the attempt and starts `hamlet_launch --update file`.
