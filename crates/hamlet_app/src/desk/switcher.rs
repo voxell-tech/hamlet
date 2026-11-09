@@ -58,7 +58,7 @@ use hamlet_ui::styles::{
     section, text_input,
 };
 use hamlet_ui::theme::{HamletTheme, Themed};
-use hamlet_ui::widgets::effects::EffectSettings;
+use hamlet_ui::widgets::effects::{EffectColors, EffectSettings};
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::widgets::platform::DisplayText;
 use hamlet_ui::{AnyView, Cx, View, with_cx};
@@ -228,7 +228,7 @@ pub(crate) fn switcher() -> impl View {
             .width(px(space.divider))
             .height(px(space.track_divider))
             .shrink(0.0)
-            .fill(palette.gold_6);
+            .fill(palette.border);
         let hidden = ScrollbarStyle {
             visibility: ScrollbarVisibility::Hidden,
             floating: true,
@@ -273,7 +273,7 @@ pub(crate) fn switcher() -> impl View {
             .gap(space.track_padding)
             .fill(palette.input)
             .border(space.border)
-            .border_color(palette.gold_6)
+            .border_color(palette.border)
             .radius(space.track_radius)
             .align(AlignItems::Stretch);
         row((divider, track))
@@ -346,7 +346,8 @@ fn indicator() -> impl View {
         );
         let radius =
             (space.track_radius - space.track_padding).max(0.0);
-        let light = palette.glow.with_alpha(underglow);
+        let light =
+            EffectColors::of(theme).underglow.with_alpha(underglow);
         let inner =
             BackgroundGradient::from(LinearGradient::to_top(vec![
                 ColorStop::new(light, percent(0.0)),

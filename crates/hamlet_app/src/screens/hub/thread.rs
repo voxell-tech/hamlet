@@ -569,7 +569,7 @@ fn light_chips(
 fn chip_look(cx: &mut Cx) {
     choice(false)(cx);
     style::<HamletTheme>()
-        .frame(|f, t| f.border_color(t.palette.gold_6))
+        .frame(|f, t| f.border_color(t.palette.border))
         .when::<ChipOpen>(|s| {
             s.frame(|f, t| {
                 f.fill(t.palette.primary_low)

@@ -245,7 +245,7 @@ pub fn hairline(colour: impl Into<Prop<Color>>) -> Frame {
 /// A line between parts side by side, top to bottom.
 pub fn upright() -> impl View {
     with_cx(|cx| {
-        frame().width(px(1.0)).fill(cx.theme().palette.gold_6)
+        frame().width(px(1.0)).fill(cx.theme().palette.border)
     })
 }
 

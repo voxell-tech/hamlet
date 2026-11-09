@@ -33,6 +33,7 @@ use hamlet_ui::styles::{
     Fills, ICON, action, bad_action, bare, buttons, close, framed,
     group, note, raised, scroll_area, small_rules, title,
 };
+use hamlet_ui::widgets::effects::lit_panels;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::widgets::platform::{DisplayText, Wraps};
 use hamlet_ui::widgets::tabs;
@@ -190,9 +191,12 @@ fn stop_all() -> AnyView {
     .boxed()
 }
 
-/// Half see-through, as what cannot be pressed.
+/// See-through, as what cannot be pressed: half over dark panels,
+/// and less over light ones, where the same fade leaves a red button
+/// unreadable.
 fn faded(cx: &mut Cx) {
-    cx.set::<Visual>(|visual, _| visual.opacity(0.5));
+    let opacity = if lit_panels(cx.theme()) { 0.85 } else { 0.5 };
+    cx.set::<Visual>(move |visual, _| visual.opacity(opacity));
 }
 
 /// How the realm stands today.

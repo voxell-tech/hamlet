@@ -559,7 +559,7 @@ impl SurfaceTokens for HamletTheme {
     }
 
     fn hairline(&self) -> Color {
-        self.palette.gold_6
+        self.palette.border
     }
 
     fn selection(&self) -> Color {

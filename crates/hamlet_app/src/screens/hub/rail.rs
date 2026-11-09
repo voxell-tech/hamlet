@@ -5,7 +5,7 @@
 //! agent works and rests; only its mark changes.
 
 use bevy::app::{App, Update};
-use bevy::color::Alpha;
+use bevy::color::{Alpha, Mix};
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::hierarchy::{ChildOf, Children};
@@ -93,15 +93,13 @@ const STEP_IN: f32 = 16.0;
 /// The room inside a row's ends.
 const ROW_INSET: f32 = 6.0;
 
-/// How strong the glow is at the start and at the end of the light
-/// over what the panel shows, over dark panels and over light ones.
-/// The glow is pale gold, so over light panels it is laid in full and
-/// holds, with a [`BAR`] to mark the edge.
-const LIT: [(f32, f32); 2] = [(0.2, 0.0), (1.0, 0.5)];
+/// How strong the glow is where the light over what the panel shows
+/// starts, over dark panels and over light ones.
+const LIT: [f32; 2] = [0.2, 0.5];
 
-/// The width of the bar at the left of what the panel shows, over
-/// light panels.
-const BAR: f32 = 3.0;
+/// How far the glow over light panels is taken toward the gold ink:
+/// the pale glow alone is all but unseen on cream.
+const DEEPEN: f32 = 0.7;
 
 /// The room over a section's header inside its block.
 const BLOCK_PAD: f32 = 4.0;
@@ -1439,7 +1437,7 @@ fn expanded(line: &Line, tree: Tree) -> AnyView {
     // gradient is its glow under the pointer, which takes it back.
     let shown = if line.current {
         with_cx(move |cx| {
-            row((bar(), shown))
+            row((shown,))
                 .grow(1.0)
                 .min_width(px(0.0))
                 .radius(4.0)
@@ -1644,9 +1642,6 @@ fn sections_view(sections: &[Section], first_above: f32) -> AnyView {
         // The hamlet whose page is shown, lit whole.
         let lit_block = section.current
             && matches!(section.group, Group::Hamlet(_));
-        if lit_block {
-            block.push(bar());
-        }
         let block = column(block)
             .gap(0.0)
             .margin(UiRect::top(px(above)))
@@ -1675,31 +1670,24 @@ enum Fall {
 /// The light over what the panel shows: the glow, fading the way
 /// `fall` says.
 fn lit(theme: &HamletTheme, fall: Fall) -> BackgroundGradient {
-    let (start, end) = LIT[usize::from(lit_panels(theme))];
-    let glow = theme.palette.glow;
+    let lit = lit_panels(theme);
+    let palette = &theme.palette;
+    let glow = if lit {
+        palette.glow.mix(&palette.gold_3, DEEPEN)
+    } else {
+        palette.glow
+    };
     let stops = vec![
-        ColorStop::new(glow.with_alpha(start), percent(0.0)),
-        ColorStop::new(glow.with_alpha(end), percent(100.0)),
+        ColorStop::new(
+            glow.with_alpha(LIT[usize::from(lit)]),
+            percent(0.0),
+        ),
+        ColorStop::new(glow.with_alpha(0.0), percent(100.0)),
     ];
     BackgroundGradient::from(match fall {
         Fall::Across => LinearGradient::to_right(stops),
         Fall::Down => LinearGradient::to_bottom(stops),
     })
-}
-
-/// The [`BAR`] down the left edge of what the panel shows, in the
-/// accent. It has no width over dark panels, where the light's own
-/// edge is clear.
-fn bar() -> AnyView {
-    with_cx(|cx| {
-        let theme = cx.theme();
-        frame()
-            .width(px(if lit_panels(theme) { BAR } else { 0.0 }))
-            .fill(theme.palette.accent)
-            .position(PositionType::Absolute)
-            .inset(UiRect::new(px(0.0), Val::Auto, px(0.0), px(0.0)))
-    })
-    .boxed()
 }
 
 /// Whether `section` is of the realm's own, over the tabs: the realm,

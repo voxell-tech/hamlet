@@ -125,7 +125,7 @@ pub fn strip<R: Resource + Copy>(
         .collect::<Vec<_>>();
     column((
         row(tabs).gap(0.0).tagged(Folds::default()),
-        with_cx(|cx| hairline(cx.theme().palette.gold_6)),
+        with_cx(|cx| hairline(cx.theme().palette.border)),
     ))
     .gap(0.0)
 }
