@@ -326,3 +326,9 @@ _Avoid_: notification, popup
 Only in the world's code: how a hamlet is drawn. Never in what a person
 reads.
 _Avoid_: using it for the hamlet itself
+
+**Web**:
+A panel that shows a web page: an agent's page, a site an agent serves
+while it builds, or any site. Every Web panel shares the chief's one
+browsing session.
+_Avoid_: browser, webview
