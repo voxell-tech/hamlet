@@ -1,9 +1,9 @@
 //! A material in the ASSETS panel's details: the shader it uses, a
 //! control for each of the shader's graph inputs showing what the
-//! material makes it, with a button that gives a value set back to the
-//! shader's default, and an Error for each value the shader does not
-//! take, with a button that removes it. Each change is written to the
-//! material's file at once.
+//! material makes it, with a button that gives a value set back to
+//! the shader's default, and an Error for each value the shader does
+//! not take, with a button that removes it. Each change is written to
+//! the material's file at once.
 
 use anyhow::Context;
 use bevy::app::App;
@@ -12,8 +12,8 @@ use bevy::ecs::world::World;
 use bevy::math::Vec3;
 use bevy::ui::{AlignItems, Display, percent, px};
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, TooltipExt, button, column, dropdown, icon_button,
-    number_field, row, text_field,
+    BehaviorExt, FrameProps, TooltipExt, button, column, dropdown,
+    icon_button, number_field, row, text_field,
 };
 use bevy_fynix::{ScopedExt, ViewExt, keyed, resource};
 use hamlet_graph::material::{Material, fits};
@@ -69,7 +69,9 @@ impl Open {
             self.material.values.get(input),
             shader.inputs.iter().find(|known| known.name == input),
         ) {
-            (Some(value), Some(known)) => fits(value, known.value_type),
+            (Some(value), Some(known)) => {
+                fits(value, known.value_type)
+            }
             _ => false,
         }
     }
@@ -115,15 +117,17 @@ fn body(name: String) -> AnyView {
             .find(Kind::Shader, &material.shader)
             .and_then(|item| item.read().ok())
             .map(|book| lone(book).graph);
-        let mut rows: Vec<AnyView> =
-            vec![labelled("shader", picker(&name, &material, shaders))];
+        let mut rows: Vec<AnyView> = vec![labelled(
+            "shader",
+            picker(&name, &material, shaders),
+        )];
         match &shader {
             Some(graph) => {
                 if graph.inputs.is_empty() {
                     rows.push(
                         description(
-                            "The shader has no inputs to set. Give it \
-                             some in its editor.",
+                            "The shader has no inputs to set. Give \
+                             it some in its editor.",
                         )
                         .boxed(),
                     );
@@ -135,7 +139,11 @@ fn body(name: String) -> AnyView {
                     ));
                 }
                 for error in material.errors(graph) {
-                    rows.push(stale(&name, error.name(), error.to_string()));
+                    rows.push(stale(
+                        &name,
+                        error.name(),
+                        error.to_string(),
+                    ));
                 }
             }
             None if material.shader.is_empty() => rows.push(
@@ -174,16 +182,21 @@ fn picker(
     let words = std::iter::once("none".to_owned())
         .chain(shaders.iter().map(|shader| shader.replace('_', " ")))
         .collect::<Vec<_>>();
-    dropdown(words, at, Glyph::Chevron.image(ICON), move |world, at| {
-        let shader = at
-            .checked_sub(1)
-            .and_then(|at| shaders.get(at))
-            .cloned()
-            .unwrap_or_default();
-        change(world, &name, true, |material| {
-            material.shader = shader;
-        });
-    })
+    dropdown(
+        words,
+        at,
+        Glyph::Chevron.image(ICON),
+        move |world, at| {
+            let shader = at
+                .checked_sub(1)
+                .and_then(|at| shaders.get(at))
+                .cloned()
+                .unwrap_or_default();
+            change(world, &name, true, |material| {
+                material.shader = shader;
+            });
+        },
+    )
     .width(percent(100.0))
     .boxed()
 }
@@ -268,8 +281,9 @@ fn axes(name: &str, input: &GraphInput, count: usize) -> AnyView {
             let reading = input.clone();
             number_field(
                 resource::<Open, _>(move |open| {
-                    open.value(&reading)
-                        .map_or(0.0, |value| f64::from(get(&value, axis)))
+                    open.value(&reading).map_or(0.0, |value| {
+                        f64::from(get(&value, axis))
+                    })
                 }),
                 move |world: &mut World, value: f64| {
                     let Some(mut now) =
@@ -286,8 +300,16 @@ fn axes(name: &str, input: &GraphInput, count: usize) -> AnyView {
                     set(world, &name, &input, now);
                 },
             )
-            .step(if value_type == ValueType::Integer { 1.0 } else { 0.05 })
-            .precision(if value_type == ValueType::Integer { 0 } else { 2 })
+            .step(if value_type == ValueType::Integer {
+                1.0
+            } else {
+                0.05
+            })
+            .precision(if value_type == ValueType::Integer {
+                0
+            } else {
+                2
+            })
             .width(percent(100.0))
             .min_width(px(0.0))
             .rules(text_input)
@@ -400,16 +422,17 @@ pub(super) fn preview() -> AnyView {
         .boxed()
 }
 
-/// The value an input of `value_type` takes when nothing gives it one.
+/// The value an input of `value_type` takes when nothing gives it
+/// one.
 fn blank(value_type: ValueType) -> Constant {
     match value_type {
         ValueType::Bool => Constant::Bool(false),
         ValueType::Color => Constant::Color(bevy::math::Vec4::ONE),
         ValueType::Choice => Constant::Choice(String::new()),
         ValueType::Integer => Constant::Integer(0),
-        ValueType::Point | ValueType::Vector2 | ValueType::Vector3 => {
-            Constant::Point(Vec3::ZERO)
-        }
+        ValueType::Point
+        | ValueType::Vector2
+        | ValueType::Vector3 => Constant::Point(Vec3::ZERO),
         _ => Constant::Number(0.0),
     }
 }

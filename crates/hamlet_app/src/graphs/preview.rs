@@ -1156,7 +1156,8 @@ fn aim(
         return;
     };
     let yaw = YAW + seat.shown.yaw;
-    let pitch = (PITCH + seat.shown.pitch).clamp(-FRAC_PI_2, FRAC_PI_2);
+    let pitch =
+        (PITCH + seat.shown.pitch).clamp(-FRAC_PI_2, FRAC_PI_2);
     let toward = backward(yaw, pitch);
     // Up across the view, square to where it looks, so that it holds
     // looking straight down or up too.

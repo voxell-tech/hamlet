@@ -4,11 +4,12 @@
 //! `sources.ron` with the file outside the library it was added from
 //! and follows; blueprint and shader graphs are `.ron` files in
 //! `blueprints/` and `shaders/`, one graph to a file; materials are
-//! `.ron` files in `materials/`, each a shader by name with values for
-//! some of its inputs; textures are `.png` files in `textures/`. A graph names the meshes it uses and
-//! the other graphs of its kind it runs. `folders.ron` records the
-//! folders and the folder each asset is in, of every kind, the files
-//! staying in their shelves. A removed asset is moved to `.trash/`.
+//! `.ron` files in `materials/`, each a shader by name with values
+//! for some of its inputs; textures are `.png` files in `textures/`.
+//! A graph names the meshes it uses and the other graphs of its kind
+//! it runs. `folders.ron` records the folders and the folder each
+//! asset is in, of every kind, the files staying in their shelves. A
+//! removed asset is moved to `.trash/`.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -24,6 +25,7 @@ use bevy::ecs::system::{Res, ResMut};
 use bevy::time::Time;
 use hamlet_client::ViewFolder;
 use hamlet_graph::material::Material;
+use hamlet_graph::prefab::Prefab;
 use hamlet_graph::{Asset, Book, Catalogue, Does, Shape, Sheet};
 use hamlet_ui::widgets::icons::Glyph;
 
@@ -57,6 +59,8 @@ pub enum Kind {
     Shader,
     /// A shader by name with values for some of its inputs.
     Material,
+    /// A mesh by name with some of its objects changed.
+    Prefab,
     /// A `.glb` mesh.
     Mesh,
     /// A `.png` texture.
@@ -70,6 +74,7 @@ impl Kind {
             Kind::Blueprint => "blueprints",
             Kind::Shader => "shaders",
             Kind::Material => "materials",
+            Kind::Prefab => "prefabs",
             Kind::Mesh => "meshes",
             Kind::Texture => "textures",
         }
@@ -78,7 +83,10 @@ impl Kind {
     /// Its files' extension.
     pub fn extension(self) -> &'static str {
         match self {
-            Kind::Blueprint | Kind::Shader | Kind::Material => "ron",
+            Kind::Blueprint
+            | Kind::Shader
+            | Kind::Material
+            | Kind::Prefab => "ron",
             Kind::Mesh => "glb",
             Kind::Texture => "png",
         }
@@ -90,6 +98,7 @@ impl Kind {
             Kind::Blueprint => "Blueprint",
             Kind::Shader => "Shader",
             Kind::Material => "Material",
+            Kind::Prefab => "Prefab",
             Kind::Mesh => "Mesh",
             Kind::Texture => "Texture",
         }
@@ -101,6 +110,7 @@ impl Kind {
             Kind::Blueprint => Glyph::Signpost,
             Kind::Shader => Glyph::Sphere,
             Kind::Material => Glyph::Drop,
+            Kind::Prefab => Glyph::Hamlet,
             Kind::Mesh => Glyph::Cube,
             Kind::Texture => Glyph::Mountains,
         }
@@ -163,6 +173,18 @@ impl Item {
             .with_context(|| format!("reading {}", path.display()))?;
         Material::from_ron(&text).with_context(|| {
             format!("{} is not a material file", path.display())
+        })
+    }
+
+    /// The prefab its file holds.
+    pub fn prefab(&self) -> anyhow::Result<Prefab> {
+        let Source::File(path) = &self.source else {
+            anyhow::bail!("{} is not a prefab", self.name);
+        };
+        let text = fs::read_to_string(path)
+            .with_context(|| format!("reading {}", path.display()))?;
+        Prefab::from_ron(&text).with_context(|| {
+            format!("{} is not a prefab file", path.display())
         })
     }
 }
@@ -253,8 +275,13 @@ impl Library {
             .and_then(|text| Folders::from_ron(&text).ok())
             .unwrap_or_default();
         let mut items = Vec::new();
-        for kind in
-            [Kind::Blueprint, Kind::Shader, Kind::Material, Kind::Texture] {
+        for kind in [
+            Kind::Blueprint,
+            Kind::Shader,
+            Kind::Material,
+            Kind::Prefab,
+            Kind::Texture,
+        ] {
             let Ok(entries) = fs::read_dir(root.join(kind.shelf()))
             else {
                 continue;
@@ -326,8 +353,9 @@ impl Library {
         write_atomic(&Self::folders_at(root), &text)
     }
 
-    /// Changes the folders as `change` says and writes them, and gives
-    /// what `change` gives. Nothing is written when it fails.
+    /// Changes the folders as `change` says and writes them, and
+    /// gives what `change` gives. Nothing is written when it
+    /// fails.
     pub fn change_folders<T>(
         &mut self,
         change: impl FnOnce(&mut Folders) -> anyhow::Result<T>,
@@ -469,6 +497,9 @@ impl Library {
             Kind::Material => {
                 self.save_material(&name, &Material::default())?;
             }
+            Kind::Prefab => {
+                self.save_prefab(&name, &Prefab::default())?;
+            }
             _ => {
                 self.save_sheet(kind, &name, &Sheet::default())?;
             }
@@ -493,10 +524,62 @@ impl Library {
                 format!("making {}", parent.display())
             })?;
         }
-        let text = material.to_ron().context("writing the material")?;
+        let text =
+            material.to_ron().context("writing the material")?;
         write_atomic(&path, &text)?;
         self.scan();
         Ok(path)
+    }
+
+    /// Writes `prefab` as the prefab `name`, and gives its path. As
+    /// with a material, the revision changes only when a new prefab
+    /// is listed.
+    pub fn save_prefab(
+        &mut self,
+        name: &str,
+        prefab: &Prefab,
+    ) -> anyhow::Result<PathBuf> {
+        let path = self
+            .path_of(Kind::Prefab, name)
+            .context("no library yet")?;
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).with_context(|| {
+                format!("making {}", parent.display())
+            })?;
+        }
+        let text = prefab.to_ron().context("writing the prefab")?;
+        write_atomic(&path, &text)?;
+        self.scan();
+        Ok(path)
+    }
+
+    /// The prefabs that name the mesh `mesh`, by name.
+    pub fn prefabs_of(&self, mesh: &str) -> Vec<String> {
+        self.items
+            .iter()
+            .filter(|item| item.kind == Kind::Prefab)
+            .filter(|item| {
+                item.prefab().is_ok_and(|prefab| prefab.model == mesh)
+            })
+            .map(|item| item.name.clone())
+            .collect()
+    }
+
+    /// Refuses to rename or remove the mesh `item` while a prefab
+    /// names it.
+    fn refuse_named_mesh(&self, item: &Item) -> anyhow::Result<()> {
+        if item.kind != Kind::Mesh {
+            return Ok(());
+        }
+        let prefabs = self.prefabs_of(&item.name);
+        if !prefabs.is_empty() {
+            anyhow::bail!(
+                "{} is the mesh of the prefab {}",
+                item.name,
+                prefabs.join(", ")
+            );
+        }
+        Ok(())
     }
 
     /// The sheet `item` holds, and the names of the assets split off
@@ -645,6 +728,7 @@ impl Library {
         let Source::File(from) = &item.source else {
             anyhow::bail!("{} cannot be renamed", item.name);
         };
+        self.refuse_named_mesh(item)?;
         let name = self.free_name(item.kind, name);
         let to = self
             .path_of(item.kind, &name)
@@ -677,6 +761,7 @@ impl Library {
         let Source::File(from) = &item.source else {
             anyhow::bail!("{} cannot be removed", item.name);
         };
+        self.refuse_named_mesh(item)?;
         let root = self.root.as_deref().context("no library yet")?;
         let trash = root.join(".trash").join(item.kind.shelf());
         fs::create_dir_all(&trash)?;
@@ -960,14 +1045,17 @@ mod tests {
         );
         library.save_material(&item.name, &material).unwrap();
 
-        assert!(folder.join("library/materials/plaster.ron").exists());
+        assert!(
+            folder.join("library/materials/plaster.ron").exists()
+        );
         let again = Library::in_folder(folder.join("library"));
         let found = again.find(Kind::Material, "plaster").unwrap();
         assert_eq!(found.material().unwrap(), material);
     }
 
     #[test]
-    fn an_asset_renamed_stays_in_its_folder_and_leaves_it_when_removed() {
+    fn an_asset_renamed_stays_in_its_folder_and_leaves_it_when_removed()
+     {
         let folder = Scratch::new("library-folders");
         let mut library = Library {
             root: Some(folder.join("library")),
@@ -983,7 +1071,10 @@ mod tests {
 
         let name = library.rename(&item, "limewash").unwrap();
         let again = Library::in_folder(folder.join("library"));
-        assert_eq!(again.folders.of(Kind::Material, &name), Some("village"));
+        assert_eq!(
+            again.folders.of(Kind::Material, &name),
+            Some("village")
+        );
         assert_eq!(again.folders.of(Kind::Material, "plaster"), None);
 
         let renamed = library.find(Kind::Material, &name).unwrap();

@@ -6,6 +6,7 @@ mod blueprint;
 mod gizmo;
 mod handles;
 mod overlay;
+mod prefab;
 mod preview;
 pub(crate) mod shader;
 mod thumbnails;
@@ -25,7 +26,11 @@ use crate::cursor::Faint;
 /// Adds the blueprint and the shader editors, each with its dock
 /// panel.
 pub(crate) fn plugin(app: &mut App) {
-    app.add_plugins((blueprint::plugin, shader::plugin));
+    app.add_plugins((
+        blueprint::plugin,
+        shader::plugin,
+        prefab::plugin,
+    ));
 }
 
 /// Draws the cursor faint while a wire is dragged, so what it is
@@ -51,6 +56,7 @@ pub(crate) fn open_item(
     let opened = match item.kind {
         Kind::Blueprint => files::open_item::<Blueprint>(world, item),
         Kind::Shader => files::open_item::<ShaderGraph>(world, item),
+        Kind::Prefab => prefab::open(world, &item.name),
         Kind::Mesh | Kind::Texture => {
             return Err(OpenRefusal::Dragged {
                 name: item.name.clone(),

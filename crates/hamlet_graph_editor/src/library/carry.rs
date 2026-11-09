@@ -81,7 +81,8 @@ fn lift(start: On<PointerDragStart>, mut commands: Commands) {
             return;
         };
         drop_card(world);
-        let card = bevy_fynix::mount::<HamletTheme>(world, card(&item));
+        let card =
+            bevy_fynix::mount::<HamletTheme>(world, card(&item));
         world.entity_mut(card).insert(Card);
         place(world, card, at);
         let mut carried = world.resource_mut::<Carried>();
@@ -105,7 +106,8 @@ fn follow(
     else {
         return;
     };
-    let at = held_at(drag.pointer.position, scale.map_or(1.0, |s| s.0));
+    let at =
+        held_at(drag.pointer.position, scale.map_or(1.0, |s| s.0));
     node.left = px(at.x);
     node.top = px(at.y);
 }

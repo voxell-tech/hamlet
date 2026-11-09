@@ -6,7 +6,7 @@
 
 mod preview;
 pub(crate) mod sample;
-mod swatch;
+pub(crate) mod swatch;
 
 use bevy::app::{App, Update};
 use bevy::ecs::resource::Resource;

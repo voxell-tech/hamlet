@@ -1,12 +1,12 @@
-//! The library's meshes: read from their files, drawn in the blueprint
-//! editor's preview, and changed in the ASSETS panel's details. A
-//! chosen `.glb` is copied into the library and added to its catalogue
-//! with a palette colour for each of its materials, and the library
-//! keeps the file it came from: when that file is saved again, the
-//! copy is replaced and the mesh takes its new size, slots and
-//! sockets, each slot it had keeping its colour. The preview reads
-//! each file once and draws it at its own size times its object's
-//! scale.
+//! The library's meshes: read from their files, drawn in the
+//! blueprint editor's preview, and changed in the ASSETS panel's
+//! details. A chosen `.glb` is copied into the library and added to
+//! its catalogue with a palette colour for each of its materials, and
+//! the library keeps the file it came from: when that file is saved
+//! again, the copy is replaced and the mesh takes its new size, slots
+//! and sockets, each slot it had keeping its colour. The preview
+//! reads each file once and draws it at its own size times its
+//! object's scale.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -415,16 +415,21 @@ fn mesh(name: String) -> AnyView {
         if let Some(asset) = asset {
             for (slot, paint) in &asset.slots {
                 let shown = match &added {
-                    Some(added) => {
-                        colour(name.clone(), added.clone(), slot.clone())
-                    }
+                    Some(added) => colour(
+                        name.clone(),
+                        added.clone(),
+                        slot.clone(),
+                    ),
                     None => note(paint_word(paint)).boxed(),
                 };
                 rows.push(labelled(&slot.replace('_', " "), shown));
             }
             if !asset.sockets.is_empty() {
-                let names: Vec<&str> =
-                    asset.sockets.keys().map(String::as_str).collect();
+                let names: Vec<&str> = asset
+                    .sockets
+                    .keys()
+                    .map(String::as_str)
+                    .collect();
                 rows.push(labelled(
                     "sockets",
                     note(names.join(", ")).boxed(),
@@ -602,9 +607,10 @@ fn refresh(
         .slots()
         .into_iter()
         .map(|slot| {
-            let paint = had.get(&slot).cloned().unwrap_or_else(|| {
-                Paint::Palette(guess(&slot).to_owned())
-            });
+            let paint =
+                had.get(&slot).cloned().unwrap_or_else(|| {
+                    Paint::Palette(guess(&slot).to_owned())
+                });
             (slot, paint)
         })
         .collect();
@@ -654,7 +660,8 @@ fn follow(world: &mut World) {
 /// Brings each mesh whose file has changed since it was last looked
 /// at up to date with it, and notes what was done. The first look at
 /// a file, as when the window opens, leaves a mesh that already
-/// matches it as it is; a file that is gone leaves its mesh as it was.
+/// matches it as it is; a file that is gone leaves its mesh as it
+/// was.
 fn catch_up(world: &mut World) {
     let library = world.resource::<Library>();
     let Some(root) = library.root().map(Path::to_owned) else {
@@ -680,7 +687,11 @@ fn catch_up(world: &mut World) {
         let Ok(bytes) = fs::read(&from) else {
             continue;
         };
-        let copy = match world.resource::<Library>().catalogue.0.get(&name)
+        let copy = match world
+            .resource::<Library>()
+            .catalogue
+            .0
+            .get(&name)
         {
             Some(Asset {
                 shape: Shape::Mesh(path),
@@ -797,7 +808,9 @@ mod tests {
         let file = folder.join("barrel.glb");
         fs::write(&file, triangle()).unwrap();
         let mut world = World::new();
-        world.insert_resource(Library::in_folder(folder.join("library")));
+        world.insert_resource(Library::in_folder(
+            folder.join("library"),
+        ));
         world.init_resource::<Meshes>();
         world.init_resource::<Followed>();
         let name = add_mesh(&mut world, &file).unwrap();

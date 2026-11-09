@@ -11,6 +11,7 @@ mod grows;
 mod lift;
 pub mod material;
 mod node;
+pub mod prefab;
 mod value;
 
 pub use catalogue::{Asset, BODY, Catalogue, Paint, Shape, Socket};

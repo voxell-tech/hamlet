@@ -42,8 +42,8 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) \
          local_from_world[1].xyz, local_from_world[2].xyz);
     let i = SurfaceIn(uv, in.world_position.xyz, pbr_input.N, \
          pbr_input.V, pbr_input.material.base_color, slots.v[0].x, \
-         (local_from_world * vec4<f32>(in.world_position.xyz, 1.0)).xyz, \
-         normalize(transpose(to_local) * pbr_input.N), \
+         (local_from_world * vec4<f32>(in.world_position.xyz, \
+         1.0)).xyz, normalize(transpose(to_local) * pbr_input.N), \
          normalize(from_world * pbr_input.V));
     let s = surface(i);
     pbr_input.material.base_color = s.base_color;
