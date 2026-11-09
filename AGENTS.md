@@ -36,6 +36,31 @@ and none that lists the checks that passed or the tests that were
 added: CI and the diff already show those. Say those things in chat
 with the owner instead, not in the pull request.
 
+When a change is easier seen than read, its pull request shows it:
+
+- **A diagram** of what changed, such as a new flow, protocol or
+  structure. Write it in Typst ([fletcher](https://typst.app/universe/package/fletcher)
+  or [cetz](https://typst.app/universe/package/cetz)) and compile it to
+  SVG with `typst compile diagram.typ diagram.svg`. Keep the `.typ`
+  outside the repository.
+- **Screenshots** of the window when its appearance changes, before and
+  after where it helps.
+
+Attach each file with `gh` 2.99 or newer. It uploads the file to the
+pull request itself, so nothing is committed or pushed for it:
+
+```sh
+gh pr create --attach './diagram.svg#What the diagram shows' ...
+gh pr edit 123 --attach './before.png#Before' --attach './after.png#After'
+gh pr comment 123 --attach './diagram.svg#What the diagram shows'
+```
+
+The text after `#` is the alt text. A file the description already
+references, as `![Before](./before.png)`, takes that place; any other
+is added at the end. PNG, JPEG, GIF, WebP, SVG, MP4, MOV and WebM are
+accepted, up to 10 MB each. Never host an image on a branch, a gist, a
+release or another site.
+
 ## Running safely
 
 The Rust binaries are `hamlet` in `crates/hamlet_cli`, `hamlet_server` in
