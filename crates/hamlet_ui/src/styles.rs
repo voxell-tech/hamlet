@@ -1,7 +1,7 @@
 //! The styles of the buttons and fields, and the view shapes the
 //! panels share.
 
-use bevy::color::{Alpha, Color};
+use bevy::color::{Alpha, Color, Mix};
 use bevy::ecs::component::Component;
 use bevy::ecs::world::World;
 use bevy::ui::{
@@ -17,7 +17,7 @@ use bevy_fynix::{
     Bevy, Focused, Prop, ScopedExt, ViewExt, ViewSeq, Visual, style,
 };
 
-use crate::theme::{HamletTheme, TextSizes};
+use crate::theme::{HamletTheme, StatusKind, TextSizes};
 use crate::widgets::edges::faded;
 use crate::widgets::effects::Variant;
 use crate::widgets::ellipsis::one_line;
@@ -610,16 +610,6 @@ pub fn status_label(
     status_label_at(which, text.into(), tone, |sizes| sizes.small)
 }
 
-/// A status text in the body size, behind its icon, both in
-/// `tone`.
-pub fn status_label_large(
-    which: Glyph,
-    text: impl Into<String>,
-    tone: Tone,
-) -> impl View {
-    status_label_at(which, text.into(), tone, |sizes| sizes.body)
-}
-
 fn status_label_at(
     which: Glyph,
     text: String,
@@ -635,6 +625,185 @@ fn status_label_at(
         .gap(cx.theme().space.status_icon_gap)
         .align(AlignItems::Center)
     })
+}
+
+/// The main state of something, beside its name: a solid pill in
+/// the hue of `kind`, with an icon and light words.
+pub fn status_pill(
+    which: Glyph,
+    text: impl Into<Prop<String>>,
+    kind: StatusKind,
+) -> impl View {
+    let text = text.into();
+    with_cx(move |cx| {
+        let theme = cx.theme();
+        let size = theme.text.small;
+        row((
+            glyph(which, size).tone(Tone::OnSolid),
+            label(text)
+                .size(size)
+                .bold(true)
+                .tone(Tone::OnSolid)
+                .wrap(false),
+        ))
+        .gap(theme.space.status_icon_gap)
+        .align(AlignItems::Center)
+        .padding(UiRect::axes(px(8.0), px(2.0)))
+        .shrink(0.0)
+        .fill(theme.palette.status.get(kind).solid)
+        .radius(size + 4.0)
+    })
+}
+
+/// The side of the circle of a [`status_summary`], and the width of
+/// the halo around it.
+const SUMMARY_CIRCLE: f32 = 30.0;
+const SUMMARY_HALO: f32 = 6.0;
+
+/// The head of an outcome: `which` in a solid circle of the hue of
+/// `kind`, with a soft halo of the same hue around it, beside a bold
+/// `title` and a dim `line` under it.
+pub fn status_summary(
+    which: Glyph,
+    kind: StatusKind,
+    title: impl Into<Prop<String>>,
+    line: impl Into<Prop<String>>,
+) -> impl View {
+    let (title, line) = (title.into(), line.into());
+    with_cx(move |cx| {
+        let theme = cx.theme();
+        let status = theme.palette.status.get(kind);
+        let circle = row((glyph(which, theme.text.body)
+            .tone(Tone::OnSolid),))
+        .width(px(SUMMARY_CIRCLE))
+        .height(px(SUMMARY_CIRCLE))
+        .radius(SUMMARY_CIRCLE / 2.0)
+        .fill(status.solid)
+        .justify(JustifyContent::Center)
+        .align(AlignItems::Center);
+        let outer = SUMMARY_CIRCLE + 2.0 * SUMMARY_HALO;
+        let halo = row((circle,))
+            .width(px(outer))
+            .height(px(outer))
+            .radius(outer / 2.0)
+            .fill(status.fill)
+            .shrink(0.0)
+            .justify(JustifyContent::Center)
+            .align(AlignItems::Center);
+        let words = column((
+            label(title).bold(true),
+            label(line).tone(Tone::Dim).size(theme.text.small),
+        ))
+        .gap(2.0)
+        .grow(1.0)
+        .min_width(px(0.0));
+        row((halo, words))
+            .gap(theme.space.gap)
+            .align(AlignItems::Center)
+    })
+}
+
+/// How full something is, as a bar in the hue of `kind` on a neutral
+/// track. `fraction` is from 0 to 1.
+pub fn progress_bar(fraction: f32, kind: StatusKind) -> impl View {
+    with_cx(move |cx| {
+        let theme = cx.theme();
+        let height = 6.0;
+        let fill = frame()
+            .width(percent(fraction.clamp(0.0, 1.0) * 100.0))
+            .height(percent(100.0))
+            .radius(height / 2.0)
+            .fill(theme.palette.status.get(kind).solid);
+        row((fill,))
+            .width(percent(100.0))
+            .height(px(height))
+            .radius(height / 2.0)
+            .fill(theme.palette.button_hover)
+    })
+}
+
+/// A reference, such as a branch, a folder or an id: a small chip
+/// of the info tint with its words in the code face.
+pub fn reference(text: impl Into<Prop<String>>) -> impl View {
+    let text = text.into();
+    with_cx(move |cx| {
+        let theme = cx.theme();
+        row((label(text)
+            .size(theme.text.small)
+            .tone(Tone::Info)
+            .wrap(false)
+            .tagged(MonoText),))
+        .padding(UiRect::axes(px(6.0), px(1.0)))
+        .shrink(0.0)
+        .fill(theme.palette.status.info.fill)
+        .radius(theme.space.round)
+    })
+}
+
+/// The rules of a button solid in the hue of `kind`.
+fn solid_button(cx: &mut Cx, kind: StatusKind) {
+    style::<HamletTheme>()
+        .frame(move |f, t| {
+            let solid = t.palette.status.get(kind).solid;
+            f.fill(solid)
+                .border(t.space.border)
+                .border_color(solid)
+                .radius(t.space.round)
+        })
+        .label(|l, t| {
+            l.tone(Tone::OnSolid).size(t.text.small).bold(true)
+        })
+        .icon(|i, _| i.tone(Tone::OnSolid))
+        .hovered(move |s| {
+            s.frame(move |f, t| {
+                let status = t.palette.status.get(kind);
+                f.fill(status.solid.mix(&status.on_solid, 0.12))
+            })
+        })
+        .pressed(move |s| {
+            s.frame(move |f, t| {
+                let status = t.palette.status.get(kind);
+                f.fill(status.solid.mix(&Color::BLACK, 0.15))
+            })
+        })
+        .when::<InteractionDisabled>(|s| {
+            s.frame(|f, t| {
+                f.fill(t.palette.button)
+                    .border_color(t.palette.gold_6)
+            })
+            .tone(Tone::Dim)
+        })
+        .transition(Motion::Interact)
+        .apply(cx);
+}
+
+/// The button that completes something done: restored, approved.
+pub fn success_button(cx: &mut Cx) {
+    solid_button(cx, StatusKind::Success);
+}
+
+/// The button that completes a merge.
+pub fn merge_button(cx: &mut Cx) {
+    solid_button(cx, StatusKind::Merged);
+}
+
+/// A [`success_button`] with an icon before its text, that runs
+/// `act`.
+pub fn success_action(
+    which: Glyph,
+    text: &'static str,
+    act: impl Fn(&mut World) + Send + Sync + 'static,
+) -> AnyView {
+    acting(which, text, (success_button, Variant::Subtle), act).boxed()
+}
+
+/// A [`merge_button`] with an icon before its text, that runs `act`.
+pub fn merge_action(
+    which: Glyph,
+    text: &'static str,
+    act: impl Fn(&mut World) + Send + Sync + 'static,
+) -> AnyView {
+    acting(which, text, (merge_button, Variant::Subtle), act).boxed()
 }
 
 /// Buttons in a row that wraps: in a narrow panel they go on to a

@@ -277,6 +277,40 @@ pub struct Status {
     pub on_solid: Color,
 }
 
+/// What a status means, and so which hue draws it everywhere.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum StatusKind {
+    /// Done: success, finished, restored, approved.
+    Success,
+    /// Merged into something else.
+    Merged,
+    /// In progress, or a warning.
+    Warning,
+    /// An error, a failure, danger.
+    Danger,
+    /// Information, a reference.
+    Info,
+    /// Waits for the chief.
+    Attention,
+    /// At rest or idle.
+    Rest,
+}
+
+impl StatusKind {
+    /// The tone of its ink.
+    pub fn tone(self) -> Tone {
+        match self {
+            Self::Success => Tone::Success,
+            Self::Merged => Tone::Merged,
+            Self::Warning => Tone::Warning,
+            Self::Danger => Tone::Critical,
+            Self::Info => Tone::Info,
+            Self::Attention => Tone::Attention,
+            Self::Rest => Tone::Dim,
+        }
+    }
+}
+
 /// Every status, each with the one meaning it has everywhere.
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub struct Statuses {
@@ -296,6 +330,21 @@ pub struct Statuses {
     pub attention: Status,
     /// At rest or idle. Neutral.
     pub rest: Status,
+}
+
+impl Statuses {
+    /// How `kind` is drawn.
+    pub fn get(&self, kind: StatusKind) -> &Status {
+        match kind {
+            StatusKind::Success => &self.success,
+            StatusKind::Merged => &self.merged,
+            StatusKind::Warning => &self.warning,
+            StatusKind::Danger => &self.danger,
+            StatusKind::Info => &self.info,
+            StatusKind::Attention => &self.attention,
+            StatusKind::Rest => &self.rest,
+        }
+    }
 }
 
 impl Palette {
@@ -586,6 +635,7 @@ impl TextTokens for HamletTheme {
             Tone::Warning => palette.status.warning.ink,
             Tone::Info => palette.status.info.ink,
             Tone::Attention => palette.status.attention.ink,
+            Tone::OnSolid => palette.status.success.on_solid,
         }
     }
 
