@@ -30,7 +30,7 @@ const LAMP_PEAK_LIGHT: f32 = 0.66;
 const LAMP_CORE: f32 = 0.2;
 const LAMP_RISE: f32 = 0.4;
 /// How sharply a lamp's glow falls off from its middle, as in
-/// [`pool`]: `exp(-sharp * t * t)`.
+/// [`pool`](super::pool): `exp(-sharp * t * t)`.
 const LAMP_SHARP: f32 = 2.6;
 /// A lamp's level swings by `LAMP_SWING` around `LAMP_LEVEL`, once
 /// every `LAMP_PERIOD` seconds: a slow breath.
