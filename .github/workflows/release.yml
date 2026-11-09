@@ -39,6 +39,7 @@ jobs:
     env:
       APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
       AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      TARGET: ${{ matrix.target }}
     strategy:
       fail-fast: false
       matrix:
@@ -79,7 +80,7 @@ jobs:
         shell: bash
         run: |
           rustup toolchain install
-          rustup target add "${{ matrix.target }}"
+          rustup target add "$TARGET"
 
       - uses: actions/setup-node@v4
         with:
@@ -107,13 +108,14 @@ jobs:
 
       - name: Build
         if: runner.os != 'Windows'
-        run: cargo xtask build --target ${{ matrix.target }}
+        run: cargo xtask build --target "$TARGET"
 
       - name: Build on Windows
         if: runner.os == 'Windows'
         env:
           RUSTFLAGS: ${{ matrix.rustflags }}
-        run: cargo build --release --locked -p hamlet_cli --bin hamlet --bin hamlet_launch -p hamlet_server --bin hamlet_server -p hamlet_app --bin hamlet_app --target ${{ matrix.target }}
+        shell: bash
+        run: cargo build --release --locked -p hamlet_cli --bin hamlet --bin hamlet_launch -p hamlet_server --bin hamlet_server -p hamlet_app --bin hamlet_app --target "$TARGET"
 
       - name: Sign the programs on Windows
         if: runner.os == 'Windows' && env.AZURE_CLIENT_ID != ''
@@ -157,7 +159,8 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
-        run: .github/scripts/package.sh "${{ matrix.target }}" "${{ github.ref_type == 'tag' && github.ref_name || github.sha }}"
+          VERSION: ${{ github.ref_type == 'tag' && github.ref_name || github.sha }}
+        run: .github/scripts/package.sh "$TARGET" "$VERSION"
 
       - name: Sign the installer on Windows
         if: runner.os == 'Windows' && env.AZURE_CLIENT_ID != ''
