@@ -179,8 +179,11 @@ The release workflow runs only for pushed `v*` tags or an explicit manual
 run. A manual run uploads one workflow artifact per platform and publishes
 no release.
 A tag run first checks that the tag, less its leading `v`, is the version
-in `Cargo.toml`'s `[workspace.package]`, then creates the GitHub release or
-replaces matching assets on an existing release. With
+in `Cargo.toml`'s `[workspace.package]`, or a pre-release of it such as
+`v0.1.0-dev.1`, then creates the GitHub release or replaces matching
+assets on an existing release. A pre-release tag makes a GitHub
+pre-release, which installed copies never update to, since they read
+the latest release. With
 `HAMLET_UPDATE_SIGNING_KEY` set, `.github/scripts/manifest.sh` then
 writes and signs `latest.json`, uploaded last, so installed copies
 find the update only once every file it names is there. Pushing a tag
