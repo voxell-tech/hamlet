@@ -689,6 +689,16 @@ pub async fn ensure(isolation: Isolation) -> Result<ServerAddress> {
     }
 }
 
+/// Stops the local home's server, if one serves, whichever server
+/// the environment otherwise selects.
+pub async fn stop_home() -> Result<()> {
+    let home = home()?;
+    if let Some((record, _)) = inspect(&home).await? {
+        stop(record.pid, &home).await?;
+    }
+    Ok(())
+}
+
 /// The window, ready to open on `address`.
 pub fn window_for(address: &ServerAddress) -> Result<Command> {
     Ok(window_command(

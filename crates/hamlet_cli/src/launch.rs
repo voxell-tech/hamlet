@@ -1,10 +1,16 @@
 //! What a packaged Hamlet runs when it is opened from a menu, the
 //! Finder or a shortcut: the home's server, started unless it serves,
 //! then the window on it. Opened that way it has no terminal, so a
-//! failure is shown in a dialog too.
+//! failure is shown in a dialog too. Given `--update <file>`, it
+//! first stops the server and puts that update in place
+//! (docs/releases.md#updates).
+
+use std::path::{Path, PathBuf};
 
 use anyhow::Result;
+use hamlet_update::{Applied, Install};
 use rfd::{MessageButtons, MessageDialog, MessageLevel};
+use tokio::runtime::Runtime;
 
 use crate::process::{self, Isolation, NotReady};
 
@@ -13,20 +19,55 @@ const LONGEST: usize = 1500;
 
 /// Opens Hamlet, and gives the process's exit code.
 pub fn run() -> i32 {
-    match open() {
+    let mut args = std::env::args_os().skip(1);
+    let update = match (args.next(), args.next(), args.next()) {
+        (None, ..) => None,
+        (Some(flag), Some(file), None) if flag == "--update" => {
+            Some(PathBuf::from(file))
+        }
+        _ => {
+            eprintln!("usage: hamlet_launch [--update <file>]");
+            return 2;
+        }
+    };
+    let opened = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(anyhow::Error::from)
+        .and_then(|runtime| {
+            if let Some(file) = update {
+                match self::update(&runtime, &file) {
+                    Ok(Applied::Handed) => return Ok(()),
+                    Ok(Applied::Installed) => {}
+                    // The copy that is there opens all the same.
+                    Err(error) => {
+                        eprintln!("Error: {error:#}");
+                        show("Hamlet could not update", &error);
+                    }
+                }
+            }
+            open(runtime)
+        });
+    match opened {
         Ok(()) => 0,
         Err(error) => {
             eprintln!("Error: {error:#}");
-            show(&error);
+            show("Hamlet could not start", &error);
             1
         }
     }
 }
 
-fn open() -> Result<()> {
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()?;
+/// Stops the home's server, which holds Hamlet's programs open, and
+/// puts the update in `file` in place.
+fn update(runtime: &Runtime, file: &Path) -> Result<Applied> {
+    runtime.block_on(process::stop_home())?;
+    hamlet_update::apply(file, &Install::here())
+}
+
+/// Starts the home's server unless it serves, and opens the window on
+/// it.
+fn open(runtime: Runtime) -> Result<()> {
     let address =
         runtime.block_on(process::ensure(Isolation::Sandboxed));
     runtime.shutdown_background();
@@ -45,8 +86,8 @@ fn open() -> Result<()> {
     process::open_detached(&address)
 }
 
-/// Tells the chief what stopped Hamlet, in the system's own dialog.
-fn show(error: &anyhow::Error) {
+/// Tells the chief what went wrong, in the system's own dialog.
+fn show(title: &str, error: &anyhow::Error) {
     let text = match error.downcast_ref::<NotReady>() {
         Some(NotReady {
             reason: Some(reason),
@@ -64,7 +105,7 @@ fn show(error: &anyhow::Error) {
     };
     MessageDialog::new()
         .set_level(MessageLevel::Error)
-        .set_title("Hamlet could not start")
+        .set_title(title)
         .set_description(text)
         .set_buttons(MessageButtons::Ok)
         .show();

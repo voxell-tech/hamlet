@@ -4430,6 +4430,7 @@ dependencies = [
  "anyhow",
  "futures",
  "hamlet_protocol",
+ "hamlet_update",
  "rfd",
  "rustix 1.1.6",
  "serde",

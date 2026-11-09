@@ -43,12 +43,19 @@ Name: "{autodesktop}\Hamlet"; Filename: "{app}\hamlet_launch.exe"; IconFilename:
 
 [Run]
 Filename: "{app}\hamlet_launch.exe"; Description: "{cm:LaunchProgram,Hamlet}"; Flags: nowait postinstall skipifsilent
+; An update Hamlet ran itself, silently, opens Hamlet again.
+Filename: "{app}\hamlet_launch.exe"; Flags: nowait; Check: Relaunch
 
 [UninstallRun]
 ; The server and the agents' commands hold the programs open.
 Filename: "{app}\hamlet.exe"; Parameters: "stop"; Flags: runhidden waituntilterminated; RunOnceId: "StopServer"
 
 [Code]
+function Relaunch: Boolean;
+begin
+  Result := ExpandConstant('{param:RELAUNCH|no}') = 'yes';
+end;
+
 // A running server holds its programs and Node open, so an update
 // stops it first, and does not go on while it serves. Its agents
 // carry on once Hamlet is opened again.
