@@ -68,6 +68,7 @@ pub fn range(
         let thumb = ((row * 0.36).round(), (row * 0.64).round());
         let (well, accent, edge) =
             (theme.fill(), theme.accent(), theme.hairline());
+        let border = theme.space.border;
         let span = most - least;
         let share = move |value: f32| {
             if span == 0.0 {
@@ -111,7 +112,7 @@ pub fn range(
                     .height(px(groove))
                     .radius(groove / 2.0)
                     .fill(well)
-                    .border(1.0)
+                    .border(border)
                     .border_color(edge),
             );
             // The fill runs between the thumbs' middles, which travel

@@ -166,7 +166,7 @@ fn plate(
         .padding(UiRect::vertical(px(DOWN)))
         .min_width(px(0.0))
         .fill(theme.palette.code)
-        .border(1.0)
+        .border(theme.space.border)
         .border_color(theme.palette.gold_6)
         .radius(theme.space.round)
 }

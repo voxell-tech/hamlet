@@ -109,7 +109,7 @@ fn face(cx: &Cx, who: &Who, size: f32) -> impl View + use<> {
             .border_color(theme.palette.gold_3),
         Kind::Me | Kind::Chief => face
             .radius(theme.space.round)
-            .border(1.0)
+            .border(theme.space.border)
             .border_color(theme.palette.gold_2),
     }
 }
@@ -231,6 +231,7 @@ fn said<B: Board>(
             && words == Words::Plain
             && session == cx.world.resource::<Convo>().session;
         let palette = &cx.theme().palette;
+        let border = cx.theme().space.border;
         let fill: fn(&Palette) -> Color =
             if mine { |p| p.gold_6 } else { |p| p.card };
         let time = hour(line.at);
@@ -369,7 +370,7 @@ fn said<B: Board>(
             .min_width(px(0.0))
             .max_width(percent(100.0))
             .fill(fill(palette))
-            .border(1.0)
+            .border(border)
             .border_color(rewind::ringed(
                 session,
                 id.clone(),

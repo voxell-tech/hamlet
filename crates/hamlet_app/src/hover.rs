@@ -619,7 +619,7 @@ pub fn view() -> impl View {
         .gap(3.0)
         .padding(UiRect::axes(px(12.0), px(9.0)))
         .max_width(px(280.0))
-        .border(1.0)
+        .border(cx.theme().space.border)
         .border_color(cx.theme().palette.gold_5)
         .radius(cx.theme().space.soft)
         .fill(cx.theme().palette.card)
