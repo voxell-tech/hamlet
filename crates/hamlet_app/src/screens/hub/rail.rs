@@ -47,7 +47,7 @@ use hamlet_ui::styles::{
     text_input, transparent,
 };
 use hamlet_ui::theme::HamletTheme;
-use hamlet_ui::widgets::effects::{Underglow, Variant, lit_panels};
+use hamlet_ui::widgets::effects::{Variant, lit_panels};
 use hamlet_ui::widgets::ellipsis::{cut, one_line};
 use hamlet_ui::widgets::hint::search;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
@@ -1535,52 +1535,61 @@ fn tree_lines(tree: Tree, one_line: bool) -> Vec<AnyView> {
 }
 
 /// A section's header, set apart from the rows under it in the
-/// display face: a chevron that folds it, its title, which opens its
-/// page where it has one, its count and its state.
+/// display face: a chevron that folds it, then its title, its count
+/// and its state, pressed whole to open its page where it has one.
 fn header(section: &Section, above: f32) -> AnyView {
     let group = section.group;
-    let mut parts = vec![match group {
+    let fold = match group {
         Group::Needs => {
             frame().width(px(CHEVRON)).shrink(0.0).boxed()
         }
         _ => chevron(group, section.folded, "Fold or open"),
-    }];
+    };
     let tone = if section.current {
         Tone::Accent
     } else {
         Tone::Faint
     };
-    let title =
-        crate::overview::part_title(section.title.clone(), tone);
-    parts.push(match section.opens {
-        // It glows under the pointer, as a title that opens does.
-        Some(target) => button(title)
-            .padding(UiRect::all(px(0.0)))
-            .rules(views::tint)
-            .tagged(Underglow::new(false))
-            .on_activate(move |world| go(world, target))
+    let mut words = vec![
+        crate::overview::part_title(section.title.clone(), tone)
             .boxed(),
-        None => title.boxed(),
-    });
-    parts.push(
         label(section.count.to_string()).tone(Tone::Dim).boxed(),
-    );
+    ];
     if matches!(group, Group::Hamlet(_)) {
-        parts.push(frame().grow(1.0).boxed());
-        parts.push(mark_icon(section.mark));
+        words.push(frame().grow(1.0).boxed());
+        words.push(mark_icon(section.mark));
     }
-    // Its mark in the column of the rows' marks.
-    row(parts)
-        .gap(6.0)
-        .align(AlignItems::Center)
-        .padding(UiRect::new(
-            px(0.0),
-            px(ROW_INSET),
-            px(above),
-            px(4.0),
+    let words = row(words).gap(6.0).align(AlignItems::Center);
+    match section.opens {
+        // Filled under the pointer as a row is, outside the chevron's
+        // press so that folding does not open the page; its mark in
+        // the column of the rows' marks.
+        Some(target) => row((
+            fold,
+            button(words.grow(1.0))
+                .grow(1.0)
+                .min_width(px(0.0))
+                .rules(row_rules)
+                .tagged(Variant::Default)
+                .on_activate(move |world| go(world, target)),
         ))
+        .gap(0.0)
+        .align(AlignItems::Center)
+        .padding(UiRect::top(px((above - 4.0).max(0.0))))
         .width(percent(100.0))
-        .boxed()
+        .boxed(),
+        None => row((fold, words))
+            .gap(6.0)
+            .align(AlignItems::Center)
+            .padding(UiRect::new(
+                px(0.0),
+                px(ROW_INSET),
+                px(above),
+                px(4.0),
+            ))
+            .width(percent(100.0))
+            .boxed(),
+    }
 }
 
 /// `sections` one under another, the first header `first_above` under

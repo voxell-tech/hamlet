@@ -51,13 +51,12 @@ use crate::standing::{Standing, need_you};
 use crate::{chat, world_menu};
 
 pub fn plugin(app: &mut App) {
-    app.add_plugins(record::plugin)
+    app.add_plugins((record::plugin, hamlet::plugin))
         .init_resource::<Erasing>()
         // The realm's page lists what waits.
         .init_resource::<Queue>()
         .add_observer(disarm)
         .add_systems(Update, reconcile_erasing)
-        .init_resource::<Naming>()
         .init_resource::<crate::forms::OpenForm>()
         .init_resource::<Page>()
         .add_systems(Update, tabs::mark::<Page>);

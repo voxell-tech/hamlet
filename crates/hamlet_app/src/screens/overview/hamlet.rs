@@ -3,13 +3,23 @@
 
 use std::f32::consts::TAU;
 
+use bevy::app::{App, Update};
 use bevy::color::Color;
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
-use bevy::ecs::hierarchy::Children;
-use bevy::ecs::query::With;
+use bevy::ecs::event::EntityEvent;
+use bevy::ecs::hierarchy::{ChildOf, Children};
+use bevy::ecs::observer::On;
+use bevy::ecs::query::{Added, With};
 use bevy::ecs::resource::Resource;
+use bevy::ecs::schedule::IntoScheduleConfigs;
+use bevy::ecs::system::{Query, Res, ResMut};
 use bevy::ecs::world::World;
+use bevy::input::ButtonInput;
+use bevy::input::keyboard::KeyCode;
+use bevy::input_focus::{FocusCause, InputFocus};
+use bevy::picking::events::PointerClick;
+use bevy::picking::pointer::PointerButton;
 use bevy::text::EditableText;
 use bevy::ui::{
     AlignItems, AngularColorStop, BackgroundGradient, ConicGradient,
@@ -27,9 +37,9 @@ use hamlet_client::realm::{Deeds, Works};
 use hamlet_realm::orders::Decree;
 use hamlet_realm::pick::{Thing, select};
 use hamlet_ui::styles::{
-    self, Fills, ICON, action, bare, breadcrumb, buttons, group,
-    lettered, more_button, note, note_rules, primary_button, raised,
-    scroll_area, status_label, text_input, transparent,
+    Fills, ICON, action, bare, buttons, crumb, crumb_here,
+    crumb_slash, crumbs, group, more_button, note, note_rules,
+    raised, scroll_area, status_label, text_input, transparent,
 };
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::effects::Variant;
@@ -52,9 +62,97 @@ use crate::world_menu;
 #[derive(Component)]
 pub(crate) struct NameField;
 
+/// The name of `.0` at the end of its path, which a double click
+/// renames.
+#[derive(Component)]
+struct NameCrumb(Entity);
+
+/// The narrowest the field a hamlet's new name is typed in is.
+const NAME_FIELD: f32 = 160.0;
+
 /// The hamlet that is being given a new name, if one is.
 #[derive(Resource, Default, PartialEq)]
 pub struct Naming(pub(super) Option<Entity>);
+
+pub(super) fn plugin(app: &mut App) {
+    app.init_resource::<Naming>()
+        .add_observer(rename_twice_clicked)
+        .add_systems(Update, (focus_name, end_naming).chain());
+}
+
+/// Renames the hamlet whose name is clicked twice at the end of its
+/// path.
+fn rename_twice_clicked(
+    click: On<PointerClick>,
+    crumbs: Query<&NameCrumb>,
+    deeds: Option<Res<Deeds>>,
+    mut naming: ResMut<Naming>,
+) {
+    let Ok(crumb) = crumbs.get(click.event_target()) else {
+        return;
+    };
+    let allowed =
+        deeds.is_some_and(|deeds| deeds.is_supported("name-hamlet"));
+    if allowed
+        && click.button == PointerButton::Primary
+        && click.count == 2
+    {
+        naming.0 = Some(crumb.0);
+    }
+}
+
+/// Puts the keyboard in a new name field.
+fn focus_name(
+    fields: Query<&Children, Added<NameField>>,
+    texts: Query<(), With<EditableText>>,
+    mut focus: ResMut<InputFocus>,
+) {
+    for children in &fields {
+        if let Some(&text) =
+            children.iter().find(|&&kid| texts.contains(kid))
+        {
+            focus.set(text, FocusCause::Navigated);
+        }
+    }
+}
+
+/// Whether the keyboard is in a name field, as it is when Enter
+/// commits one: a press elsewhere takes it out first.
+fn in_name_field(world: &World) -> bool {
+    world
+        .resource::<InputFocus>()
+        .get()
+        .and_then(|input| world.get::<ChildOf>(input))
+        .is_some_and(|parent| {
+            world.get::<NameField>(parent.parent()).is_some()
+        })
+}
+
+/// Leaves the name being typed on Escape, or once the keyboard is
+/// elsewhere.
+fn end_naming(
+    keys: Res<ButtonInput<KeyCode>>,
+    focus: Res<InputFocus>,
+    fields: Query<Entity, With<NameField>>,
+    parents: Query<&ChildOf>,
+    mut naming: ResMut<Naming>,
+) {
+    if naming.0.is_none() {
+        return;
+    }
+    let Ok(field) = fields.single() else {
+        return;
+    };
+    let inside = focus.get().is_some_and(|input| {
+        input == field
+            || parents
+                .iter_ancestors(input)
+                .any(|above| above == field)
+    });
+    if keys.just_pressed(KeyCode::Escape) || !inside {
+        naming.0 = None;
+    }
+}
 
 /// Brings the Hub to the front at the page of `hamlet`, with the
 /// field its new name is typed in.
@@ -78,42 +176,36 @@ pub(crate) fn typed<M: Component>(world: &mut World) -> String {
         .unwrap_or_default()
 }
 
-/// The field and the buttons a hamlet is given a new name with.
-fn naming(hamlet: Entity, id: String) -> AnyView {
+/// The name `title` at the end of the path to `hamlet`, or, while it
+/// is renamed, the field its new name is typed in: Enter keeps it,
+/// Escape or a press elsewhere drops it.
+fn naming(hamlet: Entity, id: String, title: String) -> AnyView {
     keyed(
         resource::<Naming, _>(move |n| n.0 == Some(hamlet)),
         move |open| {
             if !*open {
-                return column(()).boxed();
+                return crumb_here(title.clone())
+                    .tagged(NameCrumb(hamlet))
+                    .boxed();
             }
             let id = id.clone();
-            with_cx(move |cx| {
-                row((
-                    text_field(String::new(), |_, _| {})
-                        .grow(1.0)
-                        .rules(text_input)
-                        .tagged(NameField),
-                    lettered("Save")
-                        .rules(primary_button)
-                        .tagged(Variant::Primary)
-                        .on_activate(move |world| {
-                            let name = typed::<NameField>(world);
-                            world.resource_mut::<Naming>().0 = None;
-                            decree(
-                                world,
-                                &id,
-                                format!("/name-hamlet {id} {name}"),
-                            );
-                        }),
-                    lettered("Cancel")
-                        .rules(styles::button)
-                        .on_activate(|world| {
-                            world.resource_mut::<Naming>().0 = None;
-                        }),
-                ))
-                .gap(cx.theme().space.gap)
-                .align(AlignItems::Center)
+            text_field(title.clone(), move |world, name| {
+                if !in_name_field(world) {
+                    return;
+                }
+                world.resource_mut::<Naming>().0 = None;
+                let name = name.trim();
+                if !name.is_empty() {
+                    decree(
+                        world,
+                        &id,
+                        format!("/name-hamlet {id} {name}"),
+                    );
+                }
             })
+            .min_width(px(NAME_FIELD))
+            .rules(text_input)
+            .tagged(NameField)
             .boxed()
         },
     )
@@ -567,24 +659,30 @@ pub fn hamlet(hamlet: Entity) -> impl View {
                 },
             ));
         }
-        // The path names it, and says what commands call it when its
-        // name says otherwise.
-        let path = breadcrumb(
-            vec!["Realm".into()],
-            facts.title.clone(),
-            |world, _| {
+        // The path names it, renames it at a double click on its
+        // name, and says what commands call it when its name says
+        // otherwise.
+        let path = crumbs(vec![
+            crumb("Realm", |world| {
                 select(world, None);
                 crate::hub::show(world, crate::hub::Showing::Realm);
-            },
-        );
-        let path = if facts.title == facts.id {
+            })
+            .boxed(),
+            crumb_slash().boxed(),
+            naming(hamlet, facts.id.clone(), facts.title.clone()),
+        ]);
+        let mut says = Vec::new();
+        if facts.title != facts.id {
+            says.push(format!("Commands call it {}.", facts.id));
+        }
+        if *rename {
+            says.push("Double-click its name to rename it.".into());
+        }
+        let path = if says.is_empty() {
             path.boxed()
         } else {
-            let id = facts.id.clone();
-            path.tooltip(move || {
-                note(format!("Commands call it {id}"))
-            })
-            .boxed()
+            let says = says.join(" ");
+            path.tooltip(move || note(says.clone())).boxed()
         };
         let mut top =
             vec![path, budget(facts.account.clone(), facts.spent)];
@@ -595,7 +693,6 @@ pub fn hamlet(hamlet: Entity) -> impl View {
                 group((
                     buttons(actions),
                     worker_form(hamlet, facts.id.clone()),
-                    naming(hamlet, facts.id.clone()),
                 ))
                 .boxed(),
             );
