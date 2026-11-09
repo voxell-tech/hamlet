@@ -20,8 +20,8 @@ use hamlet_client::realm::{
 use hamlet_protocol::client as protocol;
 use hamlet_ui::styles::{
     Fills, ICON, action, back_link, bad_action, bare, beside,
-    breadcrumb, buttons, good_action, note, page_head, scroll_area,
-    text_input, title,
+    breadcrumb, buttons, filling, good_action, note, page_head,
+    scroll_area, text_input, title,
 };
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::icons::Glyph;
@@ -799,6 +799,8 @@ fn body(shown: &Shown) -> AnyView {
             versions_part,
             careful_part,
         ) = parts;
+        let section = cx.theme().space.section;
+        // The head stays at the top while the rest scrolls under it.
         column((
             page_head(
                 breadcrumb(
@@ -817,26 +819,30 @@ fn body(shown: &Shown) -> AnyView {
                 ),
                 heading,
             ),
-            head,
-            form_view(address, name.clone(), is_of_header),
-            column((
-                hires_part,
-                character_part,
-                memory_part,
-                skills_part,
-                versions_part,
-                careful_part,
+            scroll_area((column((
+                head,
+                form_view(address, name.clone(), is_of_header),
+                column((
+                    hires_part,
+                    character_part,
+                    memory_part,
+                    skills_part,
+                    versions_part,
+                    careful_part,
+                ))
+                .gap(0.0),
             ))
-            .gap(0.0),
+            .gap(section),)),
         ))
-        .gap(cx.theme().space.section)
+        .gap(section)
+        .fills_height()
     })
     .boxed()
 }
 
 /// The page of `scholar`.
 pub(super) fn page(scholar: Entity) -> impl View {
-    column((scroll_area((keyed(
+    keyed(
         derived(move |world: &World| shown(world, scholar))
             .when(every_frame()),
         |shown| match shown {
@@ -844,6 +850,5 @@ pub(super) fn page(scholar: Entity) -> impl View {
             None => dim("That scholar is not in the city.").boxed(),
         },
     )
-    .within(bare()),)),))
-    .fills_height()
+    .within(filling())
 }
