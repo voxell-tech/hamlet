@@ -25,7 +25,7 @@ use crate::styles::Fills;
 
 /// How far in from an end of a scroll area its fade reaches, in
 /// logical pixels.
-const REACH: f32 = 14.0;
+const REACH: f32 = 28.0;
 
 pub fn plugin(app: &mut App) {
     app.add_systems(PostUpdate, shade.after(UiSystems::Layout));
@@ -38,26 +38,47 @@ pub fn plugin(app: &mut App) {
 enum End {
     Top,
     Bottom,
+    Left,
+    Right,
+}
+
+impl End {
+    /// Whether the end runs along the top or the bottom.
+    fn across(self) -> bool {
+        matches!(self, Self::Top | Self::Bottom)
+    }
 }
 
 /// `area`, a scroll area, with its ends fading where there is more to
-/// scroll. It takes the height left, as the area did.
+/// scroll, up and down and side to side. It takes the height left,
+/// as the area did.
 pub fn faded(area: impl View) -> impl View {
-    column((area, end(End::Top), end(End::Bottom)))
-        .gap(0.0)
-        .fills_height()
+    column((
+        area,
+        end(End::Top),
+        end(End::Bottom),
+        end(End::Left),
+        end(End::Right),
+    ))
+    .gap(0.0)
+    .fills_height()
 }
 
 fn end(end: End) -> impl View {
-    let (top, bottom) = match end {
-        End::Top => (px(0.0), Val::Auto),
-        End::Bottom => (Val::Auto, px(0.0)),
+    let (left, right, top, bottom) = match end {
+        End::Top => (px(0.0), px(0.0), px(0.0), Val::Auto),
+        End::Bottom => (px(0.0), px(0.0), Val::Auto, px(0.0)),
+        End::Left => (px(0.0), Val::Auto, px(0.0), px(0.0)),
+        End::Right => (Val::Auto, px(0.0), px(0.0), px(0.0)),
     };
-    frame()
+    let shown = frame()
         .position(PositionType::Absolute)
-        .inset(UiRect::new(px(0.0), px(0.0), top, bottom))
-        .height(px(REACH))
-        .tagged(end)
+        .inset(UiRect::new(left, right, top, bottom));
+    if end.across() {
+        shown.height(px(REACH)).tagged(end)
+    } else {
+        shown.width(px(REACH)).tagged(end)
+    }
 }
 
 /// Fades each end into the first opaque fill behind its area, in the
@@ -99,9 +120,12 @@ fn shade(
             gradient.set_if_neq(BackgroundGradient::default());
             continue;
         };
+        // How far down the ground's own gradient the end is: a side
+        // end takes the colour by the middle of the area.
         let edge = match end {
             End::Top => at.translation.y - area.size().y / 2.0,
             End::Bottom => at.translation.y + area.size().y / 2.0,
+            End::Left | End::Right => at.translation.y,
         };
         let along = (edge
             - (node_at.translation.y - node.size().y / 2.0))
@@ -110,11 +134,22 @@ fn shade(
             .and_then(|laid| colour_at(laid, along))
             .unwrap_or(fill.0);
         let reach = REACH / area.inverse_scale_factor();
-        let visible = area.size().y - area.scrollbar_size.y;
-        let scrolled = area.scroll_position.y;
+        let (visible, scrolled, content) = if end.across() {
+            (
+                area.size().y - area.scrollbar_size.y,
+                area.scroll_position.y,
+                area.content_size().y,
+            )
+        } else {
+            (
+                area.size().x - area.scrollbar_size.x,
+                area.scroll_position.x,
+                area.content_size().x,
+            )
+        };
         let past = match end {
-            End::Top => scrolled,
-            End::Bottom => area.content_size().y - visible - scrolled,
+            End::Top | End::Left => scrolled,
+            End::Bottom | End::Right => content - visible - scrolled,
         };
         let shown = (past / reach).clamp(0.0, 1.0);
         gradient.set_if_neq(fade(*end, ground, shown));
@@ -168,5 +203,7 @@ fn fade(end: End, ground: Color, shown: f32) -> BackgroundGradient {
     BackgroundGradient::from(match end {
         End::Top => LinearGradient::to_bottom(stops),
         End::Bottom => LinearGradient::to_top(stops),
+        End::Left => LinearGradient::to_right(stops),
+        End::Right => LinearGradient::to_left(stops),
     })
 }

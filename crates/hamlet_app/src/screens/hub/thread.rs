@@ -33,6 +33,7 @@ use hamlet_ui::styles::{
     scroll_area, sentence_title, status_icon, title,
 };
 use hamlet_ui::theme::HamletTheme;
+use hamlet_ui::widgets::edges::faded;
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::ellipsis::{cut, one_line};
 use hamlet_ui::widgets::icons::{Glyph, glyph};
@@ -927,9 +928,11 @@ fn prompt_sections(
             }
             parts.push(section);
         }
-        let page = scroll((column(parts).gap(gap),))
-            .overflow(Overflow::scroll_x())
-            .width(percent(100.0));
+        let page = faded(
+            scroll((column(parts).gap(gap),))
+                .overflow(Overflow::scroll_x())
+                .width(percent(100.0)),
+        );
         column((framed((page,)),))
             .padding(UiRect::right(px(12.0)))
             .min_width(px(0.0))
