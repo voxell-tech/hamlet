@@ -3,7 +3,9 @@
 //! `assets/measures.toml`. Nothing of the panels is built until a
 //! theme is shown.
 
+mod base;
 pub mod contrast;
+mod derive;
 mod themes;
 
 use std::ops::Deref;
@@ -32,6 +34,7 @@ use bevy_fynix::tokens::{
 use hamlet_assets::{File, Tuning, TuningPlugin, tint};
 use serde::{Deserialize, Serialize};
 
+pub use self::base::{Base, Hue, Mode};
 use self::contrast::Part;
 pub use self::themes::{Theme, ThemeId, Themes, Variant, Variants};
 use crate::widgets::platform::Display;
@@ -153,9 +156,9 @@ impl Tuning for Measures {
     }
 }
 
-/// Every colour of one variant.
-#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+/// Every colour of one variant, as [`Palette::derive`] makes them
+/// from the fifteen colours of a theme file.
+#[derive(Clone, PartialEq, Debug, Serialize)]
 pub struct Palette {
     /// A panel's background, the darkest surface but for a text
     /// input.
@@ -254,6 +257,45 @@ pub struct Palette {
     /// The shadow under what floats, with its alpha.
     #[serde(with = "tint")]
     pub shadow: Color,
+    /// What each status is drawn in.
+    #[serde(skip)]
+    pub status: Statuses,
+}
+
+/// How one status is drawn: its ink for words and icons, a tinted
+/// fill with the ink to use on it, and its solid form for a pill, a
+/// circle or a button, with the colour of what is on it.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct Status {
+    pub ink: Color,
+    /// A plate under the ink: pale in light, deep in dark.
+    pub fill: Color,
+    /// The plate under the pointer.
+    pub fill_hover: Color,
+    pub on_fill: Color,
+    pub solid: Color,
+    pub on_solid: Color,
+}
+
+/// Every status, each with the one meaning it has everywhere.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct Statuses {
+    /// Done: success, finished, restored, approved. Green.
+    pub success: Status,
+    /// Merged: a hire merged into another, a merge action or
+    /// record. Purple.
+    pub merged: Status,
+    /// In progress or a warning: an agent at work, something
+    /// pending, a budget near its cap. Yellow.
+    pub warning: Status,
+    /// An error, a failure, danger. Red.
+    pub danger: Status,
+    /// Information and references: a note, a tip, an id. Blue.
+    pub info: Status,
+    /// What needs the chief. Orange.
+    pub attention: Status,
+    /// At rest or idle. Neutral.
+    pub rest: Status,
 }
 
 impl Palette {
@@ -294,6 +336,8 @@ impl Palette {
             green,
             green_deep,
             shadow,
+            // Checked by its own pairs in `contrast::Report`.
+            status: _,
         } = *self;
         [
             ("surface", Part::Panel, surface),
@@ -315,8 +359,8 @@ impl Palette {
             ("grey_1", Part::Ink, grey_1),
             ("gold_2", Part::Ink, gold_2),
             ("accent", Part::Ink, accent),
-            ("red", Part::Ink, red),
-            ("green", Part::Ink, green),
+            ("red", Part::Status, red),
+            ("green", Part::Status, green),
             ("gold_5", Part::Mark, gold_5),
             ("gold_3", Part::Mark, gold_3),
             ("gold_4", Part::Mark, gold_4),

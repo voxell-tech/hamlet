@@ -34,9 +34,19 @@ In `hamlet_ui/src/`:
 
 - `theme.rs` holds the theme: one variant's palette, from a family
   under `assets/themes/`, in the sizes, spacing and motion of
-  `assets/measures.toml`. `theme/themes.rs` reads the families, and
-  `theme/contrast.rs` measures how well one colour reads on another.
-  The panels are built once the first theme is shown.
+  `assets/measures.toml`. A family's file holds fifteen colours for
+  each variant: `base0` to `base8`, a ramp from the background end to
+  the text end, and `red`, `orange`, `yellow`, `green`, `blue` and
+  `purple`, with an optional `accent` naming the hue of the brand
+  colour, yellow unless set. `theme/derive.rs` makes every role of the
+  palette from them: surfaces and the text ladder from the ramp, the
+  accent from its hue, and a status from each of the others, each
+  with an ink, a fill, and a solid form for pills, circles and
+  buttons. Each ink is moved in lightness until it reads on its
+  grounds. `theme/themes.rs` reads the families, and
+  `theme/contrast.rs` measures how well one colour reads on another
+  for every shipped theme. The panels are built once the first theme
+  is shown.
 - `hamlet_app/src/appearance.rs` picks the theme to show from the
   chief's appearance and the computer's color scheme. The Appearance
   page of Settings is `screens/settings/appearance.rs`.

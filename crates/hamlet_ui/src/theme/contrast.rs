@@ -90,6 +90,9 @@ pub enum Part {
     Fill,
     /// Text and icons.
     Ink,
+    /// The ink of a status, held to [`TEXT`] on the panels, a button,
+    /// a field, code and its own fill, as `Report::of` pairs them.
+    Status,
     /// A control's edge or state, held to [`MARK`].
     Mark,
     /// Light, a line or a shadow, which means nothing alone. Not
@@ -133,32 +136,15 @@ struct Except {
     why: &'static str,
 }
 
-/// Every ink not named here is held to [`TEXT`] on every ground.
-const EXCEPT: &[Except] = &[
-    Except {
-        ink: "red",
-        ground: "gold_hover",
-        why: "rg 'gold_hover' crates: the hover fill of \
-              styles::button, and chrome.rs's minimise and \
-              maximise. rg 'Tone::Critical' crates: no label inside \
-              a `button`.",
-    },
-    Except {
-        ink: "red",
-        ground: "primary_low",
-        why: "rg 'primary_low' crates: primary_button, a picked \
-              choice and a picked answer in asking.rs, lettered \
-              Body. rg 'Tone::Critical' crates: none inside them.",
-    },
-    Except {
-        ink: "red",
-        ground: "gold_6",
-        why: "rg 'gold_6' crates: hairlines, rules, the chief's own \
-              bubble (bubble.rs), and fynix's selection behind a \
-              field's words. rg 'Tone::Critical' crates: none in a \
-              bubble.",
-    },
-];
+/// Every ink not named here is held to [`TEXT`] on every ground. The
+/// derivation moves each ink of the ladder until it reads on every
+/// fill, so none is named.
+const EXCEPT: &[Except] = &[];
+
+/// The grounds the ink of a status is drawn on, besides its own
+/// fill.
+const STATUS_GROUNDS: [&str; 6] =
+    ["surface", "card", "input", "code", "button", "button_hover"];
 
 /// A colour as the report shows it: opaque, on the 8-bit grid a
 /// checker reads.
@@ -356,6 +342,44 @@ impl Report {
             Need::Text,
             Gate::Fail,
         ));
+        let on_status = grounds
+            .iter()
+            .filter(|(ground, _)| {
+                STATUS_GROUNDS.contains(&ground.name.as_str())
+            })
+            .map(|(ground, _)| ground.clone())
+            .collect::<Vec<_>>();
+        for (name, status) in theme.palette.status.named() {
+            let own = |ink: &str, ink_colour: Color| {
+                Named::new(format!("{name} {ink}"), ink_colour)
+            };
+            let fill =
+                Named::new(format!("{name} fill"), status.fill);
+            let hovered = Named::new(
+                format!("{name} fill hovered"),
+                status.fill_hover,
+            );
+            let solid =
+                Named::new(format!("{name} solid"), status.solid);
+            let mut pairs = on_status
+                .iter()
+                .map(|ground| {
+                    (own("ink", status.ink), ground.clone())
+                })
+                .collect::<Vec<_>>();
+            pairs.push((own("ink", status.ink), fill.clone()));
+            pairs.push((own("ink", status.ink), hovered));
+            pairs.push((own("on_fill", status.on_fill), fill));
+            pairs.push((own("on_solid", status.on_solid), solid));
+            for (front, back) in pairs {
+                report.pairs.push(Pair::new(
+                    front,
+                    back,
+                    Need::Text,
+                    Gate::Fail,
+                ));
+            }
+        }
         for mark in of(Part::Mark) {
             for panel in of(Part::Panel) {
                 report.pairs.push(Pair::new(
