@@ -17,8 +17,8 @@ use hamlet_client::realm::{self as agents, Deeds, Scholar};
 use hamlet_protocol::client as protocol;
 use hamlet_realm::orders;
 use hamlet_ui::styles::{
-    self, ICON, choice, description, lettered, primary_button,
-    scroll_area, section, text_input,
+    self, ICON, Looks, choice, description, lettered, scroll_area,
+    section, text_input,
 };
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::icons::Glyph;
@@ -262,8 +262,7 @@ pub(super) fn hire(lead: Entity, at: Vec2) -> impl View {
             )),
             row((
                 lettered("Hire")
-                    .rules(primary_button)
-                    .tagged(Variant::Primary)
+                    .variant(Variant::Primary)
                     .on_activate(move |world| {
                         if !Deeds::is_allowed(world, "hire") {
                             return;

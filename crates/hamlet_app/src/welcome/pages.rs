@@ -15,9 +15,9 @@ use bevy_fynix::{ScopedExt, ViewExt, derived, keyed, resource};
 use hamlet_client::realm::Settings;
 use hamlet_ui::markdown::{Face, Ink, Span, Style, Target, rich};
 use hamlet_ui::styles::{
-    self, ICON, back, back_link, bare, beside, description,
-    good_action, group, headed, lead_card, marked, nav_card, note,
-    parts, scroll_area, small_rules,
+    self, ICON, Looks, back, bare, beside, description, good_action,
+    group, headed, lead_card, marked, nav_card, note, parts,
+    scroll_area, small_rules,
 };
 use hamlet_ui::theme::Palette;
 use hamlet_ui::widgets::effects::Variant;
@@ -152,8 +152,7 @@ fn choice(adding: bool) -> AnyView {
         ),
         beside((
             marked(Glyph::Clock, leave)
-                .rules(back_link)
-                .tagged(Variant::Default)
+                .variant(Variant::Text)
                 .on_activate(close),
             note(after),
         ))

@@ -29,8 +29,8 @@ use hamlet_client::waits::{
 };
 use hamlet_protocol::client::{Offer, Pick, Questions};
 use hamlet_ui::styles::{
-    self, Fills, action, back_link, bare, marked, note, note_rules,
-    primary_button, small_rules, text_input, transparent,
+    Fills, Looks, action, bare, marked, note, note_rules,
+    small_rules, text_input, transparent,
 };
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::effects::Variant;
@@ -321,8 +321,7 @@ fn pager(card: Entity, count: usize, at: usize) -> impl View {
         let step = |which: &'static str, to: usize| {
             button(label(which).size(body).wrap(false))
                 .padding(UiRect::axes(px(gap / 2.0), px(0.0)))
-                .rules(back_link)
-                .tagged(Variant::Text)
+                .variant(Variant::Text)
                 .on_activate(move |world| {
                     turn(world, card, count, to);
                 })
@@ -415,15 +414,13 @@ fn page(card: Entity, asked: &Questions, at: usize) -> AnyView {
     }
     let next = match at + 1 < count {
         true => marked(Glyph::Into, "Next")
-            .rules(styles::button)
-            .tagged(Variant::Default)
+            .variant(Variant::Default)
             .on_activate(move |world| {
                 turn(world, card, count, at + 1);
             })
             .boxed(),
         false => marked(Glyph::Check, "Submit")
-            .rules(primary_button)
-            .tagged(Variant::Primary)
+            .variant(Variant::Primary)
             .on_activate(move |world| submit(world, card, count))
             .boxed(),
     };
@@ -436,8 +433,7 @@ fn page(card: Entity, asked: &Questions, at: usize) -> AnyView {
             row((
                 column((done,)).fills_width(),
                 marked(Glyph::Cross, "Dismiss")
-                    .rules(back_link)
-                    .tagged(Variant::Text)
+                    .variant(Variant::Text)
                     .on_activate(move |world| dismiss(world, card)),
                 next,
             ))

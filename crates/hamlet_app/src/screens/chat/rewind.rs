@@ -21,10 +21,10 @@ use bevy::ui::{
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, TooltipExt, button, column,
 };
-use bevy_fynix::{ScopedExt, Signal, Visual, resource};
+use bevy_fynix::{Signal, Visual, resource};
 use hamlet_client::chats::{Chat, Status};
 use hamlet_client::messages::Rewound;
-use hamlet_ui::styles::{ICON, back_link, note};
+use hamlet_ui::styles::{ICON, Looks, note};
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::{Cx, View, built};
@@ -69,8 +69,7 @@ pub(super) fn mark(session: Entity, entry: String) -> impl View {
         let back = button(glyph(Glyph::Restore, ICON))
             .padding(UiRect::all(px(AROUND)))
             .tooltip(|| note("Rewind to here"))
-            .rules(back_link)
-            .tagged(Variant::Text)
+            .variant(Variant::Text)
             .on_activate(move |world| ask(world, session, &entry));
         let node = cx.build(
             column((back,))

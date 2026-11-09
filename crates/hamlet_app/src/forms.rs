@@ -15,7 +15,7 @@ use bevy_fynix::views::{
 };
 use bevy_fynix::{ScopedExt, ViewExt, keyed, resource};
 use hamlet_ui::styles::{
-    self, bare, lettered, note, primary_button, text_input,
+    self, Looks, bare, lettered, note, text_input,
 };
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::{AnyView, with_cx};
@@ -122,8 +122,7 @@ pub(crate) fn form(
                 parts.push(
                     row((
                         lettered(go)
-                            .rules(primary_button)
-                            .tagged(Variant::Primary)
+                            .variant(Variant::Primary)
                             .on_activate(move |world| {
                                 let typed = values(world);
                                 if send(world, &typed) {

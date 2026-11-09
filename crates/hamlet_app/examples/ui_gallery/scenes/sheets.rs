@@ -20,11 +20,7 @@ use bevy_fynix::views::{
 use bevy_fynix::{Bevy, Focused, ScopedExt, View, ViewExt};
 use hamlet_app::{chat, lists, menu};
 use hamlet_realm::sound::SoundSettings;
-use hamlet_ui::Cx;
-use hamlet_ui::styles::{
-    self, back_link, danger_button, marked, primary_button,
-    text_input,
-};
+use hamlet_ui::styles::{self, Looks, marked, text_input};
 use hamlet_ui::theme::{HamletTheme, StatusKind};
 use hamlet_ui::widgets::effects::{Highlight, Underglow, Variant};
 use hamlet_ui::widgets::icons::{Glyph, glyph};
@@ -66,20 +62,10 @@ fn cell(name: &'static str, view: Ui) -> Ui {
         .boxed()
 }
 
-type Look = fn(&mut Cx);
-
-/// A button of one look in each of its states.
-fn states(
-    which: Glyph,
-    text: &'static str,
-    look: Look,
-    variant: Variant,
-) -> Ui {
+/// A button of one variant in each of its states.
+fn states(which: Glyph, text: &'static str, variant: Variant) -> Ui {
     let one = move || {
-        marked(which, text)
-            .rules(look)
-            .tagged(variant)
-            .on_activate(|_| {})
+        marked(which, text).variant(variant).on_activate(|_| {})
     };
     row((
         cell("At rest", one().boxed()),
@@ -239,36 +225,20 @@ pub(super) fn controls() -> Ui {
             states(
                 Glyph::NewSession,
                 "New session",
-                styles::button,
                 Variant::Default,
             ),
         ),
         part(
             "The one primary action",
-            states(
-                Glyph::Check,
-                "Allow once",
-                primary_button,
-                Variant::Primary,
-            ),
+            states(Glyph::Check, "Allow once", Variant::Primary),
         ),
         part(
             "What refuses or stops",
-            states(
-                Glyph::Cross,
-                "Deny",
-                danger_button,
-                Variant::Danger,
-            ),
+            states(Glyph::Cross, "Deny", Variant::Danger),
         ),
         part(
             "A way back",
-            states(
-                Glyph::Back,
-                "All hamlets",
-                back_link,
-                Variant::Text,
-            ),
+            states(Glyph::Back, "All hamlets", Variant::Text),
         ),
         part("A text field", fields()),
         part(
@@ -364,7 +334,6 @@ pub(super) fn status_sheet() -> Ui {
             states(
                 Glyph::Merge,
                 "Merge",
-                styles::merge_button,
                 Variant::Tinted(StatusKind::Merged),
             ),
         ),
@@ -373,7 +342,6 @@ pub(super) fn status_sheet() -> Ui {
             states(
                 Glyph::Restore,
                 "Restore",
-                styles::success_button,
                 Variant::Tinted(StatusKind::Success),
             ),
         ),

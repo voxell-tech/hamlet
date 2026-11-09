@@ -7,7 +7,7 @@ use hamlet_client::realm::{LivesIn, MergedInto, Purpose};
 use hamlet_realm::pick::{Thing, select};
 use hamlet_ui::styles::{
     Fills, action, bad_action, breadcrumb, buttons, scroll_area,
-    status_pill, success_action,
+    status_pill, tinted_action,
 };
 use hamlet_ui::theme::StatusKind;
 use hamlet_ui::widgets::icons::Glyph;
@@ -66,7 +66,8 @@ pub(super) fn ruin(agent: Entity) -> impl View {
                 dim("Its lodge is kept in the archive. Deleting it \
                      frees the space on disk."),
                 buttons(vec![
-                    success_action(
+                    tinted_action(
+                        StatusKind::Success,
                         Glyph::Restore,
                         "Restore",
                         move |world| {

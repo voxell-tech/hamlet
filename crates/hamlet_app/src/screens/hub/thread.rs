@@ -27,10 +27,10 @@ use hamlet_client::waits::Waiting;
 use hamlet_protocol::client as protocol;
 use hamlet_realm::pick::{Thing, select};
 use hamlet_ui::styles::{
-    Fills, ICON, action, bare, card_name, choice, close, crumb,
-    crumb_here, crumb_slash, crumbs, danger_button, filling, framed,
-    hairline, more_button, note, page_head, primary_button,
-    scroll_area, sentence_title, status_icon, title,
+    Fills, ICON, Looks, action, bare, card_name, choice, close,
+    crumb, crumb_here, crumb_slash, crumbs, filling, framed,
+    hairline, more_button, note, page_head, scroll_area,
+    sentence_title, status_icon, title,
 };
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::edges::faded;
@@ -697,8 +697,7 @@ fn send_or_stop(agent: Entity) -> impl View {
                         .fill(cx.theme().palette.red)
                 });
                 round(square.boxed())
-                    .rules(danger_button)
-                    .tagged(Variant::Danger)
+                    .variant(Variant::Danger)
                     .tagged(Stopping)
                     .tooltip(|| note("Stop"))
                     .on_activate(move |world| {
@@ -707,8 +706,7 @@ fn send_or_stop(agent: Entity) -> impl View {
                     .boxed()
             } else {
                 round(glyph(Glyph::Send, 16.0).boxed())
-                    .rules(primary_button)
-                    .tagged(Variant::Primary)
+                    .variant(Variant::Primary)
                     .tooltip(|| note("Send"))
                     .on_activate(chat::send_typed)
                     .boxed()

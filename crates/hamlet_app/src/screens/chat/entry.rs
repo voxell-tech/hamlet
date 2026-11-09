@@ -14,7 +14,7 @@ use hamlet_client::messages::ChiefMessage;
 use hamlet_client::realm::shown_of;
 use hamlet_ui::markdown::document;
 use hamlet_ui::styles::{
-    note, small_rules, status_mark, warning_action,
+    note, small_rules, status_mark, tinted_action,
 };
 use hamlet_ui::theme::StatusKind;
 use hamlet_ui::widgets::ellipsis::{Keep, cut, one_line};
@@ -410,7 +410,8 @@ pub(crate) fn entry_view(session: Entity, id: String) -> AnyView {
                 }))
                 .tone(Tone::Critical),
                 // In a row, so that it is as wide as its words.
-                row((warning_action(
+                row((tinted_action(
+                    StatusKind::Warning,
                     Glyph::Restore,
                     "Try again",
                     move |world| {

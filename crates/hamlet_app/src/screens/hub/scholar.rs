@@ -19,9 +19,8 @@ use hamlet_client::realm::{
 };
 use hamlet_protocol::client as protocol;
 use hamlet_ui::styles::{
-    Fills, ICON, action, back_link, bad_action, bare, beside,
-    breadcrumb, buttons, filling, good_action, note, scroll_area,
-    text_input,
+    Fills, ICON, Looks, action, bad_action, bare, beside, breadcrumb,
+    buttons, filling, good_action, note, scroll_area, text_input,
 };
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::icons::Glyph;
@@ -596,8 +595,7 @@ fn hires(shown: &Shown) -> AnyView {
         let mut line = vec![
             button(label(shown_hire.called.clone()).bold(true))
                 .padding(UiRect::all(px(0.0)))
-                .rules(back_link)
-                .tagged(Variant::Text)
+                .variant(Variant::Text)
                 .tooltip({
                     let address = address.clone();
                     move || note(address.clone())

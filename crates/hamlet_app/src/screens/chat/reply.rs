@@ -23,7 +23,7 @@ use bevy_fynix::views::{
 use bevy_fynix::{ScopedExt, ViewExt, keyed, resource};
 use hamlet_client::chats::{Entry, Transcript};
 use hamlet_ui::styles::{
-    Fills, ICON, back_link, bare, close_button, note, small_rules,
+    Fills, ICON, Looks, bare, close_button, note, small_rules,
 };
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::ellipsis::{cut, one_line};
@@ -223,8 +223,7 @@ pub(super) fn mark(
         let reply = button(glyph(Glyph::Talk, ICON))
             .padding(UiRect::all(px(AROUND)))
             .tooltip(|| note("Reply"))
-            .rules(back_link)
-            .tagged(Variant::Text)
+            .variant(Variant::Text)
             .on_activate(move |world| take(world, session, &id, &by));
         let node = cx.build(
             column((reply,))

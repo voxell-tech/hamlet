@@ -53,10 +53,10 @@ use bevy::window::SystemCursorIcon;
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, column, frame, row,
 };
-use bevy_fynix::{EntityCursor, ScopedExt, ViewExt, keyed, resource};
+use bevy_fynix::{EntityCursor, ViewExt, keyed, resource};
 use hamlet_ui::View;
 use hamlet_ui::markdown::Area;
-use hamlet_ui::styles::{button, marked};
+use hamlet_ui::styles::{Looks, marked};
 use hamlet_ui::theme::Themed;
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::icons::Glyph;
@@ -956,8 +956,7 @@ pub fn quote_button(session: Entity, id: String) -> impl View {
         }),
         |on| match on {
             true => row((marked(Glyph::Talk, "Quote")
-                .rules(button)
-                .tagged(Variant::Default)
+                .variant(Variant::Default)
                 .on_activate(quote_chosen),))
             .position(PositionType::Absolute)
             .inset(resource::<Selecting, _>(|s| {

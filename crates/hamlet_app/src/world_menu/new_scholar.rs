@@ -8,9 +8,7 @@ use bevy_fynix::views::{
     BehaviorExt, FrameProps, column, frame, label, popup, row,
 };
 use hamlet_client::realm::Deeds;
-use hamlet_ui::styles::{
-    button, description, lettered, primary_button,
-};
+use hamlet_ui::styles::{Looks, button, description, lettered};
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::{View, built};
 
@@ -73,8 +71,7 @@ pub(super) fn new_scholar(at: Vec2) -> impl View {
             ),
             row((
                 lettered("Make")
-                    .rules(primary_button)
-                    .tagged(Variant::Primary)
+                    .variant(Variant::Primary)
                     .on_activate(|world| {
                         if !Deeds::is_allowed(world, "scholar") {
                             return;

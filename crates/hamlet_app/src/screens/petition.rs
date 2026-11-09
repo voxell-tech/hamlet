@@ -19,7 +19,7 @@ use bevy::ui::{AlignItems, px};
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, TooltipExt, column, frame, label, row,
 };
-use bevy_fynix::{ScopedExt, ViewExt, derived, each};
+use bevy_fynix::{ViewExt, derived, each};
 use hamlet_client::chats::{Entry, Transcript};
 use hamlet_client::messages::Answer;
 use hamlet_client::waits::{Choice, ChoiceExt, Waiting};
@@ -28,8 +28,7 @@ use hamlet_protocol::client::{
 };
 use hamlet_realm::needs::{TagAnswered, TagOpened};
 use hamlet_ui::styles::{
-    self, buttons, command_block, danger_button, framed, marked,
-    note, primary_button, status_mark, success_button,
+    Looks, buttons, command_block, framed, marked, note, status_mark,
 };
 use hamlet_ui::theme::StatusKind;
 use hamlet_ui::widgets::effects::Variant;
@@ -228,65 +227,32 @@ fn button(need: &Need, at: usize) -> AnyView {
     };
     let always = lasting_words(need);
     use Glyph::{Check, CheckAll, Cross, Restore, Talk};
-    let (which, text, rules, variant): (_, _, fn(&mut Cx), _) =
-        match choice {
-            Choice::Allow => (
-                Check,
-                "Allow once",
-                success_button,
-                Variant::Tinted(StatusKind::Success),
-            ),
-            Choice::Always => {
-                (CheckAll, always, styles::button, Variant::Default)
+    let done = Variant::Tinted(StatusKind::Success);
+    let (which, text, variant) = match choice {
+        Choice::Allow => (Check, "Allow once", done),
+        Choice::Always => (CheckAll, always, Variant::Default),
+        Choice::Deny => (Cross, "Deny", Variant::Danger),
+        Choice::Go => (Check, "Go ahead", done),
+        Choice::Withdraw => (Restore, "Withdraw", Variant::Danger),
+        Choice::Reply => (Talk, "Reply in chat", Variant::Primary),
+        // A newcomer dismissed waits on at the harbor.
+        Choice::Dismiss => match need.detail {
+            WaitDetail::Newcomer { .. } => {
+                (Restore, "Later", Variant::Default)
             }
-            Choice::Deny => {
-                (Cross, "Deny", danger_button, Variant::Danger)
-            }
-            Choice::Go => {
-                let tint = Variant::Tinted(StatusKind::Success);
-                (Check, "Go ahead", success_button, tint)
-            }
-            Choice::Withdraw => {
-                (Restore, "Withdraw", danger_button, Variant::Danger)
-            }
-            Choice::Reply => (
-                Talk,
-                "Reply in chat",
-                primary_button,
-                Variant::Primary,
-            ),
-            // A newcomer dismissed waits on at the harbor.
-            Choice::Dismiss => match need.detail {
-                WaitDetail::Newcomer { .. } => (
-                    Restore,
-                    "Later",
-                    styles::button,
-                    Variant::Default,
-                ),
-                _ => (
-                    Cross,
-                    "Dismiss",
-                    styles::button,
-                    Variant::Default,
-                ),
-            },
-            Choice::Welcome => (
-                Check,
-                "Welcome into the city",
-                success_button,
-                Variant::Tinted(StatusKind::Success),
-            ),
-        };
+            _ => (Cross, "Dismiss", Variant::Default),
+        },
+        Choice::Welcome => (Check, "Welcome into the city", done),
+    };
     let scope = matches!(choice, Choice::Always)
         .then(|| scope(need))
         .flatten();
     let need = need.clone();
-    let button = marked(which, text)
-        .rules(rules)
-        .tagged(variant)
-        .on_activate(move |world| {
+    let button = marked(which, text).variant(variant).on_activate(
+        move |world| {
             answer(world, &need, choice.clone());
-        });
+        },
+    );
     match scope {
         Some(words) => {
             button.tooltip(move || note(words.clone())).boxed()
@@ -433,8 +399,7 @@ fn brief(need: &Need, asked: &Questions) -> AnyView {
     let head = head(need, "");
     with_cx(move |cx| {
         let open = marked(Glyph::Talk, "Answer")
-            .rules(primary_button)
-            .tagged(Variant::Primary)
+            .variant(Variant::Primary)
             .on_activate(move |world| {
                 world.resource_mut::<Unfolded>().0.insert(wait);
             });

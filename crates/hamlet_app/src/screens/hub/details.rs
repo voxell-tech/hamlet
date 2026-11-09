@@ -21,7 +21,7 @@ use hamlet_client::realm::{
 use hamlet_protocol::client as protocol;
 use hamlet_realm::orders;
 use hamlet_ui::styles::{
-    Fills, ICON, action, back_link, bare, hairline, lettered, note,
+    Fills, ICON, Looks, action, bare, hairline, lettered, note,
     scroll_area, text_input,
 };
 use hamlet_ui::theme::HamletTheme;
@@ -310,8 +310,7 @@ fn tools(agent: Entity, facts: &Facts) -> AnyView {
 /// An agent's name that leads to its thread.
 fn link(entity: Entity, name: String) -> AnyView {
     lettered(name)
-        .rules(back_link)
-        .tagged(Variant::Text)
+        .variant(Variant::Text)
         .on_activate(move |world| talk_to(world, entity))
         .boxed()
 }

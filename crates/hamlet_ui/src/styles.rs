@@ -879,51 +879,43 @@ fn tinted_button(cx: &mut Cx, kind: StatusKind) {
         .apply(cx);
 }
 
-/// The button that completes something done: restored, approved.
-pub fn success_button(cx: &mut Cx) {
-    tinted_button(cx, StatusKind::Success);
+/// The look of a button with the effects of `variant`: its plate,
+/// its words and its glow all follow the one choice. A status's
+/// colour paints a [`Variant::Tinted`] button: green completes
+/// something, purple merges, yellow tries again.
+pub fn look(
+    variant: Variant,
+) -> impl FnOnce(&mut Cx) + Copy + Send + Sync + 'static {
+    move |cx| match variant {
+        Variant::Primary => primary_button(cx),
+        Variant::Danger => danger_button(cx),
+        Variant::Text => back_link(cx),
+        Variant::Tinted(kind) => tinted_button(cx, kind),
+        Variant::Default | Variant::Subtle | Variant::Input => {
+            button(cx);
+        }
+    }
 }
 
-/// The button that completes a merge.
-pub fn merge_button(cx: &mut Cx) {
-    tinted_button(cx, StatusKind::Merged);
+/// Gives a button its [`look`] and its effects from one
+/// [`Variant`].
+pub trait Looks: View + Sized {
+    fn variant(self, variant: Variant) -> impl View {
+        self.rules(look(variant)).tagged(variant)
+    }
 }
 
-/// The button that carries on with what went wrong: try again.
-pub fn warning_button(cx: &mut Cx) {
-    tinted_button(cx, StatusKind::Warning);
-}
+impl<V: View> Looks for V {}
 
-/// A [`success_button`] with an icon before its text, that runs
-/// `act`.
-pub fn success_action(
+/// A button in the colour of `kind` with an icon before its text,
+/// that runs `act`.
+pub fn tinted_action(
+    kind: StatusKind,
     which: Glyph,
     text: &'static str,
     act: impl Fn(&mut World) + Send + Sync + 'static,
 ) -> AnyView {
-    let tint = Variant::Tinted(StatusKind::Success);
-    acting(which, text, (success_button, tint), act).boxed()
-}
-
-/// A [`warning_button`] with an icon before its text, that runs
-/// `act`.
-pub fn warning_action(
-    which: Glyph,
-    text: &'static str,
-    act: impl Fn(&mut World) + Send + Sync + 'static,
-) -> AnyView {
-    let tint = Variant::Tinted(StatusKind::Warning);
-    acting(which, text, (warning_button, tint), act).boxed()
-}
-
-/// A [`merge_button`] with an icon before its text, that runs `act`.
-pub fn merge_action(
-    which: Glyph,
-    text: &'static str,
-    act: impl Fn(&mut World) + Send + Sync + 'static,
-) -> AnyView {
-    let tint = Variant::Tinted(StatusKind::Merged);
-    acting(which, text, (merge_button, tint), act).boxed()
+    acting(which, text, Variant::Tinted(kind), act).boxed()
 }
 
 /// Buttons in a row that wraps: in a narrow panel they go on to a
@@ -1094,32 +1086,25 @@ pub fn choice(
 
 /// A standard button that runs `act`.
 pub fn command(text: &'static str, act: fn(&mut World)) -> impl View {
-    lettered(text)
-        .rules(button)
-        .tagged(Variant::Default)
-        .on_activate(act)
+    lettered(text).variant(Variant::Default).on_activate(act)
 }
 
 /// The way back to `text`, which `act` takes.
 pub fn back(text: &'static str, act: fn(&mut World)) -> impl View {
     marked(Glyph::Back, text)
-        .rules(back_link)
-        .tagged(Variant::Text)
+        .variant(Variant::Text)
         .on_activate(act)
 }
 
-/// A button with an icon before its text, in the style `rules` and
-/// the effects of `variant`, that runs `act`.
+/// A button with an icon before its text, with the look and the
+/// effects of `variant`, that runs `act`.
 fn acting(
     which: Glyph,
     text: &'static str,
-    (rules, variant): (fn(&mut Cx), Variant),
+    variant: Variant,
     act: impl Fn(&mut World) + Send + Sync + 'static,
 ) -> impl View {
-    marked(which, text)
-        .rules(rules)
-        .tagged(variant)
-        .on_activate(act)
+    marked(which, text).variant(variant).on_activate(act)
 }
 
 /// A small "x" that closes or drops something by running `act`: dim,
@@ -1138,7 +1123,7 @@ pub fn action(
     text: &'static str,
     act: impl Fn(&mut World) + Send + Sync + 'static,
 ) -> AnyView {
-    acting(which, text, (button, Variant::Default), act).boxed()
+    acting(which, text, Variant::Default, act).boxed()
 }
 
 /// A "..." button, as tall as a standard one, that runs `act`, with
@@ -1150,8 +1135,7 @@ pub fn more_button(
     views::button(glyph(Glyph::More, ICON))
         .padding(UiRect::axes(px(8.0), px(4.0)))
         .min_height(px(CONTROL))
-        .rules(button)
-        .tagged(Variant::Default)
+        .variant(Variant::Default)
         .tooltip(move || note(tip))
         .on_activate(act)
         .boxed()
@@ -1163,8 +1147,7 @@ pub fn good_action(
     text: &'static str,
     act: impl Fn(&mut World) + Send + Sync + 'static,
 ) -> AnyView {
-    acting(which, text, (primary_button, Variant::Primary), act)
-        .boxed()
+    acting(which, text, Variant::Primary, act).boxed()
 }
 
 /// A button that refuses, stops or throws away, by running `act`.
@@ -1173,7 +1156,7 @@ pub fn bad_action(
     text: &'static str,
     act: impl Fn(&mut World) + Send + Sync + 'static,
 ) -> AnyView {
-    acting(which, text, (danger_button, Variant::Danger), act).boxed()
+    acting(which, text, Variant::Danger, act).boxed()
 }
 
 /// A row of a list that leads somewhere: no fill and no border at
@@ -1390,8 +1373,7 @@ pub fn crumb(
         // Bare, so that the path starts at the panel's edge and its
         // parts sit evenly apart.
         .padding(UiRect::all(px(0.0)))
-        .rules(back_link)
-        .tagged(Variant::Text)
+        .variant(Variant::Text)
         .on_activate(act)
 }
 

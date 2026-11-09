@@ -14,7 +14,7 @@ use bevy_fynix::{
 use hamlet_client::realm::{Deeds, Scholar, scholar_address};
 use hamlet_protocol::client as protocol;
 use hamlet_ui::styles::{
-    ICON, button, description, lettered, primary_button, section,
+    ICON, Looks, button, description, lettered, section,
 };
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::icons::Glyph;
@@ -155,8 +155,7 @@ pub(super) fn founding(at: Vec2) -> impl View {
             })),
             row((
                 lettered("Found")
-                    .rules(primary_button)
-                    .tagged(Variant::Primary)
+                    .variant(Variant::Primary)
                     .on_activate(|world| {
                         if !Deeds::is_allowed(world, "found") {
                             return;
