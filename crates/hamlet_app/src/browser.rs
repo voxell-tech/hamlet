@@ -943,6 +943,7 @@ fn details() -> AnyView {
                         ))
                         .width(percent(100.0))
                         .align(AlignItems::Center),
+                        preview,
                         name,
                         description(origin(&item)),
                         labelled("folder", folder_of(&item)),
@@ -978,7 +979,6 @@ fn details() -> AnyView {
                                 }),
                         ))
                         .gap(gap),
-                        preview,
                     ))
                     .gap(gap),
                 )

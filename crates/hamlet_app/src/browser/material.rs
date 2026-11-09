@@ -10,27 +10,35 @@ use bevy::app::App;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::world::World;
 use bevy::math::Vec3;
-use bevy::ui::{AlignItems, Display, percent, px};
+use bevy::ui::{AlignItems, Display, UiRect, percent, px};
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, TooltipExt, button, column, dropdown,
-    icon_button, number_field, row, text_field,
+    BehaviorExt, FrameProps, TooltipExt, button, column, icon_button,
+    label, number_field, row, text_field,
 };
 use bevy_fynix::{ScopedExt, ViewExt, keyed, resource};
 use hamlet_graph::material::{Material, fits};
 use hamlet_graph::{Constant, Graph, GraphInput, ValueType};
-use hamlet_graph_editor::library::{Kind, Library, lone};
+use hamlet_graph_editor::library::picker::{picker, picture};
+use hamlet_graph_editor::library::{Item, Kind, Library, lone};
 use hamlet_ui::styles::{
-    ICON, description, labelled, note, text_input,
+    self, ICON, description, labelled, note, section, text_input,
 };
+use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::widgets::switch::switch;
-use hamlet_ui::{AnyView, Cx};
+use hamlet_ui::{AnyView, Cx, with_cx};
 
 use crate::graphs::shader::sample::{self, Sample};
 
 pub(super) fn plugin(app: &mut App) {
-    app.init_resource::<Open>();
+    app.init_resource::<Open>().init_resource::<Choosing>();
 }
+
+/// The height of the picker of a material's shader.
+const CHOOSER: f32 = 300.0;
+
+/// The side of the picture of the shader a material uses.
+const SHOWN: f32 = 56.0;
 
 /// The material the details show, as last read or written, and the
 /// graph of its shader, for the controls to show without reading the
@@ -80,12 +88,18 @@ impl Open {
 /// The details of the material `name`, built again whenever the
 /// library lists something new or its shader or Errors change.
 pub(super) fn details(name: String) -> AnyView {
-    keyed(
-        resource::<Library, _>(|library| library.revision),
-        move |_: &u64| body(name.clone()),
-    )
-    .within(column(()).gap(0.0))
-    .boxed()
+    AnyView::new(move |cx: &mut Cx| {
+        // A material newly shown is not having its shader changed.
+        cx.world.resource_mut::<Choosing>().0 = false;
+        let name = name.clone();
+        cx.build(
+            keyed(
+                resource::<Library, _>(|library| library.revision),
+                move |_: &u64| body(name.clone()),
+            )
+            .within(column(()).gap(0.0)),
+        )
+    })
 }
 
 fn body(name: String) -> AnyView {
@@ -105,22 +119,17 @@ fn body(name: String) -> AnyView {
                 )),)));
             }
         };
-        let mut shaders: Vec<String> = library
-            .items
-            .iter()
-            .filter(|item| item.kind == Kind::Shader)
-            .map(|item| item.name.clone())
-            .collect();
-        shaders.sort();
-        shaders.dedup();
         let shader = library
             .find(Kind::Shader, &material.shader)
             .and_then(|item| item.read().ok())
             .map(|book| lone(book).graph);
-        let mut rows: Vec<AnyView> = vec![labelled(
-            "shader",
-            picker(&name, &material, shaders),
-        )];
+        let mut rows: Vec<AnyView> = vec![
+            section("SHADER").boxed(),
+            shader_choice(&name, &material.shader),
+        ];
+        if shader.is_some() {
+            rows.push(section("VALUES").boxed());
+        }
         match &shader {
             Some(graph) => {
                 if graph.inputs.is_empty() {
@@ -146,9 +155,7 @@ fn body(name: String) -> AnyView {
                     ));
                 }
             }
-            None if material.shader.is_empty() => rows.push(
-                description("Choose the shader it uses.").boxed(),
-            ),
+            None if material.shader.is_empty() => {}
             None => rows.push(
                 description(format!(
                     "Error: there is no shader named {}",
@@ -168,38 +175,77 @@ fn body(name: String) -> AnyView {
     })
 }
 
-/// The dropdown of the library's shaders, the material's chosen.
-fn picker(
-    name: &str,
-    material: &Material,
-    shaders: Vec<String>,
-) -> AnyView {
-    let name = name.to_owned();
-    let at = shaders
-        .iter()
-        .position(|shader| *shader == material.shader)
-        .map_or(0, |at| at + 1);
-    let words = std::iter::once("none".to_owned())
-        .chain(shaders.iter().map(|shader| shader.replace('_', " ")))
-        .collect::<Vec<_>>();
-    dropdown(
-        words,
-        at,
-        Glyph::Chevron.image(ICON),
-        move |world, at| {
-            let shader = at
-                .checked_sub(1)
-                .and_then(|at| shaders.get(at))
-                .cloned()
-                .unwrap_or_default();
-            change(world, &name, true, |material| {
-                material.shader = shader;
-            });
+/// The shader the material `name` uses, `shader`, as its picture and
+/// name with a button that changes it, or the picker of the library's
+/// shaders while it uses none or it is being changed.
+fn shader_choice(name: &str, shader: &str) -> AnyView {
+    let (name, shader) = (name.to_owned(), shader.to_owned());
+    keyed(
+        resource::<Choosing, _>(|choosing| choosing.0),
+        move |choosing: &bool| {
+            let (name, shader) = (name.clone(), shader.clone());
+            if shader.is_empty() || *choosing {
+                let chosen =
+                    (!shader.is_empty()).then(|| shader.clone());
+                let pick = move |world: &mut World, item: &Item| {
+                    world.resource_mut::<Choosing>().0 = false;
+                    let picked = item.name.clone();
+                    change(world, &name, true, |material| {
+                        material.shader = picked;
+                    });
+                };
+                return with_cx(move |cx| {
+                    let gap = cx.theme().space.gap;
+                    column((
+                        description(if shader.is_empty() {
+                            "Pick the shader it uses."
+                        } else {
+                            "Pick another shader."
+                        }),
+                        column((picker(
+                            Kind::Shader,
+                            chosen.clone(),
+                            pick.clone(),
+                        ),))
+                        .height(px(CHOOSER))
+                        .width(percent(100.0)),
+                    ))
+                    .gap(gap / 2.0)
+                    .width(percent(100.0))
+                })
+                .boxed();
+            }
+            with_cx(move |cx| {
+                let gap = cx.theme().space.gap;
+                row((
+                    picture(Kind::Shader, &shader, SHOWN),
+                    column((
+                        note(shader.replace('_', " ")),
+                        button(label("Change"))
+                            .padding(UiRect::axes(px(8.0), px(2.0)))
+                            .rules(styles::button)
+                            .tagged(Variant::Default)
+                            .on_activate(|world| {
+                                world.resource_mut::<Choosing>().0 =
+                                    true;
+                            }),
+                    ))
+                    .gap(gap / 2.0)
+                    .align(AlignItems::FlexStart),
+                ))
+                .gap(gap)
+                .align(AlignItems::Center)
+            })
+            .boxed()
         },
     )
-    .width(percent(100.0))
+    .within(column(()).gap(0.0).width(percent(100.0)))
     .boxed()
 }
+
+/// Whether the shader of the material shown is being changed.
+#[derive(Resource, Default)]
+struct Choosing(bool);
 
 /// The control for the input `input` and the button that gives it
 /// back to the shader's default while the material sets it.
