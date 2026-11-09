@@ -61,8 +61,9 @@ pub(super) fn update_underglow(
             continue;
         }
         glow.level = level;
-        let strength =
-            set.underglow * level + set.underglow_press * flare;
+        let strength = (set.underglow * level
+            + set.underglow_press * flare)
+            * set.gain(&theme);
         if strength <= 0.0 {
             commands.entity(node).try_remove::<BackgroundGradient>();
             continue;

@@ -117,6 +117,7 @@ pub(super) fn update_highlights(
     *counted = count;
     let attention = f32::from(count > 0);
     let colors = EffectColors::of(&theme);
+    let gain = set.gain(&theme);
     // A glow is never quite still.
     let brightness =
         1.0 + set.flicker * flicker(time.elapsed_secs(), 1.0);
@@ -158,7 +159,8 @@ pub(super) fn update_highlights(
             // rest.
             glows.push(glow_pool(GLOW_DEEP, |near| {
                 let glow = near * call;
-                let strength = (glow * 0.045 + glow * glow * 0.045)
+                let strength = ((glow * 0.045 + glow * glow * 0.045)
+                    * gain)
                     .clamp(0.0, 1.0);
                 colors
                     .attention
@@ -171,7 +173,9 @@ pub(super) fn update_highlights(
         }
         if flash > 0.0 {
             glows.push(glow_pool(FLASH_DEEP, |near| {
-                colors.flash.with_alpha(flash * flash * near * 0.08)
+                colors
+                    .flash
+                    .with_alpha(flash * flash * near * 0.08 * gain)
             }));
         }
         commands.entity(panel).try_insert(BackgroundGradient(glows));

@@ -28,6 +28,7 @@ pub use self::highlight::{
 };
 pub use self::underglow::Underglow;
 use crate::theme::HamletTheme;
+use crate::theme::contrast::contrast;
 
 /// The effects of the controls, the dock's drop hint and the
 /// panels' highlights.
@@ -185,6 +186,20 @@ pub struct EffectSettings {
     /// raised as something new comes to wait.
     pub highlight_rate: f32,
     pub highlight_boost: f32,
+    /// How many times as strong a glow is laid over a light panel,
+    /// where the same glow shows far less than over a dark one.
+    pub light_gain: f32,
+}
+
+impl EffectSettings {
+    /// How strongly a glow is laid over `theme`'s panels:
+    /// [`Self::light_gain`] times over a light one.
+    pub fn gain(&self, theme: &HamletTheme) -> f32 {
+        let surface = theme.palette.surface;
+        let light = contrast(surface, Color::BLACK)
+            > contrast(surface, Color::WHITE);
+        if light { self.light_gain } else { 1.0 }
+    }
 }
 
 impl Tuning for EffectSettings {
