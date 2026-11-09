@@ -1,15 +1,21 @@
 //! The icons of the panels (docs/icons.md): one family of line
 //! drawings, made in code and tinted by a text tone.
 
-use bevy::app::{App, Startup};
+use core::f32::consts::TAU;
+
+use bevy::app::{App, Startup, Update};
 use bevy::asset::uuid::Uuid;
 use bevy::asset::{Assets, Handle, RenderAssetUsages};
-use bevy::ecs::system::ResMut;
+use bevy::ecs::component::Component;
+use bevy::ecs::query::With;
+use bevy::ecs::system::{Query, Res, ResMut};
 use bevy::image::Image;
-use bevy::math::Vec2;
+use bevy::math::{Rot2, Vec2};
 use bevy::render::render_resource::{
     Extent3d, TextureDimension, TextureFormat,
 };
+use bevy::time::Time;
+use bevy::ui::UiTransform;
 use bevy_fynix::dock::DockIcons;
 use bevy_fynix::views::{Icon, icon};
 
@@ -44,8 +50,40 @@ const STAR: [[f32; 2]; 10] = [
     [6.45, 6.2],
 ];
 
+/// The points of a bolt, from its top to its bottom and back.
+const BOLT: [[f32; 2]; 6] = [
+    [9.5, 1.75],
+    [3.75, 9.0],
+    [7.75, 9.0],
+    [6.5, 14.25],
+    [12.25, 7.0],
+    [8.25, 7.0],
+];
+
+/// The seconds a [`Spin`] takes to turn once.
+const SPIN_PERIOD: f64 = 1.2;
+
+/// A node that turns around its middle, once every `SPIN_PERIOD`
+/// seconds, for as long as it exists: the open ring of
+/// [`Glyph::Progress`] spins like a loading ring, with its dot still.
+#[derive(Component)]
+#[require(UiTransform)]
+pub struct Spin;
+
 pub fn plugin(app: &mut App) {
-    app.insert_resource(dock()).add_systems(Startup, draw);
+    app.insert_resource(dock())
+        .add_systems(Startup, draw)
+        .add_systems(Update, spin);
+}
+
+fn spin(
+    time: Res<Time>,
+    mut turning: Query<&mut UiTransform, With<Spin>>,
+) {
+    let turn = time.elapsed_secs_f64() % SPIN_PERIOD / SPIN_PERIOD;
+    for mut pose in &mut turning {
+        pose.rotation = Rot2::radians(turn as f32 * TAU);
+    }
 }
 
 /// An icon of the panels.
@@ -88,7 +126,7 @@ pub enum Glyph {
     /// A bolt: at work.
     Bolt,
     /// An open ring with a dot in it: in progress, for an outcome
-    /// that is not an agent's state.
+    /// that is not an agent's state. Where it shows it is a [`Spin`].
     Progress,
     /// A bell: something waits for the chief.
     Bell,
@@ -417,14 +455,7 @@ impl Glyph {
                 Arc(7.5, 8.5, 5.5, 10.24, 259.76),
                 Arc(10.75, 5.25, 4.75, 62.9, 207.1),
             ],
-            Glyph::Bolt => &[Loop(&[
-                [9.5, 1.75],
-                [3.75, 9.0],
-                [7.75, 9.0],
-                [6.5, 14.25],
-                [12.25, 7.0],
-                [8.25, 7.0],
-            ])],
+            Glyph::Bolt => &[Loop(&BOLT), Fill(&BOLT)],
             Glyph::Progress => &[
                 Arc(8.0, 8.0, 5.75, 300.0, 570.0),
                 Dot(8.0, 8.0, 2.0),

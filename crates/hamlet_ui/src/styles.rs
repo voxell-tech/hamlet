@@ -5,8 +5,8 @@ use bevy::color::{Alpha, Color, Mix};
 use bevy::ecs::component::Component;
 use bevy::ecs::world::World;
 use bevy::ui::{
-    AlignItems, InteractionDisabled, JustifyContent, UiRect, percent,
-    px,
+    AlignItems, InteractionDisabled, JustifyContent, PositionType,
+    UiRect, percent, px,
 };
 use bevy_fynix::tokens::{Motion, SurfaceTokens, Tone};
 use bevy_fynix::views::{
@@ -21,7 +21,7 @@ use crate::theme::{HamletTheme, StatusKind, TextSizes};
 use crate::widgets::edges::faded;
 use crate::widgets::effects::{Underglow, Variant};
 use crate::widgets::ellipsis::one_line;
-use crate::widgets::icons::{Glyph, glyph};
+use crate::widgets::icons::{Glyph, Spin, glyph};
 use crate::widgets::platform::{DisplayText, MonoText, Wraps};
 use crate::{AnyView, Cx, View, with_cx};
 
@@ -625,6 +625,9 @@ fn status_label_at(
     })
 }
 
+/// How many sides of its icon wide the lamp of a [`status_icon`] is.
+const LAMP_SIDE: f32 = 2.6;
+
 /// The state of something beside its name, as its icon alone in the
 /// mark of `kind`, with `words` under the pointer. What is in
 /// progress has a small glow under its icon while it lasts.
@@ -636,17 +639,33 @@ pub fn status_icon(
     let words = words.into();
     with_cx(move |cx| {
         let size = cx.theme().text.body;
+        let (across, down) = (size + 6.0, size + 4.0);
         let mark = glyph(which, size).tone(kind.tone());
-        let mark = row((mark,))
-            .padding(UiRect::axes(px(3.0), px(2.0)))
-            .shrink(0.0);
         let words = words.clone();
         if kind == StatusKind::Warning {
-            mark.tagged(Underglow::lamp())
+            // The lamp is a square wider than the mark, behind it and
+            // out of the layout, so nothing cuts its round glow.
+            let side = size * LAMP_SIDE;
+            let lamp = frame()
+                .position(PositionType::Absolute)
+                .inset(UiRect {
+                    left: px((across - side) / 2.0),
+                    right: px((across - side) / 2.0),
+                    top: px((down - side) / 2.0),
+                    bottom: px((down - side) / 2.0),
+                })
+                .tagged(Underglow::lamp());
+            row((lamp, mark))
+                .padding(UiRect::axes(px(3.0), px(2.0)))
+                .shrink(0.0)
                 .tooltip(move || note(words.clone()))
                 .boxed()
         } else {
-            mark.tooltip(move || note(words.clone())).boxed()
+            row((mark,))
+                .padding(UiRect::axes(px(3.0), px(2.0)))
+                .shrink(0.0)
+                .tooltip(move || note(words.clone()))
+                .boxed()
         }
     })
 }
@@ -697,17 +716,21 @@ pub fn status_mark(
         let status = theme.palette.status.get(kind);
         if kind == StatusKind::Warning {
             let outer = size * 1.4;
-            return row((
-                glyph(which, size * 0.8).tone(Tone::Warning),
-            ))
-            .width(px(outer))
-            .height(px(outer))
-            .radius(outer / 2.0)
-            .fill(status.fill)
-            .shrink(0.0)
-            .justify(JustifyContent::Center)
-            .align(AlignItems::Center)
-            .boxed();
+            let mark = glyph(which, size * 0.8).tone(Tone::Warning);
+            let mark = if which == Glyph::Progress {
+                row((mark,)).tagged(Spin).boxed()
+            } else {
+                mark.boxed()
+            };
+            return row((mark,))
+                .width(px(outer))
+                .height(px(outer))
+                .radius(outer / 2.0)
+                .fill(status.fill)
+                .shrink(0.0)
+                .justify(JustifyContent::Center)
+                .align(AlignItems::Center)
+                .boxed();
         }
         let circle =
             row((glyph(which, size * 0.55).tone(Tone::OnSolid),))

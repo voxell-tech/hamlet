@@ -2,7 +2,7 @@
 
 use core::f32::consts::TAU;
 
-use bevy::color::Alpha;
+use bevy::color::{Alpha, Color};
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::query::Has;
@@ -15,12 +15,17 @@ use bevy::ui::{
 };
 
 use super::control::ControlEffect;
-use super::{EffectColors, EffectSettings, ease};
+use super::{EffectColors, EffectSettings, ease, lit_panels, pool};
 use crate::theme::Themed;
 
-/// How much stronger a lamp's glow is than a title's: it is small
-/// and meant to be seen without the pointer.
-const LAMP_STRENGTH: f32 = 2.2;
+/// The opacity of a lamp's middle at its brightest, over a dark
+/// panel and over a light one. The mark sits on the middle, so these
+/// are the most light that keeps the mark at 3:1.
+const LAMP_PEAK_DARK: f32 = 0.34;
+const LAMP_PEAK_LIGHT: f32 = 0.40;
+/// How sharply a lamp's glow falls off, as in [`pool`]: to nothing
+/// before its edge.
+const LAMP_SHARP: f32 = 6.0;
 /// A lamp's level swings by `LAMP_SWING` around `LAMP_LEVEL`, once
 /// every `LAMP_PERIOD` seconds: a slow breath.
 const LAMP_LEVEL: f32 = 0.85;
@@ -33,8 +38,8 @@ const LAMP_PERIOD: f32 = 4.0;
 #[derive(Component, Default)]
 pub struct Underglow {
     pub held: bool,
-    /// A lamp: held on while what it marks is at work, with no
-    /// selected fill, stronger, and breathing slowly.
+    /// A lamp: a round glow on a square node around what is at
+    /// work, on while it lasts and breathing slowly.
     lamp: bool,
     level: f32,
     /// Whether the gradient last set has the selected fill in it.
@@ -52,7 +57,8 @@ impl Underglow {
         }
     }
 
-    /// A small glow under a mark, on for as long as it exists.
+    /// A round glow for a square node around a mark, on for as long
+    /// as it exists.
     pub fn lamp() -> Self {
         Self {
             held: true,
@@ -93,7 +99,21 @@ pub(super) fn update_underglow(
         };
         let level = ease(glow.level, want, set.glow_rate, dt);
         let flare = effect.map_or(0.0, |effect| effect.pulse);
-        let fills = glow.held && !glow.lamp;
+        if glow.lamp {
+            if level != glow.level || !shown {
+                glow.level = level;
+                let peak = if lit_panels(&theme) {
+                    LAMP_PEAK_LIGHT
+                } else {
+                    LAMP_PEAK_DARK
+                };
+                commands.entity(node).try_insert(BackgroundGradient(
+                    vec![lamp_glow(theme.palette.glow, peak * level)],
+                ));
+            }
+            continue;
+        }
+        let fills = glow.held;
         let steady = level == glow.level
             && flare == 0.0
             && glow.filled == fills;
@@ -102,17 +122,9 @@ pub(super) fn update_underglow(
         }
         glow.level = level;
         glow.filled = fills;
-        // A lamp is small and its colour already deep, so a light
-        // panel's gain would only turn it to a tan smudge.
-        let (boost, gain) = if glow.lamp {
-            (LAMP_STRENGTH, 1.0)
-        } else {
-            (1.0, set.gain(&theme))
-        };
         let strength = (set.underglow * level
             + set.underglow_press * flare)
-            * boost
-            * gain;
+            * set.gain(&theme);
         let mut layers = Vec::new();
         if fills {
             let fill = theme.palette.selected;
@@ -156,4 +168,14 @@ pub(super) fn update_underglow(
         )));
         commands.entity(node).try_insert(BackgroundGradient(layers));
     }
+}
+
+/// A round glow in `hue`, `peak` opaque in the middle of its node and
+/// nothing at the closest side, so that it has no rim to it.
+fn lamp_glow(hue: Color, peak: f32) -> Gradient {
+    Gradient::from(RadialGradient::new(
+        UiPosition::CENTER,
+        RadialGradientShape::ClosestSide,
+        pool(LAMP_SHARP, |near| hue.with_alpha(peak * near)),
+    ))
 }
