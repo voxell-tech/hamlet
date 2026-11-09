@@ -23,8 +23,8 @@ use bevy::ui_render::prelude::MaterialNode;
 use bevy::winit::{UpdateMode, WinitSettings};
 use bevy_cef::prelude::{
     AddressChanged, BeginFrameInterval, CefPlugin, CommandLineConfig,
-    RequestNavigate, WebviewHidden, WebviewSource, WebviewTitle,
-    WebviewUiMaterial,
+    RequestNavigate, WebviewHidden, WebviewProfile, WebviewSource,
+    WebviewTitle, WebviewUiMaterial,
 };
 use bevy_fynix::dock::{DockTab, DockTree};
 use hamlet_client::ViewFolder;
@@ -32,6 +32,10 @@ use hamlet_client::ViewFolder;
 use super::panel::{PanelId, Surface, is_panel, tab_name};
 use super::{Addresses, engine};
 use crate::dock::on_a_desk;
+
+/// The name of the chief's browsing session, which every Web panel of
+/// the chief's shares and the view folder keeps.
+const CHIEF: &str = "chief";
 
 /// The file name of the engine's helper, `src/web_helper.rs`.
 const HELPER: &str = "hamlet_web_helper";
@@ -199,7 +203,7 @@ fn open(world: &mut World) {
         let material = world
             .resource_mut::<Assets<WebviewUiMaterial>>()
             .add(WebviewUiMaterial::default());
-        world.spawn((
+        let mut page = world.spawn((
             Page(panel),
             WebviewSource::new(address),
             Node {
@@ -209,6 +213,11 @@ fn open(world: &mut World) {
             },
             MaterialNode(material),
         ));
+        // A page with no profile has a session of its own, kept in
+        // memory.
+        if let Ok(profile) = WebviewProfile::new(CHIEF) {
+            page.insert(profile);
+        }
     }
 }
 
