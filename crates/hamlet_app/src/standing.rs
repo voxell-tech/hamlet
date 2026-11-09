@@ -7,6 +7,7 @@ use bevy_fynix::tokens::Tone;
 use hamlet_client::realm::{Busy, Faulted, Left, name_of};
 use hamlet_client::waits::Waiting;
 use hamlet_protocol::client::WaitDetail;
+use hamlet_ui::theme::StatusKind;
 use hamlet_ui::widgets::icons::Glyph;
 
 /// What an agent is doing, the most pressing first.
@@ -55,15 +56,20 @@ impl Standing {
         }
     }
 
-    /// Its colour: the accent for what waits on the chief, red for a
-    /// fault, and plain or dim for the rest.
-    pub(crate) fn tone(self) -> Tone {
+    /// Its status: orange for what waits on the chief, red for a
+    /// fault, yellow for work under way, and neutral for the rest.
+    pub(crate) fn kind(self) -> StatusKind {
         match self {
-            Self::Waits => Tone::Accent,
-            Self::Stopped => Tone::Critical,
-            Self::Works => Tone::Body,
-            Self::Rests | Self::Gone => Tone::Dim,
+            Self::Waits => StatusKind::Attention,
+            Self::Stopped => StatusKind::Danger,
+            Self::Works => StatusKind::Warning,
+            Self::Rests | Self::Gone => StatusKind::Rest,
         }
+    }
+
+    /// Its colour, by the tone of its status.
+    pub(crate) fn tone(self) -> Tone {
+        self.kind().tone()
     }
 
     pub(crate) fn word(self) -> &'static str {

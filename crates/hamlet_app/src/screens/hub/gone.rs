@@ -2,14 +2,14 @@
 
 use bevy::ecs::entity::Entity;
 use bevy::ui::AlignItems;
-use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{BehaviorExt, FrameProps, column, row};
 use hamlet_client::realm::{LivesIn, MergedInto, Purpose};
 use hamlet_realm::pick::{Thing, select};
 use hamlet_ui::styles::{
-    Fills, action, bad_action, breadcrumb, buttons, good_action,
-    scroll_area, status_label_large,
+    Fills, action, bad_action, breadcrumb, buttons, scroll_area,
+    status_pill, success_action,
 };
+use hamlet_ui::theme::StatusKind;
 use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::widgets::platform::Wraps;
 use hamlet_ui::{View, built, with_cx};
@@ -26,9 +26,12 @@ pub(super) fn ruin(agent: Entity) -> impl View {
             hamlet_client::realm::shown_of(cx.world, agent)
         };
         let name = named(agent);
-        let fate = match cx.world.get::<MergedInto>(agent) {
-            Some(host) => format!("Merged into {}", named(host.0)),
-            None => "Removed".to_string(),
+        let (fate, kind) = match cx.world.get::<MergedInto>(agent) {
+            Some(host) => (
+                format!("Merged into {}", named(host.0)),
+                StatusKind::Merged,
+            ),
+            None => ("Removed".to_string(), StatusKind::Danger),
         };
         let purpose = cx
             .world
@@ -54,7 +57,7 @@ pub(super) fn ruin(agent: Entity) -> impl View {
         // The path names it; its fate stands beside the path.
         let head = row((
             crumb,
-            status_label_large(Glyph::Gone, fate, Tone::Critical),
+            status_pill(Glyph::Gone, fate, kind),
         ))
         .gap(section)
         .align(AlignItems::Center)
@@ -66,7 +69,7 @@ pub(super) fn ruin(agent: Entity) -> impl View {
                 dim("Its lodge is kept in the archive. Deleting it \
                      frees the space on disk."),
                 buttons(vec![
-                    good_action(
+                    success_action(
                         Glyph::Restore,
                         "Restore",
                         move |world| {

@@ -33,6 +33,7 @@ use hamlet_ui::styles::{
     Fills, ICON, action, bad_action, bare, buttons, close, framed,
     group, note, raised, scroll_area, small_rules, title,
 };
+use hamlet_ui::theme::StatusKind;
 use hamlet_ui::widgets::effects::lit_panels;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::widgets::platform::{DisplayText, Wraps};
@@ -377,7 +378,7 @@ fn needs() -> AnyView {
 struct HamletCard {
     hamlet: Entity,
     title: String,
-    standing: (Glyph, String, Tone),
+    standing: (Glyph, String, StatusKind),
     mayor: Option<String>,
     account: String,
     spent: Option<f32>,

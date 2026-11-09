@@ -198,8 +198,9 @@ impl Told<'_, '_> {
             .iter()
             .filter(|w| people.iter().any(|(_, n, ..)| *n == w.by))
             .count();
-        let (_, state, tone) =
+        let (_, state, kind) =
             standing(people.len(), at_work, waiting);
+        let tone = kind.tone();
         let mayor = people
             .iter()
             .find(|(_, _, _, mayor)| *mayor)

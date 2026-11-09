@@ -39,7 +39,7 @@ use hamlet_realm::pick::{Thing, select};
 use hamlet_ui::styles::{
     Fills, ICON, action, bare, buttons, crumb, crumb_here,
     crumb_slash, crumbs, group, more_button, note, note_rules,
-    raised, scroll_area, status_label, text_input, transparent,
+    raised, scroll_area, status_pill, text_input, transparent,
 };
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::effects::Variant;
@@ -477,10 +477,10 @@ fn person(row_of: &AgentRow, branch: Branch) -> AnyView {
             row((
                 raised(glyph(kind, ICON).tone(Tone::Dim)),
                 label(name.clone()).bold(true).wrap(false),
-                status_label(
+                status_pill(
                     standing.glyph(),
                     standing.word(),
-                    standing.tone(),
+                    standing.kind(),
                 ),
                 frame().grow(1.0),
                 label(account.clone()).wrap(false).rules(note_rules),
