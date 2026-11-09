@@ -23,7 +23,7 @@ use bevy::picking::events::PointerClick;
 use bevy::picking::pointer::PointerButton;
 use bevy::text::EditableText;
 use bevy::ui::{
-    AlignItems, AngularColorStop, BackgroundGradient, ConicGradient,
+    AlignItems, AngularColorStop, BorderGradient, ConicGradient,
     PositionType, UiPosition, UiRect, Val, px,
 };
 use bevy_fynix::tokens::{Motion, SurfaceTokens, Tone};
@@ -552,18 +552,19 @@ fn row_look(cx: &mut Cx) {
         .apply(cx);
 }
 
-/// The width of the circle of a hamlet's budget.
-const METER: f32 = 14.0;
+/// The width of the ring of a hamlet's budget, and how thick it is.
+const METER: f32 = 16.0;
+const RING: f32 = 4.0;
 
 /// The share of its budget from which a hamlet's circle turns yellow.
 const NEAR_CAP: f32 = 0.8;
 /// The least of its circle that spending shows.
 const MIN_SHOWN: f32 = 0.06;
 
-/// What the hamlet spent of its budget: when it has a cap, a circle
-/// filled clockwise from the top as far as `spent` says, in the
-/// accent while the budget is fine, yellow near the cap and red at
-/// it, then the words.
+/// What the hamlet spent of its budget: when it has a cap, a ring
+/// with nothing inside, drawn clockwise from the top as far as
+/// `spent` says, in the accent while the budget is fine, yellow near
+/// the cap and red at it, then the words.
 pub(super) fn budget(words: String, spent: Option<f32>) -> AnyView {
     with_cx(move |cx| {
         let palette = &cx.theme().palette;
@@ -583,7 +584,7 @@ pub(super) fn budget(words: String, spent: Option<f32>) -> AnyView {
                 0.0
             };
             let turn = shown * TAU;
-            let pie = ConicGradient::new(
+            let ring = ConicGradient::new(
                 UiPosition::CENTER,
                 vec![
                     AngularColorStop::new(fill, 0.0),
@@ -598,9 +599,8 @@ pub(super) fn budget(words: String, spent: Option<f32>) -> AnyView {
                     .height(px(METER))
                     .shrink(0.0)
                     .radius(METER / 2.0)
-                    .border(cx.theme().space.border)
-                    .border_color(palette.gold_5)
-                    .tagged(BackgroundGradient::from(pie))
+                    .border(RING)
+                    .tagged(BorderGradient::from(ring))
                     .boxed(),
             );
         }
