@@ -55,8 +55,8 @@ bevy = { version = "0.20", default-features = false }
 bevy_hanabi = { git = "https://github.com/djeedai/bevy_hanabi", rev = "d277555d4a2350da6787245d15c56c62c739594d", default-features = false, features = ["3d"] }
 # Chromium for the Web panels, through our fork, held to a commit of
 # its `hamlet` branch (ADR 0014).
-bevy_cef = { git = "https://github.com/voxell-tech/bevy_cef", rev = "cde979057b2f93ac6e1a5b3d8372963ac731a9f6" }
-bevy_cef_core = { git = "https://github.com/voxell-tech/bevy_cef", rev = "cde979057b2f93ac6e1a5b3d8372963ac731a9f6", default-features = false }
+bevy_cef = { git = "https://github.com/voxell-tech/bevy_cef", rev = "64a01ec029e36bb49915f225df8c3f8fa5bd6a72" }
+bevy_cef_core = { git = "https://github.com/voxell-tech/bevy_cef", rev = "64a01ec029e36bb49915f225df8c3f8fa5bd6a72", default-features = false }
 # The CEF bevy_cef is built on, and the crate that fetches its builds.
 cef = "=154.5.0"
 download-cef = "3"
