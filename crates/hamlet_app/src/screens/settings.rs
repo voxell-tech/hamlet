@@ -37,6 +37,7 @@ use hamlet_ui::styles::{
     buttons, close, description, list, nav_list, note, page_head,
     parts, pill, section, small_rules, text_input, title, valued_row,
 };
+use hamlet_ui::widgets::edges::faded;
 use hamlet_ui::widgets::ellipsis::cut;
 use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::widgets::switch::switch;
@@ -903,7 +904,7 @@ pub fn screen() -> AnyView {
         let page = page.within(column(()).gap(0.0).max_width(width));
         // It scrolls down only: a page is laid out to the panel's
         // width.
-        cx.build(
+        cx.build(faded(
             scroll((page,))
                 .fills_height()
                 .overflow(Overflow {
@@ -911,7 +912,7 @@ pub fn screen() -> AnyView {
                     y: OverflowAxis::Scroll,
                 })
                 .tagged(Lasting("settings".into())),
-        )
+        ))
     })
 }
 

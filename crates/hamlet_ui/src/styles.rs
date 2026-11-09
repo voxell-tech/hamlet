@@ -18,6 +18,7 @@ use bevy_fynix::{
 };
 
 use crate::theme::{HamletTheme, TextSizes};
+use crate::widgets::edges::faded;
 use crate::widgets::effects::Variant;
 use crate::widgets::ellipsis::one_line;
 use crate::widgets::icons::{Glyph, glyph};
@@ -498,13 +499,14 @@ pub fn caption(
     })
 }
 
-/// `children` in a column that scrolls, taking the height left.
+/// `children` in a column that scrolls, taking the height left, its
+/// ends fading where there is more.
 pub fn scroll_area(
     children: impl ViewSeq<Bevy, HamletTheme> + 'static,
 ) -> impl View {
-    with_cx(move |cx| {
+    faded(with_cx(move |cx| {
         scroll(children).gap(cx.theme().space.gap).fills_height()
-    })
+    }))
 }
 
 /// `content` in a card: a shade above the panel, in a frame.

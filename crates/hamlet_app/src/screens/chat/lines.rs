@@ -33,6 +33,7 @@ use hamlet_client::messages::Response;
 use hamlet_client::outbox::Outbox;
 use hamlet_protocol::client as protocol;
 use hamlet_ui::styles::{Fills, lettered, note, small_rules};
+use hamlet_ui::widgets::edges::faded;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::{View, with_cx};
 
@@ -947,7 +948,7 @@ pub fn transcript() -> impl View {
     let corner = overlay((back,))
         .justify(JustifyContent::FlexEnd)
         .align(AlignItems::FlexEnd);
-    column((said, quiet(), corner)).fills_height()
+    column((faded(said), quiet(), corner)).fills_height()
 }
 
 /// The window's words over a chat nothing has been said in: whom to

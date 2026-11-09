@@ -3,6 +3,7 @@
 pub mod cut;
 pub mod dial;
 pub mod disclosure;
+pub mod edges;
 pub mod effects;
 pub mod ellipsis;
 pub mod hint;
@@ -23,6 +24,7 @@ pub fn plugin(app: &mut App) {
         effects::plugin,
         switch::plugin,
         cut::CutPlugin,
+        edges::plugin,
         ellipsis::plugin,
         hint::plugin,
         providers::plugin,
