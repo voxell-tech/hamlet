@@ -60,7 +60,7 @@ cargo xtask build --target x86_64-unknown-linux-gnu
 For macOS use `aarch64-apple-darwin`. The script accepts an optional third
 argument for the profile directory, defaults to `release`, and respects
 `CARGO_TARGET_DIR`. It creates a clean staging directory, installs pi with
-`npm ci --omit=dev`, and writes the archive under `dist/`. It does not
+`npm ci --omit=dev --omit=optional`, and writes the archive under `dist/`. It does not
 compile TypeScript.
 
 For Windows, build the three binaries with `cargo build --release --locked

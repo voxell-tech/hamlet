@@ -22,7 +22,7 @@ and refuses to start when the entry it selects does not exist.
 archive includes the pi package and its production dependencies, but not
 the optional ones that carry Anthropic's Claude program, so pi offers Claude
 only where `npm ci` installed them. `HAMLET_CLAUDE_EXECUTABLE` selects
-another Claude program.
+another Claude program; pi still needs those packages to drive it.
 
 Bare `hamlet` starts the realm's server in the background, or reuses its
 running server, and opens a window. The realm's folder is `HAMLET_HOME`, else

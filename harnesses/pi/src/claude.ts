@@ -50,8 +50,19 @@ const GUARDS = {
     CLAUDE_CODE_MAX_MCP_DESCRIPTION_LENGTH: "16384",
 };
 
-/** The provider, with its folders in `home`; none when the Claude program is not installed. */
+/** The packages `claude-query.ts` loads, optional dependencies of pi. */
+const PACKAGES = [
+    "@anthropic-ai/claude-agent-sdk",
+    "@modelcontextprotocol/sdk/server/mcp.js",
+    "cc-session-io",
+];
+
+/**
+ * The provider, with its folders in `home`; none when the Claude program or
+ * a package it is driven with is not installed.
+ */
 export function claudeProvider(home: string): Provider | undefined {
+    if (!PACKAGES.every(installed)) return undefined;
     const program = executable();
     if (program === undefined) return undefined;
     const at = {
@@ -110,6 +121,16 @@ export function claudeProvider(home: string): Provider | undefined {
             .map((m) => ({ ...m, provider: PROVIDER })),
         api: { stream: streamed, streamSimple: streamed },
     });
+}
+
+/** Whether `name` resolves from pi. */
+function installed(name: string): boolean {
+    try {
+        import.meta.resolve(name);
+        return true;
+    } catch {
+        return false;
+    }
 }
 
 /** The Claude program: `HAMLET_CLAUDE_EXECUTABLE`, else the one the SDK's package ships for this machine. */
