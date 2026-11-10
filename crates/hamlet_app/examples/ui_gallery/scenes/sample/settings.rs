@@ -80,9 +80,11 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
     if let Scene::Appearance(shade) = scene {
         // The computer's, which the panels follow by default.
         world.insert_resource(ColorScheme::Says(shade));
+        // The family `GALLERY_THEME` names, else Hamlet, in the
+        // scene's shade.
         let themes = world.resource::<Themes>();
-        let palette = themes
-            .get(&ThemeId::default())
+        let palette = crate::scenes::chosen_family(themes)
+            .unwrap_or_else(|| themes.get(&ThemeId::default()))
             .variants
             .get(shade)
             .palette

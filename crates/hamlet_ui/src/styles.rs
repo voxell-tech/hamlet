@@ -23,7 +23,7 @@ use crate::widgets::effects::{Underglow, Variant};
 use crate::widgets::ellipsis::one_line;
 use crate::widgets::icons::{Glyph, glyph};
 use crate::widgets::platform::{DisplayText, MonoText, Wraps};
-use crate::widgets::spoken::Spoken;
+use crate::widgets::spoken::{self, Spoken};
 use crate::{AnyView, Cx, View, with_cx};
 
 /// The least height of any button (macOS default control size, 28
@@ -680,6 +680,7 @@ pub fn status_icon_at(
                     px(STATUS_PAD.1),
                 ))
                 .shrink(0.0)
+                .tagged(spoken::picture(words.clone()))
                 .tooltip(move || note(words.clone()))
                 .boxed()
         } else {
@@ -689,6 +690,7 @@ pub fn status_icon_at(
                     px(STATUS_PAD.1),
                 ))
                 .shrink(0.0)
+                .tagged(spoken::picture(words.clone()))
                 .tooltip(move || note(words.clone()))
                 .boxed()
         }

@@ -187,6 +187,11 @@ pub(super) fn update_highlights(
                     .with_alpha(flash * flash * near * 0.08 * gain)
             }));
         }
-        commands.entity(panel).try_insert(BackgroundGradient(glows));
+        // Unchanged at rest, so the panel is not marked changed
+        // each frame.
+        let next = BackgroundGradient(glows);
+        if gradient != Some(&next) {
+            commands.entity(panel).try_insert(next);
+        }
     }
 }

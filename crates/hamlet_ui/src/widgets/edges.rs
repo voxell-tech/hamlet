@@ -44,7 +44,7 @@ enum End {
 
 impl End {
     /// Whether the end runs along the top or the bottom.
-    fn across(self) -> bool {
+    fn is_horizontal(self) -> bool {
         matches!(self, Self::Top | Self::Bottom)
     }
 }
@@ -74,7 +74,7 @@ fn end(end: End) -> impl View {
     let shown = frame()
         .position(PositionType::Absolute)
         .inset(UiRect::new(left, right, top, bottom));
-    if end.across() {
+    if end.is_horizontal() {
         shown.height(px(REACH)).tagged(end)
     } else {
         shown.width(px(REACH)).tagged(end)
@@ -134,7 +134,7 @@ fn shade(
             .and_then(|laid| colour_at(laid, along))
             .unwrap_or(fill.0);
         let reach = REACH / area.inverse_scale_factor();
-        let (visible, scrolled, content) = if end.across() {
+        let (visible, scrolled, content) = if end.is_horizontal() {
             (
                 area.size().y - area.scrollbar_size.y,
                 area.scroll_position.y,

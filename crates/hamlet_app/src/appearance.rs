@@ -157,7 +157,7 @@ pub struct LessMotion(pub Option<bool>);
 impl LessMotion {
     /// Whether motion is reduced: as the chief said, else as the
     /// computer says.
-    pub fn reduced(self, computer: ComputerMotion) -> bool {
+    pub fn is_reduced(self, computer: ComputerMotion) -> bool {
         self.0.unwrap_or(computer.reduced)
     }
 }
@@ -168,7 +168,8 @@ fn still(
     computer: Res<ComputerMotion>,
     mut commands: Commands,
 ) {
-    commands.insert_resource(ReducedMotion(less.reduced(*computer)));
+    commands
+        .insert_resource(ReducedMotion(less.is_reduced(*computer)));
 }
 
 /// The chief's choice, none until the chief picks. Kept in view.toml

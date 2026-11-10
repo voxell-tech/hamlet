@@ -20,14 +20,46 @@ pub fn reduced() -> bool {
     false
 }
 
+/// How long `program` may take to answer before it is stopped; the
+/// window waits for it before it opens.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+const PATIENCE: std::time::Duration =
+    std::time::Duration::from_secs(2);
+
 /// What `program` run with `args` prints, trimmed; none when it
-/// cannot run or fails.
+/// cannot run, fails or takes longer than [`PATIENCE`].
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 fn said(program: &str, args: &[&str]) -> Option<String> {
-    let out = std::process::Command::new(program)
+    use std::io::Read;
+    use std::process::{Command, Stdio};
+    use std::time::Instant;
+
+    let mut child = Command::new(program)
         .args(args)
-        .output()
-        .ok()
-        .filter(|out| out.status.success())?;
-    Some(String::from_utf8_lossy(&out.stdout).trim().to_string())
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .ok()?;
+    let deadline = Instant::now() + PATIENCE;
+    let pause = std::time::Duration::from_millis(10);
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) if Instant::now() < deadline => {
+                std::thread::sleep(pause);
+            }
+            _ => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return None;
+            }
+        }
+    };
+    if !status.success() {
+        return None;
+    }
+    let mut out = String::new();
+    child.stdout.take()?.read_to_string(&mut out).ok()?;
+    Some(out.trim().to_string())
 }

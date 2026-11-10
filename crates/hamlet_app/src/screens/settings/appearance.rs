@@ -48,7 +48,7 @@ fn motion() -> impl View {
     let reduced = derived(|world: &World| {
         world
             .resource::<LessMotion>()
-            .reduced(*world.resource::<ComputerMotion>())
+            .is_reduced(*world.resource::<ComputerMotion>())
     })
     .when(either(moved::<LessMotion>(), moved::<ComputerMotion>()));
     field(

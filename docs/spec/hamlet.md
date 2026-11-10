@@ -213,7 +213,7 @@ branch of its scholar's repository and a lodge of its own (C8).
   and branch stay until erased. Its hires go to its parent.
 - **Restoring** it brings it back under the same id and number, when its
   scholar lives, its hamlet lives and holds fewer than its tier. Its parent is
-  its old parent when that lives and is shallow enough, else the mayor.
+  its old parent when that lives, else the mayor.
 - **Erasing** an ended hire deletes its lodge and branch; the record keeps its
   number.
 

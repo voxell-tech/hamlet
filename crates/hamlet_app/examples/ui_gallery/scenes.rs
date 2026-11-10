@@ -27,7 +27,7 @@ use hamlet_app::{Bar, Roll, asking, chrome, menu, select, welcome};
 use hamlet_assets::Tuning;
 use hamlet_desktop::color_scheme::ColorScheme;
 use hamlet_realm::sound::{Cue, SoundSettings};
-use hamlet_ui::theme::{self, HamletTheme, Measures, Themes};
+use hamlet_ui::theme::{self, HamletTheme, Measures, Theme, Themes};
 
 use self::dock::{open_settings, panels, seed_dock};
 use self::sample::{first_run, setup};
@@ -133,6 +133,25 @@ impl Plugin for GalleryPlugin {
 /// `Hamlet:light`, and the shade it is shown in. None when it is not
 /// set; a name that matches no family or shade panics.
 fn chosen() -> Option<(HamletTheme, WindowTheme)> {
+    let (family, shade) = named()?;
+    let themes = Themes::shipped();
+    let palette = family_in(&themes, &family)
+        .variants
+        .get(shade)
+        .palette
+        .clone();
+    Some((HamletTheme::new(palette, &Measures::designed()), shade))
+}
+
+/// The family `GALLERY_THEME` names among `themes`; none when it is
+/// not set.
+pub(crate) fn chosen_family(themes: &Themes) -> Option<&Theme> {
+    let (family, _) = named()?;
+    Some(family_in(themes, &family))
+}
+
+/// The family and shade `GALLERY_THEME` names.
+fn named() -> Option<(String, WindowTheme)> {
     let named = std::env::var("GALLERY_THEME").ok()?;
     let (family, shade) = named
         .split_once(':')
@@ -144,13 +163,15 @@ fn chosen() -> Option<(HamletTheme, WindowTheme)> {
             panic!("GALLERY_THEME shade {other} is not light or dark")
         }
     };
-    let themes = Themes::shipped();
-    let family = themes
+    Some((family.to_string(), shade))
+}
+
+/// The shipped family called `name`, in any case.
+fn family_in<'a>(themes: &'a Themes, name: &str) -> &'a Theme {
+    themes
         .iter()
-        .find(|theme| theme.name.eq_ignore_ascii_case(family))
-        .expect("GALLERY_THEME names a shipped family");
-    let palette = family.variants.get(shade).palette.clone();
-    Some((HamletTheme::new(palette, &Measures::designed()), shade))
+        .find(|theme| theme.name.eq_ignore_ascii_case(name))
+        .expect("GALLERY_THEME names a shipped family")
 }
 
 /// The scene a gallery shows.
