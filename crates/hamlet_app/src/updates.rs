@@ -33,6 +33,11 @@ const FIRST: Duration = Duration::from_secs(15);
 /// The wait between looks.
 const EVERY: Duration = Duration::from_secs(60 * 60);
 
+pub fn plugin(app: &mut App) {
+    app.add_systems(Startup, begin)
+        .add_systems(PreUpdate, offer.in_set(PanelSystems::Bind));
+}
+
 /// A newer Hamlet.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Offer {
@@ -55,11 +60,6 @@ pub(crate) struct Updates {
     /// The version whose offer the chief closed, not offered again
     /// while the window is open.
     pub declined: Option<Version>,
-}
-
-pub fn plugin(app: &mut App) {
-    app.add_systems(Startup, begin)
-        .add_systems(PreUpdate, offer.in_set(PanelSystems::Bind));
 }
 
 /// Says when the last update did not take, and starts looking.
