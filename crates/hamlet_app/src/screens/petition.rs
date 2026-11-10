@@ -215,8 +215,8 @@ pub(crate) fn open(world: &mut World, wait: Entity) {
 
 /// The buttons of the answers `need` takes, the lasting one telling
 /// what it lets go in its tooltip. What refuses leads and the rest
-/// stay together, so a narrow card wraps them as one and never
-/// leaves a button on a line alone.
+/// stay together, so a narrow card wraps them as one, and apart only
+/// when they do not fit side by side.
 pub(crate) fn answers(need: &Need) -> AnyView {
     let (refusing, agreeing): (Vec<usize>, Vec<usize>) =
         (0..need.answers.len()).partition(|&at| {
@@ -229,14 +229,7 @@ pub(crate) fn answers(need: &Need) -> AnyView {
         refusing.into_iter().map(|at| button(need, at)).collect();
     let agreeing: Vec<AnyView> =
         agreeing.into_iter().map(|at| button(need, at)).collect();
-    parts.push(
-        with_cx(move |cx| {
-            row(agreeing)
-                .gap(cx.theme().space.gap)
-                .align(AlignItems::Center)
-        })
-        .boxed(),
-    );
+    parts.push(buttons(agreeing).boxed());
     buttons(parts).boxed()
 }
 
