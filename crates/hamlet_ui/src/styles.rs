@@ -17,6 +17,7 @@ use bevy_fynix::{
     Bevy, Focused, Prop, ScopedExt, ViewExt, ViewSeq, Visual, style,
 };
 
+use crate::kinds::{card, chip};
 use crate::theme::{HamletTheme, StatusKind, TextSizes};
 use crate::widgets::edges::faded;
 use crate::widgets::effects::{Underglow, Variant};
@@ -389,17 +390,8 @@ pub fn inset(content: impl View) -> impl View {
     })
 }
 
-fn chip(words: impl View + Send + Sync + 'static) -> impl View {
-    with_cx(move |cx| {
-        let theme = cx.theme();
-        row((words,))
-            .min_width(px(0.0))
-            .padding(UiRect::axes(px(6.0), px(0.0)))
-            .fill(theme.palette.code)
-            .border(theme.space.border)
-            .border_color(theme.palette.gold_6)
-            .radius(theme.space.round_small)
-    })
+fn code_chip(words: impl View + Send + Sync + 'static) -> impl View {
+    chip((words,)).min_width(px(0.0))
 }
 
 /// `line` on one line, each command in it, between backticks, on a
@@ -415,7 +407,7 @@ pub fn quoted(line: &str) -> AnyView {
         .filter(|(_, part)| !part.trim().is_empty())
         .map(|(at, part)| {
             if at % 2 == 1 {
-                chip(
+                code_chip(
                     one_line(label(part.to_string()))
                         .tagged(MonoText),
                 )
@@ -544,20 +536,7 @@ pub fn scroll_area(
 pub fn framed(
     content: impl ViewSeq<Bevy, HamletTheme> + 'static,
 ) -> impl View {
-    with_cx(move |cx| {
-        let theme = cx.theme();
-        let space = &theme.space;
-        column(content)
-            .gap(space.gap / 2.0)
-            .padding(UiRect::axes(
-                px(space.card_padding_x),
-                px(space.card_padding_y),
-            ))
-            .border(space.border)
-            .border_color(theme.palette.gold_6)
-            .radius(space.round_card)
-            .fill(theme.palette.card)
-    })
+    card(content)
 }
 
 /// A button with `text`.
@@ -826,15 +805,13 @@ pub fn reference(text: impl Into<Prop<String>>) -> impl View {
     let text = text.into();
     with_cx(move |cx| {
         let theme = cx.theme();
-        row((label(text)
+        chip((label(text)
             .size(theme.text.small)
             .tone(Tone::Reference)
             .wrap(false)
             .tagged(MonoText),))
-        .padding(UiRect::axes(px(6.0), px(2.0)))
+        .status(StatusKind::Info)
         .shrink(0.0)
-        .fill(theme.palette.status.info.fill)
-        .radius(theme.space.round_small)
     })
 }
 

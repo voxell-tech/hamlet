@@ -24,7 +24,7 @@ use bevy::ui::{
 };
 use bevy::window::{PrimaryWindow, Window};
 use bevy_fynix::tokens::Tone;
-use bevy_fynix::views::{FrameProps, column, label, overlay};
+use bevy_fynix::views::{BehaviorExt, FrameProps, label, overlay};
 use bevy_fynix::{ScopedExt, resource};
 use hamlet_client::realm::{
     Account, Activity, AgentNumber, Busy, Left, LivesIn, Mayor,
@@ -38,7 +38,7 @@ use hamlet_ui::styles::small_rules;
 use hamlet_ui::theme::Themed;
 use hamlet_ui::widgets::effects::{EffectSettings, Tuned};
 use hamlet_ui::widgets::platform::show;
-use hamlet_ui::{View, built};
+use hamlet_ui::{View, built, kinds, rules};
 
 use crate::overview::standing;
 use crate::roll::Roll;
@@ -609,7 +609,7 @@ fn line(read: fn(&Card) -> &String, tone: Tone) -> impl View {
 pub fn view() -> impl View {
     built(|cx| {
         let shadow = cx.theme().shadow();
-        let card = column((
+        let card = kinds::card((
             label(resource::<Card, _>(|card| card.title.clone()))
                 .size(cx.theme().text.heading)
                 .bold(true)
@@ -621,16 +621,7 @@ pub fn view() -> impl View {
             line(|card| &card.account, Tone::Dim),
             line(|card| &card.hint, Tone::Dim),
         ))
-        .gap(2.0)
-        .padding(UiRect::axes(
-            px(cx.theme().space.card_padding_x),
-            px(cx.theme().space.card_padding_y),
-        ))
         .max_width(px(280.0))
-        .border(cx.theme().space.border)
-        .border_color(cx.theme().palette.gold_5)
-        .radius(cx.theme().space.soft)
-        .fill(cx.theme().palette.card)
         .position(PositionType::Absolute)
         .inset(UiRect {
             left: px(0.0),
@@ -639,7 +630,10 @@ pub fn view() -> impl View {
             bottom: Val::Auto,
         })
         .z(Some(CARD_Z))
-        .with((OverrideClip, CardBox, shadow));
+        .tagged(OverrideClip)
+        .tagged(CardBox)
+        .tagged(shadow)
+        .rules(rules::floating);
         cx.build(overlay((card,)))
     })
 }

@@ -12,6 +12,7 @@ use bevy_fynix::{ScopedExt, ViewExt, component, keyed, resource};
 use hamlet_client::chats::{Chat, Entry, Transcript};
 use hamlet_client::messages::ChiefMessage;
 use hamlet_client::realm::shown_of;
+use hamlet_ui::kinds::card;
 use hamlet_ui::markdown::document;
 use hamlet_ui::styles::{
     note, small_rules, status_mark, tinted_action,
@@ -346,19 +347,13 @@ pub(crate) fn entry_view(session: Entity, id: String) -> AnyView {
             })
         };
         let view: AnyView = match kind {
-            Some(Entry::Chief { .. }) => column((
+            Some(Entry::Chief { .. }) => card((
                 label(chief).size(meta).bold(true).tone(Tone::Faint),
                 label(text(|e| match e {
                     Entry::Chief { text, .. } => text.clone(),
                     _ => String::new(),
                 })),
             ))
-            .gap(2.0)
-            .padding(UiRect::axes(px(12.0), px(8.0)))
-            .border(cx.theme().space.border)
-            .border_color(cx.theme().palette.gold_6)
-            .radius(cx.theme().space.round_card)
-            .fill(cx.theme().palette.card)
             .boxed(),
             Some(Entry::Assistant(_)) => column((
                 label(speaker.clone())
@@ -453,7 +448,7 @@ pub(crate) fn entry_view(session: Entity, id: String) -> AnyView {
                 .padding(UiRect::axes(px(12.0), px(0.0)))
                 .boxed()
             }
-            Some(Entry::Answered(_)) => column((
+            Some(Entry::Answered(_)) => card((
                 label("Your answer")
                     .size(meta)
                     .bold(true)
@@ -463,12 +458,6 @@ pub(crate) fn entry_view(session: Entity, id: String) -> AnyView {
                     _ => String::new(),
                 })),
             ))
-            .gap(2.0)
-            .padding(UiRect::axes(px(12.0), px(8.0)))
-            .border(cx.theme().space.border)
-            .border_color(cx.theme().palette.gold_6)
-            .radius(cx.theme().space.round_card)
-            .fill(cx.theme().palette.card)
             .boxed(),
             None => frame().boxed(),
         };

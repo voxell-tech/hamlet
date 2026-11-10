@@ -39,7 +39,7 @@ use hamlet_ui::styles::{
 };
 use hamlet_ui::theme::{HamletTheme, StatusKind};
 use hamlet_ui::widgets::icons::Glyph;
-use hamlet_ui::{AnyView, Cx, View, with_cx};
+use hamlet_ui::{AnyView, Cx, View, kinds, rules, with_cx};
 
 use crate::convo::Convo;
 use crate::hub::Showing;
@@ -503,30 +503,16 @@ fn card(toast: &Toast) -> AnyView {
             column((top, opening(what.clone(), quoted(&line))))
                 .gap(2.0);
         let theme = cx.theme();
-        let space = &theme.space;
-        // Edged in its hue while it calls for the chief or reports a
-        // fault, and its shadow doubled, so it stands off the world
-        // and the panels.
-        let edge = match kind {
-            StatusKind::Attention | StatusKind::Danger => {
-                theme.palette.status.get(kind).solid
-            }
-            _ => theme.palette.gold_5,
-        };
+        // Its shadow doubled, so it stands off the world and the
+        // panels.
         let mut shadow = theme.shadow();
         shadow.0.extend(theme.shadow().0);
-        let card = column((words, answers))
-            .gap(space.gap)
-            .fill(theme.palette.card)
-            .border(space.border)
-            .border_color(edge)
-            .radius(space.soft)
-            .padding(UiRect::axes(
-                px(space.card_padding_x),
-                px(space.card_padding_y),
-            ))
+        let card = kinds::card((words, answers))
+            .status(kind)
+            .gap(theme.space.gap)
+            .tagged(shadow)
             .rules(fading(id))
-            .tagged(shadow);
+            .rules(rules::floating);
         let node = cx.build(card);
         cx.world
             .entity_mut(node)

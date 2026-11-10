@@ -11,9 +11,7 @@ use bevy::ecs::query::{Has, With, Without};
 use bevy::ecs::resource::Resource;
 use bevy::ecs::system::ResMut;
 use bevy::ecs::world::World;
-use bevy::ui::{
-    AlignItems, Display, InteractionDisabled, UiRect, percent, px,
-};
+use bevy::ui::{AlignItems, Display, InteractionDisabled, percent};
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, TooltipExt, column, frame, label, row,
@@ -29,6 +27,7 @@ use hamlet_client::waits::Waiting;
 use hamlet_protocol::client as protocol;
 use hamlet_realm::harbor::glide_to_other_pier;
 use hamlet_realm::pick::{Selected, Thing, select};
+use hamlet_ui::kinds::tile;
 use hamlet_ui::styles::{
     Fills, ICON, action, bad_action, bare, buttons, close, framed,
     group, note, raised, scroll_area, small_rules, title,
@@ -38,7 +37,7 @@ use hamlet_ui::widgets::effects::lit_panels;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::widgets::platform::{DisplayText, Wraps};
 use hamlet_ui::widgets::tabs;
-use hamlet_ui::{AnyView, Cx, View, with_cx};
+use hamlet_ui::{AnyView, Cx, View, rules, with_cx};
 
 use self::hamlet::budget;
 pub use self::hamlet::{Naming, Page, hamlet};
@@ -265,38 +264,22 @@ fn figure(
     } else {
         (tone, Tone::Body)
     };
-    with_cx(move |cx| {
-        let theme = cx.theme();
-        let space = &theme.space;
-        column((
-            row((
-                glyph(which, ICON).tone(mark),
-                label(count.to_string())
-                    .size(FIGURE)
-                    .bold(true)
-                    .tone(words_tone)
-                    .wrap(false),
-            ))
-            .gap(6.0)
-            .align(AlignItems::Center),
-            label(words)
+    tile((
+        row((
+            glyph(which, ICON).tone(mark),
+            label(count.to_string())
+                .size(FIGURE)
+                .bold(true)
                 .tone(words_tone)
-                .wrap(false)
-                .rules(small_rules),
+                .wrap(false),
         ))
-        .gap(space.gap / 2.0)
-        // Less room at its sides than a card has, so that five fit a
-        // narrow page.
-        .padding(UiRect::axes(
-            px(space.gap),
-            px(space.card_padding_y),
-        ))
-        .radius(space.round_card)
-        .fill(theme.palette.card)
-        // As wide as its words, and the row's room left shared out.
-        .grow(1.0)
-        .tooltip(move || note(tip))
-    })
+        .gap(6.0)
+        .align(AlignItems::Center),
+        label(words).tone(words_tone).wrap(false).rules(small_rules),
+    ))
+    // As wide as its words, and the row's room left shared out.
+    .grow(1.0)
+    .tooltip(move || note(tip))
     .boxed()
 }
 
@@ -348,12 +331,13 @@ fn today() -> AnyView {
                     "Newcomers waiting at the harbor to be let in",
                 ),
             ];
-            // Closer than cards elsewhere, so their words have the
-            // room.
+            // Closer than cards elsewhere, and narrow, so five fit
+            // a narrow page.
             row(figures)
                 .gap(6.0)
                 .align(AlignItems::Stretch)
                 .tagged(Wraps)
+                .rules(rules::narrow)
                 .boxed()
         },
     )

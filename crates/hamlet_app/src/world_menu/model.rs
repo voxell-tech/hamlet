@@ -51,7 +51,7 @@ use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::ellipsis::one_line;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::widgets::switch::labelled_switch;
-use hamlet_ui::{AnyView, Cx, View, with_cx};
+use hamlet_ui::{AnyView, Cx, View, kinds, with_cx};
 use serde::{Deserialize, Serialize};
 
 use super::{Open, close};
@@ -845,17 +845,10 @@ fn key_cap(at: usize) -> AnyView {
     let Some(chord) = chord(at) else {
         return frame().boxed();
     };
-    with_cx(move |cx| {
-        let theme = cx.theme();
-        column((label(chord.to_string())
-            .tone(Tone::Faint)
-            .wrap(false)
-            .rules(small_rules),))
-        .padding(UiRect::axes(px(4.0), px(2.0)))
-        .border(theme.space.border)
-        .border_color(theme.palette.gold_6)
-        .radius(theme.space.round_small)
-    })
+    kinds::chip((label(chord.to_string())
+        .tone(Tone::Faint)
+        .wrap(false)
+        .rules(small_rules),))
     .boxed()
 }
 

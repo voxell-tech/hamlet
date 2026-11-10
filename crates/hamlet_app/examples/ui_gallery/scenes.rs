@@ -18,7 +18,7 @@ use bevy::picking::PickingSettings;
 use bevy::window::WindowTheme;
 use bevy_fynix::dock::DockPlugin;
 use bevy_fynix::tokens::Tone;
-use bevy_fynix::{AnyView, Bevy, FynixPlugin, mount};
+use bevy_fynix::{AnyView, Bevy, FynixPlugin};
 use hamlet_app::appearance::{
     Appearance, ComputerMotion, LessMotion, Zoom,
 };
@@ -297,7 +297,7 @@ fn mount_scene(world: &mut World) {
         Scene::Status => status_sheet(),
         _ => panels(),
     };
-    mount::<HamletTheme>(world, view);
+    hamlet_ui::rules::mount(world, view);
     // The menus and questions the app's own root draws over all.
-    mount::<HamletTheme>(world, hamlet_app::world_menu::view());
+    hamlet_ui::rules::mount(world, hamlet_app::world_menu::view());
 }

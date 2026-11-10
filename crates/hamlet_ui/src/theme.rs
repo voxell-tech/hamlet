@@ -518,6 +518,9 @@ pub struct Spacing {
     /// The space inside a card, across and down.
     pub card_padding_x: f32,
     pub card_padding_y: f32,
+    /// The space inside a chip, across and down.
+    pub chip_padding_x: f32,
+    pub chip_padding_y: f32,
     /// The space down inside a row of a list.
     pub row_padding: f32,
     /// The height of the menu bar, and the space at its ends.

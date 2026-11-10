@@ -10,6 +10,7 @@ use bevy_fynix::views::{
 use bevy_fynix::{Focused, ScopedExt, ViewExt, derived, style};
 use hamlet_client::realm::Providers;
 use hamlet_protocol::client as protocol;
+use hamlet_ui::kinds::chip;
 use hamlet_ui::styles::{ICON, note, note_rules, small_rules};
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::ellipsis::one_line;
@@ -86,18 +87,11 @@ pub(crate) fn mark(id: &str, size: f32) -> AnyView {
 
 /// A quiet word beside a model's name, such as "Default".
 pub(crate) fn tag(text: &'static str) -> AnyView {
-    with_cx(move |cx| {
-        let theme = cx.theme();
-        row((label(text)
-            .tone(Tone::Dim)
-            .wrap(false)
-            .rules(small_rules),))
-        .padding(UiRect::axes(px(6.0), px(0.0)))
-        .shrink(0.0)
-        .border(theme.space.border)
-        .border_color(theme.palette.gold_6)
-        .radius(theme.space.round_small)
-    })
+    chip(
+        (label(text).tone(Tone::Dim).wrap(false).rules(small_rules),),
+    )
+    .shrink(0.0)
+    .boxed()
     .boxed()
 }
 
