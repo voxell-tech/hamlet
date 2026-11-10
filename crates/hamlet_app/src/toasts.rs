@@ -126,8 +126,18 @@ impl Toasts {
             until: now + STAYS,
             opacity: 1.0,
         });
-        let over = self.shown.len().saturating_sub(MOST);
-        self.shown.drain(..over);
+        // An update stays until it is taken or closed, so the oldest
+        // of the others makes way first.
+        while self.shown.len() > MOST {
+            let oldest = self
+                .shown
+                .iter()
+                .position(|toast| {
+                    !matches!(toast.what, What::Update(_))
+                })
+                .unwrap_or(0);
+            self.shown.remove(oldest);
+        }
     }
 
     /// Something that happened, which nothing answers.
@@ -810,6 +820,30 @@ mod tests {
         assert_eq!(app.world().resource::<Toasts>().shown.len(), 1);
         dismiss(app.world_mut(), &What::Update(offer));
         assert!(app.world().resource::<Toasts>().shown.is_empty());
+    }
+
+    #[test]
+    fn newer_toasts_make_way_around_an_update() {
+        let offer = Offer {
+            version: hamlet_protocol::Version::new(0, 2, 0),
+            ready: Ready::Page("https://example.com".into()),
+        };
+        let mut toasts = Toasts::default();
+        toasts.offer(offer.clone(), 0.0);
+        for n in 0..MOST {
+            toasts.note(
+                StatusKind::Danger,
+                "Fault".into(),
+                n.to_string(),
+                0.0,
+            );
+        }
+        assert_eq!(toasts.shown.len(), MOST);
+        assert_eq!(toasts.shown[0].what, What::Update(offer));
+        assert!(matches!(
+            &toasts.shown[1].what,
+            What::Notice { line, .. } if line == "1"
+        ));
     }
 
     #[test]
