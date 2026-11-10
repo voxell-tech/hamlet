@@ -850,7 +850,7 @@ fn aside(
 }
 
 /// What heads each section of a prompt, by the server's names.
-const SOURCES: [(&str, &str); 11] = [
+const SOURCES: [(&str, &str); 10] = [
     ("charter", "Charter"),
     ("machine", "This computer"),
     ("project", "The project"),
@@ -860,7 +860,6 @@ const SOURCES: [(&str, &str); 11] = [
     ("place", "Its place"),
     ("realm", "The realm"),
     ("scholars", "Scholars it may hire"),
-    ("budget", "Budget"),
     ("errand", "Errand"),
 ];
 

@@ -22,7 +22,7 @@ use crate::society::hamlets::{self, Founding};
 use crate::society::hires::{self, Hiring, Spec};
 use crate::society::refusal::Refusal;
 use crate::society::{authority, city, limits, record, roads};
-use crate::spend::micros;
+use crate::spend::{self, micros, money};
 use crate::talk::Env;
 use crate::work::tools::Outcome;
 
@@ -120,6 +120,15 @@ pub(super) fn specs() -> Vec<ToolSpec> {
                 json!({"question": string("What you need a skill for.")}),
                 &["question"],
             ),
+            safe.clone(),
+        ),
+        spec(
+            "read_budget",
+            "Read what you may spend: your hamlet's or the realm's \
+             spend this period against its budget, your own, your \
+             allowance and your task's cap. A call over any of them \
+             is refused.",
+            object(json!({}), &[]),
             safe.clone(),
         ),
         spec(
@@ -684,6 +693,11 @@ impl Core {
                 })
                 .await?
             }
+            "read_budget" => {
+                let task = self.task_of(call)?;
+                let db = self.realm.store().connection();
+                Ok(budget(db, agent, task)?)
+            }
             "read_record" => {
                 let id = HamletId(text(call, "hamlet"));
                 let db = self.realm.store().connection();
@@ -1001,6 +1015,44 @@ fn arrived(
         "The scholar {name} is made and waits at the harbor until \
          it is let into the city; you can hire it now."
     ))
+}
+
+/// What `agent` may spend, for `read_budget`: what its hamlet or the
+/// realm spent this period, what it spent, its allowance, and what
+/// `task`, the task its turn works on, spent of its cap.
+fn budget(
+    db: &mut hamlet_store::Db,
+    agent: AgentId,
+    task: Option<TaskId>,
+) -> Result<String> {
+    let at = crate::clock::now();
+    let payer = crate::talk::tasks::payer_of(db, agent)?;
+    let report = spend::report(db, payer.as_ref(), at)?;
+    let mut lines = vec![report.summary];
+    let spent = spend::of_agent(db, agent, at)?;
+    lines.push(format!(
+        "Your spend this period: {}.",
+        money(spent.micros)
+    ));
+    if let Some(hire) = hires::find(db, agent)? {
+        if let Some(allowance) = hire.allowance {
+            lines.push(format!(
+                "Your allowance, with what everything under you \
+                 spends: {}.",
+                money(allowance)
+            ));
+        }
+        let own = limits::of(db, &hire.hamlet)?;
+        if let (Some(task), Some(cap)) = (task, own.task.cost) {
+            let spent = spend::of_task(db, task)?;
+            lines.push(format!(
+                "This task has spent {} of the {} it may.",
+                money(spent.micros),
+                money(cap)
+            ));
+        }
+    }
+    Ok(lines.join("\n"))
 }
 
 /// The chief overseeing task `task`.

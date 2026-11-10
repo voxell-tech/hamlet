@@ -370,12 +370,11 @@ impl Core {
         Ok(())
     }
 
-    /// The prompt of `conversation`'s next call in the turn of
-    /// `submission`, with no secret in it.
+    /// The prompt of `conversation`'s next call, with no secret in
+    /// it.
     pub(crate) fn prompt(
         &mut self,
         conversation: &conversations::Conversation,
-        submission: Option<&str>,
     ) -> Result<Vec<runtime::Section>> {
         let layout = self.realm.layout().clone();
         let confinement = self.confinement();
@@ -386,8 +385,7 @@ impl Core {
             faults: &self.faults,
         };
         let db = self.realm.store().connection();
-        let mut sections =
-            prompt::sections(db, &cx, conversation, submission)?;
+        let mut sections = prompt::sections(db, &cx, conversation)?;
         for section in &mut sections {
             section.text = self.credentials.scrub_text(&section.text);
         }
@@ -858,8 +856,7 @@ impl Core {
                         .await;
                     return Ok(());
                 }
-                let sections = self
-                    .prompt(&conversation, asked.input.as_deref())?;
+                let sections = self.prompt(&conversation)?;
                 self.runtimes
                     .send(index, |v, id| {
                         ServerMessage::Sections(runtime::Sections {

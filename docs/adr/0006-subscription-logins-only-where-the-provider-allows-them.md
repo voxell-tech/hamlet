@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: accepted, amended by [0014](0014-claude-subscriptions-run-in-anthropics-own-program-under-pi.md) for Claude
 ---
 
 # Subscription logins only where the provider allows them
@@ -7,7 +7,9 @@ status: accepted
 Besides API keys, Hamlet lets a chief sign in with a subscription, but only
 "Sign in with ChatGPT", which OpenAI offers to open-source apps: the app
 registers itself on first sign-in, under its own name, with no client
-secret. pi-ai has the login flows for other subscriptions too (Claude
+secret, and a Claude subscription through pi's provider `claude`, where the
+chief signs in inside Anthropic's own program (ADR 0014). pi-ai has the
+login flows for other subscriptions too (Claude
 Pro/Max, GitHub Copilot), but Anthropic's consumer terms appear to forbid
 routing requests through a subscription in another app, and Copilot's terms
 have not been checked. Those providers are reached with API keys.

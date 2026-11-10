@@ -846,13 +846,15 @@ impl Core {
                     methods.push(LoginMethod::Key);
                 }
                 if p.subscription
-                    && ["chatgpt", "openrouter"].contains(&&*p.id)
+                    && ["chatgpt", "openrouter", "claude"]
+                        .contains(&&*p.id)
                 {
                     methods.push(LoginMethod::Subscription);
                 }
                 let label = match &*p.id {
                     "chatgpt" => "Continue with ChatGPT".into(),
                     "openrouter" => "Sign in with OpenRouter".into(),
+                    "claude" => "Sign in to Claude".into(),
                     _ => p.name.clone(),
                 };
                 ProviderView {

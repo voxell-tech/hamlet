@@ -171,7 +171,7 @@ Each row is a `Read` form with `type: "read"` and `id`.
 
 | `what` | Fields | `ReadResult` payload |
 |---|---|---|
-| `prompt` | `agent: AgentId` | `prompt: [{name, text}]`: the composed prompt, section by section in the order the model reads them, each named for its source (`charter`, `machine`, `project`, `character`, `memory`, `skills`, `place`, `realm`, `scholars`, `budget` or `errand`). |
+| `prompt` | `agent: AgentId` | `prompt: [{name, text}]`: the composed prompt, section by section in the order the model reads them, each named for its source (`charter`, `machine`, `project`, `character`, `memory`, `skills`, `place`, `realm`, `scholars` or `errand`). |
 | `history` | `agent: AgentId` | `history: Past[]`: numbered chief conversations, with current flag, title, author, times, message and token counts. |
 | `models` | `refresh?: boolean` | `models: Listed[]`: name, `title` (what its provider calls it; empty when it gives no name), price, price source, context size, note, `efforts` (the efforts the model can be asked for, weakest first), `defaultEffort` (`null` while unknown) and `fast` (whether its provider has a fast tier). `refresh` refreshes discovery. |
 | `papers` | `of: Keeper`, `full?: boolean` | `papers: Papers`: character, memory files (`path`, `description`, `text`), the paths a hire's lodge `learned` against its scholar, and skill names/descriptions. By default, character and memory texts are trimmed and cut to 6000 Unicode code points each; `full: true` returns them uncut. |
@@ -188,6 +188,12 @@ Each row is a `Login` form with `type: "login"` and `id`.
 | `cancel: string` | Cancel that session ID; `reply`. |
 
 Sessions belong to the initiating connection. Disconnecting cancels them.
+
+The provider `claude` signs in with `method: "subscription"` alone. pi runs
+Claude's own sign-in and the server sends one `url` step, the link to
+Anthropic's sign-in page, then `done` once the Claude program has the login;
+no `reply` is asked for. The credential the server keeps only marks the
+sign-in. The sign-in completes only in a browser on the server's machine.
 
 ## Server → client
 

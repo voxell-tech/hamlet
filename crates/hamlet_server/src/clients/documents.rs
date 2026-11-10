@@ -502,7 +502,7 @@ impl Core {
                     conversation,
                 )?;
                 let prompt = self
-                    .prompt(&kept, None)?
+                    .prompt(&kept)?
                     .into_iter()
                     .map(|s| protocol::PromptSection {
                         name: s.name,
