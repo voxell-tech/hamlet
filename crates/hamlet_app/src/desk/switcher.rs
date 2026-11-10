@@ -55,7 +55,7 @@ use bevy_fynix::{
 };
 use hamlet_ui::styles::{
     ICON, Tipped, action, bad_action, close_button, description,
-    note, section, text_input,
+    note, text_input,
 };
 use hamlet_ui::theme::{HamletTheme, Themed};
 use hamlet_ui::widgets::effects::{Edge, EffectSettings, wash};
@@ -510,7 +510,7 @@ fn all_view() -> impl View {
     with_cx(|cx| {
         let desks = cx.world.resource::<Desks>();
         let gap = cx.theme().space.menu_gap;
-        let mut rows = desks
+        let rows = desks
             .list()
             .iter()
             .enumerate()
@@ -549,15 +549,6 @@ fn all_view() -> impl View {
                 .boxed()
             })
             .collect::<Vec<_>>();
-        rows.push(section("New").boxed());
-        rows.push(
-            menu_item(label("New Desk"))
-                .on_activate(|world| {
-                    *world.resource_mut::<Opened>() = Opened::Nothing;
-                    new_desk(world);
-                })
-                .boxed(),
-        );
         column(rows).gap(0.0)
     })
 }

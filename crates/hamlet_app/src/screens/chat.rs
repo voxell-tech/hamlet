@@ -553,18 +553,19 @@ pub fn stick_to_bottom(
 pub fn message_bar(tools: impl View + 'static) -> impl View {
     with_cx(move |cx| {
         let space = &cx.theme().space;
-        message_bar_in(space.gap, space.border, tools)
+        // The card is soft and its controls round, so the room
+        // between them is what keeps their corners concentric.
+        let inset = space.soft - space.round;
+        message_bar_in(space.gap, space.border, inset, tools)
     })
 }
 
-/// The radius of the composer's card.
-const CARD_ROUND: f32 = 12.0;
-
-/// The bar with `gap` between its parts and a field whose frame is
-/// `border` wide.
+/// The bar with `gap` between its parts, a field whose frame is
+/// `border` wide and `inset` inside the card.
 fn message_bar_in(
     gap: f32,
     border: f32,
+    inset: f32,
     tools: impl View + 'static,
 ) -> impl View {
     let field = row((
@@ -597,7 +598,7 @@ fn message_bar_in(
     .overflow(Overflow::clip());
     let card = column((reply::preview(), row((field,)), tools))
         .gap(gap / 2.0)
-        .padding(UiRect::all(px(gap / 2.0)))
+        .padding(UiRect::all(px(inset)))
         .rules(card_look)
         .tagged(crate::world_menu::Hook::Composer);
     column((
@@ -618,7 +619,7 @@ fn message_bar_in(
 fn card_look(cx: &mut Cx) {
     style::<HamletTheme>()
         .with(text_input)
-        .frame(|f, _| f.radius(CARD_ROUND))
+        .frame(|f, t| f.radius(t.space.soft))
         .apply(cx);
 }
 

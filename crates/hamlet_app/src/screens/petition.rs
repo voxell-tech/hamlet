@@ -27,8 +27,9 @@ use hamlet_protocol::client::{
     Change, Lasting, Questions, WaitDanger, WaitDetail,
 };
 use hamlet_realm::needs::{TagAnswered, TagOpened};
+use hamlet_ui::kinds::card;
 use hamlet_ui::styles::{
-    Looks, buttons, command_block, framed, marked, note, status_mark,
+    Looks, buttons, command_block, marked, note, status_mark,
 };
 use hamlet_ui::theme::StatusKind;
 use hamlet_ui::widgets::effects::Variant;
@@ -214,10 +215,23 @@ pub(crate) fn open(world: &mut World, wait: Entity) {
 }
 
 /// The buttons of the answers `need` takes, the lasting one telling
-/// what it lets go in its tooltip.
+/// what it lets go in its tooltip. What refuses leads and the rest
+/// stay together, so a narrow card wraps them as one, and apart only
+/// when they do not fit side by side.
 pub(crate) fn answers(need: &Need) -> AnyView {
-    buttons(vec![button(need, 0), button(need, 1), button(need, 2)])
-        .boxed()
+    let (refusing, agreeing): (Vec<usize>, Vec<usize>) =
+        (0..need.answers.len()).partition(|&at| {
+            matches!(
+                need.answers[at],
+                Choice::Deny | Choice::Withdraw | Choice::Dismiss
+            )
+        });
+    let mut parts: Vec<AnyView> =
+        refusing.into_iter().map(|at| button(need, at)).collect();
+    let agreeing: Vec<AnyView> =
+        agreeing.into_iter().map(|at| button(need, at)).collect();
+    parts.push(buttons(agreeing).boxed());
+    buttons(parts).boxed()
 }
 
 /// The button for the answer at `at` of `need`, or nothing.
@@ -403,7 +417,7 @@ fn brief(need: &Need, asked: &Questions) -> AnyView {
             .on_activate(move |world| {
                 world.resource_mut::<Unfolded>().0.insert(wait);
             });
-        framed((
+        card((
             head,
             row((
                 row((label(first).size(cx.theme().text.heading),))
@@ -496,7 +510,7 @@ pub(crate) fn strip(need: &Need) -> AnyView {
             }
             None => frame().boxed(),
         };
-        cx.build(framed((head, line, about, answers)))
+        cx.build(card((head, line, about, answers)))
     })
 }
 

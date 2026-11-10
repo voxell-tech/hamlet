@@ -36,7 +36,7 @@ use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::ellipsis::one_line;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
-use hamlet_ui::{AnyView, Cx, View, with_cx};
+use hamlet_ui::{AnyView, Cx, View, kinds, with_cx};
 
 use crate::PanelSystems;
 use crate::convo::Convo;
@@ -490,7 +490,7 @@ pub fn in_chat() -> impl View {
         };
         with_cx(move |cx| {
             let theme = cx.theme();
-            let (palette, space) = (&theme.palette, &theme.space);
+            let space = &theme.space;
             let who = cx
                 .world
                 .get::<Waiting>(entity)
@@ -501,7 +501,7 @@ pub fn in_chat() -> impl View {
                 true => asked.questions[0].question.clone(),
                 false => asked.message.clone(),
             };
-            row((
+            kinds::card((row((
                 glyph(Glyph::Bell, theme.text.small)
                     .tone(Tone::Accent),
                 column((one_line(
@@ -516,13 +516,8 @@ pub fn in_chat() -> impl View {
                 }),
             ))
             .gap(space.gap)
-            .align(AlignItems::Center)
-            .padding(UiRect::axes(px(space.card_padding_x), px(6.0)))
+            .align(AlignItems::Center),))
             .margin(UiRect::bottom(px(space.gap)))
-            .border(space.border)
-            .border_color(palette.gold_5)
-            .radius(space.round)
-            .fill(palette.card)
             .boxed()
         })
         .boxed()

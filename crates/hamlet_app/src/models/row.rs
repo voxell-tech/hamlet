@@ -10,6 +10,7 @@ use bevy_fynix::views::{
 use bevy_fynix::{Focused, ScopedExt, ViewExt, derived, style};
 use hamlet_client::realm::Providers;
 use hamlet_protocol::client as protocol;
+use hamlet_ui::kinds::chip;
 use hamlet_ui::styles::{ICON, note, note_rules, small_rules};
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::ellipsis::one_line;
@@ -28,7 +29,7 @@ const MARK: f32 = 16.0;
 
 /// The room between a row's edge and its mark, and between its parts.
 const PAD: f32 = 8.0;
-const GAP: f32 = 10.0;
+const GAP: f32 = 8.0;
 
 /// A model as a row shows it.
 pub(crate) struct ModelRow {
@@ -86,18 +87,11 @@ pub(crate) fn mark(id: &str, size: f32) -> AnyView {
 
 /// A quiet word beside a model's name, such as "Default".
 pub(crate) fn tag(text: &'static str) -> AnyView {
-    with_cx(move |cx| {
-        let theme = cx.theme();
-        row((label(text)
-            .tone(Tone::Dim)
-            .wrap(false)
-            .rules(small_rules),))
-        .padding(UiRect::axes(px(5.0), px(0.0)))
-        .shrink(0.0)
-        .border(theme.space.border)
-        .border_color(theme.palette.gold_6)
-        .radius(theme.space.round)
-    })
+    chip(
+        (label(text).tone(Tone::Dim).wrap(false).rules(small_rules),),
+    )
+    .shrink(0.0)
+    .boxed()
     .boxed()
 }
 
@@ -222,7 +216,7 @@ pub(crate) fn model_row(
     .align(AlignItems::Center)
     .rules(note_rules);
     let words =
-        column((title, under)).gap(1.0).grow(1.0).min_width(px(0.0));
+        column((title, under)).gap(2.0).grow(1.0).min_width(px(0.0));
     let lead = match detail {
         Detail::Source => mark(provider_of(&name), MARK),
         Detail::Id => frame().boxed(),
@@ -233,7 +227,7 @@ pub(crate) fn model_row(
             .align(AlignItems::Center)
             .width(percent(100.0)),
     )
-    .padding(UiRect::axes(px(PAD), px(5.0)))
+    .padding(UiRect::axes(px(PAD), px(6.0)))
     .rules(row_look)
     .on_activate(pick)
     .boxed()

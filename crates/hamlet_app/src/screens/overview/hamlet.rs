@@ -345,7 +345,7 @@ const STEP: f32 = 18.0;
 const INSET: f32 = 6.0;
 
 /// The room over a row's first line.
-const TOP: f32 = 5.0;
+const TOP: f32 = 4.0;
 
 /// The tree's lines in front of one agent's row.
 struct Branch {
@@ -512,13 +512,13 @@ fn person(row_of: &AgentRow, branch: Branch) -> AnyView {
         }
         parts.push(
             button(
-                column(words).gap(1.0).grow(1.0).min_width(px(0.0)),
+                column(words).gap(2.0).grow(1.0).min_width(px(0.0)),
             )
             .padding(UiRect::new(
                 px(INSET),
                 px(6.0),
                 px(TOP),
-                px(5.0),
+                px(4.0),
             ))
             .grow(1.0)
             .min_width(px(0.0))

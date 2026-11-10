@@ -8,6 +8,7 @@ use bevy_fynix::{
     ScopedExt, StateExt, ViewExt, each, keyed, resource,
 };
 use hamlet_client::realm::Skills;
+use hamlet_ui::kinds::tile;
 use hamlet_ui::styles::{
     Fills, action, bad_action, description, hidden,
 };
@@ -127,17 +128,10 @@ pub fn card(
         let head =
             std::iter::once(name).chain(beside).collect::<Vec<_>>();
         cx.build(
-            column((
+            tile((
                 row(head).gap(space.gap).align(AlignItems::Center),
                 description(detail),
             ))
-            .gap(space.gap / 2.0)
-            .padding(UiRect::axes(
-                px(space.card_padding_x),
-                px(space.card_padding_y),
-            ))
-            .radius(space.round)
-            .fill(cx.theme().palette.card)
             .appear(hidden)
             .transition(Motion::Expand),
         )

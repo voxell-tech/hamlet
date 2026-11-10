@@ -298,7 +298,7 @@ pub(super) fn answered(
                     .rules(small_rules),
                 rich(spans).tone(Tone::Dim).size(theme.text.small),
             ))
-            .gap(1.0)
+            .gap(2.0)
             .fills_width(),
         ))
         .gap(8.0)
@@ -345,7 +345,7 @@ fn shown(cx: &Cx, answers: &Answers) -> AnyView {
             )
             .rules(small_rules),
         ))
-        .gap(1.0)
+        .gap(2.0)
         .fills_width()
         .overflow(Overflow::clip()),
         column((drop,)).justify(JustifyContent::Center),
