@@ -41,10 +41,20 @@ fn hire(
 }
 
 fn new(name: &str) -> Hiring {
-    Hiring::New {
+    Hiring::Blank {
         name: name.into(),
         character: String::new(),
     }
+}
+
+/// The hiring of a new scholar of the city named `name`, which,
+/// unlike a blank agent's, can be hired again.
+fn of_city(realm: &mut Realm, name: &str) -> Hiring {
+    let chief = realm.chief;
+    let scholar = realm
+        .chief(|cx| city::make(cx, name, chief, "", None))
+        .unwrap();
+    Hiring::Existing { scholar, pin: None }
 }
 
 fn name(realm: &mut Realm, id: AgentId) -> String {
@@ -65,8 +75,9 @@ fn find(
 fn a_hire_is_addressed_by_its_hamlet_and_number_never_by_name() {
     let mut realm = Realm::new();
     let mayor = realm.found("docs", "ada");
+    let scouting = of_city(&mut realm, "scout");
     let scout =
-        hire(&mut realm, &docs(), mayor.agent, new("scout")).unwrap();
+        hire(&mut realm, &docs(), mayor.agent, scouting).unwrap();
     let again = hire(
         &mut realm,
         &docs(),
@@ -241,8 +252,8 @@ fn a_scholar_leaves_with_its_hires_and_comes_back_with_them() {
     let mut realm = Realm::new();
     let mayor = realm.found("docs", "ada").agent;
     realm.found("site", "bea");
-    let scout =
-        hire(&mut realm, &docs(), mayor, new("scout")).unwrap();
+    let scouting = of_city(&mut realm, "scout");
+    let scout = hire(&mut realm, &docs(), mayor, scouting).unwrap();
     let site_mayor =
         tree::mayor(realm.db(), &HamletId("site".into())).unwrap();
     let there = hire(

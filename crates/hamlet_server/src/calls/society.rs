@@ -57,7 +57,8 @@ pub(super) fn specs() -> Vec<ToolSpec> {
     let address = "An agent's address: `hand`, `mayor`, \
                    `mayor@<hamlet>`, `<hamlet>#<n>` or \
                    `worker#<id>`.";
-    let reason = "Why, in a sentence; the record keeps it.";
+    let reason =
+        "Why, in a sentence, if it helps; the record keeps it.";
     // A call cut off by a crash may be asked again: its change is
     // kept with its answer, or what it began is found by its call.
     // A write of a scholar's repository is kept by no transaction.
@@ -108,7 +109,7 @@ pub(super) fn specs() -> Vec<ToolSpec> {
              where every agent can read it. The librarian judges it.",
             object(
                 json!({"skill": string("The skill's folder name under skills/."), "reason": string(reason)}),
-                &["skill", "reason"],
+                &["skill"],
             ),
             safe.clone(),
         ),
@@ -148,7 +149,7 @@ pub(super) fn specs() -> Vec<ToolSpec> {
              you need to reach.",
             object(
                 json!({"to": string(address), "reason": string(reason)}),
-                &["to", "reason"],
+                &["to"],
             ),
             safe.clone(),
         ),
@@ -167,13 +168,14 @@ pub(super) fn specs() -> Vec<ToolSpec> {
         spec(
             "hire",
             "Hire a scholar into your hamlet under you, or under a \
-             hire of your tree. When no scholar fits, give `name` \
-             instead to hire a new blank one, which starts from the \
-             realm's character and the library's skills.",
+             hire of your tree. Leave out `scholar` to hire a blank \
+             agent instead, which starts from the realm's character \
+             and the library's skills and is not a scholar of the \
+             city.",
             object(
                 json!({
                     "scholar": string("The scholar's address, `scholar#<id>`, with `@<version>` to pin a version."),
-                    "name": string("A new blank scholar's name, in place of `scholar`."),
+                    "name": string("A blank agent's name, in place of `scholar`."),
                     "purpose": string("What the hire is for."),
                     "under": string("The hire it answers to; you when left out."),
                     "hamlet": string("The hamlet, for the Hand.")
@@ -187,7 +189,7 @@ pub(super) fn specs() -> Vec<ToolSpec> {
             "End a hire under you. Its work stays in its scholar.",
             object(
                 json!({"hire": string(address), "reason": string(reason)}),
-                &["hire", "reason"],
+                &["hire"],
             ),
             safe.clone(),
         ),
@@ -197,7 +199,7 @@ pub(super) fn specs() -> Vec<ToolSpec> {
              takes what the other learned, its roads and its hires.",
             object(
                 json!({"absorbed": string(address), "into": string(address), "reason": string(reason)}),
-                &["absorbed", "into", "reason"],
+                &["absorbed", "into"],
             ),
             safe.clone(),
         ),
@@ -207,7 +209,7 @@ pub(super) fn specs() -> Vec<ToolSpec> {
              `model` for its hamlet's.",
             object(
                 json!({"hire": string(address), "model": string("The model, as `provider::id`."), "reason": string(reason)}),
-                &["hire", "reason"],
+                &["hire"],
             ),
             safe.clone(),
         ),
@@ -222,7 +224,7 @@ pub(super) fn specs() -> Vec<ToolSpec> {
                     "on": {"type": "array", "items": {"type": "string"}},
                     "reason": string(reason)
                 }),
-                &["hire", "reason"],
+                &["hire"],
             ),
             safe.clone(),
         ),
@@ -232,7 +234,7 @@ pub(super) fn specs() -> Vec<ToolSpec> {
              budget's period, or none.",
             object(
                 json!({"hire": string(address), "dollars": {"type": "number"}, "reason": string(reason)}),
-                &["hire", "reason"],
+                &["hire"],
             ),
             safe.clone(),
         ),
@@ -242,7 +244,7 @@ pub(super) fn specs() -> Vec<ToolSpec> {
              in the world; leave out `nickname` for its own name.",
             object(
                 json!({"hire": string(address), "nickname": string("At most 24 letters."), "reason": string(reason)}),
-                &["hire", "reason"],
+                &["hire"],
             ),
             safe.clone(),
         ),
@@ -252,7 +254,7 @@ pub(super) fn specs() -> Vec<ToolSpec> {
              write and ask each other.",
             object(
                 json!({"a": string(address), "b": string(address), "reason": string(reason)}),
-                &["a", "b", "reason"],
+                &["a", "b"],
             ),
             safe.clone(),
         ),
@@ -261,7 +263,7 @@ pub(super) fn specs() -> Vec<ToolSpec> {
             "Take up a road you laid between two hires under you.",
             object(
                 json!({"a": string(address), "b": string(address), "reason": string(reason)}),
-                &["a", "b", "reason"],
+                &["a", "b"],
             ),
             safe.clone(),
         ),
@@ -271,20 +273,21 @@ pub(super) fn specs() -> Vec<ToolSpec> {
              and one of another. It opens once both mayors agree.",
             object(
                 json!({"mine": string(address), "theirs": string(address), "reason": string(reason)}),
-                &["mine", "theirs", "reason"],
+                &["mine", "theirs"],
             ),
             safe.clone(),
         ),
         spec(
             "found_hamlet",
-            "Found a hamlet with a scholar as its mayor.",
+            "Found a hamlet with a scholar as its mayor, or a blank \
+             agent when `scholar` is left out.",
             object(
                 json!({
                     "hamlet": string("Its id: lowercase letters, digits and hyphens."),
                     "scholar": string("The address, `scholar#<id>`, of the scholar its mayor is a hire of."),
                     "purpose": string("What the hamlet is for.")
                 }),
-                &["hamlet", "scholar", "purpose"],
+                &["hamlet", "purpose"],
             ),
             safe.clone(),
         ),
@@ -293,7 +296,7 @@ pub(super) fn specs() -> Vec<ToolSpec> {
             "Seat a hire as its hamlet's mayor.",
             object(
                 json!({"hire": string(address), "reason": string(reason)}),
-                &["hire", "reason"],
+                &["hire"],
             ),
             safe.clone(),
         ),
@@ -302,7 +305,7 @@ pub(super) fn specs() -> Vec<ToolSpec> {
             "Remove a hamlet; a chief approves it first.",
             object(
                 json!({"hamlet": string("The hamlet's id."), "reason": string(reason)}),
-                &["hamlet", "reason"],
+                &["hamlet"],
             ),
             safe.clone(),
         ),
@@ -356,7 +359,7 @@ pub(super) fn specs() -> Vec<ToolSpec> {
              it first.",
             object(
                 json!({"scholar": string("The scholar's address, `scholar#<id>`."), "commit": string("The commit or version to undo."), "reason": string(reason)}),
-                &["scholar", "commit", "reason"],
+                &["scholar", "commit"],
             ),
             unsafe_,
         ),
@@ -631,12 +634,22 @@ impl Core {
                     None,
                     overseer,
                 )?;
-                let mayor = match self
-                    .scholar_hiring(&text(call, "scholar"))?
-                {
-                    Ok(hiring) => hiring,
-                    Err(refusal) => {
-                        return Ok(Step::of(Err(refusal)));
+                let scholar = text(call, "scholar");
+                let mayor = if scholar.is_empty() {
+                    Hiring::Blank {
+                        name: String::new(),
+                        character: self
+                            .env
+                            .settings
+                            .character
+                            .clone(),
+                    }
+                } else {
+                    match self.scholar_hiring(&scholar)? {
+                        Ok(hiring) => hiring,
+                        Err(refusal) => {
+                            return Ok(Step::of(Err(refusal)));
+                        }
                     }
                 };
                 let words = format!("Founded {id}.");
@@ -878,7 +891,7 @@ impl Core {
             }
             found
         };
-        // A scholar of the city, or a new blank one when none fits.
+        // A scholar of the city, or a blank agent when none fits.
         let (named, blank) =
             (text(call, "scholar"), text(call, "name"));
         let hiring = match (named.is_empty(), blank.is_empty()) {
@@ -886,14 +899,14 @@ impl Core {
                 Ok(hiring) => hiring,
                 Err(refusal) => return Ok(Err(refusal)),
             },
-            (true, false) => Hiring::New {
+            (true, _) => Hiring::Blank {
                 name: blank,
                 character: self.env.settings.character.clone(),
             },
-            _ => {
+            (false, false) => {
                 return Ok(Err(Refusal::Usage {
                     words: "Give `scholar` to hire one of the city, \
-                            or `name` to hire a new blank scholar."
+                            or `name` for a blank agent, not both."
                         .into(),
                 }));
             }
@@ -911,10 +924,6 @@ impl Core {
             let name = city::get(db, *scholar)?.label();
             return Ok(Err(Refusal::ScholarNotOwn { name }));
         }
-        let made = match &hiring {
-            Hiring::New { character, .. } => Some(character.clone()),
-            Hiring::Existing { .. } => None,
-        };
         let overseer = task_chief(db, task)?;
         let owner = authority::owner_for(
             db,
@@ -928,7 +937,7 @@ impl Core {
         if purpose.trim().is_empty() {
             return Ok(Err(Refusal::NoPurpose));
         }
-        self.carry(call, |cx, env| {
+        self.carry(call, |cx, _| {
             let hired = match hires::hire(
                 cx,
                 Spec {
@@ -944,12 +953,7 @@ impl Core {
                 Err(refusal) => return Ok(Err(refusal)),
             };
             let name = addresses::name_of(cx.db, hired.agent)?;
-            let Some(character) = made else {
-                return Ok(Ok(format!("Hired {name}.")));
-            };
-            let arrival =
-                arrived(cx, env, hired.scholar, &character)?;
-            Ok(Ok(format!("Hired {name}. {arrival}")))
+            Ok(Ok(format!("Hired {name}.")))
         })
         .await
     }

@@ -582,6 +582,7 @@ diesel::table! {
         call_runtime -> Nullable<Text>,
         call_key -> Nullable<Text>,
         answer -> Nullable<Text>,
+        nickname -> Nullable<Text>,
     }
 }
 

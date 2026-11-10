@@ -344,9 +344,6 @@ pub(crate) fn remove(
     reason: &str,
 ) -> Done<()> {
     done!(living(cx.db, id));
-    if reason.trim().is_empty() {
-        refuse!(Refusal::NoReason);
-    }
     for hire in hires::living_in(cx.db, id)? {
         done!(hires::end(cx, hire.agent, EndHow::Hamlet, reason));
     }

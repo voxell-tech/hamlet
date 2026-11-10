@@ -42,9 +42,10 @@ CREATE TABLE scholar (
     since INTEGER NOT NULL,
     made_by TEXT NOT NULL,
     planted INTEGER NOT NULL DEFAULT 0 CHECK (planted IN (0, 1)),
-    -- Whether it lives in the city or waits at its harbor.
+    -- Whether it lives in the city or waits at its harbor, or is a
+    -- blank hire's own and never of the city.
     arrival TEXT NOT NULL DEFAULT 'housed'
-        CHECK (arrival IN ('housed', 'waiting', 'turned')),
+        CHECK (arrival IN ('housed', 'waiting', 'turned', 'apart')),
     -- Who last let it in, kept it waiting or turned it away; none
     -- while it is as it was made.
     arrival_by TEXT,
@@ -187,6 +188,8 @@ CREATE TABLE worker (
     call_runtime TEXT,
     call_key TEXT,
     answer TEXT,
+    -- What the chief calls it in the world.
+    nickname TEXT CHECK (nickname IS NULL OR length(nickname) > 0),
     CHECK ((starter IS NULL) <> (chief IS NULL))
 ) STRICT;
 CREATE INDEX worker_starter ON worker(starter);

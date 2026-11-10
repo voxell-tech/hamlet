@@ -219,7 +219,10 @@ fn agent_view(
                 hires::tools_off(db, id)?,
             )
         }
-        _ => (None, None, None, Vec::new()),
+        AgentKind::Worker => {
+            (None, workers::get(db, id)?.nickname, None, Vec::new())
+        }
+        AgentKind::Hand => (None, None, None, Vec::new()),
     };
     let skills = match found.kind {
         AgentKind::Worker => Vec::new(),
@@ -516,6 +519,7 @@ fn scholar_view(
             Arrival::Housed => protocol::Arrival::Housed,
             Arrival::Waiting => protocol::Arrival::Waiting,
             Arrival::Turned => protocol::Arrival::Turned,
+            Arrival::Apart => protocol::Arrival::Apart,
         },
         arrival_by: match scholar.arrival_by {
             Some(by) => Some(addresses::actor_address(db, Some(by))?),

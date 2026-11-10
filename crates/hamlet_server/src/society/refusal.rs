@@ -51,6 +51,10 @@ pub(crate) enum Refusal {
     ScholarLiving { name: String },
     #[error("the scholar `{name}` was erased")]
     ScholarErased { name: String },
+    #[error(
+        "`{name}` is a blank hire's own, not a scholar of the city"
+    )]
+    Apart { name: String },
     #[error("the scholar `{name}` lives in the city already")]
     Housed { name: String },
     #[error("the scholar `{name}` was turned away already")]
@@ -80,8 +84,6 @@ pub(crate) enum Refusal {
     LongCharacter,
     #[error("say what it is for")]
     NoPurpose,
-    #[error("give a reason")]
-    NoReason,
     #[error("only a chief of the hamlet `{hamlet}` may do that")]
     NotChief { hamlet: String },
     #[error("only `{owner}`'s chief may do that")]

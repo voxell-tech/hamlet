@@ -50,14 +50,19 @@ chief's behalf, each waiting for the chief.
 
 ## Hamlets, hires and the tree
 
-`/found <hamlet> [scholar#id] [purpose]` founds a hamlet. Its mayor is a hire
-of an existing scholar, and of a new scholar named Mayor when none is named;
+`/found <hamlet> [scholar#id|blank] [purpose]` founds a hamlet. Its mayor is a
+hire of an existing scholar, or a blank agent named Mayor when none is named;
 with no purpose it is there to run the hamlet. The
 hamlet's id is lowercase letters, digits and hyphens, never reused, even
 after erasure; `hand`, `mayor`, `scholar` and `worker` are not ids.
-`/hire <scholar#id>[@<version>] [in <hamlet>] [under <address>] [purpose]`
+`/hire <scholar#id>[@<version>]|blank [in <hamlet>] [under <address>] [purpose]`
 hires a scholar into the hamlet you are in, up to the hamlet's tier of 50,
-100, 200 or 500 (`/tier`); the same scholar can be hired more than once. A
+100, 200 or 500 (`/tier`); the same scholar can be hired more than once.
+`blank` hires a blank agent instead, as an agent's `hire` with no scholar
+does: a scholar of its own, made for that hire alone, which is not of the
+city, so it has no house, never waits at the harbor and is not listed with
+the city's scholars (`Scholar.arrival` is `apart`). Reasons for a decision
+may always be left out. A
 hire a chief makes without a purpose takes the first line of the first message
 it is given, from the chief or by letter, as its purpose. An agent always says
 what it hires for.

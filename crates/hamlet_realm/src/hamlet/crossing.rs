@@ -5,6 +5,7 @@
 
 use bevy::prelude::*;
 use hamlet_client::realm::{AgentNumber, OfScholar, Scholar, Seen};
+use hamlet_protocol::client::Arrival;
 
 use super::Housed;
 use crate::Clock;
@@ -75,10 +76,15 @@ pub(super) fn board(
         if number.0 == 0 {
             continue;
         }
-        let door = of
-            .and_then(|of| {
-                scholars.iter().find(|scholar| scholar.0.id == of.0)
-            })
+        let scholar = of.and_then(|of| {
+            scholars.iter().find(|scholar| scholar.0.id == of.0)
+        });
+        // A blank hire is of no house in the city: it is at its own
+        // at once.
+        if scholar.is_some_and(|s| s.0.arrival == Arrival::Apart) {
+            continue;
+        }
+        let door = scholar
             .filter(|scholar| scholar.0.left.is_none())
             .and_then(|scholar| scholar.0.house.as_ref())
             .map(|house| houses::door(&land, house));

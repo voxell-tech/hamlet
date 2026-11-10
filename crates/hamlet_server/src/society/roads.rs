@@ -213,9 +213,6 @@ pub(crate) fn lay(
             name: name_of(cx.db, b)?
         });
     }
-    if reason.trim().is_empty() {
-        refuse!(Refusal::NoReason);
-    }
     if way(cx.db, a, b)?.is_some() {
         refuse!(Refusal::RoadExists {
             a: name_of(cx.db, a)?,
@@ -306,9 +303,6 @@ pub(crate) fn take_up(
             b: name_of(cx.db, b)?,
         });
     };
-    if reason.trim().is_empty() {
-        refuse!(Refusal::NoReason);
-    }
     diesel::update(road::table.find(found.id))
         .set((
             road::up_at.eq(cx.at),
@@ -360,9 +354,6 @@ pub(crate) fn agree(
     }
     if one.hamlet == other.hamlet {
         refuse!(Refusal::SameHamlet);
-    }
-    if reason.trim().is_empty() {
-        refuse!(Refusal::NoReason);
     }
     let Some(own) = hires::find(cx.db, mayor)?.filter(|m| {
         m.hamlet == one.hamlet || m.hamlet == other.hamlet

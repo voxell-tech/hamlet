@@ -36,6 +36,12 @@ A scholar working in a hamlet, on a branch of its own and in a lodge, for a
 purpose a chief may leave out. Hires form a tree under the mayor.
 _Avoid_: member, employee, citizen
 
+**Blank agent**:
+A hire, the mayor included, that is not of a scholar of the city: its
+scholar is made for it alone, has no house, never waits at the harbor and
+is not listed with the city's scholars.
+_Avoid_: blank scholar, temp hire
+
 **Address**:
 How a chief or an agent names an agent or a scholar, by ids and never by a
 name: `hand`, `mayor@<hamlet>`, `<hamlet>#<number>` (the mayor is 0),
@@ -44,13 +50,14 @@ first and its name beside it.
 _Avoid_: handle, username
 
 **Name**:
-The words a scholar, a hamlet or a hire is shown by: a scholar's name, a
-hamlet's display name, a hire's nickname. Metadata a chief changes and that
-may repeat; it never finds anything.
+The words a scholar, a hamlet, a hire or a worker is shown by: a scholar's
+name, a hamlet's display name, a hire's or a worker's nickname. Metadata a
+chief changes and that may repeat; it never finds anything. Everyone but the
+Hand has one a chief can change.
 
 **Nickname**:
-What a hire is called in the world, given by a chief, the Hand or a lead
-above it. Its address, `<hamlet>#<number>`, stays the same.
+What a hire or a worker is called in the world, given by a chief, or for a
+hire by the Hand or a lead above it. Its address stays the same.
 _Avoid_: alias
 
 **Mayor**:

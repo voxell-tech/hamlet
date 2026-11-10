@@ -84,7 +84,7 @@ fn a_hire_learns_in_its_lodge_and_takes_in_its_scholar() {
                 hires::Spec {
                     hamlet: HamletId("docs".into()),
                     parent: Some(mayor.agent),
-                    hiring: hires::Hiring::New {
+                    hiring: hires::Hiring::Blank {
                         name: "scout".into(),
                         character: String::new(),
                     },
@@ -123,7 +123,7 @@ fn a_merge_keeps_both_sides_learning_and_a_split_takes_it_out() {
                 hires::Spec {
                     hamlet: docs.clone(),
                     parent: Some(mayor.agent),
-                    hiring: hires::Hiring::New {
+                    hiring: hires::Hiring::Blank {
                         name: "scout".into(),
                         character: String::new(),
                     },

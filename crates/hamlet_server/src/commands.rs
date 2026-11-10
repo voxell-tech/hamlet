@@ -16,7 +16,7 @@ use crate::society::agents::{self, AgentKind, Effort, EndHow};
 use crate::society::hamlets::{self, Founding, Mode};
 use crate::society::hires::{self, Hiring, Spec};
 use crate::society::refusal::Refusal;
-use crate::society::{authority, city, record, roads};
+use crate::society::{authority, city, record, roads, workers};
 use crate::spend;
 
 /// A command a chief can type: its name, how it is written, and what
@@ -27,8 +27,9 @@ struct Command {
     does: &'static str,
 }
 
-/// The name of the scholar made for a mayor when `/found` names none.
-const MAYOR: &str = "Mayor";
+/// The word `/found` and `/hire` take in place of a scholar for a
+/// blank agent, which is not a scholar of the city.
+const BLANK: &str = "blank";
 
 /// Whether `word` is a scholar's address, with or without a version.
 fn is_scholar(word: &str) -> bool {
@@ -190,9 +191,9 @@ const TABLE: &[Command] = &[
     },
     Command {
         name: "found",
-        usage: "/found <hamlet> [scholar#id] [purpose]",
-        does: "Found a hamlet under a scholar as its mayor, a new \
-               scholar named Mayor if none is given",
+        usage: "/found <hamlet> [scholar#id|blank] [purpose]",
+        does: "Found a hamlet under a scholar as its mayor, or a \
+               blank agent named Mayor if none is given",
     },
     Command {
         name: "name-hamlet",
@@ -226,18 +227,19 @@ const TABLE: &[Command] = &[
     },
     Command {
         name: "mayor",
-        usage: "/mayor <address> <reason>",
+        usage: "/mayor <address> [reason]",
         does: "Give this hamlet's office to a hire",
     },
     Command {
         name: "hire",
-        usage: "/hire <scholar#id>[@<version>] [in <hamlet>] [under \
-                <address>] [purpose]",
-        does: "Hire a scholar into this hamlet",
+        usage: "/hire <scholar#id>[@<version>]|blank [in <hamlet>] \
+                [under <address>] [purpose]",
+        does: "Hire a scholar into this hamlet, or a blank agent \
+               that is not a scholar of the city",
     },
     Command {
         name: "end",
-        usage: "/end <address> <reason>",
+        usage: "/end <address> [reason]",
         does: "End a hire",
     },
     Command {
@@ -274,8 +276,8 @@ const TABLE: &[Command] = &[
     Command {
         name: "nickname",
         usage: "/nickname <address> [nickname]",
-        does: "Call a hire something in the world, or by its name \
-               again",
+        does: "Call a hire or a worker something in the world, or \
+               by its name again",
     },
     Command {
         name: "tools",
@@ -289,12 +291,12 @@ const TABLE: &[Command] = &[
     },
     Command {
         name: "road",
-        usage: "/road <address> <address> <reason>",
+        usage: "/road <address> <address> [reason]",
         does: "Lay a road between two hires",
     },
     Command {
         name: "unroad",
-        usage: "/unroad <address> <address> <reason>",
+        usage: "/unroad <address> <address> [reason]",
         does: "Take up a road",
     },
     Command {
@@ -340,7 +342,7 @@ const TABLE: &[Command] = &[
     },
     Command {
         name: "remove-scholar",
-        usage: "/remove-scholar <scholar#id> <reason>",
+        usage: "/remove-scholar <scholar#id> [reason]",
         does: "Archive a scholar and end its hires",
     },
     Command {
@@ -556,26 +558,24 @@ impl Core {
                     return Ok(Err(usage(name)));
                 };
                 let id = HamletId((*id).to_owned());
-                // A mayor not given is a new scholar named Mayor, and
+                // A mayor not given is a blank agent named Mayor, and
                 // one given no purpose is there to run the hamlet.
-                let (mayor, purpose_at) =
-                    match words.get(1).filter(|w| is_scholar(w)) {
-                        Some(scholar) => {
-                            match self.hiring(scholar, chief)? {
-                                Ok(hiring) => (hiring, 2),
-                                Err(refusal) => {
-                                    return Ok(Err(refusal));
-                                }
+                let blank = || Hiring::Blank {
+                    name: String::new(),
+                    character: String::new(),
+                };
+                let (mayor, purpose_at) = match words.get(1) {
+                    Some(&BLANK) => (blank(), 2),
+                    Some(scholar) if is_scholar(scholar) => {
+                        match self.hiring(scholar, chief)? {
+                            Ok(hiring) => (hiring, 2),
+                            Err(refusal) => {
+                                return Ok(Err(refusal));
                             }
                         }
-                        None => (
-                            Hiring::New {
-                                name: MAYOR.into(),
-                                character: String::new(),
-                            },
-                            1,
-                        ),
-                    };
+                    }
+                    _ => (blank(), 1),
+                };
                 let purpose = match tail(purpose_at) {
                     given if !given.trim().is_empty() => given,
                     _ => format!("Mayor of {id}."),
@@ -943,7 +943,7 @@ impl Core {
                 let Some(text) = words.first() else {
                     return Ok(Err(usage(name)));
                 };
-                let hire = match self.resolve(
+                let agent = match self.resolve(
                     text,
                     here.as_ref(),
                     Reach::Living,
@@ -951,7 +951,18 @@ impl Core {
                     Ok(found) => found,
                     Err(refusal) => return Ok(Err(refusal)),
                 };
-                if let Err(refusal) = self.leads(hire)? {
+                // A worker is named by whoever may steer it, a hire
+                // by its leads.
+                let worker = {
+                    let db = self.realm.store().connection();
+                    agents::get(db, agent)?.kind == AgentKind::Worker
+                };
+                let allowed = if worker {
+                    self.steers(agent)?
+                } else {
+                    self.leads(agent)?
+                };
+                if let Err(refusal) = allowed {
                     return Ok(Err(refusal));
                 }
                 let nickname = tail(1);
@@ -959,12 +970,20 @@ impl Core {
                     (!nickname.is_empty()).then_some(nickname);
                 let done = self
                     .attempt(by, |cx, _| {
-                        hires::set_nickname(
-                            cx,
-                            hire,
-                            given.as_deref(),
-                            "",
-                        )
+                        if worker {
+                            workers::set_nickname(
+                                cx,
+                                agent,
+                                given.as_deref(),
+                            )
+                        } else {
+                            hires::set_nickname(
+                                cx,
+                                agent,
+                                given.as_deref(),
+                                "",
+                            )
+                        }
                     })
                     .await?;
                 Ok(done.map(|()| match &given {
@@ -1194,6 +1213,7 @@ impl Core {
                 let db = self.realm.store().connection();
                 let list = city::all(db)?
                     .into_iter()
+                    .filter(|s| s.apart().is_none())
                     .map(|s| {
                         format!(
                             "- {}{}",
@@ -1420,9 +1440,16 @@ impl Core {
                 }
             }
         };
-        let hiring = match self.hiring(scholar, chief)? {
-            Ok(hiring) => hiring,
-            Err(refusal) => return Ok(Err(refusal)),
+        let hiring = if *scholar == BLANK {
+            Hiring::Blank {
+                name: String::new(),
+                character: String::new(),
+            }
+        } else {
+            match self.hiring(scholar, chief)? {
+                Ok(hiring) => hiring,
+                Err(refusal) => return Ok(Err(refusal)),
+            }
         };
         let done = self
             .attempt(Actor::Chief(chief), |cx, _| {

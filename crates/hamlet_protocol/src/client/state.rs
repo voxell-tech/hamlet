@@ -232,8 +232,9 @@ pub struct Agent {
     pub model: String,
     /// Its address: `hand`, `hamlet#number` or `worker#id`.
     pub name: String,
-    /// What a hire is called in the world, given by a chief or an
-    /// agent above it; none while it goes by its scholar's name.
+    /// What a hire or a worker is called in the world, given by a
+    /// chief or an agent above it; none while a hire goes by its
+    /// scholar's name and a worker by its address.
     #[serde(deserialize_with = "Option::deserialize")]
     pub nickname: Option<String>,
     /// A hire's number in its hamlet.
@@ -345,6 +346,10 @@ pub enum Arrival {
     /// it in.
     #[serde(rename = "turned")]
     Turned,
+    /// It is a blank hire's own: not of the city, with no house, and
+    /// never at the harbor.
+    #[serde(rename = "apart")]
+    Apart,
 }
 
 /// A house's spot from the city's middle, and the way its door faces,

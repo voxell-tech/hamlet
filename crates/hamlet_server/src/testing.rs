@@ -93,7 +93,7 @@ impl Realm {
                 Founding {
                     id,
                     chief,
-                    mayor: Hiring::New {
+                    mayor: Hiring::Blank {
                         name: mayor,
                         character: "Careful.".into(),
                     },

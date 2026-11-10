@@ -8,7 +8,7 @@ use anyhow::Result;
 use diesel::prelude::*;
 use hamlet_store::Db;
 use hamlet_store::ids::{Actor, AgentId, HamletId, ScholarId};
-use hamlet_store::schema::{agent, hire, scholar};
+use hamlet_store::schema::{agent, hire, scholar, worker};
 
 use super::agents::{self, AgentKind};
 use super::names::check_hamlet_id;
@@ -205,10 +205,19 @@ pub(crate) fn address_of(db: &mut Db, id: AgentId) -> Result<String> {
 
 /// How `id` is shown to chiefs and agents: its address, and beside it
 /// the nickname of a hire, or else its scholar's name, as in
-/// `orchard#3 (Mira)`. An erased hire shows its address only.
+/// `orchard#3 (Mira)`, or a worker's nickname. An erased hire shows
+/// its address only.
 pub(crate) fn name_of(db: &mut Db, id: AgentId) -> Result<String> {
     let address = address_of(db, id)?;
     let found = agents::get(db, id)?;
+    if found.kind == AgentKind::Worker
+        && let Some(nickname) = worker::table
+            .find(id)
+            .select(worker::nickname)
+            .first::<Option<String>>(db)?
+    {
+        return Ok(format!("{address} ({nickname})"));
+    }
     if found.kind != AgentKind::Hire || found.erased {
         return Ok(address);
     }
