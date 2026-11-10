@@ -28,11 +28,12 @@ use hamlet_client::realm::{
 use hamlet_client::waits::Waiting;
 use hamlet_protocol::client as protocol;
 use hamlet_realm::pick::{Thing, select};
+use hamlet_ui::kinds::card;
 use hamlet_ui::styles::{
     Fills, ICON, Looks, Tipped, action, bare, card_name, choice,
-    close, crumb, crumb_here, crumb_slash, crumbs, filling, framed,
-    hairline, more_button, note, page_head, scroll_area,
-    sentence_title, status_icon, title, transparent,
+    close, crumb, crumb_here, crumb_slash, crumbs, filling, hairline,
+    more_button, note, page_head, scroll_area, sentence_title,
+    status_icon, title, transparent,
 };
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::edges::faded;
@@ -934,7 +935,7 @@ fn prompt_sections(
                 .overflow(Overflow::scroll_x())
                 .width(percent(100.0)),
         );
-        column((framed((page,)),))
+        column((card((page,)),))
             .padding(UiRect::right(px(12.0)))
             .min_width(px(0.0))
     })

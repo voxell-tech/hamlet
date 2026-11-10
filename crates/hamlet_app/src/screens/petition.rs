@@ -27,8 +27,9 @@ use hamlet_protocol::client::{
     Change, Lasting, Questions, WaitDanger, WaitDetail,
 };
 use hamlet_realm::needs::{TagAnswered, TagOpened};
+use hamlet_ui::kinds::card;
 use hamlet_ui::styles::{
-    Looks, buttons, command_block, framed, marked, note, status_mark,
+    Looks, buttons, command_block, marked, note, status_mark,
 };
 use hamlet_ui::theme::StatusKind;
 use hamlet_ui::widgets::effects::Variant;
@@ -416,7 +417,7 @@ fn brief(need: &Need, asked: &Questions) -> AnyView {
             .on_activate(move |world| {
                 world.resource_mut::<Unfolded>().0.insert(wait);
             });
-        framed((
+        card((
             head,
             row((
                 row((label(first).size(cx.theme().text.heading),))
@@ -509,7 +510,7 @@ pub(crate) fn strip(need: &Need) -> AnyView {
             }
             None => frame().boxed(),
         };
-        cx.build(framed((head, line, about, answers)))
+        cx.build(card((head, line, about, answers)))
     })
 }
 

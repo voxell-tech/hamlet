@@ -17,7 +17,7 @@ use bevy_fynix::{
     Bevy, Focused, Prop, ScopedExt, ViewExt, ViewSeq, Visual, style,
 };
 
-use crate::kinds::{card, chip};
+use crate::kinds::chip;
 use crate::theme::{HamletTheme, StatusKind, TextSizes};
 use crate::widgets::edges::faded;
 use crate::widgets::effects::{Underglow, Variant};
@@ -390,10 +390,6 @@ pub fn inset(content: impl View) -> impl View {
     })
 }
 
-fn code_chip(words: impl View + Send + Sync + 'static) -> impl View {
-    chip((words,)).min_width(px(0.0))
-}
-
 /// `line` on one line, each command in it, between backticks, on a
 /// chip, cut short with an ellipsis where it does not fit. A line
 /// with none wraps as words do.
@@ -407,10 +403,9 @@ pub fn quoted(line: &str) -> AnyView {
         .filter(|(_, part)| !part.trim().is_empty())
         .map(|(at, part)| {
             if at % 2 == 1 {
-                code_chip(
-                    one_line(label(part.to_string()))
-                        .tagged(MonoText),
-                )
+                chip((one_line(label(part.to_string()))
+                    .tagged(MonoText),))
+                .min_width(px(0.0))
                 .boxed()
             } else {
                 label(part.trim().to_string()).wrap(false).boxed()
@@ -530,13 +525,6 @@ pub fn scroll_area(
     faded(with_cx(move |cx| {
         scroll(children).gap(cx.theme().space.gap).fills_height()
     }))
-}
-
-/// `content` in a card: a shade above the panel, in a frame.
-pub fn framed(
-    content: impl ViewSeq<Bevy, HamletTheme> + 'static,
-) -> impl View {
-    card(content)
 }
 
 /// A button with `text`.

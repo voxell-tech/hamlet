@@ -29,15 +29,15 @@ use hamlet_realm::harbor::glide_to_other_pier;
 use hamlet_realm::pick::{Selected, Thing, select};
 use hamlet_ui::kinds::tile;
 use hamlet_ui::styles::{
-    Fills, ICON, action, bad_action, bare, buttons, close, framed,
-    group, note, raised, scroll_area, small_rules, title,
+    Fills, ICON, action, bad_action, bare, buttons, close, group,
+    note, raised, scroll_area, small_rules, title,
 };
 use hamlet_ui::theme::StatusKind;
 use hamlet_ui::widgets::effects::lit_panels;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::widgets::platform::{DisplayText, Wraps};
 use hamlet_ui::widgets::tabs;
-use hamlet_ui::{AnyView, Cx, View, rules, with_cx};
+use hamlet_ui::{AnyView, Cx, View, kinds, rules, with_cx};
 
 use self::hamlet::budget;
 pub use self::hamlet::{Naming, Page, hamlet};
@@ -611,7 +611,7 @@ fn closed() -> AnyView {
                         .boxed(),
                     );
                 }
-                parts.push(framed(card).boxed());
+                parts.push(kinds::card(card).boxed());
             }
             group(parts).boxed()
         },
