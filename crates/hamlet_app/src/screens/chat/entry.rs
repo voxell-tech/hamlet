@@ -12,7 +12,7 @@ use bevy_fynix::{ScopedExt, ViewExt, component, keyed, resource};
 use hamlet_client::chats::{Chat, Entry, Transcript};
 use hamlet_client::messages::ChiefMessage;
 use hamlet_client::realm::shown_of;
-use hamlet_ui::kinds::card;
+use hamlet_ui::kinds::{card, tile};
 use hamlet_ui::markdown::document;
 use hamlet_ui::styles::{
     note, small_rules, status_mark, tinted_action,
@@ -249,8 +249,7 @@ fn tool_row(session: Entity, id: String) -> impl View {
 /// Why a tool call failed, in a red block under its request.
 fn failed(why: String) -> impl View {
     with_cx(move |cx| {
-        let theme = cx.theme();
-        row((
+        tile((row((
             status_mark(Glyph::Cross, StatusKind::Danger, 16.0),
             row((label(why.clone())
                 .tone(Tone::Critical)
@@ -258,14 +257,10 @@ fn failed(why: String) -> impl View {
             .grow(1.0)
             .min_width(px(0.0)),
         ))
-        .gap(theme.space.gap)
-        .align(AlignItems::Center)
+        .gap(cx.theme().space.gap)
+        .align(AlignItems::Center),))
+        .status(StatusKind::Danger)
         .width(percent(100.0))
-        .padding(UiRect::axes(px(8.0), px(4.0)))
-        .fill(theme.palette.danger)
-        .border(theme.space.border)
-        .border_color(theme.palette.danger_border)
-        .radius(theme.space.round_card)
     })
 }
 

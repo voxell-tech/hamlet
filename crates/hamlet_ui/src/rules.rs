@@ -10,7 +10,7 @@ use bevy::ui::{FlexDirection, UiRect, px};
 use bevy_fynix::ScopedExt;
 use bevy_fynix::views::{Frame, frame};
 
-use crate::kinds::{Card, Chip, Kind, Look, Tile};
+use crate::kinds::{Card, Chip, Inset, Kind, Look, Tile};
 use crate::theme::{HamletTheme, StatusKind};
 use crate::{Cx, View};
 
@@ -48,6 +48,14 @@ impl Kind for Chip {
     }
 }
 
+impl Kind for Inset {
+    const DIRECTION: FlexDirection = FlexDirection::Column;
+
+    fn status(kind: StatusKind, theme: &HamletTheme) -> Frame {
+        frame().fill(theme.palette.status.get(kind).fill)
+    }
+}
+
 /// The rules every panel is built under.
 pub fn root(cx: &mut Cx) {
     cx.set::<Look<Card>>(|look, t| {
@@ -81,6 +89,16 @@ pub fn root(cx: &mut Cx) {
             .fill(t.palette.code)
             .border(space.border)
             .border_color(t.palette.gold_6)
+        })
+    });
+    cx.set::<Look<Inset>>(|look, t| {
+        let space = &t.space;
+        look.frame(|f| {
+            f.padding(UiRect::axes(px(space.section), px(space.gap)))
+                .gap(space.gap / 2.0)
+                .min_width(px(0.0))
+                .radius(space.round)
+                .fill(t.palette.code)
         })
     });
 }

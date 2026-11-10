@@ -17,7 +17,7 @@ use bevy_fynix::{
     Bevy, Focused, Prop, ScopedExt, ViewExt, ViewSeq, Visual, style,
 };
 
-use crate::kinds::chip;
+use crate::kinds::{chip, inset};
 use crate::theme::{HamletTheme, StatusKind, TextSizes};
 use crate::widgets::edges::faded;
 use crate::widgets::effects::{Underglow, Variant};
@@ -374,20 +374,7 @@ pub fn list(rows: Vec<AnyView>) -> impl View {
 /// A command, in monospace at the body size on a block of code the
 /// width of its column, wrapping where it is long.
 pub fn command_block(text: impl Into<Prop<String>>) -> impl View {
-    inset(label(text).tagged(MonoText))
-}
-
-/// `content` on a block of code the width of its column: what a
-/// file or a command says, set apart from the panel's own words.
-pub fn inset(content: impl View) -> impl View {
-    with_cx(move |cx| {
-        let theme = cx.theme();
-        column((content,))
-            .min_width(px(0.0))
-            .padding(UiRect::axes(px(12.0), px(8.0)))
-            .fill(theme.palette.code)
-            .radius(theme.space.round)
-    })
+    inset((label(text).tagged(MonoText),))
 }
 
 /// `line` on one line, each command in it, between backticks, on a

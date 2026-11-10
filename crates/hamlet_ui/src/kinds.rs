@@ -22,6 +22,10 @@ pub struct Tile;
 /// A small plate around a word or two: code, a tag, a key.
 pub struct Chip;
 
+/// A block set into a panel with no edge: code, a command, a change,
+/// a picture's place.
+pub struct Inset;
+
 /// A kind of box, and how a status changes its look.
 pub trait Kind: Send + Sync + 'static {
     /// The way its children are laid out.
@@ -109,5 +113,10 @@ pub fn tile<C>(children: C) -> Boxed<Tile, C> {
 
 /// A [`Chip`] of `children`, side by side.
 pub fn chip<C>(children: C) -> Boxed<Chip, C> {
+    Boxed::new(children)
+}
+
+/// An [`Inset`] of `children`, one under another.
+pub fn inset<C>(children: C) -> Boxed<Inset, C> {
     Boxed::new(children)
 }

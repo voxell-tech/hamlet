@@ -23,7 +23,7 @@ use hamlet_ui::styles::{
 use hamlet_ui::theme::Palette;
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
-use hamlet_ui::{AnyView, Cx, View, built, with_cx};
+use hamlet_ui::{AnyView, Cx, View, built, kinds, rules, with_cx};
 
 use super::{NOTHING_LOCAL, Step, Welcome, close, go, look, pick};
 use crate::models::{
@@ -493,21 +493,20 @@ fn over(cx: &Cx, page: AnyView, dims: bool) -> impl View + use<> {
         true => theme.palette.shadow.with_alpha(DIM),
         false => theme.background(),
     };
-    let card = column((scroll_area((column((page,))
+    // Its room is inside what scrolls, so the card itself has none.
+    let card = kinds::card((scroll_area((column((page,))
         .gap(0.0)
         .padding(UiRect::all(px(space.overlay_padding))),)),))
     .width(percent(100.0))
     .max_height(percent(100.0))
+    .padding(UiRect::all(px(0.0)))
     .gap(0.0)
-    .fill(theme.palette.card)
-    .border(space.border)
-    .border_color(theme.palette.border)
-    .radius(space.soft)
     .tagged(theme.shadow())
     .tagged(match dims {
         true => lamp(&theme.palette),
         false => BackgroundGradient(Vec::new()),
-    });
+    })
+    .rules(rules::floating);
     let hung = column((card,))
         .width(percent(100.0))
         .max_width(px(space.overlay_width))

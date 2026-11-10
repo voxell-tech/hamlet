@@ -29,6 +29,7 @@ use super::{
     Align, Anchor, Area, Block, Kind, Marker, PathLinks, PictureView,
     Row, Span, Style, Target,
 };
+use crate::kinds::inset;
 use crate::styles::{Fills, bare, small_rules};
 use crate::theme::Palette;
 use crate::widgets::platform::{Mono, MonoText};
@@ -280,12 +281,7 @@ fn code_view(cx: &Cx, lang: &str, text: &str) -> impl View {
         );
     }
     parts.push(body);
-    column(parts)
-        .gap(4.0)
-        .padding(UiRect::axes(px(12.0), px(8.0)))
-        .min_width(px(0.0))
-        .fill(theme.palette.code)
-        .radius(theme.space.round)
+    inset(parts)
 }
 
 /// Columns that share the width between them and may shrink to

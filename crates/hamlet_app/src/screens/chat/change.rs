@@ -16,6 +16,7 @@ use hamlet_client::chats::{Entry, Transcript};
 use hamlet_protocol::client::{
     Change, ChangeLines as Line, ChangeLinesMark as Mark,
 };
+use hamlet_ui::kinds::inset;
 use hamlet_ui::markdown::Area;
 use hamlet_ui::styles::{bare, note, small_rules};
 use hamlet_ui::widgets::icons::{Glyph, glyph};
@@ -146,12 +147,10 @@ const DOWN: f32 = 8.0;
 /// The lines of `change` on their plate, the first `most` of them,
 /// with a count of the rest.
 fn plate(
-    cx: &Cx,
     change: &Change,
     most: usize,
     more: Option<AnyView>,
 ) -> impl View {
-    let theme = cx.theme();
     let shown = &change.lines[..most.min(change.lines.len())];
     let mut after = Vec::from_iter(more);
     // Past what a transcript keeps of a change.
@@ -161,14 +160,8 @@ fn plate(
         after.push(note(format!("... {lost} more lines")).boxed());
     }
     let after = column(after).padding(UiRect::horizontal(px(PAD)));
-    column((block(shown), after))
-        .gap(4.0)
-        .padding(UiRect::vertical(px(DOWN)))
-        .min_width(px(0.0))
-        .fill(theme.palette.code)
-        .border(theme.space.border)
-        .border_color(theme.palette.gold_6)
-        .radius(theme.space.round)
+    // Its lines run to its sides, so their tints do too.
+    inset((block(shown), after)).padding(UiRect::vertical(px(DOWN)))
 }
 
 /// The lines a change adds in green and takes out in red, its count
@@ -368,7 +361,7 @@ fn lines_view(
                 .boxed()
         });
         let shown = if whole { usize::MAX } else { most };
-        let plate = plate(cx, &change, shown, more);
+        let plate = plate(&change, shown, more);
         cx.build(plate)
     })
 }
