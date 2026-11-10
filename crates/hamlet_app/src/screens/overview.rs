@@ -287,8 +287,11 @@ fn figure(
         .gap(space.gap / 2.0)
         // Less room at its sides than a card has, so that five fit a
         // narrow page.
-        .padding(UiRect::axes(px(8.0), px(space.card_padding_y)))
-        .radius(space.round)
+        .padding(UiRect::axes(
+            px(space.gap),
+            px(space.card_padding_y),
+        ))
+        .radius(space.round_card)
         .fill(theme.palette.card)
         // As wide as its words, and the row's room left shared out.
         .grow(1.0)

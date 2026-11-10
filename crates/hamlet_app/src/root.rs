@@ -280,7 +280,7 @@ pub fn connection_test() -> impl View {
             ))
             .gap(12.0)
             .align(AlignItems::Center)
-            .padding(UiRect::axes(px(16.0), px(5.0))),
+            .padding(UiRect::axes(px(16.0), px(4.0))),
         )
     })
 }

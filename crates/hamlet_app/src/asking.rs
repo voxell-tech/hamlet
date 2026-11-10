@@ -517,11 +517,14 @@ pub fn in_chat() -> impl View {
             ))
             .gap(space.gap)
             .align(AlignItems::Center)
-            .padding(UiRect::axes(px(space.card_padding_x), px(6.0)))
+            .padding(UiRect::axes(
+                px(space.card_padding_x),
+                px(space.card_padding_y),
+            ))
             .margin(UiRect::bottom(px(space.gap)))
             .border(space.border)
             .border_color(palette.gold_5)
-            .radius(space.round)
+            .radius(space.round_card)
             .fill(palette.card)
             .boxed()
         })

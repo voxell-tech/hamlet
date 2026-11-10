@@ -28,7 +28,7 @@ const MARK: f32 = 16.0;
 
 /// The room between a row's edge and its mark, and between its parts.
 const PAD: f32 = 8.0;
-const GAP: f32 = 10.0;
+const GAP: f32 = 8.0;
 
 /// A model as a row shows it.
 pub(crate) struct ModelRow {
@@ -92,11 +92,11 @@ pub(crate) fn tag(text: &'static str) -> AnyView {
             .tone(Tone::Dim)
             .wrap(false)
             .rules(small_rules),))
-        .padding(UiRect::axes(px(5.0), px(0.0)))
+        .padding(UiRect::axes(px(6.0), px(0.0)))
         .shrink(0.0)
         .border(theme.space.border)
         .border_color(theme.palette.gold_6)
-        .radius(theme.space.round)
+        .radius(theme.space.round_small)
     })
     .boxed()
 }
@@ -222,7 +222,7 @@ pub(crate) fn model_row(
     .align(AlignItems::Center)
     .rules(note_rules);
     let words =
-        column((title, under)).gap(1.0).grow(1.0).min_width(px(0.0));
+        column((title, under)).gap(2.0).grow(1.0).min_width(px(0.0));
     let lead = match detail {
         Detail::Source => mark(provider_of(&name), MARK),
         Detail::Id => frame().boxed(),
@@ -233,7 +233,7 @@ pub(crate) fn model_row(
             .align(AlignItems::Center)
             .width(percent(100.0)),
     )
-    .padding(UiRect::axes(px(PAD), px(5.0)))
+    .padding(UiRect::axes(px(PAD), px(6.0)))
     .rules(row_look)
     .on_activate(pick)
     .boxed()

@@ -520,7 +520,7 @@ fn card(toast: &Toast) -> AnyView {
             .fill(theme.palette.card)
             .border(space.border)
             .border_color(edge)
-            .radius(space.round)
+            .radius(space.soft)
             .padding(UiRect::axes(
                 px(space.card_padding_x),
                 px(space.card_padding_y),

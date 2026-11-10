@@ -73,8 +73,8 @@ const LIST: f32 = 230.0;
 const LEVELS: f32 = 150.0;
 
 /// The room between the popup's parts, and about them.
-const GAP: f32 = 10.0;
-const PADDING: f32 = 14.0;
+const GAP: f32 = 8.0;
+const PADDING: f32 = 16.0;
 
 /// The popup's height, whatever it shows, so nothing in it moves
 /// under the pointer as it changes.
@@ -851,10 +851,10 @@ fn key_cap(at: usize) -> AnyView {
             .tone(Tone::Faint)
             .wrap(false)
             .rules(small_rules),))
-        .padding(UiRect::axes(px(4.0), px(1.0)))
+        .padding(UiRect::axes(px(4.0), px(2.0)))
         .border(theme.space.border)
         .border_color(theme.palette.gold_6)
-        .radius(3.0)
+        .radius(theme.space.round_small)
     })
     .boxed()
 }
@@ -997,7 +997,7 @@ fn reasoning(agent: Entity) -> impl View {
                 )))
                 .rules(hamlet_ui::styles::note_rules),
             ))
-            .gap(1.0)
+            .gap(2.0)
             .padding(UiRect::axes(px(8.0), px(4.0)));
             let efforts = match card {
                 Some(card) if !card.efforts.is_empty() => {

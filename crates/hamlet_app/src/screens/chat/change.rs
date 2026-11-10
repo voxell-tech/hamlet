@@ -140,7 +140,7 @@ fn block(lines: &[Line]) -> AnyView {
 const SIZE: f32 = 15.0;
 
 /// The room between a change's plate and its words, across and down.
-const PAD: f32 = 10.0;
+const PAD: f32 = 12.0;
 const DOWN: f32 = 8.0;
 
 /// The lines of `change` on their plate, the first `most` of them,
@@ -289,7 +289,7 @@ pub(crate) fn change_view(
     if underway == Underway::Running {
         parts.push(status(session, id).boxed());
     }
-    let head = row(parts).gap(10.0).align(AlignItems::Center);
+    let head = row(parts).gap(8.0).align(AlignItems::Center);
 
     let mut moved = component::<Transcript, _>(session, |_| ());
     let mut turned = resource::<Changes, _>(|_| ());

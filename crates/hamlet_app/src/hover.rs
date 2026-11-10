@@ -621,8 +621,11 @@ pub fn view() -> impl View {
             line(|card| &card.account, Tone::Dim),
             line(|card| &card.hint, Tone::Dim),
         ))
-        .gap(3.0)
-        .padding(UiRect::axes(px(12.0), px(9.0)))
+        .gap(2.0)
+        .padding(UiRect::axes(
+            px(cx.theme().space.card_padding_x),
+            px(cx.theme().space.card_padding_y),
+        ))
         .max_width(px(280.0))
         .border(cx.theme().space.border)
         .border_color(cx.theme().palette.gold_5)

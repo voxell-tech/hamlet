@@ -383,7 +383,7 @@ pub fn inset(content: impl View) -> impl View {
         let theme = cx.theme();
         column((content,))
             .min_width(px(0.0))
-            .padding(UiRect::axes(px(10.0), px(8.0)))
+            .padding(UiRect::axes(px(12.0), px(8.0)))
             .fill(theme.palette.code)
             .radius(theme.space.round)
     })
@@ -394,11 +394,11 @@ fn chip(words: impl View + Send + Sync + 'static) -> impl View {
         let theme = cx.theme();
         row((words,))
             .min_width(px(0.0))
-            .padding(UiRect::axes(px(5.0), px(0.0)))
+            .padding(UiRect::axes(px(6.0), px(0.0)))
             .fill(theme.palette.code)
             .border(theme.space.border)
             .border_color(theme.palette.gold_6)
-            .radius(theme.space.round)
+            .radius(theme.space.round_small)
     })
 }
 
@@ -555,7 +555,7 @@ pub fn framed(
             ))
             .border(space.border)
             .border_color(theme.palette.gold_6)
-            .radius(space.round)
+            .radius(space.round_card)
             .fill(theme.palette.card)
     })
 }
@@ -831,10 +831,10 @@ pub fn reference(text: impl Into<Prop<String>>) -> impl View {
             .tone(Tone::Reference)
             .wrap(false)
             .tagged(MonoText),))
-        .padding(UiRect::axes(px(6.0), px(1.0)))
+        .padding(UiRect::axes(px(6.0), px(2.0)))
         .shrink(0.0)
         .fill(theme.palette.status.info.fill)
-        .radius(theme.space.round)
+        .radius(theme.space.round_small)
     })
 }
 
@@ -1440,7 +1440,7 @@ pub fn card_choice(
                     } else {
                         t.palette.card
                     })
-                    .radius(t.space.round)
+                    .radius(t.space.round_card)
                     .justify(JustifyContent::FlexStart)
                     .align(AlignItems::FlexStart)
                     .padding(UiRect::axes(
@@ -1512,8 +1512,9 @@ pub fn radio(on: bool) -> impl View {
 }
 
 /// A word that marks a state, such as "Edited" or "Default": small
-/// dim letters on a neutral plate with no border, so it does not read
-/// as a button. The accent is for what is picked, not for a state.
+/// dim letters in a neutral capsule with no border, so it does not
+/// read as a button. The accent is for what is picked, not for a
+/// state.
 pub fn pill(text: impl Into<Prop<String>>) -> impl View {
     let text = text.into();
     with_cx(move |cx| {
@@ -1526,6 +1527,6 @@ pub fn pill(text: impl Into<Prop<String>>) -> impl View {
         .padding(UiRect::axes(px(8.0), px(2.0)))
         .shrink(0.0)
         .fill(theme.palette.button_hover)
-        .radius(theme.space.round)
+        .radius(theme.text.small + 4.0)
     })
 }

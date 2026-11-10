@@ -146,7 +146,12 @@ fn web_chip(
             })
         }
     });
-    chip(cx, row(parts).gap(8.0).align(AlignItems::Center))
+    chip(
+        cx,
+        row(parts)
+            .gap(cx.theme().space.gap)
+            .align(AlignItems::Center),
+    )
 }
 
 /// `content` on a chip the window draws in a reply, set apart from

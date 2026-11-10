@@ -136,7 +136,7 @@ pub fn card(
                 px(space.card_padding_x),
                 px(space.card_padding_y),
             ))
-            .radius(space.round)
+            .radius(space.round_card)
             .fill(cx.theme().palette.card)
             .appear(hidden)
             .transition(Motion::Expand),

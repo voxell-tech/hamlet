@@ -282,7 +282,7 @@ fn code_view(cx: &Cx, lang: &str, text: &str) -> impl View {
     parts.push(body);
     column(parts)
         .gap(4.0)
-        .padding(UiRect::axes(px(10.0), px(8.0)))
+        .padding(UiRect::axes(px(12.0), px(8.0)))
         .min_width(px(0.0))
         .fill(theme.palette.code)
         .radius(theme.space.round)
@@ -333,7 +333,7 @@ fn table_view(
             };
             cells.push(
                 column((rich(spans, ink),))
-                    .padding(UiRect::axes(px(10.0), px(5.0)))
+                    .padding(UiRect::axes(px(12.0), px(6.0)))
                     .min_width(px(0.0))
                     .align(side)
                     .fill(fill(palette))
@@ -419,7 +419,7 @@ fn block_view(
         cells.push(
             frame()
                 .width(px(3.0))
-                .margin(UiRect::right(px(10.0)))
+                .margin(UiRect::right(px(8.0)))
                 .shrink(0.0)
                 .fill(cx.theme().palette.gold_5)
                 .boxed(),

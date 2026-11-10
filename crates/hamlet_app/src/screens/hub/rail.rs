@@ -93,21 +93,22 @@ const STEP_IN: f32 = 18.0;
 const DEEPEST: u8 = 6;
 
 /// The room between an elbow's end and the row it leads to.
-const GAP: f32 = 3.0;
+const GAP: f32 = 2.0;
 
-/// The room inside a row's ends.
-const ROW_INSET: f32 = 6.0;
+/// The room inside a row's ends, and over and under its words.
+const ROW_INSET: f32 = 8.0;
+const ROW_DOWN: f32 = 6.0;
 
 /// The room over a section's header inside its block.
 const BLOCK_PAD: f32 = 4.0;
 
 /// The space over each part of the rail: what waits, the tabs and
 /// each hamlet, so that the parts stand apart and evenly.
-const PART_GAP: f32 = 20.0;
+const PART_GAP: f32 = 16.0;
 
 /// The space over the first part under the tabs, less than
 /// [`PART_GAP`] by what the search row already leaves under it.
-const UNDER_SEARCH: f32 = 16.0;
+const UNDER_SEARCH: f32 = 12.0;
 
 pub(super) fn plugin(app: &mut App) {
     app.init_resource::<Rail>()
@@ -1344,10 +1345,10 @@ fn row_rules(cx: &mut Cx) {
             f.fill(transparent(t.palette.button))
                 .border(t.space.border)
                 .border_color(transparent(t.palette.accent))
-                .radius(4.0)
+                .radius(t.space.round)
                 .justify(JustifyContent::FlexStart)
                 .align(AlignItems::Stretch)
-                .padding(UiRect::axes(px(ROW_INSET), px(4.0)))
+                .padding(UiRect::axes(px(ROW_INSET), px(ROW_DOWN)))
         })
         .pressed(|s| s.frame(|f, t| f.fill(t.pressed())))
         .transition(Motion::Interact)
@@ -1358,11 +1359,13 @@ fn row_rules(cx: &mut Cx) {
 /// under the pointer: the row's own gradient is its glow, which would
 /// take the wash back.
 fn washed(shown: impl View + 'static, held: bool) -> impl View {
-    row((shown,))
-        .grow(1.0)
-        .min_width(px(0.0))
-        .radius(4.0)
-        .tagged(Wash::new(held, Edge::Left))
+    with_cx(move |cx| {
+        row((shown,))
+            .grow(1.0)
+            .min_width(px(0.0))
+            .radius(cx.theme().space.round)
+            .tagged(Wash::new(held, Edge::Left))
+    })
 }
 
 /// The mark at the end of a row or a header, in its place whether or
@@ -1452,7 +1455,7 @@ fn expanded(line: &Line) -> AnyView {
     let content = column((head, doing))
         .gap(0.0)
         .justify(JustifyContent::Center)
-        .min_height(px(ROW - 8.0))
+        .min_height(px(ROW - 2.0 * ROW_DOWN))
         .width(percent(100.0));
     let address = line.address.clone();
     let shown = washed(
@@ -1512,9 +1515,9 @@ fn tree_lines(line: &Line, one_line: bool) -> Vec<AnyView> {
         |level: usize| level as f32 * STEP_IN + CHEVRON / 2.0 - 0.5;
     let lead = usize::from(line.depth) - 1;
     // Where the elbow meets the row, and where it stops.
-    let elbow = 4.0
+    let elbow = ROW_DOWN
         + if one_line {
-            (ROW - 8.0) / 2.0
+            (ROW - 2.0 * ROW_DOWN) / 2.0
         } else {
             2.0 + ICON / 2.0
         };
@@ -1610,7 +1613,7 @@ fn header(section: &Section, above: f32) -> AnyView {
         ))
         .gap(0.0)
         .align(AlignItems::Center)
-        .padding(UiRect::top(px((above - 4.0).max(0.0))))
+        .padding(UiRect::top(px((above - ROW_DOWN).max(0.0))))
         .width(percent(100.0))
         .boxed(),
         None => row((fold, words))
@@ -1620,7 +1623,7 @@ fn header(section: &Section, above: f32) -> AnyView {
                 px(0.0),
                 px(ROW_INSET),
                 px(above),
-                px(4.0),
+                px(ROW_DOWN),
             ))
             .width(percent(100.0))
             .boxed(),
@@ -1654,11 +1657,13 @@ fn sections_view(sections: &[Section], first_above: f32) -> AnyView {
         };
         block.extend(lines.iter().map(expanded));
         parts.push(
-            column(block)
-                .gap(0.0)
-                .margin(UiRect::top(px(above)))
-                .radius(4.0)
-                .boxed(),
+            with_cx(move |cx| {
+                column(block)
+                    .gap(0.0)
+                    .margin(UiRect::top(px(above)))
+                    .radius(cx.theme().space.round)
+            })
+            .boxed(),
         );
     }
     column(parts).gap(0.0).boxed()

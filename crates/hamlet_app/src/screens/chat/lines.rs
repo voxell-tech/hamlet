@@ -240,11 +240,11 @@ pub(super) fn rows(
 
 /// How far in from a fold's edge the line down from its chevron is,
 /// and how far from that line its steps are.
-const GUIDE: f32 = 5.0;
+const GUIDE: f32 = 4.0;
 
 /// How far in from a fold's edge its chevron is, as a bubble's words
 /// are from its edge.
-pub(super) const INSET: f32 = 10.0;
+pub(super) const INSET: f32 = 12.0;
 
 /// The steps of a turn as one line that opens, as board `B` holds
 /// them.
@@ -902,7 +902,7 @@ pub fn read_back(
 
 /// The room between two rows of one run. A run is set further
 /// from the one before it.
-const GAP: f32 = 3.0;
+const GAP: f32 = 2.0;
 
 /// The chat with whoever `Convo` points at.
 pub fn transcript() -> impl View {

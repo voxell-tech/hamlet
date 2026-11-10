@@ -236,7 +236,7 @@ fn tool_row(session: Entity, id: String) -> impl View {
             .gap(4.0)
             .width(percent(100.0))
             .min_width(px(0.0))
-            .padding(UiRect::axes(px(26.0), px(2.0)))
+            .padding(UiRect::axes(px(24.0), px(2.0)))
             .boxed()
         });
     column((head, body))
@@ -264,7 +264,7 @@ fn failed(why: String) -> impl View {
         .fill(theme.palette.danger)
         .border(theme.space.border)
         .border_color(theme.palette.danger_border)
-        .radius(theme.space.round)
+        .radius(theme.space.round_card)
     })
 }
 
@@ -357,7 +357,7 @@ pub(crate) fn entry_view(session: Entity, id: String) -> AnyView {
             .padding(UiRect::axes(px(12.0), px(8.0)))
             .border(cx.theme().space.border)
             .border_color(cx.theme().palette.gold_6)
-            .radius(cx.theme().space.round)
+            .radius(cx.theme().space.round_card)
             .fill(cx.theme().palette.card)
             .boxed(),
             Some(Entry::Assistant(_)) => column((
@@ -467,7 +467,7 @@ pub(crate) fn entry_view(session: Entity, id: String) -> AnyView {
             .padding(UiRect::axes(px(12.0), px(8.0)))
             .border(cx.theme().space.border)
             .border_color(cx.theme().palette.gold_6)
-            .radius(cx.theme().space.round)
+            .radius(cx.theme().space.round_card)
             .fill(cx.theme().palette.card)
             .boxed(),
             None => frame().boxed(),

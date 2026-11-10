@@ -32,7 +32,7 @@ use hamlet_ui::styles::{
     Fills, ICON, Looks, Tipped, action, bare, card_name, choice,
     close, crumb, crumb_here, crumb_slash, crumbs, filling, framed,
     hairline, more_button, note, page_head, scroll_area,
-    sentence_title, status_icon, title,
+    sentence_title, status_icon, title, transparent,
 };
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::edges::faded;
@@ -455,7 +455,7 @@ fn state(agent: Entity) -> impl View {
     }))
     .tone(Tone::Dim);
     row((mark, column((one_line(doing),)).min_width(px(0.0))))
-        .gap(5.0)
+        .gap(4.0)
         .align(AlignItems::Center)
         .min_width(px(0.0))
 }
@@ -573,13 +573,14 @@ fn light_chips(
     }
 }
 
-/// The look of a chip of the composer: a choice, outlined at rest so
-/// it reads as one, and picked while [`ChipOpen`].
+/// The look of a chip of the composer: a choice on a plate, with no
+/// edge at rest inside the card's own, and picked while [`ChipOpen`].
 fn chip_look(cx: &mut Cx) {
     choice(false)(cx);
     style::<HamletTheme>()
         .frame(|f, t| {
-            f.fill(t.palette.button).border_color(t.palette.border)
+            f.fill(t.palette.button)
+                .border_color(transparent(t.palette.border))
         })
         .when::<ChipOpen>(|s| {
             s.frame(|f, t| {

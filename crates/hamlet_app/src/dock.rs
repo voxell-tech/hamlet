@@ -97,7 +97,7 @@ pub fn highlight_panel(
             column((highlight_layer(highlight), glow_layer(), view))
                 .fills_width()
                 .min_height(px(0.0))
-                .padding(UiRect::all(px(16.0)))
+                .padding(UiRect::all(px(cx.theme().space.panel)))
                 .gap(0.0)
                 .fill(fill)
                 // Overflow is cut at the padding.

@@ -214,10 +214,30 @@ pub(crate) fn open(world: &mut World, wait: Entity) {
 }
 
 /// The buttons of the answers `need` takes, the lasting one telling
-/// what it lets go in its tooltip.
+/// what it lets go in its tooltip. What refuses leads and the rest
+/// stay together, so a narrow card wraps them as one and never
+/// leaves a button on a line alone.
 pub(crate) fn answers(need: &Need) -> AnyView {
-    buttons(vec![button(need, 0), button(need, 1), button(need, 2)])
-        .boxed()
+    let (refusing, agreeing): (Vec<usize>, Vec<usize>) =
+        (0..need.answers.len()).partition(|&at| {
+            matches!(
+                need.answers[at],
+                Choice::Deny | Choice::Withdraw | Choice::Dismiss
+            )
+        });
+    let mut parts: Vec<AnyView> =
+        refusing.into_iter().map(|at| button(need, at)).collect();
+    let agreeing: Vec<AnyView> =
+        agreeing.into_iter().map(|at| button(need, at)).collect();
+    parts.push(
+        with_cx(move |cx| {
+            row(agreeing)
+                .gap(cx.theme().space.gap)
+                .align(AlignItems::Center)
+        })
+        .boxed(),
+    );
+    buttons(parts).boxed()
 }
 
 /// The button for the answer at `at` of `need`, or nothing.
