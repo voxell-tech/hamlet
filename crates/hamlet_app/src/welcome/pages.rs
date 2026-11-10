@@ -13,6 +13,7 @@ use bevy_fynix::views::{
 };
 use bevy_fynix::{ScopedExt, ViewExt, derived, keyed, resource};
 use hamlet_client::realm::{Providers, Settings};
+use hamlet_protocol::client as protocol;
 use hamlet_ui::markdown::{Face, Ink, Span, Style, Target, rich};
 use hamlet_ui::styles::{
     self, ICON, Looks, back, bare, beside, description, good_action,
@@ -118,25 +119,47 @@ fn choice(adding: bool) -> AnyView {
             counted(1),
         )),
         said(says),
-        lead_card(
-            Glyph::Globe,
-            "Sign in with OpenRouter",
-            "Recommended",
-            "The quickest way. You sign in with your browser and \
-             pay OpenRouter for what you use.",
-            |world| {
-                super::providers::start(world, "openrouter", false);
-            },
-        ),
-        nav_card(
-            mark("chatgpt", ICON),
-            "Continue with ChatGPT",
-            "Use your ChatGPT plan, with no key. You sign in with \
-             your browser, and what your hamlet does counts toward \
-             your plan's usage.",
-            |world| super::providers::start(world, "chatgpt", false),
-        ),
-        claude(),
+        offered("openrouter", || {
+            lead_card(
+                Glyph::Globe,
+                "Sign in with OpenRouter",
+                "Recommended",
+                "The quickest way. You sign in with your browser \
+                 and pay OpenRouter for what you use.",
+                |world| {
+                    super::providers::start(
+                        world,
+                        "openrouter",
+                        false,
+                    );
+                },
+            )
+        }),
+        offered("chatgpt", || {
+            nav_card(
+                mark("chatgpt", ICON),
+                "Continue with ChatGPT",
+                "Use your ChatGPT plan, with no key. You sign in \
+                 with your browser, and what your hamlet does \
+                 counts toward your plan's usage.",
+                |world| {
+                    super::providers::start(world, "chatgpt", false);
+                },
+            )
+        }),
+        offered("claude", || {
+            nav_card(
+                mark("claude", ICON),
+                "Sign in to Claude",
+                "Run agents on Claude models with your own Claude \
+                 plan. You sign in through Claude's own sign-in, in \
+                 a browser on the server's computer, and what those \
+                 agents do counts toward your plan's usage.",
+                |world| {
+                    super::providers::start(world, "claude", false);
+                },
+            )
+        }),
         nav_card(
             glyph(Glyph::Key, ICON),
             "I have a key",
@@ -162,27 +185,25 @@ fn choice(adding: bool) -> AnyView {
     .boxed()
 }
 
-/// Signing in to Claude, once the server offers it.
-fn claude() -> AnyView {
+/// The card `card` makes for signing in to `provider`, shown only
+/// while the server offers that sign-in, so a press always starts
+/// one.
+fn offered<V: View>(
+    provider: &'static str,
+    card: impl Fn() -> V + Send + Sync + 'static,
+) -> AnyView {
     keyed(
-        resource::<Providers, _>(|providers| {
-            providers.0.iter().any(|provider| provider.id == "claude")
+        resource::<Providers, _>(move |providers| {
+            providers.0.iter().any(|known| {
+                known.id == provider
+                    && known.methods.contains(
+                        &protocol::LoginMethod::Subscription,
+                    )
+            })
         }),
-        |offered| {
-            if !*offered {
-                return frame().boxed();
-            }
-            nav_card(
-                mark("claude", ICON),
-                "Sign in to Claude",
-                "Run agents on Claude models with your own Claude \
-                 plan. You sign in through Claude's own sign-in, in \
-                 a browser on the server's computer, and what those \
-                 agents do counts toward your plan's usage.",
-                |world| {
-                    super::providers::start(world, "claude", false);
-                },
-            )
+        move |offered| match offered {
+            true => card().boxed(),
+            false => frame().boxed(),
         },
     )
     .within(bare())
