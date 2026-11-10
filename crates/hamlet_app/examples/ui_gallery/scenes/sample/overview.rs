@@ -23,6 +23,8 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
             | Scene::Memory
             | Scene::Character
             | Scene::Prompt
+            | Scene::Merged
+            | Scene::Agents
     ) {
         return;
     }
@@ -140,6 +142,11 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
         }
     }
     busy_realm(&mut state);
+    match scene {
+        Scene::Agents => more_states(&mut state),
+        Scene::Merged => merge_away(&mut state),
+        _ => {}
+    }
     state.scholars = scholars
         .into_iter()
         .map(|(id, name)| {
@@ -244,7 +251,9 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
         .map(|(entity, _)| entity)
         .unwrap();
     world.insert_resource(Selected(match scene {
-        Scene::Hamlet | Scene::Bylaws => Some(Thing::Common(first)),
+        Scene::Hamlet | Scene::Bylaws | Scene::Agents => {
+            Some(Thing::Common(first))
+        }
         _ => None,
     }));
     world.insert_resource(hamlet_app::overview::Annals::received(
@@ -253,9 +262,19 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
          chief restored smith, whose house and notes returned."
             .into(),
     ));
-    if matches!(scene, Scene::Hamlet | Scene::Bylaws) {
+    if matches!(scene, Scene::Hamlet | Scene::Bylaws | Scene::Agents)
+    {
         world
             .insert_resource(hamlet_app::hub::Showing::Hamlet(first));
+    }
+    if scene == Scene::Merged
+        && let Some(gone) = hamlet_client::realm::agent(
+            world,
+            protocol::AgentId(MERGED),
+        )
+    {
+        world.insert_resource(Selected(Some(Thing::Agent(gone))));
+        world.insert_resource(hamlet_app::hub::Showing::Gone(gone));
     }
     if scene == Scene::Bylaws {
         world.insert_resource(hamlet_app::overview::Page::Bylaws);
@@ -331,5 +350,52 @@ fn busy_realm(state: &mut protocol::State) {
         wait.by = waiting.name.clone();
         wait.since = since;
         state.waits.push(wait);
+    }
+}
+
+/// The hire merged into the hamlet's lead in the merged scene.
+const MERGED: u64 = 12;
+
+/// Makes one hire work, one stop on a fault and one wait, beside the
+/// agents at rest, so every state shows in the rail and the list.
+fn more_states(state: &mut protocol::State) {
+    let mut set =
+        |name: &str, run: &mut dyn FnMut(&mut protocol::Agent)| {
+            if let Some(agent) = state
+                .agents
+                .iter_mut()
+                .find(|agent| agent.name == name)
+            {
+                run(agent);
+            }
+        };
+    set("home#3", &mut |agent| {
+        agent.busy = true;
+        agent.activity.doing = protocol::Doing::Run;
+        agent.activity.doing_words = "Running the tests".into();
+    });
+    set("mill#2", &mut |agent| agent.faulted = true);
+}
+
+/// Merges the third hire of the hollow into its lead, and ends a
+/// hire of the mill, so the rail lists both as gone.
+fn merge_away(state: &mut protocol::State) {
+    let left = |how: &str, into: Option<u64>, words: &str| {
+        serde_json::from_value::<protocol::Left>(serde_json::json!({
+            "at": 1_000, "by": "chief", "how": how, "into": into,
+            "reason": "The work was the same.", "words": words,
+        }))
+        .expect("a received departure")
+    };
+    for agent in &mut state.agents {
+        match agent.name.as_str() {
+            "home#3" => {
+                agent.left = Some(left("merged", Some(10), "Merged"));
+            }
+            "mill#1" => {
+                agent.left = Some(left("ended", None, "Ended"));
+            }
+            _ => {}
+        }
     }
 }

@@ -14,7 +14,7 @@ use bevy::ecs::query::{Changed, With};
 use bevy::ecs::resource::Resource;
 use bevy::ecs::system::{Commands, Local, Query, Res, ResMut};
 use bevy::ecs::world::World;
-use bevy::text::{LineBreak, TextLayout};
+use bevy::text::{Justify, LineBreak, TextLayout};
 use bevy::ui::{
     AlignItems, ComputedNode, JustifyContent, Overflow, OverflowAxis,
     ScrollPosition, UiGlobalTransform, UiRect, percent, px,
@@ -22,8 +22,8 @@ use bevy::ui::{
 use bevy_fynix::scroll::ScrollGoal;
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, TooltipExt, button, column, frame,
-    ghost, label, overlay, row, scroll,
+    BehaviorExt, FrameProps, button, column, frame, ghost, label,
+    overlay, row, scroll,
 };
 use bevy_fynix::{
     ScopedExt, ViewExt, derived, each, every_frame, resource,
@@ -32,7 +32,10 @@ use hamlet_client::chats::{self, Entry, Transcript};
 use hamlet_client::messages::Response;
 use hamlet_client::outbox::Outbox;
 use hamlet_protocol::client as protocol;
-use hamlet_ui::styles::{Fills, lettered, note, small_rules};
+use hamlet_ui::styles::{
+    Fills, Looks, Tipped, lettered, note, small_rules,
+};
+use hamlet_ui::widgets::edges::faded;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::{View, with_cx};
 
@@ -141,7 +144,23 @@ pub(super) fn rows(
     // Whether the last row is a fold that opened its turn, and
     // whether the last entry was a reply.
     let (mut opening, mut replied) = (false, false);
+    // The fault the last row says, if it says one: the same fault
+    // again, as each try that fails the same way raises, stands in
+    // its place, so a run of them is one row, its last.
+    let mut fault: Option<&str> = None;
     for item in transcript.items() {
+        if let Entry::Error(said) = &item.entry {
+            if fault == Some(said.as_str()) {
+                rows.pop();
+            }
+            fault = Some(said.as_str());
+        } else if !matches!(
+            &item.entry,
+            Entry::Assistant(text) if text.trim().is_empty()
+        ) {
+            // A reply that says nothing makes no row to part them.
+            fault = None;
+        }
         let step = match &item.entry {
             // Nothing said is no message: a model that calls a tool
             // often says nothing with it, and that neither makes a
@@ -494,7 +513,7 @@ impl Lines {
 
     fn tone(&self, key: &RowKey) -> Tone {
         match self.fold(key) {
-            Some(Row::Fold { running: true, .. }) => Tone::Accent,
+            Some(Row::Fold { running: true, .. }) => Tone::Warning,
             Some(Row::Fold { failed: 0, .. }) | None => Tone::Dim,
             _ => Tone::Critical,
         }
@@ -936,9 +955,8 @@ pub fn transcript() -> impl View {
                 hamlet_ui::styles::ICON,
             )))
             .padding(UiRect::all(px(8.0)))
-            .tooltip(|| note("Scroll to the latest"))
-            .rules(hamlet_ui::styles::back_link)
-            .tagged(hamlet_ui::widgets::effects::Variant::Text)
+            .variant(hamlet_ui::widgets::effects::Variant::Text)
+            .tip("Scroll to the latest")
             .on_activate(super::to_end)
             .boxed()
         },
@@ -947,7 +965,7 @@ pub fn transcript() -> impl View {
     let corner = overlay((back,))
         .justify(JustifyContent::FlexEnd)
         .align(AlignItems::FlexEnd);
-    column((said, quiet(), corner)).fills_height()
+    column((faded(said), quiet(), corner)).fills_height()
 }
 
 /// The window's words over a chat nothing has been said in: whom to
@@ -999,10 +1017,13 @@ fn quiet() -> impl View {
                     column(starters)
                         .gap(theme.space.gap)
                         .align(AlignItems::Center),
+                    // Centred line by line, as it wraps under the
+                    // rest.
                     note(
                         "Agents can make mistakes, so check \
                          anything important.",
-                    ),
+                    )
+                    .tagged(TextLayout::justify(Justify::Center)),
                 ))
                 .gap(theme.space.section)
                 .align(AlignItems::Center)

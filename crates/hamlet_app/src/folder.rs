@@ -19,7 +19,7 @@ use hamlet_desktop::folder::{ChooseFolder, FolderChosen};
 use hamlet_realm::pick::{Thing, select};
 use hamlet_realm::works::Switched;
 use hamlet_ui::styles::{
-    ICON, action, bare, button, buttons, description,
+    ICON, Looks, action, bare, buttons, description,
     description_rules, lettered, link_row, note, segmented_words,
 };
 use hamlet_ui::widgets::effects::Variant;
@@ -119,8 +119,7 @@ fn works_on(hamlet: Entity, work: &Works) -> AnyView {
             vec![
                 choose,
                 lettered("Clear")
-                    .rules(button)
-                    .tagged(Variant::Default)
+                    .variant(Variant::Default)
                     .on_activate(move |world| {
                         tell(
                             world,

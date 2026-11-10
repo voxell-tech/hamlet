@@ -1,0 +1,43 @@
+# Tokyo Night's Day and Night styles, with blue as the accent. Palette
+# from tokyonight.nvim, Apache License 2.0. Fifteen colours for each
+# variant, from which every role is derived in
+# crates/hamlet_ui/src/theme/derive.rs.
+name = "Tokyo Night"
+
+[light]
+name = "Day"
+base0 = "#e9eaee"
+base1 = "#e1e2e7"
+base2 = "#d6d9e5"
+base3 = "#a8aecb"
+base4 = "#8990b3"
+base5 = "#68709a"
+base6 = "#4c5a8c"
+base7 = "#3b466f"
+base8 = "#1f2d5c"
+red = "#f52a65"
+orange = "#b15c00"
+yellow = "#8c6c3e"
+green = "#587539"
+blue = "#2e7de9"
+purple = "#9854f1"
+accent = "blue"
+
+[dark]
+name = "Night"
+base0 = "#0c0e14"
+base1 = "#16161e"
+base2 = "#292e42"
+base3 = "#3b4261"
+base4 = "#545c7e"
+base5 = "#737aa2"
+base6 = "#9aa5ce"
+base7 = "#a9b1d6"
+base8 = "#c0caf5"
+red = "#f7768e"
+orange = "#ff9e64"
+yellow = "#e0af68"
+green = "#9ece6a"
+blue = "#7aa2f7"
+purple = "#bb9af7"
+accent = "blue"

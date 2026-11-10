@@ -98,8 +98,6 @@ pub(crate) enum Refusal {
     NotLeft { name: String },
     #[error("`{name}` was erased")]
     Erased { name: String },
-    #[error("a hamlet's tree is at most {most} deep under its mayor")]
-    TooDeep { most: i64 },
     #[error("a mayor cannot be ended; seat another mayor first")]
     EndingMayor,
     #[error(

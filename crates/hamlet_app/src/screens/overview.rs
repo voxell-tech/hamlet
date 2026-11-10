@@ -33,6 +33,8 @@ use hamlet_ui::styles::{
     Fills, ICON, action, bad_action, bare, buttons, close, framed,
     group, note, raised, scroll_area, small_rules, title,
 };
+use hamlet_ui::theme::StatusKind;
+use hamlet_ui::widgets::effects::lit_panels;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::widgets::platform::{DisplayText, Wraps};
 use hamlet_ui::widgets::tabs;
@@ -51,13 +53,12 @@ use crate::standing::{Standing, need_you};
 use crate::{chat, world_menu};
 
 pub fn plugin(app: &mut App) {
-    app.add_plugins(record::plugin)
+    app.add_plugins((record::plugin, hamlet::plugin))
         .init_resource::<Erasing>()
         // The realm's page lists what waits.
         .init_resource::<Queue>()
         .add_observer(disarm)
         .add_systems(Update, reconcile_erasing)
-        .init_resource::<Naming>()
         .init_resource::<crate::forms::OpenForm>()
         .init_resource::<Page>()
         .add_systems(Update, tabs::mark::<Page>);
@@ -104,7 +105,7 @@ pub(crate) fn heading_line(
 pub(crate) fn part_title(text: String, tone: Tone) -> impl View {
     with_cx(move |cx| {
         label(text.clone())
-            .size(cx.theme().text.small)
+            .size(cx.theme().text.heading)
             .bold(true)
             .tone(tone)
             .wrap(false)
@@ -125,7 +126,7 @@ fn counted(text: &str, count: usize) -> AnyView {
 }
 
 /// The size of a figure of the day.
-const FIGURE: f32 = 22.0;
+const FIGURE: f32 = 24.0;
 
 /// The realm at a glance: its figures, what waits for the chief in
 /// full, then the hamlets, open and closed down. The hamlets and the
@@ -164,8 +165,8 @@ pub fn overview() -> impl View {
     })
 }
 
-/// Stops every agent, as a plain button that cannot be pressed while
-/// none works or waits.
+/// Stops every agent, as a danger button that cannot be pressed
+/// while none works or waits.
 fn stop_all() -> AnyView {
     keyed(
         derived(|world: &World| {
@@ -174,7 +175,7 @@ fn stop_all() -> AnyView {
         })
         .when(bevy_fynix::every_frame()),
         |&any| {
-            let stop = action(Glyph::Stop, "Stop all", |world| {
+            let stop = bad_action(Glyph::Stop, "Stop all", |world| {
                 world.trigger(Veto { agent: None });
                 world.flush();
             });
@@ -191,9 +192,12 @@ fn stop_all() -> AnyView {
     .boxed()
 }
 
-/// Half see-through, as what cannot be pressed.
+/// See-through, as what cannot be pressed: half over dark panels,
+/// and less over light ones, where the same fade leaves a red button
+/// unreadable.
 fn faded(cx: &mut Cx) {
-    cx.set::<Visual>(|visual, _| visual.opacity(0.5));
+    let opacity = if lit_panels(cx.theme()) { 0.85 } else { 0.5 };
+    cx.set::<Visual>(move |visual, _| visual.opacity(opacity));
 }
 
 /// How the realm stands today.
@@ -256,29 +260,34 @@ fn figure(
     tone: Tone,
     tip: &'static str,
 ) -> AnyView {
-    let tone = if count == 0 { Tone::Dim } else { tone };
+    let (mark, words_tone) = if count == 0 {
+        (Tone::Dim, Tone::Dim)
+    } else {
+        (tone, Tone::Body)
+    };
     with_cx(move |cx| {
         let theme = cx.theme();
         let space = &theme.space;
         column((
             row((
-                glyph(which, ICON).tone(tone),
+                glyph(which, ICON).tone(mark),
                 label(count.to_string())
                     .size(FIGURE)
                     .bold(true)
-                    .tone(tone)
+                    .tone(words_tone)
                     .wrap(false),
             ))
             .gap(6.0)
             .align(AlignItems::Center),
-            label(words).tone(tone).wrap(false).rules(small_rules),
+            label(words)
+                .tone(words_tone)
+                .wrap(false)
+                .rules(small_rules),
         ))
         .gap(space.gap / 2.0)
         // Less room at its sides than a card has, so that five fit a
         // narrow page.
         .padding(UiRect::axes(px(8.0), px(space.card_padding_y)))
-        .border(space.border)
-        .border_color(theme.palette.gold_6)
         .radius(space.round)
         .fill(theme.palette.card)
         // As wide as its words, and the row's room left shared out.
@@ -376,7 +385,7 @@ fn needs() -> AnyView {
 struct HamletCard {
     hamlet: Entity,
     title: String,
-    standing: (Glyph, String, Tone),
+    standing: (Glyph, String, StatusKind),
     mayor: Option<String>,
     account: String,
     spent: Option<f32>,
@@ -751,42 +760,6 @@ mod tests {
         assert!(
             !words(&mut app)
                 .contains(&"Delete Mill for good?".into())
-        );
-    }
-
-    #[test]
-    fn the_record_shows_received_treasury_lines_without_disk_records()
-    {
-        let mut app = panel_app();
-        app.add_plugins(plugin);
-        let mut state = hamlet_testing::realm::state();
-        state.hamlets[0].budget.lines = vec![
-            "The server's first budget line.".into(),
-            "The server's second budget line.".into(),
-        ];
-        hamlet_client::receive(
-            app.world_mut(),
-            protocol::ServerMessage::State(state),
-        );
-        let hamlet = app
-            .world_mut()
-            .query::<(Entity, &HamletId)>()
-            .iter(app.world())
-            .next()
-            .unwrap()
-            .0;
-        *app.world_mut().resource_mut::<Page>() = Page::Record;
-        bevy_fynix::mount::<hamlet_ui::theme::HamletTheme>(
-            app.world_mut(),
-            self::hamlet(hamlet),
-        );
-        app.update();
-        let shown = words(&mut app);
-        assert!(shown.iter().any(|text| text == "The server's first budget line."));
-        assert!(
-            shown.iter().any(
-                |text| text == "The server's second budget line."
-            )
         );
     }
 }

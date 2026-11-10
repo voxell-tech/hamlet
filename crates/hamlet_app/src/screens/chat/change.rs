@@ -137,7 +137,7 @@ fn block(lines: &[Line]) -> AnyView {
 }
 
 /// The size of a change's lines.
-const SIZE: f32 = 13.0;
+const SIZE: f32 = 15.0;
 
 /// The room between a change's plate and its words, across and down.
 const PAD: f32 = 10.0;
@@ -166,7 +166,7 @@ fn plate(
         .padding(UiRect::vertical(px(DOWN)))
         .min_width(px(0.0))
         .fill(theme.palette.code)
-        .border(1.0)
+        .border(theme.space.border)
         .border_color(theme.palette.gold_6)
         .radius(theme.space.round)
 }

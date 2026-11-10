@@ -9,6 +9,9 @@ mod glow;
 mod highlight;
 mod tab;
 mod underglow;
+mod wash;
+
+use std::borrow::Cow;
 
 use bevy::app::{App, PostUpdate, Update};
 use bevy::asset::Asset;
@@ -17,9 +20,11 @@ use bevy::ecs::component::Component;
 use bevy::ecs::message::Message;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::IntoScheduleConfigs;
+use bevy::ecs::system::{Res, SystemParam};
 use bevy::ecs::world::World;
 use bevy::reflect::TypePath;
 use bevy::ui::{ColorStop, UiSystems, percent};
+use bevy_fynix::ReducedMotion;
 use hamlet_assets::{File, Tuning, TuningPlugin, follow};
 
 pub use self::glow::{GlowPanel, glow_layer};
@@ -27,7 +32,9 @@ pub use self::highlight::{
     Attention, Highlight, Updated, highlight_layer,
 };
 pub use self::underglow::Underglow;
-use crate::theme::HamletTheme;
+pub use self::wash::{Edge, Wash, wash};
+use crate::theme::contrast::contrast;
+use crate::theme::{HamletTheme, StatusKind, Statuses, deepen};
 
 /// The effects of the controls, the dock's drop hint and the
 /// panels' highlights.
@@ -50,6 +57,7 @@ pub fn plugin(app: &mut App) {
                     control::outer_glow,
                     control::particles,
                     underglow::update_underglow,
+                    wash::update_washes,
                 )
                     .chain(),
                 drag::dress_drag,
@@ -98,6 +106,9 @@ pub enum Variant {
     Danger,
     /// A text input, which glows while it is typed in.
     Input,
+    /// A lettered button in a status's colour, which glows as a
+    /// default one does, in that colour.
+    Tinted(StatusKind),
 }
 
 impl Variant {
@@ -105,7 +116,11 @@ impl Variant {
     fn has_tick(self) -> bool {
         matches!(
             self,
-            Self::Default | Self::Text | Self::Primary | Self::Danger
+            Self::Default
+                | Self::Text
+                | Self::Primary
+                | Self::Danger
+                | Self::Tinted(_)
         )
     }
 }
@@ -185,6 +200,84 @@ pub struct EffectSettings {
     /// raised as something new comes to wait.
     pub highlight_rate: f32,
     pub highlight_boost: f32,
+    /// How much of its glow a panel's highlight keeps while nothing
+    /// waits: the lamplight over the top of a panel, from 0 to 1.
+    pub highlight_rest: f32,
+    /// How many times as strong a glow is laid over a light panel,
+    /// where the same glow shows far less than over a dark one, and
+    /// over a dark one, where it shows far less than over a lit
+    /// control.
+    pub light_gain: f32,
+    pub dark_gain: f32,
+    /// How many times as strong the glow over the top of a light
+    /// panel and the glow of a control are, on top of the gain: a
+    /// deep amber on cream steps far less than a bright one on dark.
+    pub light_lift: f32,
+    /// Seconds a popup, a menu or a tooltip takes to fade in.
+    pub popup_in: f32,
+}
+
+impl EffectSettings {
+    /// How strongly a glow is laid over `theme`'s panels:
+    /// [`Self::light_gain`] times over a light one and
+    /// [`Self::dark_gain`] over a dark one.
+    pub fn gain(&self, theme: &HamletTheme) -> f32 {
+        if lit_panels(theme) {
+            self.light_gain
+        } else {
+            self.dark_gain
+        }
+    }
+
+    /// How many times as strong the glow over a panel's top and a
+    /// control's glow are on `theme`'s panels: [`Self::light_lift`]
+    /// over a light one, and none over a dark one.
+    pub fn lift(&self, theme: &HamletTheme) -> f32 {
+        if lit_panels(theme) {
+            self.light_lift
+        } else {
+            1.0
+        }
+    }
+}
+
+impl EffectSettings {
+    /// These, with nothing that moves: no flicker, no give under a
+    /// press, no swell, no shake, no particles and nothing that grows
+    /// in. Glows still fade.
+    fn still(&self) -> Self {
+        Self {
+            press_scale: 0.0,
+            pulse_scale: 0.0,
+            press_offset: 0.0,
+            shake_distance: 0.0,
+            flicker: 0.0,
+            outer_glow_pulse_radius: 0.0,
+            particle_count: 0,
+            enter_scale: 1.0,
+            drop_hint_pulse_rate: 0.0,
+            hover_from: 1.0,
+            ..self.clone()
+        }
+    }
+}
+
+/// The tuning of the effects as they are shown: [`EffectSettings`],
+/// still while the chief or the computer asks for less motion.
+#[derive(SystemParam)]
+pub struct Tuned<'w> {
+    set: Res<'w, EffectSettings>,
+    reduced: Option<Res<'w, ReducedMotion>>,
+}
+
+impl Tuned<'_> {
+    pub fn get(&self) -> Cow<'_, EffectSettings> {
+        if self.reduced.as_ref().is_some_and(|reduced| reduced.0) {
+            Cow::Owned(self.set.still())
+        } else {
+            Cow::Borrowed(&self.set)
+        }
+    }
 }
 
 impl Tuning for EffectSettings {
@@ -227,27 +320,56 @@ pub struct EffectColors {
     /// dragged.
     pub drop_hint: Color,
     pub drag_ghost: Color,
+    /// The colours of each status, for the glow of a tinted button:
+    /// its mark, and its ink at the centre.
+    pub statuses: Statuses,
 }
 
 impl EffectColors {
-    /// The colours of the effects in `theme`.
+    /// The glow of a button tinted `kind` and the centre of that
+    /// glow.
+    pub fn tint(&self, kind: StatusKind) -> (Color, Color) {
+        let status = self.statuses.get(kind);
+        (status.mark, status.ink)
+    }
+}
+
+impl EffectColors {
+    /// The colours of the effects in `theme`. Over a light panel the
+    /// glows are deepened and more saturated: a pale glow on a pale
+    /// panel is all but unseen.
     pub fn of(theme: &HamletTheme) -> Self {
         let p = &theme.palette;
+        let lamp = |glow: Color| {
+            if lit_panels(theme) {
+                deepen(glow)
+            } else {
+                glow
+            }
+        };
         Self {
-            glow: p.glow,
-            glow_core: p.glow_core,
+            glow: lamp(p.glow),
+            glow_core: lamp(p.glow_core),
             glow_danger: p.danger_glow,
             primary_low: p.primary_low,
             primary_high: p.primary_high,
             particle: p.particle,
             drag_border: p.gold_5,
-            attention: p.glow,
+            attention: lamp(p.glow),
             flash: p.agent,
-            underglow: p.glow,
-            drop_hint: p.glow,
+            underglow: lamp(p.glow),
+            drop_hint: lamp(p.glow),
             drag_ghost: p.surface,
+            statuses: p.status,
         }
     }
+}
+
+/// Whether `theme`'s panels are light: dark words read better on
+/// them than light ones.
+pub fn lit_panels(theme: &HamletTheme) -> bool {
+    let surface = theme.palette.surface;
+    contrast(surface, Color::BLACK) > contrast(surface, Color::WHITE)
 }
 
 /// The stops of a radial gradient whose glow falls off as a bell,

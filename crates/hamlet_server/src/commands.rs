@@ -206,7 +206,7 @@ const TABLE: &[Command] = &[
     },
     Command {
         name: "remove-hamlet",
-        usage: "/remove-hamlet <hamlet> <reason>",
+        usage: "/remove-hamlet <hamlet> [reason]",
         does: "Remove a hamlet and end its hires",
     },
     Command {
@@ -664,7 +664,14 @@ impl Core {
                 if let Err(refusal) = self.chief_of(&id)? {
                     return Ok(Err(refusal));
                 }
-                let reason = tail(1);
+                // The chief needs no reason to close a hamlet down.
+                let reason = match tail(1) {
+                    said if !said.is_empty() => said,
+                    _ if name == "remove-hamlet" => {
+                        "closed by the chief".to_owned()
+                    }
+                    said => said,
+                };
                 let done = self
                     .attempt(by, |cx, _| match name {
                         "remove-hamlet" => {

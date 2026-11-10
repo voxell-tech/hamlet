@@ -15,12 +15,12 @@ use bevy::ecs::component::{Component, Mutable};
 use bevy::ecs::entity::Entity;
 use bevy::ecs::observer::On;
 use bevy::ecs::resource::Resource;
-use bevy::ecs::system::{Query, ResMut};
+use bevy::ecs::system::{Query, Res, ResMut};
 use bevy::ecs::world::World;
 use bevy::math::{Rect, Vec2};
 use bevy::picking::events::PointerPress;
 use bevy::picking::pointer::PointerButton;
-use bevy::ui::px;
+use bevy::ui::{UiScale, px};
 use bevy::window::Window;
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, column, frame, label, menu_item,
@@ -39,7 +39,7 @@ pub(crate) use self::founding::Founding;
 pub use self::model::{
     Favorites, LastSide, open as open_model, search as search_models,
 };
-pub(crate) use self::model::{Hook, chip, is_open as is_picking};
+pub(crate) use self::model::{Hook, chip};
 
 pub fn plugin(app: &mut App) {
     app.add_plugins(model::plugin)
@@ -106,10 +106,13 @@ pub(crate) fn answer_ask(
     mut asked: ResMut<Asked>,
     mut ground: ResMut<AskedGround>,
     mut open: ResMut<Open>,
+    scale: Option<Res<UiScale>>,
 ) {
-    let ground = ground.0.take();
+    // Asked at a place in the window, opened at one in the panels.
+    let scale = scale.map_or(1.0, |scale| scale.0);
+    let ground = ground.0.take().map(|at| at / scale);
     if let Some((thing, at)) = asked.0.take() {
-        *open = Open::Menu(thing, at);
+        *open = Open::Menu(thing, at / scale);
         return;
     }
     let Some(at) = ground else {
@@ -157,13 +160,14 @@ pub(super) fn stop(world: &mut World, agent: Entity) {
     world.flush();
 }
 
-/// The place of the pointer in the window.
+/// The place of the pointer, in the panels' pixels.
 fn pointer(world: &mut World) -> Vec2 {
-    world
+    let at = world
         .query::<&Window>()
         .iter(world)
         .find_map(Window::cursor_position)
-        .unwrap_or_default()
+        .unwrap_or_default();
+    at / world.get_resource::<UiScale>().map_or(1.0, |scale| scale.0)
 }
 
 /// Opens the menu of `thing` at the pointer, as a right click on

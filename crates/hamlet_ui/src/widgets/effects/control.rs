@@ -29,7 +29,7 @@ use bevy_fynix::Focused;
 
 use super::glow::{GlowLayer, GlowPanel, layer_of};
 use super::{
-    ControlSound, EffectColors, EffectSettings, Variant, ease,
+    ControlSound, EffectColors, EffectSettings, Tuned, Variant, ease,
     flicker, pool,
 };
 use crate::theme::Themed;
@@ -83,20 +83,39 @@ pub(super) fn arm(
 
 type Entered = (Changed<Hovered>, With<ControlEffect>);
 
+/// The pointer coming onto a button is heard, unless the button
+/// cannot be pressed.
 pub(super) fn hover_tick(
-    buttons: Query<(&Hovered, Option<&Variant>), Entered>,
+    buttons: Query<
+        (&Hovered, Option<&Variant>, Has<InteractionDisabled>),
+        Entered,
+    >,
     mut sounds: MessageWriter<ControlSound>,
 ) {
-    let heard = |(hovered, variant): (&Hovered, Option<&Variant>)| {
-        hovered.0 && variant.is_some_and(|variant| variant.has_tick())
+    let heard = |(hovered, variant, disabled): (
+        &Hovered,
+        Option<&Variant>,
+        bool,
+    )| {
+        hovered.0
+            && !disabled
+            && variant.is_some_and(|variant| variant.has_tick())
     };
     if buttons.iter().any(heard) {
         sounds.write(ControlSound::Hover);
     }
 }
 
+/// A press is heard, unless the button cannot be pressed.
 pub(super) fn press_tap(
-    pressed: Query<(), (Added<Pressed>, With<ControlEffect>)>,
+    pressed: Query<
+        (),
+        (
+            Added<Pressed>,
+            With<ControlEffect>,
+            Without<InteractionDisabled>,
+        ),
+    >,
     mut sounds: MessageWriter<ControlSound>,
 ) {
     if !pressed.is_empty() {
@@ -170,11 +189,12 @@ type Answering<'a> = (
 pub(super) fn answer(
     activated: On<Activate>,
     mut commands: Commands,
-    set: Res<EffectSettings>,
+    tuned: Tuned,
     mut buttons: Query<Answering>,
     mut sounds: MessageWriter<ControlSound>,
     mut turn: Local<u32>,
 ) {
+    let set = tuned.get();
     *turn = turn.wrapping_add(1);
     let Ok((mut effect, variant, node, at)) =
         buttons.get_mut(activated.entity)
@@ -183,7 +203,10 @@ pub(super) fn answer(
     };
     match variant.copied().unwrap_or_default() {
         Variant::Input => {}
-        Variant::Subtle | Variant::Default | Variant::Text => {
+        Variant::Subtle
+        | Variant::Default
+        | Variant::Text
+        | Variant::Tinted(_) => {
             effect.pulse = 1.0;
         }
         Variant::Primary => {
@@ -220,9 +243,10 @@ type Animated<'a> = (
 
 pub(super) fn animate(
     time: Res<Time>,
-    set: Res<EffectSettings>,
+    tuned: Tuned,
     mut buttons: Query<Animated>,
 ) {
+    let set = tuned.get();
     let dt = time.delta_secs();
     let now = time.elapsed_secs();
     for (
@@ -248,8 +272,13 @@ pub(super) fn animate(
         };
         let heat =
             ease(effect.heat, f32::from(over), set.glow_rate, dt);
-        let press =
-            ease(effect.press, f32::from(held), set.press_rate, dt);
+        // Nor does it give under a press.
+        let press = ease(
+            effect.press,
+            f32::from(held && !disabled),
+            set.press_rate,
+            dt,
+        );
         let pulse = ease(effect.pulse, 0.0, set.pulse_decay, dt);
         let shake = ease(effect.shake, 0.0, set.pulse_decay, dt);
         let still = heat == effect.heat
@@ -261,7 +290,7 @@ pub(super) fn animate(
         let (rest, near, done) = match variant {
             Variant::Subtle => (0.0, 0.0, 0.0),
             Variant::Input => (0.0, set.glow_input, 0.0),
-            Variant::Default | Variant::Text => {
+            Variant::Default | Variant::Text | Variant::Tinted(_) => {
                 (0.0, set.glow_default, set.done_boost * pulse)
             }
             Variant::Primary => {
@@ -316,6 +345,7 @@ pub(super) fn animate(
 fn hues(variant: Variant, colors: &EffectColors) -> (Color, Color) {
     match variant {
         Variant::Danger => (colors.glow_danger, colors.particle),
+        Variant::Tinted(kind) => colors.tint(kind),
         _ => (colors.glow, colors.glow_core),
     }
 }
@@ -563,7 +593,8 @@ pub(super) fn outer_glow(
             }
             _ => set.outer_glow,
         };
-        let strength = effect.glow * thrown;
+        let strength =
+            (effect.glow * thrown * set.lift(&theme)).min(1.0);
         let now = shadows.get(target).ok();
         let shape = shapes
             .get(target)

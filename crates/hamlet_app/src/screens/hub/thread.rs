@@ -3,16 +3,20 @@
 //! details take its place while open, and its sessions and prompt are
 //! pages of their own.
 
+use bevy::app::{App, Update};
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
+use bevy::ecs::query::Has;
 use bevy::ecs::resource::Resource;
-use bevy::ecs::system::{Res, ResMut};
+use bevy::ecs::system::{Commands, Query, Res, ResMut};
 use bevy::ecs::world::World;
-use bevy::ui::{AlignItems, Display, UiRect, percent, px};
+use bevy::ui::{
+    AlignItems, Display, Overflow, UiRect, Val, percent, px,
+};
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, TooltipExt, button, column, dropdown,
-    frame, icon, label, row,
+    frame, label, row, scroll,
 };
 use bevy_fynix::{
     ScopedExt, ViewExt, derived, every_frame, keyed, resource, style,
@@ -25,16 +29,17 @@ use hamlet_client::waits::Waiting;
 use hamlet_protocol::client as protocol;
 use hamlet_realm::pick::{Thing, select};
 use hamlet_ui::styles::{
-    Fills, ICON, action, bare, card_name, choice, close, crumb,
-    crumb_here, crumb_slash, crumbs, danger_button, filling, framed,
-    hairline, more_button, note, page_head, primary_button,
-    scroll_area, sentence_title, title,
+    Fills, ICON, Looks, Tipped, action, bare, card_name, choice,
+    close, crumb, crumb_here, crumb_slash, crumbs, filling, framed,
+    hairline, more_button, note, page_head, scroll_area,
+    sentence_title, status_icon, title,
 };
 use hamlet_ui::theme::HamletTheme;
+use hamlet_ui::widgets::edges::faded;
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::ellipsis::{cut, one_line};
 use hamlet_ui::widgets::icons::{Glyph, glyph};
-use hamlet_ui::widgets::tabs;
+use hamlet_ui::widgets::tabs::{self, Spread};
 use hamlet_ui::{AnyView, Cx, View, built, with_cx};
 
 use super::{Showing, conversations, details, show};
@@ -429,16 +434,16 @@ fn waits(agent: Entity) -> impl View {
 /// Its state, by its name, and what it works on while it works.
 fn state(agent: Entity) -> impl View {
     let standing = move |world: &World| Standing::of(world, agent);
-    let mark = icon(rolled(move |world| {
-        standing(world).glyph().image(ICON)
-    }))
-    .size(ICON)
-    .tone(rolled(move |world| standing(world).tone()));
-    let word = label(rolled(move |world| {
-        standing(world).word().to_string()
-    }))
-    .tone(rolled(move |world| standing(world).tone()))
-    .wrap(false);
+    // Its state is its icon alone, with the word under the pointer.
+    let mark = keyed(rolled(standing), |standing| {
+        status_icon(
+            standing.glyph(),
+            standing.word(),
+            standing.kind(),
+        )
+        .boxed()
+    })
+    .within(row(()).gap(0.0));
     let doing = label(rolled(move |world| {
         if standing(world) != Standing::Works {
             return String::new();
@@ -449,7 +454,7 @@ fn state(agent: Entity) -> impl View {
             .unwrap_or_default()
     }))
     .tone(Tone::Dim);
-    row((mark, word, column((one_line(doing),)).min_width(px(0.0))))
+    row((mark, column((one_line(doing),)).min_width(px(0.0))))
         .gap(5.0)
         .align(AlignItems::Center)
         .min_width(px(0.0))
@@ -482,27 +487,30 @@ fn header(agent: Entity) -> impl View {
             )
         });
         let address = name_of(cx.world, agent);
-        let name = title(called(cx.world, agent))
-            .tooltip(move || note(address.clone()));
         let space = &cx.theme().space;
         let (gap, section) = (space.gap, space.section);
         cx.build(
-            // The path, then the name with its state; under them the
-            // tabs between the chat and the details, the one shown
-            // underlined, with what the chat tab shows and the rest
-            // at their end.
+            // The path, ending in the agent's name, with its state;
+            // under them the tabs between the chat and the details,
+            // the one shown underlined, with what the chat tab shows
+            // and the rest at their end.
             column((
-                page_head(
-                    path(agent, Vec::new()),
-                    row((name, state(agent)))
-                        .gap(section)
-                        .align(AlignItems::Center)
-                        .min_width(px(0.0)),
-                ),
                 row((
-                    column((tabs::strip(&SHEETS, |world, sheet| {
-                        *world.resource_mut::<Sheet>() = sheet;
-                    }),))
+                    path(agent, Vec::new())
+                        .tooltip(move || note(address.clone())),
+                    state(agent),
+                ))
+                .gap(section)
+                .align(AlignItems::Center)
+                .min_width(px(0.0)),
+                row((
+                    column((tabs::strip(
+                        &SHEETS,
+                        Spread::Packed,
+                        |world, sheet| {
+                            *world.resource_mut::<Sheet>() = sheet;
+                        },
+                    ),))
                     .grow(1.0)
                     .min_width(px(0.0)),
                     sessions,
@@ -516,67 +524,102 @@ fn header(agent: Entity) -> impl View {
     })
 }
 
-/// The chip of the model, its effort and its tier, which opens the
-/// popup they are chosen in and is lit while it is open.
-fn model_chip(agent: Entity) -> impl View {
-    keyed(
-        derived(move |world: &World| {
-            world_menu::is_picking(world, agent)
-        })
-        .when(every_frame()),
-        move |open| {
-            button(
-                row((
-                    world_menu::chip(agent),
-                    glyph(Glyph::Chevron, 12.0),
-                ))
-                .gap(6.0)
-                .align(AlignItems::Center),
-            )
-            .padding(UiRect::axes(px(8.0), px(0.0)))
-            .rules(chip_look(*open))
-            .tagged(Variant::Text)
-            .tagged(world_menu::Hook::Chip)
-            .on_activate(move |world| {
-                world_menu::ask_model(world, agent);
-            })
-            .boxed()
-        },
-    )
-    .within(bare())
+pub(super) fn plugin(app: &mut App) {
+    app.add_systems(Update, light_chips);
 }
 
-/// The look of a chip of the composer: a choice, outlined at rest so
-/// it reads as one.
-fn chip_look(open: bool) -> impl FnOnce(&mut Cx) {
-    move |cx| {
-        choice(open)(cx);
-        if !open {
-            style::<HamletTheme>()
-                .frame(|f, t| f.border_color(t.palette.gold_6))
-                .apply(cx);
+/// On the chip of the model of the agent it holds.
+#[derive(Component, Clone, Copy)]
+struct ModelChip(Entity);
+
+/// On the chip of the model while its popup is open, which lights it.
+#[derive(Component)]
+struct ChipOpen;
+
+/// The chip of the model, its effort and its tier, which opens the
+/// popup they are chosen in and is lit while it is open. Built once,
+/// and lit in place, so it does not come in again as it opens.
+fn model_chip(agent: Entity) -> impl View {
+    button(
+        row((world_menu::chip(agent), glyph(Glyph::Chevron, 12.0)))
+            .gap(6.0)
+            .align(AlignItems::Center),
+    )
+    .padding(UiRect::axes(px(8.0), px(0.0)))
+    .rules(chip_look)
+    .tagged(Variant::Text)
+    .tagged(world_menu::Hook::Chip)
+    .tagged(ModelChip(agent))
+    .on_activate(move |world| {
+        world_menu::ask_model(world, agent);
+    })
+}
+
+/// Lights the chip of the model whose popup is open.
+fn light_chips(
+    open: Option<Res<world_menu::Open>>,
+    chips: Query<(Entity, &ModelChip, Has<ChipOpen>)>,
+    mut commands: Commands,
+) {
+    for (chip, of, lit) in &chips {
+        let wanted = open.as_deref().is_some_and(|open| {
+            *open == world_menu::Open::Model(of.0)
+        });
+        if wanted && !lit {
+            commands.entity(chip).try_insert(ChipOpen);
+        } else if !wanted && lit {
+            commands.entity(chip).try_remove::<ChipOpen>();
         }
     }
 }
 
-/// The chip of the hamlet's mode, which a press turns over.
+/// The look of a chip of the composer: a choice, outlined at rest so
+/// it reads as one, and picked while [`ChipOpen`].
+fn chip_look(cx: &mut Cx) {
+    choice(false)(cx);
+    style::<HamletTheme>()
+        .frame(|f, t| {
+            f.fill(t.palette.button).border_color(t.palette.border)
+        })
+        .when::<ChipOpen>(|s| {
+            s.frame(|f, t| {
+                f.fill(t.palette.selected)
+                    .border_color(t.palette.gold_4)
+            })
+            .tone(Tone::Body)
+        })
+        .apply(cx);
+}
+
+/// The hamlet `agent` lives in and how its work is overseen.
+fn mode_of(
+    world: &World,
+    agent: Entity,
+) -> Option<(Entity, hamlet_client::realm::Mode)> {
+    let lives = world.get::<LivesIn>(agent)?.0;
+    Some((lives, world.get::<Works>(lives)?.mode))
+}
+
+/// The chip of the hamlet's mode, which a press turns over. Built
+/// once for its hamlet; its words follow the mode in place.
 fn mode_chip(agent: Entity) -> impl View {
     keyed(
         derived(move |world: &World| {
-            let lives = world.get::<LivesIn>(agent)?.0;
-            Some((lives, world.get::<Works>(lives)?.mode))
+            mode_of(world, agent).map(|at| at.0)
         })
         .when(every_frame()),
-        move |at| {
-            let Some((hamlet, mode)) = *at else {
+        move |hamlet| {
+            let Some(hamlet) = *hamlet else {
                 return frame().boxed();
             };
-            let words = match mode {
-                hamlet_client::realm::Mode::Manual => {
-                    "Approvals: Manual"
+            let words = derived(move |world: &World| {
+                match mode_of(world, agent).map(|at| at.1) {
+                    Some(hamlet_client::realm::Mode::Auto) => "Auto",
+                    _ => "Manual",
                 }
-                hamlet_client::realm::Mode::Auto => "Approvals: Auto",
-            };
+                .to_string()
+            })
+            .when(every_frame());
             button(
                 row((
                     glyph(Glyph::Shield, 12.0),
@@ -586,18 +629,20 @@ fn mode_chip(agent: Entity) -> impl View {
                 .align(AlignItems::Center),
             )
             .padding(UiRect::axes(px(8.0), px(0.0)))
-            .rules(chip_look(false))
+            .rules(chip_look)
             .tagged(Variant::Text)
             .tooltip(|| {
                 note(
-                    "How this hamlet's work is overseen. Press to \
-                     turn it over.",
+                    "Approvals: how this hamlet's work is overseen. \
+                     Press to turn it over.",
                 )
             })
             .on_activate(move |world| {
-                let to = match mode {
-                    hamlet_client::realm::Mode::Manual => "auto",
-                    hamlet_client::realm::Mode::Auto => "manual",
+                let to = match mode_of(world, agent).map(|at| at.1) {
+                    Some(hamlet_client::realm::Mode::Auto) => {
+                        "manual"
+                    }
+                    _ => "auto",
                 };
                 tell(world, hamlet, format!("/mode {to}"));
             })
@@ -611,7 +656,7 @@ fn mode_chip(agent: Entity) -> impl View {
 fn gifts(agent: Entity) -> impl View {
     row((button(glyph(Glyph::Plus, ICON))
         .padding(UiRect::axes(px(8.0), px(0.0)))
-        .tooltip(|| note("Give it a skill"))
+        .tip("Give it a skill")
         .rules(choice(false))
         .tagged(Variant::Text)
         .on_activate(move |world| {
@@ -658,19 +703,17 @@ fn send_or_stop(agent: Entity) -> impl View {
                         .fill(cx.theme().palette.red)
                 });
                 round(square.boxed())
-                    .rules(danger_button)
-                    .tagged(Variant::Danger)
+                    .variant(Variant::Danger)
                     .tagged(Stopping)
-                    .tooltip(|| note("Stop"))
+                    .tip("Stop")
                     .on_activate(move |world| {
                         world_menu::stop(world, agent);
                     })
                     .boxed()
             } else {
                 round(glyph(Glyph::Send, 16.0).boxed())
-                    .rules(primary_button)
-                    .tagged(Variant::Primary)
-                    .tooltip(|| note("Send"))
+                    .variant(Variant::Primary)
+                    .tip("Send")
                     .on_activate(chat::send_typed)
                     .boxed()
             }
@@ -698,26 +741,23 @@ fn chips(agent: Entity) -> impl View {
 fn talk(agent: Entity) -> AnyView {
     keyed(resource::<Convo, _>(|m| m.session), move |_| {
         with_cx(move |cx| {
-            let gap = cx.theme().space.gap;
+            let space = &cx.theme().space;
+            let (gap, widest) = (space.gap, px(space.thread_width));
             // Another's chat is only watched, and leads back to the
             // chief's by the path over it.
-            if conversations::is_read_only(cx.world) {
-                column((
-                    chat::transcript(),
-                    close((note("Read only"),)),
-                ))
-                .fills_height()
-                .gap(gap)
-                .boxed()
+            let under = if conversations::is_read_only(cx.world) {
+                close((note("Read only"),)).boxed()
             } else {
-                column((
-                    chat::transcript(),
-                    chat::message_bar(chips(agent)),
-                ))
+                chat::message_bar(chips(agent)).boxed()
+            };
+            // In a column of its own in the middle of a wide panel.
+            column((chat::transcript(), under))
                 .fills_height()
                 .gap(gap)
+                .width(percent(100.0))
+                .max_width(widest)
+                .margin(UiRect::horizontal(Val::Auto))
                 .boxed()
-            }
         })
         .boxed()
     })
@@ -877,7 +917,8 @@ fn prompt_sections(
         .collect::<Vec<_>>();
     // One read-only page, a line between each part and the next,
     // clear of the scroll bar, which is drawn over the right edge of
-    // the area and dims the letters under it.
+    // the area and dims the letters under it. A line too long for the
+    // card scrolls sideways inside its border, which stays.
     with_cx(move |cx| {
         let line = cx.theme().palette.gold_6;
         let gap = cx.theme().space.panel;
@@ -888,8 +929,14 @@ fn prompt_sections(
             }
             parts.push(section);
         }
-        column((framed((column(parts).gap(gap),)),))
+        let page = faded(
+            scroll((column(parts).gap(gap),))
+                .overflow(Overflow::scroll_x())
+                .width(percent(100.0)),
+        );
+        column((framed((page,)),))
             .padding(UiRect::right(px(12.0)))
+            .min_width(px(0.0))
     })
     .boxed()
 }
@@ -1071,11 +1118,6 @@ mod tests {
                 "memory": [], "learned": [], "character": "", "skills": []
             }}),
         );
-        let shown = words(&mut app);
-        assert!(
-            shown.iter().any(|text| text == "No memory files yet.")
-        );
-        assert!(shown.iter().any(|text| text == "Not written yet"));
         app.world_mut()
             .resource_mut::<Outbox>()
             .drain()

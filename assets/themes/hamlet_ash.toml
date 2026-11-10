@@ -1,0 +1,42 @@
+# Hamlet in greys: neutral panels with the lamp's amber. Fifteen
+# colours for each variant, from which every role is derived in
+# crates/hamlet_ui/src/theme/derive.rs.
+name = "Hamlet Ash"
+
+[dark]
+name = "Embers"
+base0 = "#090908"
+base1 = "#111010"
+base2 = "#2a2723"
+base3 = "#3a3631"
+base4 = "#55504a"
+base5 = "#7a7369"
+base6 = "#a39c91"
+base7 = "#cbc4b9"
+base8 = "#f3efe7"
+red = "#ff7a66"
+orange = "#ff8f48"
+yellow = "#f8bd66"
+green = "#acd48c"
+blue = "#6fd6d2"
+purple = "#c9a3d9"
+
+# Embers by day: warm paper panels and white cards, near-black words,
+# and the lamp's amber deepened until it reads on paper.
+[light]
+name = "Linen"
+base0 = "#fcfaf6"
+base1 = "#eee9e0"
+base2 = "#e4ddd0"
+base3 = "#b6ac9c"
+base4 = "#9a9082"
+base5 = "#857c71"
+base6 = "#6a625a"
+base7 = "#4f4843"
+base8 = "#1c1915"
+red = "#ff7a66"
+orange = "#ff8f48"
+yellow = "#f8bd66"
+green = "#acd48c"
+blue = "#6fd6d2"
+purple = "#c9a3d9"

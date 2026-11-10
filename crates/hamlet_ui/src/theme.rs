@@ -3,25 +3,32 @@
 //! `assets/measures.toml`. Nothing of the panels is built until a
 //! theme is shown.
 
+mod base;
 pub mod contrast;
+mod derive;
 mod themes;
 
 use std::ops::Deref;
 use std::time::Duration;
 
-use bevy::app::App;
+use bevy::app::{App, PostUpdate};
 use bevy::asset::Asset;
-use bevy::color::{Color, Luminance, Mix, Srgba};
+use bevy::color::{Alpha, Color, Luminance, Mix, Srgba};
+use bevy::ecs::change_detection::DetectChangesMut;
 use bevy::ecs::message::{Message, Messages};
+use bevy::ecs::query::{Changed, Or};
 use bevy::ecs::resource::Resource;
-use bevy::ecs::system::{If, Res, SystemParam};
+use bevy::ecs::schedule::IntoScheduleConfigs;
+use bevy::ecs::system::{If, Query, Res, ResMut, SystemParam};
 use bevy::ecs::world::World;
 use bevy::prelude::ClearColor;
 use bevy::reflect::TypePath;
 use bevy::state::app::AppExtStates;
 use bevy::state::state::{NextState, State, States};
-use bevy::ui::{BoxShadow, px};
+use bevy::text::{FontSource, FontWeight, TextColor, TextFont};
+use bevy::ui::{BoxShadow, UiSystems, px};
 use bevy::window::WindowTheme;
+use bevy_fynix::scroll::ScrollbarStyle;
 use bevy_fynix::tokens::{
     Curve, Motion, MotionTokens, SpacingTokens, SurfaceTokens,
     TextTokens, Tone,
@@ -29,8 +36,11 @@ use bevy_fynix::tokens::{
 use hamlet_assets::{File, Tuning, TuningPlugin, tint};
 use serde::{Deserialize, Serialize};
 
+pub use self::base::{Base, Hue, Mode};
 use self::contrast::Part;
+pub(crate) use self::derive::deepen;
 pub use self::themes::{Theme, ThemeId, Themes, Variant, Variants};
+use crate::widgets::platform::Display;
 
 pub fn plugin(app: &mut App) {
     app.add_plugins(TuningPlugin::<Measures>::default())
@@ -38,7 +48,81 @@ pub fn plugin(app: &mut App) {
         .insert_resource(Themes::shipped())
         .add_message::<ThemeChanged>()
         .init_state::<ThemeState>()
-        .add_plugins(themes::plugin);
+        .add_plugins((themes::plugin, weight_plugin))
+        .add_systems(PostUpdate, paint_scrollbars);
+}
+
+/// How opaque a scroll bar is in the ink of the words, at rest and
+/// under the pointer.
+const BAR_REST: f32 = 0.28;
+const BAR_HOT: f32 = 0.55;
+
+/// Paints the scroll bars in the ink of the words, so that they show
+/// on a light panel as on a dark one.
+fn paint_scrollbars(
+    theme: Themed,
+    style: Option<ResMut<ScrollbarStyle>>,
+) {
+    let Some(mut style) = style else {
+        return;
+    };
+    let ink = theme.palette.gold_1;
+    let painted = ScrollbarStyle {
+        rest: ink.with_alpha(BAR_REST),
+        hot: ink.with_alpha(BAR_HOT),
+        ..*style
+    };
+    style.set_if_neq(painted);
+}
+
+/// Sets the weight of regular words by their ink; also for a window
+/// that shows its theme by hand.
+pub fn weight_plugin(app: &mut App) {
+    app.add_systems(
+        PostUpdate,
+        weigh_words.before(UiSystems::Content),
+    );
+}
+
+/// Sets regular words in dark ink at [`TextSizes::dark_ink_weight`],
+/// and back to regular in light ink. Glyph edges blend in linear
+/// light, which thins dark letters on a light ground as much as it
+/// thickens light ones on a dark ground. Bold words and the display
+/// face keep their weight.
+fn weigh_words(
+    theme: Themed,
+    display: Option<Res<Display>>,
+    mut words: Query<
+        (&mut TextFont, &TextColor),
+        Or<(Changed<TextFont>, Changed<TextColor>)>,
+    >,
+) {
+    let heavier = FontWeight(theme.text.dark_ink_weight);
+    for (mut font, ink) in &mut words {
+        let display_face = match (&font.font, &display) {
+            (FontSource::Handle(face), Some(display)) => {
+                *face == display.0
+            }
+            _ => false,
+        };
+        // Anything below bold, so a weight tuned while the window
+        // runs moves the words set at the one before.
+        let plain = (FontWeight::NORMAL.0..FontWeight::BOLD.0)
+            .contains(&font.weight.0);
+        if display_face || !plain {
+            continue;
+        }
+        // Dark ink reads better on white than on black.
+        let dark = contrast::contrast(ink.0, Color::WHITE)
+            > contrast::contrast(ink.0, Color::BLACK);
+        let weight = match dark {
+            true => heavier,
+            false => FontWeight::NORMAL,
+        };
+        if font.weight != weight {
+            font.weight = weight;
+        }
+    }
 }
 
 /// The theme, for a system: one that takes it waits for the theme to
@@ -99,9 +183,9 @@ impl Tuning for Measures {
     }
 }
 
-/// Every colour of one variant.
-#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+/// Every colour of one variant, as [`Palette::derive`] makes them
+/// from the fifteen colours of a theme file.
+#[derive(Clone, PartialEq, Debug, Serialize)]
 pub struct Palette {
     /// A panel's background, the darkest surface but for a text
     /// input.
@@ -115,10 +199,12 @@ pub struct Palette {
     pub button: Color,
     #[serde(with = "tint")]
     pub button_hover: Color,
-    /// The line between two surfaces, and the tint of what is
-    /// selected.
+    /// The line between two surfaces.
     #[serde(with = "tint")]
     pub border: Color,
+    /// The fill of what is selected in a list, a step off the panel.
+    #[serde(with = "tint")]
+    pub selected: Color,
     /// The colour of text that is read.
     #[serde(with = "tint")]
     pub gold_1: Color,
@@ -198,11 +284,115 @@ pub struct Palette {
     /// The shadow under what floats, with its alpha.
     #[serde(with = "tint")]
     pub shadow: Color,
+    /// What each status is drawn in.
+    #[serde(skip)]
+    pub status: Statuses,
+}
+
+/// How one status is drawn: its mark for icons, dots and bars, its
+/// ink for words, a tinted fill with the ink to use on it, and its
+/// solid form for a pill, a circle or a button, with the colour of
+/// what is on it.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct Status {
+    /// The hue kept as far as a shape needs only its contrast of a
+    /// mark.
+    pub mark: Color,
+    /// The hue moved until words of it read.
+    pub ink: Color,
+    /// A plate under the ink: pale in light, deep in dark.
+    pub fill: Color,
+    /// The plate under the pointer.
+    pub fill_hover: Color,
+    pub on_fill: Color,
+    pub solid: Color,
+    pub on_solid: Color,
+}
+
+/// What a status means, and so which hue draws it everywhere.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum StatusKind {
+    /// Done: success, finished, restored, approved.
+    Success,
+    /// Merged into something else.
+    Merged,
+    /// In progress, or a warning.
+    Warning,
+    /// An error, a failure, danger.
+    Danger,
+    /// Information, a reference.
+    Info,
+    /// Waits for the chief.
+    Attention,
+    /// At rest or idle.
+    Rest,
+}
+
+impl StatusKind {
+    /// The tone of the words that say it: the body tone beside its
+    /// mark, dim at rest, and red for a danger, which reads as text.
+    pub fn words(self) -> Tone {
+        match self {
+            Self::Danger => Tone::Critical,
+            Self::Rest => Tone::Dim,
+            _ => Tone::Body,
+        }
+    }
+
+    /// The tone of its mark, for an icon, a dot or a bar. A danger is
+    /// red either way.
+    pub fn tone(self) -> Tone {
+        match self {
+            Self::Success => Tone::Success,
+            Self::Merged => Tone::Merged,
+            Self::Warning => Tone::Warning,
+            Self::Danger => Tone::Critical,
+            Self::Info => Tone::Info,
+            Self::Attention => Tone::Attention,
+            Self::Rest => Tone::Rest,
+        }
+    }
+}
+
+/// Every status, each with the one meaning it has everywhere.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct Statuses {
+    /// Done: success, finished, restored, approved. Green.
+    pub success: Status,
+    /// Merged: a hire merged into another, a merge action or
+    /// record. Purple.
+    pub merged: Status,
+    /// In progress or a warning: an agent at work, something
+    /// pending, a budget near its cap. Yellow.
+    pub warning: Status,
+    /// An error, a failure, danger. Red.
+    pub danger: Status,
+    /// Information and references: a note, a tip, an id. Blue.
+    pub info: Status,
+    /// What needs the chief. Orange.
+    pub attention: Status,
+    /// At rest or idle. Neutral.
+    pub rest: Status,
+}
+
+impl Statuses {
+    /// How `kind` is drawn.
+    pub fn get(&self, kind: StatusKind) -> &Status {
+        match kind {
+            StatusKind::Success => &self.success,
+            StatusKind::Merged => &self.merged,
+            StatusKind::Warning => &self.warning,
+            StatusKind::Danger => &self.danger,
+            StatusKind::Info => &self.info,
+            StatusKind::Attention => &self.attention,
+            StatusKind::Rest => &self.rest,
+        }
+    }
 }
 
 impl Palette {
     /// Every colour by name with the part it plays.
-    pub fn parts(&self) -> [(&'static str, Part, Color); 32] {
+    pub fn parts(&self) -> [(&'static str, Part, Color); 33] {
         // No `..`: a new colour does not build until it has a part.
         let Self {
             surface,
@@ -210,6 +400,7 @@ impl Palette {
             button,
             button_hover,
             border,
+            selected,
             gold_1,
             gold_2,
             gold_3,
@@ -237,6 +428,8 @@ impl Palette {
             green,
             green_deep,
             shadow,
+            // Checked by its own pairs in `contrast::Report`.
+            status: _,
         } = *self;
         [
             ("surface", Part::Panel, surface),
@@ -247,6 +440,7 @@ impl Palette {
             ("button_hover", Part::Fill, button_hover),
             ("gold_hover", Part::Fill, gold_hover),
             ("gold_6", Part::Fill, gold_6),
+            ("selected", Part::Fill, selected),
             ("primary_low", Part::Fill, primary_low),
             ("danger", Part::Fill, danger),
             ("danger_hover", Part::Fill, danger_hover),
@@ -257,8 +451,8 @@ impl Palette {
             ("grey_1", Part::Ink, grey_1),
             ("gold_2", Part::Ink, gold_2),
             ("accent", Part::Ink, accent),
-            ("red", Part::Ink, red),
-            ("green", Part::Ink, green),
+            ("red", Part::Status, red),
+            ("green", Part::Status, green),
             ("gold_5", Part::Mark, gold_5),
             ("gold_3", Part::Mark, gold_3),
             ("gold_4", Part::Mark, gold_4),
@@ -289,6 +483,10 @@ pub struct TextSizes {
     pub title: f32,
     /// The space between the letters of the display face.
     pub tracking: f32,
+    /// The weight of regular words in dark ink, above the regular
+    /// 400, so dark words on a light ground read as solid as light
+    /// words on a dark one.
+    pub dark_ink_weight: u16,
 }
 
 /// The gaps, heights and corners of the panels.
@@ -339,6 +537,9 @@ pub struct Spacing {
     /// models, whose columns need more.
     pub page_width: f32,
     pub table_width: f32,
+    /// The widest a chat's transcript and its composer are drawn,
+    /// so that its lines stay a length that reads.
+    pub thread_width: f32,
     /// The widest a card over the panels is drawn, and the space
     /// inside it.
     pub overlay_width: f32,
@@ -474,7 +675,18 @@ impl TextTokens for HamletTheme {
                 palette.gold_1,
                 palette.gold_4,
             ),
-            Tone::Critical => palette.red,
+            Tone::Critical => palette.status.danger.ink,
+            Tone::Success => palette.status.success.mark,
+            Tone::Merged => palette.status.merged.mark,
+            Tone::Warning => palette.status.warning.mark,
+            Tone::Info => palette.status.info.mark,
+            Tone::Attention => palette.status.attention.mark,
+            Tone::Rest => palette.status.rest.mark,
+            Tone::Reference => palette.status.info.ink,
+            Tone::OnSolid => palette.status.success.on_solid,
+            Tone::SuccessText => palette.status.success.ink,
+            Tone::MergedText => palette.status.merged.ink,
+            Tone::WarningText => palette.status.warning.ink,
         }
     }
 
@@ -489,11 +701,22 @@ impl TextTokens for HamletTheme {
 
 impl SurfaceTokens for HamletTheme {
     fn fill(&self) -> Color {
-        self.palette.button
+        self.palette.button_hover
     }
 
     fn hover(&self) -> Color {
-        self.palette.button_hover
+        self.palette.button
+    }
+
+    fn pressed(&self) -> Color {
+        self.palette.button_hover.mix(&self.palette.selected, 0.5)
+    }
+
+    /// The tab in front has no fill of its own: the light rising from
+    /// its underline is what marks it. Clear of the hover colour, so
+    /// that a fill fading to or from it passes through no black.
+    fn current(&self) -> Color {
+        self.palette.button.with_alpha(0.0)
     }
 
     fn panel(&self) -> Color {
@@ -501,7 +724,56 @@ impl SurfaceTokens for HamletTheme {
     }
 
     fn hairline(&self) -> Color {
-        self.palette.gold_6
+        // Firmer than the border of a card: an input's edge and a
+        // slider's groove are what find them.
+        self.palette.border.mix(&self.palette.gold_5, HAIRLINE_FIRM)
+    }
+
+    /// The edge of a field and of a slider's groove: found at a
+    /// glance, where a divider is a quiet line.
+    fn edge(&self) -> Color {
+        let (border, mark) =
+            (self.palette.border, self.palette.gold_5);
+        (0..=20)
+            .map(|step| {
+                EDGE_FIRM + (1.0 - EDGE_FIRM) * step as f32 / 20.0
+            })
+            .map(|share| border.mix(&mark, share))
+            .find(|edge| {
+                contrast::contrast(*edge, self.palette.input)
+                    >= EDGE_NEED
+                    && contrast::contrast(*edge, self.palette.surface)
+                        >= EDGE_NEED
+            })
+            .unwrap_or(mark)
+    }
+
+    /// A slider's groove, from a button toward the edge of a field
+    /// until an unfilled track stands out from the panel as a
+    /// control's edge does.
+    fn groove(&self) -> Color {
+        let (fill, edge) = (self.palette.button_hover, self.edge());
+        (0..=20)
+            .map(|step| GROOVE + (1.0 - GROOVE) * step as f32 / 20.0)
+            .map(|share| fill.mix(&edge, share))
+            .find(|groove| {
+                contrast::contrast(*groove, self.palette.surface)
+                    >= EDGE_NEED
+            })
+            .unwrap_or(edge)
+    }
+
+    /// A menu row under the pointer: the card a popup is drawn on,
+    /// toward the border until the row stands out from it.
+    fn menu_hover(&self) -> Color {
+        let (card, border) = (self.palette.card, self.palette.border);
+        (0..=20)
+            .map(|step| step as f32 / 20.0)
+            .map(|share| card.mix(&border, share))
+            .find(|row| {
+                contrast::contrast(*row, card) >= MENU_HOVER_NEED
+            })
+            .unwrap_or(border)
     }
 
     fn selection(&self) -> Color {
@@ -527,19 +799,37 @@ impl SurfaceTokens for HamletTheme {
     }
 }
 
+/// How far above [`contrast::TEXT`] the words of an empty field are
+/// held.
+const HINT_MARGIN: f32 = 2.8;
+/// How far the hairline is from the border toward the mark.
+const HAIRLINE_FIRM: f32 = 0.35;
+/// How far the edge of a control is from the border toward the
+/// mark: far enough to read against the panel at about 3:1, and
+/// still short of the mark's edge under the pointer.
+const EDGE_FIRM: f32 = 0.7;
+/// The contrast an edge has against a field's fill and the panel at
+/// least, in every theme: more firmness is added until it has it.
+const EDGE_NEED: f32 = 3.0;
+/// The contrast a menu row under the pointer has against the menu.
+const MENU_HOVER_NEED: f32 = 1.3;
+/// How far the groove of a slider is from the button's fill toward
+/// the edge of a field, before more is added for its contrast.
+const GROOVE: f32 = 0.6;
+
 impl HamletTheme {
     /// How opaque the words of an empty field are: as faint as dim
     /// text can be while it still reads on the field.
     pub fn hint_opacity(&self) -> f32 {
         (0..=100)
             .map(|step| step as f32 / 100.0)
-            // Above the need by a little, so the colour rounded to
-            // 8 bits still meets it.
+            // Above the need by enough that thin, antialiased letters
+            // still meet it on screen.
             .find(|&opacity| {
                 contrast::contrast(
                     self.hint(opacity),
                     self.palette.input,
-                ) >= contrast::TEXT + 0.1
+                ) >= contrast::TEXT + HINT_MARGIN
             })
             .unwrap_or(1.0)
     }

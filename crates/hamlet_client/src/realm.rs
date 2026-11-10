@@ -63,13 +63,15 @@ impl From<protocol::HamletMode> for Mode {
 #[require(Spot)]
 pub struct HamletId(pub String);
 
-/// The hamlet's folder, earlier folders and mode words.
+/// The hamlet's folder, earlier folders, mode words and size.
 #[derive(Component, Clone, Debug, PartialEq)]
 pub struct Works {
     pub folder: Option<String>,
     pub before: Vec<String>,
     pub mode: Mode,
     pub words: String,
+    /// The most hires it holds.
+    pub tier: u64,
 }
 
 /// The chief's received limits for a hamlet.
@@ -659,6 +661,7 @@ fn upsert_hamlet(
             before: value.before,
             mode: value.mode.into(),
             words: value.mode_words,
+            tier: value.tier,
         },
     );
     put(&mut entity_mut, Bylaws(value.limits));

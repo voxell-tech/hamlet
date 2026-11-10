@@ -612,7 +612,6 @@ pub(crate) fn hamlet_limits(own: &Limits) -> protocol::Limits {
             },
         },
         budget: budget_view(&own.budget),
-        depth: own.depth,
         model: own.model.clone(),
         protected_minutes: own.protected_minutes,
         reserved: protocol::LimitsReserved {

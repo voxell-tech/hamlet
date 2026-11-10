@@ -1,7 +1,6 @@
 //! The menus in the top bar.
 
 use bevy::app::{App, First, Update};
-use bevy::color::Color;
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::resource::Resource;
@@ -12,7 +11,8 @@ use bevy::input::keyboard::KeyCode;
 use bevy::input::mouse::MouseButton;
 use bevy::math::Rect;
 use bevy::ui::{
-    AlignItems, ComputedNode, UiGlobalTransform, UiRect, percent, px,
+    AlignItems, ComputedNode, UiGlobalTransform, UiRect, UiScale,
+    percent, px,
 };
 use bevy::window::Window;
 use bevy_fynix::shortcut::{
@@ -26,7 +26,7 @@ use bevy_fynix::views::{
 };
 use bevy_fynix::{ScopedExt, ViewExt, keyed, style};
 use hamlet_realm::pick::Taken;
-use hamlet_ui::styles::{ICON, hairline};
+use hamlet_ui::styles::{ICON, hairline, transparent};
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::effects::Underglow;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
@@ -139,7 +139,10 @@ fn dismiss(world: &mut World) {
         world.try_query::<&Window>().and_then(|mut windows| {
             windows.iter(world).find_map(Window::cursor_position)
         });
-    let Some(pointer) = pointer else {
+    // In the panels' pixels, as the titles' rects are.
+    let Some(pointer) = pointer.map(|at| {
+        at / world.get_resource::<UiScale>().map_or(1.0, |s| s.0)
+    }) else {
         return;
     };
     let pressed = world
@@ -174,9 +177,11 @@ fn open(world: &mut World, menu: Menu, title: Entity) {
 pub fn nav(cx: &mut Cx) {
     style::<HamletTheme>()
         .frame(|f, t| {
-            f.fill(Color::NONE)
+            // Clear of its hover fill, so that fades in rather than
+            // passing through black.
+            f.fill(transparent(t.palette.button_hover))
                 .height(percent(100.0))
-                .radius(0.0)
+                .radius(t.space.round)
                 .padding(UiRect::axes(
                     px(t.space.title_padding),
                     px(0.0),
@@ -185,13 +190,19 @@ pub fn nav(cx: &mut Cx) {
         .label(|l, t| {
             l.tone(Tone::Faint).size(t.text.heading).bold(true)
         })
-        .hovered(|s| s.fill(|_| Color::NONE).tone(Tone::Body))
-        .pressed(|s| s.fill(|_| Color::NONE).tone(Tone::Dim))
+        .hovered(|s| {
+            s.fill(|t: &HamletTheme| t.palette.button_hover)
+                .tone(Tone::Body)
+        })
+        .pressed(|s| {
+            s.fill(|t: &HamletTheme| t.palette.selected)
+                .tone(Tone::Dim)
+        })
         .transition(Motion::Interact)
         .apply(cx);
 }
 
-/// Holds a title lit while its menu is open.
+/// Holds a title lit, washed with light, while its menu is open.
 pub(crate) fn light_titles(
     open: Res<OpenMenu>,
     mut titles: Query<(&Menu, &mut Underglow)>,
@@ -224,7 +235,7 @@ fn title(name: &'static str, menu: Menu) -> impl View {
 /// The menu titles, for the top bar.
 pub fn titles() -> impl View {
     with_cx(|cx| {
-        row((title("HAMLET", Menu::App),))
+        row((title("Hamlet", Menu::App),))
             .gap(0.0)
             .height(px(cx.theme().space.bar))
             .align(AlignItems::Center)

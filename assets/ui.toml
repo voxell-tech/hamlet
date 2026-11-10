@@ -6,7 +6,7 @@
 [chrome]
 edge = 5.0
 double = 0.35
-button = 32.0
+button = 28.0
 
 [desk]
 underline_glow = 0.75

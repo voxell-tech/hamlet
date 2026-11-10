@@ -160,6 +160,9 @@ pub fn dial(
                 .width(px(SIDE))
                 .height(px(SIDE))
                 .shrink(0.0)
+                // Room for the knob, which stands half out of the
+                // rim, so that a panel's edge does not cut it.
+                .margin(UiRect::all(px(KNOB / 2.0)))
                 .radius(SIDE / 2.0)
                 .border(rim_width)
                 .border_color(rim)

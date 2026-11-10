@@ -28,8 +28,7 @@ use hamlet_ui::{AnyView, View, built, with_cx};
 use crate::PanelSystems;
 use crate::convo::Convo;
 use crate::links::Aimed;
-use crate::petition::Queue;
-use crate::standing::{Standing, need_you};
+use crate::standing::Standing;
 
 pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<Bar>().add_systems(
@@ -86,7 +85,7 @@ pub(crate) fn update_status(
     let next = Bar {
         busy,
         running: if busy { "Working" } else { "Idle" }.into(),
-        running_tone: if busy { Tone::Accent } else { Tone::Dim },
+        running_tone: if busy { Tone::Warning } else { Tone::Dim },
         model: crate::models::model_name(&settings.0.model)
             .to_string(),
         link: if connection.state == Contact::Connected {
@@ -226,23 +225,6 @@ fn confinement() -> AnyView {
     .boxed()
 }
 
-/// The number that wait for the chief, behind a bell. Nothing while
-/// none does.
-fn waiting() -> impl View {
-    keyed(resource::<Queue, _>(Queue::len), |waiting| match waiting {
-        0 => frame().boxed(),
-        n => pair(
-            mark(Standing::Waits.glyph(), Standing::Waits.tone()),
-            alarm(
-                format!("{n} {}", need_you(*n)),
-                Standing::Waits.tone(),
-            ),
-        )
-        .boxed(),
-    })
-    .within(row(()).gap(0.0))
-}
-
 /// How the agents reach their models: what confines their commands,
 /// the default model and the link.
 fn setup() -> impl View {
@@ -351,7 +333,6 @@ pub fn status_bar() -> impl View {
                     setup(),
                     session(),
                     aimed(),
-                    waiting(),
                     pair(
                         with_cx(|cx| {
                             let side = cx.theme().space.status_icon;
@@ -372,7 +353,13 @@ pub fn status_bar() -> impl View {
                         }),
                         told(
                             resource::<Bar, _>(|s| s.running.clone()),
-                            resource::<Bar, _>(|s| s.running_tone),
+                            resource::<Bar, _>(|s| {
+                                if s.busy {
+                                    Tone::Body
+                                } else {
+                                    Tone::Dim
+                                }
+                            }),
                         ),
                     ),
                 ))

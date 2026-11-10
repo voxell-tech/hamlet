@@ -55,7 +55,7 @@ pub fn plugin(app: &mut App) {
         })
         .icon(Glyph::Tree.image(ICON)),
     )
-    .add_plugins((rail::plugin, visits::plugin))
+    .add_plugins((rail::plugin, visits::plugin, thread::plugin))
     .init_resource::<Showing>()
     .init_resource::<crate::forms::OpenForm>()
     .init_resource::<scholar::Form>()

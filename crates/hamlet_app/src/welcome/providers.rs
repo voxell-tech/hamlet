@@ -31,8 +31,9 @@ use hamlet_client::outbox::Outbox;
 use hamlet_client::realm::Providers;
 use hamlet_protocol::client as protocol;
 use hamlet_ui::styles::{
-    ICON, Refused, bare, close, good_action, group, hairline, note,
-    parts, rail_item, scroll_area, small_rules, text_input, upright,
+    ICON, RailRow, Refused, bare, close, good_action, group,
+    hairline, note, parts, rail_item, scroll_area, small_rules,
+    text_input, upright,
 };
 use hamlet_ui::widgets::hint::hinted;
 use hamlet_ui::widgets::icons::Glyph;
@@ -519,13 +520,14 @@ pub(super) fn key_page() -> AnyView {
                 let (id, name) = provider;
                 let is_chosen = Some(id) == chosen.as_ref();
                 let picked = provider.clone();
-                let item = rail_item(
-                    mark(id, ICON),
-                    name.clone(),
-                    is_chosen,
-                    1.0,
-                )
-                .on_activate(move |world| choose(world, &picked));
+                let state = if is_chosen {
+                    RailRow::Chosen
+                } else {
+                    RailRow::Plain
+                };
+                let face = mark(id, ICON);
+                let item = rail_item(face, name.clone(), state)
+                    .on_activate(move |world| choose(world, &picked));
                 if is_chosen {
                     item.tagged(ChosenProvider).boxed()
                 } else {

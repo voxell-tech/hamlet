@@ -64,6 +64,9 @@ pub struct TagOpened {
     pub item: Entity,
 }
 
+/// The side of the tail under a tag, before it is turned to a point.
+const TAIL: f32 = 10.0;
+
 /// The tag of the oldest thing that waits at one agent.
 #[derive(Component, Clone, PartialEq)]
 pub struct NeedTag {
@@ -201,20 +204,28 @@ fn hang(
             continue;
         }
         let item = need.item;
-        let mark = |image: &Handle<Image>, fill, colour, agree| {
+        // The check is the answer offered, filled in the tag's own
+        // colour; the cross stands back, an outline.
+        let mark = |image: &Handle<Image>, agree: bool| {
+            let (fill, edge, colour) = if agree {
+                (needs_you, needs_you, paper)
+            } else {
+                (Color::NONE, ink.with_alpha(0.3), ink)
+            };
             (
                 Mark { item, agree },
                 Node {
-                    width: px(28),
-                    height: px(28),
+                    width: px(26),
+                    height: px(26),
                     border: UiRect::all(px(1)),
-                    border_radius: BorderRadius::all(px(6)),
+                    border_radius: BorderRadius::all(px(13)),
                     align_items: AlignItems::Center,
                     justify_content: JustifyContent::Center,
+                    flex_shrink: 0.0,
                     ..default()
                 },
                 BackgroundColor(fill),
-                BorderColor::all(ink),
+                BorderColor::all(edge),
                 children![(
                     ImageNode {
                         image: image.clone(),
@@ -222,8 +233,8 @@ fn hang(
                         ..default()
                     },
                     Node {
-                        width: px(18),
-                        height: px(18),
+                        width: px(14),
+                        height: px(14),
                         ..default()
                     },
                     Pickable::IGNORE,
@@ -235,16 +246,21 @@ fn hang(
             Pressable,
             Node {
                 position_type: PositionType::Absolute,
-                padding: UiRect::axes(px(8), px(5)),
-                column_gap: px(8),
-                border: UiRect::all(px(1)),
-                border_radius: BorderRadius::all(px(6)),
+                padding: UiRect::new(px(10), px(8), px(7), px(8)),
+                column_gap: px(10),
+                // A bar of its colour down its left, and a faint
+                // line about the rest.
+                border: UiRect::new(px(3), px(1), px(1), px(1)),
+                border_radius: BorderRadius::all(px(8)),
                 align_items: AlignItems::Center,
                 max_width: px(settings.width),
                 ..default()
             },
             BackgroundColor(paper),
-            BorderColor::all(needs_you),
+            BorderColor {
+                left: needs_you,
+                ..BorderColor::all(ink.with_alpha(0.14))
+            },
             BoxShadow::new(
                 Color::BLACK.with_alpha(0.55),
                 px(0),
@@ -264,17 +280,39 @@ fn hang(
             },
         );
         tag.with_children(|tag| {
+            // A tail under its middle, down to the house.
+            tag.spawn((
+                Node {
+                    position_type: PositionType::Absolute,
+                    width: px(TAIL),
+                    height: px(TAIL),
+                    left: percent(50.0),
+                    bottom: px(-TAIL / 2.0 - 1.0),
+                    margin: UiRect::left(px(-TAIL / 2.0)),
+                    border: UiRect::new(px(0), px(1), px(0), px(1)),
+                    ..default()
+                },
+                UiTransform::from_rotation(Rot2::degrees(45.0)),
+                BackgroundColor(paper),
+                BorderColor::all(ink.with_alpha(0.14)),
+                Pickable::IGNORE,
+            ));
             tag.spawn((
                 Node {
                     flex_direction: FlexDirection::Column,
-                    row_gap: px(1),
+                    row_gap: px(2),
+                    flex_shrink: 1.0,
+                    min_width: px(0),
                     ..default()
                 },
                 Pickable::IGNORE,
                 children![
                     (
-                        Text::new("NEEDS YOU"),
-                        TextFont::from_font_size(11.0),
+                        Text::new("Needs you"),
+                        TextFont {
+                            weight: FontWeight::SEMIBOLD,
+                            ..TextFont::from_font_size(11.0)
+                        },
                         TextColor(needs_you),
                         Pickable::IGNORE,
                     ),
@@ -302,12 +340,10 @@ fn hang(
                     }
                 };
             if need.check {
-                tag.spawn(mark(&glyphs.check, ink, paper, true))
-                    .observe(answer);
+                tag.spawn(mark(&glyphs.check, true)).observe(answer);
             }
             if need.cross {
-                tag.spawn(mark(&glyphs.cross, paper, ink, false))
-                    .observe(answer);
+                tag.spawn(mark(&glyphs.cross, false)).observe(answer);
             }
         });
     }

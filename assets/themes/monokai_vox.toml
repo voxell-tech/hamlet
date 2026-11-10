@@ -1,0 +1,43 @@
+# Monokai Pro as Voxell wears it on voxell.dev: cyan for what is live
+# and lit, and its own light variant. Fifteen colours for each
+# variant, from which every role is derived in
+# crates/hamlet_ui/src/theme/derive.rs.
+name = "Monokai Vox"
+
+[light]
+name = "Light"
+base0 = "#faf4f2"
+base1 = "#f2ebe8"
+base2 = "#eae2df"
+base3 = "#d3cdcc"
+base4 = "#bfb9ba"
+base5 = "#918c8e"
+base6 = "#706b6e"
+base7 = "#4f4a4e"
+base8 = "#29242a"
+red = "#e14775"
+orange = "#e16032"
+yellow = "#cc7a0a"
+green = "#269d69"
+blue = "#1c8ca8"
+purple = "#7058be"
+accent = "blue"
+
+[dark]
+name = "Dark"
+base0 = "#19181A"
+base1 = "#221F22"
+base2 = "#2D2A2E"
+base3 = "#403E41"
+base4 = "#5B595C"
+base5 = "#727072"
+base6 = "#939293"
+base7 = "#C1C0C0"
+base8 = "#FCFCFA"
+red = "#FF6188"
+orange = "#FC9867"
+yellow = "#FFD866"
+green = "#A9DC76"
+blue = "#78DCE8"
+purple = "#AB9DF2"
+accent = "blue"

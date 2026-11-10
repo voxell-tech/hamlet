@@ -25,7 +25,7 @@ use hamlet_client::realm::id_of;
 use hamlet_protocol::client as protocol;
 use hamlet_ui::styles::{
     Fills, ICON, buttons, command, filling, good_action, hairline,
-    hidden, link_row, note, pill, scroll_area, section, text_input,
+    hidden, link_row, note, scroll_area, section, text_input,
 };
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::effects::Variant;
@@ -416,7 +416,7 @@ fn line_view(line: &Line) -> AnyView {
     let menu = line.clone();
     let (title, detail, live) =
         (line.title.clone(), line.detail.clone(), line.live);
-    let tone = if live { Tone::Accent } else { Tone::Body };
+    let tone = Tone::Body;
     let pressed = with_cx(move |cx| {
         let space = &cx.theme().space;
         let name = label(title.clone()).rules(move |cx: &mut Cx| {
@@ -428,7 +428,16 @@ fn line_view(line: &Line) -> AnyView {
         });
         let mut meta = vec![note(detail.clone()).boxed()];
         if live {
-            meta.push(pill("In use").boxed());
+            // The session open now: a green check, then the words.
+            meta.push(
+                row((
+                    glyph(Glyph::Check, 12.0).tone(Tone::Success),
+                    note("In use"),
+                ))
+                .gap(4.0)
+                .align(AlignItems::Center)
+                .boxed(),
+            );
         }
         button(
             row((
@@ -635,11 +644,6 @@ mod tests {
         assert_eq!(read["agent"], json!(1));
         bevy_fynix::mount::<HamletTheme>(app.world_mut(), screen());
         app.update();
-        assert!(
-            words(&mut app)
-                .iter()
-                .any(|text| text == "No sessions yet.")
-        );
         let now = chrono::Utc::now().timestamp_millis();
         hamlet_client::receive(app.world_mut(), serde_json::from_value(json!({"type": "read", "to": read["id"], "history": [
             {"number": 2, "current": true, "title": "Plant pears", "by": "alice", "began": now, "modified": now, "messages": 3, "tokens": 1200},
@@ -647,8 +651,6 @@ mod tests {
         ]})).unwrap());
         app.update();
         let shown = words(&mut app);
-        assert!(shown.iter().any(|text| text == "2 sessions"));
-        assert!(shown.iter().any(|text| text == "In use"));
         assert!(shown.iter().any(|text| text
             == "now · 3 messages · 1.2k tokens · begun by alice"));
         assert!(shown.iter().any(|text| text

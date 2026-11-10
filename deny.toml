@@ -11,6 +11,11 @@ ignore = [
     # ttf-parser, unmaintained. winit's Wayland title bar draws its
     # text with it, through sctk-adwaita and ab_glyph.
     { id = "RUSTSEC-2026-0192", reason = "winit pulls it in; no maintained release to move to" },
+    # SQLite before 3.54 can return stale memory when a database is
+    # opened with a crafted `-wal` file beside it. The fix is in
+    # libsqlite3-sys 0.39, which Diesel 2.3.14 does not yet accept.
+    # The server opens only the realm database it writes itself.
+    { id = "RUSTSEC-2026-0459", reason = "Diesel caps libsqlite3-sys below 0.39; only the server's own database is opened" },
 ]
 
 [licenses]

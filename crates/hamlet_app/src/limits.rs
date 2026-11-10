@@ -392,10 +392,6 @@ fn leads() -> impl View {
         ),
         heading(Glyph::Signpost, "The tree and its roads"),
         line(
-            "Deepest tree under the mayor",
-            whole("", "depth", |l| l.depth, 1000).boxed(),
-        ),
-        line(
             "Most roads",
             whole("road", "most", |l| l.road.most, 10_000).boxed(),
         ),
@@ -692,9 +688,8 @@ impl Part {
                     ),
                 };
                 format!(
-                    "{asks}. Hires go {} levels deep at most, with \
-                     up to {} links between agents.",
-                    limits.depth, limits.road.most
+                    "{asks}. Up to {} links between agents.",
+                    limits.road.most
                 )
             }
         }
@@ -894,12 +889,12 @@ mod tests {
     fn a_top_level_edit_keeps_the_other_received_limits_and_section_keys_are_camel_case()
      {
         let (mut app, _) = page(Part::Leads);
-        enter(&mut app, "Deepest tree under the mayor", "8");
+        enter(&mut app, "Days of decisions each hire is told", "8");
         let mut expected = serde_json::to_value(
             hamlet_testing::realm::hamlet("home", 2).limits,
         )
         .unwrap();
-        expected["depth"] = json!(8);
+        expected["toldDays"] = json!(8);
         let sent = edits(&app);
         assert_eq!(sent[0]["whole"], expected);
         assert!(sent[0].get("set").is_none());

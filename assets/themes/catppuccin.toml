@@ -1,0 +1,44 @@
+# Catppuccin's Latte and Mocha flavours: its ramp from Crust up to
+# Text, and its hues, with Mauve, its ports' default, as the accent.
+# Palette MIT licensed, copyright (c) 2021 Catppuccin. Fifteen
+# colours for each variant, from which every role is derived in
+# crates/hamlet_ui/src/theme/derive.rs.
+name = "Catppuccin"
+
+[light]
+name = "Latte"
+base0 = "#eff1f5"
+base1 = "#e6e9ef"
+base2 = "#dce0e8"
+base3 = "#bcc0cc"
+base4 = "#acb0be"
+base5 = "#7c7f93"
+base6 = "#6c6f85"
+base7 = "#5c5f77"
+base8 = "#4c4f69"
+red = "#d20f39"
+orange = "#fe640b"
+yellow = "#df8e1d"
+green = "#40a02b"
+blue = "#1e66f5"
+purple = "#8839ef"
+accent = "purple"
+
+[dark]
+name = "Mocha"
+base0 = "#11111b"
+base1 = "#181825"
+base2 = "#313244"
+base3 = "#45475a"
+base4 = "#585b70"
+base5 = "#7f849c"
+base6 = "#a6adc8"
+base7 = "#bac2de"
+base8 = "#cdd6f4"
+red = "#f38ba8"
+orange = "#fab387"
+yellow = "#f9e2af"
+green = "#a6e3a1"
+blue = "#89b4fa"
+purple = "#cba6f7"
+accent = "purple"

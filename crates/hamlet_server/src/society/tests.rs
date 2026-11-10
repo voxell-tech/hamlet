@@ -124,7 +124,7 @@ fn a_scholar_is_renamed_without_changing_its_address() {
 }
 
 #[test]
-fn the_tree_keeps_its_depth_and_heals_when_a_lead_ends() {
+fn the_tree_heals_when_a_lead_ends() {
     let mut realm = Realm::new();
     let mayor = realm.found("docs", "ada").agent;
     let lead =
@@ -133,11 +133,7 @@ fn the_tree_keeps_its_depth_and_heals_when_a_lead_ends() {
         hire(&mut realm, &docs(), lead, new("mid")).unwrap().agent;
     let low =
         hire(&mut realm, &docs(), mid, new("low")).unwrap().agent;
-    assert_eq!(tree::depth(realm.db(), low).unwrap(), 3);
-    assert!(matches!(
-        hire(&mut realm, &docs(), low, new("deep")),
-        Err(Refusal::TooDeep { most: 3 })
-    ));
+    assert_eq!(tree::parent(realm.db(), low).unwrap(), Some(mid));
     assert_eq!(
         realm.chief(|cx| hires::end(
             cx,

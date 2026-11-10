@@ -973,6 +973,7 @@ dependencies = [
  "fynix",
  "lenz",
  "motiongfx_interp",
+ "parley",
 ]
 
 [[package]]
@@ -4615,6 +4616,7 @@ dependencies = [
 name = "hamlet_ui"
 version = "0.1.0"
 dependencies = [
+ "accesskit",
  "bevy",
  "bevy_fynix",
  "hamlet_assets",

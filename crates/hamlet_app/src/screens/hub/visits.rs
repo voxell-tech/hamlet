@@ -1,16 +1,13 @@
 //! The Hub's pages gone through, to go back and forward among them:
-//! with the primary key and `[` or `]` while the pointer is over the
-//! Hub, or the mouse's back and forward buttons.
+//! with the primary key and `[` or `]`, or the mouse's back and
+//! forward buttons, while the pointer is over the Hub.
 
 use bevy::app::{App, Update};
 use bevy::ecs::entity::Entity;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::IntoScheduleConfigs;
-use bevy::ecs::system::Res;
 use bevy::ecs::world::World;
-use bevy::input::ButtonInput;
 use bevy::input::keyboard::KeyCode;
-use bevy::input::mouse::MouseButton;
 use bevy_fynix::shortcut::{
     Chord, CommandId, CommandSpec, Layer, Mods, ScopeId, ScopeSpec,
     ShortcutAppExt,
@@ -19,9 +16,9 @@ use hamlet_realm::pick::{Selected, Thing, select};
 
 use super::{Sheet, Showing, show};
 use crate::convo::{Convo, seat};
-
-/// How many pages are kept behind.
-const KEPT: usize = 50;
+use crate::trail::{
+    Trail, Way, mouse_pressed, mouse_way, pointer_over,
+};
 
 /// The Hub's keys, in force while the pointer is over it.
 pub(super) const KEYS: ScopeId = ScopeId("hub");
@@ -75,17 +72,7 @@ struct Visit {
 
 /// The pages behind the one shown and those ahead of it.
 #[derive(Resource, Default)]
-pub(crate) struct Visits {
-    behind: Vec<Visit>,
-    ahead: Vec<Visit>,
-    now: Option<Visit>,
-}
-
-#[derive(Clone, Copy)]
-enum Way {
-    Back,
-    Forward,
-}
+pub(crate) struct Visits(Trail<Visit>);
 
 fn here(world: &World) -> Option<Visit> {
     let showing = *world.get_resource::<Showing>()?;
@@ -105,19 +92,8 @@ fn here(world: &World) -> Option<Visit> {
 
 /// Keeps the page left behind whenever the Hub turns to another.
 fn record(world: &mut World) {
-    let Some(visit) = here(world) else {
-        return;
-    };
-    let mut visits = world.resource_mut::<Visits>();
-    match visits.now.replace(visit) {
-        Some(was) if was != visit => {
-            visits.behind.push(was);
-            if visits.behind.len() > KEPT {
-                visits.behind.remove(0);
-            }
-            visits.ahead.clear();
-        }
-        _ => {}
+    if let Some(visit) = here(world) {
+        world.resource_mut::<Visits>().0.keep(visit);
     }
 }
 
@@ -156,26 +132,13 @@ fn travel(world: &mut World, way: Way) {
     let Some(now) = here(world) else {
         return;
     };
-    let next = loop {
-        let mut visits = world.resource_mut::<Visits>();
-        let taken = match way {
-            Way::Back => visits.behind.pop(),
-            Way::Forward => visits.ahead.pop(),
-        };
-        let Some(visit) = taken else {
-            return;
-        };
-        if stands(world, &visit) {
-            break visit;
-        }
+    let mut trail =
+        core::mem::take(&mut world.resource_mut::<Visits>().0);
+    let next = trail.travel(way, now, |visit| stands(world, visit));
+    world.resource_mut::<Visits>().0 = trail;
+    let Some(next) = next else {
+        return;
     };
-    let mut visits = world.resource_mut::<Visits>();
-    match way {
-        Way::Back => visits.ahead.push(now),
-        Way::Forward => visits.behind.push(now),
-    }
-    // Shown as it is, it is not kept again as a page left.
-    visits.now = Some(next);
     // The world's ring moves with it. A page of an agent's sessions
     // or prompt leaves the ring where it is, as selecting the agent
     // would turn the Hub to its chat.
@@ -195,25 +158,14 @@ fn travel(world: &mut World, way: Way) {
     show(world, next.showing);
 }
 
-fn mouse_pressed(
-    mouse: Option<Res<ButtonInput<MouseButton>>>,
-) -> bool {
-    mouse.is_some_and(|mouse| {
-        mouse.any_just_pressed([
-            MouseButton::Back,
-            MouseButton::Forward,
-        ])
-    })
-}
-
+/// Turns the Hub by the mouse's back or forward button, when the
+/// pointer is over it.
 fn mouse_travel(world: &mut World) {
-    let mouse = world.resource::<ButtonInput<MouseButton>>();
-    let way = if mouse.just_pressed(MouseButton::Back) {
-        Way::Back
-    } else {
-        Way::Forward
-    };
-    travel(world, way);
+    if let Some(way) = mouse_way(world)
+        && pointer_over(world, KEYS)
+    {
+        travel(world, way);
+    }
 }
 
 #[cfg(test)]
