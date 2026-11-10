@@ -1,6 +1,6 @@
 //! The pages of first-run setup.
 
-use bevy::color::{Alpha, Mix};
+use bevy::color::{Alpha, Color, Mix};
 use bevy::ecs::world::World;
 use bevy::ui::{
     AlignItems, BackgroundGradient, ColorStop, JustifyContent,
@@ -9,31 +9,31 @@ use bevy::ui::{
 };
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, column, frame, label, overlay, row,
+    self, BehaviorExt, FrameProps, column, frame, label, overlay,
+    row, text_field,
 };
 use bevy_fynix::{ScopedExt, ViewExt, derived, keyed, resource};
 use hamlet_client::realm::{Providers, Settings};
 use hamlet_protocol::client as protocol;
 use hamlet_ui::markdown::{Face, Ink, Span, Style, Target, rich};
 use hamlet_ui::styles::{
-    self, ICON, Looks, back, bare, beside, description, good_action,
-    group, headed, lead_card, marked, nav_card, note, parts,
-    scroll_area, small_rules,
+    self, CONTROL, ICON, Looks, back, bare, card_choice,
+    close_button, command, description, good_action, group, hairline,
+    headed, lettered, marked, note, parts, scroll_area, small_rules,
+    text_input,
 };
 use hamlet_ui::theme::Palette;
 use hamlet_ui::widgets::effects::Variant;
+use hamlet_ui::widgets::hint::hinted;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::{AnyView, Cx, View, built, kinds, rules, with_cx};
 
-use super::{NOTHING_LOCAL, Step, Welcome, close, go, look, pick};
+use super::providers::{self, Tile};
+use super::{NOTHING_LOCAL, Pick, Step, Welcome, go, look, pick};
 use crate::models::{
     Detail, ModelRow, legend, mark, model_row, narrowed, provider_of,
 };
 use crate::roll::{either, moved};
-
-fn title(which: Glyph, text: &'static str) -> impl View {
-    headed(glyph(which, ICON), styles::title(text))
-}
 
 pub(super) fn said(text: impl Into<String>) -> AnyView {
     description(text.into()).boxed()
@@ -94,144 +94,376 @@ pub(super) fn linked(
     .boxed()
 }
 
-fn choice(adding: bool) -> AnyView {
-    let (name, says, leave, after) = if adding {
-        (
-            "Add a place for models",
-            "Where do the models come from? Your current model \
-             stays as it is.",
-            "Cancel",
-            "Its models are listed under Models, for you to allow.",
-        )
-    } else {
-        (
-            "Welcome to Hamlet",
-            "Your hamlet needs a model to think with. How would you \
-             like to give it one?",
-            "I'll set this up later",
-            "You can come back to this from Settings.",
-        )
-    };
-    parts((
-        beside((
-            title(Glyph::Hearth, name),
-            frame().grow(1.0),
-            counted(1),
-        )),
-        said(says),
-        offered("openrouter", || {
-            lead_card(
-                Glyph::Globe,
-                "Sign in with OpenRouter",
-                "Recommended",
-                "The quickest way. You sign in with your browser \
-                 and pay OpenRouter for what you use.",
-                |world| {
-                    super::providers::start(
-                        world,
-                        "openrouter",
-                        false,
-                    );
-                },
-            )
-        }),
-        offered("chatgpt", || {
-            nav_card(
-                mark("chatgpt", ICON),
-                "Continue with ChatGPT",
-                "Use your ChatGPT plan, with no key. You sign in \
-                 with your browser, and what your hamlet does \
-                 counts toward your plan's usage.",
-                |world| {
-                    super::providers::start(world, "chatgpt", false);
-                },
-            )
-        }),
-        offered("claude", || {
-            nav_card(
-                mark("claude", ICON),
-                "Sign in to Claude",
-                "Run agents on Claude models with your own Claude \
-                 plan. You sign in through Claude's own sign-in, in \
-                 a browser on the server's computer, and what those \
-                 agents do counts toward your plan's usage.",
-                |world| {
-                    super::providers::start(world, "claude", false);
-                },
-            )
-        }),
-        nav_card(
-            glyph(Glyph::Key, ICON),
-            "I have a key",
-            "Use a key from a provider such as OpenAI, DeepSeek or \
-             OpenRouter. You pay them for what you use.",
-            |world| go(world, Step::Key),
-        ),
-        nav_card(
-            glyph(Glyph::Chip, ICON),
-            "I run my own model",
-            "Use a model running on this computer, with Ollama or \
-             LM Studio.",
-            look,
-        ),
-        beside((
-            marked(Glyph::Clock, leave)
-                .variant(Variant::Text)
-                .on_activate(close),
-            note(after),
+/// A first-run page: its name and what it is for beside the way to
+/// close it, the track of the steps with the step `at` lit, `body`,
+/// and the buttons of `foot` under a rule.
+pub(super) fn card(
+    at: usize,
+    body: impl View + 'static,
+    foot: Vec<AnyView>,
+) -> AnyView {
+    let named = keyed(
+        resource::<Welcome, _>(|welcome| welcome.adding),
+        |adding| {
+            let (name, says) = if *adding {
+                (
+                    "Add provider",
+                    "Add an account or a key that models come from. \
+                     Your current model stays as it is.",
+                )
+            } else {
+                (
+                    "Welcome to Hamlet",
+                    "Your realm needs a model to think with. Choose \
+                     where it comes from.",
+                )
+            };
+            row((
+                column((styles::title(name), description(says)))
+                    .gap(4.0)
+                    .grow(1.0)
+                    .min_width(px(0.0)),
+                close_button(super::close),
+            ))
+            .gap(12.0)
+            .align(AlignItems::FlexStart)
+            .boxed()
+        },
+    )
+    .within(bare());
+    with_cx(move |cx| {
+        let theme = cx.theme();
+        let space = &theme.space;
+        let line = theme.palette.gold_6;
+        let pad = UiRect::all(px(space.overlay_padding));
+        column((
+            column((named, track(at)))
+                .gap(space.section)
+                .padding(pad),
+            hairline(line),
+            column((body,)).gap(space.gap).padding(pad),
+            hairline(line),
+            row(foot)
+                .gap(8.0)
+                .align(AlignItems::Center)
+                .justify(JustifyContent::FlexEnd)
+                .padding(UiRect::axes(
+                    px(space.overlay_padding),
+                    px(space.section),
+                ))
+                .tagged(hamlet_ui::widgets::platform::Wraps),
         ))
-        .tagged(hamlet_ui::widgets::platform::Wraps),
-    ))
+        .gap(0.0)
+    })
     .boxed()
 }
 
-/// The card `card` makes for signing in to `provider`, shown only
-/// while the server offers that sign-in, so a press always starts
-/// one.
-fn offered<V: View>(
-    provider: &'static str,
-    card: impl Fn() -> V + Send + Sync + 'static,
-) -> AnyView {
+/// The steps of setup in a track, each numbered, the step `at` lit
+/// and those before it checked: two while a provider is added, as
+/// its models go to Settings, else three.
+fn track(at: usize) -> AnyView {
     keyed(
-        resource::<Providers, _>(move |providers| {
-            providers.0.iter().any(|known| {
-                known.id == provider
-                    && known.methods.contains(
-                        &protocol::LoginMethod::Subscription,
-                    )
+        resource::<Welcome, _>(|welcome| welcome.adding),
+        move |adding| {
+            let names: &'static [&'static str] = if *adding {
+                &["Provider", "Sign in"]
+            } else {
+                &["Provider", "Sign in", "Model"]
+            };
+            with_cx(move |cx| {
+                let theme = cx.theme();
+                let space = &theme.space;
+                let palette = &theme.palette;
+                let steps = names
+                    .iter()
+                    .enumerate()
+                    .map(|(index, name)| {
+                        let number = index + 1;
+                        let lit = number == at;
+                        let tone = if lit {
+                            Tone::Body
+                        } else {
+                            Tone::Faint
+                        };
+                        let inside = if number < at {
+                            glyph(Glyph::Check, 11.0)
+                                .tone(tone)
+                                .boxed()
+                        } else {
+                            label(number.to_string())
+                                .size(theme.text.small)
+                                .bold(true)
+                                .tone(tone)
+                                .boxed()
+                        };
+                        let disc = column((inside,))
+                            .width(px(22.0))
+                            .height(px(22.0))
+                            .shrink(0.0)
+                            .radius(11.0)
+                            .border(space.border)
+                            .border_color(if lit {
+                                palette.accent
+                            } else {
+                                palette.gold_5
+                            })
+                            .align(AlignItems::Center)
+                            .justify(JustifyContent::Center);
+                        row((
+                            disc,
+                            label(*name).tone(tone).wrap(false),
+                        ))
+                        .gap(8.0)
+                        .align(AlignItems::Center)
+                        .padding(UiRect::axes(px(12.0), px(6.0)))
+                        .radius(space.round)
+                        .grow(1.0)
+                        .width(px(0.0))
+                        .min_width(px(0.0))
+                        .fill(if lit {
+                            palette.selected
+                        } else {
+                            Color::NONE
+                        })
+                        .boxed()
+                    })
+                    .collect::<Vec<_>>();
+                row(steps)
+                    .gap(space.track_padding)
+                    .padding(UiRect::all(px(space.track_padding)))
+                    .fill(palette.input)
+                    .border(space.border)
+                    .border_color(palette.gold_5)
+                    .radius(space.track_radius)
             })
-        }),
-        move |offered| match offered {
-            true => card().boxed(),
-            false => frame().boxed(),
+            .boxed()
         },
     )
     .within(bare())
     .boxed()
 }
 
-/// The head of a step after the first: the way back to the first,
-/// its name, and where it stands among the steps.
-pub(super) fn head(
-    which: Glyph,
-    text: &'static str,
-    step: usize,
-) -> impl View {
-    beside((
-        back("Back", |world| go(world, Step::Choice)),
-        title(which, text),
-        frame().grow(1.0),
-        counted(step),
-    ))
+/// The button that leaves setup: for later on first run, else a
+/// cancel.
+fn later() -> AnyView {
+    keyed(
+        resource::<Welcome, _>(|welcome| welcome.adding),
+        |adding| {
+            let text = if *adding {
+                "Cancel"
+            } else {
+                "I'll set this up later"
+            };
+            lettered(text)
+                .variant(Variant::Text)
+                .on_activate(super::close)
+                .boxed()
+        },
+    )
+    .within(bare())
+    .boxed()
 }
 
-/// Where the step `step` stands among them: two while a place for
-/// models is added, as its models go to Settings, else three.
-fn counted(step: usize) -> impl View {
-    note(resource::<Welcome, _>(move |welcome| {
-        let of = if welcome.adding { 2 } else { 3 };
-        format!("Step {step} of {of}")
-    }))
+/// The way back to the providers.
+pub(super) fn to_providers(text: &'static str) -> AnyView {
+    back(text, |world| go(world, Step::Provider)).boxed()
+}
+
+/// The side of a mark on a provider's tile.
+const MARK: f32 = 18.0;
+
+/// How tall the providers are while every one is shown, whatever
+/// the search finds.
+const TALL: f32 = 296.0;
+
+/// The space between the tiles.
+const TILE_GAP: f32 = 12.0;
+
+/// A tile's face: the provider's mark, or a chip for this computer.
+fn face(tile: &Tile, size: f32) -> AnyView {
+    match &tile.mark {
+        Some(id) => mark(id, size),
+        None => glyph(Glyph::Chip, size).boxed(),
+    }
+}
+
+/// A provider as a tile to pick, checked while it is the one picked.
+fn tile(tile: &Tile, picked: bool) -> AnyView {
+    let check = if picked {
+        glyph(Glyph::Check, ICON).tone(Tone::Accent).boxed()
+    } else {
+        frame().boxed()
+    };
+    let pick = tile.pick.clone();
+    views::button(
+        row((
+            face(tile, MARK),
+            label(tile.name.clone()).bold(true).wrap(false),
+            frame().grow(1.0),
+            check,
+        ))
+        .gap(TILE_GAP)
+        .align(AlignItems::Center)
+        .width(percent(100.0)),
+    )
+    .grow(1.0)
+    .width(px(0.0))
+    .min_width(px(0.0))
+    .rules(card_choice(picked))
+    .on_activate(move |world| {
+        world.resource_mut::<Welcome>().picked = Some(pick.clone());
+    })
+    .boxed()
+}
+
+/// The tiles shown, two to a row.
+fn tiles() -> AnyView {
+    keyed(
+        derived(|world: &World| {
+            let welcome = world.resource::<Welcome>();
+            let mut tiles = providers::tiles(world);
+            if !welcome.more {
+                tiles.truncate(providers::FEW);
+            }
+            (tiles, super::picked(world))
+        })
+        .when(either(moved::<Welcome>(), moved::<Providers>())),
+        |(tiles, picked)| {
+            if tiles.is_empty() {
+                return said("No providers found. Try another name.");
+            }
+            let rows = tiles
+                .chunks(2)
+                .map(|pair| {
+                    let mut cells = pair
+                        .iter()
+                        .map(|shown| {
+                            tile(
+                                shown,
+                                picked.as_ref() == Some(&shown.pick),
+                            )
+                        })
+                        .collect::<Vec<_>>();
+                    // A lone last tile keeps to its half.
+                    if cells.len() == 1 {
+                        cells.push(
+                            frame().grow(1.0).width(px(0.0)).boxed(),
+                        );
+                    }
+                    row(cells).gap(TILE_GAP).boxed()
+                })
+                .collect::<Vec<_>>();
+            column(rows).gap(TILE_GAP).boxed()
+        },
+    )
+    .within(bare())
+    .boxed()
+}
+
+/// The first few providers, or every one with a search over them.
+fn providers_shown() -> AnyView {
+    keyed(resource::<Welcome, _>(|welcome| welcome.more), |more| {
+        if !*more {
+            return column((
+                tiles(),
+                row((marked(Glyph::Chevron, "Show more")
+                    .variant(Variant::Text)
+                    .on_activate(|world| {
+                        world.resource_mut::<Welcome>().more = true;
+                    }),)),
+            ))
+            .gap(8.0)
+            .boxed();
+        }
+        // Built once, so it keeps its focus and text as the
+        // tiles change.
+        let search = built(|cx| {
+            let seek = cx.world.resource::<Welcome>().seek.clone();
+            cx.build(crate::search::search(
+                "Search providers",
+                seek,
+                |world, text| providers::search(world, &text),
+            ))
+        });
+        column((
+            column((search,)).tagged(providers::ProviderSearch),
+            column((scroll_area((tiles(),)),)).height(px(TALL)),
+            row((back("Show fewer", |world| {
+                let mut welcome = world.resource_mut::<Welcome>();
+                welcome.more = false;
+                welcome.seek.clear();
+            })
+            .variant(Variant::Text),)),
+        ))
+        .gap(8.0)
+        .boxed()
+    })
+    .within(bare())
+    .boxed()
+}
+
+/// The button that goes on with the tile picked, named for it.
+fn onward() -> AnyView {
+    keyed(
+        derived(|world: &World| match super::picked(world) {
+            Some(Pick::Local) => {
+                Some((None, "Look on this computer".to_string()))
+            }
+            Some(Pick::Provider(id)) => world
+                .resource::<Providers>()
+                .0
+                .iter()
+                .find(|provider| provider.id == id)
+                .map(|provider| {
+                    let text = if provider.methods.contains(
+                        &protocol::LoginMethod::Subscription,
+                    ) {
+                        provider.label.clone()
+                    } else {
+                        format!("Continue with {}", provider.name)
+                    };
+                    (Some(provider.id.clone()), text)
+                }),
+            None => None,
+        })
+        .when(either(moved::<Welcome>(), moved::<Providers>())),
+        |onward| {
+            let Some((id, text)) = onward else {
+                return frame().boxed();
+            };
+            let face = match id {
+                Some(id) => mark(id, ICON),
+                None => glyph(Glyph::Chip, ICON).boxed(),
+            };
+            views::button(headed(
+                face,
+                label(text.clone()).wrap(false),
+            ))
+            // Less on the mark's side, which has air of its own.
+            .padding(UiRect::new(px(8.0), px(12.0), px(0.0), px(0.0)))
+            .min_height(px(CONTROL))
+            .variant(Variant::Primary)
+            .on_activate(super::proceed)
+            .boxed()
+        },
+    )
+    .within(bare())
+    .boxed()
+}
+
+fn provider_page() -> AnyView {
+    card(
+        1,
+        providers_shown(),
+        vec![
+            later(),
+            command("Configure manually", |world| {
+                go(world, Step::Manual);
+            })
+            .boxed(),
+            onward(),
+        ],
+    )
 }
 
 /// The model a new hamlet is offered first: the realm's default
@@ -354,53 +586,102 @@ fn models() -> AnyView {
         |(from, provider)| {
             let says = description(format!(
                 "{from} listed these models. Pick the one your \
-                 hamlet will think with."
+                 realm will think with."
             ));
             match provider {
-                Some(id) => beside((mark(id, ICON), says)).boxed(),
+                Some(id) => row((mark(id, ICON), says))
+                    .gap(8.0)
+                    .align(AlignItems::Center)
+                    .boxed(),
                 None => says.boxed(),
             }
         },
     )
     .within(bare());
-    let send =
-        row((good_action(Glyph::Check, "Continue", |world| {
-            if let Some(model) = chosen(world) {
-                pick(world, &model);
-            }
-        }),));
-    parts((
-        head(Glyph::Chip, "Pick a model", 3),
-        from,
-        group((search, news("Asking it to say hello..."), list)),
-        send,
-        note(
-            "You can change it later in Settings, under Models, and \
-             for one agent from the model under its chat.",
-        ),
-    ))
-    .boxed()
+    card(
+        3,
+        parts((
+            from,
+            group((search, news("Asking it to say hello..."), list)),
+            note(
+                "You can change it later in Settings, under Models, \
+                 and for one agent from the model under its chat.",
+            ),
+        )),
+        vec![
+            to_providers("Back"),
+            good_action(Glyph::Check, "Continue", |world| {
+                if let Some(model) = chosen(world) {
+                    pick(world, &model);
+                }
+            }),
+        ],
+    )
 }
 
 fn local() -> AnyView {
-    parts((
-        head(Glyph::Chip, "Your own model", 2),
-        said(
-            "Hamlet looks for Ollama or LM Studio on this computer.",
-        ),
-        news("Looking..."),
-        row((good_action(Glyph::Restore, "Look again", look),)),
-        note(
-            "A model server at another address can be added later \
-             in Settings, under Endpoints.",
-        ),
-    ))
-    .boxed()
+    card(
+        2,
+        parts((
+            said(
+                "Hamlet looks for Ollama or LM Studio on this \
+                 computer.",
+            ),
+            news("Looking..."),
+        )),
+        vec![
+            to_providers("Back"),
+            good_action(Glyph::Restore, "Look again", look),
+        ],
+    )
+}
+
+/// An endpoint typed in by hand: its name and the address it
+/// answers at.
+fn manual() -> AnyView {
+    let field = |read: fn(&Welcome) -> String,
+                 write: fn(&mut World, String),
+                 hint: &'static str| {
+        hinted(
+            text_field(
+                resource::<Welcome, _>(read),
+                move |world: &mut World, text| write(world, text),
+            )
+            .rules(text_input),
+            hint,
+        )
+    };
+    card(
+        2,
+        parts((
+            said(
+                "A model server that answers as the OpenAI API \
+                 does, on this computer or another.",
+            ),
+            group((
+                field(
+                    |welcome| welcome.endpoint.0.clone(),
+                    super::name_endpoint,
+                    "Name, such as studio",
+                ),
+                field(
+                    |welcome| welcome.endpoint.1.clone(),
+                    super::address_endpoint,
+                    "Address, such as http://localhost:1234/v1",
+                ),
+            )),
+            news("Adding it..."),
+        )),
+        vec![
+            to_providers("Back"),
+            good_action(Glyph::Plus, "Add endpoint", super::commit),
+        ],
+    )
 }
 
 pub fn view() -> impl View {
     built(|cx| {
-        cx.world.init_resource::<super::providers::Login>();
+        cx.world.init_resource::<providers::Login>();
         cx.world.init_resource::<super::Browser>();
         cx.world.init_resource::<super::Committing>();
         cx.build(screen())
@@ -419,29 +700,42 @@ fn screen() -> AnyView {
         }),
         |(open, step, adding, connection)| {
             let page = if let Some(words) = connection {
-                parts((
-                    title(Glyph::Signal, "Connect to a server"),
-                    said(words.clone()),
-                    said(
-                        "Start a server with hamlet server, then \
-                         open its window with hamlet window. For \
-                         local development, use hamlet dev.",
-                    ),
-                ))
+                let words = words.clone();
+                with_cx(move |cx| {
+                    column((parts((
+                        headed(
+                            glyph(Glyph::Signal, ICON),
+                            styles::title("Connect to a server"),
+                        ),
+                        said(words.clone()),
+                        said(
+                            "Start a server with hamlet server, \
+                             then open its window with hamlet \
+                             window. For local development, use \
+                             hamlet dev.",
+                        ),
+                    )),))
+                    .padding(UiRect::all(px(cx
+                        .theme()
+                        .space
+                        .overlay_padding)))
+                })
                 .boxed()
             } else if !open {
                 return frame().boxed();
             } else {
                 match step {
-                    Step::Choice => choice(*adding),
-                    Step::Key => super::providers::key_page(),
-                    Step::SignIn => super::providers::sign_in_page(),
+                    Step::Provider => provider_page(),
+                    Step::Key => providers::key_page(),
+                    Step::SignIn => providers::sign_in_page(),
                     Step::Local => local(),
+                    Step::Manual => manual(),
                     Step::Models => models(),
                 }
             };
-            // Adding a place over an open desk dims the desk; first
-            // run and the server question have no desk to show.
+            // Adding a provider over an open desk dims the desk;
+            // first run and the server question have no desk to
+            // show.
             let dims = *adding && connection.is_none();
             with_cx(move |cx| over(cx, page, dims)).boxed()
         },
@@ -493,20 +787,19 @@ fn over(cx: &Cx, page: AnyView, dims: bool) -> impl View + use<> {
         true => theme.palette.shadow.with_alpha(DIM),
         false => theme.background(),
     };
-    // Its room is inside what scrolls, so the card itself has none.
-    let card = kinds::card((scroll_area((column((page,))
-        .gap(0.0)
-        .padding(UiRect::all(px(space.overlay_padding))),)),))
-    .width(percent(100.0))
-    .max_height(percent(100.0))
-    .padding(UiRect::all(px(0.0)))
-    .gap(0.0)
-    .tagged(theme.shadow())
-    .tagged(match dims {
-        true => lamp(&theme.palette),
-        false => BackgroundGradient(Vec::new()),
-    })
-    .rules(rules::floating);
+    // The page pads its own parts, so its rules run edge to edge.
+    let card =
+        kinds::card((scroll_area((column((page,)).gap(0.0),)),))
+            .width(percent(100.0))
+            .max_height(percent(100.0))
+            .padding(UiRect::all(px(0.0)))
+            .gap(0.0)
+            .tagged(theme.shadow())
+            .tagged(match dims {
+                true => lamp(&theme.palette),
+                false => BackgroundGradient(Vec::new()),
+            })
+            .rules(rules::floating);
     let hung = column((card,))
         .width(percent(100.0))
         .max_width(px(space.overlay_width))

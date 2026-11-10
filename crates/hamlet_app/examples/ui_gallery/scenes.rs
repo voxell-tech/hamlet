@@ -256,8 +256,9 @@ pub enum Scene {
     Menu,
     /// The first-run screen at one of its steps.
     Welcome(welcome::Step),
-    /// The first-run key step, its providers searched for the words.
-    KeySearch(&'static str),
+    /// The first-run provider step, every provider shown and searched
+    /// for the words.
+    ProviderSearch(&'static str),
     /// The Hub with an agent merged into another: its rail row and
     /// its page of what is gone.
     Merged,
@@ -275,7 +276,7 @@ impl Scene {
     pub fn first_run(self) -> Option<welcome::Step> {
         match self {
             Scene::Welcome(step) => Some(step),
-            Scene::KeySearch(_) => Some(welcome::Step::Key),
+            Scene::ProviderSearch(_) => Some(welcome::Step::Provider),
             _ => None,
         }
     }

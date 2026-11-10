@@ -54,16 +54,15 @@ pub(crate) fn plugin(app: &mut App) {
         );
 }
 
-/// The key page's keys, its focus and the provider it scrolls to,
-/// and the hold on sending a key while its field is empty or holds
-/// the key already refused.
+/// The key page's focus, and the hold on sending a key while its
+/// field is empty or holds the key already refused.
 pub fn key_plugin(app: &mut App) {
-    app.add_observer(providers::search_keys).add_systems(
+    app.add_systems(
         Update,
         (
             providers::hold_send,
+            providers::focus_key,
             providers::focus_search,
-            providers::reveal_chosen,
         ),
     );
 }
@@ -71,12 +70,24 @@ pub fn key_plugin(app: &mut App) {
 /// A page of first-run setup.
 #[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
 pub enum Step {
+    /// The providers to choose from.
     #[default]
-    Choice,
+    Provider,
     Key,
     SignIn,
     Local,
+    /// An endpoint typed in by hand.
+    Manual,
     Models,
+}
+
+/// What the provider step has picked.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum Pick {
+    /// A provider the server offers, by its id.
+    Provider(String),
+    /// A model server on this computer.
+    Local,
 }
 
 /// The first-run page and its received answers.
@@ -89,6 +100,15 @@ pub struct Welcome {
     pub from: String,
     pub models: Vec<String>,
     pub problem: Option<String>,
+    /// The tile picked on the provider step; none for the first.
+    pub picked: Option<Pick>,
+    /// Whether the provider step shows every provider, not only the
+    /// first few.
+    pub more: bool,
+    /// What the providers are searched for.
+    pub seek: String,
+    /// The endpoint typed on the manual step: its name and address.
+    endpoint: (String, String),
     connection: Option<String>,
     narrow: String,
     /// The model picked in the list, to be tried on Continue.
@@ -111,6 +131,8 @@ enum Asked {
     Models,
     Check(bool),
     Pick,
+    /// The settings edit that adds the endpoint typed by hand.
+    Endpoint,
 }
 
 /// A pending field commit before a button's action.
@@ -125,7 +147,76 @@ impl Committing {
 
 fn run_committed(world: &mut World) {
     world.resource_mut::<Committing>().0 = false;
-    providers::reply(world);
+    if world.resource::<Welcome>().step == Step::Manual {
+        add_endpoint(world);
+    } else {
+        providers::reply(world);
+    }
+}
+
+/// Adds the endpoint typed on the manual step to the settings, to
+/// look for its models once it is kept.
+fn add_endpoint(world: &mut World) {
+    let (name, url) = world.resource::<Welcome>().endpoint.clone();
+    let (name, url) =
+        (name.trim().to_string(), url.trim().to_string());
+    if name.is_empty() || url.is_empty() {
+        world.resource_mut::<Welcome>().problem =
+            Some("Give the endpoint a name and an address.".into());
+        return;
+    }
+    let mut endpoints = world
+        .resource::<Settings>()
+        .0
+        .endpoints
+        .iter()
+        .filter(|endpoint| endpoint.name != name)
+        .map(|endpoint| protocol::Endpoint {
+            base_url: endpoint.base_url.clone(),
+            name: endpoint.name.clone(),
+        })
+        .collect::<Vec<_>>();
+    endpoints.push(protocol::Endpoint {
+        base_url: url,
+        name,
+    });
+    let id = world.resource_mut::<Outbox>().send(|id| {
+        protocol::ClientMessage::Edit(protocol::Edit::Settings {
+            id,
+            set: protocol::EditSettingsSet {
+                endpoints: Some(endpoints),
+                ..unchanged()
+            },
+        })
+    });
+    let mut welcome = world.resource_mut::<Welcome>();
+    welcome.requests.insert(id, Asked::Endpoint);
+    welcome.asking = true;
+    welcome.problem = None;
+}
+
+/// A settings edit that changes nothing, for one field to be set.
+fn unchanged() -> protocol::EditSettingsSet {
+    protocol::EditSettingsSet {
+        model: None,
+        allow_net: None,
+        character: None,
+        effort: None,
+        newcomers: None,
+        reflect_every: None,
+        endpoints: None,
+        workspace: None,
+    }
+}
+
+/// The name of the endpoint typed on the manual step, as it is typed.
+pub(crate) fn name_endpoint(world: &mut World, name: String) {
+    world.resource_mut::<Welcome>().endpoint.0 = name;
+}
+
+/// The address of the endpoint typed on the manual step.
+pub(crate) fn address_endpoint(world: &mut World, url: String) {
+    world.resource_mut::<Welcome>().endpoint.1 = url;
 }
 
 fn commit(world: &mut World) {
@@ -201,6 +292,26 @@ fn check(world: &mut World, model: bool) {
         .insert(id, Asked::Check(model));
 }
 
+/// The tile picked on the provider step: the one chosen, else the
+/// first shown.
+pub(crate) fn picked(world: &World) -> Option<Pick> {
+    world.resource::<Welcome>().picked.clone().or_else(|| {
+        providers::tiles(world)
+            .first()
+            .map(|tile| tile.pick.clone())
+    })
+}
+
+/// Goes on with the tile picked: signs in to it, asks for its key,
+/// or looks on this computer.
+fn proceed(world: &mut World) {
+    match picked(world) {
+        Some(Pick::Local) => look(world),
+        Some(Pick::Provider(id)) => providers::proceed(world, &id),
+        None => {}
+    }
+}
+
 fn look(world: &mut World) {
     go(world, Step::Local);
     world.resource_mut::<Welcome>().from =
@@ -215,13 +326,7 @@ fn pick(world: &mut World, model: &str) {
             id,
             set: protocol::EditSettingsSet {
                 model: Some(model.into()),
-                allow_net: None,
-                character: None,
-                effort: None,
-                newcomers: None,
-                reflect_every: None,
-                endpoints: None,
-                workspace: None,
+                ..unchanged()
             },
         })
     });
@@ -328,6 +433,9 @@ fn answered(response: On<Response>, mut commands: Commands) {
             (Asked::Pick, protocol::ServerMessage::Reply(_)) => {
                 check(world, true);
             }
+            (Asked::Endpoint, protocol::ServerMessage::Reply(_)) => {
+                look(world);
+            }
             (
                 Asked::Check(model),
                 protocol::ServerMessage::Reply(_),
@@ -406,13 +514,9 @@ fn follow(
 mod server_tests {
     use bevy::color::Alpha;
     use bevy::ecs::entity::Entity;
-    use bevy::ecs::hierarchy::{ChildOf, Children};
+    use bevy::ecs::hierarchy::Children;
     use bevy::ecs::query::With;
-    use bevy::input::ButtonState;
-    use bevy::input::keyboard::{Key, KeyCode, KeyboardInput};
     use bevy::text::EditableText;
-    use bevy::ui::widget::Text;
-    use bevy::window::{PrimaryWindow, Window};
     use bevy_fynix::{FynixPlugin, mount};
     use hamlet_client::ClientPlugin;
     use hamlet_protocol::client as protocol;
@@ -468,7 +572,8 @@ mod server_tests {
             app,
             serde_json::json!({"type":"change", "epoch":1, "revision":1, "changes":[{"type":"providers", "providers":[
                 {"id":"openrouter", "name":"OpenRouter", "label":"Sign in with OpenRouter", "configured":false, "methods":["key","subscription"]},
-                {"id":"chatgpt", "name":"ChatGPT", "label":"Continue with ChatGPT", "configured":false, "methods":["subscription"]}
+                {"id":"chatgpt", "name":"ChatGPT", "label":"Continue with ChatGPT", "configured":false, "methods":["subscription"]},
+                {"id":"anthropic", "name":"Anthropic", "label":"Anthropic", "configured":false, "methods":["key"]}
             ]}]}),
         );
     }
@@ -524,7 +629,8 @@ mod server_tests {
         connect(&mut app, true);
         providers(&mut app);
         mount::<HamletTheme>(app.world_mut(), view());
-        press_and_update(&mut app, "I have a key");
+        press_and_update(&mut app, "Anthropic");
+        press_and_update(&mut app, "Continue with Anthropic");
         app.update();
         let held = |app: &mut App| {
             app.world_mut()
@@ -553,11 +659,11 @@ mod server_tests {
         connect(&mut app, true);
         providers(&mut app);
         mount::<HamletTheme>(app.world_mut(), view());
-        press_and_update(&mut app, "I have a key");
+        press_and_update(&mut app, "Anthropic");
+        press_and_update(&mut app, "Continue with Anthropic");
         // The field, its provider and the button are there before
         // anything is sent.
         assert!(sent(&mut app).is_empty());
-        press_and_update(&mut app, "OpenRouter");
         let input = key_field(&mut app);
         let ink = app
             .world()
@@ -571,7 +677,7 @@ mod server_tests {
         assert_eq!(start["type"], "login");
         assert_eq!(
             start["start"],
-            serde_json::json!({"provider":"openrouter", "method":"key"})
+            serde_json::json!({"provider":"anthropic", "method":"key"})
         );
         // The key typed answers the server's secret prompt.
         incoming(
@@ -595,47 +701,14 @@ mod server_tests {
         let requests = sent(&mut app);
         assert_eq!(
             requests.last().unwrap()["start"],
-            serde_json::json!({"provider":"openrouter", "method":"key"})
+            serde_json::json!({"provider":"anthropic", "method":"key"})
         );
     }
 
-    /// The name on the provider lit in the key page's list.
-    fn lit(app: &mut App) -> String {
-        let world = app.world_mut();
-        let row = world
-            .query_filtered::<Entity, With<providers::ChosenProvider>>()
-            .single(world)
-            .expect("one provider lit");
-        under(world, row)
-            .into_iter()
-            .find_map(|part| world.get::<Text>(part))
-            .map(|text| text.0.clone())
-            .expect("its name")
-    }
-
-    fn key(app: &mut App, window: Entity, code: KeyCode, key: Key) {
-        for state in [ButtonState::Pressed, ButtonState::Released] {
-            app.world_mut().write_message(KeyboardInput {
-                key_code: code,
-                logical_key: key.clone(),
-                state,
-                text: None,
-                repeat: false,
-                window,
-            });
-            app.update();
-        }
-    }
-
     #[test]
-    fn the_providers_search_has_the_focus_and_its_keys_choose_from_the_popular_first()
+    fn the_provider_step_offers_plans_first_and_goes_on_with_the_tile_picked()
      {
         let mut app = welcome_app();
-        app.add_plugins(bevy::input_focus::InputDispatchPlugin);
-        let window = app
-            .world_mut()
-            .spawn((Window::default(), PrimaryWindow))
-            .id();
         connect(&mut app, true);
         incoming(
             &mut app,
@@ -648,48 +721,48 @@ mod server_tests {
             ]}]}),
         );
         mount::<HamletTheme>(app.world_mut(), view());
-        press_and_update(&mut app, "I have a key");
-        app.update();
-        let focused = app.world().resource::<InputFocus>().get();
-        let in_search = focused.is_some_and(|at| {
-            let world = app.world();
-            std::iter::successors(Some(at), |at| {
-                world.get::<ChildOf>(*at).map(ChildOf::parent)
-            })
-            .any(|up| {
-                world.get::<providers::ProviderSearch>(up).is_some()
-            })
-        });
-        assert!(in_search, "the search has the focus on opening");
-        assert_eq!(lit(&mut app), "OpenRouter");
-        let mut walked = Vec::new();
-        for _ in 0..4 {
-            key(&mut app, window, KeyCode::ArrowDown, Key::ArrowDown);
-            walked.push(lit(&mut app));
-        }
+        let names = providers::tiles(app.world())
+            .into_iter()
+            .map(|tile| tile.name)
+            .collect::<Vec<_>>();
         assert_eq!(
-            walked,
-            ["Anthropic", "Amazon Bedrock", "DeepSeek", "DeepSeek"]
+            names,
+            [
+                "ChatGPT",
+                "OpenRouter",
+                "This computer",
+                "Anthropic",
+                "DeepSeek",
+                "Amazon Bedrock"
+            ]
         );
-        key(&mut app, window, KeyCode::ArrowUp, Key::ArrowUp);
-        assert_eq!(lit(&mut app), "Amazon Bedrock");
-        // A search that hides the provider chosen chooses what it
-        // finds, and one that finds nothing keeps it.
-        search(app.world_mut(), "deep");
+        // The first is picked until another is.
+        assert!(
+            all_words(&mut app).contains("Continue with ChatGPT")
+        );
+        press_and_update(&mut app, "DeepSeek");
+        assert!(
+            all_words(&mut app).contains("Continue with DeepSeek")
+        );
+        // A search that hides the tile picked picks the first it
+        // finds.
+        search(app.world_mut(), "amaz");
         app.update();
-        assert_eq!(lit(&mut app), "DeepSeek");
+        assert!(
+            all_words(&mut app)
+                .contains("Continue with Amazon Bedrock")
+        );
         search(app.world_mut(), "nothing like it");
         app.update();
         assert!(all_words(&mut app).contains("No providers found"));
+        // The key page has the focus in its field.
         search(app.world_mut(), "");
+        press_and_update(&mut app, "Continue with Amazon Bedrock");
         app.update();
-        assert_eq!(lit(&mut app), "DeepSeek");
-        key(&mut app, window, KeyCode::Enter, Key::Enter);
         let field = key_field(&mut app);
         assert_eq!(
             app.world().resource::<InputFocus>().get(),
-            Some(field),
-            "Enter moves to the key's field"
+            Some(field)
         );
     }
 
@@ -740,6 +813,7 @@ mod server_tests {
         );
         press_and_update(&mut app, "Cancel sign-in");
         assert_eq!(sent(&mut app)[0]["cancel"], "plan-login");
+        press_and_update(&mut app, "OpenRouter");
         press_and_update(&mut app, "Sign in with OpenRouter");
         assert_eq!(
             sent(&mut app)[0]["start"],
@@ -798,7 +872,8 @@ mod server_tests {
         let mut app = welcome_app();
         connect(&mut app, true);
         mount::<HamletTheme>(app.world_mut(), view());
-        press_and_update(&mut app, "I run my own model");
+        press_and_update(&mut app, "This computer");
+        press_and_update(&mut app, "Look on this computer");
         let requests = sent(&mut app);
         assert_eq!(requests[0]["what"], "connection");
         assert_eq!(requests[1]["what"], "models");
@@ -844,7 +919,7 @@ mod server_tests {
         assert_eq!(check["what"], "model");
         app.world_mut().resource_mut::<Settings>().0.unset = false;
         app.update();
-        assert!(all_words(&mut app).contains("Pick a model"));
+        assert!(all_words(&mut app).contains("Welcome to Hamlet"));
         app.world_mut().resource_mut::<Settings>().0.link.state =
             protocol::LinkState::Connected;
         app.update();
@@ -852,7 +927,7 @@ mod server_tests {
             &mut app,
             serde_json::json!({"type":"reply", "to":check["id"], "kind":"notice", "text":"Hello"}),
         );
-        assert!(!all_words(&mut app).contains("Pick a model"));
+        assert!(!all_words(&mut app).contains("Welcome to Hamlet"));
     }
 
     #[test]
@@ -862,20 +937,20 @@ mod server_tests {
         connect(&mut app, true);
         providers(&mut app);
         mount::<HamletTheme>(app.world_mut(), view());
-        press_and_update(&mut app, "I have a key");
-        press_and_update(&mut app, "OpenRouter");
+        press_and_update(&mut app, "Anthropic");
+        press_and_update(&mut app, "Continue with Anthropic");
         send_key(&mut app, "fake-key");
         let start = sent(&mut app).remove(0);
         incoming(
             &mut app,
-            serde_json::json!({"type":"login", "to":start["id"], "login":"login", "step":{"done":"openrouter"}}),
+            serde_json::json!({"type":"login", "to":start["id"], "login":"login", "step":{"done":"anthropic"}}),
         );
         let read = sent(&mut app).remove(0);
         assert_eq!(read["what"], "models");
         incoming(
             &mut app,
             serde_json::json!({"type":"read", "to":read["id"], "models":[
-                {"name":"openrouter::small", "price":null, "priced":"unknown", "context":null, "defaultEffort":null, "efforts":[], "fast":false, "note":"", "title":""},
+                {"name":"anthropic::small", "price":null, "priced":"unknown", "context":null, "defaultEffort":null, "efforts":[], "fast":false, "note":"", "title":""},
                 {"name":"other::large", "price":null, "priced":"unknown", "context":null, "defaultEffort":null, "efforts":[], "fast":false, "note":"", "title":""}
             ]}),
         );
@@ -909,7 +984,7 @@ mod server_tests {
         app.world_mut().resource_mut::<Settings>().0.unset = false;
         app.update();
         assert!(
-            all_words(&mut app).contains("Pick a model"),
+            all_words(&mut app).contains("Welcome to Hamlet"),
             "a saved choice is not a model answer"
         );
         incoming(
@@ -917,7 +992,7 @@ mod server_tests {
             serde_json::json!({"type":"reply", "to":edit["id"], "kind":"notice", "text":"Saved."}),
         );
         assert_eq!(sent(&mut app)[0]["what"], "model");
-        assert!(all_words(&mut app).contains("Pick a model"));
+        assert!(all_words(&mut app).contains("Welcome to Hamlet"));
     }
 
     #[test]
@@ -1000,6 +1075,6 @@ mod server_tests {
             ..Default::default()
         });
         mount::<HamletTheme>(app.world_mut(), view());
-        assert!(all_words(&mut app).contains("Use a key"));
+        assert!(all_words(&mut app).contains("The key goes only"));
     }
 }
