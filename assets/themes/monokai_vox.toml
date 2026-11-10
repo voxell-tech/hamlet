@@ -25,8 +25,8 @@ accent = "blue"
 
 [dark]
 name = "Dark"
-base0 = "#19181A"
-base1 = "#221F22"
+base0 = "#121113"
+base1 = "#1B1A1C"
 base2 = "#2D2A2E"
 base3 = "#403E41"
 base4 = "#5B595C"
