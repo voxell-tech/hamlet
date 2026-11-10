@@ -258,7 +258,7 @@ ENTITLEMENTS
     # Installed as root's: writable by root alone, whatever the umask.
     chmod -R u=rwX,go=rX "$tree"
     ln -s /opt/hamlet/hamlet "$tree/usr/bin/hamlet"
-    cp brand/hamlet-icon.png "$tree/usr/share/pixmaps/hamlet.png"
+    cp brand/icon/hamlet-icon.png "$tree/usr/share/pixmaps/hamlet.png"
     cat > "$tree/usr/share/applications/hamlet.desktop" <<DESKTOP
 [Desktop Entry]
 Type=Application

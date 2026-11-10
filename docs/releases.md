@@ -107,7 +107,7 @@ x86_64-pc-windows-msvc`, with `RUSTFLAGS` set to
 `-C target-feature=+crt-static`, then run the script in Git Bash with that
 target. It needs Node, npm, 7-Zip and Inno Setup 6.
 `brand/hamlet-icon.ico` is the installer's and the shortcuts' icon, made
-from `brand/hamlet-icon.png`.
+from `brand/icon/hamlet-icon.png`.
 
 `cargo xtask install` is a different, source-development workflow: it installs
 the CLI, server and window into Cargo's bin directory but leaves pi in the build
