@@ -393,8 +393,6 @@ CREATE TABLE conversation (
     retiring INTEGER NOT NULL DEFAULT 0 CHECK (retiring IN (0, 1)),
     entered TEXT,
     last_input TEXT,
-    budget_input TEXT,
-    budget_words TEXT,
     made INTEGER NOT NULL,
     UNIQUE (runtime, handle),
     CHECK ((kind = 'chat') = (chief IS NOT NULL AND session IS NOT NULL)),

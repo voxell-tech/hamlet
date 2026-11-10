@@ -135,3 +135,64 @@ async fn a_hires_allowance_stops_its_calls_and_a_lead_may_set_it() {
     assert_eq!(endpoint.completions(1).await.len(), 1);
     s.chief.command(ada, "/allowance docs#1 none").await;
 }
+
+/// The system message of a completion request.
+fn system(request: &openai::Request) -> String {
+    let body = request.body.as_ref().unwrap();
+    body["messages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|m| m["role"] == "system")
+        .map(|m| m["content"].to_string())
+        .unwrap()
+}
+
+#[tokio::test]
+async fn spending_leaves_the_prompt_as_it_was_and_read_budget_tells_it()
+ {
+    let mut endpoint = Endpoint::start().await;
+    let arguments = json!({}).to_string();
+    endpoint.enqueue([
+        words_of("Noted."),
+        Response {
+            text: String::new(),
+            finish: "tool_calls".into(),
+            calls: vec![json!({
+                "index": 0, "id": "call_budget", "type": "function",
+                "function": {"name": "read_budget", "arguments": arguments}
+            })],
+            ..Response::default()
+        },
+        words_of("Read."),
+    ]);
+    let mut s = Session::with_endpoint(&endpoint).await;
+    let ada = s.found("docs", "ada", "keep the docs").await;
+    let cy = s.hire(ada, "cy", "dig").await;
+    s.chief.command(ada, "/allowance docs#1 2").await;
+    let now = chat(cy);
+    s.chief.open(&now).await;
+    s.chief.tell(cy, "Say something.").await;
+    s.chief.shows(&now, "Noted.").await;
+    s.chief.idle("docs#1").await;
+    s.chief.tell(cy, "What may you spend?").await;
+    s.chief.shows(&now, "Read.").await;
+
+    let requests = endpoint.completions(3).await;
+    // The first call cost something, and the next input's prompt is
+    // the same, so a provider's prompt cache holds across inputs.
+    assert_eq!(system(&requests[0]), system(&requests[1]));
+    let told = requests[2].body.as_ref().unwrap()["messages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|m| m["role"] == "tool")
+        .map(|m| m["content"].to_string())
+        .unwrap();
+    assert!(
+        told.contains("Your spend this period: <$0.01."),
+        "{told}"
+    );
+    assert!(told.contains("Your allowance"), "{told}");
+    assert!(told.contains("$2.00"), "{told}");
+}

@@ -1,6 +1,8 @@
 //! The prompt, built before every model call (C11): the charter, the
 //! machine, the project, the character, the memory, the skills, the
-//! agent's place, the realm, the scholars it may hire and the budget.
+//! agent's place, the realm and the scholars it may hire. Nothing in
+//! it changes with spending, so it stays the same from one input to
+//! the next; an agent reads its budget with `read_budget`.
 //! An errand's and a dream's are their own instructions; a worker's
 //! are the charter, the machine, the project and its place.
 
@@ -14,18 +16,16 @@ use hamlet_git::{MAIN, Repository};
 use hamlet_protocol::client::Confinement;
 use hamlet_protocol::runtime::Section;
 use hamlet_store::Db;
-use hamlet_store::schema::{conversation, document};
+use hamlet_store::schema::document;
 
 use super::conversations::Conversation;
-use super::inputs;
 use crate::knowledge::folder::Folder;
 use crate::knowledge::library::field;
 use crate::knowledge::{self, CHARACTER};
 use crate::layout::Layout;
 use crate::settings::Settings;
 use crate::society::agents::{self, AgentKind};
-use crate::society::{hamlets, hires, limits};
-use crate::spend::{self, money};
+use crate::society::hamlets;
 use crate::work::hamlet_of;
 
 /// The charter every agent is given unless a chief wrote its own
@@ -61,13 +61,11 @@ pub(crate) struct Context<'a> {
     pub faults: &'a [String],
 }
 
-/// The sections of `conversation`'s next call in the turn of the
-/// input its runtime calls `submission`.
+/// The sections of `conversation`'s next call.
 pub(crate) fn sections(
     db: &mut Db,
     cx: &Context<'_>,
     conversation: &Conversation,
-    submission: Option<&str>,
 ) -> Result<Vec<Section>> {
     if let Some(instructions) = &conversation.instructions {
         return Ok(vec![section("errand", instructions.clone())]);
@@ -102,12 +100,6 @@ pub(crate) fn sections(
     }
     if let Some(text) = place::scholars(db, agent.id)? {
         sections.push(section("scholars", text));
-    }
-    if agent.kind != AgentKind::Worker {
-        sections.push(section(
-            "budget",
-            budget(db, conversation, submission)?,
-        ));
     }
     sections.retain(|section| !section.text.trim().is_empty());
     Ok(sections)
@@ -464,68 +456,6 @@ fn skills(lodge: &Path, library: &Path) -> String {
         }
     }
     text.trim_end().to_owned()
-}
-
-/// The budget the agent spends from, held through a turn so its
-/// words stay as they were at the turn's first call.
-fn budget(
-    db: &mut Db,
-    kept: &Conversation,
-    submission: Option<&str>,
-) -> Result<String> {
-    if let (Some(submission), Some(held), Some(words)) =
-        (submission, &kept.budget_input, &kept.budget_words)
-        && held == submission
-    {
-        return Ok(words.clone());
-    }
-    let at = crate::clock::now();
-    let task = match submission {
-        Some(submission) => {
-            inputs::by_submission(db, kept.id, submission)?
-                .and_then(|i| i.task)
-        }
-        None => None,
-    };
-    let payer = crate::talk::tasks::payer_of(db, kept.agent)?;
-    let report = spend::report(db, payer.as_ref(), at)?;
-    let mut lines =
-        vec!["# Budget".to_owned(), report.summary.clone()];
-    let spent = spend::of_agent(db, kept.agent, at)?;
-    lines.push(format!(
-        "Your spend this period: {}.",
-        money(spent.micros)
-    ));
-    if let Some(hire) = hires::find(db, kept.agent)? {
-        if let Some(allowance) = hire.allowance {
-            lines.push(format!(
-                "Your allowance, with what everything under you \
-                 spends: {}.",
-                money(allowance)
-            ));
-        }
-        let own = limits::of(db, &hire.hamlet)?;
-        if let Some(task) = task {
-            let spent = spend::of_task(db, task)?;
-            if let Some(cap) = own.task.cost {
-                lines.push(format!(
-                    "This task has spent {} of the {} it may.",
-                    money(spent.micros),
-                    money(cap)
-                ));
-            }
-        }
-    }
-    let words = lines.join("\n");
-    if let Some(submission) = submission {
-        diesel::update(conversation::table.find(kept.id))
-            .set((
-                conversation::budget_input.eq(submission),
-                conversation::budget_words.eq(&words),
-            ))
-            .execute(db)?;
-    }
-    Ok(words)
 }
 
 /// `text` cut to `most` characters, with `note` where it was cut.

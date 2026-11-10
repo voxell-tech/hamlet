@@ -4,9 +4,13 @@ import { createProvider, type Provider } from "@earendil-works/pi-ai/models";
 import { builtinProviders } from "@earendil-works/pi-ai/providers/all";
 import { openaiProvider } from "@earendil-works/pi-ai/providers/openai";
 import { openaiCodexProvider } from "@earendil-works/pi-ai/providers/openai-codex";
+import { claudeProvider } from "./claude.ts";
 
-/** Built-in providers with Hamlet's supported sign-in methods. */
-export function providers(): Provider[] {
+/** The providers a chief signs in to with a subscription (ADR 0006). */
+export const SUBSCRIPTIONS = ["chatgpt", "openrouter", "claude"];
+
+/** Built-in providers with Hamlet's supported sign-in methods; Claude too with its folders in `home`. */
+export function providers(home?: string): Provider[] {
     const openai: Provider = openaiProvider();
     const served = new Set(
         openaiCodexProvider()
@@ -63,6 +67,8 @@ export function providers(): Provider[] {
                 },
             }),
         );
+    const claude = home === undefined ? undefined : claudeProvider(home);
+    if (claude !== undefined) result.push(claude);
     return result;
 }
 

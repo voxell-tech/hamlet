@@ -20,7 +20,11 @@ then sibling `pi/src/main.ts`, then the macOS app's
 and refuses to start when the entry it selects does not exist.
 `HAMLET_NODE` selects Node, else the `node` a release ships beside the
 server, else Node on `PATH`. A release includes Node, the pi package and
-its production dependencies; from source, Node is installed separately.
+its production dependencies, but not the optional ones that carry
+Anthropic's Claude program, so pi offers Claude only where `npm ci`
+installed them. `HAMLET_CLAUDE_EXECUTABLE` selects another Claude
+program; pi still needs those packages to drive it. From source, Node is
+installed separately.
 
 Bare `hamlet` starts the realm's server in the background, or reuses its
 running server, and opens a window. The realm's folder is `HAMLET_HOME`, else
@@ -47,7 +51,7 @@ starts only the window.
 | `hamlet edit <charter\|limits\|settings> [--hamlet <id>]` | Opens the chief's document in `$EDITOR` and saves through the server; limits and settings are JSON, and `--hamlet` selects a hamlet's limits in place of the realm's |
 | `hamlet edit character <scholar#id>` | Opens a scholar's character; a hire's address works too, for its scholar's |
 | `hamlet edit memory <scholar#id\|<hamlet>#<number>> [path]` | Opens a memory file of a scholar's `main` or a hire's lodge, `notes.md` under `memory/` unless a path is given |
-| `hamlet login <provider> [--key]` | Gives a key or follows an offered sign-in |
+| `hamlet login <provider> [--key]` | Gives a key or follows an offered sign-in; `hamlet login claude` prints the link of Claude's own sign-in, to open in a browser on the server's machine |
 | `hamlet models [try [model]\|refresh]` | Lists models, tries a one-word hello, or refreshes the list |
 
 `hamlet server` listens on `127.0.0.1` at port 7313 unless given another

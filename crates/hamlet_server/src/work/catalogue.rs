@@ -2,13 +2,14 @@
 
 /// Every society tool, by name. A tool added by hand may not take
 /// one.
-pub(crate) const SOCIETY: [&str; 27] = [
+pub(crate) const SOCIETY: [&str; 28] = [
     "tell",
     "ask",
     "start_worker",
     "submit_skill",
     "ask_librarian",
     "ask_chief",
+    "read_budget",
     "object",
     "request_road",
     "create_scholar",

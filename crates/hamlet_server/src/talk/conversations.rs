@@ -77,8 +77,6 @@ pub(crate) struct Conversation {
     pub retiring: bool,
     pub entered: Option<String>,
     pub last_input: Option<String>,
-    pub budget_input: Option<String>,
-    pub budget_words: Option<String>,
     pub made: i64,
 }
 

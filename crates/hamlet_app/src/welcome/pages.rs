@@ -12,7 +12,7 @@ use bevy_fynix::views::{
     BehaviorExt, FrameProps, column, frame, label, overlay, row,
 };
 use bevy_fynix::{ScopedExt, ViewExt, derived, keyed, resource};
-use hamlet_client::realm::Settings;
+use hamlet_client::realm::{Providers, Settings};
 use hamlet_ui::markdown::{Face, Ink, Span, Style, Target, rich};
 use hamlet_ui::styles::{
     self, ICON, Looks, back, bare, beside, description, good_action,
@@ -21,7 +21,7 @@ use hamlet_ui::styles::{
 };
 use hamlet_ui::theme::Palette;
 use hamlet_ui::widgets::effects::Variant;
-use hamlet_ui::widgets::icons::Glyph;
+use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::{AnyView, Cx, View, built, with_cx};
 
 use super::{NOTHING_LOCAL, Step, Welcome, close, go, look, pick};
@@ -31,7 +31,7 @@ use crate::models::{
 use crate::roll::{either, moved};
 
 fn title(which: Glyph, text: &'static str) -> impl View {
-    headed(which, styles::title(text))
+    headed(glyph(which, ICON), styles::title(text))
 }
 
 pub(super) fn said(text: impl Into<String>) -> AnyView {
@@ -129,22 +129,23 @@ fn choice(adding: bool) -> AnyView {
             },
         ),
         nav_card(
-            Glyph::Talk,
+            mark("chatgpt", ICON),
             "Continue with ChatGPT",
             "Use your ChatGPT plan, with no key. You sign in with \
              your browser, and what your hamlet does counts toward \
              your plan's usage.",
             |world| super::providers::start(world, "chatgpt", false),
         ),
+        claude(),
         nav_card(
-            Glyph::Key,
+            glyph(Glyph::Key, ICON),
             "I have a key",
             "Use a key from a provider such as OpenAI, DeepSeek or \
              OpenRouter. You pay them for what you use.",
             |world| go(world, Step::Key),
         ),
         nav_card(
-            Glyph::Chip,
+            glyph(Glyph::Chip, ICON),
             "I run my own model",
             "Use a model running on this computer, with Ollama or \
              LM Studio.",
@@ -158,6 +159,33 @@ fn choice(adding: bool) -> AnyView {
         ))
         .tagged(hamlet_ui::widgets::platform::Wraps),
     ))
+    .boxed()
+}
+
+/// Signing in to Claude, once the server offers it.
+fn claude() -> AnyView {
+    keyed(
+        resource::<Providers, _>(|providers| {
+            providers.0.iter().any(|provider| provider.id == "claude")
+        }),
+        |offered| {
+            if !*offered {
+                return frame().boxed();
+            }
+            nav_card(
+                mark("claude", ICON),
+                "Sign in to Claude",
+                "Run agents on Claude models with your own Claude \
+                 plan. You sign in through Claude's own sign-in, in \
+                 a browser on the server's computer, and what those \
+                 agents do counts toward your plan's usage.",
+                |world| {
+                    super::providers::start(world, "claude", false);
+                },
+            )
+        },
+    )
+    .within(bare())
     .boxed()
 }
 

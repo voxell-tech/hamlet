@@ -12,7 +12,10 @@ import {
 } from "@earendil-works/pi-ai/models";
 import { compatibleModel } from "./models.ts";
 import type { ProviderRequest, ProviderResult } from "./protocol.ts";
-import { providers as supportedProviders } from "./provider-set.ts";
+import {
+    SUBSCRIPTIONS,
+    providers as supportedProviders,
+} from "./provider-set.ts";
 
 type Result = Omit<ProviderResult, "v" | "id" | "type" | "re">;
 
@@ -44,7 +47,7 @@ export async function providerWork(
                     name: p.name,
                     key: p.auth.apiKey?.login !== undefined,
                     subscription:
-                        ["chatgpt", "openrouter"].includes(p.id) &&
+                        SUBSCRIPTIONS.includes(p.id) &&
                         p.auth.oauth !== undefined,
                 })),
                 models: providers.flatMap((p) =>
@@ -71,7 +74,7 @@ export async function providerWork(
         if (request.action === "login") {
             if (
                 request.method === "subscription" &&
-                !["chatgpt", "openrouter"].includes(provider.id)
+                !SUBSCRIPTIONS.includes(provider.id)
             )
                 throw new Error(
                     `Signing in with ${provider.id} is not offered. Use an API key.`,

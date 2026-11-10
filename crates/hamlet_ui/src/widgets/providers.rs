@@ -58,7 +58,7 @@ const MARKS: [(&str, &str); 29] = [
 /// names it.
 fn mark_of(id: &str) -> Option<&'static str> {
     Some(match id {
-        "anthropic" => "anthropic",
+        "anthropic" | "claude" => "anthropic",
         "openai" | "openai-codex" | "chatgpt" => "openai",
         "google" => "gemini",
         "google-vertex" => "vertexai",

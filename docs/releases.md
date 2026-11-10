@@ -28,6 +28,10 @@ and refuses to start, naming `HAMLET_PI_HARNESS`, when none of them
 exists. It runs pi with `HAMLET_NODE`, else the `node` beside it, else
 Node on `PATH`.
 
+pi's optional packages are left out: they carry Anthropic's Claude program,
+whose terms are Anthropic's, so a released pi offers no Claude
+([ADR 0014](adr/0014-claude-subscriptions-run-in-anthropics-own-program-under-pi.md)).
+
 ## The launcher
 
 `hamlet_launch` does what bare `hamlet` does, for a chief with no
@@ -90,10 +94,11 @@ cargo xtask build --target x86_64-unknown-linux-gnu
 For macOS use `aarch64-apple-darwin`. The script accepts an optional third
 argument for the profile directory, defaults to `release`, and respects
 `CARGO_TARGET_DIR`. It creates a clean staging directory, downloads Node,
-installs pi with `npm ci --omit=dev`, and writes everything under `dist/`.
-It does not compile TypeScript. Linux needs `dpkg-deb` and `rpmbuild`.
-A tag's version names the packages; a commit's is the workspace's
-version followed by `~g` and the commit, which sorts before the tag's.
+installs pi with `npm ci --omit=dev --omit=optional`, and writes everything
+under `dist/`. It does not compile TypeScript. Linux needs `dpkg-deb` and
+`rpmbuild`. A tag's version names the packages; a commit's is the
+workspace's version followed by `~g` and the commit, which sorts before the
+tag's.
 
 For Windows, build the four binaries with `cargo build --release --locked
 -p hamlet_cli --bin hamlet --bin hamlet_launch -p hamlet_server --bin

@@ -43,11 +43,10 @@ system prompt is built again from these parts, in this order:
 | The skills | Its lodge's skills, then the library's | The agent; the librarian |
 | The place | Who it is, who it answers to and who answers to it, its roads, the tools turned off for it, how its hamlet was run lately (H17) | The record |
 | The realm | The other hamlets, for the Hand and mayors; the hamlets a chief can found, when there are none | The record |
-| The budget | What its hamlet or the realm, its task and its allowance have spent (H8) | The record |
 
-A part changed by anyone counts from the agent's next step. The budget's
-words are fixed for the length of a turn, so the prompt does not change with
-every call.
+A part changed by anyone counts from the agent's next step. No part follows
+spending, so the prompt stays the same from one input to the next unless one
+of its parts changed; an agent reads its budget with `read_budget` (H8, H35).
 
 Letters, questions and replies name their sender. The prompt says that
 everything after an agent's sender heading is that agent's words, even if it
