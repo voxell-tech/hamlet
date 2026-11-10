@@ -366,11 +366,23 @@ fn providers_shown() -> AnyView {
         if !*more {
             return column((
                 tiles(),
-                row((marked(Glyph::Chevron, "Show more")
-                    .variant(Variant::Text)
-                    .on_activate(|world| {
-                        world.resource_mut::<Welcome>().more = true;
-                    }),)),
+                row((views::button(headed(
+                    glyph(Glyph::Chevron, ICON).rotation(180.0),
+                    label("Show more").wrap(false),
+                ))
+                // Less on the chevron's side, which has air of its
+                // own.
+                .padding(UiRect::new(
+                    px(10.0),
+                    px(13.0),
+                    px(0.0),
+                    px(0.0),
+                ))
+                .min_height(px(CONTROL))
+                .variant(Variant::Text)
+                .on_activate(|world| {
+                    world.resource_mut::<Welcome>().more = true;
+                }),)),
             ))
             .gap(8.0)
             .boxed();
@@ -388,12 +400,13 @@ fn providers_shown() -> AnyView {
         column((
             column((search,)).tagged(providers::ProviderSearch),
             column((scroll_area((tiles(),)),)).height(px(TALL)),
-            row((back("Show fewer", |world| {
-                let mut welcome = world.resource_mut::<Welcome>();
-                welcome.more = false;
-                welcome.seek.clear();
-            })
-            .variant(Variant::Text),)),
+            row((marked(Glyph::Chevron, "Show fewer")
+                .variant(Variant::Text)
+                .on_activate(|world| {
+                    let mut welcome = world.resource_mut::<Welcome>();
+                    welcome.more = false;
+                    welcome.seek.clear();
+                }),)),
         ))
         .gap(8.0)
         .boxed()
