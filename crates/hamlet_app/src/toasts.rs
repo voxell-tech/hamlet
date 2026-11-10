@@ -17,10 +17,13 @@ use bevy::ecs::world::World;
 use bevy::picking::hover::Hovered;
 use bevy::time::Time;
 use bevy::ui::{
-    AlignItems, JustifyContent, PositionType, UiRect, Val, px,
+    AlignItems, Display, JustifyContent, PositionType, UiRect, Val,
+    px,
 };
 use bevy_fynix::tokens::Tone;
-use bevy_fynix::views::{BehaviorExt, FrameProps, column, row};
+use bevy_fynix::views::{
+    BehaviorExt, FrameProps, button, column, label, row,
+};
 use bevy_fynix::{ScopedExt, ViewExt, Visual, each, resource, style};
 use hamlet_client::messages::{Answer, Response, ServerFault};
 use hamlet_client::outbox::{Outbox, RequestId};
@@ -34,10 +37,11 @@ use hamlet_protocol::client::{
     ServerMessage, WaitDetail,
 };
 use hamlet_ui::styles::{
-    ICON, action, buttons, card_name, close_button, note, quoted,
-    status_mark,
+    ICON, Looks, action, buttons, card_name, close_button, note,
+    quoted, status_mark,
 };
 use hamlet_ui::theme::{HamletTheme, StatusKind};
+use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::{AnyView, Cx, View, with_cx};
 
@@ -48,8 +52,16 @@ use crate::standing::Standing;
 use crate::updates::{self, Offer, Ready};
 use crate::{PanelSystems, chat};
 
-/// The most toasts on show at once.
-const MOST: usize = 3;
+/// The most toasts kept at once.
+const MOST: usize = 5;
+
+/// The older toasts whose edges show behind the newest while the
+/// stack is closed.
+const FOLDED: usize = 2;
+
+/// How much of a folded toast shows above the one in front of it,
+/// and how much narrower it is on each side.
+const EDGE: f32 = 6.0;
 
 /// Seconds a toast stays before it begins to fade.
 const STAYS: f32 = 8.0;
@@ -80,6 +92,21 @@ pub fn plugin(app: &mut App) {
 pub struct Toasts {
     shown: Vec<Toast>,
     made: u64,
+    /// Whether the pointer is on the stack, which lays every toast
+    /// out in full.
+    open: bool,
+}
+
+/// Where a toast is in the stack.
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum Place {
+    /// In full: the newest, or any while the stack is open.
+    Whole,
+    /// Folded behind the newest, this many toasts back, only its
+    /// edge showing.
+    Folded(usize),
+    /// Too far back to show while the stack is closed.
+    Hidden,
 }
 
 #[derive(Clone, PartialEq, Debug)]
@@ -113,9 +140,9 @@ enum What {
     Update(Offer),
 }
 
-/// The node of a toast, whose hover keeps it.
+/// The stack's node, whose hover opens it and keeps its toasts.
 #[derive(Component)]
-struct Body(u64);
+struct Pile;
 
 impl Toasts {
     fn push(&mut self, what: What, now: f32) {
@@ -137,6 +164,21 @@ impl Toasts {
                 })
                 .unwrap_or(0);
             self.shown.remove(oldest);
+        }
+    }
+
+    /// Where toast `id` is in the stack.
+    fn place(&self, id: u64) -> Place {
+        let Some(at) =
+            self.shown.iter().position(|toast| toast.id == id)
+        else {
+            return Place::Hidden;
+        };
+        match self.shown.len() - 1 - at {
+            0 => Place::Whole,
+            _ if self.open => Place::Whole,
+            back if back <= FOLDED => Place::Folded(back),
+            _ => Place::Hidden,
         }
     }
 
@@ -351,16 +393,21 @@ fn answered(answer: On<Answer>, mut toasts: ResMut<Toasts>) {
         .retain(|toast| toast.what != What::Petition(wait));
 }
 
-/// Keeps a toast on show while the pointer is on it, fades it, and
-/// takes away the ones that are over or whose wait is closed.
+/// Opens the stack and keeps its toasts while the pointer is on it,
+/// fades them otherwise, and takes away the ones that are over or
+/// whose wait is closed.
 fn keep(
     time: Res<Time>,
-    over: Query<(&Hovered, &Body)>,
+    pile: Query<&Hovered, With<Pile>>,
     waiting: Query<Option<&RaisedBy>, With<Waiting>>,
     showing: Option<Res<Showing>>,
     convo: Option<Res<Convo>>,
     mut toasts: ResMut<Toasts>,
 ) {
+    let open = pile.iter().any(Hovered::get);
+    if toasts.open != open {
+        toasts.open = open;
+    }
     if toasts.shown.is_empty() {
         return;
     }
@@ -370,9 +417,7 @@ fn keep(
         .map(|convo| convo.agent);
     let mut next = toasts.shown.clone();
     for toast in &mut next {
-        if over.iter().any(|(hovered, body)| {
-            hovered.get() && body.0 == toast.id
-        }) {
+        if open {
             toast.until = toast.until.max(now + STAYS);
         }
         toast.opacity =
@@ -398,29 +443,58 @@ fn keep(
 }
 
 /// The stack of toasts, at the bottom left of the window over the
-/// status bar, the newest nearest the corner.
+/// status bar, the newest nearest the corner and the older folded
+/// behind it. The pointer on the stack opens it, every toast in full
+/// and a way to close them all above them.
 pub fn stack() -> impl View {
     with_cx(|cx| {
         let space = &cx.theme().space;
-        each(
-            resource::<Toasts, _>(|toasts| toasts.shown.clone()),
-            |toast: &Toast| toast.id,
-            card,
-        )
-        .within(
-            column(())
-                .gap(space.gap)
-                .width(px(WIDTH))
-                .position(PositionType::Absolute)
-                .inset(UiRect {
-                    left: px(space.panel + space.gap),
-                    top: Val::Auto,
-                    right: Val::Auto,
-                    // The status bar is less high than the menu bar.
-                    bottom: px(space.bar + space.gap),
-                }),
-        )
+        column((
+            closing_all(),
+            each(
+                resource::<Toasts, _>(|toasts| toasts.shown.clone()),
+                |toast: &Toast| toast.id,
+                card,
+            )
+            .within(column(()).gap(space.gap)),
+        ))
+        .gap(space.gap)
+        .width(px(WIDTH))
+        .position(PositionType::Absolute)
+        .inset(UiRect {
+            left: px(space.panel + space.gap),
+            top: Val::Auto,
+            right: Val::Auto,
+            // The status bar is less high than the menu bar.
+            bottom: px(space.bar + space.gap),
+        })
+        .with(Hovered::default())
+        .with(Pile)
     })
+}
+
+/// "Close all", at the end of the line above an open stack of more
+/// than one toast.
+fn closing_all() -> impl View {
+    row((button(label("Close all"))
+        .variant(Variant::Text)
+        .on_activate(dismiss_all),))
+    .justify(JustifyContent::FlexEnd)
+    .display(resource::<Toasts, _>(|toasts| {
+        if toasts.open && toasts.shown.len() > 1 {
+            Display::Flex
+        } else {
+            Display::None
+        }
+    }))
+}
+
+/// A prop of toast `id` that follows its place in the stack.
+fn by_place<T: Send + Sync + 'static>(
+    id: u64,
+    pick: impl Fn(Place) -> T + Send + Sync + 'static,
+) -> bevy_fynix::Signal<T> {
+    resource::<Toasts, _>(move |toasts| pick(toasts.place(id)))
 }
 
 /// The words of a toast's line without the name its wait starts
@@ -592,6 +666,13 @@ fn card(toast: &Toast) -> AnyView {
                 .gap(2.0);
         let theme = cx.theme();
         let space = &theme.space;
+        // Folded, only the card's edge shows: none of what it says.
+        let inside = column((words, answers)).gap(space.gap).display(
+            by_place(id, |place| match place {
+                Place::Whole => Display::Flex,
+                Place::Folded(_) | Place::Hidden => Display::None,
+            }),
+        );
         // Edged in its hue while it calls for the chief or reports a
         // fault, and its shadow doubled, so it stands off the world
         // and the panels.
@@ -603,30 +684,50 @@ fn card(toast: &Toast) -> AnyView {
         };
         let mut shadow = theme.shadow();
         shadow.0.extend(theme.shadow().0);
-        let card = column((words, answers))
-            .gap(space.gap)
+        let (gap, round) = (space.gap, space.round);
+        let padding = UiRect::axes(
+            px(space.card_padding_x),
+            px(space.card_padding_y),
+        );
+        // A folded card is a strip under the bottom of the one in
+        // front of it, its round corners hidden there, narrower the
+        // further back it is.
+        let card = column((inside,))
             .fill(theme.palette.card)
             .border(space.border)
             .border_color(edge)
-            .radius(space.round)
-            .padding(UiRect::axes(
-                px(space.card_padding_x),
-                px(space.card_padding_y),
-            ))
+            .radius(round)
+            .display(by_place(id, |place| match place {
+                Place::Hidden => Display::None,
+                Place::Whole | Place::Folded(_) => Display::Flex,
+            }))
+            .height(by_place(id, move |place| match place {
+                Place::Folded(_) => px(EDGE + round),
+                Place::Whole | Place::Hidden => Val::Auto,
+            }))
+            .margin(by_place(id, move |place| match place {
+                Place::Folded(back) => UiRect {
+                    left: px(EDGE * back as f32),
+                    right: px(EDGE * back as f32),
+                    top: px(0.0),
+                    bottom: px(-(gap + round)),
+                },
+                Place::Whole | Place::Hidden => UiRect::all(px(0.0)),
+            }))
+            .padding(by_place(id, move |place| match place {
+                Place::Folded(_) => UiRect::all(px(0.0)),
+                Place::Whole | Place::Hidden => padding,
+            }))
             .rules(fading(id))
             .tagged(shadow);
-        let node = cx.build(card);
-        cx.world
-            .entity_mut(node)
-            .insert((Hovered::default(), Body(id)));
-        node
+        cx.build(card)
     })
 }
 
 /// `content`, a part of the words of the toast of `what`, pressed to
 /// open what it is about.
 fn opening(what: What, content: impl View) -> impl View {
-    bevy_fynix::views::button(row((content,)))
+    button(row((content,)))
         .grow(1.0)
         .min_width(px(0.0))
         .rules(opener)
@@ -665,6 +766,19 @@ fn fading(id: u64) -> impl FnOnce(&mut Cx) + Send + Sync + 'static {
                     .map_or(0.0, |toast| toast.opacity)
             }))
         });
+    }
+}
+
+/// Takes every toast away, as [`dismiss`] does each.
+fn dismiss_all(world: &mut World) {
+    let shown: Vec<What> = world
+        .resource::<Toasts>()
+        .shown
+        .iter()
+        .map(|toast| toast.what.clone())
+        .collect();
+    for what in &shown {
+        dismiss(world, what);
     }
 }
 
@@ -784,17 +898,11 @@ mod tests {
         app.world_mut()
             .resource_mut::<Time<Virtual>>()
             .set_max_delta(step);
-        let world = app.world_mut();
-        let body = world
-            .query::<(Entity, &Body)>()
-            .iter(world)
-            .next()
-            .unwrap()
-            .0;
-        world.entity_mut(body).insert(Hovered(true));
+        let pile = pile(&mut app);
+        app.world_mut().entity_mut(pile).insert(Hovered(true));
         app.update();
         assert_eq!(app.world().resource::<Toasts>().shown.len(), 1);
-        app.world_mut().entity_mut(body).insert(Hovered(false));
+        app.world_mut().entity_mut(pile).insert(Hovered(false));
         app.update();
         assert!(app.world().resource::<Toasts>().shown.is_empty());
     }
@@ -844,6 +952,67 @@ mod tests {
             &toasts.shown[1].what,
             What::Notice { line, .. } if line == "1"
         ));
+    }
+
+    /// The stack's node.
+    fn pile(app: &mut App) -> Entity {
+        let world = app.world_mut();
+        world
+            .query_filtered::<Entity, With<Pile>>()
+            .single(world)
+            .unwrap()
+    }
+
+    /// Toasts with `count` faults, the newest last.
+    fn faults(count: usize) -> Toasts {
+        let mut toasts = Toasts::default();
+        for n in 0..count {
+            toasts.note(
+                StatusKind::Danger,
+                "Fault".into(),
+                n.to_string(),
+                0.0,
+            );
+        }
+        toasts
+    }
+
+    #[test]
+    fn older_toasts_fold_behind_the_newest_until_the_stack_opens() {
+        let mut toasts = faults(4);
+        let places = |toasts: &Toasts| -> Vec<Place> {
+            toasts
+                .shown
+                .iter()
+                .map(|toast| toasts.place(toast.id))
+                .collect()
+        };
+        assert_eq!(
+            places(&toasts),
+            [
+                Place::Hidden,
+                Place::Folded(2),
+                Place::Folded(1),
+                Place::Whole
+            ]
+        );
+        toasts.open = true;
+        assert_eq!(places(&toasts), [Place::Whole; 4]);
+    }
+
+    #[test]
+    fn an_open_stack_closes_all_its_toasts_at_once() {
+        let mut app = panel_app();
+        app.add_plugins(plugin);
+        app.insert_resource(faults(2));
+        bevy_fynix::mount::<HamletTheme>(app.world_mut(), stack());
+        app.update();
+        let pile = pile(&mut app);
+        app.world_mut().entity_mut(pile).insert(Hovered(true));
+        app.update();
+        assert!(app.world().resource::<Toasts>().open);
+        press(&mut app, "Close all");
+        assert!(app.world().resource::<Toasts>().shown.is_empty());
     }
 
     #[test]
