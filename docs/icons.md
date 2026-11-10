@@ -53,8 +53,8 @@ that name a part of Hamlet:
 - `Tree` the Hub, `Globe` the world and the realm, `Hamlet` a hamlet,
   `Scholar` a scholar and the city, `Anchor` the harbor, `Signpost`
   roads, `Hearth` the chief's hearth.
-- `Tower` the Hand, `Mayor` a mayor and the leads, `Robot` a hire or a
-  worker, `Face` an agent's character, `Notes` what it is told in
+- `Tower` the Hand, `Mayor` a mayor and the leads, `Robot` a hire,
+  `Worker` a worker, `Face` an agent's character, `Notes` what it is told in
   writing (its prompt, memory and the charter), `Book` skills, the
   library and the bylaws.
 - `Chip` a model, `Fast` the fast tier, `Key` a provider's key, `Signal`

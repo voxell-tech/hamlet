@@ -8,30 +8,43 @@ mod hire;
 mod items;
 mod model;
 mod new_scholar;
+mod rename;
 mod road;
 
 use bevy::app::{App, Update};
 use bevy::ecs::component::{Component, Mutable};
 use bevy::ecs::entity::Entity;
+use bevy::ecs::hierarchy::Children;
 use bevy::ecs::observer::On;
+use bevy::ecs::query::{Added, With};
 use bevy::ecs::resource::Resource;
 use bevy::ecs::system::{Query, Res, ResMut};
 use bevy::ecs::world::World;
+use bevy::input::keyboard::KeyCode;
+use bevy::input_focus::{FocusCause, InputFocus};
 use bevy::math::{Rect, Vec2};
 use bevy::picking::events::PointerPress;
 use bevy::picking::pointer::PointerButton;
-use bevy::ui::{UiScale, px};
+use bevy::text::EditableText;
+use bevy::ui::{AlignItems, JustifyContent, UiRect, UiScale, px};
 use bevy::window::Window;
-use bevy_fynix::views::{
-    BehaviorExt, FrameProps, column, frame, label, menu_item,
-    overlay, popup,
+use bevy_fynix::shortcut::{
+    Chord, CommandId, CommandSpec, Mods, ShortcutAppExt,
 };
-use bevy_fynix::{ScopedExt, ViewExt, derived, every_frame, keyed};
+use bevy_fynix::tokens::Tone;
+use bevy_fynix::views::{
+    self, BehaviorExt, FrameProps, POPUP, button, column, frame,
+    label, menu_item, overlay, popup, row,
+};
+use bevy_fynix::{
+    ScopedExt, ViewExt, derived, every_frame, keyed, resource,
+};
 use hamlet_client::gifts::GiftReports;
 use hamlet_client::messages::Veto;
 use hamlet_client::realm::{self as agents, Deeds};
 use hamlet_realm::orders;
 use hamlet_realm::pick::{Asked, AskedGround, Thing};
+use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::{AnyView, Cx, View, with_cx};
 
 pub(crate) use self::deed::{Deed, question};
@@ -41,16 +54,44 @@ pub use self::model::{
 };
 pub(crate) use self::model::{Hook, chip};
 
+/// The command that sends the form open in a popup, or answers yes to
+/// its question, from the keys.
+const SUBMIT: CommandId = CommandId("popup.submit");
+
 pub fn plugin(app: &mut App) {
+    let submit = CommandSpec {
+        id: SUBMIT,
+        label: "Send the form or answer yes",
+        scope: POPUP,
+        run: |world, _| submit(world),
+        enabled: |world| world.resource::<Open>().submits(),
+        repeat: false,
+    };
     app.add_plugins(model::plugin)
         .init_resource::<Open>()
         .init_resource::<Founding>()
         .init_resource::<new_scholar::Making>()
         .init_resource::<hire::Hiring>()
         .init_resource::<road::Roading>()
+        .init_resource::<rename::Renaming>()
+        .init_resource::<deed::Reason>()
+        .add_command(submit, &SUBMIT_KEYS)
         .add_observer(ask_of_row)
-        .add_systems(Update, answer_ask);
+        .add_systems(Update, (answer_ask, focus_new_fields));
 }
+
+/// The keys that send a form: the primary key and Enter, and Control
+/// and Enter on macOS too, where Control is not the primary key.
+pub(crate) const SUBMIT_KEYS: [Chord; 2] = [
+    Chord {
+        key: KeyCode::Enter,
+        mods: Mods::PRIMARY,
+    },
+    Chord {
+        key: KeyCode::Enter,
+        mods: Mods::CTRL,
+    },
+];
 
 /// The popup open over the world, and its place in the window.
 #[derive(Resource, Default, Clone, PartialEq)]
@@ -74,6 +115,99 @@ pub(crate) enum Open {
     Skills(Entity, Vec2),
     /// The model an agent runs, its effort and its tier.
     Model(Entity),
+    /// The form an agent or a scholar is given a new name with.
+    Rename(Entity, Vec2),
+}
+
+impl Open {
+    /// Whether it is a form or a question the keys can send.
+    fn submits(&self) -> bool {
+        matches!(
+            self,
+            Open::Question(..)
+                | Open::Founding(_)
+                | Open::NewScholar(_)
+                | Open::Hire(..)
+                | Open::Rename(..)
+        )
+    }
+}
+
+/// Sends the form that is open, or does the deed its question asks
+/// about, as its first button does.
+fn submit(world: &mut World) {
+    match world.resource::<Open>().clone() {
+        Open::Question(deed, _) => deed::answer(world, &deed),
+        Open::Founding(_) => founding::submit(world),
+        Open::NewScholar(_) => new_scholar::submit(world),
+        Open::Hire(lead, _) => hire::submit(world, lead),
+        Open::Rename(named, _) => rename::submit(world, named),
+        _ => {}
+    }
+}
+
+/// On a field of a form: it takes the focus when it is shown, so the
+/// form is typed in at once.
+#[derive(Component)]
+pub(crate) struct TakesFocus;
+
+fn focus_new_fields(
+    added: Query<Entity, Added<TakesFocus>>,
+    children: Query<&Children>,
+    texts: Query<(), With<EditableText>>,
+    mut focus: ResMut<InputFocus>,
+) {
+    for root in &added {
+        let field = std::iter::once(root)
+            .chain(children.iter_descendants(root))
+            .find(|node| texts.contains(*node));
+        if let Some(field) = field {
+            focus.set(field, FocusCause::Auto);
+        }
+    }
+}
+
+/// The parts of a form that may be left out, folded under a line that
+/// opens them, and folded until it is pressed: `open` reads whether
+/// they are shown from the form's resource and `flip` turns it.
+pub(crate) fn optional<R: Resource<Mutability = Mutable>>(
+    open: fn(&R) -> bool,
+    flip: fn(&mut R),
+    body: impl Fn() -> AnyView + Send + Sync + 'static,
+) -> impl View {
+    // The line is built once and only its chevron turns.
+    let line =
+        row((button(
+            row((
+                glyph(Glyph::Chevron, 10.0)
+                    .tone(Tone::Faint)
+                    .rotation(resource::<R, _>(move |r| {
+                        if open(r) { 180.0 } else { 90.0 }
+                    })),
+                label("More options").tone(Tone::Dim).wrap(false),
+            ))
+            .gap(6.0)
+            .align(AlignItems::Center),
+        )
+        .padding(UiRect::all(px(0.0)))
+        .justify(JustifyContent::FlexStart)
+        .rules(views::tint)
+        .on_activate(move |world| {
+            flip(&mut world.resource_mut::<R>());
+        }),));
+    // The body is built under a plain column, with no transition, so
+    // it shows and goes at once rather than sliding in and out.
+    let body = keyed(resource::<R, _>(open), move |open| {
+        if *open {
+            column((body(),)).boxed()
+        } else {
+            frame().boxed()
+        }
+    })
+    .within(column(()));
+    with_cx(move |cx| {
+        column((line, body)).gap(cx.theme().space.section)
+    })
 }
 
 /// On a row of a panel: the thing it stands for, whose menu the
@@ -144,14 +278,35 @@ fn asks<R: Resource<Mutability = Mutable>>(
 ) -> impl View {
     hamlet_ui::styles::close((
         hamlet_ui::styles::section(what),
-        bevy_fynix::views::text_field(
-            bevy_fynix::resource::<R, _>(move |r| read(r).clone()),
-            move |world, text| {
-                write(&mut world.resource_mut::<R>(), text);
-            },
-        )
-        .rules(hamlet_ui::styles::text_input),
+        field::<R>(read, write),
     ))
+}
+
+/// The first line of a popup's form, as [`asks`], whose field takes
+/// the focus when the form opens.
+fn asks_first<R: Resource<Mutability = Mutable>>(
+    what: &'static str,
+    read: fn(&R) -> &String,
+    write: fn(&mut R, String),
+) -> impl View {
+    hamlet_ui::styles::close((
+        hamlet_ui::styles::section(what),
+        field::<R>(read, write).tagged(TakesFocus),
+    ))
+}
+
+/// A field of the text in resource `R` that `read` and `write` reach.
+fn field<R: Resource<Mutability = Mutable>>(
+    read: fn(&R) -> &String,
+    write: fn(&mut R, String),
+) -> impl View {
+    views::text_field(
+        resource::<R, _>(move |r| read(r).clone()),
+        move |world, text| {
+            write(&mut world.resource_mut::<R>(), text);
+        },
+    )
+    .rules(hamlet_ui::styles::text_input)
 }
 
 /// Stops what `agent` is doing now.
@@ -213,6 +368,17 @@ pub(crate) fn ask_hire(world: &mut World, lead: Entity) {
     *world.resource_mut::<Open>() = Open::Hire(lead, at);
 }
 
+/// Opens the form `named`, an agent or a scholar, is given a new
+/// name with, at the pointer.
+pub(crate) fn ask_rename(world: &mut World, named: Entity) {
+    if !rename::may_rename(world, named) {
+        return;
+    }
+    let at = pointer(world);
+    rename::start(world, named);
+    *world.resource_mut::<Open>() = Open::Rename(named, at);
+}
+
 /// Opens the form a road from `agent` is built with, at the pointer.
 pub(crate) fn ask_road(world: &mut World, agent: Entity) {
     if !Deeds::is_allowed(world, "road") {
@@ -239,6 +405,11 @@ pub(crate) fn ask_against(
     deed: Deed,
     anchor: Rect,
 ) {
+    // A reason typed for an earlier question is not this one's.
+    if let Some(mut reason) = world.get_resource_mut::<deed::Reason>()
+    {
+        *reason = deed::Reason::default();
+    }
     *world.resource_mut::<Open>() = Open::Question(deed, anchor);
 }
 
@@ -309,6 +480,9 @@ fn menus() -> AnyView {
             }
             Open::Hire(lead, at) => hire::hire(lead, at).boxed(),
             Open::Road(agent, at) => road::road(agent, at).boxed(),
+            Open::Rename(named, at) => {
+                rename::rename(named, at).boxed()
+            }
             Open::Model(agent) => model::picker(agent).boxed(),
             Open::Skills(agent, at) => {
                 AnyView::new(move |cx: &mut Cx| {
@@ -340,9 +514,9 @@ fn gift_reports() -> AnyView {
                 .map(|(text, failed)| {
                     label(text.clone())
                         .tone(if *failed {
-                            bevy_fynix::tokens::Tone::Critical
+                            Tone::Critical
                         } else {
-                            bevy_fynix::tokens::Tone::Body
+                            Tone::Body
                         })
                         .boxed()
                 })
@@ -365,9 +539,7 @@ fn gift_reports() -> AnyView {
                     .gap(space.section)
                     .width(px(360.0)),),
                 )
-                .padding(bevy::ui::UiRect::all(px(
-                    space.overlay_padding,
-                )))
+                .padding(UiRect::all(px(space.overlay_padding)))
             })
             .boxed()
         },
@@ -432,8 +604,10 @@ mod tests {
                 .any(|text| text == "Found a Hamlet...")
         );
         let world = app.world_mut();
-        let home = world.query_filtered::<Entity, bevy::ecs::query::With<HamletId>>()
-            .single(world).unwrap();
+        let home = world
+            .query_filtered::<Entity, With<HamletId>>()
+            .single(world)
+            .unwrap();
         open(&mut app, Open::Menu(Thing::Common(home), Vec2::ZERO));
         for absent in ["Move home...", "Rename home..."] {
             assert!(

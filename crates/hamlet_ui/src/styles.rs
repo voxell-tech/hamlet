@@ -1098,7 +1098,17 @@ pub fn more_button(
     tip: &'static str,
     act: impl Fn(&mut World) + Send + Sync + 'static,
 ) -> AnyView {
-    views::button(glyph(Glyph::More, ICON))
+    icon_button(Glyph::More, tip, act)
+}
+
+/// A button of the icon `which` alone, as tall as a standard one,
+/// that runs `act`, with `tip`, what it does, as its tooltip.
+pub fn icon_button(
+    which: Glyph,
+    tip: &'static str,
+    act: impl Fn(&mut World) + Send + Sync + 'static,
+) -> AnyView {
+    views::button(glyph(which, ICON))
         .padding(UiRect::axes(px(8.0), px(4.0)))
         .min_height(px(CONTROL))
         .variant(Variant::Default)

@@ -29,10 +29,10 @@ use hamlet_ui::{AnyView, View, with_cx};
 use super::details::{section, section_line};
 use super::thread::dim;
 use super::{Showing, memory, rail, show};
-use crate::chat;
 use crate::convo::talk_to;
 use crate::overview::typed;
 use crate::standing::Standing;
+use crate::{chat, world_menu};
 
 /// The deeds a scholar's page offers, in the names the server
 /// advertises them by.
@@ -56,6 +56,8 @@ const DEEDS: [&str; 13] = [
 #[derive(Resource, Default, Clone, PartialEq, Eq)]
 pub struct Form {
     act: Option<Act>,
+    /// Whether the reason it may take is shown.
+    more: bool,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -161,7 +163,10 @@ fn tell_hand(world: &mut World, text: String) {
 }
 
 fn ask(world: &mut World, act: Act) {
-    world.resource_mut::<Form>().act = Some(act);
+    *world.resource_mut::<Form>() = Form {
+        act: Some(act),
+        more: false,
+    };
 }
 
 /// The command `act` makes of the scholar at `address`, called
@@ -174,8 +179,12 @@ fn command(
     second: &str,
 ) -> Option<String> {
     let (first, second) = (first.trim(), second.trim());
+    // A reason may be left out.
     if first.is_empty()
-        && !matches!(act, Act::Revert(_) | Act::Purge(_))
+        && !matches!(
+            act,
+            Act::Revert(_) | Act::Purge(_) | Act::Remove
+        )
     {
         return None;
     }
@@ -187,7 +196,9 @@ fn command(
         }
         Act::Fork(None) => format!("/fork {address} {first}"),
         Act::Purge(path) => format!("/purge {address} {path}"),
-        Act::Remove => format!("/remove-scholar {address} {first}"),
+        Act::Remove => format!("/remove-scholar {address} {first}")
+            .trim_end()
+            .to_string(),
         // Only when its name is typed, as nothing brings it back.
         Act::Erase if first == name => {
             format!("/erase-scholar {address}")
@@ -260,10 +271,12 @@ fn form(address: String, name: String, act: Act) -> AnyView {
         ),
         Act::Revert(_) => (
             "Undo that version's commit of its main.".to_string(),
-            Some("why (optional)"),
+            Some("why"),
             None,
         ),
     };
+    // A reason may be left out, so it waits under "More options".
+    let optional = matches!(act, Act::Remove | Act::Revert(_));
     let remove = is_careful(&act);
     let go = {
         let act = act.clone();
@@ -278,15 +291,25 @@ fn form(address: String, name: String, act: Act) -> AnyView {
         let gap = cx.theme().space.gap;
         let mut parts = vec![note(words).boxed()];
         if let Some(first) = first {
-            parts.push(
+            let line = move || {
                 row((
                     label(first).tone(Tone::Faint).wrap(false),
-                    field(First),
+                    field(First).tagged(world_menu::TakesFocus),
                 ))
                 .gap(gap)
                 .align(AlignItems::Center)
-                .boxed(),
-            );
+                .boxed()
+            };
+            parts.push(if optional {
+                world_menu::optional::<Form>(
+                    |form| form.more,
+                    |form| form.more = !form.more,
+                    line,
+                )
+                .boxed()
+            } else {
+                line()
+            });
         }
         if let Some(second) = second {
             parts.push(
@@ -371,6 +394,9 @@ fn standing(scholar: &protocol::Scholar) -> (&'static str, Tone) {
         (None, protocol::Arrival::Turned) => {
             ("Turned away at the harbor", Tone::Critical)
         }
+        (None, protocol::Arrival::Apart) => {
+            ("A blank hire's own", Tone::Dim)
+        }
     }
 }
 
@@ -440,6 +466,7 @@ fn arrival(shown: &Shown) -> AnyView {
                 );
             }
         }
+        (None, protocol::Arrival::Apart) => {}
         (None, _) => {
             if can("welcome") {
                 let address = address.clone();
@@ -836,6 +863,33 @@ fn body(shown: &Shown) -> AnyView {
         .fills_height()
     })
     .boxed()
+}
+
+/// Does the deed the form of the scholar shown asks for, as its first
+/// button does.
+pub(super) fn submit(world: &mut World) {
+    let Some(Showing::Scholar(scholar)) =
+        world.get_resource::<Showing>().copied()
+    else {
+        return;
+    };
+    let Some(act) = world.resource::<Form>().act.clone() else {
+        return;
+    };
+    let Some(shown) = shown(world, scholar) else {
+        return;
+    };
+    let address = scholar_address(shown.scholar.id);
+    run(world, &address, &shown.scholar.name, &act);
+}
+
+/// Whether a deed of the scholar shown waits for its words.
+pub(super) fn asking(world: &World) -> bool {
+    world.resource::<Form>().act.is_some()
+        && matches!(
+            world.get_resource::<Showing>(),
+            Some(Showing::Scholar(_))
+        )
 }
 
 /// The page of `scholar`.

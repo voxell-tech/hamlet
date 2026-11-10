@@ -55,6 +55,17 @@ pub(super) fn plugin(app: &mut App) {
             }),
             &[primary(KeyCode::BracketRight)],
         )
+        .add_command(
+            CommandSpec {
+                enabled: super::scholar::asking,
+                ..command(
+                    "hub.submit",
+                    "Do what the scholar's form asks",
+                    |world, _| super::scholar::submit(world),
+                )
+            },
+            &crate::world_menu::SUBMIT_KEYS,
+        )
         .add_systems(
             Update,
             (mouse_travel.run_if(mouse_pressed), record).chain(),

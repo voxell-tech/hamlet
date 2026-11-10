@@ -20,8 +20,8 @@ use super::deed::Deed;
 use super::{Open, close, restore, stop};
 use crate::convo::talk_to;
 
-/// An agent of the hamlet that is not its mayor and has not left,
-/// with its name.
+/// A hire of the hamlet that is not its mayor and has not left, with
+/// its name.
 fn plain_agent(
     world: &World,
     thing: Thing,
@@ -29,7 +29,9 @@ fn plain_agent(
     let (Thing::Agent(agent) | Thing::House(agent)) = thing else {
         return None;
     };
-    let plain = world.get::<Mayor>(agent).is_none()
+    let plain = world.get::<Kind>(agent).map(|kind| kind.0)
+        == Some(protocol::AgentKind::Hire)
+        && world.get::<Mayor>(agent).is_none()
         && world.get::<Left>(agent).is_none();
     let name = agents::shown_of(world, agent);
     plain.then_some((agent, name))
@@ -76,6 +78,47 @@ fn hire_under(world: &World, lead: Entity) -> Option<AnyView> {
 
 fn focus(thing: Thing) -> AnyView {
     item("Focus".into(), move |w| focus_on(w, thing, false))
+}
+
+/// Opens the details of `agent` in the Hub, in its chat's place.
+fn details(agent: Entity) -> AnyView {
+    item("Details".into(), move |world| {
+        talk_to(world, agent);
+        crate::screens::hub::show_details(world);
+    })
+}
+
+/// Gives `named`, an agent or a scholar, a new name, while the chief
+/// may.
+fn rename(world: &World, named: Entity) -> Option<AnyView> {
+    super::rename::may_rename(world, named).then(|| {
+        item("Rename...".into(), move |world| {
+            super::ask_rename(world, named);
+        })
+    })
+}
+
+/// Chooses the model `agent` runs, over its composer in the Hub.
+fn model(agent: Entity) -> AnyView {
+    item("Choose Model...".into(), move |world| {
+        talk_to(world, agent);
+        crate::screens::hub::show_chat(world);
+        super::ask_model(world, agent);
+    })
+}
+
+/// Builds a road from the hire `agent`, while it may have one.
+fn road(world: &World, agent: Entity) -> Option<AnyView> {
+    let hire = world.get::<Kind>(agent).map(|kind| kind.0)
+        == Some(protocol::AgentKind::Hire);
+    (hire
+        && world.get::<Left>(agent).is_none()
+        && Deeds::is_allowed(world, "road"))
+    .then(|| {
+        item("Build a Road...".into(), move |world| {
+            super::ask_road(world, agent);
+        })
+    })
 }
 
 /// Starts a new session with `agent`, in the Hub, after asking:
@@ -141,6 +184,12 @@ fn for_agent(
     // details.
     let mut items = vec![new_conversation(agent)];
     items.extend(hire_under(world, agent));
+    items.push(details(agent));
+    items.extend(rename(world, agent));
+    if world.get::<Left>(agent).is_none() {
+        items.push(model(agent));
+    }
+    items.extend(road(world, agent));
     items.extend(gifts(world, agent, at));
     items.push(focus(thing));
     if world.get::<Busy>(agent).is_some() {
@@ -206,12 +255,23 @@ fn for_common(
     at: Vec2,
 ) -> Vec<AnyView> {
     let name = agents::shown_of(world, hamlet);
-    let mut items = vec![focus(thing)];
     // It is closed by the name commands know it by.
     let id = world
         .get::<HamletId>(hamlet)
         .map(|id| id.0.clone())
         .unwrap_or_default();
+    // A hire under its mayor, first, as what is done to it most.
+    let mut items = agents::mayor_of(world, &id)
+        .and_then(|mayor| {
+            hire_under(world, mayor).map(|_| {
+                item("Hire...".into(), move |world| {
+                    super::ask_hire(world, mayor);
+                })
+            })
+        })
+        .into_iter()
+        .collect::<Vec<_>>();
+    items.push(focus(thing));
     if Deeds::is_allowed(world, "name-hamlet") {
         items.push(item(format!("Rename {name}..."), move |w| {
             crate::overview::rename(w, hamlet);
@@ -288,12 +348,34 @@ pub(super) fn items(
             for_chief(thing, chief)
         }
         Thing::Library => for_library(thing),
-        // They stand where the city puts them: only the view moves.
-        Thing::Hand => vec![focus(thing)],
+        // Its tower stands where the city puts it: only the view
+        // moves.
+        Thing::Hand => match agents::hand(world) {
+            Some(hand) => {
+                let mut items = vec![
+                    new_conversation(hand),
+                    details(hand),
+                    model(hand),
+                ];
+                items.extend(gifts(world, hand, at));
+                items.push(focus(thing));
+                if world.get::<Busy>(hand).is_some() {
+                    items.push(item(
+                        "Stop the Hand".into(),
+                        move |w| {
+                            stop(w, hand);
+                        },
+                    ));
+                }
+                items
+            }
+            None => vec![focus(thing)],
+        },
         // A scholar's house, or the scholar waiting on the pier.
         // Selecting it already opens its page, and it is in view.
         Thing::Scholar(scholar) => {
             let mut items = Vec::new();
+            items.extend(rename(world, scholar));
             let housed = world
                 .get::<hamlet_client::realm::Scholar>(scholar)
                 .is_some_and(|s| s.0.house.is_some());

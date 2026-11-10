@@ -1,4 +1,5 @@
-//! The form a hamlet is founded with.
+//! The form a hamlet is founded with: its name, and folded under it
+//! its mayor and what it is for, which may be left out.
 
 use bevy::ecs::resource::Resource;
 use bevy::ecs::world::World;
@@ -20,7 +21,7 @@ use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::{View, built};
 
-use super::{asks, close};
+use super::{asks, asks_first, close, optional};
 use crate::chat;
 
 /// The name of a hamlet being founded, the scholar that is its mayor,
@@ -28,14 +29,16 @@ use crate::chat;
 #[derive(Resource, Default, Clone, PartialEq)]
 pub(crate) struct Founding {
     name: String,
-    /// A new scholar named Mayor while None.
+    /// A blank agent while None.
     mayor: Option<protocol::ScholarId>,
     purpose: String,
+    /// Whether what may be left out is shown.
+    more: bool,
 }
 
 impl Founding {
-    /// The chief's command that founds it. None until its name and
-    /// purpose are given.
+    /// The chief's command that founds it. None until its name is
+    /// given.
     fn command(&self) -> Option<String> {
         // A hamlet's name is lowercase letters and hyphens.
         let name = self
@@ -46,33 +49,37 @@ impl Founding {
             .collect::<Vec<_>>()
             .join("-");
         let purpose = self.purpose.trim();
-        (!name.is_empty() && !purpose.is_empty()).then(|| match self
+        // A blank mayor is said, so a purpose is never read as one.
+        let mayor = self
             .mayor
-        {
-            Some(mayor) => format!(
-                "/found {name} {} {purpose}",
-                scholar_address(mayor)
-            ),
-            None => format!("/found {name} {purpose}"),
+            .map_or_else(|| "blank".to_string(), scholar_address);
+        (!name.is_empty()).then(|| {
+            format!("/found {name} {mayor} {purpose}")
+                .trim_end()
+                .to_string()
         })
     }
 }
 
-/// The scholars that can be the mayor: living ones, by name.
+/// The scholars of the city that can be the mayor: living ones, by
+/// name.
 fn candidates(world: &World) -> Vec<(protocol::ScholarId, String)> {
     let Some(mut scholars) = world.try_query::<&Scholar>() else {
         return Vec::new();
     };
     let mut found = scholars
         .iter(world)
-        .filter(|scholar| scholar.0.left.is_none())
+        .filter(|scholar| {
+            scholar.0.left.is_none()
+                && scholar.0.arrival != protocol::Arrival::Apart
+        })
         .map(|scholar| (scholar.0.id, scholar.0.name.clone()))
         .collect::<Vec<_>>();
     found.sort_by(|a, b| a.1.cmp(&b.1).then(a.0.0.cmp(&b.0.0)));
     found
 }
 
-/// Who is to be the mayor: a new scholar, or one of the living.
+/// Who is to be the mayor: a blank agent, or one of the scholars.
 fn mayor() -> impl View {
     keyed(
         derived(|world: &World| {
@@ -80,11 +87,9 @@ fn mayor() -> impl View {
         })
         .when(every_frame()),
         |(found, chosen)| {
-            let shown = std::iter::once(
-                "A new scholar named Mayor".to_string(),
-            )
-            .chain(found.iter().map(|(_, name)| name.clone()))
-            .collect::<Vec<_>>();
+            let shown = std::iter::once("A blank agent".to_string())
+                .chain(found.iter().map(|(_, name)| name.clone()))
+                .collect::<Vec<_>>();
             let at = chosen
                 .and_then(|chosen| {
                     found.iter().position(|(id, _)| *id == chosen)
@@ -112,6 +117,19 @@ fn mayor() -> impl View {
     .within(column(()))
 }
 
+/// Founds the hamlet the form holds, once it is named.
+pub(super) fn submit(world: &mut World) {
+    if !Deeds::is_allowed(world, "found") {
+        return;
+    }
+    let Some(command) = world.resource::<Founding>().command() else {
+        return;
+    };
+    close(world);
+    *world.resource_mut::<Founding>() = Founding::default();
+    chat::command(world, command);
+}
+
 /// The form a hamlet is founded with.
 pub(super) fn founding(at: Vec2) -> impl View {
     built(move |cx| {
@@ -133,43 +151,39 @@ pub(super) fn founding(at: Vec2) -> impl View {
                 "It is built on the next free ground and gets its \
                  own mayor.",
             ),
-            asks::<Founding>(
+            asks_first::<Founding>(
                 "Its name",
                 |f| &f.name,
                 |f, text| f.name = text,
-            ),
-            mayor(),
-            asks::<Founding>(
-                "What it is for",
-                |f| &f.purpose,
-                |f, text| f.purpose = text,
             ),
             description(resource::<Founding, _>(|f| {
                 match f.command() {
                     Some(_) => "A name is kept as lowercase letters \
                                 and hyphens."
                         .to_string(),
-                    None => "Its name and what it is for are needed."
-                        .to_string(),
+                    None => "Its name is needed.".to_string(),
                 }
             })),
+            optional::<Founding>(
+                |f| f.more,
+                |f| f.more = !f.more,
+                || {
+                    column((
+                        mayor(),
+                        asks::<Founding>(
+                            "What it is for",
+                            |f| &f.purpose,
+                            |f, text| f.purpose = text,
+                        ),
+                    ))
+                    .gap(8.0)
+                    .boxed()
+                },
+            ),
             row((
                 lettered("Found")
                     .variant(Variant::Primary)
-                    .on_activate(|world| {
-                        if !Deeds::is_allowed(world, "found") {
-                            return;
-                        }
-                        let Some(command) =
-                            world.resource::<Founding>().command()
-                        else {
-                            return;
-                        };
-                        close(world);
-                        *world.resource_mut::<Founding>() =
-                            Founding::default();
-                        chat::command(world, command);
-                    }),
+                    .on_activate(submit),
                 lettered("Cancel").rules(button).on_activate(close),
             ))
             .gap(gap),
@@ -214,6 +228,7 @@ mod tests {
             name: "mill".into(),
             mayor: Some(protocol::ScholarId(2)),
             purpose: "Grinds flour".into(),
+            more: false,
         });
         bevy_fynix::mount::<hamlet_ui::theme::HamletTheme>(
             app.world_mut(),

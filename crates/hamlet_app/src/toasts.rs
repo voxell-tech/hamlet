@@ -215,7 +215,7 @@ fn judged(
         let housed = match scholar.arrival {
             Arrival::Housed => true,
             Arrival::Turned => false,
-            Arrival::Waiting => continue,
+            Arrival::Waiting | Arrival::Apart => continue,
         };
         toasts.push(
             What::Verdict {

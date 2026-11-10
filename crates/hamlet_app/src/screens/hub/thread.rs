@@ -32,8 +32,8 @@ use hamlet_ui::kinds::card;
 use hamlet_ui::styles::{
     Fills, ICON, Looks, Tipped, action, bare, card_name, choice,
     close, crumb, crumb_here, crumb_slash, crumbs, filling, hairline,
-    more_button, note, page_head, scroll_area, sentence_title,
-    status_icon, title, transparent,
+    icon_button, more_button, note, page_head, scroll_area,
+    sentence_title, status_icon, title, transparent,
 };
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::edges::faded;
@@ -461,23 +461,65 @@ fn state(agent: Entity) -> impl View {
         .min_width(px(0.0))
 }
 
+/// What is done to `agent` most, each a button of its own beside the
+/// tabs: a new session, a hire under it, a new name. The rest is in
+/// the menu of the "..." after them.
+fn quick(world: &World, agent: Entity) -> Vec<AnyView> {
+    let kind = world.get::<Kind>(agent).map(|kind| kind.0);
+    let living = world.get::<Left>(agent).is_none();
+    let mut buttons = vec![icon_button(
+        Glyph::NewSession,
+        "Start a new session",
+        move |world| {
+            crate::convo::talk_to(world, agent);
+            world_menu::ask(world, world_menu::Deed::NewSession);
+        },
+    )];
+    if living
+        && kind == Some(protocol::AgentKind::Hire)
+        && hamlet_client::realm::Deeds::is_allowed(world, "hire")
+    {
+        buttons.push(icon_button(
+            Glyph::Plus,
+            "Hire under it",
+            move |world| world_menu::ask_hire(world, agent),
+        ));
+    }
+    if living
+        && kind != Some(protocol::AgentKind::Hand)
+        && hamlet_client::realm::Deeds::is_allowed(world, "nickname")
+    {
+        buttons.push(icon_button(
+            Glyph::Rename,
+            "Rename it",
+            move |w| {
+                world_menu::ask_rename(w, agent);
+            },
+        ));
+    }
+    buttons
+}
+
 fn header(agent: Entity) -> impl View {
     built(move |cx| {
         // Everything else that can be done to it, as a right click on
-        // it in the world offers: a new session, gifts, its prompt,
-        // stopping, roads, merging, ending.
+        // it in the world offers: gifts, its model, roads, stopping,
+        // merging, ending.
         let more = more_button(
-            "A new session, its prompt, gifts, roads, ending it",
+            "Its model, gifts, roads, merging and ending it",
             move |world| {
-                let hall = hamlet_client::realm::first_mayor(world);
-                let thing = if hall == Some(agent) {
-                    Thing::Keeper
+                let hand =
+                    world.get::<Kind>(agent).map(|kind| kind.0)
+                        == Some(protocol::AgentKind::Hand);
+                let thing = if hand {
+                    Thing::Hand
                 } else {
                     Thing::Agent(agent)
                 };
                 world_menu::open_for(world, thing);
             },
         );
+        let quick = quick(cx.world, agent);
         // Which of its chats the chat tab shows: this session, an
         // earlier one, its letters and questions, its workers. It is
         // there on both tabs, so that the tabs keep their place.
@@ -514,6 +556,9 @@ fn header(agent: Entity) -> impl View {
                     ),))
                     .grow(1.0)
                     .min_width(px(0.0)),
+                    row(quick)
+                        .gap(gap / 2.0)
+                        .align(AlignItems::Center),
                     sessions,
                     more,
                 ))
