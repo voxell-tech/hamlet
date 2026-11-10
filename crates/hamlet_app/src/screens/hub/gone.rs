@@ -2,14 +2,14 @@
 
 use bevy::ecs::entity::Entity;
 use bevy::ui::AlignItems;
-use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{BehaviorExt, FrameProps, column, row};
 use hamlet_client::realm::{LivesIn, MergedInto, Purpose};
 use hamlet_realm::pick::{Thing, select};
 use hamlet_ui::styles::{
-    Fills, action, bad_action, breadcrumb, buttons, good_action,
-    page_head, scroll_area, status_label_large, title,
+    Fills, action, bad_action, breadcrumb, buttons, scroll_area,
+    status_pill, tinted_action,
 };
+use hamlet_ui::theme::StatusKind;
 use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::widgets::platform::Wraps;
 use hamlet_ui::{View, built, with_cx};
@@ -26,9 +26,12 @@ pub(super) fn ruin(agent: Entity) -> impl View {
             hamlet_client::realm::shown_of(cx.world, agent)
         };
         let name = named(agent);
-        let fate = match cx.world.get::<MergedInto>(agent) {
-            Some(host) => format!("Merged into {}", named(host.0)),
-            None => "Removed".to_string(),
+        let (fate, kind) = match cx.world.get::<MergedInto>(agent) {
+            Some(host) => (
+                format!("Merged into {}", named(host.0)),
+                StatusKind::Merged,
+            ),
+            None => ("Removed".to_string(), StatusKind::Danger),
         };
         let purpose = cx
             .world
@@ -51,16 +54,11 @@ pub(super) fn ruin(agent: Entity) -> impl View {
                 }
             });
         let section = cx.theme().space.section;
-        let head = page_head(
-            crumb,
-            row((
-                title(name),
-                status_label_large(Glyph::Gone, fate, Tone::Critical),
-            ))
+        // The path names it; its fate stands beside the path.
+        let head = row((crumb, status_pill(Glyph::Gone, fate, kind)))
             .gap(section)
             .align(AlignItems::Center)
-            .tagged(Wraps),
-        );
+            .tagged(Wraps);
         cx.build(
             column((
                 head,
@@ -68,7 +66,8 @@ pub(super) fn ruin(agent: Entity) -> impl View {
                 dim("Its lodge is kept in the archive. Deleting it \
                      frees the space on disk."),
                 buttons(vec![
-                    good_action(
+                    tinted_action(
+                        StatusKind::Success,
                         Glyph::Restore,
                         "Restore",
                         move |world| {
@@ -97,16 +96,13 @@ pub(super) fn ruin(agent: Entity) -> impl View {
 pub(super) fn library() -> impl View {
     with_cx(|cx| {
         column((
-            page_head(
-                breadcrumb(
-                    vec!["Realm".into()],
-                    "The library",
-                    |world, _| {
-                        select(world, None);
-                        show(world, Showing::Realm);
-                    },
-                ),
-                title("The library"),
+            breadcrumb(
+                vec!["Realm".into()],
+                "The library",
+                |world, _| {
+                    select(world, None);
+                    show(world, Showing::Realm);
+                },
             ),
             // On a line of their own, and on to another when the
             // panel is narrow.

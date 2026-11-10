@@ -19,9 +19,8 @@ use hamlet_client::realm::{
 };
 use hamlet_protocol::client as protocol;
 use hamlet_ui::styles::{
-    Fills, ICON, action, back_link, bad_action, bare, beside,
-    breadcrumb, buttons, good_action, note, page_head, scroll_area,
-    text_input, title,
+    Fills, ICON, Looks, action, bad_action, bare, beside, breadcrumb,
+    buttons, filling, good_action, note, scroll_area, text_input,
 };
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::icons::Glyph;
@@ -367,10 +366,10 @@ fn standing(scholar: &protocol::Scholar) -> (&'static str, Tone) {
             ("In the city", Tone::Dim)
         }
         (None, protocol::Arrival::Waiting) => {
-            ("Waits at the harbor", Standing::Waits.tone())
+            ("Waits at the harbor", Standing::Waits.words())
         }
         (None, protocol::Arrival::Turned) => {
-            ("Turned away at the harbor", Tone::Dim)
+            ("Turned away at the harbor", Tone::Critical)
         }
     }
 }
@@ -596,8 +595,7 @@ fn hires(shown: &Shown) -> AnyView {
         let mut line = vec![
             button(label(shown_hire.called.clone()).bold(true))
                 .padding(UiRect::all(px(0.0)))
-                .rules(back_link)
-                .tagged(Variant::Text)
+                .variant(Variant::Text)
                 .tooltip({
                     let address = address.clone();
                     move || note(address.clone())
@@ -782,8 +780,7 @@ fn body(shown: &Shown) -> AnyView {
     let name = shown.scholar.name.clone();
     let address = scholar_address(shown.scholar.id);
     let (stands, tone) = standing(&shown.scholar);
-    let heading =
-        beside((title(name.clone()), label(stands).tone(tone)));
+    let standing = label(stands).tone(tone);
     let parts = (
         arrival(shown),
         hires(shown),
@@ -799,8 +796,11 @@ fn body(shown: &Shown) -> AnyView {
             versions_part,
             careful_part,
         ) = parts;
+        let section = cx.theme().space.section;
+        // The head stays at the top while the rest scrolls under it.
         column((
-            page_head(
+            // The path names it; where it stands is beside the path.
+            beside((
                 breadcrumb(
                     vec!["Realm".into(), "City".into()],
                     name.clone(),
@@ -815,28 +815,32 @@ fn body(shown: &Shown) -> AnyView {
                         }
                     },
                 ),
-                heading,
-            ),
-            head,
-            form_view(address, name.clone(), is_of_header),
-            column((
-                hires_part,
-                character_part,
-                memory_part,
-                skills_part,
-                versions_part,
-                careful_part,
+                standing,
+            )),
+            scroll_area((column((
+                head,
+                form_view(address, name.clone(), is_of_header),
+                column((
+                    hires_part,
+                    character_part,
+                    memory_part,
+                    skills_part,
+                    versions_part,
+                    careful_part,
+                ))
+                .gap(0.0),
             ))
-            .gap(0.0),
+            .gap(section),)),
         ))
-        .gap(cx.theme().space.section)
+        .gap(section)
+        .fills_height()
     })
     .boxed()
 }
 
 /// The page of `scholar`.
 pub(super) fn page(scholar: Entity) -> impl View {
-    column((scroll_area((keyed(
+    keyed(
         derived(move |world: &World| shown(world, scholar))
             .when(every_frame()),
         |shown| match shown {
@@ -844,6 +848,5 @@ pub(super) fn page(scholar: Entity) -> impl View {
             None => dim("That scholar is not in the city.").boxed(),
         },
     )
-    .within(bare()),)),))
-    .fills_height()
+    .within(filling())
 }

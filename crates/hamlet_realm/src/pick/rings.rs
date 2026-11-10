@@ -87,8 +87,13 @@ fn rings(
             Ring::Selected => selected.0,
             Ring::Also => also.0.filter(|a| selected.0 != Some(*a)),
         };
+        // A thing that stands in more than one place, as a scholar
+        // in its house and out walking, is ringed about the widest:
+        // its house.
         let found = wanted.and_then(|w| {
-            things.iter().find(|(thing, ..)| **thing == w)
+            things.iter().filter(|(thing, ..)| **thing == w).max_by(
+                |(_, a, _), (_, b, _)| a.radius.total_cmp(&b.radius),
+            )
         });
         let Some((thing, room, place)) = found else {
             visibility.set_if_neq(Visibility::Hidden);

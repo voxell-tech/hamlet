@@ -14,7 +14,7 @@ use bevy::ui::{
     UiTransform, Val, px,
 };
 
-use super::{EffectColors, EffectSettings};
+use super::{EffectColors, Tuned};
 use crate::theme::Themed;
 
 /// The layers the dock library puts its drop hint and the dragged
@@ -62,10 +62,11 @@ type Dragged<'a> = (
 pub(super) fn dress_drag(
     mut commands: Commands,
     time: Res<Time>,
-    set: Res<EffectSettings>,
+    tuned: Tuned,
     theme: Themed,
     mut drawn: Query<Dragged, Without<ChildOf>>,
 ) {
+    let set = tuned.get();
     let colors = EffectColors::of(&theme);
     let pulse = 0.5
         + 0.5

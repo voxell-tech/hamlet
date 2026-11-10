@@ -14,7 +14,7 @@ use super::agents::{self, EndHow};
 use super::record::{self, Decision, DecisionKind};
 use super::refusal::Refusal;
 use super::roads::{self, RoadKind};
-use super::{hires, limits, tree};
+use super::{hires, tree};
 use crate::change::{Change, Done, done, refuse};
 use crate::jobs::{self, Job};
 
@@ -98,17 +98,6 @@ pub(crate) fn merge(
         .into_iter()
         .filter(|child| *child != kept)
         .collect::<Vec<_>>();
-    let most = limits::of(cx.db, &one.hamlet)?.depth;
-    let kept_depth = match parent {
-        Some(parent) => tree::depth(cx.db, parent)? + 1,
-        None => 0,
-    };
-    for child in &children {
-        let below = deepest_below(cx.db, *child)?;
-        if kept_depth + 1 + below > most {
-            refuse!(Refusal::TooDeep { most });
-        }
-    }
     diesel::update(hire::table.find(kept))
         .set(hire::parent.eq(parent))
         .execute(cx.db)?;
@@ -144,15 +133,6 @@ pub(crate) fn merge(
     cx.touched.agents.extend([kept, absorbed]);
     cx.touched.hamlets.insert(one.hamlet);
     Ok(Ok(id))
-}
-
-/// How many generations of hires are under `hire`.
-fn deepest_below(db: &mut Db, hire: AgentId) -> Result<i64> {
-    let mut deepest = 0;
-    for child in tree::children(db, Some(hire))? {
-        deepest = deepest.max(1 + deepest_below(db, child)?);
-    }
-    Ok(deepest)
 }
 
 /// Gives `kept` the open laid roads of `absorbed`, but one to `kept`

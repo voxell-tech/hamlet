@@ -74,7 +74,7 @@ Hands and leads see the scholars they may hire in their prompts, as
 A hire's branch and lodge are its own. Its tools write the lodge, a turn that
 changed it is committed to the branch, and the diff against `main` is what it
 learned, which the Hub shows under a hire's memory. The hires of a hamlet form a tree under
-the mayor, no deeper than the depth limit. A hire with hires under it is a
+the mayor, as deep as its leads make it. A hire with hires under it is a
 lead, with the mayor's powers over its subtree: it hires, creates scholars,
 ends and merges hires, chooses their models, turns tools off and sets
 allowances (`set_model`, `set_tools`, `set_allowance`), gives them nicknames

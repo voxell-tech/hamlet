@@ -223,15 +223,20 @@ fn set_rich(spans: &[Span], ink: Ink, setting: Setting) -> AnyView {
                         TextColor(theme.tone(tone)),
                         ChildOf(root),
                     ));
+                    // Names and links are references, in blue.
                     if code {
                         entity.insert((
                             MonoText,
-                            TextBackgroundColor(theme.palette.code),
+                            TextColor(theme.tone(Tone::Reference)),
+                            TextBackgroundColor(
+                                theme.palette.status.info.fill,
+                            ),
                         ));
                     }
                     if let Some(anchor) = anchor {
                         entity.insert((
                             anchor,
+                            TextColor(theme.tone(Tone::Reference)),
                             Underline,
                             EntityCursor(SystemCursorIcon::Pointer),
                         ));
@@ -250,10 +255,10 @@ fn set_rich(spans: &[Span], ink: Ink, setting: Setting) -> AnyView {
 
 fn code_view(cx: &Cx, lang: &str, text: &str) -> impl View {
     let theme = cx.theme();
-    let text = text.to_string();
+    let (text, size) = (text.to_string(), theme.text.small);
     let body = AnyView::new(move |cx: &mut Cx| {
         // A long line wraps: nothing in the chat scrolls sideways.
-        let node = cx.build(label(text).size(13.0));
+        let node = cx.build(label(text).size(size));
         let mono =
             cx.world.get_resource::<Mono>().map(|m| m.0.clone());
         let mut entity = cx.world.entity_mut(node);
@@ -280,8 +285,6 @@ fn code_view(cx: &Cx, lang: &str, text: &str) -> impl View {
         .padding(UiRect::axes(px(10.0), px(8.0)))
         .min_width(px(0.0))
         .fill(theme.palette.code)
-        .border(1.0)
-        .border_color(theme.palette.gold_6)
         .radius(theme.space.round)
 }
 

@@ -15,7 +15,7 @@ use hamlet_assets::{File, THEMES};
 use serde::{Deserialize, Serialize};
 
 use super::contrast::Report;
-use super::{HamletTheme, Measures, Palette};
+use super::{Base, HamletTheme, Measures, Mode, Palette};
 
 /// Reads a saved theme file again; adds nothing without an asset
 /// server.
@@ -113,17 +113,23 @@ pub struct Variant {
     pub palette: Palette,
 }
 
-/// Every shipped family, Hamlet first, then by name.
+/// Every shipped family: Hamlet first, then Hamlet's others, then the
+/// rest, each by name.
 #[derive(Resource, Clone, Debug)]
 pub struct Themes(Vec<Theme>);
 
 impl Themes {
     /// The built-in files. Panics naming a file that does not read.
     pub fn shipped() -> Self {
+        let hamlet = ThemeId::default();
         let mut themes =
             THEMES.iter().map(shipped).collect::<Vec<_>>();
         themes.sort_by_key(|theme| {
-            (theme.id != ThemeId::default(), theme.name.clone())
+            (
+                theme.id != hamlet,
+                !theme.id.0.starts_with(&hamlet.0),
+                theme.name.clone(),
+            )
         });
         Self(themes)
     }
@@ -168,23 +174,15 @@ pub(super) fn hamlet() -> Theme {
 #[serde(deny_unknown_fields)]
 struct ThemeFile {
     name: String,
-    light: Option<VariantFile>,
-    dark: Option<VariantFile>,
+    light: Option<Base>,
+    dark: Option<Base>,
 }
 
-#[derive(Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct VariantFile {
-    name: String,
-    palette: Palette,
-}
-
-impl From<VariantFile> for Variant {
-    fn from(file: VariantFile) -> Self {
-        Self {
-            name: file.name,
-            palette: file.palette,
-        }
+/// The variant a file's colours make in `mode`.
+fn variant(base: Base, mode: Mode) -> Variant {
+    Variant {
+        palette: Palette::derive(&base, mode),
+        name: base.name,
     }
 }
 
@@ -197,11 +195,15 @@ enum Unread {
 fn read(id: ThemeId, file: ThemeFile) -> Result<Theme, Unread> {
     let variants = match (file.light, file.dark) {
         (Some(light), Some(dark)) => Variants::Both {
-            light: light.into(),
-            dark: dark.into(),
+            light: variant(light, Mode::Light),
+            dark: variant(dark, Mode::Dark),
         },
-        (Some(light), None) => Variants::Light(light.into()),
-        (None, Some(dark)) => Variants::Dark(dark.into()),
+        (Some(light), None) => {
+            Variants::Light(variant(light, Mode::Light))
+        }
+        (None, Some(dark)) => {
+            Variants::Dark(variant(dark, Mode::Dark))
+        }
         (None, None) => return Err(Unread::NoVariant),
     };
     Ok(Theme {

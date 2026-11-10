@@ -796,7 +796,6 @@ fn limits_of(shown: &protocol::Limits) -> Limits {
             merge: shown.reserved.merge,
         },
         model: shown.model.clone(),
-        depth: shown.depth,
         told_days: shown.told_days,
         asking: limits::Asking {
             questions: shown.asking.questions,

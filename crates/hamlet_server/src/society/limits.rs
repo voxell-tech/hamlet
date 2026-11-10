@@ -20,8 +20,6 @@ pub(crate) struct Limits {
     pub reserved: Reserved,
     /// The hamlet's own model, else the realm's.
     pub model: Option<String>,
-    /// How deep its tree may be under its mayor.
-    pub depth: i64,
     /// How many days of decisions each hire is told (H17).
     pub told_days: i64,
     pub asking: Asking,
@@ -38,7 +36,6 @@ impl Default for Limits {
             road: RoadRules::default(),
             reserved: Reserved::default(),
             model: None,
-            depth: 3,
             told_days: 7,
             asking: Asking::default(),
             protected_minutes: 0,
@@ -66,11 +63,6 @@ impl Limits {
         .find(|(_, value)| *value < 0);
         if let Some((what, _)) = negative {
             return Some(format!("{what} cannot be less than zero"));
-        }
-        if self.depth < 1 {
-            return Some(
-                "a tree is at least one deep under its mayor".into(),
-            );
         }
         self.budget.fault()
     }

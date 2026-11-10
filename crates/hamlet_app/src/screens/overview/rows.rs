@@ -16,7 +16,8 @@ use hamlet_client::realm::{
 };
 use hamlet_protocol::client::AgentId;
 use hamlet_realm::pick::Thing;
-use hamlet_ui::styles::{ICON, card_button, card_name, status_label};
+use hamlet_ui::styles::{ICON, card_button, card_name, status_icon};
+use hamlet_ui::theme::StatusKind;
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::widgets::platform::DisplayText;
@@ -61,7 +62,7 @@ pub(crate) fn standing(
     living: usize,
     working: usize,
     waiting: usize,
-) -> (Glyph, String, Tone) {
+) -> (Glyph, String, StatusKind) {
     let count = match living {
         1 => "1 agent".to_string(),
         n => format!("{n} agents"),
@@ -74,7 +75,7 @@ pub(crate) fn standing(
             (Standing::Waits, words)
         }
     };
-    (state.glyph(), words, state.tone())
+    (state.glyph(), words, state.kind())
 }
 
 /// An agent of a hamlet, living or gone: a hire, or a worker, which
@@ -287,7 +288,7 @@ pub(super) fn hamlet_name(name: String) -> impl View {
 pub(super) fn pressable(
     thing: Thing,
     title: String,
-    beside: (Glyph, String, Tone),
+    beside: (Glyph, String, StatusKind),
     lines: Vec<AnyView>,
     act: impl Fn(&mut World) + Send + Sync + 'static,
 ) -> impl View {
@@ -298,7 +299,7 @@ pub(super) fn pressable(
                 column((
                     row((
                         hamlet_name(title),
-                        status_label(beside.0, beside.1, beside.2),
+                        status_icon(beside.0, beside.1, beside.2),
                     ))
                     .gap(gap)
                     .align(AlignItems::Center),

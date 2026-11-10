@@ -49,7 +49,9 @@ differs from the one shown.
 
 ## Tuning
 
-- **Colours** come from the theme through `cursor::inks()`.
+- **Colours** come from the dark variant of the theme picked, through
+  `cursor::inks()`, in light mode too: a light taper and glove with a
+  dark edge read over every panel and the world.
 - **Shapes** and **hot spots** are in `cursor/art.rs`. Each mode is a
   short list of shapes in a square of 32 pixels.
 - **Size.** A cursor is 32 by 32 pixels, and winit takes no scale. On a

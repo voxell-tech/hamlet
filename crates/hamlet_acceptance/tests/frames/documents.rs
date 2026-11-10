@@ -32,7 +32,7 @@ async fn reads_and_edits() {
         .await;
     let mut limits =
         serde_json::to_value(&c.state().hamlets[0].limits).unwrap();
-    limits["depth"] = 2.into();
+    limits["toldDays"] = 2.into();
     limits["budget"]["cost"] = 3.into();
     assert_eq!(c.ask(json!({"type":"edit","doc":"limits","hamlet":"docs","whole":limits})).await["kind"], "notice");
     assert_eq!(c.ask(json!({"type":"edit","doc":"limits","hamlet":"docs","set":{"section":"budget","key":"cost","value":-1}})).await["kind"], "error");

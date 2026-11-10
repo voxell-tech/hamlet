@@ -13,7 +13,10 @@ use hamlet_client::chats::{Chat, Entry, Transcript};
 use hamlet_client::messages::ChiefMessage;
 use hamlet_client::realm::shown_of;
 use hamlet_ui::markdown::document;
-use hamlet_ui::styles::{note, small_rules};
+use hamlet_ui::styles::{
+    note, small_rules, status_mark, tinted_action,
+};
+use hamlet_ui::theme::StatusKind;
 use hamlet_ui::widgets::ellipsis::{Keep, cut, one_line};
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::widgets::platform::MonoText;
@@ -65,8 +68,8 @@ pub(super) fn status(session: Entity, id: String) -> impl View {
         component::<Transcript, _>(session, move |t| ran(t, &id)),
         |ran| {
             let (which, tone, time) = match ran {
-                Ran::Running => (Glyph::Clock, Tone::Accent, None),
-                Ran::Done(ms) => (Glyph::Check, Tone::Dim, *ms),
+                Ran::Running => (Glyph::Clock, Tone::Warning, None),
+                Ran::Done(ms) => (Glyph::Check, Tone::Success, *ms),
                 Ran::Failed(_, ms) => {
                     (Glyph::Cross, Tone::Critical, *ms)
                 }
@@ -246,9 +249,16 @@ fn tool_row(session: Entity, id: String) -> impl View {
 fn failed(why: String) -> impl View {
     with_cx(move |cx| {
         let theme = cx.theme();
-        column((label(why.clone())
-            .tone(Tone::Critical)
-            .rules(small_rules),))
+        row((
+            status_mark(Glyph::Cross, StatusKind::Danger, 16.0),
+            row((label(why.clone())
+                .tone(Tone::Critical)
+                .rules(small_rules),))
+            .grow(1.0)
+            .min_width(px(0.0)),
+        ))
+        .gap(theme.space.gap)
+        .align(AlignItems::Center)
         .width(percent(100.0))
         .padding(UiRect::axes(px(8.0), px(4.0)))
         .fill(theme.palette.danger)
@@ -345,7 +355,7 @@ pub(crate) fn entry_view(session: Entity, id: String) -> AnyView {
             ))
             .gap(2.0)
             .padding(UiRect::axes(px(12.0), px(8.0)))
-            .border(1.0)
+            .border(cx.theme().space.border)
             .border_color(cx.theme().palette.gold_6)
             .radius(cx.theme().space.round)
             .fill(cx.theme().palette.card)
@@ -392,15 +402,19 @@ pub(crate) fn entry_view(session: Entity, id: String) -> AnyView {
             Some(Entry::Error(_)) => column((
                 label(text(|e| match e {
                     Entry::Error(s) => format!(
-                        "Could not finish that reply: {s}. Try \
-                         again to carry on from where it ended."
+                        "Could not finish that reply: {}. Try again \
+                         to carry on from where it ended.",
+                        s.trim_end_matches('.')
                     ),
                     _ => String::new(),
                 }))
                 .tone(Tone::Critical),
-                button(label("Try again").rules(small_rules))
-                    .rules(ghost)
-                    .on_activate(move |world| {
+                // In a row, so that it is as wide as its words.
+                row((tinted_action(
+                    StatusKind::Warning,
+                    Glyph::Restore,
+                    "Try again",
+                    move |world| {
                         let Some(to) = world
                             .get::<Chat>(session)
                             .filter(|chat| chat.0.past.is_none())
@@ -412,9 +426,10 @@ pub(crate) fn entry_view(session: Entity, id: String) -> AnyView {
                             to,
                             text: "/retry".into(),
                         });
-                    }),
+                    },
+                ),)),
             ))
-            .gap(4.0)
+            .gap(8.0)
             .padding(UiRect::axes(px(12.0), px(4.0)))
             .boxed(),
             Some(Entry::Agent { .. }) => column((
@@ -450,7 +465,7 @@ pub(crate) fn entry_view(session: Entity, id: String) -> AnyView {
             ))
             .gap(2.0)
             .padding(UiRect::axes(px(12.0), px(8.0)))
-            .border(1.0)
+            .border(cx.theme().space.border)
             .border_color(cx.theme().palette.gold_6)
             .radius(cx.theme().space.round)
             .fill(cx.theme().palette.card)

@@ -22,7 +22,8 @@ use bevy_fynix::dock::{
 };
 
 use super::highlight::HighlightState;
-use super::{EffectColors, EffectSettings, flicker, pool};
+use super::wash::{Edge, wash};
+use super::{EffectColors, Tuned, flicker, pool};
 use crate::theme::Themed;
 
 /// The most glow a tab's attention glow and its flash throw, as an
@@ -58,7 +59,7 @@ fn counted(count: usize) -> String {
 pub(super) fn highlight_tabs(
     mut commands: Commands,
     time: Res<Time>,
-    set: Res<EffectSettings>,
+    tuned: Tuned,
     theme: Themed,
     states: Query<(Entity, &HighlightState)>,
     panes: Query<&DockPane>,
@@ -76,6 +77,7 @@ pub(super) fn highlight_tabs(
     >,
     mut counts: Query<&mut Text, With<TabBadgeCount>>,
 ) {
+    let set = tuned.get();
     // The highlight of each pane, from the state in it.
     let lit: Vec<(DockPane, Light)> = states
         .iter()
@@ -112,18 +114,20 @@ pub(super) fn highlight_tabs(
         1.0 + set.flicker * flicker(time.elapsed_secs(), 1.0);
     let hue = colors.attention.mix(&colors.glow_core, 0.35);
 
-    // The line under the tab in front, as under a tab within a panel.
+    // The line under the tab in front, as under a tab within a panel,
+    // and the light rising from it.
     let line = theme.palette.gold_4;
-    let underline = BackgroundGradient(vec![Gradient::from(
-        LinearGradient::to_top(vec![
+    let underline = BackgroundGradient(vec![
+        Gradient::from(LinearGradient::to_top(vec![
             ColorStop::new(line, px(0.0)),
             ColorStop::new(line, px(theme.space.underline)),
             ColorStop::new(
                 line.with_alpha(0.0),
                 px(theme.space.underline),
             ),
-        ]),
-    )]);
+        ])),
+        wash(&theme, Edge::Bottom, 1.0),
+    ]);
     for (node, tab, front, has) in &tabs {
         if front {
             if has != Some(&underline) {

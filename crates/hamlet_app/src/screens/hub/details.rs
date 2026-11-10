@@ -21,8 +21,8 @@ use hamlet_client::realm::{
 use hamlet_protocol::client as protocol;
 use hamlet_realm::orders;
 use hamlet_ui::styles::{
-    Fills, ICON, action, back_link, bare, hairline, lettered, note,
-    scroll_area, text_input,
+    Fills, ICON, Looks, Tipped, action, bare, hairline, lettered,
+    note, scroll_area, text_input,
 };
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::effects::Variant;
@@ -62,7 +62,6 @@ struct Facts {
     /// budget that it is for.
     allowance: Option<f64>,
     period: &'static str,
-    tools_off: Vec<String>,
 }
 
 fn facts(world: &World, agent: Entity) -> Facts {
@@ -109,10 +108,6 @@ fn facts(world: &World, agent: Entity) -> Facts {
             Some(protocol::Period::Month) => "a month",
             _ => "a day",
         },
-        tools_off: world
-            .get::<ToolsOff>(agent)
-            .map(|off| off.0.clone())
-            .unwrap_or_default(),
     }
 }
 
@@ -277,12 +272,19 @@ const TOOLS: [(&str, &str); 6] = [
     ("find", "Finds files by name"),
 ];
 
-/// A switch for each of its built-in tools.
-fn tools(facts: &Facts) -> AnyView {
+/// A switch for each of `agent`'s built-in tools. Each follows the
+/// tools it is kept from by itself, so that turning one does not
+/// build the others again.
+fn tools(agent: Entity, facts: &Facts) -> AnyView {
     let rows = TOOLS
         .iter()
         .map(|&(tool, does)| {
-            let on = !facts.tools_off.iter().any(|off| off == tool);
+            let on = derived(move |world: &World| {
+                !world.get::<ToolsOff>(agent).is_some_and(|off| {
+                    off.0.iter().any(|t| t == tool)
+                })
+            })
+            .when(every_frame());
             let address = facts.address.clone();
             row((
                 switch(on, move |world, on| {
@@ -308,8 +310,7 @@ fn tools(facts: &Facts) -> AnyView {
 /// An agent's name that leads to its thread.
 fn link(entity: Entity, name: String) -> AnyView {
     lettered(name)
-        .rules(back_link)
-        .tagged(Variant::Text)
+        .variant(Variant::Text)
         .on_activate(move |world| talk_to(world, entity))
         .boxed()
 }
@@ -369,7 +370,7 @@ fn roads(agent: Entity, facts: &Facts) -> AnyView {
         let cut = button(glyph(Glyph::Cross, ICON).tone(Tone::Faint))
             .padding(UiRect::all(px(2.0)))
             .rules(bevy_fynix::views::tint)
-            .tooltip(|| note("Take up the road"))
+            .tip("Take up the road")
             .on_activate(move |world| {
                 orders::part(world, agent, other);
             });
@@ -422,7 +423,7 @@ fn powers(
 ) -> Vec<AnyView> {
     let mut parts = Vec::new();
     if !facts.hand && !facts.worker {
-        parts.push(tools(facts));
+        parts.push(tools(agent, facts));
     }
     if may_road && !facts.hand {
         parts.push(roads(agent, facts));

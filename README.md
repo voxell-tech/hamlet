@@ -1,7 +1,7 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="brand/hamlet-logo-transparent.png">
-    <img src="brand/hamlet-logo-light-transparent.png" alt="Hamlet" width="280">
+    <source media="(prefers-color-scheme: dark)" srcset="brand/logo/hamlet-logo-transparent.png">
+    <img src="brand/logo/hamlet-logo-light-transparent.png" alt="Hamlet" width="280">
   </picture>
 </p>
 
@@ -17,7 +17,7 @@ watch them work in a small 3D world where each agent is a robot. Free
 and open-source forever.
 
 <p align="center">
-  <img src="brand/hamlet-window.png" alt="The Hamlet window" width="860">
+  <img src="brand/screens/hamlet-window.png" alt="The Hamlet window" width="860">
 </p>
 
 ## Features

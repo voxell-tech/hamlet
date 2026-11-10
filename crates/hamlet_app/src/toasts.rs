@@ -20,9 +20,7 @@ use bevy::ui::{
     AlignItems, JustifyContent, PositionType, UiRect, Val, px,
 };
 use bevy_fynix::tokens::Tone;
-use bevy_fynix::views::{
-    BehaviorExt, FrameProps, column, frame, row,
-};
+use bevy_fynix::views::{BehaviorExt, FrameProps, column, row};
 use bevy_fynix::{ScopedExt, ViewExt, Visual, each, resource, style};
 use hamlet_client::messages::{Answer, Response, ServerFault};
 use hamlet_client::outbox::{Outbox, RequestId};
@@ -37,9 +35,10 @@ use hamlet_protocol::client::{
 };
 use hamlet_ui::styles::{
     ICON, action, buttons, card_name, close_button, note, quoted,
+    status_mark,
 };
-use hamlet_ui::theme::HamletTheme;
-use hamlet_ui::widgets::icons::{Glyph, glyph};
+use hamlet_ui::theme::{HamletTheme, StatusKind};
+use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::{AnyView, Cx, View, with_cx};
 
 use crate::convo::Convo;
@@ -98,7 +97,7 @@ enum What {
     Petition(Entity),
     /// Something that happened, which nothing answers.
     Notice {
-        tone: Tone,
+        kind: StatusKind,
         head: String,
         line: String,
     },
@@ -163,7 +162,7 @@ fn raise(
         {
             toasts.push(
                 What::Notice {
-                    tone: Tone::Accent,
+                    kind: StatusKind::Success,
                     head: "A worker answered".into(),
                     line: format!("{name} is done."),
                 },
@@ -181,7 +180,7 @@ fn raise(
         if !asked {
             toasts.push(
                 What::Notice {
-                    tone: Tone::Critical,
+                    kind: StatusKind::Danger,
                     head: "Fault".into(),
                     line: format!("{name} failed."),
                 },
@@ -247,7 +246,7 @@ fn failed(
 ) {
     toasts.push(
         What::Notice {
-            tone: Tone::Critical,
+            kind: StatusKind::Danger,
             head: "Fault".into(),
             line: fault.text.clone(),
         },
@@ -299,7 +298,7 @@ fn refused(
     };
     toasts.push(
         What::Notice {
-            tone: Tone::Critical,
+            kind: StatusKind::Danger,
             head: "Not done".into(),
             line: text,
         },
@@ -414,37 +413,37 @@ fn origin(world: &World, need: &Need, by: &str) -> String {
 fn card(toast: &Toast) -> AnyView {
     let (id, what) = (toast.id, toast.what.clone());
     AnyView::new(move |cx: &mut Cx| {
-        let (mark, head, from, tone, line, answers) = match &what {
+        let (mark, head, from, kind, line, answers) = match &what {
             What::Petition(wait) => {
                 let Some(waiting) = cx.world.get::<Waiting>(*wait)
                 else {
                     return cx.build(column(()));
                 };
                 let need = Need::of(*wait, waiting);
-                let tone = match need.detail {
-                    WaitDetail::Fault {} => Tone::Critical,
-                    _ => Tone::Accent,
+                let kind = match need.detail {
+                    WaitDetail::Fault {} => StatusKind::Danger,
+                    _ => Standing::Waits.kind(),
                 };
                 let from = origin(cx.world, &need, &waiting.by);
                 let answers = answers(&need);
                 (
                     // The bell of NEEDS YOU.
-                    Some((
-                        Standing::Waits.glyph(),
-                        Standing::Waits.tone(),
-                    )),
+                    Standing::Waits.glyph(),
                     need.shown.clone(),
                     from,
-                    tone,
+                    kind,
                     said(&need).to_string(),
                     answers,
                 )
             }
-            What::Notice { tone, head, line } => (
-                None,
+            What::Notice { kind, head, line } => (
+                match kind {
+                    StatusKind::Success => Glyph::Check,
+                    _ => Glyph::Stop,
+                },
                 head.clone(),
                 String::new(),
-                *tone,
+                *kind,
                 line.clone(),
                 column(()).boxed(),
             ),
@@ -454,22 +453,24 @@ fn card(toast: &Toast) -> AnyView {
                 housed,
             } => {
                 let undo = undo_of(*scholar, *housed);
-                let (head, line) = if *housed {
+                let (head, line, kind) = if *housed {
                     (
                         "The Hand let a scholar in",
                         format!("{name} has a house in the city."),
+                        StatusKind::Success,
                     )
                 } else {
                     (
                         "The Hand turned a scholar away",
                         format!("{name} waits at the harbor."),
+                        StatusKind::Warning,
                     )
                 };
                 (
-                    Some((Glyph::Tower, Tone::Accent)),
+                    Glyph::Tower,
                     head.into(),
                     String::new(),
-                    Tone::Accent,
+                    kind,
                     line,
                     buttons(vec![action(
                         Glyph::Restore,
@@ -482,15 +483,13 @@ fn card(toast: &Toast) -> AnyView {
                 )
             }
         };
-        let mark = match mark {
-            Some((which, tone)) => {
-                glyph(which, ICON).tone(tone).boxed()
-            }
-            None => frame().boxed(),
-        };
-        let head = row((mark, card_name(head, tone), note(from)))
-            .gap(6.0)
-            .align(AlignItems::Center);
+        let head = row((
+            status_mark(mark, kind, ICON + 6.0),
+            card_name(head, Tone::Body),
+            note(from),
+        ))
+        .gap(6.0)
+        .align(AlignItems::Center);
         let dismissed = what.clone();
         // The close sits at the end of the head's line, centred on
         // it.
@@ -505,10 +504,13 @@ fn card(toast: &Toast) -> AnyView {
                 .gap(2.0);
         let theme = cx.theme();
         let space = &theme.space;
-        // Edged in the accent while it calls for the chief, and its
-        // shadow doubled, so it stands off the world and the panels.
-        let edge = match tone {
-            Tone::Accent => theme.palette.accent,
+        // Edged in its hue while it calls for the chief or reports a
+        // fault, and its shadow doubled, so it stands off the world
+        // and the panels.
+        let edge = match kind {
+            StatusKind::Attention | StatusKind::Danger => {
+                theme.palette.status.get(kind).solid
+            }
             _ => theme.palette.gold_5,
         };
         let mut shadow = theme.shadow();

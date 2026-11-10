@@ -7,23 +7,169 @@ use bevy::ecs::schedule::common_conditions::resource_changed;
 use bevy::ecs::schedule::{IntoScheduleConfigs, SystemCondition};
 use bevy::ecs::system::{Commands, Res};
 use bevy::ecs::world::World;
+use bevy::input::keyboard::KeyCode;
+use bevy::ui::UiScale;
 use bevy::window::WindowTheme;
+use bevy_fynix::ReducedMotion;
+use bevy_fynix::shortcut::{
+    Chord, CommandId, CommandSpec, GLOBAL, Mods, ShortcutAppExt,
+};
 use hamlet_desktop::color_scheme::ColorScheme;
 use hamlet_ui::theme::{
     self, HamletTheme, Measures, ThemeId, Themes,
 };
 use serde::{Deserialize, Serialize};
 
+/// The sizes the panels can be drawn at, as a share of their
+/// designed size, with their names.
+pub const ZOOMS: [(f32, &str); 6] = [
+    (0.8, "80%"),
+    (0.9, "90%"),
+    (1.0, "100%"),
+    (1.1, "110%"),
+    (1.25, "125%"),
+    (1.5, "150%"),
+];
+
+const fn primary(key: KeyCode) -> Chord {
+    Chord {
+        key,
+        mods: Mods::PRIMARY,
+    }
+}
+
+/// The keys that draw the panels larger: the plus key, with or
+/// without the Shift it is printed under.
+const ZOOM_IN: [Chord; 3] = [
+    primary(KeyCode::Equal),
+    Chord {
+        key: KeyCode::Equal,
+        mods: Mods::PRIMARY.with(Mods::SHIFT),
+    },
+    primary(KeyCode::NumpadAdd),
+];
+const ZOOM_OUT: [Chord; 2] =
+    [primary(KeyCode::Minus), primary(KeyCode::NumpadSubtract)];
+const ZOOM_RESET: [Chord; 2] =
+    [primary(KeyCode::Digit0), primary(KeyCode::Numpad0)];
+
 pub(crate) fn plugin(app: &mut App) {
-    app.init_resource::<Appearance>().add_systems(
-        Update,
-        show.run_if(
-            resource_changed::<Appearance>
-                .or_eager(resource_changed::<Themes>)
-                .or_eager(resource_changed::<Measures>)
-                .or_eager(resource_changed::<ColorScheme>),
-        ),
-    );
+    let command = |id, label, run| CommandSpec {
+        id: CommandId(id),
+        label,
+        scope: GLOBAL,
+        run,
+        enabled: |_| true,
+        repeat: true,
+    };
+    app.init_resource::<Appearance>()
+        .init_resource::<Zoom>()
+        .init_resource::<LessMotion>()
+        .init_resource::<ComputerMotion>()
+        .add_command(
+            command("view.zoom_in", "Zoom In", |world, _| {
+                let mut zoom = world.resource_mut::<Zoom>();
+                *zoom = zoom.step(1);
+            }),
+            &ZOOM_IN,
+        )
+        .add_command(
+            command("view.zoom_out", "Zoom Out", |world, _| {
+                let mut zoom = world.resource_mut::<Zoom>();
+                *zoom = zoom.step(-1);
+            }),
+            &ZOOM_OUT,
+        )
+        .add_command(
+            command("view.zoom_reset", "Actual Size", |world, _| {
+                *world.resource_mut::<Zoom>() = Zoom::default();
+            }),
+            &ZOOM_RESET,
+        )
+        .add_systems(
+            Update,
+            (
+                show.run_if(
+                    resource_changed::<Appearance>
+                        .or_eager(resource_changed::<Themes>)
+                        .or_eager(resource_changed::<Measures>)
+                        .or_eager(resource_changed::<ColorScheme>),
+                ),
+                scale.run_if(resource_changed::<Zoom>),
+                still
+                    .run_if(resource_changed::<LessMotion>.or_eager(
+                        resource_changed::<ComputerMotion>,
+                    )),
+            ),
+        );
+}
+
+/// How large the panels are drawn, as a share of their designed
+/// size: one of [`ZOOMS`].
+#[derive(
+    Resource, Clone, Copy, PartialEq, Debug, Serialize, Deserialize,
+)]
+#[serde(transparent)]
+pub struct Zoom(pub f32);
+
+impl Default for Zoom {
+    fn default() -> Self {
+        Self(1.0)
+    }
+}
+
+impl Zoom {
+    /// The place in [`ZOOMS`] nearest this.
+    pub fn at(self) -> usize {
+        ZOOMS
+            .iter()
+            .enumerate()
+            .min_by(|(_, a), (_, b)| {
+                (a.0 - self.0).abs().total_cmp(&(b.0 - self.0).abs())
+            })
+            .map_or(0, |(at, _)| at)
+    }
+
+    /// `by` places along [`ZOOMS`], held at its ends.
+    pub fn step(self, by: isize) -> Self {
+        let at =
+            self.at().saturating_add_signed(by).min(ZOOMS.len() - 1);
+        Self(ZOOMS[at].0)
+    }
+}
+
+/// Draws the panels at the zoom.
+fn scale(zoom: Res<Zoom>, mut commands: Commands) {
+    commands.insert_resource(UiScale(zoom.0));
+}
+
+/// Whether the computer asked for less motion as the window opened.
+#[derive(Resource, Clone, Copy, PartialEq, Debug, Default)]
+pub struct ComputerMotion {
+    pub reduced: bool,
+}
+
+/// Whether the chief asked for less motion; none until the chief
+/// says, while the computer's answer holds.
+#[derive(Resource, Clone, Copy, PartialEq, Debug, Default)]
+pub struct LessMotion(pub Option<bool>);
+
+impl LessMotion {
+    /// Whether motion is reduced: as the chief said, else as the
+    /// computer says.
+    pub fn is_reduced(self, computer: ComputerMotion) -> bool {
+        self.0.unwrap_or(computer.reduced)
+    }
+}
+
+/// Stills every transition and effect while motion is reduced.
+fn still(
+    less: Res<LessMotion>,
+    computer: Res<ComputerMotion>,
+    mut commands: Commands,
+) {
+    commands
+        .insert_resource(ReducedMotion(less.is_reduced(*computer)));
 }
 
 /// The chief's choice, none until the chief picks. Kept in view.toml

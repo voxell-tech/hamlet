@@ -42,17 +42,6 @@ pub(crate) fn parent(
         .first::<Option<AgentId>>(db)?)
 }
 
-/// How deep `hire` is under its mayor, which is 0 deep.
-pub(crate) fn depth(db: &mut Db, hire: AgentId) -> Result<i64> {
-    let mut depth = 0;
-    let mut at = hire;
-    while let Some(up) = parent(db, at)? {
-        depth += 1;
-        at = up;
-    }
-    Ok(depth)
-}
-
 /// Whether `lead` is above `hire` in its tree.
 pub(crate) fn is_above(
     db: &mut Db,

@@ -14,8 +14,8 @@ use bevy_fynix::views::{
 use bevy_fynix::{ScopedExt, ViewExt, keyed, resource};
 use hamlet_protocol::client as protocol;
 use hamlet_ui::styles::{
-    ICON, action, bad_action, bare, buttons, good_action, lettered,
-    note, text_input,
+    ICON, Looks, action, bad_action, bare, buttons, good_action,
+    lettered, note, text_input,
 };
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::hint::hinted;
@@ -130,8 +130,7 @@ fn file(entry: &Entry, open: bool, menu: FileMenu) -> AnyView {
     let mark = if entry.learned { " (learned)" } else { "" };
     let named = lettered(format!("{name}{mark}"))
         .padding(UiRect::all(px(0.0)))
-        .rules(hamlet_ui::styles::back_link)
-        .tagged(Variant::Text)
+        .variant(Variant::Text)
         .on_activate({
             let path = path.clone();
             move |world| toggle(world, path.clone())

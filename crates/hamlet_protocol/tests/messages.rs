@@ -227,11 +227,11 @@ fn edits_choose_the_document_and_keep_limits_set_and_whole_distinct()
             hamlet: Some("home".into()),
             reason: Some("Room to grow".into()),
             whole: std::collections::BTreeMap::from([(
-                "depth".into(),
+                "toldDays".into(),
                 json!(4),
             )]),
         })),
-        json!({"type": "edit", "id": ID, "doc": "limits", "hamlet": "home", "reason": "Room to grow", "whole": {"depth": 4}}),
+        json!({"type": "edit", "id": ID, "doc": "limits", "hamlet": "home", "reason": "Room to grow", "whole": {"toldDays": 4}}),
     );
     client(
         ClientMessage::Edit(Edit::Limits(EditLimits::Whole {
@@ -444,7 +444,7 @@ fn limits_wire() -> Value {
         "task": {"messages": 12, "cost": 1.0, "minutes": 20},
         "road": {"price": 0.01, "most": 24, "growsOverDays": 7},
         "reserved": {"hire": false, "roads": true, "end": false, "merge": true},
-        "model": null, "depth": 3, "toldDays": 7, "protectedMinutes": 0,
+        "model": null, "toldDays": 7, "protectedMinutes": 0,
         "asking": {"review": "remote", "questions": 3, "refusals": 3}
     })
 }

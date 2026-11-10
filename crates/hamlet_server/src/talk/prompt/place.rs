@@ -163,10 +163,8 @@ fn hire(
         None => {}
     }
     let own = limits::of(db, &found.hamlet)?;
-    let lead = tree::depth(db, id)? < own.depth;
-    if lead {
-        lines.push(LEAD.into());
-    }
+    // Any hire can come to lead.
+    lines.push(LEAD.into());
     let under = tree::under(db, id)?;
     if !under.is_empty() {
         lines.push("Hires under you:".into());
@@ -194,7 +192,7 @@ fn hire(
         lines.push(format!("How `{}` was run lately:", found.hamlet));
         lines.extend(decided.into_iter().rev().map(String::from));
     }
-    if lead && !under.is_empty() {
+    if !under.is_empty() {
         let mut told = Vec::new();
         for each in &under {
             for task in tasks::instructions(db, *each, 3)? {
@@ -282,14 +280,7 @@ pub(super) fn scholars(
     let found = agents::get(db, id)?;
     let hamlet = match found.kind {
         AgentKind::Hand => None,
-        AgentKind::Hire => {
-            let hire = hires::get(db, id)?;
-            let own = limits::of(db, &hire.hamlet)?;
-            if tree::depth(db, id)? >= own.depth {
-                return Ok(None);
-            }
-            Some(hire.hamlet)
-        }
+        AgentKind::Hire => Some(hires::get(db, id)?.hamlet),
         AgentKind::Worker => return Ok(None),
     };
     let mut lines = Vec::new();

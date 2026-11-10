@@ -43,7 +43,7 @@ chief is talking to.
 | `/grants`, `/revoke <address> <network\|unconfined>` | The lasting permissions, and taking one back |
 | `/hamlets`, `/found <hamlet> [scholar#id] [purpose]` | List hamlets, or found one with a scholar as its mayor, a new scholar named Mayor by default (H6) |
 | `/name-hamlet <hamlet> [name]`, `/move-hamlet <hamlet> <x> <z>` | Give a hamlet a name to be shown by, or set it down elsewhere on the hamlet island (H32) |
-| `/remove-hamlet <hamlet> <reason>`, `/restore-hamlet <hamlet> [reason]`, `/erase-hamlet <hamlet>` | Remove, restore or permanently erase a hamlet (H19, H20) |
+| `/remove-hamlet <hamlet> [reason]`, `/restore-hamlet <hamlet> [reason]`, `/erase-hamlet <hamlet>` | Remove, restore or permanently erase a hamlet (H19, H20) |
 | `/tier <50\|100\|200\|500>` | Set how many hires the hamlet holds (H40) |
 | `/mayor <address> <reason>` | Give the hamlet's office to another hire (H18) |
 | `/hire <scholar#id>[@<version>] [in <hamlet>] [under <address>] [purpose]` | Hire a scholar into the hamlet (H40) |
@@ -213,18 +213,18 @@ branch of its scholar's repository and a lodge of its own (C8).
   and branch stay until erased. Its hires go to its parent.
 - **Restoring** it brings it back under the same id and number, when its
   scholar lives, its hamlet lives and holds fewer than its tier. Its parent is
-  its old parent when that lives and is shallow enough, else the mayor.
+  its old parent when that lives, else the mayor.
 - **Erasing** an ended hire deletes its lodge and branch; the record keeps its
   number.
 
-**H41.** The hires of a hamlet form a tree under its mayor, no deeper than a
-limit [3] below it. A hire with hires under it is a lead.
+**H41.** The hires of a hamlet form a tree under its mayor, as deep as its
+leads make it. A hire with hires under it is a lead.
 
 - A lead has the mayor's powers over the hires under it, and only those: to
   hire under itself or under a hire of its tree, make scholars, end hires,
   merge them, choose their models, turn their tools off, give them
-  allowances, and lay and take up roads among them. A hire below the depth
-  limit has these tools (H35), so any hire can come to lead.
+  allowances, and lay and take up roads among them. Every hire has these
+  tools (H35), so any hire can come to lead.
 - The Hand is above every mayor, and a chief overrules anything (H23).
 - A hire has a road to its parent and to each of its hires while they live
   (H3).

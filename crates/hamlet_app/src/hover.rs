@@ -20,7 +20,7 @@ use bevy::text::TextColor;
 use bevy::time::Time;
 use bevy::ui::{
     BackgroundColor, BorderColor, ComputedNode, Node, OverrideClip,
-    PositionType, UiRect, UiTransform, Val, px,
+    PositionType, UiRect, UiScale, UiTransform, Val, px,
 };
 use bevy::window::{PrimaryWindow, Window};
 use bevy_fynix::tokens::Tone;
@@ -36,7 +36,7 @@ use hamlet_realm::hand::Proud;
 use hamlet_realm::pick::{Following, Hovered, Thing};
 use hamlet_ui::styles::small_rules;
 use hamlet_ui::theme::Themed;
-use hamlet_ui::widgets::effects::EffectSettings;
+use hamlet_ui::widgets::effects::{EffectSettings, Tuned};
 use hamlet_ui::widgets::platform::show;
 use hamlet_ui::{View, built};
 
@@ -198,8 +198,9 @@ impl Told<'_, '_> {
             .iter()
             .filter(|w| people.iter().any(|(_, n, ..)| *n == w.by))
             .count();
-        let (_, state, tone) =
+        let (_, state, kind) =
             standing(people.len(), at_work, waiting);
+        let tone = kind.words();
         let mayor = people
             .iter()
             .find(|(_, _, _, mayor)| *mayor)
@@ -352,11 +353,11 @@ impl Told<'_, '_> {
                 Tone::Dim,
             ),
             _ if gone || ruin => {
-                ("Removed".to_string(), Standing::Gone.tone())
+                ("Removed".to_string(), Standing::Gone.words())
             }
             _ if waiting > 0 => (
                 format!("Waits for you ({waiting})"),
-                Standing::Waits.tone(),
+                Standing::Waits.words(),
             ),
             _ => {
                 let standing = if busy {
@@ -366,7 +367,7 @@ impl Told<'_, '_> {
                 };
                 (
                     activity.cloned().unwrap_or_default().words,
-                    standing.tone(),
+                    standing.words(),
                 )
             }
         };
@@ -493,8 +494,9 @@ pub fn place(
     theme: Themed,
     card: Res<Card>,
     time: Res<Time>,
-    set: Res<EffectSettings>,
+    tuned: Tuned,
     window: Query<&Window, With<PrimaryWindow>>,
+    scale: Res<UiScale>,
     mut boxes: Query<
         (
             Entity,
@@ -511,10 +513,13 @@ pub fn place(
     mut inks: Query<&mut TextColor>,
     mut shown: Local<f32>,
 ) {
+    let set = tuned.get();
     let Some(window) = window.iter().next() else {
         return;
     };
-    let pointer = window.cursor_position();
+    // The pointer and the window in the panels' pixels.
+    let zoom = scale.0;
+    let pointer = window.cursor_position().map(|at| at / zoom);
     let wanted = card.shown && pointer.is_some();
     let step = time.delta_secs()
         / if wanted { set.hover_in } else { set.hover_out };
@@ -572,7 +577,7 @@ pub fn place(
             continue;
         };
         let full = computed.size() * computed.inverse_scale_factor();
-        let room = (window.width(), window.height());
+        let room = (window.width() / zoom, window.height() / zoom);
         // Below and right of the pointer, or above and left where
         // the window ends.
         let left = if at.x + 18.0 + full.x > room.0 {
@@ -619,7 +624,7 @@ pub fn view() -> impl View {
         .gap(3.0)
         .padding(UiRect::axes(px(12.0), px(9.0)))
         .max_width(px(280.0))
-        .border(1.0)
+        .border(cx.theme().space.border)
         .border_color(cx.theme().palette.gold_5)
         .radius(cx.theme().space.soft)
         .fill(cx.theme().palette.card)

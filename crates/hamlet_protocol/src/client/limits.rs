@@ -11,8 +11,6 @@ use serde::{Deserialize, Serialize};
 pub struct Limits {
     pub asking: LimitsAsking,
     pub budget: LimitsBudget,
-    /// How deep its tree may be under its mayor.
-    pub depth: i64,
     /// The hamlet's own model, else the realm's.
     #[serde(deserialize_with = "Option::deserialize")]
     pub model: Option<String>,

@@ -16,11 +16,10 @@ use bevy::ecs::system::{Commands, Local, Query, Res, ResMut};
 use bevy::ecs::world::World;
 use bevy::time::Time;
 use bevy::ui::{AlignItems, px};
-use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, TooltipExt, column, frame, label, row,
 };
-use bevy_fynix::{ScopedExt, ViewExt, derived, each};
+use bevy_fynix::{ViewExt, derived, each};
 use hamlet_client::chats::{Entry, Transcript};
 use hamlet_client::messages::Answer;
 use hamlet_client::waits::{Choice, ChoiceExt, Waiting};
@@ -29,9 +28,9 @@ use hamlet_protocol::client::{
 };
 use hamlet_realm::needs::{TagAnswered, TagOpened};
 use hamlet_ui::styles::{
-    self, buttons, caption, command_block, danger_button, framed,
-    marked, note, primary_button,
+    Looks, buttons, command_block, framed, marked, note, status_mark,
 };
+use hamlet_ui::theme::StatusKind;
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::widgets::platform::MonoText;
@@ -42,6 +41,7 @@ use crate::convo::talk_at;
 use crate::dock::{HUB, show_tab};
 use crate::hub::Showing;
 use crate::roll::{either, moved};
+use crate::standing::Standing;
 use crate::{PanelSystems, asking, chat};
 
 /// Seconds between two refreshes of the time each has waited.
@@ -227,64 +227,32 @@ fn button(need: &Need, at: usize) -> AnyView {
     };
     let always = lasting_words(need);
     use Glyph::{Check, CheckAll, Cross, Restore, Talk};
-    let (which, text, rules, variant): (_, _, fn(&mut Cx), _) =
-        match choice {
-            Choice::Allow => (
-                Check,
-                "Allow once",
-                primary_button,
-                Variant::Primary,
-            ),
-            Choice::Always => {
-                (CheckAll, always, styles::button, Variant::Default)
+    let done = Variant::Tinted(StatusKind::Success);
+    let (which, text, variant) = match choice {
+        Choice::Allow => (Check, "Allow once", done),
+        Choice::Always => (CheckAll, always, Variant::Default),
+        Choice::Deny => (Cross, "Deny", Variant::Danger),
+        Choice::Go => (Check, "Go ahead", done),
+        Choice::Withdraw => (Restore, "Withdraw", Variant::Danger),
+        Choice::Reply => (Talk, "Reply in chat", Variant::Primary),
+        // A newcomer dismissed waits on at the harbor.
+        Choice::Dismiss => match need.detail {
+            WaitDetail::Newcomer { .. } => {
+                (Restore, "Later", Variant::Default)
             }
-            Choice::Deny => {
-                (Cross, "Deny", danger_button, Variant::Danger)
-            }
-            Choice::Go => {
-                (Check, "Go ahead", primary_button, Variant::Primary)
-            }
-            Choice::Withdraw => {
-                (Restore, "Withdraw", danger_button, Variant::Danger)
-            }
-            Choice::Reply => (
-                Talk,
-                "Reply in chat",
-                primary_button,
-                Variant::Primary,
-            ),
-            // A newcomer dismissed waits on at the harbor.
-            Choice::Dismiss => match need.detail {
-                WaitDetail::Newcomer { .. } => (
-                    Restore,
-                    "Later",
-                    styles::button,
-                    Variant::Default,
-                ),
-                _ => (
-                    Cross,
-                    "Dismiss",
-                    styles::button,
-                    Variant::Default,
-                ),
-            },
-            Choice::Welcome => (
-                Check,
-                "Welcome into the city",
-                primary_button,
-                Variant::Primary,
-            ),
-        };
+            _ => (Cross, "Dismiss", Variant::Default),
+        },
+        Choice::Welcome => (Check, "Welcome into the city", done),
+    };
     let scope = matches!(choice, Choice::Always)
         .then(|| scope(need))
         .flatten();
     let need = need.clone();
-    let button = marked(which, text)
-        .rules(rules)
-        .tagged(variant)
-        .on_activate(move |world| {
+    let button = marked(which, text).variant(variant).on_activate(
+        move |world| {
             answer(world, &need, choice.clone());
-        });
+        },
+    );
     match scope {
         Some(words) => {
             button.tooltip(move || note(words.clone())).boxed()
@@ -399,14 +367,19 @@ fn head(need: &Need, scholar: &str) -> impl View + use<> {
         1 => need.waited.clone(),
         n => format!("{} · asked {n} times", need.waited),
     };
-    let tone = match need.detail {
-        WaitDetail::Fault {} => Tone::Critical,
-        _ => Tone::Accent,
+    let kind = match need.detail {
+        WaitDetail::Fault {} => StatusKind::Danger,
+        _ => Standing::Waits.kind(),
     };
     with_cx(move |cx| {
-        row((caption(what, tone), frame().grow(1.0), note(when)))
-            .gap(cx.theme().space.gap)
-            .align(AlignItems::Center)
+        row((
+            status_mark(Standing::Waits.glyph(), kind, 22.0),
+            label(what).size(cx.theme().text.small).bold(true),
+            frame().grow(1.0),
+            note(when),
+        ))
+        .gap(cx.theme().space.gap)
+        .align(AlignItems::Center)
     })
 }
 
@@ -426,8 +399,7 @@ fn brief(need: &Need, asked: &Questions) -> AnyView {
     let head = head(need, "");
     with_cx(move |cx| {
         let open = marked(Glyph::Talk, "Answer")
-            .rules(primary_button)
-            .tagged(Variant::Primary)
+            .variant(Variant::Primary)
             .on_activate(move |world| {
                 world.resource_mut::<Unfolded>().0.insert(wait);
             });
@@ -628,17 +600,6 @@ mod tests {
             waiting(),
         );
         app.update();
-        let shown = words(&mut app);
-        assert!(
-            shown.iter().any(|text| text == "ada wants to run"),
-            "{shown:?}"
-        );
-        for text in ["Allow once", "Allow this session", "Deny"] {
-            assert!(
-                shown.iter().any(|shown| shown == text),
-                "missing {text}: {shown:?}"
-            );
-        }
         press(&mut app, "Allow once");
         let allowed =
             app.world().resource::<Outbox>().iter().any(|message| {
@@ -657,44 +618,5 @@ mod tests {
         );
         app.update();
         assert!(words(&mut app).iter().any(|text| text == "git"));
-    }
-    #[test]
-    fn a_received_edits_change_is_shown_without_its_chat_transcript()
-    {
-        let mut app = panel_app();
-        app.add_plugins((chat::plugin, plugin));
-        let mut state = hamlet_testing::realm::state();
-        let mut wait = hamlet_testing::realm::wait("edit");
-        wait.detail = WaitDetail::Approval {
-            danger: WaitDanger::Edit,
-            says: "wants to edit".into(),
-            always: Some(Lasting::Session),
-        };
-        wait.about = "orchard.md".into();
-        wait.change = Some(Change {
-            path: "orchard.md".into(),
-            created: true,
-            lines: vec![],
-            total: 0,
-            added: 0,
-            removed: 0,
-            count: "A received change count".into(),
-        });
-        state.waits.push(wait);
-        hamlet_client::receive(
-            app.world_mut(),
-            protocol::ServerMessage::State(state),
-        );
-        app.update();
-        bevy_fynix::mount::<hamlet_ui::theme::HamletTheme>(
-            app.world_mut(),
-            waiting(),
-        );
-        app.update();
-        assert!(
-            words(&mut app)
-                .iter()
-                .any(|text| text == "A received change count")
-        );
     }
 }

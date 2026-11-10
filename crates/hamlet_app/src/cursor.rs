@@ -22,14 +22,15 @@ use bevy::input::mouse::MouseButton;
 use bevy::time::{Real, Time};
 use bevy::window::{
     CursorIcon, CustomCursor, CustomCursorImage, PrimaryWindow,
-    SystemCursorIcon,
+    SystemCursorIcon, WindowTheme,
 };
 use bevy_fynix::{EntityCursor, Theme};
 use hamlet_realm::hand::{Grip, Hand};
 use hamlet_realm::pick::{Hovered, Pressable, Steer, Taken, Thing};
-use hamlet_ui::theme::{HamletTheme, ThemeChanged};
+use hamlet_ui::theme::{HamletTheme, Palette, ThemeChanged, Themes};
 
 pub use self::art::{Inks, face, frames, hot, side};
+use crate::appearance::Appearance;
 use crate::welcome::Welcome;
 
 /// The share of a cursor that is left while the hand carries a thing
@@ -178,9 +179,10 @@ impl Mode {
     }
 }
 
-/// The inks of the panels' theme.
-pub fn inks(theme: &HamletTheme) -> Inks {
-    let p = &theme.palette;
+/// The inks of a cursor, from the dark variant of a theme: a light
+/// taper and glove with a dark edge, which read over light panels,
+/// dark ones and the world alike.
+pub fn inks(p: &Palette) -> Inks {
     Inks {
         flame: p.glow_core,
         lamp: p.glow,
@@ -221,7 +223,19 @@ fn fade(image: &mut Image) {
 
 /// Draws every cursor in the shown theme.
 pub fn draw(world: &mut World) {
-    let inks = inks(&world.resource::<Theme<HamletTheme>>().0);
+    // The dark variant of the theme picked, in light mode too: drawn
+    // from a light palette, the glove would take its near-black ink.
+    let night = world
+        .get_resource::<Appearance>()
+        .zip(world.get_resource::<Themes>())
+        .map(|(appearance, themes)| {
+            let theme = themes.get(&appearance.pick().theme);
+            theme.variants.get(WindowTheme::Dark).palette.clone()
+        })
+        .unwrap_or_else(|| {
+            world.resource::<Theme<HamletTheme>>().0.palette.clone()
+        });
+    let inks = inks(&night);
     let mut images = world.resource_mut::<Assets<Image>>();
     let cursors = Mode::all()
         .into_iter()

@@ -38,10 +38,11 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
             | Scene::Rewind
             | Scene::Quiet
             | Scene::Field
+            | Scene::Code
     ) {
         world.insert_resource(Showing::Thread);
     }
-    if scene == Scene::Hub {
+    if matches!(scene, Scene::Hub | Scene::Merged | Scene::Agents) {
         world.resource_mut::<hub::Rail>().show_rows();
     }
     if matches!(scene, Scene::Models | Scene::ModelsSearch) {

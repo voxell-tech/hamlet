@@ -1,8 +1,8 @@
-//! The desk switcher in the top bar: the desks as tabs, the one
-//! shown underlined, as a panel's tab is, then a "+" that adds one
-//! and a chevron listing them all. A tab is renamed in place on a
-//! double-click, closed by its "x" once asked, dragged to another
-//! place, and offers the rest on a right-click.
+//! The desk switcher in the top bar: the desks as segments of one
+//! sunken track, the one shown raised and underlined, then "+",
+//! which adds one, and a chevron listing them all. A tab is renamed
+//! in place on a double-click, closed by its "x" once asked, dragged
+//! to another place, and offers the rest on a right-click.
 
 mod motion;
 
@@ -31,9 +31,9 @@ use bevy::picking::hover::Hovered;
 use bevy::picking::pointer::PointerButton;
 use bevy::text::EditableText;
 use bevy::ui::{
-    AlignItems, BoxShadow, Display, FlexDirection, Overflow,
-    OverflowAxis, PositionType, ShadowStyle, UiRect, UiTransform,
-    Val, percent, px,
+    AlignItems, BackgroundGradient, BoxShadow, Display,
+    FlexDirection, Overflow, OverflowAxis, PositionType, ShadowStyle,
+    UiRect, UiTransform, Val, percent, px,
 };
 use bevy::window::SystemCursorIcon;
 use bevy_fynix::scroll::{
@@ -54,11 +54,13 @@ use bevy_fynix::{
     style,
 };
 use hamlet_ui::styles::{
-    ICON, action, bad_action, close_button, description, note,
-    section, text_input,
+    ICON, Tipped, action, bad_action, close_button, description,
+    note, section, text_input,
 };
 use hamlet_ui::theme::{HamletTheme, Themed};
+use hamlet_ui::widgets::effects::{Edge, EffectSettings, wash};
 use hamlet_ui::widgets::icons::{Glyph, glyph};
+use hamlet_ui::widgets::platform::DisplayText;
 use hamlet_ui::{AnyView, Cx, View, with_cx};
 
 use self::motion::TabDrag;
@@ -201,7 +203,7 @@ struct TabStrip;
 #[derive(Component, Clone, Copy)]
 struct TabRow;
 
-/// On the span under the shown tab that holds its underline.
+/// On the raised segment under the shown tab.
 #[derive(Component, Clone, Copy)]
 struct Indicator;
 
@@ -226,7 +228,7 @@ pub(crate) fn switcher() -> impl View {
             .width(px(space.divider))
             .height(px(space.track_divider))
             .shrink(0.0)
-            .fill(palette.gold_6);
+            .fill(palette.border);
         let hidden = ScrollbarStyle {
             visibility: ScrollbarVisibility::Hidden,
             floating: true,
@@ -248,7 +250,7 @@ pub(crate) fn switcher() -> impl View {
             .shrink(1.0)
             .tagged(OwnScrollbar(hidden))
             .tagged(TabStrip);
-        let new = segment(glyph(Glyph::Plus, ICON), space.gap / 2.0)
+        let new = segment(glyph(Glyph::Plus, ICON), space.gap)
             .on_activate(new_desk)
             .tooltip(|| note(format!("New desk ({NEW})")));
         let all = segment(
@@ -262,12 +264,17 @@ pub(crate) fn switcher() -> impl View {
             let anchor = rect_of(world, node).unwrap_or_default();
             *world.resource_mut::<Opened>() = Opened::All { anchor };
         })
-        .tooltip(|| note("All desks"));
+        .tip("All desks");
         let track = row((strip, new, all))
             .height(px(space.bar - 2.0 * space.track_inset))
             .min_width(px(0.0))
             .shrink(1.0)
             .padding(UiRect::all(px(space.track_padding)))
+            .gap(space.track_padding)
+            .fill(palette.input)
+            .border(space.border)
+            .border_color(palette.border)
+            .radius(space.track_radius)
             .align(AlignItems::Stretch);
         row((divider, track))
             .gap(space.section)
@@ -301,7 +308,7 @@ pub(crate) fn popups() -> impl View {
     .within(overlay(()))
 }
 
-/// The row of tabs, over the underline of the shown one.
+/// The row of tabs, over the raised segment under the shown one.
 fn tabs_view(tabs: &Tabs) -> impl View {
     let tabs = tabs.clone();
     with_cx(move |cx| {
@@ -325,17 +332,22 @@ fn tabs_view(tabs: &Tabs) -> impl View {
     })
 }
 
-/// The glowing line under the shown tab.
+/// The segment under the shown tab, washed with light rising from
+/// its underline, a glowing line, as a shown tab is.
 fn indicator() -> impl View {
     with_cx(|cx| {
         let theme = cx.theme();
         let (space, palette) = (&theme.space, &theme.palette);
+        let effects = cx.world.resource::<EffectSettings>();
         let glow = underline_glow(
             cx.world.resource::<DeskSettings>(),
             palette.glow,
+            effects.gain(theme),
         );
         let radius =
             (space.track_radius - space.track_padding).max(0.0);
+        let inner =
+            BackgroundGradient(vec![wash(theme, Edge::Bottom, 1.0)]);
         let line = frame()
             .position(PositionType::Absolute)
             .inset(UiRect {
@@ -357,6 +369,8 @@ fn indicator() -> impl View {
                 bottom: px(0.0),
             })
             .display(Display::None)
+            .radius(radius)
+            .tagged(inner)
             .tagged(Indicator)
             .tagged(Pickable::IGNORE)
     })
@@ -366,9 +380,11 @@ fn indicator() -> impl View {
 fn underline_glow(
     settings: &DeskSettings,
     color: Color,
+    gain: f32,
 ) -> BoxShadow {
     BoxShadow(vec![ShadowStyle {
-        color: color.with_alpha(settings.underline_glow),
+        color: color
+            .with_alpha((settings.underline_glow * gain).min(1.0)),
         x_offset: px(0.0),
         y_offset: px(0.0),
         spread_radius: px(0.0),
@@ -379,11 +395,16 @@ fn underline_glow(
 /// Sets the underline's glow again as the tuning changes.
 fn retune_underline_glow(
     settings: Res<DeskSettings>,
+    effects: Res<EffectSettings>,
     theme: Themed,
     mut lines: Query<&mut BoxShadow, With<Underline>>,
 ) {
     for mut line in &mut lines {
-        *line = underline_glow(&settings, theme.palette.glow);
+        *line = underline_glow(
+            &settings,
+            theme.palette.glow,
+            effects.gain(&theme),
+        );
     }
 }
 
@@ -424,7 +445,8 @@ fn segment(content: impl View, pad: f32) -> impl View {
 
 /// The tab of the desk at `at`, one of `count`.
 fn tab(at: usize, name: &str, count: usize) -> impl View {
-    let words = label(name).wrap(false);
+    let words =
+        label(name.to_uppercase()).wrap(false).tagged(DisplayText);
     with_cx(move |cx| {
         let space = &cx.theme().space;
         let content = if count > 1 {
@@ -584,7 +606,7 @@ fn close_view(at: usize) -> impl View {
 /// The tab of the desk at `at` while it is renamed: a field over it,
 /// the tab as wide as before under it.
 fn renaming_tab(at: usize, name: &str) -> impl View {
-    let name = name.to_owned();
+    let (name, shown) = (name.to_owned(), name.to_uppercase());
     with_cx(move |cx| {
         let theme = cx.theme();
         let (pad, size) =
@@ -620,8 +642,11 @@ fn renaming_tab(at: usize, name: &str) -> impl View {
                 .apply(cx);
         })
         .tagged(RenameField);
-        let room =
-            label(name.clone()).size(size).bold(true).wrap(false);
+        let room = label(shown.clone())
+            .size(size)
+            .bold(true)
+            .wrap(false)
+            .tagged(DisplayText);
         row((
             row((room,)).tagged(Visibility::Hidden),
             row((field,))

@@ -12,9 +12,9 @@ use hamlet_client::outbox::Outbox;
 use hamlet_client::realm::{Providers, Settings};
 use hamlet_protocol::client as protocol;
 use hamlet_ui::styles::{
-    Fills, action, bad_action, bare, beside, close, description,
-    good_action, group, link_row, list, note, note_rules, radio,
-    section, small_rules, text_input,
+    Fills, Tipped, action, bad_action, bare, beside, close,
+    description, good_action, group, link_row, list, note,
+    note_rules, radio, section, small_rules, text_input,
 };
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::ellipsis::one_line;
@@ -272,7 +272,7 @@ fn entry(model: &protocol::Listed, default: &str) -> AnyView {
             .padding(UiRect::all(px(4.0)))
             .rules(link_row)
             .tagged(Variant::Text)
-            .tooltip(|| note("Make default"))
+            .tip("Make default")
             .on_activate(move |world| save_default(world, &chosen))
             .boxed()
     };

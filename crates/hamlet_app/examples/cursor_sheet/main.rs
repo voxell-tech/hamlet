@@ -322,7 +322,7 @@ fn main() {
         ink: bytes(p.gold_1),
         dim: bytes(p.grey_1),
         mark: bytes(Color::srgb(1.0, 0.2, 0.9)),
-        inks: inks(&theme),
+        inks: inks(&theme.palette),
     };
     let (wide, high, gap) = (340, 278, 20);
     let modes = Mode::all();

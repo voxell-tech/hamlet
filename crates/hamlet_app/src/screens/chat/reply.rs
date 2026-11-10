@@ -17,13 +17,13 @@ use bevy::picking::hover::Hovered;
 use bevy::ui::{AlignItems, JustifyContent, Overflow, UiRect, px};
 use bevy_fynix::tokens::{TextTokens, Tone};
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, Span, TooltipExt, button, column, frame,
-    label, rich, row,
+    BehaviorExt, FrameProps, Span, button, column, frame, label,
+    rich, row,
 };
 use bevy_fynix::{ScopedExt, ViewExt, keyed, resource};
 use hamlet_client::chats::{Entry, Transcript};
 use hamlet_ui::styles::{
-    Fills, ICON, back_link, bare, close_button, note, small_rules,
+    Fills, ICON, Looks, Tipped, bare, close_button, small_rules,
 };
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::ellipsis::{cut, one_line};
@@ -222,9 +222,8 @@ pub(super) fn mark(
     built(move |cx| {
         let reply = button(glyph(Glyph::Talk, ICON))
             .padding(UiRect::all(px(AROUND)))
-            .tooltip(|| note("Reply"))
-            .rules(back_link)
-            .tagged(Variant::Text)
+            .tip("Reply")
+            .variant(Variant::Text)
             .on_activate(move |world| take(world, session, &id, &by));
         let node = cx.build(
             column((reply,))
@@ -329,7 +328,7 @@ fn shown(cx: &Cx, answers: &Answers) -> AnyView {
     let drop = close_button(|world| {
         world.resource_mut::<Replying>().0 = None;
     })
-    .tooltip(|| note("Do not reply"));
+    .tip("Do not reply");
     row((
         frame()
             .width(px(3.0))

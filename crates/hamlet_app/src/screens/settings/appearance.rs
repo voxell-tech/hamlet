@@ -1,35 +1,81 @@
 //! The Appearance page: light or dark, and the theme of the panels.
 
-use bevy::color::Color;
+use bevy::color::{Alpha, Color};
 use bevy::ecs::world::World;
-use bevy::ui::{AlignItems, UiRect, percent, px};
+use bevy::ui::{
+    AlignItems, BackgroundGradient, BoxShadow, ColorStop,
+    RadialGradient, RadialGradientShape, UiPosition, UiRect, percent,
+    px,
+};
 use bevy::window::WindowTheme;
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, button, column, frame, row,
 };
-use bevy_fynix::{ScopedExt, ViewExt, derived, keyed};
+use bevy_fynix::{ScopedExt, ViewExt, derived, keyed, resource};
 use hamlet_desktop::color_scheme::ColorScheme;
 use hamlet_ui::styles::{
     ICON, bare, card_choice, card_name, group, note, parts,
+    segmented_words,
 };
 use hamlet_ui::theme::{Palette, Theme, Themes};
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::widgets::platform::Wraps;
+use hamlet_ui::widgets::switch::labelled_switch;
 use hamlet_ui::{AnyView, View, with_cx};
 
 use super::field;
-use crate::appearance::{Appearance, Mode};
+use crate::appearance::{
+    Appearance, ComputerMotion, LessMotion, Mode, ZOOMS, Zoom,
+};
 use crate::roll::{either, moved};
 use crate::root::Lasting;
 
-/// The width of a theme's small painted panel.
-const SWATCH: f32 = 128.0;
+/// The width of each variant's painted panel on a theme's tile, and
+/// the gap between the two.
+const TILE_SWATCH: f32 = 104.0;
+const TILE_GAP: f32 = 6.0;
 /// The width of what a mode's card holds.
 const CHOICE: f32 = 120.0;
 
 pub(super) fn page() -> impl View {
-    parts((modes(), themes()))
+    parts((modes(), zoom(), motion(), themes()))
+}
+
+/// Whether motion is reduced: as the computer says until the chief
+/// says otherwise.
+fn motion() -> impl View {
+    let reduced = derived(|world: &World| {
+        world
+            .resource::<LessMotion>()
+            .is_reduced(*world.resource::<ComputerMotion>())
+    })
+    .when(either(moved::<LessMotion>(), moved::<ComputerMotion>()));
+    field(
+        "Motion",
+        labelled_switch("Reduce motion", reduced, |world, on| {
+            world.resource_mut::<LessMotion>().0 = Some(on);
+        }),
+    )
+}
+
+/// How large the panels are drawn.
+fn zoom() -> AnyView {
+    keyed(resource::<Zoom, _>(|zoom| zoom.at()), |at| {
+        field(
+            "Zoom",
+            segmented_words(
+                ZOOMS.iter().map(|(_, name)| *name),
+                *at,
+                |world, at| {
+                    world.resource_mut::<Zoom>().0 = ZOOMS[at].0;
+                },
+            ),
+        )
+        .boxed()
+    })
+    .within(bare())
+    .boxed()
 }
 
 /// The three modes, and why the panels stay as they are where the
@@ -155,10 +201,11 @@ fn themes() -> AnyView {
             .collect::<Vec<_>>();
         field(
             "Theme",
+            // Tiles of one width that wrap, as a gallery.
             with_cx(move |cx| {
                 row(cards)
                     .gap(cx.theme().space.gap)
-                    .align(AlignItems::FlexStart)
+                    .align(AlignItems::Stretch)
                     .tagged(Wraps)
             }),
         )
@@ -168,24 +215,17 @@ fn themes() -> AnyView {
     .boxed()
 }
 
-/// A theme: each of its variants painted in its own colours, and its
-/// name.
+/// A theme as a tile: its name over each of its variants painted in
+/// its own colours, light first, side by side.
 fn theme_card(theme: &Theme, picked: bool) -> AnyView {
     let id = theme.id.clone();
     let variants = theme
         .variants
         .iter()
-        .map(|(shade, variant)| {
-            column((
-                row((swatch(&variant.palette),)).width(px(SWATCH)),
-                note(format!(
-                    "{}, {}",
-                    variant.name,
-                    shade_name(shade)
-                )),
-            ))
-            .gap(4.0)
-            .boxed()
+        .map(|(_, variant)| {
+            row((swatch(&variant.palette),))
+                .width(px(TILE_SWATCH))
+                .boxed()
         })
         .collect::<Vec<_>>();
     picked_card(
@@ -193,9 +233,11 @@ fn theme_card(theme: &Theme, picked: bool) -> AnyView {
         picked,
         column((
             card_name(theme.name.clone(), Tone::Body),
-            row(variants).gap(12.0).tagged(Wraps),
+            row(variants).gap(TILE_GAP),
         ))
-        .gap(8.0),
+        .gap(8.0)
+        // As wide as two variants, so that every tile is one width.
+        .width(px(TILE_SWATCH * 2.0 + TILE_GAP)),
         move |world| {
             world.resource_mut::<Appearance>().pick_theme(id.clone());
         },
@@ -228,9 +270,35 @@ fn picked_card(
 }
 
 /// A small panel in `palette`'s own colours, never the shown theme's:
-/// a card with a line of text and a dim line, a button, and the
-/// colours that mark what is live, lit, refused and added.
+/// lamplight falling from its top, a card with a line of text and a
+/// dim line, a primary button lit by its glow, and the colours that
+/// mark what is live, refused and added.
 fn swatch(palette: &Palette) -> impl View {
+    let lamp = BackgroundGradient::from(RadialGradient::new(
+        UiPosition::TOP,
+        RadialGradientShape::Ellipse(percent(70.0), percent(65.0)),
+        vec![
+            ColorStop::new(
+                palette.glow.with_alpha(0.22),
+                percent(0.0),
+            ),
+            ColorStop::new(
+                palette.glow.with_alpha(0.08),
+                percent(45.0),
+            ),
+            ColorStop::new(
+                palette.glow.with_alpha(0.0),
+                percent(100.0),
+            ),
+        ],
+    ));
+    let lit = BoxShadow::new(
+        palette.glow.with_alpha(0.55),
+        px(0.0),
+        px(1.0),
+        px(0.0),
+        px(9.0),
+    );
     let line = |colour: Color, wide: f32| {
         frame()
             .width(percent(wide))
@@ -258,14 +326,16 @@ fn swatch(palette: &Palette) -> impl View {
         .border_color(palette.gold_6)
         .fill(palette.card),
         row((
-            row((line(palette.gold_2, 100.0),))
+            row((line(palette.gold_1, 100.0),))
                 .width(px(34.0))
                 .padding(UiRect::axes(px(6.0), px(5.0)))
                 .radius(4.0)
-                .fill(palette.button),
+                .border(1.0)
+                .border_color(palette.glow.with_alpha(0.7))
+                .fill(palette.primary_low)
+                .tagged(lit),
             frame().grow(1.0),
             dot(palette.accent),
-            dot(palette.glow),
             dot(palette.red),
             dot(palette.green),
         ))
@@ -280,6 +350,7 @@ fn swatch(palette: &Palette) -> impl View {
     .border(1.0)
     .border_color(palette.gold_5)
     .fill(palette.surface)
+    .tagged(lamp)
 }
 
 #[cfg(test)]

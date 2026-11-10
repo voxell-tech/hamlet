@@ -3,15 +3,18 @@
 
 use bevy::app::{App, Startup};
 use bevy::asset::uuid::Uuid;
-use bevy::asset::{AssetId, Assets, Handle, RenderAssetUsages};
+use bevy::asset::{Assets, Handle, RenderAssetUsages};
 use bevy::ecs::system::ResMut;
+use bevy::ecs::world::World;
 use bevy::image::Image;
 use bevy::math::Vec2;
 use bevy::render::render_resource::{
     Extent3d, TextureDimension, TextureFormat,
 };
+use bevy::time::Time;
 use bevy_fynix::dock::DockIcons;
 use bevy_fynix::views::{Icon, icon};
+use bevy_fynix::{derived, every_frame};
 
 use self::Shape::{
     Arc, Curve, Dot, Fill, Line, Loop, Path, Ring, Round,
@@ -44,8 +47,34 @@ const STAR: [[f32; 2]; 10] = [
     [6.45, 6.2],
 ];
 
+/// The corners of the stop square, as large as the bell and the moon
+/// read beside it.
+const STOP: [[f32; 2]; 4] =
+    [[4.0, 4.0], [12.0, 4.0], [12.0, 12.0], [4.0, 12.0]];
+
+/// The points of a bolt, from its top to its bottom and back.
+const BOLT: [[f32; 2]; 6] = [
+    [9.5, 1.75],
+    [3.75, 9.0],
+    [7.75, 9.0],
+    [6.5, 14.25],
+    [12.25, 7.0],
+    [8.25, 7.0],
+];
+
+/// The seconds the open ring of [`Glyph::Progress`] takes to turn
+/// once.
+const SPIN_PERIOD: f64 = 1.2;
+
 pub fn plugin(app: &mut App) {
     app.insert_resource(dock()).add_systems(Startup, draw);
+}
+
+/// How far the open ring has turned, in degrees clockwise, by the
+/// clock: every ring shows the same turn, wherever it is.
+fn spin(world: &World) -> f32 {
+    let now = world.resource::<Time>().elapsed_secs_f64();
+    (now % SPIN_PERIOD / SPIN_PERIOD * 360.0) as f32
 }
 
 /// An icon of the panels.
@@ -81,12 +110,15 @@ pub enum Glyph {
     Gone,
     /// A bin.
     Delete,
-    /// A square in a ring.
+    /// A square.
     Stop,
     /// At rest, and the night.
     Moon,
     /// A bolt: at work.
     Bolt,
+    /// An open ring with a dot in it: in progress, for an outcome
+    /// that is not an agent's state. It spins wherever it shows.
+    Progress,
     /// A bell: something waits for the chief.
     Bell,
     /// A shield: the sandbox.
@@ -170,6 +202,8 @@ pub enum Glyph {
     Anchor,
     /// Two chevrons forward: the fast tier.
     Fast,
+    /// Two points joined into one: a merge.
+    Merge,
 }
 
 /// A part of an icon, in the units of its square, y downward. Angles
@@ -198,7 +232,7 @@ enum Shape {
 
 impl Glyph {
     /// Every icon.
-    pub const ALL: [Glyph; 64] = [
+    pub const ALL: [Glyph; 66] = [
         Glyph::Plus,
         Glyph::Cross,
         Glyph::Check,
@@ -218,6 +252,7 @@ impl Glyph {
         Glyph::Stop,
         Glyph::Moon,
         Glyph::Bolt,
+        Glyph::Progress,
         Glyph::Bell,
         Glyph::Shield,
         Glyph::Chip,
@@ -263,6 +298,7 @@ impl Glyph {
         Glyph::Speaker,
         Glyph::Anchor,
         Glyph::Fast,
+        Glyph::Merge,
     ];
 
     /// Its image for a side of `size`, to be tinted.
@@ -278,13 +314,6 @@ impl Glyph {
     fn drawing(self, drawn: usize) -> Handle<Image> {
         let at = (self as usize * SIZES.len() + drawn) as u128;
         Handle::from(Uuid::from_u128(FIRST + at))
-    }
-
-    /// Whether `image` is one of the icons' drawings.
-    pub(crate) fn is_drawing(image: AssetId<Image>) -> bool {
-        let drawings = (Self::ALL.len() * SIZES.len()) as u128;
-        matches!(image, AssetId::Uuid { uuid }
-            if uuid.as_u128().wrapping_sub(FIRST) < drawings)
     }
 
     fn shapes(self) -> &'static [Shape] {
@@ -404,27 +433,16 @@ impl Glyph {
                     [11.75, 4.5],
                 ]),
             ],
-            Glyph::Stop => &[
-                Ring(8.0, 8.0, 6.0),
-                Fill(&[
-                    [5.75, 5.75],
-                    [10.25, 5.75],
-                    [10.25, 10.25],
-                    [5.75, 10.25],
-                ]),
-            ],
+            Glyph::Stop => &[Loop(&STOP), Fill(&STOP)],
             Glyph::Moon => &[
                 Arc(7.5, 8.5, 5.5, 10.24, 259.76),
                 Arc(10.75, 5.25, 4.75, 62.9, 207.1),
             ],
-            Glyph::Bolt => &[Loop(&[
-                [9.5, 1.75],
-                [3.75, 9.0],
-                [7.75, 9.0],
-                [6.5, 14.25],
-                [12.25, 7.0],
-                [8.25, 7.0],
-            ])],
+            Glyph::Bolt => &[Loop(&BOLT), Fill(&BOLT)],
+            Glyph::Progress => &[
+                Arc(8.0, 8.0, 5.75, 300.0, 570.0),
+                Dot(8.0, 8.0, 2.0),
+            ],
             Glyph::Bell => &[
                 Arc(8.0, 7.0, 3.5, 180.0, 360.0),
                 Path(&[
@@ -737,13 +755,27 @@ impl Glyph {
                 Path(&[[3.0, 4.0], [7.0, 8.0], [3.0, 12.0]]),
                 Path(&[[8.5, 4.0], [12.5, 8.0], [8.5, 12.0]]),
             ],
+            Glyph::Merge => &[
+                Dot(4.0, 3.5, 1.6),
+                Dot(4.0, 12.5, 1.6),
+                Ring(12.0, 8.0, 1.6),
+                Line(4.0, 5.1, 4.0, 10.9),
+                Curve(4.0, 5.1, 4.0, 8.0, 10.4, 8.0),
+            ],
         }
     }
 }
 
-/// `which` as an icon with a side of `size`.
+/// `which` as an icon with a side of `size`. The open ring of
+/// [`Glyph::Progress`] spins like a loading ring, with its dot still,
+/// wherever it is drawn.
 pub fn glyph(which: Glyph, size: f32) -> Icon {
-    icon(which.image(size)).size(size)
+    let drawn = icon(which.image(size)).size(size);
+    if which == Glyph::Progress {
+        drawn.rotation(derived(spin).when(every_frame()))
+    } else {
+        drawn
+    }
 }
 
 /// The cross that closes a tab of the dock and the plus that adds

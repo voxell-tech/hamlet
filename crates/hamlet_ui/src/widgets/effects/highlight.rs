@@ -16,7 +16,7 @@ use bevy::ui::{
 };
 use bevy_fynix::views::{BehaviorExt, frame};
 
-use super::{EffectColors, EffectSettings, ease, flicker, pool};
+use super::{EffectColors, Tuned, ease, flicker, pool};
 use crate::View;
 use crate::theme::Themed;
 
@@ -98,7 +98,7 @@ fn glow_pool(deep: f32, paint: impl Fn(f32) -> Color) -> Gradient {
 pub(super) fn update_highlights(
     mut commands: Commands,
     time: Res<Time>,
-    set: Res<EffectSettings>,
+    tuned: Tuned,
     theme: Themed,
     mut updated: MessageReader<Updated>,
     waiting: Res<Attention>,
@@ -110,6 +110,7 @@ pub(super) fn update_highlights(
     )>,
     mut counted: Local<usize>,
 ) {
+    let set = tuned.get();
     let dt = time.delta_secs();
     let changed = updated.read().count() > 0;
     let count = waiting.0;
@@ -117,6 +118,8 @@ pub(super) fn update_highlights(
     *counted = count;
     let attention = f32::from(count > 0);
     let colors = EffectColors::of(&theme);
+    let gain = set.gain(&theme);
+    let lift = set.lift(&theme);
     // A glow is never quite still.
     let brightness =
         1.0 + set.flicker * flicker(time.elapsed_secs(), 1.0);
@@ -143,7 +146,13 @@ pub(super) fn update_highlights(
         if state.count != waits {
             state.count = waits;
         }
-        if raised <= 0.0 && flash <= 0.0 {
+        // While nothing waits, only what `highlight_rest` keeps.
+        let lit = if highlight.attention {
+            raised.max(set.highlight_rest)
+        } else {
+            0.0
+        };
+        if lit <= 0.0 && flash <= 0.0 {
             if gradient.is_some() {
                 commands
                     .entity(panel)
@@ -152,13 +161,15 @@ pub(super) fn update_highlights(
             continue;
         }
         let mut glows = Vec::new();
-        if raised > 0.0 {
-            let call = raised * brightness;
+        if lit > 0.0 {
+            let call = lit * brightness;
             // Brightest close under the source, and thin over the
             // rest.
             glows.push(glow_pool(GLOW_DEEP, |near| {
                 let glow = near * call;
-                let strength = (glow * 0.045 + glow * glow * 0.045)
+                let strength = ((glow * 0.045 + glow * glow * 0.045)
+                    * gain
+                    * lift)
                     .clamp(0.0, 1.0);
                 colors
                     .attention
@@ -171,9 +182,16 @@ pub(super) fn update_highlights(
         }
         if flash > 0.0 {
             glows.push(glow_pool(FLASH_DEEP, |near| {
-                colors.flash.with_alpha(flash * flash * near * 0.08)
+                colors
+                    .flash
+                    .with_alpha(flash * flash * near * 0.08 * gain)
             }));
         }
-        commands.entity(panel).try_insert(BackgroundGradient(glows));
+        // Unchanged at rest, so the panel is not marked changed
+        // each frame.
+        let next = BackgroundGradient(glows);
+        if gradient != Some(&next) {
+            commands.entity(panel).try_insert(next);
+        }
     }
 }
