@@ -642,13 +642,13 @@ mod tests {
             protocol::ServerMessage::State(realm.clone()),
         );
         assert!(app.world().get::<TalksTo>(chat).is_none());
-        realm.agents.push(agent(3, "home", 1));
+        realm.agents.push(agent(3, "home", false));
         realm.revision += 1;
         receive(
             app.world_mut(),
             protocol::ServerMessage::State(realm),
         );
-        let scout = realm::named(app.world(), "home#1").unwrap();
+        let scout = realm::named(app.world(), "hire#3").unwrap();
         assert_eq!(
             app.world().get::<TalksTo>(chat),
             Some(&TalksTo(scout))

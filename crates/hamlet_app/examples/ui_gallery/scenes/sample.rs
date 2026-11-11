@@ -175,7 +175,7 @@ pub(super) fn setup(world: &mut World) {
         session,
         name: "chief".into(),
         agent,
-        with: Some("home#0".into()),
+        with: Some("hire#2".into()),
     });
     world.init_resource::<Also>();
     world.insert_resource(Selected(Some(Thing::Agent(agent))));

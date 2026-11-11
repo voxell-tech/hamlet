@@ -22,6 +22,13 @@ pub struct Session {
     pub chief: Client,
 }
 
+/// The file beside the faux script that holds each founded hamlet's
+/// id under its name, for a step [`Step::filled_from`] it to name a
+/// hamlet as `{{name}}`.
+///
+/// [`Step::filled_from`]: hamlet_testing::Step::filled_from
+pub const NAMES: &str = "names.json";
+
 /// The environment every scenario's server gets unless it says
 /// otherwise: no reflection between turns.
 pub const QUIET: &[(&str, &str)] = &[("HAMLET_REFLECT_EVERY", "0")];
@@ -106,8 +113,9 @@ impl Session {
         living(&self.chief).expect("the scholar is made").id
     }
 
-    /// Founds the hamlet `hamlet` under the scholar called `scholar`,
-    /// made if the city has none, and gives the mayor's id.
+    /// Founds the hamlet named `hamlet` under the scholar called
+    /// `scholar`, made if the city has none, keeps its id in
+    /// [`NAMES`] and gives the mayor's id.
     pub async fn found(
         &mut self,
         hamlet: &str,
@@ -120,18 +128,37 @@ impl Session {
             .command(
                 hand,
                 &format!(
-                    "/found {hamlet} scholar#{} {purpose}",
+                    "/found scholar#{} {hamlet}: {purpose}",
                     scholar.0
                 ),
             )
             .await;
-        let mayor = format!("{hamlet}#0");
+        self.named(hamlet).await
+    }
+
+    /// Waits for the hamlet named `hamlet`, keeps its id in
+    /// [`NAMES`] for the faux script, and gives its mayor's id.
+    pub async fn named(&mut self, hamlet: &str) -> AgentId {
         self.chief
-            .until(&format!("{mayor} in the realm"), |c| {
-                c.agent(&mayor).is_some()
+            .until(&format!("{hamlet} in the realm"), |c| {
+                c.hamlet(hamlet).is_some()
             })
             .await;
-        self.chief.id(&mayor)
+        let found = self.chief.hamlet(hamlet).expect("it is founded");
+        let file = self.home.side().join(NAMES);
+        let mut names = std::fs::read(&file)
+            .ok()
+            .and_then(|bytes| {
+                serde_json::from_slice::<
+                    serde_json::Map<String, serde_json::Value>,
+                >(&bytes)
+                .ok()
+            })
+            .unwrap_or_default();
+        names.insert(hamlet.into(), found.id.into());
+        std::fs::write(&file, serde_json::to_vec(&names).unwrap())
+            .unwrap();
+        found.mayor
     }
 
     /// Has `lead` hire the scholar called `scholar`, made if the
@@ -199,7 +226,7 @@ impl Session {
             .await;
         hires(&self.chief)
             .into_iter()
-            .max_by_key(|a| a.number)
+            .max_by_key(|a| a.id)
             .expect("the hire came")
             .id
     }

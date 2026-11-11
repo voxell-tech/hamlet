@@ -11,15 +11,15 @@ use bevy::ecs::system::{Query, ResMut};
 use bevy::ecs::world::World;
 use bevy_fynix::{Signal, derived, resource};
 use hamlet_client::realm::{
-    Account, Activity, AgentNumber, Busy, Bylaws, HamletId, Left,
-    Mayor, Purpose, Treasury, Works,
+    Account, Activity, Busy, Bylaws, HamletId, Hire, Left, Mayor,
+    Purpose, Treasury, Works,
 };
 use hamlet_client::waits::Waiting;
 
 use crate::PanelSystems;
 
 type AgentMoved = (
-    With<AgentNumber>,
+    With<Hire>,
     Or<(
         Changed<Name>,
         Changed<Purpose>,
@@ -46,7 +46,7 @@ type AgentLost<'w, 's> = (
     RemovedComponents<'w, 's, Busy>,
     RemovedComponents<'w, 's, Left>,
     RemovedComponents<'w, 's, Account>,
-    RemovedComponents<'w, 's, AgentNumber>,
+    RemovedComponents<'w, 's, Hire>,
     RemovedComponents<'w, 's, Mayor>,
 );
 

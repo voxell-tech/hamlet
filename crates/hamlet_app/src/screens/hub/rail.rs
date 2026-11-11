@@ -1826,7 +1826,7 @@ mod tests {
         let mut app = panel_app();
         app.add_plugins(plugin);
         app.update();
-        let ada = named(app.world_mut(), "home#0").unwrap();
+        let ada = named(app.world_mut(), "hire#2").unwrap();
         let in_hamlet = |g: &Group| matches!(g, Group::Hamlet(_));
         assert_eq!(names(&app, in_hamlet), ["ada"]);
         assert!(

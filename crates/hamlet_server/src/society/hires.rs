@@ -23,7 +23,6 @@ use crate::jobs::{self, Job};
 pub(crate) struct Hire {
     pub agent: AgentId,
     pub hamlet: HamletId,
-    pub number: i64,
     pub scholar: ScholarId,
     pub parent: Option<AgentId>,
     pub purpose: String,
@@ -64,11 +63,11 @@ pub(crate) struct Spec {
 }
 
 /// A hire just made.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Hired {
     pub agent: AgentId,
     pub scholar: ScholarId,
-    pub number: i64,
+    pub hamlet: HamletId,
 }
 
 /// Hires a scholar into a hamlet under a parent. With no parent, the
@@ -111,15 +110,10 @@ pub(crate) fn hire(cx: &mut Change<'_>, spec: Spec) -> Done<Hired> {
         }
     };
     let agent = agents::make(cx, AgentKind::Hire)?;
-    let number = place.next_number;
-    diesel::update(hamlet::table.find(&spec.hamlet))
-        .set(hamlet::next_number.eq(number + 1))
-        .execute(cx.db)?;
     diesel::insert_into(hire::table)
         .values((
             hire::agent.eq(agent),
             hire::hamlet.eq(&spec.hamlet),
-            hire::number.eq(number),
             hire::scholar.eq(scholar),
             hire::parent.eq(spec.parent),
             hire::purpose.eq(spec.purpose.trim()),
@@ -139,12 +133,12 @@ pub(crate) fn hire(cx: &mut Change<'_>, spec: Spec) -> Done<Hired> {
                 "purpose": spec.purpose.trim(),
             })),
     )?;
-    cx.touched.hamlets.insert(spec.hamlet);
+    cx.touched.hamlets.insert(spec.hamlet.clone());
     cx.touched.scholars.insert(scholar);
     Ok(Ok(Hired {
         agent,
         scholar,
-        number,
+        hamlet: spec.hamlet,
     }))
 }
 
@@ -190,7 +184,7 @@ pub(crate) fn take_purpose(
     Ok(())
 }
 
-/// The living hires of `hamlet`, by number.
+/// The living hires of `hamlet`, in the order they were hired.
 pub(crate) fn living_in(
     db: &mut Db,
     hamlet: &HamletId,
@@ -199,7 +193,7 @@ pub(crate) fn living_in(
         .inner_join(agent::table)
         .filter(hire::hamlet.eq(hamlet))
         .filter(agent::ended_at.is_null())
-        .order(hire::number)
+        .order(hire::agent)
         .select(Hire::as_select())
         .load(db)?)
 }

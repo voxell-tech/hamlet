@@ -21,7 +21,9 @@ async fn confines_reads_writes_and_the_lodge_with_and_without_a_folder()
         let secret = home.side().join("secret");
         fs::create_dir(&work).unwrap();
         fs::write(&secret, "outside-canary").unwrap();
-        let lodge = home.file("hamlets/docs/0");
+        // The mayor's lodge, in a hamlet whose id is made once it
+        // is founded.
+        let lodge = home.file("hamlets/{{docs}}/2");
         let attempts = [
             (format!("cat '{}'", secret.display()), open),
             (
@@ -54,12 +56,21 @@ async fn confines_reads_writes_and_the_lodge_with_and_without_a_folder()
         let script = format!("{{ {script}\n}} > reach; pwd -P > cwd");
         let mut s = Session::start_in(
             home,
-            Faux::new()
-                .agent(2, [command(&script), words("Checked.")]),
+            Faux::new().agent(
+                2,
+                [
+                    command(&script).filled_from(NAMES),
+                    words("Checked."),
+                ],
+            ),
             QUIET,
         )
         .await;
         let ada = s.found("docs", "ada", "keep the docs").await;
+        let lodge = s.home.file(&format!(
+            "hamlets/{}/2",
+            s.chief.hamlet_id("docs")
+        ));
         let root = if open { &work } else { &lodge };
         std::os::unix::fs::symlink(&secret, root.join("escape"))
             .unwrap();
@@ -101,7 +112,6 @@ async fn confines_reads_writes_and_the_lodge_with_and_without_a_folder()
 async fn the_file_tools_keep_to_the_lodge_and_never_write_a_character()
  {
     let home = Home::new();
-    let lodge = home.file("hamlets/docs/0");
     let outside = home.side().join("outside");
     let mut s = Session::start_in(
         home,
@@ -129,6 +139,9 @@ async fn the_file_tools_keep_to_the_lodge_and_never_write_a_character()
     )
     .await;
     let ada = s.found("docs", "ada", "keep the docs").await;
+    let lodge = s
+        .home
+        .file(&format!("hamlets/{}/2", s.chief.hamlet_id("docs")));
     let now = chat(ada);
     s.chief.open(&now).await;
     s.chief.tell(ada, "Write files.").await;
@@ -154,7 +167,6 @@ async fn reaches_a_listener_only_for_the_approved_network_call() {
         endpoint.url
     );
     let home = Home::new();
-    let lodge = home.file("hamlets/docs/0");
     let mut s = Session::start_in(
         home,
         Faux::new().agent(
@@ -175,6 +187,9 @@ async fn reaches_a_listener_only_for_the_approved_network_call() {
     )
     .await;
     let ada = s.found("docs", "ada", "keep the docs").await;
+    let lodge = s
+        .home
+        .file(&format!("hamlets/{}/2", s.chief.hamlet_id("docs")));
     let now = chat(ada);
     s.chief.open(&now).await;
     while !lodge.is_dir() {

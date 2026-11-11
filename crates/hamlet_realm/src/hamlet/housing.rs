@@ -5,9 +5,10 @@ use std::collections::HashMap;
 
 use bevy::prelude::*;
 use hamlet_client::realm::{
-    AgentNumber, HamletId, Left, Lived, LivesIn, Mayor, MergedInto,
-    Spot,
+    HamletId, Identity, Kind, Left, Lived, LivesIn, Mayor,
+    MergedInto, Spot,
 };
+use hamlet_protocol::client::AgentKind;
 
 use super::{Housed, Returning, Sited, Unhoused, Wing};
 use crate::generator::land::Land;
@@ -61,11 +62,12 @@ pub(super) fn house(
     homeless: Query<
         (
             Entity,
-            &AgentNumber,
+            &Identity,
             &LivesIn,
             Has<Left>,
             Option<&MergedInto>,
             &Lived,
+            &Kind,
         ),
         (Without<Housed>, Without<Unhoused>),
     >,
@@ -104,15 +106,16 @@ pub(super) fn house(
         // free at the time, as it did when the world last saw it.
         let new = homeless
             .iter()
+            .filter(|(.., kind)| kind.0 == AgentKind::Hire)
             .filter(|(_, _, lives, ..)| lives.0 == hamlet)
             .collect::<Vec<_>>();
         let mut story = new
             .iter()
-            .flat_map(|(entity, number, _, left, into, lived)| {
-                let came = (lived.since, number.0, false);
+            .flat_map(|(entity, id, _, left, into, lived, _)| {
+                let came = (lived.since, id.0, false);
                 let went = left.then(|| {
                     let at = lived.until.unwrap_or(u64::MAX);
-                    (at, number.0, true)
+                    (at, id.0, true)
                 });
                 let host = into.map(|m| m.0);
                 core::iter::once(came)
@@ -121,11 +124,14 @@ pub(super) fn house(
             })
             .collect::<Vec<_>>();
         story.sort_by_key(|(when, ..)| *when);
-        for ((_, number, goes), entity, host) in story {
+        for ((_, _, goes), entity, host) in story {
             if !goes {
-                // The first mayor is housed in the hall. A later one
-                // trades houses with it, in `seat`.
-                let agent = if number == 0 {
+                // The first to come, the mayor it was founded with,
+                // is housed in the hall. A later mayor trades houses
+                // with it, in `seat`.
+                let hall_free =
+                    !homes.values().any(|home| *home == mayor);
+                let agent = if hall_free {
                     Some(mayor)
                 } else if society.has_room(&land, town) {
                     society.add_agent(&land, town)

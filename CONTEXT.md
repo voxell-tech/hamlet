@@ -38,19 +38,20 @@ _Avoid_: member, employee, citizen
 
 **Address**:
 How a chief or an agent names an agent or a scholar, by ids and never by a
-name: `hand`, `mayor@<hamlet>`, `<hamlet>#<number>` (the mayor is 0),
+name: `hand`, `mayor@<hamlet>` (by the hamlet's id), `hire#<id>`,
 `worker#<id>`, `scholar#<id>`. Wherever an agent is shown, its address comes
 first and its name beside it.
 _Avoid_: handle, username
 
 **Name**:
 The words a scholar, a hamlet or a hire is shown by: a scholar's name, a
-hamlet's display name, a hire's nickname. Metadata a chief changes and that
-may repeat; it never finds anything.
+hamlet's name, a hire's nickname. Metadata a chief changes and that may
+repeat; it never finds anything. A scholar and a hamlet always have one; a
+hamlet's id is a UUID no one reads.
 
 **Nickname**:
 What a hire is called in the world, given by a chief, the Hand or a lead
-above it. Its address, `<hamlet>#<number>`, stays the same.
+above it. Its address, `hire#<id>`, stays the same.
 _Avoid_: alias
 
 **Mayor**:

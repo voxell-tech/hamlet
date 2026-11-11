@@ -11,8 +11,8 @@ use bevy_fynix::views::{
     BehaviorExt, FrameProps, button, column, row,
 };
 use hamlet_client::realm::{
-    Account, AgentNumber, HamletId, Identity, Kind, Left, LivesIn,
-    Mayor, MergedInto, OwnModel, Parent, Treasury,
+    Account, HamletId, Identity, Kind, Left, LivesIn, Mayor,
+    MergedInto, OwnModel, Parent, Treasury,
 };
 use hamlet_protocol::client::{AgentId, AgentKind};
 use hamlet_realm::pick::Thing;
@@ -77,12 +77,11 @@ pub(crate) fn standing(
     (state.glyph(), words, state.kind())
 }
 
-/// An agent of a hamlet, living or gone: a hire, or a worker, which
-/// has no number.
+/// An agent of a hamlet, living or gone: a hire, or a worker.
 #[derive(Clone, PartialEq)]
 pub(super) struct AgentRow {
     pub agent: Entity,
-    pub number: Option<u64>,
+    pub id: AgentId,
     /// What it is shown by.
     pub name: String,
     pub mayor: bool,
@@ -100,7 +99,6 @@ pub(super) struct AgentRow {
 
 type Told<'a> = (
     Entity,
-    Option<&'a AgentNumber>,
     &'a LivesIn,
     Option<&'a OwnModel>,
     Option<&'a Account>,
@@ -172,8 +170,8 @@ fn in_tree(
 }
 
 /// Everyone of `hamlet`, or of every hamlet: the mayor, the living
-/// by their numbers and the workers after them, then those that are
-/// gone.
+/// hires in the order they came and the workers after them, then
+/// those that are gone.
 pub(super) fn agent_rows(
     world: &World,
     hamlet: Option<Entity>,
@@ -187,11 +185,10 @@ pub(super) fn agent_rows(
     let mut parents = Vec::new();
     let mut rows = agents
         .iter(world)
-        .filter(|told| hamlet.is_none_or(|h| told.2.0 == h))
+        .filter(|told| hamlet.is_none_or(|h| told.1.0 == h))
         .map(
             |(
                 agent,
-                number,
                 _,
                 own,
                 account,
@@ -227,7 +224,7 @@ pub(super) fn agent_rows(
                     .unwrap_or_default();
                 AgentRow {
                     agent,
-                    number: number.map(|number| number.0),
+                    id: id.0,
                     name: named(agent),
                     mayor,
                     worker: kind.0 == AgentKind::Worker,
@@ -241,7 +238,7 @@ pub(super) fn agent_rows(
         )
         .collect::<Vec<_>>();
     rows.sort_by_key(|row| {
-        (row.gone, !row.mayor, row.number.unwrap_or(u64::MAX))
+        (row.gone, !row.mayor, row.worker, row.id)
     });
     let (gone, living) = rows.into_iter().partition(|row| row.gone);
     let mut rows = in_tree(living, &parents, &ids);

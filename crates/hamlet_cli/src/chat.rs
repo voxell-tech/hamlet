@@ -20,7 +20,7 @@ fn chat_ref(with: AgentId) -> ChatRef {
 }
 
 /// The living agent `to` addresses: `hand`, `mayor@<hamlet>`,
-/// `<hamlet>#<number>` or `worker#<id>`.
+/// `hire#<id>` or `worker#<id>`.
 pub(crate) fn resolve(state: &State, to: &str) -> Result<AgentId> {
     if to == HAND {
         return Ok(state.hand);
@@ -34,7 +34,9 @@ pub(crate) fn resolve(state: &State, to: &str) -> Result<AgentId> {
             .hamlets
             .iter()
             .find(|h| h.id == hamlet)
-            .with_context(|| format!("no hamlet named `{hamlet}`"))?;
+            .with_context(|| {
+                format!("no hamlet has the id `{hamlet}`")
+            })?;
         return Ok(found.mayor);
     }
     state
@@ -49,7 +51,7 @@ pub(crate) fn resolve(state: &State, to: &str) -> Result<AgentId> {
         .with_context(|| {
             format!(
                 "no agent is at `{to}`; use hand, mayor@<hamlet>, \
-                 <hamlet>#<number> or worker#<id>"
+                 hire#<id> or worker#<id>"
             )
         })
 }

@@ -12,6 +12,8 @@ use super::capture::{Capture, HAND};
 async fn reads_and_edits() {
     let mut c = Capture::start(Faux::new()).await;
     c.found("docs", "ada", "keep the docs").await;
+    c.until(|c| !c.state().hamlets.is_empty()).await;
+    let docs = c.hamlet_id("docs");
     let ada = c.scholar("ada");
     for what in ["prompt", "history"] {
         assert!(
@@ -27,15 +29,15 @@ async fn reads_and_edits() {
                 .is_null()
         );
     }
-    assert_eq!(c.ask(json!({"type":"edit","doc":"limits","hamlet":"docs","set":{"section":"budget","key":"cost","value":2}})).await["kind"], "notice");
+    assert_eq!(c.ask(json!({"type":"edit","doc":"limits","hamlet":docs,"set":{"section":"budget","key":"cost","value":2}})).await["kind"], "notice");
     c.until(|c| c.state().hamlets[0].limits.budget.cost == Some(2.0))
         .await;
     let mut limits =
         serde_json::to_value(&c.state().hamlets[0].limits).unwrap();
     limits["toldDays"] = 2.into();
     limits["budget"]["cost"] = 3.into();
-    assert_eq!(c.ask(json!({"type":"edit","doc":"limits","hamlet":"docs","whole":limits})).await["kind"], "notice");
-    assert_eq!(c.ask(json!({"type":"edit","doc":"limits","hamlet":"docs","set":{"section":"budget","key":"cost","value":-1}})).await["kind"], "error");
+    assert_eq!(c.ask(json!({"type":"edit","doc":"limits","hamlet":docs,"whole":limits})).await["kind"], "notice");
+    assert_eq!(c.ask(json!({"type":"edit","doc":"limits","hamlet":docs,"set":{"section":"budget","key":"cost","value":-1}})).await["kind"], "error");
     assert_eq!(c.ask(json!({"type":"edit","doc":"settings","set":{"reflectEvery":0,"allowNet":true}})).await["kind"], "notice");
     assert_eq!(c.ask(json!({"type":"edit","doc":"charter","text":"Serve the chief with care."})).await["kind"], "notice");
     assert_eq!(
@@ -177,7 +179,7 @@ async fn give() {
     assert_eq!(c.ask(json!({"type":"give","to":ada,"skill":{"from":{"agent":HAND},"name":"greet"}})).await["kind"], "notice");
     c.until(|c| {
         c.state().agents.iter().any(|a| {
-            a.name == "docs#0"
+            a.name == "hire#2"
                 && a.skills.iter().any(|s| s == "greet")
         })
     })

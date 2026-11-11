@@ -4,13 +4,13 @@
 //! its robot is away.
 
 use bevy::prelude::*;
-use hamlet_client::realm::{AgentNumber, OfScholar, Scholar, Seen};
+use hamlet_client::realm::{OfScholar, Scholar, Seen};
 
 use super::Housed;
 use crate::Clock;
 use crate::city::houses;
 use crate::generator::land::{IslandId, Land};
-use crate::generator::society::AgentId;
+use crate::generator::society::{AgentId, Society};
 use crate::generator::{Away, Robot};
 use crate::harbor::ferry::{self, Ferry};
 use crate::harbor::{Boat, Harbor};
@@ -52,8 +52,9 @@ pub(super) fn board(
     kit: Res<Kit>,
     seen: Option<Res<Seen>>,
     mut primed: Local<bool>,
+    society: Res<Society>,
     hires: Query<
-        (Entity, &Housed, &AgentNumber, Option<&OfScholar>),
+        (Entity, &Housed, Option<&OfScholar>),
         Added<Housed>,
     >,
     scholars: Query<&Scholar>,
@@ -70,9 +71,13 @@ pub(super) fn board(
     let Some(harbor) = harbor else {
         return;
     };
-    for (hire, housed, number, of) in &hires {
+    for (hire, housed, of) in &hires {
         // The mayor's hall is founded with its hamlet.
-        if number.0 == 0 {
+        let in_hall = society
+            .agent(housed.0)
+            .and_then(|agent| society.town(agent.town))
+            .is_some_and(|town| town.mayor == housed.0);
+        if in_hall {
             continue;
         }
         let door = of

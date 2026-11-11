@@ -12,7 +12,7 @@ use bevy::ecs::system::{Query, Res, SystemParam};
 use bevy::math::Vec3;
 use hamlet_client::chats::{Entry, Transcript};
 use hamlet_client::realm::{
-    AgentNumber, Kind as AgentKind, LivesIn, Mayor, Purpose, Shown,
+    Hire, Identity, Kind as AgentKind, LivesIn, Mayor, Purpose, Shown,
 };
 use hamlet_protocol::client as protocol;
 use hamlet_realm::chief::{Chief, Look};
@@ -98,7 +98,7 @@ pub struct People<'w, 's> {
         (
             Entity,
             &'static Name,
-            Option<&'static AgentNumber>,
+            Option<&'static Identity>,
             Has<Mayor>,
             Option<&'static Purpose>,
             Option<&'static LivesIn>,
@@ -115,7 +115,7 @@ pub struct People<'w, 's> {
         's,
         (),
         (
-            With<AgentNumber>,
+            With<Hire>,
             Or<(
                 Changed<Name>,
                 Changed<Shown>,
@@ -139,17 +139,23 @@ impl People<'_, '_> {
     }
 
     fn agent(&self, agent: Entity) -> Option<Who> {
-        let (_, name, number, mayor, purpose, _, housed, kind, shown) =
+        let (_, name, id, mayor, purpose, _, housed, kind, shown) =
             self.agents.get(agent).ok()?;
         let hand = kind
             .is_some_and(|kind| kind.0 == protocol::AgentKind::Hand);
-        let look = match (mayor || hand, housed, number) {
+        // A hire not yet housed is drawn by its id.
+        let hire = id.filter(|_| {
+            kind.is_some_and(|kind| {
+                kind.0 == protocol::AgentKind::Hire
+            })
+        });
+        let look = match (mayor || hand, housed, hire) {
             (true, ..) => keeper::Who::mayor(),
             (_, Some(housed), _) => {
                 keeper::Who::agent(housed.0.0 * 7 + 3)
             }
-            (_, None, Some(number)) => {
-                keeper::Who::agent(number.0 as u32 * 7 + 3)
+            (_, None, Some(id)) => {
+                keeper::Who::agent(id.0.0 as u32 * 7 + 3)
             }
             (_, None, None) => keeper::Who::agent(1),
         };

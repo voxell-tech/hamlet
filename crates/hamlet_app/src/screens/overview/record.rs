@@ -209,7 +209,7 @@ mod tests {
         state.deeds = hamlet_testing::realm::deeds(&["record"]);
         state
             .agents
-            .push(hamlet_testing::realm::agent(3, "home", 1));
+            .push(hamlet_testing::realm::agent(3, "home", false));
         hamlet_client::receive(
             app.world_mut(),
             protocol::ServerMessage::State(state.clone()),

@@ -95,7 +95,7 @@ fn recorded_approvals_join_the_founders_needs_until_closed() {
         "../../hamlet_protocol/frames/approval.jsonl"
     )) {
         receive(world, message);
-        let Some(founder) = named(world, "docs#0") else {
+        let Some(founder) = named(world, "hire#2") else {
             continue;
         };
         let open = world
@@ -172,11 +172,11 @@ fn snapshots_reconcile_by_identity_across_epochs_and_changes_only_advance_the_se
     let world = app.world_mut();
     let mut first = state();
     first.hamlets.push(hamlet("other", 3));
-    first.agents.push(agent(3, "other", 0));
+    first.agents.push(agent(3, "other", true));
     first.waits = vec![wait("kept"), wait("gone")];
     receive(world, protocol::ServerMessage::State(first.clone()));
-    let founder = named(world, "home#0").unwrap();
-    let scout = named(world, "other#0").unwrap();
+    let founder = named(world, "hire#2").unwrap();
+    let scout = named(world, "hire#3").unwrap();
     let home = world.get::<LivesIn>(founder).unwrap().0;
     let other = world.get::<LivesIn>(scout).unwrap().0;
     let wait_ids = world
@@ -282,7 +282,7 @@ fn streamed_words_only_change_saying_and_keep_relationship_order() {
     let mut state = state();
     state
         .agents
-        .push(hamlet_testing::realm::agent(3, "home", 1));
+        .push(hamlet_testing::realm::agent(3, "home", false));
     receive(world, protocol::ServerMessage::State(state.clone()));
     let founder = mayor_of(world, "home").unwrap();
     let home = world.get::<LivesIn>(founder).unwrap().0;

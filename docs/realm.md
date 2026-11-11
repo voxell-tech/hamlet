@@ -18,7 +18,7 @@ and `layout.rs` defines `Layout`. The server's chief is named by
 | `server.log` | Detached server's output, written by the CLI's process launch |
 | `scholars/<id>.git/` | Each scholar's repository, the Hand's included |
 | `hand/` | The Hand's lodge |
-| `hamlets/<hamlet>/<number>/` | A hire's lodge: `memory/`, `skills/` and `inbox/`, a checkout of its branch |
+| `hamlets/<hamlet id>/<hire id>/` | A hire's lodge: `memory/`, `skills/` and `inbox/`, a checkout of its branch |
 | `workers/<id>/` | A worker's scratch folder while it runs |
 | `library.git/`, `library/` | The library's repository, and its `main` checked out, read-only to agent tools |
 | `tools/` | Hand-added tool manifests and scripts |

@@ -20,14 +20,7 @@ pub(crate) enum Refusal {
          with no colon"
     )]
     BadName { name: String },
-    #[error(
-        "`{id}` is not a hamlet's name: use at most 32 lowercase \
-         letters, digits and hyphens"
-    )]
-    BadHamletId { id: String },
-    #[error("the hamlet name `{id}` was used before; choose another")]
-    HamletUsed { id: String },
-    #[error("no hamlet is named `{id}`")]
+    #[error("no hamlet has the id `{id}`")]
     NoHamlet { id: String },
     #[error("the hamlet `{id}` was removed; restore it first")]
     HamletRemoved { id: String },
@@ -39,8 +32,6 @@ pub(crate) enum Refusal {
     HamletFull { id: String, most: i64 },
     #[error("a hamlet's tier is 50, 100, 200 or 500 hires")]
     BadTier,
-    #[error("a hamlet's shown name may have at most 32 letters")]
-    LongTitle,
     #[error("no scholar has the address `{address}`")]
     NoScholar { address: String },
     #[error("`{name}` is another chief's scholar")]

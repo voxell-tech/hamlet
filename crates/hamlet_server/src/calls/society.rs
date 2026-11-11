@@ -55,7 +55,7 @@ fn object(properties: Value, required: &[&str]) -> Value {
 /// The society's tools as a model is offered them.
 pub(super) fn specs() -> Vec<ToolSpec> {
     let address = "An agent's address: `hand`, `mayor`, \
-                   `mayor@<hamlet>`, `<hamlet>#<n>` or \
+                   `mayor@<hamlet id>`, `hire#<id>` or \
                    `worker#<id>`.";
     let reason = "Why, in a sentence; the record keeps it.";
     // A call cut off by a crash may be asked again: its change is
@@ -280,11 +280,11 @@ pub(super) fn specs() -> Vec<ToolSpec> {
             "Found a hamlet with a scholar as its mayor.",
             object(
                 json!({
-                    "hamlet": string("Its id: lowercase letters, digits and hyphens."),
+                    "name": string("The name it is shown by: one line, up to 40 characters, no colon. Its id is made for it."),
                     "scholar": string("The address, `scholar#<id>`, of the scholar its mayor is a hire of."),
                     "purpose": string("What the hamlet is for.")
                 }),
-                &["hamlet", "scholar", "purpose"],
+                &["name", "scholar", "purpose"],
             ),
             safe.clone(),
         ),
@@ -620,7 +620,7 @@ impl Core {
                 self.agree_road(call, here.as_ref()).await?
             }
             "found_hamlet" => {
-                let id = HamletId(text(call, "hamlet"));
+                let name = text(call, "name");
                 let purpose = text(call, "purpose");
                 let task = self.task_of(call)?;
                 let db = self.realm.store().connection();
@@ -639,18 +639,21 @@ impl Core {
                         return Ok(Step::of(Err(refusal)));
                     }
                 };
-                let words = format!("Founded {id}.");
                 self.carry(call, |cx, _| {
-                    Ok(hamlets::found(
-                        cx,
-                        Founding {
-                            id,
-                            chief,
-                            mayor,
-                            purpose,
-                        },
-                    )?
-                    .map(|_| words))
+                    let founding = Founding {
+                        name: name.clone(),
+                        chief,
+                        mayor,
+                        purpose,
+                    };
+                    let hired = match hamlets::found(cx, founding)? {
+                        Ok(hired) => hired,
+                        Err(refusal) => return Ok(Err(refusal)),
+                    };
+                    Ok(Ok(format!(
+                        "Founded {name} (`{}`).",
+                        hired.hamlet
+                    )))
                 })
                 .await?
             }

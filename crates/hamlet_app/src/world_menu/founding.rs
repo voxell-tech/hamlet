@@ -37,23 +37,23 @@ impl Founding {
     /// The chief's command that founds it. None until its name and
     /// purpose are given.
     fn command(&self) -> Option<String> {
-        // A hamlet's name is lowercase letters and hyphens.
+        // The name ends at the colon, so it can hold none, nor a
+        // break.
         let name = self
             .name
-            .trim()
-            .to_lowercase()
+            .replace(':', " ")
             .split_whitespace()
             .collect::<Vec<_>>()
-            .join("-");
+            .join(" ");
         let purpose = self.purpose.trim();
         (!name.is_empty() && !purpose.is_empty()).then(|| match self
             .mayor
         {
             Some(mayor) => format!(
-                "/found {name} {} {purpose}",
+                "/found {} {name}: {purpose}",
                 scholar_address(mayor)
             ),
-            None => format!("/found {name} {purpose}"),
+            None => format!("/found {name}: {purpose}"),
         })
     }
 }
@@ -146,9 +146,7 @@ pub(super) fn founding(at: Vec2) -> impl View {
             ),
             description(resource::<Founding, _>(|f| {
                 match f.command() {
-                    Some(_) => "A name is kept as lowercase letters \
-                                and hyphens."
-                        .to_string(),
+                    Some(_) => String::new(),
                     None => "Its name and what it is for are needed."
                         .to_string(),
                 }
@@ -201,13 +199,13 @@ mod tests {
             .init_resource::<hamlet_realm::pick::AskedGround>();
         let mut state = realm::state();
         state.deeds = realm::deeds(&["found"]);
-        state.agents.push(realm::agent(3, "home", 1));
+        state.agents.push(realm::agent(3, "home", false));
         hamlet_client::receive(
             app.world_mut(),
             protocol::ServerMessage::State(state),
         );
         let scout =
-            hamlet_client::realm::named(app.world_mut(), "home#1")
+            hamlet_client::realm::named(app.world_mut(), "hire#3")
                 .unwrap();
         crate::convo::talk_to(app.world_mut(), scout);
         app.insert_resource(Founding {
@@ -233,7 +231,7 @@ mod tests {
         let [protocol::ClientMessage::Say(say)] = &sent[..] else {
             panic!("one founding: {sent:?}");
         };
-        assert_eq!(say.text, "/found mill scholar#2 Grinds flour");
+        assert_eq!(say.text, "/found scholar#2 mill: Grinds flour");
         assert_eq!(say.to, protocol::AgentId(1));
     }
 }

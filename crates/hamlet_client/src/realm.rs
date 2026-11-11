@@ -102,9 +102,9 @@ impl Default for Kind {
     }
 }
 
-/// A hire's number within its hamlet; zero is the mayor's hall.
-#[derive(Component, Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct AgentNumber(pub u64);
+/// An agent that is a hire, for queries that want only hires.
+#[derive(Component, Clone, Copy, Debug)]
+pub struct Hire;
 
 /// The agent a hire or worker answers to.
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
@@ -374,7 +374,7 @@ pub fn register(world: &mut World) {
     world.register_component::<Treasury>();
     world.register_component::<Identity>();
     world.register_component::<Kind>();
-    world.register_component::<AgentNumber>();
+    world.register_component::<Hire>();
     world.register_component::<Parent>();
     world.register_component::<OfScholar>();
     world.register_component::<Pin>();
@@ -733,7 +733,7 @@ fn upsert_agent(
     put(&mut agent, Identity(value.id));
     put(&mut agent, Kind(value.kind));
     put(&mut agent, Name::new(value.name));
-    optional(&mut agent, value.number.map(AgentNumber));
+    flag(&mut agent, value.kind == protocol::AgentKind::Hire, Hire);
     optional(&mut agent, value.parent.map(Parent));
     optional(&mut agent, value.scholar.map(OfScholar));
     optional(&mut agent, value.pin.clone().map(Pin));
@@ -1124,7 +1124,7 @@ mod tests {
         let mut realm = state();
         let world = app.world_mut();
         receive(world, protocol::ServerMessage::State(realm.clone()));
-        let ada = named(world, "home#0").unwrap();
+        let ada = named(world, "hire#2").unwrap();
         assert_eq!(shown_of(world, ada), "ada");
         realm.revision = 1;
         realm.scholars[0].name = "Ada Lovelace".into();
@@ -1134,7 +1134,7 @@ mod tests {
         realm.agents[1].nickname = Some("Countess".into());
         receive(world, protocol::ServerMessage::State(realm));
         assert_eq!(shown_of(world, ada), "Countess");
-        assert_eq!(named(world, "home#0"), Some(ada));
+        assert_eq!(named(world, "hire#2"), Some(ada));
     }
 
     #[test]
@@ -1143,8 +1143,8 @@ mod tests {
         let mut app = App::new();
         app.add_plugins(ClientPlugin { server: None });
         let mut realm = state();
-        realm.agents.push(agent(3, "home", 1));
-        realm.agents.push(agent(4, "home", 2));
+        realm.agents.push(agent(3, "home", false));
+        realm.agents.push(agent(4, "home", false));
         let ada = protocol::AgentId(2);
         realm.hamlets[0].roads = vec![
             road(ada, protocol::AgentId(3), 0),
@@ -1152,7 +1152,7 @@ mod tests {
         ];
         let world = app.world_mut();
         receive(world, protocol::ServerMessage::State(realm.clone()));
-        let [ada, scout, miner] = ["home#0", "home#1", "home#2"]
+        let [ada, scout, miner] = ["hire#2", "hire#3", "hire#4"]
             .map(|name| named(world, name).unwrap());
         assert_eq!(roads_of(world, ada).count(), 2);
         realm.agents[2].left = Some(protocol::Left {

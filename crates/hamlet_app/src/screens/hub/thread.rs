@@ -1063,7 +1063,7 @@ mod tests {
         );
     }
 
-    /// The Hub on `home#0`, with her details open.
+    /// The Hub on `hire#2`, with her details open.
     fn ada_app() -> App {
         let mut app = hub_app();
         let ada = crate::testing::seat_ada(&mut app);
@@ -1304,13 +1304,13 @@ mod tests {
         let mut state = hamlet_testing::realm::state();
         state
             .agents
-            .push(hamlet_testing::realm::agent(3, "home", 1));
+            .push(hamlet_testing::realm::agent(3, "home", false));
         hamlet_client::receive(
             app.world_mut(),
             protocol::ServerMessage::State(state),
         );
         let agent =
-            hamlet_client::realm::named(app.world_mut(), "home#1")
+            hamlet_client::realm::named(app.world_mut(), "hire#3")
                 .unwrap();
         let to = protocol::AgentId(3);
         let session = app
@@ -1325,7 +1325,7 @@ mod tests {
         let mut convo = app.world_mut().resource_mut::<Convo>();
         convo.agent = agent;
         convo.session = session;
-        convo.with = Some("home#1".into());
+        convo.with = Some("hire#3".into());
         app.update();
     }
 
@@ -1376,7 +1376,7 @@ mod tests {
         let mut state = hamlet_testing::realm::state();
         state
             .agents
-            .push(hamlet_testing::realm::agent(3, "home", 1));
+            .push(hamlet_testing::realm::agent(3, "home", false));
         state.agents[1].conversations =
             serde_json::from_value(json!([
                 {"with":3,"kind":"letters","count":2,"last":1000},
@@ -1400,8 +1400,8 @@ mod tests {
             names,
             [
                 "Session",
-                "Letters with home#1",
-                "Questions with home#1"
+                "Letters with hire#3",
+                "Questions with hire#3"
             ]
         );
         assert_eq!(now, 0);
@@ -1420,7 +1420,7 @@ mod tests {
             receive(
                 &mut app,
                 json!({"type":"transcript","chat":chat,"items":[
-                    {"id":"1:0","at":1,"kind":"user","text":"Question","author":"home#1"},
+                    {"id":"1:0","at":1,"kind":"user","text":"Question","author":"hire#3"},
                     {"id":"2:0","at":2,"kind":"assistant","text":"Answer"}
                 ], "earlier":"1:0","last":null,"working":true,"pending":0,"usage":{
                     "input":0,"output":0,"cached":0,"calls":0,"lastInput":0,"reasoning":0,"unreported":0,"summary":"","micros":0,"ms":0

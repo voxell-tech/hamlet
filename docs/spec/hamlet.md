@@ -41,8 +41,8 @@ chief is talking to.
 | `/stop [address\|all]` | Stop an agent's work, or all agents' (H23) |
 | `/queue`, `/allow`, `/always`, `/deny`, `/go`, `/withdraw`, `/reply`, `/dismiss` | Answer what waits (H11, H10) |
 | `/grants`, `/revoke <address> <network\|unconfined>` | The lasting permissions, and taking one back |
-| `/hamlets`, `/found <hamlet> [scholar#id] [purpose]` | List hamlets, or found one with a scholar as its mayor, a new scholar named Mayor by default (H6) |
-| `/name-hamlet <hamlet> [name]`, `/move-hamlet <hamlet> <x> <z>` | Give a hamlet a name to be shown by, or set it down elsewhere on the hamlet island (H32) |
+| `/hamlets`, `/found [scholar#id] <name>[: purpose]` | List hamlets with their ids, or found one named `<name>` with a scholar as its mayor, a new scholar named Mayor by default (H6, H36) |
+| `/name-hamlet <hamlet> <name>`, `/move-hamlet <hamlet> <x> <z>` | Give a hamlet another name to be shown by, or set it down elsewhere on the hamlet island (H32) |
 | `/remove-hamlet <hamlet> [reason]`, `/restore-hamlet <hamlet> [reason]`, `/erase-hamlet <hamlet>` | Remove, restore or permanently erase a hamlet (H19, H20) |
 | `/tier <50\|100\|200\|500>` | Set how many hires the hamlet holds (H40) |
 | `/mayor <address> <reason>` | Give the hamlet's office to another hire (H18) |
@@ -176,9 +176,11 @@ answers to the chief who founded it, or, when the Hand founds it, to the
 chief whose task the Hand works on (C7). A hamlet has a tier, its most hires:
 50, 100, 200 or 500, which a chief raises (H40).
 
-**H36.** A hamlet's ID is lowercase letters, digits and hyphens, at most 32,
-and is never reused, even after the hamlet is erased. Its spend and records
-belong only to it.
+**H36.** A hamlet's ID is a UUID made when it is founded, never reused, even
+after the hamlet is erased; commands and tools name a hamlet by it. A hamlet
+also always has a name, given when it is founded: a label that may repeat and
+never finds the hamlet, and the only thing the window shows it by. Its spend
+and records belong only to it.
 
 **H27.** The mayor is the hire at the root of a hamlet's tree, and the address
 `mayor` reaches whoever holds the office. The mayor is the lead of the whole
@@ -406,10 +408,10 @@ costing at most a cap [$0.20].
   (`agree_road`), and only while the realm allows such roads [yes].
 - A scholar's name is a label and need not be unique (C10). An agent is
   reached by an address: `hand`; `mayor`, which is the local office, and
-  `mayor@<hamlet>`; `<hamlet>#<n>`, hire number `n` of that hamlet, the
-  mayor being 0; and `worker#<id>`. A scholar is `scholar#<id>`. No name
-  finds an agent or a scholar. Wherever an agent is shown, its address comes
-  first and its name beside it, as `docs#3 (Mira)`.
+  `mayor@<hamlet id>`; `hire#<id>`; and `worker#<id>`. A scholar is
+  `scholar#<id>`. No name finds an agent or a scholar. Wherever an agent is
+  shown, its address comes first and its name beside it, as
+  `hire#3 (Mira)`.
 - A message between hamlets is paid for by the sender's hamlet.
 
 The chiefs of each hamlet concerned are told, in their conversation with its
@@ -422,9 +424,9 @@ branches stay, archived with its record, with its tree kept so that restoring
 the hamlet (H20) brings them back. Erasing it deletes the lodges and the
 hires' branches. No hamlet is special: any can be removed.
 
-**H32.** A chief can give a hamlet a name to be shown by, while its ID stays
-for commands, and set the hamlet down elsewhere on the hamlet island. It can
-also set a scholar's house down elsewhere in the city.
+**H32.** A chief can give a hamlet another name to be shown by, while its ID
+stays for commands, and set the hamlet down elsewhere on the hamlet island.
+It can also set a scholar's house down elsewhere in the city.
 
 ## The library
 
