@@ -7,22 +7,24 @@ use bevy::ui::{
     RadialGradient, RadialGradientShape, UiPosition, UiRect, percent,
     px,
 };
-use bevy_fynix::tokens::Tone;
+use bevy_fynix::tokens::{Motion, Tone};
 use bevy_fynix::views::{
     self, BehaviorExt, FrameProps, column, frame, label, overlay,
     row, text_field,
 };
-use bevy_fynix::{ScopedExt, ViewExt, derived, keyed, resource};
+use bevy_fynix::{
+    ScopedExt, ViewExt, derived, keyed, resource, style,
+};
 use hamlet_client::realm::{Providers, Settings};
 use hamlet_protocol::client as protocol;
 use hamlet_ui::markdown::{Face, Ink, Span, Style, Target, rich};
 use hamlet_ui::styles::{
-    self, CONTROL, ICON, Looks, back, bare, card_choice,
-    close_button, command, description, good_action, group, hairline,
-    headed, lettered, marked, note, parts, scroll_area, small_rules,
+    self, CONTROL, ICON, Looks, back, bare, close_button, command,
+    description, good_action, group, hairline, headed, lettered,
+    marked, note, parts, scroll_area, section, small_rules,
     text_input,
 };
-use hamlet_ui::theme::Palette;
+use hamlet_ui::theme::{HamletTheme, Palette};
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::hint::hinted;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
@@ -143,9 +145,12 @@ pub(super) fn card(
             hairline(line),
             column((body,)).gap(space.gap).padding(pad),
             hairline(line),
+            // Its buttons stretch to its height, so each stands
+            // taller than one in a panel.
             row(foot)
                 .gap(8.0)
-                .align(AlignItems::Center)
+                .align(AlignItems::Stretch)
+                .min_height(px(FOOT + 2.0 * space.section))
                 .justify(JustifyContent::FlexEnd)
                 .padding(UiRect::axes(
                     px(space.overlay_padding),
@@ -158,9 +163,13 @@ pub(super) fn card(
     .boxed()
 }
 
-/// The steps of setup in a track, each numbered, the step `at` lit
-/// and those before it checked: two while a provider is added, as
-/// its models go to Settings, else three.
+/// The side of a step's disc in the track.
+const DISC: f32 = 24.0;
+
+/// The steps of setup as a trail, each a numbered waypoint joined to
+/// the next by a path: the step `at` lit in the accent, those before
+/// it checked and the path walked so far gold. Two while a provider
+/// is added, as its models go to Settings, else three.
 fn track(at: usize) -> AnyView {
     keyed(
         resource::<Welcome, _>(|welcome| welcome.adding),
@@ -174,67 +183,76 @@ fn track(at: usize) -> AnyView {
                 let theme = cx.theme();
                 let space = &theme.space;
                 let palette = &theme.palette;
-                let steps = names
-                    .iter()
-                    .enumerate()
-                    .map(|(index, name)| {
-                        let number = index + 1;
-                        let lit = number == at;
-                        let tone = if lit {
-                            Tone::Body
-                        } else {
-                            Tone::Faint
-                        };
-                        let inside = if number < at {
-                            glyph(Glyph::Check, 11.0)
-                                .tone(tone)
-                                .boxed()
-                        } else {
-                            label(number.to_string())
-                                .size(theme.text.small)
-                                .bold(true)
-                                .tone(tone)
-                                .boxed()
-                        };
-                        let disc = column((inside,))
-                            .width(px(22.0))
-                            .height(px(22.0))
-                            .shrink(0.0)
-                            .radius(11.0)
-                            .border(space.border)
-                            .border_color(if lit {
-                                palette.accent
+                let mut trail = Vec::new();
+                for (index, name) in names.iter().enumerate() {
+                    let number = index + 1;
+                    if index > 0 {
+                        let walked = number <= at;
+                        trail.push(
+                            frame()
+                                .grow(1.0)
+                                .min_width(px(24.0))
+                                .height(px(space.border))
+                                .fill(if walked {
+                                    palette.accent
+                                } else {
+                                    palette.gold_6
+                                })
+                                .boxed(),
+                        );
+                    }
+                    let (lit, done) = (number == at, number < at);
+                    let inside = if done {
+                        glyph(Glyph::Check, 12.0)
+                            .tone(Tone::Accent)
+                            .boxed()
+                    } else {
+                        label(number.to_string())
+                            .size(theme.text.small)
+                            .bold(lit)
+                            .tone(if lit {
+                                Tone::OnAccent
                             } else {
-                                palette.gold_5
+                                Tone::Faint
                             })
-                            .align(AlignItems::Center)
-                            .justify(JustifyContent::Center);
+                            .boxed()
+                    };
+                    let disc = column((inside,))
+                        .width(px(DISC))
+                        .height(px(DISC))
+                        .shrink(0.0)
+                        .radius(DISC / 2.0)
+                        .fill(if lit {
+                            palette.accent
+                        } else {
+                            palette.button
+                        })
+                        .border(space.border)
+                        .border_color(if lit || done {
+                            palette.accent
+                        } else {
+                            palette.gold_6
+                        })
+                        .align(AlignItems::Center)
+                        .justify(JustifyContent::Center);
+                    trail.push(
                         row((
                             disc,
-                            label(*name).tone(tone).wrap(false),
+                            label(*name)
+                                .tone(if lit {
+                                    Tone::Body
+                                } else {
+                                    Tone::Faint
+                                })
+                                .wrap(false),
                         ))
                         .gap(8.0)
                         .align(AlignItems::Center)
-                        .padding(UiRect::axes(px(12.0), px(6.0)))
-                        .radius(space.round)
-                        .grow(1.0)
-                        .width(px(0.0))
-                        .min_width(px(0.0))
-                        .fill(if lit {
-                            palette.selected
-                        } else {
-                            Color::NONE
-                        })
-                        .boxed()
-                    })
-                    .collect::<Vec<_>>();
-                row(steps)
-                    .gap(space.track_padding)
-                    .padding(UiRect::all(px(space.track_padding)))
-                    .fill(palette.input)
-                    .border(space.border)
-                    .border_color(palette.gold_5)
-                    .radius(space.track_radius)
+                        .shrink(0.0)
+                        .boxed(),
+                    );
+                }
+                row(trail).gap(12.0).align(AlignItems::Center)
             })
             .boxed()
         },
@@ -287,36 +305,121 @@ fn face(tile: &Tile, size: f32) -> AnyView {
     }
 }
 
+/// How tall a tile is at least.
+const TILE_TALL: f32 = 52.0;
+
+/// How tall the buttons at a page's foot are.
+const FOOT: f32 = 36.0;
+
+/// The side of the disc that checks the picked tile.
+const CHECKED: f32 = 20.0;
+
+/// How a provider's tile stands: a shade above the card in a faint
+/// frame, ringed in the accent and washed toward the glow while it
+/// is `picked`. The frame keeps its width, so a tile keeps its size.
+fn tile_rules(picked: bool) -> impl FnOnce(&mut Cx) + Send + Sync {
+    move |cx| {
+        style::<HamletTheme>()
+            .frame(move |f, t| {
+                let palette = &t.palette;
+                f.fill(if picked {
+                    palette.button.mix(&palette.glow, PICKED_WASH)
+                } else {
+                    palette.button
+                })
+                .border(t.space.border)
+                .border_color(if picked {
+                    palette.accent
+                } else {
+                    palette.gold_6
+                })
+                .radius(t.space.round_card)
+                .padding(UiRect::axes(
+                    px(t.space.card_padding_x),
+                    px(t.space.card_padding_y),
+                ))
+            })
+            .hovered(|s| {
+                s.frame(move |f, t| match picked {
+                    true => f,
+                    false => f.fill(t.palette.button_hover),
+                })
+            })
+            .transition(Motion::Interact)
+            .apply(cx);
+    }
+}
+
+/// How far a picked tile's fill goes toward the glow.
+const PICKED_WASH: f32 = 0.12;
+
 /// A provider as a tile to pick, checked while it is the one picked.
 fn tile(tile: &Tile, picked: bool) -> AnyView {
     let check = if picked {
-        glyph(Glyph::Check, ICON).tone(Tone::Accent).boxed()
+        with_cx(|cx| {
+            column((glyph(Glyph::Check, 12.0).tone(Tone::OnAccent),))
+                .width(px(CHECKED))
+                .height(px(CHECKED))
+                .radius(CHECKED / 2.0)
+                .fill(cx.theme().palette.accent)
+                .align(AlignItems::Center)
+                .justify(JustifyContent::Center)
+        })
+        .boxed()
     } else {
-        frame().boxed()
+        frame().height(px(CHECKED)).boxed()
     };
     let pick = tile.pick.clone();
-    views::button(
-        row((
-            face(tile, MARK),
-            label(tile.name.clone()).bold(true).wrap(false),
-            frame().grow(1.0),
-            check,
-        ))
-        .gap(TILE_GAP)
-        .align(AlignItems::Center)
-        .width(percent(100.0)),
-    )
-    .grow(1.0)
-    .width(px(0.0))
-    .min_width(px(0.0))
-    .rules(card_choice(picked))
-    .on_activate(move |world| {
-        world.resource_mut::<Welcome>().picked = Some(pick.clone());
+    let words = row((
+        face(tile, MARK),
+        label(tile.name.clone()).wrap(false),
+        frame().grow(1.0),
+        check,
+    ))
+    .gap(TILE_GAP)
+    .align(AlignItems::Center)
+    .width(percent(100.0));
+    with_cx(move |cx| {
+        // The picked tile is lit from its foot, as a lit tab is.
+        let lit = match picked {
+            true => lamp(&cx.theme().palette),
+            false => BackgroundGradient(Vec::new()),
+        };
+        views::button(words)
+            .grow(1.0)
+            .width(px(0.0))
+            .min_width(px(0.0))
+            .min_height(px(TILE_TALL))
+            .rules(tile_rules(picked))
+            .tagged(lit)
+            .on_activate(move |world| {
+                world.resource_mut::<Welcome>().picked =
+                    Some(pick.clone());
+            })
     })
     .boxed()
 }
 
-/// The tiles shown, two to a row.
+/// `tiles` two to a row, the one `picked` checked.
+fn grid(tiles: &[Tile], picked: Option<&Pick>) -> AnyView {
+    let rows = tiles
+        .chunks(2)
+        .map(|pair| {
+            let mut cells = pair
+                .iter()
+                .map(|shown| tile(shown, picked == Some(&shown.pick)))
+                .collect::<Vec<_>>();
+            // A lone last tile keeps to its half.
+            if cells.len() == 1 {
+                cells.push(frame().grow(1.0).width(px(0.0)).boxed());
+            }
+            row(cells).gap(TILE_GAP).boxed()
+        })
+        .collect::<Vec<_>>();
+    column(rows).gap(TILE_GAP).boxed()
+}
+
+/// The tiles shown, grouped by the way to each.
 fn tiles() -> AnyView {
     keyed(
         derived(|world: &World| {
@@ -325,35 +428,31 @@ fn tiles() -> AnyView {
             if !welcome.more {
                 tiles.truncate(providers::FEW);
             }
-            (tiles, super::picked(world))
+            let seeking = !welcome.seek.trim().is_empty();
+            (tiles, super::picked(world), seeking)
         })
         .when(either(moved::<Welcome>(), moved::<Providers>())),
-        |(tiles, picked)| {
+        |(tiles, picked, seeking)| {
             if tiles.is_empty() {
                 return said("No providers found. Try another name.");
             }
-            let rows = tiles
-                .chunks(2)
-                .map(|pair| {
-                    let mut cells = pair
-                        .iter()
-                        .map(|shown| {
-                            tile(
-                                shown,
-                                picked.as_ref() == Some(&shown.pick),
-                            )
-                        })
-                        .collect::<Vec<_>>();
-                    // A lone last tile keeps to its half.
-                    if cells.len() == 1 {
-                        cells.push(
-                            frame().grow(1.0).width(px(0.0)).boxed(),
-                        );
-                    }
-                    row(cells).gap(TILE_GAP).boxed()
+            let picked = picked.as_ref();
+            // A search ranks the tiles, so they stand as one group.
+            if *seeking {
+                return grid(tiles, picked);
+            }
+            let groups = tiles
+                .chunk_by(|one, next| one.way == next.way)
+                .map(|group| {
+                    column((
+                        section(group[0].way.heading()),
+                        grid(group, picked),
+                    ))
+                    .gap(8.0)
+                    .boxed()
                 })
                 .collect::<Vec<_>>();
-            column(rows).gap(TILE_GAP).boxed()
+            column(groups).gap(16.0).boxed()
         },
     )
     .within(bare())
@@ -366,18 +465,19 @@ fn providers_shown() -> AnyView {
         if !*more {
             return column((
                 tiles(),
-                row((views::button(headed(
-                    glyph(Glyph::Chevron, ICON).rotation(180.0),
-                    label("Show more").wrap(false),
-                ))
-                // Less on the chevron's side, which has air of its
-                // own.
-                .padding(UiRect::new(
-                    px(10.0),
-                    px(13.0),
-                    px(0.0),
-                    px(0.0),
-                ))
+                row((views::button(
+                    row((
+                        label("Show more")
+                            .tone(Tone::Faint)
+                            .wrap(false),
+                        glyph(Glyph::Chevron, 12.0)
+                            .rotation(180.0)
+                            .tone(Tone::Faint),
+                    ))
+                    .gap(6.0)
+                    .align(AlignItems::Center),
+                )
+                .padding(UiRect::axes(px(8.0), px(0.0)))
                 .min_height(px(CONTROL))
                 .variant(Variant::Text)
                 .on_activate(|world| {
@@ -757,9 +857,11 @@ fn screen() -> AnyView {
     .boxed()
 }
 
-/// How far the warmth at the middle of the first-run ground goes
-/// from the bottom glow toward the lamp's glow.
-const WARMTH: f32 = 0.14;
+/// How strong the warmth at the middle of the first-run ground is.
+const WARMTH: f32 = 0.12;
+
+/// How much of the realm the first-run veil hides.
+const VEIL: f32 = 0.6;
 
 /// How much of the desk a dimming scrim hides.
 const DIM: f32 = 0.85;
@@ -793,13 +895,13 @@ fn lamp(palette: &Palette) -> BackgroundGradient {
 fn over(cx: &Cx, page: AnyView, dims: bool) -> impl View + use<> {
     let theme = cx.theme();
     let space = &theme.space;
-    // Opaque by default: colours mix in linear light, so a scrim
-    // thin enough to show the realm leaves its words readable behind
-    // the card. Dimmed, the desk is meant to be seen, not read.
-    let scrim = match dims {
-        true => theme.palette.shadow.with_alpha(DIM),
-        false => theme.background(),
-    };
+    // First run veils the realm thinly, so it shows around the card;
+    // a desk behind is dimmed further, as its words would compete.
+    let scrim = theme.palette.shadow.with_alpha(if dims {
+        DIM
+    } else {
+        VEIL
+    });
     // The page pads its own parts, so its rules run edge to edge.
     let card =
         kinds::card((scroll_area((column((page,)).gap(0.0),)),))
@@ -818,9 +920,8 @@ fn over(cx: &Cx, page: AnyView, dims: bool) -> impl View + use<> {
         .max_width(px(space.overlay_width))
         .max_height(percent(100.0))
         .gap(0.0);
-    // First run pools a lamp's warmth behind the card, fading to the
-    // window's own colour at its edges. Dimmed, the card carries its
-    // own lamp instead.
+    // First run pools a lamp's warmth behind the card, fading out at
+    // its edges. Dimmed, the card carries its own lamp instead.
     let palette = &theme.palette;
     let ground = match dims {
         true => BackgroundGradient(Vec::new()),
@@ -832,11 +933,10 @@ fn over(cx: &Cx, page: AnyView, dims: bool) -> impl View + use<> {
             ),
             vec![
                 ColorStop::new(
-                    palette.bottom_glow.mix(&palette.glow, WARMTH),
+                    palette.glow.with_alpha(WARMTH),
                     percent(0.0),
                 ),
-                ColorStop::new(palette.bottom_glow, percent(45.0)),
-                ColorStop::new(scrim, percent(100.0)),
+                ColorStop::new(Color::NONE, percent(100.0)),
             ],
         )),
     };

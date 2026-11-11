@@ -157,6 +157,29 @@ pub(crate) struct Tile {
     /// The provider whose mark it shows; none for this computer.
     pub mark: Option<String>,
     pub name: String,
+    pub way: Way,
+}
+
+/// How a tile's provider is reached, which groups the tiles.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Way {
+    /// With no key: a plan signed in to, or this computer.
+    Keyless,
+    /// A popular provider, with a key.
+    Key,
+    /// Every other provider.
+    Other,
+}
+
+impl Way {
+    /// The heading over its tiles.
+    pub(crate) fn heading(self) -> &'static str {
+        match self {
+            Self::Keyless => "No key needed",
+            Self::Key => "With an API key",
+            Self::Other => "More providers",
+        }
+    }
 }
 
 /// The provider step's tiles: the plans, this computer and the
@@ -171,28 +194,32 @@ pub(crate) fn tiles(world: &World) -> Vec<Tile> {
             provider.id == id && provider.methods.contains(&method)
         })
     };
-    let tile = |provider: &protocol::ProviderView| Tile {
-        pick: Pick::Provider(provider.id.clone()),
-        mark: Some(provider.id.clone()),
-        name: provider.name.clone(),
+    let tile = |way| {
+        move |provider: &protocol::ProviderView| Tile {
+            pick: Pick::Provider(provider.id.clone()),
+            mark: Some(provider.id.clone()),
+            name: provider.name.clone(),
+            way,
+        }
     };
     let mut all = PLANS
         .iter()
         .filter_map(|id| {
             offered(id, protocol::LoginMethod::Subscription)
         })
-        .map(tile)
+        .map(tile(Way::Keyless))
         .collect::<Vec<_>>();
     all.push(Tile {
         pick: Pick::Local,
         mark: None,
         name: "This computer".into(),
+        way: Way::Keyless,
     });
     all.extend(
         POPULAR
             .iter()
             .filter_map(|id| offered(id, protocol::LoginMethod::Key))
-            .map(tile),
+            .map(tile(Way::Key)),
     );
     let mut rest = providers
         .iter()
@@ -203,7 +230,7 @@ pub(crate) fn tiles(world: &World) -> Vec<Tile> {
                     shown.pick == Pick::Provider(provider.id.clone())
                 })
         })
-        .map(tile)
+        .map(tile(Way::Other))
         .collect::<Vec<_>>();
     rest.sort_by_key(|shown| shown.name.to_lowercase());
     all.extend(rest);
