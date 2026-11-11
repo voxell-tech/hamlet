@@ -179,10 +179,9 @@ pub(super) fn card(
 /// The side of a step's disc in the track.
 const DISC: f32 = 24.0;
 
-/// The steps of setup as a trail, each a numbered waypoint joined to
-/// the next by a path: the step `at` lit in the accent, those before
-/// it checked and the path walked so far gold. Two while a provider
-/// is added, as its models go to Settings, else three.
+/// The steps of setup as a trail of numbered waypoints, the step `at`
+/// lit and those before it checked. Two while a provider is added, as
+/// its models go to Settings, else three.
 fn track(at: usize) -> AnyView {
     keyed(
         resource::<Welcome, _>(|welcome| welcome.adding),
@@ -313,7 +312,6 @@ const MARK: f32 = 18.0;
 /// the search finds.
 const TALL: f32 = 296.0;
 
-/// The space between the tiles.
 const TILE_GAP: f32 = 12.0;
 
 /// A tile's face: the provider's mark, or a chip for this computer.
@@ -324,7 +322,6 @@ fn face(tile: &Tile, size: f32) -> AnyView {
     }
 }
 
-/// How tall a tile is at least.
 const TILE_TALL: f32 = 52.0;
 
 /// How tall the buttons at a page's foot are.
@@ -333,10 +330,9 @@ const FOOT: f32 = 36.0;
 /// The side of the disc that checks the picked tile.
 const CHECKED: f32 = 20.0;
 
-/// How a provider's tile stands over a default button's look: its
-/// room left to the row inside, and while it is `picked`, ringed in
-/// the accent with its words lit. The frame keeps its width, so a
-/// tile keeps its size.
+/// A provider tile's look over a default button's: its room left to
+/// the row inside, and while it is `picked`, ringed in the accent
+/// with its words lit.
 fn tile_rules(picked: bool) -> impl FnOnce(&mut Cx) + Send + Sync {
     move |cx| {
         let mut rules = style::<HamletTheme>()
@@ -377,13 +373,9 @@ fn tile(tile: &Tile, picked: bool) -> AnyView {
     let name = tile.name.clone();
     with_cx(move |cx| {
         let space = &cx.theme().space;
-        // Washed from the left while picked, and less under the
-        // pointer, as a row of the Hub's rail is. The wash is on the
-        // row that fills the tile, as the button's own gradient is
-        // its glow; the row is under the pointer wherever it is on
-        // the tile, its words too. A clip is a rectangle whatever the
-        // corners, so the row is rounded itself, to the inside of the
-        // tile's border.
+        // Washed as a row of the Hub's rail is. The wash is on the
+        // row, as the button's own gradient is its glow, and the row
+        // rounds itself to the border, as a clip is a rectangle.
         let words = row((
             face,
             label(name).wrap(false),

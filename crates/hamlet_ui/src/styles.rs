@@ -235,8 +235,7 @@ pub fn filling() -> Stack<()> {
 }
 
 /// How thick a line drawn in a view is, in pixels: a rule, a guide or
-/// a tree's branch. As thick as the theme's borders and dividers, so
-/// every stroke in the panels is one weight.
+/// a tree's branch.
 pub const LINE: f32 = 2.0;
 
 /// A line [`LINE`] thick, of `colour`.

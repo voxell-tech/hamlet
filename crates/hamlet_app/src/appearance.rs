@@ -145,8 +145,7 @@ fn scale(zoom: Res<Zoom>, mut commands: Commands) {
 pub struct LessMotion(pub Option<bool>);
 
 impl LessMotion {
-    /// Whether motion is reduced: as the chief said, else reduced,
-    /// so nothing moves until the chief asks for it.
+    /// Whether motion is reduced: as the chief said, else reduced.
     pub fn is_reduced(self) -> bool {
         self.0.unwrap_or(true)
     }
