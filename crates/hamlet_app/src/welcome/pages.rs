@@ -1,11 +1,9 @@
 //! The pages of first-run setup.
 
-use bevy::color::{Alpha, Mix};
+use bevy::color::Alpha;
 use bevy::ecs::world::World;
 use bevy::ui::{
-    AlignItems, BackgroundGradient, ColorStop, JustifyContent,
-    Overflow, RadialGradient, RadialGradientShape, UiPosition,
-    UiRect, percent, px,
+    AlignItems, JustifyContent, Overflow, UiRect, percent, px,
 };
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
@@ -24,9 +22,9 @@ use hamlet_ui::styles::{
     marked, note, parts, scroll_area, section, small_rules,
     text_input,
 };
-use hamlet_ui::theme::{HamletTheme, Palette};
+use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::edges::faded;
-use hamlet_ui::widgets::effects::Variant;
+use hamlet_ui::widgets::effects::{Edge, Variant, Wash};
 use hamlet_ui::widgets::hint::hinted;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::{AnyView, Cx, View, built, kinds, rules, with_cx};
@@ -336,36 +334,28 @@ const FOOT: f32 = 36.0;
 const CHECKED: f32 = 20.0;
 
 /// How a provider's tile stands over a default button's look: a
-/// card's corner and room, and while it is `picked`, ringed in the
-/// accent, washed toward the glow and its words lit. The frame keeps
+/// card's corner, its room left to the row inside, and while it is
+/// `picked`, ringed in the accent with its words lit. The frame keeps
 /// its width, so a tile keeps its size.
 fn tile_rules(picked: bool) -> impl FnOnce(&mut Cx) + Send + Sync {
     move |cx| {
         let mut rules = style::<HamletTheme>().frame(move |f, t| {
-            f.radius(t.space.round_card).padding(UiRect::axes(
-                px(t.space.card_padding_x),
-                px(t.space.card_padding_y),
-            ))
+            f.radius(t.space.round_card).padding(UiRect::all(px(0.0)))
         });
         if picked {
-            let lit = |f: Frame, t: &HamletTheme| {
-                let palette = &t.palette;
-                f.fill(palette.button.mix(&palette.glow, PICKED_WASH))
-                    .border_color(palette.accent)
+            let ringed = |f: Frame, t: &HamletTheme| {
+                f.border_color(t.palette.accent)
             };
             rules = rules
-                .frame(lit)
+                .frame(ringed)
                 .label(|l, _| l.tone(Tone::Body))
                 .icon(|i, _| i.tone(Tone::Body))
-                .hovered(|s| s.frame(lit))
-                .pressed(|s| s.frame(lit));
+                .hovered(|s| s.frame(ringed))
+                .pressed(|s| s.frame(ringed));
         }
         rules.apply(cx);
     }
 }
-
-/// How far a picked tile's fill goes toward the glow.
-const PICKED_WASH: f32 = 0.12;
 
 /// A provider as a tile to pick, checked while it is the one picked.
 fn tile(tile: &Tile, picked: bool) -> AnyView {
@@ -384,29 +374,35 @@ fn tile(tile: &Tile, picked: bool) -> AnyView {
         frame().height(px(CHECKED)).boxed()
     };
     let pick = tile.pick.clone();
-    let words = row((
-        face(tile, MARK),
-        label(tile.name.clone()).wrap(false),
-        frame().grow(1.0),
-        check,
-    ))
-    .gap(TILE_GAP)
-    .align(AlignItems::Center)
-    .width(percent(100.0));
+    let face = face(tile, MARK);
+    let name = tile.name.clone();
     with_cx(move |cx| {
-        // The picked tile is lit from its foot, as a lit tab is.
-        let lit = match picked {
-            true => lamp(&cx.theme().palette),
-            false => BackgroundGradient(Vec::new()),
-        };
+        let space = &cx.theme().space;
+        // Washed from the left while picked, and less under the
+        // pointer, as a row of the Hub's rail is. The wash is on the
+        // row inside, as the button's own gradient is its glow.
+        let words = row((
+            face,
+            label(name).wrap(false),
+            frame().grow(1.0),
+            check,
+        ))
+        .gap(TILE_GAP)
+        .align(AlignItems::Center)
+        .width(percent(100.0))
+        .min_height(px(TILE_TALL))
+        .padding(UiRect::axes(
+            px(space.card_padding_x),
+            px(space.card_padding_y),
+        ))
+        .radius(space.round_card)
+        .tagged(Wash::new(picked, Edge::Left));
         views::button(words)
             .grow(1.0)
             .width(px(0.0))
             .min_width(px(0.0))
-            .min_height(px(TILE_TALL))
             .variant(Variant::Default)
             .rules(tile_rules(picked))
-            .tagged(lit)
             .on_activate(move |world| {
                 world.resource_mut::<Welcome>().picked =
                     Some(pick.clone());
@@ -867,31 +863,7 @@ fn screen() -> AnyView {
 /// first run, a desk while a provider is added.
 const VEIL: f32 = 0.7;
 
-/// How strong the lamp at the foot of the card is.
-const LAMP: f32 = 0.16;
-
-/// Lamplight rising from the foot of a card, as it rises from a
-/// lit tab's.
-fn lamp(palette: &Palette) -> BackgroundGradient {
-    let glow = |strength: f32, at: f32| {
-        ColorStop::new(
-            palette.glow.with_alpha(LAMP * strength),
-            percent(at),
-        )
-    };
-    BackgroundGradient::from(RadialGradient::new(
-        UiPosition::BOTTOM,
-        RadialGradientShape::Ellipse(percent(75.0), percent(55.0)),
-        vec![
-            glow(1.0, 0.0),
-            glow(0.5, 30.0),
-            glow(0.15, 65.0),
-            glow(0.0, 100.0),
-        ],
-    ))
-}
-
-/// The card, lit from its foot, over a veil on whatever is behind.
+/// The card over a veil on whatever is behind.
 fn over(cx: &Cx, page: AnyView) -> impl View + use<> {
     let theme = cx.theme();
     let space = &theme.space;
@@ -903,7 +875,6 @@ fn over(cx: &Cx, page: AnyView) -> impl View + use<> {
         .padding(UiRect::all(px(0.0)))
         .gap(0.0)
         .tagged(theme.shadow())
-        .tagged(lamp(&theme.palette))
         .rules(rules::floating);
     let hung = column((card,))
         .width(percent(100.0))
