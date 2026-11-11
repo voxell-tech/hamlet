@@ -45,7 +45,7 @@ use bevy_fynix::views::{
     BehaviorExt, Frame, FrameProps, column, label, overlay, row,
     text_field,
 };
-use bevy_fynix::{ScopedExt, resource, style};
+use bevy_fynix::{ScopedExt, derived, every_frame, resource, style};
 use hamlet_client::chats::Chat;
 use hamlet_client::messages::{
     ChiefMessage, Response, Rewind, ServerFault,
@@ -584,9 +584,18 @@ fn message_bar_in(
             .tagged(Variant::Subtle)
             .tagged(ChatField),
         // Shown in the empty field, just after the caret.
-        overlay((row((label("Message")
-            .wrap(false)
-            .tone(Tone::Dim),))
+        overlay((row((label(
+            derived(|world: &World| {
+                match world.get_resource::<Convo>().map(|c| &c.with) {
+                    Some(Some(name)) => format!("Message {name}"),
+                    Some(None) => "Message the Hand".to_string(),
+                    None => "Message".to_string(),
+                }
+            })
+            .when(every_frame()),
+        )
+        .wrap(false)
+        .tone(Tone::Dim),))
         .align(AlignItems::Center)
         .height(percent(100.0))
         .padding(UiRect::left(px(gap + border + CARET_ROOM)))
@@ -1402,7 +1411,7 @@ mod tests {
             )),
         );
         app.update();
-        press(&mut app, "Tell me about yourself.");
+        press(&mut app, "Help me work on a project folder.");
         app.update();
         app.update();
         assert!(
@@ -1410,7 +1419,7 @@ mod tests {
                 .query::<&EditableText>()
                 .iter(app.world())
                 .any(|field| field.value()
-                    == "Tell me about yourself.")
+                    == "Help me work on a project folder.")
         );
     }
 }
