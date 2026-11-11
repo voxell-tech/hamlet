@@ -181,8 +181,8 @@ fn raise(
             toasts.push(
                 What::Notice {
                     kind: StatusKind::Danger,
-                    head: "Fault".into(),
-                    line: format!("{name} failed."),
+                    head: "Something went wrong".into(),
+                    line: format!("{name} ran into an error."),
                 },
                 now,
             );
@@ -247,7 +247,7 @@ fn failed(
     toasts.push(
         What::Notice {
             kind: StatusKind::Danger,
-            head: "Fault".into(),
+            head: "Something went wrong".into(),
             line: fault.text.clone(),
         },
         time.elapsed_secs(),
