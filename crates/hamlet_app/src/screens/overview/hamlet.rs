@@ -58,7 +58,7 @@ use crate::convo::talk_to;
 use crate::dock::{HUB, show_tab};
 use crate::forms::{self, Asking};
 use crate::roll::{either, moved};
-use crate::world_menu;
+use crate::{words, world_menu};
 
 /// The field a hamlet's new name is typed in.
 #[derive(Component)]
@@ -743,9 +743,14 @@ pub fn hamlet(hamlet: Entity) -> impl View {
         group(top).boxed()
     })
     .within(bare());
-    let pages = tabs::strip(&PAGES, Spread::Shared, |world, page| {
-        *world.resource_mut::<Page>() = page;
-    });
+    let pages = tabs::tipped_strip(
+        &PAGES,
+        &[words::AGENTS, words::BYLAWS, words::RECORD],
+        Spread::Shared,
+        |world, page| {
+            *world.resource_mut::<Page>() = page;
+        },
+    );
     let page =
         keyed(resource::<Page, _>(|page| *page), move |page| {
             match page {

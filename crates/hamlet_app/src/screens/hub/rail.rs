@@ -59,6 +59,7 @@ use crate::age::Age;
 use crate::convo::{Convo, talk_to, talk_to_hand};
 use crate::standing::{Standing, need_you};
 use crate::status::now_ms;
+use crate::words;
 use crate::world_menu::Asks;
 
 /// The width of the rail at first, the least it is dragged to, so a
@@ -1444,9 +1445,14 @@ fn filter_list() -> impl View {
 fn tabs_and_search() -> impl View {
     with_cx(|cx| {
         column((
-            tabs::strip(&TABS, Spread::Shared, |world, tab| {
-                *world.resource_mut::<Tab>() = tab;
-            }),
+            tabs::tipped_strip(
+                &TABS,
+                &[words::HAMLET, words::CITY],
+                Spread::Shared,
+                |world, tab| {
+                    *world.resource_mut::<Tab>() = tab;
+                },
+            ),
             search_row(),
             filter_list(),
         ))
@@ -1647,10 +1653,9 @@ fn expanded(line: &Line) -> AnyView {
         None => pressed.boxed(),
     };
     let shown = washed(pressed, line.current).boxed();
-    let shown = if address.is_empty() || address == line.name {
-        shown.boxed()
-    } else {
-        shown.tooltip(move || note(address.clone())).boxed()
+    let shown = match tip_of(line, address) {
+        Some(tip) => shown.tooltip(move || note(tip.clone())).boxed(),
+        None => shown.boxed(),
     };
     // The chevron of a lead, outside the row's press so that folding
     // does not open the thread, then the step in of a row under one.
@@ -1748,6 +1753,47 @@ fn tree_lines(line: &Line, one_line: bool) -> Vec<AnyView> {
     lines
 }
 
+/// What a group's header names, in plain words.
+fn group_meaning(group: Group) -> Option<&'static str> {
+    match group {
+        Group::Needs => Some(words::NEEDS),
+        Group::Hamlet(_) => Some(words::HAMLET),
+        Group::City => Some(words::CITY),
+        Group::Harbor => Some(words::HARBOR),
+        Group::Left => Some(words::LEFT),
+        Group::Top | Group::Lead(_) | Group::Workers(_) => None,
+    }
+}
+
+/// What a row's tooltip says: the address it goes by, where that is
+/// not its name, over what it is in plain words.
+fn tip_of(line: &Line, address: String) -> Option<String> {
+    let meaning = match line.target {
+        Target::Realm => Some(words::REALM),
+        Target::Library => Some(words::LIBRARY),
+        Target::Hand => Some(words::HAND),
+        Target::Agent(_) | Target::Gone(_) => match line.glyph {
+            Glyph::Mayor => Some(words::MAYOR),
+            Glyph::Worker => Some(words::WORKER),
+            _ => Some(words::HIRE),
+        },
+        Target::Fold(Group::Workers(_)) => Some(words::WORKER),
+        Target::Scholar(_) => Some(words::SCHOLAR),
+        Target::Hamlet(_) | Target::Fold(_) => None,
+    };
+    let address = (!address.is_empty()
+        && address != line.name
+        && line.target != Target::Hand)
+        .then_some(address);
+    match (address, meaning) {
+        (Some(address), Some(meaning)) => {
+            Some(format!("{address}\n{meaning}"))
+        }
+        (Some(address), None) => Some(address),
+        (None, meaning) => meaning.map(str::to_string),
+    }
+}
+
 /// A section's header, set apart from the rows under it in the
 /// display face: a chevron that folds it, then its title, its count
 /// and its state, pressed whole to open its page where it has one.
@@ -1774,6 +1820,12 @@ fn header(section: &Section, above: f32) -> AnyView {
         words.push(mark_icon(section.mark));
     }
     let words = row(words).gap(6.0).align(AlignItems::Center);
+    let words = match group_meaning(group) {
+        Some(meaning) => {
+            row((words.tooltip(move || note(meaning)).boxed(),))
+        }
+        None => row((words.boxed(),)),
+    };
     match section.opens {
         // Filled under the pointer as a row is, outside the chevron's
         // press so that folding does not open the page; its mark in

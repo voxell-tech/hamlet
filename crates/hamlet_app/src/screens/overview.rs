@@ -52,7 +52,7 @@ use self::rows::{
 };
 use crate::petition::Queue;
 use crate::standing::{Standing, need_you};
-use crate::{chat, world_menu};
+use crate::{chat, words, world_menu};
 
 pub fn plugin(app: &mut App) {
     app.add_plugins((record::plugin, hamlet::plugin))
@@ -153,6 +153,7 @@ pub fn overview() -> impl View {
                     "Your hearth",
                     crate::chief::go_home,
                 )
+                .tooltip(|| note(words::HEARTH))
                 .boxed(),
                 action(Glyph::Anchor, "Harbor", glide_to_other_pier)
                     .tooltip(|| note("Cross to the other island"))
@@ -162,6 +163,7 @@ pub fn overview() -> impl View {
                     "New scholar",
                     world_menu::ask_new_scholar,
                 )
+                .tooltip(|| note(words::SCHOLAR))
                 .boxed(),
             ]),
             scroll_area((column((needs(), hamlets(), closed()))
@@ -402,14 +404,14 @@ fn today() -> AnyView {
                         _ => "scholars",
                     },
                     Tone::Body,
-                    "Scholars living in the city",
+                    words::SCHOLAR,
                 ),
                 figure(
                     today.harbor,
                     Glyph::Anchor,
                     "arriving",
                     Tone::Body,
-                    "Newcomers waiting at the harbor to be let in",
+                    words::HARBOR,
                 ),
             ];
             // Closer than cards elsewhere, and narrow, so five fit

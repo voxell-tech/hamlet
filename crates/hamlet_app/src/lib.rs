@@ -39,6 +39,7 @@ mod trail;
 mod tuning;
 pub mod welcome;
 mod window;
+mod words;
 pub mod world_menu;
 mod world_view;
 

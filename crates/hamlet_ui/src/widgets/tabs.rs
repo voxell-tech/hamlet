@@ -14,14 +14,15 @@ use bevy::ecs::world::World;
 use bevy::ui::{AlignItems, ComputedNode, Display, Node, UiRect, px};
 use bevy_fynix::tokens::{Motion, Tone};
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, button, column, label, menu_button, row,
+    BehaviorExt, FrameProps, TooltipExt, button, column, label,
+    menu_button, row,
 };
 use bevy_fynix::{ScopedExt, ViewExt, style};
 
 use super::effects::Underglow;
 use super::icons::{Glyph, glyph};
 use super::platform::show;
-use crate::styles::{ICON, hairline, headed, transparent};
+use crate::styles::{ICON, hairline, headed, note, transparent};
 use crate::theme::HamletTheme;
 use crate::{Cx, View, with_cx};
 
@@ -103,6 +104,17 @@ pub fn strip<R: Resource + Copy>(
     spread: Spread,
     choose: fn(&mut World, R),
 ) -> impl View {
+    tipped_strip(tabs, &[], spread, choose)
+}
+
+/// A [`strip`] whose tabs say `tips`, in their order, under the
+/// pointer.
+pub fn tipped_strip<R: Resource + Copy>(
+    tabs: &[(R, Glyph, &'static str)],
+    tips: &[&'static str],
+    spread: Spread,
+    choose: fn(&mut World, R),
+) -> impl View {
     let grow = match spread {
         Spread::Shared => 1.0,
         Spread::Packed => 0.0,
@@ -120,15 +132,18 @@ pub fn strip<R: Resource + Copy>(
     .boxed();
     let tabs = tabs
         .iter()
-        .map(|&(of, which, name)| {
-            column((button(tab_name(which, name))
+        .enumerate()
+        .map(|(at, &(of, which, name))| {
+            let tab = button(tab_name(which, name))
                 .rules(tab_look)
                 .tagged(TabOf(of))
                 .tagged(Underglow::new(false))
-                .on_activate(move |world| choose(world, of)),))
-            .grow(grow)
-            .gap(0.0)
-            .boxed()
+                .on_activate(move |world| choose(world, of));
+            let tab = match tips.get(at) {
+                Some(&tip) => tab.tooltip(move || note(tip)).boxed(),
+                None => tab.boxed(),
+            };
+            column((tab,)).grow(grow).gap(0.0).boxed()
         })
         .chain([list])
         .collect::<Vec<_>>();
