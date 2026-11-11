@@ -112,7 +112,11 @@ through directories it holds open, without following links.
 `HAMLET_MODEL`, `HAMLET_BASE_URL`, `HAMLET_REFLECT_EVERY` and `HAMLET_NET`
 override stored settings for this process. `HAMLET_MODEL` is the settings'
 model, so an agent's or hamlet's own choice still stands over it.
-`HAMLET_BASE_URL` is the address of that model's endpoint.
+`HAMLET_BASE_URL` is the address of that model's endpoint, which it adds
+when the settings have none of that name. A realm starts with no endpoint
+and no model. Setup is done once the chief picks a model; This computer
+adds Ollama's endpoint, `local` at `http://localhost:11434/v1`, when it is
+picked.
 
 The settings also hold when dreams run: whether they are on, the local hours
 they start in, and the most one may cost.

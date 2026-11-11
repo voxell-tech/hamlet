@@ -203,6 +203,7 @@ impl Core {
                 let mut settings = crate::settings::stored(db)?;
                 if let Some(model) = set.model {
                     settings.model = model;
+                    settings.saved = true;
                 }
                 if let Some(every) = set.reflect_every {
                     let Ok(every) = u64::try_from(every) else {
@@ -260,7 +261,6 @@ impl Core {
                         .collect();
                     settings.endpoints = endpoints;
                 }
-                settings.saved = true;
                 let db = self.realm.store().connection();
                 crate::settings::keep(
                     db,

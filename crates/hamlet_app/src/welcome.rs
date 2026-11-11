@@ -28,6 +28,10 @@ pub const NOTHING_LOCAL: &str = "Nothing answered yet. Install \
                                  Ollama from ollama.com, download a \
                                  model, then choose Look again.";
 
+/// The endpoint This computer adds: Ollama's, by its name and
+/// address.
+const LOCAL: (&str, &str) = ("local", "http://localhost:11434/v1");
+
 pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<Welcome>()
         .init_resource::<Committing>()
@@ -165,6 +169,12 @@ fn add_endpoint(world: &mut World) {
             Some("Give the endpoint a name and an address.".into());
         return;
     }
+    keep_endpoint(world, name, url);
+}
+
+/// Keeps the endpoint `name` at `url` in the settings, in place of
+/// one of that name, then looks for its models.
+fn keep_endpoint(world: &mut World, name: String, url: String) {
     let mut endpoints = world
         .resource::<Settings>()
         .0
@@ -310,9 +320,25 @@ pub(crate) fn picked(world: &World) -> Option<Pick> {
 /// or looks on this computer.
 fn proceed(world: &mut World) {
     match picked(world) {
-        Some(Pick::Local) => look(world),
+        Some(Pick::Local) => look_locally(world),
         Some(Pick::Provider(id)) => providers::proceed(world, &id),
         None => {}
+    }
+}
+
+/// Looks on this computer, adding Ollama's endpoint first where the
+/// settings have none of its name.
+fn look_locally(world: &mut World) {
+    let known = world
+        .resource::<Settings>()
+        .0
+        .endpoints
+        .iter()
+        .any(|endpoint| endpoint.name == LOCAL.0);
+    if known {
+        look(world);
+    } else {
+        keep_endpoint(world, LOCAL.0.into(), LOCAL.1.into());
     }
 }
 
@@ -882,6 +908,18 @@ mod server_tests {
         mount::<HamletTheme>(app.world_mut(), view());
         press_and_update(&mut app, "This computer");
         press_and_update(&mut app, "Look on this computer");
+        // Ollama's endpoint is added only now, as none is yet.
+        let edit = sent(&mut app).remove(0);
+        assert_eq!(
+            edit["set"],
+            serde_json::json!({"endpoints":[
+                {"name":"local", "baseUrl":"http://localhost:11434/v1"}
+            ]})
+        );
+        incoming(
+            &mut app,
+            serde_json::json!({"type":"reply", "to":edit["id"], "kind":"notice", "text":"Saved."}),
+        );
         let requests = sent(&mut app);
         assert_eq!(requests[0]["what"], "connection");
         assert_eq!(requests[1]["what"], "models");

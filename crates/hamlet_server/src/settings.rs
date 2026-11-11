@@ -44,7 +44,8 @@ impl Default for Dreams {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub(crate) struct Settings {
-    /// The realm's model, as `endpoint::model`.
+    /// The realm's model, as `endpoint::model`; empty until the
+    /// chief picks one.
     pub model: String,
     pub endpoints: Vec<Endpoint>,
     /// The answered turns after which an agent reflects; never for 0
@@ -63,7 +64,7 @@ pub(crate) struct Settings {
     /// How the last check of the model's provider went.
     #[serde(default = "untested")]
     pub link: Link,
-    /// Whether the chief saved them.
+    /// Whether the chief picked the realm's model, which ends setup.
     pub saved: bool,
 }
 
@@ -78,11 +79,8 @@ fn untested() -> Link {
 impl Default for Settings {
     fn default() -> Self {
         Self {
-            model: "local::qwen3.6:35b-a3b".into(),
-            endpoints: vec![Endpoint {
-                name: "local".into(),
-                base_url: "http://localhost:11434/v1".into(),
-            }],
+            model: String::new(),
+            endpoints: Vec::new(),
             reflect_every: 10,
             allow_net: false,
             effort: None,
@@ -163,8 +161,9 @@ pub(crate) struct Overrides {
 }
 
 impl Overrides {
-    /// `HAMLET_MODEL`, `HAMLET_BASE_URL`, `HAMLET_REFLECT_EVERY` and
-    /// `HAMLET_NET`.
+    /// `HAMLET_MODEL`, `HAMLET_BASE_URL` (the address of the model's
+    /// endpoint, added where the settings have none), and
+    /// `HAMLET_REFLECT_EVERY` and `HAMLET_NET`.
     pub fn from_env(faux: bool) -> Self {
         let set =
             |name| std::env::var(name).ok().filter(|v| !v.is_empty());
@@ -193,10 +192,16 @@ impl Overrides {
         if let (Some(url), Some((endpoint, _))) =
             (&self.base_url, settings.model.clone().split_once("::"))
         {
-            for kept in &mut settings.endpoints {
-                if kept.name == endpoint {
-                    kept.base_url.clone_from(url);
-                }
+            match settings
+                .endpoints
+                .iter_mut()
+                .find(|kept| kept.name == endpoint)
+            {
+                Some(kept) => kept.base_url.clone_from(url),
+                None => settings.endpoints.push(Endpoint {
+                    name: endpoint.into(),
+                    base_url: url.clone(),
+                }),
             }
         }
         settings
