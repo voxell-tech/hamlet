@@ -25,6 +25,9 @@ struct Part {
     slot: String,
     /// The colour the file gives the material.
     own: Vec3,
+    /// The colour the file gives each corner, linear, which the
+    /// material's own colour is multiplied by, as glTF has it.
+    colours: Option<Vec<Vec3>>,
     positions: Vec<Vec3>,
     normals: Vec<Vec3>,
     indices: Vec<u32>,
@@ -52,8 +55,11 @@ impl Model {
 
     /// Adds the model to `meshing`, its box fitted to a box of `size`
     /// at `middle`, turned by `rotation`, each slot in the colour
-    /// `paint` gives it. A slot `paint` gives none is drawn into
-    /// `apart` in white, for one that lights on its own, as panes do.
+    /// `paint` gives it from the file's own. The file's own is asked
+    /// for at each corner, with the corner's colour in it, so a slot
+    /// painted as the file has it keeps the colours baked into its
+    /// corners. A slot `paint` gives none is drawn into `apart` in
+    /// white, for one that lights on its own, as panes do.
     pub fn draw(
         &self,
         meshing: &mut Meshing,
@@ -78,11 +84,19 @@ impl Model {
                 .positions
                 .iter()
                 .zip(&part.normals)
-                .fold(None, |first, (p, n)| {
+                .enumerate()
+                .fold(None, |first, (k, (p, n))| {
                     let at =
                         middle + rotation * ((*p - centre) * scale);
                     let normal =
                         (rotation * (*n / scale)).normalize_or_zero();
+                    let colour = match &part.colours {
+                        Some(colours) => {
+                            paint(&part.slot, part.own * colours[k])
+                                .unwrap_or(colour)
+                        }
+                        None => colour,
+                    };
                     let index = into.v(at, normal, colour);
                     first.or(Some(index))
                 });
@@ -201,6 +215,12 @@ fn walk(
         if normals.len() != positions.len() {
             continue;
         }
+        let colours = reader
+            .read_colors(0)
+            .map(|colours| {
+                colours.into_rgb_f32().map(Vec3::from).collect::<Vec<_>>()
+            })
+            .filter(|colours| colours.len() == positions.len());
         let material = primitive.material();
         let slot = match (material.name(), material.index()) {
             (Some(name), _) => name.to_owned(),
@@ -212,6 +232,7 @@ fn walk(
         parts.push(Part {
             slot,
             own: Vec3::new(r, g, b),
+            colours,
             positions,
             normals,
             indices,
@@ -314,6 +335,39 @@ mod tests {
         assert_eq!(
             model.sockets["lamp"].at,
             Vec3::new(0.5, 0.5, 0.0)
+        );
+    }
+
+    #[test]
+    fn a_slot_painted_as_the_file_has_it_keeps_its_corners_colours() {
+        let json = r#"{"asset":{"version":"2.0"},"scene":0,"scenes":[{"nodes":[0]}],"nodes":[{"mesh":0}],"meshes":[{"primitives":[{"attributes":{"POSITION":0,"COLOR_0":1},"material":0}]}],"materials":[{"name":"tiles","pbrMetallicRoughness":{"baseColorFactor":[0.5,1,1,1]}}],"buffers":[{"byteLength":72}],"bufferViews":[{"buffer":0,"byteLength":36},{"buffer":0,"byteOffset":36,"byteLength":36}],"accessors":[{"bufferView":0,"componentType":5126,"count":3,"type":"VEC3","min":[0,0,0],"max":[2,1,0]},{"bufferView":1,"componentType":5126,"count":3,"type":"VEC3"}]}"#;
+        let mut bin = corners();
+        bin.extend(
+            [1.0f32, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]
+                .iter()
+                .flat_map(|f| f.to_le_bytes()),
+        );
+        let model = read(&glb(json, &bin)).expect("the file reads");
+        let asked = std::cell::RefCell::new(Vec::new());
+        model.draw(
+            &mut Meshing::new(),
+            None,
+            Vec3::ZERO,
+            model.size(),
+            Quat::IDENTITY,
+            |_, own| {
+                asked.borrow_mut().push(own);
+                Some(own)
+            },
+        );
+        // The material's own colour times each corner's.
+        assert_eq!(
+            asked.borrow()[1..],
+            [
+                Vec3::new(0.5, 0.0, 0.0),
+                Vec3::new(0.0, 1.0, 0.0),
+                Vec3::new(0.0, 0.0, 1.0)
+            ]
         );
     }
 

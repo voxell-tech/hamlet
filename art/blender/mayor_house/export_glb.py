@@ -26,8 +26,10 @@ Add --split to get one object, with one material, per part (SPLIT below) instead
 """
 
 import os
+import re
 import sys
 
+import bmesh
 import bpy
 
 ROOT = "Tower Cottage"
@@ -38,11 +40,20 @@ TAG = "export_glb_temp"
 COLOR_ATTRS = ["tile_color", "brick_color"]  # what the generators colour each part with
 TILE_RANDOM = "Tile random"                  # the UV map of each tile's random numbers
 ACCENT_SEED, SHADE_SEED = 4, 5               # what the generators add to their seed for each
+OPEN = 0.05       # an open piece this much rim, or more, is a card, given a back
 SPLIT_ON = False   # or --split: one object and one material per part below, named "<ONLY> | <part>"
 SPLIT = {          # part: the materials it is made of; any other material makes a part of its own
     "Wood": ["Timber", "Dark timber"],
     "Tiles": ["Roof tile (procedural)", "Ridge piece (procedural)", "Tower tile (procedural)"],
+    "Bricks": ["Stone (procedural)"],
 }
+
+
+def part_name(m, cache):
+    """The part of SPLIT the material m (or the baked copy of one) makes, else its own name."""
+    original = {b.name: a for a, b in cache.items()}
+    name = original.get(m.name, m.name) if m else "No material"
+    return next((p for p, names in SPLIT.items() if name in names), name.replace(" (procedural)", ""))
 
 
 def cli_args():
@@ -268,6 +279,75 @@ def keep_used_colors(c):
                         n.layer_name = first
 
 
+def facing_out(c):
+    """Hamlet draws only the side of a face its corners turn to, as game engines do, where Blender
+    draws both. Each closed piece of c that is inside out (a tile, a bracket) is turned the right
+    way, and each open one (a leaf, a pennant) is given a back of its own. A piece is the faces
+    that touch, corners at the same place counting as one."""
+    me = c.data
+    bm = bmesh.new()
+    bm.from_mesh(me)
+    bm.faces.ensure_lookup_table()
+    at = {v: tuple(round(x, 5) for x in v.co) for v in bm.verts}
+    parent = {}
+
+    def root(k):
+        parent.setdefault(k, k)
+        while parent[k] != k:
+            parent[k] = parent[parent[k]]
+            k = parent[k]
+        return k
+
+    sides = {}
+    for f in bm.faces:
+        ks = [at[v] for v in f.verts]
+        for k in ks[1:]:
+            parent[root(k)] = root(ks[0])
+        for a, b in zip(ks, ks[1:] + ks[:1]):
+            if a != b:
+                sides[frozenset((a, b))] = sides.get(frozenset((a, b)), 0) + 1
+    pieces = {}
+    for f in bm.faces:
+        pieces.setdefault(root(at[f.verts[0]]), []).append(f)
+    flip, back = [], []
+    for faces in pieces.values():
+        ks = [[at[v] for v in f.verts] for f in faces]
+        edges = {frozenset((a, b)) for k in ks for a, b in zip(k, k[1:] + k[:1]) if a != b}
+        open_edges = sum(1 for e in edges if sides[e] == 1)
+        if open_edges:
+            # a card (a leaf, a pennant) is mostly rim; a loaf with a hole in it is not, and a
+            # back for it would only double it
+            if open_edges >= OPEN * len(edges):
+                back += [f.index for f in faces]
+            continue
+        volume = sum(f.verts[0].co.dot(f.verts[i].co.cross(f.verts[i + 1].co))
+                     for f in faces for i in range(1, len(f.verts) - 1))
+        if volume < 0:
+            flip += [f.index for f in faces]
+    bm.free()
+
+    def selected(indices, then):
+        if not indices:
+            return
+        chosen = [False] * len(me.polygons)
+        for i in indices:
+            chosen[i] = True
+        me.polygons.foreach_set("select", chosen)
+        bpy.ops.object.mode_set(mode="EDIT")
+        bpy.ops.mesh.select_mode(type="FACE")
+        then()
+        bpy.ops.object.mode_set(mode="OBJECT")
+
+    view_layer = bpy.context.view_layer
+    for o in view_layer.objects:
+        o.select_set(False)
+    c.select_set(True)
+    view_layer.objects.active = c
+    selected(flip, bpy.ops.mesh.flip_normals)
+    selected(back, lambda: (bpy.ops.mesh.duplicate(), bpy.ops.mesh.flip_normals()))
+    return len(flip), len(back)
+
+
 def one_slot_each(me):
     """Slots holding the same material made one, and empty slots dropped."""
     used = sorted({p.material_index for p in me.polygons})
@@ -284,6 +364,79 @@ def one_slot_each(me):
     for m in uniq:
         me.materials.append(m)
     me.polygons.foreach_set("material_index", idx)
+
+
+def unnumbered(name):
+    """The name without Blender's ".001" or a number of its own at the end: "Stone 07" is a
+    "Stone", "Window  Stone 09" a "Window Stone", "Vine | Tower 2" a "Vine | Tower"."""
+    name = re.sub(r"\.\d{3}$", "", name)
+    name = re.sub(r"\s+", " ", name).strip()
+    return re.sub(r"[\s_-]*\d+$", "", name) or name
+
+
+def alike_joined(copies):
+    """The copies named alike but for a number, of the same materials, joined into one object of
+    that name: the stones round a door, the frames of a lantern, the bricks under a table. A
+    prefab gives each object a material, so the stones take one between them."""
+    view_layer = bpy.context.view_layer
+    groups = {}
+    for c in copies:
+        key = (unnumbered(c.name), tuple(sorted(m.name for m in c.data.materials if m)))
+        groups.setdefault(key, []).append(c)
+    out = []
+    for (name, _), group in groups.items():
+        if len(group) > 1:
+            for o in view_layer.objects:
+                o.select_set(False)
+            for o in group:
+                o.select_set(True)
+            view_layer.objects.active = group[0]
+            bpy.ops.object.join()
+            group[0].name = group[0].data.name = name
+        out.append(group[0])
+    return out
+
+
+def one_material_each(copies, cache):
+    """Each copy made of more than one material cut into one object for each, named after the
+    copy and the part ("Walls | Ground floor plaster | Bricks"), so that a prefab, which gives
+    each object a material, can give the wall and its bricks, or the tiles and the wood, a
+    material each."""
+    view_layer = bpy.context.view_layer
+    out = []
+    for c in copies:
+        me = c.data
+        used = {me.materials[p.material_index] for p in me.polygons} if me.materials else set()
+        if len({part_name(m, cache) for m in used}) <= 1:
+            out.append(c)
+            continue
+        base = c.name
+        for o in view_layer.objects:
+            o.select_set(False)
+        c.select_set(True)
+        view_layer.objects.active = c
+        bpy.ops.object.mode_set(mode="EDIT")
+        bpy.ops.mesh.select_all(action="SELECT")
+        bpy.ops.mesh.separate(type="MATERIAL")
+        bpy.ops.object.mode_set(mode="OBJECT")
+        by_part = {}
+        for o in view_layer.objects:
+            if o.select_get() and o.type == "MESH" and o.data.polygons:
+                one_slot_each(o.data)
+                by_part.setdefault(part_name(o.data.materials[0], cache), []).append(o)
+        for part, pieces in by_part.items():     # materials of one part (two timbers) join again
+            for o in view_layer.objects:
+                o.select_set(False)
+            for o in pieces:
+                o.select_set(True)
+            view_layer.objects.active = pieces[0]
+            if len(pieces) > 1:
+                bpy.ops.object.join()
+            o = pieces[0]
+            o.name = o.data.name = f"{base} | {part}"
+            o[TAG] = o.data[TAG] = True
+            out.append(o)
+    return out
 
 
 def split_parts(copies, cache, tmp):
@@ -328,14 +481,27 @@ def split_parts(copies, cache, tmp):
     return parts
 
 
+def exportable(o):
+    """A visible object with geometry of its own; a collection instance (an empty) is not."""
+    return o.visible_get() and o.type in ("MESH", "CURVE", "FONT", "SURFACE", "META")
+
+
 def main():
-    scene = bpy.context.scene
-    view_layer = bpy.context.view_layer
     root = bpy.data.collections[ROOT]
-    sources = [o for o in root.all_objects
-               if o.visible_get() and o.type in ("MESH", "CURVE", "FONT", "SURFACE", "META") and wanted(o)]
+    sources = [o for o in root.all_objects if exportable(o) and wanted(o)]
     if not sources:
         raise RuntimeError(f"export_glb: nothing visible to export matches {cli_args()[1:] or ONLY}")
+    export(sources, out_path())
+
+
+def export(sources, path, space=None):
+    """Exports sources, baked, to the .glb at path. Each is an object where the scene puts it,
+    or an object and the matrix that puts it, as for the objects of a linked collection, which
+    the scene shows only through an instance; space, a matrix, moves them all (into a part's own
+    space, say)."""
+    sources = [s if isinstance(s, tuple) else (s, s.matrix_world) for s in sources]
+    scene = bpy.context.scene
+    view_layer = bpy.context.view_layer
 
     # a collection of our own for the baked copies
     tmp = bpy.data.collections.new("Export (temporary)")
@@ -343,7 +509,7 @@ def main():
     scene.collection.children.link(tmp)
 
     stand_ins, groups = {}, []
-    for o in sources:                            # realise the generators' instances
+    for o in {o for o, _ in sources}:            # realise the generators' instances
         if o.type != "MESH" and not any(m.type == "NODES" for m in o.modifiers):
             continue                             # text, plain curves: their own mesh will do
         ng = realize_group(o)
@@ -355,19 +521,25 @@ def main():
         stand_ins[o] = s
 
     depsgraph = bpy.context.evaluated_depsgraph_get()
-    copies = []
-    for o in sources:
+    copies, held = [], {}
+    for o, placed in sources:
         ev = stand_ins.get(o, o).evaluated_get(depsgraph)
         me = bpy.data.meshes.new_from_object(ev, preserve_all_data_layers=True, depsgraph=depsgraph)
         if not me.polygons:
             bpy.data.meshes.remove(me)
             continue
-        me.name = o.name
+        me.name = held.get(o, o.name)
         me[TAG] = True
         keep_tile_random_second(me)
-        c = bpy.data.objects.new(o.name, me)
+        # the copy takes the source's name, which a local object of the scene holds until the end
+        name = held.get(o, o.name)
+        local = bpy.data.objects.get((name, None))
+        if local is not None and not local.get(TAG) and local not in held:
+            held[local] = name
+            local.name = name + " (held for export)"
+        c = bpy.data.objects.new(name, me)
         c[TAG] = True
-        c.matrix_world = o.matrix_world.copy()
+        c.matrix_world = placed.copy() if space is None else space @ placed
         tmp.objects.link(c)
         copies.append(c)
 
@@ -398,12 +570,18 @@ def main():
                 c.data.materials[i] = baked_material(m, cache)
     scene.render.engine = engine
     scene.cycles.samples = samples
+    copies = alike_joined(copies)
     if split_on():
         copies = split_parts(copies, cache, tmp)
+    else:
+        copies = one_material_each(copies, cache)
+    turned = backed = 0
     for c in copies:
+        flipped, given = facing_out(c)
+        turned, backed = turned + flipped, backed + given
         keep_used_colors(c)
+    print(f"export_glb: {turned} faces turned out, {backed} given a back")
 
-    path = out_path()
     os.makedirs(os.path.dirname(path), exist_ok=True)
     for o in view_layer.objects:
         o.select_set(False)
@@ -425,6 +603,8 @@ def main():
         for x in [x for x in coll if x.get(TAG)]:
             coll.remove(x)
     bpy.data.collections.remove(tmp)
+    for o, name in held.items():
+        o.name = name
 
 
 if __name__ == "__main__":
