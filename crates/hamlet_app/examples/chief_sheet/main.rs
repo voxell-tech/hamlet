@@ -14,8 +14,8 @@ use bevy::prelude::*;
 use bevy::time::TimeUpdateStrategy;
 use hamlet_client::ViewFolder;
 use hamlet_client::realm::{
-    AgentNumber, Consulted, HamletId, Identity, Lived, LivesIn,
-    Mayor, Treasury,
+    Consulted, HamletId, Hire, Identity, Kind, Lived, LivesIn, Mayor,
+    Treasury,
 };
 use hamlet_realm::chief::mascot::Doing;
 use hamlet_realm::chief::{
@@ -296,7 +296,8 @@ fn people(world: &mut World) {
     world.spawn((
         Name::new("ada"),
         Identity(hamlet_protocol::client::AgentId(2)),
-        AgentNumber(0),
+        Hire,
+        Kind(hamlet_protocol::client::AgentKind::Hire),
         Mayor,
         LivesIn(hamlet),
         Lived::default(),
@@ -311,7 +312,8 @@ fn people(world: &mut World) {
                 Identity(hamlet_protocol::client::AgentId(
                     2 + number,
                 )),
-                AgentNumber(number),
+                Hire,
+                Kind(hamlet_protocol::client::AgentKind::Hire),
                 LivesIn(hamlet),
                 Lived {
                     since: number,

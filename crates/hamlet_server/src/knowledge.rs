@@ -62,7 +62,7 @@ pub(crate) fn lodging(
             Ok(Lodging {
                 agent,
                 scholar: hire.scholar,
-                path: layout.lodge(&hire.hamlet, hire.number),
+                path: layout.lodge(&hire.hamlet, hire.agent),
                 pin: hire.pin,
                 living: found.is_living(),
             })

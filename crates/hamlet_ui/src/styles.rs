@@ -23,7 +23,7 @@ use crate::widgets::edges::faded;
 use crate::widgets::effects::{Underglow, Variant};
 use crate::widgets::ellipsis::one_line;
 use crate::widgets::icons::{Glyph, glyph};
-use crate::widgets::platform::{DisplayText, MonoText, Wraps};
+use crate::widgets::platform::{MonoText, Wraps};
 use crate::widgets::spoken::{self, Spoken};
 use crate::{AnyView, Cx, View, with_cx};
 
@@ -234,15 +234,19 @@ pub fn filling() -> Stack<()> {
     column(()).fills_height().gap(0.0)
 }
 
-/// A line one pixel thick, of `colour`.
+/// How thick a line drawn in a view is, in pixels: a rule, a guide or
+/// a tree's branch.
+pub const LINE: f32 = 2.0;
+
+/// A line [`LINE`] thick, of `colour`.
 pub fn hairline(colour: impl Into<Prop<Color>>) -> Frame {
-    frame().height(px(1.0)).fill(colour)
+    frame().height(px(LINE)).fill(colour)
 }
 
 /// A line between parts side by side, top to bottom.
 pub fn upright() -> impl View {
     with_cx(|cx| {
-        frame().width(px(1.0)).fill(cx.theme().palette.border)
+        frame().width(px(LINE)).fill(cx.theme().palette.border)
     })
 }
 
@@ -447,15 +451,9 @@ pub fn description(text: impl Into<Prop<String>>) -> impl View {
     label(text).rules(description_rules)
 }
 
-/// The name at the head of a page, in the display face.
+/// The name at the head of a page, or a sentence there such as a
+/// session's title.
 pub fn title(text: impl Into<Prop<String>>) -> impl View {
-    sentence_title(text).tagged(DisplayText)
-}
-
-/// A sentence or a question at the head of a page, such as a
-/// session's title: a [`title`] in the body face, since the display
-/// face sets every letter as a capital.
-pub fn sentence_title(text: impl Into<Prop<String>>) -> impl View {
     label(text).wrap(false).rules(|cx: &mut Cx| {
         style::<HamletTheme>()
             .label(|l, t| l.size(t.text.title).bold(true))

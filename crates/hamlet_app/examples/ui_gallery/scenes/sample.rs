@@ -126,7 +126,7 @@ pub(super) fn setup(world: &mut World) {
             "sk-or-v1-5e0d2c41a7",
         );
     }
-    if let Scene::KeySearch(words) = scene {
+    if let Scene::ProviderSearch(words) = scene {
         hamlet_app::welcome::search(world, words);
     }
     let agent =
@@ -175,7 +175,7 @@ pub(super) fn setup(world: &mut World) {
         session,
         name: "chief".into(),
         agent,
-        with: Some("home#0".into()),
+        with: Some("hire#2".into()),
     });
     world.init_resource::<Also>();
     world.insert_resource(Selected(Some(Thing::Agent(agent))));

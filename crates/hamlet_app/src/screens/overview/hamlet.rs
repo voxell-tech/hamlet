@@ -38,7 +38,7 @@ use hamlet_client::realm::{Deeds, Works};
 use hamlet_realm::orders::Decree;
 use hamlet_realm::pick::{Thing, select};
 use hamlet_ui::styles::{
-    Fills, ICON, action, bare, buttons, crumb, crumb_here,
+    Fills, ICON, LINE, action, bare, buttons, crumb, crumb_here,
     crumb_slash, crumbs, group, more_button, note, note_rules,
     raised, reference, scroll_area, status_icon, text_input,
     transparent,
@@ -397,7 +397,9 @@ fn lines(cx: &Cx, depth: usize, branch: &Branch) -> Vec<AnyView> {
         row((inside,))
             .width(px(STEP))
             .shrink(0.0)
-            .padding(UiRect::left(px(INSET + ICON / 2.0 - 0.5)))
+            .padding(UiRect::left(
+                px(INSET + ICON / 2.0 - LINE / 2.0),
+            ))
             .align(AlignItems::Stretch)
             .boxed()
     };
@@ -405,7 +407,7 @@ fn lines(cx: &Cx, depth: usize, branch: &Branch) -> Vec<AnyView> {
         .rails
         .iter()
         .map(|on| {
-            step(frame().width(px(1.0)).fill(shown(*on)).boxed())
+            step(frame().width(px(LINE)).fill(shown(*on)).boxed())
         })
         .collect::<Vec<_>>();
     // A line laid over the row, `left` and `top` in from its edges;
@@ -428,17 +430,18 @@ fn lines(cx: &Cx, depth: usize, branch: &Branch) -> Vec<AnyView> {
             .boxed()
     };
     // Where the line under a row's icon runs, at `depth`.
-    let under_icon =
-        |depth: usize| depth as f32 * STEP + INSET + ICON / 2.0 - 0.5;
+    let under_icon = |depth: usize| {
+        depth as f32 * STEP + INSET + ICON / 2.0 - LINE / 2.0
+    };
     if depth > 0 {
         parts.push(step(
             column((
                 frame()
-                    .width(px(1.0))
-                    .height(px(elbow + 1.0))
+                    .width(px(LINE))
+                    .height(px(elbow + LINE))
                     .fill(colour),
                 frame()
-                    .width(px(1.0))
+                    .width(px(LINE))
                     .grow(1.0)
                     .fill(shown(!branch.last)),
             ))
@@ -448,12 +451,12 @@ fn lines(cx: &Cx, depth: usize, branch: &Branch) -> Vec<AnyView> {
         // The elbow's foot, up to just short of the icon.
         let from = under_icon(depth - 1);
         let to = depth as f32 * STEP + INSET - 2.0;
-        parts.push(over(from, elbow, to - from, Some(1.0)));
+        parts.push(over(from, elbow, to - from, Some(LINE)));
     }
     if branch.leads {
         // Down from under its icon to its first hire.
         let top = elbow + ICON / 2.0 + 2.0;
-        parts.push(over(under_icon(depth), top, 1.0, None));
+        parts.push(over(under_icon(depth), top, LINE, None));
     }
     parts
 }
@@ -471,8 +474,10 @@ fn person(row_of: &AgentRow, branch: Branch) -> AnyView {
     };
     let kind = if row_of.mayor {
         Glyph::Mayor
-    } else {
+    } else if row_of.worker {
         Glyph::Robot
+    } else {
+        Glyph::Hire
     };
     let standing = row_of.standing;
     let (name, under, account, depth) = (

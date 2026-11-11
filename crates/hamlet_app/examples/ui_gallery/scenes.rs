@@ -19,9 +19,7 @@ use bevy::window::WindowTheme;
 use bevy_fynix::dock::DockPlugin;
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::{AnyView, Bevy, FynixPlugin};
-use hamlet_app::appearance::{
-    Appearance, ComputerMotion, LessMotion, Zoom,
-};
+use hamlet_app::appearance::{Appearance, LessMotion, Zoom};
 use hamlet_app::history::History;
 use hamlet_app::{Bar, Roll, asking, chrome, menu, select, welcome};
 use hamlet_assets::Tuning;
@@ -88,7 +86,6 @@ impl Plugin for GalleryPlugin {
             .init_resource::<Appearance>()
             .init_resource::<Zoom>()
             .init_resource::<LessMotion>()
-            .init_resource::<ComputerMotion>()
             .add_message::<Cue>()
             // `theme::plugin` owns it; the gallery sets its theme by
             // hand instead.
@@ -256,8 +253,9 @@ pub enum Scene {
     Menu,
     /// The first-run screen at one of its steps.
     Welcome(welcome::Step),
-    /// The first-run key step, its providers searched for the words.
-    KeySearch(&'static str),
+    /// The first-run provider step, every provider shown and searched
+    /// for the words.
+    ProviderSearch(&'static str),
     /// The Hub with an agent merged into another: its rail row and
     /// its page of what is gone.
     Merged,
@@ -275,7 +273,7 @@ impl Scene {
     pub fn first_run(self) -> Option<welcome::Step> {
         match self {
             Scene::Welcome(step) => Some(step),
-            Scene::KeySearch(_) => Some(welcome::Step::Key),
+            Scene::ProviderSearch(_) => Some(welcome::Step::Provider),
             _ => None,
         }
     }

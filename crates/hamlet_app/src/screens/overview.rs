@@ -33,12 +33,13 @@ use hamlet_realm::pick::{Selected, Thing, select};
 use hamlet_ui::kinds::tile;
 use hamlet_ui::styles::{
     Fills, ICON, action, bad_action, bare, buttons, card_button,
-    close, group, note, raised, scroll_area, small_rules, title,
+    card_name, close, group, note, raised, scroll_area, small_rules,
+    title,
 };
 use hamlet_ui::theme::StatusKind;
 use hamlet_ui::widgets::effects::{Variant, lit_panels};
 use hamlet_ui::widgets::icons::{Glyph, glyph};
-use hamlet_ui::widgets::platform::{DisplayText, Wraps};
+use hamlet_ui::widgets::platform::Wraps;
 use hamlet_ui::widgets::tabs;
 use hamlet_ui::{AnyView, Cx, View, kinds, rules, with_cx};
 
@@ -47,9 +48,7 @@ pub use self::hamlet::{Naming, Page, hamlet};
 pub(crate) use self::hamlet::{rename, typed};
 pub use self::record::Annals;
 pub(crate) use self::rows::standing;
-use self::rows::{
-    agent_rows, hamlet_name, hamlet_rows, pressable, stale,
-};
+use self::rows::{agent_rows, hamlet_rows, pressable, stale};
 use crate::petition::Queue;
 use crate::standing::{Standing, need_you};
 use crate::{chat, words, world_menu};
@@ -102,8 +101,8 @@ pub(crate) fn heading_line(
     .boxed()
 }
 
-/// The title of a part of a list, small in the display face and in
-/// `tone`, as the rail heads its parts.
+/// The title of a part of a list, small, bold and in `tone`, as the
+/// rail heads its parts.
 pub(crate) fn part_title(text: String, tone: Tone) -> impl View {
     with_cx(move |cx| {
         label(text.clone())
@@ -111,7 +110,6 @@ pub(crate) fn part_title(text: String, tone: Tone) -> impl View {
             .bold(true)
             .tone(tone)
             .wrap(false)
-            .tagged(DisplayText)
     })
 }
 
@@ -628,7 +626,8 @@ fn closed() -> AnyView {
                     ));
                 }
                 let mut card = vec![
-                    hamlet_name(hamlet.name.clone()).boxed(),
+                    card_name(hamlet.name.clone(), Tone::Body)
+                        .boxed(),
                     note(hamlet.reason.clone()).boxed(),
                     row(actions).align(AlignItems::Center).boxed(),
                 ];

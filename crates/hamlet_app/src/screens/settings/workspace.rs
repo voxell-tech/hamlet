@@ -591,7 +591,7 @@ mod tests {
             moving(1, State::Moving, ""),
         );
         assert!(said(&mut app, "Moving lodges: 1 of 2."));
-        let stopped = "The lodge of home#1 was not moved.";
+        let stopped = "The lodge of hire#3 was not moved.";
         received_moving(
             &mut app,
             5,

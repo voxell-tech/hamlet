@@ -44,7 +44,7 @@ use crate::overview;
 pub fn plugin(app: &mut App) {
     app.add_panel(
         HUB,
-        DockWindowKind::new("HUB", || {
+        DockWindowKind::new("Hub", || {
             // Its tab glows while anything waits for the chief.
             highlight_panel(
                 screen(),

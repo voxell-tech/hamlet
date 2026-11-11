@@ -100,11 +100,13 @@ async fn starts_at_another_hamlet_and_switches_agents_and_hamlets() {
     .await;
     s.found("docs", "ada", "keep the docs").await;
     s.found("mill", "bo", "grind").await;
+    let (docs, mill) =
+        (s.chief.hamlet_id("docs"), s.chief.hamlet_id("mill"));
     let home = s.home.path();
     let chat = Cli::run(
         home,
-        &["chat", "--to", "mayor@mill"],
-        "Mill?\n/hamlet docs\nDocs?\n/hand\nHand?\n",
+        &["chat", "--to", &format!("mayor@{mill}")],
+        &format!("Mill?\n/hamlet {docs}\nDocs?\n/hand\nHand?\n"),
         &[],
     )
     .await;
@@ -116,7 +118,7 @@ async fn starts_at_another_hamlet_and_switches_agents_and_hamlets() {
     let switched = Cli::run(
         home,
         &["chat"],
-        "/agent docs#0\nAgain?\n/agent missing\n",
+        "/agent hire#2\nAgain?\n/agent missing\n",
         &[],
     )
     .await;
@@ -210,15 +212,15 @@ async fn asks_for_approvals_and_keeps_them_across_a_crash() {
 async fn edits_limits_in_editor_and_reports_a_refusal() {
     let mut s = Session::start(Faux::new()).await;
     s.found("docs", "ada", "keep the docs").await;
+    let docs = s.chief.hamlet_id("docs");
     let cost = |from: i32, to: i32| {
         format!(
             "sed -E 's/\"cost\": {from}(\\.0)?,/\"cost\": {to},/' \
              \"$1\" > \"$1.next\" && mv \"$1.next\" \"$1\""
         )
     };
-    let good = editor(&s, "good", &cost(5, 8));
-    let saved =
-        edit(&s, &["limits", "--hamlet", "docs"], &good).await;
+    let good = editor(&s, "good", &cost(50, 8));
+    let saved = edit(&s, &["limits", "--hamlet", &docs], &good).await;
     assert_eq!(saved.code(), Some(0), "{saved:?}");
     assert!(saved.err.contains("saved"), "{saved:?}");
     let seen =
@@ -242,7 +244,7 @@ async fn edits_limits_in_editor_and_reports_a_refusal() {
     );
     let broken = editor(&s, "broken", "echo '{' > \"$1\"");
     let refused =
-        edit(&s, &["limits", "--hamlet", "docs"], &broken).await;
+        edit(&s, &["limits", "--hamlet", &docs], &broken).await;
     assert_eq!(refused.code(), Some(1), "{refused:?}");
     assert_eq!(
         s.chief.hamlet("docs").unwrap().limits.budget.cost,
@@ -271,7 +273,7 @@ async fn edits_a_scholars_character_and_memory_in_editor() {
          \"$1\"",
     );
     let saved =
-        edit(&s, &["memory", "docs#0", "tea.md"], &note).await;
+        edit(&s, &["memory", "hire#2", "tea.md"], &note).await;
     assert_eq!(saved.code(), Some(0), "{saved:?}");
     let papers = s.chief.papers(Keeper::Agent(ada)).await;
     assert_eq!(papers.character.trim(), "Brave and plain.");

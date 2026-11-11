@@ -11,16 +11,15 @@ use bevy_fynix::views::{
     BehaviorExt, FrameProps, button, column, row,
 };
 use hamlet_client::realm::{
-    Account, AgentNumber, HamletId, Identity, Left, LivesIn, Mayor,
+    Account, HamletId, Identity, Kind, Left, LivesIn, Mayor,
     MergedInto, OwnModel, Parent, Treasury,
 };
-use hamlet_protocol::client::AgentId;
+use hamlet_protocol::client::{AgentId, AgentKind};
 use hamlet_realm::pick::Thing;
 use hamlet_ui::styles::{ICON, card_button, card_name, status_icon};
 use hamlet_ui::theme::StatusKind;
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
-use hamlet_ui::widgets::platform::DisplayText;
 use hamlet_ui::{AnyView, View, with_cx};
 
 use super::Naming;
@@ -86,15 +85,15 @@ pub(crate) fn standing(
     (state.glyph(), words, state.kind())
 }
 
-/// An agent of a hamlet, living or gone: a hire, or a worker, which
-/// has no number.
+/// An agent of a hamlet, living or gone: a hire, or a worker.
 #[derive(Clone, PartialEq)]
 pub(super) struct AgentRow {
     pub agent: Entity,
-    pub number: Option<u64>,
+    pub id: AgentId,
     /// What it is shown by.
     pub name: String,
     pub mayor: bool,
+    pub worker: bool,
     /// What its row says under its name, or the way it left.
     pub under: String,
     pub standing: Standing,
@@ -108,7 +107,6 @@ pub(super) struct AgentRow {
 
 type Told<'a> = (
     Entity,
-    Option<&'a AgentNumber>,
     &'a LivesIn,
     Option<&'a OwnModel>,
     Option<&'a Account>,
@@ -116,6 +114,7 @@ type Told<'a> = (
     (Has<Mayor>, Has<Left>),
     &'a Identity,
     Option<&'a Parent>,
+    &'a Kind,
 );
 
 /// `rows` in the order of their tree: each lead followed by its
@@ -179,8 +178,8 @@ fn in_tree(
 }
 
 /// Everyone of `hamlet`, or of every hamlet: the mayor, the living
-/// by their numbers and the workers after them, then those that are
-/// gone.
+/// hires in the order they came and the workers after them, then
+/// those that are gone.
 pub(super) fn agent_rows(
     world: &World,
     hamlet: Option<Entity>,
@@ -194,11 +193,10 @@ pub(super) fn agent_rows(
     let mut parents = Vec::new();
     let mut rows = agents
         .iter(world)
-        .filter(|told| hamlet.is_none_or(|h| told.2.0 == h))
+        .filter(|told| hamlet.is_none_or(|h| told.1.0 == h))
         .map(
             |(
                 agent,
-                number,
                 _,
                 own,
                 account,
@@ -206,6 +204,7 @@ pub(super) fn agent_rows(
                 (mayor, gone),
                 id,
                 parent,
+                kind,
             )| {
                 ids.push((agent, id.0));
                 parents.push((id.0, parent.map(|parent| parent.0)));
@@ -233,9 +232,10 @@ pub(super) fn agent_rows(
                     .unwrap_or_default();
                 AgentRow {
                     agent,
-                    number: number.map(|number| number.0),
+                    id: id.0,
                     name: named(agent),
                     mayor,
+                    worker: kind.0 == AgentKind::Worker,
                     under,
                     standing: Standing::of(world, agent),
                     gone,
@@ -246,7 +246,7 @@ pub(super) fn agent_rows(
         )
         .collect::<Vec<_>>();
     rows.sort_by_key(|row| {
-        (row.gone, !row.mayor, row.number.unwrap_or(u64::MAX))
+        (row.gone, !row.mayor, row.worker, row.id)
     });
     let (gone, living) = rows.into_iter().partition(|row| row.gone);
     let mut rows = in_tree(living, &parents, &ids);
@@ -287,12 +287,6 @@ pub(super) fn hamlet_rows(world: &World) -> Vec<HamletRow> {
     rows
 }
 
-/// A hamlet's name on a card, in the display face the Hub's tree
-/// names it in.
-pub(super) fn hamlet_name(name: String) -> impl View {
-    card_name(name, Tone::Body).tagged(DisplayText)
-}
-
 /// A row that can be pressed: a title with a word of status beside
 /// it, over `lines`, and the mark that it opens at its end. The right
 /// button opens the menu of `thing`.
@@ -309,7 +303,7 @@ pub(super) fn pressable(
             row((
                 column((
                     row((
-                        hamlet_name(title),
+                        card_name(title, Tone::Body),
                         status_icon(beside.0, beside.1, beside.2),
                     ))
                     .gap(gap)

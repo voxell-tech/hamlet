@@ -190,7 +190,7 @@ mod tests {
     fn back_and_forward_walk_the_pages_gone_through() {
         let mut app = panel_app();
         app.add_plugins(plugin);
-        let ada = realm::named(app.world_mut(), "home#0").unwrap();
+        let ada = realm::named(app.world_mut(), "hire#2").unwrap();
         app.insert_resource(Showing::Realm)
             .init_resource::<Sheet>()
             .init_resource::<Selected>()

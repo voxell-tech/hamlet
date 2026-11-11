@@ -238,13 +238,9 @@ pub(super) fn realm(
             continue;
         }
         let count = hires::count_living(db, &hamlet.id)?;
-        let title = hamlet
-            .title
-            .as_deref()
-            .map(|t| format!(" ({t})"))
-            .unwrap_or_default();
         lines.push(format!(
-            "- `{}`{title}: mayor `{}`, {count} hires",
+            "- {} (`{}`): mayor `{}`, {count} hires",
+            hamlet.name,
             hamlet.id,
             addresses::name_of(db, hamlet.mayor)?
         ));

@@ -5,6 +5,7 @@
 use std::path::PathBuf;
 
 use bevy::ecs::entity::Entity;
+use bevy::ecs::name::Name;
 use bevy::ecs::observer::On;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::system::Commands;
@@ -20,7 +21,9 @@ use bevy_fynix::views::{
 use bevy_fynix::{
     ScopedExt, ViewExt, derived, every_frame, keyed, resource,
 };
-use hamlet_client::realm::{self, Deeds, Scholar, scholar_address};
+use hamlet_client::realm::{
+    self, Deeds, HamletId, Scholar, scholar_address,
+};
 use hamlet_desktop::folder::{ChooseFolder, FolderChosen};
 use hamlet_protocol::client as protocol;
 use hamlet_ui::styles::{
@@ -61,36 +64,38 @@ impl FromWorld for FolderAsker {
     }
 }
 
-/// A hamlet founded from the form and not yet seen: its id, the
-/// folder it is to work on, and when it is let go.
+/// A hamlet founded from the form and not yet seen: its name, the
+/// hamlets that had that name already, the folder it is to work on,
+/// and when it is let go.
 #[derive(Resource, Default)]
-pub(crate) struct Awaited(Option<(String, Option<PathBuf>, f64)>);
+pub(crate) struct Awaited(
+    Option<(String, Vec<Entity>, Option<PathBuf>, f64)>,
+);
 
 impl Founding {
-    /// The id the hamlet is founded under: its name in lowercase
-    /// letters and hyphens.
-    fn id(&self) -> String {
+    /// The name it is founded under: what was typed, on one line,
+    /// with no colon, since a colon starts the purpose.
+    fn name(&self) -> String {
         self.name
-            .trim()
-            .to_lowercase()
+            .replace(':', " ")
             .split_whitespace()
             .collect::<Vec<_>>()
-            .join("-")
+            .join(" ")
     }
 
     /// The chief's command that founds it. None until its name is
     /// given.
     fn command(&self) -> Option<String> {
-        let name = self.id();
+        let name = self.name();
         let purpose = self.purpose.trim();
-        // A blank mayor is said, so a purpose is never read as one.
+        // A blank mayor is said, so a name that starts with a word
+        // the command reads as a mayor stays whole.
         let mayor = self
             .mayor
             .map_or_else(|| "blank".to_string(), scholar_address);
-        (!name.is_empty()).then(|| {
-            format!("/create-hamlet {name} {mayor} {purpose}")
-                .trim_end()
-                .to_string()
+        (!name.is_empty()).then(|| match purpose {
+            "" => format!("/create-hamlet {mayor} {name}"),
+            _ => format!("/create-hamlet {mayor} {name}: {purpose}"),
         })
     }
 }
@@ -168,14 +173,31 @@ pub(super) fn submit(world: &mut World) {
     };
     close(world);
     *world.resource_mut::<Founding>() = Founding::default();
-    // A name already taken is refused, and its hamlet left alone.
-    let id = founding.id();
-    if realm::hamlet(world, &id).is_none() {
-        let until = now(world) + WAIT;
-        world.resource_mut::<Awaited>().0 =
-            Some((id, founding.folder, until));
-    }
+    // Names may repeat, so the new hamlet is the one of its name that
+    // was not there before.
+    let name = founding.name();
+    let before = named_hamlets(world, &name)
+        .into_iter()
+        .map(|(hamlet, _)| hamlet)
+        .collect();
+    let until = now(world) + WAIT;
+    world.resource_mut::<Awaited>().0 =
+        Some((name, before, founding.folder, until));
     chat::command(world, command);
+}
+
+/// The hamlets named `name`, each with its id.
+fn named_hamlets(world: &World, name: &str) -> Vec<(Entity, String)> {
+    let Some(mut hamlets) =
+        world.try_query::<(Entity, &HamletId, &Name)>()
+    else {
+        return Vec::new();
+    };
+    hamlets
+        .iter(world)
+        .filter(|(_, _, shown)| shown.as_str() == name)
+        .map(|(hamlet, id, _)| (hamlet, id.0.clone()))
+        .collect()
 }
 
 /// The seconds since the window started.
@@ -201,17 +223,25 @@ pub(crate) fn chosen(
 /// Once the hamlet founded from the form is there, points it at its
 /// folder and opens its mayor's chat.
 pub(crate) fn open_founded(world: &mut World) {
-    let Some((id, _, until)) = &world.resource::<Awaited>().0 else {
+    let Some((name, before, _, until)) =
+        &world.resource::<Awaited>().0
+    else {
         return;
     };
     if now(world) > *until {
         world.resource_mut::<Awaited>().0 = None;
         return;
     }
-    let Some(mayor) = realm::mayor_of(world, id) else {
+    let Some((_, id)) = named_hamlets(world, name)
+        .into_iter()
+        .find(|(hamlet, _)| !before.contains(hamlet))
+    else {
         return;
     };
-    let Some((id, folder, _)) =
+    let Some(mayor) = realm::mayor_of(world, &id) else {
+        return;
+    };
+    let Some((_, _, folder, _)) =
         world.resource_mut::<Awaited>().0.take()
     else {
         return;
@@ -291,9 +321,7 @@ pub(super) fn founding(at: Vec2) -> impl View {
             ),
             description(resource::<Founding, _>(|f| {
                 match f.command() {
-                    Some(_) => "A name is kept as lowercase letters \
-                                and hyphens."
-                        .to_string(),
+                    Some(_) => String::new(),
                     None => "Its name is needed.".to_string(),
                 }
             })),
@@ -349,13 +377,13 @@ mod tests {
             .init_resource::<hamlet_realm::pick::AskedGround>();
         let mut state = realm::state();
         state.deeds = realm::deeds(&["create-hamlet"]);
-        state.agents.push(realm::agent(3, "home", 1));
+        state.agents.push(realm::agent(3, "home", false));
         hamlet_client::receive(
             app.world_mut(),
             protocol::ServerMessage::State(state),
         );
         let scout =
-            hamlet_client::realm::named(app.world_mut(), "home#1")
+            hamlet_client::realm::named(app.world_mut(), "hire#3")
                 .unwrap();
         crate::convo::talk_to(app.world_mut(), scout);
         app.insert_resource(Founding {
@@ -385,7 +413,7 @@ mod tests {
         };
         assert_eq!(
             say.text,
-            "/create-hamlet mill scholar#2 Grinds flour"
+            "/create-hamlet scholar#2 mill: Grinds flour"
         );
         assert_eq!(say.to, protocol::AgentId(1));
     }

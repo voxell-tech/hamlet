@@ -57,6 +57,11 @@ Stdin is closed; stdout and stderr go to a log shown on failure.
 
 A conversation takes its agent's list first, then its kind's, then
 `responses`. An exhausted list answers with an error and never falls back.
+
+A hamlet's id is made only once it is founded, so a script names it as
+`{{name}}` in a step's call arguments, and the step is
+`.filled_from(NAMES)`: `Session::found` and `Session::named` keep each
+hamlet's id under its name in that file beside the script.
 A faux model costs nothing, so the spend scenarios use the loopback
 endpoint, which bills a fixed price per answer.
 

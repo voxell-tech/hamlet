@@ -11,7 +11,7 @@ use hamlet_store::ids::{Actor, AgentId, HamletId, ScholarId};
 use hamlet_store::schema::{agent, hire, scholar, worker};
 
 use super::agents::{self, AgentKind};
-use super::names::check_hamlet_id;
+use super::names::hamlet_id;
 use super::refusal::Refusal;
 use super::{chiefs, hamlets, hand, tree};
 use crate::change::{Done, done, refuse};
@@ -24,11 +24,7 @@ pub(crate) enum Address {
     Mayor {
         hamlet: Option<HamletId>,
     },
-    /// The hire of that number in a hamlet.
-    Hire {
-        hamlet: HamletId,
-        number: i64,
-    },
+    Hire(AgentId),
     Worker(AgentId),
 }
 
@@ -40,9 +36,7 @@ impl fmt::Display for Address {
             Self::Mayor {
                 hamlet: Some(hamlet),
             } => write!(f, "mayor@{hamlet}"),
-            Self::Hire { hamlet, number } => {
-                write!(f, "{hamlet}#{number}")
-            }
+            Self::Hire(id) => write!(f, "hire#{id}"),
             Self::Worker(id) => write!(f, "worker#{id}"),
         }
     }
@@ -56,8 +50,8 @@ pub(crate) enum Reach {
     Kept,
 }
 
-/// Reads an address: `hand`, `mayor`, `mayor@<hamlet>`,
-/// `<hamlet>#<number>` or `worker#<id>`.
+/// Reads an address: `hand`, `mayor`, `mayor@<hamlet>`, `hire#<id>`
+/// or `worker#<id>`.
 pub(crate) fn parse(text: &str) -> Result<Address, Refusal> {
     let text = text.trim();
     let bad = || Refusal::BadAddress {
@@ -66,29 +60,21 @@ pub(crate) fn parse(text: &str) -> Result<Address, Refusal> {
     if text == "hand" {
         return Ok(Address::Hand);
     }
-    if let Some(id) = text.strip_prefix("worker#") {
-        let id = id.parse::<i64>().map_err(|_| bad())?;
-        return Ok(Address::Worker(AgentId(id)));
-    }
     if text == "mayor" {
         return Ok(Address::Mayor { hamlet: None });
     }
     if let Some(hamlet) = text.strip_prefix("mayor@") {
-        check_hamlet_id(hamlet).map_err(|_| bad())?;
         return Ok(Address::Mayor {
-            hamlet: Some(HamletId(hamlet.into())),
+            hamlet: Some(hamlet_id(hamlet).ok_or_else(bad)?),
         });
     }
-    let (hamlet, number) = text.split_once('#').ok_or_else(bad)?;
-    check_hamlet_id(hamlet).map_err(|_| bad())?;
-    let number = number.parse::<i64>().map_err(|_| bad())?;
-    if number < 0 {
-        return Err(bad());
+    let (kind, id) = text.split_once('#').ok_or_else(bad)?;
+    let id = AgentId(id.parse::<i64>().map_err(|_| bad())?);
+    match kind {
+        "hire" => Ok(Address::Hire(id)),
+        "worker" => Ok(Address::Worker(id)),
+        _ => Err(bad()),
     }
-    Ok(Address::Hire {
-        hamlet: HamletId(hamlet.into()),
-        number,
-    })
 }
 
 /// Reads a scholar's address, `scholar#<id>`.
@@ -141,12 +127,11 @@ pub(crate) fn resolve(
                 _ => refuse!(none()),
             }
         }
-        Address::Hire { hamlet, number } => {
+        Address::Hire(id) => {
             let mut query = hire::table
                 .inner_join(agent::table)
                 .inner_join(scholar::table)
-                .filter(hire::hamlet.eq(hamlet))
-                .filter(hire::number.eq(number))
+                .filter(hire::agent.eq(id))
                 .filter(agent::erased.eq(false))
                 .select(hire::agent)
                 .into_boxed();
@@ -188,25 +173,21 @@ pub(crate) fn actor_address(
     })
 }
 
-/// The address of `id`: `hand`, `hamlet#number` or `worker#id` (C30).
+/// The address of `id`: `hand`, `hire#id` or `worker#id` (C30).
 pub(crate) fn address_of(db: &mut Db, id: AgentId) -> Result<String> {
-    Ok(match agents::get(db, id)?.kind {
-        AgentKind::Hand => "hand".into(),
-        AgentKind::Worker => format!("worker#{id}"),
-        AgentKind::Hire => {
-            let (hamlet, number) = hire::table
-                .find(id)
-                .select((hire::hamlet, hire::number))
-                .first::<(HamletId, i64)>(db)?;
-            format!("{hamlet}#{number}")
-        }
-    })
+    let kind = agents::get(db, id)?.kind;
+    Ok(match kind {
+        AgentKind::Hand => Address::Hand,
+        AgentKind::Hire => Address::Hire(id),
+        AgentKind::Worker => Address::Worker(id),
+    }
+    .to_string())
 }
 
 /// How `id` is shown to chiefs and agents: its address, and beside it
 /// the nickname of a hire, or else its scholar's name, as in
-/// `orchard#3 (Mira)`, or a worker's nickname. An erased hire shows
-/// its address only.
+/// `hire#3 (Mira)`, or a worker's nickname. An erased hire shows its
+/// address only.
 pub(crate) fn name_of(db: &mut Db, id: AgentId) -> Result<String> {
     let address = address_of(db, id)?;
     let found = agents::get(db, id)?;

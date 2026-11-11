@@ -73,12 +73,12 @@ async fn names_pins_reverts_and_forks_versions() {
     wait_for_character(&mut s, docs, "Brave.").await;
     // A pinned hire takes no later learning, until it follows main
     // again.
-    let said = s.chief.command(hand, "/pin docs#0 v1 steady").await;
+    let said = s.chief.command(hand, "/pin hire#2 v1 steady").await;
     assert_eq!(
         said,
-        "docs#0 (ada) takes v1 in once idle, and no later learning."
+        "hire#2 (ada) takes v1 in once idle, and no later learning."
     );
-    s.chief.refused(hand, "/pin docs#0 v9").await;
+    s.chief.refused(hand, "/pin hire#2 v9").await;
     character(&mut s, ada, "Careful.").await;
     assert_eq!(
         s.chief.papers(Keeper::Scholar(ada)).await.character,
@@ -89,8 +89,8 @@ async fn names_pins_reverts_and_forks_versions() {
     assert!(prompt.contains("Brave."), "{prompt}");
     assert!(!prompt.contains("Careful."), "{prompt}");
     assert_eq!(
-        s.chief.command(hand, "/pin docs#0 main").await,
-        "docs#0 (ada) follows its scholar's main again."
+        s.chief.command(hand, "/pin hire#2 main").await,
+        "hire#2 (ada) follows its scholar's main again."
     );
     wait_for_character(&mut s, docs, "Careful.").await;
 

@@ -17,10 +17,9 @@ all out of reach of file tools. A worker has no lodge, only a scratch folder
 that ends with it (H42).
 
 **C9.** An agent is identified by an id that is the same everywhere in the
-realm and is never given twice. A hire also has a number in its hamlet, never
-reused there, which addresses it as `hamlet#number`, the mayor being 0. No
-address, lookup or command finds an agent or a scholar by a name. Ending,
-merging, restoring and seating a mayor keep both.
+realm and is never given twice; a hire is addressed by it as `hire#<id>`. No
+address, lookup or command finds an agent, a scholar or a hamlet by a name.
+Ending, merging, restoring and seating a mayor keep the id.
 A later hire of the same scholar inherits nothing of the earlier one.
 
 **C10.** A scholar is its id, addressed as `scholar#<id>`. Its name is a
@@ -234,7 +233,7 @@ call with its name, its arguments cut to 200 characters and, for an edit,
 the change, then the call's end with its exit code, its time and the first
 line of a failure, and the notices meant only for people. Letters,
 questions and replies show their writer by its address with its name beside
-it (`docs#1 (Mira)`), `hand`, or `worker#id`; once a hire is erased, as its
+it (`hire#3 (Mira)`), `hand`, or `worker#id`; once a hire is erased, as its
 address alone. They are shown as agents' words,
 never as a chief's words that can be taken back.
 

@@ -360,7 +360,7 @@ mod tests {
             app.world_mut(),
             protocol::ServerMessage::State(state),
         );
-        let ada = agents::named(app.world_mut(), "home#0").unwrap();
+        let ada = agents::named(app.world_mut(), "hire#2").unwrap();
         let (id, scholar) = app
             .world_mut()
             .query::<&Scholar>()
@@ -394,7 +394,7 @@ mod tests {
         assert_eq!(
             say.text,
             format!(
-                "/hire scholar#{} under home#0 Mend the fences",
+                "/hire scholar#{} under hire#2 Mend the fences",
                 id.0
             )
         );

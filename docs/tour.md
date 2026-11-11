@@ -256,8 +256,8 @@ built-in ones.
 | Desks and their switcher in the top bar | `hamlet_app/src/desk.rs`, `desk/switcher.rs`, `desk/switcher/motion.rs` |
 
 `hamlet_realm/src/hamlet.rs` bridges received entities to the generator's
-plots and roads. `AgentNumber` is a hire's number in its hamlet, not a
-name; `HamletId` is a hamlet's protocol id.
+plots and roads. `Hire` marks an agent that is a hire; `HamletId` is a
+hamlet's protocol id, a UUID, and its `Name` the name it is shown by.
 `chief.rs` names the wizard in the world and the chief's panel in the UI;
 `Chief` in `hamlet_client` is the server's chief identity. The window keeps
 only its own view files under `HAMLET_VIEW`.

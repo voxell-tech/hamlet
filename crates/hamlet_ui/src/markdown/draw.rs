@@ -391,7 +391,7 @@ fn block_view(
             code_view(cx, lang, text).boxed()
         }
         Kind::Rule => frame()
-            .height(px(1.0))
+            .height(px(crate::styles::LINE))
             .margin(UiRect::vertical(px(4.0)))
             .fill(cx.theme().palette.gold_6)
             .boxed(),

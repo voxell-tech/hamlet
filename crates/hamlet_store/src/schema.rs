@@ -169,7 +169,7 @@ diesel::table! {
 diesel::table! {
     hamlet (id) {
         id -> Text,
-        title -> Nullable<Text>,
+        name -> Text,
         founded_at -> BigInt,
         founded_by -> Text,
         mayor -> BigInt,
@@ -178,7 +178,6 @@ diesel::table! {
         tier -> BigInt,
         site_x -> Nullable<Double>,
         site_z -> Nullable<Double>,
-        next_number -> BigInt,
         limits -> Text,
         removed_at -> Nullable<BigInt>,
         removed_by -> Nullable<Text>,
@@ -214,7 +213,6 @@ diesel::table! {
     hire (agent) {
         agent -> BigInt,
         hamlet -> Text,
-        number -> BigInt,
         scholar -> BigInt,
         parent -> Nullable<BigInt>,
         purpose -> Text,

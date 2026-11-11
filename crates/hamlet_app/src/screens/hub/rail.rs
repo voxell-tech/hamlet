@@ -42,8 +42,7 @@ use hamlet_protocol::client as protocol;
 use hamlet_realm::pick::{Selected, Thing, bring_into_view, select};
 use hamlet_ui::styles::{
     ICON, STATUS_PAD, description_rules, note, note_rules, quoted,
-    scroll_area, small_rules, status_icon_at, text_input,
-    transparent,
+    scroll_area, status_icon_at, text_input, transparent,
 };
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::effects::{Edge, Variant, Wash};
@@ -85,12 +84,18 @@ const TITLE_SHOWN: usize = 56;
 /// to press as one of two.
 const ROW: f32 = 32.0;
 
-/// The height of a worker's row and of the row its group folds into,
-/// smaller than a hire's.
-const SMALL_ROW: f32 = 22.0;
+/// The height of a worker's row and the side of its icon, smaller
+/// than a hire's, so the hires stand out of their workers.
+const WORKER_ROW: f32 = 26.0;
+const WORKER_ICON: f32 = 12.0;
 
-/// The side of the icon of a small row.
-const SMALL_ICON: f32 = 12.0;
+/// How opaque the icon of one that left is.
+const DIMMED: f32 = 0.6;
+
+/// The least height of `line`'s row.
+fn row_height(line: &Line) -> f32 {
+    if line.worker { WORKER_ROW } else { ROW }
+}
 
 /// The column at the rail's edge that holds every chevron.
 const CHEVRON: f32 = 14.0;
@@ -382,8 +387,10 @@ pub(super) struct Line {
     /// For a lead: the fold of the rows under it, and whether it is
     /// folded.
     pub fold: Option<(Group, bool)>,
-    /// Whether it is a worker's row, or its group's, drawn smaller.
-    pub small: bool,
+    /// Whether it is a worker's, or the row its group folds into:
+    /// one short line, lighter than a hire's, so the hires stand out
+    /// of their workers.
+    pub worker: bool,
 }
 
 /// A group, its header and its rows.
@@ -624,8 +631,7 @@ fn family_lines(
         let depth = *depth;
         match node {
             Node::Agent(agent) => {
-                let mut line = agent_line(world, agent, depth, false);
-                line.small = agent.is_worker();
+                let line = agent_line(world, agent, depth, false);
                 rows.push((line, depth));
             }
             Node::Workers { group, workers } => {
@@ -637,9 +643,8 @@ fn family_lines(
                 if shown {
                     let under = depth.saturating_add(1);
                     for worker in workers {
-                        let mut line =
+                        let line =
                             agent_line(world, worker, under, false);
-                        line.small = true;
                         rows.push((line, under));
                     }
                 }
@@ -704,7 +709,7 @@ fn workers_line(
         rails: Vec::new(),
         current: false,
         fold: Some((group, !open)),
-        small: true,
+        worker: true,
     }
 }
 
@@ -712,7 +717,7 @@ fn kind_glyph(agent: &Agent) -> Glyph {
     match agent.kind {
         protocol::AgentKind::Hand => Glyph::Tower,
         protocol::AgentKind::Hire if agent.mayor => Glyph::Mayor,
-        protocol::AgentKind::Hire => Glyph::Robot,
+        protocol::AgentKind::Hire => Glyph::Hire,
         protocol::AgentKind::Worker => Glyph::Worker,
     }
 }
@@ -772,7 +777,7 @@ fn agent_line(
         rails: Vec::new(),
         current: is_current(world, target),
         fold: None,
-        small: false,
+        worker: agent.kind == protocol::AgentKind::Worker,
     }
 }
 
@@ -850,7 +855,7 @@ fn page_line(
         rails: Vec::new(),
         current: is_current(world, target),
         fold: None,
-        small: false,
+        worker: false,
     }
 }
 
@@ -899,7 +904,7 @@ fn needs(world: &World, all: &[Agent]) -> (Vec<Line>, usize) {
                 rails: Vec::new(),
                 current: false,
                 fold: None,
-                small: false,
+                worker: false,
             });
             counts.push(1);
             continue;
@@ -945,7 +950,8 @@ fn needs(world: &World, all: &[Agent]) -> (Vec<Line>, usize) {
             rails: Vec::new(),
             current: false,
             fold: None,
-            small: false,
+            // What waits is never set lighter.
+            worker: false,
         });
         counts.push(1);
     }
@@ -1080,7 +1086,7 @@ fn society(world: &World, sections: &mut Vec<Section>) {
             let mut line = page_line(
                 world,
                 Target::Gone(entity),
-                Glyph::Robot,
+                Glyph::Hire,
                 &shown_of(world, entity),
                 match into {
                     Some(host) => {
@@ -1553,7 +1559,11 @@ fn mark_icon(mark: Option<Standing>) -> AnyView {
 fn chevron(group: Group, shut: bool, says: &'static str) -> AnyView {
     button(
         glyph(Glyph::Chevron, 10.0)
-            .tone(Tone::Faint)
+            .tone(if group == Group::Left {
+                Tone::Dim
+            } else {
+                Tone::Faint
+            })
             .rotation(if shut { 90.0 } else { 180.0 }),
     )
     .width(px(CHEVRON))
@@ -1567,44 +1577,57 @@ fn chevron(group: Group, shut: bool, says: &'static str) -> AnyView {
     .boxed()
 }
 
-/// The height of a row of one line.
-fn row_height(line: &Line) -> f32 {
-    if line.small { SMALL_ROW } else { ROW }
-}
-
 /// A row: its icon, then its name with how long ago and its mark at
 /// the end, over what it is doing, which runs the row's whole width
-/// and wraps rather than being cut. A worker's row, or its group's,
-/// is one small line.
-fn expanded(line: &Line) -> AnyView {
-    let (target, since) = (line.target, line.since);
+/// and wraps rather than being cut. A worker's row is one short line
+/// with what it is doing beside its name, cut at the rail's edge.
+/// A `dimmed` row, of those that left, is set in grey.
+fn expanded(line: &Line, dimmed: bool) -> AnyView {
+    let (target, since, worker) =
+        (line.target, line.since, line.worker);
     let name_tone = if line.current {
         Tone::Accent
+    } else if dimmed || worker {
+        Tone::Dim
     } else {
         Tone::Body
     };
-    let title = if line.small {
-        String::new()
-    } else {
-        cut(&line.title, TITLE_SHOWN)
+    let title = cut(&line.title, TITLE_SHOWN);
+    let clipped = |shown: AnyView| {
+        column((shown,))
+            .min_width(px(0.0))
+            .overflow(Overflow::clip())
     };
-    let (icon, size_rules): (f32, fn(&mut Cx)) = if line.small {
-        (SMALL_ICON, small_rules)
+    let name = clipped(
+        one_line(
+            label(line.name.clone())
+                .tone(name_tone)
+                .bold(!(worker || dimmed)),
+        )
+        .boxed(),
+    );
+    let words = if worker {
+        row((
+            name,
+            clipped(one_line(label(title.clone())).boxed())
+                .grow(1.0)
+                .rules(note_rules),
+        ))
+        .gap(6.0)
+        .align(AlignItems::Center)
+        .grow(1.0)
+        .min_width(px(0.0))
+        .boxed()
     } else {
-        (ICON, |_: &mut Cx| {})
+        name.grow(1.0).boxed()
     };
     // The icon on the middle of the name's line.
     let head = row((
-        glyph(line.glyph, icon).tone(Tone::Dim),
+        glyph(line.glyph, if worker { WORKER_ICON } else { ICON })
+            .tone(Tone::Dim)
+            .opacity(if dimmed { DIMMED } else { 1.0 }),
         row((
-            column((one_line(
-                label(line.name.clone())
-                    .tone(name_tone)
-                    .bold(!line.small),
-            ),))
-            .grow(1.0)
-            .min_width(px(0.0))
-            .overflow(Overflow::clip()),
+            words,
             label(
                 derived(move |_: &World| age(now_ms(), since))
                     .when(every_frame()),
@@ -1618,9 +1641,8 @@ fn expanded(line: &Line) -> AnyView {
         .grow(1.0)
         .min_width(px(0.0)),
     ))
-    .gap(if line.small { 6.0 } else { 8.0 })
-    .align(AlignItems::Center)
-    .rules(size_rules);
+    .gap(if worker { 6.0 } else { 8.0 })
+    .align(AlignItems::Center);
     // Under it, from the row's own edge rather than the name's, what
     // it is doing. A row with nothing more to say is one line.
     let doing = column((if title.contains('`') {
@@ -1629,7 +1651,7 @@ fn expanded(line: &Line) -> AnyView {
         label(title.clone()).boxed()
     },))
     .min_width(px(0.0))
-    .display(if title.is_empty() {
+    .display(if title.is_empty() || worker {
         Display::None
     } else {
         Display::Flex
@@ -1676,7 +1698,7 @@ fn expanded(line: &Line) -> AnyView {
         .width(px(f32::from(line.depth) * STEP_IN))
         .shrink(0.0);
     let mut parts = vec![step.boxed(), fold, shown];
-    parts.extend(tree_lines(line, title.is_empty()));
+    parts.extend(tree_lines(line, title.is_empty() || worker));
     row(parts)
         .gap(0.0)
         .align(AlignItems::Center)
@@ -1805,8 +1827,12 @@ fn header(section: &Section, above: f32) -> AnyView {
         }
         _ => chevron(group, section.folded, "Fold or open"),
     };
+    // Those that left are headed in grey, not in the gold of what
+    // can be pressed.
     let tone = if section.current {
         Tone::Accent
+    } else if group == Group::Left {
+        Tone::Dim
     } else {
         Tone::Faint
     };
@@ -1895,7 +1921,8 @@ fn sections_view(sections: &[Section], first_above: f32) -> AnyView {
         } else {
             &section.lines[..]
         };
-        block.extend(lines.iter().map(expanded));
+        let dimmed = section.group == Group::Left;
+        block.extend(lines.iter().map(|line| expanded(line, dimmed)));
         parts.push(
             with_cx(move |cx| {
                 column(block)
@@ -1945,16 +1972,32 @@ pub(super) fn view() -> impl View {
                 .collect::<Vec<_>>()
         })
         .when(every_frame()),
-        |sections| sections_view(sections, UNDER_SEARCH),
+        |sections| {
+            // Those that left, at the foot of the rail however short
+            // the rest is.
+            let (left, rest): (Vec<_>, Vec<_>) = sections
+                .iter()
+                .cloned()
+                .partition(|section| section.group == Group::Left);
+            column((
+                sections_view(&rest, UNDER_SEARCH),
+                frame().grow(1.0),
+                sections_view(&left, PART_GAP),
+            ))
+            .gap(0.0)
+            .grow(1.0)
+            .boxed()
+        },
     )
-    .within(hamlet_ui::styles::bare());
+    .within(hamlet_ui::styles::bare().grow(1.0));
     let body = column((
         over,
         column((tabs_and_search(),))
             .padding(UiRect::top(px(PART_GAP))),
         under,
     ))
-    .gap(0.0);
+    .gap(0.0)
+    .grow(1.0);
     with_cx(move |cx| {
         column((scroll_area((body,)),))
             .gap(cx.theme().space.gap)
@@ -1991,7 +2034,7 @@ mod tests {
         let mut app = panel_app();
         app.add_plugins(plugin);
         app.update();
-        let ada = named(app.world_mut(), "home#0").unwrap();
+        let ada = named(app.world_mut(), "hire#2").unwrap();
         let in_hamlet = |g: &Group| matches!(g, Group::Hamlet(_));
         assert_eq!(names(&app, in_hamlet), ["ada"]);
         assert!(

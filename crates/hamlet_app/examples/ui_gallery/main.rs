@@ -285,7 +285,7 @@ const SHOTS: [Shot; 46] = [
     },
     Shot {
         name: "welcome",
-        scene: Scene::Welcome(Step::Choice),
+        scene: Scene::Welcome(Step::Provider),
         size: UVec2::new(1180, 680),
         scale: 1.0,
     },
@@ -296,14 +296,14 @@ const SHOTS: [Shot; 46] = [
         scale: 1.0,
     },
     Shot {
-        name: "welcome-key-search",
-        scene: Scene::KeySearch("open"),
+        name: "welcome-providers-search",
+        scene: Scene::ProviderSearch("open"),
         size: UVec2::new(1180, 680),
         scale: 1.0,
     },
     Shot {
-        name: "welcome-key-none",
-        scene: Scene::KeySearch("zzz"),
+        name: "welcome-providers-none",
+        scene: Scene::ProviderSearch("zzz"),
         size: UVec2::new(1180, 680),
         scale: 1.0,
     },

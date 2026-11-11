@@ -18,7 +18,7 @@ and `layout.rs` defines `Layout`. The server's chief is named by
 | `server.log` | Detached server's output, written by the CLI's process launch |
 | `scholars/<id>.git/` | Each scholar's repository, the Hand's included |
 | `hand/` | The Hand's lodge |
-| `hamlets/<hamlet>/<number>/` | A hire's lodge: `memory/`, `skills/` and `inbox/`, a checkout of its branch |
+| `hamlets/<hamlet id>/<hire id>/` | A hire's lodge: `memory/`, `skills/` and `inbox/`, a checkout of its branch |
 | `workers/<id>/` | A worker's scratch folder while it runs |
 | `library.git/`, `library/` | The library's repository, and its `main` checked out, read-only to agent tools |
 | `tools/` | Hand-added tool manifests and scripts |
@@ -112,7 +112,11 @@ through directories it holds open, without following links.
 `HAMLET_MODEL`, `HAMLET_BASE_URL`, `HAMLET_REFLECT_EVERY` and `HAMLET_NET`
 override stored settings for this process. `HAMLET_MODEL` is the settings'
 model, so an agent's or hamlet's own choice still stands over it.
-`HAMLET_BASE_URL` is the address of that model's endpoint.
+`HAMLET_BASE_URL` is the address of that model's endpoint, which it adds
+when the settings have none of that name. A realm starts with no endpoint
+and no model. Setup is done once the chief picks a model; This computer
+adds Ollama's endpoint, `local` at `http://localhost:11434/v1`, when it is
+picked.
 
 The settings also hold when dreams run: whether they are on, the local hours
 they start in, and the most one may cost.

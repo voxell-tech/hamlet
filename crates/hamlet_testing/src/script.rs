@@ -28,6 +28,8 @@ pub struct Answer {
     stall_ms: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     hold_until: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    fill: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -75,6 +77,15 @@ impl Step {
     /// path is from the script's folder.
     pub fn held_until(self, file: &str) -> Step {
         self.with(|answer| answer.hold_until = Some(file.into()))
+    }
+
+    /// The same answer, each `{{name}}` in its calls' arguments
+    /// replaced by its words in the JSON object of `file` as the
+    /// answer is asked for: for what is made only once the server
+    /// runs, such as a hamlet's id. A relative path is from the
+    /// script's folder.
+    pub fn filled_from(self, file: &str) -> Step {
+        self.with(|answer| answer.fill = Some(file.into()))
     }
 
     /// The same answer, taking `ms` milliseconds however the request

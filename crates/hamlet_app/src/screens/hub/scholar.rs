@@ -590,7 +590,7 @@ fn deed_menu(
 fn hires(shown: &Shown) -> AnyView {
     if shown.hires.is_empty() {
         return section_line(
-            Glyph::Robot,
+            Glyph::Hire,
             "Hires",
             dim("Nobody works as it now.").boxed(),
         );
@@ -668,7 +668,7 @@ fn hires(shown: &Shown) -> AnyView {
             row(line).gap(8.0).align(AlignItems::Center).boxed(),
         );
     }
-    section(Glyph::Robot, "Hires", None, column(parts).gap(4.0))
+    section(Glyph::Hire, "Hires", None, column(parts).gap(4.0))
 }
 
 /// What it knows, each part in its section: the character a chief may

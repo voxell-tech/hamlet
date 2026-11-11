@@ -191,14 +191,14 @@ const TABLE: &[Command] = &[
     },
     Command {
         name: "create-hamlet",
-        usage: "/create-hamlet <hamlet> [scholar#id|blank] [purpose]",
-        does: "Create a hamlet under a scholar as its mayor, or a \
-               blank agent named Mayor if none is given",
+        usage: "/create-hamlet [scholar#id|blank] <name>[: purpose]",
+        does: "Create a hamlet named <name> under a scholar as its \
+               mayor, or a blank agent named Mayor if none is given",
     },
     Command {
         name: "name-hamlet",
-        usage: "/name-hamlet <hamlet> [name]",
-        does: "Give a hamlet a name to be shown by",
+        usage: "/name-hamlet <hamlet> <name>",
+        does: "Give a hamlet another name to be shown by",
     },
     Command {
         name: "move-hamlet",
@@ -536,15 +536,7 @@ impl Core {
                 let list = hamlets::all(db)?
                     .into_iter()
                     .filter(hamlets::Hamlet::is_living)
-                    .map(|h| {
-                        format!(
-                            "- {} (`{}`)",
-                            h.title
-                                .clone()
-                                .unwrap_or_else(|| h.id.to_string()),
-                            h.id
-                        )
-                    })
+                    .map(|h| format!("- {} (`{}`)", h.name, h.id))
                     .collect::<Vec<_>>()
                     .join("\n");
                 Ok(Ok(if list.is_empty() {
@@ -554,38 +546,43 @@ impl Core {
                 }))
             }
             "create-hamlet" => {
-                let Some(id) = words.first() else {
-                    return Ok(Err(usage(name)));
-                };
-                let id = HamletId((*id).to_owned());
-                // A mayor not given is a blank agent named Mayor, and
-                // one given no purpose is there to run the hamlet.
+                // A mayor not given is a blank agent named Mayor.
                 let blank = || Hiring::Blank {
                     name: String::new(),
                     character: String::new(),
                 };
-                let (mayor, purpose_at) = match words.get(1) {
-                    Some(&BLANK) => (blank(), 2),
+                let (mayor, name_at) = match words.first() {
+                    Some(&BLANK) => (blank(), 1),
                     Some(scholar) if is_scholar(scholar) => {
                         match self.hiring(scholar, chief)? {
-                            Ok(hiring) => (hiring, 2),
+                            Ok(hiring) => (hiring, 1),
                             Err(refusal) => {
                                 return Ok(Err(refusal));
                             }
                         }
                     }
-                    _ => (blank(), 1),
+                    _ => (blank(), 0),
                 };
-                let purpose = match tail(purpose_at) {
-                    given if !given.trim().is_empty() => given,
-                    _ => format!("Mayor of {id}."),
+                // A name has no colon, so what follows one is the
+                // purpose; one given none is there to run the hamlet.
+                let rest = tail(name_at);
+                let (shown, purpose) = rest
+                    .split_once(':')
+                    .map_or((rest.as_str(), ""), |(n, p)| (n, p));
+                let shown = shown.trim().to_owned();
+                if shown.is_empty() {
+                    return Ok(Err(usage(name)));
+                }
+                let purpose = match purpose.trim() {
+                    "" => format!("Mayor of {shown}."),
+                    given => given.to_owned(),
                 };
                 let done = self
                     .attempt(by, |cx, _| {
                         hamlets::found(
                             cx,
                             Founding {
-                                id: id.clone(),
+                                name: shown.clone(),
                                 chief,
                                 mayor,
                                 purpose,
@@ -596,8 +593,9 @@ impl Core {
                 let db = self.realm.store().connection();
                 Ok(match done {
                     Ok(hired) => Ok(format!(
-                        "The hamlet `{id}` is created under its \
-                         mayor `{}`. /hamlet {id} talks to it.",
+                        "The hamlet {shown} (`{}`) is created under \
+                         its mayor `{}`.",
+                        hired.hamlet,
                         addresses::name_of(db, hired.agent)?
                     )),
                     Err(refusal) => Err(refusal),
@@ -611,25 +609,16 @@ impl Core {
                 if let Err(refusal) = self.chief_of(&id)? {
                     return Ok(Err(refusal));
                 }
-                let title = tail(1);
+                let shown = tail(1);
                 let done = self
                     .attempt(by, |cx, _| {
-                        hamlets::rename(
-                            cx,
-                            &id,
-                            Some(title.as_str())
-                                .filter(|t| !t.is_empty()),
-                        )
+                        hamlets::rename(cx, &id, &shown)
                     })
                     .await?;
                 Ok(done.map(|()| {
                     format!(
-                        "The hamlet `{id}` is shown as {}.",
-                        if title.is_empty() {
-                            id.to_string()
-                        } else {
-                            title.clone()
-                        }
+                        "The hamlet `{id}` is named {}.",
+                        shown.trim()
                     )
                 }))
             }

@@ -65,10 +65,7 @@ pub(crate) fn compose(
                 at: place.removed_at.unwrap_or_default(),
                 by: addresses::actor_address(db, place.removed_by)?,
                 id: place.id.to_string(),
-                name: place
-                    .title
-                    .clone()
-                    .unwrap_or_else(|| place.id.to_string()),
+                name: place.name.clone(),
                 reason: place
                     .removed_reason
                     .clone()
@@ -125,47 +122,37 @@ fn agent_view(
 ) -> Result<protocol::Agent> {
     let id = found.id;
     let name = addresses::address_of(db, id)?;
-    let (hamlet, number, scholar, parent, purpose, mayor) =
-        match found.kind {
-            AgentKind::Hand => {
-                let scholar = hand::scholar(db)?;
-                (
-                    None,
-                    None,
-                    Some(scholar),
-                    None,
-                    String::new(),
-                    false,
-                )
-            }
-            AgentKind::Hire => {
-                let hire = hires::get(db, id)?;
-                let mayor = hires::is_mayor(db, id)?;
-                let parent = match hire.parent {
-                    Some(parent) => Some(parent),
-                    None => Some(hand::id(db)?),
-                };
-                (
-                    Some(hire.hamlet.to_string()),
-                    Some(hire.number),
-                    Some(hire.scholar),
-                    parent,
-                    hire.purpose,
-                    mayor && found.is_living(),
-                )
-            }
-            AgentKind::Worker => {
-                let worker = workers::get(db, id)?;
-                (
-                    worker.hamlet.map(|h| h.to_string()),
-                    None,
-                    None,
-                    worker.starter,
-                    worker.brief,
-                    false,
-                )
-            }
-        };
+    let (hamlet, scholar, parent, purpose, mayor) = match found.kind {
+        AgentKind::Hand => {
+            let scholar = hand::scholar(db)?;
+            (None, Some(scholar), None, String::new(), false)
+        }
+        AgentKind::Hire => {
+            let hire = hires::get(db, id)?;
+            let mayor = hires::is_mayor(db, id)?;
+            let parent = match hire.parent {
+                Some(parent) => Some(parent),
+                None => Some(hand::id(db)?),
+            };
+            (
+                Some(hire.hamlet.to_string()),
+                Some(hire.scholar),
+                parent,
+                hire.purpose,
+                mayor && found.is_living(),
+            )
+        }
+        AgentKind::Worker => {
+            let worker = workers::get(db, id)?;
+            (
+                worker.hamlet.map(|h| h.to_string()),
+                None,
+                worker.starter,
+                worker.brief,
+                false,
+            )
+        }
+    };
     let model = crate::talk::models::choose(
         db,
         &sources.env.settings,
@@ -264,7 +251,6 @@ fn agent_view(
         model,
         name,
         nickname,
-        number: number.and_then(|n| u64::try_from(n).ok()),
         own_model,
         parent: parent.map(wire_agent),
         pin,
@@ -434,10 +420,7 @@ fn hamlet_view(
                                    commands without asking."
                 .into(),
         },
-        name: place
-            .title
-            .clone()
-            .unwrap_or_else(|| place.id.to_string()),
+        name: place.name.clone(),
         roads: roads_shown,
         tier: u64::try_from(place.tier).unwrap_or_default(),
     })

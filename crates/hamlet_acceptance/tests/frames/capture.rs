@@ -169,7 +169,7 @@ impl Capture {
         self.scholar(name)
     }
 
-    /// Founds `hamlet` under a new scholar `name`.
+    /// Founds a hamlet named `hamlet` under a new scholar `name`.
     pub async fn found(
         &mut self,
         hamlet: &str,
@@ -180,7 +180,8 @@ impl Capture {
         self.say(
             HAND,
             &format!(
-                "/create-hamlet {hamlet} scholar#{scholar} {purpose}"
+                "/create-hamlet scholar#{scholar} {hamlet}: \
+                 {purpose}"
             ),
         )
         .await;
@@ -213,6 +214,16 @@ impl Capture {
 
     pub fn state(&self) -> State {
         realm::fold(&self.messages)
+    }
+
+    /// The id of the living hamlet named `name`.
+    pub fn hamlet_id(&self, name: &str) -> String {
+        self.state()
+            .hamlets
+            .into_iter()
+            .find(|h| h.name == name)
+            .unwrap_or_else(|| panic!("no hamlet named {name}"))
+            .id
     }
 
     pub fn has(&self, matches: impl Fn(&Value) -> bool) -> bool {

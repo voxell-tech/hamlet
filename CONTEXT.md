@@ -44,20 +44,22 @@ _Avoid_: blank scholar, temp hire
 
 **Address**:
 How a chief or an agent names an agent or a scholar, by ids and never by a
-name: `hand`, `mayor@<hamlet>`, `<hamlet>#<number>` (the mayor is 0),
+name: `hand`, `mayor@<hamlet>` (by the hamlet's id), `hire#<id>`,
 `worker#<id>`, `scholar#<id>`. Wherever an agent is shown, its address comes
 first and its name beside it.
 _Avoid_: handle, username
 
 **Name**:
 The words a scholar, a hamlet, a hire or a worker is shown by: a scholar's
-name, a hamlet's display name, a hire's or a worker's nickname. Metadata a
-chief changes and that may repeat; it never finds anything. Everyone but the
-Hand has one a chief can change.
+name, a hamlet's name, a hire's or a worker's nickname. Metadata a chief
+changes and that may repeat; it never finds anything. Everyone but the Hand
+has one a chief can change. A scholar and a hamlet always have one; a
+hamlet's id is a UUID no one reads.
 
 **Nickname**:
 What a hire or a worker is called in the world, given by a chief, or for a
-hire by the Hand or a lead above it. Its address stays the same.
+hire by the Hand or a lead above it. Its address, `hire#<id>` or
+`worker#<id>`, stays the same.
 _Avoid_: alias
 
 **Mayor**:

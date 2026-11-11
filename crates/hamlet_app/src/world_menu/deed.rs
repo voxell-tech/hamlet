@@ -18,7 +18,7 @@ use bevy_fynix::views::{
 use bevy_fynix::{ScopedExt, ViewExt};
 use hamlet_client::messages::Rewind;
 use hamlet_client::realm::{
-    self as agents, AgentNumber, Busy, Deeds, HamletId, Left, LivesIn,
+    self as agents, Busy, Deeds, HamletId, Hire, Left, LivesIn,
 };
 use hamlet_realm::orders;
 use hamlet_ui::styles::{Looks, button, lettered};
@@ -299,7 +299,7 @@ impl Deed {
             Deed::Close(hamlet) => {
                 let mut living =
                     world.query_filtered::<(Entity, &LivesIn), (
-                        With<AgentNumber>,
+                        With<Hire>,
                         With<Busy>,
                         Without<Left>,
                     )>();
@@ -432,10 +432,10 @@ mod tests {
         state.hamlets.push(hamlet_testing::realm::hamlet("mill", 4));
         state
             .agents
-            .push(hamlet_testing::realm::agent(4, "mill", 0));
+            .push(hamlet_testing::realm::agent(4, "mill", true));
         state
             .agents
-            .push(hamlet_testing::realm::agent(5, "mill", 1));
+            .push(hamlet_testing::realm::agent(5, "mill", false));
         hamlet_client::receive(
             app.world_mut(),
             protocol::ServerMessage::State(state),
@@ -446,7 +446,7 @@ mod tests {
             .drain()
             .for_each(drop);
         let carder =
-            agents::named(app.world_mut(), "mill#1").unwrap();
+            agents::named(app.world_mut(), "hire#5").unwrap();
         Deed::End(carder).run(app.world_mut());
         app.world_mut().flush();
         let sent = app
@@ -458,6 +458,6 @@ mod tests {
             panic!("one command: {sent:?}");
         };
         assert_eq!(say.to, protocol::AgentId(4));
-        assert_eq!(say.text, "/end mill#1");
+        assert_eq!(say.text, "/end hire#5");
     }
 }

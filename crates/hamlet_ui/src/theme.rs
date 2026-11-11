@@ -479,9 +479,10 @@ pub struct TextSizes {
     pub small: f32,
     /// A menu's title and a card's, never below the body.
     pub heading: f32,
-    /// The name at the head of a page, in the display face.
+    /// The name at the head of a page.
     pub title: f32,
-    /// The space between the letters of the display face.
+    /// The space between the letters of the display face, where they
+    /// are capitals.
     pub tracking: f32,
     /// The weight of regular words in dark ink, above the regular
     /// 400, so dark words on a light ground read as solid as light
@@ -496,13 +497,14 @@ pub struct Spacing {
     pub gap: f32,
     /// The height of a row.
     pub row: f32,
-    /// The corners, from small to soft: a chip, a key or a panel's
-    /// frame; a control or a row; a card in a panel; what floats, a
+    /// The corners, from small to soft: a chip or a key; a control
+    /// or a row; a card in a panel; a panel's frame; what floats, a
     /// menu, a toast or a card over the world. A corner inset in
     /// another by less than a gap is the outer one less the inset.
     pub round_small: f32,
     pub round: f32,
     pub round_card: f32,
+    pub round_panel: f32,
     pub soft: f32,
     pub divider: f32,
     /// How far either side of a divider the pointer takes hold of
@@ -894,7 +896,11 @@ impl SpacingTokens for HamletTheme {
     }
 
     fn dock_radius(&self) -> f32 {
-        self.space.round_small
+        self.space.round_panel
+    }
+
+    fn dock_border(&self) -> f32 {
+        self.space.border
     }
 }
 
