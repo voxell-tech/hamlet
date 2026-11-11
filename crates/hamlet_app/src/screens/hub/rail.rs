@@ -108,7 +108,7 @@ const STEP_IN: f32 = 18.0;
 const DEEPEST: u8 = 6;
 
 /// The room between an elbow's end and the row it leads to.
-const GAP: f32 = 2.0;
+const GAP: f32 = 4.0;
 
 /// The room inside a row's ends, and over and under its words.
 const ROW_INSET: f32 = 8.0;
@@ -1760,11 +1760,12 @@ fn tree_lines(line: &Line, one_line: bool) -> Vec<AnyView> {
         .map(|(level, _)| over(guide(level), 0.0, 1.0, None))
         .collect::<Vec<_>>();
     // The elbow from its lead, stopping short of its own chevron, or
-    // of its icon where it has no chevron.
+    // of the row's edge where it has no chevron, so it never runs
+    // into the row.
     let start = f32::from(line.depth) * STEP_IN;
     let end = match line.fold {
         Some(_) => start - GAP,
-        None => start + CHEVRON + ROW_INSET - GAP,
+        None => start + CHEVRON - GAP,
     };
     let x = guide(lead);
     lines.push(over(x, 0.0, 1.0, Some(elbow + 1.0)));
