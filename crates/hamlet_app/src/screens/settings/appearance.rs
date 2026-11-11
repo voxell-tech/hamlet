@@ -25,9 +25,7 @@ use hamlet_ui::widgets::switch::labelled_switch;
 use hamlet_ui::{AnyView, View, with_cx};
 
 use super::field;
-use crate::appearance::{
-    Appearance, ComputerMotion, LessMotion, Mode, ZOOMS, Zoom,
-};
+use crate::appearance::{Appearance, LessMotion, Mode, ZOOMS, Zoom};
 use crate::roll::{either, moved};
 use crate::root::Lasting;
 
@@ -42,15 +40,9 @@ pub(super) fn page() -> impl View {
     parts((modes(), zoom(), motion(), themes()))
 }
 
-/// Whether motion is reduced: as the computer says until the chief
-/// says otherwise.
+/// Whether motion is reduced: on until the chief turns it off.
 fn motion() -> impl View {
-    let reduced = derived(|world: &World| {
-        world
-            .resource::<LessMotion>()
-            .is_reduced(*world.resource::<ComputerMotion>())
-    })
-    .when(either(moved::<LessMotion>(), moved::<ComputerMotion>()));
+    let reduced = resource::<LessMotion, _>(|less| less.is_reduced());
     field(
         "Motion",
         labelled_switch("Reduce motion", reduced, |world, on| {

@@ -9,8 +9,8 @@ use bevy::ui::{
 };
 use bevy_fynix::tokens::{Motion, Tone};
 use bevy_fynix::views::{
-    self, BehaviorExt, FrameProps, column, frame, label, overlay,
-    row, text_field,
+    self, BehaviorExt, FrameProps, Stack, column, frame, label,
+    overlay, row, text_field,
 };
 use bevy_fynix::{
     ScopedExt, ViewExt, derived, keyed, resource, style,
@@ -278,8 +278,14 @@ fn later() -> AnyView {
                 .boxed()
         },
     )
-    .within(bare())
+    .within(footed())
     .boxed()
+}
+
+/// What a keyed button at a page's foot is built under: a row, which
+/// stretches it to the foot's height as the foot stretches the row.
+pub(super) fn footed() -> Stack<()> {
+    row(()).gap(0.0)
 }
 
 /// The way back to the providers.
@@ -560,7 +566,7 @@ fn onward() -> AnyView {
             .boxed()
         },
     )
-    .within(bare())
+    .within(footed())
     .boxed()
 }
 

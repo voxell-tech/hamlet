@@ -241,12 +241,20 @@ impl EffectSettings {
     }
 }
 
+/// A rate, per second, at which an eased value reaches its end
+/// within a frame.
+const AT_ONCE: f32 = 1.0e6;
+
 impl EffectSettings {
     /// These, with nothing that moves: no flicker, no give under a
     /// press, no swell, no shake, no particles and nothing that grows
-    /// in. Glows still fade.
+    /// in. A glow is at once where it goes, so a button built anew
+    /// stands at rest rather than fading in.
     fn still(&self) -> Self {
         Self {
+            glow_rate: AT_ONCE,
+            press_rate: AT_ONCE,
+            pulse_decay: AT_ONCE,
             press_scale: 0.0,
             pulse_scale: 0.0,
             press_offset: 0.0,

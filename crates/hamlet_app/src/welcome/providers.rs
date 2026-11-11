@@ -30,7 +30,7 @@ use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::hint::hinted;
 use hamlet_ui::widgets::icons::Glyph;
 
-use super::pages::{card, linked, news, said, to_providers};
+use super::pages::{card, footed, linked, news, said, to_providers};
 use super::{Pick, Step, Welcome, commit, go, read_models};
 use crate::models::mark;
 use crate::roll::{either, moved};
@@ -819,7 +819,7 @@ pub(super) fn sign_in_page() -> AnyView {
             None => frame().boxed(),
         },
     )
-    .within(bare())
+    .within(footed())
     .boxed();
     card(
         2,
