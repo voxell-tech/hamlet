@@ -11,10 +11,13 @@ use bevy::ecs::query::{Has, With, Without};
 use bevy::ecs::resource::Resource;
 use bevy::ecs::system::ResMut;
 use bevy::ecs::world::World;
-use bevy::ui::{AlignItems, Display, InteractionDisabled, percent};
+use bevy::ui::{
+    AlignItems, Display, InteractionDisabled, percent, px,
+};
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, TooltipExt, column, frame, label, row,
+    BehaviorExt, FrameProps, TooltipExt, button, column, frame,
+    label, row,
 };
 use bevy_fynix::{
     ScopedExt, ViewExt, Visual, derived, keyed, resource,
@@ -29,11 +32,11 @@ use hamlet_realm::harbor::glide_to_other_pier;
 use hamlet_realm::pick::{Selected, Thing, select};
 use hamlet_ui::kinds::tile;
 use hamlet_ui::styles::{
-    Fills, ICON, action, bad_action, bare, buttons, close, group,
-    note, raised, scroll_area, small_rules, title,
+    Fills, ICON, action, bad_action, bare, buttons, card_button,
+    close, group, note, raised, scroll_area, small_rules, title,
 };
 use hamlet_ui::theme::StatusKind;
-use hamlet_ui::widgets::effects::lit_panels;
+use hamlet_ui::widgets::effects::{Variant, lit_panels};
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::widgets::platform::{DisplayText, Wraps};
 use hamlet_ui::widgets::tabs;
@@ -137,7 +140,12 @@ pub fn overview() -> impl View {
             row((title("Realm"), frame().grow(1.0), stop_all()))
                 .gap(cx.theme().space.gap)
                 .align(AlignItems::Center),
-            today(),
+            // A realm with no hamlet has no figures worth showing,
+            // only the ways to begin.
+            keyed(derived(any_hamlet).when(stale()), |&any| {
+                if any { today() } else { get_started() }
+            })
+            .within(bare()),
             // Ways about the world, under the figures they lead to.
             buttons(vec![
                 action(
@@ -162,6 +170,79 @@ pub fn overview() -> impl View {
         .fills_height()
         .gap(cx.theme().space.section)
     })
+}
+
+/// Whether the realm has a hamlet open.
+fn any_hamlet(world: &World) -> bool {
+    world
+        .try_query_filtered::<(), With<HamletId>>()
+        .is_some_and(|mut hamlets| {
+            hamlets.iter(world).next().is_some()
+        })
+}
+
+/// The two ways a chief new to a realm begins: talking to the Hand,
+/// or founding a hamlet on a folder.
+fn get_started() -> AnyView {
+    with_cx(move |cx| {
+        column((
+            part_title("Get started".into(), Tone::Faint),
+            start_card(
+                Glyph::Tower,
+                "Talk to the Hand",
+                "Your own agent. Ask it anything, or to set things \
+                 up for you.",
+                talk_to_hand,
+            ),
+            start_card(
+                Glyph::Folder,
+                "Work on a folder",
+                "Found a hamlet: a team of agents that works on one \
+                 folder of yours.",
+                world_menu::ask_found,
+            ),
+        ))
+        .gap(cx.theme().space.gap)
+    })
+    .boxed()
+}
+
+/// Opens the Hand's chat.
+fn talk_to_hand(world: &mut World) {
+    if let Some(hand) = hamlet_client::realm::hand(world) {
+        crate::convo::seat(world, hand);
+        crate::hub::show(world, crate::hub::Showing::Thread);
+    }
+}
+
+/// A card of [`get_started`] that does `act` when pressed.
+fn start_card(
+    which: Glyph,
+    head: &'static str,
+    words: &'static str,
+    act: fn(&mut World),
+) -> AnyView {
+    with_cx(move |cx| {
+        let gap = cx.theme().space.gap;
+        button(
+            row((
+                glyph(which, ICON).tone(Tone::Dim),
+                column((label(head).bold(true), note(words)))
+                    .gap(gap / 2.0)
+                    .grow(1.0)
+                    .min_width(px(0.0))
+                    .align(AlignItems::FlexStart),
+                glyph(Glyph::Into, ICON).tone(Tone::Dim),
+            ))
+            .gap(gap)
+            .grow(1.0)
+            .align(AlignItems::Center),
+        )
+        .rules(card_button)
+        .tagged(Variant::Default)
+        .on_activate(act)
+    })
+    .boxed()
 }
 
 /// Stops every agent, as a danger button that cannot be pressed

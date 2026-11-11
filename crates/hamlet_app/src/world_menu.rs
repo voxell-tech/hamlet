@@ -340,7 +340,7 @@ pub(super) fn open_skills(world: &mut World, agent: Entity) {
 }
 
 /// Opens the form a hamlet is founded with, at the pointer.
-pub(super) fn ask_found(world: &mut World) {
+pub(crate) fn ask_found(world: &mut World) {
     if !Deeds::is_allowed(world, "found") {
         return;
     }
