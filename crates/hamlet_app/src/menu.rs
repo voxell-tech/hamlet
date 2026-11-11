@@ -331,7 +331,8 @@ pub fn open_menu() -> impl View {
             (
                 world.resource::<OpenMenu>().0,
                 hamlet_client::realm::Deeds::is_allowed(
-                    world, "found",
+                    world,
+                    "create-hamlet",
                 ),
             )
         })
@@ -379,7 +380,7 @@ mod tests {
         assert!(!shown.contains("Quit Hamlet"));
         assert!(!shown.contains("Create a Hamlet..."));
         app.insert_resource(hamlet_client::realm::Deeds(vec![
-            "found".into(),
+            "create-hamlet".into(),
         ]));
         app.update();
         assert!(

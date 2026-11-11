@@ -54,7 +54,7 @@ impl Annals {
 struct RecordPanel(Entity);
 
 fn request(world: &mut World, hamlet: Entity, opening: bool) {
-    if !world.resource::<Deeds>().is_supported("record") {
+    if !world.resource::<Deeds>().is_supported("history") {
         return;
     }
     let Some(name) =
@@ -79,7 +79,7 @@ fn request(world: &mut World, hamlet: Entity, opening: bool) {
         protocol::ClientMessage::Say(protocol::Say {
             id,
             to,
-            text: "/record".into(),
+            text: "/history".into(),
         })
     });
     let mut annals = world.resource_mut::<Annals>();
@@ -106,7 +106,7 @@ fn answered(response: On<Response>, mut annals: ResMut<Annals>) {
 }
 
 fn refresh(world: &mut World) {
-    let available = world.resource::<Deeds>().is_supported("record");
+    let available = world.resource::<Deeds>().is_supported("history");
     let mut annals = world.resource_mut::<Annals>();
     let force = annals.reconnect || (available && !annals.available);
     annals.available = available;
@@ -162,7 +162,7 @@ pub(super) fn record_of(hamlet: Entity) -> AnyView {
             } else {
                 String::new()
             },
-            world.resource::<Deeds>().is_supported("record"),
+            world.resource::<Deeds>().is_supported("history"),
         )
     })
     .when(every_frame());
@@ -206,7 +206,7 @@ mod tests {
         let mut app = panel_app();
         app.add_plugins(crate::overview::plugin);
         let mut state = hamlet_testing::realm::state();
-        state.deeds = hamlet_testing::realm::deeds(&["record"]);
+        state.deeds = hamlet_testing::realm::deeds(&["history"]);
         state
             .agents
             .push(hamlet_testing::realm::agent(3, "home", 1));
@@ -228,7 +228,7 @@ mod tests {
             .iter()
             .find_map(|message| match message {
                 protocol::ClientMessage::Say(say)
-                    if say.text == "/record" =>
+                    if say.text == "/history" =>
                 {
                     Some(say.clone())
                 }
@@ -263,7 +263,7 @@ mod tests {
             }),
         );
         app.update();
-        assert_eq!(app.world().resource::<Outbox>().iter().filter(|m| matches!(m, protocol::ClientMessage::Say(s) if s.text == "/record")).count(), 2);
+        assert_eq!(app.world().resource::<Outbox>().iter().filter(|m| matches!(m, protocol::ClientMessage::Say(s) if s.text == "/history")).count(), 2);
         state.agents[1].mayor = false;
         state.agents[2].mayor = true;
         hamlet_client::receive(
@@ -279,7 +279,7 @@ mod tests {
             }),
         );
         app.update();
-        assert_eq!(app.world().resource::<Outbox>().iter().filter(|m| matches!(m, protocol::ClientMessage::Say(s) if s.text == "/record")).count(), 3);
+        assert_eq!(app.world().resource::<Outbox>().iter().filter(|m| matches!(m, protocol::ClientMessage::Say(s) if s.text == "/history")).count(), 3);
     }
     #[test]
     fn a_record_lost_at_reconnect_is_requested_again_even_without_realm_changes()
@@ -287,7 +287,7 @@ mod tests {
         let mut app = panel_app();
         app.add_plugins(crate::overview::plugin);
         let mut state = hamlet_testing::realm::state();
-        state.deeds = hamlet_testing::realm::deeds(&["record"]);
+        state.deeds = hamlet_testing::realm::deeds(&["history"]);
         hamlet_client::receive(
             app.world_mut(),
             protocol::ServerMessage::State(state.clone()),
@@ -306,7 +306,7 @@ mod tests {
             .drain()
             .filter_map(|m| match m {
                 protocol::ClientMessage::Say(s)
-                    if s.text == "/record" =>
+                    if s.text == "/history" =>
                 {
                     Some(s.id)
                 }
@@ -326,7 +326,7 @@ mod tests {
             .drain()
             .find_map(|m| match m {
                 protocol::ClientMessage::Say(s)
-                    if s.text == "/record" =>
+                    if s.text == "/history" =>
                 {
                     Some(s.id)
                 }
@@ -357,12 +357,12 @@ mod tests {
             .resource_mut::<Outbox>()
             .drain()
             .for_each(drop);
-        state.deeds = hamlet_testing::realm::deeds(&["record"]);
+        state.deeds = hamlet_testing::realm::deeds(&["history"]);
         hamlet_client::receive(
             app.world_mut(),
             protocol::ServerMessage::State(state),
         );
         app.update();
-        assert!(app.world().resource::<Outbox>().iter().any(|m| matches!(m,protocol::ClientMessage::Say(s) if s.text == "/record")));
+        assert!(app.world().resource::<Outbox>().iter().any(|m| matches!(m,protocol::ClientMessage::Say(s) if s.text == "/history")));
     }
 }

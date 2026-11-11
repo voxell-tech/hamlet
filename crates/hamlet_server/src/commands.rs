@@ -27,8 +27,8 @@ struct Command {
     does: &'static str,
 }
 
-/// The word `/found` and `/hire` take in place of a scholar for a
-/// blank agent, which is not a scholar of the city.
+/// The word `/create-hamlet` and `/hire` take in place of a scholar
+/// for a blank agent, which is not a scholar of the city.
 const BLANK: &str = "blank";
 
 /// Whether `word` is a scholar's address, with or without a version.
@@ -190,9 +190,9 @@ const TABLE: &[Command] = &[
         does: "List the hamlets",
     },
     Command {
-        name: "found",
-        usage: "/found <hamlet> [scholar#id|blank] [purpose]",
-        does: "Found a hamlet under a scholar as its mayor, or a \
+        name: "create-hamlet",
+        usage: "/create-hamlet <hamlet> [scholar#id|blank] [purpose]",
+        does: "Create a hamlet under a scholar as its mayor, or a \
                blank agent named Mayor if none is given",
     },
     Command {
@@ -320,8 +320,8 @@ const TABLE: &[Command] = &[
         does: "Start this hamlet's budget period again",
     },
     Command {
-        name: "record",
-        usage: "/record",
+        name: "history",
+        usage: "/history",
         does: "Show this hamlet's decisions",
     },
     Command {
@@ -548,12 +548,12 @@ impl Core {
                     .collect::<Vec<_>>()
                     .join("\n");
                 Ok(Ok(if list.is_empty() {
-                    "No hamlet yet. /found makes one.".into()
+                    "No hamlet yet. /create-hamlet makes one.".into()
                 } else {
                     list
                 }))
             }
-            "found" => {
+            "create-hamlet" => {
                 let Some(id) = words.first() else {
                     return Ok(Err(usage(name)));
                 };
@@ -596,7 +596,7 @@ impl Core {
                 let db = self.realm.store().connection();
                 Ok(match done {
                     Ok(hired) => Ok(format!(
-                        "The hamlet `{id}` is founded under its \
+                        "The hamlet `{id}` is created under its \
                          mayor `{}`. /hamlet {id} talks to it.",
                         addresses::name_of(db, hired.agent)?
                     )),
@@ -1202,7 +1202,7 @@ impl Core {
                 Ok(Ok("The budget's period starts again from now."
                     .into()))
             }
-            "record" => {
+            "history" => {
                 let Some(id) = here.clone() else {
                     return Ok(Err(self.no_hamlet()));
                 };

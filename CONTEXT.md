@@ -151,8 +151,8 @@ _Avoid_: applicant, guest
 
 **Hamlet**:
 A group of hires under one mayor, with its own record, limits and the
-folder it works on. A new realm has none. Founded with `/found`; the
-window calls it creating a hamlet.
+folder it works on. A new realm has none. A chief creates one with
+`/create-hamlet`; the Hand founds one with its tool.
 _Avoid_: team, project, town
 
 **Workspace**:
@@ -259,8 +259,8 @@ An answer saying why an action cannot be carried out.
 
 **Record**:
 A hamlet's account of its hires, departures, roads and mayor's office, and
-the decisions that changed them. The window shows it as the hamlet's
-History.
+the decisions that changed them. `/history` and the window's History
+show it.
 
 **Decision**:
 A choice by a mayor or a chief, kept in the record with its reason.

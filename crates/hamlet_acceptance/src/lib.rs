@@ -120,7 +120,7 @@ impl Session {
             .command(
                 hand,
                 &format!(
-                    "/found {hamlet} scholar#{} {purpose}",
+                    "/create-hamlet {hamlet} scholar#{} {purpose}",
                     scholar.0
                 ),
             )

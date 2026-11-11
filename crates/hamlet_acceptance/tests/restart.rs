@@ -26,7 +26,9 @@ async fn a_wait_and_its_held_call_survive_a_crash() {
     let mut server = home.serve(&held, QUIET).await;
     let mut chief = Client::join(&server).await;
     let hand = chief.hand();
-    chief.command(hand, "/found docs keep the docs").await;
+    chief
+        .command(hand, "/create-hamlet docs keep the docs")
+        .await;
     chief
         .until("the mayor", |c| c.agent("docs#0").is_some())
         .await;

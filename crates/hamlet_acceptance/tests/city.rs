@@ -17,7 +17,7 @@ async fn a_new_realm_holds_the_hand_and_an_empty_city() {
     let hand = s.hand();
     assert_eq!(
         s.chief.command(hand, "/hamlets").await,
-        "No hamlet yet. /found makes one."
+        "No hamlet yet. /create-hamlet makes one."
     );
     assert_eq!(
         s.chief.command(hand, "/scholars").await,
@@ -61,12 +61,15 @@ async fn founds_a_hamlet_under_a_new_scholar_then_an_existing_one() {
     let scholar = format!("scholar#{}", scholar.id.0);
     let reply = s
         .chief
-        .refused(hand, &format!("/found docs {scholar} again"))
+        .refused(
+            hand,
+            &format!("/create-hamlet docs {scholar} again"),
+        )
         .await;
     assert!(reply.contains("was used before"), "{reply}");
     let reply = s
         .chief
-        .refused(hand, &format!("/found Mill {scholar} x"))
+        .refused(hand, &format!("/create-hamlet Mill {scholar} x"))
         .await;
     assert!(reply.contains("is not a hamlet's name"), "{reply}");
 }

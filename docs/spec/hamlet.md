@@ -41,7 +41,7 @@ chief is talking to.
 | `/stop [address\|all]` | Stop an agent's work, or all agents' (H23) |
 | `/queue`, `/allow`, `/always`, `/deny`, `/go`, `/withdraw`, `/reply`, `/dismiss` | Answer what waits (H11, H10) |
 | `/grants`, `/revoke <address> <network\|unconfined>` | The lasting permissions, and taking one back |
-| `/hamlets`, `/found <hamlet> [scholar#id\|blank] [purpose]` | List hamlets, or found one with a scholar as its mayor, a blank agent named Mayor by default (H6) |
+| `/hamlets`, `/create-hamlet <hamlet> [scholar#id\|blank] [purpose]` | List hamlets, or create one with a scholar as its mayor, a blank agent named Mayor by default (H6) |
 | `/name-hamlet <hamlet> [name]`, `/move-hamlet <hamlet> <x> <z>` | Give a hamlet a name to be shown by, or set it down elsewhere on the hamlet island (H32) |
 | `/remove-hamlet <hamlet> [reason]`, `/restore-hamlet <hamlet> [reason]`, `/erase-hamlet <hamlet>` | Remove, restore or permanently erase a hamlet (H19, H20) |
 | `/tier <50\|100\|200\|500>` | Set how many hires the hamlet holds (H40) |
@@ -57,7 +57,7 @@ chief is talking to.
 | `/give <scholar#id\|address> <skill> from <scholar#id\|address>` | Copy a skill from one scholar to another (H25) |
 | `/folder <folder\|none>`, `/mode <manual\|auto>` | The hamlet's folder and its mode (C20, C21) |
 | `/budget`, `/reset-budget` | The hamlet's spend, and starting its period again (H8) |
-| `/record` | Who was hired, ended, merged and restored, and the other decisions (H17) |
+| `/history` | The record: who was hired, ended, merged and restored, and the other decisions (H17) |
 | `/scholars`, `/scholar new <name>[: <character>]`, `/name-scholar <scholar#id> <name>` | List the city's scholars, make one, or give one a new name (H38) |
 | `/welcome <scholar#id> [reason]`, `/turn-away <scholar#id> [reason]` | Let a scholar at the harbor into the city, or send one back there (H45) |
 | `/remove-scholar <scholar#id> <reason>`, `/restore-scholar <scholar#id> [reason]`, `/erase-scholar <scholar#id>` | Archive a scholar and end its hires, bring it back, or erase it for good (H38) |

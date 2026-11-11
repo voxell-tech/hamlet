@@ -347,7 +347,7 @@ pub(super) fn open_skills(world: &mut World, agent: Entity) {
 
 /// Opens the form a hamlet is founded with, at the pointer.
 pub(crate) fn ask_found(world: &mut World) {
-    if !Deeds::is_allowed(world, "found") {
+    if !Deeds::is_allowed(world, "create-hamlet") {
         return;
     }
     let at = pointer(world);
@@ -468,7 +468,7 @@ fn menus() -> AnyView {
                 question(deed, anchor).boxed()
             }
             Open::Ground(at) => AnyView::new(move |cx: &mut Cx| {
-                if !Deeds::is_allowed(cx.world, "found") {
+                if !Deeds::is_allowed(cx.world, "create-hamlet") {
                     return cx.build(frame());
                 }
                 let found = menu_item(
@@ -623,8 +623,11 @@ mod tests {
             );
         }
 
-        state.deeds =
-            realm::deeds(&["found", "move-hamlet", "name-hamlet"]);
+        state.deeds = realm::deeds(&[
+            "create-hamlet",
+            "move-hamlet",
+            "name-hamlet",
+        ]);
         hamlet_client::receive(
             app.world_mut(),
             protocol::ServerMessage::State(state),

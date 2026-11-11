@@ -12,7 +12,7 @@ A realm is made with the Hand, an agent of its own that is always there
 and sits above every mayor. It has a lodge, `hand/`, and a scholar that no
 chief hires out; its character starts from `assets/hand.md`. It is the agent
 `hamlet chat` talks to unless told otherwise, and a new realm has no hamlet,
-so a chief asks the Hand, or types `/found`, to make the first. Its changes to
+so a chief asks the Hand, or types `/create-hamlet`, to make the first. Its changes to
 a scholar's `main` and its removal of a hamlet wait for a chief, as every
 reserved act does.
 
@@ -50,7 +50,7 @@ chief's behalf, each waiting for the chief.
 
 ## Hamlets, hires and the tree
 
-`/found <hamlet> [scholar#id|blank] [purpose]` founds a hamlet. Its mayor is a
+`/create-hamlet <hamlet> [scholar#id|blank] [purpose]` creates a hamlet. Its mayor is a
 hire of an existing scholar, or a blank agent named Mayor when none is named;
 with no purpose it is there to run the hamlet. The
 hamlet's id is lowercase letters, digits and hyphens, never reused, even

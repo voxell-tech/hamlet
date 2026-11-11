@@ -209,7 +209,7 @@ async fn a_lead_runs_the_hires_under_it_and_nothing_beyond_them() {
         .await;
     let dee = s.chief.agent("docs#2").unwrap();
     assert_eq!(dee.left.unwrap().how, LeftHow::Ended);
-    let record = s.chief.command(ada, "/record").await;
+    let record = s.chief.command(ada, "/history").await;
     for line in [
         "docs#0 (ada) hired docs#1 (cy)",
         "docs#0 (ada) set the allowance of docs#1 (cy): small",

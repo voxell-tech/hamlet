@@ -179,7 +179,9 @@ impl Capture {
         let scholar = self.make(name).await;
         self.say(
             HAND,
-            &format!("/found {hamlet} scholar#{scholar} {purpose}"),
+            &format!(
+                "/create-hamlet {hamlet} scholar#{scholar} {purpose}"
+            ),
         )
         .await;
     }

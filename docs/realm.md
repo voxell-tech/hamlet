@@ -25,7 +25,7 @@ and `layout.rs` defines `Layout`. The server's chief is named by
 | `staging/`, `dreams/` | Uploads in parts, and the checkout of a scholar's `main` a dream writes, out of agents' reach |
 
 A new realm is made with its first chief and its Hand. It has no hamlet: a
-chief founds the first with `/found`, or asks the Hand to. The library is
+chief creates the first with `/create-hamlet`, or asks the Hand to. The library is
 made with the starter skills as its first commit.
 
 The server reads `tools/` once, when it starts, so a tool a chief puts there

@@ -42,7 +42,7 @@ fn recorded_hello_fills_the_realm_and_the_servers_words() {
     );
     assert!(world.resource::<Grants>().0.is_empty());
     assert!(world.resource::<Deeds>().is_supported("stop"));
-    assert!(world.resource::<Deeds>().is_supported("found"));
+    assert!(world.resource::<Deeds>().is_supported("create-hamlet"));
     assert_eq!(
         id_of(world, hand),
         Some(world.resource::<HandId>().0)

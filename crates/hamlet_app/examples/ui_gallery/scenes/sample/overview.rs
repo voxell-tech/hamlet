@@ -31,10 +31,10 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
     let mut state = hamlet_testing::realm::state();
     state.chief = "chief".into();
     state.deeds = hamlet_testing::realm::deeds(&[
-        "record",
+        "history",
         "restore-hamlet",
         "erase-hamlet",
-        "found",
+        "create-hamlet",
         "tag",
         "pin",
         "revert",

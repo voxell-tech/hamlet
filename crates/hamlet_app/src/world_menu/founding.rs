@@ -88,7 +88,7 @@ impl Founding {
             .mayor
             .map_or_else(|| "blank".to_string(), scholar_address);
         (!name.is_empty()).then(|| {
-            format!("/found {name} {mayor} {purpose}")
+            format!("/create-hamlet {name} {mayor} {purpose}")
                 .trim_end()
                 .to_string()
         })
@@ -159,7 +159,7 @@ fn mayor() -> impl View {
 
 /// Founds the hamlet the form holds, once it is named.
 pub(super) fn submit(world: &mut World) {
-    if !Deeds::is_allowed(world, "found") {
+    if !Deeds::is_allowed(world, "create-hamlet") {
         return;
     }
     let founding = world.resource::<Founding>().clone();
@@ -266,7 +266,7 @@ fn folder() -> impl View {
 /// The form a hamlet is founded with.
 pub(super) fn founding(at: Vec2) -> impl View {
     built(move |cx| {
-        if !Deeds::is_allowed(cx.world, "found") {
+        if !Deeds::is_allowed(cx.world, "create-hamlet") {
             return cx.build(frame());
         }
         let (gap, between, padding, heading) = {
@@ -348,7 +348,7 @@ mod tests {
             .init_resource::<hamlet_realm::pick::Asked>()
             .init_resource::<hamlet_realm::pick::AskedGround>();
         let mut state = realm::state();
-        state.deeds = realm::deeds(&["found"]);
+        state.deeds = realm::deeds(&["create-hamlet"]);
         state.agents.push(realm::agent(3, "home", 1));
         hamlet_client::receive(
             app.world_mut(),
@@ -383,7 +383,10 @@ mod tests {
         let [protocol::ClientMessage::Say(say)] = &sent[..] else {
             panic!("one founding: {sent:?}");
         };
-        assert_eq!(say.text, "/found mill scholar#2 Grinds flour");
+        assert_eq!(
+            say.text,
+            "/create-hamlet mill scholar#2 Grinds flour"
+        );
         assert_eq!(say.to, protocol::AgentId(1));
     }
 }
