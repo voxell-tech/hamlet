@@ -203,7 +203,7 @@ impl Core {
                 let mut settings = crate::settings::stored(db)?;
                 if let Some(model) = set.model {
                     settings.model = model;
-                    settings.saved = true;
+                    settings.picked = true;
                 }
                 if let Some(every) = set.reflect_every {
                     let Ok(every) = u64::try_from(every) else {

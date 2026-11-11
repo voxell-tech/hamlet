@@ -55,8 +55,6 @@ fn remove(world: &mut World, name: &str) {
     });
 }
 
-/// An endpoint by its name and address, whether it has a key, and a
-/// way to remove it.
 fn endpoint(endpoint: &protocol::SettingsViewEndpoints) -> AnyView {
     let gone = endpoint.name.clone();
     close((
@@ -74,7 +72,7 @@ fn endpoint(endpoint: &protocol::SettingsViewEndpoints) -> AnyView {
 }
 
 /// A provider the server holds a sign-in or a key for, by its mark
-/// and name, marked configured: held, not checked.
+/// and name.
 fn configured(id: &str, name: &str) -> AnyView {
     beside((
         row((mark(id, ICON), label(name.to_string()).bold(true)))

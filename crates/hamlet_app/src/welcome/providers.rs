@@ -529,8 +529,6 @@ fn is_browsable(text: &str) -> bool {
     }
 }
 
-/// What the sign-in asks the chief for, such as a code, as a field,
-/// hidden when it is secret.
 fn prompt() -> AnyView {
     keyed(
         resource::<Login, _>(|login| login.prompt.clone()),
@@ -821,8 +819,6 @@ fn address(url: &str) -> AnyView {
     row(parts).gap(8.0).align(AlignItems::Center).boxed()
 }
 
-/// The sign-in step: the addresses to open, its instructions and
-/// progress, and what it asks for.
 pub(super) fn sign_in_page() -> AnyView {
     let steps = keyed(
         resource::<Login, _>(|login| {

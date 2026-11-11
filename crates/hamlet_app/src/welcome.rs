@@ -133,7 +133,7 @@ impl Welcome {
 #[derive(Clone)]
 enum Asked {
     Models,
-    Check(bool),
+    Check(Trial),
     Pick,
     /// The settings edit that adds the endpoint typed by hand.
     Endpoint,
@@ -292,20 +292,27 @@ fn read_models(world: &mut World, refresh: bool) {
     welcome.asking = true;
 }
 
-/// Asks the server to try the model when `model`, else the
-/// connection to its provider.
-fn check(world: &mut World, model: bool) {
+/// What a check tries: the realm's model, or the connection to its
+/// provider.
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum Trial {
+    Model,
+    Connection,
+}
+
+fn check(world: &mut World, trial: Trial) {
     let id = world.resource_mut::<Outbox>().send(|id| {
-        protocol::ClientMessage::Check(if model {
-            protocol::Check::Model { id, model: None }
-        } else {
-            protocol::Check::Connection { id }
+        protocol::ClientMessage::Check(match trial {
+            Trial::Model => {
+                protocol::Check::Model { id, model: None }
+            }
+            Trial::Connection => protocol::Check::Connection { id },
         })
     });
     world
         .resource_mut::<Welcome>()
         .requests
-        .insert(id, Asked::Check(model));
+        .insert(id, Asked::Check(trial));
 }
 
 /// The tile picked on the provider step: the one chosen, else the
@@ -350,7 +357,7 @@ fn look(world: &mut World) {
     go(world, Step::Local);
     world.resource_mut::<Welcome>().from =
         "The server's endpoints".into();
-    check(world, false);
+    check(world, Trial::Connection);
     read_models(world, true);
 }
 
@@ -373,8 +380,6 @@ fn pick(world: &mut World, model: &str) {
     welcome.problem = None;
 }
 
-/// Goes on from the server's answer to a request setup sent, or
-/// shows why it failed.
 fn answered(response: On<Response>, mut commands: Commands) {
     let response = response.event().clone();
     commands.queue(move |world: &mut World| {
@@ -469,15 +474,16 @@ fn answered(response: On<Response>, mut commands: Commands) {
                 }
             }
             (Asked::Pick, protocol::ServerMessage::Reply(_)) => {
-                check(world, true);
+                check(world, Trial::Model);
             }
             (Asked::Endpoint, protocol::ServerMessage::Reply(_)) => {
                 look(world);
             }
             (
-                Asked::Check(model),
+                Asked::Check(trial),
                 protocol::ServerMessage::Reply(_),
             ) => {
+                let model = trial == Trial::Model;
                 let settings = &world.resource::<Settings>().0;
                 let finished = model
                     && !settings.unset

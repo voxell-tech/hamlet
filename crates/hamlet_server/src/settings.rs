@@ -65,7 +65,8 @@ pub(crate) struct Settings {
     #[serde(default = "untested")]
     pub link: Link,
     /// Whether the chief picked the realm's model, which ends setup.
-    pub saved: bool,
+    #[serde(alias = "saved")]
+    pub picked: bool,
 }
 
 fn untested() -> Link {
@@ -88,7 +89,7 @@ impl Default for Settings {
             newcomers: Newcomers::default(),
             character: CHARACTER.into(),
             link: untested(),
-            saved: false,
+            picked: false,
         }
     }
 }
@@ -161,9 +162,8 @@ pub(crate) struct Overrides {
 }
 
 impl Overrides {
-    /// `HAMLET_MODEL`, `HAMLET_BASE_URL` (the address of the model's
-    /// endpoint, added where the settings have none), and
-    /// `HAMLET_REFLECT_EVERY` and `HAMLET_NET`.
+    /// `HAMLET_MODEL`, `HAMLET_BASE_URL`, `HAMLET_REFLECT_EVERY` and
+    /// `HAMLET_NET`.
     pub fn from_env(faux: bool) -> Self {
         let set =
             |name| std::env::var(name).ok().filter(|v| !v.is_empty());
@@ -198,6 +198,7 @@ impl Overrides {
                 .find(|kept| kept.name == endpoint)
             {
                 Some(kept) => kept.base_url.clone_from(url),
+                // A realm starts with no endpoint to point.
                 None => settings.endpoints.push(Endpoint {
                     name: endpoint.into(),
                     base_url: url.clone(),
