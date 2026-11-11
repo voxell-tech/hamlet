@@ -21,7 +21,7 @@ use hamlet_client::realm::{
     Confinement, LivesIn, Settings, Treasury,
 };
 use hamlet_protocol::client as protocol;
-use hamlet_ui::styles::{hairline, note, small_rules};
+use hamlet_ui::styles::{LINE, hairline, note, small_rules};
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::{AnyView, View, built, with_cx};
 
@@ -286,7 +286,7 @@ fn session() -> impl View {
                 let space = &cx.theme().space;
                 row((
                     frame()
-                        .width(px(1.0))
+                        .width(px(LINE))
                         .height(px(space.status_icon))
                         .fill(cx.theme().palette.border),
                     fact(

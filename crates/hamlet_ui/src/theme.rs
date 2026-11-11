@@ -897,6 +897,10 @@ impl SpacingTokens for HamletTheme {
     fn dock_radius(&self) -> f32 {
         self.space.round_panel
     }
+
+    fn dock_border(&self) -> f32 {
+        self.space.border
+    }
 }
 
 impl MotionTokens for HamletTheme {

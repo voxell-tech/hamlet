@@ -234,15 +234,20 @@ pub fn filling() -> Stack<()> {
     column(()).fills_height().gap(0.0)
 }
 
-/// A line one pixel thick, of `colour`.
+/// How thick a line drawn in a view is, in pixels: a rule, a guide or
+/// a tree's branch. As thick as the theme's borders and dividers, so
+/// every stroke in the panels is one weight.
+pub const LINE: f32 = 2.0;
+
+/// A line [`LINE`] thick, of `colour`.
 pub fn hairline(colour: impl Into<Prop<Color>>) -> Frame {
-    frame().height(px(1.0)).fill(colour)
+    frame().height(px(LINE)).fill(colour)
 }
 
 /// A line between parts side by side, top to bottom.
 pub fn upright() -> impl View {
     with_cx(|cx| {
-        frame().width(px(1.0)).fill(cx.theme().palette.border)
+        frame().width(px(LINE)).fill(cx.theme().palette.border)
     })
 }
 
