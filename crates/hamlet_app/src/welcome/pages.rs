@@ -3,7 +3,8 @@
 use bevy::color::Alpha;
 use bevy::ecs::world::World;
 use bevy::ui::{
-    AlignItems, JustifyContent, Overflow, UiRect, percent, px,
+    AlignItems, JustifyContent, Overflow, PositionType, UiRect,
+    percent, px,
 };
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
@@ -379,9 +380,16 @@ fn tile(tile: &Tile, picked: bool) -> AnyView {
     with_cx(move |cx| {
         let space = &cx.theme().space;
         // Washed from the left while picked, and less under the
-        // pointer, as a row of the Hub's rail is. The wash is on the
-        // row inside, as the button's own gradient is its glow.
+        // pointer, as a row of the Hub's rail is: a layer over the
+        // whole tile, under its words, cut to its rounded corners by
+        // the tile. The wash is a layer of its own, as the button's
+        // own gradient is its glow.
+        let washed = frame()
+            .position(PositionType::Absolute)
+            .inset(UiRect::all(px(0.0)))
+            .tagged(Wash::new(picked, Edge::Left));
         let words = row((
+            washed,
             face,
             label(name).wrap(false),
             frame().grow(1.0),
@@ -394,15 +402,12 @@ fn tile(tile: &Tile, picked: bool) -> AnyView {
         .padding(UiRect::axes(
             px(space.card_padding_x),
             px(space.card_padding_y),
-        ))
-        // Its corners nest inside the tile's border, so the wash
-        // meets the border all the way round.
-        .radius(space.round_card - space.border)
-        .tagged(Wash::new(picked, Edge::Left));
+        ));
         views::button(words)
             .grow(1.0)
             .width(px(0.0))
             .min_width(px(0.0))
+            .overflow(Overflow::clip())
             .variant(Variant::Default)
             .rules(tile_rules(picked))
             .on_activate(move |world| {
