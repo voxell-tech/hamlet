@@ -36,7 +36,6 @@ use hamlet_client::realm::{
     name_of,
 };
 use hamlet_client::waits::{RaisedBy, Waiting};
-use hamlet_desktop::open::Launch;
 use hamlet_protocol::client::{
     AgentKind, Arrival, ClientMessage, LeftHow, ReplyKind, ScholarId,
     ServerMessage, WaitDetail,
@@ -715,47 +714,24 @@ fn card(toast: &Toast) -> AnyView {
             }
             What::Update(offer) => {
                 let version = offer.version;
-                let (line, button) = match &offer.ready {
-                    Ready::File(file) => {
-                        let file = file.clone();
-                        (
-                            "Restart to update. Agents pause while \
-                             Hamlet restarts, and carry on after."
-                                .to_string(),
-                            action(
-                                Glyph::Restore,
-                                "Restart",
-                                move |world| {
-                                    updates::restart(
-                                        world,
-                                        version,
-                                        file.clone(),
-                                    );
-                                },
-                            ),
-                        )
-                    }
-                    Ready::Page(page) => {
-                        let page = page.clone();
-                        (
-                            "This copy cannot update itself. \
-                             Download the new one from its page."
-                                .to_string(),
-                            action(
-                                Glyph::Globe,
-                                "Download",
-                                move |world| {
-                                    if hamlet_desktop::open::browse(
-                                        &page,
-                                    ) == Launch::Failed
-                                    {
-                                        unopened(world, &page);
-                                    }
-                                },
-                            ),
-                        )
-                    }
+                let (line, which, word) = match &offer.ready {
+                    Ready::File(_) => (
+                        "Restart to update. Agents pause while \
+                         Hamlet restarts, and carry on after.",
+                        Glyph::Restore,
+                        "Restart",
+                    ),
+                    Ready::Page(_) => (
+                        "This copy cannot update itself. Download \
+                         the new one from its page.",
+                        Glyph::Globe,
+                        "Download",
+                    ),
                 };
+                let (line, offer) = (line.to_string(), offer.clone());
+                let button = action(which, word, move |world| {
+                    updates::take(world, &offer);
+                });
                 (
                     Glyph::Hamlet,
                     format!("Hamlet {version} is out"),
@@ -911,7 +887,7 @@ fn dismiss_all(world: &mut World) {
 /// Says that the page at `address` did not open, with the address
 /// copied for the chief to paste into a browser, or written out when
 /// it could not be copied.
-fn unopened(world: &mut World, address: &str) {
+pub(crate) fn unopened(world: &mut World, address: &str) {
     let copied = world.get_resource_mut::<Clipboard>().is_some_and(
         |mut clipboard| {
             clipboard.set_text(address.to_owned()).is_ok()

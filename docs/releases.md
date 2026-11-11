@@ -128,7 +128,9 @@ before they are packed, and the installer after.
 ## Updates
 
 An installed release looks for a newer one while its window is open:
-15 seconds after the window opens, then every hour. `hamlet_update`
+15 seconds after the window opens, then every hour, and at once when
+the chief picks **Check for updates** in the Hamlet menu, which then
+says whether Hamlet is up to date or why it could not look. `hamlet_update`
 holds the looking, the download and the putting in place; the window
 and `hamlet_launch` use it.
 
@@ -142,7 +144,9 @@ newer than its own, then downloads its install's file into the cache
 folder (`~/Library/Caches/Hamlet/updates`, `%LOCALAPPDATA%\Hamlet\updates`
 or `~/.cache/hamlet/updates`) and keeps it only if its sum and length
 match. A toast offers it until the chief restarts or closes it; a
-closed offer comes back when the window next opens.
+closed offer comes back when the window next opens, or when the chief
+checks again. Once one is found, the Hamlet menu's item reads
+**Update to** its version and does what the toast's button does.
 
 Restart notes the version being installed and hands the file to
 `hamlet_launch --update <file>`, then the window closes. The launcher

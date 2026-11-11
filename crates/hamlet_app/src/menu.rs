@@ -34,6 +34,7 @@ use hamlet_ui::widgets::platform::DisplayText;
 use hamlet_ui::{AnyView, Cx, View, with_cx};
 
 use crate::dock::show_tab;
+use crate::updates::{self, Updates};
 use crate::window;
 
 /// The key that brings Settings forward.
@@ -58,6 +59,7 @@ pub fn plugin(app: &mut App) {
         repeat: false,
     };
     app.init_resource::<OpenMenu>()
+        .init_resource::<Updates>()
         .add_command(
             command("app.settings", "Settings", |world, _| {
                 settings(world);
@@ -245,10 +247,11 @@ pub fn titles() -> impl View {
 /// same, if any.
 fn item(
     which: Glyph,
-    name: &'static str,
+    name: impl Into<String>,
     keys: Option<Chord>,
     act: fn(&mut World),
 ) -> AnyView {
+    let name = name.into();
     with_cx(move |cx| {
         // A comma reads as its own mark, not its key's name.
         let keys = keys.map_or_else(String::new, |keys| {
@@ -257,7 +260,7 @@ fn item(
         menu_item(
             row((
                 glyph(which, ICON).tone(Tone::Faint),
-                label(name).wrap(false),
+                label(name.clone()).wrap(false),
                 frame().grow(1.0).min_width(px(16.0)),
                 label(keys).tone(Tone::Faint).wrap(false),
             ))
@@ -278,7 +281,60 @@ fn settings(world: &mut World) {
     show_tab(world, "settings");
 }
 
-fn items(menu: Menu, found: bool) -> Vec<AnyView> {
+/// What the Hamlet menu offers for updates.
+#[derive(Clone, PartialEq, Debug)]
+enum Updating {
+    /// Nothing: this copy does not look for updates.
+    Off,
+    /// A look for one.
+    Check,
+    /// A look the chief asked for is on its way.
+    Checking,
+    /// The release found, to take.
+    Ready(hamlet_protocol::Version),
+}
+
+impl Updating {
+    fn of(world: &World) -> Self {
+        let updates = world.resource::<Updates>();
+        match (&updates.offer, updates.checking) {
+            _ if !updates.looking => Self::Off,
+            (Some(offer), _) => Self::Ready(offer.version),
+            (None, true) => Self::Checking,
+            (None, false) => Self::Check,
+        }
+    }
+
+    fn item(&self) -> Option<AnyView> {
+        Some(match self {
+            Self::Off => return None,
+            Self::Check => item(
+                Glyph::Restore,
+                "Check for updates",
+                None,
+                updates::check,
+            ),
+            Self::Checking => item(
+                Glyph::Restore,
+                "Checking for updates...",
+                None,
+                |_| {},
+            ),
+            Self::Ready(version) => item(
+                Glyph::Rise,
+                format!("Update to {version}"),
+                None,
+                updates::update,
+            ),
+        })
+    }
+}
+
+fn items(
+    menu: Menu,
+    found: bool,
+    updating: &Updating,
+) -> Vec<AnyView> {
     match menu {
         Menu::App => {
             let mut items = vec![item(
@@ -287,6 +343,7 @@ fn items(menu: Menu, found: bool) -> Vec<AnyView> {
                 Some(SETTINGS),
                 settings,
             )];
+            items.extend(updating.item());
             if found {
                 items.push(item(
                     Glyph::Hamlet,
@@ -323,15 +380,20 @@ pub fn open_menu() -> impl View {
                 hamlet_client::realm::Deeds::is_allowed(
                     world, "found",
                 ),
+                Updating::of(world),
             )
         })
         .when(crate::roll::either(
-            crate::roll::moved::<OpenMenu>(),
-            crate::roll::moved::<hamlet_client::realm::Deeds>(),
+            crate::roll::either(
+                crate::roll::moved::<OpenMenu>(),
+                crate::roll::moved::<hamlet_client::realm::Deeds>(),
+            ),
+            crate::roll::moved::<Updates>(),
         )),
-        |(open, found)| match open {
+        |(open, found, updating)| match open {
             Some((menu, anchor)) => {
-                let (anchor, items) = (*anchor, items(*menu, *found));
+                let (anchor, items) =
+                    (*anchor, items(*menu, *found, updating));
                 with_cx(move |cx| {
                     popup(anchor, items)
                         .on_dismiss(|world, _| dismiss(world))
@@ -367,6 +429,8 @@ mod tests {
         assert!(shown.contains("Close window"), "{shown}");
         assert!(!shown.contains("New desk"));
         assert!(!shown.contains("Your hearth"));
+        // A copy that does not look for updates offers no way to.
+        assert!(!shown.contains("updates"));
         assert!(!shown.contains("Run in Background"));
         assert!(!shown.contains("Quit Hamlet"));
         assert!(!shown.contains("Found a Hamlet..."));
@@ -381,5 +445,38 @@ mod tests {
         );
         crate::testing::press(&mut app, "Close window");
         assert!(app.world_mut().resource_mut::<bevy::ecs::message::Messages<bevy::app::AppExit>>().drain().any(|exit| exit == bevy::app::AppExit::Success));
+    }
+
+    #[test]
+    fn the_app_menu_checks_for_an_update_until_one_is_found() {
+        let mut app = crate::testing::panel_app();
+        app.add_plugins(plugin);
+        app.world_mut().resource_mut::<Updates>().looking = true;
+        app.insert_resource(OpenMenu::under(
+            Menu::App,
+            Rect::default(),
+        ));
+        bevy_fynix::mount::<HamletTheme>(
+            app.world_mut(),
+            open_menu(),
+        );
+        app.update();
+        let shown = crate::testing::all_words(&mut app);
+        assert!(shown.contains("Check for updates"), "{shown}");
+        app.world_mut().resource_mut::<Updates>().checking = true;
+        app.update();
+        let shown = crate::testing::all_words(&mut app);
+        assert!(shown.contains("Checking for updates..."), "{shown}");
+        app.world_mut().resource_mut::<Updates>().offer =
+            Some(updates::Offer {
+                version: hamlet_protocol::Version::new(0, 2, 0),
+                ready: updates::Ready::Page(
+                    "https://example.com".into(),
+                ),
+            });
+        app.update();
+        let shown = crate::testing::all_words(&mut app);
+        assert!(shown.contains("Update to 0.2.0"), "{shown}");
+        assert!(!shown.contains("Check for updates"));
     }
 }
