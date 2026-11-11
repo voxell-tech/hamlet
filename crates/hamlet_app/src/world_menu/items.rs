@@ -341,6 +341,24 @@ pub(super) fn skills(world: &World, agent: Entity) -> Vec<AnyView> {
         .collect()
 }
 
+/// The living agent `thing` is, or is the house of.
+fn agent_of(world: &World, thing: Thing) -> Option<Entity> {
+    match thing {
+        Thing::Agent(agent) | Thing::House(agent) => Some(agent),
+        Thing::Hand => agents::hand(world),
+        _ => None,
+    }
+}
+
+/// Whether the Hub shows `agent`'s chat, with its own buttons.
+fn chat_shown(world: &World, agent: Entity) -> bool {
+    world.get_resource::<crate::hub::Showing>().copied()
+        == Some(crate::hub::Showing::Thread)
+        && world
+            .get_resource::<crate::convo::Convo>()
+            .is_some_and(|convo| convo.agent == agent)
+}
+
 /// The menu of `thing` as its chat opens it: what the chat has no
 /// control of its own for.
 pub(super) fn more(
@@ -349,7 +367,7 @@ pub(super) fn more(
     at: Vec2,
 ) -> Vec<AnyView> {
     match thing {
-        Thing::Agent(agent) => {
+        Thing::Agent(agent) | Thing::House(agent) => {
             for_agent(world, thing, agent, at, true)
         }
         Thing::Hand => match agents::hand(world) {
@@ -391,6 +409,13 @@ pub(super) fn items(
     thing: Thing,
     at: Vec2,
 ) -> Vec<AnyView> {
+    // An agent whose chat the Hub shows has its buttons on screen
+    // already, so its menu holds only what they do not.
+    if let Some(agent) = agent_of(world, thing)
+        && chat_shown(world, agent)
+    {
+        return more(world, thing, at);
+    }
     match thing {
         Thing::Keeper | Thing::Cottage => for_mayor(world, at),
         Thing::Ruin(agent) => for_ruin(world, agent),
