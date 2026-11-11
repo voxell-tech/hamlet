@@ -12,12 +12,13 @@ use bevy::ui::UiScale;
 use bevy::window::WindowTheme;
 use bevy_fynix::ReducedMotion;
 use bevy_fynix::shortcut::{
-    Chord, CommandId, CommandSpec, GLOBAL, Mods, ShortcutAppExt,
+    Chord, CommandId, CommandSpec, GLOBAL, ShortcutAppExt,
 };
 use hamlet_desktop::color_scheme::ColorScheme;
 use hamlet_ui::theme::{
     self, HamletTheme, Measures, ThemeId, Themes,
 };
+use hamlet_ui::widgets::keys::Keys;
 use serde::{Deserialize, Serialize};
 
 /// The sizes the panels can be drawn at, as a share of their
@@ -32,20 +33,14 @@ pub const ZOOMS: [(f32, &str); 6] = [
 ];
 
 const fn primary(key: KeyCode) -> Chord {
-    Chord {
-        key,
-        mods: Mods::PRIMARY,
-    }
+    Keys::new(key).primary().chord()
 }
 
 /// The keys that draw the panels larger: the plus key, with or
 /// without the Shift it is printed under.
 const ZOOM_IN: [Chord; 3] = [
     primary(KeyCode::Equal),
-    Chord {
-        key: KeyCode::Equal,
-        mods: Mods::PRIMARY.with(Mods::SHIFT),
-    },
+    Keys::new(KeyCode::Equal).primary().shift().chord(),
     primary(KeyCode::NumpadAdd),
 ];
 const ZOOM_OUT: [Chord; 2] =

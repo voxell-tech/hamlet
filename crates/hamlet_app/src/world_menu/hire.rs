@@ -325,8 +325,10 @@ pub(super) fn hire(lead: Entity, at: Vec2) -> impl View {
                 lettered("Cancel")
                     .rules(styles::button)
                     .on_activate(close),
+                super::send_keys(),
             ))
-            .gap(gap),
+            .gap(gap)
+            .align(AlignItems::Center),
         ))
         .gap(between)
         .width(px(320.0));

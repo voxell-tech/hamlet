@@ -8,6 +8,7 @@ pub mod ellipsis;
 pub mod floats;
 pub mod hint;
 pub mod icons;
+pub mod keys;
 pub mod pixels;
 pub mod platform;
 pub mod providers;

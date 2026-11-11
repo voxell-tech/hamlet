@@ -6,7 +6,7 @@ use bevy::ecs::query::{With, Without};
 use bevy::ecs::resource::Resource;
 use bevy::ecs::world::World;
 use bevy::math::Rect;
-use bevy::ui::px;
+use bevy::ui::{AlignItems, px};
 use bevy::ui_widgets::popover::{
     PopoverAlign, PopoverPlacement, PopoverSide,
 };
@@ -381,8 +381,10 @@ pub(crate) fn question(deed: Deed, anchor: Rect) -> impl View {
                     .variant(variant)
                     .on_activate(move |world| answer(world, &done)),
                 lettered("Cancel").rules(button).on_activate(close),
+                super::send_keys(),
             ))
-            .gap(gap),
+            .gap(gap)
+            .align(AlignItems::Center),
         ))
         .gap(section)
         .width(px(300.0));

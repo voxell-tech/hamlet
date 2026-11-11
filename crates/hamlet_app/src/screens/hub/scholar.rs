@@ -328,6 +328,7 @@ fn form(address: String, name: String, act: Act) -> AnyView {
                 action(Glyph::Cross, "Cancel", |world| {
                     world.resource_mut::<Form>().act = None;
                 }),
+                world_menu::send_keys(),
             ])
             .boxed(),
         );

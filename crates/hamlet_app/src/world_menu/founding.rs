@@ -347,8 +347,10 @@ pub(super) fn founding(at: Vec2) -> impl View {
                     .variant(Variant::Primary)
                     .on_activate(submit),
                 lettered("Cancel").rules(button).on_activate(close),
+                super::send_keys(),
             ))
-            .gap(gap),
+            .gap(gap)
+            .align(AlignItems::Center),
         ))
         .gap(between)
         .width(px(300.0));

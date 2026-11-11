@@ -104,7 +104,9 @@ state; the other panels live beside that folder, and `tuning.rs` loads
 their sizes and limits from `assets/ui.toml`. They are built from
 `hamlet_ui`, which reads no client state: `theme.rs` and `styles.rs`
 define how the panels look, and `widgets/` holds the shared controls:
-`effects/`, `icons.rs`, `tabs.rs` and `platform.rs`. `markdown/` parses
+`effects/`, `icons.rs`, `tabs.rs`, `platform.rs` and `keys.rs`, the one
+builder of a shortcut: the chord a command is bound to, shown as the
+keyboard prints it (`⌘⇧K` on a Mac, `Ctrl+Shift+K` elsewhere). `markdown/` parses
 Markdown and draws it. A control asks for a sound with `ControlSound`
 and lights its panel from `Attention`; the app plays the one and keeps
 the other. A document finds a written path's file through `PathLinks`

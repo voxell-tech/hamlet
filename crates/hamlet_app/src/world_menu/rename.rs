@@ -5,7 +5,7 @@ use bevy::ecs::entity::Entity;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::world::World;
 use bevy::math::{Rect, Vec2};
-use bevy::ui::px;
+use bevy::ui::{AlignItems, px};
 use bevy_fynix::ScopedExt;
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, column, frame, label, popup, row,
@@ -121,8 +121,10 @@ pub(super) fn rename(named: Entity, at: Vec2) -> impl View {
                     .variant(Variant::Primary)
                     .on_activate(move |world| submit(world, named)),
                 lettered("Cancel").rules(button).on_activate(close),
+                super::send_keys(),
             ))
-            .gap(gap),
+            .gap(gap)
+            .align(AlignItems::Center),
         ))
         .gap(between)
         .width(px(300.0));

@@ -40,8 +40,7 @@ use bevy_fynix::scroll::{
     OwnScrollbar, ScrollbarStyle, ScrollbarVisibility,
 };
 use bevy_fynix::shortcut::{
-    Chord, CommandId, CommandSpec, GLOBAL, Invoke, Mods,
-    ShortcutAppExt,
+    Chord, CommandId, CommandSpec, GLOBAL, Invoke, ShortcutAppExt,
 };
 use bevy_fynix::tokens::{Motion, Tone};
 use bevy_fynix::views::{
@@ -60,24 +59,26 @@ use hamlet_ui::styles::{
 use hamlet_ui::theme::{HamletTheme, Themed};
 use hamlet_ui::widgets::effects::{Edge, EffectSettings, wash};
 use hamlet_ui::widgets::icons::{Glyph, glyph};
+use hamlet_ui::widgets::keys::Keys;
 use hamlet_ui::{AnyView, Cx, View, with_cx};
 
 use self::motion::TabDrag;
 use crate::desk::{DeskSettings, Desks, Turn};
 use crate::menu::rect_of;
 
-/// Ctrl, on macOS too, where the primary key is Command.
-const CTRL: Mods = if cfg!(target_os = "macos") {
-    Mods::CTRL
-} else {
-    Mods::PRIMARY
-};
+/// `keys` with Ctrl, on macOS too, where the primary key is Command.
+const fn ctrl_tab(keys: Keys) -> Chord {
+    if cfg!(target_os = "macos") {
+        keys.ctrl()
+    } else {
+        keys.primary()
+    }
+    .chord()
+}
 
 /// The key that adds a desk.
-pub(crate) const NEW: Chord = Chord {
-    key: KeyCode::KeyT,
-    mods: Mods::PRIMARY,
-};
+pub(crate) const NEW: Chord =
+    Keys::new(KeyCode::KeyT).primary().chord();
 
 /// The keys that show the first nine desks, with the primary key,
 /// and the commands they run.
@@ -132,10 +133,6 @@ fn keys(app: &mut App) {
         enabled: |_| true,
         repeat: false,
     };
-    let tab = |mods| Chord {
-        key: KeyCode::Tab,
-        mods,
-    };
     app.add_command(
         command("desk.new", "New Desk", |world, _| new_desk(world)),
         &[NEW],
@@ -144,21 +141,18 @@ fn keys(app: &mut App) {
         command("desk.next", "Next Desk", |world, _| {
             world.resource_mut::<Desks>().cycle(Turn::Next);
         }),
-        &[tab(CTRL)],
+        &[ctrl_tab(Keys::new(KeyCode::Tab))],
     )
     .add_command(
         command("desk.previous", "Previous Desk", |world, _| {
             world.resource_mut::<Desks>().cycle(Turn::Previous);
         }),
-        &[tab(CTRL.with(Mods::SHIFT))],
+        &[ctrl_tab(Keys::new(KeyCode::Tab).shift())],
     );
     for (id, label, key, run) in SHOWN_BY_DIGIT {
         app.add_command(
             command(id, label, run),
-            &[Chord {
-                key,
-                mods: Mods::PRIMARY,
-            }],
+            &[Keys::new(key).primary().chord()],
         );
     }
 }
@@ -518,23 +512,19 @@ fn all_view() -> impl View {
                 } else {
                     Tone::Body
                 };
-                let keys = SHOWN_BY_DIGIT
-                    .get(at)
-                    .map(|&(_, _, key, _)| {
-                        Chord {
-                            key,
-                            mods: Mods::PRIMARY,
-                        }
-                        .to_string()
-                    })
-                    .unwrap_or_default();
+                let keys = match SHOWN_BY_DIGIT.get(at) {
+                    Some(&(_, _, key, _)) => {
+                        Keys::new(key).primary().view().boxed()
+                    }
+                    None => frame().boxed(),
+                };
                 menu_item(
                     row((
                         label(desk.name.clone())
                             .wrap(false)
                             .tone(tone)
                             .grown(1.0),
-                        label(keys).wrap(false).tone(Tone::Dim),
+                        keys,
                     ))
                     .gap(gap)
                     .grow(1.0)

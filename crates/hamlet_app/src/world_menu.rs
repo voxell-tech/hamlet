@@ -29,7 +29,7 @@ use bevy::text::EditableText;
 use bevy::ui::{AlignItems, JustifyContent, UiRect, UiScale, px};
 use bevy::window::Window;
 use bevy_fynix::shortcut::{
-    Chord, CommandId, CommandSpec, Mods, ShortcutAppExt,
+    Chord, CommandId, CommandSpec, ShortcutAppExt,
 };
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
@@ -45,6 +45,7 @@ use hamlet_client::realm::{self as agents, Deeds};
 use hamlet_realm::orders;
 use hamlet_realm::pick::{Asked, AskedGround, Thing};
 use hamlet_ui::widgets::icons::{Glyph, glyph};
+use hamlet_ui::widgets::keys::Keys;
 use hamlet_ui::{AnyView, Cx, View, with_cx};
 
 pub(crate) use self::deed::{Deed, question};
@@ -88,16 +89,23 @@ pub fn plugin(app: &mut App) {
 
 /// The keys that send a form: the primary key and Enter, and Control
 /// and Enter on macOS too, where Control is not the primary key.
-pub(crate) const SUBMIT_KEYS: [Chord; 2] = [
-    Chord {
-        key: KeyCode::Enter,
-        mods: Mods::PRIMARY,
-    },
-    Chord {
-        key: KeyCode::Enter,
-        mods: Mods::CTRL,
-    },
-];
+pub(crate) const SUBMIT_KEYS: [Chord; 2] =
+    [SEND_KEYS.chord(), Keys::new(KeyCode::Enter).ctrl().chord()];
+
+/// The keys a form's sending button shows: the first of
+/// [`SUBMIT_KEYS`].
+pub(crate) const SEND_KEYS: Keys =
+    Keys::new(KeyCode::Enter).primary();
+
+/// The keys that send a form, at the far end of the row of its
+/// buttons, so the chief learns it can be sent from the keyboard.
+pub(crate) fn send_keys() -> AnyView {
+    row((SEND_KEYS.view(),))
+        .grow(1.0)
+        .justify(JustifyContent::FlexEnd)
+        .align(AlignItems::Center)
+        .boxed()
+}
 
 /// The popup open over the world, and its place in the window.
 #[derive(Resource, Default, Clone, PartialEq)]
