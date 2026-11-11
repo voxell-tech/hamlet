@@ -32,8 +32,8 @@ use hamlet_ui::kinds::card;
 use hamlet_ui::styles::{
     Fills, ICON, Looks, Tipped, action, bare, card_name, choice,
     close, crumb, crumb_here, crumb_slash, crumbs, filling, hairline,
-    more_button, note, page_head, scroll_area, sentence_title,
-    status_icon, title, transparent,
+    more_button, note, page_head, scroll_area, status_icon, title,
+    transparent,
 };
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::edges::faded;
@@ -275,13 +275,13 @@ impl Under {
         }
     }
 
-    /// The head of its page: a session's title as the sentence it is,
-    /// the rest as names, and the prompt's way to copy it at the end
-    /// of that line.
+    /// The head of its page, with the prompt's way to copy it at the
+    /// end of that line.
     fn title(&self) -> AnyView {
         match self {
-            Under::Session(_) => sentence_title(self.name()).boxed(),
-            Under::Sessions => title(self.name()).boxed(),
+            Under::Session(_) | Under::Sessions => {
+                title(self.name()).boxed()
+            }
             Under::Prompt => with_cx(|cx| {
                 row((title("Prompt"), frame().grow(1.0), copy()))
                     .gap(cx.theme().space.gap)

@@ -11,16 +11,15 @@ use bevy_fynix::views::{
     BehaviorExt, FrameProps, button, column, row,
 };
 use hamlet_client::realm::{
-    Account, AgentNumber, HamletId, Identity, Left, LivesIn, Mayor,
-    MergedInto, OwnModel, Parent, Treasury,
+    Account, AgentNumber, HamletId, Identity, Kind, Left, LivesIn,
+    Mayor, MergedInto, OwnModel, Parent, Treasury,
 };
-use hamlet_protocol::client::AgentId;
+use hamlet_protocol::client::{AgentId, AgentKind};
 use hamlet_realm::pick::Thing;
 use hamlet_ui::styles::{ICON, card_button, card_name, status_icon};
 use hamlet_ui::theme::StatusKind;
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
-use hamlet_ui::widgets::platform::DisplayText;
 use hamlet_ui::{AnyView, View, with_cx};
 
 use super::Naming;
@@ -87,6 +86,7 @@ pub(super) struct AgentRow {
     /// What it is shown by.
     pub name: String,
     pub mayor: bool,
+    pub worker: bool,
     /// What its row says under its name, or the way it left.
     pub under: String,
     pub standing: Standing,
@@ -108,6 +108,7 @@ type Told<'a> = (
     (Has<Mayor>, Has<Left>),
     &'a Identity,
     Option<&'a Parent>,
+    &'a Kind,
 );
 
 /// `rows` in the order of their tree: each lead followed by its
@@ -198,6 +199,7 @@ pub(super) fn agent_rows(
                 (mayor, gone),
                 id,
                 parent,
+                kind,
             )| {
                 ids.push((agent, id.0));
                 parents.push((id.0, parent.map(|parent| parent.0)));
@@ -228,6 +230,7 @@ pub(super) fn agent_rows(
                     number: number.map(|number| number.0),
                     name: named(agent),
                     mayor,
+                    worker: kind.0 == AgentKind::Worker,
                     under,
                     standing: Standing::of(world, agent),
                     gone,
@@ -276,12 +279,6 @@ pub(super) fn hamlet_rows(world: &World) -> Vec<HamletRow> {
     rows
 }
 
-/// A hamlet's name on a card, in the display face the Hub's tree
-/// names it in.
-pub(super) fn hamlet_name(name: String) -> impl View {
-    card_name(name, Tone::Body).tagged(DisplayText)
-}
-
 /// A row that can be pressed: a title with a word of status beside
 /// it, over `lines`, and the mark that it opens at its end. The right
 /// button opens the menu of `thing`.
@@ -298,7 +295,7 @@ pub(super) fn pressable(
             row((
                 column((
                     row((
-                        hamlet_name(title),
+                        card_name(title, Tone::Body),
                         status_icon(beside.0, beside.1, beside.2),
                     ))
                     .gap(gap)

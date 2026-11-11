@@ -133,8 +133,10 @@ pub enum Glyph {
     Meter,
     /// A signpost: roads.
     Signpost,
-    /// A robot's head: an agent.
+    /// A robot's head: a worker, and an agent in general.
     Robot,
+    /// A head over shoulders: a hire, a scholar at work in a hamlet.
+    Hire,
     /// Two sliders: the settings.
     Sliders,
     /// An arrow down into a tray: out of sight, still running.
@@ -232,7 +234,7 @@ enum Shape {
 
 impl Glyph {
     /// Every icon.
-    pub const ALL: [Glyph; 66] = [
+    pub const ALL: [Glyph; 67] = [
         Glyph::Plus,
         Glyph::Cross,
         Glyph::Check,
@@ -261,6 +263,7 @@ impl Glyph {
         Glyph::Meter,
         Glyph::Signpost,
         Glyph::Robot,
+        Glyph::Hire,
         Glyph::Sliders,
         Glyph::Lower,
         Glyph::ToEnd,
@@ -502,6 +505,11 @@ impl Glyph {
                 Dot(8.0, 2.5, 1.1),
                 Dot(6.0, 9.5, 1.1),
                 Dot(10.0, 9.5, 1.1),
+            ],
+            Glyph::Hire => &[
+                Ring(8.0, 5.0, 2.75),
+                Arc(8.0, 14.0, 5.5, 180.0, 360.0),
+                Line(2.5, 14.0, 13.5, 14.0),
             ],
             Glyph::Sliders => &[
                 Line(2.5, 5.0, 13.5, 5.0),

@@ -60,7 +60,7 @@ type WorldCameras<'w, 's> = Query<
 pub(crate) fn plugin(app: &mut App) {
     app.add_panel(
         "world",
-        DockWindowKind::new("REALM", || {
+        DockWindowKind::new("Realm", || {
             column((view(),))
                 .fills_width()
                 .min_height(px(0.0))

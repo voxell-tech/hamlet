@@ -473,8 +473,10 @@ fn person(row_of: &AgentRow, branch: Branch) -> AnyView {
     };
     let kind = if row_of.mayor {
         Glyph::Mayor
-    } else {
+    } else if row_of.worker {
         Glyph::Robot
+    } else {
+        Glyph::Hire
     };
     let standing = row_of.standing;
     let (name, under, account, depth) = (

@@ -46,12 +46,12 @@ pub(super) fn seed_dock(world: &mut World) {
         world.resource_mut::<DockRegistry<HamletTheme>>();
     registry.register(
         "world",
-        DockWindowKind::new("WORLD", world_stand)
+        DockWindowKind::new("Realm", world_stand)
             .icon(Glyph::Globe.image(ICON)),
     );
     registry.register(
         "hub",
-        DockWindowKind::new("HUB", || {
+        DockWindowKind::new("Hub", || {
             highlight_panel(
                 hub::screen(),
                 Highlight {
@@ -64,7 +64,7 @@ pub(super) fn seed_dock(world: &mut World) {
     );
     registry.register(
         "settings",
-        DockWindowKind::new("SETTINGS", || panel(settings::screen()))
+        DockWindowKind::new("Settings", || panel(settings::screen()))
             .icon(Glyph::Sliders.image(ICON)),
     );
     let mut tree = world.resource_mut::<DockTree>();

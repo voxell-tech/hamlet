@@ -54,7 +54,7 @@ use crate::world_menu::{self, Deed};
 pub fn plugin(app: &mut App) {
     app.add_panel(
         "settings",
-        DockWindowKind::new("SETTINGS", || panel(screen()))
+        DockWindowKind::new("Settings", || panel(screen()))
             .icon(Glyph::Sliders.image(ICON)),
     )
     .add_plugins((sight::plugin, workspace::plugin, visits::plugin))
