@@ -48,6 +48,49 @@ pub enum Isolation {
     Insecure,
 }
 
+/// A server started for a home that never became ready. It reads as
+/// the words for a terminal; `reason` and `log` are for a dialog.
+#[derive(Debug)]
+pub struct NotReady {
+    message: String,
+    /// The server's own last error, from its log.
+    pub reason: Option<String>,
+    pub log: PathBuf,
+}
+
+impl std::fmt::Display for NotReady {
+    fn fmt(
+        &self,
+        f: &mut std::fmt::Formatter<'_>,
+    ) -> std::fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for NotReady {}
+
+impl NotReady {
+    fn new(home: &Path, why: &str) -> Self {
+        let log = home.join("server.log");
+        let tail = log_tail(home);
+        // The server ends its log with `Error: ` and why it stopped,
+        // its causes on the lines after.
+        let reason = tail
+            .rfind("Error: ")
+            .filter(|&at| at == 0 || tail[..at].ends_with('\n'))
+            .map(|at| tail[at + "Error: ".len()..].to_owned());
+        Self {
+            message: format!(
+                "Cannot start the server: {why}. Inspect {} and \
+                 hamlet status before trying again.\n{tail}",
+                log.display()
+            ),
+            reason,
+            log,
+        }
+    }
+}
+
 fn nonempty(name: &str) -> Option<String> {
     env::var(name).ok().filter(|s| !s.is_empty())
 }
@@ -461,7 +504,8 @@ fn window_command(app: &Path, address: &ServerAddress) -> Command {
     command
 }
 
-fn open_detached(address: &ServerAddress) -> Result<()> {
+/// Opens a window on `address` in its own session, and leaves it.
+pub fn open_detached(address: &ServerAddress) -> Result<()> {
     let opened = (|| -> Result<()> {
         let mut command = window_command(
             &find_binary("hamlet_app", "HAMLET_APP")?,
@@ -617,24 +661,50 @@ async fn start(
             if !recent.contains("A server already runs for ")
                 && !recent.contains("EADDRINUSE")
             {
-                bail!(
-                    "Cannot start the server: it exited before \
-                     becoming ready. Inspect {} and hamlet status \
-                     before trying again.\n{}",
-                    home.join("server.log").display(),
-                    log_tail(home)
-                );
+                return Err(NotReady::new(
+                    home,
+                    "it exited before becoming ready",
+                )
+                .into());
             }
         }
         sleep(Duration::from_millis(100)).await;
     }
-    bail!(
-        "Cannot start the server: it did not become ready within 15 \
-         seconds. Inspect {} and hamlet status before trying \
-         again.\n{}",
-        home.join("server.log").display(),
-        log_tail(home)
+    Err(NotReady::new(
+        home,
+        "it did not become ready within 15 seconds",
     )
+    .into())
+}
+
+/// The server the environment selects: the local home's, started
+/// unless it serves, or the one `HAMLET_SERVER` names.
+pub async fn ensure(isolation: Isolation) -> Result<ServerAddress> {
+    match discovery::choose(nonempty)? {
+        Chosen::At(address) => Ok(address),
+        Chosen::Home(home) => Ok(match inspect(&home).await? {
+            Some((_, address)) => address,
+            None => start(&home, isolation).await?.1,
+        }),
+    }
+}
+
+/// Stops the local home's server, if one serves, whichever server
+/// the environment otherwise selects.
+pub async fn stop_home() -> Result<()> {
+    let home = home()?;
+    if let Some((record, _)) = inspect(&home).await? {
+        stop(record.pid, &home).await?;
+    }
+    Ok(())
+}
+
+/// The window, ready to open on `address`.
+pub fn window_for(address: &ServerAddress) -> Result<Command> {
+    Ok(window_command(
+        &find_binary("hamlet_app", "HAMLET_APP")?,
+        address,
+    ))
 }
 
 pub async fn service(action: Action) -> Result<i32> {

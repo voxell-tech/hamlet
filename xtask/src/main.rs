@@ -11,8 +11,8 @@ use std::{env, fmt, fs, io};
 const USAGE: &str = "\
 Usage: cargo xtask <task> [args]
 
-  build            build the CLI, server and window (release); args \
-                     go to cargo build
+  build            build the CLI, server, window and the app's \
+                     launcher (release); args go to cargo build
   all              build every binary of the workspace (release); \
                      args go to cargo build
   install          put the CLI, server and window in ~/.cargo/bin
@@ -152,6 +152,10 @@ const BINARIES: [(&str, &str); 3] = [
     ("hamlet_app", "hamlet_app"),
 ];
 
+/// What a release adds to `BINARIES`: the program its app opens,
+/// which a source install, run from a terminal, has no use for.
+const LAUNCHER: (&str, &str) = ("hamlet_cli", "hamlet_launch");
+
 fn main() -> ExitCode {
     let mut args = env::args().skip(1);
     let task = args.next().unwrap_or_default();
@@ -182,7 +186,9 @@ fn run(task: &str, rest: &[String]) -> Result<(), Failure> {
             prepare(&root)?;
             let mut build =
                 cargo(&["build", "--release", "--locked"]);
-            for (package, binary) in BINARIES {
+            for (package, binary) in
+                BINARIES.into_iter().chain([LAUNCHER])
+            {
                 build.args(["-p", package, "--bin", binary]);
             }
             status(build.args(rest))

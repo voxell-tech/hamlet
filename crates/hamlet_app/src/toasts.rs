@@ -4,6 +4,7 @@
 use std::collections::{HashMap, HashSet};
 
 use bevy::app::{App, PreUpdate};
+use bevy::clipboard::Clipboard;
 use bevy::color::Color;
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
@@ -51,6 +52,7 @@ use crate::convo::Convo;
 use crate::hub::Showing;
 use crate::screens::petition::{Need, answers};
 use crate::standing::Standing;
+use crate::updates::{self, Offer, Ready};
 use crate::{PanelSystems, chat};
 
 /// The most toasts kept at once.
@@ -177,6 +179,8 @@ enum What {
         name: String,
         housed: bool,
     },
+    /// A newer Hamlet, which stays until it is taken or closed.
+    Update(Offer),
 }
 
 /// The stack's node, whose hover opens it and keeps its toasts.
@@ -201,8 +205,42 @@ impl Toasts {
             },
             tall: None,
         });
-        let over = self.shown.len().saturating_sub(MOST);
-        self.shown.drain(..over);
+        // An update stays until it is taken or closed, so the oldest
+        // of the others makes way first.
+        while self.shown.len() > MOST {
+            let oldest = self
+                .shown
+                .iter()
+                .position(|toast| {
+                    !matches!(toast.what, What::Update(_))
+                })
+                .unwrap_or(0);
+            self.shown.remove(oldest);
+        }
+    }
+
+    /// Something that happened, which nothing answers.
+    pub(crate) fn note(
+        &mut self,
+        kind: StatusKind,
+        head: String,
+        line: String,
+        now: f32,
+    ) {
+        self.push(What::Notice { kind, head, line }, now);
+    }
+
+    /// Offers `offer` in a toast that does not fade, unless one is on
+    /// show already.
+    pub(crate) fn offer(&mut self, offer: Offer, now: f32) {
+        let what = What::Update(offer);
+        if self.shown.iter().any(|toast| toast.what == what) {
+            return;
+        }
+        self.push(what, now);
+        if let Some(toast) = self.shown.last_mut() {
+            toast.until = f32::INFINITY;
+        }
     }
 
     /// The [`Place`] of toast `id` in the stack.
@@ -436,7 +474,7 @@ fn keep(
     let mut next = toasts.shown.clone();
     for toast in &mut next {
         if open {
-            toast.until = now + STAYS;
+            toast.until = toast.until.max(now + STAYS);
         }
         toast.opacity =
             ((toast.until + FADES - now) / FADES).clamp(0.0, 1.0);
@@ -450,7 +488,9 @@ fn keep(
                         by.is_none_or(|by| Some(by.0) != chatting)
                     })
                 }
-                What::Notice { .. } | What::Verdict { .. } => true,
+                What::Notice { .. }
+                | What::Verdict { .. }
+                | What::Update(_) => true,
             }
     });
     if next != toasts.shown {
@@ -672,6 +712,35 @@ fn card(toast: &Toast) -> AnyView {
                     .boxed(),
                 )
             }
+            What::Update(offer) => {
+                let version = offer.version;
+                let (line, which, word) = match &offer.ready {
+                    Ready::File(_) => (
+                        "Restart to update. Agents pause while \
+                         Hamlet restarts, and carry on after.",
+                        Glyph::Restore,
+                        "Restart",
+                    ),
+                    Ready::Page(_) => (
+                        "This copy cannot update itself. Download \
+                         the new one from its page.",
+                        Glyph::Globe,
+                        "Download",
+                    ),
+                };
+                let (line, offer) = (line.to_string(), offer.clone());
+                let button = action(which, word, move |world| {
+                    updates::take(world, &offer);
+                });
+                (
+                    Glyph::Hamlet,
+                    format!("Hamlet {version} is out"),
+                    String::new(),
+                    StatusKind::Info,
+                    line,
+                    buttons(vec![button]).boxed(),
+                )
+            }
         };
         let head = row((
             status_mark(mark, kind, ICON + 6.0),
@@ -818,14 +887,61 @@ fn fading(id: u64) -> impl FnOnce(&mut Cx) + Send + Sync + 'static {
     }
 }
 
-/// Takes every toast away. Petitions stay among the waits.
+/// Takes every toast away. Petitions stay among the waits, and a
+/// closed update is not offered again while the window is open.
 fn dismiss_all(world: &mut World) {
+    let update =
+        world.resource::<Toasts>().shown.iter().find_map(|toast| {
+            match &toast.what {
+                What::Update(offer) => Some(offer.version),
+                _ => None,
+            }
+        });
+    if let Some(version) = update {
+        updates::decline(world, version);
+    }
     world.resource_mut::<Toasts>().shown.clear();
 }
 
+/// Says that the page at `address` did not open, with the address
+/// copied for the chief to paste into a browser, or written out when
+/// it could not be copied.
+pub(crate) fn unopened(world: &mut World, address: &str) {
+    let copied = world.get_resource_mut::<Clipboard>().is_some_and(
+        |mut clipboard| {
+            clipboard.set_text(address.to_owned()).is_ok()
+        },
+    );
+    let line = if copied {
+        format!("Its address is copied: {address}")
+    } else {
+        format!("Open {address} in a browser.")
+    };
+    let now = world.resource::<Time>().elapsed_secs();
+    world.resource_mut::<Toasts>().note(
+        StatusKind::Danger,
+        "The page did not open".into(),
+        line,
+        now,
+    );
+}
+
 /// Takes toast `id` away, and no other, though another says the same.
-/// A petition stays among the waits.
+/// A petition stays among the waits, and a closed update is not
+/// offered again while the window is open.
 fn dismiss(world: &mut World, id: u64) {
+    let version = world
+        .resource::<Toasts>()
+        .shown
+        .iter()
+        .find(|toast| toast.id == id)
+        .and_then(|toast| match &toast.what {
+            What::Update(offer) => Some(offer.version),
+            _ => None,
+        });
+    if let Some(version) = version {
+        updates::decline(world, version);
+    }
     world
         .resource_mut::<Toasts>()
         .shown
@@ -1055,6 +1171,73 @@ mod tests {
         assert!(app.world().resource::<Toasts>().open);
         press(&mut app, "Close all");
         assert!(app.world().resource::<Toasts>().shown.is_empty());
+    }
+
+    #[test]
+    fn an_update_stays_on_show_until_it_is_taken_or_closed() {
+        let mut app = panel_app();
+        app.add_plugins(plugin).init_resource::<updates::Updates>();
+        let step = Duration::from_secs_f32(STAYS + FADES + 1.0);
+        app.insert_resource(TimeUpdateStrategy::ManualDuration(step));
+        app.world_mut()
+            .resource_mut::<Time<Virtual>>()
+            .set_max_delta(step);
+        let offer = Offer {
+            version: hamlet_protocol::Version::new(0, 2, 0),
+            ready: Ready::Page("https://example.com".into()),
+        };
+        let mut toasts = app.world_mut().resource_mut::<Toasts>();
+        toasts.offer(offer.clone(), 0.0);
+        toasts.offer(offer.clone(), 0.0);
+        app.update();
+        app.update();
+        assert_eq!(app.world().resource::<Toasts>().shown.len(), 1);
+        let id = app.world().resource::<Toasts>().shown[0].id;
+        dismiss(app.world_mut(), id);
+        assert!(app.world().resource::<Toasts>().shown.is_empty());
+        assert_eq!(
+            app.world().resource::<updates::Updates>().declined,
+            Some(offer.version)
+        );
+    }
+
+    #[test]
+    fn a_page_that_does_not_open_gives_its_address() {
+        let mut app = panel_app();
+        app.add_plugins(plugin);
+        app.world_mut().remove_resource::<Clipboard>();
+        unopened(app.world_mut(), "https://example.com/v0.2.0");
+        let toasts = app.world().resource::<Toasts>();
+        assert!(matches!(
+            &toasts.shown[..],
+            [Toast { what: What::Notice { head, line, .. }, .. }]
+                if head == "The page did not open"
+                    && line == "Open https://example.com/v0.2.0 in a browser."
+        ));
+    }
+
+    #[test]
+    fn newer_toasts_make_way_around_an_update() {
+        let offer = Offer {
+            version: hamlet_protocol::Version::new(0, 2, 0),
+            ready: Ready::Page("https://example.com".into()),
+        };
+        let mut toasts = Toasts::default();
+        toasts.offer(offer.clone(), 0.0);
+        for n in 0..MOST {
+            toasts.note(
+                StatusKind::Danger,
+                "Fault".into(),
+                n.to_string(),
+                0.0,
+            );
+        }
+        assert_eq!(toasts.shown.len(), MOST);
+        assert_eq!(toasts.shown[0].what, What::Update(offer));
+        assert!(matches!(
+            &toasts.shown[1].what,
+            What::Notice { line, .. } if line == "1"
+        ));
     }
 
     #[test]

@@ -1,9 +1,26 @@
-# Complete installations for macOS, Linux and Windows.
+# Complete installations for macOS, Linux and Windows: an archive for
+# each, and what a chief installs without a terminal, a disk image, an
+# installer, a .deb and an .rpm.
 #
 # Runs when a version tag is pushed (v0.1.0) and when started by hand
 # from the Actions tab, and at no other time. A tag publishes a GitHub
-# release with the three archives. A run by hand only keeps them as
-# the run's artifacts.
+# release with them all. A run by hand only keeps them as the run's
+# artifacts.
+#
+# Signing waits on the repository's secrets, and is skipped without
+# them. macOS: APPLE_CERTIFICATE (a Developer ID Application .p12, in
+# base64), APPLE_CERTIFICATE_PASSWORD and APPLE_SIGNING_IDENTITY sign;
+# APPLE_ID, APPLE_TEAM_ID and APPLE_APP_PASSWORD (an app-specific
+# password) then notarize. Windows, through Azure Trusted Signing:
+# AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET,
+# TRUSTED_SIGNING_ENDPOINT, TRUSTED_SIGNING_ACCOUNT and
+# TRUSTED_SIGNING_PROFILE.
+#
+# Updates wait on a key pair (docs/releases.md#updates): the variable
+# HAMLET_UPDATE_KEY, the public key in base64, is built into a tag's
+# programs, and the secret HAMLET_UPDATE_SIGNING_KEY, the private key
+# in PEM, signs the release's latest.json. Without them a release
+# neither looks for updates nor offers one.
 name: Release
 
 on:
@@ -25,12 +42,18 @@ jobs:
   build:
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
+    env:
+      APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+      AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      TARGET: ${{ matrix.target }}
+      # Only a release looks for updates; a run by hand is a test.
+      HAMLET_UPDATE_KEY: ${{ github.ref_type == 'tag' && vars.HAMLET_UPDATE_KEY || '' }}
     strategy:
       fail-fast: false
       matrix:
         include:
           - name: macOS (Apple Silicon)
-            os: macos-14
+            os: macos-latest
             target: aarch64-apple-darwin
           - name: Linux (x64)
             os: ubuntu-22.04
@@ -48,15 +71,17 @@ jobs:
           # vendor/fynix is a submodule.
           submodules: recursive
 
-      # A tag publishes the version Cargo.toml names, and no other.
+      # A tag publishes the version Cargo.toml names, and no other:
+      # v0.1.0, or a pre-release of it such as v0.1.0-dev.1.
       - name: Check the tag is the version
         if: github.ref_type == 'tag'
         shell: bash
         run: |
           set -eu
           version=$(sed -n '/^version = "/{s/^version = "\([^"]*\)".*/\1/p;q;}' Cargo.toml)
-          if [ "${GITHUB_REF_NAME#v}" != "$version" ]; then
-            echo "The tag $GITHUB_REF_NAME is not v$version, the version in Cargo.toml." >&2
+          tag=${GITHUB_REF_NAME#v}
+          if [ "$tag" != "$version" ] && [[ $tag != "$version"-* ]]; then
+            echo "The tag $GITHUB_REF_NAME is not v$version, the version in Cargo.toml, or a pre-release of it." >&2
             exit 1
           fi
 
@@ -65,7 +90,7 @@ jobs:
         shell: bash
         run: |
           rustup toolchain install
-          rustup target add "${{ matrix.target }}"
+          rustup target add "$TARGET"
 
       - uses: actions/setup-node@v4
         with:
@@ -81,21 +106,87 @@ jobs:
           sudo apt-get update
           sudo apt-get install --no-install-recommends -y \
             pkg-config libasound2-dev libudev-dev \
-            libwayland-dev libxkbcommon-dev
+            libwayland-dev libxkbcommon-dev rpm
+
+      - name: Install Inno Setup
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          if ! command -v iscc && [ ! -f "/c/Program Files (x86)/Inno Setup 6/ISCC.exe" ]; then
+            choco install innosetup --no-progress -y
+          fi
 
       - name: Build
         if: runner.os != 'Windows'
-        run: cargo xtask build --target ${{ matrix.target }}
+        run: cargo xtask build --target "$TARGET"
 
       - name: Build on Windows
         if: runner.os == 'Windows'
         env:
           RUSTFLAGS: ${{ matrix.rustflags }}
-        run: cargo build --release --locked -p hamlet_cli --bin hamlet -p hamlet_server --bin hamlet_server -p hamlet_app --bin hamlet_app --target ${{ matrix.target }}
+        shell: bash
+        run: cargo build --release --locked -p hamlet_cli --bin hamlet --bin hamlet_launch -p hamlet_server --bin hamlet_server -p hamlet_app --bin hamlet_app --target "$TARGET"
+
+      - name: Sign the programs on Windows
+        if: runner.os == 'Windows' && env.AZURE_CLIENT_ID != ''
+        uses: azure/trusted-signing-action@v0.5.1
+        with:
+          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+          endpoint: ${{ secrets.TRUSTED_SIGNING_ENDPOINT }}
+          trusted-signing-account-name: ${{ secrets.TRUSTED_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ secrets.TRUSTED_SIGNING_PROFILE }}
+          files-folder: target/${{ matrix.target }}/release
+          files-folder-filter: exe
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+
+      # A keychain of this run's own, holding the Developer ID.
+      - name: Import the Developer ID on macOS
+        if: runner.os == 'macOS' && env.APPLE_CERTIFICATE != ''
+        env:
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          keychain=$RUNNER_TEMP/signing.keychain-db
+          password=$(uuidgen)
+          echo "$APPLE_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          security import "$RUNNER_TEMP/certificate.p12" -k "$keychain" \
+            -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: \
+            -k "$password" "$keychain"
+          security list-keychains -d user -s "$keychain"
+          rm "$RUNNER_TEMP/certificate.p12"
 
       - name: Package
         shell: bash
-        run: .github/scripts/package.sh "${{ matrix.target }}" "${{ github.ref_type == 'tag' && github.ref_name || github.sha }}"
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ runner.os == 'macOS' && env.APPLE_CERTIFICATE != '' && secrets.APPLE_SIGNING_IDENTITY || '' }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+          VERSION: ${{ github.ref_type == 'tag' && github.ref_name || github.sha }}
+        run: .github/scripts/package.sh "$TARGET" "$VERSION"
+
+      - name: Sign the installer on Windows
+        if: runner.os == 'Windows' && env.AZURE_CLIENT_ID != ''
+        uses: azure/trusted-signing-action@v0.5.1
+        with:
+          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+          endpoint: ${{ secrets.TRUSTED_SIGNING_ENDPOINT }}
+          trusted-signing-account-name: ${{ secrets.TRUSTED_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ secrets.TRUSTED_SIGNING_PROFILE }}
+          files-folder: dist
+          files-folder-filter: exe
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
 
       - uses: actions/upload-artifact@v4
         with:
@@ -111,13 +202,19 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
       - uses: actions/download-artifact@v4
         with:
           path: dist
           merge-multiple: true
 
       # A release made by hand before the tag was built is added to,
-      # and a file it already holds is replaced.
+      # and a file it already holds is replaced. A tag with a suffix,
+      # such as v0.1.0-dev.1, is a pre-release, which is never the
+      # latest release installed copies update to.
       - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -127,8 +224,30 @@ jobs:
           if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
             gh release upload "$TAG" dist/* --repo "$REPO" --clobber
           else
+            pre=()
+            if [[ $TAG == *-* ]]; then
+              pre=(--prerelease)
+            fi
             gh release create "$TAG" dist/* \
               --repo "$REPO" \
               --title "Hamlet $TAG" \
-              --generate-notes
+              --generate-notes \
+              "${pre[@]}"
           fi
+
+      # Last, so an installed Hamlet finds the update only once every
+      # file it names is there.
+      - name: Publish the update manifest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+          HAMLET_UPDATE_SIGNING_KEY: ${{ secrets.HAMLET_UPDATE_SIGNING_KEY }}
+        run: |
+          if [ -z "$HAMLET_UPDATE_SIGNING_KEY" ]; then
+            echo "No HAMLET_UPDATE_SIGNING_KEY: the release offers no update."
+            exit 0
+          fi
+          .github/scripts/manifest.sh "$TAG" "$REPO"
+          gh release upload "$TAG" dist/latest.json dist/latest.json.sig \
+            --repo "$REPO" --clobber

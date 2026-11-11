@@ -4397,6 +4397,7 @@ dependencies = [
  "hamlet_realm",
  "hamlet_testing",
  "hamlet_ui",
+ "hamlet_update",
  "hamlet_vfx",
  "image",
  "parley",
@@ -4431,6 +4432,8 @@ dependencies = [
  "anyhow",
  "futures",
  "hamlet_protocol",
+ "hamlet_update",
+ "rfd",
  "rustix 1.1.6",
  "serde",
  "serde_json",
@@ -4627,6 +4630,21 @@ dependencies = [
  "serde",
  "thiserror 2.0.21",
  "toml",
+]
+
+[[package]]
+name = "hamlet_update"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64 0.22.1",
+ "hamlet_protocol",
+ "reqwest",
+ "ring",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tokio",
 ]
 
 [[package]]

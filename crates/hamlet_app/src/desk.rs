@@ -20,7 +20,7 @@ use bevy_fynix::dock::{
 use hamlet_ui::theme::HamletTheme;
 use serde::{Deserialize, Serialize};
 
-pub(crate) use self::switcher::{NEW, new_desk, popups, switcher};
+pub(crate) use self::switcher::{popups, switcher};
 use crate::dock;
 
 /// The name of the first desk.

@@ -111,6 +111,9 @@ pub fn window_plugin(view: &Path) -> Result<WindowPlugin> {
     Ok(WindowPlugin {
         primary_window: Some(Window {
             title: "Hamlet".into(),
+            // The app id on Wayland and the class on X11: what ties
+            // the window to the menu's hamlet.desktop and its icon.
+            name: Some("hamlet".into()),
             resolution: WindowResolution::new(size.0, size.1),
             present_mode: present_mode(saved_vsync(view)),
             resize_constraints: WindowResizeConstraints {

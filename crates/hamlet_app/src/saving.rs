@@ -17,13 +17,18 @@ pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<Saves>()
         .add_observer(answered)
         .add_observer(reconnected)
-        .add_systems(Update, close.run_if(closing));
+        .add_systems(Update, settle.run_if(closing));
 }
+
+/// A step the window takes as it closes. It stays open when the step
+/// gives false.
+pub(crate) type Then = fn(&mut World) -> bool;
 
 #[derive(Resource, Default)]
 pub(crate) struct Saves {
     pending: HashMap<protocol::RequestId, Option<String>>,
     closing: bool,
+    then: Option<Then>,
 }
 
 pub(crate) fn track(world: &mut World, id: protocol::RequestId) {
@@ -34,11 +39,32 @@ pub(crate) fn track(world: &mut World, id: protocol::RequestId) {
 }
 
 pub(crate) fn close(world: &mut World) {
+    close_then(world, None);
+}
+
+/// Closes the window like [`close`], taking `then` once the saves are
+/// confirmed or the chief closes with copies, never while one waits.
+pub(crate) fn close_then(world: &mut World, then: Option<Then>) {
+    let mut saves = world.get_resource_or_init::<Saves>();
+    saves.closing = true;
+    if then.is_some() {
+        saves.then = then;
+    }
+    settle(world);
+}
+
+fn settle(world: &mut World) {
     editor::poll(world);
-    if world.get_resource_or_init::<Saves>().pending.is_empty() {
+    if world.resource::<Saves>().pending.is_empty() {
+        exit(world);
+    }
+}
+
+fn exit(world: &mut World) {
+    let mut saves = world.resource_mut::<Saves>();
+    saves.closing = false;
+    if saves.then.take().is_none_or(|then| then(world)) {
         world.write_message(AppExit::Success);
-    } else {
-        world.resource_mut::<Saves>().closing = true;
     }
 }
 
@@ -115,15 +141,15 @@ pub(crate) fn screen() -> impl View {
                         note(text),
                         note(format!("Recovery copies:\n{copies}")),
                         action(Glyph::Back, "Keep open", |world| {
-                            world.resource_mut::<Saves>().closing =
-                                false;
+                            let mut saves =
+                                world.resource_mut::<Saves>();
+                            saves.closing = false;
+                            saves.then = None;
                         }),
                         bad_action(
                             Glyph::Leave,
                             "Close with copies",
-                            |world| {
-                                world.write_message(AppExit::Success);
-                            },
+                            exit,
                         ),
                     ))
                     .gap(8.0)
@@ -222,6 +248,75 @@ mod tests {
         );
         std::fs::remove_dir_all(file.parent().unwrap()).unwrap();
     }
+    #[derive(Resource, Default)]
+    struct Steps(usize);
+
+    fn step(world: &mut World) -> bool {
+        world.resource_mut::<Steps>().0 += 1;
+        true
+    }
+
+    #[test]
+    fn a_step_on_closing_waits_for_the_saves_and_keep_open_drops_it()
+    {
+        use crate::testing::press;
+        let mut app = crate::testing::panel_app();
+        app.add_plugins((
+            hamlet_desktop::DesktopPlugin { window: false },
+            super::plugin,
+            crate::settings::plugin,
+        ));
+        app.init_resource::<Opened>().init_resource::<Steps>();
+        let opener = app.world_mut().register_system(
+            |In(path): In<std::path::PathBuf>,
+             mut opened: ResMut<Opened>| {
+                opened.0.push(path);
+                Launch::Started
+            },
+        );
+        app.insert_resource(Opener(opener));
+        app.world_mut().trigger(Edit {
+            key: "charter".into(),
+            text: "old".into(),
+        });
+        app.update();
+        let file = app.world().resource::<Opened>().0[0].clone();
+        std::fs::write(&file, "Unconfirmed").unwrap();
+        hamlet_desktop::editor::poll(app.world_mut());
+        bevy_fynix::mount::<hamlet_ui::theme::HamletTheme>(
+            app.world_mut(),
+            super::screen(),
+        );
+
+        super::close_then(app.world_mut(), Some(step));
+        app.update();
+        assert_eq!(app.world().resource::<Steps>().0, 0);
+        assert_eq!(app.should_exit(), None);
+        press(&mut app, "Keep open");
+        app.update();
+        assert_eq!(app.world().resource::<Steps>().0, 0);
+        assert_eq!(app.should_exit(), None);
+
+        super::close_then(app.world_mut(), Some(step));
+        app.update();
+        press(&mut app, "Close with copies");
+        app.update();
+        assert_eq!(app.world().resource::<Steps>().0, 1);
+        assert_eq!(app.should_exit(), Some(AppExit::Success));
+        drop(app);
+        std::fs::remove_dir_all(file.parent().unwrap()).unwrap();
+    }
+
+    #[test]
+    fn a_step_that_fails_keeps_the_window_open() {
+        let mut app = crate::testing::panel_app();
+        app.add_plugins(super::plugin);
+        super::close_then(app.world_mut(), Some(|_| false));
+        app.update();
+        assert_eq!(app.should_exit(), None);
+        assert!(!app.world().resource::<super::Saves>().closing);
+    }
+
     #[test]
     fn an_in_flight_save_keeps_the_window_open_and_offers_visible_recovery_copies()
      {
