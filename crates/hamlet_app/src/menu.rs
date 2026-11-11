@@ -33,7 +33,6 @@ use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::widgets::platform::DisplayText;
 use hamlet_ui::{AnyView, Cx, View, with_cx};
 
-use crate::desk::{NEW, new_desk};
 use crate::dock::show_tab;
 use crate::window;
 
@@ -282,21 +281,12 @@ fn settings(world: &mut World) {
 fn items(menu: Menu, found: bool) -> Vec<AnyView> {
     match menu {
         Menu::App => {
-            let mut items = vec![
-                item(
-                    Glyph::Sliders,
-                    "Settings",
-                    Some(SETTINGS),
-                    settings,
-                ),
-                item(Glyph::Plus, "New desk", Some(NEW), new_desk),
-                item(
-                    Glyph::Hearth,
-                    "Your hearth",
-                    None,
-                    crate::chief::go_home,
-                ),
-            ];
+            let mut items = vec![item(
+                Glyph::Sliders,
+                "Settings",
+                Some(SETTINGS),
+                settings,
+            )];
             if found {
                 items.push(item(
                     Glyph::Hamlet,
@@ -375,6 +365,8 @@ mod tests {
         app.update();
         let shown = crate::testing::all_words(&mut app);
         assert!(shown.contains("Close window"), "{shown}");
+        assert!(!shown.contains("New desk"));
+        assert!(!shown.contains("Your hearth"));
         assert!(!shown.contains("Run in Background"));
         assert!(!shown.contains("Quit Hamlet"));
         assert!(!shown.contains("Found a Hamlet..."));
