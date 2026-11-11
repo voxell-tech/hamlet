@@ -41,7 +41,7 @@ async fn a_hire_dreams_what_it_learned_onto_its_scholars_main() {
 
     // A hire that has learned nothing has nothing to dream about.
     assert_eq!(
-        s.chief.command(hand, "/dream docs#0").await,
+        s.chief.command(hand, "/dream hire#2").await,
         "There is nothing to dream about."
     );
 
@@ -66,7 +66,7 @@ async fn a_hire_dreams_what_it_learned_onto_its_scholars_main() {
     );
 
     assert_eq!(
-        s.chief.command(hand, "/dream docs#0").await,
+        s.chief.command(hand, "/dream hire#2").await,
         "The dream began."
     );
     tokio::time::timeout(std::time::Duration::from_secs(20), async {

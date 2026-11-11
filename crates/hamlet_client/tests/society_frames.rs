@@ -55,13 +55,8 @@ fn replay(text: &str, mut inspect: impl FnMut(&mut World)) -> App {
     app
 }
 
-fn entity(world: &mut World, number: u64) -> Entity {
-    world
-        .query::<(Entity, &AgentNumber)>()
-        .iter(world)
-        .find(|(_, agent_number)| agent_number.0 == number)
-        .unwrap()
-        .0
+fn entity(world: &World, id: u64) -> Entity {
+    agent(world, protocol::AgentId(id)).unwrap()
 }
 
 #[test]
@@ -72,10 +67,13 @@ fn recorded_society_carries_letters_and_questions_with_their_authors()
         |_| {},
     );
     let world = app.world_mut();
-    assert_eq!(world.query::<&AgentNumber>().iter(world).count(), 3);
+    assert_eq!(
+        world.query_filtered::<(), With<Hire>>().iter(world).count(),
+        3
+    );
     assert_eq!(world.query::<&Road>().iter(world).count(), 3);
     assert!(world.resource::<SeenEvents>().letters >= 2);
-    let scout = entity(world, 1);
+    let scout = entity(world, 3);
     assert!(
         world
             .get::<PeerChats>(scout)
@@ -86,7 +84,7 @@ fn recorded_society_carries_letters_and_questions_with_their_authors()
                 == protocol::ConversationViewKind::Questions
                 && chat.count == 1)
     );
-    assert!(world.query::<&Transcript>().iter(world).flat_map(Transcript::items).any(|item| matches!(&item.entry, Entry::Agent {name, text} if name == "docs#0 (ada)" && text.contains("Hello cy"))));
+    assert!(world.query::<&Transcript>().iter(world).flat_map(Transcript::items).any(|item| matches!(&item.entry, Entry::Agent {name, text} if name == "hire#2 (ada)" && text.contains("Hello cy"))));
 }
 
 #[test]
@@ -97,11 +95,7 @@ fn recorded_leaving_restores_the_same_agent_then_resolves_its_merge_host()
     let mut app = replay(
         include_str!("../../hamlet_protocol/frames/leaving.jsonl"),
         |world| {
-            let scout = world
-                .query::<(Entity, &AgentNumber)>()
-                .iter(world)
-                .find(|(_, c)| c.0 == 1)
-                .map(|(e, _)| e);
+            let scout = agent(world, protocol::AgentId(3));
             if let Some(scout) = scout {
                 if world.get::<Left>(scout).is_some()
                     && world.get::<MergedInto>(scout).is_none()
@@ -116,7 +110,7 @@ fn recorded_leaving_restores_the_same_agent_then_resolves_its_merge_host()
     );
     assert!(removed && restored);
     let world = app.world_mut();
-    let scout = entity(world, 1);
+    let scout = entity(world, 3);
     assert!(world.get::<Left>(scout).is_none());
     assert!(world.get::<MergedInto>(scout).is_none());
 }
@@ -141,7 +135,7 @@ fn recorded_realm_places_a_second_town_builds_a_road_and_closes_then_erases_it()
                     .is_some_and(|(a, b)| a.0 != b.0)
             });
             closed |= world.get_resource::<Closed>().is_some_and(
-                |closed| closed.0.iter().any(|h| h.id == "mill"),
+                |closed| closed.0.iter().any(|h| h.name == "mill"),
             );
         },
     );
@@ -153,7 +147,7 @@ fn recorded_realm_places_a_second_town_builds_a_road_and_closes_then_erases_it()
         !world
             .query::<&Name>()
             .iter(world)
-            .any(|name| name.as_str() == "mill#0")
+            .any(|name| name.as_str() == "hire#5")
     );
 }
 

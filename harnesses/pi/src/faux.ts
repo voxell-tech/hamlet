@@ -52,6 +52,12 @@ const Step = Type.Union([
             stallMs: Type.Optional(Type.Integer({ minimum: 0 })),
             /** A file the answer waits for, relative to the script's folder; stopping the request ends the wait. */
             holdUntil: Type.Optional(Type.String({ minLength: 1 })),
+            /**
+             * A JSON file of names and their words, relative to the script's folder, read when the answer is asked
+             * for: each `{{name}}` in its calls' arguments becomes the words, for what is made only once the server
+             * runs, such as a hamlet's id.
+             */
+            fill: Type.Optional(Type.String({ minLength: 1 })),
         },
         { additionalProperties: false },
     ),
@@ -110,9 +116,17 @@ export async function readScript(path: string): Promise<Script> {
     const folder = dirname(resolve(path));
     const held = (steps: Static<typeof Steps>) =>
         steps.map((step) =>
-            typeof step === "string" || step.holdUntil === undefined
+            typeof step === "string"
                 ? step
-                : { ...step, holdUntil: resolve(folder, step.holdUntil) },
+                : {
+                      ...step,
+                      ...(step.holdUntil === undefined
+                          ? {}
+                          : { holdUntil: resolve(folder, step.holdUntil) }),
+                      ...(step.fill === undefined
+                          ? {}
+                          : { fill: resolve(folder, step.fill) }),
+                  },
         );
     return {
         ...value,
@@ -263,18 +277,24 @@ function priced(
 function answer(step: Static<typeof Step>): FauxResponseFactory {
     if (typeof step === "string") return () => fauxAssistantMessage(step);
     const calls = step.calls ?? [];
-    const content: FauxContentBlock[] = [
-        ...(step.thinking === undefined ? [] : [fauxThinking(step.thinking)]),
-        ...(step.text === undefined ? [] : [fauxText(step.text)]),
-        ...calls.map((call) =>
-            // Parsed from JSON, so JSON throughout.
-            fauxToolCall(call.name, call.arguments as ToolArguments),
-        ),
-    ];
     return async (_prompt, options) => {
         if (step.stallMs !== undefined) await sleep(step.stallMs);
         if (step.holdUntil !== undefined)
             await held(step.holdUntil, options?.signal);
+        const words = step.fill === undefined ? {} : await names(step.fill);
+        const content: FauxContentBlock[] = [
+            ...(step.thinking === undefined
+                ? []
+                : [fauxThinking(step.thinking)]),
+            ...(step.text === undefined ? [] : [fauxText(step.text)]),
+            ...calls.map((call) =>
+                // Parsed from JSON, so JSON throughout.
+                fauxToolCall(
+                    call.name,
+                    filled(call.arguments, words) as ToolArguments,
+                ),
+            ),
+        ];
         if (step.error !== undefined)
             return fauxAssistantMessage(content, {
                 stopReason: "error",
@@ -284,6 +304,36 @@ function answer(step: Static<typeof Step>): FauxResponseFactory {
             stopReason: calls.length > 0 ? "toolUse" : "stop",
         });
     };
+}
+
+/** The names and their words in the JSON file `file`. */
+async function names(file: string): Promise<Record<string, string>> {
+    const value: unknown = JSON.parse(await readFile(file, "utf8"));
+    if (
+        typeof value !== "object" ||
+        value === null ||
+        Object.values(value).some((v) => typeof v !== "string")
+    )
+        throw new Error(`${file} is not an object of words`);
+    return value as Record<string, string>;
+}
+
+/** `value` with each `{{name}}` in its strings replaced by the words of `name`; a name with none stays. */
+function filled(value: unknown, words: Record<string, string>): unknown {
+    if (typeof value === "string")
+        return value.replace(
+            /\{\{([^{}]+)\}\}/g,
+            (whole, name: string) => words[name] ?? whole,
+        );
+    if (Array.isArray(value)) return value.map((item) => filled(item, words));
+    if (typeof value === "object" && value !== null)
+        return Object.fromEntries(
+            Object.entries(value).map(([key, item]) => [
+                key,
+                filled(item, words),
+            ]),
+        );
+    return value;
 }
 
 /** Waits until `file` exists or `signal` aborts. */

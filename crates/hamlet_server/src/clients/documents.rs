@@ -779,11 +779,6 @@ fn budget_of(budget: &protocol::LimitsBudget) -> limits::Budget {
 fn limits_of(shown: &protocol::Limits) -> Limits {
     Limits {
         budget: budget_of(&shown.budget),
-        task: limits::TaskCaps {
-            cost: shown.task.cost.map(micros),
-            minutes: shown.task.minutes,
-            messages: shown.task.messages,
-        },
         road: limits::RoadRules {
             price: micros(shown.road.price),
             most: shown.road.most,

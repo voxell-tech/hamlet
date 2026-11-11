@@ -8,6 +8,7 @@
 
 pub(crate) mod bubble;
 mod change;
+mod commands;
 mod entry;
 mod field;
 mod lines;
@@ -45,7 +46,7 @@ use bevy_fynix::views::{
     BehaviorExt, Frame, FrameProps, column, label, overlay, row,
     text_field,
 };
-use bevy_fynix::{ScopedExt, resource, style};
+use bevy_fynix::{ScopedExt, derived, every_frame, resource, style};
 use hamlet_client::chats::Chat;
 use hamlet_client::messages::{
     ChiefMessage, Response, Rewind, ServerFault,
@@ -410,6 +411,16 @@ pub(crate) fn send_typed(world: &mut World) {
     submit(world, text);
 }
 
+/// Whether the agent the chat is with runs no model, as before one
+/// is set up: nothing can answer it, so nothing is sent to it.
+pub(crate) fn without_model(world: &World) -> bool {
+    world.get_resource::<Convo>().is_some_and(|convo| {
+        world
+            .get::<agents::Account>(convo.agent)
+            .is_some_and(|account| account.model.is_empty())
+    })
+}
+
 /// Sends `text` to the open chat, or says why a command is not, and
 /// then clears the field and gives it the focus again.
 fn submit(world: &mut World, text: String) {
@@ -419,6 +430,11 @@ fn submit(world: &mut World, text: String) {
             "Commands are not typed here. Use the menus, or \
              right-click an agent or a hamlet."
                 .into();
+    } else if without_model(world) {
+        // Kept in the field, to send once a model is set up.
+        world.resource_mut::<Draft>().notice =
+            "No model is set up yet. Set one up to start.".into();
+        return;
     } else {
         world.resource_mut::<Draft>().notice.clear();
         let text = reply::attach(world, text);
@@ -584,9 +600,21 @@ fn message_bar_in(
             .tagged(Variant::Subtle)
             .tagged(ChatField),
         // Shown in the empty field, just after the caret.
-        overlay((row((label("Message")
-            .wrap(false)
-            .tone(Tone::Dim),))
+        overlay((row((label(
+            derived(|world: &World| {
+                if without_model(world) {
+                    return "Set up a model to start".to_string();
+                }
+                match world.get_resource::<Convo>().map(|c| &c.with) {
+                    Some(Some(name)) => format!("Message {name}"),
+                    Some(None) => "Message the Hand".to_string(),
+                    None => "Message".to_string(),
+                }
+            })
+            .when(every_frame()),
+        )
+        .wrap(false)
+        .tone(Tone::Dim),))
         .align(AlignItems::Center)
         .height(percent(100.0))
         .padding(UiRect::left(px(gap + border + CARET_ROOM)))
@@ -596,11 +624,16 @@ fn message_bar_in(
     .grow(1.0)
     .min_width(px(FIELD_LEAST))
     .overflow(Overflow::clip());
-    let card = column((reply::preview(), row((field,)), tools))
-        .gap(gap / 2.0)
-        .padding(UiRect::all(px(inset)))
-        .rules(card_look)
-        .tagged(crate::world_menu::Hook::Composer);
+    let card = column((
+        commands::list(),
+        reply::preview(),
+        row((field,)),
+        tools,
+    ))
+    .gap(gap / 2.0)
+    .padding(UiRect::all(px(inset)))
+    .rules(card_look)
+    .tagged(crate::world_menu::Hook::Composer);
     column((
         crate::asking::in_chat(),
         card,
@@ -1402,7 +1435,7 @@ mod tests {
             )),
         );
         app.update();
-        press(&mut app, "Tell me about yourself.");
+        press(&mut app, "Help me work on a project folder.");
         app.update();
         app.update();
         assert!(
@@ -1410,7 +1443,7 @@ mod tests {
                 .query::<&EditableText>()
                 .iter(app.world())
                 .any(|field| field.value()
-                    == "Tell me about yourself.")
+                    == "Help me work on a project folder.")
         );
     }
 }

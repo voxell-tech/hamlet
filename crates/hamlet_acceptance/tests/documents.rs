@@ -88,7 +88,7 @@ async fn edits_the_charter_character_and_memory_and_the_prompt_follows()
     let prompt = s.chief.prompt(ada).await;
     assert!(prompt.starts_with("Be brief."), "{prompt}");
     assert!(prompt.contains("# Your character\nCalm."), "{prompt}");
-    assert!(prompt.contains("You are `docs#0 (ada)`"), "{prompt}");
+    assert!(prompt.contains("You are `hire#2 (ada)`"), "{prompt}");
 
     let ServerMessage::Read(ReadResult::Charter { charter, .. }) =
         s.chief.read(|id| Read::Charter { id }).await
@@ -139,6 +139,7 @@ async fn edits_the_charter_character_and_memory_and_the_prompt_follows()
 async fn edits_limits_one_key_or_whole_and_refuses_misshapen_ones() {
     let mut s = Session::start(Faux::new()).await;
     s.found("docs", "ada", "keep the docs").await;
+    let docs = s.chief.hamlet_id("docs");
     let reply = s
         .chief
         .limit(Some("docs"), "budget", "cost", json!(2))
@@ -167,7 +168,7 @@ async fn edits_limits_one_key_or_whole_and_refuses_misshapen_ones() {
     );
     let reply = edit(&mut s.chief, |id| {
         Edit::Limits(EditLimits::Whole {
-            hamlet: Some("docs".into()),
+            hamlet: Some(docs.clone()),
             id,
             reason: Some("a longer day".into()),
             whole: whole.clone().into_iter().collect(),
@@ -181,7 +182,6 @@ async fn edits_limits_one_key_or_whole_and_refuses_misshapen_ones() {
             docs.limits.told_days == 2
                 && docs.limits.budget.cost == Some(3.0)
                 && docs.limits.budget.minutes == Some(10)
-                && docs.limits.task.cost == Some(1.0)
                 && docs.budget.caps.ms == Some(600_000)
         })
         .await;

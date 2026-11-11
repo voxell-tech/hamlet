@@ -105,7 +105,9 @@ state; the other panels live beside that folder, and `tuning.rs` loads
 their sizes and limits from `assets/ui.toml`. They are built from
 `hamlet_ui`, which reads no client state: `theme.rs` and `styles.rs`
 define how the panels look, and `widgets/` holds the shared controls:
-`effects/`, `icons.rs`, `tabs.rs` and `platform.rs`. `markdown/` parses
+`effects/`, `icons.rs`, `tabs.rs`, `platform.rs` and `keys.rs`, the one
+builder of a shortcut: the chord a command is bound to, shown as the
+keyboard prints it (`⌘⇧K` on a Mac, `Ctrl+Shift+K` elsewhere). `markdown/` parses
 Markdown and draws it. A control asks for a sound with `ControlSound`
 and lights its panel from `Attention`; the app plays the one and keeps
 the other. A document finds a written path's file through `PathLinks`
@@ -164,7 +166,7 @@ double of the remote workspace worker.
 | `calls.rs`, `calls/` | What a runtime asks while a turn runs: whether a tool call may run, and the call carried out once under its key. `held.rs` keeps the gate's decision; `answer.rs` applies a chief's answer; `objections.rs` and `reviews.rs` are objections and a lead's review; `place.rs` says where an agent's tools work and which it is offered; `society.rs` and `society/` carry out the society's tools |
 | `oversight.rs`, `oversight/gate.rs` | Waits, their rulings and lapses, and the gate: reach, reserved acts, manual mode, trust and grants |
 | `commands.rs`, `commands/` | The chief's `/` commands: the table of them (advertised to clients as deeds) and what each does; `oversight.rs`, `shelves.rs` and `versions.rs` hold those on waits and grants, skills and a scholar's history |
-| `spend.rs` | Budgets, task caps and allowances: attempts admitted against them, usage charged once, budget resets and reports |
+| `spend.rs` | Budgets and allowances: attempts admitted against them, usage charged once, budget resets and reports |
 | `dreaming.rs` | When agents dream: the hours, who is due, and `/dream` |
 | `gifts.rs` | Files sent in parts to an inbox, and skills committed to a scholar's `main` |
 | `work.rs`, `work/` | What agents' tools do: the built-in tools in `tools.rs` and `tools/` (`files`, `shell`, `search`, `find`, `diff`, `environment` which is each agent's reach under the sandbox), tools added by hand in `added.rs`, the catalogue of society tools by name in `catalogue.rs`, and an edit's shown change in `cut.rs` |
@@ -259,8 +261,8 @@ built-in ones.
 | Desks and their switcher in the top bar | `hamlet_app/src/desk.rs`, `desk/switcher.rs`, `desk/switcher/motion.rs` |
 
 `hamlet_realm/src/hamlet.rs` bridges received entities to the generator's
-plots and roads. `AgentNumber` is a hire's number in its hamlet, not a
-name; `HamletId` is a hamlet's protocol id.
+plots and roads. `Hire` marks an agent that is a hire; `HamletId` is a
+hamlet's protocol id, a UUID, and its `Name` the name it is shown by.
 `chief.rs` names the wizard in the world and the chief's panel in the UI;
 `Chief` in `hamlet_client` is the server's chief identity. The window keeps
 only its own view files under `HAMLET_VIEW`.

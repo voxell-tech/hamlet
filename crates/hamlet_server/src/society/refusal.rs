@@ -20,14 +20,7 @@ pub(crate) enum Refusal {
          with no colon"
     )]
     BadName { name: String },
-    #[error(
-        "`{id}` is not a hamlet's name: use at most 32 lowercase \
-         letters, digits and hyphens"
-    )]
-    BadHamletId { id: String },
-    #[error("the hamlet name `{id}` was used before; choose another")]
-    HamletUsed { id: String },
-    #[error("no hamlet is named `{id}`")]
+    #[error("no hamlet has the id `{id}`")]
     NoHamlet { id: String },
     #[error("the hamlet `{id}` was removed; restore it first")]
     HamletRemoved { id: String },
@@ -39,8 +32,6 @@ pub(crate) enum Refusal {
     HamletFull { id: String, most: i64 },
     #[error("a hamlet's tier is 50, 100, 200 or 500 hires")]
     BadTier,
-    #[error("a hamlet's shown name may have at most 32 letters")]
-    LongTitle,
     #[error("no scholar has the address `{address}`")]
     NoScholar { address: String },
     #[error("`{name}` is another chief's scholar")]
@@ -51,6 +42,10 @@ pub(crate) enum Refusal {
     ScholarLiving { name: String },
     #[error("the scholar `{name}` was erased")]
     ScholarErased { name: String },
+    #[error(
+        "`{name}` is a blank hire's own, not a scholar of the city"
+    )]
+    Apart { name: String },
     #[error("the scholar `{name}` lives in the city already")]
     Housed { name: String },
     #[error("the scholar `{name}` was turned away already")]
@@ -80,8 +75,6 @@ pub(crate) enum Refusal {
     LongCharacter,
     #[error("say what it is for")]
     NoPurpose,
-    #[error("give a reason")]
-    NoReason,
     #[error("only a chief of the hamlet `{hamlet}` may do that")]
     NotChief { hamlet: String },
     #[error("only `{owner}`'s chief may do that")]
@@ -164,6 +157,11 @@ pub(crate) enum Refusal {
     NoWait,
     #[error("no model is named `{model}`")]
     NoModel { model: String },
+    #[error(
+        "no model is set up yet: choose one in Settings, under \
+         Models"
+    )]
+    NoModelSetUp,
     #[error("no skill is named `{name}`")]
     NoSkill { name: String },
     #[error("there is no file `{path}` here")]

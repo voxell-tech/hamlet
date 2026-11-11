@@ -316,8 +316,8 @@ fn raise(
             toasts.push(
                 What::Notice {
                     kind: StatusKind::Danger,
-                    head: "Fault".into(),
-                    line: format!("{name} failed."),
+                    head: "Something went wrong".into(),
+                    line: format!("{name} ran into an error."),
                 },
                 now,
             );
@@ -350,7 +350,7 @@ fn judged(
         let housed = match scholar.arrival {
             Arrival::Housed => true,
             Arrival::Turned => false,
-            Arrival::Waiting => continue,
+            Arrival::Waiting | Arrival::Apart => continue,
         };
         toasts.push(
             What::Verdict {
@@ -382,7 +382,7 @@ fn failed(
     toasts.push(
         What::Notice {
             kind: StatusKind::Danger,
-            head: "Fault".into(),
+            head: "Something went wrong".into(),
             line: fault.text.clone(),
         },
         time.elapsed_secs(),
@@ -749,12 +749,14 @@ fn card(toast: &Toast) -> AnyView {
         ))
         .gap(6.0)
         .align(AlignItems::Center);
-        let dismissed = what.clone();
         // The close sits at the end of the head's line, centred on
-        // it.
+        // it, after how many more are folded behind it.
         let top = row((
             opening(what.clone(), head),
-            close_button(move |world| dismiss(world, &dismissed)),
+            note(resource::<Toasts, _>(move |toasts| {
+                behind(toasts, id)
+            })),
+            close_button(move |world| dismiss(world, id)),
         ))
         .gap(6.0)
         .align(AlignItems::Center);
@@ -814,9 +816,10 @@ fn card(toast: &Toast) -> AnyView {
                     left: px(aside),
                     right: px(aside),
                     top: px(0.0),
-                    // Only its edge takes room, and none once gone.
-                    bottom: px(-(gap + strip - EDGE * pose.shown)
-                        * pose.fold),
+                    // Folded, it takes no room: it lies behind the
+                    // one in front, so the stack never moves as it
+                    // grows.
+                    bottom: px(-(gap + strip) * pose.fold),
                 }
             }))
             .tagged(shadow)
@@ -825,8 +828,22 @@ fn card(toast: &Toast) -> AnyView {
     })
 }
 
-/// `content`, a part of the words of the toast of `what`, pressed to
-/// open what it is about.
+/// How many toasts are folded behind toast `id`, as `+2`, while it is
+/// the newest of a closed stack; nothing otherwise.
+fn behind(toasts: &Toasts, id: u64) -> String {
+    let more = toasts.shown.len().saturating_sub(1);
+    let newest =
+        toasts.shown.last().is_some_and(|toast| toast.id == id);
+    if toasts.open || !newest || more == 0 {
+        String::new()
+    } else {
+        format!("+{more}")
+    }
+}
+
+/// `content`, a part of the words of the toast of `what`: a
+/// petition's opens it where it is answered. Pressing a toast leaves
+/// it on show; only its close takes it away.
 fn opening(what: What, content: impl View) -> impl View {
     button(row((content,)))
         .grow(1.0)
@@ -836,7 +853,6 @@ fn opening(what: What, content: impl View) -> impl View {
             if let What::Petition(wait) = &what {
                 crate::petition::open(world, *wait);
             }
-            dismiss(world, &what);
         })
 }
 
@@ -871,17 +887,20 @@ fn fading(id: u64) -> impl FnOnce(&mut Cx) + Send + Sync + 'static {
     }
 }
 
-/// Takes every toast away, as [`dismiss`] does each.
+/// Takes every toast away. Petitions stay among the waits, and a
+/// closed update is not offered again while the window is open.
 fn dismiss_all(world: &mut World) {
-    let shown = world
-        .resource::<Toasts>()
-        .shown
-        .iter()
-        .map(|toast| toast.what.clone())
-        .collect::<Vec<_>>();
-    for what in &shown {
-        dismiss(world, what);
+    let update =
+        world.resource::<Toasts>().shown.iter().find_map(|toast| {
+            match &toast.what {
+                What::Update(offer) => Some(offer.version),
+                _ => None,
+            }
+        });
+    if let Some(version) = update {
+        updates::decline(world, version);
     }
+    world.resource_mut::<Toasts>().shown.clear();
 }
 
 /// Says that the page at `address` did not open, with the address
@@ -907,16 +926,26 @@ pub(crate) fn unopened(world: &mut World, address: &str) {
     );
 }
 
-/// Takes `what`'s toast away. A petition stays among the waits, and
-/// a closed update is not offered again while the window is open.
-fn dismiss(world: &mut World, what: &What) {
-    if let What::Update(offer) = what {
-        updates::decline(world, offer.version);
+/// Takes toast `id` away, and no other, though another says the same.
+/// A petition stays among the waits, and a closed update is not
+/// offered again while the window is open.
+fn dismiss(world: &mut World, id: u64) {
+    let version = world
+        .resource::<Toasts>()
+        .shown
+        .iter()
+        .find(|toast| toast.id == id)
+        .and_then(|toast| match &toast.what {
+            What::Update(offer) => Some(offer.version),
+            _ => None,
+        });
+    if let Some(version) = version {
+        updates::decline(world, version);
     }
     world
         .resource_mut::<Toasts>()
         .shown
-        .retain(|toast| &toast.what != what);
+        .retain(|toast| toast.id != id);
 }
 
 #[cfg(test)]
@@ -1147,7 +1176,7 @@ mod tests {
     #[test]
     fn an_update_stays_on_show_until_it_is_taken_or_closed() {
         let mut app = panel_app();
-        app.add_plugins(plugin);
+        app.add_plugins(plugin).init_resource::<updates::Updates>();
         let step = Duration::from_secs_f32(STAYS + FADES + 1.0);
         app.insert_resource(TimeUpdateStrategy::ManualDuration(step));
         app.world_mut()
@@ -1163,8 +1192,13 @@ mod tests {
         app.update();
         app.update();
         assert_eq!(app.world().resource::<Toasts>().shown.len(), 1);
-        dismiss(app.world_mut(), &What::Update(offer));
+        let id = app.world().resource::<Toasts>().shown[0].id;
+        dismiss(app.world_mut(), id);
         assert!(app.world().resource::<Toasts>().shown.is_empty());
+        assert_eq!(
+            app.world().resource::<updates::Updates>().declined,
+            Some(offer.version)
+        );
     }
 
     #[test]

@@ -40,8 +40,7 @@ use bevy_fynix::scroll::{
     OwnScrollbar, ScrollbarStyle, ScrollbarVisibility,
 };
 use bevy_fynix::shortcut::{
-    Chord, CommandId, CommandSpec, GLOBAL, Invoke, Mods,
-    ShortcutAppExt,
+    Chord, CommandId, CommandSpec, GLOBAL, Invoke, ShortcutAppExt,
 };
 use bevy_fynix::tokens::{Motion, Tone};
 use bevy_fynix::views::{
@@ -60,25 +59,26 @@ use hamlet_ui::styles::{
 use hamlet_ui::theme::{HamletTheme, Themed};
 use hamlet_ui::widgets::effects::{Edge, EffectSettings, wash};
 use hamlet_ui::widgets::icons::{Glyph, glyph};
-use hamlet_ui::widgets::platform::DisplayText;
+use hamlet_ui::widgets::keys::Keys;
 use hamlet_ui::{AnyView, Cx, View, with_cx};
 
 use self::motion::TabDrag;
 use crate::desk::{DeskSettings, Desks, Turn};
 use crate::menu::rect_of;
 
-/// Ctrl, on macOS too, where the primary key is Command.
-const CTRL: Mods = if cfg!(target_os = "macos") {
-    Mods::CTRL
-} else {
-    Mods::PRIMARY
-};
+/// `keys` with Ctrl, on macOS too, where the primary key is Command.
+const fn ctrl_tab(keys: Keys) -> Chord {
+    if cfg!(target_os = "macos") {
+        keys.ctrl()
+    } else {
+        keys.primary()
+    }
+    .chord()
+}
 
 /// The key that adds a desk.
-pub(crate) const NEW: Chord = Chord {
-    key: KeyCode::KeyT,
-    mods: Mods::PRIMARY,
-};
+pub(crate) const NEW: Chord =
+    Keys::new(KeyCode::KeyT).primary().chord();
 
 /// The keys that show the first nine desks, with the primary key,
 /// and the commands they run.
@@ -133,10 +133,6 @@ fn keys(app: &mut App) {
         enabled: |_| true,
         repeat: false,
     };
-    let tab = |mods| Chord {
-        key: KeyCode::Tab,
-        mods,
-    };
     app.add_command(
         command("desk.new", "New Desk", |world, _| new_desk(world)),
         &[NEW],
@@ -145,21 +141,18 @@ fn keys(app: &mut App) {
         command("desk.next", "Next Desk", |world, _| {
             world.resource_mut::<Desks>().cycle(Turn::Next);
         }),
-        &[tab(CTRL)],
+        &[ctrl_tab(Keys::new(KeyCode::Tab))],
     )
     .add_command(
         command("desk.previous", "Previous Desk", |world, _| {
             world.resource_mut::<Desks>().cycle(Turn::Previous);
         }),
-        &[tab(CTRL.with(Mods::SHIFT))],
+        &[ctrl_tab(Keys::new(KeyCode::Tab).shift())],
     );
     for (id, label, key, run) in SHOWN_BY_DIGIT {
         app.add_command(
             command(id, label, run),
-            &[Chord {
-                key,
-                mods: Mods::PRIMARY,
-            }],
+            &[Keys::new(key).primary().chord()],
         );
     }
 }
@@ -445,8 +438,7 @@ fn segment(content: impl View, pad: f32) -> impl View {
 
 /// The tab of the desk at `at`, one of `count`.
 fn tab(at: usize, name: &str, count: usize) -> impl View {
-    let words =
-        label(name.to_uppercase()).wrap(false).tagged(DisplayText);
+    let words = label(name.to_owned()).wrap(false);
     with_cx(move |cx| {
         let space = &cx.theme().space;
         let content = if count > 1 {
@@ -520,23 +512,19 @@ fn all_view() -> impl View {
                 } else {
                     Tone::Body
                 };
-                let keys = SHOWN_BY_DIGIT
-                    .get(at)
-                    .map(|&(_, _, key, _)| {
-                        Chord {
-                            key,
-                            mods: Mods::PRIMARY,
-                        }
-                        .to_string()
-                    })
-                    .unwrap_or_default();
+                let keys = match SHOWN_BY_DIGIT.get(at) {
+                    Some(&(_, _, key, _)) => {
+                        Keys::new(key).primary().view().boxed()
+                    }
+                    None => frame().boxed(),
+                };
                 menu_item(
                     row((
                         label(desk.name.clone())
                             .wrap(false)
                             .tone(tone)
                             .grown(1.0),
-                        label(keys).wrap(false).tone(Tone::Dim),
+                        keys,
                     ))
                     .gap(gap)
                     .grow(1.0)
@@ -597,7 +585,7 @@ fn close_view(at: usize) -> impl View {
 /// The tab of the desk at `at` while it is renamed: a field over it,
 /// the tab as wide as before under it.
 fn renaming_tab(at: usize, name: &str) -> impl View {
-    let (name, shown) = (name.to_owned(), name.to_uppercase());
+    let name = name.to_owned();
     with_cx(move |cx| {
         let theme = cx.theme();
         let (pad, size) =
@@ -633,11 +621,8 @@ fn renaming_tab(at: usize, name: &str) -> impl View {
                 .apply(cx);
         })
         .tagged(RenameField);
-        let room = label(shown.clone())
-            .size(size)
-            .bold(true)
-            .wrap(false)
-            .tagged(DisplayText);
+        let room =
+            label(name.clone()).size(size).bold(true).wrap(false);
         row((
             row((room,)).tagged(Visibility::Hidden),
             row((field,))
@@ -652,10 +637,9 @@ fn renaming_tab(at: usize, name: &str) -> impl View {
     })
 }
 
-/// Adds a desk and opens its name to be typed.
+/// Adds a desk under a name of its own, renamed later if wanted.
 pub(crate) fn new_desk(world: &mut World) {
-    let at = world.resource_mut::<Desks>().add();
-    start_rename(world, at);
+    world.resource_mut::<Desks>().add();
 }
 
 fn start_rename(world: &mut World, at: usize) {

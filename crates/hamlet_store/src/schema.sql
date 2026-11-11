@@ -42,9 +42,10 @@ CREATE TABLE scholar (
     since INTEGER NOT NULL,
     made_by TEXT NOT NULL,
     planted INTEGER NOT NULL DEFAULT 0 CHECK (planted IN (0, 1)),
-    -- Whether it lives in the city or waits at its harbor.
+    -- Whether it lives in the city or waits at its harbor, or is a
+    -- blank hire's own and never of the city.
     arrival TEXT NOT NULL DEFAULT 'housed'
-        CHECK (arrival IN ('housed', 'waiting', 'turned')),
+        CHECK (arrival IN ('housed', 'waiting', 'turned', 'apart')),
     -- Who last let it in, kept it waiting or turned it away; none
     -- while it is as it was made.
     arrival_by TEXT,
@@ -66,11 +67,12 @@ CREATE INDEX scholar_chief ON scholar(chief);
 
 -- Hamlets
 
--- A hamlet. Its mayor is the root of its tree of hires. Its limits are
--- the chief's document for it.
+-- A hamlet: a UUID made when it is founded, and the name it is shown
+-- by. Its mayor is the root of its tree of hires. Its limits are the
+-- chief's document for it.
 CREATE TABLE hamlet (
     id TEXT PRIMARY KEY,
-    title TEXT,
+    name TEXT NOT NULL CHECK (length(trim(name)) > 0),
     founded_at INTEGER NOT NULL,
     founded_by TEXT NOT NULL,
     mayor INTEGER NOT NULL
@@ -80,7 +82,6 @@ CREATE TABLE hamlet (
     tier INTEGER NOT NULL DEFAULT 50 CHECK (tier IN (50, 100, 200, 500)),
     site_x REAL,
     site_z REAL,
-    next_number INTEGER NOT NULL DEFAULT 0 CHECK (next_number >= 0),
     limits TEXT NOT NULL CHECK (json_valid(limits)),
     removed_at INTEGER,
     removed_by TEXT,
@@ -138,13 +139,12 @@ CREATE TABLE hand (
 ) STRICT;
 
 -- A scholar working in a hamlet. Its branch is hires/<agent> in its
--- scholar's repository and its lodge hamlets/<hamlet>/<number>/. A
+-- scholar's repository and its lodge hamlets/<hamlet>/<agent>/. A
 -- hire with no parent is under the Hand. `base` is the commit of
 -- `main`, or of its pin, its branch last took in.
 CREATE TABLE hire (
     agent INTEGER PRIMARY KEY REFERENCES agent(id),
     hamlet TEXT NOT NULL REFERENCES hamlet(id),
-    number INTEGER NOT NULL CHECK (number >= 0),
     scholar INTEGER NOT NULL REFERENCES scholar(id),
     parent INTEGER REFERENCES hire(agent),
     purpose TEXT NOT NULL,
@@ -158,7 +158,6 @@ CREATE TABLE hire (
     allowance INTEGER CHECK (allowance IS NULL OR allowance >= 0),
     allowance_by TEXT,
     merged_into INTEGER REFERENCES hire(agent),
-    UNIQUE (hamlet, number),
     CHECK (parent IS NULL OR parent <> agent)
 ) STRICT;
 CREATE INDEX hire_scholar ON hire(scholar);
@@ -187,6 +186,8 @@ CREATE TABLE worker (
     call_runtime TEXT,
     call_key TEXT,
     answer TEXT,
+    -- What the chief calls it in the world.
+    nickname TEXT CHECK (nickname IS NULL OR length(nickname) > 0),
     CHECK ((starter IS NULL) <> (chief IS NULL))
 ) STRICT;
 CREATE INDEX worker_starter ON worker(starter);
@@ -296,7 +297,6 @@ CREATE TABLE task (
     payer TEXT REFERENCES hamlet(id),
     at INTEGER NOT NULL,
     text TEXT,
-    messages INTEGER NOT NULL DEFAULT 0 CHECK (messages >= 0),
     done_at INTEGER
 ) STRICT;
 CREATE INDEX task_agent ON task(agent, at);

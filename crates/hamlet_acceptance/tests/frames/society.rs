@@ -9,7 +9,7 @@ use serde_json::json;
 use super::capture::{Capture, HAND};
 
 /// A realm with the hamlet `docs` under `ada` (2), and its hires
-/// `cy` (3, `docs#1`) and `dee` (4, `docs#2`), once all are there
+/// `cy` (3, `hire#3`) and `dee` (4, `hire#4`), once all are there
 /// and at rest.
 async fn docs(faux: Faux) -> Capture {
     let mut c = Capture::start(faux).await;
@@ -33,12 +33,12 @@ async fn society() {
                 [
                     call(
                         "tell",
-                        json!({"to":"docs#1","text":"Hello cy"}),
+                        json!({"to":"hire#3","text":"Hello cy"}),
                     ),
                     words("Told."),
                     call(
                         "ask",
-                        json!({"to":"docs#1","question":"Which colour?"}),
+                        json!({"to":"hire#3","question":"Which colour?"}),
                     ),
                     words("cy said blue."),
                 ],
@@ -51,7 +51,7 @@ async fn society() {
     c.shows(2, "Told.").await;
     c.until(|c| {
         c.state().agents.iter().any(|a| {
-            a.name == "docs#1"
+            a.name == "hire#3"
                 && !a.busy
                 && !a.conversations.is_empty()
         })
@@ -83,28 +83,28 @@ async fn society() {
 #[ignore = "records real sessions; see the acceptance README"]
 async fn leaving() {
     let mut c = docs(Faux::new()).await;
-    c.say(2, "/end docs#1 Finished").await;
+    c.say(2, "/end hire#3 Finished").await;
     c.until(|c| {
         c.state()
             .agents
             .iter()
-            .any(|a| a.name == "docs#1" && a.left.is_some())
+            .any(|a| a.name == "hire#3" && a.left.is_some())
     })
     .await;
-    c.say(2, "/restore docs#1").await;
-    c.say(2, "/merge docs#1 into docs#2 Together").await;
+    c.say(2, "/restore hire#3").await;
+    c.say(2, "/merge hire#3 into hire#4 Together").await;
     c.until(|c| {
         c.has(|m| {
             m["changes"].as_array().is_some_and(|updates| {
                 updates.iter().any(|u| {
-                    u["agent"]["name"] == "docs#1"
+                    u["agent"]["name"] == "hire#3"
                         && u["agent"]["left"]["how"] == "merged"
                 })
             })
         })
     })
     .await;
-    c.say(2, "/restore docs#1").await;
+    c.say(2, "/restore hire#3").await;
     c.open(2).await;
     c.finish("leaving").await;
 }
@@ -119,7 +119,7 @@ async fn realm() {
                 [
                     call(
                         "agree_road",
-                        json!({"mine":"docs#1","theirs":"mill#1","reason":"Trade"}),
+                        json!({"mine":"hire#3","theirs":"hire#6","reason":"Trade"}),
                     ),
                     words("Road proposed."),
                 ],
@@ -129,7 +129,7 @@ async fn realm() {
                 [
                     call(
                         "agree_road",
-                        json!({"mine":"mill#1","theirs":"docs#1","reason":"Trade"}),
+                        json!({"mine":"hire#6","theirs":"hire#3","reason":"Trade"}),
                     ),
                     words("Road agreed."),
                 ],
@@ -140,7 +140,11 @@ async fn realm() {
     c.until(|c| c.state().agents.iter().any(|a| a.id.0 == 5))
         .await;
     c.hire(5, "dee", "haul").await;
-    c.say(HAND, "/move-hamlet mill 60 80").await;
+    c.say(
+        HAND,
+        &format!("/move-hamlet {} 60 80", c.hamlet_id("mill")),
+    )
+    .await;
     c.say(2, "Propose a road.").await;
     c.idle().await;
     c.say(5, "Agree the road.").await;
@@ -152,10 +156,15 @@ async fn realm() {
             .any(|r| r.kind == RoadKind::Agreed)
     })
     .await;
-    c.say(HAND, "/remove-hamlet mill Finished").await;
-    c.until(|c| c.state().closed.iter().any(|h| h.id == "mill"))
+    c.say(
+        HAND,
+        &format!("/remove-hamlet {} Finished", c.hamlet_id("mill")),
+    )
+    .await;
+    c.until(|c| c.state().closed.iter().any(|h| h.name == "mill"))
         .await;
-    c.say(HAND, "/erase-hamlet mill").await;
+    let mill = c.state().closed[0].id.clone();
+    c.say(HAND, &format!("/erase-hamlet {mill}")).await;
     c.until(|c| c.state().closed.is_empty()).await;
     c.finish("realm").await;
 }

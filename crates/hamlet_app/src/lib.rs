@@ -20,6 +20,7 @@ pub mod lists;
 mod markdown;
 pub mod menu;
 pub mod models;
+mod naming;
 mod remember;
 mod roll;
 mod root;
@@ -40,6 +41,7 @@ mod tuning;
 mod updates;
 pub mod welcome;
 mod window;
+mod words;
 pub mod world_menu;
 mod world_view;
 
@@ -156,6 +158,7 @@ impl Plugin for UiPlugin {
             PreUpdate,
             (
                 convo::reseat.run_if(convo::roster_moved),
+                hub::open_first,
                 hub::follow_selection
                     .run_if(resource_changed::<Selected>),
                 hub::tell_page,
@@ -282,7 +285,7 @@ mod tests {
         assert_ne!(*app.world().resource::<Roll>(), before);
         let shown = testing::words(&mut app);
         assert!(
-            shown.iter().any(|text| text == "home#0"),
+            shown.iter().any(|text| text == "hire#2"),
             "{shown:?}"
         );
     }

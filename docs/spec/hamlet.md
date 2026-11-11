@@ -41,23 +41,23 @@ chief is talking to.
 | `/stop [address\|all]` | Stop an agent's work, or all agents' (H23) |
 | `/queue`, `/allow`, `/always`, `/deny`, `/go`, `/withdraw`, `/reply`, `/dismiss` | Answer what waits (H11, H10) |
 | `/grants`, `/revoke <address> <network\|unconfined>` | The lasting permissions, and taking one back |
-| `/hamlets`, `/found <hamlet> [scholar#id] [purpose]` | List hamlets, or found one with a scholar as its mayor, a new scholar named Mayor by default (H6) |
-| `/name-hamlet <hamlet> [name]`, `/move-hamlet <hamlet> <x> <z>` | Give a hamlet a name to be shown by, or set it down elsewhere on the hamlet island (H32) |
+| `/hamlets`, `/create-hamlet [scholar#id\|blank] <name>[: purpose]` | List hamlets with their ids, or create one named `<name>` with a scholar as its mayor, a blank agent named Mayor by default (H6, H36) |
+| `/name-hamlet <hamlet> <name>`, `/move-hamlet <hamlet> <x> <z>` | Give a hamlet another name to be shown by, or set it down elsewhere on the hamlet island (H32) |
 | `/remove-hamlet <hamlet> [reason]`, `/restore-hamlet <hamlet> [reason]`, `/erase-hamlet <hamlet>` | Remove, restore or permanently erase a hamlet (H19, H20) |
 | `/tier <50\|100\|200\|500>` | Set how many hires the hamlet holds (H40) |
-| `/mayor <address> <reason>` | Give the hamlet's office to another hire (H18) |
-| `/hire <scholar#id>[@<version>] [in <hamlet>] [under <address>] [purpose]` | Hire a scholar into the hamlet (H40) |
-| `/end <address> <reason>`, `/merge <address> into <address> [reason]` | End a hire, or make one of two (H5) |
+| `/mayor <address> [reason]` | Give the hamlet's office to another hire (H18) |
+| `/hire <scholar#id>[@<version>]\|blank [in <hamlet>] [under <address>] [purpose]` | Hire a scholar into the hamlet, or a blank agent (H40) |
+| `/end <address> [reason]`, `/merge <address> into <address> [reason]` | End a hire, or make one of two (H5) |
 | `/restore <address> [reason]`, `/erase <address>` | Bring an ended hire back, or split a merged one out again, or erase it for good (H20) |
 | `/model <address> <model\|none> [reason]`, `/tools <address> -<tool> +<tool>`, `/allowance <address> <dollars\|none>` | An agent's model, a hire's tools and allowance (H29, H41, H44) |
 | `/effort <address> <off\|minimal\|low\|medium\|high\|xhigh\|max\|none>`, `/fast <address> <on\|off>` | How hard an agent's model thinks, and whether it asks for the provider's fast tier (H29a) |
-| `/nickname <address> [nickname]` | What a hire is called in the world, or its scholar's name again (H46) |
-| `/road <address> <address> <reason>`, `/unroad <address> <address> <reason>` | Lay or take up a road between two hires (H3) |
+| `/nickname <address> [nickname]` | What a hire or a worker is called in the world, or its own name again (H46) |
+| `/road <address> <address> [reason]`, `/unroad <address> <address> [reason]` | Lay or take up a road between two hires (H3) |
 | `/worker <task>` | Start a worker on a task in the hamlet (H42) |
 | `/give <scholar#id\|address> <skill> from <scholar#id\|address>` | Copy a skill from one scholar to another (H25) |
 | `/folder <folder\|none>`, `/mode <manual\|auto>` | The hamlet's folder and its mode (C20, C21) |
 | `/budget`, `/reset-budget` | The hamlet's spend, and starting its period again (H8) |
-| `/record` | Who was hired, ended, merged and restored, and the other decisions (H17) |
+| `/history` | The record: who was hired, ended, merged and restored, and the other decisions (H17) |
 | `/scholars`, `/scholar new <name>[: <character>]`, `/name-scholar <scholar#id> <name>` | List the city's scholars, make one, or give one a new name (H38) |
 | `/welcome <scholar#id> [reason]`, `/turn-away <scholar#id> [reason]` | Let a scholar at the harbor into the city, or send one back there (H45) |
 | `/remove-scholar <scholar#id> <reason>`, `/restore-scholar <scholar#id> [reason]`, `/erase-scholar <scholar#id>` | Archive a scholar and end its hires, bring it back, or erase it for good (H38) |
@@ -114,12 +114,18 @@ skills/<name>/SKILL.md    one folder per skill, with its files
 - A scholar is its id, addressed as `scholar#<id>`; its name is a label of
   one line, 1 to 40 characters with no colon, that may repeat and that a
   chief changes with `/name-scholar`, which the record keeps.
-- A chief makes one (`/scholar new <name>[: <character>]`), or the Hand or a lead does
-  (`create_scholar`, or `hire` with a new name, which makes a blank scholar
-  from the realm's default character). It starts with one commit holding its
+- A chief makes one (`/scholar new <name>[: <character>]`), or the Hand or a
+  lead does (`create_scholar`). It starts with one commit holding its
   character and an empty `memory/`. One a chief or the Hand makes has a
   house in the city at once; one a lead makes may wait at the harbor
   (H45).
+- A blank agent is a hire that is not of a scholar of the city: `/hire
+  blank`, `hire` with no scholar, or a hamlet founded with no scholar named.
+  It is a scholar of its own all the same, made for that hire alone, from
+  the realm's default character for one an agent makes, and named Mayor, or
+  Hire and its number, unless a name is given. It has no house,
+  never waits at the harbor, is not listed with the city's scholars and is
+  not hired again.
 - The server sets a new house down at the first free spot on a spiral out
   from the city's middle, clear of the middle and of every other house, its
   door toward the middle. A chief can set it down elsewhere
@@ -171,14 +177,17 @@ scholar's history:
 
 **H6.** A chief, or the Hand, can found a hamlet. A hamlet has a mayor, a
 hire made when it is founded, who answers to the Hand: the chief names an
-existing scholar of its own, one at a version, or a new name. A hamlet
+existing scholar of its own, one at a version, or none for a blank agent
+(H38). A hamlet
 answers to the chief who founded it, or, when the Hand founds it, to the
 chief whose task the Hand works on (C7). A hamlet has a tier, its most hires:
 50, 100, 200 or 500, which a chief raises (H40).
 
-**H36.** A hamlet's ID is lowercase letters, digits and hyphens, at most 32,
-and is never reused, even after the hamlet is erased. Its spend and records
-belong only to it.
+**H36.** A hamlet's ID is a UUID made when it is founded, never reused, even
+after the hamlet is erased; commands and tools name a hamlet by it. A hamlet
+also always has a name, given when it is founded: a label that may repeat and
+never finds the hamlet, and the only thing the window shows it by. Its spend
+and records belong only to it.
 
 **H27.** The mayor is the hire at the root of a hamlet's tree, and the address
 `mayor` reaches whoever holds the office. The mayor is the lead of the whole
@@ -250,14 +259,16 @@ it, which ends when the task is answered.
   memory or roads.
 
 **H17.** Every decision of a chief, the Hand or a lead is kept in the hamlet's
-record with its reason, and a chief can read the record in words. Each agent
+record with its reason, when one was given, and a chief can read the record in
+words. Each agent
 is told the decisions of the last [7] days that touched its hamlet, at most
 twelve, and a lead is told a chief's recent instructions to the hires under
 it.
 
 **H5.** A lead, or a chief, can end a hire or merge one into another of the
-same hamlet at once, subject to the chief's limits (H22) and tasks (H7). An
-ending or merging needs a reason.
+same hamlet at once, subject to the chief's limits (H22) and tasks (H7). A
+reason may be given, and the record keeps it; none is needed, here or for any
+other decision.
 
 In a merge the kept hire takes the absorbed hire's laid roads, its hires and
 its inbox, and takes in what the absorbed hire learned: when both are of one
@@ -340,14 +351,13 @@ listening.
 **H12.** Every message a chief sends starts a task, and the task follows
 every message and turn it causes, in every agent it reaches. A retry, a
 reflection, a librarian's call, a lead's review, a dream and a worker start a
-task of their own. A task may send at most [12] messages between agents and
-spend at most [$1]. A reply is delivered whatever the count, so a task can
-end.
+task of their own. A task has no caps of its own: what it spends counts
+against its hamlet's budget (H8).
 
 ## Budgets
 
 **H8.** A hamlet has a budget for a period of a [day] or a month, on cost
-[$5] and on model time; tokens are counted but not capped. The realm has one
+[$50], or none, and on model time; tokens are counted but not capped. The realm has one
 for the Hand and for the workers started outside a hamlet. Every road and
 model call is charged, including reflections, summaries and recorded failed
 or aborted attempts. A response with no reported tokens is estimated unless
@@ -358,13 +368,11 @@ million tokens on this machine, $1 per million elsewhere. Subscription models
 are charged at catalogue rates even when the chief pays no per-token bill.
 Spending follows the server's local day.
 
-Before every model call the budget and the task's caps are checked, and a
-turn that has run out stops, saying what ran out and who can change it. An
-agent reads what it may spend with `read_budget`: its hamlet's or the realm's
-spend against the budget, its own, its allowance and its task's cap. A
-chief can start the period again from nothing spent, without resetting a
-task's spend. No summary starts once the budget or the task's cap has run
-out.
+Before every model call the budget is checked, and a turn that has run out
+stops, saying what ran out and who can change it. An agent reads what it may
+spend with `read_budget`: its hamlet's or the realm's spend against the
+budget, its own and its allowance. A chief can start the period again from
+nothing spent. No summary starts once the budget has run out.
 
 **H44.** A lead or a chief can give a hire an allowance for the period. Before
 a model call, what the hire and everything under it have spent must be within
@@ -374,7 +382,10 @@ starter.
 **H46.** A chief of its hamlet, the Hand or a lead above it can give a hire
 a nickname of at most 24 letters, kept in the record. The world shows a hire
 by its nickname, else by its scholar's name; the window keeps its
-address.
+address. A chief can nickname a worker too, which is shown by its address
+without one. Everyone but the Hand can be renamed: a scholar with
+`/name-scholar`, a hamlet with `/name-hamlet`. In the window, a double
+click on the name at the top of its page in the Hub renames it.
 
 **H16.** An agent that does nothing costs nothing.
 
@@ -406,10 +417,10 @@ costing at most a cap [$0.20].
   (`agree_road`), and only while the realm allows such roads [yes].
 - A scholar's name is a label and need not be unique (C10). An agent is
   reached by an address: `hand`; `mayor`, which is the local office, and
-  `mayor@<hamlet>`; `<hamlet>#<n>`, hire number `n` of that hamlet, the
-  mayor being 0; and `worker#<id>`. A scholar is `scholar#<id>`. No name
-  finds an agent or a scholar. Wherever an agent is shown, its address comes
-  first and its name beside it, as `docs#3 (Mira)`.
+  `mayor@<hamlet id>`; `hire#<id>`; and `worker#<id>`. A scholar is
+  `scholar#<id>`. No name finds an agent or a scholar. Wherever an agent is
+  shown, its address comes first and its name beside it, as
+  `hire#3 (Mira)`.
 - A message between hamlets is paid for by the sender's hamlet.
 
 The chiefs of each hamlet concerned are told, in their conversation with its
@@ -422,9 +433,9 @@ branches stay, archived with its record, with its tree kept so that restoring
 the hamlet (H20) brings them back. Erasing it deletes the lodges and the
 hires' branches. No hamlet is special: any can be removed.
 
-**H32.** A chief can give a hamlet a name to be shown by, while its ID stays
-for commands, and set the hamlet down elsewhere on the hamlet island. It can
-also set a scholar's house down elsewhere in the city.
+**H32.** A chief can give a hamlet another name to be shown by, while its ID
+stays for commands, and set the hamlet down elsewhere on the hamlet island.
+It can also set a scholar's house down elsewhere in the city.
 
 ## The library
 

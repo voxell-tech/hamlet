@@ -9,9 +9,9 @@ use bevy::ecs::system::{Res, ResMut};
 use bevy::ecs::world::World;
 use bevy::input::keyboard::KeyCode;
 use bevy_fynix::shortcut::{
-    Chord, CommandId, CommandSpec, Layer, Mods, ScopeId, ScopeSpec,
-    ShortcutAppExt,
+    CommandId, CommandSpec, Layer, ScopeId, ScopeSpec, ShortcutAppExt,
 };
+use hamlet_ui::widgets::keys::Keys;
 
 use super::Pane;
 use crate::trail::{
@@ -30,10 +30,7 @@ pub(super) fn plugin(app: &mut App) {
         enabled: |_| true,
         repeat: false,
     };
-    let primary = |key| Chord {
-        key,
-        mods: Mods::PRIMARY,
-    };
+    let primary = |key| Keys::new(key).primary().chord();
     app.init_resource::<Visits>()
         .add_scope(ScopeSpec {
             id: KEYS,

@@ -32,7 +32,7 @@ use hamlet_ui::kinds::card;
 use hamlet_ui::styles::{
     Fills, ICON, Looks, Tipped, action, bare, card_name, choice,
     close, crumb, crumb_here, crumb_slash, crumbs, filling, hairline,
-    more_button, note, page_head, scroll_area, sentence_title,
+    icon_button, more_button, note, page_head, scroll_area,
     status_icon, title, transparent,
 };
 use hamlet_ui::theme::HamletTheme;
@@ -50,7 +50,7 @@ use crate::overview::tell;
 use crate::roll::rolled;
 use crate::screens::petition::{self, Need};
 use crate::standing::Standing;
-use crate::{chat, world_menu};
+use crate::{chat, words, world_menu};
 
 /// What the thread's page shows: its chat, or its details in the
 /// chat's place.
@@ -275,13 +275,13 @@ impl Under {
         }
     }
 
-    /// The head of its page: a session's title as the sentence it is,
-    /// the rest as names, and the prompt's way to copy it at the end
-    /// of that line.
+    /// The head of its page, with the prompt's way to copy it at the
+    /// end of that line.
     fn title(&self) -> AnyView {
         match self {
-            Under::Session(_) => sentence_title(self.name()).boxed(),
-            Under::Sessions => title(self.name()).boxed(),
+            Under::Session(_) | Under::Sessions => {
+                title(self.name()).boxed()
+            }
             Under::Prompt => with_cx(|cx| {
                 row((title("Prompt"), frame().grow(1.0), copy()))
                     .gap(cx.theme().space.gap)
@@ -359,7 +359,7 @@ fn path(agent: Entity, under: Vec<Under>) -> impl View {
         let mut parts = above(world, agent);
         let name = called(world, agent);
         parts.push(if under.is_empty() {
-            crumb_here(name).boxed()
+            crate::naming::name_crumb(agent, name)
         } else {
             crumb(name, |world| show(world, Showing::Thread)).boxed()
         });
@@ -461,23 +461,64 @@ fn state(agent: Entity) -> impl View {
         .min_width(px(0.0))
 }
 
+/// What is done to `agent` most, each a button of its own beside the
+/// tabs: a new session, a hire under it, a new name. The rest is in
+/// the menu of the "..." after them.
+fn quick(world: &World, agent: Entity) -> Vec<AnyView> {
+    let kind = world.get::<Kind>(agent).map(|kind| kind.0);
+    let living = world.get::<Left>(agent).is_none();
+    let mut buttons = vec![icon_button(
+        Glyph::NewSession,
+        "Start a new session",
+        move |world| {
+            crate::convo::talk_to(world, agent);
+            world_menu::ask(world, world_menu::Deed::NewSession);
+        },
+    )];
+    if living
+        && kind == Some(protocol::AgentKind::Hire)
+        && hamlet_client::realm::Deeds::is_allowed(world, "hire")
+    {
+        buttons.push(icon_button(
+            Glyph::Plus,
+            "Hire under it",
+            move |world| world_menu::ask_hire(world, agent),
+        ));
+    }
+    buttons
+}
+
 fn header(agent: Entity) -> impl View {
     built(move |cx| {
-        // Everything else that can be done to it, as a right click on
-        // it in the world offers: a new session, gifts, its prompt,
-        // stopping, roads, merging, ending.
-        let more = more_button(
-            "A new session, its prompt, gifts, roads, ending it",
-            move |world| {
-                let hall = hamlet_client::realm::first_mayor(world);
-                let thing = if hall == Some(agent) {
-                    Thing::Keeper
-                } else {
-                    Thing::Agent(agent)
-                };
-                world_menu::open_for(world, thing);
+        // Its menu, as a right click on it opens. Gone while empty,
+        // as for the Hand at rest.
+        let thing = if cx.world.get::<Kind>(agent).map(|kind| kind.0)
+            == Some(protocol::AgentKind::Hand)
+        {
+            Thing::Hand
+        } else {
+            Thing::Agent(agent)
+        };
+        let more = keyed(
+            derived(move |world: &World| {
+                world_menu::has_items(world, thing)
+            })
+            .when(every_frame()),
+            move |&any| {
+                if !any {
+                    return frame().boxed();
+                }
+                more_button(
+                    "Hiring, gifts, roads, merging and ending it",
+                    move |world| {
+                        world_menu::open_for(world, thing);
+                    },
+                )
+                .boxed()
             },
-        );
+        )
+        .within(bare());
+        let quick = quick(cx.world, agent);
         // Which of its chats the chat tab shows: this session, an
         // earlier one, its letters and questions, its workers. It is
         // there on both tabs, so that the tabs keep their place.
@@ -514,6 +555,9 @@ fn header(agent: Entity) -> impl View {
                     ),))
                     .grow(1.0)
                     .min_width(px(0.0)),
+                    row(quick)
+                        .gap(gap / 2.0)
+                        .align(AlignItems::Center),
                     sessions,
                     more,
                 ))
@@ -616,8 +660,10 @@ fn mode_chip(agent: Entity) -> impl View {
             };
             let words = derived(move |world: &World| {
                 match mode_of(world, agent).map(|at| at.1) {
-                    Some(hamlet_client::realm::Mode::Auto) => "Auto",
-                    _ => "Manual",
+                    Some(hamlet_client::realm::Mode::Auto) => {
+                        words::NO_ASKING
+                    }
+                    _ => words::ASK_FIRST,
                 }
                 .to_string()
             })
@@ -634,10 +680,7 @@ fn mode_chip(agent: Entity) -> impl View {
             .rules(chip_look)
             .tagged(Variant::Text)
             .tooltip(|| {
-                note(
-                    "Approvals: how this hamlet's work is overseen. \
-                     Press to turn it over.",
-                )
+                note(format!("{} Press to switch.", words::APPROVALS))
             })
             .on_activate(move |world| {
                 let to = match mode_of(world, agent).map(|at| at.1) {
@@ -727,9 +770,36 @@ fn send_or_stop(agent: Entity) -> impl View {
 /// The composer's toolbar, under its field: the gifts, the model and
 /// effort and the hamlet's mode, then Send or Stop.
 fn chips(agent: Entity) -> impl View {
+    // With no model set up, the model's chip is the way to set one
+    // up.
+    let model = keyed(
+        derived(chat::without_model).when(every_frame()),
+        move |&none| {
+            if !none {
+                return model_chip(agent).boxed();
+            }
+            button(
+                row((
+                    glyph(Glyph::Chip, 12.0).tone(Tone::Critical),
+                    label("Set up a model").wrap(false),
+                ))
+                .gap(6.0)
+                .align(AlignItems::Center),
+            )
+            .padding(UiRect::axes(px(8.0), px(0.0)))
+            .rules(chip_look)
+            .tagged(Variant::Text)
+            .tooltip(|| {
+                note("No model is set up yet, so nothing can answer")
+            })
+            .on_activate(crate::welcome::again)
+            .boxed()
+        },
+    )
+    .within(bare());
     row((
         gifts(agent),
-        model_chip(agent),
+        model,
         mode_chip(agent),
         frame().grow(1.0),
         send_or_stop(agent),
@@ -1063,7 +1133,7 @@ mod tests {
         );
     }
 
-    /// The Hub on `home#0`, with her details open.
+    /// The Hub on `hire#2`, with her details open.
     fn ada_app() -> App {
         let mut app = hub_app();
         let ada = crate::testing::seat_ada(&mut app);
@@ -1304,13 +1374,13 @@ mod tests {
         let mut state = hamlet_testing::realm::state();
         state
             .agents
-            .push(hamlet_testing::realm::agent(3, "home", 1));
+            .push(hamlet_testing::realm::agent(3, "home", false));
         hamlet_client::receive(
             app.world_mut(),
             protocol::ServerMessage::State(state),
         );
         let agent =
-            hamlet_client::realm::named(app.world_mut(), "home#1")
+            hamlet_client::realm::named(app.world_mut(), "hire#3")
                 .unwrap();
         let to = protocol::AgentId(3);
         let session = app
@@ -1325,7 +1395,7 @@ mod tests {
         let mut convo = app.world_mut().resource_mut::<Convo>();
         convo.agent = agent;
         convo.session = session;
-        convo.with = Some("home#1".into());
+        convo.with = Some("hire#3".into());
         app.update();
     }
 
@@ -1376,7 +1446,7 @@ mod tests {
         let mut state = hamlet_testing::realm::state();
         state
             .agents
-            .push(hamlet_testing::realm::agent(3, "home", 1));
+            .push(hamlet_testing::realm::agent(3, "home", false));
         state.agents[1].conversations =
             serde_json::from_value(json!([
                 {"with":3,"kind":"letters","count":2,"last":1000},
@@ -1400,8 +1470,8 @@ mod tests {
             names,
             [
                 "Session",
-                "Letters with home#1",
-                "Questions with home#1"
+                "Letters with hire#3",
+                "Questions with hire#3"
             ]
         );
         assert_eq!(now, 0);
@@ -1420,7 +1490,7 @@ mod tests {
             receive(
                 &mut app,
                 json!({"type":"transcript","chat":chat,"items":[
-                    {"id":"1:0","at":1,"kind":"user","text":"Question","author":"home#1"},
+                    {"id":"1:0","at":1,"kind":"user","text":"Question","author":"hire#3"},
                     {"id":"2:0","at":2,"kind":"assistant","text":"Answer"}
                 ], "earlier":"1:0","last":null,"working":true,"pending":0,"usage":{
                     "input":0,"output":0,"cached":0,"calls":0,"lastInput":0,"reasoning":0,"unreported":0,"summary":"","micros":0,"ms":0

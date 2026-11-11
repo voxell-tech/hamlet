@@ -133,8 +133,10 @@ pub enum Glyph {
     Meter,
     /// A signpost: roads.
     Signpost,
-    /// A robot's head: an agent.
+    /// A robot's head: a worker, and an agent in general.
     Robot,
+    /// A head over shoulders: a hire, a scholar at work in a hamlet.
+    Hire,
     /// Two sliders: the settings.
     Sliders,
     /// An arrow down into a tray: out of sight, still running.
@@ -204,6 +206,8 @@ pub enum Glyph {
     Fast,
     /// Two points joined into one: a merge.
     Merge,
+    /// A mallet: a worker, started for one task.
+    Worker,
 }
 
 /// A part of an icon, in the units of its square, y downward. Angles
@@ -232,7 +236,7 @@ enum Shape {
 
 impl Glyph {
     /// Every icon.
-    pub const ALL: [Glyph; 66] = [
+    pub const ALL: [Glyph; 68] = [
         Glyph::Plus,
         Glyph::Cross,
         Glyph::Check,
@@ -261,6 +265,7 @@ impl Glyph {
         Glyph::Meter,
         Glyph::Signpost,
         Glyph::Robot,
+        Glyph::Hire,
         Glyph::Sliders,
         Glyph::Lower,
         Glyph::ToEnd,
@@ -299,6 +304,7 @@ impl Glyph {
         Glyph::Anchor,
         Glyph::Fast,
         Glyph::Merge,
+        Glyph::Worker,
     ];
 
     /// Its image for a side of `size`, to be tinted.
@@ -502,6 +508,11 @@ impl Glyph {
                 Dot(8.0, 2.5, 1.1),
                 Dot(6.0, 9.5, 1.1),
                 Dot(10.0, 9.5, 1.1),
+            ],
+            Glyph::Hire => &[
+                Ring(8.0, 5.0, 2.75),
+                Arc(8.0, 14.0, 5.5, 180.0, 360.0),
+                Line(2.5, 14.0, 13.5, 14.0),
             ],
             Glyph::Sliders => &[
                 Line(2.5, 5.0, 13.5, 5.0),
@@ -761,6 +772,10 @@ impl Glyph {
                 Ring(12.0, 8.0, 1.6),
                 Line(4.0, 5.1, 4.0, 10.9),
                 Curve(4.0, 5.1, 4.0, 8.0, 10.4, 8.0),
+            ],
+            Glyph::Worker => &[
+                Round(2.5, 2.5, 13.5, 6.5, 1.25),
+                Round(6.75, 6.5, 9.25, 13.5, 1.0),
             ],
         }
     }

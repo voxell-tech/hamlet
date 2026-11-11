@@ -479,9 +479,10 @@ pub struct TextSizes {
     pub small: f32,
     /// A menu's title and a card's, never below the body.
     pub heading: f32,
-    /// The name at the head of a page, in the display face.
+    /// The name at the head of a page.
     pub title: f32,
-    /// The space between the letters of the display face.
+    /// The space between the letters of the display face, where they
+    /// are capitals.
     pub tracking: f32,
     /// The weight of regular words in dark ink, above the regular
     /// 400, so dark words on a light ground read as solid as light

@@ -12,7 +12,7 @@ A realm is made with the Hand, an agent of its own that is always there
 and sits above every mayor. It has a lodge, `hand/`, and a scholar that no
 chief hires out; its character starts from `assets/hand.md`. It is the agent
 `hamlet chat` talks to unless told otherwise, and a new realm has no hamlet,
-so a chief asks the Hand, or types `/found`, to make the first. Its changes to
+so a chief asks the Hand, or types `/create-hamlet`, to make the first. Its changes to
 a scholar's `main` and its removal of a hamlet wait for a chief, as every
 reserved act does.
 
@@ -50,24 +50,31 @@ chief's behalf, each waiting for the chief.
 
 ## Hamlets, hires and the tree
 
-`/found <hamlet> [scholar#id] [purpose]` founds a hamlet. Its mayor is a hire
-of an existing scholar, and of a new scholar named Mayor when none is named;
-with no purpose it is there to run the hamlet. The
-hamlet's id is lowercase letters, digits and hyphens, never reused, even
-after erasure; `hand`, `mayor`, `scholar` and `worker` are not ids.
-`/hire <scholar#id>[@<version>] [in <hamlet>] [under <address>] [purpose]`
+`/create-hamlet [scholar#id|blank] <name>[: purpose]` creates a hamlet named
+`<name>`. Its mayor is a hire of an existing scholar, or a blank agent named
+Mayor when none is named; with no purpose it is there to run the hamlet. A
+hamlet's id is a UUID made when it is created, never reused, even after
+erasure; commands name a hamlet by it, and `/hamlets` lists each with its id.
+Its name is a label that may repeat and may hold spaces but no colon, and is
+what the window shows; `/name-hamlet <hamlet> <name>` changes it.
+`/hire <scholar#id>[@<version>]|blank [in <hamlet>] [under <address>] [purpose]`
 hires a scholar into the hamlet you are in, up to the hamlet's tier of 50,
-100, 200 or 500 (`/tier`); the same scholar can be hired more than once. A
+100, 200 or 500 (`/tier`); the same scholar can be hired more than once.
+`blank` hires a blank agent instead, as an agent's `hire` with no scholar
+does: a scholar of its own, made for that hire alone, which is not of the
+city, so it has no house, never waits at the harbor and is not listed with
+the city's scholars (`Scholar.arrival` is `apart`). Reasons for a decision
+may always be left out. A
 hire a chief makes without a purpose takes the first line of the first message
 it is given, from the chief or by letter, as its purpose. An agent always says
 what it hires for.
 
 An address names an agent by ids and never by a name: `hand`, `mayor@<hamlet>`
-(the hamlet's mayor), `<hamlet>#<number>` (the hire with that number in the
-hamlet, the mayor being 0) and `worker#<id>`. A scholar is `scholar#<id>`.
-Wherever an agent is shown to an agent or a chief, a prompt, a notice, a
-letter's header or a tool's result, its address comes first and its name beside
-it, as `orchard#3 (Mira)`: a hire's nickname, else its scholar's name.
+(the mayor of the hamlet with that id), `hire#<id>` and `worker#<id>`. A
+scholar is `scholar#<id>`. Wherever an agent is shown to an agent or a chief,
+a prompt, a notice, a letter's header or a tool's result, its address comes
+first and its name beside it, as `hire#3 (Mira)`: a hire's nickname, else its
+scholar's name.
 Hands and leads see the scholars they may hire in their prompts, as
 `scholar#<id> (<name>)`, since a name finds nothing.
 
@@ -122,8 +129,8 @@ the absorbed one's laid roads, hires and inbox, and takes in what it learned.
 Hires of one scholar merge their branches; hires of different scholars bring
 what the absorbed hire learned into the kept branch, a clashing file kept as
 `<name>.from-<absorbed>` and a clashing skill as `<skill>-from-<absorbed>`,
-with the absorbed hire as `<hamlet>-<number>`.
-`/restore` brings an ended hire back under the same id and number, or splits a
+with the absorbed hire as `hire-<id>`.
+`/restore` brings an ended hire back under the same id, or splits a
 merged one out again by undoing the merge's commit. `/erase` deletes an ended hire's lodge and branch for good. A
 letter to a hire that has left is refused with how it left.
 
@@ -164,9 +171,9 @@ Answering allows once, for the session, or always; `/grants` lists and
 
 ## Several hamlets
 
-Another hamlet's hire is reached by `mill#<number>`, `mayor@mill` addresses
-mill's mayor, and `/hamlet mill`
-switches the terminal to it. `/agent <address>` finds any agent of the realm.
+Another hamlet's hire is reached by its `hire#<id>` like any other,
+`mayor@<hamlet>` addresses the mayor of the hamlet with that id, and
+`/hamlet <hamlet>` switches the terminal to it. `/agent <address>` finds any agent of the realm.
 A mayor sees the other hamlets in its prompt.
 
 Removed hamlets retain their lodges and records and appear under CLOSED DOWN

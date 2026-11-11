@@ -16,7 +16,7 @@ use super::agents::{self, EndHow};
 use super::city;
 use super::hires::{self, Hired, Hiring, Spec};
 use super::limits::Limits;
-use super::names::check_hamlet_id;
+use super::names::{check_name, new_hamlet_id};
 use super::record::{self, Decision, DecisionKind};
 use super::refusal::Refusal;
 use crate::change::{Change, Done, done, refuse};
@@ -38,7 +38,7 @@ text_enum! {
 #[diesel(table_name = hamlet)]
 pub(crate) struct Hamlet {
     pub id: HamletId,
-    pub title: Option<String>,
+    pub name: String,
     pub founded_at: i64,
     pub founded_by: Actor,
     pub mayor: AgentId,
@@ -47,7 +47,6 @@ pub(crate) struct Hamlet {
     pub tier: i64,
     pub site_x: Option<f64>,
     pub site_z: Option<f64>,
-    pub next_number: i64,
     pub limits: String,
     pub removed_at: Option<i64>,
     pub removed_by: Option<Actor>,
@@ -64,7 +63,8 @@ impl Hamlet {
 /// A hamlet to found.
 #[derive(Clone, Debug)]
 pub(crate) struct Founding {
-    pub id: HamletId,
+    /// The name it is shown by; its id is made for it.
+    pub name: String,
     /// The chief it answers to.
     pub chief: ChiefId,
     pub mayor: Hiring,
@@ -76,21 +76,20 @@ pub(crate) fn found(
     cx: &mut Change<'_>,
     founding: Founding,
 ) -> Done<Hired> {
-    let id = founding.id;
-    if let Err(refusal) = check_hamlet_id(id.as_str()) {
-        refuse!(refusal);
-    }
-    if find(cx.db, &id)?.is_some() {
-        refuse!(Refusal::HamletUsed { id: id.to_string() });
-    }
+    let name = match check_name(&founding.name) {
+        Ok(name) => name.to_owned(),
+        Err(refusal) => refuse!(refusal),
+    };
     if founding.purpose.trim().is_empty() {
         refuse!(Refusal::NoPurpose);
     }
+    let id = new_hamlet_id();
     // The mayor is set once its hire is made; the key is checked at
     // the commit.
     diesel::insert_into(hamlet::table)
         .values((
             hamlet::id.eq(&id),
+            hamlet::name.eq(&name),
             hamlet::founded_at.eq(cx.at),
             hamlet::founded_by.eq(cx.actor),
             hamlet::mayor.eq(AgentId(0)),
@@ -161,7 +160,7 @@ pub(crate) fn living(db: &mut Db, id: &HamletId) -> Done<Hamlet> {
 pub(crate) fn all(db: &mut Db) -> Result<Vec<Hamlet>> {
     Ok(hamlet::table
         .filter(hamlet::erased.eq(false))
-        .order(hamlet::id)
+        .order((hamlet::name, hamlet::id))
         .select(Hamlet::as_select())
         .load(db)?)
 }
@@ -178,25 +177,25 @@ pub(crate) fn chiefs(
         .load(db)?)
 }
 
-/// Gives `id` a name to be shown by, or takes it away (H32).
+/// Gives `id` another name to be shown by (H32).
 pub(crate) fn rename(
     cx: &mut Change<'_>,
     id: &HamletId,
-    title: Option<&str>,
+    name: &str,
 ) -> Done<()> {
     done!(living(cx.db, id));
-    let title = title.map(str::trim).filter(|t| !t.is_empty());
-    if title.is_some_and(|t| t.chars().count() > 32) {
-        refuse!(Refusal::LongTitle);
-    }
+    let name = match check_name(name) {
+        Ok(name) => name,
+        Err(refusal) => refuse!(refusal),
+    };
     diesel::update(hamlet::table.find(id))
-        .set(hamlet::title.eq(title))
+        .set(hamlet::name.eq(name))
         .execute(cx.db)?;
     record::keep(
         cx,
         Decision::new(DecisionKind::NamedHamlet, "")
             .hamlet(id)
-            .detail(json!({ "title": title })),
+            .detail(json!({ "name": name })),
     )?;
     Ok(Ok(()))
 }
@@ -344,9 +343,6 @@ pub(crate) fn remove(
     reason: &str,
 ) -> Done<()> {
     done!(living(cx.db, id));
-    if reason.trim().is_empty() {
-        refuse!(Refusal::NoReason);
-    }
     for hire in hires::living_in(cx.db, id)? {
         done!(hires::end(cx, hire.agent, EndHow::Hamlet, reason));
     }

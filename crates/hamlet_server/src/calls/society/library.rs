@@ -138,9 +138,6 @@ impl Core {
                     .into(),
             })));
         }
-        if reason.is_empty() {
-            return Ok(Step::of(Err(Refusal::NoReason)));
-        }
         let layout = self.realm.layout().clone();
         if library::has(&layout, &name)? {
             return Ok(Step::of(Err(Refusal::Usage {

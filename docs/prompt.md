@@ -62,12 +62,12 @@ An agent keeps its memory in its lodge, as files. Files at the root of
 `memory/` go into every prompt; a folder shows only the `description:` line at
 the top of its `MEMORY.md` until the agent reads it. Every memory file opens
 with such a front matter. A chief can read and edit a hire's memory or its
-scholar's: `hamlet edit memory <scholar#id|hamlet#number> [path]`, or MEMORY in
+scholar's: `hamlet edit memory <scholar#id|hire#id> [path]`, or MEMORY in
 the Hub. What a hire keeps stays on its branch until a dream brings it home
 to the scholar's `main` (see [`society.md`](society.md)).
 
 ## The whole prompt
 
-Prompt in an agent's right-click menu sends `read prompt`. The server uses the
+Prompt in an agent's details sends `read prompt`. The server uses the
 same prompt sections as a model request, and the Hub displays the returned
 text. The window reads no lodge or realm files to build it.

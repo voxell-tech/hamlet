@@ -339,7 +339,7 @@ impl Core {
             writing.lock().unwrap_or_else(PoisonError::into_inner);
         let db = self.realm.store().connection();
         for hire in hires::living_of(db, id)? {
-            let lodge = layout.lodge(&hire.hamlet, hire.number);
+            let lodge = layout.lodge(&hire.hamlet, hire.agent);
             let Ok(folder) = Folder::open(&lodge) else {
                 continue;
             };

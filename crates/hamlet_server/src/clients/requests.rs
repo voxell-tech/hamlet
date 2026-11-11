@@ -207,6 +207,14 @@ impl Core {
                     return self
                         .answer(client, reply(&say.id, answer));
                 }
+                // A line no model can answer is refused, so the
+                // agent is not left working on it for good.
+                if !self.has_model(agent)? {
+                    return self.answer(
+                        client,
+                        reply(&say.id, Err(Refusal::NoModelSetUp)),
+                    );
+                }
                 let request = say.id.as_str().to_owned();
                 let line = self.credentials.scrub_text(&say.text);
                 let said = self
@@ -449,6 +457,21 @@ impl Core {
                 Ok(None)
             }
         }
+    }
+
+    /// Whether `agent` runs a model, as it does once the chief set
+    /// one up.
+    pub(crate) fn has_model(
+        &mut self,
+        agent: AgentId,
+    ) -> Result<bool> {
+        let db = self.realm.store().connection();
+        crate::talk::models::has_model(
+            db,
+            &self.env.settings,
+            &self.env.overrides,
+            agent,
+        )
     }
 
     /// Refuses unless this server's chief may reach `agent` (C7): the

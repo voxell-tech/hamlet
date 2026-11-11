@@ -72,7 +72,6 @@ pub(crate) fn allow(
             db,
             conversation.agent,
             payer.as_ref(),
-            task,
             at,
         )?
     {

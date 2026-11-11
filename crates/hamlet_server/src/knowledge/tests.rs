@@ -1,5 +1,4 @@
 use hamlet_git::{Author, Change as GitChange, MAIN, Repository};
-use hamlet_store::ids::HamletId;
 
 use super::{CHARACTER, branch, run};
 use crate::jobs::Job;
@@ -13,7 +12,7 @@ fn a_hire_learns_in_its_lodge_and_takes_in_its_scholar() {
     let layout = realm.layout();
     let mayor = realm.found("docs", "ada");
     realm.work();
-    let lodge = layout.lodge(&HamletId("docs".into()), 0);
+    let lodge = layout.lodge(&mayor.hamlet, mayor.agent);
     assert!(lodge.is_dir());
     assert!(layout.hand().is_dir());
     assert!(
@@ -82,9 +81,9 @@ fn a_hire_learns_in_its_lodge_and_takes_in_its_scholar() {
             hires::hire(
                 cx,
                 hires::Spec {
-                    hamlet: HamletId("docs".into()),
+                    hamlet: mayor.hamlet.clone(),
                     parent: Some(mayor.agent),
-                    hiring: hires::Hiring::New {
+                    hiring: hires::Hiring::Blank {
                         name: "scout".into(),
                         character: String::new(),
                     },
@@ -103,7 +102,7 @@ fn a_hire_learns_in_its_lodge_and_takes_in_its_scholar() {
         .unwrap();
     realm.chief(|cx| hires::erase(cx, other.agent)).unwrap();
     realm.work();
-    assert!(!layout.lodge(&HamletId("docs".into()), 1).exists());
+    assert!(!layout.lodge(&other.hamlet, other.agent).exists());
     let theirs =
         Repository::open(&layout.repository(other.scholar)).unwrap();
     assert_eq!(theirs.tip(&branch(other.agent)).unwrap(), None);
@@ -113,8 +112,8 @@ fn a_hire_learns_in_its_lodge_and_takes_in_its_scholar() {
 fn a_merge_keeps_both_sides_learning_and_a_split_takes_it_out() {
     let mut realm = Realm::new();
     let layout = realm.layout();
-    let docs = HamletId("docs".into());
     let mayor = realm.found("docs", "ada");
+    let docs = mayor.hamlet.clone();
     let owner = realm.chief;
     let scout = realm
         .chief(|cx| {
@@ -123,7 +122,7 @@ fn a_merge_keeps_both_sides_learning_and_a_split_takes_it_out() {
                 hires::Spec {
                     hamlet: docs.clone(),
                     parent: Some(mayor.agent),
-                    hiring: hires::Hiring::New {
+                    hiring: hires::Hiring::Blank {
                         name: "scout".into(),
                         character: String::new(),
                     },
@@ -135,8 +134,8 @@ fn a_merge_keeps_both_sides_learning_and_a_split_takes_it_out() {
         })
         .unwrap();
     realm.work();
-    let kept = layout.lodge(&docs, 0);
-    let absorbed = layout.lodge(&docs, 1);
+    let kept = layout.lodge(&docs, mayor.agent);
+    let absorbed = layout.lodge(&docs, scout.agent);
     let write = |at: &std::path::Path, path: &str, text: &str| {
         let path = at.join(path);
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -162,7 +161,8 @@ fn a_merge_keeps_both_sides_learning_and_a_split_takes_it_out() {
         |path: &str| std::fs::read_to_string(kept.join(path)).ok();
     assert_eq!(read("memory/notes.md").as_deref(), Some("ada's"));
     assert_eq!(
-        read("memory/notes.md.from-docs-1").as_deref(),
+        read(&format!("memory/notes.md.from-hire-{}", scout.agent))
+            .as_deref(),
         Some("scout's"),
         "a clash is kept aside"
     );
@@ -171,7 +171,8 @@ fn a_merge_keeps_both_sides_learning_and_a_split_takes_it_out() {
         Some("Scan.")
     );
     assert_eq!(
-        read("inbox/from-docs-1/map.txt").as_deref(),
+        read(&format!("inbox/from-hire-{}/map.txt", scout.agent))
+            .as_deref(),
         Some("a map")
     );
 
@@ -190,7 +191,10 @@ fn a_merge_keeps_both_sides_learning_and_a_split_takes_it_out() {
         .unwrap();
     realm.work();
     assert_eq!(read("memory/notes.md").as_deref(), Some("ada's"));
-    assert_eq!(read("memory/notes.md.from-docs-1"), None);
+    assert_eq!(
+        read(&format!("memory/notes.md.from-hire-{}", scout.agent)),
+        None
+    );
     assert_eq!(read("skills/scan/SKILL.md"), None);
     assert!(absorbed.join("skills/scan/SKILL.md").exists());
 }

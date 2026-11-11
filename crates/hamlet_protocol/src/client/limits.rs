@@ -21,7 +21,6 @@ pub struct Limits {
     /// The leads' acts that wait for a chief.
     pub reserved: LimitsReserved,
     pub road: LimitsRoad,
-    pub task: LimitsTask,
     /// How many days of decisions each hire is told (H17).
     #[serde(rename = "toldDays")]
     pub told_days: i64,
@@ -110,19 +109,6 @@ pub struct LimitsRoad {
     pub most: i64,
     /// Dollars.
     pub price: f64,
-}
-
-/// The most one task may do (H12).
-#[derive(
-    Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
-)]
-#[serde(deny_unknown_fields)]
-pub struct LimitsTask {
-    #[serde(deserialize_with = "Option::deserialize")]
-    pub cost: Option<f64>,
-    pub messages: i64,
-    #[serde(deserialize_with = "Option::deserialize")]
-    pub minutes: Option<i64>,
 }
 
 #[derive(

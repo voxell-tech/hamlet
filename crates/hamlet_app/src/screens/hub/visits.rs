@@ -9,10 +9,10 @@ use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::world::World;
 use bevy::input::keyboard::KeyCode;
 use bevy_fynix::shortcut::{
-    Chord, CommandId, CommandSpec, Layer, Mods, ScopeId, ScopeSpec,
-    ShortcutAppExt,
+    CommandId, CommandSpec, Layer, ScopeId, ScopeSpec, ShortcutAppExt,
 };
 use hamlet_realm::pick::{Selected, Thing, select};
+use hamlet_ui::widgets::keys::Keys;
 
 use super::{Sheet, Showing, show};
 use crate::convo::{Convo, seat};
@@ -32,10 +32,7 @@ pub(super) fn plugin(app: &mut App) {
         enabled: |_| true,
         repeat: false,
     };
-    let primary = |key| Chord {
-        key,
-        mods: Mods::PRIMARY,
-    };
+    let primary = |key| Keys::new(key).primary().chord();
     app.init_resource::<Visits>()
         .add_scope(ScopeSpec {
             id: KEYS,
@@ -54,6 +51,17 @@ pub(super) fn plugin(app: &mut App) {
                 travel(world, Way::Forward);
             }),
             &[primary(KeyCode::BracketRight)],
+        )
+        .add_command(
+            CommandSpec {
+                enabled: super::scholar::asking,
+                ..command(
+                    "hub.submit",
+                    "Do what the scholar's form asks",
+                    |world, _| super::scholar::submit(world),
+                )
+            },
+            &crate::world_menu::SUBMIT_KEYS,
         )
         .add_systems(
             Update,
@@ -179,7 +187,7 @@ mod tests {
     fn back_and_forward_walk_the_pages_gone_through() {
         let mut app = panel_app();
         app.add_plugins(plugin);
-        let ada = realm::named(app.world_mut(), "home#0").unwrap();
+        let ada = realm::named(app.world_mut(), "hire#2").unwrap();
         app.insert_resource(Showing::Realm)
             .init_resource::<Sheet>()
             .init_resource::<Selected>()

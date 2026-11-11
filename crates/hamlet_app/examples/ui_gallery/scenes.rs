@@ -19,7 +19,7 @@ use bevy::window::WindowTheme;
 use bevy_fynix::dock::DockPlugin;
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::{AnyView, Bevy, FynixPlugin};
-use hamlet_app::appearance::{Appearance, LessMotion, Zoom};
+use hamlet_app::appearance::{Appearance, Zoom};
 use hamlet_app::history::History;
 use hamlet_app::{Bar, Roll, asking, chrome, menu, select, welcome};
 use hamlet_assets::Tuning;
@@ -85,7 +85,6 @@ impl Plugin for GalleryPlugin {
             .init_resource::<ColorScheme>()
             .init_resource::<Appearance>()
             .init_resource::<Zoom>()
-            .init_resource::<LessMotion>()
             .add_message::<Cue>()
             // `theme::plugin` owns it; the gallery sets its theme by
             // hand instead.

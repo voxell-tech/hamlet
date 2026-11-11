@@ -39,7 +39,6 @@ pub(crate) struct Task {
     pub at: i64,
     /// A chief's instruction, as typed.
     pub text: Option<String>,
-    pub messages: i64,
     pub done_at: Option<i64>,
 }
 
@@ -87,21 +86,6 @@ pub(crate) fn get(db: &mut Db, id: TaskId) -> Result<Task> {
         .first(db)
         .optional()?
         .with_context(|| format!("no task {id}"))
-}
-
-/// Counts a message between agents against the task, unless it has
-/// sent `most` already. Returns whether it was counted.
-pub(crate) fn count_message(
-    db: &mut Db,
-    id: TaskId,
-    most: i64,
-) -> Result<bool> {
-    let changed = diesel::update(
-        task::table.find(id).filter(task::messages.lt(most)),
-    )
-    .set(task::messages.eq(task::messages + 1))
-    .execute(db)?;
-    Ok(changed == 1)
 }
 
 /// Marks the chief's instruction `id` answered.

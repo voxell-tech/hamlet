@@ -31,10 +31,10 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
     let mut state = hamlet_testing::realm::state();
     state.chief = "chief".into();
     state.deeds = hamlet_testing::realm::deeds(&[
-        "record",
+        "history",
         "restore-hamlet",
         "erase-hamlet",
-        "found",
+        "create-hamlet",
         "tag",
         "pin",
         "revert",
@@ -104,7 +104,7 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
         if id != "home" {
             state
                 .agents
-                .push(hamlet_testing::realm::agent(first, id, 0));
+                .push(hamlet_testing::realm::agent(first, id, true));
             scholars.push((first, mayor));
             next += 1;
         }
@@ -113,7 +113,7 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
         let lead = next;
         for (number, name) in (1..).zip(others) {
             let mut agent =
-                hamlet_testing::realm::agent(next, id, number);
+                hamlet_testing::realm::agent(next, id, false);
             scholars.push((next, name));
             agent.parent = Some(protocol::AgentId(
                 if id == "home" && number > 1 {
@@ -165,7 +165,7 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
         // raised by scout, who made it.
         let mut wait = hamlet_testing::realm::wait("moss");
         wait.agent = Some(protocol::AgentId(10));
-        wait.by = "home#1".into();
+        wait.by = "hire#10".into();
         wait.about = "scholar#90 (moss)".into();
         wait.subject = wait.about.clone();
         wait.chat = None;
@@ -204,7 +204,7 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
         // From an agent whose chat is not the one open, which shows
         // its own waits in full.
         if let Some(fen) =
-            next.agents.iter().find(|agent| agent.name == "mill#2")
+            next.agents.iter().find(|agent| agent.name == "hire#15")
         {
             wait.agent = Some(fen.id);
             wait.by = fen.name.clone();
@@ -277,7 +277,7 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
         world.insert_resource(hamlet_app::hub::Showing::Gone(gone));
     }
     if scene == Scene::Bylaws {
-        world.insert_resource(hamlet_app::overview::Page::Bylaws);
+        world.insert_resource(hamlet_app::overview::Page::Limits);
     }
 }
 
@@ -322,8 +322,10 @@ fn busy_realm(state: &mut protocol::State) {
         hand.activity.doing_words = "Founding a hamlet".into();
         hand.busy = true;
     }
-    let Some(lead) =
-        state.agents.iter_mut().find(|agent| agent.name == "home#2")
+    let Some(lead) = state
+        .agents
+        .iter_mut()
+        .find(|agent| agent.name == "hire#11")
     else {
         return;
     };
@@ -331,10 +333,9 @@ fn busy_realm(state: &mut protocol::State) {
     lead.activity.doing = protocol::Doing::Await;
     lead.activity.doing_words = "Waiting for a worker".into();
     let lead = lead.id;
-    let mut worker = hamlet_testing::realm::agent(40, "home", 9);
+    let mut worker = hamlet_testing::realm::agent(40, "home", false);
     worker.kind = protocol::AgentKind::Worker;
     worker.name = "worker#40".into();
-    worker.number = None;
     worker.scholar = None;
     worker.parent = Some(lead);
     worker.busy = true;
@@ -343,7 +344,7 @@ fn busy_realm(state: &mut protocol::State) {
         "Reading the orchard's notes".into();
     state.agents.push(worker);
     if let Some(waiting) =
-        state.agents.iter().find(|agent| agent.name == "mill#1")
+        state.agents.iter().find(|agent| agent.name == "hire#14")
     {
         let mut wait = hamlet_testing::realm::wait("ask");
         wait.agent = Some(waiting.id);
@@ -369,12 +370,12 @@ fn more_states(state: &mut protocol::State) {
                 run(agent);
             }
         };
-    set("home#3", &mut |agent| {
+    set("hire#12", &mut |agent| {
         agent.busy = true;
         agent.activity.doing = protocol::Doing::Run;
         agent.activity.doing_words = "Running the tests".into();
     });
-    set("mill#2", &mut |agent| agent.faulted = true);
+    set("hire#15", &mut |agent| agent.faulted = true);
 }
 
 /// Merges the third hire of the hollow into its lead, and ends a
@@ -389,10 +390,10 @@ fn merge_away(state: &mut protocol::State) {
     };
     for agent in &mut state.agents {
         match agent.name.as_str() {
-            "home#3" => {
+            "hire#12" => {
                 agent.left = Some(left("merged", Some(10), "Merged"));
             }
-            "mill#1" => {
+            "hire#14" => {
                 agent.left = Some(left("ended", None, "Ended"));
             }
             _ => {}

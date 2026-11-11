@@ -31,6 +31,7 @@ use bevy_fynix::{
 use hamlet_client::chats::{self, Entry, Transcript};
 use hamlet_client::messages::Response;
 use hamlet_client::outbox::Outbox;
+use hamlet_client::realm::Kind;
 use hamlet_protocol::client as protocol;
 use hamlet_ui::styles::{
     Fills, LINE, Looks, Tipped, lettered, note, small_rules,
@@ -48,12 +49,33 @@ use crate::convo::Convo;
 /// narrower than this cuts it off.
 const LEAST: f32 = 240.0;
 
-/// What can be said first in a chat nothing has been said in.
-const STARTERS: [&str; 3] = [
-    "What can you help me with?",
-    "What do you remember so far?",
-    "Tell me about yourself.",
+/// What can be said first to the Hand, which sets things up.
+const HAND_STARTERS: &[&str] = &[
+    "What can you do for me here?",
+    "Help me work on a project folder.",
+    "Set up a hamlet for a new project.",
 ];
+
+/// What can be said first to a hire, which works on its hamlet's
+/// folder.
+const HIRE_STARTERS: &[&str] = &[
+    "What are you working on?",
+    "Look through the folder and tell me what you see.",
+    "What do you remember so far?",
+];
+
+/// What can be said first to a worker, which has one task.
+const WORKER_STARTERS: &[&str] =
+    &["How far along are you?", "What have you found so far?"];
+
+/// What can be said first to `agent`, by what it is.
+fn starters(world: &World, agent: Entity) -> &'static [&'static str] {
+    match world.get::<Kind>(agent).map(|kind| kind.0) {
+        Some(protocol::AgentKind::Hand) => HAND_STARTERS,
+        Some(protocol::AgentKind::Worker) => WORKER_STARTERS,
+        _ => HIRE_STARTERS,
+    }
+}
 
 pub(super) fn plugin(app: &mut App) {
     app.init_resource::<Reading>()
@@ -976,26 +998,33 @@ fn quiet() -> impl View {
         derived(|world: &World| {
             let lines = world.resource::<Lines>();
             let convo = world.resource::<Convo>();
+            // No starter is offered while nothing could answer it.
             let own = world
                 .get::<chats::Chat>(convo.session)
-                .is_some_and(|chat| chat.0.from.is_none());
+                .is_some_and(|chat| chat.0.from.is_none())
+                && !super::without_model(world);
             match (
                 lines.rows.is_empty() && !lines.more,
                 lines.cast.first(),
             ) {
-                (true, Some(agent)) => {
-                    vec![(agent.name.clone(), own)]
-                }
+                (true, Some(agent)) => vec![(
+                    agent.name.clone(),
+                    own,
+                    starters(world, convo.agent),
+                )],
                 _ => Vec::new(),
             }
         })
         .when(every_frame()),
-        |shown: &(String, bool)| shown.clone(),
-        |(name, own)| {
-            let (name, own) = (name.clone(), *own);
+        |shown: &(String, bool, &'static [&'static str])| {
+            shown.clone()
+        },
+        |(name, own, starters)| {
+            let (name, own, starters) =
+                (name.clone(), *own, *starters);
             with_cx(move |cx| {
                 let theme = cx.theme();
-                let starters = STARTERS
+                let starters = starters
                     .iter()
                     .filter(|_| own)
                     .map(|said| {
