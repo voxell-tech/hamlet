@@ -70,6 +70,9 @@ pub fn plugin(app: &mut App) {
     app.add_plugins(model::plugin)
         .init_resource::<Open>()
         .init_resource::<Founding>()
+        .init_resource::<founding::FolderAsker>()
+        .init_resource::<founding::Awaited>()
+        .add_observer(founding::chosen)
         .init_resource::<new_scholar::Making>()
         .init_resource::<hire::Hiring>()
         .init_resource::<road::Roading>()
@@ -77,7 +80,10 @@ pub fn plugin(app: &mut App) {
         .init_resource::<deed::Reason>()
         .add_command(submit, &SUBMIT_KEYS)
         .add_observer(ask_of_row)
-        .add_systems(Update, (answer_ask, focus_new_fields));
+        .add_systems(
+            Update,
+            (answer_ask, focus_new_fields, founding::open_founded),
+        );
 }
 
 /// The keys that send a form: the primary key and Enter, and Control

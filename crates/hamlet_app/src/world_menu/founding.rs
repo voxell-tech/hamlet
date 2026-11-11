@@ -1,10 +1,18 @@
-//! The form a hamlet is founded with: its name, and folded under it
-//! its mayor and what it is for, which may be left out.
+//! The form a hamlet is founded with: its name and the folder it
+//! works on, and folded under them its mayor and what it is for,
+//! which may be left out. Once founded, its mayor's chat opens.
 
+use std::path::PathBuf;
+
+use bevy::ecs::entity::Entity;
+use bevy::ecs::observer::On;
 use bevy::ecs::resource::Resource;
-use bevy::ecs::world::World;
+use bevy::ecs::system::Commands;
+use bevy::ecs::world::{FromWorld, World};
 use bevy::math::{Rect, Vec2};
-use bevy::ui::px;
+use bevy::time::Time;
+use bevy::ui::{AlignItems, px};
+use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, column, dropdown, frame, label, popup,
     row,
@@ -12,10 +20,11 @@ use bevy_fynix::views::{
 use bevy_fynix::{
     ScopedExt, ViewExt, derived, every_frame, keyed, resource,
 };
-use hamlet_client::realm::{Deeds, Scholar, scholar_address};
+use hamlet_client::realm::{self, Deeds, Scholar, scholar_address};
+use hamlet_desktop::folder::{ChooseFolder, FolderChosen};
 use hamlet_protocol::client as protocol;
 use hamlet_ui::styles::{
-    ICON, Looks, button, description, lettered, section,
+    ICON, Looks, action, button, description, lettered, section,
 };
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::icons::Glyph;
@@ -23,12 +32,18 @@ use hamlet_ui::{View, built};
 
 use super::{asks, asks_first, close, optional};
 use crate::chat;
+use crate::hub::{Showing, show};
 
-/// The name of a hamlet being founded, the scholar that is its mayor,
-/// and its purpose.
+/// How long a founding is waited for before its folder and chat are
+/// let go, in seconds.
+const WAIT: f64 = 60.0;
+
+/// The name of a hamlet being founded, the folder it works on, the
+/// scholar that is its mayor, and its purpose.
 #[derive(Resource, Default, Clone, PartialEq)]
 pub(crate) struct Founding {
     name: String,
+    folder: Option<PathBuf>,
     /// A blank agent while None.
     mayor: Option<protocol::ScholarId>,
     purpose: String,
@@ -36,18 +51,37 @@ pub(crate) struct Founding {
     more: bool,
 }
 
+/// What the folder dialog of the form answers to.
+#[derive(Resource)]
+pub(crate) struct FolderAsker(Entity);
+
+impl FromWorld for FolderAsker {
+    fn from_world(world: &mut World) -> Self {
+        Self(world.spawn_empty().id())
+    }
+}
+
+/// A hamlet founded from the form and not yet seen: its id, the
+/// folder it is to work on, and when it is let go.
+#[derive(Resource, Default)]
+pub(crate) struct Awaited(Option<(String, Option<PathBuf>, f64)>);
+
 impl Founding {
-    /// The chief's command that founds it. None until its name is
-    /// given.
-    fn command(&self) -> Option<String> {
-        // A hamlet's name is lowercase letters and hyphens.
-        let name = self
-            .name
+    /// The id the hamlet is founded under: its name in lowercase
+    /// letters and hyphens.
+    fn id(&self) -> String {
+        self.name
             .trim()
             .to_lowercase()
             .split_whitespace()
             .collect::<Vec<_>>()
-            .join("-");
+            .join("-")
+    }
+
+    /// The chief's command that founds it. None until its name is
+    /// given.
+    fn command(&self) -> Option<String> {
+        let name = self.id();
         let purpose = self.purpose.trim();
         // A blank mayor is said, so a purpose is never read as one.
         let mayor = self
@@ -122,12 +156,105 @@ pub(super) fn submit(world: &mut World) {
     if !Deeds::is_allowed(world, "found") {
         return;
     }
-    let Some(command) = world.resource::<Founding>().command() else {
+    let founding = world.resource::<Founding>().clone();
+    let Some(command) = founding.command() else {
         return;
     };
     close(world);
     *world.resource_mut::<Founding>() = Founding::default();
+    // A name already taken is refused, and its hamlet left alone.
+    let id = founding.id();
+    if realm::hamlet(world, &id).is_none() {
+        let until = now(world) + WAIT;
+        world.resource_mut::<Awaited>().0 =
+            Some((id, founding.folder, until));
+    }
     chat::command(world, command);
+}
+
+/// The seconds since the window started.
+fn now(world: &World) -> f64 {
+    world
+        .get_resource::<Time>()
+        .map_or(0.0, Time::elapsed_secs_f64)
+}
+
+/// Puts the folder chosen in the form's dialog in the form.
+pub(crate) fn chosen(
+    chosen: On<FolderChosen>,
+    mut commands: Commands,
+) {
+    let FolderChosen { asker, folder } = chosen.event().clone();
+    commands.queue(move |world: &mut World| {
+        if world.resource::<FolderAsker>().0 == asker {
+            world.resource_mut::<Founding>().folder = Some(folder);
+        }
+    });
+}
+
+/// Once the hamlet founded from the form is there, points it at its
+/// folder and opens its mayor's chat.
+pub(crate) fn open_founded(world: &mut World) {
+    let Some((id, _, until)) = &world.resource::<Awaited>().0 else {
+        return;
+    };
+    if now(world) > *until {
+        world.resource_mut::<Awaited>().0 = None;
+        return;
+    }
+    let Some(mayor) = realm::mayor_of(world, id) else {
+        return;
+    };
+    let Some((id, folder, _)) =
+        world.resource_mut::<Awaited>().0.take()
+    else {
+        return;
+    };
+    if let Some(folder) = folder {
+        chat::decree(
+            world,
+            &id,
+            format!("/folder {}", folder.display()),
+        );
+    }
+    crate::convo::seat(world, mayor);
+    show(world, Showing::Thread);
+}
+
+/// The folder the hamlet is to work on, and the way to choose it.
+fn folder() -> impl View {
+    keyed(resource::<Founding, _>(|f| f.folder.clone()), |folder| {
+        let choose = action(
+            Glyph::Folder,
+            match folder {
+                Some(_) => "Choose another",
+                None => "Choose a folder",
+            },
+            |world| {
+                let asker = world.resource::<FolderAsker>().0;
+                world.trigger(ChooseFolder {
+                    asker,
+                    title: "Choose the folder this hamlet works on"
+                        .into(),
+                });
+            },
+        );
+        let chosen = match folder {
+            Some(folder) => label(folder.display().to_string()),
+            None => label("None yet").tone(Tone::Dim),
+        };
+        hamlet_ui::styles::close((
+            section("The folder it works on"),
+            row((
+                choose,
+                row((chosen,)).grow(1.0).min_width(px(0.0)),
+            ))
+            .gap(8.0)
+            .align(AlignItems::Center),
+        ))
+        .boxed()
+    })
+    .within(column(()))
 }
 
 /// The form a hamlet is founded with.
@@ -164,6 +291,7 @@ pub(super) fn founding(at: Vec2) -> impl View {
                     None => "Its name is needed.".to_string(),
                 }
             })),
+            folder(),
             optional::<Founding>(
                 |f| f.more,
                 |f| f.more = !f.more,
@@ -226,6 +354,7 @@ mod tests {
         crate::convo::talk_to(app.world_mut(), scout);
         app.insert_resource(Founding {
             name: "mill".into(),
+            folder: None,
             mayor: Some(protocol::ScholarId(2)),
             purpose: "Grinds flour".into(),
             more: false,
