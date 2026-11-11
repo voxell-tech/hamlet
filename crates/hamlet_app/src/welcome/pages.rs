@@ -395,7 +395,9 @@ fn tile(tile: &Tile, picked: bool) -> AnyView {
             px(space.card_padding_x),
             px(space.card_padding_y),
         ))
-        .radius(space.round_card)
+        // Its corners nest inside the tile's border, so the wash
+        // meets the border all the way round.
+        .radius(space.round_card - space.border)
         .tagged(Wash::new(picked, Edge::Left));
         views::button(words)
             .grow(1.0)
