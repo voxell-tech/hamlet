@@ -182,7 +182,6 @@ async fn edits_limits_one_key_or_whole_and_refuses_misshapen_ones() {
             docs.limits.told_days == 2
                 && docs.limits.budget.cost == Some(3.0)
                 && docs.limits.budget.minutes == Some(10)
-                && docs.limits.task.cost == Some(1.0)
                 && docs.budget.caps.ms == Some(600_000)
         })
         .await;

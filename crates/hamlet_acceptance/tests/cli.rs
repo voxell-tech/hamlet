@@ -227,7 +227,7 @@ async fn edits_limits_in_editor_and_reports_a_refusal() {
         serde_json::from_str::<serde_json::Value>(&good.seen())
             .unwrap();
     assert_eq!(seen["budget"]["period"], "day");
-    assert_eq!(seen["task"]["messages"], 12);
+    assert_eq!(seen["road"]["most"], 24);
     s.chief
         .until("the new cost", |c| {
             c.hamlet("docs").unwrap().limits.budget.cost == Some(8.0)

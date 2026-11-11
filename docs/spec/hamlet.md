@@ -351,9 +351,8 @@ listening.
 **H12.** Every message a chief sends starts a task, and the task follows
 every message and turn it causes, in every agent it reaches. A retry, a
 reflection, a librarian's call, a lead's review, a dream and a worker start a
-task of their own. A task may send at most [12] messages between agents and
-spend at most [$1]. A reply is delivered whatever the count, so a task can
-end.
+task of their own. A task has no caps of its own: what it spends counts
+against its hamlet's budget (H8).
 
 ## Budgets
 
@@ -369,13 +368,11 @@ million tokens on this machine, $1 per million elsewhere. Subscription models
 are charged at catalogue rates even when the chief pays no per-token bill.
 Spending follows the server's local day.
 
-Before every model call the budget and the task's caps are checked, and a
-turn that has run out stops, saying what ran out and who can change it. An
-agent reads what it may spend with `read_budget`: its hamlet's or the realm's
-spend against the budget, its own, its allowance and its task's cap. A
-chief can start the period again from nothing spent, without resetting a
-task's spend. No summary starts once the budget or the task's cap has run
-out.
+Before every model call the budget is checked, and a turn that has run out
+stops, saying what ran out and who can change it. An agent reads what it may
+spend with `read_budget`: its hamlet's or the realm's spend against the
+budget, its own and its allowance. A chief can start the period again from
+nothing spent. No summary starts once the budget has run out.
 
 **H44.** A lead or a chief can give a hire an allowance for the period. Before
 a model call, what the hire and everything under it have spent must be within

@@ -616,14 +616,6 @@ pub(crate) fn hamlet_limits(own: &Limits) -> protocol::Limits {
             most: own.road.most,
             price: own.road.price as f64 / 1_000_000.0,
         },
-        task: protocol::LimitsTask {
-            cost: own
-                .task
-                .cost
-                .map(|micros| micros as f64 / 1_000_000.0),
-            messages: own.task.messages,
-            minutes: own.task.minutes,
-        },
         told_days: own.told_days,
     }
 }

@@ -1,8 +1,6 @@
-//! Spend caps: a model call is not made once a budget, a task's cap
-//! or an allowance is spent. The models are a loopback endpoint that
+//! Spend caps: a model call is not made once a budget or an
+//! allowance is spent. The models are a loopback endpoint that
 //! bills each answer, since the faux model is free.
-
-use std::time::Duration;
 
 use hamlet_acceptance::*;
 use hamlet_protocol::client::*;
@@ -12,20 +10,6 @@ use serde_json::json;
 fn words_of(text: &str) -> Response {
     Response {
         text: text.into(),
-        ..Response::default()
-    }
-}
-
-fn bash(n: u32) -> Response {
-    let arguments =
-        json!({"command": format!("echo {n}")}).to_string();
-    Response {
-        text: String::new(),
-        finish: "tool_calls".into(),
-        calls: vec![json!({
-            "index": 0, "id": format!("call_{n}"), "type": "function",
-            "function": {"name": "bash", "arguments": arguments}
-        })],
         ..Response::default()
     }
 }
@@ -81,30 +65,6 @@ async fn the_realms_budget_stops_the_hand_until_it_starts_again() {
     s.chief.command(hand, "/reset-budget").await;
     s.chief.tell(hand, "Three.").await;
     s.chief.shows(&now, "After the reset.").await;
-}
-
-#[tokio::test]
-async fn a_tasks_cap_stops_a_runaway_chain_of_calls() {
-    let mut endpoint = Endpoint::start().await;
-    endpoint.enqueue([bash(1), bash(2), bash(3), bash(4)]);
-    let mut s = Session::with_endpoint(&endpoint).await;
-    let ada = s.found("docs", "ada", "keep the docs").await;
-    s.chief
-        .limit(
-            Some("docs"),
-            "task",
-            "cost",
-            json!(openai::COST * 1.5),
-        )
-        .await;
-    let now = chat(ada);
-    s.chief.open(&now).await;
-    s.chief.tell(ada, "Keep going until stopped.").await;
-    let notice = last_notice(&mut s.chief, &now, "task").await;
-    assert!(notice.contains("may spend at most"), "{notice}");
-    s.chief.settle(Duration::from_millis(500)).await;
-    // Two calls were made: the second took the task past its cap.
-    assert_eq!(endpoint.completions(2).await.len(), 2);
 }
 
 #[tokio::test]

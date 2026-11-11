@@ -227,7 +227,7 @@ _Avoid_: mail, DM
 
 **Task**:
 A chief's instruction and everything done for it, which carries what it
-spends and its caps.
+spends.
 _Avoid_: job, ticket
 
 **Wait**:

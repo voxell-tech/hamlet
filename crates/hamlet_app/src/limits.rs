@@ -370,7 +370,7 @@ fn switch(
     })
 }
 
-/// The budget of `hamlet` and the caps on one task.
+/// The budget of `hamlet`.
 fn budget(hamlet: Entity) -> impl View {
     let period = control("budget", "period", || {
         keyed(
@@ -435,20 +435,6 @@ fn budget(hamlet: Entity) -> impl View {
         ))
         .tagged(hamlet_ui::widgets::platform::Wraps)
         .boxed(),
-        heading(Glyph::Coins, "One task"),
-        fine(
-            "Counted across every agent the task touches. 0 means \
-             no limit.",
-        ),
-        line(
-            "May cost, in dollars",
-            cost("task", "cost", |l| l.task.cost).boxed(),
-        ),
-        line(
-            "Messages between agents",
-            whole("task", "messages", |l| l.task.messages, 10_000)
-                .boxed(),
-        ),
     ))
 }
 
@@ -724,13 +710,12 @@ impl Part {
         match self {
             Part::Front => String::new(),
             Part::Budget => format!(
-                "{} {}, {} a task",
+                "{} {}",
                 dollars(limits.budget.cost),
                 match limits.budget.period {
                     Period::Day => "a day",
                     Period::Month => "a month",
                 },
-                dollars(limits.task.cost).to_lowercase(),
             ),
             Part::Models => match &limits.model {
                 Some(model) => {
@@ -775,7 +760,7 @@ impl Part {
     fn holds(self) -> &'static str {
         match self {
             Part::Front => "",
-            Part::Budget => "The budget, and the caps on one task.",
+            Part::Budget => "What the hamlet may spend in a period.",
             Part::Models => "Which models this hamlet may run.",
             Part::Leads => {
                 "What the leads may do without asking, and the caps \

@@ -710,9 +710,8 @@ impl Core {
                 .await?
             }
             "read_budget" => {
-                let task = self.task_of(call)?;
                 let db = self.realm.store().connection();
-                Ok(budget(db, agent, task)?)
+                Ok(budget(db, agent)?)
             }
             "read_record" => {
                 let id = HamletId(text(call, "hamlet"));
@@ -1025,12 +1024,10 @@ fn arrived(
 }
 
 /// What `agent` may spend, for `read_budget`: what its hamlet or the
-/// realm spent this period, what it spent, its allowance, and what
-/// `task`, the task its turn works on, spent of its cap.
+/// realm spent this period, what it spent, and its allowance.
 fn budget(
     db: &mut hamlet_store::Db,
     agent: AgentId,
-    task: Option<TaskId>,
 ) -> Result<String> {
     let at = crate::clock::now();
     let payer = crate::talk::tasks::payer_of(db, agent)?;
@@ -1041,23 +1038,14 @@ fn budget(
         "Your spend this period: {}.",
         money(spent.micros)
     ));
-    if let Some(hire) = hires::find(db, agent)? {
-        if let Some(allowance) = hire.allowance {
-            lines.push(format!(
-                "Your allowance, with what everything under you \
-                 spends: {}.",
-                money(allowance)
-            ));
-        }
-        let own = limits::of(db, &hire.hamlet)?;
-        if let (Some(task), Some(cap)) = (task, own.task.cost) {
-            let spent = spend::of_task(db, task)?;
-            lines.push(format!(
-                "This task has spent {} of the {} it may.",
-                money(spent.micros),
-                money(cap)
-            ));
-        }
+    if let Some(allowance) =
+        hires::find(db, agent)?.and_then(|hire| hire.allowance)
+    {
+        lines.push(format!(
+            "Your allowance, with what everything under you spends: \
+             {}.",
+            money(allowance)
+        ));
     }
     Ok(lines.join("\n"))
 }

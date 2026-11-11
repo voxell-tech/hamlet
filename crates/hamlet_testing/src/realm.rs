@@ -49,7 +49,6 @@ pub fn hamlet(id: &str, mayor: u64) -> protocol::Hamlet {
         },
         "limits": {
             "budget": {"period": "day", "cost": 5, "minutes": null},
-            "task": {"messages": 12, "cost": 1, "minutes": null},
             "road": {"price": 0.01, "most": 24, "growsOverDays": 7},
             "reserved": {"hire": false, "roads": false, "end": false, "merge": false},
             "model": null, "toldDays": 7, "protectedMinutes": 0,

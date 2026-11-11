@@ -485,7 +485,6 @@ diesel::table! {
         payer -> Nullable<Text>,
         at -> BigInt,
         text -> Nullable<Text>,
-        messages -> BigInt,
         done_at -> Nullable<BigInt>,
     }
 }

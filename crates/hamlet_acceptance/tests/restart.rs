@@ -83,9 +83,7 @@ async fn the_realm_comes_back_as_it_was_after_a_stop() {
     s.hire(ada, "cy", "dig").await;
     s.chief.command(ada, "/tier 100").await;
     s.chief.command(ada, "/end hire#3 done").await;
-    s.chief
-        .limit(Some("docs"), "task", "messages", json!(5))
-        .await;
+    s.chief.limit(Some("docs"), "road", "most", json!(5)).await;
     s.chief.tell(hand, "Found one.").await;
     s.chief.shows(&now, "Founded.").await;
     s.chief.idle("hand").await;
@@ -112,7 +110,7 @@ async fn the_realm_comes_back_as_it_was_after_a_stop() {
             .map(|h| (&h.id, h.tier, h.mayor))
             .collect::<Vec<_>>()
     );
-    assert_eq!(chief.hamlet("docs").unwrap().limits.task.messages, 5);
+    assert_eq!(chief.hamlet("docs").unwrap().limits.road.most, 5);
     let page = chief.open(&now).await;
     assert_eq!(page.items, items);
     // Ids go on from where they were: nothing is made twice.

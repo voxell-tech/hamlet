@@ -297,7 +297,6 @@ CREATE TABLE task (
     payer TEXT REFERENCES hamlet(id),
     at INTEGER NOT NULL,
     text TEXT,
-    messages INTEGER NOT NULL DEFAULT 0 CHECK (messages >= 0),
     done_at INTEGER
 ) STRICT;
 CREATE INDEX task_agent ON task(agent, at);

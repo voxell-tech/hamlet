@@ -441,7 +441,6 @@ fn server(wire: Value) -> ServerMessage {
 fn limits_wire() -> Value {
     json!({
         "budget": {"period": "day", "cost": 5.0, "minutes": null},
-        "task": {"messages": 12, "cost": 1.0, "minutes": 20},
         "road": {"price": 0.01, "most": 24, "growsOverDays": 7},
         "reserved": {"hire": false, "roads": true, "end": false, "merge": true},
         "model": null, "toldDays": 7, "protectedMinutes": 0,
