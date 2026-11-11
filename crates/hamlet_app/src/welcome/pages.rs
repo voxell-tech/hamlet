@@ -1,16 +1,16 @@
 //! The pages of first-run setup.
 
-use bevy::color::{Alpha, Color, Mix};
+use bevy::color::{Alpha, Mix};
 use bevy::ecs::world::World;
 use bevy::ui::{
     AlignItems, BackgroundGradient, ColorStop, JustifyContent,
-    RadialGradient, RadialGradientShape, UiPosition, UiRect, percent,
-    px,
+    Overflow, RadialGradient, RadialGradientShape, UiPosition,
+    UiRect, percent, px,
 };
-use bevy_fynix::tokens::{Motion, Tone};
+use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
-    self, BehaviorExt, FrameProps, Stack, column, frame, label,
-    overlay, row, text_field,
+    self, BehaviorExt, Frame, FrameProps, Stack, column, frame,
+    label, overlay, row, scroll, text_field,
 };
 use bevy_fynix::{
     ScopedExt, ViewExt, derived, keyed, resource, style,
@@ -25,6 +25,7 @@ use hamlet_ui::styles::{
     text_input,
 };
 use hamlet_ui::theme::{HamletTheme, Palette};
+use hamlet_ui::widgets::edges::faded;
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::hint::hinted;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
@@ -138,13 +139,24 @@ pub(super) fn card(
         let space = &theme.space;
         let line = theme.palette.gold_6;
         let pad = UiRect::all(px(space.overlay_padding));
+        // Only the body scrolls, and only up and down: the name and
+        // the buttons stay, and nothing passes the card's corners.
+        let body = faded(
+            scroll((column((body,))
+                .gap(space.gap)
+                .padding(pad)
+                .width(percent(100.0))
+                .min_width(px(0.0)),))
+            .overflow(Overflow::scroll_y()),
+        );
         column((
             column((named, track(at)))
                 .gap(space.section)
-                .padding(pad),
-            hairline(line),
-            column((body,)).gap(space.gap).padding(pad),
-            hairline(line),
+                .padding(pad)
+                .shrink(0.0),
+            hairline(line).shrink(0.0),
+            body,
+            hairline(line).shrink(0.0),
             // Its buttons stretch to its height, so each stands
             // taller than one in a panel.
             row(foot)
@@ -156,9 +168,12 @@ pub(super) fn card(
                     px(space.overlay_padding),
                     px(space.section),
                 ))
+                .shrink(0.0)
                 .tagged(hamlet_ui::widgets::platform::Wraps),
         ))
         .gap(0.0)
+        // It may be shorter than all it holds, so the body scrolls.
+        .min_height(px(0.0))
     })
     .boxed()
 }
@@ -320,39 +335,32 @@ const FOOT: f32 = 36.0;
 /// The side of the disc that checks the picked tile.
 const CHECKED: f32 = 20.0;
 
-/// How a provider's tile stands: a shade above the card in a faint
-/// frame, ringed in the accent and washed toward the glow while it
-/// is `picked`. The frame keeps its width, so a tile keeps its size.
+/// How a provider's tile stands over a default button's look: a
+/// card's corner and room, and while it is `picked`, ringed in the
+/// accent, washed toward the glow and its words lit. The frame keeps
+/// its width, so a tile keeps its size.
 fn tile_rules(picked: bool) -> impl FnOnce(&mut Cx) + Send + Sync {
     move |cx| {
-        style::<HamletTheme>()
-            .frame(move |f, t| {
+        let mut rules = style::<HamletTheme>().frame(move |f, t| {
+            f.radius(t.space.round_card).padding(UiRect::axes(
+                px(t.space.card_padding_x),
+                px(t.space.card_padding_y),
+            ))
+        });
+        if picked {
+            let lit = |f: Frame, t: &HamletTheme| {
                 let palette = &t.palette;
-                f.fill(if picked {
-                    palette.button.mix(&palette.glow, PICKED_WASH)
-                } else {
-                    palette.button
-                })
-                .border(t.space.border)
-                .border_color(if picked {
-                    palette.accent
-                } else {
-                    palette.gold_6
-                })
-                .radius(t.space.round_card)
-                .padding(UiRect::axes(
-                    px(t.space.card_padding_x),
-                    px(t.space.card_padding_y),
-                ))
-            })
-            .hovered(|s| {
-                s.frame(move |f, t| match picked {
-                    true => f,
-                    false => f.fill(t.palette.button_hover),
-                })
-            })
-            .transition(Motion::Interact)
-            .apply(cx);
+                f.fill(palette.button.mix(&palette.glow, PICKED_WASH))
+                    .border_color(palette.accent)
+            };
+            rules = rules
+                .frame(lit)
+                .label(|l, _| l.tone(Tone::Body))
+                .icon(|i, _| i.tone(Tone::Body))
+                .hovered(|s| s.frame(lit))
+                .pressed(|s| s.frame(lit));
+        }
+        rules.apply(cx);
     }
 }
 
@@ -396,6 +404,7 @@ fn tile(tile: &Tile, picked: bool) -> AnyView {
             .width(px(0.0))
             .min_width(px(0.0))
             .min_height(px(TILE_TALL))
+            .variant(Variant::Default)
             .rules(tile_rules(picked))
             .tagged(lit)
             .on_activate(move |world| {
@@ -810,14 +819,9 @@ pub fn view() -> impl View {
 fn screen() -> AnyView {
     keyed(
         resource::<Welcome, _>(|welcome| {
-            (
-                welcome.open,
-                welcome.step,
-                welcome.adding,
-                welcome.connection.clone(),
-            )
+            (welcome.open, welcome.step, welcome.connection.clone())
         }),
-        |(open, step, adding, connection)| {
+        |(open, step, connection)| {
             let page = if let Some(words) = connection {
                 let words = words.clone();
                 with_cx(move |cx| {
@@ -852,27 +856,18 @@ fn screen() -> AnyView {
                     Step::Models => models(),
                 }
             };
-            // Adding a provider over an open desk dims the desk;
-            // first run and the server question have no desk to
-            // show.
-            let dims = *adding && connection.is_none();
-            with_cx(move |cx| over(cx, page, dims)).boxed()
+            with_cx(move |cx| over(cx, page)).boxed()
         },
     )
     .within(overlay(()))
     .boxed()
 }
 
-/// How strong the warmth at the middle of the first-run ground is.
-const WARMTH: f32 = 0.12;
+/// How much of what is behind the card its veil hides: the realm on
+/// first run, a desk while a provider is added.
+const VEIL: f32 = 0.7;
 
-/// How much of the realm the first-run veil hides.
-const VEIL: f32 = 0.6;
-
-/// How much of the desk a dimming scrim hides.
-const DIM: f32 = 0.85;
-
-/// How strong the lamp at the foot of a card over a dimmed desk is.
+/// How strong the lamp at the foot of the card is.
 const LAMP: f32 = 0.16;
 
 /// Lamplight rising from the foot of a card, as it rises from a
@@ -896,62 +891,30 @@ fn lamp(palette: &Palette) -> BackgroundGradient {
     ))
 }
 
-/// The card over its ground: the window's own colour, opaque, or with
-/// `dims` the desk behind it, dimmed.
-fn over(cx: &Cx, page: AnyView, dims: bool) -> impl View + use<> {
+/// The card, lit from its foot, over a veil on whatever is behind.
+fn over(cx: &Cx, page: AnyView) -> impl View + use<> {
     let theme = cx.theme();
     let space = &theme.space;
-    // First run veils the realm thinly, so it shows around the card;
-    // a desk behind is dimmed further, as its words would compete.
-    let scrim = theme.palette.shadow.with_alpha(if dims {
-        DIM
-    } else {
-        VEIL
-    });
-    // The page pads its own parts, so its rules run edge to edge.
-    let card =
-        kinds::card((scroll_area((column((page,)).gap(0.0),)),))
-            .width(percent(100.0))
-            .max_height(percent(100.0))
-            .padding(UiRect::all(px(0.0)))
-            .gap(0.0)
-            .tagged(theme.shadow())
-            .tagged(match dims {
-                true => lamp(&theme.palette),
-                false => BackgroundGradient(Vec::new()),
-            })
-            .rules(rules::floating);
+    // The page pads its own parts, so its rules run edge to edge,
+    // and scrolls its own body.
+    let card = kinds::card((page,))
+        .width(percent(100.0))
+        .max_height(percent(100.0))
+        .padding(UiRect::all(px(0.0)))
+        .gap(0.0)
+        .tagged(theme.shadow())
+        .tagged(lamp(&theme.palette))
+        .rules(rules::floating);
     let hung = column((card,))
         .width(percent(100.0))
         .max_width(px(space.overlay_width))
         .max_height(percent(100.0))
         .gap(0.0);
-    // First run pools a lamp's warmth behind the card, fading out at
-    // its edges. Dimmed, the card carries its own lamp instead.
-    let palette = &theme.palette;
-    let ground = match dims {
-        true => BackgroundGradient(Vec::new()),
-        false => BackgroundGradient::from(RadialGradient::new(
-            UiPosition::CENTER,
-            RadialGradientShape::Ellipse(
-                percent(60.0),
-                percent(70.0),
-            ),
-            vec![
-                ColorStop::new(
-                    palette.glow.with_alpha(WARMTH),
-                    percent(0.0),
-                ),
-                ColorStop::new(Color::NONE, percent(100.0)),
-            ],
-        )),
-    };
     row((hung,))
         .width(percent(100.0))
         .height(percent(100.0))
         .padding(UiRect::all(px(space.panel)))
         .align(AlignItems::Center)
         .justify(JustifyContent::Center)
-        .fill(scrim)
-        .tagged(ground)
+        .fill(theme.palette.shadow.with_alpha(VEIL))
 }

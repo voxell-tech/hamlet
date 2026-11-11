@@ -23,10 +23,11 @@ use hamlet_client::realm::{Providers, Settings};
 use hamlet_protocol::client as protocol;
 use hamlet_ui::AnyView;
 use hamlet_ui::styles::{
-    ICON, Looks, Refused, bare, close, good_action, group, marked,
-    note, parts, small_rules, text_input,
+    Fills, ICON, Looks, Refused, bare, close, good_action, group,
+    lettered, marked, note, parts, small_rules, text_input,
 };
 use hamlet_ui::widgets::effects::Variant;
+use hamlet_ui::widgets::ellipsis::one_line;
 use hamlet_ui::widgets::hint::hinted;
 use hamlet_ui::widgets::icons::Glyph;
 
@@ -778,6 +779,40 @@ pub(super) fn hold_send(
     }
 }
 
+/// A sign-in address on one line, cut where it runs past the card,
+/// with the ways to open it again and to copy it.
+fn address(url: &str) -> AnyView {
+    let (opened, copied) = (url.to_string(), url.to_string());
+    let open = is_browsable(url).then(|| {
+        marked(Glyph::Globe, "Open")
+            .variant(Variant::Default)
+            .on_activate(move |world| {
+                let browse = world.resource::<Browser>().0;
+                browse(world, &opened);
+            })
+            .boxed()
+    });
+    let copy = lettered("Copy")
+        .variant(Variant::Default)
+        .on_activate(move |world| {
+            if let Some(mut clipboard) =
+                world.get_resource_mut::<bevy::clipboard::Clipboard>()
+                && let Err(e) = clipboard.set_text(copied.clone())
+            {
+                bevy::log::warn!("could not copy the address: {e:?}");
+            }
+        })
+        .boxed();
+    let mut parts = vec![
+        row((one_line(label(url.to_string()).tone(Tone::Faint)),))
+            .fills_width()
+            .boxed(),
+    ];
+    parts.extend(open);
+    parts.push(copy);
+    row(parts).gap(8.0).align(AlignItems::Center).boxed()
+}
+
 pub(super) fn sign_in_page() -> AnyView {
     let steps = keyed(
         resource::<Login, _>(|login| {
@@ -791,9 +826,11 @@ pub(super) fn sign_in_page() -> AnyView {
         |(urls, instructions, code, progress)| {
             let mut rows = urls
                 .iter()
-                .chain(instructions)
-                .map(|text| said(text.clone()))
+                .map(|url| address(url))
                 .collect::<Vec<_>>();
+            rows.extend(
+                instructions.iter().map(|text| said(text.clone())),
+            );
             if let Some(code) = code {
                 rows.push(label(code.clone()).bold(true).boxed());
             }
