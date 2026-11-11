@@ -222,9 +222,7 @@ fn walked(cast: &mut Cast) -> Vec<protocol::ClientMessage> {
 
 #[test]
 fn four_files_dropped_together_send_one_manifest_with_four_roots() {
-    use hamlet_client::realm::{
-        AgentNumber, Deeds, Identity, LivesIn,
-    };
+    use hamlet_client::realm::{Deeds, Hire, Identity, LivesIn};
     let dir = hamlet_testing::Scratch::new("hand-four-files");
     let mut cast = Cast::new(1);
     let runtime = tokio::runtime::Runtime::new().unwrap();
@@ -234,7 +232,7 @@ fn four_files_dropped_together_send_one_manifest_with_four_roots() {
         cast.app.world_mut().spawn(HamletId("home".into())).id();
     cast.app.world_mut().entity_mut(cast.agents[0]).insert((
         Identity(protocol::AgentId(2)),
-        AgentNumber(0),
+        Hire,
         Name::new("founder"),
         LivesIn(hamlet),
     ));

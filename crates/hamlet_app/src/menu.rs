@@ -16,8 +16,7 @@ use bevy::ui::{
 };
 use bevy::window::Window;
 use bevy_fynix::shortcut::{
-    Chord, CommandId, CommandSpec, GLOBAL, Mods, Scope,
-    ShortcutAppExt,
+    Chord, CommandId, CommandSpec, GLOBAL, Scope, ShortcutAppExt,
 };
 use bevy_fynix::tokens::{Motion, Tone};
 use bevy_fynix::views::{
@@ -30,6 +29,7 @@ use hamlet_ui::styles::{ICON, hairline, transparent};
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::effects::Underglow;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
+use hamlet_ui::widgets::keys::Keys;
 use hamlet_ui::widgets::platform::DisplayText;
 use hamlet_ui::{AnyView, Cx, View, with_cx};
 
@@ -38,16 +38,10 @@ use crate::dock::show_tab;
 use crate::window;
 
 /// The key that brings Settings forward.
-const SETTINGS: Chord = Chord {
-    key: KeyCode::Comma,
-    mods: Mods::PRIMARY,
-};
+const SETTINGS: Chord = Keys::new(KeyCode::Comma).primary().chord();
 
 /// The key that closes the window.
-const CLOSE: Chord = Chord {
-    key: KeyCode::KeyQ,
-    mods: Mods::PRIMARY,
-};
+const CLOSE: Chord = Keys::new(KeyCode::KeyQ).primary().chord();
 
 pub fn plugin(app: &mut App) {
     let command = |id, label, run| CommandSpec {
@@ -251,16 +245,16 @@ fn item(
     act: fn(&mut World),
 ) -> AnyView {
     with_cx(move |cx| {
-        // A comma reads as its own mark, not its key's name.
-        let keys = keys.map_or_else(String::new, |keys| {
-            keys.to_string().replace("Comma", ",")
-        });
+        let keys = match keys {
+            Some(keys) => Keys::from(keys).view().boxed(),
+            None => frame().boxed(),
+        };
         menu_item(
             row((
                 glyph(which, ICON).tone(Tone::Faint),
                 label(name).wrap(false),
                 frame().grow(1.0).min_width(px(16.0)),
-                label(keys).tone(Tone::Faint).wrap(false),
+                keys,
             ))
             .gap(cx.theme().space.menu_gap)
             .align(AlignItems::Center)
@@ -300,7 +294,7 @@ fn items(menu: Menu, found: bool) -> Vec<AnyView> {
             if found {
                 items.push(item(
                     Glyph::Hamlet,
-                    "Found a Hamlet...",
+                    "Create a Hamlet...",
                     None,
                     crate::world_menu::ask_found,
                 ));
@@ -331,7 +325,8 @@ pub fn open_menu() -> impl View {
             (
                 world.resource::<OpenMenu>().0,
                 hamlet_client::realm::Deeds::is_allowed(
-                    world, "found",
+                    world,
+                    "create-hamlet",
                 ),
             )
         })
@@ -377,15 +372,15 @@ mod tests {
         assert!(shown.contains("Close window"), "{shown}");
         assert!(!shown.contains("Run in Background"));
         assert!(!shown.contains("Quit Hamlet"));
-        assert!(!shown.contains("Found a Hamlet..."));
+        assert!(!shown.contains("Create a Hamlet..."));
         app.insert_resource(hamlet_client::realm::Deeds(vec![
-            "found".into(),
+            "create-hamlet".into(),
         ]));
         app.update();
         assert!(
             crate::testing::words(&mut app)
                 .iter()
-                .any(|text| text == "Found a Hamlet...")
+                .any(|text| text == "Create a Hamlet...")
         );
         crate::testing::press(&mut app, "Close window");
         assert!(app.world_mut().resource_mut::<bevy::ecs::message::Messages<bevy::app::AppExit>>().drain().any(|exit| exit == bevy::app::AppExit::Success));

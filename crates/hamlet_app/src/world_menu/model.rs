@@ -27,8 +27,8 @@ use bevy::ui_widgets::popover::{
     PopoverAlign, PopoverPlacement, PopoverSide,
 };
 use bevy_fynix::shortcut::{
-    Chord, CommandId, CommandSpec, Invoke, Layer, Mods, Scope,
-    ScopeId, ScopeSpec, ShortcutAppExt,
+    CommandId, CommandSpec, Invoke, Layer, Scope, ScopeId, ScopeSpec,
+    ShortcutAppExt,
 };
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
@@ -50,6 +50,7 @@ use hamlet_ui::styles::{
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::ellipsis::one_line;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
+use hamlet_ui::widgets::keys::Keys;
 use hamlet_ui::widgets::switch::labelled_switch;
 use hamlet_ui::{AnyView, Cx, View, kinds, with_cx};
 use serde::{Deserialize, Serialize};
@@ -105,10 +106,7 @@ pub(super) fn plugin(app: &mut App) {
                 enabled: |_| true,
                 repeat: false,
             },
-            &[Chord {
-                key,
-                mods: Mods::PRIMARY,
-            }],
+            &[Keys::new(key).primary().chord()],
         );
     }
     for (id, label, key, run) in STEPS {
@@ -121,7 +119,7 @@ pub(super) fn plugin(app: &mut App) {
                 enabled: |_| true,
                 repeat: false,
             },
-            &[Chord::key(key)],
+            &[Keys::new(key).chord()],
         );
     }
 }
@@ -808,9 +806,9 @@ fn star(name: String, at: Option<usize>) -> AnyView {
     } else {
         glyph(Glyph::Star, ICON).tone(Tone::Dim).opacity(0.5)
     };
-    let said = match at.and_then(chord) {
-        Some(chord) => {
-            format!("Take off the favourites. {chord} picks it.")
+    let said = match at.and_then(picks) {
+        Some(keys) => {
+            format!("Take off the favourites. {keys} picks it.")
         }
         None if starred => "Take off the favourites".to_string(),
         None => "Add to the favourites".to_string(),
@@ -832,24 +830,17 @@ fn star(name: String, at: Option<usize>) -> AnyView {
 }
 
 /// The keys that pick the favourite at `at`.
-fn chord(at: usize) -> Option<Chord> {
+fn picks(at: usize) -> Option<Keys> {
     let (_, _, key, _) = PICKED_BY_DIGIT.get(at)?;
-    Some(Chord {
-        key: *key,
-        mods: Mods::PRIMARY,
-    })
+    Some(Keys::new(*key).primary())
 }
 
-/// The key that picks the favourite at `at`, as a small cap.
+/// The keys that pick the favourite at `at`, as a small cap.
 fn key_cap(at: usize) -> AnyView {
-    let Some(chord) = chord(at) else {
-        return frame().boxed();
-    };
-    kinds::chip((label(chord.to_string())
-        .tone(Tone::Faint)
-        .wrap(false)
-        .rules(small_rules),))
-    .boxed()
+    match picks(at) {
+        Some(keys) => kinds::chip((keys.view(),)).boxed(),
+        None => frame().boxed(),
+    }
 }
 
 /// What a list with no models in it says, and what to do about it.
@@ -1343,7 +1334,7 @@ mod tests {
         assert_eq!(levels.as_deref(), Some("lantern::wren-large"));
     }
 
-    /// The popup of `home#0`'s model open over a catalogue of two
+    /// The popup of `hire#2`'s model open over a catalogue of two
     /// models, and her.
     fn picking() -> (App, Entity) {
         let mut app = panel_app();
@@ -1367,7 +1358,7 @@ mod tests {
             listed("lantern::wren-large"),
             listed("lantern::wren-mini"),
         ];
-        let ada = realm::named(app.world_mut(), "home#0").unwrap();
+        let ada = realm::named(app.world_mut(), "hire#2").unwrap();
         // The chip it hangs from, laid out.
         app.world_mut().spawn((
             Hook::Chip,
@@ -1407,8 +1398,8 @@ mod tests {
         assert_eq!(
             said,
             [
-                "/model home#0 lantern::wren-large",
-                "/effort home#0 high"
+                "/model hire#2 lantern::wren-large",
+                "/effort hire#2 high"
             ]
         );
     }
@@ -1435,6 +1426,6 @@ mod tests {
                 _ => None,
             })
             .collect::<Vec<_>>();
-        assert_eq!(said, ["/model home#0 lantern::wren-large"]);
+        assert_eq!(said, ["/model hire#2 lantern::wren-large"]);
     }
 }

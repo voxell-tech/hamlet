@@ -91,7 +91,7 @@ pub(crate) fn of(
             Workplace {
                 caller: Caller::Hire,
                 place: Place {
-                    lodge: layout.lodge(&hire.hamlet, hire.number),
+                    lodge: layout.lodge(&hire.hamlet, hire.agent),
                     folder,
                     realm: layout.root().to_owned(),
                     shared,
@@ -109,7 +109,7 @@ pub(crate) fn of(
                     AgentKind::Hire => {
                         let hire = hires::get(db, starter)?;
                         shared.push(
-                            layout.lodge(&hire.hamlet, hire.number),
+                            layout.lodge(&hire.hamlet, hire.agent),
                         );
                         hamlet = hamlet.or(Some(hire.hamlet));
                     }

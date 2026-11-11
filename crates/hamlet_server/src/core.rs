@@ -527,6 +527,7 @@ impl Core {
         for index in 0..self.runtimes.list.len() {
             sync::flush(
                 self.realm.store().connection(),
+                &self.env,
                 &mut self.runtimes,
                 index,
                 again,
@@ -666,6 +667,7 @@ impl Core {
                             .await;
                         sync::flush(
                             self.realm.store().connection(),
+                            &self.env,
                             &mut self.runtimes,
                             index,
                             true,

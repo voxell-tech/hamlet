@@ -14,7 +14,7 @@ use super::folder::Folder;
 use super::run::{check_out, commit};
 use super::{CHARACTER, branch, lodging};
 use crate::layout::Layout;
-use crate::society::{hires, merges};
+use crate::society::{addresses, merges};
 
 /// The mark of a merge that only moved the kept branch forward, kept
 /// as `moved:<from>..<to>`.
@@ -36,13 +36,15 @@ pub(super) fn merge(
     commit(db, layout, found.kept, at)?;
     let kept = lodging(db, layout, found.kept)?;
     let absorbed = lodging(db, layout, found.absorbed)?;
-    let absorbed_hire = hires::get(db, found.absorbed)?;
-    let from =
-        format!("{}-{}", absorbed_hire.hamlet, absorbed_hire.number);
+    // What it took in is put aside under a name a path can hold.
+    let from = format!("hire-{}", found.absorbed);
     let name = Actor::Realm.to_string();
     let author = Author { name: &name, at };
-    let message =
-        format!("Took in what {from} learned: {}", found.reason);
+    let message = format!(
+        "Took in what {} learned: {}",
+        addresses::address_of(db, found.absorbed)?,
+        found.reason
+    );
     let repo = Repository::open(&layout.repository(kept.scholar))?;
     let kept_branch = branch(found.kept);
     let ours = repo

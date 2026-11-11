@@ -876,7 +876,7 @@ fn peer_inputs_keep_their_author_and_never_become_chief_inputs() {
     app.update();
     let page = serde_json::json!({
         "type": "transcript", "chat": reference(), "items": [
-            {"id":"1:0", "at":1, "kind":"user", "text":"Check this", "author":"mill#0 (scout)"},
+            {"id":"1:0", "at":1, "kind":"user", "text":"Check this", "author":"hire#4 (scout)"},
             {"id":"2:0", "at":2, "kind":"user", "text":"My instruction", "chief":"chief"}
         ], "earlier": null, "last": null, "working":false, "pending":0,
         "usage":{"input":0,"output":0,"cached":0,"calls":0,"lastInput":0,"reasoning":0,"unreported":0,"summary":"", "micros":0,"ms":0}
@@ -886,7 +886,7 @@ fn peer_inputs_keep_their_author_and_never_become_chief_inputs() {
     assert_eq!(
         items[0].entry,
         Entry::Agent {
-            name: "mill#0 (scout)".into(),
+            name: "hire#4 (scout)".into(),
             text: "Check this".into()
         }
     );

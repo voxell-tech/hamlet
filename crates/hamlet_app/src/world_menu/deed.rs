@@ -3,9 +3,10 @@
 
 use bevy::ecs::entity::Entity;
 use bevy::ecs::query::{With, Without};
+use bevy::ecs::resource::Resource;
 use bevy::ecs::world::World;
 use bevy::math::Rect;
-use bevy::ui::px;
+use bevy::ui::{AlignItems, px};
 use bevy::ui_widgets::popover::{
     PopoverAlign, PopoverPlacement, PopoverSide,
 };
@@ -17,7 +18,7 @@ use bevy_fynix::views::{
 use bevy_fynix::{ScopedExt, ViewExt};
 use hamlet_client::messages::Rewind;
 use hamlet_client::realm::{
-    self as agents, AgentNumber, Busy, Deeds, HamletId, Left, LivesIn,
+    self as agents, Busy, Deeds, HamletId, Hire, Left, LivesIn,
 };
 use hamlet_realm::orders;
 use hamlet_ui::styles::{Looks, button, lettered};
@@ -63,28 +64,48 @@ pub(crate) enum Deed {
     MoveLodges,
 }
 
+/// The reason typed under a question, which may be left out, and
+/// whether its field is shown.
+#[derive(Resource, Default, Clone, PartialEq)]
+pub(crate) struct Reason {
+    text: String,
+    more: bool,
+}
+
+/// Closes the question and does `deed`, as its first button does.
+pub(super) fn answer(world: &mut World, deed: &Deed) {
+    close(world);
+    deed.run(world);
+}
+
 impl Deed {
     /// Gives the chief's command that does it to the hamlet it is
-    /// about.
+    /// about, with the reason typed under its question, if any.
     pub(crate) fn run(&self, world: &mut World) {
         if !self.is_available(world) {
             return;
         }
+        let reason = world
+            .get_resource_mut::<Reason>()
+            .map(|mut reason| std::mem::take(&mut *reason).text)
+            .unwrap_or_default();
+        let reason = reason.trim();
         let name = |agent: Entity| agents::name_of(world, agent);
+        // A command with the reason after it, when one was given.
+        let with = |command: String| {
+            format!("{command} {reason}").trim_end().to_string()
+        };
         match self {
             Deed::End(agent) => {
-                let text = format!(
-                    "/end {} ended by the chief",
-                    name(*agent)
-                );
+                let text = with(format!("/end {}", name(*agent)));
                 orders::decree(world, *agent, text);
             }
             Deed::Merge { absorbed, kept } => {
-                let text = format!(
+                let text = with(format!(
                     "/merge {} into {}",
                     name(*absorbed),
                     name(*kept)
-                );
+                ));
                 orders::decree(world, *kept, text);
             }
             Deed::Erase(agent) => {
@@ -92,19 +113,15 @@ impl Deed {
                 orders::decree(world, *agent, text);
             }
             Deed::Mayor(agent) => {
-                let text = format!(
-                    "/mayor {} chosen by the chief",
-                    name(*agent)
-                );
+                let text = with(format!("/mayor {}", name(*agent)));
                 orders::decree(world, *agent, text);
             }
             // The hamlets and the library are the realm's, and the
             // open conversation is the open chat's.
-            Deed::Close(hamlet) => chat::decree(
-                world,
-                hamlet,
-                format!("/remove-hamlet {hamlet}"),
-            ),
+            Deed::Close(hamlet) => {
+                let text = with(format!("/remove-hamlet {hamlet}"));
+                chat::decree(world, hamlet, text);
+            }
             Deed::Unshelve(skill) => {
                 chat::command(world, format!("/unshelve {skill}"));
             }
@@ -123,6 +140,18 @@ impl Deed {
                 world.flush();
             }
         }
+    }
+
+    /// Whether the record keeps a reason for it, which the chief may
+    /// give.
+    fn takes_reason(&self) -> bool {
+        matches!(
+            self,
+            Deed::End(_)
+                | Deed::Merge { .. }
+                | Deed::Mayor(_)
+                | Deed::Close(_)
+        )
     }
 
     fn is_available(&self, world: &World) -> bool {
@@ -270,7 +299,7 @@ impl Deed {
             Deed::Close(hamlet) => {
                 let mut living =
                     world.query_filtered::<(Entity, &LivesIn), (
-                        With<AgentNumber>,
+                        With<Hire>,
                         With<Busy>,
                         Without<Left>,
                     )>();
@@ -322,20 +351,40 @@ pub(crate) fn question(deed: Deed, anchor: Rect) -> impl View {
                 theme.text.heading,
             )
         };
+        let reason = if deed.takes_reason() {
+            super::optional::<Reason>(
+                |r| r.more,
+                |r| r.more = !r.more,
+                || {
+                    hamlet_ui::styles::close((
+                        hamlet_ui::styles::section("Why"),
+                        super::field::<Reason>(
+                            |r| &r.text,
+                            |r, text| r.text = text,
+                        )
+                        .tagged(super::TakesFocus),
+                    ))
+                    .boxed()
+                },
+            )
+            .boxed()
+        } else {
+            frame().boxed()
+        };
         let body = column((
             label(deed.question(cx.world)).size(heading).bold(true),
             label(deed.outcome(cx.world)).wrap(true),
             warning,
+            reason,
             row((
-                lettered(deed.verb()).variant(variant).on_activate(
-                    move |world| {
-                        close(world);
-                        done.run(world);
-                    },
-                ),
+                lettered(deed.verb())
+                    .variant(variant)
+                    .on_activate(move |world| answer(world, &done)),
                 lettered("Cancel").rules(button).on_activate(close),
+                super::send_keys(),
             ))
-            .gap(gap),
+            .gap(gap)
+            .align(AlignItems::Center),
         ))
         .gap(section)
         .width(px(300.0));
@@ -385,10 +434,10 @@ mod tests {
         state.hamlets.push(hamlet_testing::realm::hamlet("mill", 4));
         state
             .agents
-            .push(hamlet_testing::realm::agent(4, "mill", 0));
+            .push(hamlet_testing::realm::agent(4, "mill", true));
         state
             .agents
-            .push(hamlet_testing::realm::agent(5, "mill", 1));
+            .push(hamlet_testing::realm::agent(5, "mill", false));
         hamlet_client::receive(
             app.world_mut(),
             protocol::ServerMessage::State(state),
@@ -399,7 +448,7 @@ mod tests {
             .drain()
             .for_each(drop);
         let carder =
-            agents::named(app.world_mut(), "mill#1").unwrap();
+            agents::named(app.world_mut(), "hire#5").unwrap();
         Deed::End(carder).run(app.world_mut());
         app.world_mut().flush();
         let sent = app
@@ -411,6 +460,6 @@ mod tests {
             panic!("one command: {sent:?}");
         };
         assert_eq!(say.to, protocol::AgentId(4));
-        assert_eq!(say.text, "/end mill#1 ended by the chief");
+        assert_eq!(say.text, "/end hire#5");
     }
 }

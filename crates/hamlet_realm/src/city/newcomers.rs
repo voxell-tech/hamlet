@@ -42,8 +42,10 @@ pub(super) fn wait(
     let mut waiting = scholars
         .iter()
         .filter(|(_, scholar)| {
-            scholar.0.arrival != Arrival::Housed
-                && scholar.0.left.is_none()
+            matches!(
+                scholar.0.arrival,
+                Arrival::Waiting | Arrival::Turned
+            ) && scholar.0.left.is_none()
         })
         .map(|(entity, scholar)| (scholar.0.id.0, entity))
         .collect::<Vec<_>>();

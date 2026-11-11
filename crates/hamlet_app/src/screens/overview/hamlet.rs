@@ -3,33 +3,22 @@
 
 use std::f32::consts::TAU;
 
-use bevy::app::{App, Update};
 use bevy::color::Color;
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
-use bevy::ecs::event::EntityEvent;
-use bevy::ecs::hierarchy::{ChildOf, Children};
-use bevy::ecs::observer::On;
-use bevy::ecs::query::{Added, With};
+use bevy::ecs::hierarchy::Children;
+use bevy::ecs::query::With;
 use bevy::ecs::resource::Resource;
-use bevy::ecs::schedule::IntoScheduleConfigs;
-use bevy::ecs::schedule::common_conditions::resource_exists;
-use bevy::ecs::system::{Query, Res, ResMut};
 use bevy::ecs::world::World;
-use bevy::input::ButtonInput;
-use bevy::input::keyboard::KeyCode;
-use bevy::input_focus::{FocusCause, InputFocus};
-use bevy::picking::events::PointerClick;
-use bevy::picking::pointer::PointerButton;
 use bevy::text::EditableText;
 use bevy::ui::{
     AlignItems, AngularColorStop, BorderGradient, ConicGradient,
-    PositionType, UiPosition, UiRect, Val, px,
+    JustifyContent, PositionType, UiPosition, UiRect, Val, px,
 };
 use bevy_fynix::tokens::{Motion, SurfaceTokens, Tone};
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, TooltipExt, button, column, dropdown,
-    frame, label, row, text_field,
+    self, BehaviorExt, FrameProps, TooltipExt, button, column,
+    dropdown, frame, label, row,
 };
 use bevy_fynix::{
     ScopedExt, ViewExt, derived, every_frame, keyed, resource, style,
@@ -38,139 +27,26 @@ use hamlet_client::realm::{Deeds, Works};
 use hamlet_realm::orders::Decree;
 use hamlet_realm::pick::{Thing, select};
 use hamlet_ui::styles::{
-    Fills, ICON, LINE, action, bare, buttons, crumb, crumb_here,
-    crumb_slash, crumbs, group, more_button, note, note_rules,
-    raised, reference, scroll_area, status_icon, text_input,
-    transparent,
+    Fills, ICON, LINE, action, bare, buttons, crumb, crumb_slash,
+    crumbs, group, more_button, note, note_rules, raised, reference,
+    scroll_area, status_icon, transparent,
 };
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::ellipsis::one_line;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::widgets::platform::Wraps;
+use hamlet_ui::widgets::rainbow::rainbow_bar;
 use hamlet_ui::widgets::tabs::{self, Spread};
 use hamlet_ui::{AnyView, Cx, View, with_cx};
 
 use super::heading;
 use super::record::record_of;
-use super::rows::{AgentRow, agent_rows, hamlet_rows, stale};
+use super::rows::{AgentRow, Meter, agent_rows, hamlet_rows, stale};
 use crate::convo::talk_to;
-use crate::dock::{HUB, show_tab};
 use crate::forms::{self, Asking};
 use crate::roll::{either, moved};
-use crate::world_menu;
-
-/// The field a hamlet's new name is typed in.
-#[derive(Component)]
-pub(crate) struct NameField;
-
-/// The name of `.0` at the end of its path, which a double click
-/// renames.
-#[derive(Component)]
-struct NameCrumb(Entity);
-
-/// The narrowest the field a hamlet's new name is typed in is.
-const NAME_FIELD: f32 = 160.0;
-
-/// The hamlet that is being given a new name, if one is.
-#[derive(Resource, Default, PartialEq)]
-pub struct Naming(pub(super) Option<Entity>);
-
-pub(super) fn plugin(app: &mut App) {
-    app.init_resource::<Naming>()
-        .add_observer(rename_twice_clicked)
-        .add_systems(
-            Update,
-            (focus_name, end_naming)
-                .chain()
-                // Only with a keyboard and its focus, which a
-                // headless window has neither of.
-                .run_if(resource_exists::<ButtonInput<KeyCode>>)
-                .run_if(resource_exists::<InputFocus>),
-        );
-}
-
-/// Renames the hamlet whose name is clicked twice at the end of its
-/// path.
-fn rename_twice_clicked(
-    click: On<PointerClick>,
-    crumbs: Query<&NameCrumb>,
-    deeds: Option<Res<Deeds>>,
-    mut naming: ResMut<Naming>,
-) {
-    let Ok(crumb) = crumbs.get(click.event_target()) else {
-        return;
-    };
-    let allowed =
-        deeds.is_some_and(|deeds| deeds.is_supported("name-hamlet"));
-    if allowed
-        && click.button == PointerButton::Primary
-        && click.count == 2
-    {
-        naming.0 = Some(crumb.0);
-    }
-}
-
-/// Puts the keyboard in a new name field.
-fn focus_name(
-    fields: Query<&Children, Added<NameField>>,
-    texts: Query<(), With<EditableText>>,
-    mut focus: ResMut<InputFocus>,
-) {
-    for children in &fields {
-        if let Some(&text) =
-            children.iter().find(|&&kid| texts.contains(kid))
-        {
-            focus.set(text, FocusCause::Navigated);
-        }
-    }
-}
-
-/// Whether the keyboard is in a name field, as it is when Enter
-/// commits one: a press elsewhere takes it out first.
-fn in_name_field(world: &World) -> bool {
-    world
-        .get_resource::<InputFocus>()
-        .and_then(InputFocus::get)
-        .and_then(|input| world.get::<ChildOf>(input))
-        .is_some_and(|parent| {
-            world.get::<NameField>(parent.parent()).is_some()
-        })
-}
-
-/// Leaves the name being typed on Escape, or once the keyboard is
-/// elsewhere.
-fn end_naming(
-    keys: Res<ButtonInput<KeyCode>>,
-    focus: Res<InputFocus>,
-    fields: Query<Entity, With<NameField>>,
-    parents: Query<&ChildOf>,
-    mut naming: ResMut<Naming>,
-) {
-    if naming.0.is_none() {
-        return;
-    }
-    let Ok(field) = fields.single() else {
-        return;
-    };
-    let inside = focus.get().is_some_and(|input| {
-        input == field
-            || parents
-                .iter_ancestors(input)
-                .any(|above| above == field)
-    });
-    if keys.just_pressed(KeyCode::Escape) || !inside {
-        naming.0 = None;
-    }
-}
-
-/// Brings the Hub to the front at the page of `hamlet`, with the
-/// field its new name is typed in.
-pub(crate) fn rename(world: &mut World, hamlet: Entity) {
-    crate::hub::show(world, crate::hub::Showing::Hamlet(hamlet));
-    show_tab(world, HUB);
-    world.resource_mut::<Naming>().0 = Some(hamlet);
-}
+use crate::{words, world_menu};
 
 /// The words typed in the field under a root marked `M`.
 pub(crate) fn typed<M: Component>(world: &mut World) -> String {
@@ -184,43 +60,6 @@ pub(crate) fn typed<M: Component>(world: &mut World) -> String {
         .find_map(|child| world.get::<EditableText>(child))
         .map(|text| text.value().to_string())
         .unwrap_or_default()
-}
-
-/// The name `title` at the end of the path to `hamlet`, or, while it
-/// is renamed, the field its new name is typed in: Enter keeps it,
-/// Escape or a press elsewhere drops it.
-fn naming(hamlet: Entity, id: String, title: String) -> AnyView {
-    keyed(
-        resource::<Naming, _>(move |n| n.0 == Some(hamlet)),
-        move |open| {
-            if !*open {
-                return crumb_here(title.clone())
-                    .tagged(NameCrumb(hamlet))
-                    .boxed();
-            }
-            let id = id.clone();
-            text_field(title.clone(), move |world, name| {
-                if !in_name_field(world) {
-                    return;
-                }
-                world.resource_mut::<Naming>().0 = None;
-                let name = name.trim();
-                if !name.is_empty() {
-                    decree(
-                        world,
-                        &id,
-                        format!("/name-hamlet {id} {name}"),
-                    );
-                }
-            })
-            .min_width(px(NAME_FIELD))
-            .rules(text_input)
-            .tagged(NameField)
-            .boxed()
-        },
-    )
-    .within(bare())
-    .boxed()
 }
 
 /// Gives the chief's command `text` to the hamlet `id`.
@@ -296,14 +135,14 @@ fn worker_form(hamlet: Entity, id: String) -> AnyView {
 pub enum Page {
     #[default]
     Agents,
-    Bylaws,
-    Record,
+    Limits,
+    History,
 }
 
 const PAGES: [(Page, Glyph, &str); 3] = [
     (Page::Agents, Glyph::Robot, "Agents"),
-    (Page::Bylaws, Glyph::Book, "Bylaws"),
-    (Page::Record, Glyph::History, "Record"),
+    (Page::Limits, Glyph::Book, "Limits"),
+    (Page::History, Glyph::History, "History"),
 ];
 
 /// Everyone in `hamlet`, each pressed to talk to, its hires a step
@@ -473,8 +312,10 @@ fn person(row_of: &AgentRow, branch: Branch) -> AnyView {
     };
     let kind = if row_of.mayor {
         Glyph::Mayor
-    } else {
+    } else if row_of.worker {
         Glyph::Robot
+    } else {
+        Glyph::Hire
     };
     let standing = row_of.standing;
     let (name, under, account, depth) = (
@@ -564,15 +405,22 @@ const NEAR_CAP: f32 = 0.8;
 /// The least of its circle that spending shows.
 const MIN_SHOWN: f32 = 0.06;
 
+/// The width of the bar of a budget with no limit.
+const UNLIMITED: f32 = 28.0;
+
 /// What the hamlet spent of its budget: when it has a cap, a ring
 /// with nothing inside, drawn clockwise from the top as far as
 /// `spent` says, in the accent while the budget is fine, yellow near
-/// the cap and red at it, then the words.
-pub(super) fn budget(words: String, spent: Option<f32>) -> AnyView {
+/// the cap and red at it; with no limit, a bar of running hues; then
+/// the words.
+pub(super) fn budget(words: String, spent: Option<Meter>) -> AnyView {
     with_cx(move |cx| {
         let palette = &cx.theme().palette;
         let mut parts = Vec::new();
-        if let Some(spent) = spent {
+        if spent == Some(Meter::Unlimited) {
+            parts.push(rainbow_bar(UNLIMITED, RING + 2.0).boxed());
+        }
+        if let Some(Meter::Share(spent)) = spent {
             let fill = if spent >= 1.0 {
                 palette.status.danger.solid
             } else if spent >= NEAR_CAP {
@@ -626,7 +474,6 @@ pub fn hamlet(hamlet: Entity) -> impl View {
                 let has = |deed| Deeds::is_allowed(world, deed);
                 (
                     facts,
-                    has("name-hamlet"),
                     has("move-hamlet"),
                     has("remove-hamlet"),
                     (has("hire"), has("worker"), has("tier")),
@@ -635,13 +482,8 @@ pub fn hamlet(hamlet: Entity) -> impl View {
     })
     .when(either(stale(), moved::<Deeds>()));
     let head = keyed(facts, move |facts| {
-        let Some((
-            facts,
-            rename,
-            carry,
-            close,
-            (hires, workers, tier),
-        )) = facts
+        let Some((facts, carry, close, (hires, workers, tier))) =
+            facts
         else {
             return column(()).boxed();
         };
@@ -673,11 +515,20 @@ pub fn hamlet(hamlet: Entity) -> impl View {
                 },
             ));
         }
-        // Everything else done to it, as a right click on its common
-        // in the world offers: renaming, moving, closing it down.
-        if *rename || *carry || *close {
+        // Taken up here, it is set down in the world.
+        if *carry {
+            actions.push(action(
+                Glyph::Move,
+                "Move it",
+                move |world| {
+                    hamlet_realm::orders::carry(world, hamlet);
+                },
+            ));
+        }
+        // Its menu, as a right click on it opens.
+        if *hires || *close {
             actions.push(more_button(
-                "Rename, move or close it down",
+                "Hire or close it down",
                 move |world| {
                     world_menu::open_for(
                         world,
@@ -696,39 +547,29 @@ pub fn hamlet(hamlet: Entity) -> impl View {
             })
             .boxed(),
             crumb_slash().boxed(),
-            naming(hamlet, facts.id.clone(), facts.title.clone()),
+            crate::naming::name_crumb(hamlet, facts.title.clone()),
         ]);
-        let called = facts.title != facts.id;
-        let rename = *rename;
-        let path = if !called && !rename {
-            path.boxed()
-        } else {
-            let id = facts.id.clone();
-            path.tooltip(move || {
-                let mut says = Vec::new();
-                if called {
-                    says.push(
-                        row((
-                            note("Commands call it"),
-                            reference(id.clone()),
-                        ))
-                        .gap(4.0)
-                        .align(AlignItems::Center)
-                        .boxed(),
-                    );
-                }
-                if rename {
-                    says.push(
-                        note("Double-click its name to rename it.")
-                            .boxed(),
-                    );
-                }
-                column(says).gap(4.0)
+        let id = facts.id.clone();
+        let path = path
+            .tooltip(move || {
+                row((note("Commands call it"), reference(id.clone())))
+                    .gap(4.0)
+                    .align(AlignItems::Center)
             })
-            .boxed()
-        };
-        let mut top =
-            vec![path, budget(facts.account.clone(), facts.spent)];
+            .boxed();
+        // The meter is pressed to change the budget it shows.
+        let spending =
+            button(budget(facts.account.clone(), facts.spent))
+                .padding(UiRect::all(px(0.0)))
+                .justify(JustifyContent::FlexStart)
+                .rules(views::tint)
+                .tooltip(|| note("Change the budget"))
+                .on_activate(|world| {
+                    *world.resource_mut::<Page>() = Page::Limits;
+                    *world.resource_mut::<crate::limits::Part>() =
+                        crate::limits::Part::Budget;
+                });
+        let mut top = vec![path, spending.boxed()];
         // The forms open only from these buttons, so without them
         // nothing stands under the account.
         if !actions.is_empty() {
@@ -746,15 +587,20 @@ pub fn hamlet(hamlet: Entity) -> impl View {
         group(top).boxed()
     })
     .within(bare());
-    let pages = tabs::strip(&PAGES, Spread::Shared, |world, page| {
-        *world.resource_mut::<Page>() = page;
-    });
+    let pages = tabs::tipped_strip(
+        &PAGES,
+        &[words::AGENTS, words::LIMITS, words::HISTORY],
+        Spread::Shared,
+        |world, page| {
+            *world.resource_mut::<Page>() = page;
+        },
+    );
     let page =
         keyed(resource::<Page, _>(|page| *page), move |page| {
             match page {
                 Page::Agents => list_of(hamlet).boxed(),
-                Page::Bylaws => crate::limits::panel(hamlet),
-                Page::Record => record_of(hamlet).boxed(),
+                Page::Limits => crate::limits::panel(hamlet),
+                Page::History => record_of(hamlet).boxed(),
             }
         })
         .within(bare());

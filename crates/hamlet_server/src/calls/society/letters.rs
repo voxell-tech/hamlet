@@ -138,9 +138,6 @@ impl Core {
                 ),
             })));
         }
-        let here = self.hamlet_of(sender)?;
-        let db = self.realm.store().connection();
-        let most = super::limits_of(db, here.as_ref())?.task.messages;
         let task = self.task_of(call)?;
         let (runtime, key) =
             (call.call.runtime.clone(), call.call.key.clone());
@@ -157,14 +154,6 @@ impl Core {
                         None,
                     )?,
                 };
-                if !tasks::count_message(cx.db, task, most)? {
-                    return Ok(Err(Refusal::Usage {
-                        words: format!(
-                            "This task has sent its {most} \
-                             messages; finish with what you have."
-                        ),
-                    }));
-                }
                 Ok(Ok(letters::send(
                     cx,
                     env,

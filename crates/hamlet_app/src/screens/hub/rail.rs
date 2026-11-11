@@ -58,6 +58,8 @@ use crate::age::Age;
 use crate::convo::{Convo, talk_to, talk_to_hand};
 use crate::standing::{Standing, need_you};
 use crate::status::now_ms;
+use crate::words;
+use crate::world_menu::Asks;
 
 /// The width of the rail at first, the least it is dragged to, so a
 /// row keeps its name, and the most.
@@ -82,6 +84,19 @@ const TITLE_SHOWN: usize = 56;
 /// to press as one of two.
 const ROW: f32 = 32.0;
 
+/// The height of a worker's row and the side of its icon, smaller
+/// than a hire's, so the hires stand out of their workers.
+const WORKER_ROW: f32 = 26.0;
+const WORKER_ICON: f32 = 12.0;
+
+/// How opaque the icon of one that left is.
+const DIMMED: f32 = 0.6;
+
+/// The least height of `line`'s row.
+fn row_height(line: &Line) -> f32 {
+    if line.worker { WORKER_ROW } else { ROW }
+}
+
 /// The column at the rail's edge that holds every chevron.
 const CHEVRON: f32 = 14.0;
 
@@ -93,7 +108,7 @@ const STEP_IN: f32 = 18.0;
 const DEEPEST: u8 = 6;
 
 /// The room between an elbow's end and the row it leads to.
-const GAP: f32 = 2.0;
+const GAP: f32 = 4.0;
 
 /// The room inside a row's ends, and over and under its words.
 const ROW_INSET: f32 = 8.0;
@@ -126,6 +141,8 @@ pub struct Rail {
     /// The parts folded to their header. A hamlet with something
     /// waiting opens whatever this says.
     folded: Vec<Group>,
+    /// The groups of workers opened; each is folded until it is.
+    opened: Vec<Group>,
     /// How wide the chief dragged it.
     width: f32,
     /// The hamlets left out of it; one with something waiting is
@@ -152,6 +169,7 @@ impl Default for Rail {
         Self {
             search: String::new(),
             folded: Vec::new(),
+            opened: Vec::new(),
             width: WIDE,
             hidden: Vec::new(),
             filtering: false,
@@ -167,11 +185,16 @@ impl Rail {
 
     /// Folds `group` to its header, or opens it.
     fn toggle(&mut self, group: Group) {
-        match self.folded.iter().position(|g| *g == group) {
+        // Workers are kept in what is opened, as they start folded.
+        let kept = match group {
+            Group::Workers(_) => &mut self.opened,
+            _ => &mut self.folded,
+        };
+        match kept.iter().position(|g| *g == group) {
             Some(at) => {
-                self.folded.remove(at);
+                kept.remove(at);
             }
-            None => self.folded.push(group),
+            None => kept.push(group),
         }
     }
 }
@@ -300,6 +323,9 @@ pub(super) enum Group {
     Hamlet(Entity),
     /// The hires under a lead, which fold into its row.
     Lead(Entity),
+    /// The workers an agent started, or those a chief started in a
+    /// hamlet, which fold into one row.
+    Workers(Entity),
     City,
     /// Newcomers waiting to be let in, and those turned away.
     Harbor,
@@ -316,6 +342,24 @@ pub(super) enum Target {
     Scholar(Entity),
     Library,
     Gone(Entity),
+    /// The group it is folded or opened.
+    Fold(Group),
+}
+
+impl Target {
+    /// The thing whose menu a right click on its row opens, as in the
+    /// world.
+    fn thing(self) -> Option<Thing> {
+        match self {
+            Target::Hand => Some(Thing::Hand),
+            Target::Agent(agent) => Some(Thing::Agent(agent)),
+            Target::Hamlet(hamlet) => Some(Thing::Common(hamlet)),
+            Target::Scholar(scholar) => Some(Thing::Scholar(scholar)),
+            Target::Library => Some(Thing::Library),
+            Target::Gone(agent) => Some(Thing::Ruin(agent)),
+            Target::Realm | Target::Fold(_) => None,
+        }
+    }
 }
 
 /// A row of the rail.
@@ -343,6 +387,10 @@ pub(super) struct Line {
     /// For a lead: the fold of the rows under it, and whether it is
     /// folded.
     pub fold: Option<(Group, bool)>,
+    /// Whether it is a worker's, or the row its group folds into:
+    /// one short line, lighter than a hire's, so the hires stand out
+    /// of their workers.
+    pub worker: bool,
 }
 
 /// A group, its header and its rows.
@@ -511,37 +559,56 @@ fn agents(world: &World) -> Vec<Agent> {
         .collect()
 }
 
+/// A place in a tree: an agent, or the workers one started, which
+/// fold into a row of their own under the hires beside them.
+enum Node<'a> {
+    Agent(&'a Agent),
+    Workers {
+        group: Group,
+        workers: Vec<&'a Agent>,
+    },
+}
+
+impl Agent {
+    fn is_worker(&self) -> bool {
+        self.kind == protocol::AgentKind::Worker
+    }
+}
+
 /// `root` and everyone under it among `all`, each with its depth
-/// below `root`: hires before workers, each kind by name.
+/// below `root`: hires by name, then the workers each agent started
+/// in a group under it.
 fn tree<'a>(
     root: &'a Agent,
     all: &[&'a Agent],
-) -> Vec<(&'a Agent, u8)> {
+) -> Vec<(Node<'a>, u8)> {
     fn walk<'a>(
         agent: &'a Agent,
         all: &[&'a Agent],
         depth: u8,
         seen: &mut Vec<protocol::AgentId>,
-        out: &mut Vec<(&'a Agent, u8)>,
+        out: &mut Vec<(Node<'a>, u8)>,
     ) {
         if seen.contains(&agent.id) {
             return;
         }
         seen.push(agent.id);
-        out.push((agent, depth));
+        out.push((Node::Agent(agent), depth));
         let mut under = all
             .iter()
             .copied()
             .filter(|other| other.parent == Some(agent.id))
             .collect::<Vec<_>>();
-        under.sort_by_key(|other| {
-            (
-                other.kind == protocol::AgentKind::Worker,
-                other.called.to_lowercase(),
-            )
-        });
-        for child in under {
-            walk(child, all, depth.saturating_add(1), seen, out);
+        under.sort_by_key(|other| other.called.to_lowercase());
+        let (workers, hires): (Vec<_>, Vec<_>) =
+            under.into_iter().partition(|other| other.is_worker());
+        let depth = depth.saturating_add(1);
+        for child in hires {
+            walk(child, all, depth, seen, out);
+        }
+        if !workers.is_empty() {
+            let group = Group::Workers(agent.entity);
+            out.push((Node::Workers { group, workers }, depth));
         }
     }
     let mut out = Vec::new();
@@ -551,23 +618,56 @@ fn tree<'a>(
 
 /// The rows of `family`, each set in as deep as it is in the tree,
 /// knowing whether it is the last under the agent above it and which
-/// guides above it carry on past it.
-fn family_lines(world: &World, family: &[(&Agent, u8)]) -> Vec<Line> {
+/// guides above it carry on past it. A group of workers is one row,
+/// with a row for each of them under it while `open` says it is.
+fn family_lines(
+    world: &World,
+    family: &[(Node<'_>, u8)],
+    open: &dyn Fn(Group) -> bool,
+) -> Vec<Line> {
+    // Each row with the depth it has in the tree.
+    let mut rows = Vec::<(Line, u8)>::new();
+    for (node, depth) in family {
+        let depth = *depth;
+        match node {
+            Node::Agent(agent) => {
+                let line = agent_line(world, agent, depth, false);
+                rows.push((line, depth));
+            }
+            Node::Workers { group, workers } => {
+                let shown = open(*group);
+                rows.push((
+                    workers_line(*group, workers, shown, depth),
+                    depth,
+                ));
+                if shown {
+                    let under = depth.saturating_add(1);
+                    for worker in workers {
+                        let line =
+                            agent_line(world, worker, under, false);
+                        rows.push((line, under));
+                    }
+                }
+            }
+        }
+    }
+    let depths =
+        rows.iter().map(|(_, depth)| *depth).collect::<Vec<_>>();
     // Whether the agent last seen at each depth has more after it.
     let mut more = Vec::<bool>::new();
-    family
-        .iter()
+    rows.into_iter()
         .enumerate()
-        .map(|(at, (member, depth))| {
-            let last = family.get(at + 1..).is_none_or(|after| {
+        .map(|(at, (mut line, depth))| {
+            let last = depths.get(at + 1..).is_none_or(|after| {
                 after
                     .iter()
-                    .take_while(|(_, d)| d >= depth)
-                    .all(|(_, d)| d > depth)
+                    .take_while(|d| **d >= depth)
+                    .all(|d| *d > depth)
             });
-            let depth = (*depth).min(DEEPEST);
+            let depth = depth.min(DEEPEST);
             let level = usize::from(depth);
-            let mut line = agent_line(world, member, depth, last);
+            line.depth = depth;
+            line.last = last;
             // The guides of the levels between the top and its own.
             line.rails =
                 more.get(1..level).unwrap_or_default().to_vec();
@@ -578,13 +678,47 @@ fn family_lines(world: &World, family: &[(&Agent, u8)]) -> Vec<Line> {
         .collect()
 }
 
+/// The row a group of `workers` folds into: how many there are, and
+/// while it is folded the most pressing of their marks.
+fn workers_line(
+    group: Group,
+    workers: &[&Agent],
+    open: bool,
+    depth: u8,
+) -> Line {
+    let count = workers.len();
+    Line {
+        target: Target::Fold(group),
+        glyph: Glyph::Worker,
+        name: match count {
+            1 => "1 worker".into(),
+            n => format!("{n} workers"),
+        },
+        title: String::new(),
+        since: 0,
+        mark: (!open).then(|| {
+            Standing::of_all(workers.iter().filter_map(|w| w.mark))
+        }),
+        address: workers
+            .iter()
+            .map(|worker| worker.address.as_str())
+            .collect::<Vec<_>>()
+            .join(" "),
+        depth,
+        last: true,
+        rails: Vec::new(),
+        current: false,
+        fold: Some((group, !open)),
+        worker: true,
+    }
+}
+
 fn kind_glyph(agent: &Agent) -> Glyph {
     match agent.kind {
         protocol::AgentKind::Hand => Glyph::Tower,
         protocol::AgentKind::Hire if agent.mayor => Glyph::Mayor,
-        protocol::AgentKind::Hire | protocol::AgentKind::Worker => {
-            Glyph::Robot
-        }
+        protocol::AgentKind::Hire => Glyph::Hire,
+        protocol::AgentKind::Worker => Glyph::Worker,
     }
 }
 
@@ -643,6 +777,7 @@ fn agent_line(
         rails: Vec::new(),
         current: is_current(world, target),
         fold: None,
+        worker: agent.kind == protocol::AgentKind::Worker,
     }
 }
 
@@ -720,6 +855,7 @@ fn page_line(
         rails: Vec::new(),
         current: is_current(world, target),
         fold: None,
+        worker: false,
     }
 }
 
@@ -768,6 +904,7 @@ fn needs(world: &World, all: &[Agent]) -> (Vec<Line>, usize) {
                 rails: Vec::new(),
                 current: false,
                 fold: None,
+                worker: false,
             });
             counts.push(1);
             continue;
@@ -813,6 +950,8 @@ fn needs(world: &World, all: &[Agent]) -> (Vec<Line>, usize) {
             rails: Vec::new(),
             current: false,
             fold: None,
+            // What waits is never set lighter.
+            worker: false,
         });
         counts.push(1);
     }
@@ -888,6 +1027,9 @@ fn society(world: &World, sections: &mut Vec<Section>) {
                 (None, protocol::Arrival::Housed) => {
                     (format!("In {}", hamlets.join(", ")), None)
                 }
+                // A blank hire's is not of the city: the hire is in
+                // its hamlet's tree.
+                (None, protocol::Arrival::Apart) => continue,
             };
             let line = page_line(
                 world,
@@ -898,6 +1040,7 @@ fn society(world: &World, sections: &mut Vec<Section>) {
                 mark,
             );
             match (&scholar.left, scholar.arrival) {
+                (Some(_), protocol::Arrival::Apart) => {}
                 (Some(_), _) => gone.push(line),
                 (None, protocol::Arrival::Housed) => city.push(line),
                 (None, _) => harbor.push(line),
@@ -943,7 +1086,7 @@ fn society(world: &World, sections: &mut Vec<Section>) {
             let mut line = page_line(
                 world,
                 Target::Gone(entity),
-                Glyph::Robot,
+                Glyph::Hire,
                 &shown_of(world, entity),
                 match into {
                     Some(host) => {
@@ -980,17 +1123,21 @@ fn society(world: &World, sections: &mut Vec<Section>) {
 /// The rail's rows in their groups. A group with no row is left out;
 /// while searching every group is open and keeps only what matches.
 pub(super) fn sections(world: &World) -> Vec<Section> {
-    let (search, folded, hidden) =
+    let (search, folded, opened, hidden) =
         world.get_resource::<Rail>().map_or_else(
-            || (String::new(), Vec::new(), Vec::new()),
+            || (String::new(), Vec::new(), Vec::new(), Vec::new()),
             |rail| {
                 (
                     rail.search.trim().to_lowercase(),
                     rail.folded.clone(),
+                    rail.opened.clone(),
                     rail.hidden.clone(),
                 )
             },
         );
+    // Workers are folded until opened, but a search finds them.
+    let open =
+        |group: Group| !search.is_empty() || opened.contains(&group);
     let tab =
         world.get_resource::<Tab>().copied().unwrap_or_default();
     let all = agents(world);
@@ -1019,7 +1166,7 @@ pub(super) fn sections(world: &World) -> Vec<Section> {
             .iter()
             .filter(|agent| agent.hamlet.is_none())
             .collect::<Vec<_>>();
-        top.extend(family_lines(world, &tree(hand, &outside)));
+        top.extend(family_lines(world, &tree(hand, &outside), &open));
     }
     // The library is the realm's, beside the Hand.
     let shelf =
@@ -1076,10 +1223,25 @@ pub(super) fn sections(world: &World) -> Vec<Section> {
         roots.sort_by_key(|agent| {
             (!agent.mayor, agent.called.clone())
         });
-        let mut lines = Vec::new();
+        // The workers a chief started in the hamlet answer to no one
+        // in it, and fold into one row after its tree.
+        let (chiefs, roots): (Vec<_>, Vec<_>) =
+            roots.into_iter().partition(|agent| agent.is_worker());
+        let mut family = Vec::new();
         for root in roots {
-            lines.extend(family_lines(world, &tree(root, &here)));
+            family.extend(tree(root, &here));
         }
+        if !chiefs.is_empty() {
+            let group = Group::Workers(hamlet);
+            family.push((
+                Node::Workers {
+                    group,
+                    workers: chiefs,
+                },
+                0,
+            ));
+        }
+        let mut lines = family_lines(world, &family, &open);
         let group = Group::Hamlet(hamlet);
         let mark = Some(Standing::of_all(
             lines.iter().filter_map(|line| line.mark),
@@ -1133,7 +1295,8 @@ pub(super) fn sections(world: &World) -> Vec<Section> {
             Group::Top
             | Group::Needs
             | Group::Left
-            | Group::Lead(_) => true,
+            | Group::Lead(_)
+            | Group::Workers(_) => true,
             Group::Hamlet(hamlet) => {
                 tab == Tab::Hamlets
                     && (!hidden.contains(&hamlet)
@@ -1216,7 +1379,7 @@ fn search_row() -> impl View {
         ),
         on(
             Tab::Hamlets,
-            tool(Glyph::Plus, "Found a hamlet", |w| {
+            tool(Glyph::Plus, "Create a hamlet", |w| {
                 crate::world_menu::ask_found(w);
             }),
         ),
@@ -1288,9 +1451,14 @@ fn filter_list() -> impl View {
 fn tabs_and_search() -> impl View {
     with_cx(|cx| {
         column((
-            tabs::strip(&TABS, Spread::Shared, |world, tab| {
-                *world.resource_mut::<Tab>() = tab;
-            }),
+            tabs::tipped_strip(
+                &TABS,
+                &[words::HAMLET, words::CITY],
+                Spread::Shared,
+                |world, tab| {
+                    *world.resource_mut::<Tab>() = tab;
+                },
+            ),
             search_row(),
             filter_list(),
         ))
@@ -1327,6 +1495,9 @@ fn go(world: &mut World, target: Target) {
             look_at(world, Thing::Library);
         }
         Target::Gone(agent) => show(world, Showing::Gone(agent)),
+        Target::Fold(group) => {
+            world.resource_mut::<Rail>().toggle(group);
+        }
     }
 }
 
@@ -1388,7 +1559,11 @@ fn mark_icon(mark: Option<Standing>) -> AnyView {
 fn chevron(group: Group, shut: bool, says: &'static str) -> AnyView {
     button(
         glyph(Glyph::Chevron, 10.0)
-            .tone(Tone::Faint)
+            .tone(if group == Group::Left {
+                Tone::Dim
+            } else {
+                Tone::Faint
+            })
             .rotation(if shut { 90.0 } else { 180.0 }),
     )
     .width(px(CHEVRON))
@@ -1404,25 +1579,55 @@ fn chevron(group: Group, shut: bool, says: &'static str) -> AnyView {
 
 /// A row: its icon, then its name with how long ago and its mark at
 /// the end, over what it is doing, which runs the row's whole width
-/// and wraps rather than being cut.
-fn expanded(line: &Line) -> AnyView {
-    let (target, since) = (line.target, line.since);
+/// and wraps rather than being cut. A worker's row is one short line
+/// with what it is doing beside its name, cut at the rail's edge.
+/// A `dimmed` row, of those that left, is set in grey.
+fn expanded(line: &Line, dimmed: bool) -> AnyView {
+    let (target, since, worker) =
+        (line.target, line.since, line.worker);
     let name_tone = if line.current {
         Tone::Accent
+    } else if dimmed || worker {
+        Tone::Dim
     } else {
         Tone::Body
     };
     let title = cut(&line.title, TITLE_SHOWN);
+    let clipped = |shown: AnyView| {
+        column((shown,))
+            .min_width(px(0.0))
+            .overflow(Overflow::clip())
+    };
+    let name = clipped(
+        one_line(
+            label(line.name.clone())
+                .tone(name_tone)
+                .bold(!(worker || dimmed)),
+        )
+        .boxed(),
+    );
+    let words = if worker {
+        row((
+            name,
+            clipped(one_line(label(title.clone())).boxed())
+                .grow(1.0)
+                .rules(note_rules),
+        ))
+        .gap(6.0)
+        .align(AlignItems::Center)
+        .grow(1.0)
+        .min_width(px(0.0))
+        .boxed()
+    } else {
+        name.grow(1.0).boxed()
+    };
     // The icon on the middle of the name's line.
     let head = row((
-        glyph(line.glyph, ICON).tone(Tone::Dim),
+        glyph(line.glyph, if worker { WORKER_ICON } else { ICON })
+            .tone(Tone::Dim)
+            .opacity(if dimmed { DIMMED } else { 1.0 }),
         row((
-            column((one_line(
-                label(line.name.clone()).tone(name_tone).bold(true),
-            ),))
-            .grow(1.0)
-            .min_width(px(0.0))
-            .overflow(Overflow::clip()),
+            words,
             label(
                 derived(move |_: &World| age(now_ms(), since))
                     .when(every_frame()),
@@ -1436,7 +1641,7 @@ fn expanded(line: &Line) -> AnyView {
         .grow(1.0)
         .min_width(px(0.0)),
     ))
-    .gap(8.0)
+    .gap(if worker { 6.0 } else { 8.0 })
     .align(AlignItems::Center);
     // Under it, from the row's own edge rather than the name's, what
     // it is doing. A row with nothing more to say is one line.
@@ -1446,7 +1651,7 @@ fn expanded(line: &Line) -> AnyView {
         label(title.clone()).boxed()
     },))
     .min_width(px(0.0))
-    .display(if title.is_empty() {
+    .display(if title.is_empty() || worker {
         Display::None
     } else {
         Display::Flex
@@ -1455,23 +1660,24 @@ fn expanded(line: &Line) -> AnyView {
     let content = column((head, doing))
         .gap(0.0)
         .justify(JustifyContent::Center)
-        .min_height(px(ROW - 2.0 * ROW_DOWN))
+        .min_height(px(row_height(line) - 2.0 * ROW_DOWN))
         .width(percent(100.0));
     let address = line.address.clone();
-    let shown = washed(
-        button(content)
-            .grow(1.0)
-            .min_width(px(0.0))
-            .rules(row_rules)
-            .tagged(Variant::Default)
-            .on_activate(move |world| go(world, target)),
-        line.current,
-    )
-    .boxed();
-    let shown = if address.is_empty() || address == line.name {
-        shown.boxed()
-    } else {
-        shown.tooltip(move || note(address.clone())).boxed()
+    let pressed = button(content)
+        .grow(1.0)
+        .min_width(px(0.0))
+        .rules(row_rules)
+        .tagged(Variant::Default)
+        .on_activate(move |world| go(world, target));
+    // The right button opens its menu, as on the thing in the world.
+    let pressed = match target.thing() {
+        Some(thing) => pressed.tagged(Asks(thing)).boxed(),
+        None => pressed.boxed(),
+    };
+    let shown = washed(pressed, line.current).boxed();
+    let shown = match tip_of(line, address) {
+        Some(tip) => shown.tooltip(move || note(tip.clone())).boxed(),
+        None => shown.boxed(),
     };
     // The chevron of a lead, outside the row's press so that folding
     // does not open the thread, then the step in of a row under one.
@@ -1479,10 +1685,11 @@ fn expanded(line: &Line) -> AnyView {
         Some((group, shut)) => chevron(
             group,
             shut,
-            if shut {
-                "Show the hires under it"
-            } else {
-                "Fold the hires under it"
+            match (group, shut) {
+                (Group::Workers(_), true) => "Show the workers",
+                (Group::Workers(_), false) => "Fold the workers",
+                (_, true) => "Show the hires under it",
+                (_, false) => "Fold the hires under it",
             },
         ),
         None => frame().width(px(CHEVRON)).shrink(0.0).boxed(),
@@ -1491,7 +1698,7 @@ fn expanded(line: &Line) -> AnyView {
         .width(px(f32::from(line.depth) * STEP_IN))
         .shrink(0.0);
     let mut parts = vec![step.boxed(), fold, shown];
-    parts.extend(tree_lines(line, title.is_empty()));
+    parts.extend(tree_lines(line, title.is_empty() || worker));
     row(parts)
         .gap(0.0)
         .align(AlignItems::Center)
@@ -1517,7 +1724,7 @@ fn tree_lines(line: &Line, one_line: bool) -> Vec<AnyView> {
     // Where the elbow meets the row, and where it stops.
     let elbow = ROW_DOWN
         + if one_line {
-            (ROW - 2.0 * ROW_DOWN) / 2.0
+            (row_height(line) - 2.0 * ROW_DOWN) / 2.0
         } else {
             2.0 + ICON / 2.0
         };
@@ -1553,11 +1760,12 @@ fn tree_lines(line: &Line, one_line: bool) -> Vec<AnyView> {
         .map(|(level, _)| over(guide(level), 0.0, 1.0, None))
         .collect::<Vec<_>>();
     // The elbow from its lead, stopping short of its own chevron, or
-    // of its icon where it has no chevron.
+    // of the row's edge where it has no chevron, so it never runs
+    // into the row.
     let start = f32::from(line.depth) * STEP_IN;
     let end = match line.fold {
         Some(_) => start - GAP,
-        None => start + CHEVRON + ROW_INSET - GAP,
+        None => start + CHEVRON - GAP,
     };
     let x = guide(lead);
     lines.push(over(x, 0.0, 1.0, Some(elbow + 1.0)));
@@ -1566,6 +1774,47 @@ fn tree_lines(line: &Line, one_line: bool) -> Vec<AnyView> {
         lines.push(over(x, elbow, 1.0, None));
     }
     lines
+}
+
+/// What a group's header names, in plain words.
+fn group_meaning(group: Group) -> Option<&'static str> {
+    match group {
+        Group::Needs => Some(words::NEEDS),
+        Group::Hamlet(_) => Some(words::HAMLET),
+        Group::City => Some(words::CITY),
+        Group::Harbor => Some(words::HARBOR),
+        Group::Left => Some(words::LEFT),
+        Group::Top | Group::Lead(_) | Group::Workers(_) => None,
+    }
+}
+
+/// What a row's tooltip says: the address it goes by, where that is
+/// not its name, over what it is in plain words.
+fn tip_of(line: &Line, address: String) -> Option<String> {
+    let meaning = match line.target {
+        Target::Realm => Some(words::REALM),
+        Target::Library => Some(words::LIBRARY),
+        Target::Hand => Some(words::HAND),
+        Target::Agent(_) | Target::Gone(_) => match line.glyph {
+            Glyph::Mayor => Some(words::MAYOR),
+            Glyph::Worker => Some(words::WORKER),
+            _ => Some(words::HIRE),
+        },
+        Target::Fold(Group::Workers(_)) => Some(words::WORKER),
+        Target::Scholar(_) => Some(words::SCHOLAR),
+        Target::Hamlet(_) | Target::Fold(_) => None,
+    };
+    let address = (!address.is_empty()
+        && address != line.name
+        && line.target != Target::Hand)
+        .then_some(address);
+    match (address, meaning) {
+        (Some(address), Some(meaning)) => {
+            Some(format!("{address}\n{meaning}"))
+        }
+        (Some(address), None) => Some(address),
+        (None, meaning) => meaning.map(str::to_string),
+    }
 }
 
 /// A section's header, set apart from the rows under it in the
@@ -1579,8 +1828,12 @@ fn header(section: &Section, above: f32) -> AnyView {
         }
         _ => chevron(group, section.folded, "Fold or open"),
     };
+    // Those that left are headed in grey, not in the gold of what
+    // can be pressed.
     let tone = if section.current {
         Tone::Accent
+    } else if group == Group::Left {
+        Tone::Dim
     } else {
         Tone::Faint
     };
@@ -1594,6 +1847,12 @@ fn header(section: &Section, above: f32) -> AnyView {
         words.push(mark_icon(section.mark));
     }
     let words = row(words).gap(6.0).align(AlignItems::Center);
+    let words = match group_meaning(group) {
+        Some(meaning) => {
+            row((words.tooltip(move || note(meaning)).boxed(),))
+        }
+        None => row((words.boxed(),)),
+    };
     match section.opens {
         // Filled under the pointer as a row is, outside the chevron's
         // press so that folding does not open the page; its mark in
@@ -1601,12 +1860,20 @@ fn header(section: &Section, above: f32) -> AnyView {
         Some(target) => row((
             fold,
             washed(
-                button(words.grow(1.0))
-                    .grow(1.0)
-                    .min_width(px(0.0))
-                    .rules(row_rules)
-                    .tagged(Variant::Default)
-                    .on_activate(move |world| go(world, target)),
+                {
+                    let pressed = button(words.grow(1.0))
+                        .grow(1.0)
+                        .min_width(px(0.0))
+                        .rules(row_rules)
+                        .tagged(Variant::Default)
+                        .on_activate(move |world| go(world, target));
+                    match target.thing() {
+                        Some(thing) => {
+                            pressed.tagged(Asks(thing)).boxed()
+                        }
+                        None => pressed.boxed(),
+                    }
+                },
                 section.current
                     && matches!(section.group, Group::Hamlet(_)),
             ),
@@ -1655,7 +1922,8 @@ fn sections_view(sections: &[Section], first_above: f32) -> AnyView {
         } else {
             &section.lines[..]
         };
-        block.extend(lines.iter().map(expanded));
+        let dimmed = section.group == Group::Left;
+        block.extend(lines.iter().map(|line| expanded(line, dimmed)));
         parts.push(
             with_cx(move |cx| {
                 column(block)
@@ -1705,16 +1973,32 @@ pub(super) fn view() -> impl View {
                 .collect::<Vec<_>>()
         })
         .when(every_frame()),
-        |sections| sections_view(sections, UNDER_SEARCH),
+        |sections| {
+            // Those that left, at the foot of the rail however short
+            // the rest is.
+            let (left, rest): (Vec<_>, Vec<_>) = sections
+                .iter()
+                .cloned()
+                .partition(|section| section.group == Group::Left);
+            column((
+                sections_view(&rest, UNDER_SEARCH),
+                frame().grow(1.0),
+                sections_view(&left, PART_GAP),
+            ))
+            .gap(0.0)
+            .grow(1.0)
+            .boxed()
+        },
     )
-    .within(hamlet_ui::styles::bare());
+    .within(hamlet_ui::styles::bare().grow(1.0));
     let body = column((
         over,
         column((tabs_and_search(),))
             .padding(UiRect::top(px(PART_GAP))),
         under,
     ))
-    .gap(0.0);
+    .gap(0.0)
+    .grow(1.0);
     with_cx(move |cx| {
         column((scroll_area((body,)),))
             .gap(cx.theme().space.gap)
@@ -1751,7 +2035,7 @@ mod tests {
         let mut app = panel_app();
         app.add_plugins(plugin);
         app.update();
-        let ada = named(app.world_mut(), "home#0").unwrap();
+        let ada = named(app.world_mut(), "hire#2").unwrap();
         let in_hamlet = |g: &Group| matches!(g, Group::Hamlet(_));
         assert_eq!(names(&app, in_hamlet), ["ada"]);
         assert!(

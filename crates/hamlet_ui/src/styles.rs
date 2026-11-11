@@ -23,7 +23,7 @@ use crate::widgets::edges::faded;
 use crate::widgets::effects::{Underglow, Variant};
 use crate::widgets::ellipsis::one_line;
 use crate::widgets::icons::{Glyph, glyph};
-use crate::widgets::platform::{DisplayText, MonoText, Wraps};
+use crate::widgets::platform::{MonoText, Wraps};
 use crate::widgets::spoken::{self, Spoken};
 use crate::{AnyView, Cx, View, with_cx};
 
@@ -451,15 +451,9 @@ pub fn description(text: impl Into<Prop<String>>) -> impl View {
     label(text).rules(description_rules)
 }
 
-/// The name at the head of a page, in the display face.
+/// The name at the head of a page, or a sentence there such as a
+/// session's title.
 pub fn title(text: impl Into<Prop<String>>) -> impl View {
-    sentence_title(text).tagged(DisplayText)
-}
-
-/// A sentence or a question at the head of a page, such as a
-/// session's title: a [`title`] in the body face, since the display
-/// face sets every letter as a capital.
-pub fn sentence_title(text: impl Into<Prop<String>>) -> impl View {
     label(text).wrap(false).rules(|cx: &mut Cx| {
         style::<HamletTheme>()
             .label(|l, t| l.size(t.text.title).bold(true))
@@ -1102,7 +1096,17 @@ pub fn more_button(
     tip: &'static str,
     act: impl Fn(&mut World) + Send + Sync + 'static,
 ) -> AnyView {
-    views::button(glyph(Glyph::More, ICON))
+    icon_button(Glyph::More, tip, act)
+}
+
+/// A button of the icon `which` alone, as tall as a standard one,
+/// that runs `act`, with `tip`, what it does, as its tooltip.
+pub fn icon_button(
+    which: Glyph,
+    tip: &'static str,
+    act: impl Fn(&mut World) + Send + Sync + 'static,
+) -> AnyView {
+    views::button(glyph(which, ICON))
         .padding(UiRect::axes(px(8.0), px(4.0)))
         .min_height(px(CONTROL))
         .variant(Variant::Default)

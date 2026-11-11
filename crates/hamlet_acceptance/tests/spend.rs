@@ -1,8 +1,6 @@
-//! Spend caps: a model call is not made once a budget, a task's cap
-//! or an allowance is spent. The models are a loopback endpoint that
+//! Spend caps: a model call is not made once a budget or an
+//! allowance is spent. The models are a loopback endpoint that
 //! bills each answer, since the faux model is free.
-
-use std::time::Duration;
 
 use hamlet_acceptance::*;
 use hamlet_protocol::client::*;
@@ -12,20 +10,6 @@ use serde_json::json;
 fn words_of(text: &str) -> Response {
     Response {
         text: text.into(),
-        ..Response::default()
-    }
-}
-
-fn bash(n: u32) -> Response {
-    let arguments =
-        json!({"command": format!("echo {n}")}).to_string();
-    Response {
-        text: String::new(),
-        finish: "tool_calls".into(),
-        calls: vec![json!({
-            "index": 0, "id": format!("call_{n}"), "type": "function",
-            "function": {"name": "bash", "arguments": arguments}
-        })],
         ..Response::default()
     }
 }
@@ -84,41 +68,17 @@ async fn the_realms_budget_stops_the_hand_until_it_starts_again() {
 }
 
 #[tokio::test]
-async fn a_tasks_cap_stops_a_runaway_chain_of_calls() {
-    let mut endpoint = Endpoint::start().await;
-    endpoint.enqueue([bash(1), bash(2), bash(3), bash(4)]);
-    let mut s = Session::with_endpoint(&endpoint).await;
-    let ada = s.found("docs", "ada", "keep the docs").await;
-    s.chief
-        .limit(
-            Some("docs"),
-            "task",
-            "cost",
-            json!(openai::COST * 1.5),
-        )
-        .await;
-    let now = chat(ada);
-    s.chief.open(&now).await;
-    s.chief.tell(ada, "Keep going until stopped.").await;
-    let notice = last_notice(&mut s.chief, &now, "task").await;
-    assert!(notice.contains("may spend at most"), "{notice}");
-    s.chief.settle(Duration::from_millis(500)).await;
-    // Two calls were made: the second took the task past its cap.
-    assert_eq!(endpoint.completions(2).await.len(), 2);
-}
-
-#[tokio::test]
 async fn a_hires_allowance_stops_its_calls_and_a_lead_may_set_it() {
     let mut endpoint = Endpoint::start().await;
     endpoint.enqueue([words_of("Noted.")]);
     let mut s = Session::with_endpoint(&endpoint).await;
     let ada = s.found("docs", "ada", "keep the docs").await;
     let cy = s.hire(ada, "cy", "dig").await;
-    let reply = s.chief.command(ada, "/allowance docs#1 0.001").await;
-    assert_eq!(reply, "`docs#1` may spend <$0.01 a period.");
+    let reply = s.chief.command(ada, "/allowance hire#3 0.001").await;
+    assert_eq!(reply, "`hire#3` may spend <$0.01 a period.");
     s.chief
         .until("its allowance shown", |c| {
-            c.agent("docs#1")
+            c.agent("hire#3")
                 .is_some_and(|cy| cy.allowance == Some(0.001))
         })
         .await;
@@ -133,7 +93,7 @@ async fn a_hires_allowance_stops_its_calls_and_a_lead_may_set_it() {
         "{notice}"
     );
     assert_eq!(endpoint.completions(1).await.len(), 1);
-    s.chief.command(ada, "/allowance docs#1 none").await;
+    s.chief.command(ada, "/allowance hire#3 none").await;
 }
 
 /// The system message of a completion request.
@@ -169,12 +129,12 @@ async fn spending_leaves_the_prompt_as_it_was_and_read_budget_tells_it()
     let mut s = Session::with_endpoint(&endpoint).await;
     let ada = s.found("docs", "ada", "keep the docs").await;
     let cy = s.hire(ada, "cy", "dig").await;
-    s.chief.command(ada, "/allowance docs#1 2").await;
+    s.chief.command(ada, "/allowance hire#3 2").await;
     let now = chat(cy);
     s.chief.open(&now).await;
     s.chief.tell(cy, "Say something.").await;
     s.chief.shows(&now, "Noted.").await;
-    s.chief.idle("docs#1").await;
+    s.chief.idle("hire#3").await;
     s.chief.tell(cy, "What may you spend?").await;
     s.chief.shows(&now, "Read.").await;
 

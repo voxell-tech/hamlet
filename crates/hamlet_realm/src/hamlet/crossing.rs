@@ -4,13 +4,14 @@
 //! its robot is away.
 
 use bevy::prelude::*;
-use hamlet_client::realm::{AgentNumber, OfScholar, Scholar, Seen};
+use hamlet_client::realm::{OfScholar, Scholar, Seen};
+use hamlet_protocol::client::Arrival;
 
 use super::Housed;
 use crate::Clock;
 use crate::city::houses;
 use crate::generator::land::{IslandId, Land};
-use crate::generator::society::AgentId;
+use crate::generator::society::{AgentId, Society};
 use crate::generator::{Away, Robot};
 use crate::harbor::ferry::{self, Ferry};
 use crate::harbor::{Boat, Harbor};
@@ -52,8 +53,9 @@ pub(super) fn board(
     kit: Res<Kit>,
     seen: Option<Res<Seen>>,
     mut primed: Local<bool>,
+    society: Res<Society>,
     hires: Query<
-        (Entity, &Housed, &AgentNumber, Option<&OfScholar>),
+        (Entity, &Housed, Option<&OfScholar>),
         Added<Housed>,
     >,
     scholars: Query<&Scholar>,
@@ -70,15 +72,24 @@ pub(super) fn board(
     let Some(harbor) = harbor else {
         return;
     };
-    for (hire, housed, number, of) in &hires {
+    for (hire, housed, of) in &hires {
         // The mayor's hall is founded with its hamlet.
-        if number.0 == 0 {
+        let in_hall = society
+            .agent(housed.0)
+            .and_then(|agent| society.town(agent.town))
+            .is_some_and(|town| town.mayor == housed.0);
+        if in_hall {
             continue;
         }
-        let door = of
-            .and_then(|of| {
-                scholars.iter().find(|scholar| scholar.0.id == of.0)
-            })
+        let scholar = of.and_then(|of| {
+            scholars.iter().find(|scholar| scholar.0.id == of.0)
+        });
+        // A blank hire is of no house in the city: it is at its own
+        // at once.
+        if scholar.is_some_and(|s| s.0.arrival == Arrival::Apart) {
+            continue;
+        }
+        let door = scholar
             .filter(|scholar| scholar.0.left.is_none())
             .and_then(|scholar| scholar.0.house.as_ref())
             .map(|house| houses::door(&land, house));

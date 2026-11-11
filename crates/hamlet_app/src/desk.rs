@@ -149,20 +149,18 @@ impl Desks {
         self.show((self.shown + step) % count);
     }
 
-    /// Adds a desk with a name of its own and the dock the window
-    /// starts with, shows it and gives its index.
-    pub(crate) fn add(&mut self) -> usize {
-        let name = (self.list.len() + 1..)
+    /// Adds a desk with the first free numbered name, from "Desk 1",
+    /// and the dock the window starts with, and shows it.
+    pub(crate) fn add(&mut self) {
+        let name = (1..)
             .map(|n| format!("Desk {n}"))
             .find(|name| !self.is_taken(name, None))
             .unwrap_or_default();
-        let at = self.list.len();
+        self.shown = self.list.len();
         self.list.push(Desk {
             name,
             dock: Vec::new(),
         });
-        self.shown = at;
-        at
     }
 
     /// Adds a copy of the desk at `at` after it, numbered, and shows
@@ -626,9 +624,9 @@ mod tests {
         desks.add();
         desks.show(1);
         desks.move_to(0, 2);
-        assert_eq!(desks.list()[desks.shown()].name, "Desk 2");
+        assert_eq!(desks.list()[desks.shown()].name, "Desk 1");
         desks.close(2);
-        assert_eq!(desks.list()[desks.shown()].name, "Desk 2");
+        assert_eq!(desks.list()[desks.shown()].name, "Desk 1");
         desks.close(desks.shown());
         assert_eq!(desks.list().len(), 1);
         desks.close(0);

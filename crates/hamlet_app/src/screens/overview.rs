@@ -11,10 +11,13 @@ use bevy::ecs::query::{Has, With, Without};
 use bevy::ecs::resource::Resource;
 use bevy::ecs::system::ResMut;
 use bevy::ecs::world::World;
-use bevy::ui::{AlignItems, Display, InteractionDisabled, percent};
+use bevy::ui::{
+    AlignItems, Display, InteractionDisabled, percent, px,
+};
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, TooltipExt, column, frame, label, row,
+    BehaviorExt, FrameProps, TooltipExt, button, column, frame,
+    label, row,
 };
 use bevy_fynix::{
     ScopedExt, ViewExt, Visual, derived, keyed, resource,
@@ -29,30 +32,29 @@ use hamlet_realm::harbor::glide_to_other_pier;
 use hamlet_realm::pick::{Selected, Thing, select};
 use hamlet_ui::kinds::tile;
 use hamlet_ui::styles::{
-    Fills, ICON, action, bad_action, bare, buttons, close, group,
-    note, raised, scroll_area, small_rules, title,
+    Fills, ICON, action, bad_action, bare, buttons, card_button,
+    card_name, close, group, note, raised, scroll_area, small_rules,
+    title,
 };
 use hamlet_ui::theme::StatusKind;
-use hamlet_ui::widgets::effects::lit_panels;
+use hamlet_ui::widgets::effects::{Variant, lit_panels};
 use hamlet_ui::widgets::icons::{Glyph, glyph};
-use hamlet_ui::widgets::platform::{DisplayText, Wraps};
+use hamlet_ui::widgets::platform::Wraps;
 use hamlet_ui::widgets::tabs;
 use hamlet_ui::{AnyView, Cx, View, kinds, rules, with_cx};
 
 use self::hamlet::budget;
-pub use self::hamlet::{Naming, Page, hamlet};
-pub(crate) use self::hamlet::{rename, typed};
+pub(crate) use self::hamlet::typed;
+pub use self::hamlet::{Page, hamlet};
 pub use self::record::Annals;
 pub(crate) use self::rows::standing;
-use self::rows::{
-    agent_rows, hamlet_name, hamlet_rows, pressable, stale,
-};
+use self::rows::{agent_rows, hamlet_rows, pressable, stale};
 use crate::petition::Queue;
 use crate::standing::{Standing, need_you};
-use crate::{chat, world_menu};
+use crate::{chat, words, world_menu};
 
 pub fn plugin(app: &mut App) {
-    app.add_plugins((record::plugin, hamlet::plugin))
+    app.add_plugins((record::plugin, crate::naming::plugin))
         .init_resource::<Erasing>()
         // The realm's page lists what waits.
         .init_resource::<Queue>()
@@ -99,8 +101,8 @@ pub(crate) fn heading_line(
     .boxed()
 }
 
-/// The title of a part of a list, small in the display face and in
-/// `tone`, as the rail heads its parts.
+/// The title of a part of a list, small, bold and in `tone`, as the
+/// rail heads its parts.
 pub(crate) fn part_title(text: String, tone: Tone) -> impl View {
     with_cx(move |cx| {
         label(text.clone())
@@ -108,7 +110,6 @@ pub(crate) fn part_title(text: String, tone: Tone) -> impl View {
             .bold(true)
             .tone(tone)
             .wrap(false)
-            .tagged(DisplayText)
     })
 }
 
@@ -137,7 +138,12 @@ pub fn overview() -> impl View {
             row((title("Realm"), frame().grow(1.0), stop_all()))
                 .gap(cx.theme().space.gap)
                 .align(AlignItems::Center),
-            today(),
+            // A realm with no hamlet has no figures worth showing,
+            // only the ways to begin.
+            keyed(derived(any_hamlet).when(stale()), |&any| {
+                if any { today() } else { get_started() }
+            })
+            .within(bare()),
             // Ways about the world, under the figures they lead to.
             buttons(vec![
                 action(
@@ -145,6 +151,7 @@ pub fn overview() -> impl View {
                     "Your hearth",
                     crate::chief::go_home,
                 )
+                .tooltip(|| note(words::HEARTH))
                 .boxed(),
                 action(Glyph::Anchor, "Harbor", glide_to_other_pier)
                     .tooltip(|| note("Cross to the other island"))
@@ -154,6 +161,7 @@ pub fn overview() -> impl View {
                     "New scholar",
                     world_menu::ask_new_scholar,
                 )
+                .tooltip(|| note(words::SCHOLAR))
                 .boxed(),
             ]),
             scroll_area((column((needs(), hamlets(), closed()))
@@ -162,6 +170,79 @@ pub fn overview() -> impl View {
         .fills_height()
         .gap(cx.theme().space.section)
     })
+}
+
+/// Whether the realm has a hamlet open.
+fn any_hamlet(world: &World) -> bool {
+    world
+        .try_query_filtered::<(), With<HamletId>>()
+        .is_some_and(|mut hamlets| {
+            hamlets.iter(world).next().is_some()
+        })
+}
+
+/// The two ways a chief new to a realm begins: talking to the Hand,
+/// or founding a hamlet on a folder.
+fn get_started() -> AnyView {
+    with_cx(move |cx| {
+        column((
+            part_title("Get started".into(), Tone::Faint),
+            start_card(
+                Glyph::Tower,
+                "Talk to the Hand",
+                "Your own agent. Ask it anything, or to set things \
+                 up for you.",
+                talk_to_hand,
+            ),
+            start_card(
+                Glyph::Folder,
+                "Work on a folder",
+                "Create a hamlet: a team of agents that works on \
+                 one folder of yours.",
+                world_menu::ask_found,
+            ),
+        ))
+        .gap(cx.theme().space.gap)
+    })
+    .boxed()
+}
+
+/// Opens the Hand's chat.
+fn talk_to_hand(world: &mut World) {
+    if let Some(hand) = hamlet_client::realm::hand(world) {
+        crate::convo::seat(world, hand);
+        crate::hub::show(world, crate::hub::Showing::Thread);
+    }
+}
+
+/// A card of [`get_started`] that does `act` when pressed.
+fn start_card(
+    which: Glyph,
+    head: &'static str,
+    words: &'static str,
+    act: fn(&mut World),
+) -> AnyView {
+    with_cx(move |cx| {
+        let gap = cx.theme().space.gap;
+        button(
+            row((
+                glyph(which, ICON).tone(Tone::Dim),
+                column((label(head).bold(true), note(words)))
+                    .gap(gap / 2.0)
+                    .grow(1.0)
+                    .min_width(px(0.0))
+                    .align(AlignItems::FlexStart),
+                glyph(Glyph::Into, ICON).tone(Tone::Dim),
+            ))
+            .gap(gap)
+            .grow(1.0)
+            .align(AlignItems::Center),
+        )
+        .rules(card_button)
+        .tagged(Variant::Default)
+        .on_activate(act)
+    })
+    .boxed()
 }
 
 /// Stops every agent, as a danger button that cannot be pressed
@@ -321,14 +402,14 @@ fn today() -> AnyView {
                         _ => "scholars",
                     },
                     Tone::Body,
-                    "Scholars living in the city",
+                    words::SCHOLAR,
                 ),
                 figure(
                     today.harbor,
                     Glyph::Anchor,
                     "arriving",
                     Tone::Body,
-                    "Newcomers waiting at the harbor to be let in",
+                    words::HARBOR,
                 ),
             ];
             // Closer than cards elsewhere, and narrow, so five fit
@@ -375,7 +456,7 @@ struct HamletCard {
     standing: (Glyph, String, StatusKind),
     mayor: Option<String>,
     account: String,
-    spent: Option<f32>,
+    spent: Option<rows::Meter>,
 }
 
 fn hamlet_cards(world: &World) -> Vec<HamletCard> {
@@ -545,7 +626,8 @@ fn closed() -> AnyView {
                     ));
                 }
                 let mut card = vec![
-                    hamlet_name(hamlet.name.clone()).boxed(),
+                    card_name(hamlet.name.clone(), Tone::Body)
+                        .boxed(),
                     note(hamlet.reason.clone()).boxed(),
                     row(actions).align(AlignItems::Center).boxed(),
                 ];

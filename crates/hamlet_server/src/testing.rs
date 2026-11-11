@@ -1,6 +1,6 @@
 //! Helpers shared by the unit tests.
 
-use hamlet_store::ids::{Actor, AgentId, ChiefId, HamletId};
+use hamlet_store::ids::{Actor, AgentId, ChiefId};
 use hamlet_store::{Db, Store};
 use hamlet_testing::Scratch;
 
@@ -83,17 +83,18 @@ impl Realm {
         self.by(chief, make)
     }
 
-    /// Founds `id` under a new mayor named `mayor`.
-    pub fn found(&mut self, id: &str, mayor: &str) -> Hired {
+    /// Founds a hamlet named `name` under a new mayor named `mayor`;
+    /// the mayor's `hamlet` is its id.
+    pub fn found(&mut self, name: &str, mayor: &str) -> Hired {
         let chief = self.chief;
-        let (id, mayor) = (HamletId(id.into()), mayor.to_owned());
+        let (name, mayor) = (name.to_owned(), mayor.to_owned());
         self.chief(|cx| {
             hamlets::found(
                 cx,
                 Founding {
-                    id,
+                    name,
                     chief,
-                    mayor: Hiring::New {
+                    mayor: Hiring::Blank {
                         name: mayor,
                         character: "Careful.".into(),
                     },

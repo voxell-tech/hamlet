@@ -54,7 +54,7 @@ async fn a_lead_reviews_a_chiefs_line_to_its_hire_and_may_object() {
     assert_eq!(objection.agent, Some(bob));
     assert!(
         objection.about.contains(
-            "docs#0 (ada) objects: the odd line breaks the plan."
+            "hire#2 (ada) objects: the odd line breaks the plan."
         ),
         "{}",
         objection.about

@@ -94,8 +94,8 @@ integer_id!(
     OfferId
 );
 
-/// A row of `hamlet`: lowercase letters, digits and hyphens, never
-/// given twice (H36).
+/// A row of `hamlet`: a UUID made when it is founded, never given
+/// twice (H36). A hamlet is shown by its name, never by this.
 #[derive(
     Clone,
     Debug,

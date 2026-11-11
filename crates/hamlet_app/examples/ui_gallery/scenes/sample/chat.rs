@@ -157,7 +157,7 @@ pub(super) fn setup(world: &mut World, scene: Scene) -> Transcript {
                  are in [the orchard \
                  notes](https://example.com/orchard).\n\n```sh\ncargo \
                  test -p almanac -- --nocapture\n```\n\nAsk \
-                 `home#2` if a row looks wrong.",
+                 `hire#11` if a row looks wrong.",
             ),
         ]),
         Scene::Rewind => conversation(&[

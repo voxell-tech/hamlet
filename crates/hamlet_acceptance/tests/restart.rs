@@ -26,16 +26,19 @@ async fn a_wait_and_its_held_call_survive_a_crash() {
     let mut server = home.serve(&held, QUIET).await;
     let mut chief = Client::join(&server).await;
     let hand = chief.hand();
-    chief.command(hand, "/found docs keep the docs").await;
     chief
-        .until("the mayor", |c| c.agent("docs#0").is_some())
+        .command(hand, "/create-hamlet docs: keep the docs")
         .await;
-    let ada = chief.id("docs#0");
+    chief
+        .until("the mayor", |c| c.agent("hire#2").is_some())
+        .await;
+    let ada = chief.id("hire#2");
     let now = chat(ada);
     chief.open(&now).await;
     chief.tell(ada, "Fetch it.").await;
     let wait = chief.wait_for("the approval", |_| true).await;
     let before = chief.realm();
+    let lodge = format!("hamlets/{}/2", before.hamlets[0].id);
     server.kill();
 
     let server = home
@@ -47,12 +50,12 @@ async fn a_wait_and_its_held_call_survive_a_crash() {
     assert_eq!(after.waits, std::slice::from_ref(&wait));
     chief.open(&now).await;
     assert!(chief.texts(&now).contains(&"Fetch it.".to_string()));
-    assert!(!home.file("hamlets/docs/0/out").exists());
+    assert!(!home.file(&format!("{lodge}/out")).exists());
     chief.choose(&wait.id, Choice::Allow, None).await;
     chief.shows(&now, "Finished.").await;
     // The command ran once, after the answer.
     assert_eq!(
-        std::fs::read_to_string(home.file("hamlets/docs/0/out"))
+        std::fs::read_to_string(home.file(&format!("{lodge}/out")))
             .unwrap(),
         "curl x\n"
     );
@@ -65,7 +68,7 @@ async fn the_realm_comes_back_as_it_was_after_a_stop() {
         words("Hello."),
         call(
             "found_hamlet",
-            json!({"hamlet": "bog", "scholar": "scholar#2", "purpose": "drain"}),
+            json!({"name": "bog", "scholar": "scholar#2", "purpose": "drain"}),
         ),
         words("Founded."),
     ]))
@@ -79,10 +82,8 @@ async fn the_realm_comes_back_as_it_was_after_a_stop() {
     let ada = s.found("docs", "ada", "keep the docs").await;
     s.hire(ada, "cy", "dig").await;
     s.chief.command(ada, "/tier 100").await;
-    s.chief.command(ada, "/end docs#1 done").await;
-    s.chief
-        .limit(Some("docs"), "task", "messages", json!(5))
-        .await;
+    s.chief.command(ada, "/end hire#3 done").await;
+    s.chief.limit(Some("docs"), "road", "most", json!(5)).await;
     s.chief.tell(hand, "Found one.").await;
     s.chief.shows(&now, "Founded.").await;
     s.chief.idle("hand").await;
@@ -109,7 +110,7 @@ async fn the_realm_comes_back_as_it_was_after_a_stop() {
             .map(|h| (&h.id, h.tier, h.mayor))
             .collect::<Vec<_>>()
     );
-    assert_eq!(chief.hamlet("docs").unwrap().limits.task.messages, 5);
+    assert_eq!(chief.hamlet("docs").unwrap().limits.road.most, 5);
     let page = chief.open(&now).await;
     assert_eq!(page.items, items);
     // Ids go on from where they were: nothing is made twice.

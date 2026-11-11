@@ -1,6 +1,5 @@
-//! What the realm spends (H8, H12): each payer's books for its
-//! period, a task's, an agent's, and whether another model call may
-//! be made.
+//! What the realm spends (H8): each payer's books for its period, a
+//! task's, an agent's, and whether another model call may be made.
 
 use anyhow::{Context, Result};
 use chrono::{Datelike, Timelike};
@@ -214,12 +213,11 @@ pub(crate) fn budget_of(
 }
 
 /// Why another model call may not be made, in words for its agent and
-/// its chief, or `None` when it may (H8, H12).
+/// its chief, or `None` when it may (H8).
 pub(crate) fn stopped(
     db: &mut Db,
     agent: AgentId,
     payer: Option<&HamletId>,
-    task: Option<TaskId>,
     at: i64,
 ) -> Result<Option<String>> {
     let budget = budget_of(db, payer)?;
@@ -244,30 +242,6 @@ pub(crate) fn stopped(
             "{whose} of {} of model time is spent.",
             duration(clock::minutes(minutes))
         )));
-    }
-    if let Some(task) = task {
-        let caps = match payer {
-            Some(hamlet) => limits::of(db, hamlet)?.task,
-            None => limits::TaskCaps::default(),
-        };
-        let spent = of_task(db, task)?;
-        if let Some(cap) = caps.cost
-            && spent.micros >= cap
-        {
-            return Ok(Some(format!(
-                "This task may spend at most {}, and has.",
-                money(cap)
-            )));
-        }
-        if let Some(minutes) = caps.minutes
-            && spent.ms >= clock::minutes(minutes)
-        {
-            return Ok(Some(format!(
-                "This task may use at most {} of model time, and \
-                 has.",
-                duration(clock::minutes(minutes))
-            )));
-        }
     }
     let start = period_start(budget.period, at)?;
     for (lead, allowance) in allowances(db, agent)? {

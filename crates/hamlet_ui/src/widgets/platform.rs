@@ -80,8 +80,8 @@ pub fn plugin(app: &mut App) {
         );
 }
 
-/// The display face, for the app's name, the dock's tabs and a page's
-/// title.
+/// The display face, for the app's name alone: every other word is
+/// in the body face.
 #[derive(Resource)]
 pub struct Display(pub Handle<Font>);
 
@@ -133,11 +133,11 @@ fn install_emoji(cx: &mut FontCx) {
 /// the cosier.
 const SOFT: f32 = 100.0;
 
-/// Sets the display face on tagged labels and on the dock's tab
-/// names, when a label is new, was styled again or says something
-/// else: soft, drawn for the size it is set at, and no bolder than
-/// semibold. Words in capitals, as a tab's name, are tracked apart;
-/// words in lower case are set close.
+/// Sets the display face on tagged labels, when a label is new, was
+/// styled again or says something else: soft, drawn for the size it
+/// is set at, and no bolder than semibold. Words in capitals are
+/// tracked apart; words in lower case are set close. The dock's tab
+/// names stay in the body face, at the small size.
 pub fn apply_display(
     mut commands: Commands,
     display: Res<Display>,
@@ -160,15 +160,15 @@ pub fn apply_display(
         let tab = parents
             .iter_ancestors(node)
             .any(|above| tabs.contains(above));
-        if !tagged && !tab {
+        if tab && font.font_size != tab_size {
+            font.font_size = tab_size;
+        }
+        if !tagged {
             continue;
         }
         if !matches!(&font.font, FontSource::Handle(h) if *h == display.0)
         {
             font.font = FontSource::Handle(display.0.clone());
-        }
-        if tab && font.font_size != tab_size {
-            font.font_size = tab_size;
         }
         if font.weight.0 > SEMIBOLD.0 {
             font.weight = SEMIBOLD;

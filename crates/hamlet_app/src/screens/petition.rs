@@ -370,9 +370,11 @@ fn head(need: &Need, scholar: &str) -> impl View + use<> {
             }
         }
         WaitDetail::Objection {} => {
-            format!("Objection from {}", need.shown)
+            format!("{} objects to your instruction", need.shown)
         }
-        WaitDetail::Fault {} => format!("Fault in {}", need.shown),
+        WaitDetail::Fault {} => {
+            format!("{} ran into a problem", need.shown)
+        }
         WaitDetail::Newcomer { .. } => {
             format!("{scholar} wants to move into the city")
         }

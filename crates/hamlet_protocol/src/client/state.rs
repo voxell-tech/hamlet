@@ -230,15 +230,13 @@ pub struct Agent {
     pub mayor: bool,
     /// The model it runs now.
     pub model: String,
-    /// Its address: `hand`, `hamlet#number` or `worker#id`.
+    /// Its address: `hand`, `hire#id` or `worker#id`.
     pub name: String,
-    /// What a hire is called in the world, given by a chief or an
-    /// agent above it; none while it goes by its scholar's name.
+    /// What a hire or a worker is called in the world, given by a
+    /// chief or an agent above it; none while a hire goes by its
+    /// scholar's name and a worker by its address.
     #[serde(deserialize_with = "Option::deserialize")]
     pub nickname: Option<String>,
-    /// A hire's number in its hamlet.
-    #[serde(deserialize_with = "Option::deserialize")]
-    pub number: Option<u64>,
     /// The model chosen for it; none while it follows its hamlet's,
     /// or the realm's default.
     #[serde(rename = "ownModel")]
@@ -345,6 +343,10 @@ pub enum Arrival {
     /// it in.
     #[serde(rename = "turned")]
     Turned,
+    /// It is a blank hire's own: not of the city, with no house, and
+    /// never at the harbor.
+    #[serde(rename = "apart")]
+    Apart,
 }
 
 /// A house's spot from the city's middle, and the way its door faces,
@@ -775,7 +777,7 @@ mod tests {
     fn state() -> State {
         let mut state = ours::<State>(realm::state());
         state.hamlets.push(ours(realm::hamlet("orchard", 3)));
-        state.agents.push(ours(realm::agent(3, "home", 1)));
+        state.agents.push(ours(realm::agent(3, "home", false)));
         state.waits =
             vec![ours(realm::wait("a")), ours(realm::wait("b"))];
         state
@@ -789,25 +791,25 @@ mod tests {
         state.apply(&Update::Agent {
             agent: hand.clone(),
         });
-        let guest = ours::<Agent>(realm::agent(9, "orchard", 0));
+        let guest = ours::<Agent>(realm::agent(9, "orchard", true));
         state.apply(&Update::Agent {
             agent: guest.clone(),
         });
         let mayor = state.agents[1].clone();
-        let scout = ours(realm::agent(3, "home", 1));
+        let scout = ours(realm::agent(3, "home", false));
         assert_eq!(state.agents, [hand, mayor, scout, guest]);
     }
 
     #[test]
     fn a_gone_agent_leaves_the_others_in_order() {
         let mut state = state();
-        state.agents.push(ours(realm::agent(4, "home", 2)));
+        state.agents.push(ours(realm::agent(4, "home", false)));
         state.apply(&Update::AgentGone { id: AgentId(3) });
         let names = state
             .agents
             .iter()
             .map(|a| a.name.as_str())
             .collect::<Vec<_>>();
-        assert_eq!(names, ["hand", "home#0", "home#2"]);
+        assert_eq!(names, ["hand", "hire#2", "hire#4"]);
     }
 }

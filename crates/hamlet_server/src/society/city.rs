@@ -51,6 +51,8 @@ text_enum! {
         /// It was turned away, and waits at the harbor until a chief
         /// lets it in.
         Turned = "turned",
+        /// It is a blank hire's alone, and never of the city.
+        Apart = "apart",
     }
 }
 
@@ -93,12 +95,89 @@ impl Scholar {
         (!self.is_living() || self.kind != ScholarKind::Scholar)
             .then(|| Refusal::ScholarGone { name: self.label() })
     }
+
+    /// The refusal of a call that would hire, house or send to the
+    /// harbor a blank hire's scholar, which is never of the city.
+    pub fn apart(&self) -> Option<Refusal> {
+        (self.arrival == Arrival::Apart)
+            .then(|| Refusal::Apart { name: self.label() })
+    }
 }
 
 /// Makes a scholar named `name` for `chief`, starting from
 /// `character`, or from a commit of another scholar when it is a
 /// fork.
 pub(crate) fn make(
+    cx: &mut Change<'_>,
+    name: &str,
+    chief: ChiefId,
+    character: &str,
+    fork: Option<Fork>,
+) -> Done<ScholarId> {
+    let id = done!(insert(cx, name, chief, character, fork));
+    match newcomer(cx)? {
+        Some((maker, policy)) => {
+            diesel::update(scholar::table.find(id))
+                .set((
+                    scholar::arrival.eq(Arrival::Waiting),
+                    scholar::arrival_by.eq(cx.actor),
+                ))
+                .execute(cx.db)?;
+            // Under the Hand, its errand is begun where the settings
+            // and the models are at hand.
+            if policy == Newcomers::Chief {
+                oversight::raise(
+                    cx,
+                    Raise {
+                        kind: WaitKind::Newcomer,
+                        danger: None,
+                        agent: maker,
+                        scholar: Some(id),
+                        conversation: None,
+                        task: None,
+                        about: format!(
+                            "{} ({name})",
+                            scholar_address(id)
+                        ),
+                        change: None,
+                        answers: vec![
+                            Choice::Welcome,
+                            Choice::Dismiss,
+                        ],
+                        questions: None,
+                    },
+                )?;
+            }
+        }
+        None => house(cx, id)?,
+    }
+    cx.touched.scholars.insert(id);
+    Ok(Ok(id))
+}
+
+/// Makes the scholar of a blank hire, named `name`, for `chief`: one
+/// apart from the city, with no house, that never waits at the
+/// harbor and is not listed with the city's scholars.
+pub(crate) fn make_apart(
+    cx: &mut Change<'_>,
+    name: &str,
+    chief: ChiefId,
+    character: &str,
+) -> Done<ScholarId> {
+    let id = done!(insert(cx, name, chief, character, None));
+    diesel::update(scholar::table.find(id))
+        .set((
+            scholar::arrival.eq(Arrival::Apart),
+            scholar::arrival_by.eq(cx.actor),
+        ))
+        .execute(cx.db)?;
+    cx.touched.scholars.insert(id);
+    Ok(Ok(id))
+}
+
+/// Keeps a new scholar named `name` and the job that plants its
+/// repository, as [`make`] says.
+fn insert(
     cx: &mut Change<'_>,
     name: &str,
     chief: ChiefId,
@@ -139,43 +218,6 @@ pub(crate) fn make(
         },
     )?;
     record::keep(cx, Decision::new(kind, "").scholar(id))?;
-    match newcomer(cx)? {
-        Some((maker, policy)) => {
-            diesel::update(scholar::table.find(id))
-                .set((
-                    scholar::arrival.eq(Arrival::Waiting),
-                    scholar::arrival_by.eq(cx.actor),
-                ))
-                .execute(cx.db)?;
-            // Under the Hand, its errand is begun where the settings
-            // and the models are at hand.
-            if policy == Newcomers::Chief {
-                oversight::raise(
-                    cx,
-                    Raise {
-                        kind: WaitKind::Newcomer,
-                        danger: None,
-                        agent: maker,
-                        scholar: Some(id),
-                        conversation: None,
-                        task: None,
-                        about: format!(
-                            "{} ({name})",
-                            scholar_address(id)
-                        ),
-                        change: None,
-                        answers: vec![
-                            Choice::Welcome,
-                            Choice::Dismiss,
-                        ],
-                        questions: None,
-                    },
-                )?;
-            }
-        }
-        None => house(cx, id)?,
-    }
-    cx.touched.scholars.insert(id);
     Ok(Ok(id))
 }
 
@@ -281,7 +323,8 @@ pub(crate) fn welcome(
     reason: &str,
 ) -> Done<()> {
     let scholar = get(cx.db, id)?;
-    if let Some(refusal) = scholar.gone() {
+    if let Some(refusal) = scholar.gone().or_else(|| scholar.apart())
+    {
         refuse!(refusal);
     }
     if scholar.arrival == Arrival::Housed {
@@ -306,7 +349,8 @@ pub(crate) fn turn_away(
     reason: &str,
 ) -> Done<()> {
     let scholar = get(cx.db, id)?;
-    if let Some(refusal) = scholar.gone() {
+    if let Some(refusal) = scholar.gone().or_else(|| scholar.apart())
+    {
         refuse!(refusal);
     }
     if scholar.arrival == Arrival::Turned {
@@ -455,7 +499,8 @@ pub(crate) fn place(
     turn: Option<f64>,
 ) -> Done<()> {
     let scholar = get(cx.db, id)?;
-    if let Some(refusal) = scholar.gone() {
+    if let Some(refusal) = scholar.gone().or_else(|| scholar.apart())
+    {
         refuse!(refusal);
     }
     if scholar.arrival != Arrival::Housed {
@@ -503,9 +548,6 @@ pub(crate) fn archive(
     let scholar = get(cx.db, id)?;
     if let Some(refusal) = scholar.gone() {
         refuse!(refusal);
-    }
-    if reason.trim().is_empty() {
-        refuse!(Refusal::NoReason);
     }
     for hire in hires::living_of(cx.db, id)? {
         done!(hires::end(cx, hire.agent, EndHow::Scholar, reason));

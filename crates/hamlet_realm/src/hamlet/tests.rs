@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 use hamlet_client::realm::{
-    Activity, AgentNumber, Busy, Carried, Doing, HamletId, Identity,
+    Activity, Busy, Carried, Doing, HamletId, Hire, Identity, Kind,
     Left, Lived, LivesIn, Mayor, MergedInto, Road, RoadUse, Spot,
     Traffic,
 };
@@ -26,12 +26,18 @@ use crate::{Clock, Stage};
 /// The first hamlet's id in the client's fixture.
 const HOME: &str = "home";
 
-/// A hire of a test hamlet: its number and the id the server names
-/// it by.
+/// The id of a test hire, by the order the tests count it in: 0 is
+/// the fixture's mayor, the rest are made by [`hire`].
+fn id_of(number: u64) -> protocol::AgentId {
+    protocol::AgentId(if number == 0 { 2 } else { 1000 + number })
+}
+
+/// A hire of a test hamlet, counted `number`.
 fn hire(number: u64, hamlet: Entity) -> impl Bundle {
     (
-        Identity(protocol::AgentId(1000 + number)),
-        AgentNumber(number),
+        Identity(id_of(number)),
+        Kind(protocol::AgentKind::Hire),
+        Hire,
         LivesIn(hamlet),
     )
 }
@@ -117,7 +123,7 @@ fn settle(app: &mut App, name: &str) -> Entity {
         receive_change(
             app,
             protocol::Update::Agent {
-                agent: realm::agent(mayor, name, 0),
+                agent: realm::agent(mayor, name, true),
             },
         );
     } else {
@@ -140,10 +146,10 @@ fn entity(app: &mut App, number: u64) -> Option<Entity> {
         .find(|(_, s)| s.0 == HOME)
         .map(|(entity, _)| entity)?;
     world
-        .query::<(Entity, &AgentNumber, &LivesIn)>()
+        .query::<(Entity, &Identity, &LivesIn)>()
         .iter(world)
-        .find(|(_, agent_number, lives)| {
-            agent_number.0 == number && lives.0 == first
+        .find(|(_, id, lives)| {
+            id.0 == id_of(number) && lives.0 == first
         })
         .map(|(entity, ..)| entity)
 }
@@ -555,12 +561,9 @@ fn a_received_realm_houses_the_founder_in_its_hall() {
     }
     app.update();
     let world = app.world_mut();
-    let ada = world
-        .query::<(Entity, &AgentNumber)>()
-        .iter(world)
-        .find(|(_, number)| number.0 == 0)
-        .map(|(entity, _)| entity)
-        .unwrap();
+    let ada =
+        hamlet_client::realm::agent(world, protocol::AgentId(2))
+            .unwrap();
     let housed = world.get::<Housed>(ada).unwrap().0;
     let society = world.resource::<Society>();
     let founder = society.agent(housed).unwrap();

@@ -27,8 +27,8 @@ use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{BehaviorExt, FrameProps, label, overlay};
 use bevy_fynix::{ScopedExt, resource};
 use hamlet_client::realm::{
-    Account, Activity, AgentNumber, Busy, Left, LivesIn, Mayor,
-    MergedInto, Mode, Purpose, Roster, Shown, Treasury, Works,
+    Account, Activity, Busy, Hire, Left, LivesIn, Mayor, MergedInto,
+    Mode, Purpose, Roster, Shown, Treasury, Works,
 };
 use hamlet_client::waits::Waiting;
 use hamlet_realm::chief::{Beside, Look};
@@ -43,6 +43,7 @@ use hamlet_ui::{View, built, kinds, rules};
 use crate::overview::standing;
 use crate::roll::Roll;
 use crate::standing::Standing;
+use crate::words;
 use crate::world_menu::Open;
 
 /// The layer of the card in the window's stack: over the panels,
@@ -115,13 +116,9 @@ pub(crate) fn short(text: &str, most: usize) -> String {
 pub(crate) struct Told<'w, 's> {
     roster: Roster<'w, 's>,
     names: Query<'w, 's, (&'static Name, Option<&'static Shown>)>,
-    agents: Query<'w, 's, Doing<'static>, With<AgentNumber>>,
-    living: Query<
-        'w,
-        's,
-        Living<'static>,
-        (With<AgentNumber>, Without<Left>),
-    >,
+    agents: Query<'w, 's, Doing<'static>, With<Hire>>,
+    living:
+        Query<'w, 's, Living<'static>, (With<Hire>, Without<Left>)>,
     waits: Query<'w, 's, &'static Waiting>,
     spent: Query<'w, 's, &'static Treasury>,
     works: Query<'w, 's, &'static Works>,
@@ -235,27 +232,27 @@ impl Told<'_, '_> {
             None => (
                 "No folder",
                 Tone::Dim,
-                "It turns by itself in auto, once this hamlet works \
-                 on a folder.",
+                "It turns by itself while its agents work without \
+                 asking, once this hamlet works on a folder.",
                 "Click for the hamlet's page",
             ),
             Some(Mode::Manual) => (
-                "Manual",
+                words::ASK_FIRST,
                 Tone::Body,
                 self.works
                     .get(hamlet)
                     .map(|works| works.words.as_str())
                     .unwrap_or_default(),
-                "Click to switch to auto",
+                "Click to let its agents work without asking",
             ),
             Some(Mode::Auto) => (
-                "Auto",
+                words::NO_ASKING,
                 Tone::Accent,
                 self.works
                     .get(hamlet)
                     .map(|works| works.words.as_str())
                     .unwrap_or_default(),
-                "Click to switch to manual",
+                "Click to have its agents ask first",
             ),
         };
         Card {

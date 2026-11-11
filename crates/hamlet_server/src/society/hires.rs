@@ -23,7 +23,6 @@ use crate::jobs::{self, Job};
 pub(crate) struct Hire {
     pub agent: AgentId,
     pub hamlet: HamletId,
-    pub number: i64,
     pub scholar: ScholarId,
     pub parent: Option<AgentId>,
     pub purpose: String,
@@ -41,8 +40,11 @@ pub(crate) struct Hire {
 /// The scholar a hire is of.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum Hiring {
-    /// A new scholar of the city, made for the hire.
-    New { name: String, character: String },
+    /// A blank agent: a scholar made for this hire alone, apart from
+    /// the city, so it has no house and never waits at the harbor.
+    /// With no name it is named for its place: Mayor, or Hire and
+    /// its number.
+    Blank { name: String, character: String },
     /// A living scholar, at its `main` or pinned to a version.
     Existing {
         scholar: ScholarId,
@@ -64,11 +66,11 @@ pub(crate) struct Spec {
 }
 
 /// A hire just made.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Hired {
     pub agent: AgentId,
     pub scholar: ScholarId,
-    pub number: i64,
+    pub hamlet: HamletId,
 }
 
 /// Hires a scholar into a hamlet under a parent. With no parent, the
@@ -96,30 +98,40 @@ pub(crate) fn hire(cx: &mut Change<'_>, spec: Spec) -> Done<Hired> {
         done!(require_living(cx.db, parent));
     }
     let (scholar, pin, new) = match spec.hiring {
-        Hiring::New { name, character } => {
-            let made = done!(city::make(
-                cx, &name, spec.owner, &character, None
+        Hiring::Blank { name, character } => {
+            let name = match name.trim() {
+                "" if spec.parent.is_none() => "Mayor".to_owned(),
+                // Counted among every hire the hamlet has had, so the
+                // name is not one a living hire of it goes by.
+                "" => {
+                    let had = hire::table
+                        .filter(hire::hamlet.eq(&spec.hamlet))
+                        .count()
+                        .get_result::<i64>(cx.db)?;
+                    format!("Hire {had}")
+                }
+                given => given.to_owned(),
+            };
+            let made = done!(city::make_apart(
+                cx, &name, spec.owner, &character
             ));
             (made, None, true)
         }
         Hiring::Existing { scholar, pin } => {
             let found = city::get(cx.db, scholar)?;
-            if let Some(refusal) = found.gone() {
+            if let Some(refusal) =
+                found.gone().or_else(|| found.apart())
+            {
                 refuse!(refusal);
             }
             (scholar, pin, false)
         }
     };
     let agent = agents::make(cx, AgentKind::Hire)?;
-    let number = place.next_number;
-    diesel::update(hamlet::table.find(&spec.hamlet))
-        .set(hamlet::next_number.eq(number + 1))
-        .execute(cx.db)?;
     diesel::insert_into(hire::table)
         .values((
             hire::agent.eq(agent),
             hire::hamlet.eq(&spec.hamlet),
-            hire::number.eq(number),
             hire::scholar.eq(scholar),
             hire::parent.eq(spec.parent),
             hire::purpose.eq(spec.purpose.trim()),
@@ -139,12 +151,12 @@ pub(crate) fn hire(cx: &mut Change<'_>, spec: Spec) -> Done<Hired> {
                 "purpose": spec.purpose.trim(),
             })),
     )?;
-    cx.touched.hamlets.insert(spec.hamlet);
+    cx.touched.hamlets.insert(spec.hamlet.clone());
     cx.touched.scholars.insert(scholar);
     Ok(Ok(Hired {
         agent,
         scholar,
-        number,
+        hamlet: spec.hamlet,
     }))
 }
 
@@ -190,7 +202,7 @@ pub(crate) fn take_purpose(
     Ok(())
 }
 
-/// The living hires of `hamlet`, by number.
+/// The living hires of `hamlet`, in the order they were hired.
 pub(crate) fn living_in(
     db: &mut Db,
     hamlet: &HamletId,
@@ -199,7 +211,7 @@ pub(crate) fn living_in(
         .inner_join(agent::table)
         .filter(hire::hamlet.eq(hamlet))
         .filter(agent::ended_at.is_null())
-        .order(hire::number)
+        .order(hire::agent)
         .select(Hire::as_select())
         .load(db)?)
 }
@@ -269,9 +281,6 @@ pub(crate) fn end(
     let hire = get(cx.db, id)?;
     done!(require_living(cx.db, id));
     if how != EndHow::Hamlet {
-        if reason.trim().is_empty() {
-            refuse!(Refusal::NoReason);
-        }
         if is_mayor(cx.db, id)? {
             refuse!(Refusal::EndingMayor);
         }
@@ -416,9 +425,6 @@ pub(crate) fn seat(
         refuse!(Refusal::AlreadyMayor {
             name: super::addresses::name_of(cx.db, id)?
         });
-    }
-    if reason.trim().is_empty() {
-        refuse!(Refusal::NoReason);
     }
     let moved = tree::children(cx.db, Some(old))?
         .into_iter()
@@ -590,6 +596,28 @@ pub(crate) fn set_pin(
 /// The most letters a nickname has.
 pub(crate) const NICKNAME: usize = 24;
 
+/// `nickname` trimmed, none when it is empty, or the refusal of one
+/// that is too long or more than one line.
+pub(crate) fn check_nickname(
+    nickname: Option<&str>,
+) -> Result<Option<&str>, Refusal> {
+    let nickname = nickname.map(str::trim).filter(|n| !n.is_empty());
+    match nickname {
+        Some(nickname)
+            if nickname.chars().count() > NICKNAME
+                || nickname.contains(char::is_control) =>
+        {
+            Err(Refusal::Usage {
+                words: format!(
+                    "A nickname is one line of at most {NICKNAME} \
+                     letters."
+                ),
+            })
+        }
+        _ => Ok(nickname),
+    }
+}
+
 /// Calls the living hire `id` `nickname` in the world, or by its own
 /// name again when none (H46).
 pub(crate) fn set_nickname(
@@ -600,18 +628,10 @@ pub(crate) fn set_nickname(
 ) -> Done<()> {
     let hire = get(cx.db, id)?;
     done!(require_living(cx.db, id));
-    let nickname = nickname.map(str::trim).filter(|n| !n.is_empty());
-    if let Some(nickname) = nickname
-        && (nickname.chars().count() > NICKNAME
-            || nickname.contains(char::is_control))
-    {
-        refuse!(Refusal::Usage {
-            words: format!(
-                "A nickname is one line of at most {NICKNAME} \
-                 letters."
-            ),
-        });
-    }
+    let nickname = match check_nickname(nickname) {
+        Ok(nickname) => nickname,
+        Err(refusal) => refuse!(refusal),
+    };
     diesel::update(hire::table.find(id))
         .set(hire::nickname.eq(nickname))
         .execute(cx.db)?;

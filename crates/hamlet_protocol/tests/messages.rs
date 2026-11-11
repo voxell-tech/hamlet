@@ -441,7 +441,6 @@ fn server(wire: Value) -> ServerMessage {
 fn limits_wire() -> Value {
     json!({
         "budget": {"period": "day", "cost": 5.0, "minutes": null},
-        "task": {"messages": 12, "cost": 1.0, "minutes": 20},
         "road": {"price": 0.01, "most": 24, "growsOverDays": 7},
         "reserved": {"hire": false, "roads": true, "end": false, "merge": true},
         "model": null, "toldDays": 7, "protectedMinutes": 0,
@@ -465,7 +464,7 @@ fn hamlet_wire() -> Value {
 
 fn hand_wire() -> Value {
     json!({
-        "id": 1, "kind": "hand", "name": "hand", "nickname": null, "hamlet": null, "number": null, "scholar": null,
+        "id": 1, "kind": "hand", "name": "hand", "nickname": null, "hamlet": null, "scholar": null,
         "parent": null, "pin": null, "purpose": "", "since": 0, "mayor": false, "model": "faux/test",
         "ownModel": null, "effort": null, "fast": false,
         "busy": false, "faulted": false,
@@ -478,7 +477,7 @@ fn hand_wire() -> Value {
 
 fn agent_wire() -> Value {
     json!({
-        "id": 2, "kind": "hire", "name": "home#0", "nickname": "Fen", "hamlet": "home", "number": 0, "scholar": 1,
+        "id": 2, "kind": "hire", "name": "hire#2", "nickname": "Fen", "hamlet": "home", "scholar": 1,
         "parent": 1, "pin": "v1", "purpose": "Help the chief",
         "since": 1700000000000_i64, "mayor": true, "model": "faux/test",
         "ownModel": "faux/test", "effort": "xhigh", "fast": true,
@@ -508,7 +507,7 @@ fn change_wire() -> Value {
 
 fn wait_wire() -> Value {
     json!({
-        "id": "wait-1", "by": "home#0", "agent": 2,
+        "id": "wait-1", "by": "hire#2", "agent": 2,
         "about": "NOTES.md", "subject": "NOTES.md", "change": change_wire(),
         "answers": ["allow", "always", "deny", "go", "withdraw", "reply", "dismiss"],
         "since": 1700000000000_u64, "asked": 1, "chat": {"with": 2},
@@ -518,7 +517,7 @@ fn wait_wire() -> Value {
 
 fn grants_wire() -> Value {
     json!([
-        {"agent": 2, "name": "home#0", "permission": "network", "by": "chief", "source": "grant"},
+        {"agent": 2, "name": "hire#2", "permission": "network", "by": "chief", "source": "grant"},
         {"agent": null, "name": "all", "permission": "unconfined", "by": null, "source": "limits"}
     ])
 }
@@ -561,7 +560,7 @@ fn state_and_every_update_keep_the_servers_ready_made_values() {
     };
     assert_eq!(state.hand, AgentId(1));
     assert_eq!(state.agents[0].kind, AgentKind::Hand);
-    assert_eq!(state.agents[1].number, Some(0));
+    assert_eq!(state.agents[1].name, "hire#2");
     assert_eq!(state.agents[1].activity.doing, Doing::ReadFile);
     assert_eq!(state.hamlets[0].mayor, AgentId(2));
     assert_eq!(state.scholars[0].hires, [AgentId(2)]);

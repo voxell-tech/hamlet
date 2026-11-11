@@ -145,7 +145,9 @@ async fn a_manual_hamlet_asks_before_it_edits_or_runs_in_its_folder()
     let edited = folder.join("notes.txt");
     let ran_file = folder.join("ran");
     let home = Home::new();
-    let lodge_file = home.file("hamlets/docs/0/lodge-file");
+    // The mayor's lodge, in a hamlet whose id is made once it is
+    // founded.
+    let lodge_file = home.file("hamlets/{{docs}}/2/lodge-file");
     let mut s = Session::start_in(
         home,
         Faux::new().agent(
@@ -159,7 +161,8 @@ async fn a_manual_hamlet_asks_before_it_edits_or_runs_in_its_folder()
                 call(
                     "write",
                     json!({"path": lodge_file, "content": "own\n"}),
-                ),
+                )
+                .filled_from(NAMES),
                 words("Done."),
             ],
         ),
@@ -168,6 +171,10 @@ async fn a_manual_hamlet_asks_before_it_edits_or_runs_in_its_folder()
     .await;
     let ada = s.found("docs", "ada", "keep the docs").await;
     assert_eq!(ada, AgentId(2));
+    let lodge_file = s.home.file(&format!(
+        "hamlets/{}/2/lodge-file",
+        s.chief.hamlet_id("docs")
+    ));
     s.chief
         .command(ada, &format!("/folder {}", folder.display()))
         .await;

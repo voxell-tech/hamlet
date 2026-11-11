@@ -15,7 +15,6 @@ pub(crate) type Micros = i64;
 #[serde(default, rename_all = "camelCase")]
 pub(crate) struct Limits {
     pub budget: Budget,
-    pub task: TaskCaps,
     pub road: RoadRules,
     pub reserved: Reserved,
     /// The hamlet's own model, else the realm's.
@@ -32,7 +31,6 @@ impl Default for Limits {
     fn default() -> Self {
         Self {
             budget: Budget::default(),
-            task: TaskCaps::default(),
             road: RoadRules::default(),
             reserved: Reserved::default(),
             model: None,
@@ -48,9 +46,6 @@ impl Limits {
     /// hold.
     pub fn fault(&self) -> Option<String> {
         let negative = [
-            ("a task's cost", self.task.cost.unwrap_or(0)),
-            ("a task's minutes", self.task.minutes.unwrap_or(0)),
-            ("a task's messages", self.task.messages),
             ("a road's price", self.road.price),
             ("the most roads", self.road.most),
             ("the days a road stays", self.road.grows_over_days),
@@ -80,6 +75,9 @@ impl Budget {
     }
 }
 
+/// What a new hamlet, and the Hand, may spend in a period: $50.
+pub(crate) const DEFAULT_BUDGET: Micros = 50_000_000;
+
 /// A budget for a period, on cost and model time (H8).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
@@ -92,7 +90,7 @@ pub(crate) struct Budget {
 impl Default for Budget {
     fn default() -> Self {
         Self {
-            cost: Some(5_000_000),
+            cost: Some(DEFAULT_BUDGET),
             minutes: None,
             period: Period::Day,
         }
@@ -106,25 +104,6 @@ impl Default for Budget {
 pub(crate) enum Period {
     Day,
     Month,
-}
-
-/// The most one task may do (H12).
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(default, rename_all = "camelCase")]
-pub(crate) struct TaskCaps {
-    pub cost: Option<Micros>,
-    pub minutes: Option<i64>,
-    pub messages: i64,
-}
-
-impl Default for TaskCaps {
-    fn default() -> Self {
-        Self {
-            cost: Some(1_000_000),
-            minutes: None,
-            messages: 12,
-        }
-    }
 }
 
 /// What roads cost and how many a hamlet holds (H3).

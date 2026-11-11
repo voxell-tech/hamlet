@@ -10,7 +10,7 @@ use hamlet_store::schema::{agent, worker};
 use super::agents::{self, AgentKind, EndHow};
 use super::hires;
 use super::refusal::Refusal;
-use crate::change::{Change, Done, refuse};
+use crate::change::{Change, Done, done, refuse};
 
 /// Who starts a worker.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -33,6 +33,7 @@ pub(crate) struct Worker {
     pub call_runtime: Option<String>,
     pub call_key: Option<String>,
     pub answer: Option<String>,
+    pub nickname: Option<String>,
 }
 
 impl Worker {
@@ -120,6 +121,26 @@ pub(crate) fn find(
 
 pub(crate) fn get(db: &mut Db, id: AgentId) -> Result<Worker> {
     find(db, id)?.with_context(|| format!("no worker {id}"))
+}
+
+/// Calls the living worker `id` `nickname` in the world, or by its
+/// address again when none.
+pub(crate) fn set_nickname(
+    cx: &mut Change<'_>,
+    id: AgentId,
+    nickname: Option<&str>,
+) -> Done<()> {
+    get(cx.db, id)?;
+    done!(hires::require_living(cx.db, id));
+    let nickname = match hires::check_nickname(nickname) {
+        Ok(nickname) => nickname,
+        Err(refusal) => refuse!(refusal),
+    };
+    diesel::update(worker::table.find(id))
+        .set(worker::nickname.eq(nickname))
+        .execute(cx.db)?;
+    cx.touched.agents.insert(id);
+    Ok(Ok(()))
 }
 
 /// Ends the worker `id` with its answer, when it gave one.

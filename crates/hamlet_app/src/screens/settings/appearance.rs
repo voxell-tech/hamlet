@@ -21,11 +21,10 @@ use hamlet_ui::styles::{
 use hamlet_ui::theme::{Palette, Theme, Themes};
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::widgets::platform::Wraps;
-use hamlet_ui::widgets::switch::labelled_switch;
 use hamlet_ui::{AnyView, View, with_cx};
 
 use super::field;
-use crate::appearance::{Appearance, LessMotion, Mode, ZOOMS, Zoom};
+use crate::appearance::{Appearance, Mode, ZOOMS, Zoom};
 use crate::roll::{either, moved};
 use crate::root::Lasting;
 
@@ -37,17 +36,7 @@ const TILE_GAP: f32 = 6.0;
 const CHOICE: f32 = 120.0;
 
 pub(super) fn page() -> impl View {
-    parts((modes(), zoom(), motion(), themes()))
-}
-
-fn motion() -> impl View {
-    let reduced = resource::<LessMotion, _>(|less| less.is_reduced());
-    field(
-        "Motion",
-        labelled_switch("Reduce motion", reduced, |world, on| {
-            world.resource_mut::<LessMotion>().0 = Some(on);
-        }),
-    )
+    parts((modes(), zoom(), themes()))
 }
 
 /// How large the panels are drawn.

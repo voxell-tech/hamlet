@@ -14,6 +14,7 @@ mod visits;
 use bevy::app::{App, Update};
 use bevy::ecs::change_detection::DetectChanges;
 use bevy::ecs::entity::Entity;
+use bevy::ecs::query::With;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::common_conditions::resource_changed;
 use bevy::ecs::schedule::{IntoScheduleConfigs, SystemCondition};
@@ -24,7 +25,7 @@ use bevy_fynix::dock::DockWindowKind;
 use bevy_fynix::shortcut::Scope;
 use bevy_fynix::views::{BehaviorExt, FrameProps, column, row};
 use bevy_fynix::{ViewExt, keyed, resource};
-use hamlet_client::realm::Left;
+use hamlet_client::realm::{HamletId, Left, Seen};
 use hamlet_realm::pick::{Selected, Thing};
 use hamlet_ui::styles::{Fills, ICON, filling};
 use hamlet_ui::widgets::effects::{Highlight, Updated};
@@ -43,7 +44,7 @@ use crate::overview;
 pub fn plugin(app: &mut App) {
     app.add_panel(
         HUB,
-        DockWindowKind::new("HUB", || {
+        DockWindowKind::new("Hub", || {
             // Its tab glows while anything waits for the chief.
             highlight_panel(
                 screen(),
@@ -221,6 +222,31 @@ pub(crate) fn follow_selection(world: &mut World) {
         _ => return,
     };
     show(world, showing);
+}
+
+/// A realm with no hamlet opens on the Hand's chat, so a chief new to
+/// it starts by talking; one with hamlets opens on the realm's page.
+/// Decided once, when the first state has brought the Hand.
+pub(crate) fn open_first(
+    world: &mut World,
+    mut decided: Local<bool>,
+) {
+    if *decided || !world.contains_resource::<Seen>() {
+        return;
+    }
+    let Some(hand) = hamlet_client::realm::hand(world) else {
+        return;
+    };
+    *decided = true;
+    let any = world
+        .try_query_filtered::<(), With<HamletId>>()
+        .is_some_and(|mut hamlets| {
+            hamlets.iter(world).next().is_some()
+        });
+    if !any {
+        seat_if_new(world, hand);
+        show(world, Showing::Thread);
+    }
 }
 
 fn seat_if_new(world: &mut World, agent: Entity) {

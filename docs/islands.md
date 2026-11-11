@@ -121,7 +121,7 @@ Camera go back.
 
 ## Moving a hamlet
 
-The chief picks a hamlet up from its common's menu or its page. A footprint
+The chief picks a hamlet up with Move it on its page. A footprint
 follows the pointer, gold where the hamlet can be set down and red where it
 cannot, with a few words saying why. A click sets it down, and Escape puts
 it back. Each house then sinks where it stood and rises in its new place.

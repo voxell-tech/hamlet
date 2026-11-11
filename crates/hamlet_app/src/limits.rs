@@ -35,6 +35,10 @@ use crate::overview::heading;
 
 const CONTROLS: f32 = 150.0;
 
+/// The dollars a budget given a limit again may spend, as the
+/// server's default.
+const DEFAULT_BUDGET: f64 = 50.0;
+
 pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<Book>()
         .init_resource::<Part>()
@@ -277,6 +281,77 @@ fn cost(
     })
 }
 
+/// What a budget may spend, as `read` gives it and `set` changes it:
+/// a switch that takes the limit off, named by the first of `says`,
+/// and while there is a limit, its dollars, named by the second. A
+/// limit put back is the default one.
+fn spending<R: Resource>(
+    says: (&'static str, &'static str),
+    read: fn(&R) -> Option<f64>,
+    set: fn(&mut World, Option<f64>),
+) -> AnyView {
+    with_cx(move |cx| {
+        column((
+            line(says.0, unlimited(read, set)),
+            dollars(says.1, read, set),
+        ))
+        .gap(cx.theme().space.gap)
+    })
+    .boxed()
+}
+
+/// The switch of [`spending`] that takes the limit off.
+fn unlimited<R: Resource>(
+    read: fn(&R) -> Option<f64>,
+    set: fn(&mut World, Option<f64>),
+) -> AnyView {
+    toggle(
+        resource::<R, _>(move |limits| read(limits).is_none()),
+        move |world, on| {
+            set(world, (!on).then_some(DEFAULT_BUDGET));
+        },
+    )
+    .boxed()
+}
+
+/// The dollars of [`spending`], named `says`, while there is a limit.
+/// Its field is given `R`'s value at each change of `R`, so an edit
+/// the server refused shows what it holds again.
+fn dollars<R: Resource>(
+    says: &'static str,
+    read: fn(&R) -> Option<f64>,
+    set: fn(&mut World, Option<f64>),
+) -> AnyView {
+    keyed(
+        resource::<R, _>(move |limits| read(limits).is_some()),
+        move |&capped| {
+            if !capped {
+                return bare().boxed();
+            }
+            let field = control("budget", "cost", move || {
+                number_field(
+                    resource::<R, _>(move |limits| {
+                        read(limits).unwrap_or(DEFAULT_BUDGET)
+                    }),
+                    // None is no limit, which 0 means too.
+                    move |world, value: f64| {
+                        set(world, (value > 0.0).then_some(value));
+                    },
+                )
+                .range(0.0, 1_000_000.0)
+                .step(0.05)
+                .precision(2)
+                .width(px(110.0))
+                .rules(text_input)
+                .boxed()
+            });
+            line(says, field).boxed()
+        },
+    )
+    .within(bare())
+    .boxed()
+}
+
 fn switch(
     section: &'static str,
     key: &'static str,
@@ -295,7 +370,7 @@ fn switch(
     })
 }
 
-/// The budget of `hamlet` and the caps on one task.
+/// The budget of `hamlet`.
 fn budget(hamlet: Entity) -> impl View {
     let period = control("budget", "period", || {
         keyed(
@@ -332,11 +407,17 @@ fn budget(hamlet: Entity) -> impl View {
     });
     group((
         heading(Glyph::Meter, "The budget"),
-        fine("0 means no limit."),
         line("It starts again every", period),
-        line(
-            "May spend, in dollars",
-            cost("budget", "cost", |l| l.budget.cost).boxed(),
+        spending(
+            ("Spend without a limit", "May spend, in dollars"),
+            |book: &Book| {
+                book.limits
+                    .as_ref()
+                    .and_then(|limits| limits.budget.cost)
+            },
+            |world, cost| {
+                put(world, "budget", "cost", serde_json::json!(cost));
+            },
         ),
         beside((
             action(
@@ -350,21 +431,10 @@ fn budget(hamlet: Entity) -> impl View {
                     );
                 },
             ),
-            note("What was spent stays in the record."),
+            note("What was spent stays in the history."),
         ))
         .tagged(hamlet_ui::widgets::platform::Wraps)
         .boxed(),
-        heading(Glyph::Coins, "One task"),
-        fine("Counted across every agent the task touches."),
-        line(
-            "May cost, in dollars",
-            cost("task", "cost", |l| l.task.cost).boxed(),
-        ),
-        line(
-            "Messages between agents",
-            whole("task", "messages", |l| l.task.messages, 10_000)
-                .boxed(),
-        ),
     ))
 }
 
@@ -459,27 +529,21 @@ pub fn realm() -> AnyView {
         .within(bare())
         .boxed()
     });
-    let spend = control("budget", "cost", || {
-        number_field(
-            resource::<RealmBylaws, _>(|limits| {
-                limits.0.budget.cost.unwrap_or(0.0)
-            }),
-            |world, value: f64| {
-                put_realm(
-                    world,
-                    "budget",
-                    "cost",
-                    serde_json::json!((value > 0.0).then_some(value)),
-                );
-            },
-        )
-        .range(0.0, 1_000_000.0)
-        .step(0.05)
-        .precision(2)
-        .width(px(110.0))
-        .rules(text_input)
-        .boxed()
-    });
+    let spend = spending(
+        (
+            "The Hand may spend without a limit",
+            "The Hand may spend, in dollars",
+        ),
+        |limits: &RealmBylaws| limits.0.budget.cost,
+        |world, cost| {
+            put_realm(
+                world,
+                "budget",
+                "cost",
+                serde_json::json!(cost),
+            );
+        },
+    );
     let roads = control("", "roadsBetween", || {
         toggle(
             resource::<RealmBylaws, _>(|limits| {
@@ -493,9 +557,8 @@ pub fn realm() -> AnyView {
     });
     group((
         heading(Glyph::Globe, "The realm"),
-        fine("0 means no limit."),
         line("The Hand's budget starts again every", period),
-        line("The Hand may spend, in dollars", spend),
+        spend,
         line("Mayors may agree roads between hamlets", roads),
     ))
     .boxed()
@@ -579,7 +642,7 @@ pub fn panel(hamlet: Entity) -> AnyView {
             };
             parts((
                 breadcrumb(
-                    vec!["Bylaws".into()],
+                    vec!["Limits".into()],
                     part.title(),
                     |world, _| {
                         *world.resource_mut::<Part>() = Part::Front;
@@ -622,10 +685,10 @@ impl Part {
 
     fn title(self) -> &'static str {
         match self {
-            Part::Front => "Bylaws",
+            Part::Front => "Limits",
             Part::Budget => "Budget",
             Part::Models => "Models",
-            Part::Leads => "Leads and limits",
+            Part::Leads => "Leads and roads",
         }
     }
 
@@ -647,13 +710,12 @@ impl Part {
         match self {
             Part::Front => String::new(),
             Part::Budget => format!(
-                "{} {}, {} a task",
+                "{} {}",
                 dollars(limits.budget.cost),
                 match limits.budget.period {
                     Period::Day => "a day",
                     Period::Month => "a month",
                 },
-                dollars(limits.task.cost).to_lowercase(),
             ),
             Part::Models => match &limits.model {
                 Some(model) => {
@@ -698,7 +760,7 @@ impl Part {
     fn holds(self) -> &'static str {
         match self {
             Part::Front => "",
-            Part::Budget => "The budget, and the caps on one task.",
+            Part::Budget => "What the hamlet may spend in a period.",
             Part::Models => "Which models this hamlet may run.",
             Part::Leads => {
                 "What the leads may do without asking, and the caps \

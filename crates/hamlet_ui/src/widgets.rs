@@ -8,9 +8,11 @@ pub mod ellipsis;
 pub mod floats;
 pub mod hint;
 pub mod icons;
+pub mod keys;
 pub mod pixels;
 pub mod platform;
 pub mod providers;
+pub mod rainbow;
 pub mod range;
 pub mod spoken;
 pub mod switch;
@@ -31,6 +33,7 @@ pub fn plugin(app: &mut App) {
         ellipsis::plugin,
         hint::plugin,
         providers::plugin,
+        rainbow::plugin,
         spoken::plugin,
     ));
 }

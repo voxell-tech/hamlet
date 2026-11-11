@@ -68,9 +68,6 @@ pub(crate) fn merge(
     if kept == absorbed {
         refuse!(Refusal::SameEnds);
     }
-    if reason.trim().is_empty() {
-        refuse!(Refusal::NoReason);
-    }
     let (one, other) =
         (hires::get(cx.db, kept)?, hires::get(cx.db, absorbed)?);
     for id in [kept, absorbed] {

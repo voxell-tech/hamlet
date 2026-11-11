@@ -109,9 +109,16 @@ impl Client {
         found.pop()
     }
 
-    /// The hamlet whose id is `id`.
-    pub fn hamlet(&self, id: &str) -> Option<Hamlet> {
-        self.realm().hamlets.into_iter().find(|h| h.id == id)
+    /// The living hamlet named `name`.
+    pub fn hamlet(&self, name: &str) -> Option<Hamlet> {
+        self.realm().hamlets.into_iter().find(|h| h.name == name)
+    }
+
+    /// The id of the living hamlet named `name`.
+    pub fn hamlet_id(&self, name: &str) -> String {
+        self.hamlet(name)
+            .unwrap_or_else(|| panic!("no hamlet named {name}"))
+            .id
     }
 
     /// The items of a watched chat, folded from its pages and turns.
@@ -426,7 +433,9 @@ impl Client {
         .await
     }
 
-    /// Changes one limit of `hamlet`, or the realm's.
+    /// Changes one limit of the hamlet named `hamlet`, or the
+    /// realm's. A name no hamlet has goes as the id, for the server
+    /// to refuse.
     pub async fn limit(
         &mut self,
         hamlet: Option<&str>,
@@ -439,7 +448,10 @@ impl Client {
             key: key.into(),
             value,
         };
-        let hamlet = hamlet.map(String::from);
+        let hamlet = hamlet.map(|name| {
+            self.hamlet(name)
+                .map_or_else(|| name.to_owned(), |h| h.id)
+        });
         self.request(|id| {
             ClientMessage::Edit(Edit::Limits(EditLimits::Set {
                 hamlet,
