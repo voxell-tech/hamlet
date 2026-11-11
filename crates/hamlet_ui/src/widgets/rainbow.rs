@@ -21,7 +21,7 @@ pub(super) fn plugin(app: &mut App) {
     app.add_systems(Update, run);
 }
 
-/// A bar [`rainbow_bar`] draws, whose hues [`run`] moves.
+/// A bar [`rainbow_bar`] draws, whose hues move along it each frame.
 #[derive(Component)]
 #[require(BackgroundGradient)]
 pub struct Rainbow;
