@@ -33,7 +33,7 @@ use hamlet_client::messages::Response;
 use hamlet_client::outbox::Outbox;
 use hamlet_protocol::client as protocol;
 use hamlet_ui::styles::{
-    Fills, Looks, Tipped, lettered, note, small_rules,
+    Fills, LINE, Looks, Tipped, lettered, note, small_rules,
 };
 use hamlet_ui::widgets::edges::faded;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
@@ -311,7 +311,7 @@ pub(super) fn fold_view<B: Board>(
     // its heading.
     let inside = with_cx(move |cx| {
         let guide = frame()
-            .width(px(1.0))
+            .width(px(LINE))
             .shrink(0.0)
             .margin(UiRect::left(px(GUIDE)))
             .fill(cx.theme().palette.gold_6);

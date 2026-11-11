@@ -14,7 +14,7 @@ use bevy::ui::{
     BackgroundGradient, ColorStop, Gradient, LinearGradient, percent,
 };
 
-use super::{EffectSettings, ease, lit_panels};
+use super::{Tuned, ease, lit_panels};
 use crate::theme::{HamletTheme, Themed};
 
 /// How strong the glow is at its edge, over dark panels and over
@@ -91,7 +91,7 @@ pub fn wash(theme: &HamletTheme, from: Edge, level: f32) -> Gradient {
 pub(super) fn update_washes(
     mut commands: Commands,
     time: Res<Time>,
-    set: Res<EffectSettings>,
+    tuned: Tuned,
     theme: Themed,
     mut washes: Query<(
         Entity,
@@ -100,6 +100,7 @@ pub(super) fn update_washes(
         Has<BackgroundGradient>,
     )>,
 ) {
+    let set = tuned.get();
     let dt = time.delta_secs();
     let hover = HOVER[usize::from(lit_panels(&theme))];
     for (node, mut wash_of, hovered, shown) in &mut washes {

@@ -126,7 +126,7 @@ pub(super) fn setup(world: &mut World) {
             "sk-or-v1-5e0d2c41a7",
         );
     }
-    if let Scene::KeySearch(words) = scene {
+    if let Scene::ProviderSearch(words) = scene {
         hamlet_app::welcome::search(world, words);
     }
     let agent =

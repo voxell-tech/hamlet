@@ -496,13 +496,14 @@ pub struct Spacing {
     pub gap: f32,
     /// The height of a row.
     pub row: f32,
-    /// The corners, from small to soft: a chip, a key or a panel's
-    /// frame; a control or a row; a card in a panel; what floats, a
+    /// The corners, from small to soft: a chip or a key; a control
+    /// or a row; a card in a panel; a panel's frame; what floats, a
     /// menu, a toast or a card over the world. A corner inset in
     /// another by less than a gap is the outer one less the inset.
     pub round_small: f32,
     pub round: f32,
     pub round_card: f32,
+    pub round_panel: f32,
     pub soft: f32,
     pub divider: f32,
     /// How far either side of a divider the pointer takes hold of
@@ -894,7 +895,11 @@ impl SpacingTokens for HamletTheme {
     }
 
     fn dock_radius(&self) -> f32 {
-        self.space.round_small
+        self.space.round_panel
+    }
+
+    fn dock_border(&self) -> f32 {
+        self.space.border
     }
 }
 

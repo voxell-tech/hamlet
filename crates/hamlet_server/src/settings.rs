@@ -44,7 +44,8 @@ impl Default for Dreams {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub(crate) struct Settings {
-    /// The realm's model, as `endpoint::model`.
+    /// The realm's model, as `endpoint::model`; empty until the
+    /// chief picks one.
     pub model: String,
     pub endpoints: Vec<Endpoint>,
     /// The answered turns after which an agent reflects; never for 0
@@ -63,8 +64,9 @@ pub(crate) struct Settings {
     /// How the last check of the model's provider went.
     #[serde(default = "untested")]
     pub link: Link,
-    /// Whether the chief saved them.
-    pub saved: bool,
+    /// Whether the chief picked the realm's model, which ends setup.
+    #[serde(alias = "saved")]
+    pub picked: bool,
 }
 
 fn untested() -> Link {
@@ -78,11 +80,8 @@ fn untested() -> Link {
 impl Default for Settings {
     fn default() -> Self {
         Self {
-            model: "local::qwen3.6:35b-a3b".into(),
-            endpoints: vec![Endpoint {
-                name: "local".into(),
-                base_url: "http://localhost:11434/v1".into(),
-            }],
+            model: String::new(),
+            endpoints: Vec::new(),
             reflect_every: 10,
             allow_net: false,
             effort: None,
@@ -90,7 +89,7 @@ impl Default for Settings {
             newcomers: Newcomers::default(),
             character: CHARACTER.into(),
             link: untested(),
-            saved: false,
+            picked: false,
         }
     }
 }
@@ -193,10 +192,17 @@ impl Overrides {
         if let (Some(url), Some((endpoint, _))) =
             (&self.base_url, settings.model.clone().split_once("::"))
         {
-            for kept in &mut settings.endpoints {
-                if kept.name == endpoint {
-                    kept.base_url.clone_from(url);
-                }
+            match settings
+                .endpoints
+                .iter_mut()
+                .find(|kept| kept.name == endpoint)
+            {
+                Some(kept) => kept.base_url.clone_from(url),
+                // A realm starts with no endpoint to point.
+                None => settings.endpoints.push(Endpoint {
+                    name: endpoint.into(),
+                    base_url: url.clone(),
+                }),
             }
         }
         settings
