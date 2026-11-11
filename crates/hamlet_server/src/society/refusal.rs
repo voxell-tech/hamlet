@@ -157,6 +157,11 @@ pub(crate) enum Refusal {
     NoWait,
     #[error("no model is named `{model}`")]
     NoModel { model: String },
+    #[error(
+        "no model is set up yet: choose one in Settings, under \
+         Models"
+    )]
+    NoModelSetUp,
     #[error("no skill is named `{name}`")]
     NoSkill { name: String },
     #[error("there is no file `{path}` here")]

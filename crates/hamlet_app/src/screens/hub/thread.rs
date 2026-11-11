@@ -771,9 +771,36 @@ fn send_or_stop(agent: Entity) -> impl View {
 /// The composer's toolbar, under its field: the gifts, the model and
 /// effort and the hamlet's mode, then Send or Stop.
 fn chips(agent: Entity) -> impl View {
+    // With no model set up, the model's chip is the way to set one
+    // up.
+    let model = keyed(
+        derived(chat::without_model).when(every_frame()),
+        move |&none| {
+            if !none {
+                return model_chip(agent).boxed();
+            }
+            button(
+                row((
+                    glyph(Glyph::Chip, 12.0).tone(Tone::Critical),
+                    label("Set up a model").wrap(false),
+                ))
+                .gap(6.0)
+                .align(AlignItems::Center),
+            )
+            .padding(UiRect::axes(px(8.0), px(0.0)))
+            .rules(chip_look)
+            .tagged(Variant::Text)
+            .tooltip(|| {
+                note("No model is set up yet, so nothing can answer")
+            })
+            .on_activate(crate::welcome::again)
+            .boxed()
+        },
+    )
+    .within(bare());
     row((
         gifts(agent),
-        model_chip(agent),
+        model,
         mode_chip(agent),
         frame().grow(1.0),
         send_or_stop(agent),

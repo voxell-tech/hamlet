@@ -301,6 +301,15 @@ impl Core {
                     Ok(id) => id,
                     Err(refusal) => return Ok(Err(refusal)),
                 };
+                // A worker no model can run would never start.
+                if !crate::talk::models::has_model(
+                    cx.db,
+                    &env.settings,
+                    &env.overrides,
+                    id,
+                )? {
+                    return Ok(Err(Refusal::NoModelSetUp));
+                }
                 crate::talk::briefs::give(
                     cx,
                     env,

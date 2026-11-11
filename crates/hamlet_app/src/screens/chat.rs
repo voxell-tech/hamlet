@@ -411,6 +411,16 @@ pub(crate) fn send_typed(world: &mut World) {
     submit(world, text);
 }
 
+/// Whether the agent the chat is with runs no model, as before one
+/// is set up: nothing can answer it, so nothing is sent to it.
+pub(crate) fn without_model(world: &World) -> bool {
+    world.get_resource::<Convo>().is_some_and(|convo| {
+        world
+            .get::<agents::Account>(convo.agent)
+            .is_some_and(|account| account.model.is_empty())
+    })
+}
+
 /// Sends `text` to the open chat, or says why a command is not, and
 /// then clears the field and gives it the focus again.
 fn submit(world: &mut World, text: String) {
@@ -420,6 +430,11 @@ fn submit(world: &mut World, text: String) {
             "Commands are not typed here. Use the menus, or \
              right-click an agent or a hamlet."
                 .into();
+    } else if without_model(world) {
+        // Kept in the field, to send once a model is set up.
+        world.resource_mut::<Draft>().notice =
+            "No model is set up yet. Set one up to start.".into();
+        return;
     } else {
         world.resource_mut::<Draft>().notice.clear();
         let text = reply::attach(world, text);
@@ -587,6 +602,9 @@ fn message_bar_in(
         // Shown in the empty field, just after the caret.
         overlay((row((label(
             derived(|world: &World| {
+                if without_model(world) {
+                    return "Set up a model to start".to_string();
+                }
                 match world.get_resource::<Convo>().map(|c| &c.with) {
                     Some(Some(name)) => format!("Message {name}"),
                     Some(None) => "Message the Hand".to_string(),

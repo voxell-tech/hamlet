@@ -998,9 +998,11 @@ fn quiet() -> impl View {
         derived(|world: &World| {
             let lines = world.resource::<Lines>();
             let convo = world.resource::<Convo>();
+            // No starter is offered while nothing could answer it.
             let own = world
                 .get::<chats::Chat>(convo.session)
-                .is_some_and(|chat| chat.0.from.is_none());
+                .is_some_and(|chat| chat.0.from.is_none())
+                && !super::without_model(world);
             match (
                 lines.rows.is_empty() && !lines.more,
                 lines.cast.first(),

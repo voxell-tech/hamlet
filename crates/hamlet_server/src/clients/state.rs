@@ -159,8 +159,12 @@ fn agent_view(
         &sources.env.overrides,
         id,
     )
-    .map(|choice| {
-        format!("{}::{}", choice.model.provider, choice.model.id)
+    // Empty while no model is set up for it.
+    .map(|choice| match (choice.model.provider, choice.model.id) {
+        (provider, id) if provider.is_empty() || id.is_empty() => {
+            String::new()
+        }
+        (provider, id) => format!("{provider}::{id}"),
     })
     .unwrap_or_default();
     let shown = sources.activity.get(&id);

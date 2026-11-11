@@ -40,6 +40,23 @@ pub(crate) fn choose(
     })
 }
 
+/// Whether `agent` runs a model at all: none is named before the
+/// chief sets one up, and a conversation begun with none would never
+/// start.
+pub(crate) fn has_model(
+    db: &mut Db,
+    settings: &Settings,
+    overrides: &Overrides,
+    agent: AgentId,
+) -> Result<bool> {
+    if overrides.faux {
+        return Ok(true);
+    }
+    let model =
+        settings::model_ref(settings, &named(db, settings, agent)?);
+    Ok(!model.id.is_empty() && !model.provider.is_empty())
+}
+
 /// How hard `agent` thinks: its own effort when one was chosen for
 /// it, else its starter's for a worker, else the realm's.
 pub(crate) fn effort_of(
