@@ -3,15 +3,14 @@
 //! (`open`), temporary documents watched for saves (`editor`), its
 //! dialog a folder is chosen in (`folder`), the app's icon
 //! (`app_icon`), whether the computer is light or dark
-//! (`color_scheme`), whether it asks for less motion (`motion`) and
-//! the window's drag by its title bar (`title_bar`).
+//! (`color_scheme`) and the window's drag by its title bar
+//! (`title_bar`).
 
 pub mod app_icon;
 pub mod awake;
 pub mod color_scheme;
 pub mod editor;
 pub mod folder;
-pub mod motion;
 pub mod open;
 pub mod title_bar;
 

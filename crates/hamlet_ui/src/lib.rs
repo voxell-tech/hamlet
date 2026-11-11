@@ -3,7 +3,9 @@
 //! client state; the window in `hamlet_app` does.
 
 pub mod fields;
+pub mod kinds;
 pub mod markdown;
+pub mod rules;
 pub mod styles;
 pub mod theme;
 pub mod widgets;

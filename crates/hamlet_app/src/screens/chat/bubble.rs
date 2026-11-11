@@ -43,14 +43,12 @@ const FACE: f32 = 24.0;
 
 /// The room a bubble leaves at the far side, so that whose it is
 /// shows from where it sits.
-const FAR: f32 = 26.0;
+const FAR: f32 = 24.0;
 
 /// The room over a run, above the room between any two rows.
-const RUN: f32 = 9.0;
+const RUN: f32 = 8.0;
 
-/// The corner of a bubble, and the one by the picture of the first
-/// bubble of a run.
-const ROUND: f32 = 10.0;
+/// The corner by the picture of the first bubble of a run.
 const TAIL: f32 = 3.0;
 
 /// The room the hour takes at the end of a message's last line.
@@ -232,6 +230,7 @@ fn said<B: Board>(
             && session == cx.world.resource::<Convo>().session;
         let palette = &cx.theme().palette;
         let border = cx.theme().space.border;
+        let corner = cx.theme().space.round_card;
         let fill: fn(&Palette) -> Color =
             if mine { |p| p.gold_6 } else { |p| p.card };
         let time = hour(line.at);
@@ -364,7 +363,7 @@ fn said<B: Board>(
         }
         let bubble = column(inside)
             .gap(2.0)
-            .padding(UiRect::axes(px(10.0), px(6.0)))
+            .padding(UiRect::axes(px(12.0), px(6.0)))
             // No wider than its row, however long the names over
             // its words are: what does not fit there is cut.
             .min_width(px(0.0))
@@ -378,8 +377,8 @@ fn said<B: Board>(
                 palette.accent,
             ))
             .corners({
-                let tail = px(if line.named { TAIL } else { ROUND });
-                let round = BorderRadius::all(px(ROUND));
+                let tail = px(if line.named { TAIL } else { corner });
+                let round = BorderRadius::all(px(corner));
                 if mine {
                     BorderRadius {
                         top_right: tail.into(),

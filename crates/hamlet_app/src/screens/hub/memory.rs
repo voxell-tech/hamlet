@@ -190,7 +190,7 @@ fn quote(content: impl View + 'static) -> impl View {
             frame().width(px(2.0)).fill(cx.theme().palette.gold_5),
             column((content,)).grow(1.0).min_width(px(0.0)),
         ))
-        .gap(10.0)
+        .gap(8.0)
     })
 }
 
@@ -390,7 +390,7 @@ pub(super) fn view(
                             .map(|f| folder(f, open.as_deref(), menu))
                             .collect::<Vec<_>>(),
                     )
-                    .gap(10.0)
+                    .gap(8.0)
                     .boxed()
                 },
             )

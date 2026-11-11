@@ -29,6 +29,7 @@ use super::{
     Align, Anchor, Area, Block, Kind, Marker, PathLinks, PictureView,
     Row, Span, Style, Target,
 };
+use crate::kinds::inset;
 use crate::styles::{Fills, bare, small_rules};
 use crate::theme::Palette;
 use crate::widgets::platform::{Mono, MonoText};
@@ -280,12 +281,7 @@ fn code_view(cx: &Cx, lang: &str, text: &str) -> impl View {
         );
     }
     parts.push(body);
-    column(parts)
-        .gap(4.0)
-        .padding(UiRect::axes(px(10.0), px(8.0)))
-        .min_width(px(0.0))
-        .fill(theme.palette.code)
-        .radius(theme.space.round)
+    inset(parts)
 }
 
 /// Columns that share the width between them and may shrink to
@@ -333,7 +329,7 @@ fn table_view(
             };
             cells.push(
                 column((rich(spans, ink),))
-                    .padding(UiRect::axes(px(10.0), px(5.0)))
+                    .padding(UiRect::axes(px(12.0), px(6.0)))
                     .min_width(px(0.0))
                     .align(side)
                     .fill(fill(palette))
@@ -395,7 +391,7 @@ fn block_view(
             code_view(cx, lang, text).boxed()
         }
         Kind::Rule => frame()
-            .height(px(1.0))
+            .height(px(crate::styles::LINE))
             .margin(UiRect::vertical(px(4.0)))
             .fill(cx.theme().palette.gold_6)
             .boxed(),
@@ -419,7 +415,7 @@ fn block_view(
         cells.push(
             frame()
                 .width(px(3.0))
-                .margin(UiRect::right(px(10.0)))
+                .margin(UiRect::right(px(8.0)))
                 .shrink(0.0)
                 .fill(cx.theme().palette.gold_5)
                 .boxed(),

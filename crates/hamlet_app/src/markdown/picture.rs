@@ -12,12 +12,11 @@ use bevy::ui::{
 };
 use bevy::window::SystemCursorIcon;
 use bevy_fynix::tokens::Tone;
-use bevy_fynix::views::{
-    Frame, FrameProps, column, frame, label, row,
-};
+use bevy_fynix::views::{FrameProps, column, label, row};
 use bevy_fynix::{
     EntityCursor, ScopedExt, ViewExt, derived, keyed, resource,
 };
+use hamlet_ui::kinds::inset;
 use hamlet_ui::markdown::{Face, Ink, Span, Style, Target, rich};
 use hamlet_ui::styles::{ICON, action, bare, note, small_rules};
 use hamlet_ui::widgets::icons::{Glyph, glyph};
@@ -34,17 +33,6 @@ fn plain(text: &str) -> Span {
         style: Style::default(),
         link: None,
     }
-}
-
-/// A plate in the frame of a picture.
-fn framed(cx: &Cx) -> Frame {
-    let theme = cx.theme();
-    frame()
-        .max_width(percent(100.0))
-        .fill(theme.palette.code)
-        .border(theme.space.border)
-        .border_color(theme.palette.gold_6)
-        .radius(theme.space.round)
 }
 
 /// The picture `drawn`, no larger than `most`, over its caption. A
@@ -146,30 +134,23 @@ fn web_chip(
             })
         }
     });
-    chip(cx, row(parts).gap(8.0).align(AlignItems::Center))
+    chip(
+        row(parts)
+            .gap(cx.theme().space.gap)
+            .align(AlignItems::Center),
+    )
 }
 
-/// `content` on a chip the window draws in a reply, set apart from
+/// `content` on an inset the window draws in a reply, set apart from
 /// what the agent wrote around it without a second frame in the
 /// bubble's.
-fn chip<V: View + FrameProps>(cx: &Cx, content: V) -> impl View {
-    let theme = cx.theme();
-    content
-        .padding(UiRect::axes(px(8.0), px(4.0)))
-        .min_width(px(0.0))
-        .max_width(percent(100.0))
-        .fill(theme.palette.code)
-        .radius(theme.space.round)
+fn chip(content: impl View) -> impl View {
+    inset((content,)).max_width(percent(100.0))
 }
 
 /// The chip of a picture that cannot be shown: its caption, the name
 /// it was written by and `why`.
-fn missing(
-    cx: &Cx,
-    caption: &str,
-    target: &Target,
-    why: &str,
-) -> impl View {
+fn missing(caption: &str, target: &Target, why: &str) -> impl View {
     let written = match target {
         Target::Web(address) => address,
         Target::Path(path) => path,
@@ -184,7 +165,6 @@ fn missing(
     });
     said.push(plain(&format!(" {why}")));
     chip(
-        cx,
         row((
             glyph(Glyph::Mountains, ICON).tone(Tone::Faint),
             row((rich(&said, SMALL),)).min_width(px(0.0)),
@@ -222,7 +202,7 @@ pub(crate) fn picture_view(
                         Target::Path(_) => "not found",
                         Target::Web(_) => "is no web address",
                     };
-                    let card = missing(cx, &caption, &target, why);
+                    let card = missing(&caption, &target, why);
                     return cx.build(card);
                 };
                 cx.world.init_resource::<Pictures>();
@@ -264,7 +244,6 @@ pub(crate) fn picture_view(
                                 (caption.clone(), target.clone());
                             AnyView::new(move |cx: &mut Cx| {
                                 let card = missing(
-                                    cx,
                                     &caption,
                                     &target,
                                     "could not be read",
@@ -276,7 +255,8 @@ pub(crate) fn picture_view(
                             let (wide, tall) =
                                 (most.x, settings.picture_wait);
                             AnyView::new(move |cx: &mut Cx| {
-                                let plate = framed(cx)
+                                let plate = inset(())
+                                    .max_width(percent(100.0))
                                     .width(px(wide))
                                     .height(px(tall));
                                 cx.build(plate)

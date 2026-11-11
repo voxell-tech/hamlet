@@ -17,6 +17,7 @@ use bevy_fynix::{
     Bevy, Focused, Prop, ScopedExt, ViewExt, ViewSeq, Visual, style,
 };
 
+use crate::kinds::{chip, inset};
 use crate::theme::{HamletTheme, StatusKind, TextSizes};
 use crate::widgets::edges::faded;
 use crate::widgets::effects::{Underglow, Variant};
@@ -233,15 +234,19 @@ pub fn filling() -> Stack<()> {
     column(()).fills_height().gap(0.0)
 }
 
-/// A line one pixel thick, of `colour`.
+/// How thick a line drawn in a view is, in pixels: a rule, a guide or
+/// a tree's branch.
+pub const LINE: f32 = 2.0;
+
+/// A line [`LINE`] thick, of `colour`.
 pub fn hairline(colour: impl Into<Prop<Color>>) -> Frame {
-    frame().height(px(1.0)).fill(colour)
+    frame().height(px(LINE)).fill(colour)
 }
 
 /// A line between parts side by side, top to bottom.
 pub fn upright() -> impl View {
     with_cx(|cx| {
-        frame().width(px(1.0)).fill(cx.theme().palette.border)
+        frame().width(px(LINE)).fill(cx.theme().palette.border)
     })
 }
 
@@ -373,33 +378,7 @@ pub fn list(rows: Vec<AnyView>) -> impl View {
 /// A command, in monospace at the body size on a block of code the
 /// width of its column, wrapping where it is long.
 pub fn command_block(text: impl Into<Prop<String>>) -> impl View {
-    inset(label(text).tagged(MonoText))
-}
-
-/// `content` on a block of code the width of its column: what a
-/// file or a command says, set apart from the panel's own words.
-pub fn inset(content: impl View) -> impl View {
-    with_cx(move |cx| {
-        let theme = cx.theme();
-        column((content,))
-            .min_width(px(0.0))
-            .padding(UiRect::axes(px(10.0), px(8.0)))
-            .fill(theme.palette.code)
-            .radius(theme.space.round)
-    })
-}
-
-fn chip(words: impl View + Send + Sync + 'static) -> impl View {
-    with_cx(move |cx| {
-        let theme = cx.theme();
-        row((words,))
-            .min_width(px(0.0))
-            .padding(UiRect::axes(px(5.0), px(0.0)))
-            .fill(theme.palette.code)
-            .border(theme.space.border)
-            .border_color(theme.palette.gold_6)
-            .radius(theme.space.round)
-    })
+    inset((label(text).tagged(MonoText),))
 }
 
 /// `line` on one line, each command in it, between backticks, on a
@@ -415,10 +394,9 @@ pub fn quoted(line: &str) -> AnyView {
         .filter(|(_, part)| !part.trim().is_empty())
         .map(|(at, part)| {
             if at % 2 == 1 {
-                chip(
-                    one_line(label(part.to_string()))
-                        .tagged(MonoText),
-                )
+                chip((one_line(label(part.to_string()))
+                    .tagged(MonoText),))
+                .min_width(px(0.0))
                 .boxed()
             } else {
                 label(part.trim().to_string()).wrap(false).boxed()
@@ -538,26 +516,6 @@ pub fn scroll_area(
     faded(with_cx(move |cx| {
         scroll(children).gap(cx.theme().space.gap).fills_height()
     }))
-}
-
-/// `content` in a card: a shade above the panel, in a frame.
-pub fn framed(
-    content: impl ViewSeq<Bevy, HamletTheme> + 'static,
-) -> impl View {
-    with_cx(move |cx| {
-        let theme = cx.theme();
-        let space = &theme.space;
-        column(content)
-            .gap(space.gap / 2.0)
-            .padding(UiRect::axes(
-                px(space.card_padding_x),
-                px(space.card_padding_y),
-            ))
-            .border(space.border)
-            .border_color(theme.palette.gold_6)
-            .radius(space.round)
-            .fill(theme.palette.card)
-    })
 }
 
 /// A button with `text`.
@@ -826,15 +784,13 @@ pub fn reference(text: impl Into<Prop<String>>) -> impl View {
     let text = text.into();
     with_cx(move |cx| {
         let theme = cx.theme();
-        row((label(text)
+        chip((label(text)
             .size(theme.text.small)
             .tone(Tone::Reference)
             .wrap(false)
             .tagged(MonoText),))
-        .padding(UiRect::axes(px(6.0), px(1.0)))
+        .status(StatusKind::Info)
         .shrink(0.0)
-        .fill(theme.palette.status.info.fill)
-        .radius(theme.space.round)
     })
 }
 
@@ -1440,7 +1396,7 @@ pub fn card_choice(
                     } else {
                         t.palette.card
                     })
-                    .radius(t.space.round)
+                    .radius(t.space.round_card)
                     .justify(JustifyContent::FlexStart)
                     .align(AlignItems::FlexStart)
                     .padding(UiRect::axes(
@@ -1512,8 +1468,9 @@ pub fn radio(on: bool) -> impl View {
 }
 
 /// A word that marks a state, such as "Edited" or "Default": small
-/// dim letters on a neutral plate with no border, so it does not read
-/// as a button. The accent is for what is picked, not for a state.
+/// dim letters in a neutral capsule with no border, so it does not
+/// read as a button. The accent is for what is picked, not for a
+/// state.
 pub fn pill(text: impl Into<Prop<String>>) -> impl View {
     let text = text.into();
     with_cx(move |cx| {
@@ -1526,6 +1483,6 @@ pub fn pill(text: impl Into<Prop<String>>) -> impl View {
         .padding(UiRect::axes(px(8.0), px(2.0)))
         .shrink(0.0)
         .fill(theme.palette.button_hover)
-        .radius(theme.space.round)
+        .radius(theme.text.small + 4.0)
     })
 }

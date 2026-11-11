@@ -33,7 +33,7 @@ use hamlet_client::messages::Response;
 use hamlet_client::outbox::Outbox;
 use hamlet_protocol::client as protocol;
 use hamlet_ui::styles::{
-    Fills, Looks, Tipped, lettered, note, small_rules,
+    Fills, LINE, Looks, Tipped, lettered, note, small_rules,
 };
 use hamlet_ui::widgets::edges::faded;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
@@ -240,11 +240,11 @@ pub(super) fn rows(
 
 /// How far in from a fold's edge the line down from its chevron is,
 /// and how far from that line its steps are.
-const GUIDE: f32 = 5.0;
+const GUIDE: f32 = 4.0;
 
 /// How far in from a fold's edge its chevron is, as a bubble's words
 /// are from its edge.
-pub(super) const INSET: f32 = 10.0;
+pub(super) const INSET: f32 = 12.0;
 
 /// The steps of a turn as one line that opens, as board `B` holds
 /// them.
@@ -311,7 +311,7 @@ pub(super) fn fold_view<B: Board>(
     // its heading.
     let inside = with_cx(move |cx| {
         let guide = frame()
-            .width(px(1.0))
+            .width(px(LINE))
             .shrink(0.0)
             .margin(UiRect::left(px(GUIDE)))
             .fill(cx.theme().palette.gold_6);
@@ -902,7 +902,7 @@ pub fn read_back(
 
 /// The room between two rows of one run. A run is set further
 /// from the one before it.
-const GAP: f32 = 3.0;
+const GAP: f32 = 2.0;
 
 /// The chat with whoever `Convo` points at.
 pub fn transcript() -> impl View {

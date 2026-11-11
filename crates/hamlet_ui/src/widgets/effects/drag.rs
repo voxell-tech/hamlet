@@ -121,8 +121,9 @@ pub(super) fn dress_drag(
                 });
             }
         }
-        if node.border != UiRect::all(px(1.0)) {
-            node.border = UiRect::all(px(1.0));
+        let stroke = UiRect::all(px(crate::styles::LINE));
+        if node.border != stroke {
+            node.border = stroke;
         }
         if layer.0 == HINT_LAYER
             && let Some(put) = stand(&node)

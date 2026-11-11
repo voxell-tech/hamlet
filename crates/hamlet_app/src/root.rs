@@ -117,7 +117,7 @@ struct Panels(Entity);
 /// Mounts the views, as one tab group so Tab moves through the
 /// controls.
 pub(crate) fn mount(world: &mut World) {
-    let root = bevy_fynix::mount::<HamletTheme>(world, root());
+    let root = hamlet_ui::rules::mount(world, root());
     world.entity_mut(root).insert(TabGroup::default());
     world.insert_resource(Panels(root));
 }
@@ -280,7 +280,7 @@ pub fn connection_test() -> impl View {
             ))
             .gap(12.0)
             .align(AlignItems::Center)
-            .padding(UiRect::axes(px(16.0), px(5.0))),
+            .padding(UiRect::axes(px(16.0), px(4.0))),
         )
     })
 }

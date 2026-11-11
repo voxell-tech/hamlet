@@ -5,43 +5,36 @@ use std::collections::BTreeSet;
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::hierarchy::{ChildOf, Children};
-use bevy::ecs::observer::On;
 use bevy::ecs::query::{Added, Has, With};
 use bevy::ecs::resource::Resource;
-use bevy::ecs::system::{Commands, Local, Query, Res};
+use bevy::ecs::system::{Commands, Query, Res};
 use bevy::ecs::world::World;
-use bevy::input::keyboard::{KeyCode, KeyboardInput};
-use bevy::input_focus::{FocusCause, FocusedInput, InputFocus};
-use bevy::math::Vec2;
+use bevy::input_focus::{FocusCause, InputFocus};
 use bevy::text::EditableText;
-use bevy::ui::{
-    AlignItems, ComputedNode, InteractionDisabled, ScrollPosition,
-    UiGlobalTransform, UiRect, px,
-};
-use bevy_fynix::scroll::ScrollGoal;
+use bevy::ui::{AlignItems, InteractionDisabled};
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, column, frame, label, row, text_field,
+    BehaviorExt, FrameProps, frame, label, row, text_field,
 };
-use bevy_fynix::{
-    ScopedExt, ViewExt, derived, every_frame, keyed, resource,
-};
+use bevy_fynix::{ScopedExt, ViewExt, derived, keyed, resource};
 use hamlet_client::messages::Response;
 use hamlet_client::outbox::Outbox;
-use hamlet_client::realm::Providers;
+use hamlet_client::realm::{Providers, Settings};
 use hamlet_protocol::client as protocol;
+use hamlet_ui::AnyView;
 use hamlet_ui::styles::{
-    ICON, RailRow, Refused, bare, close, good_action, group,
-    hairline, note, parts, rail_item, scroll_area, small_rules,
-    text_input, upright,
+    Fills, ICON, Looks, Refused, bare, close, good_action, group,
+    lettered, marked, note, parts, small_rules, text_input,
 };
+use hamlet_ui::widgets::effects::Variant;
+use hamlet_ui::widgets::ellipsis::one_line;
 use hamlet_ui::widgets::hint::hinted;
 use hamlet_ui::widgets::icons::Glyph;
-use hamlet_ui::{AnyView, built, with_cx};
 
-use super::pages::{head, linked, news, said};
-use super::{Step, Welcome, commit, go, read_models};
+use super::pages::{card, footed, linked, news, said, to_providers};
+use super::{Pick, Step, Welcome, commit, go, read_models};
 use crate::models::mark;
+use crate::roll::{either, moved};
 use crate::secret::secret_field;
 
 /// The browser used for the server's login URLs.
@@ -140,62 +133,122 @@ pub(super) fn cancel(world: &mut World) {
     }
 }
 
+/// Back to the providers after a reconnection, as a sign-in under
+/// way was lost with the old connection.
 pub(super) fn reconnected(world: &mut World) {
     if world.resource::<Login>().start.is_some() {
-        go(world, Step::Choice);
+        go(world, Step::Provider);
     }
 }
 
-/// The providers the key page offers first, in this order, of those
-/// that take a key.
+/// The providers signed in to with a plan, offered first, in this
+/// order.
+const PLANS: [&str; 3] = ["chatgpt", "claude", "openrouter"];
+
+/// The providers that take a key offered after this computer, in
+/// this order.
 const POPULAR: [&str; 4] =
-    ["openrouter", "anthropic", "openai", "google"];
+    ["anthropic", "openai", "google", "deepseek"];
 
-/// The providers that take a key, each by its id and name, as the
-/// key page lists them.
+/// How many tiles the provider step shows before Show more.
+pub(super) const FEW: usize = 8;
+
+/// A tile of the provider step.
 #[derive(Clone, PartialEq)]
-struct Offered {
-    /// The popular ones, while nothing is searched for.
-    popular: Vec<(String, String)>,
-    /// The rest A to Z, or what the search finds, best first.
-    rest: Vec<(String, String)>,
+pub(crate) struct Tile {
+    pub pick: Pick,
+    /// The provider whose mark it shows; none for this computer.
+    pub mark: Option<String>,
+    pub name: String,
+    pub way: Way,
 }
 
-impl Offered {
-    fn iter(&self) -> impl Iterator<Item = &(String, String)> {
-        self.popular.iter().chain(&self.rest)
+/// How a tile's provider is reached, which groups the tiles.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Way {
+    /// With no key: a plan signed in to, or this computer.
+    Keyless,
+    /// A popular provider, with a key.
+    Key,
+    /// Every other provider.
+    Other,
+}
+
+impl Way {
+    /// The heading over its tiles.
+    pub(crate) fn heading(self) -> &'static str {
+        match self {
+            Self::Keyless => "No key needed",
+            Self::Key => "With an API key",
+            Self::Other => "More providers",
+        }
     }
 }
 
-/// The providers that take a key, narrowed to those whose name holds
-/// every word of `search`.
-fn offered(world: &World, search: &str) -> Offered {
-    let keyed = world
-        .resource::<Providers>()
-        .0
+/// The provider step's tiles: the plans, this computer and the
+/// popular keys first, then every other provider A to Z. With a
+/// search, only those whose name holds every word of it, best first.
+/// The server's endpoints are left to Settings.
+pub(crate) fn tiles(world: &World) -> Vec<Tile> {
+    let providers = &world.resource::<Providers>().0;
+    let endpoints = &world.resource::<Settings>().0.endpoints;
+    let offered = |id: &str, method| {
+        providers.iter().find(|provider| {
+            provider.id == id && provider.methods.contains(&method)
+        })
+    };
+    let tile = |way| {
+        move |provider: &protocol::ProviderView| Tile {
+            pick: Pick::Provider(provider.id.clone()),
+            mark: Some(provider.id.clone()),
+            name: provider.name.clone(),
+            way,
+        }
+    };
+    let mut all = PLANS
         .iter()
-        .filter(|p| p.methods.contains(&protocol::LoginMethod::Key))
-        .map(|p| (p.id.clone(), p.name.clone()));
-    let search = search.trim().to_lowercase();
-    if !search.is_empty() {
-        let mut found = keyed
-            .filter_map(|p| Some((rank(&p.1, &search)?, p)))
-            .collect::<Vec<_>>();
-        found.sort_by_key(|(score, (_, name))| {
-            (*score, name.to_lowercase())
-        });
-        return Offered {
-            popular: Vec::new(),
-            rest: found.into_iter().map(|(_, p)| p).collect(),
-        };
-    }
-    let (mut popular, mut rest) = keyed
-        .partition::<Vec<_>, _>(|(id, _)| POPULAR.contains(&&**id));
-    popular.sort_by_key(|(id, _)| {
-        POPULAR.iter().position(|popular| popular == id)
+        .filter_map(|id| {
+            offered(id, protocol::LoginMethod::Subscription)
+        })
+        .map(tile(Way::Keyless))
+        .collect::<Vec<_>>();
+    all.push(Tile {
+        pick: Pick::Local,
+        mark: None,
+        name: "This computer".into(),
+        way: Way::Keyless,
     });
-    rest.sort_by_key(|(_, name)| name.to_lowercase());
-    Offered { popular, rest }
+    all.extend(
+        POPULAR
+            .iter()
+            .filter_map(|id| offered(id, protocol::LoginMethod::Key))
+            .map(tile(Way::Key)),
+    );
+    let mut rest = providers
+        .iter()
+        .filter(|provider| {
+            !provider.methods.is_empty()
+                && !endpoints.iter().any(|at| at.name == provider.id)
+                && !all.iter().any(|shown| {
+                    shown.pick == Pick::Provider(provider.id.clone())
+                })
+        })
+        .map(tile(Way::Other))
+        .collect::<Vec<_>>();
+    rest.sort_by_key(|shown| shown.name.to_lowercase());
+    all.extend(rest);
+    let seek = world.resource::<Welcome>().seek.trim().to_lowercase();
+    if seek.is_empty() {
+        return all;
+    }
+    let mut found = all
+        .into_iter()
+        .filter_map(|shown| Some((rank(&shown.name, &seek)?, shown)))
+        .collect::<Vec<_>>();
+    found.sort_by_key(|(score, shown)| {
+        (*score, shown.name.to_lowercase())
+    });
+    found.into_iter().map(|(_, shown)| shown).collect()
 }
 
 /// How well `name` answers every word of `search`, best lowest; none
@@ -216,52 +269,80 @@ fn rank(name: &str, search: &str) -> Option<usize> {
     })
 }
 
-/// The provider a key is for: the one chosen, else the first offered.
+/// The provider a key is for.
 fn keyed_provider(world: &World) -> Option<String> {
-    if let Some(chosen) = &world.resource::<Login>().provider {
-        return Some(chosen.clone());
-    }
-    offered(world, "").iter().next().map(|(id, _)| id.clone())
+    world.resource::<Login>().provider.clone()
 }
 
-fn choose(world: &mut World, (id, name): &(String, String)) {
-    world.resource_mut::<Login>().provider = Some(id.clone());
-    world.resource_mut::<Welcome>().from = name.clone();
-}
-
-/// Narrows the key page's providers to `text`, choosing the first
-/// found when the one chosen is not.
+/// Shows every provider, narrowed to those `text` finds, picking the
+/// first found when the one picked is not.
 pub fn search(world: &mut World, text: &str) {
-    if world.resource::<Welcome>().narrow == text {
+    let mut welcome = world.resource_mut::<Welcome>();
+    welcome.more = true;
+    if welcome.seek == text {
         return;
     }
-    world.resource_mut::<Welcome>().narrow = text.to_string();
-    let found = offered(world, text);
-    let chosen = keyed_provider(world);
-    if !found.iter().any(|(id, _)| Some(id) == chosen.as_ref())
-        && let Some(first) = found.iter().next()
+    welcome.seek = text.to_string();
+    let found = tiles(world);
+    let picked = world
+        .resource::<Welcome>()
+        .picked
+        .clone()
+        .or_else(|| found.first().map(|tile| tile.pick.clone()));
+    if !found
+        .iter()
+        .any(|shown| Some(&shown.pick) == picked.as_ref())
+        && let Some(first) = found.first()
     {
-        choose(world, first);
+        world.resource_mut::<Welcome>().picked =
+            Some(first.pick.clone());
     }
 }
 
-/// Chooses the provider `by` places along the list from the one
-/// chosen, or the first when it is not listed.
-fn step(world: &mut World, by: isize) {
-    let listed = offered(world, &world.resource::<Welcome>().narrow)
+/// Goes on with the provider `id`: a sign-in when it has one, else
+/// the page for its key.
+pub(super) fn proceed(world: &mut World, id: &str) {
+    let Some(provider) = world
+        .resource::<Providers>()
+        .0
         .iter()
+        .find(|provider| provider.id == id)
         .cloned()
-        .collect::<Vec<_>>();
-    let chosen = keyed_provider(world);
-    let to = listed
-        .iter()
-        .position(|(id, _)| Some(id) == chosen.as_ref())
-        .map_or(0, |at| {
-            at.saturating_add_signed(by).min(listed.len() - 1)
-        });
-    if let Some(provider) = listed.get(to) {
-        choose(world, provider);
+    else {
+        return;
+    };
+    if provider
+        .methods
+        .contains(&protocol::LoginMethod::Subscription)
+    {
+        start(world, id, false);
+    } else {
+        ask_key(world, &provider);
     }
+}
+
+/// The page for a key to `provider`.
+fn ask_key(world: &mut World, provider: &protocol::ProviderView) {
+    go(world, Step::Key);
+    world.resource_mut::<Login>().provider =
+        Some(provider.id.clone());
+    world.resource_mut::<Welcome>().from = provider.name.clone();
+}
+
+/// The provider signed in to, when it also takes a key.
+fn keyed_too(world: &World) -> Option<protocol::ProviderView> {
+    let id = world.resource::<Login>().provider.clone()?;
+    world
+        .resource::<Providers>()
+        .0
+        .iter()
+        .find(|provider| {
+            provider.id == id
+                && provider
+                    .methods
+                    .contains(&protocol::LoginMethod::Key)
+        })
+        .cloned()
 }
 
 /// Starts a sign-in with the chosen provider that answers its prompt
@@ -481,83 +562,11 @@ fn prompt() -> AnyView {
     .boxed()
 }
 
-/// The width of the providers on the key page.
-const PROVIDERS: f32 = 264.0;
-
-/// The height of the providers and their search, whatever the list
-/// holds.
-const TALL: f32 = 300.0;
-
-/// The page for a key: the providers to pick it for, searched and
-/// scrolled, beside the field it is pasted in under the one picked,
-/// why the last try failed under it, and the button that sends it
-/// once it is typed.
+/// The page for the key of the provider picked: its mark and name,
+/// where it hands keys out, the field the key is pasted in, why the
+/// last try failed under it, and the button that sends it once it is
+/// typed.
 pub(super) fn key_page() -> AnyView {
-    // Built once, so it keeps its focus and text as the list changes.
-    let search = built(|cx| {
-        let narrow = cx.world.resource::<Welcome>().narrow.clone();
-        cx.build(crate::search::search(
-            "Search providers",
-            narrow,
-            |world, text| search(world, &text),
-        ))
-    });
-    let list = keyed(
-        derived(|world: &World| {
-            let narrow = &world.resource::<Welcome>().narrow;
-            (offered(world, narrow), keyed_provider(world))
-        })
-        .when(every_frame()),
-        |(offered, chosen)| {
-            if offered.iter().next().is_none() {
-                return column((label("No providers found")
-                    .tone(Tone::Dim)
-                    .rules(small_rules),))
-                .padding(UiRect::all(px(8.0)))
-                .boxed();
-            }
-            let row = |provider: &(String, String)| {
-                let (id, name) = provider;
-                let is_chosen = Some(id) == chosen.as_ref();
-                let picked = provider.clone();
-                let state = if is_chosen {
-                    RailRow::Chosen
-                } else {
-                    RailRow::Plain
-                };
-                let face = mark(id, ICON);
-                let item = rail_item(face, name.clone(), state)
-                    .on_activate(move |world| choose(world, &picked));
-                if is_chosen {
-                    item.tagged(ChosenProvider).boxed()
-                } else {
-                    item.boxed()
-                }
-            };
-            let mut rows =
-                offered.popular.iter().map(row).collect::<Vec<_>>();
-            if !offered.popular.is_empty() && !offered.rest.is_empty()
-            {
-                rows.push(
-                    with_cx(|cx| hairline(cx.theme().palette.gold_6))
-                        .boxed(),
-                );
-            }
-            rows.extend(offered.rest.iter().map(row));
-            column(rows).gap(2.0).boxed()
-        },
-    )
-    .within(bare());
-    let providers = column((
-        column((search,)).tagged(ProviderSearch),
-        scroll_area((list,)),
-    ))
-    .gap(8.0)
-    .width(px(PROVIDERS))
-    .min_width(px(PROVIDERS))
-    .height(px(TALL));
-    // The provider's mark and name, and under it where it hands keys
-    // out.
     let named = keyed(
         derived(|world: &World| {
             let chosen = keyed_provider(world);
@@ -572,7 +581,7 @@ pub(super) fn key_page() -> AnyView {
                     (provider.id.clone(), provider.name.clone())
                 })
         })
-        .when(every_frame()),
+        .when(either(moved::<Login>(), moved::<Providers>())),
         |named| {
             let Some((id, name)) = named else {
                 return frame().boxed();
@@ -625,25 +634,17 @@ pub(super) fn key_page() -> AnyView {
         },
     )
     .within(bare());
-    // Pressed only once the field has text; see `hold_send`.
-    let send =
-        row((good_action(Glyph::Check, "Continue", commit)
-            .tagged(KeySend),));
-    let key = with_cx(move |cx| {
-        column((named, close((field, under)), send))
-            .gap(cx.theme().space.gap)
-            .grow(1.0)
-            .min_width(px(0.0))
-    });
-    parts((
-        head(Glyph::Key, "Use a key", 2),
-        with_cx(move |cx| {
-            row((providers, upright(), key))
-                .gap(cx.theme().space.section)
-                .align(AlignItems::Stretch)
-        }),
-    ))
-    .boxed()
+    card(
+        2,
+        parts((named, close((field, under)))),
+        vec![
+            to_providers("Back"),
+            // Pressed only once the field has text; see `hold_send`.
+            good_action(Glyph::Check, "Continue", commit)
+                .tagged(KeySend)
+                .boxed(),
+        ],
+    )
 }
 
 /// Where the provider `id` hands out keys: the address as shown, and
@@ -688,13 +689,9 @@ pub(super) struct KeyField;
 #[derive(Component)]
 pub(super) struct KeySend;
 
-/// Around the search of the key page's providers.
+/// Around the search of the providers.
 #[derive(Component)]
 pub(super) struct ProviderSearch;
-
-/// On the provider chosen in the key page's list.
-#[derive(Component)]
-pub(super) struct ChosenProvider;
 
 /// Gives the focus to the field under the `C` shown.
 fn focus_field<C: Component>(world: &mut World) {
@@ -725,93 +722,14 @@ pub(super) fn focus_search(
     }
 }
 
-/// Moves the choice of provider with Up and Down in its search, and
-/// the focus to the key's field with Enter.
-pub(super) fn search_keys(
-    key: On<FocusedInput<KeyboardInput>>,
-    texts: Query<(), With<EditableText>>,
-    parents: Query<&ChildOf>,
-    searches: Query<(), With<ProviderSearch>>,
+/// Gives the focus to the key's field once it is shown.
+pub(super) fn focus_key(
+    shown: Query<(), Added<KeyField>>,
     mut commands: Commands,
 ) {
-    let field = key.focused_entity;
-    // Once, at the field, and not again at each node it bubbles up.
-    if !texts.contains(field)
-        || !key.input.state.is_pressed()
-        || !parents
-            .iter_ancestors(field)
-            .any(|up| searches.contains(up))
-    {
-        return;
+    if !shown.is_empty() {
+        commands.queue(focus_field::<KeyField>);
     }
-    match key.input.key_code {
-        KeyCode::ArrowUp => commands.queue(|world: &mut World| {
-            step(world, -1);
-        }),
-        KeyCode::ArrowDown => commands.queue(|world: &mut World| {
-            step(world, 1);
-        }),
-        KeyCode::Enter => commands.queue(focus_field::<KeyField>),
-        _ => {}
-    }
-}
-
-/// Scrolls the providers to the one chosen once it is laid out, each
-/// time another row is chosen or the list is built again.
-pub(super) fn reveal_chosen(
-    chosen: Query<
-        (Entity, &ComputedNode, &UiGlobalTransform),
-        With<ChosenProvider>,
-    >,
-    parents: Query<&ChildOf>,
-    mut areas: Query<(
-        &ComputedNode,
-        &UiGlobalTransform,
-        &mut ScrollPosition,
-        &mut ScrollGoal,
-    )>,
-    mut shown: Local<Option<Entity>>,
-) {
-    let Ok((row, laid, at)) = chosen.single() else {
-        return;
-    };
-    if *shown == Some(row) || laid.size().y <= 0.0 {
-        return;
-    }
-    let Some(area) =
-        parents.iter_ancestors(row).find(|up| areas.contains(*up))
-    else {
-        return;
-    };
-    let Ok((area_laid, area_at, mut position, mut goal)) =
-        areas.get_mut(area)
-    else {
-        return;
-    };
-    *shown = Some(row);
-    let scale = laid.inverse_scale_factor();
-    let top = |laid: &ComputedNode, at: &UiGlobalTransform| {
-        at.translation.y - laid.size().y / 2.0
-    };
-    let from = (top(laid, at) - top(area_laid, area_at)) * scale;
-    let tall = laid.size().y * scale;
-    let room = area_laid.size().y * scale;
-    let by = if from < 0.0 {
-        from
-    } else if from + tall > room {
-        from + tall - room
-    } else {
-        return;
-    };
-    let most = ((area_laid.content_size().y - area_laid.size().y)
-        * scale)
-        .max(0.0);
-    goal.scroll_by(
-        &mut position,
-        Vec2::new(0.0, by),
-        Vec2::new(0.0, most),
-        false,
-    );
 }
 
 /// Holds back the button that sends a key while its field, as it is
@@ -867,6 +785,40 @@ pub(super) fn hold_send(
     }
 }
 
+/// A sign-in address on one line, cut where it runs past the card,
+/// with the ways to open it again and to copy it.
+fn address(url: &str) -> AnyView {
+    let (opened, copied) = (url.to_string(), url.to_string());
+    let open = is_browsable(url).then(|| {
+        marked(Glyph::Globe, "Open")
+            .variant(Variant::Default)
+            .on_activate(move |world| {
+                let browse = world.resource::<Browser>().0;
+                browse(world, &opened);
+            })
+            .boxed()
+    });
+    let copy = lettered("Copy")
+        .variant(Variant::Default)
+        .on_activate(move |world| {
+            if let Some(mut clipboard) =
+                world.get_resource_mut::<bevy::clipboard::Clipboard>()
+                && let Err(e) = clipboard.set_text(copied.clone())
+            {
+                bevy::log::warn!("could not copy the address: {e:?}");
+            }
+        })
+        .boxed();
+    let mut parts = vec![
+        row((one_line(label(url.to_string()).tone(Tone::Faint)),))
+            .fills_width()
+            .boxed(),
+    ];
+    parts.extend(open);
+    parts.push(copy);
+    row(parts).gap(8.0).align(AlignItems::Center).boxed()
+}
+
 pub(super) fn sign_in_page() -> AnyView {
     let steps = keyed(
         resource::<Login, _>(|login| {
@@ -880,9 +832,11 @@ pub(super) fn sign_in_page() -> AnyView {
         |(urls, instructions, code, progress)| {
             let mut rows = urls
                 .iter()
-                .chain(instructions)
-                .map(|text| said(text.clone()))
+                .map(|url| address(url))
                 .collect::<Vec<_>>();
+            rows.extend(
+                instructions.iter().map(|text| said(text.clone())),
+            );
             if let Some(code) = code {
                 rows.push(label(code.clone()).bold(true).boxed());
             }
@@ -891,15 +845,28 @@ pub(super) fn sign_in_page() -> AnyView {
         },
     )
     .within(bare());
-    parts((
-        head(Glyph::Globe, "Sign in", 2),
-        steps,
-        prompt(),
-        news("Waiting for sign-in..."),
-        row((good_action(Glyph::Gone, "Cancel sign-in", |world| {
-            go(world, Step::Choice);
-        }),))
-        .align(AlignItems::Center),
-    ))
-    .boxed()
+    // A provider that also takes a key offers it instead.
+    let instead = keyed(
+        derived(keyed_too)
+            .when(either(moved::<Login>(), moved::<Providers>())),
+        |provider| match provider {
+            Some(provider) => {
+                let provider = provider.clone();
+                marked(Glyph::Key, "Use a key instead")
+                    .variant(Variant::Default)
+                    .on_activate(move |world| {
+                        ask_key(world, &provider);
+                    })
+                    .boxed()
+            }
+            None => frame().boxed(),
+        },
+    )
+    .within(footed())
+    .boxed();
+    card(
+        2,
+        parts((steps, prompt(), news("Waiting for sign-in..."))),
+        vec![to_providers("Cancel sign-in"), instead],
+    )
 }

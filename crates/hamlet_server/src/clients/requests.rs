@@ -803,7 +803,7 @@ impl Core {
             newcomers: settings.newcomers,
             reflect_every: i64::try_from(settings.reflect_every)
                 .unwrap_or(0),
-            unset: !settings.saved,
+            unset: !settings.picked,
             workspace: protocol::SettingsViewWorkspace {
                 moving: self.moving.clone(),
                 running: self
