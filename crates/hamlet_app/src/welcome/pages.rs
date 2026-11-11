@@ -334,15 +334,14 @@ const FOOT: f32 = 36.0;
 /// The side of the disc that checks the picked tile.
 const CHECKED: f32 = 20.0;
 
-/// How a provider's tile stands over a default button's look: a
-/// card's corner, its room left to the row inside, and while it is
-/// `picked`, ringed in the accent with its words lit. The frame keeps
-/// its width, so a tile keeps its size.
+/// How a provider's tile stands over a default button's look: its
+/// room left to the row inside, and while it is `picked`, ringed in
+/// the accent with its words lit. The frame keeps its width, so a
+/// tile keeps its size.
 fn tile_rules(picked: bool) -> impl FnOnce(&mut Cx) + Send + Sync {
     move |cx| {
-        let mut rules = style::<HamletTheme>().frame(move |f, t| {
-            f.radius(t.space.round_card).padding(UiRect::all(px(0.0)))
-        });
+        let mut rules = style::<HamletTheme>()
+            .frame(move |f, _| f.padding(UiRect::all(px(0.0))));
         if picked {
             let ringed = |f: Frame, t: &HamletTheme| {
                 f.border_color(t.palette.accent)
@@ -381,12 +380,14 @@ fn tile(tile: &Tile, picked: bool) -> AnyView {
         let space = &cx.theme().space;
         // Washed from the left while picked, and less under the
         // pointer, as a row of the Hub's rail is: a layer over the
-        // whole tile, under its words, cut to its rounded corners by
-        // the tile. The wash is a layer of its own, as the button's
-        // own gradient is its glow.
+        // whole tile, under its words. The wash is a layer of its
+        // own, as the button's own gradient is its glow. A clip is a
+        // rectangle whatever the corners, so the layer is rounded
+        // itself, to the inside of the tile's border.
         let washed = frame()
             .position(PositionType::Absolute)
             .inset(UiRect::all(px(0.0)))
+            .radius(space.round_card - space.border)
             .tagged(Wash::new(picked, Edge::Left));
         let words = row((
             washed,
@@ -407,7 +408,9 @@ fn tile(tile: &Tile, picked: bool) -> AnyView {
             .grow(1.0)
             .width(px(0.0))
             .min_width(px(0.0))
-            .overflow(Overflow::clip())
+            // Set here, as a call site's props beat the button's
+            // rules, so the layer's corners are sure to match.
+            .radius(space.round_card)
             .variant(Variant::Default)
             .rules(tile_rules(picked))
             .on_activate(move |world| {
