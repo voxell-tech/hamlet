@@ -7,14 +7,15 @@ use hamlet_protocol::runtime::{self, ServerMessage};
 use hamlet_store::Db;
 
 use super::conversations::{self, Conversation};
-use super::inputs;
 use super::runtimes::{Pending, Phase, Runtimes};
+use super::{Env, inputs, models};
 
 /// Sends runtime `index` what it is owed. With `again`, inputs it
 /// admitted whose end was not heard are sent again, so it answers
 /// them again.
 pub(crate) async fn flush(
     db: &mut Db,
+    env: &Env,
     runtimes: &mut Runtimes,
     index: usize,
     again: bool,
@@ -25,7 +26,7 @@ pub(crate) async fn flush(
     let id = runtimes.list[index].id.clone();
     for owed in conversations::of_runtime(db, &id)? {
         let Some(handle) = owed.handle.clone() else {
-            make(db, runtimes, index, &owed).await?;
+            make(db, env, runtimes, index, &owed).await?;
             continue;
         };
         // No later input reaches the runtime until the cancel is
@@ -109,6 +110,7 @@ pub(crate) async fn flush(
 /// once the parent is made.
 async fn make(
     db: &mut Db,
+    env: &Env,
     runtimes: &mut Runtimes,
     index: usize,
     owed: &Conversation,
@@ -138,7 +140,22 @@ async fn make(
                 .await;
         }
         _ => {
-            let model = owed.model()?;
+            // One begun before a model was set up is made with the
+            // model its agent runs now, and waits while there is
+            // none: no runtime can make a conversation with no model.
+            let mut model = owed.model()?;
+            if model.id.is_empty() || model.provider.is_empty() {
+                model = models::choose(
+                    db,
+                    &env.settings,
+                    &env.overrides,
+                    owed.agent,
+                )?
+                .model;
+            }
+            if model.id.is_empty() || model.provider.is_empty() {
+                return Ok(());
+            }
             let agent = u64::try_from(owed.agent.0)
                 .context("an agent's id is positive")?;
             let kind = owed.kind.wire();
