@@ -573,6 +573,8 @@ fn onward() -> AnyView {
     .boxed()
 }
 
+/// The first step: the provider tiles, and the button named for the
+/// one picked.
 fn provider_page() -> AnyView {
     card(
         1,
@@ -627,6 +629,8 @@ fn one_provider(models: &[String]) -> Option<String> {
         .then(|| first.to_string())
 }
 
+/// The last step: the models found, narrowed as the chief types, to
+/// pick the realm's from.
 fn models() -> AnyView {
     let list = keyed(
         derived(|world: &World| {
@@ -741,6 +745,8 @@ fn models() -> AnyView {
     )
 }
 
+/// The step that looks on this computer, and what to do when nothing
+/// answers.
 fn local() -> AnyView {
     card(
         2,
@@ -810,6 +816,8 @@ pub fn view() -> impl View {
     })
 }
 
+/// The card for the current step, over the veil, while setup is
+/// open.
 fn screen() -> AnyView {
     keyed(
         resource::<Welcome, _>(|welcome| {

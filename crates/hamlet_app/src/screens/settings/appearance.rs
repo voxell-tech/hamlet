@@ -40,6 +40,7 @@ pub(super) fn page() -> impl View {
     parts((modes(), zoom(), motion(), themes()))
 }
 
+/// Whether motion is reduced, on until the chief turns it off.
 fn motion() -> impl View {
     let reduced = resource::<LessMotion, _>(|less| less.is_reduced());
     field(

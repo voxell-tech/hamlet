@@ -55,6 +55,8 @@ fn remove(world: &mut World, name: &str) {
     });
 }
 
+/// An endpoint by its name and address, whether it has a key, and a
+/// way to remove it.
 fn endpoint(endpoint: &protocol::SettingsViewEndpoints) -> AnyView {
     let gone = endpoint.name.clone();
     close((

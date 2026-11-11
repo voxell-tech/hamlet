@@ -149,6 +149,8 @@ impl Committing {
     }
 }
 
+/// Sends what the page committed: the endpoint on the manual step,
+/// else the answer to the sign-in.
 fn run_committed(world: &mut World) {
     world.resource_mut::<Committing>().0 = false;
     if world.resource::<Welcome>().step == Step::Manual {
@@ -290,6 +292,8 @@ fn read_models(world: &mut World, refresh: bool) {
     welcome.asking = true;
 }
 
+/// Asks the server to try the model when `model`, else the
+/// connection to its provider.
 fn check(world: &mut World, model: bool) {
     let id = world.resource_mut::<Outbox>().send(|id| {
         protocol::ClientMessage::Check(if model {
@@ -350,6 +354,7 @@ fn look(world: &mut World) {
     read_models(world, true);
 }
 
+/// Makes `model` the realm's, to be tried once it is kept.
 fn pick(world: &mut World, model: &str) {
     let id = world.resource_mut::<Outbox>().send(|id| {
         protocol::ClientMessage::Edit(protocol::Edit::Settings {
@@ -368,6 +373,8 @@ fn pick(world: &mut World, model: &str) {
     welcome.problem = None;
 }
 
+/// Goes on from the server's answer to a request setup sent, or
+/// shows why it failed.
 fn answered(response: On<Response>, mut commands: Commands) {
     let response = response.event().clone();
     commands.queue(move |world: &mut World| {
