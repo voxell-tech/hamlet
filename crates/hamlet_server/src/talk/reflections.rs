@@ -7,6 +7,7 @@ use diesel::prelude::*;
 use hamlet_store::ids::ConversationId;
 use hamlet_store::schema::{chat, conversation, reflection};
 
+use super::chats;
 use super::conversations::{self, Kind};
 use super::inputs::{self, InputKind, Keep};
 use super::marks::Mark;
@@ -23,8 +24,8 @@ pub(crate) const REFLECT: &str =
      line.";
 
 /// Counts a chief's turn of `id` that was answered, and asks a
-/// reflection once `every` turns were. Returns the reflection's
-/// request when one was asked.
+/// reflection once `every` turns were, or at once when its session
+/// was put away. Returns the reflection's request when one was asked.
 pub(crate) fn answered(
     cx: &mut Change<'_>,
     id: ConversationId,
@@ -38,7 +39,24 @@ pub(crate) fn answered(
         .execute(cx.db)?;
     let kept = conversations::get(cx.db, id)?;
     let every = i64::try_from(every)?;
-    if every == 0 || kept.unreflected < every {
+    // A session put away while this turn was ending owed nothing
+    // then, so it reflects now.
+    let put_away = match kept.chief {
+        Some(chief) => {
+            let current =
+                chats::current_number(cx.db, kept.agent, chief)?
+                    .map(|number| {
+                        chats::session(
+                            cx.db, kept.agent, chief, number,
+                        )
+                    })
+                    .transpose()?
+                    .flatten();
+            current.is_some_and(|current| current != id)
+        }
+        None => false,
+    };
+    if !put_away && (every == 0 || kept.unreflected < every) {
         return Ok(None);
     }
     ask(cx, id)
