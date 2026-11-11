@@ -3,8 +3,7 @@
 use bevy::color::Alpha;
 use bevy::ecs::world::World;
 use bevy::ui::{
-    AlignItems, JustifyContent, Overflow, PositionType, UiRect,
-    percent, px,
+    AlignItems, JustifyContent, Overflow, UiRect, percent, px,
 };
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
@@ -379,18 +378,13 @@ fn tile(tile: &Tile, picked: bool) -> AnyView {
     with_cx(move |cx| {
         let space = &cx.theme().space;
         // Washed from the left while picked, and less under the
-        // pointer, as a row of the Hub's rail is: a layer over the
-        // whole tile, under its words. The wash is a layer of its
-        // own, as the button's own gradient is its glow. A clip is a
-        // rectangle whatever the corners, so the layer is rounded
-        // itself, to the inside of the tile's border.
-        let washed = frame()
-            .position(PositionType::Absolute)
-            .inset(UiRect::all(px(0.0)))
-            .radius(space.round_card - space.border)
-            .tagged(Wash::new(picked, Edge::Left));
+        // pointer, as a row of the Hub's rail is. The wash is on the
+        // row that fills the tile, as the button's own gradient is
+        // its glow; the row is under the pointer wherever it is on
+        // the tile, its words too. A clip is a rectangle whatever the
+        // corners, so the row is rounded itself, to the inside of the
+        // tile's border.
         let words = row((
-            washed,
             face,
             label(name).wrap(false),
             frame().grow(1.0),
@@ -403,13 +397,15 @@ fn tile(tile: &Tile, picked: bool) -> AnyView {
         .padding(UiRect::axes(
             px(space.card_padding_x),
             px(space.card_padding_y),
-        ));
+        ))
+        .radius(space.round_card - space.border)
+        .tagged(Wash::new(picked, Edge::Left));
         views::button(words)
             .grow(1.0)
             .width(px(0.0))
             .min_width(px(0.0))
             // Set here, as a call site's props beat the button's
-            // rules, so the layer's corners are sure to match.
+            // rules, so the row's corners are sure to match.
             .radius(space.round_card)
             .variant(Variant::Default)
             .rules(tile_rules(picked))
