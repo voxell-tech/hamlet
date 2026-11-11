@@ -12,9 +12,9 @@ use hamlet_client::outbox::Outbox;
 use hamlet_client::realm::{Providers, Settings};
 use hamlet_protocol::client as protocol;
 use hamlet_ui::styles::{
-    Fills, Tipped, action, bad_action, bare, beside, close,
+    Fills, ICON, Tipped, action, bad_action, bare, beside, close,
     description, good_action, group, link_row, list, note,
-    note_rules, radio, section, small_rules, text_input,
+    note_rules, pill, radio, section, small_rules, text_input,
 };
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::ellipsis::one_line;
@@ -71,6 +71,19 @@ fn endpoint(endpoint: &protocol::SettingsViewEndpoints) -> AnyView {
     .boxed()
 }
 
+/// A provider the server holds a sign-in or a key for, by its mark
+/// and name, marked connected.
+fn connected(id: &str, name: &str) -> AnyView {
+    beside((
+        row((mark(id, ICON), label(name.to_string()).bold(true)))
+            .gap(8.0)
+            .align(AlignItems::Center)
+            .fills_width(),
+        pill("Connected"),
+    ))
+    .boxed()
+}
+
 /// The server's endpoints, configured providers and login entry.
 pub fn endpoints() -> impl View {
     let known = keyed(
@@ -89,15 +102,16 @@ pub fn endpoints() -> impl View {
                 .0
                 .iter()
                 .filter(|provider| provider.configured)
-                .map(|provider| provider.label.clone())
+                .map(|provider| {
+                    (provider.id.clone(), provider.name.clone())
+                })
                 .collect::<Vec<_>>()
         }),
         |providers| {
-            close(
+            list(
                 providers
                     .iter()
-                    .cloned()
-                    .map(note)
+                    .map(|(id, name)| connected(id, name))
                     .collect::<Vec<_>>(),
             )
             .boxed()
