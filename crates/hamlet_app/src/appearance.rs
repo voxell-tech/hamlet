@@ -10,7 +10,6 @@ use bevy::ecs::world::World;
 use bevy::input::keyboard::KeyCode;
 use bevy::ui::UiScale;
 use bevy::window::WindowTheme;
-use bevy_fynix::ReducedMotion;
 use bevy_fynix::shortcut::{
     Chord, CommandId, CommandSpec, GLOBAL, ShortcutAppExt,
 };
@@ -59,7 +58,6 @@ pub(crate) fn plugin(app: &mut App) {
     };
     app.init_resource::<Appearance>()
         .init_resource::<Zoom>()
-        .init_resource::<LessMotion>()
         .add_command(
             command("view.zoom_in", "Zoom In", |world, _| {
                 let mut zoom = world.resource_mut::<Zoom>();
@@ -90,7 +88,6 @@ pub(crate) fn plugin(app: &mut App) {
                         .or_eager(resource_changed::<ColorScheme>),
                 ),
                 scale.run_if(resource_changed::<Zoom>),
-                still.run_if(resource_changed::<LessMotion>),
             ),
         );
 }
@@ -132,23 +129,6 @@ impl Zoom {
 /// Draws the panels at the zoom.
 fn scale(zoom: Res<Zoom>, mut commands: Commands) {
     commands.insert_resource(UiScale(zoom.0));
-}
-
-/// Whether the chief asked for less motion; none until the chief
-/// says, while motion is reduced.
-#[derive(Resource, Clone, Copy, PartialEq, Debug, Default)]
-pub struct LessMotion(pub Option<bool>);
-
-impl LessMotion {
-    /// Whether motion is reduced: as the chief said, else reduced.
-    pub fn is_reduced(self) -> bool {
-        self.0.unwrap_or(true)
-    }
-}
-
-/// Stills every transition and effect while motion is reduced.
-fn still(less: Res<LessMotion>, mut commands: Commands) {
-    commands.insert_resource(ReducedMotion(less.is_reduced()));
 }
 
 /// The chief's choice, none until the chief picks. Kept in view.toml
