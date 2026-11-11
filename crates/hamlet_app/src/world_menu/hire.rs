@@ -9,22 +9,23 @@ use bevy::math::{Rect, Vec2};
 use bevy::ui::{AlignItems, JustifyContent, UiRect, percent, px};
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, button, column, dropdown, frame, label,
-    popup, row, text_field,
+    BehaviorExt, FrameProps, TooltipExt, button, column, dropdown,
+    frame, label, popup, row, text_field,
 };
 use bevy_fynix::{ScopedExt, ViewExt, derived, every_frame, keyed};
 use hamlet_client::realm::{self as agents, Deeds, Scholar};
 use hamlet_protocol::client as protocol;
 use hamlet_realm::orders;
 use hamlet_ui::styles::{
-    self, ICON, Looks, choice, description, lettered, scroll_area,
-    section, text_input,
+    self, ICON, Looks, choice, description, lettered, note,
+    scroll_area, section, text_input,
 };
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::{AnyView, View, built};
 
 use super::{TakesFocus, close, optional};
+use crate::words;
 
 /// How tall the list of scholars grows before it scrolls.
 const LIST: f32 = 220.0;
@@ -87,6 +88,11 @@ fn row_of(
     id: Option<protocol::ScholarId>,
     on: bool,
 ) -> AnyView {
+    // What it is to hire a blank agent or a scholar.
+    let tip = match id {
+        Some(_) => words::HIRED_SCHOLAR,
+        None => words::BLANK,
+    };
     button(
         column((
             label(name).bold(true).wrap(false),
@@ -99,6 +105,7 @@ fn row_of(
     .width(percent(100.0))
     .justify(JustifyContent::FlexStart)
     .rules(choice(on))
+    .tooltip(move || note(tip))
     .on_activate(move |world| {
         let mut hiring = world.resource_mut::<Hiring>();
         if hiring.chosen != id {
@@ -200,7 +207,7 @@ fn list() -> impl View {
         |(found, chosen)| {
             let mut rows = vec![row_of(
                 "A blank agent".into(),
-                "Not a scholar of the city".into(),
+                "Starts fresh, for this job alone".into(),
                 None,
                 chosen.is_none(),
             )];

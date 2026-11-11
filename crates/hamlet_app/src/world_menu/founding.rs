@@ -31,8 +31,8 @@ use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::{View, built};
 
 use super::{asks, asks_first, close, optional};
-use crate::chat;
 use crate::hub::{Showing, show};
+use crate::{chat, words};
 
 /// How long a founding is waited for before its folder and chat are
 /// let go, in seconds.
@@ -130,8 +130,14 @@ fn mayor() -> impl View {
                 })
                 .map_or(0, |at| at + 1);
             let found = found.clone();
+            // What it is to have a blank agent or a scholar as mayor.
+            let meaning = match chosen {
+                Some(_) => words::HIRED_SCHOLAR,
+                None => words::BLANK,
+            };
             hamlet_ui::styles::close((
                 section("Its mayor"),
+                description(meaning),
                 dropdown(
                     shown,
                     at,

@@ -46,6 +46,16 @@ pub(crate) const BYLAWS: &str = "The hamlet's limits: what it may \
 
 pub(crate) const AGENTS: &str = "Everyone working in the hamlet.";
 
+/// A hire or mayor that is no scholar of the city.
+pub(crate) const BLANK: &str = "A fresh agent made for this job \
+                                alone. What it learns stays with \
+                                the job.";
+
+/// A scholar as a hire or a mayor.
+pub(crate) const HIRED_SCHOLAR: &str = "Brings its memory and \
+                                        skills to the job, and can \
+                                        take home what it learns.";
+
 /// A hamlet whose agents ask before each edit and command, as its
 /// approvals say it.
 pub(crate) const ASK_FIRST: &str = "Ask first";
