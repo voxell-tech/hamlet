@@ -6,7 +6,7 @@ mod blueprint;
 mod gizmo;
 mod handles;
 mod overlay;
-mod prefab;
+pub(crate) mod prefab;
 mod preview;
 pub(crate) mod shader;
 mod thumbnails;

@@ -27,6 +27,9 @@ struct SurfaceIn {
     local_position: vec3<f32>,
     local_normal: vec3<f32>,
     local_view: vec3<f32>,
+    // Where on its second UV map, which a mesh may carry for anything
+    // its shader reads: (0, 0) when it has none.
+    uv_b: vec2<f32>,
 }
 
 // What a surface gives. Colours are linear.
@@ -40,6 +43,23 @@ struct Surface {
     unlit: f32,
 }
 
+// Where the vertex stage puts a vertex, in the mesh's own space,
+// before it is moved, turned and scaled into the world.
+struct Placed {
+    position: vec3<f32>,
+    // Of length 1.
+    normal: vec3<f32>,
+}
+
+// `v` of length 1, or `v` itself when it has no length.
+fn hm_normalize(v: vec3<f32>) -> vec3<f32> {
+    let length_squared = dot(v, v);
+    if length_squared > 0.0 {
+        return v * inverseSqrt(length_squared);
+    }
+    return v;
+}
+
 fn hm_hash3(p: vec3<f32>) -> vec3<f32> {
     let q = vec3<f32>(
         dot(p, vec3<f32>(127.1, 311.7, 74.7)),
@@ -47,6 +67,25 @@ fn hm_hash3(p: vec3<f32>) -> vec3<f32> {
         dot(p, vec3<f32>(113.5, 271.9, 124.6)),
     );
     return fract(sin(q) * 43758.5453123);
+}
+
+// Three random numbers from 0 to 1 for the cell of `p`, 1/1024 of a
+// unit across, and `seed`. An integer hash (pcg3d), not a sine's: a
+// number the mesh gives a whole face, which wavers by a hair from one
+// pixel to the next, stays in its cell and keeps its numbers.
+fn hm_white(p: vec3<f32>, seed: f32) -> vec3<f32> {
+    let cell = vec3<i32>(floor(p * 1024.0 + 0.5));
+    let salt = bitcast<u32>(i32(round(seed))) * 2654435769u;
+    var v = bitcast<vec3<u32>>(cell) + vec3<u32>(salt);
+    v = v * 1664525u + 1013904223u;
+    v.x += v.y * v.z;
+    v.y += v.z * v.x;
+    v.z += v.x * v.y;
+    v ^= v >> vec3<u32>(16u);
+    v.x += v.y * v.z;
+    v.y += v.z * v.x;
+    v.z += v.x * v.y;
+    return vec3<f32>(v >> vec3<u32>(8u)) / 16777216.0;
 }
 
 fn hm_hash1(p: vec3<f32>) -> f32 {

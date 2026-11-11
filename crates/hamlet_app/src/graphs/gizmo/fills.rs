@@ -80,15 +80,18 @@ pub(super) fn spawn_fills(
         &mut meshes,
         &mut materials,
         HandleFills,
+        RenderLayers::layer(LAYER),
     );
 }
 
-/// Spawns an entity for a mesh of filled shapes, marked by `marker`.
+/// Spawns an entity for a mesh of filled shapes, marked by `marker`
+/// and seen by the cameras of `layers`.
 pub(in crate::graphs) fn spawn_shape(
     commands: &mut Commands,
     meshes: &mut Assets<Mesh>,
     materials: &mut Assets<FillMaterial>,
     marker: impl Bundle,
+    layers: RenderLayers,
 ) {
     commands.spawn((
         marker,
@@ -101,7 +104,7 @@ pub(in crate::graphs) fn spawn_shape(
             },
             extension: OnTop {},
         })),
-        RenderLayers::layer(LAYER),
+        layers,
         Visibility::Hidden,
         // Its triangles are in the world, wherever the subject is.
         NoFrustumCulling,
@@ -114,7 +117,7 @@ pub(in crate::graphs) fn spawn_shape(
 /// triangle winds anticlockwise from is drawn.
 #[derive(Default, PartialEq)]
 pub(in crate::graphs) struct Fills {
-    pub(super) positions: Vec<Vec3>,
+    pub(in crate::graphs) positions: Vec<Vec3>,
     colors: Vec<[f32; 4]>,
 }
 

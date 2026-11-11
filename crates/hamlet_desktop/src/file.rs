@@ -168,11 +168,13 @@ fn open(
     }
 }
 
-/// A dialog that says `title` and shows files ending in `extension`.
+/// A dialog that says `title` and shows files ending in `extension`,
+/// or in any of several split by commas, `glb,png`.
 fn filtered(title: String, extension: &str) -> rfd::AsyncFileDialog {
+    let extensions: Vec<&str> = extension.split(',').collect();
     rfd::AsyncFileDialog::new()
         .set_title(title)
-        .add_filter(extension, &[extension])
+        .add_filter(extensions.join(", "), &extensions)
 }
 
 /// Tells of the files a dialog gave.

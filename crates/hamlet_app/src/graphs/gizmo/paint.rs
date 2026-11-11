@@ -1,28 +1,28 @@
 //! Drawing a gizmo: its lines as gizmos and its fills as triangles.
 
 use bevy::color::Alpha;
+use bevy::gizmos::config::GizmoConfigGroup;
 use bevy::gizmos::gizmos::Gizmos;
 
 use super::fills::Fills;
 use super::{
-    Arc, Frame, GizmoMode, Handle, HandleGizmos, Handles, RING_STEPS,
-    Shape, Style,
+    Arc, Frame, GizmoMode, Handle, Handles, RING_STEPS, Shape, Style,
 };
 
 /// A gizmo as the preview shows it.
-pub(super) struct Shown {
-    pub(super) frame: Frame,
+pub(in crate::graphs) struct Shown {
+    pub(in crate::graphs) frame: Frame,
     /// The handle under the pointer, or dragged.
-    pub(super) hot: Option<Handle>,
-    pub(super) dragging: bool,
+    pub(in crate::graphs) hot: Option<Handle>,
+    pub(in crate::graphs) dragging: bool,
     /// The arc a dragged ring has turned through, and its radius.
-    pub(super) sweep: Option<(Arc, f32)>,
+    pub(in crate::graphs) sweep: Option<(Arc, f32)>,
 }
 
 /// Draws `handles`: all of them with the hot one brighter, or the
 /// dragged one and what a drag keeps beside it.
-pub(super) fn paint(
-    gizmos: &mut Gizmos<HandleGizmos>,
+pub(in crate::graphs) fn paint<G: GizmoConfigGroup>(
+    gizmos: &mut Gizmos<G>,
     fills: &mut Fills,
     handles: Handles,
     shown: &Shown,
@@ -181,8 +181,8 @@ pub(super) fn paint(
 
 /// Draws a spline point or the end of a tangent handle: a ring over a
 /// faint disc, and for a handle a hair back to its point.
-fn knot(
-    gizmos: &mut Gizmos<HandleGizmos>,
+fn knot<G: GizmoConfigGroup>(
+    gizmos: &mut Gizmos<G>,
     fills: &mut Fills,
     shape: Shape,
     shown: &Shown,

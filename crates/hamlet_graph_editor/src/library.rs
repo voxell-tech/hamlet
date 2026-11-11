@@ -47,7 +47,12 @@ const RESCAN: Duration = Duration::from_secs(3);
 pub fn plugin(app: &mut App) {
     app.init_resource::<Library>()
         .init_resource::<thumbnails::Thumbnails>()
-        .add_plugins((picker::plugin, search::plugin, carry::plugin))
+        .add_plugins((
+            picker::plugin,
+            search::plugin,
+            carry::plugin,
+            crate::colour::plugin,
+        ))
         .add_systems(Update, (follow, rescan));
 }
 
@@ -568,7 +573,7 @@ impl Library {
             .iter()
             .filter(|item| item.kind == Kind::Prefab)
             .filter(|item| {
-                item.prefab().is_ok_and(|prefab| prefab.model == mesh)
+                item.prefab().is_ok_and(|prefab| prefab.uses(mesh))
             })
             .map(|item| item.name.clone())
             .collect()
@@ -765,8 +770,9 @@ impl Library {
         Ok(name)
     }
 
-    /// Moves `item`'s file to the library's `.trash/` folder.
-    pub fn remove(&mut self, item: &Item) -> anyhow::Result<()> {
+    /// Moves `item`'s file to the library's `.trash/` folder, and
+    /// gives what [`Library::restore`] needs to bring it back.
+    pub fn remove(&mut self, item: &Item) -> anyhow::Result<Removed> {
         let Source::File(from) = &item.source else {
             anyhow::bail!("{} cannot be removed", item.name);
         };
@@ -787,20 +793,95 @@ impl Library {
         }
         fs::rename(from, &to)
             .with_context(|| format!("moving {}", from.display()))?;
+        let mut removed = Removed {
+            kind: item.kind,
+            name: item.name.clone(),
+            file: from.clone(),
+            trash: to,
+            asset: None,
+            source: None,
+            collection: self
+                .collections
+                .of(item.kind, &item.name)
+                .map(str::to_owned),
+        };
         if item.kind == Kind::Mesh {
-            self.catalogue.0.remove(&item.name);
+            removed.asset = self.catalogue.0.remove(&item.name);
             self.write_catalogue()?;
-            if self.sources.remove(&item.name).is_some() {
+            removed.source = self.sources.remove(&item.name);
+            if removed.source.is_some() {
                 self.write_sources()?;
             }
         }
-        if self.collections.of(item.kind, &item.name).is_some() {
+        if removed.collection.is_some() {
             self.collections.removed(item.kind, &item.name);
             self.write_collections()?;
         }
         self.scan();
-        Ok(())
+        self.revision += 1;
+        Ok(removed)
     }
+
+    /// Brings an asset [`Library::remove`] moved to the trash back to
+    /// where it was, with its collection, and gives it.
+    pub fn restore(
+        &mut self,
+        removed: &Removed,
+    ) -> anyhow::Result<Item> {
+        anyhow::ensure!(
+            !removed.file.exists(),
+            "there is a {} named {} again",
+            removed.kind.word().to_lowercase(),
+            removed.name
+        );
+        if let Some(parent) = removed.file.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::rename(&removed.trash, &removed.file).with_context(
+            || format!("moving {} back", removed.trash.display()),
+        )?;
+        if let Some(asset) = &removed.asset {
+            self.catalogue
+                .0
+                .insert(removed.name.clone(), asset.clone());
+            self.write_catalogue()?;
+        }
+        if let Some(source) = &removed.source {
+            self.sources.insert(removed.name.clone(), source.clone());
+            self.write_sources()?;
+        }
+        if let Some(path) = &removed.collection
+            && self.collections.paths.contains(path)
+        {
+            self.collections.put(
+                removed.kind,
+                &removed.name,
+                Some(path),
+            )?;
+            self.write_collections()?;
+        }
+        self.scan();
+        self.revision += 1;
+        self.find(removed.kind, &removed.name)
+            .context("the asset brought back is not listed")
+    }
+}
+
+/// An asset moved to the library's trash, with what went with it.
+#[derive(Clone, Debug)]
+pub struct Removed {
+    pub kind: Kind,
+    pub name: String,
+    /// Where its file was.
+    file: PathBuf,
+    /// Where its file is now.
+    trash: PathBuf,
+    /// A mesh's entry in the catalogue.
+    asset: Option<Asset>,
+    /// The file a mesh was added from.
+    source: Option<PathBuf>,
+    /// The collection it was in.
+    collection: Option<String>,
 }
 
 /// The book a graph file's text holds, or a bare sheet as a book.
@@ -977,12 +1058,17 @@ mod tests {
             BTreeMap::from([("cask".to_owned(), art)])
         );
 
-        library.remove(&cask).unwrap();
+        let removed = library.remove(&cask).unwrap();
         assert!(mesh(&library, "cask").is_none());
         assert!(library.sources.is_empty());
         assert!(
             folder.join("library/.trash/meshes/cask.glb").exists()
         );
+        // And brought back as it was.
+        library.restore(&removed).unwrap();
+        assert!(mesh(&library, "cask").is_some());
+        assert_eq!(library.sources.len(), 1);
+        library.remove(&cask).unwrap();
         // The built-in mesh of the same kind is still listed.
         assert!(
             library

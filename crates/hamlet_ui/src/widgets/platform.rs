@@ -246,12 +246,14 @@ pub fn make_focusable(
 ) {
     for (control, tabbable) in &controls {
         let mut entity = commands.entity(control);
-        entity.insert((
+        // A view built again in the same frame can despawn the
+        // control before these apply.
+        entity.try_insert((
             Ring,
             Outline::new(px(0.0), px(1.0), Color::NONE),
         ));
         if !tabbable {
-            entity.insert(TabIndex(0));
+            entity.try_insert(TabIndex(0));
         }
     }
 }

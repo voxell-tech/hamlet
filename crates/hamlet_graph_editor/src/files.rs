@@ -44,8 +44,29 @@ pub(super) fn plugin<K: EditorKey>(app: &mut App) {
         .add_observer(chosen::<K>)
         .add_systems(
             Update,
-            (restore::<K>, keep::<K>, focus_naming::<K>),
+            (restore::<K>, keep::<K>, focus_naming::<K>, fade::<K>),
         );
+}
+
+/// How long a note on a file stays in the bar.
+const NOTED: Duration = Duration::from_secs(4);
+
+/// Clears the note on the last file done with a while after it is
+/// written, so the bar shows it only as it happens.
+fn fade<K: EditorKey>(
+    time: Res<Time>,
+    mut files: ResMut<Files<K>>,
+    mut since: Local<(String, Duration)>,
+) {
+    if files.note.is_empty() {
+        return;
+    }
+    if since.0 != files.note {
+        *since = (files.note.clone(), time.elapsed());
+    } else if time.elapsed() - since.1 > NOTED {
+        files.note.clear();
+        since.0.clear();
+    }
 }
 
 /// What a file chosen in a dialog is for.
@@ -55,14 +76,25 @@ enum Dialog {
     Export,
 }
 
+/// What a name asked for in the bar is for.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Purpose {
+    /// A copy of the open graph, which goes on being edited.
+    SaveAs,
+    /// The open graph's file's new name.
+    Rename,
+}
+
 /// The name being asked for, and a note on the last thing done with
 /// a file.
 #[derive(Resource)]
 pub struct Files<K: EditorKey> {
     /// The last thing done with a file, or its error.
     pub note: String,
-    /// The name Save as is asking for, while it asks.
+    /// The name asked for in the bar, while it asks.
     pub naming: Option<String>,
+    /// What the name asked for is for.
+    pub purpose: Purpose,
     /// The revision last written to the window's folder.
     kept: u64,
     /// A revision not yet written, and when it was first seen.
@@ -81,6 +113,7 @@ impl<K: EditorKey> Default for Files<K> {
         Self {
             note: String::new(),
             naming: None,
+            purpose: Purpose::SaveAs,
             kept: 0,
             seen: None,
             restored: false,
@@ -426,7 +459,37 @@ pub fn save_as<K: EditorKey>(world: &mut World) {
     let free = world
         .resource::<Library>()
         .free_name(kind::<K>(world), &name);
-    world.resource_mut::<Files<K>>().naming = Some(free);
+    let mut files = world.resource_mut::<Files<K>>();
+    files.naming = Some(free);
+    files.purpose = Purpose::SaveAs;
+}
+
+/// Starts asking for the open graph's file's new name, ready with
+/// the one it has.
+pub fn start_rename<K: EditorKey>(world: &mut World) {
+    let name = world.resource::<Editor<K>>().name.clone();
+    let mut files = world.resource_mut::<Files<K>>();
+    files.naming = Some(name);
+    files.purpose = Purpose::Rename;
+}
+
+/// Does what the name asked for is for with `wanted`, and stops
+/// asking.
+pub fn named<K: EditorKey>(world: &mut World, wanted: &str) {
+    let purpose = {
+        let mut files = world.resource_mut::<Files<K>>();
+        files.naming = None;
+        files.purpose
+    };
+    match purpose {
+        Purpose::SaveAs => save_named::<K>(world, wanted),
+        Purpose::Rename => rename::<K>(world, wanted),
+    }
+}
+
+/// Stops asking for a name, doing nothing with it.
+pub fn stop_naming<K: EditorKey>(world: &mut World) {
+    world.resource_mut::<Files<K>>().naming = None;
 }
 
 /// Saves the open graph as `wanted`, or the nearest free name, and

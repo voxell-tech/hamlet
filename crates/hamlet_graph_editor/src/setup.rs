@@ -40,6 +40,9 @@ pub struct Setup {
     /// Whether the sheet shows the Outputs card, where the graph's
     /// outputs are wired.
     pub outputs: bool,
+    /// Whether a number input may vary, picked again for each house,
+    /// hamlet or realm.
+    pub varies: bool,
     /// The room a card leaves under its header for something drawn
     /// there, in sheet pixels; 0 for none.
     pub room: f32,

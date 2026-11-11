@@ -28,15 +28,18 @@ use bevy::ecs::system::{Commands, Local, Query, Res, ResMut};
 use bevy::image::Image;
 use bevy::light::DirectionalLight;
 use bevy::math::{EulerRot, Quat, Vec3};
-use bevy::mesh::{Mesh, Mesh3d, Meshable};
+use bevy::mesh::{Mesh, Mesh3d, MeshVertexBufferLayoutRef, Meshable};
 use bevy::pbr::{
-    DistanceFog, ExtendedMaterial, MaterialExtension, MaterialPlugin,
+    DistanceFog, ExtendedMaterial, MaterialExtension,
+    MaterialExtensionKey, MaterialExtensionPipeline, MaterialPlugin,
     MeshMaterial3d, StandardMaterial,
 };
 use bevy::picking::events::{PointerDrag, PointerScroll};
 use bevy::reflect::TypePath;
 use bevy::render::render_resource::{
-    AsBindGroup, TextureDimension, TextureFormat, TextureUsages,
+    AsBindGroup, RenderPipelineDescriptor,
+    SpecializedMeshPipelineError, TextureDimension, TextureFormat,
+    TextureUsages,
 };
 use bevy::shader::{Shader, ShaderRef};
 use bevy::shape::{Cuboid, Rectangle, Sphere};
@@ -55,13 +58,12 @@ use hamlet_graph_editor::Editor;
 use hamlet_realm::objects::{COLOURS, Paints};
 use hamlet_realm::palette::Palette as Colours;
 use hamlet_realm::sky::{self, CameraSettings, Hourly};
-use hamlet_shader::surface_shader;
 use hamlet_ui::styles::{self, description, note};
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::{AnyView, Cx};
 
 use super::swatch::Slots;
-use super::{Got, ShaderGraph};
+use super::{Got, ShaderGraph, stages};
 
 /// The render layer only the shader preview's camera, lights and
 /// shape are on: apart from the blueprint preview's 8 and the
@@ -72,6 +74,11 @@ const LAYER: usize = 9;
 /// graph's code changes.
 const SHADER: Handle<Shader> =
     uuid_handle!("2f7d9a3e-55c1-4b8e-8d0a-7e4c3b9f6a21");
+
+/// The vertex shader of the preview's prepass and shadows, written
+/// again with [`SHADER`].
+const PREPASS: Handle<Shader> =
+    uuid_handle!("2f7d9a3e-55c1-4b8e-8d0a-7e4c3b9f6a22");
 
 /// How far the camera stands from the shape before it is zoomed: the
 /// sphere, a unit across, fills about two thirds of the picture.
@@ -104,8 +111,25 @@ pub(super) struct SurfaceExt {
 }
 
 impl MaterialExtension for SurfaceExt {
+    fn vertex_shader() -> ShaderRef {
+        ShaderRef::Handle(SHADER)
+    }
+
     fn fragment_shader() -> ShaderRef {
         ShaderRef::Handle(SHADER)
+    }
+
+    fn prepass_vertex_shader() -> ShaderRef {
+        ShaderRef::Handle(PREPASS)
+    }
+
+    fn specialize(
+        _pipeline: &MaterialExtensionPipeline,
+        descriptor: &mut RenderPipelineDescriptor,
+        layout: &MeshVertexBufferLayoutRef,
+        _key: MaterialExtensionKey<Self>,
+    ) -> Result<(), SpecializedMeshPipelineError> {
+        stages::prepass_normals(descriptor, layout)
     }
 }
 
@@ -473,12 +497,12 @@ fn shade(
         return;
     };
     *shaded = Some(got.version);
-    let _ = shaders.insert(
+    stages::insert(
+        &mut shaders,
         SHADER.id(),
-        Shader::from_wesl(
-            surface_shader(compiled),
-            "hamlet_shader/surface.wesl",
-        ),
+        PREPASS.id(),
+        compiled,
+        "surface",
     );
 }
 

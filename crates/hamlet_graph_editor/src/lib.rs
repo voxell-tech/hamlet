@@ -6,6 +6,7 @@
 //! watches [`Editor::changes`].
 
 pub mod canvas;
+pub mod colour;
 mod controls;
 pub mod files;
 pub mod library;

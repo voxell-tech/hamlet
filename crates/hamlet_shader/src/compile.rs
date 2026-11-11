@@ -1,8 +1,10 @@
-//! A shader graph compiled to WGSL: a function from what a surface
-//! is read from to what it gives, and one that shows what any node
-//! gives, for its swatch. Every value set on the graph is read from a
-//! slot, so a value changed is a slot written, not a shader compiled
-//! again.
+//! A shader graph compiled to WGSL: a function for the vertex stage,
+//! from a vertex as the mesh gives it to where it goes, one for the
+//! fragment stage, from what a surface is read from to what it gives,
+//! and one that shows what any node gives, for its swatch. A node
+//! runs in the vertex stage when the vertex node is wired from it.
+//! Every value set on the graph is read from a slot, so a value
+//! changed is a slot written, not a shader compiled again.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write;
@@ -13,7 +15,7 @@ use hamlet_graph::{
     ValueType,
 };
 
-use crate::kinds::{self, SURFACE, ShaderKind};
+use crate::kinds::{self, SURFACE, ShaderKind, VERTEX};
 
 /// The slots a graph may set; slot 0 is the time.
 pub const SLOTS: usize = 256;
@@ -33,7 +35,8 @@ enum Source {
 /// A graph as a shader, and how to fill its slots.
 #[derive(Clone, PartialEq, Debug)]
 pub struct Compiled {
-    /// [`LIBRARY`], then `surface(i: SurfaceIn) -> Surface` and
+    /// [`LIBRARY`], then `vertex_stage(i: SurfaceIn) -> Placed`,
+    /// `surface(i: SurfaceIn) -> Surface` and
     /// `preview(which: u32, i: SurfaceIn) -> vec4<f32>`.
     pub code: String,
     /// Each slot from 1 on, by where its value comes from.
@@ -203,11 +206,12 @@ pub fn compile(graph: &Graph) -> Result<Compiled, Error> {
         sources: Vec::new(),
         parents: BTreeMap::new(),
         given: BTreeMap::new(),
-        body: String::new(),
+        body: Vec::new(),
         errors: Vec::new(),
     };
     let mut shown = Vec::new();
     let mut surface = None;
+    let mut vertex = None;
     for id in order {
         let Some(node) = graph.node(id) else {
             continue;
@@ -251,7 +255,7 @@ pub fn compile(graph: &Graph) -> Result<Compiled, Error> {
         match (kind.emit)(&mut emit) {
             Ok(()) => {
                 let Emit { lines, given, .. } = emit;
-                compiler.body.push_str(&lines);
+                compiler.body.push((id, lines));
                 if let Some((port, value_type)) = given.first() {
                     shown.push((id, variable(id, port), *value_type));
                 }
@@ -260,6 +264,9 @@ pub fn compile(graph: &Graph) -> Result<Compiled, Error> {
                 }
                 if name == SURFACE.kind.name && surface.is_none() {
                     surface = Some(id);
+                }
+                if name == VERTEX.kind.name && vertex.is_none() {
+                    vertex = Some(id);
                 }
             }
             Err(error) => compiler.errors.push(error),
@@ -271,14 +278,44 @@ pub fn compile(graph: &Graph) -> Result<Compiled, Error> {
         errors,
         ..
     } = compiler;
-    let reads_time = body.contains("i.time");
+    let staged = vertex.map(|node| feeding(graph, node));
+    let lines = |keep: &dyn Fn(NodeId) -> bool| -> String {
+        body.iter()
+            .filter(|(id, _)| keep(*id))
+            .map(|(_, lines)| lines.as_str())
+            .collect()
+    };
+    let everything = lines(&|_| true);
+    let reads_time = everything.contains("i.time");
     let mut code = String::from(LIBRARY);
     code.push_str(
         "\n// The graph.\n\n@group(GROUP) @binding(SLOTS_BINDING) \
          var<uniform> slots: Slots;\n\n",
     );
+    let _ =
+        writeln!(code, "fn vertex_stage(i: SurfaceIn) -> Placed {{");
+    code.push_str(&lines(&|id| {
+        staged.as_ref().is_some_and(|staged| staged.contains(&id))
+    }));
+    match vertex {
+        Some(node) => {
+            let _ = writeln!(
+                code,
+                "    return {};",
+                variable(node, "out")
+            );
+        }
+        None => {
+            let _ = writeln!(
+                code,
+                "    return Placed(i.local_position, \
+                 i.local_normal);"
+            );
+        }
+    }
+    code.push_str("}\n\n");
     let _ = writeln!(code, "fn surface(i: SurfaceIn) -> Surface {{");
-    code.push_str(&body);
+    code.push_str(&lines(&|id| Some(id) != vertex));
     match surface {
         Some(node) => {
             let _ = writeln!(
@@ -296,7 +333,7 @@ pub fn compile(graph: &Graph) -> Result<Compiled, Error> {
         code,
         "fn preview(which: u32, i: SurfaceIn) -> vec4<f32> {{"
     );
-    code.push_str(&body);
+    code.push_str(&everything);
     code.push_str("    switch which {\n");
     for (node, variable, value_type) in &shown {
         let _ = writeln!(
@@ -314,6 +351,14 @@ pub fn compile(graph: &Graph) -> Result<Compiled, Error> {
             variable(node, "out")
         );
     }
+    if let Some(node) = vertex {
+        let _ = writeln!(
+            code,
+            "        case {}u: {{ return hm_show3({}.position); }}",
+            Compiled::which(node),
+            variable(node, "out")
+        );
+    }
     code.push_str(
         "        default: { return vec4<f32>(0.0); }\n    }\n}\n",
     );
@@ -325,6 +370,20 @@ pub fn compile(graph: &Graph) -> Result<Compiled, Error> {
     })
 }
 
+/// `node` and every node wired into it, near or far.
+fn feeding(graph: &Graph, node: NodeId) -> BTreeSet<NodeId> {
+    let mut found = BTreeSet::from([node]);
+    let mut next = vec![node];
+    while let Some(at) = next.pop() {
+        for wire in &graph.wires {
+            if wire.to.node == at && found.insert(wire.from.node) {
+                next.push(wire.from.node);
+            }
+        }
+    }
+    found
+}
+
 struct Compiler<'a> {
     graph: &'a Graph,
     sources: Vec<Source>,
@@ -332,7 +391,8 @@ struct Compiler<'a> {
     parents: BTreeMap<String, usize>,
     /// The type of each output compiled so far.
     given: BTreeMap<(NodeId, String), ValueType>,
-    body: String,
+    /// Each node's lines, in the order they run.
+    body: Vec<(NodeId, String)>,
     errors: Vec<Error>,
 }
 
@@ -379,13 +439,15 @@ impl Compiler<'_> {
                 port: Does::INPUT_PORT.to_owned(),
                 reason: "needs more values than a shader holds",
             })?;
-        let _ = writeln!(
-            self.body,
-            "    let {}: {} = {};",
-            variable(node, Does::INPUT_PORT),
-            wgsl(value_type),
-            read_slot(at, value_type)
-        );
+        self.body.push((
+            node,
+            format!(
+                "    let {}: {} = {};\n",
+                variable(node, Does::INPUT_PORT),
+                wgsl(value_type),
+                read_slot(at, value_type)
+            ),
+        ));
         self.given
             .insert((node, Does::INPUT_PORT.to_owned()), value_type);
         Ok(value_type)
@@ -548,6 +610,16 @@ impl Emit<'_, '_> {
         let _ = writeln!(
             self.lines,
             "    let {}: Surface = {code};",
+            variable(self.node.id, "out")
+        );
+    }
+
+    /// Gives where the vertex stage puts the vertex as `code`, which
+    /// `vertex_stage` returns.
+    pub(crate) fn put_vertex(&mut self, code: &str) {
+        let _ = writeln!(
+            self.lines,
+            "    let {}: Placed = {code};",
             variable(self.node.id, "out")
         );
     }

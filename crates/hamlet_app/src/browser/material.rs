@@ -286,7 +286,26 @@ fn control(name: &str, input: &GraphInput) -> AnyView {
         }
         ValueType::Point | ValueType::Vector3 => axes(name, input, 3),
         ValueType::Vector2 => axes(name, input, 2),
-        ValueType::Color => axes(name, input, 4),
+        ValueType::Color => {
+            let (named, written) =
+                (name.to_owned(), input.name.clone());
+            let reading = input.name.clone();
+            hamlet_graph_editor::colour::colour::<Open, _, _>(
+                format!("material/{name}/{}", input.name),
+                move |open| match open.value(&reading) {
+                    Some(Constant::Color(linear)) => Some(linear),
+                    _ => None,
+                },
+                move |world, linear| {
+                    set(
+                        world,
+                        &named,
+                        &written,
+                        Constant::Color(linear),
+                    );
+                },
+            )
+        }
         ValueType::Number | ValueType::Integer => {
             axes(name, input, 1)
         }

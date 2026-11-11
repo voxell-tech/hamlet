@@ -4,20 +4,19 @@
 //! often. They float over the canvas, with any tabs the editor's
 //! layout gives beside them.
 
-use bevy::color::Color;
 use bevy::ecs::world::World;
 use bevy::math::{Vec3, Vec4};
 use bevy::ui::{AlignItems, UiRect, percent, px};
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, TooltipExt, button, column, dropdown,
-    icon_button, number_field, row, text_field,
+    icon_button, number_field, row, slider, text_field,
 };
 use bevy_fynix::{ScopedExt, ViewExt, keyed, resource};
 use hamlet_graph::{
     Constant, Edit, GraphInput, Scope, ValueType, Vary,
 };
 use hamlet_ui::styles::{
-    ICON, command, description, labelled, note, swatch, text_input,
+    ICON, command, description, labelled, note, text_input,
 };
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::widgets::switch::switch;
@@ -35,8 +34,8 @@ const TYPES: [(&str, ValueType); 5] = [
     ("Text", ValueType::Choice),
 ];
 
-/// The side of a colour's swatch.
-const SWATCH: f32 = 16.0;
+/// How wide the field beside a slider is, for its number exactly.
+const EXACT: f32 = 64.0;
 
 /// The types of vector and colour, offered when some kind of the
 /// editor's registry takes one.
@@ -199,7 +198,8 @@ pub(super) fn input<K: EditorKey>(name: String) -> AnyView {
         if matches!(
             found.value_type,
             ValueType::Number | ValueType::Integer
-        ) {
+        ) && cx.world.resource::<Editor<K>>().setup.varies
+        {
             parts.push(labelled("varies", varies::<K>(name.clone())));
             if found.vary.is_some() {
                 parts.push(labelled(
@@ -348,24 +348,76 @@ fn axes<K: EditorKey>(
             },
         )
     };
-    let mut fields = (0..count).map(axis).collect::<Vec<_>>();
-    if colour {
-        fields.push(swatch_of::<K>(name.clone()));
-    }
+    let fields = (0..count).map(axis).collect::<Vec<_>>();
     row(fields).gap(4.0).align(AlignItems::Center).boxed()
 }
 
-/// A small square of the colour the input's default is.
-fn swatch_of<K: EditorKey>(name: String) -> AnyView {
-    let shown = resource::<Editor<K>, _>(move |editor| {
-        match find(editor, &name).and_then(|input| input.default) {
-            Some(Constant::Color(c)) => {
-                Color::srgba(c.x, c.y, c.z, c.w)
-            }
-            _ => Color::NONE,
-        }
-    });
-    swatch(SWATCH, shown)
+/// A colour input's default, in the shared colour control: its
+/// swatch, which opens the picker, and its hex code.
+fn colour<K: EditorKey>(name: String) -> AnyView {
+    let reading = name.clone();
+    crate::colour::colour::<Editor<K>, _, _>(
+        format!("{}/{name}", std::any::type_name::<K>()),
+        move |editor| match find(editor, &reading)
+            .and_then(|input| input.default)
+        {
+            Some(Constant::Color(linear)) => Some(linear),
+            _ => None,
+        },
+        move |world, linear| {
+            change::<K>(world, &name, |input| {
+                input.default = Some(Constant::Color(linear));
+            });
+        },
+    )
+}
+
+/// How far a whole number's slider runs, from 0: enough seeds to
+/// pick from.
+const WHOLE: f32 = 100.0;
+
+/// A number input's default as a slider, from 0 to 1 or for a whole
+/// number to [`WHOLE`], and a field beside it for the number exactly,
+/// which may go beyond them.
+fn slid<K: EditorKey>(name: String, whole: bool) -> AnyView {
+    with_cx(move |cx| {
+        let gap = cx.theme().space.gap;
+        let reading = name.clone();
+        let writing = name.clone();
+        let read = |input: &GraphInput| match input.default {
+            Some(Constant::Number(n)) => n,
+            Some(Constant::Integer(n)) => n as f32,
+            _ => 0.0,
+        };
+        let write = move |input: &mut GraphInput, value: f32| {
+            input.default = Some(if whole {
+                Constant::Integer(value.round() as i32)
+            } else {
+                Constant::Number(value)
+            });
+        };
+        let high = if whole { WHOLE } else { 1.0 };
+        row((
+            slider(resource::<Editor<K>, _>(move |editor| {
+                find(editor, &reading)
+                    .map_or(0.0, |input| read(&input))
+            }))
+            .range(0.0, high)
+            .on_change(move |world, value| {
+                change::<K>(world, &writing, |input| {
+                    write(input, value);
+                });
+            })
+            .width(percent(100.0))
+            .min_width(px(0.0)),
+            row((number::<K>(name.clone(), read, write),))
+                .width(px(EXACT))
+                .shrink(0.0),
+        ))
+        .gap(gap / 2.0)
+        .align(AlignItems::Center)
+    })
+    .boxed()
 }
 
 /// The control for what the input is when the graph above leaves it
@@ -397,7 +449,7 @@ fn default<K: EditorKey>(
             axes::<K>(name, value_type, 3)
         }
         ValueType::Vector2 => axes::<K>(name, value_type, 2),
-        ValueType::Color => axes::<K>(name, value_type, 4),
+        ValueType::Color => colour::<K>(name),
         ValueType::Choice => {
             let reading = name.clone();
             text_field(
@@ -419,27 +471,8 @@ fn default<K: EditorKey>(
             .rules(text_input)
             .boxed()
         }
-        ValueType::Integer => number::<K>(
-            name,
-            |input| match input.default {
-                Some(Constant::Integer(n)) => n as f32,
-                _ => 0.0,
-            },
-            |input, value| {
-                input.default =
-                    Some(Constant::Integer(value.round() as i32));
-            },
-        ),
-        _ => number::<K>(
-            name,
-            |input| match input.default {
-                Some(Constant::Number(n)) => n,
-                _ => 0.0,
-            },
-            |input, value| {
-                input.default = Some(Constant::Number(value));
-            },
-        ),
+        ValueType::Integer => slid::<K>(name, true),
+        _ => slid::<K>(name, false),
     }
 }
 

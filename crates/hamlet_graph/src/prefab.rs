@@ -1,28 +1,76 @@
-//! Prefabs: a mesh of the library, made in Blender, with some of its
-//! objects changed in Hamlet. An object is a node of the mesh's
-//! `.glb` scene, named by the path of node names from the scene's
-//! root, as Blender's outliner shows it; a name used twice under one
-//! parent takes its index, `Window#2`. Each object keeps what the
-//! file gives it unless its part says otherwise: a part may give it a
-//! shader graph or a material of the library in place of the file's
-//! own, and move, turn and scale it on top of the file's transform. A
-//! part whose object the file no longer has is kept, so a renamed
-//! object can be given its settings back by hand.
+//! Prefabs: meshes of the library, made in Blender, put together and
+//! changed in Hamlet. Each mesh put in is an object at the top of the
+//! prefab, named by its [`Placed`] name; the objects of its `.glb`
+//! scene are under it, each named by the path of node names from
+//! there, as Blender's outliner shows them: `main_roof/Roof/Tiles`. A
+//! name used twice under one parent takes its index, `Window#2`. Each
+//! object keeps what the file gives it unless its part says
+//! otherwise: a part may give it a shader graph or a material of the
+//! library in place of the file's own, and move, turn and scale it on
+//! top of the file's transform. A part whose object the file no
+//! longer has is kept, so a renamed object can be given its settings
+//! back by hand.
 
 use std::collections::BTreeMap;
 
 use bevy_math::{Quat, Vec3};
 use serde::{Deserialize, Serialize};
 
-/// A mesh of the library by name and the parts of it changed, by
-/// their objects' paths.
+/// The meshes of the library put together, and the parts of them
+/// changed, by their objects' paths.
 #[derive(
     Clone, PartialEq, Debug, Default, Serialize, Deserialize,
 )]
+#[serde(from = "Written")]
 pub struct Prefab {
-    pub model: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub meshes: Vec<Placed>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub parts: BTreeMap<String, Part>,
+}
+
+/// A mesh of the library put in a prefab: its object's name there,
+/// the first part of the paths of everything under it, and the mesh.
+#[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
+pub struct Placed {
+    pub name: String,
+    pub mesh: String,
+}
+
+/// A prefab as its file may hold it: as now, or as a prefab of one
+/// mesh, `model`, was written, its parts' paths starting in the
+/// mesh's scene.
+#[derive(Deserialize)]
+struct Written {
+    #[serde(default)]
+    model: String,
+    #[serde(default)]
+    meshes: Vec<Placed>,
+    #[serde(default)]
+    parts: BTreeMap<String, Part>,
+}
+
+impl From<Written> for Prefab {
+    fn from(written: Written) -> Self {
+        let Written {
+            model,
+            meshes,
+            parts,
+        } = written;
+        if model.is_empty() || !meshes.is_empty() {
+            return Self { meshes, parts };
+        }
+        Self {
+            parts: parts
+                .into_iter()
+                .map(|(path, part)| (format!("{model}/{path}"), part))
+                .collect(),
+            meshes: vec![Placed {
+                name: model.clone(),
+                mesh: model,
+            }],
+        }
+    }
 }
 
 /// What an object is drawn with.
@@ -59,6 +107,9 @@ impl Finish {
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Part {
+    /// The name shown for the object in place of the file's.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
     #[serde(skip_serializing_if = "Finish::is_own")]
     pub finish: Finish,
     /// Added to the object's place in the file, in its parent's
@@ -76,6 +127,7 @@ pub struct Part {
 impl Default for Part {
     fn default() -> Self {
         Self {
+            name: None,
             finish: Finish::Own,
             offset: Vec3::ZERO,
             turn: Quat::IDENTITY,
@@ -104,12 +156,53 @@ fn is_one(scale: &Vec3) -> bool {
 }
 
 impl Prefab {
-    /// A prefab of the mesh `model` that changes nothing.
-    pub fn of(model: &str) -> Self {
-        Self {
-            model: model.to_owned(),
-            parts: BTreeMap::new(),
+    /// A prefab of the mesh `mesh` alone that changes nothing, or of
+    /// none when it is empty.
+    pub fn of(mesh: &str) -> Self {
+        let mut prefab = Self::default();
+        if !mesh.is_empty() {
+            prefab.add(mesh);
         }
+        prefab
+    }
+
+    /// Puts the mesh `mesh` in, named for it, or with the nearest
+    /// index after its name when the name is taken, and gives the
+    /// name.
+    pub fn add(&mut self, mesh: &str) -> String {
+        let taken = |name: &str| {
+            self.meshes.iter().any(|placed| placed.name == name)
+        };
+        let name = if taken(mesh) {
+            (2..)
+                .map(|index| format!("{mesh}#{index}"))
+                .find(|name| !taken(name))
+                .unwrap_or_default()
+        } else {
+            mesh.to_owned()
+        };
+        self.meshes.push(Placed {
+            name: name.clone(),
+            mesh: mesh.to_owned(),
+        });
+        name
+    }
+
+    /// Takes out the mesh put in as `name`, with the parts of its
+    /// objects; whether it was in.
+    pub fn remove(&mut self, name: &str) -> bool {
+        let before = self.meshes.len();
+        self.meshes.retain(|placed| placed.name != name);
+        let under = format!("{name}/");
+        self.parts.retain(|path, _| {
+            path != name && !path.starts_with(&under)
+        });
+        self.meshes.len() != before
+    }
+
+    /// Whether the mesh `mesh` is put in.
+    pub fn uses(&self, mesh: &str) -> bool {
+        self.meshes.iter().any(|placed| placed.mesh == mesh)
     }
 
     /// How the object at `path` is changed.
@@ -192,6 +285,44 @@ mod tests {
         assert_eq!(Prefab::from_ron(&text).unwrap(), prefab);
         // Only what a part changes is written.
         assert!(!text.contains("scale"));
+    }
+
+    #[test]
+    fn a_prefab_of_one_mesh_as_it_was_written_reads_as_one_put_in() {
+        let text = r#"(
+            model: "hand_tower",
+            parts: { "Door": (offset: (0.0, 0.0, 0.05)) },
+        )"#;
+        let prefab = Prefab::from_ron(text).unwrap();
+        assert_eq!(
+            prefab.meshes,
+            [Placed {
+                name: "hand_tower".into(),
+                mesh: "hand_tower".into(),
+            }]
+        );
+        assert!(prefab.parts.contains_key("hand_tower/Door"));
+        // And it is written back as it is now.
+        let again =
+            Prefab::from_ron(&prefab.to_ron().unwrap()).unwrap();
+        assert_eq!(again, prefab);
+    }
+
+    #[test]
+    fn a_mesh_put_in_twice_takes_an_index_and_goes_with_its_parts() {
+        let mut prefab = Prefab::of("window");
+        assert_eq!(prefab.add("window"), "window#2");
+        prefab.set(
+            "window#2/Frame",
+            Part {
+                scale: Vec3::splat(2.0),
+                ..Part::default()
+            },
+        );
+        assert!(prefab.remove("window#2"));
+        assert!(prefab.parts.is_empty());
+        assert_eq!(prefab.meshes.len(), 1);
+        assert!(prefab.uses("window"));
     }
 
     #[test]

@@ -49,6 +49,7 @@ fn every_kind() -> Graph {
         wire(("fresnel", "value"), ("surface", "emission")),
         wire(("math", "value"), ("split", "vector")),
         wire(("split", "x"), ("ramp", "factor")),
+        wire(("math", "value"), ("vertex", "position")),
     ];
     graph
 }
@@ -71,9 +72,18 @@ fn fragment(in: UiVertexOutput) -> @location(0) vec4<f32> {{
     let s = surface(SurfaceIn(in.uv, vec3<f32>(0.0), vec3<f32>(0.0, \
          1.0, 0.0), vec3<f32>(0.0, 0.0, 1.0), vec4<f32>(1.0), 0.0, \
          vec3<f32>(0.0), vec3<f32>(0.0, 1.0, 0.0), vec3<f32>(0.0, \
-         0.0, 1.0)));
+         0.0, 1.0), in.uv));
     if s.unlit > 2.0 {{ return s.base_color; }}
     {SPHERE}
+}}
+@vertex
+fn vertex(@location(0) at: vec3<f32>) -> @builtin(position) \
+         vec4<f32> {{
+    let placed = vertex_stage(SurfaceIn(vec2<f32>(0.0), at, \
+         vec3<f32>(0.0, 1.0, 0.0), vec3<f32>(0.0, 0.0, 1.0), \
+         vec4<f32>(1.0), 0.0, at, vec3<f32>(0.0, 1.0, 0.0), \
+         vec3<f32>(0.0, 0.0, 1.0), vec2<f32>(0.0)));
+    return vec4<f32>(placed.position + placed.normal, 1.0);
 }}
 "
     );
@@ -89,6 +99,45 @@ fn fragment(in: UiVertexOutput) -> @location(0) vec4<f32> {{
     .unwrap_or_else(|error| {
         panic!("{}", error.emit_to_string(&code))
     });
+}
+
+#[test]
+fn the_vertex_stage_runs_only_what_feeds_the_vertex() {
+    let graph = every_kind();
+    let compiled = compile(&graph).unwrap();
+    let id = |name: &str| {
+        graph
+            .nodes
+            .iter()
+            .find(|node| node.does == Does::Kind(name.to_owned()))
+            .map(|node| node.id.0)
+            .unwrap()
+    };
+    let start = compiled.code.find("fn vertex_stage").unwrap();
+    let end = compiled.code.find("fn surface(").unwrap();
+    let stage = &compiled.code[start..end];
+    let surface = &compiled.code[end..];
+    // The math reads the uv and the position and moves the vertex.
+    for name in ["uv", "position", "math", "vertex"] {
+        assert!(stage.contains(&format!("v{}_", id(name))), "{name}");
+    }
+    for name in ["noise", "surface", "blend"] {
+        assert!(
+            !stage.contains(&format!("v{}_", id(name))),
+            "{name}"
+        );
+    }
+    let fragment = &surface[..surface.find("fn preview").unwrap()];
+    assert!(!fragment.contains(&format!("v{}_out", id("vertex"))));
+}
+
+#[test]
+fn without_a_vertex_node_vertices_stay_where_the_mesh_has_them() {
+    let compiled = compile(&Graph::default()).unwrap();
+    assert!(compiled.code.contains(
+        "fn vertex_stage(i: SurfaceIn) -> Placed {\n    return \
+         Placed(i.local_position, i.local_normal);\n}"
+    ));
 }
 
 #[test]

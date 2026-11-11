@@ -8,7 +8,7 @@
 use bevy::app::{App, PostUpdate, Startup};
 use bevy::asset::Assets;
 use bevy::camera::Camera;
-use bevy::camera::visibility::Visibility;
+use bevy::camera::visibility::{RenderLayers, Visibility};
 use bevy::color::{Alpha, Color, Luminance};
 use bevy::ecs::change_detection::Mut;
 use bevy::ecs::component::Component;
@@ -32,7 +32,7 @@ use super::Blueprint;
 use super::blueprint::Got;
 use super::gizmo::fills::{FillMaterial, Fills, spawn_shape};
 use super::gizmo::{Background, Frame as Seen, LIGHT_DARKEN, Style};
-use super::preview::{Framing, Preview};
+use super::preview::{Framing, LAYER, Preview};
 
 /// How many squares a field is sampled in, on each side.
 const WASH: usize = 24;
@@ -71,6 +71,7 @@ fn spawn(
         &mut meshes,
         &mut materials,
         OverlayFills,
+        RenderLayers::layer(LAYER),
     );
 }
 

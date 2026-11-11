@@ -13,12 +13,14 @@ use std::time::{Duration, SystemTime};
 use anyhow::Context;
 use bevy::app::{App, Update};
 use bevy::ecs::entity::Entity;
+use bevy::ecs::message::MessageReader;
 use bevy::ecs::observer::On;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::system::{Commands, Res};
 use bevy::ecs::world::World;
 use bevy::time::Time;
 use bevy::ui::percent;
+use bevy::window::FileDragAndDrop;
 use bevy_fynix::views::{FrameProps, column, dropdown};
 use bevy_fynix::{ViewExt, keyed, resource};
 use hamlet_desktop::file::{ChooseFiles, FilesChosen};
@@ -47,7 +49,7 @@ pub(super) fn plugin(app: &mut App) {
         .init_resource::<Followed>()
         .add_plugins(thumbnails::plugin)
         .add_observer(chosen)
-        .add_systems(Update, follow);
+        .add_systems(Update, (follow, dropped));
 }
 
 /// The details of the mesh `name` in the ASSETS panel, built again
@@ -159,7 +161,8 @@ fn colour(name: String, asset: Asset, slot: String) -> AnyView {
 #[derive(Resource, Default)]
 struct Importer(Option<Entity>);
 
-/// Asks for the `.glb` files to add as assets.
+/// Asks for the `.glb` and `.png` files to add as meshes and
+/// textures.
 pub(crate) fn import(world: &mut World) {
     let asker = match world.resource::<Importer>().0 {
         Some(asker) => asker,
@@ -172,7 +175,7 @@ pub(crate) fn import(world: &mut World) {
     world.trigger(ChooseFiles {
         asker,
         title: "Add assets".to_owned(),
-        extension: "glb".to_owned(),
+        extension: "glb,png".to_owned(),
     });
 }
 
@@ -186,20 +189,85 @@ fn chosen(
     }
     let paths = chosen.paths.clone();
     commands.queue(move |world: &mut World| {
-        let (mut added, mut errors) = (Vec::new(), Vec::new());
-        for path in &paths {
-            match add_mesh(world, path) {
-                Ok(name) => added.push(name),
+        add_files(world, &paths);
+    });
+}
+
+/// Adds each `.glb` file dropped on the window as a mesh and each
+/// `.png` as a texture. While the PREFAB panel shows, the first mesh
+/// is put in the open prefab.
+fn dropped(
+    mut drops: MessageReader<FileDragAndDrop>,
+    mut commands: Commands,
+) {
+    let paths: Vec<PathBuf> = drops
+        .read()
+        .filter_map(|drop| match drop {
+            FileDragAndDrop::DroppedFile { path_buf, .. } => {
+                Some(path_buf.clone())
+            }
+            _ => None,
+        })
+        .filter(|path| {
+            path.extension().is_some_and(|ext| {
+                ext.eq_ignore_ascii_case("glb")
+                    || ext.eq_ignore_ascii_case("png")
+            })
+        })
+        .collect();
+    if paths.is_empty() {
+        return;
+    }
+    commands.queue(move |world: &mut World| {
+        let added = add_files(world, &paths);
+        if let Some(first) = added.first() {
+            super::prefab::mesh_dropped(world, first);
+        }
+    });
+}
+
+/// Adds the `.glb` files at `paths` as meshes and the `.png` files
+/// as textures, notes what was added and what failed, and gives the
+/// names of the meshes added.
+fn add_files(world: &mut World, paths: &[PathBuf]) -> Vec<String> {
+    let (mut added, mut pictures, mut errors) =
+        (Vec::new(), Vec::new(), Vec::new());
+    for path in paths {
+        let png = path
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("png"));
+        if png {
+            match world.resource_mut::<Library>().add_texture(path) {
+                Ok(name) => {
+                    crate::browser::imported(
+                        world,
+                        Kind::Texture,
+                        &name,
+                    );
+                    pictures.push(name);
+                }
                 Err(error) => errors.push(format!("{error:#}")),
             }
+            continue;
         }
-        let mut notes = Vec::new();
-        if !added.is_empty() {
-            notes.push(format!("Added {}", added.join(", ")));
+        match add_mesh(world, path) {
+            Ok(name) => {
+                crate::browser::imported(world, Kind::Mesh, &name);
+                added.push(name);
+            }
+            Err(error) => errors.push(format!("{error:#}")),
         }
-        notes.extend(errors);
-        world.resource_mut::<Library>().note = notes.join("; ");
-    });
+    }
+    let mut notes = Vec::new();
+    let both: Vec<&String> = added.iter().chain(&pictures).collect();
+    if !both.is_empty() {
+        let names: Vec<&str> =
+            both.iter().map(|n| n.as_str()).collect();
+        notes.push(format!("Added {}", names.join(", ")));
+    }
+    notes.extend(errors);
+    world.resource_mut::<Library>().note = notes.join("; ");
+    added
 }
 
 /// Copies the `.glb` file at `from` into the library's meshes, with a

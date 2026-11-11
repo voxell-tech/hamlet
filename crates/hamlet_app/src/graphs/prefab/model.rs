@@ -67,6 +67,58 @@ impl Model {
     pub fn find(&self, path: &str) -> Option<usize> {
         self.objects.iter().position(|object| object.path == path)
     }
+
+    /// The models of the meshes a prefab puts together, as one: each
+    /// under an object of its own at the top, named `name` and shown
+    /// as `shown`, its objects' paths starting with that name.
+    pub fn join(models: Vec<(String, String, Model)>) -> Model {
+        let mut joined = Model {
+            objects: Vec::new(),
+            images: Vec::new(),
+        };
+        for (name, shown, model) in models {
+            let top = joined.objects.len();
+            let pictures = joined.images.len();
+            joined.objects.push(Object {
+                path: name.clone(),
+                name: shown,
+                parent: None,
+                depth: 0,
+                local: Transform::IDENTITY,
+                pieces: Vec::new(),
+            });
+            joined.images.extend(model.images);
+            joined.objects.extend(model.objects.into_iter().map(
+                |object| {
+                    Object {
+                        path: format!("{name}/{}", object.path),
+                        parent: Some(
+                            object
+                                .parent
+                                .map_or(top, |at| at + top + 1),
+                        ),
+                        depth: object.depth + 1,
+                        pieces: object
+                            .pieces
+                            .into_iter()
+                            .map(|piece| Piece {
+                                own: Own {
+                                    texture: piece
+                                        .own
+                                        .texture
+                                        .map(|at| at + pictures),
+                                    ..piece.own
+                                },
+                                ..piece
+                            })
+                            .collect(),
+                        ..object
+                    }
+                },
+            ));
+        }
+        joined
+    }
 }
 
 /// Reads the scene of the `.glb` file `bytes`.
@@ -169,11 +221,25 @@ fn pieces(node: &gltf::Node, blob: Option<&[u8]>) -> Vec<Piece> {
             .filter(|normals: &Vec<[f32; 3]>| {
                 normals.len() == positions.len()
             });
-        let uvs: Option<Vec<[f32; 2]>> = reader
-            .read_tex_coords(0)
-            .map(|uvs| uvs.into_f32().collect())
-            .filter(|uvs: &Vec<[f32; 2]>| {
-                uvs.len() == positions.len()
+        let uv_map = |set: u32| -> Option<Vec<[f32; 2]>> {
+            reader
+                .read_tex_coords(set)
+                .map(|uvs| uvs.into_f32().collect())
+                .filter(|uvs: &Vec<[f32; 2]>| {
+                    uvs.len() == positions.len()
+                })
+        };
+        let uvs = uv_map(0);
+        // A second map, for what a shader reads of the mesh, as the
+        // number of each tile.
+        let second = uv_map(1);
+        // Linear, as glTF and Bevy both keep them; the standard
+        // material multiplies its base colour by them.
+        let colors: Option<Vec<[f32; 4]>> = reader
+            .read_colors(0)
+            .map(|colors| colors.into_rgba_f32().collect())
+            .filter(|colors: &Vec<[f32; 4]>| {
+                colors.len() == positions.len()
             });
         let mut mesh = Mesh::new(
             PrimitiveTopology::TriangleList,
@@ -192,6 +258,12 @@ fn pieces(node: &gltf::Node, blob: Option<&[u8]>) -> Vec<Piece> {
         }
         if let Some(uvs) = uvs {
             mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uvs);
+        }
+        if let Some(second) = second {
+            mesh.insert_attribute(Mesh::ATTRIBUTE_UV_1, second);
+        }
+        if let Some(colors) = colors {
+            mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, colors);
         }
         let material = primitive.material();
         let pbr = material.pbr_metallic_roughness();

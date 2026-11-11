@@ -1,9 +1,10 @@
 //! Collections: paths recorded in the library's `collections.ron`
-//! that group its assets, of every kind. A collection holds no files:
-//! each asset's file stays in its kind's shelf, and the record says
-//! which collection the asset is in. A collection's path is its
-//! parents' names and its own, joined by `/`; an asset in a
-//! collection is also in the collections above.
+//! that group its assets. Each kind has collections of its own,
+//! inside the one named as its shelf, as `meshes/roofs`. A collection
+//! holds no files: each asset's file stays in its kind's shelf, and
+//! the record says which collection the asset is in. A collection's
+//! path is its parents' names and its own, joined by `/`; an asset in
+//! a collection is also in the collections above.
 
 use std::collections::{BTreeMap, BTreeSet};
 

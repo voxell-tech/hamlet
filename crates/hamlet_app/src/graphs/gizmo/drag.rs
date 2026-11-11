@@ -34,21 +34,21 @@ const MIN_FACTOR: f32 = 1e-3;
 
 /// The pointer over the preview: where it is and the ray it casts.
 #[derive(Clone, Copy, Debug)]
-pub(super) struct Pointing {
-    pub(super) cursor: Vec2,
-    pub(super) ray: Ray3d,
+pub(in crate::graphs) struct Pointing {
+    pub(in crate::graphs) cursor: Vec2,
+    pub(in crate::graphs) ray: Ray3d,
 }
 
 /// A handle as it was when a drag took hold of it.
 #[derive(Clone, Copy, Debug)]
-pub(super) struct Grab {
-    pub(super) handle: Handle,
-    pub(super) frame: Frame,
-    pub(super) pointing: Pointing,
+pub(in crate::graphs) struct Grab {
+    pub(in crate::graphs) handle: Handle,
+    pub(in crate::graphs) frame: Frame,
+    pub(in crate::graphs) pointing: Pointing,
     /// The origin, where the preview shows it.
-    pub(super) centre: Vec2,
+    pub(in crate::graphs) centre: Vec2,
     /// A handle's length there.
-    pub(super) reach: f32,
+    pub(in crate::graphs) reach: f32,
 }
 
 /// How far along the line through `origin` in the unit direction
@@ -88,7 +88,7 @@ fn snapped(value: f32, step: Option<f32>) -> f32 {
 
 impl Grab {
     /// How far the drag has moved the target, in the world.
-    fn translation(
+    pub(in crate::graphs) fn translation(
         &self,
         now: &Pointing,
         snap: Option<f32>,
@@ -125,7 +125,7 @@ impl Grab {
 
     /// The axis the drag has turned the target about and the angle it
     /// has turned it by, in the world.
-    fn turn(
+    pub(in crate::graphs) fn turn(
         &self,
         now: &Pointing,
         snap: Option<f32>,
@@ -158,7 +158,7 @@ impl Grab {
     }
 
     /// The factor the drag has scaled each of the target's axes by.
-    fn scale(
+    pub(in crate::graphs) fn scale(
         &self,
         now: &Pointing,
         snap: Option<f32>,
@@ -197,7 +197,7 @@ impl Grab {
 
     /// The arc a turn by `angle` has swept, and the radius of the
     /// ring it is on.
-    pub(super) fn sweep(
+    pub(in crate::graphs) fn sweep(
         &self,
         angle: f32,
         style: &Style,

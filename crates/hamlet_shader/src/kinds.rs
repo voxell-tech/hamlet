@@ -25,7 +25,7 @@ const GROUPS: [(&str, &[ShaderKind]); 6] = [
     ("Vectors", VECTORS),
     ("Patterns", PATTERNS),
     ("Colours", COLOURS),
-    ("Surface", &[SURFACE]),
+    ("Surface", &[SURFACE, VERTEX]),
 ];
 
 /// The kinds a shader graph may use.
@@ -138,11 +138,24 @@ fn wider(a: ValueType, b: ValueType) -> ValueType {
 const INPUTS: &[ShaderKind] = &[
     kind(
         "uv",
-        "Where on its texture the surface is, from 0 to 1 across it",
-        &[],
+        "Where on its texture the surface is, from 0 to 1 across \
+         it, on the mesh's first UV map or its second",
+        &[PortSpec::new(
+            "map",
+            Choice,
+            "First: the UV map textures are laid on. Second: one a \
+             mesh may carry for its shader, such as a number for \
+             each tile; (0, 0) when it has none",
+        )
+        .initial(Initial::Choice("first"))
+        .choices(&["first", "second"])],
         &[out("uv", Vector2, "Where on its texture")],
         |emit| {
-            emit.put("uv", Vector2, "i.uv");
+            let code = match emit.choice("map")?.as_str() {
+                "second" => "i.uv_b",
+                _ => "i.uv",
+            };
+            emit.put("uv", Vector2, code);
             Ok(())
         },
     ),
@@ -688,6 +701,29 @@ const PATTERNS: &[ShaderKind] = &[
         },
     ),
     kind(
+        "white noise",
+        "A random number for each point, as Blender's White Noise \
+         Texture, and others for each seed",
+        &[AT, number("seed", "Which random numbers it picks", 0.0)],
+        &[
+            out("value", Number, "A random number from 0 to 1"),
+            out("colour", Color, "Three random numbers, as a colour"),
+        ],
+        |emit| {
+            let at = emit.input_or("vector", "i.position")?;
+            let seed = emit.input("seed", Number)?;
+            let random = emit
+                .local("random", &format!("hm_white({at}, {seed})"));
+            emit.put("value", Number, &format!("{random}.x"));
+            emit.put(
+                "colour",
+                Color,
+                &format!("vec4<f32>({random}, 1.0)"),
+            );
+            Ok(())
+        },
+    ),
+    kind(
         "checker",
         "Cubes of two colours, every other one",
         &[
@@ -1048,6 +1084,40 @@ const COLOURS: &[ShaderKind] = &[
         },
     ),
 ];
+
+/// Where the vertex stage puts each vertex of the mesh. What it is
+/// wired from runs once a vertex, before the surface; what the
+/// surface reads of the position and normal is where this puts them.
+pub(crate) const VERTEX: ShaderKind = kind(
+    "vertex",
+    "Where each vertex of the mesh goes and the way it then faces, \
+     in the mesh's own space, before the mesh is placed in the \
+     world. Runs once a vertex, before the surface",
+    &[
+        PortSpec::new(
+            "position",
+            Vector3,
+            "Where the vertex goes, in the mesh's own space; where \
+             the mesh has it when unwired",
+        ),
+        PortSpec::new(
+            "normal",
+            Vector3,
+            "The way it faces, in the mesh's own space; the mesh's \
+             when unwired",
+        ),
+    ],
+    &[],
+    |emit| {
+        let position =
+            emit.input_or("position", "i.local_position")?;
+        let normal = emit.input_or("normal", "i.local_normal")?;
+        emit.put_vertex(&format!(
+            "Placed({position}, hm_normalize({normal}))"
+        ));
+        Ok(())
+    },
+);
 
 /// The surface the shader gives, shaded by the realm's PBR
 /// lighting.

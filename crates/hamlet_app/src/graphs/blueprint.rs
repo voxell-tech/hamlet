@@ -86,32 +86,43 @@ pub(crate) const SETUP: Setup = Setup {
     upgrade: hamlet_blueprint::upgrade,
     nesting: Nesting::Runs,
     outputs: true,
+    varies: true,
     room: 0.0,
     // The graphs the realm builds every house from, the house first.
     examples: house::blueprints,
 };
 
+/// Whether the blueprint editor has a panel in the dock, and its
+/// blueprints show in ASSETS. Kept out of sight for now: the realm
+/// still builds with them, and setting this brings both back.
+pub(crate) const SHOWN: bool = false;
+
 /// Adds the blueprint editor in a panel of the dock, run again on
 /// every change and drawn in the preview beside the canvas.
 pub(super) fn plugin(app: &mut App) {
-    app.add_panel(
-        "graphs",
-        DockWindowKind::new("BLUEPRINT", || flush_panel(screen()))
+    if SHOWN {
+        app.add_panel(
+            "graphs",
+            DockWindowKind::new(
+                "BLUEPRINT",
+                || flush_panel(screen()),
+            )
             .icon(ICON.image(styles::ICON)),
-    )
-    .init_resource::<Got>()
-    .init_resource::<Exporter>()
-    .add_observer(exported)
-    .add_observer(forget)
-    .add_observer(dropped)
-    .add_systems(Update, (run, mirror))
-    .add_plugins((
-        hamlet_graph_editor::plugin::<Blueprint>(SETUP),
-        assets::plugin,
-        overlay::plugin,
-        preview::plugin,
-        gizmo::plugin,
-    ));
+        );
+    }
+    app.init_resource::<Got>()
+        .init_resource::<Exporter>()
+        .add_observer(exported)
+        .add_observer(forget)
+        .add_observer(dropped)
+        .add_systems(Update, (run, mirror))
+        .add_plugins((
+            hamlet_graph_editor::plugin::<Blueprint>(SETUP),
+            assets::plugin,
+            overlay::plugin,
+            preview::plugin,
+            gizmo::plugin,
+        ));
 }
 
 /// The editor's panel: the toolbar with the export tool and what the

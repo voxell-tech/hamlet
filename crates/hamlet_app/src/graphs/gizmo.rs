@@ -44,9 +44,11 @@ use hamlet_realm::sky::OwnSky;
 use hamlet_ui::theme::{HamletTheme, Palette};
 
 use self::drag::cancel;
-pub(super) use self::drag::{Dragging, grab, release, steer};
+pub(super) use self::drag::{
+    Dragging, Grab, Pointing, grab, release, steer,
+};
 use self::fills::{FillMaterial, Fills, HandleFills, spawn_fills};
-use self::paint::{Shown, paint};
+pub(super) use self::paint::{Shown, paint};
 use self::path::Pressed;
 pub(super) use self::path::{click, press};
 use super::Blueprint;
@@ -113,7 +115,7 @@ fn style_handles(mut store: ResMut<GizmoConfigStore>) {
 
 /// What the gizmo of a transform node edits.
 #[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(super) enum GizmoMode {
+pub(in crate::graphs) enum GizmoMode {
     #[default]
     Translate,
     Rotate,
@@ -158,7 +160,7 @@ fn pick_mode(
 
 /// Lengths in logical pixels on screen, and the gizmo's colours.
 #[derive(Clone, Copy, Debug)]
-pub(super) struct Style {
+pub(in crate::graphs) struct Style {
     pub(super) size: f32,
     pub(super) centre: f32,
     pub(super) outer_ring: f32,
@@ -192,7 +194,7 @@ pub(super) struct Style {
 }
 
 impl Style {
-    pub(super) fn of(palette: &Palette) -> Self {
+    pub(in crate::graphs) fn of(palette: &Palette) -> Self {
         use bevy::color::Alpha;
         Self {
             size: 90.0,
@@ -225,7 +227,7 @@ impl Style {
 
     /// This, its colours set against `background`: as made for a
     /// dark one, and darker and more opaque on a light one.
-    pub(super) fn against(
+    pub(in crate::graphs) fn against(
         self,
         palette: &Palette,
         background: Background,
@@ -256,7 +258,7 @@ const LIGHT_HAZE: f32 = 0.45;
 /// Whether the preview's background is light or dark, from the haze
 /// of its sky, so the gizmo can be seen on either.
 #[derive(Resource, Clone, Copy, PartialEq, Eq, Default, Debug)]
-pub(super) enum Background {
+pub(in crate::graphs) enum Background {
     Light,
     #[default]
     Dark,
@@ -286,7 +288,7 @@ fn read_background(
 
 /// One handle of a gizmo.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum Handle {
+pub(in crate::graphs) enum Handle {
     /// Along or around the axis of this index.
     Axis(usize),
     /// Along the two axes the axis of this index is square to.
@@ -378,7 +380,7 @@ fn fade(lean: f32, [gone, full]: [f32; 2]) -> f32 {
 
 /// Where a gizmo sits and how large it is, in the world.
 #[derive(Clone, Copy, Debug)]
-pub(super) struct Frame {
+pub(in crate::graphs) struct Frame {
     pub(super) origin: Vec3,
     pub(super) axes: [Vec3; 3],
     /// The length of a logical pixel at the origin.
@@ -392,7 +394,7 @@ pub(super) struct Frame {
 impl Frame {
     /// The gizmo at `origin`, its axes turned by `rotation`, as
     /// `camera` draws it.
-    pub(super) fn of(
+    pub(in crate::graphs) fn of(
         origin: Vec3,
         rotation: Quat,
         camera: &Camera,
@@ -483,7 +485,7 @@ impl Frame {
 
 /// How much of a gizmo a target shows.
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub(super) enum Shape {
+pub(in crate::graphs) enum Shape {
     /// Its arrows, rings or boxes.
     Axes,
     /// A small ring to move a point by.
@@ -506,10 +508,10 @@ impl Shape {
 /// The handles of a target's gizmo: what it edits, and, for a
 /// distance, the one axis it pulls along.
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub(super) struct Handles {
-    pub(super) mode: GizmoMode,
-    pub(super) only: Option<usize>,
-    pub(super) shape: Shape,
+pub(in crate::graphs) struct Handles {
+    pub(in crate::graphs) mode: GizmoMode,
+    pub(in crate::graphs) only: Option<usize>,
+    pub(in crate::graphs) shape: Shape,
 }
 
 /// The [`Handles`] of `target`'s gizmo in `mode`, and the turn of its
@@ -606,7 +608,7 @@ fn nearest_axis(
 /// The handle of `frame` under `cursor` and how near it is,
 /// `project` taking a point in the world to where the preview shows
 /// it.
-fn pick(
+pub(in crate::graphs) fn pick(
     handles: Handles,
     frame: &Frame,
     cursor: Vec2,

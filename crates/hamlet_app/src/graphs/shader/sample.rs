@@ -24,15 +24,18 @@ use bevy::ecs::system::{Commands, Local, Query, Res, ResMut};
 use bevy::image::Image;
 use bevy::light::DirectionalLight;
 use bevy::math::{EulerRot, Quat, Vec3};
-use bevy::mesh::{Mesh, Mesh3d, Meshable};
+use bevy::mesh::{Mesh, Mesh3d, MeshVertexBufferLayoutRef, Meshable};
 use bevy::pbr::{
-    ExtendedMaterial, MaterialExtension, MaterialPlugin,
-    MeshMaterial3d, StandardMaterial,
+    ExtendedMaterial, MaterialExtension, MaterialExtensionKey,
+    MaterialExtensionPipeline, MaterialPlugin, MeshMaterial3d,
+    StandardMaterial,
 };
 use bevy::picking::events::PointerDrag;
 use bevy::reflect::TypePath;
 use bevy::render::render_resource::{
-    AsBindGroup, TextureDimension, TextureFormat, TextureUsages,
+    AsBindGroup, RenderPipelineDescriptor,
+    SpecializedMeshPipelineError, TextureDimension, TextureFormat,
+    TextureUsages,
 };
 use bevy::shader::{Shader, ShaderRef};
 use bevy::shape::Sphere;
@@ -46,9 +49,10 @@ use hamlet_graph::Graph;
 use hamlet_realm::objects::{COLOURS, Paints};
 use hamlet_realm::palette::Palette as Colours;
 use hamlet_realm::sky::{self, CameraSettings, Hourly};
-use hamlet_shader::{Compiled, compile, surface_shader};
+use hamlet_shader::{Compiled, compile};
 use hamlet_ui::{AnyView, Cx};
 
+use super::stages;
 use super::swatch::Slots;
 
 /// The render layer only the material preview's camera, lights and
@@ -60,6 +64,11 @@ const LAYER: usize = 11;
 /// material's shader's code changes.
 const SHADER: Handle<Shader> =
     uuid_handle!("a4c1e7d2-0b9f-4e63-9a58-3f2d6c8e1b74");
+
+/// The vertex shader of the preview's prepass and shadows, written
+/// again with [`SHADER`].
+const PREPASS: Handle<Shader> =
+    uuid_handle!("a4c1e7d2-0b9f-4e63-9a58-3f2d6c8e1b75");
 
 /// How far the camera stands from the sphere.
 const DISTANCE: f32 = 2.6;
@@ -89,8 +98,25 @@ struct SampleExt {
 }
 
 impl MaterialExtension for SampleExt {
+    fn vertex_shader() -> ShaderRef {
+        ShaderRef::Handle(SHADER)
+    }
+
     fn fragment_shader() -> ShaderRef {
         ShaderRef::Handle(SHADER)
+    }
+
+    fn prepass_vertex_shader() -> ShaderRef {
+        ShaderRef::Handle(PREPASS)
+    }
+
+    fn specialize(
+        _pipeline: &MaterialExtensionPipeline,
+        descriptor: &mut RenderPipelineDescriptor,
+        layout: &MeshVertexBufferLayoutRef,
+        _key: MaterialExtensionKey<Self>,
+    ) -> Result<(), SpecializedMeshPipelineError> {
+        stages::prepass_normals(descriptor, layout)
     }
 }
 
@@ -288,12 +314,12 @@ fn shade(
             return;
         };
         if got.as_ref().map(|old| &old.code) != Some(&compiled.code) {
-            let _ = shaders.insert(
+            stages::insert(
+                &mut shaders,
                 SHADER.id(),
-                Shader::from_wesl(
-                    surface_shader(&compiled),
-                    "hamlet_shader/surface.wesl",
-                ),
+                PREPASS.id(),
+                &compiled,
+                "sample",
             );
         }
         *got = Some(compiled);

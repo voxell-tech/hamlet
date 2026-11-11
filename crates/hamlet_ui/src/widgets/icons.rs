@@ -162,6 +162,8 @@ pub enum Glyph {
     Dice,
     /// A disk: save.
     Save,
+    /// A disk with a plus: save as a new one.
+    SaveAs,
     /// A five-pointed star: something that could be a favourite.
     Star,
     /// The star filled: a favourite.
@@ -212,7 +214,7 @@ enum Shape {
 
 impl Glyph {
     /// Every icon.
-    pub const ALL: [Glyph; 71] = [
+    pub const ALL: [Glyph; 72] = [
         Glyph::Plus,
         Glyph::Cross,
         Glyph::Check,
@@ -273,6 +275,7 @@ impl Glyph {
         Glyph::Redo,
         Glyph::Dice,
         Glyph::Save,
+        Glyph::SaveAs,
         Glyph::Star,
         Glyph::Starred,
         Glyph::Send,
@@ -727,6 +730,24 @@ impl Glyph {
                     [10.5, 2.5],
                 ]),
                 Round(5.0, 9.0, 11.0, 13.5, 0.5),
+            ],
+            Glyph::SaveAs => &[
+                Loop(&[
+                    [1.5, 4.5],
+                    [8.5, 4.5],
+                    [10.5, 6.5],
+                    [10.5, 14.5],
+                    [1.5, 14.5],
+                ]),
+                Path(&[
+                    [3.5, 4.5],
+                    [3.5, 7.5],
+                    [8.0, 7.5],
+                    [8.0, 4.5],
+                ]),
+                Round(3.5, 10.5, 8.5, 14.5, 0.5),
+                Line(13.0, 1.0, 13.0, 6.0),
+                Line(10.5, 3.5, 15.5, 3.5),
             ],
             Glyph::Star => &[Loop(&STAR)],
             Glyph::Starred => &[Loop(&STAR), Fill(&STAR)],

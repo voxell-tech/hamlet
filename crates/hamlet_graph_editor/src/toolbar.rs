@@ -6,21 +6,24 @@
 
 use std::marker::PhantomData;
 
-use bevy::ui::{AlignItems, Display, Overflow, UiRect, percent, px};
+use bevy::ecs::component::Component;
+use bevy::ecs::query::With;
+use bevy::ecs::world::World;
+use bevy::ui::{AlignItems, Overflow, UiRect, percent, px};
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, MenuEntry, TooltipExt, button, frame,
-    menu_button, row, text_field,
+    BehaviorExt, FrameProps, TooltipExt, button, dropdown, frame,
+    label, menu_button, row, text_field,
 };
-use bevy_fynix::{ScopedExt, ViewExt, keyed, resource};
+use bevy_fynix::{Hovered, ScopedExt, ViewExt, keyed, resource};
 use hamlet_ui::styles::{
-    CONTROL, ICON, checked_when, cluster, description, note,
-    text_input, toggle_button, tool,
+    self, CONTROL, ICON, checked_when, cluster, description, note,
+    primary_button, text_input, toggle_button, tool,
 };
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
-use hamlet_ui::{AnyView, View, with_cx};
+use hamlet_ui::{AnyView, with_cx};
 
-use super::files::{self, Files, NamingField};
+use super::files::{self, Files, NamingField, Purpose};
 use super::library::{Item, Kind, Library};
 use super::setup::EditorKey;
 use super::split::{Layout, Pane};
@@ -46,41 +49,210 @@ pub fn bar(start: Vec<AnyView>, end: Vec<AnyView>) -> AnyView {
     .boxed()
 }
 
-/// The open asset and what to do with it as a file: its name, the
-/// menu that opens another, and the tools that make, save, import and
-/// export one; and the field Save as asks for a name in, while it
-/// asks.
+/// The open asset and what to do with it as a file: a menu of every
+/// asset of its kind that opens the one chosen, whether it has
+/// changes not saved or is built in, Save while it has changes, a
+/// button that makes a new one, and a menu of the rest. While a name
+/// is asked for, to save a copy under or rename the file to, the
+/// field it is asked in takes their place.
 pub fn asset<K: EditorKey>() -> AnyView {
+    keyed(
+        resource::<Files<K>, _>(|files| {
+            files.naming.as_ref().map(|_| files.purpose)
+        }),
+        |purpose: &Option<Purpose>| match *purpose {
+            Some(purpose) => naming::<K>(purpose),
+            None => chooser::<K>(),
+        },
+    )
+    .within(row(()).gap(0.0))
+    .boxed()
+}
+
+/// The bar's file controls while no name is asked for, built again as
+/// the assets of the editor's kind or the open one change.
+fn chooser<K: EditorKey>() -> AnyView {
     with_cx(|cx| {
         let kind = cx.world.resource::<Editor<K>>().setup.kind;
-        row((
-            open_asset::<K>(kind),
-            cluster((
-                opener::<K>(kind),
-                tool(Glyph::Plus, new_tip(kind), files::create::<K>),
-                tool(Glyph::Save, "Save (Cmd+S)", files::save::<K>),
-                tool(
-                    Glyph::Rename,
-                    "Save as (Shift+Cmd+S)",
-                    files::save_as::<K>,
-                ),
-                menu_button("", ["Import", "Export"], |world, at| {
-                    if at == 0 {
-                        files::import::<K>(world);
-                    } else {
-                        files::export::<K>(world);
-                    }
-                })
-                .icon(Glyph::More.image(ICON))
-                .padding(UiRect::axes(px(9.0), px(0.0)))
-                .min_height(px(CONTROL)),
-            )),
-            naming::<K>(),
-        ))
-        .gap(cx.theme().space.gap)
-        .align(AlignItems::Center)
+        keyed(
+            resource::<Library, _>(move |library| {
+                library
+                    .items
+                    .iter()
+                    .filter(|item| item.kind == kind)
+                    .cloned()
+                    .collect::<Vec<_>>()
+            }),
+            move |items: &Vec<Item>| {
+                let items = items.clone();
+                keyed(
+                    resource::<Editor<K>, _>(|editor| Opened {
+                        name: editor.name.clone(),
+                        own: editor.is_own(),
+                        dirty: editor.is_dirty(),
+                    }),
+                    move |opened: &Opened| {
+                        controls::<K>(kind, &items, opened)
+                    },
+                )
+                .within(row(()).gap(0.0))
+                .boxed()
+            },
+        )
+        .within(row(()).gap(0.0))
     })
     .boxed()
+}
+
+/// What the bar shows of the open asset.
+#[derive(Clone, PartialEq)]
+struct Opened {
+    name: String,
+    /// Whether it is a file of the library, not built in.
+    own: bool,
+    /// Whether it has changes not saved.
+    dirty: bool,
+}
+
+/// The mark of an asset with changes not saved: a small amber dot.
+pub fn unsaved() -> AnyView {
+    with_cx(|cx| {
+        let amber = cx.theme().palette.accent;
+        row((frame()
+            .width(px(8.0))
+            .height(px(8.0))
+            .radius(4.0)
+            .fill(amber),))
+        .padding(UiRect::all(px(4.0)))
+        .tooltip(|| note("Not saved"))
+    })
+    .boxed()
+}
+
+/// The file controls of the open asset, among `items`.
+fn controls<K: EditorKey>(
+    kind: Kind,
+    items: &[Item],
+    opened: &Opened,
+) -> AnyView {
+    let Opened { name, own, dirty } = opened.clone();
+    // The library's own first, then the built-in ones.
+    let (mine, built_in): (Vec<Item>, Vec<Item>) =
+        items.iter().cloned().partition(Item::is_own);
+    let order: Vec<Item> = mine.into_iter().chain(built_in).collect();
+    let words: Vec<String> = order
+        .iter()
+        .map(|item| {
+            let word = item.name.replace('_', " ");
+            if item.is_own() {
+                word
+            } else {
+                format!("{word} (built-in)")
+            }
+        })
+        .collect();
+    let at = order
+        .iter()
+        .position(|item| item.name == *name && item.is_own() == own)
+        .unwrap_or(0);
+    with_cx(move |cx| {
+        let gap = cx.theme().space.gap;
+        let order = order.clone();
+        let pick = dropdown(
+            words.clone(),
+            at,
+            Glyph::Chevron.image(ICON),
+            move |world, at| {
+                if let Some(item) = order.get(at) {
+                    // A refusal is written in the toolbar's note.
+                    let _ = files::open_item::<K>(world, item);
+                }
+            },
+        )
+        .width(px(200.0))
+        .tooltip(|| note("Open another"));
+        let mut parts =
+            vec![glyph(kind.glyph(), ICON).boxed(), pick.boxed()];
+        if dirty {
+            parts.push(unsaved());
+        }
+        let save: AnyView = if own {
+            tool(Glyph::Save, "Save (Cmd+S)", files::save::<K>)
+                .boxed()
+        } else {
+            tool(
+                Glyph::Save,
+                "Save as a new one of your own: a built-in one \
+                 cannot change (Cmd+S)",
+                files::save::<K>,
+            )
+            .boxed()
+        };
+        parts.push(
+            cluster((
+                save,
+                tool(Glyph::Plus, new_tip(kind), files::create::<K>),
+                more::<K>(own),
+            ))
+            .boxed(),
+        );
+        row(parts).gap(gap).align(AlignItems::Center)
+    })
+    .boxed()
+}
+
+/// The menu of what else can be done with the open asset as a file.
+fn more<K: EditorKey>(own: bool) -> AnyView {
+    let mut actions: Vec<(&'static str, fn(&mut World))> =
+        vec![("Save as new...", files::save_as::<K>)];
+    if own {
+        actions.push(("Rename...", files::start_rename::<K>));
+    }
+    actions.push(("Import...", files::import::<K>));
+    actions.push(("Export...", files::export::<K>));
+    let entries: Vec<&'static str> =
+        actions.iter().map(|(word, _)| *word).collect();
+    menu_button("", entries, move |world, at| {
+        if let Some((_, act)) = actions.get(at) {
+            act(world);
+        }
+    })
+    .icon(Glyph::More.image(ICON))
+    .padding(UiRect::axes(px(9.0), px(0.0)))
+    .min_height(px(CONTROL))
+    .tooltip(|| note("More"))
+    .boxed()
+}
+
+/// A lettered button, with `mark` before its word when it has one.
+fn action(
+    mark: Option<Glyph>,
+    word: &'static str,
+    tip: &'static str,
+    variant: Variant,
+    act: impl Fn(&mut World) + Send + Sync + 'static,
+) -> AnyView {
+    let mut face: Vec<AnyView> = Vec::new();
+    if let Some(mark) = mark {
+        face.push(glyph(mark, ICON).boxed());
+    }
+    face.push(label(word).wrap(false).boxed());
+    let button = button(row(face).gap(4.0).align(AlignItems::Center))
+        .padding(UiRect::axes(px(8.0), px(2.0)))
+        .min_height(px(CONTROL))
+        .tooltip(move || note(tip));
+    match variant {
+        Variant::Primary => button
+            .rules(primary_button)
+            .tagged(variant)
+            .on_activate(act)
+            .boxed(),
+        _ => button
+            .rules(styles::button)
+            .tagged(variant)
+            .on_activate(act)
+            .boxed(),
+    }
 }
 
 /// What was said of the last file done with.
@@ -140,115 +312,74 @@ fn new_tip(kind: Kind) -> &'static str {
     }
 }
 
-/// The icon of `kind` and the open asset's name, a field to rename it
-/// in while it is a file of the library, a star while it has changes
-/// not saved, and a note while it is built in.
-fn open_asset<K: EditorKey>(kind: Kind) -> impl View {
-    let shown = |own: bool| {
-        resource::<Editor<K>, _>(move |editor| {
-            if editor.is_own() == own {
-                Display::Flex
-            } else {
-                Display::None
-            }
-        })
-    };
-    row((
-        glyph(kind.glyph(), ICON),
-        text_field(
-            resource::<Editor<K>, _>(|editor| editor.name.clone()),
-            |world, name| files::rename::<K>(world, &name),
-        )
-        .width(px(170.0))
-        .display(shown(true))
-        .rules(text_input),
-        row((note(resource::<Editor<K>, _>(|editor| {
-            editor.name.replace('_', " ")
-        })),))
-        .display(shown(false)),
-        note(resource::<Editor<K>, _>(|editor| {
-            if editor.is_dirty() { "*" } else { "" }.to_owned()
-        })),
-        description(resource::<Editor<K>, _>(|editor| {
-            if editor.is_own() { "" } else { "(built-in)" }.to_owned()
-        })),
-    ))
-    .gap(4.0)
-    .align(AlignItems::Center)
-}
+/// Marks the button that stops asking for a name.
+#[derive(Component)]
+struct StopNaming<K: EditorKey>(PhantomData<K>);
 
-/// The menu of every asset of `kind`, the library's own and then the
-/// built-in ones under headings, which opens the one chosen. Built
-/// again as the library changes.
-fn opener<K: EditorKey>(kind: Kind) -> impl View {
-    keyed(
-        resource::<Library, _>(move |library| {
-            library
-                .items
-                .iter()
-                .filter(|item| item.kind == kind)
-                .cloned()
-                .collect::<Vec<_>>()
-        }),
-        |items: &Vec<Item>| {
-            let (own, built_in): (Vec<Item>, Vec<Item>) =
-                items.iter().cloned().partition(Item::is_own);
-            let mut entries = Vec::new();
-            for (heading, part) in
-                [("Added", &own), ("Built-in", &built_in)]
-            {
-                if part.is_empty() {
-                    continue;
-                }
-                entries.push(MenuEntry::section(heading));
-                entries.extend(part.iter().map(|item| {
-                    MenuEntry::from(item.name.replace('_', " "))
-                }));
-            }
-            // Headings take no place in the order chosen from.
-            let order =
-                own.into_iter().chain(built_in).collect::<Vec<_>>();
-            menu_button("", entries, move |world, at| {
-                if let Some(item) = order.get(at) {
-                    // A refusal is written in the toolbar's note.
-                    let _ = files::open_item::<K>(world, item);
-                }
-            })
-            .icon(Glyph::Folder.image(ICON))
-            .padding(UiRect::axes(px(9.0), px(0.0)))
-            .min_height(px(CONTROL))
-            .boxed()
-        },
-    )
-    .within(row(()).gap(0.0))
-}
-
-/// The field Save as asks for a name in, and the button that drops
-/// it, shown while it asks. Enter saves.
-fn naming<K: EditorKey>() -> impl View {
-    row((
-        text_field(
-            resource::<Files<K>, _>(|files| {
-                files.naming.clone().unwrap_or_default()
-            }),
-            |world, name| files::save_named::<K>(world, &name),
-        )
-        .width(px(170.0))
-        .tagged(NamingField::<K>(PhantomData))
-        .rules(text_input),
-        tool(Glyph::Cross, "Do not save as", |world| {
-            world.resource_mut::<Files<K>>().naming = None;
-        }),
-    ))
-    .gap(2.0)
-    .align(AlignItems::Center)
-    .display(resource::<Files<K>, _>(|files| {
-        if files.naming.is_some() {
-            Display::Flex
-        } else {
-            Display::None
+/// The field a name is asked in, to save a copy under or rename the
+/// file to, and the buttons that do it and that stop asking. Enter
+/// does it, and Escape puts the field back.
+fn naming<K: EditorKey>(purpose: Purpose) -> AnyView {
+    let (word, done, tip) = match purpose {
+        Purpose::SaveAs => (
+            "Save as",
+            "Save",
+            "Save a copy under this name, and go on editing it",
+        ),
+        Purpose::Rename => {
+            ("Rename to", "Rename", "Give it this name")
         }
-    }))
+    };
+    with_cx(move |cx| {
+        let gap = cx.theme().space.gap;
+        let kind = cx.world.resource::<Editor<K>>().setup.kind;
+        row((
+            glyph(kind.glyph(), ICON),
+            label(word).wrap(false),
+            text_field(
+                resource::<Files<K>, _>(|files| {
+                    files.naming.clone().unwrap_or_default()
+                }),
+                |world, name| {
+                    // Focus leaving after an edit commits the field,
+                    // and pressing Cancel takes it: then it stops.
+                    let stopping = world
+                        .query_filtered::<(), (
+                            With<StopNaming<K>>,
+                            With<Hovered>,
+                        )>()
+                        .iter(world)
+                        .next()
+                        .is_some();
+                    if stopping {
+                        files::stop_naming::<K>(world);
+                    } else {
+                        files::named::<K>(world, &name);
+                    }
+                },
+            )
+            .width(px(200.0))
+            .tagged(NamingField::<K>(PhantomData))
+            .rules(text_input),
+            action(None, done, tip, Variant::Primary, |world| {
+                let name =
+                    world.resource::<Files<K>>().naming.clone();
+                if let Some(name) = name {
+                    files::named::<K>(world, &name);
+                }
+            }),
+            button(label("Cancel").wrap(false))
+                .padding(UiRect::axes(px(8.0), px(2.0)))
+                .min_height(px(CONTROL))
+                .rules(styles::button)
+                .tagged(Variant::Default)
+                .tagged(StopNaming::<K>(PhantomData))
+                .on_activate(files::stop_naming::<K>),
+        ))
+        .gap(gap)
+        .align(AlignItems::Center)
+    })
+    .boxed()
 }
 
 /// A button that shows or hides the card `pane`, checked while it

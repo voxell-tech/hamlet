@@ -28,8 +28,9 @@ use bevy::shader::{Shader, ShaderRef};
 use hamlet_graph::Graph;
 use hamlet_graph::prefab::Finish;
 use hamlet_graph_editor::library::{Kind, Library, lone};
-use hamlet_shader::{Compiled, compile, surface_shader};
+use hamlet_shader::{Compiled, compile};
 
+use crate::graphs::shader::stages;
 use crate::graphs::shader::swatch::Slots;
 
 /// The shader the type names, in place of which each material's own
@@ -37,8 +38,17 @@ use crate::graphs::shader::swatch::Slots;
 const STAND_IN: Handle<Shader> =
     uuid_handle!("5c2e8b14-7a3d-4f69-b0e1-9d4c6a2f8e37");
 
+/// The prepass vertex shader the type names, in place of which each
+/// material's own is put.
+const PREPASS_STAND_IN: Handle<Shader> =
+    uuid_handle!("5c2e8b14-7a3d-4f69-b0e1-9d4c6a2f8e38");
+
 /// The first half of the id of each shader compiled for a part.
 const PREFIX: u64 = 0x5c2e_8b14_7a3d_4f6a;
+
+/// The first half of the id of each prepass vertex shader compiled
+/// for a part; the second is its main shader's.
+const PREPASS_PREFIX: u64 = 0x5c2e_8b14_7a3d_4f6b;
 
 pub(super) fn plugin(app: &mut App) {
     app.add_plugins(MaterialPlugin::<GraphMaterial>::default())
@@ -74,36 +84,58 @@ impl From<&GraphExt> for GraphKey {
 }
 
 impl MaterialExtension for GraphExt {
+    fn vertex_shader() -> ShaderRef {
+        ShaderRef::Handle(STAND_IN)
+    }
+
     fn fragment_shader() -> ShaderRef {
         ShaderRef::Handle(STAND_IN)
+    }
+
+    fn prepass_vertex_shader() -> ShaderRef {
+        ShaderRef::Handle(PREPASS_STAND_IN)
     }
 
     fn specialize(
         _pipeline: &MaterialExtensionPipeline,
         descriptor: &mut RenderPipelineDescriptor,
-        _layout: &MeshVertexBufferLayoutRef,
+        layout: &MeshVertexBufferLayoutRef,
         key: MaterialExtensionKey<Self>,
     ) -> Result<(), SpecializedMeshPipelineError> {
-        // The prepass and shadow passes run their own fragment
-        // shaders; only the main pass's is the stand-in.
+        let main = key.bind_group_data.shader;
+        let prepass = prepass_of(main);
+        if descriptor.vertex.shader == STAND_IN {
+            descriptor.vertex.shader =
+                Handle::Uuid(main, PhantomData);
+        } else if descriptor.vertex.shader == PREPASS_STAND_IN {
+            descriptor.vertex.shader =
+                Handle::Uuid(prepass, PhantomData);
+        }
+        // The prepass and shadow passes run the standard material's
+        // fragment shaders; only the main pass's is the stand-in.
         if let Some(fragment) = descriptor.fragment.as_mut()
             && fragment.shader == STAND_IN
         {
-            fragment.shader =
-                Handle::Uuid(key.bind_group_data.shader, PhantomData);
+            fragment.shader = Handle::Uuid(main, PhantomData);
         }
-        Ok(())
+        stages::prepass_normals(descriptor, layout)
     }
+}
+
+/// The id of the prepass vertex shader that goes with the shader
+/// `main`.
+fn prepass_of(main: Uuid) -> Uuid {
+    Uuid::from_u64_pair(PREPASS_PREFIX, main.as_u64_pair().1)
 }
 
 fn stand_in(mut shaders: ResMut<Assets<Shader>>) {
     if let Ok(compiled) = compile(&Graph::default()) {
-        let _ = shaders.insert(
+        stages::insert(
+            &mut shaders,
             STAND_IN.id(),
-            Shader::from_wesl(
-                surface_shader(&compiled),
-                "hamlet_shader/surface_stand_in.wesl",
-            ),
+            PREPASS_STAND_IN.id(),
+            &compiled,
+            "surface_stand_in",
         );
     }
 }
@@ -127,15 +159,14 @@ impl Shaders {
             let id = Uuid::from_u64_pair(PREFIX, made);
             let mut hasher = DefaultHasher::new();
             compiled.code.hash(&mut hasher);
-            let _ = shaders.insert(
+            stages::insert(
+                shaders,
                 AssetId::Uuid { uuid: id },
-                Shader::from_wesl(
-                    surface_shader(compiled),
-                    format!(
-                        "hamlet_shader/surface_{:016x}.wesl",
-                        hasher.finish()
-                    ),
-                ),
+                AssetId::Uuid {
+                    uuid: prepass_of(id),
+                },
+                compiled,
+                &format!("surface_{:016x}", hasher.finish()),
             );
             id
         })
@@ -151,15 +182,39 @@ pub(super) struct Shaded {
     pub graph: Graph,
 }
 
+/// The shader graph open in the shader editor as it is now, saved or
+/// not: what the parts that use it draw with, so its changes show on
+/// them as they are made.
+#[derive(Clone, Copy)]
+pub(super) struct Live<'a> {
+    /// Its name in the library.
+    pub name: &'a str,
+    pub graph: &'a Graph,
+}
+
 /// The graph `finish` draws with, compiled, or why it cannot be; none
 /// for the file's own material.
 pub(super) fn shaded(
     library: &Library,
     finish: &Finish,
+    live: Option<Live>,
 ) -> Option<anyhow::Result<Shaded>> {
-    let graph = match finish {
+    Some(graph_of(library, finish, live)?.and_then(|graph| {
+        let compiled = compile(&graph)?;
+        Ok(Shaded { compiled, graph })
+    }))
+}
+
+/// The graph `finish` draws with, a material's values set on its
+/// shader's, or why there is none; none for the file's own material.
+pub(super) fn graph_of(
+    library: &Library,
+    finish: &Finish,
+    live: Option<Live>,
+) -> Option<anyhow::Result<Graph>> {
+    Some(match finish {
         Finish::Own => return None,
-        Finish::Shader(name) => shader_graph(library, name),
+        Finish::Shader(name) => shader_graph(library, name, live),
         Finish::Material(name) => library
             .find(Kind::Material, name)
             .with_context(|| {
@@ -167,21 +222,42 @@ pub(super) fn shaded(
             })
             .and_then(|item| item.material())
             .and_then(|material| {
-                let graph = shader_graph(library, &material.shader)?;
+                let graph =
+                    shader_graph(library, &material.shader, live)?;
                 Ok(material.apply(&graph))
             }),
-    };
-    Some(graph.and_then(|graph| {
-        let compiled = compile(&graph)?;
-        Ok(Shaded { compiled, graph })
-    }))
+    })
 }
 
-/// The library's shader graph `name`.
+/// Whether `finish` draws with the shader graph `name`, itself or as
+/// a material's shader.
+pub(super) fn uses(
+    library: &Library,
+    finish: &Finish,
+    name: &str,
+) -> bool {
+    match finish {
+        Finish::Own => false,
+        Finish::Shader(shader) => shader == name,
+        Finish::Material(material) => library
+            .find(Kind::Material, material)
+            .and_then(|item| item.material().ok())
+            .is_some_and(|material| material.shader == name),
+    }
+}
+
+/// The shader graph `name`: `live`'s when it is that one, else the
+/// library's as saved.
 fn shader_graph(
     library: &Library,
     name: &str,
+    live: Option<Live>,
 ) -> anyhow::Result<Graph> {
+    if let Some(live) = live
+        && live.name == name
+    {
+        return Ok(live.graph.clone());
+    }
     let item =
         library.find(Kind::Shader, name).with_context(|| {
             format!("there is no shader named {name}")

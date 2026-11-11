@@ -1,0 +1,78 @@
+// Roof tiles, coloured one by one as the Tile Cover generator in
+// Blender colours them: each tile is the base colour, or the accent
+// colour by the accent chance, its shade varied by up to the shade
+// variation either way. The two random numbers of each tile come from
+// the mesh's second UV map, which `export_glb.py` writes, mixed with
+// the seed, so another seed picks other tiles; what has none there,
+// (-1, -1), as the timber, keeps the mesh's own colour.
+(
+    entry: "roof_tiles",
+    sheets: {
+        "roof_tiles": (
+            graph: (
+                inputs: [
+                    (name: "base colour", value_type: Color, default: Some(Color((0.188, 0.105, 0.138, 1.0)))),
+                    (name: "accent colour", value_type: Color, default: Some(Color((0.178, 0.25, 0.072, 1.0)))),
+                    (name: "accent chance", value_type: Number, default: Some(Number(0.156))),
+                    (name: "shade variation", value_type: Number, default: Some(Number(0.384))),
+                    (name: "seed", value_type: Integer, default: Some(Integer(0))),
+                ],
+                nodes: [
+                    (id: 1, does: Kind("uv"), settings: {"map": Fixed(Choice("second"))}),
+                    (id: 2, does: Kind("split")),
+                    (id: 3, does: Input("accent chance")),
+                    (id: 4, does: Kind("math"), settings: {"op": Fixed(Choice("less"))}),
+                    (id: 5, does: Input("base colour")),
+                    (id: 6, does: Input("accent colour")),
+                    (id: 7, does: Kind("mix")),
+                    (id: 8, does: Input("shade variation")),
+                    (id: 9, does: Kind("math"), settings: {"op": Fixed(Choice("one minus"))}),
+                    (id: 10, does: Kind("math"), settings: {"op": Fixed(Choice("add")), "b": Fixed(Number(1.0))}),
+                    (id: 11, does: Kind("remap")),
+                    (id: 12, does: Kind("hsv")),
+                    (id: 13, does: Kind("surface colour")),
+                    (id: 14, does: Kind("math"), settings: {"op": Fixed(Choice("greater")), "b": Fixed(Number(-0.5))}),
+                    (id: 15, does: Kind("mix")),
+                    (id: 16, does: Kind("mix"), settings: {"a": Fixed(Number(0.85)), "b": Fixed(Number(0.7))}),
+                    (id: 17, does: Kind("surface")),
+                    (id: 18, does: Input("seed")),
+                    (id: 19, does: Kind("combine")),
+                    (id: 20, does: Kind("white noise")),
+                    (id: 21, does: Kind("split")),
+                ],
+                wires: [
+                    (from: (node: 1, name: "uv"), to: (node: 2, name: "vector")),
+                    // The tile's numbers, mixed with the seed.
+                    (from: (node: 2, name: "x"), to: (node: 19, name: "x")),
+                    (from: (node: 2, name: "y"), to: (node: 19, name: "y")),
+                    (from: (node: 19, name: "vector"), to: (node: 20, name: "vector")),
+                    (from: (node: 18, name: "value"), to: (node: 20, name: "seed")),
+                    (from: (node: 20, name: "colour"), to: (node: 21, name: "vector")),
+                    // Base or accent: the first number under the chance.
+                    (from: (node: 21, name: "x"), to: (node: 4, name: "a")),
+                    (from: (node: 3, name: "value"), to: (node: 4, name: "b")),
+                    (from: (node: 5, name: "value"), to: (node: 7, name: "a")),
+                    (from: (node: 6, name: "value"), to: (node: 7, name: "b")),
+                    (from: (node: 4, name: "value"), to: (node: 7, name: "factor")),
+                    // The shade: the second number, from 1 - variation
+                    // to 1 + variation.
+                    (from: (node: 8, name: "value"), to: (node: 9, name: "a")),
+                    (from: (node: 8, name: "value"), to: (node: 10, name: "a")),
+                    (from: (node: 21, name: "y"), to: (node: 11, name: "value")),
+                    (from: (node: 9, name: "value"), to: (node: 11, name: "to low")),
+                    (from: (node: 10, name: "value"), to: (node: 11, name: "to high")),
+                    (from: (node: 7, name: "value"), to: (node: 12, name: "colour")),
+                    (from: (node: 11, name: "value"), to: (node: 12, name: "value")),
+                    // Only on the tiles: elsewhere the mesh's colour.
+                    (from: (node: 2, name: "x"), to: (node: 14, name: "a")),
+                    (from: (node: 13, name: "colour"), to: (node: 15, name: "a")),
+                    (from: (node: 12, name: "colour"), to: (node: 15, name: "b")),
+                    (from: (node: 14, name: "value"), to: (node: 15, name: "factor")),
+                    (from: (node: 14, name: "value"), to: (node: 16, name: "factor")),
+                    (from: (node: 15, name: "value"), to: (node: 17, name: "base colour")),
+                    (from: (node: 16, name: "value"), to: (node: 17, name: "roughness")),
+                ],
+            ),
+        ),
+    },
+)

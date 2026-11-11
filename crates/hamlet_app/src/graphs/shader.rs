@@ -7,6 +7,7 @@
 mod pictures;
 mod preview;
 pub(crate) mod sample;
+pub(crate) mod stages;
 pub(crate) mod swatch;
 
 use bevy::app::{App, Update};
@@ -15,8 +16,10 @@ use bevy::ecs::system::ResMut;
 use bevy::ecs::world::World;
 use bevy_fynix::dock::DockWindowKind;
 use bevy_fynix::{ViewExt, derived};
+use hamlet_graph::material::Material;
 use hamlet_graph::{Error, GraphError};
-use hamlet_graph_editor::library::Kind;
+use hamlet_graph_editor::files::{self, Files};
+use hamlet_graph_editor::library::{Kind, Library};
 use hamlet_graph_editor::{
     Editor, Nesting, Setup, editor, keep, parameters, preview_card,
     toolbar,
@@ -43,6 +46,7 @@ pub(crate) const SETUP: Setup = Setup {
     upgrade: keep,
     nesting: Nesting::Never,
     outputs: false,
+    varies: false,
     room: swatch::SIZE + 8.0,
     examples: || EXAMPLES,
 };
@@ -56,6 +60,7 @@ const EXAMPLES: &[(&str, &str)] = &[
         include_str!("shader/examples/emissive_runes.ron"),
     ),
     ("water", include_str!("shader/examples/water.ron")),
+    ("roof_tiles", include_str!("shader/examples/roof_tiles.ron")),
 ];
 
 /// Adds the shader editor in a panel of the dock, compiled again on
@@ -94,6 +99,12 @@ fn screen() -> AnyView {
         vec![
             toolbar::file_note::<ShaderGraph>(),
             status.boxed(),
+            styles::cluster((styles::tool(
+                Glyph::Drop,
+                "Make a material of this shader, to use on parts",
+                make_material,
+            ),))
+            .boxed(),
             toolbar::history::<ShaderGraph>(),
             toolbar::fit::<ShaderGraph>(),
             toolbar::cards::<ShaderGraph>(ICON),
@@ -108,6 +119,51 @@ fn screen() -> AnyView {
         None,
     )
     .boxed()
+}
+
+/// Makes a material of the open shader, for parts to use and set
+/// their own values on. A material uses its shader as saved, so the
+/// changes not yet saved are saved first, a built-in shader's as a
+/// copy of its own.
+fn make_material(world: &mut World) {
+    let (dirty, own, name) = {
+        let editor = world.resource::<Editor<ShaderGraph>>();
+        (editor.is_dirty(), editor.is_own(), editor.name.clone())
+    };
+    if dirty {
+        if own {
+            files::save::<ShaderGraph>(world);
+        } else {
+            files::save_named::<ShaderGraph>(world, &name);
+        }
+        // The save's note says why it was not.
+        if world.resource::<Editor<ShaderGraph>>().is_dirty() {
+            return;
+        }
+    }
+    let shader = world.resource::<Editor<ShaderGraph>>().name.clone();
+    let mut library = world.resource_mut::<Library>();
+    let made =
+        library.create(Kind::Material, &shader).and_then(|item| {
+            library
+                .save_material(&item.name, &Material::of(&shader))?;
+            Ok(item.name)
+        });
+    let note = match made {
+        Ok(material) => {
+            let saved = if dirty {
+                format!("Saved {shader}; made")
+            } else {
+                "Made".to_owned()
+            };
+            format!(
+                "{saved} the material {material}, to pick for a \
+                 part in the prefab's inspector"
+            )
+        }
+        Err(error) => format!("{error:#}"),
+    };
+    world.resource_mut::<Files<ShaderGraph>>().note = note;
 }
 
 /// The open graph as last compiled.
@@ -130,7 +186,7 @@ impl Got {
 }
 
 /// Compiles the open graph again when it changed.
-fn run(
+pub(super) fn run(
     mut editor: ResMut<Editor<ShaderGraph>>,
     mut got: ResMut<Got>,
 ) {
@@ -139,10 +195,10 @@ fn run(
     }
 }
 
-/// What the end of the toolbar says of the last compile.
+/// What the end of the toolbar says of the last compile: only what
+/// went wrong, nothing while it compiles.
 fn status(editor: &Editor<ShaderGraph>, got: &Got) -> String {
     match (&got.compiled, editor.errors.first()) {
-        (Some(Ok(_)), None) => "Compiled".to_owned(),
         (_, Some(error)) => {
             format!(
                 "{} did not compile: {error}",
@@ -150,7 +206,7 @@ fn status(editor: &Editor<ShaderGraph>, got: &Got) -> String {
             )
         }
         (Some(Err(error)), None) => error.to_string(),
-        (None, None) => String::new(),
+        _ => String::new(),
     }
 }
 

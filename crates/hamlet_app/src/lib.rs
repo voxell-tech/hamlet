@@ -30,8 +30,10 @@ mod saving;
 pub mod search;
 pub mod secret;
 
+mod focus;
 pub mod screens;
 pub mod select;
+mod sides;
 mod sounds;
 mod standing;
 mod status;
@@ -146,6 +148,7 @@ impl Plugin for UiPlugin {
                 graphs::faint,
                 assets_folder::plugin,
                 browser::plugin,
+                focus::plugin,
                 cursor::plugin,
                 sounds::plugin,
             ),
