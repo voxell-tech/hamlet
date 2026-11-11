@@ -154,6 +154,7 @@ impl Plugin for UiPlugin {
             PreUpdate,
             (
                 convo::reseat.run_if(convo::roster_moved),
+                hub::open_first,
                 hub::follow_selection
                     .run_if(resource_changed::<Selected>),
                 hub::tell_page,
