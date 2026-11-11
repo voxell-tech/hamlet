@@ -4,6 +4,7 @@
 use std::collections::{HashMap, HashSet};
 
 use bevy::app::{App, PreUpdate};
+use bevy::clipboard::Clipboard;
 use bevy::color::Color;
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
@@ -35,6 +36,7 @@ use hamlet_client::realm::{
     name_of,
 };
 use hamlet_client::waits::{RaisedBy, Waiting};
+use hamlet_desktop::open::Launch;
 use hamlet_protocol::client::{
     AgentKind, Arrival, ClientMessage, LeftHow, ReplyKind, ScholarId,
     ServerMessage, WaitDetail,
@@ -742,10 +744,13 @@ fn card(toast: &Toast) -> AnyView {
                             action(
                                 Glyph::Globe,
                                 "Download",
-                                move |_| {
-                                    hamlet_desktop::open::browse(
+                                move |world| {
+                                    if hamlet_desktop::open::browse(
                                         &page,
-                                    );
+                                    ) == Launch::Failed
+                                    {
+                                        unopened(world, &page);
+                                    }
                                 },
                             ),
                         )
@@ -901,6 +906,29 @@ fn dismiss_all(world: &mut World) {
     for what in &shown {
         dismiss(world, what);
     }
+}
+
+/// Says that the page at `address` did not open, with the address
+/// copied for the chief to paste into a browser, or written out when
+/// it could not be copied.
+fn unopened(world: &mut World, address: &str) {
+    let copied = world.get_resource_mut::<Clipboard>().is_some_and(
+        |mut clipboard| {
+            clipboard.set_text(address.to_owned()).is_ok()
+        },
+    );
+    let line = if copied {
+        format!("Its address is copied: {address}")
+    } else {
+        format!("Open {address} in a browser.")
+    };
+    let now = world.resource::<Time>().elapsed_secs();
+    world.resource_mut::<Toasts>().note(
+        StatusKind::Danger,
+        "The page did not open".into(),
+        line,
+        now,
+    );
 }
 
 /// Takes `what`'s toast away. A petition stays among the waits, and
@@ -1161,6 +1189,21 @@ mod tests {
         assert_eq!(app.world().resource::<Toasts>().shown.len(), 1);
         dismiss(app.world_mut(), &What::Update(offer));
         assert!(app.world().resource::<Toasts>().shown.is_empty());
+    }
+
+    #[test]
+    fn a_page_that_does_not_open_gives_its_address() {
+        let mut app = panel_app();
+        app.add_plugins(plugin);
+        app.world_mut().remove_resource::<Clipboard>();
+        unopened(app.world_mut(), "https://example.com/v0.2.0");
+        let toasts = app.world().resource::<Toasts>();
+        assert!(matches!(
+            &toasts.shown[..],
+            [Toast { what: What::Notice { head, line, .. }, .. }]
+                if head == "The page did not open"
+                    && line == "Open https://example.com/v0.2.0 in a browser."
+        ));
     }
 
     #[test]
