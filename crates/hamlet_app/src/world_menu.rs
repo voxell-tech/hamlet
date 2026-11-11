@@ -111,9 +111,6 @@ pub(crate) enum Open {
     #[default]
     Nothing,
     Menu(Thing, Vec2),
-    /// The menu of an agent opened from its chat, without what the
-    /// chat has controls of its own for.
-    More(Thing, Vec2),
     /// The question before a deed, against what it was asked from.
     Question(Deed, Rect),
     /// The menu of the bare ground.
@@ -338,20 +335,14 @@ fn pointer(world: &mut World) -> Vec2 {
 
 /// Opens the menu of `thing` at the pointer, as a right click on
 /// it does.
-pub(super) fn open_for(world: &mut World, thing: Thing) {
+pub(crate) fn open_for(world: &mut World, thing: Thing) {
     let at = pointer(world);
     *world.resource_mut::<Open>() = Open::Menu(thing, at);
 }
 
-/// Opens the menu of `thing` from its chat, at the pointer.
-pub(crate) fn open_more(world: &mut World, thing: Thing) {
-    let at = pointer(world);
-    *world.resource_mut::<Open>() = Open::More(thing, at);
-}
-
-/// Whether the menu a chat opens for `thing` holds anything now.
-pub(crate) fn has_more(world: &World, thing: Thing) -> bool {
-    items::has_more(world, thing)
+/// Whether the menu of `thing` holds anything now.
+pub(crate) fn has_items(world: &World, thing: Thing) -> bool {
+    items::has_items(world, thing)
 }
 
 /// Opens the menu of the skills `agent` could be given, at the
@@ -388,14 +379,6 @@ pub(crate) fn ask_hire(world: &mut World, lead: Entity) {
     }
     let at = pointer(world);
     *world.resource_mut::<Open>() = Open::Hire(lead, at);
-}
-
-/// Gives `named`, a hamlet, an agent or a scholar, a new name where
-/// its name is shown at the top of its page in the Hub.
-pub(crate) fn ask_rename(world: &mut World, named: Entity) {
-    if crate::naming::may_rename(world, named) {
-        crate::naming::start(world, named);
-    }
 }
 
 /// Opens the form a road from `agent` is built with, at the pointer.
@@ -471,15 +454,6 @@ fn menus() -> AnyView {
             Open::Menu(thing, at) => {
                 AnyView::new(move |cx: &mut Cx| {
                     let items = items::items(cx.world, thing, at);
-                    if items.is_empty() {
-                        return cx.build(frame());
-                    }
-                    cx.build(menu(at, items))
-                })
-            }
-            Open::More(thing, at) => {
-                AnyView::new(move |cx: &mut Cx| {
-                    let items = items::more(cx.world, thing, at);
                     if items.is_empty() {
                         return cx.build(frame());
                     }
@@ -635,18 +609,14 @@ mod tests {
             .single(world)
             .unwrap();
         open(&mut app, Open::Menu(Thing::Common(home), Vec2::ZERO));
-        for absent in ["Move home...", "Rename home..."] {
-            assert!(
-                !words(&mut app).iter().any(|text| text == absent),
-                "unsupported: {absent}"
-            );
-        }
+        assert!(
+            !words(&mut app)
+                .iter()
+                .any(|text| text == "Close Down home...")
+        );
 
-        state.deeds = realm::deeds(&[
-            "create-hamlet",
-            "move-hamlet",
-            "name-hamlet",
-        ]);
+        state.deeds =
+            realm::deeds(&["create-hamlet", "remove-hamlet"]);
         hamlet_client::receive(
             app.world_mut(),
             protocol::ServerMessage::State(state),
@@ -658,13 +628,13 @@ mod tests {
                 .any(|text| text == "Create a Hamlet...")
         );
         open(&mut app, Open::Menu(Thing::Common(home), Vec2::ZERO));
-        for offered in ["Move home...", "Rename home..."] {
-            assert!(
-                words(&mut app).iter().any(|text| text == offered),
-                "supported: {offered}"
-            );
-        }
+        assert!(
+            words(&mut app)
+                .iter()
+                .any(|text| text == "Close Down home...")
+        );
     }
+
     #[test]
     fn roads_are_offered_only_when_supported_and_sent_to_the_mayor() {
         let mut state = realm::state();
@@ -709,22 +679,9 @@ mod tests {
     }
 
     #[test]
-    fn the_first_mayors_menu_keeps_new_and_stop() {
+    fn the_first_mayors_menu_stops_it() {
         let mut app = app(realm::state());
 
-        open(&mut app, Open::Menu(Thing::Keeper, Vec2::ZERO));
-        // It asks first, as the Hub does.
-        press(&mut app, "New Session...");
-        app.update();
-        press(&mut app, "New session");
-        // Its chat is opened, then the new session asked for there.
-        let messages = sent(&mut app);
-        let Some(protocol::ClientMessage::Say(say)) = messages.last()
-        else {
-            panic!("a new session last: {messages:?}");
-        };
-        assert_eq!(say.to, protocol::AgentId(2));
-        assert_eq!(say.text, "/new");
         open(&mut app, Open::Menu(Thing::Keeper, Vec2::ZERO));
         press(&mut app, "Stop the Mayor");
         let messages = sent(&mut app);

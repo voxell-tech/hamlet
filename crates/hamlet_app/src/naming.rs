@@ -35,9 +35,7 @@ use hamlet_realm::orders::Decree;
 use hamlet_ui::styles::{bare, crumb_here, note, text_input};
 use hamlet_ui::{AnyView, built};
 
-use crate::dock::{HUB, show_tab};
-use crate::hub::{Showing, show};
-use crate::{chat, convo};
+use crate::chat;
 
 /// The narrowest the field a new name is typed in is.
 const FIELD: f32 = 160.0;
@@ -100,21 +98,6 @@ fn named(world: &World, named: Entity) -> Option<Named> {
 /// Whether the chief may give `named` a new name.
 pub(crate) fn may_rename(world: &World, named: Entity) -> bool {
     self::named(world, named).is_some()
-}
-
-/// Brings the Hub to the front at the page of `named`, with its name
-/// turned into the field its new one is typed in.
-pub(crate) fn start(world: &mut World, named: Entity) {
-    if world.get::<HamletId>(named).is_some() {
-        show(world, Showing::Hamlet(named));
-    } else if world.get::<Scholar>(named).is_some() {
-        show(world, Showing::Scholar(named));
-    } else {
-        convo::talk_to(world, named);
-        crate::hub::show_chat(world);
-    }
-    show_tab(world, HUB);
-    world.resource_mut::<Naming>().0 = Some(named);
 }
 
 /// Gives `named` the name `typed`. A hire or a worker left with no

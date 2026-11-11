@@ -474,7 +474,6 @@ pub fn hamlet(hamlet: Entity) -> impl View {
                 let has = |deed| Deeds::is_allowed(world, deed);
                 (
                     facts,
-                    has("name-hamlet"),
                     has("move-hamlet"),
                     has("remove-hamlet"),
                     (has("hire"), has("worker"), has("tier")),
@@ -483,13 +482,8 @@ pub fn hamlet(hamlet: Entity) -> impl View {
     })
     .when(either(stale(), moved::<Deeds>()));
     let head = keyed(facts, move |facts| {
-        let Some((
-            facts,
-            rename,
-            carry,
-            close,
-            (hires, workers, tier),
-        )) = facts
+        let Some((facts, carry, close, (hires, workers, tier))) =
+            facts
         else {
             return column(()).boxed();
         };
@@ -521,11 +515,20 @@ pub fn hamlet(hamlet: Entity) -> impl View {
                 },
             ));
         }
-        // Everything else done to it, as a right click on its common
-        // in the world offers: renaming, moving, closing it down.
-        if *rename || *carry || *close {
+        // Taken up here, it is set down in the world.
+        if *carry {
+            actions.push(action(
+                Glyph::Move,
+                "Move it",
+                move |world| {
+                    hamlet_realm::orders::carry(world, hamlet);
+                },
+            ));
+        }
+        // Its menu, as a right click on it opens.
+        if *hires || *close {
             actions.push(more_button(
-                "Rename, move or close it down",
+                "Hire or close it down",
                 move |world| {
                     world_menu::open_for(
                         world,

@@ -490,9 +490,8 @@ fn quick(world: &World, agent: Entity) -> Vec<AnyView> {
 
 fn header(agent: Entity) -> impl View {
     built(move |cx| {
-        // What can be done to it that the chat has no control of its
-        // own for: gifts, roads, stopping, merging, ending. Gone
-        // while there is none of it, as for the Hand at rest.
+        // Its menu, as a right click on it opens. Gone while empty,
+        // as for the Hand at rest.
         let thing = if cx.world.get::<Kind>(agent).map(|kind| kind.0)
             == Some(protocol::AgentKind::Hand)
         {
@@ -502,7 +501,7 @@ fn header(agent: Entity) -> impl View {
         };
         let more = keyed(
             derived(move |world: &World| {
-                world_menu::has_more(world, thing)
+                world_menu::has_items(world, thing)
             })
             .when(every_frame()),
             move |&any| {
@@ -510,9 +509,9 @@ fn header(agent: Entity) -> impl View {
                     return frame().boxed();
                 }
                 more_button(
-                    "Gifts, roads, merging and ending it",
+                    "Hiring, gifts, roads, merging and ending it",
                     move |world| {
-                        world_menu::open_more(world, thing);
+                        world_menu::open_for(world, thing);
                     },
                 )
                 .boxed()

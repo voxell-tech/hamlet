@@ -127,26 +127,6 @@ pub(crate) fn show(world: &mut World, showing: Showing) {
     }
 }
 
-/// Turns the thread to `sheet`: its chat, or its details.
-fn turn_sheet(world: &mut World, sheet: Sheet) {
-    if let Some(mut now) = world.get_resource_mut::<Sheet>()
-        && *now != sheet
-    {
-        *now = sheet;
-    }
-}
-
-/// Shows the details of the agent the Hub is seated at in its chat's
-/// place.
-pub(crate) fn show_details(world: &mut World) {
-    turn_sheet(world, Sheet::Details);
-}
-
-/// Shows the chat of the agent the Hub is seated at.
-pub(crate) fn show_chat(world: &mut World) {
-    turn_sheet(world, Sheet::Chat);
-}
-
 /// The Hub's page.
 fn page() -> impl View {
     keyed(resource::<Showing, _>(|showing| *showing), |showing| {

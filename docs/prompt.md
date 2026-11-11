@@ -68,6 +68,6 @@ to the scholar's `main` (see [`society.md`](society.md)).
 
 ## The whole prompt
 
-Prompt in an agent's right-click menu sends `read prompt`. The server uses the
+Prompt in an agent's details sends `read prompt`. The server uses the
 same prompt sections as a model request, and the Hub displays the returned
 text. The window reads no lodge or realm files to build it.
