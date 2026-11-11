@@ -65,6 +65,9 @@ async fn sessions_are_numbered_and_come_back() {
     s.chief.open(&now).await;
     s.chief.tell(hand, "a").await;
     s.chief.shows(&now, "One.").await;
+    // The turn is answered once it ends, which can come after its
+    // words show; only an answered turn is owed a reflection.
+    s.chief.idle("hand").await;
     assert_eq!(
         s.chief.command(hand, "/new").await,
         "Session 2 began."
