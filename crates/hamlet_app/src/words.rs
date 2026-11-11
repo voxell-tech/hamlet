@@ -40,9 +40,8 @@ pub(crate) const NEEDS: &str =
 pub(crate) const LEFT: &str =
     "Agents and scholars that left. They can be brought back.";
 
-pub(crate) const BYLAWS: &str = "The hamlet's limits: what it may \
-                                 spend, and what its leads must ask \
-                                 you first.";
+pub(crate) const LIMITS: &str = "What the hamlet may spend, and \
+                                 what its leads must ask you first.";
 
 pub(crate) const AGENTS: &str = "Everyone working in the hamlet.";
 
@@ -67,5 +66,5 @@ pub(crate) const APPROVALS: &str = "Whether this hamlet's agents \
                                     ask you before they edit its \
                                     folder or run a command.";
 
-pub(crate) const RECORD: &str =
+pub(crate) const HISTORY: &str =
     "What happened in the hamlet: who came and went, and why.";

@@ -431,7 +431,7 @@ fn budget(hamlet: Entity) -> impl View {
                     );
                 },
             ),
-            note("What was spent stays in the record."),
+            note("What was spent stays in the history."),
         ))
         .tagged(hamlet_ui::widgets::platform::Wraps)
         .boxed(),
@@ -656,7 +656,7 @@ pub fn panel(hamlet: Entity) -> AnyView {
             };
             parts((
                 breadcrumb(
-                    vec!["Bylaws".into()],
+                    vec!["Limits".into()],
                     part.title(),
                     |world, _| {
                         *world.resource_mut::<Part>() = Part::Front;
@@ -699,10 +699,10 @@ impl Part {
 
     fn title(self) -> &'static str {
         match self {
-            Part::Front => "Bylaws",
+            Part::Front => "Limits",
             Part::Budget => "Budget",
             Part::Models => "Models",
-            Part::Leads => "Leads and limits",
+            Part::Leads => "Leads and roads",
         }
     }
 

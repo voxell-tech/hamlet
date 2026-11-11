@@ -199,8 +199,8 @@ fn get_started() -> AnyView {
             start_card(
                 Glyph::Folder,
                 "Work on a folder",
-                "Found a hamlet: a team of agents that works on one \
-                 folder of yours.",
+                "Create a hamlet: a team of agents that works on \
+                 one folder of yours.",
                 world_menu::ask_found,
             ),
         ))

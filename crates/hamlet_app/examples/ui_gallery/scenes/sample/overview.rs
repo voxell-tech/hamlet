@@ -277,7 +277,7 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
         world.insert_resource(hamlet_app::hub::Showing::Gone(gone));
     }
     if scene == Scene::Bylaws {
-        world.insert_resource(hamlet_app::overview::Page::Bylaws);
+        world.insert_resource(hamlet_app::overview::Page::Limits);
     }
 }
 

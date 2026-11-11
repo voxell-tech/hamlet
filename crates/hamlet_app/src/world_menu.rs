@@ -471,13 +471,14 @@ fn menus() -> AnyView {
                 if !Deeds::is_allowed(cx.world, "found") {
                     return cx.build(frame());
                 }
-                let found =
-                    menu_item(label("Found a Hamlet...").wrap(false))
-                        .on_activate(move |world| {
-                            *world.resource_mut::<Open>() =
-                                Open::Founding(at);
-                        })
-                        .boxed();
+                let found = menu_item(
+                    label("Create a Hamlet...").wrap(false),
+                )
+                .on_activate(move |world| {
+                    *world.resource_mut::<Open>() =
+                        Open::Founding(at);
+                })
+                .boxed();
                 cx.build(menu(at, vec![found]))
             }),
             Open::Founding(at) => founding::founding(at).boxed(),
@@ -607,7 +608,7 @@ mod tests {
         assert!(
             !words(&mut app)
                 .iter()
-                .any(|text| text == "Found a Hamlet...")
+                .any(|text| text == "Create a Hamlet...")
         );
         let world = app.world_mut();
         let home = world
@@ -632,7 +633,7 @@ mod tests {
         assert!(
             words(&mut app)
                 .iter()
-                .any(|text| text == "Found a Hamlet...")
+                .any(|text| text == "Create a Hamlet...")
         );
         open(&mut app, Open::Menu(Thing::Common(home), Vec2::ZERO));
         for offered in ["Move home...", "Rename home..."] {

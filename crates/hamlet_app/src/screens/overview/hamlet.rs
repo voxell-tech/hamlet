@@ -297,14 +297,14 @@ fn worker_form(hamlet: Entity, id: String) -> AnyView {
 pub enum Page {
     #[default]
     Agents,
-    Bylaws,
-    Record,
+    Limits,
+    History,
 }
 
 const PAGES: [(Page, Glyph, &str); 3] = [
     (Page::Agents, Glyph::Robot, "Agents"),
-    (Page::Bylaws, Glyph::Book, "Bylaws"),
-    (Page::Record, Glyph::History, "Record"),
+    (Page::Limits, Glyph::Book, "Limits"),
+    (Page::History, Glyph::History, "History"),
 ];
 
 /// Everyone in `hamlet`, each pressed to talk to, its hires a step
@@ -740,7 +740,7 @@ pub fn hamlet(hamlet: Entity) -> impl View {
                 .rules(views::tint)
                 .tooltip(|| note("Change the budget"))
                 .on_activate(|world| {
-                    *world.resource_mut::<Page>() = Page::Bylaws;
+                    *world.resource_mut::<Page>() = Page::Limits;
                     *world.resource_mut::<crate::limits::Part>() =
                         crate::limits::Part::Budget;
                 });
@@ -764,7 +764,7 @@ pub fn hamlet(hamlet: Entity) -> impl View {
     .within(bare());
     let pages = tabs::tipped_strip(
         &PAGES,
-        &[words::AGENTS, words::BYLAWS, words::RECORD],
+        &[words::AGENTS, words::LIMITS, words::HISTORY],
         Spread::Shared,
         |world, page| {
             *world.resource_mut::<Page>() = page;
@@ -774,8 +774,8 @@ pub fn hamlet(hamlet: Entity) -> impl View {
         keyed(resource::<Page, _>(|page| *page), move |page| {
             match page {
                 Page::Agents => list_of(hamlet).boxed(),
-                Page::Bylaws => crate::limits::panel(hamlet),
-                Page::Record => record_of(hamlet).boxed(),
+                Page::Limits => crate::limits::panel(hamlet),
+                Page::History => record_of(hamlet).boxed(),
             }
         })
         .within(bare());

@@ -279,7 +279,7 @@ pub(super) fn founding(at: Vec2) -> impl View {
             )
         };
         let body = column((
-            label("Found a hamlet").size(heading).bold(true),
+            label("Create a hamlet").size(heading).bold(true),
             description(
                 "It is built on the next free ground and gets its \
                  own mayor.",
@@ -315,7 +315,7 @@ pub(super) fn founding(at: Vec2) -> impl View {
                 },
             ),
             row((
-                lettered("Found")
+                lettered("Create")
                     .variant(Variant::Primary)
                     .on_activate(submit),
                 lettered("Cancel").rules(button).on_activate(close),
@@ -374,7 +374,7 @@ mod tests {
             .resource_mut::<Outbox>()
             .drain()
             .for_each(drop);
-        press(&mut app, "Found");
+        press(&mut app, "Create");
         let sent = app
             .world_mut()
             .resource_mut::<Outbox>()

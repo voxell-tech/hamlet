@@ -250,7 +250,7 @@ mod tests {
             crate::overview::plugin,
             crate::limits::plugin,
         ));
-        app.insert_resource(crate::overview::Page::Bylaws);
+        app.insert_resource(crate::overview::Page::Limits);
         let mut state = hamlet_testing::realm::state();
         state.hamlets[0].folder =
             Some("/on-the-server/current".into());

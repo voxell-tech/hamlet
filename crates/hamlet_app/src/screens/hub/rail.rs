@@ -1373,7 +1373,7 @@ fn search_row() -> impl View {
         ),
         on(
             Tab::Hamlets,
-            tool(Glyph::Plus, "Found a hamlet", |w| {
+            tool(Glyph::Plus, "Create a hamlet", |w| {
                 crate::world_menu::ask_found(w);
             }),
         ),

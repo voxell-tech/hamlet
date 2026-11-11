@@ -300,7 +300,7 @@ fn items(menu: Menu, found: bool) -> Vec<AnyView> {
             if found {
                 items.push(item(
                     Glyph::Hamlet,
-                    "Found a Hamlet...",
+                    "Create a Hamlet...",
                     None,
                     crate::world_menu::ask_found,
                 ));
@@ -377,7 +377,7 @@ mod tests {
         assert!(shown.contains("Close window"), "{shown}");
         assert!(!shown.contains("Run in Background"));
         assert!(!shown.contains("Quit Hamlet"));
-        assert!(!shown.contains("Found a Hamlet..."));
+        assert!(!shown.contains("Create a Hamlet..."));
         app.insert_resource(hamlet_client::realm::Deeds(vec![
             "found".into(),
         ]));
@@ -385,7 +385,7 @@ mod tests {
         assert!(
             crate::testing::words(&mut app)
                 .iter()
-                .any(|text| text == "Found a Hamlet...")
+                .any(|text| text == "Create a Hamlet...")
         );
         crate::testing::press(&mut app, "Close window");
         assert!(app.world_mut().resource_mut::<bevy::ecs::message::Messages<bevy::app::AppExit>>().drain().any(|exit| exit == bevy::app::AppExit::Success));
