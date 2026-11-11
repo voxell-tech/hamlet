@@ -4,6 +4,7 @@ import { createProvider, type Provider } from "@earendil-works/pi-ai/models";
 import { builtinProviders } from "@earendil-works/pi-ai/providers/all";
 import { openaiProvider } from "@earendil-works/pi-ai/providers/openai";
 import { openaiCodexProvider } from "@earendil-works/pi-ai/providers/openai-codex";
+import { zaiProvider } from "@earendil-works/pi-ai/providers/zai";
 import { claudeProvider } from "./claude.ts";
 
 /** The providers a chief signs in to with a subscription (ADR 0006). */
@@ -69,7 +70,35 @@ export function providers(home?: string): Provider[] {
         );
     const claude = home === undefined ? undefined : claudeProvider(home);
     if (claude !== undefined) result.push(claude);
+    result.push(zai());
     return result;
+}
+
+/** Z.ai's address for use paid by the token. */
+const ZAI_PAID = "https://api.z.ai/api/paas/v4";
+
+/**
+ * Z.ai paid by the token. pi's own Z.ai calls its coding plan's
+ * address, which Z.ai keeps for the coding tools it names, so its
+ * models are called at the address for use paid by the token instead.
+ */
+function zai(): Provider {
+    const coding: Provider = zaiProvider();
+    return createProvider({
+        id: "zai",
+        name: "Z.ai",
+        auth:
+            coding.auth.apiKey === undefined
+                ? {}
+                : { apiKey: coding.auth.apiKey },
+        models: coding.getModels().map((m) => ({ ...m, baseUrl: ZAI_PAID })),
+        api: {
+            stream: (model, input, options) =>
+                coding.stream(model, input, options),
+            streamSimple: (model, input, options) =>
+                coding.streamSimple(model, input, options),
+        },
+    });
 }
 
 function alias(source: ReturnType<Provider["stream"]>) {
