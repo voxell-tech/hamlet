@@ -22,7 +22,7 @@ use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::{AnyView, View, with_cx};
 
-use super::Naming;
+use crate::naming::Naming;
 use crate::roll::Roll;
 use crate::standing::{Standing, need_you};
 use crate::world_menu;

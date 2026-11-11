@@ -44,8 +44,8 @@ use hamlet_ui::widgets::tabs;
 use hamlet_ui::{AnyView, Cx, View, kinds, rules, with_cx};
 
 use self::hamlet::budget;
-pub use self::hamlet::{Naming, Page, hamlet};
-pub(crate) use self::hamlet::{rename, typed};
+pub(crate) use self::hamlet::typed;
+pub use self::hamlet::{Page, hamlet};
 pub use self::record::Annals;
 pub(crate) use self::rows::standing;
 use self::rows::{agent_rows, hamlet_rows, pressable, stale};
@@ -54,7 +54,7 @@ use crate::standing::{Standing, need_you};
 use crate::{chat, words, world_menu};
 
 pub fn plugin(app: &mut App) {
-    app.add_plugins((record::plugin, hamlet::plugin))
+    app.add_plugins((record::plugin, crate::naming::plugin))
         .init_resource::<Erasing>()
         // The realm's page lists what waits.
         .init_resource::<Queue>()

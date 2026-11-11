@@ -359,7 +359,7 @@ fn path(agent: Entity, under: Vec<Under>) -> impl View {
         let mut parts = above(world, agent);
         let name = called(world, agent);
         parts.push(if under.is_empty() {
-            crumb_here(name).boxed()
+            crate::naming::name_crumb(agent, name)
         } else {
             crumb(name, |world| show(world, Showing::Thread)).boxed()
         });
@@ -485,40 +485,40 @@ fn quick(world: &World, agent: Entity) -> Vec<AnyView> {
             move |world| world_menu::ask_hire(world, agent),
         ));
     }
-    if living
-        && kind != Some(protocol::AgentKind::Hand)
-        && hamlet_client::realm::Deeds::is_allowed(world, "nickname")
-    {
-        buttons.push(icon_button(
-            Glyph::Rename,
-            "Rename it",
-            move |w| {
-                world_menu::ask_rename(w, agent);
-            },
-        ));
-    }
     buttons
 }
 
 fn header(agent: Entity) -> impl View {
     built(move |cx| {
-        // Everything else that can be done to it, as a right click on
-        // it in the world offers: gifts, its model, roads, stopping,
-        // merging, ending.
-        let more = more_button(
-            "Its model, gifts, roads, merging and ending it",
-            move |world| {
-                let hand =
-                    world.get::<Kind>(agent).map(|kind| kind.0)
-                        == Some(protocol::AgentKind::Hand);
-                let thing = if hand {
-                    Thing::Hand
-                } else {
-                    Thing::Agent(agent)
-                };
-                world_menu::open_for(world, thing);
+        // What can be done to it that the chat has no control of its
+        // own for: gifts, roads, stopping, merging, ending. Gone
+        // while there is none of it, as for the Hand at rest.
+        let thing = if cx.world.get::<Kind>(agent).map(|kind| kind.0)
+            == Some(protocol::AgentKind::Hand)
+        {
+            Thing::Hand
+        } else {
+            Thing::Agent(agent)
+        };
+        let more = keyed(
+            derived(move |world: &World| {
+                world_menu::has_more(world, thing)
+            })
+            .when(every_frame()),
+            move |&any| {
+                if !any {
+                    return frame().boxed();
+                }
+                more_button(
+                    "Gifts, roads, merging and ending it",
+                    move |world| {
+                        world_menu::open_more(world, thing);
+                    },
+                )
+                .boxed()
             },
-        );
+        )
+        .within(bare());
         let quick = quick(cx.world, agent);
         // Which of its chats the chat tab shows: this session, an
         // earlier one, its letters and questions, its workers. It is

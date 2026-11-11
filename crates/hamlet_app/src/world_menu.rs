@@ -8,7 +8,6 @@ mod hire;
 mod items;
 mod model;
 mod new_scholar;
-mod rename;
 mod road;
 
 use bevy::app::{App, Update};
@@ -77,7 +76,6 @@ pub fn plugin(app: &mut App) {
         .init_resource::<new_scholar::Making>()
         .init_resource::<hire::Hiring>()
         .init_resource::<road::Roading>()
-        .init_resource::<rename::Renaming>()
         .init_resource::<deed::Reason>()
         .add_command(submit, &SUBMIT_KEYS)
         .add_observer(ask_of_row)
@@ -113,6 +111,9 @@ pub(crate) enum Open {
     #[default]
     Nothing,
     Menu(Thing, Vec2),
+    /// The menu of an agent opened from its chat, without what the
+    /// chat has controls of its own for.
+    More(Thing, Vec2),
     /// The question before a deed, against what it was asked from.
     Question(Deed, Rect),
     /// The menu of the bare ground.
@@ -129,8 +130,6 @@ pub(crate) enum Open {
     Skills(Entity, Vec2),
     /// The model an agent runs, its effort and its tier.
     Model(Entity),
-    /// The form an agent or a scholar is given a new name with.
-    Rename(Entity, Vec2),
 }
 
 impl Open {
@@ -142,7 +141,6 @@ impl Open {
                 | Open::Founding(_)
                 | Open::NewScholar(_)
                 | Open::Hire(..)
-                | Open::Rename(..)
         )
     }
 }
@@ -155,7 +153,6 @@ fn submit(world: &mut World) {
         Open::Founding(_) => founding::submit(world),
         Open::NewScholar(_) => new_scholar::submit(world),
         Open::Hire(lead, _) => hire::submit(world, lead),
-        Open::Rename(named, _) => rename::submit(world, named),
         _ => {}
     }
 }
@@ -346,6 +343,17 @@ pub(super) fn open_for(world: &mut World, thing: Thing) {
     *world.resource_mut::<Open>() = Open::Menu(thing, at);
 }
 
+/// Opens the menu of `thing` from its chat, at the pointer.
+pub(crate) fn open_more(world: &mut World, thing: Thing) {
+    let at = pointer(world);
+    *world.resource_mut::<Open>() = Open::More(thing, at);
+}
+
+/// Whether the menu a chat opens for `thing` holds anything now.
+pub(crate) fn has_more(world: &World, thing: Thing) -> bool {
+    items::has_more(world, thing)
+}
+
 /// Opens the menu of the skills `agent` could be given, at the
 /// pointer.
 pub(super) fn open_skills(world: &mut World, agent: Entity) {
@@ -382,15 +390,12 @@ pub(crate) fn ask_hire(world: &mut World, lead: Entity) {
     *world.resource_mut::<Open>() = Open::Hire(lead, at);
 }
 
-/// Opens the form `named`, an agent or a scholar, is given a new
-/// name with, at the pointer.
+/// Gives `named`, a hamlet, an agent or a scholar, a new name where
+/// its name is shown at the top of its page in the Hub.
 pub(crate) fn ask_rename(world: &mut World, named: Entity) {
-    if !rename::may_rename(world, named) {
-        return;
+    if crate::naming::may_rename(world, named) {
+        crate::naming::start(world, named);
     }
-    let at = pointer(world);
-    rename::start(world, named);
-    *world.resource_mut::<Open>() = Open::Rename(named, at);
 }
 
 /// Opens the form a road from `agent` is built with, at the pointer.
@@ -472,6 +477,15 @@ fn menus() -> AnyView {
                     cx.build(menu(at, items))
                 })
             }
+            Open::More(thing, at) => {
+                AnyView::new(move |cx: &mut Cx| {
+                    let items = items::more(cx.world, thing, at);
+                    if items.is_empty() {
+                        return cx.build(frame());
+                    }
+                    cx.build(menu(at, items))
+                })
+            }
             Open::Question(deed, anchor) => {
                 question(deed, anchor).boxed()
             }
@@ -495,9 +509,6 @@ fn menus() -> AnyView {
             }
             Open::Hire(lead, at) => hire::hire(lead, at).boxed(),
             Open::Road(agent, at) => road::road(agent, at).boxed(),
-            Open::Rename(named, at) => {
-                rename::rename(named, at).boxed()
-            }
             Open::Model(agent) => model::picker(agent).boxed(),
             Open::Skills(agent, at) => {
                 AnyView::new(move |cx: &mut Cx| {

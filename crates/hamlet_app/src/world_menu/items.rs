@@ -88,10 +88,10 @@ fn details(agent: Entity) -> AnyView {
     })
 }
 
-/// Gives `named`, an agent or a scholar, a new name, while the chief
-/// may.
+/// Gives `named`, an agent or a scholar, a new name at the top of its
+/// page, while the chief may.
 fn rename(world: &World, named: Entity) -> Option<AnyView> {
-    super::rename::may_rename(world, named).then(|| {
+    crate::naming::may_rename(world, named).then(|| {
         item("Rename...".into(), move |world| {
             super::ask_rename(world, named);
         })
@@ -130,10 +130,14 @@ fn new_conversation(agent: Entity) -> AnyView {
     })
 }
 
+/// Whether `agent` can be given a skill now.
+fn can_give(world: &World, agent: Entity) -> bool {
+    Deeds::is_allowed(world, "give")
+        && !offers(world, agent).is_empty()
+}
+
 fn gifts(world: &World, agent: Entity, at: Vec2) -> Vec<AnyView> {
-    if !Deeds::is_allowed(world, "give")
-        || offers(world, agent).is_empty()
-    {
+    if !can_give(world, agent) {
         return Vec::new();
     }
     vec![
@@ -173,25 +177,34 @@ fn for_ruin(world: &World, agent: Entity) -> Vec<AnyView> {
     }
 }
 
+/// What can be done to `agent`; from its chat, without what the chat
+/// has controls of its own for: a new session, hiring under it, its
+/// details, its name, its model and finding it in the world.
 fn for_agent(
     world: &World,
     thing: Thing,
     agent: Entity,
     at: Vec2,
+    in_chat: bool,
 ) -> Vec<AnyView> {
     let name = |agent: Entity| agents::shown_of(world, agent);
+    let mut items = Vec::new();
     // Selecting it already talks to it, and its prompt is among its
     // details.
-    let mut items = vec![new_conversation(agent)];
-    items.extend(hire_under(world, agent));
-    items.push(details(agent));
-    items.extend(rename(world, agent));
-    if world.get::<Left>(agent).is_none() {
-        items.push(model(agent));
+    if !in_chat {
+        items.push(new_conversation(agent));
+        items.extend(hire_under(world, agent));
+        items.push(details(agent));
+        items.extend(rename(world, agent));
+        if world.get::<Left>(agent).is_none() {
+            items.push(model(agent));
+        }
     }
     items.extend(road(world, agent));
     items.extend(gifts(world, agent, at));
-    items.push(focus(thing));
+    if !in_chat {
+        items.push(focus(thing));
+    }
     if world.get::<Busy>(agent).is_some() {
         items.push(item(format!("Stop {}", name(agent)), move |w| {
             stop(w, agent);
@@ -274,7 +287,7 @@ fn for_common(
     items.push(focus(thing));
     if Deeds::is_allowed(world, "name-hamlet") {
         items.push(item(format!("Rename {name}..."), move |w| {
-            crate::overview::rename(w, hamlet);
+            crate::naming::start(w, hamlet);
         }));
     }
     if Deeds::is_allowed(world, "move-hamlet") {
@@ -328,6 +341,50 @@ pub(super) fn skills(world: &World, agent: Entity) -> Vec<AnyView> {
         .collect()
 }
 
+/// The menu of `thing` as its chat opens it: what the chat has no
+/// control of its own for.
+pub(super) fn more(
+    world: &World,
+    thing: Thing,
+    at: Vec2,
+) -> Vec<AnyView> {
+    match thing {
+        Thing::Agent(agent) => {
+            for_agent(world, thing, agent, at, true)
+        }
+        Thing::Hand => match agents::hand(world) {
+            Some(hand) => {
+                let mut items = gifts(world, hand, at);
+                items.extend(stop_hand(world, hand));
+                items
+            }
+            None => Vec::new(),
+        },
+        _ => items(world, thing, at),
+    }
+}
+
+/// Whether [`more`] holds anything for `thing`: for the Hand, only
+/// while it can be given a skill or stopped.
+pub(super) fn has_more(world: &World, thing: Thing) -> bool {
+    match (thing, agents::hand(world)) {
+        (Thing::Hand, Some(hand)) => {
+            can_give(world, hand) || world.get::<Busy>(hand).is_some()
+        }
+        (Thing::Hand, None) => false,
+        _ => true,
+    }
+}
+
+/// Stops the Hand, while it works.
+fn stop_hand(world: &World, hand: Entity) -> Option<AnyView> {
+    world.get::<Busy>(hand).is_some().then(|| {
+        item("Stop the Hand".into(), move |w| {
+            stop(w, hand);
+        })
+    })
+}
+
 /// The menu of `thing`.
 pub(super) fn items(
     world: &World,
@@ -338,7 +395,7 @@ pub(super) fn items(
         Thing::Keeper | Thing::Cottage => for_mayor(world, at),
         Thing::Ruin(agent) => for_ruin(world, agent),
         Thing::Agent(agent) | Thing::House(agent) => {
-            for_agent(world, thing, agent, at)
+            for_agent(world, thing, agent, at, false)
         }
         Thing::Common(hamlet) => for_common(world, thing, hamlet, at),
         Thing::Clockwork(hamlet) | Thing::Workbench(hamlet) => {
@@ -359,14 +416,7 @@ pub(super) fn items(
                 ];
                 items.extend(gifts(world, hand, at));
                 items.push(focus(thing));
-                if world.get::<Busy>(hand).is_some() {
-                    items.push(item(
-                        "Stop the Hand".into(),
-                        move |w| {
-                            stop(w, hand);
-                        },
-                    ));
-                }
+                items.extend(stop_hand(world, hand));
                 items
             }
             None => vec![focus(thing)],

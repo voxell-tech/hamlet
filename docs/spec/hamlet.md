@@ -387,7 +387,8 @@ a nickname of at most 24 letters, kept in the record. The world shows a hire
 by its nickname, else by its scholar's name; the window keeps its
 address. A chief can nickname a worker too, which is shown by its address
 without one. Everyone but the Hand can be renamed: a scholar with
-`/name-scholar`, a hamlet with `/name-hamlet`.
+`/name-scholar`, a hamlet with `/name-hamlet`. In the window, a double
+click on the name at the top of its page in the Hub renames it.
 
 **H16.** An agent that does nothing costs nothing.
 

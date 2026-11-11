@@ -20,6 +20,7 @@ pub mod lists;
 mod markdown;
 pub mod menu;
 pub mod models;
+mod naming;
 mod remember;
 mod roll;
 mod root;

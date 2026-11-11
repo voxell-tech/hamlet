@@ -19,8 +19,9 @@ use hamlet_client::realm::{
 };
 use hamlet_protocol::client as protocol;
 use hamlet_ui::styles::{
-    Fills, ICON, Looks, action, bad_action, bare, beside, breadcrumb,
-    buttons, filling, good_action, note, scroll_area, text_input,
+    Fills, ICON, Looks, action, bad_action, bare, beside, buttons,
+    crumb, crumb_slash, crumbs, filling, good_action, note,
+    scroll_area, text_input,
 };
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::icons::Glyph;
@@ -62,8 +63,6 @@ pub struct Form {
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 enum Act {
-    /// A new name, which its hires go by too.
-    Rename,
     Tag,
     /// A fork from a version, or from `main`.
     Fork(Option<String>),
@@ -189,7 +188,6 @@ fn command(
         return None;
     }
     Some(match act {
-        Act::Rename => format!("/name-scholar {address} {first}"),
         Act::Tag => format!("/tag {address} {first} {second}"),
         Act::Fork(Some(from)) => {
             format!("/fork {address}@{from} {first}")
@@ -228,12 +226,6 @@ fn field<M: Component>(marker: M) -> impl View {
 /// The fields and buttons of the deed being asked for.
 fn form(address: String, name: String, act: Act) -> AnyView {
     let (words, first, second) = match &act {
-        Act::Rename => (
-            "Give it a new name. Its hires keep working as it."
-                .to_string(),
-            Some("new name"),
-            None,
-        ),
         Act::Tag => (
             "Name this version of its main, with a note.".to_string(),
             Some("version"),
@@ -378,7 +370,7 @@ fn is_of_versions(act: &Act) -> bool {
 
 /// Whether `act` is done from the buttons under the scholar's name.
 fn is_of_header(act: &Act) -> bool {
-    matches!(act, Act::Rename | Act::Fork(None))
+    matches!(act, Act::Fork(None))
 }
 
 /// Where the scholar stands, said beside its name: in the city, at
@@ -401,17 +393,12 @@ fn standing(scholar: &protocol::Scholar) -> (&'static str, Tone) {
     }
 }
 
-/// The deeds under its name: a new name, and what changes where it
-/// stands short of sending it away.
+/// The deeds under its name: what changes where it stands short of
+/// sending it away. A double click on its name renames it.
 fn arrival(shown: &Shown) -> AnyView {
     let address = scholar_address(shown.scholar.id);
     let can = |deed| shown.allowed.contains(&deed);
     let mut buttons_row = Vec::new();
-    if shown.scholar.left.is_none() && can("name-scholar") {
-        buttons_row.push(action(Glyph::Rename, "Rename", |world| {
-            ask(world, Act::Rename);
-        }));
-    }
     if shown.scholar.left.is_none() && can("fork") {
         buttons_row.push(
             action(
@@ -805,6 +792,7 @@ fn careful(shown: &Shown) -> AnyView {
 /// section each for its hires, what it knows, its versions and what
 /// changes it for good.
 fn body(shown: &Shown) -> AnyView {
+    let scholar = shown.entity;
     let name = shown.scholar.name.clone();
     let address = scholar_address(shown.scholar.id);
     let (stands, tone) = standing(&shown.scholar);
@@ -829,20 +817,25 @@ fn body(shown: &Shown) -> AnyView {
         column((
             // The path names it; where it stands is beside the path.
             beside((
-                breadcrumb(
-                    vec!["Realm".into(), "City".into()],
-                    name.clone(),
-                    |world, at| {
+                crumbs(vec![
+                    crumb("Realm", |world| {
+                        show(world, Showing::Realm);
+                    })
+                    .boxed(),
+                    crumb_slash().boxed(),
+                    crumb("City", |world| {
                         show(world, Showing::Realm);
                         // The city is the rail's tab that lists it.
-                        if at == 1
-                            && let Some(mut tab) =
-                                world.get_resource_mut::<rail::Tab>()
+                        if let Some(mut tab) =
+                            world.get_resource_mut::<rail::Tab>()
                         {
                             *tab = rail::Tab::City;
                         }
-                    },
-                ),
+                    })
+                    .boxed(),
+                    crumb_slash().boxed(),
+                    crate::naming::name_crumb(scholar, name.clone()),
+                ]),
                 standing,
             )),
             scroll_area((column((
