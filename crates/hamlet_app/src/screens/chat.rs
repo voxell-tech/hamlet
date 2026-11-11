@@ -8,6 +8,7 @@
 
 pub(crate) mod bubble;
 mod change;
+mod commands;
 mod entry;
 mod field;
 mod lines;
@@ -605,11 +606,16 @@ fn message_bar_in(
     .grow(1.0)
     .min_width(px(FIELD_LEAST))
     .overflow(Overflow::clip());
-    let card = column((reply::preview(), row((field,)), tools))
-        .gap(gap / 2.0)
-        .padding(UiRect::all(px(inset)))
-        .rules(card_look)
-        .tagged(crate::world_menu::Hook::Composer);
+    let card = column((
+        commands::list(),
+        reply::preview(),
+        row((field,)),
+        tools,
+    ))
+    .gap(gap / 2.0)
+    .padding(UiRect::all(px(inset)))
+    .rules(card_look)
+    .tagged(crate::world_menu::Hook::Composer);
     column((
         crate::asking::in_chat(),
         card,

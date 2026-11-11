@@ -329,6 +329,11 @@ impl Deeds {
     }
 }
 
+/// The chief's deeds supported by the server, each with how its
+/// command is typed and what it does.
+#[derive(Resource, Clone, Debug, Default, PartialEq)]
+pub struct DeedUsage(pub Vec<protocol::Deed>);
+
 /// The last applied server epoch and revision.
 #[derive(Resource, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Seen {
@@ -589,9 +594,14 @@ pub(crate) fn state(world: &mut World, state: protocol::State) {
     replace(
         world,
         Deeds(
-            state.deeds.into_iter().map(|deed| deed.name).collect(),
+            state
+                .deeds
+                .iter()
+                .map(|deed| deed.name.clone())
+                .collect(),
         ),
     );
+    replace(world, DeedUsage(state.deeds));
     world.insert_resource(Seen {
         epoch: state.epoch,
         revision: state.revision,
