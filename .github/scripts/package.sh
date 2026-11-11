@@ -33,11 +33,17 @@ esac
 
 # The version packages compare: the tag's, or for a commit the
 # workspace's with the commit after it, which sorts before the tag's.
+# A pre-release's suffix follows a tilde, so that 0.1.0~dev.1 sorts
+# before 0.1.0 for apt and rpm.
 cargo_version=$(sed -n '/^version = "/{s/^version = "\([^"]*\)".*/\1/p;q;}' Cargo.toml)
 case $version in
   v*) package_version=${version#v} ;;
   *) package_version=$cargo_version~g$version ;;
 esac
+package_version=${package_version/-/\~}
+# The version in file names and where a tilde is not allowed: the
+# tag's as it is, which latest.json's addresses name.
+named_version=${package_version//\~/-}
 
 built=${CARGO_TARGET_DIR:-target}/$target/$profile
 name=hamlet-$version-$target
@@ -164,8 +170,8 @@ case $target in
   <key>CFBundleExecutable</key><string>hamlet_launch</string>
   <key>CFBundleIconFile</key><string>Hamlet</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>$package_version</string>
-  <key>CFBundleVersion</key><string>$package_version</string>
+  <key>CFBundleShortVersionString</key><string>$named_version</string>
+  <key>CFBundleVersion</key><string>$named_version</string>
   <key>LSMinimumSystemVersion</key><string>11.0</string>
   <key>NSHighResolutionCapable</key><true/>
 </dict>
@@ -238,7 +244,7 @@ ENTITLEMENTS
     # Git's bash would turn each /option into a path; ISCC then reads
     # it as a second script.
     MSYS2_ARG_CONV_EXCL='*' "$iscc" /Q \
-      "/DVersion=$package_version" \
+      "/DVersion=$named_version" \
       "/DStage=$(cygpath -w "$stage")" \
       "/DIcon=$(cygpath -w "$PWD/brand/hamlet-icon.ico")" \
       "/O$(cygpath -w "$PWD/dist")" \
@@ -293,11 +299,11 @@ Description: $summary
 $(sed 's/^/ /' <<< "$about")
 CONTROL
     dpkg-deb --root-owner-group -Zxz --build "$deb" \
-      "dist/hamlet_${package_version}_amd64.deb"
+      "dist/hamlet_${named_version}_amd64.deb"
 
     cat > "$scratch/hamlet.spec" <<SPEC
 Name: hamlet
-Version: ${package_version//-/_}
+Version: $package_version
 Release: 1
 Summary: $summary
 License: MIT OR Apache-2.0
@@ -327,7 +333,7 @@ SPEC
     rpmbuild -bb --quiet \
       --define "_topdir $scratch/rpm" \
       --define "_rpmdir $PWD/dist" \
-      --define "_build_name_fmt %%{NAME}-%%{VERSION}-%%{RELEASE}.%%{ARCH}.rpm" \
+      --define "_build_name_fmt hamlet-${named_version//-/_}-%%{RELEASE}.%%{ARCH}.rpm" \
       "$scratch/hamlet.spec"
     ;;
 esac
