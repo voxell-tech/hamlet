@@ -80,6 +80,9 @@ impl Budget {
     }
 }
 
+/// What a new hamlet, and the Hand, may spend in a period: $50.
+pub(crate) const DEFAULT_BUDGET: Micros = 50_000_000;
+
 /// A budget for a period, on cost and model time (H8).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
@@ -92,7 +95,7 @@ pub(crate) struct Budget {
 impl Default for Budget {
     fn default() -> Self {
         Self {
-            cost: Some(5_000_000),
+            cost: Some(DEFAULT_BUDGET),
             minutes: None,
             period: Period::Day,
         }

@@ -51,9 +51,17 @@ pub(super) struct HamletRow {
     pub id: String,
     pub title: String,
     pub account: String,
-    /// How much of its budget is spent, from 0 to 1, when it has
-    /// one.
-    pub spent: Option<f32>,
+    /// What its budget's meter shows, when it has a budget.
+    pub spent: Option<Meter>,
+}
+
+/// What a hamlet's budget meter shows.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub(crate) enum Meter {
+    /// How much of its cap is spent, from 0 to 1.
+    Share(f32),
+    /// It may spend without a limit.
+    Unlimited,
 }
 
 /// The state of a hamlet in a word: the agents `living` in it, and
@@ -264,11 +272,14 @@ pub(super) fn hamlet_rows(world: &World) -> Vec<HamletRow> {
             account: treasury
                 .map(|t| t.0.summary.clone())
                 .unwrap_or_default(),
-            spent: treasury.and_then(|t| {
-                t.0.caps.micros.filter(|cap| *cap > 0).map(|cap| {
-                    (t.0.spent.micros as f32 / cap as f32)
-                        .clamp(0.0, 1.0)
-                })
+            spent: treasury.map(|t| {
+                match t.0.caps.micros.filter(|cap| *cap > 0) {
+                    Some(cap) => Meter::Share(
+                        (t.0.spent.micros as f32 / cap as f32)
+                            .clamp(0.0, 1.0),
+                    ),
+                    None => Meter::Unlimited,
+                }
             }),
         })
         .collect::<Vec<_>>();

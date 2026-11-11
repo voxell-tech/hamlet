@@ -24,12 +24,12 @@ use bevy::picking::pointer::PointerButton;
 use bevy::text::EditableText;
 use bevy::ui::{
     AlignItems, AngularColorStop, BorderGradient, ConicGradient,
-    PositionType, UiPosition, UiRect, Val, px,
+    JustifyContent, PositionType, UiPosition, UiRect, Val, px,
 };
 use bevy_fynix::tokens::{Motion, SurfaceTokens, Tone};
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, TooltipExt, button, column, dropdown,
-    frame, label, row, text_field,
+    self, BehaviorExt, FrameProps, TooltipExt, button, column,
+    dropdown, frame, label, row, text_field,
 };
 use bevy_fynix::{
     ScopedExt, ViewExt, derived, every_frame, keyed, resource, style,
@@ -48,12 +48,13 @@ use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::ellipsis::one_line;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::widgets::platform::Wraps;
+use hamlet_ui::widgets::rainbow::rainbow_bar;
 use hamlet_ui::widgets::tabs::{self, Spread};
 use hamlet_ui::{AnyView, Cx, View, with_cx};
 
 use super::heading;
 use super::record::record_of;
-use super::rows::{AgentRow, agent_rows, hamlet_rows, stale};
+use super::rows::{AgentRow, Meter, agent_rows, hamlet_rows, stale};
 use crate::convo::talk_to;
 use crate::dock::{HUB, show_tab};
 use crate::forms::{self, Asking};
@@ -561,15 +562,22 @@ const NEAR_CAP: f32 = 0.8;
 /// The least of its circle that spending shows.
 const MIN_SHOWN: f32 = 0.06;
 
+/// The width of the bar of a budget with no limit.
+const UNLIMITED: f32 = 28.0;
+
 /// What the hamlet spent of its budget: when it has a cap, a ring
 /// with nothing inside, drawn clockwise from the top as far as
 /// `spent` says, in the accent while the budget is fine, yellow near
-/// the cap and red at it, then the words.
-pub(super) fn budget(words: String, spent: Option<f32>) -> AnyView {
+/// the cap and red at it; with no limit, a bar of running hues; then
+/// the words.
+pub(super) fn budget(words: String, spent: Option<Meter>) -> AnyView {
     with_cx(move |cx| {
         let palette = &cx.theme().palette;
         let mut parts = Vec::new();
-        if let Some(spent) = spent {
+        if spent == Some(Meter::Unlimited) {
+            parts.push(rainbow_bar(UNLIMITED, RING + 2.0).boxed());
+        }
+        if let Some(Meter::Share(spent)) = spent {
             let fill = if spent >= 1.0 {
                 palette.status.danger.solid
             } else if spent >= NEAR_CAP {
@@ -724,8 +732,19 @@ pub fn hamlet(hamlet: Entity) -> impl View {
             })
             .boxed()
         };
-        let mut top =
-            vec![path, budget(facts.account.clone(), facts.spent)];
+        // The meter is pressed to change the budget it shows.
+        let spending =
+            button(budget(facts.account.clone(), facts.spent))
+                .padding(UiRect::all(px(0.0)))
+                .justify(JustifyContent::FlexStart)
+                .rules(views::tint)
+                .tooltip(|| note("Change the budget"))
+                .on_activate(|world| {
+                    *world.resource_mut::<Page>() = Page::Bylaws;
+                    *world.resource_mut::<crate::limits::Part>() =
+                        crate::limits::Part::Budget;
+                });
+        let mut top = vec![path, spending.boxed()];
         // The forms open only from these buttons, so without them
         // nothing stands under the account.
         if !actions.is_empty() {

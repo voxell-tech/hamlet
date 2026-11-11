@@ -458,7 +458,7 @@ struct HamletCard {
     standing: (Glyph, String, StatusKind),
     mayor: Option<String>,
     account: String,
-    spent: Option<f32>,
+    spent: Option<rows::Meter>,
 }
 
 fn hamlet_cards(world: &World) -> Vec<HamletCard> {

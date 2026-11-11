@@ -356,7 +356,7 @@ end.
 ## Budgets
 
 **H8.** A hamlet has a budget for a period of a [day] or a month, on cost
-[$5] and on model time; tokens are counted but not capped. The realm has one
+[$50], or none, and on model time; tokens are counted but not capped. The realm has one
 for the Hand and for the workers started outside a hamlet. Every road and
 model call is charged, including reflections, summaries and recorded failed
 or aborted attempts. A response with no reported tokens is estimated unless
