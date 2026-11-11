@@ -282,7 +282,11 @@ pub fn search(world: &mut World, text: &str) {
     }
     welcome.seek = text.to_string();
     let found = tiles(world);
-    let picked = super::picked(world);
+    let picked = world
+        .resource::<Welcome>()
+        .picked
+        .clone()
+        .or_else(|| found.first().map(|tile| tile.pick.clone()));
     if !found
         .iter()
         .any(|shown| Some(&shown.pick) == picked.as_ref())

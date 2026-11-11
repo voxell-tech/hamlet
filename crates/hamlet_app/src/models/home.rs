@@ -72,14 +72,14 @@ fn endpoint(endpoint: &protocol::SettingsViewEndpoints) -> AnyView {
 }
 
 /// A provider the server holds a sign-in or a key for, by its mark
-/// and name, marked connected.
-fn connected(id: &str, name: &str) -> AnyView {
+/// and name, marked configured: held, not checked.
+fn configured(id: &str, name: &str) -> AnyView {
     beside((
         row((mark(id, ICON), label(name.to_string()).bold(true)))
             .gap(8.0)
             .align(AlignItems::Center)
             .fills_width(),
-        pill("Connected"),
+        pill("Configured"),
     ))
     .boxed()
 }
@@ -111,7 +111,7 @@ pub fn endpoints() -> impl View {
             list(
                 providers
                     .iter()
-                    .map(|(id, name)| connected(id, name))
+                    .map(|(id, name)| configured(id, name))
                     .collect::<Vec<_>>(),
             )
             .boxed()

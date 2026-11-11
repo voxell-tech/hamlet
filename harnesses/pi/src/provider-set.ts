@@ -91,7 +91,11 @@ function zai(): Provider {
             coding.auth.apiKey === undefined
                 ? {}
                 : { apiKey: coding.auth.apiKey },
-        models: coding.getModels().map((m) => ({ ...m, baseUrl: ZAI_PAID })),
+        // The highspeed models are served only on the coding plan.
+        models: coding
+            .getModels()
+            .filter((m) => !m.id.endsWith("-highspeed"))
+            .map((m) => ({ ...m, baseUrl: ZAI_PAID })),
         api: {
             stream: (model, input, options) =>
                 coding.stream(model, input, options),

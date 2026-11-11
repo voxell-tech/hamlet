@@ -191,6 +191,8 @@ fn add_endpoint(world: &mut World) {
     });
     let mut welcome = world.resource_mut::<Welcome>();
     welcome.requests.insert(id, Asked::Endpoint);
+    // Open until its models are listed, though the link is connected.
+    welcome.trying = true;
     welcome.asking = true;
     welcome.problem = None;
 }
@@ -295,11 +297,13 @@ fn check(world: &mut World, model: bool) {
 /// The tile picked on the provider step: the one chosen, else the
 /// first shown.
 pub(crate) fn picked(world: &World) -> Option<Pick> {
-    world.resource::<Welcome>().picked.clone().or_else(|| {
-        providers::tiles(world)
-            .first()
-            .map(|tile| tile.pick.clone())
-    })
+    let shown = providers::tiles(world);
+    world
+        .resource::<Welcome>()
+        .picked
+        .clone()
+        .filter(|pick| shown.iter().any(|tile| &tile.pick == pick))
+        .or_else(|| shown.first().map(|tile| tile.pick.clone()))
 }
 
 /// Goes on with the tile picked: signs in to it, asks for its key,
@@ -411,6 +415,7 @@ fn answered(response: On<Response>, mut commands: Commands) {
                     .collect::<Vec<_>>();
                 let mut welcome = world.resource_mut::<Welcome>();
                 welcome.asking = false;
+                welcome.trying = false;
                 welcome.models = names;
                 if welcome.models.is_empty() {
                     welcome.problem = Some(if local {
@@ -754,9 +759,12 @@ mod server_tests {
         );
         search(app.world_mut(), "nothing like it");
         app.update();
-        assert!(all_words(&mut app).contains("No providers found"));
+        let words = all_words(&mut app);
+        assert!(words.contains("No providers found"));
+        assert!(!words.contains("Continue with Amazon Bedrock"));
         // The key page has the focus in its field.
         search(app.world_mut(), "");
+        app.update();
         press_and_update(&mut app, "Continue with Amazon Bedrock");
         app.update();
         let field = key_field(&mut app);
