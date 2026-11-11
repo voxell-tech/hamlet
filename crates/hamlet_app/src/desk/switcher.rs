@@ -647,10 +647,9 @@ fn renaming_tab(at: usize, name: &str) -> impl View {
     })
 }
 
-/// Adds a desk and opens its name to be typed.
+/// Adds a desk under a name of its own, renamed later if wanted.
 pub(crate) fn new_desk(world: &mut World) {
-    let at = world.resource_mut::<Desks>().add();
-    start_rename(world, at);
+    world.resource_mut::<Desks>().add();
 }
 
 fn start_rename(world: &mut World, at: usize) {
