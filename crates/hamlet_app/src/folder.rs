@@ -28,6 +28,7 @@ use hamlet_ui::{AnyView, View, with_cx};
 
 use crate::overview::{heading_line, tell};
 use crate::roll::hamlets_moved;
+use crate::words;
 
 /// The most earlier folders offered again.
 const EARLIER: usize = 3;
@@ -155,7 +156,7 @@ fn approvals_of(hamlet: Entity, work: &Works) -> AnyView {
         Glyph::Shield,
         "Approvals",
         segmented_words(
-            ["Manual", "Auto"],
+            [words::ASK_FIRST, words::NO_ASKING],
             match mode {
                 Mode::Manual => 0,
                 Mode::Auto => 1,
@@ -280,7 +281,7 @@ mod tests {
             "/on-the-server/earlier-1",
             "/on-the-server/earlier-2",
             "/on-the-server/earlier-3",
-            "Manual",
+            words::ASK_FIRST,
             "The server holds each command for its chief.",
         ] {
             assert!(
@@ -289,7 +290,7 @@ mod tests {
             );
         }
         assert!(!shown.iter().any(|text| text.contains("earlier-4")));
-        press(&mut app, "Auto");
+        press(&mut app, words::NO_ASKING);
         press(&mut app, "/on-the-server/earlier-2");
         app.world_mut().trigger(FolderChosen {
             asker: hamlet,

@@ -50,7 +50,7 @@ use crate::overview::tell;
 use crate::roll::rolled;
 use crate::screens::petition::{self, Need};
 use crate::standing::Standing;
-use crate::{chat, world_menu};
+use crate::{chat, words, world_menu};
 
 /// What the thread's page shows: its chat, or its details in the
 /// chat's place.
@@ -661,8 +661,10 @@ fn mode_chip(agent: Entity) -> impl View {
             };
             let words = derived(move |world: &World| {
                 match mode_of(world, agent).map(|at| at.1) {
-                    Some(hamlet_client::realm::Mode::Auto) => "Auto",
-                    _ => "Manual",
+                    Some(hamlet_client::realm::Mode::Auto) => {
+                        words::NO_ASKING
+                    }
+                    _ => words::ASK_FIRST,
                 }
                 .to_string()
             })
@@ -679,10 +681,7 @@ fn mode_chip(agent: Entity) -> impl View {
             .rules(chip_look)
             .tagged(Variant::Text)
             .tooltip(|| {
-                note(
-                    "Approvals: how this hamlet's work is overseen. \
-                     Press to turn it over.",
-                )
+                note(format!("{} Press to switch.", words::APPROVALS))
             })
             .on_activate(move |world| {
                 let to = match mode_of(world, agent).map(|at| at.1) {

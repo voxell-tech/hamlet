@@ -46,5 +46,16 @@ pub(crate) const BYLAWS: &str = "The hamlet's limits: what it may \
 
 pub(crate) const AGENTS: &str = "Everyone working in the hamlet.";
 
+/// A hamlet whose agents ask before each edit and command, as its
+/// approvals say it.
+pub(crate) const ASK_FIRST: &str = "Ask first";
+
+/// A hamlet whose agents edit and run commands without asking.
+pub(crate) const NO_ASKING: &str = "Don't ask";
+
+pub(crate) const APPROVALS: &str = "Whether this hamlet's agents \
+                                    ask you before they edit its \
+                                    folder or run a command.";
+
 pub(crate) const RECORD: &str =
     "What happened in the hamlet: who came and went, and why.";

@@ -140,6 +140,8 @@ The agent's memory, skills and conversations stay in its lodge.
 - **Auto**: agents edit and run without asking, and the sandbox is the
   guard. In insecure mode nothing is.
 
+The window names them by what they do: **Ask first** and **Don't ask**.
+
 **C7.** A hamlet answers to its chiefs: the human who founded it, or, for a
 hamlet the Hand founds, the chief whose task the Hand was working on. The
 server's one chief is whoever runs the server, under the name the server
