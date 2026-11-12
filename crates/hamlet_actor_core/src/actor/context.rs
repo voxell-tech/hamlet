@@ -210,6 +210,8 @@ pub(crate) struct ActorContextInner {
     #[cfg(test)]
     pub(super) schedule_now_override: AtomicI64,
     #[cfg(test)]
+    pub(super) schedule_driver_alarm_cancel_count: AtomicUsize,
+    #[cfg(test)]
     pub(super) schedule_sync_alarm_failures: AtomicUsize,
     // Forced-sync: queue config is read from sync public methods
     // before blocking on async queue work.
@@ -619,6 +621,8 @@ impl ActorContext {
             max_schedules,
             #[cfg(test)]
             schedule_now_override: AtomicI64::new(i64::MIN),
+            #[cfg(test)]
+            schedule_driver_alarm_cancel_count: AtomicUsize::new(0),
             #[cfg(test)]
             schedule_sync_alarm_failures: AtomicUsize::new(0),
             queue_config: Mutex::new(config.clone()),
@@ -1750,6 +1754,17 @@ impl ActorContext {
         Ok(is_live)
     }
 
+    #[cfg(test)]
+    pub(crate) fn set_hibernated_connection_liveness_override<I>(
+        &self,
+        pairs: I,
+    ) where
+        I: IntoIterator<Item = (Vec<u8>, Vec<u8>)>,
+    {
+        *self.0.hibernated_connection_liveness_override.write() =
+            Some(pairs.into_iter().collect());
+    }
+
     pub(super) fn prepare_state_deltas(
         &self,
         deltas: Vec<StateDelta>,
@@ -1934,9 +1949,12 @@ impl ActorContext {
             .unwrap_or(0)
     }
 
-    #[expect(
-        dead_code,
-        reason = "ported; nothing in Hamlet calls it yet"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "ported; nothing in Hamlet calls it yet"
+        )
     )]
     pub(crate) fn subscribe_inspector(
         &self,
@@ -2092,9 +2110,12 @@ impl ActorContext {
         self.sleep_state_config()
     }
 
-    #[expect(
-        dead_code,
-        reason = "ported; nothing in Hamlet calls it yet"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "ported; nothing in Hamlet calls it yet"
+        )
     )]
     pub(crate) fn sleep_requested(&self) -> bool {
         self.0.sleep_requested.load(Ordering::SeqCst)

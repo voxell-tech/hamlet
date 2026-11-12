@@ -443,6 +443,40 @@ impl ActorContext {
         }
     }
 
+    #[cfg(test)]
+    pub(crate) async fn wait_for_shutdown_tasks(
+        &self,
+        deadline: Instant,
+    ) -> bool {
+        loop {
+            let activity = self.sleep_activity_notify();
+            let notified = activity.notified();
+            tokio::pin!(notified);
+            notified.as_mut().enable();
+
+            let shutdown_count = self.shutdown_task_count();
+            let websocket_count = self.websocket_callback_count();
+            if shutdown_count == 0 && websocket_count == 0 {
+                return true;
+            }
+
+            tokio::select! {
+                drained = self.0.sleep.work.shutdown_counter.wait_zero(deadline), if shutdown_count > 0 => {
+                    if !drained {
+                        return false;
+                    }
+                }
+                drained = self.0.sleep.work.websocket_callback.wait_zero(deadline), if websocket_count > 0 => {
+                    if !drained {
+                        return false;
+                    }
+                }
+                _ = &mut notified => {}
+                _ = sleep_until(deadline) => return false,
+            }
+        }
+    }
+
     pub async fn wait_for_tracked_shutdown_work(&self) -> bool {
         let shutdown_deadline = self.shutdown_deadline_token();
         tokio::select! {

@@ -712,6 +712,24 @@ impl SqliteDb {
         self.close().await
     }
 
+    #[cfg(test)]
+    pub(crate) fn fresh_remote_for_test(&self) -> Self {
+        Self::new_with_remote_sqlite(
+            self.handle.clone().expect(
+                "remote sqlite test database should have an envoy \
+                 handle",
+            ),
+            self.actor_id.clone().expect(
+                "remote sqlite test database should have an actor id",
+            ),
+            self.actor_key.clone(),
+            self.generation,
+            self.enabled,
+            true,
+        )
+        .expect("remote sqlite test database should be configured")
+    }
+
     pub fn take_last_kv_error(&self) -> Option<String> {
         if self.backend != SqliteBackend::LocalNative {
             return None;

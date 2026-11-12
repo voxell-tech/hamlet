@@ -35,11 +35,15 @@ use std::collections::VecDeque;
 use std::future;
 use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
+#[cfg(test)]
+use std::sync::OnceLock;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
 
 use anyhow::{Context, Result, anyhow};
 use futures::FutureExt;
+#[cfg(test)]
+use parking_lot::Mutex;
 use tokio::sync::{broadcast, mpsc, oneshot, watch};
 use tokio::task::{JoinError, JoinHandle};
 use tokio_util::sync::CancellationToken;
@@ -82,6 +86,9 @@ pub type HttpDispatchResult = Result<ActorHttpResponse>;
 
 const SERIALIZE_STATE_SHUTDOWN_SANITY_CAP: Duration =
     Duration::from_secs(15);
+#[cfg(test)]
+const LONG_SHUTDOWN_DRAIN_WARNING_THRESHOLD: Duration =
+    Duration::from_secs(1);
 
 /// The share of the shutdown serialize cap a failed start waits for
 /// the rollback of a state transaction its hooks left open, after
@@ -172,6 +179,103 @@ pub use crate::actor::task_types::LifecycleState;
 
 // Test shim keeps moved tests in crate-root tests/ with
 // private-module access.
+#[cfg(test)]
+#[path = "../../tests/task.rs"]
+mod tests;
+
+#[cfg(test)]
+#[path = "../../tests/modules/task_lifecycle.rs"]
+mod task_lifecycle_tests;
+
+#[cfg(test)]
+type ShutdownCleanupHook =
+    Arc<dyn Fn(&ActorContext, &'static str) + Send + Sync>;
+
+#[cfg(test)]
+// Forced-sync: test hooks are installed and cleared from synchronous
+// guard APIs.
+static SHUTDOWN_CLEANUP_HOOK: OnceLock<
+    Mutex<Option<ShutdownCleanupHook>>,
+> = OnceLock::new();
+
+#[cfg(test)]
+pub(crate) struct ShutdownCleanupHookGuard;
+
+#[cfg(test)]
+type ShutdownReplyHook =
+    Arc<dyn Fn(&ActorContext, ShutdownKind) + Send + Sync>;
+
+#[cfg(test)]
+// Forced-sync: test hooks are installed and cleared from synchronous
+// guard APIs.
+static SHUTDOWN_REPLY_HOOK: OnceLock<
+    Mutex<Option<ShutdownReplyHook>>,
+> = OnceLock::new();
+
+#[cfg(test)]
+pub(crate) struct ShutdownReplyHookGuard;
+
+#[cfg(test)]
+pub(crate) fn install_shutdown_cleanup_hook(
+    hook: ShutdownCleanupHook,
+) -> ShutdownCleanupHookGuard {
+    *SHUTDOWN_CLEANUP_HOOK
+        .get_or_init(|| Mutex::new(None))
+        .lock() = Some(hook);
+    ShutdownCleanupHookGuard
+}
+
+#[cfg(test)]
+impl Drop for ShutdownCleanupHookGuard {
+    fn drop(&mut self) {
+        if let Some(hooks) = SHUTDOWN_CLEANUP_HOOK.get() {
+            *hooks.lock() = None;
+        }
+    }
+}
+
+#[cfg(test)]
+fn run_shutdown_cleanup_hook(
+    ctx: &ActorContext,
+    reason: &'static str,
+) {
+    let hook = SHUTDOWN_CLEANUP_HOOK
+        .get_or_init(|| Mutex::new(None))
+        .lock()
+        .clone();
+    if let Some(hook) = hook {
+        hook(ctx, reason);
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn install_shutdown_reply_hook(
+    hook: ShutdownReplyHook,
+) -> ShutdownReplyHookGuard {
+    *SHUTDOWN_REPLY_HOOK.get_or_init(|| Mutex::new(None)).lock() =
+        Some(hook);
+    ShutdownReplyHookGuard
+}
+
+#[cfg(test)]
+impl Drop for ShutdownReplyHookGuard {
+    fn drop(&mut self) {
+        if let Some(hooks) = SHUTDOWN_REPLY_HOOK.get() {
+            *hooks.lock() = None;
+        }
+    }
+}
+
+#[cfg(test)]
+fn run_shutdown_reply_hook(ctx: &ActorContext, reason: ShutdownKind) {
+    let hook = SHUTDOWN_REPLY_HOOK
+        .get_or_init(|| Mutex::new(None))
+        .lock()
+        .clone();
+    if let Some(hook) = hook {
+        hook(ctx, reason);
+    }
+}
 
 pub enum LifecycleCommand {
     Start {
@@ -894,6 +998,82 @@ impl ActorTask {
                     Err(ActorLifecycleError::NotReady.build()),
                 );
                 None
+            }
+        }
+    }
+
+    #[cfg(test)]
+    async fn handle_stop(
+        &mut self,
+        reason: ShutdownKind,
+    ) -> Result<()> {
+        let (reply_tx, reply_rx) = oneshot::channel();
+        self.register_shutdown_reply(
+            "stop",
+            Some(shutdown_reason_label(reason)),
+            reply_tx,
+        );
+        self.begin_grace(reason).await;
+        loop {
+            if self.ctx.acknowledge_activity_dirty()
+                && let Some(exit) = self.on_activity_signal().await
+            {
+                let LiveExit::Shutdown { reason } = exit else {
+                    return Ok(());
+                };
+                let result =
+                    match AssertUnwindSafe(self.run_shutdown(reason))
+                        .catch_unwind()
+                        .await
+                    {
+                        Ok(result) => result,
+                        Err(_) => Err(anyhow!(
+                            "shutdown panicked during {reason:?}"
+                        )),
+                    };
+                self.deliver_shutdown_reply(reason, &result);
+                self.transition_to(LifecycleState::Terminated);
+                return match reply_rx.await {
+                    Ok(result) => result,
+                    Err(_) => {
+                        Err(ActorLifecycleError::DroppedReply.build())
+                    }
+                };
+            }
+
+            let Some(deadline) =
+                self.sleep_grace.as_ref().map(|grace| grace.deadline)
+            else {
+                return Err(anyhow!(
+                    "stop grace ended without shutdown exit"
+                ));
+            };
+            let activity_notify = self.ctx.sleep_activity_notify();
+            let activity = activity_notify.notified();
+            tokio::pin!(activity);
+
+            tokio::select! {
+                _ = &mut activity => {}
+                _ = Self::sleep_grace_tick(Some(deadline)) => {
+                    if let Some(exit) = self.on_sleep_grace_deadline().await {
+                        let LiveExit::Shutdown { reason } = exit else {
+                            return Ok(());
+                        };
+                        let result = match AssertUnwindSafe(self.run_shutdown(reason))
+                            .catch_unwind()
+                            .await
+                        {
+                            Ok(result) => result,
+                            Err(_) => Err(anyhow!("shutdown panicked during {reason:?}")),
+                        };
+                        self.deliver_shutdown_reply(reason, &result);
+                        self.transition_to(LifecycleState::Terminated);
+                        return match reply_rx.await {
+                            Ok(result) => result,
+                            Err(_) => Err(ActorLifecycleError::DroppedReply.build()),
+                        };
+                    }
+                }
             }
         }
     }
@@ -2631,6 +2811,49 @@ impl ActorTask {
         };
     }
 
+    #[cfg(test)]
+    async fn drain_tracked_work(
+        &mut self,
+        reason: ShutdownKind,
+        phase: &'static str,
+        deadline: Instant,
+    ) -> bool {
+        Self::drain_tracked_work_with_ctx(
+            self.ctx.clone(),
+            reason,
+            phase,
+            deadline,
+        )
+        .await
+    }
+
+    #[cfg(test)]
+    async fn drain_tracked_work_with_ctx(
+        ctx: ActorContext,
+        reason: ShutdownKind,
+        phase: &'static str,
+        deadline: Instant,
+    ) -> bool {
+        let started_at = Instant::now();
+        tokio::select! {
+            result = ctx.wait_for_shutdown_tasks(deadline) => result,
+            _ = sleep(LONG_SHUTDOWN_DRAIN_WARNING_THRESHOLD) => {
+                if ctx.wait_for_shutdown_tasks(Instant::now()).await {
+                    true
+                } else {
+                    tracing::warn!(
+                        actor_id = %ctx.actor_id(),
+                        reason = reason.as_metric_label(),
+                        phase,
+                        elapsed_ms = Instant::now().duration_since(started_at).as_millis() as u64,
+                        "actor shutdown drain is taking longer than expected"
+                    );
+                    ctx.wait_for_shutdown_tasks(deadline).await
+                }
+            }
+        }
+    }
+
     fn log_lifecycle_command_received(
         &self,
         command: &'static str,
@@ -2696,6 +2919,9 @@ impl ActorTask {
         reason: ShutdownKind,
         result: &Result<()>,
     ) {
+        #[cfg(test)]
+        run_shutdown_reply_hook(&self.ctx, reason);
+
         let Some(pending) = self.shutdown_reply.take() else {
             return;
         };
@@ -2959,6 +3185,8 @@ impl ActorTask {
             step = "teardown_sleep_state",
             "actor shutdown cleanup step completed"
         );
+        #[cfg(test)]
+        run_shutdown_cleanup_hook(&ctx, reason_label);
         ctx.wait_for_pending_state_writes().await;
         tracing::debug!(
             actor_id = %actor_id,

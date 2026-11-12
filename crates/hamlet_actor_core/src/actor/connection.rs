@@ -402,9 +402,12 @@ impl ConnHandle {
         *self.0.state_change_handler.write() = handler;
     }
 
-    #[expect(
-        dead_code,
-        reason = "ported; nothing in Hamlet calls it yet"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "ported; nothing in Hamlet calls it yet"
+        )
     )]
     pub(crate) fn set_server_message_index(
         &self,
@@ -504,9 +507,12 @@ impl ConnHandle {
         })
     }
 
-    #[expect(
-        dead_code,
-        reason = "ported; nothing in Hamlet calls it yet"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "ported; nothing in Hamlet calls it yet"
+        )
     )]
     pub(crate) fn managed_disconnect_handler(
         &self,

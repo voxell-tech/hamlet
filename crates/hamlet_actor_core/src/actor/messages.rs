@@ -543,6 +543,14 @@ pub enum ActorEvent {
         reason: Option<&'static str>,
         reply: Reply<()>,
     },
+    #[cfg(test)]
+    FinalizeSleep {
+        reply: Reply<()>,
+    },
+    #[cfg(test)]
+    Destroy {
+        reply: Reply<()>,
+    },
     WorkflowHistoryRequested {
         reply: Reply<Option<Vec<u8>>>,
     },
@@ -584,6 +592,10 @@ impl ActorEvent {
                 ShutdownKind::Destroy => "run_destroy_cleanup",
             },
             Self::DisconnectConn { .. } => "disconnect_conn",
+            #[cfg(test)]
+            Self::FinalizeSleep { .. } => "finalize_sleep",
+            #[cfg(test)]
+            Self::Destroy { .. } => "destroy",
             Self::WorkflowHistoryRequested { .. } => {
                 "workflow_history_requested"
             }

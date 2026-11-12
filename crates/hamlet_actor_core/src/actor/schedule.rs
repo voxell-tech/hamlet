@@ -1237,6 +1237,10 @@ impl ActorContext {
     /// actor, so a stale one cannot outlive the destroy.
     pub(crate) fn cancel_driver_alarm_logged(&self) {
         self.cancel_local_alarm_timeouts();
+        #[cfg(test)]
+        self.0
+            .schedule_driver_alarm_cancel_count
+            .fetch_add(1, Ordering::SeqCst);
         if self.last_pushed_alarm().is_none() {
             return;
         }
@@ -1247,6 +1251,13 @@ impl ActorContext {
         };
         let generation = *self.0.schedule_generation.lock();
         self.set_alarm_tracked(envoy_handle, None, generation);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_driver_alarm_cancel_count(&self) -> usize {
+        self.0
+            .schedule_driver_alarm_cancel_count
+            .load(Ordering::SeqCst)
     }
 
     #[cfg(test)]

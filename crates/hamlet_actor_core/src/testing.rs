@@ -237,6 +237,9 @@ pub struct TestHost {
     sql: std_mpsc::Sender<SqlCommand>,
     session: watch::Sender<u64>,
     calls: Mutex<Vec<HostCall>>,
+    /// Whether a request yields until its reply instead of parking.
+    /// See [`ActorContextHarness::busy_waiting`].
+    busy_wait: bool,
 }
 
 impl TestHost {
@@ -249,6 +252,7 @@ impl TestHost {
             sql: spawn_sqlite(gate),
             session: watch::channel(1).0,
             calls: Mutex::new(Vec::new()),
+            busy_wait: false,
         }
     }
 
@@ -258,8 +262,12 @@ impl TestHost {
     ) -> RuntimeBoxFuture<Result<T>> {
         let (reply, rx) = oneshot::channel();
         let sent = self.sql.send(command(reply));
+        let busy_wait = self.busy_wait;
         Box::pin(async move {
             sent.map_err(|_| anyhow!("test sqlite thread stopped"))?;
+            if busy_wait {
+                return busy_wait_reply(rx).await;
+            }
             rx.await
                 .map_err(|_| anyhow!("test sqlite thread stopped"))?
         })
@@ -625,4 +633,37 @@ pub(crate) async fn load_actor_snapshot(
     db: &SqliteDb,
 ) -> Result<Option<internal_storage::InternalActorSnapshot>> {
     Ok(internal_storage::load_actor_startup(db).await?.snapshot)
+}
+
+// --- task ---
+
+impl ActorContextHarness {
+    /// A harness whose SQL requests yield until the reply arrives
+    /// instead of parking the runtime, as the reference's task tests
+    /// served SQL from a runtime task: a paused clock cannot advance
+    /// to the next timer while a statement is pending.
+    pub(crate) fn busy_waiting() -> Self {
+        let mut host =
+            TestHost::new("http://127.0.0.1:1".to_owned(), None);
+        host.busy_wait = true;
+        Self {
+            host: Arc::new(host),
+        }
+    }
+}
+
+async fn busy_wait_reply<T>(
+    mut rx: oneshot::Receiver<Result<T>>,
+) -> Result<T> {
+    loop {
+        match rx.try_recv() {
+            Ok(result) => return result,
+            Err(oneshot::error::TryRecvError::Empty) => {
+                tokio::task::yield_now().await;
+            }
+            Err(oneshot::error::TryRecvError::Closed) => {
+                return Err(anyhow!("test sqlite thread stopped"));
+            }
+        }
+    }
 }
