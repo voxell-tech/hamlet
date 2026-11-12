@@ -82,7 +82,13 @@ pub(crate) trait PanelAppExt {
 
     /// Registers a panel that opens more than once: `id` now, and
     /// each other as it is opened or laid out.
-    #[expect(dead_code, reason = "no panel opens more than once yet")]
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "no panel opens more than once yet"
+        )
+    )]
     fn add_numbered_panel(
         &mut self,
         id: &str,
@@ -145,7 +151,10 @@ fn tabs_of(parts: &[Part]) -> impl Iterator<Item = &String> {
 }
 
 /// Whether a desk holds the panel `id`.
-#[expect(dead_code, reason = "no panel opens more than once yet")]
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "no panel opens more than once yet")
+)]
 pub(crate) fn on_a_desk(world: &World, id: &str) -> bool {
     world.get_resource::<Desks>().is_some_and(|desks| {
         desks
@@ -225,7 +234,10 @@ fn register(world: &mut World, id: &str) {
 
 /// Opens another of the numbered panel `first` where `target` says,
 /// and gives its id: one neither the dock nor a desk holds.
-#[expect(dead_code, reason = "no panel opens more than once yet")]
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "no panel opens more than once yet")
+)]
 pub(crate) fn open_numbered(
     world: &mut World,
     first: &str,
@@ -303,7 +315,10 @@ pub fn highlight_panel(
 
 /// A panel whose contents reach its edges, for a canvas or a picture
 /// that draws its own margins.
-#[expect(dead_code, reason = "no panel is flush yet")]
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "no panel is flush yet")
+)]
 pub fn flush_panel(view: impl View) -> AnyView {
     padded_panel(view, Highlight::default(), Some(0.0))
 }
@@ -460,7 +475,88 @@ pub(crate) fn show_tab(world: &mut World, id: &str) {
 
 #[cfg(test)]
 mod tests {
+    use bevy::app::App;
+    use bevy_fynix::dock::{DockAreaStyle, DockLeaf};
+    use bevy_fynix::views::frame;
+
     use super::*;
+
+    fn window(id: &str) -> DockWindowKind<HamletTheme> {
+        DockWindowKind::new(id.to_owned(), || flush_panel(frame()))
+    }
+
+    #[test]
+    fn a_numbered_panel_is_known_only_while_the_dock_or_the_shown_desk_holds_it()
+     {
+        let mut app = App::new();
+        app.init_resource::<DockTree>()
+            .add_numbered_panel("terminal", window);
+        let desk = |tabs: &[&str]| {
+            vec![Part::Tabs {
+                area: "low".into(),
+                tabs: tabs
+                    .iter()
+                    .map(|tab| (*tab).to_owned())
+                    .collect(),
+                front: 0,
+                headless: false,
+                kept: false,
+            }]
+        };
+        let mut desks = serde_json::to_value(Desks::first(desk(&[
+            "terminal",
+            "terminal-3",
+        ])))
+        .unwrap();
+        desks["list"].as_array_mut().unwrap().push(
+            serde_json::json!({
+                "name": "Other",
+                "dock": desk(&["terminal-5"]),
+            }),
+        );
+        app.insert_resource(
+            serde_json::from_value::<Desks>(desks).unwrap(),
+        );
+        register_numbered(app.world_mut());
+        let known = |app: &App, id: &str| {
+            app.world()
+                .resource::<DockRegistry<HamletTheme>>()
+                .get(id)
+                .is_some()
+        };
+        assert!(known(&app, "terminal-3"));
+        // Another desk's is registered once that desk is shown.
+        assert!(!known(&app, "terminal-5"));
+        app.world_mut().resource_mut::<DockTree>().set_root_leaf(
+            DockLeaf::new("low", DockAreaStyle::TabBar)
+                .with_windows(vec!["terminal".into()]),
+        );
+        let leaf = app.world().resource::<DockTree>().root.unwrap();
+        // The next number is one no desk holds.
+        let opened = open_numbered(
+            app.world_mut(),
+            "terminal",
+            DropTarget::Edge {
+                leaf,
+                edge: Edge::Right,
+            },
+        );
+        assert_eq!(opened.as_deref(), Some("terminal-2"));
+        let opened = open_numbered(
+            app.world_mut(),
+            "terminal",
+            DropTarget::Area(leaf),
+        );
+        assert_eq!(opened.as_deref(), Some("terminal-4"));
+        prune_numbered(app.world_mut());
+        assert!(
+            known(&app, "terminal-2") && known(&app, "terminal-4")
+        );
+        // Out of the dock, a panel leaves the add menu; the first
+        // stays.
+        assert!(!known(&app, "terminal-3"));
+        assert!(known(&app, "terminal"));
+    }
 
     #[test]
     fn a_desk_that_names_an_old_panel_starts_again() {
