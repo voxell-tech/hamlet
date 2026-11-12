@@ -105,21 +105,24 @@ mod moved_tests {
             }
         });
 
-        let (started, started_cv) = &*delete_started;
-        let started =
-            started.lock().expect("delete-started lock poisoned");
-        let (started, _) = started_cv
-            .wait_timeout_while(
-                started,
-                Duration::from_secs(2),
-                |started| !*started,
-            )
-            .expect("delete-started lock poisoned");
-        assert!(
-            *started,
-            "delete_range should reach the write-locked section"
-        );
-        drop(started);
+        // The guard is scoped, so clippy sees it end before any
+        // await.
+        {
+            let (started, started_cv) = &*delete_started;
+            let started =
+                started.lock().expect("delete-started lock poisoned");
+            let (started, _) = started_cv
+                .wait_timeout_while(
+                    started,
+                    Duration::from_secs(2),
+                    |started| !*started,
+                )
+                .expect("delete-started lock poisoned");
+            assert!(
+                *started,
+                "delete_range should reach the write-locked section"
+            );
+        }
 
         let (put_attempted_tx, put_attempted_rx) = mpsc::channel();
         let (put_done_tx, put_done_rx) = mpsc::channel();
