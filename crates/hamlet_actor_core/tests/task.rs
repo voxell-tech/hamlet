@@ -3236,16 +3236,9 @@ pub(crate) mod moved_tests {
             "local",
             new_in_memory(),
         );
-        let has_schema =
-            internal_storage::schema::has_internal_schema(ctx.sql())
-                .await
-                .expect("probe schema");
-        internal_storage::schema::ensure_probed_internal_schema(
-            ctx.sql(),
-            has_schema,
-        )
-        .await
-        .expect("initialize schema");
+        crate::testing::ensure_internal_schema(ctx.sql())
+            .await
+            .expect("initialize schema");
         internal_storage::persist_actor_core_and_connections_with(
             ctx.sql(),
             Some(&PersistedActor {
@@ -3297,16 +3290,9 @@ pub(crate) mod moved_tests {
             "local",
             new_in_memory(),
         );
-        let has_schema =
-            internal_storage::schema::has_internal_schema(ctx.sql())
-                .await
-                .expect("probe schema");
-        internal_storage::schema::ensure_probed_internal_schema(
-            ctx.sql(),
-            has_schema,
-        )
-        .await
-        .expect("initialize schema");
+        crate::testing::ensure_internal_schema(ctx.sql())
+            .await
+            .expect("initialize schema");
         internal_storage::persist_actor_core_and_connections_with(
             ctx.sql(),
             Some(&PersistedActor {

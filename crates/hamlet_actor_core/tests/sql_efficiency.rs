@@ -870,16 +870,9 @@ async fn sql_efficiency_unlimited_kv_listing_uses_one_ordered_query()
         Vec::new(),
         "local",
     );
-    let has_schema =
-        internal_storage::schema::has_internal_schema(ctx.sql())
-            .await
-            .expect("probe KV listing fixture schema");
-    internal_storage::schema::ensure_probed_internal_schema(
-        ctx.sql(),
-        has_schema,
-    )
-    .await
-    .expect("initialize KV listing fixture");
+    crate::testing::ensure_internal_schema(ctx.sql())
+        .await
+        .expect("initialize KV listing fixture");
     let entries = (0..300)
         .map(|index| {
             (

@@ -584,8 +584,6 @@ pub(crate) async fn persist_actor_snapshot(
     .await
 }
 
-// --- sleep ---
-
 impl TestHost {
     /// A host of its own, for a test that hands it to a context.
     pub(crate) fn new_for_tests() -> Arc<Self> {
@@ -609,8 +607,6 @@ impl TestHost {
     }
 }
 
-// --- migq ---
-
 /// Creates or migrates the internal schema, as the reference's
 /// `ensure_internal_schema` did before upstream split it into a probe
 /// and an ensure.
@@ -625,8 +621,6 @@ pub(crate) async fn ensure_internal_schema(
     .await
 }
 
-// --- ctxstate ---
-
 /// The actor's saved row, alarm and run wake deadline, as the
 /// internal storage loaded them when the tests were written.
 pub(crate) async fn load_actor_snapshot(
@@ -634,8 +628,6 @@ pub(crate) async fn load_actor_snapshot(
 ) -> Result<Option<internal_storage::InternalActorSnapshot>> {
     Ok(internal_storage::load_actor_startup(db).await?.snapshot)
 }
-
-// --- task ---
 
 impl ActorContextHarness {
     /// A harness whose SQL requests yield until the reply arrives

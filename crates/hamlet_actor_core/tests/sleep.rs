@@ -582,8 +582,8 @@ mod moved_tests {
 
     // Duplicate `ctx.sleep()` calls are deliberately idempotent:
     // `sleep()` returns `Ok(())` when `sleep_requested` was already
-    // set for this generation (upstream commit ae09be095abf made
-    // duplicate sleep requests idempotent). Only `destroy()`
+    // set for this generation (duplicate sleep requests were made
+    // idempotent on purpose). Only `destroy()`
     // still errors with `actor.stopping` on a duplicate request; that
     // path is covered by `double_destroy_errors_with_actor_stopping`
     // below.

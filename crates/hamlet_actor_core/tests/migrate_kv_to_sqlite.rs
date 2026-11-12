@@ -519,13 +519,7 @@ fn sqlite_column_value_from_ref(value: ValueRef<'_>) -> ColumnValue {
     }
 }
 
-/// The actor's row, state and alarms, which the reference loaded on
-/// their own and upstream reads with the rest of the startup data.
-async fn load_actor_snapshot(
-    db: &SqliteDb,
-) -> Result<Option<InternalActorSnapshot>> {
-    Ok(internal_storage::load_actor_startup(db).await?.snapshot)
-}
+use crate::testing::load_actor_snapshot;
 
 #[tokio::test]
 async fn marks_empty_legacy_import_done_without_runtime_rows()
