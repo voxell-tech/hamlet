@@ -1,20 +1,29 @@
-//! Conversations of other programs found on this machine, and each
-//! read as an [`Imported`] for the server to bring in (C35).
+//! Conversations of other programs, found on this machine or in a
+//! file they exported, each read as an [`Imported`] for the server to
+//! bring in (C35).
 
-use std::path::PathBuf;
+use std::fs::File;
+use std::io::{BufRead, BufReader, Read as _};
+use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use hamlet_protocol::client::{
     ImportSource, Imported, ImportedEntry,
 };
+use serde_json::Value;
 
 mod claude_code;
+mod codex;
+mod exports;
+mod pi;
 
 /// The characters of a tool call's summary and of a title.
 const SUMMARY: usize = 200;
+/// The bytes read from the start of a session file to list it.
+const HEAD: u64 = 256 << 10;
 
-/// A conversation found on this machine.
+/// A conversation found on this machine or in an exported file.
 #[derive(Clone, Debug)]
 pub struct Found {
     pub source: ImportSource,
@@ -24,24 +33,135 @@ pub struct Found {
     /// The folder it worked in.
     pub folder: Option<String>,
     pub modified: SystemTime,
+    /// Its session file, or the exported file that holds it.
     pub path: PathBuf,
 }
 
-/// Every conversation found on this machine, newest first.
+/// Every conversation of Claude Code, Codex and pi found on this
+/// machine, newest first.
 pub fn find() -> Vec<Found> {
     let mut found = claude_code::find();
+    found.extend(codex::find());
+    found.extend(pi::find());
     found.sort_by_key(|found| std::cmp::Reverse(found.modified));
     found
 }
 
+/// Every conversation in a file ChatGPT or Claude exported, as its
+/// zip or its `conversations.json`, newest first.
+pub fn find_in(path: &Path) -> Result<Vec<Found>> {
+    let mut found = exports::find(path)?;
+    found.sort_by_key(|found| std::cmp::Reverse(found.modified));
+    Ok(found)
+}
+
 /// The conversation `found`, as the server brings it in.
 pub fn read(found: &Found) -> Result<Imported> {
-    match found.source {
-        ImportSource::ClaudeCode => claude_code::read(&found.path),
-        source => anyhow::bail!(
-            "reading {} conversations is not supported yet",
-            source.name()
-        ),
+    let read = match found.source {
+        ImportSource::ClaudeCode => claude_code::read(&found.path)?,
+        ImportSource::Codex => codex::read(&found.path)?,
+        ImportSource::Pi => pi::read(&found.path)?,
+        ImportSource::Chatgpt | ImportSource::Claude => {
+            exports::read(&found.path, &found.session)?
+        }
+    };
+    Ok(read.finish())
+}
+
+/// A conversation as a source reads it, before it is cut.
+struct Draft {
+    source: ImportSource,
+    session: String,
+    title: Option<String>,
+    model: Option<String>,
+    entries: Vec<ImportedEntry>,
+}
+
+impl Draft {
+    fn new(source: ImportSource, session: String) -> Self {
+        Self {
+            source,
+            session,
+            title: None,
+            model: None,
+            entries: Vec::new(),
+        }
+    }
+
+    fn user(&mut self, at: u64, text: &str) {
+        let text = text.trim();
+        if !text.is_empty() {
+            self.entries.push(ImportedEntry::User {
+                at,
+                text: text.to_owned(),
+            });
+        }
+    }
+
+    /// Adds an answer's words, to the answer before them when nothing
+    /// came between.
+    fn assistant(&mut self, at: u64, text: &str) {
+        let text = text.trim();
+        if text.is_empty() {
+            return;
+        }
+        if let Some(ImportedEntry::Assistant {
+            text: so_far, ..
+        }) = self.entries.last_mut()
+        {
+            so_far.push_str("\n\n");
+            so_far.push_str(text);
+        } else {
+            self.entries.push(ImportedEntry::Assistant {
+                at,
+                text: text.to_owned(),
+            });
+        }
+    }
+
+    fn step(&mut self, at: u64, tool: &str, input: &Value) {
+        let tool = if tool.is_empty() { "tool" } else { tool };
+        self.entries.push(ImportedEntry::Step {
+            at,
+            summary: call_summary(input),
+            tool: summary(tool),
+        });
+    }
+
+    fn finish(self) -> Imported {
+        let first =
+            self.entries.iter().find_map(|entry| match entry {
+                ImportedEntry::User { text, .. } => {
+                    Some(text.as_str())
+                }
+                _ => None,
+            });
+        let title = summary(
+            self.title
+                .as_deref()
+                .filter(|title| !title.trim().is_empty())
+                .or(first)
+                .unwrap_or(self.source.name()),
+        );
+        let began =
+            self.entries.first().map_or(0, |entry| match entry {
+                ImportedEntry::User { at, .. }
+                | ImportedEntry::Assistant { at, .. }
+                | ImportedEntry::Step { at, .. } => *at,
+            });
+        let (entries, left_out) = keep(self.entries);
+        Imported {
+            began,
+            entries,
+            left_out,
+            model: self
+                .model
+                .filter(|model| !model.is_empty())
+                .map(|model| summary(&model)),
+            session: self.session,
+            source: self.source,
+            title,
+        }
     }
 }
 
@@ -87,6 +207,105 @@ fn summary(text: &str) -> String {
         Some((end, _)) => line[..end].to_owned(),
         None => line,
     }
+}
+
+/// A tool call's input in a line: the field that names what it acts
+/// on, else the whole input. Input given as JSON text is read first.
+fn call_summary(input: &Value) -> String {
+    const NAMES: [&str; 8] = [
+        "command",
+        "cmd",
+        "file_path",
+        "path",
+        "pattern",
+        "url",
+        "query",
+        "description",
+    ];
+    if let Value::String(text) = input {
+        return match serde_json::from_str::<Value>(text) {
+            Ok(parsed @ Value::Object(_)) => call_summary(&parsed),
+            _ => summary(text),
+        };
+    }
+    let named = NAMES.iter().find_map(|name| match &input[name] {
+        Value::String(text) => Some(text.clone()),
+        Value::Array(parts) => Some(
+            parts
+                .iter()
+                .filter_map(Value::as_str)
+                .collect::<Vec<_>>()
+                .join(" "),
+        ),
+        _ => None,
+    });
+    summary(&named.unwrap_or_else(|| input.to_string()))
+}
+
+/// The JSON records of a file of one per line, the unreadable ones
+/// left out; the first `limit` bytes of it when given.
+fn records(path: &Path, limit: Option<u64>) -> Result<Vec<Value>> {
+    let file = File::open(path)
+        .with_context(|| format!("opening {}", path.display()))?;
+    Ok(BufReader::new(file.take(limit.unwrap_or(u64::MAX)))
+        .lines()
+        .map_while(Result::ok)
+        .filter_map(|line| serde_json::from_str::<Value>(&line).ok())
+        .collect())
+}
+
+/// An RFC 3339 time in milliseconds since the epoch.
+fn time(stamp: &Value) -> Option<u64> {
+    let stamp =
+        chrono::DateTime::parse_from_rfc3339(stamp.as_str()?).ok()?;
+    u64::try_from(stamp.timestamp_millis()).ok()
+}
+
+/// The modified time of `path`.
+fn modified(path: &Path) -> Option<SystemTime> {
+    std::fs::metadata(path).ok()?.modified().ok()
+}
+
+/// The folder `variable` names, else `default` under the home folder.
+fn folder(variable: &str, default: &str) -> Option<PathBuf> {
+    std::env::var_os(variable)
+        .filter(|folder| !folder.is_empty())
+        .map(PathBuf::from)
+        .or_else(|| {
+            std::env::home_dir().map(|home| home.join(default))
+        })
+}
+
+/// The files with extension `extension` in the folders under
+/// `folder`, `depth` levels down.
+fn files_under(
+    folder: &Path,
+    depth: usize,
+    extension: &str,
+) -> Vec<PathBuf> {
+    let Ok(entries) = std::fs::read_dir(folder) else {
+        return Vec::new();
+    };
+    entries
+        .flatten()
+        .map(|entry| entry.path())
+        .flat_map(|path| {
+            if depth == 0 {
+                let matches = path
+                    .extension()
+                    .is_some_and(|ext| ext == extension)
+                    && path.is_file();
+                matches
+                    .then_some(path)
+                    .into_iter()
+                    .collect::<Vec<_>>()
+            } else if path.is_dir() {
+                files_under(&path, depth - 1, extension)
+            } else {
+                Vec::new()
+            }
+        })
+        .collect()
 }
 
 #[cfg(test)]

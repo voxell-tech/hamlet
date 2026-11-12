@@ -1,6 +1,8 @@
-//! `hamlet import`: conversations of other programs on this machine,
-//! listed and brought in as a chat's session (C35).
+//! `hamlet import`: conversations of other programs, on this machine
+//! or in a file they exported, listed and brought in as a chat's
+//! session (C35).
 
+use std::path::Path;
 use std::time::{Duration, SystemTime};
 
 use anyhow::{Result, bail};
@@ -13,20 +15,32 @@ use hamlet_protocol::client::{
 use crate::chat::resolve;
 use crate::client::{self, ServerAddress};
 
-/// How far back a list reaches without `--all`.
+/// How far back a list of this machine's conversations reaches
+/// without `--all`.
 const RECENT: Duration = Duration::from_secs(30 * 24 * 60 * 60);
 
-/// Prints the conversations found, newest first: those of the last 30
-/// days, or every one with `all`.
-pub fn list(all: bool) {
-    let found = hamlet_import::find();
+/// The conversations of the file `file`, or of this machine.
+fn found(file: Option<&Path>) -> Result<Vec<Found>> {
+    match file {
+        Some(file) => hamlet_import::find_in(file),
+        None => Ok(hamlet_import::find()),
+    }
+}
+
+/// Prints the conversations of the file `file`, or those found on
+/// this machine in the last 30 days, or every one with `all`; newest
+/// first.
+pub fn list(file: Option<&Path>, all: bool) -> Result<()> {
+    let found = found(file)?;
     let since = SystemTime::now() - RECENT;
     let shown = found
         .iter()
-        .filter(|found| all || found.modified >= since)
+        .filter(|found| {
+            all || file.is_some() || found.modified >= since
+        })
         .collect::<Vec<_>>();
     if shown.is_empty() {
-        println!("No conversations found from the last 30 days.");
+        println!("No conversations found.");
     }
     for found in &shown {
         let day =
@@ -52,30 +66,34 @@ pub fn list(all: bool) {
         );
     }
     if !shown.is_empty() {
+        let file = file.map_or(String::new(), |file| {
+            format!("--file {} ", file.display())
+        });
         println!(
-            "Bring one in with: hamlet import <id> [--to <agent>]"
+            "Bring one in with: hamlet import {file}<id> [--to \
+             <agent>]"
         );
     }
+    Ok(())
 }
 
-/// Brings in the conversation whose id is or begins with `session` as
-/// a new session of the chief's chat with `to`.
+/// Brings in the conversation of the file `file`, or of this machine,
+/// whose id is or begins with `session` as a new session of the
+/// chief's chat with `to`.
 pub async fn bring_in(
     address: &ServerAddress,
+    file: Option<&Path>,
     session: &str,
     to: &str,
 ) -> Result<()> {
-    let found = hamlet_import::find();
+    let found = found(file)?;
     let matching = found
         .iter()
         .filter(|found| found.session.starts_with(session))
         .collect::<Vec<_>>();
     let found: &Found = match matching.as_slice() {
         [found] => found,
-        [] => bail!(
-            "no conversation's id begins with `{session}`; hamlet \
-             import --all lists them"
-        ),
+        [] => bail!("no conversation's id begins with `{session}`"),
         _ => {
             bail!("several conversations' ids begin with `{session}`")
         }

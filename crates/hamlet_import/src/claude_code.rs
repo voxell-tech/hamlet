@@ -3,68 +3,39 @@
 //! `CLAUDE_CONFIG_DIR` or `~/.claude`.
 
 use std::collections::{HashMap, HashSet};
-use std::fs::File;
-use std::io::{BufRead, BufReader, Read};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use anyhow::{Context, Result};
-use hamlet_protocol::client::{
-    ImportSource, Imported, ImportedEntry,
-};
+use hamlet_protocol::client::ImportSource;
 use serde_json::Value;
 
-use crate::{Found, keep, summary};
+use crate::{
+    Draft, Found, HEAD, files_under, folder, modified, records,
+    summary, time,
+};
 
-/// The bytes read from the start of a session to list it.
-const HEAD: u64 = 256 << 10;
 /// Words Claude Code writes as the person's that the person did not
 /// type.
 const NOT_TYPED: [&str; 3] =
     ["<command-", "<local-command-", "[Request interrupted"];
 
-fn projects() -> Option<PathBuf> {
-    let config = std::env::var_os("CLAUDE_CONFIG_DIR")
-        .filter(|config| !config.is_empty())
-        .map(PathBuf::from)
-        .or_else(|| {
-            std::env::home_dir().map(|home| home.join(".claude"))
-        })?;
-    Some(config.join("projects"))
-}
-
 pub(crate) fn find() -> Vec<Found> {
-    let Some(projects) = projects() else {
+    let Some(config) = folder("CLAUDE_CONFIG_DIR", ".claude") else {
         return Vec::new();
     };
-    let Ok(folders) = std::fs::read_dir(projects) else {
-        return Vec::new();
-    };
-    folders
-        .flatten()
-        .filter_map(|folder| std::fs::read_dir(folder.path()).ok())
-        .flatten()
-        .flatten()
-        .map(|file| file.path())
-        .filter(|path| {
-            path.extension().is_some_and(|ext| ext == "jsonl")
-        })
-        .filter_map(|path| listed(&path))
+    files_under(&config.join("projects"), 1, "jsonl")
+        .iter()
+        .filter_map(|path| listed(path))
         .collect()
 }
 
 /// The session at `path` as a list shows it, from its first records;
 /// `None` for one with no message of the person's there.
 fn listed(path: &Path) -> Option<Found> {
-    let modified = std::fs::metadata(path).ok()?.modified().ok()?;
-    let head = BufReader::new(File::open(path).ok()?.take(HEAD));
     let mut folder = None;
     let mut title = None;
     let mut first = None;
-    for line in head.lines() {
-        let Ok(record) = serde_json::from_str::<Value>(&line.ok()?)
-        else {
-            continue;
-        };
+    for record in records(path, Some(HEAD)).ok()? {
         if folder.is_none() {
             folder = record["cwd"].as_str().map(str::to_owned);
         }
@@ -81,38 +52,27 @@ fn listed(path: &Path) -> Option<Found> {
         session: path.file_stem()?.to_string_lossy().into_owned(),
         title: summary(title.as_deref().unwrap_or(&first)),
         folder,
-        modified,
+        modified: modified(path)?,
         path: path.to_owned(),
     })
 }
 
-pub(crate) fn read(path: &Path) -> Result<Imported> {
-    let file = File::open(path)
-        .with_context(|| format!("opening {}", path.display()))?;
-    let records = BufReader::new(file)
-        .lines()
-        .map_while(Result::ok)
-        .filter_map(|line| serde_json::from_str::<Value>(&line).ok())
-        .collect::<Vec<_>>();
+pub(crate) fn read(path: &Path) -> Result<Draft> {
     let session = path
         .file_stem()
         .context("a session file has a name")?
         .to_string_lossy()
         .into_owned();
-    Ok(imported(session, &records))
+    Ok(read_records(session, &records(path, None)?))
 }
 
 /// The session `session` of `records`, its lines in order.
-fn imported(session: String, records: &[Value]) -> Imported {
+fn read_records(session: String, records: &[Value]) -> Draft {
     let shown = shown(records);
-    let mut entries = Vec::new();
-    let mut model = None;
-    let mut title = None;
-    let mut began = None;
-    let mut answered = None::<String>;
+    let mut read = Draft::new(ImportSource::ClaudeCode, session);
     for record in records {
         if let Some(custom) = record["customTitle"].as_str() {
-            title = Some(custom.to_owned());
+            read.title = Some(custom.to_owned());
         }
         let Some(uuid) = record["uuid"].as_str() else {
             continue;
@@ -121,85 +81,38 @@ fn imported(session: String, records: &[Value]) -> Imported {
             continue;
         }
         let at = time(&record["timestamp"]).unwrap_or(0);
-        began.get_or_insert(at);
-        let message = &record["message"];
         if record["type"] == "user" {
             if let Some(text) = user_text(record) {
-                entries.push(ImportedEntry::User { at, text });
+                read.user(at, &text);
             }
-            answered = None;
             continue;
         }
-        if let Some(name) = message["model"].as_str()
-            && !name.starts_with('<')
+        let message = &record["message"];
+        if let Some(model) = message["model"].as_str()
+            && !model.starts_with('<')
         {
-            model = Some(name.to_owned());
+            read.model = Some(model.to_owned());
         }
-        let id = message["id"].as_str().map(str::to_owned);
         for block in
             message["content"].as_array().into_iter().flatten()
         {
             match block["type"].as_str() {
                 Some("text") => {
-                    let text =
-                        block["text"].as_str().unwrap_or_default();
-                    if text.trim().is_empty() {
-                        continue;
-                    }
-                    // Claude Code keeps each block of an answer as a
-                    // record of its own.
-                    if let (
-                        Some(ImportedEntry::Assistant {
-                            text: so_far,
-                            ..
-                        }),
-                        true,
-                    ) = (
-                        entries.last_mut(),
-                        id.is_some() && answered == id,
-                    ) {
-                        so_far.push_str("\n\n");
-                        so_far.push_str(text);
-                    } else {
-                        entries.push(ImportedEntry::Assistant {
-                            at,
-                            text: text.to_owned(),
-                        });
-                    }
-                    answered.clone_from(&id);
-                }
-                Some("tool_use") => {
-                    entries.push(ImportedEntry::Step {
+                    read.assistant(
                         at,
-                        summary: call_summary(&block["input"]),
-                        tool: block["name"]
-                            .as_str()
-                            .filter(|name| !name.is_empty())
-                            .unwrap_or("tool")
-                            .to_owned(),
-                    });
-                    answered = None;
+                        block["text"].as_str().unwrap_or_default(),
+                    );
                 }
+                Some("tool_use") => read.step(
+                    at,
+                    block["name"].as_str().unwrap_or_default(),
+                    &block["input"],
+                ),
                 _ => {}
             }
         }
     }
-    let first = entries.iter().find_map(|entry| match entry {
-        ImportedEntry::User { text, .. } => Some(text.clone()),
-        _ => None,
-    });
-    let title =
-        summary(title.or(first).as_deref().unwrap_or("Claude Code"));
-    let (entries, left_out) = keep(entries);
-    Imported {
-        began: began.unwrap_or(0),
-        entries,
-        left_out,
-        model: model.map(|model| summary(&model)),
-        session,
-        source: ImportSource::ClaudeCode,
-        title,
-    }
+    read
 }
 
 fn is_message(record: &Value) -> bool {
@@ -276,32 +189,9 @@ fn without_reminders(text: &str) -> String {
     kept
 }
 
-/// A tool call's input in a line: the field that names what it acts
-/// on, else the whole input.
-fn call_summary(input: &Value) -> String {
-    const NAMES: [&str; 7] = [
-        "command",
-        "file_path",
-        "path",
-        "pattern",
-        "url",
-        "query",
-        "description",
-    ];
-    match NAMES.iter().find_map(|name| input[name].as_str()) {
-        Some(named) => summary(named),
-        None => summary(&input.to_string()),
-    }
-}
-
-fn time(stamp: &Value) -> Option<u64> {
-    let stamp =
-        chrono::DateTime::parse_from_rfc3339(stamp.as_str()?).ok()?;
-    u64::try_from(stamp.timestamp_millis()).ok()
-}
-
 #[cfg(test)]
 mod tests {
+    use hamlet_protocol::client::ImportedEntry;
     use serde_json::json;
 
     use super::*;
@@ -327,7 +217,7 @@ mod tests {
             json!({"type": "assistant", "uuid": "h", "parentUuid": "g", "timestamp": "2026-11-01T10:02:02Z",
                    "message": {"id": "m2", "content": [{"type": "text", "text": "It builds."}]}}),
         ];
-        let imported = imported("s1".into(), &records);
+        let imported = read_records("s1".into(), &records).finish();
         assert_eq!(imported.title, "Fix the build");
         assert_eq!(imported.model.as_deref(), Some("claude-x"));
         let at = |minute: u64, second: u64| {

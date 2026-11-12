@@ -22,8 +22,9 @@ const USAGE: &str =
        hamlet window
        hamlet chat [--to <hand|hire#<id>|mayor@<hamlet>>] [--attach \
      <path>]...
-       hamlet import [--all]
-       hamlet import <id> [--to <hand|hire#<id>|mayor@<hamlet>>]
+       hamlet import [--all | --file <export>]
+       hamlet import [--file <export>] <id> [--to \
+     <hand|hire#<id>|mayor@<hamlet>>]
        hamlet edit <charter|limits|settings> [--hamlet <id>]
        hamlet edit character <scholar#id>
        hamlet edit memory <scholar#id|hire#<id>> [path]
@@ -38,8 +39,9 @@ dev builds the checkout's server and window and serves a scratch \
      realm; Ctrl-C stops both. --hot builds a window that reloads \
      saved shaders and tuning files.
 server serves in the foreground; Ctrl-C stops it.
-import lists the conversations of other programs on this machine \
-     (Claude Code), and brings one in as a new session of a chat.
+import lists the conversations of Claude Code, Codex and pi on this \
+     machine, or those in a ChatGPT or Claude export, and brings \
+     one in as a new session of a chat.
 --insecure, on Windows only, runs agents' commands with no sandbox.
 
 env: HAMLET_HOME (~/.hamlet), HAMLET_SERVER and HAMLET_TOKEN (remote \
@@ -73,12 +75,14 @@ enum Command {
         /// The images, files and folders the first line carries.
         attach: Vec<PathBuf>,
     },
-    /// Lists the conversations found on this machine: the recent
-    /// ones, or every one.
+    /// Lists the conversations in an exported file, or those found on
+    /// this machine: the recent ones, or every one.
     Found {
+        file: Option<PathBuf>,
         all: bool,
     },
     Import {
+        file: Option<PathBuf>,
         session: String,
         to: String,
     },
@@ -194,27 +198,54 @@ fn parse(args: &[String]) -> Result<Command> {
                 _ => Command::Chat { to, attach },
             })
         }
-        "import" => match rest {
-            [] => Ok(Command::Found { all: false }),
-            [all] if all == "--all" => {
-                Ok(Command::Found { all: true })
-            }
-            [session, flags @ ..] if !session.starts_with("--") => {
-                let to = match flags {
-                    [] => hamlet_protocol::HAND.to_owned(),
-                    [flag, to] if flag == "--to" => to.clone(),
-                    [flag] if flag == "--to" => {
-                        bail!("--to needs an agent's address")
+        "import" => {
+            let mut all = false;
+            let mut file = None;
+            let mut to = None;
+            let mut session = None;
+            let mut args = rest.iter();
+            while let Some(arg) = args.next() {
+                match arg.as_str() {
+                    "--all" => all = true,
+                    "--file" | "--to" => {
+                        let value = args.next().ok_or_else(|| {
+                            anyhow::anyhow!(
+                                "{arg} needs {}",
+                                if arg == "--to" {
+                                    "an agent's address"
+                                } else {
+                                    "the path of an export"
+                                }
+                            )
+                        })?;
+                        if arg == "--to" {
+                            to = Some(value.clone());
+                        } else {
+                            file = Some(PathBuf::from(value));
+                        }
                     }
-                    [other, ..] => return Err(unknown(other)),
-                };
-                Ok(Command::Import {
-                    session: session.clone(),
-                    to,
-                })
+                    id if session.is_none()
+                        && !id.starts_with("--") =>
+                    {
+                        session = Some(id.to_owned());
+                    }
+                    other => return Err(unknown(other)),
+                }
             }
-            [other, ..] => Err(unknown(other)),
-        },
+            Ok(match session {
+                Some(session) if !all => Command::Import {
+                    file,
+                    session,
+                    to: to.unwrap_or_else(|| {
+                        hamlet_protocol::HAND.to_owned()
+                    }),
+                },
+                None if to.is_none() => Command::Found { file, all },
+                _ => bail!(
+                    "import takes an id with --to, or --all to list"
+                ),
+            })
+        }
         "edit" => {
             let doc = rest
                 .first()
@@ -364,8 +395,8 @@ fn main() {
             println!("{USAGE}");
             return Ok(0);
         }
-        if let Command::Found { all } = command {
-            hamlet_cli::import::list(all);
+        if let Command::Found { file, all } = &command {
+            hamlet_cli::import::list(file.as_deref(), *all)?;
             return Ok(0);
         }
         if let Command::Server {
@@ -406,9 +437,10 @@ fn main() {
                         .await?;
                     Ok(0)
                 }
-                Command::Import { session, to } => {
+                Command::Import { file, session, to } => {
                     hamlet_cli::import::bring_in(
                         &process::address()?,
+                        file.as_deref(),
                         &session,
                         &to,
                     )
