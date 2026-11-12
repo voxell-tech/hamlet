@@ -54,6 +54,9 @@ pub(crate) fn plugin(app: &mut App) {
                 register_numbered
                     .run_if(resource_changed::<Desks>)
                     .before(desk::show),
+                prune_numbered
+                    .run_if(resource_changed::<DockTree>)
+                    .after(desk::capture),
             ),
         );
 }
@@ -161,6 +164,35 @@ pub fn register_numbered(world: &mut World) {
     }
     for id in ids {
         register(world, &id);
+    }
+}
+
+/// Forgets the numbered panels the dock no longer holds, so the
+/// dock's add menu offers only the first of each.
+fn prune_numbered(world: &mut World) {
+    let firsts = world
+        .resource::<Numbered>()
+        .0
+        .iter()
+        .map(|(first, _)| first.clone())
+        .collect::<Vec<_>>();
+    let gone = {
+        let tree = world.resource::<DockTree>();
+        world
+            .resource::<DockRegistry<HamletTheme>>()
+            .iter()
+            .map(|(id, _)| id)
+            .filter(|id| {
+                firsts.iter().any(|first| number(first, id).is_some())
+            })
+            .filter(|id| tree.find_leaf_with_window(id).is_none())
+            .map(str::to_owned)
+            .collect::<Vec<_>>()
+    };
+    let mut registry =
+        world.resource_mut::<DockRegistry<HamletTheme>>();
+    for id in gone {
+        registry.unregister(&id);
     }
 }
 
