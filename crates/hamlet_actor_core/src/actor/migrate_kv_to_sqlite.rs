@@ -778,3 +778,6 @@ impl ImportProgress {
 
 // Test shim keeps moved tests in crate-root tests/ with
 // private-module access.
+#[cfg(test)]
+#[path = "../../tests/migrate_kv_to_sqlite.rs"]
+mod tests;

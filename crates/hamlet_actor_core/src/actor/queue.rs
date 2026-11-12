@@ -147,6 +147,19 @@ pub(crate) fn decode_queue_metadata(
     Ok(metadata)
 }
 
+#[cfg(test)]
+pub(crate) fn encode_queue_metadata(
+    metadata: &QueueMetadata,
+) -> Result<Vec<u8>> {
+    encode_latest_with_embedded_version::<
+        persist_versioned::QueueMetadata,
+    >(
+        metadata.clone(),
+        hamlet_actor_wire::persist::CURRENT_VERSION,
+        "queue metadata",
+    )
+}
+
 pub(crate) fn encode_queue_message(
     message: &PersistedQueueMessage,
 ) -> Result<Vec<u8>> {

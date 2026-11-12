@@ -22,6 +22,8 @@ use crate::actor::internal_storage;
 use crate::actor::lifecycle_hooks::Reply;
 use crate::actor::messages::{StateDelta, WorkflowKvWrite};
 use crate::actor::persist::decode_latest_with_embedded_version;
+#[cfg(test)]
+use crate::actor::persist::encode_latest_with_embedded_version;
 use crate::actor::task::LifecycleEvent;
 use crate::actor::task_types::StateMutationReason;
 use crate::error::{ActorLifecycle, ActorRuntime};
@@ -32,8 +34,22 @@ use crate::sqlite::{
 use crate::time::{Instant as StdInstant, sleep};
 use crate::types::SaveStateOpts;
 
+#[cfg(test)]
+const LAST_PUSHED_ALARM_VERSION: u16 = 1;
+
 pub type PersistedScheduleEvent = persist_v4::ScheduleEvent;
 pub type PersistedActor = persist_v4::Actor;
+
+#[cfg(test)]
+pub(crate) fn encode_persisted_actor(
+    actor: &PersistedActor,
+) -> Result<Vec<u8>> {
+    encode_latest_with_embedded_version::<persist_versioned::Actor>(
+        actor.clone(),
+        hamlet_actor_wire::persist::CURRENT_VERSION,
+        "persisted actor",
+    )
+}
 
 pub(crate) fn decode_persisted_actor(
     payload: &[u8],
@@ -50,6 +66,15 @@ pub(crate) fn decode_last_pushed_alarm(
     decode_latest_with_embedded_version::<
         persist_versioned::LastPushedAlarm,
     >(payload, "last pushed alarm")
+}
+
+#[cfg(test)]
+pub(crate) fn encode_last_pushed_alarm(
+    alarm_ts: Option<i64>,
+) -> Result<Vec<u8>> {
+    encode_latest_with_embedded_version::<
+        persist_versioned::LastPushedAlarm,
+    >(alarm_ts, LAST_PUSHED_ALARM_VERSION, "last pushed alarm")
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -767,6 +792,24 @@ impl ActorContext {
         reply_rx
             .await
             .context("receive workflow flush lifecycle reply")?
+    }
+
+    /// Commits an already serialized snapshot and workflow flush
+    /// atomically for storage-level fault tests. Runtime bridges must
+    /// use the lifecycle-owned API.
+    #[cfg(test)]
+    pub(crate) async fn commit_serialized_state_and_workflow_batch(
+        &self,
+        deltas: Vec<StateDelta>,
+        workflow_writes: Vec<WorkflowKvWrite>,
+    ) -> Result<()> {
+        let save_request_revision = self.save_request_revision();
+        self.save_state_and_workflow_batch_with_revision(
+            deltas,
+            workflow_writes,
+            save_request_revision,
+        )
+        .await
     }
 
     pub(crate) fn request_save_with_revision(

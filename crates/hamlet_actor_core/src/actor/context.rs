@@ -2320,6 +2320,23 @@ impl ActorContext {
         }
     }
 
+    #[cfg(test)]
+    pub(crate) async fn save_state_and_workflow_batch_with_revision(
+        &self,
+        deltas: Vec<StateDelta>,
+        workflow_writes: Vec<WorkflowKvWrite>,
+        save_request_revision: u64,
+    ) -> Result<()> {
+        self.save_state_and_workflow_batch_with_revision_inner(
+            deltas,
+            workflow_writes,
+            save_request_revision,
+            None,
+        )
+        .await
+        .map(|_| ())
+    }
+
     pub(crate) async fn save_state_and_workflow_batch_at_transaction_epoch(
         &self,
         deltas: Vec<StateDelta>,
