@@ -2,7 +2,7 @@
 
 use bevy::ecs::resource::Resource;
 use bevy::ui::{AlignItems, UiRect, px};
-use bevy_fynix::tokens::{Motion, Tone};
+use bevy_fynix::tokens::{MotionTokens, Tone};
 use bevy_fynix::views::{FrameProps, column, frame, label, row};
 use bevy_fynix::{
     ScopedExt, StateExt, ViewExt, each, keyed, resource,
@@ -12,6 +12,7 @@ use hamlet_ui::kinds::tile;
 use hamlet_ui::styles::{
     Fills, action, bad_action, description, hidden,
 };
+use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::{AnyView, View, built, with_cx};
 
@@ -98,6 +99,7 @@ pub(crate) fn skills() -> impl View {
                 .boxed()
             },
         )
+        .presence(HamletTheme::expand)
         .within(column(()).gap(8.0)),
     ))
     .gap(0.0)
@@ -133,7 +135,7 @@ pub fn card(
                 description(detail),
             ))
             .appear(hidden)
-            .transition(Motion::Expand),
+            .transition(HamletTheme::expand),
         )
     })
 }

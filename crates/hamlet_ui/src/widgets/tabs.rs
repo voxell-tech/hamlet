@@ -12,7 +12,7 @@ use bevy::ecs::resource::Resource;
 use bevy::ecs::system::{Commands, Query, Res};
 use bevy::ecs::world::World;
 use bevy::ui::{AlignItems, ComputedNode, Display, Node, UiRect, px};
-use bevy_fynix::tokens::{Motion, Tone};
+use bevy_fynix::tokens::{MotionTokens, Tone};
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, TooltipExt, button, column, label,
     menu_button, row,
@@ -78,7 +78,7 @@ pub fn tab_look(cx: &mut Cx) {
             s.fill(|t: &HamletTheme| transparent(t.palette.button))
                 .tone(Tone::Body)
         })
-        .transition(Motion::Interact)
+        .transition(HamletTheme::interact)
         .apply(cx);
 }
 

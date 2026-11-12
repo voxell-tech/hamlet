@@ -17,12 +17,9 @@ use bevy::ecs::hierarchy::Children;
 use bevy::ecs::query::With;
 use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::system::{Commands, Query, Res, ResMut};
-use bevy::math::Vec2;
 use bevy::render::{Extract, ExtractSchedule, RenderApp};
 use bevy::time::Time;
-use bevy::ui::{
-    BackgroundColor, BoxShadow, ComputedNode, UiSystems, UiTransform,
-};
+use bevy::ui::{BackgroundColor, BoxShadow, ComputedNode, UiSystems};
 use bevy::ui_render::{
     ExtractedUiItem, ExtractedUiNodes, RenderUiSystems,
 };
@@ -39,7 +36,7 @@ impl Plugin for FloatsPlugin {
         app.add_systems(
             PostUpdate,
             (
-                settle.before(UiSystems::Layout),
+                fill_card.before(UiSystems::Layout),
                 arrive.after(UiSystems::PostLayout),
             ),
         );
@@ -78,23 +75,16 @@ struct Arrival {
 #[derive(Component, Clone, Copy)]
 struct Fading(f32);
 
-/// Keeps every popup at its full size, so it does not grow into
-/// place, and its shadow with it; and gives one on the panel's fill
-/// the card's, a shade off the panel under it in light and dark
-/// alike. The fill keeps the opacity it is given, so a popup that
-/// fades out of its own accord still does.
-fn settle(
+/// Gives a popup on the panel's fill the card's, a shade off the
+/// panel under it in light and dark alike. The fill keeps the
+/// opacity it is given, so a popup that fades out of its own accord
+/// still does.
+fn fill_card(
     theme: Themed,
-    mut floats: Query<
-        (&mut UiTransform, &mut BackgroundColor),
-        With<Popover>,
-    >,
+    mut floats: Query<&mut BackgroundColor, With<Popover>>,
 ) {
     let palette = &theme.palette;
-    for (mut transform, mut fill) in &mut floats {
-        if transform.scale != Vec2::ONE {
-            transform.scale = Vec2::ONE;
-        }
+    for mut fill in &mut floats {
         let opacity = fill.0.alpha();
         if fill.0.with_alpha(1.0) == palette.surface.with_alpha(1.0) {
             fill.0 = palette.card.with_alpha(opacity);

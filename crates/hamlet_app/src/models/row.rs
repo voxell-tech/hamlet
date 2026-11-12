@@ -2,7 +2,7 @@
 
 use bevy::ecs::world::World;
 use bevy::ui::{AlignItems, JustifyContent, UiRect, percent, px};
-use bevy_fynix::tokens::{Motion, Tone};
+use bevy_fynix::tokens::{MotionTokens, Tone};
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, column, frame, icon, label, menu_item,
     row,
@@ -244,6 +244,6 @@ fn row_look(cx: &mut Cx) {
             s.icon(|i, _| i.opacity(1.0))
                 .fill(|t| t.palette.button_hover)
         })
-        .transition(Motion::Interact)
+        .transition(HamletTheme::interact)
         .apply(cx);
 }

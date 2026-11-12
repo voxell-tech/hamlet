@@ -15,7 +15,7 @@ use bevy::ui::{
     AlignItems, AngularColorStop, BorderGradient, ConicGradient,
     JustifyContent, PositionType, UiPosition, UiRect, Val, px,
 };
-use bevy_fynix::tokens::{Motion, SurfaceTokens, Tone};
+use bevy_fynix::tokens::{MotionTokens, SurfaceTokens, Tone};
 use bevy_fynix::views::{
     self, BehaviorExt, FrameProps, TooltipExt, button, column,
     dropdown, frame, label, row,
@@ -392,7 +392,7 @@ fn row_look(cx: &mut Cx) {
         })
         .hovered(|s| s.frame(|f, t| f.fill(t.palette.button)))
         .pressed(|s| s.frame(|f, t| f.fill(t.pressed())))
-        .transition(Motion::Interact)
+        .transition(HamletTheme::interact)
         .apply(cx);
 }
 

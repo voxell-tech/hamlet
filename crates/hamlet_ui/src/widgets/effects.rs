@@ -1,7 +1,8 @@
-//! The effects of the panels (docs/ui-warmth.md): a control's glow
-//! and press, the particles of a finished action, the shake of a
-//! refusal and the highlight in a panel that waits for the chief,
-//! which its tab carries while it is behind another.
+//! The effects of the panels (docs/ui-warmth.md): a control's glow,
+//! the particles of a finished action, the shake of a refusal and
+//! the highlight in a panel that waits for the chief, which its tab
+//! carries while it is behind another. A control never changes size
+//! for any of them, and only a refusal moves it.
 
 mod control;
 mod drag;
@@ -132,17 +133,11 @@ impl Variant {
 #[serde(deny_unknown_fields)]
 pub struct EffectSettings {
     /// The rates at which a glow follows the pointer, a press
-    /// follows the button and a pulse or a shake dies away, each per
-    /// second.
+    /// follows the button and the glow of work done or refused dies
+    /// away, each per second.
     pub glow_rate: f32,
     pub press_rate: f32,
     pub pulse_decay: f32,
-    /// The share of its size a button loses while held and gains at
-    /// the top of a pulse, and the depth it sinks while held, in
-    /// pixels.
-    pub press_scale: f32,
-    pub pulse_scale: f32,
-    pub press_offset: f32,
     /// The reach of a danger button's shake, in pixels, and its
     /// rate.
     pub shake_distance: f32,
@@ -246,18 +241,15 @@ impl EffectSettings {
 const AT_ONCE: f32 = 1.0e6;
 
 impl EffectSettings {
-    /// These, with nothing that moves: no flicker, no give under a
-    /// press, no swell, no shake, no particles and nothing that grows
-    /// in. A glow is at once where it goes, so a button built anew
-    /// stands at rest rather than fading in.
+    /// These, with nothing that moves: no flicker, no shake, no
+    /// particles and nothing that grows in. A glow is at once where
+    /// it goes, so a button built anew stands at rest rather than
+    /// fading in.
     fn still(&self) -> Self {
         Self {
             glow_rate: AT_ONCE,
             press_rate: AT_ONCE,
             pulse_decay: AT_ONCE,
-            press_scale: 0.0,
-            pulse_scale: 0.0,
-            press_offset: 0.0,
             shake_distance: 0.0,
             flicker: 0.0,
             outer_glow_pulse_radius: 0.0,

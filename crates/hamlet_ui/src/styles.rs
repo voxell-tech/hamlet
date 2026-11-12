@@ -8,7 +8,7 @@ use bevy::ui::{
     AlignItems, InteractionDisabled, JustifyContent, PositionType,
     UiRect, percent, px,
 };
-use bevy_fynix::tokens::{Motion, SurfaceTokens, Tone};
+use bevy_fynix::tokens::{MotionTokens, SurfaceTokens, Tone};
 use bevy_fynix::views::{
     self, BehaviorExt, Frame, FrameProps, Stack, TooltipExt, column,
     frame, label, menu_item, row, scroll, tinted_icon,
@@ -72,7 +72,7 @@ pub fn button(cx: &mut Cx) {
             })
             .tone(Tone::Dim)
         })
-        .transition(Motion::Interact)
+        .transition(HamletTheme::interact)
         .apply(cx);
 }
 
@@ -111,7 +111,7 @@ pub fn primary_button(cx: &mut Cx) {
             })
             .tone(Tone::Dim)
         })
-        .transition(Motion::Interact)
+        .transition(HamletTheme::interact)
         .apply(cx);
 }
 
@@ -124,15 +124,14 @@ pub fn back_link(cx: &mut Cx) {
         .icon(|i, _| i.tone(Tone::Dim))
         .hovered(|s| s.fill(|_| Color::NONE).tone(Tone::Accent))
         .pressed(|s| s.fill(|_| Color::NONE).tone(Tone::Faint))
-        .transition(Motion::Interact)
+        .transition(HamletTheme::interact)
         .apply(cx);
 }
 
-/// A view before it comes in and after it goes: transparent and
-/// slightly small.
+/// A view before it comes in and after it goes: transparent, at its
+/// size.
 pub fn hidden(cx: &mut Cx) {
     cx.set::<Visual>(|visual, _| visual.opacity(0.0));
-    cx.root(|cx| cx.set::<Visual>(|visual, _| visual.scale(0.96)));
 }
 
 /// On a text input whose text was refused, until it is changed.
@@ -163,7 +162,7 @@ pub fn text_input(cx: &mut Cx) {
         .when::<Refused>(|s| {
             s.frame(|f, t| f.border_color(t.palette.red))
         })
-        .transition(Motion::Interact)
+        .transition(HamletTheme::interact)
         .apply(cx);
 }
 
@@ -203,7 +202,7 @@ pub fn danger_button(cx: &mut Cx) {
             })
             .tone(Tone::Critical)
         })
-        .transition(Motion::Interact)
+        .transition(HamletTheme::interact)
         .apply(cx);
 }
 
@@ -310,7 +309,7 @@ pub fn rail_item(
             .when::<Focused>(|s| {
                 s.fill(|t| t.palette.button_hover).tone(Tone::Body)
             })
-            .transition(Motion::Interact)
+            .transition(HamletTheme::interact)
             .bundle(),
     )
 }
@@ -828,7 +827,7 @@ fn tinted_button(cx: &mut Cx, kind: StatusKind) {
             })
             .tone(Tone::Dim)
         })
-        .transition(Motion::Interact)
+        .transition(HamletTheme::interact)
         .apply(cx);
 }
 
@@ -998,7 +997,7 @@ fn segment(
             })
         })
     };
-    rules.transition(Motion::Interact).bundle()
+    rules.transition(HamletTheme::interact).bundle()
 }
 
 /// The rules of an answer to pick: no fill until the pointer is on
@@ -1044,7 +1043,7 @@ pub fn choice(
             })
         })
     };
-    rules.transition(Motion::Interact).bundle()
+    rules.transition(HamletTheme::interact).bundle()
 }
 
 /// A standard button that runs `act`.
@@ -1150,7 +1149,7 @@ pub fn link_row(cx: &mut Cx) {
         .pressed(|s| {
             s.frame(|f, t| f.fill(t.pressed())).tone(Tone::Body)
         })
-        .transition(Motion::Interact)
+        .transition(HamletTheme::interact)
         .apply(cx);
 }
 
@@ -1426,7 +1425,7 @@ pub fn card_choice(
                     }
                 })
             })
-            .transition(Motion::Interact)
+            .transition(HamletTheme::interact)
             .apply(cx);
     }
 }

@@ -32,7 +32,7 @@ use bevy::ui_widgets::Button as ButtonBehavior;
 use bevy::window::{
     PrimaryWindow, SystemCursorIcon, Window, WindowCloseRequested,
 };
-use bevy_fynix::tokens::Motion;
+use bevy_fynix::tokens::MotionTokens;
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, RichField, button, frame, icon, row,
 };
@@ -184,7 +184,7 @@ fn plate(under: fn(&Palette) -> Color) -> impl FnOnce(&mut Cx) {
             })
             .hovered(move |s| s.fill(move |t| under(&t.palette)))
             .pressed(|s| s.fill(|t| t.palette.surface))
-            .transition(Motion::Interact)
+            .transition(HamletTheme::interact)
             .apply(cx);
     }
 }

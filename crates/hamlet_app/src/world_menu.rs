@@ -200,14 +200,8 @@ pub(crate) fn optional<R: Resource<Mutability = Mutable>>(
         .on_activate(move |world| {
             flip(&mut world.resource_mut::<R>());
         }),));
-    // The body is built under a plain column, with no transition, so
-    // it shows and goes at once rather than sliding in and out.
     let body = keyed(resource::<R, _>(open), move |open| {
-        if *open {
-            column((body(),)).boxed()
-        } else {
-            frame().boxed()
-        }
+        if *open { body() } else { frame().boxed() }
     })
     .within(column(()));
     with_cx(move |cx| {

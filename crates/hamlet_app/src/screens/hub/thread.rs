@@ -1046,8 +1046,7 @@ pub(super) fn sessions() -> impl View {
 #[cfg(test)]
 mod tests {
     use bevy::app::App;
-    use bevy::ecs::query::{With, Without};
-    use bevy_fynix::Leaving;
+    use bevy::ecs::query::With;
     use hamlet_client::outbox::Outbox;
 
     use super::*;
@@ -1079,9 +1078,8 @@ mod tests {
         ));
         let stop = |app: &mut App| {
             let world = app.world_mut();
-            // Past one going out as Send comes in.
             world
-                .query_filtered::<Entity, (With<Stopping>, Without<Leaving>)>()
+                .query_filtered::<Entity, With<Stopping>>()
                 .iter(world)
                 .next()
         };

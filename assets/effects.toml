@@ -5,9 +5,6 @@
 glow_rate = 12.0
 press_rate = 30.0
 pulse_decay = 4.5
-press_scale = 0.03
-pulse_scale = 0.02
-press_offset = 1.5
 shake_distance = 3.0
 shake_rate = 34.0
 glow_default = 0.33
