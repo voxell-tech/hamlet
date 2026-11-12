@@ -16,6 +16,13 @@ pub(crate) mod serde_metrics;
 pub mod telemetry;
 #[cfg(test)]
 pub(crate) mod testing;
+// Tests of hamlet_actor_wire's endpoint parser.
+#[cfg(test)]
+#[path = "../tests/envoy_callbacks.rs"]
+mod envoy_callbacks_tests;
+#[cfg(test)]
+#[path = "../tests/registry_http.rs"]
+mod registry_http_tests;
 #[doc(hidden)]
 pub use telemetry::{
     ActorInvocationSpanContext, ActorInvocationTelemetry,
