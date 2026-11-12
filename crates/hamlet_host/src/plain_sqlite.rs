@@ -1,19 +1,22 @@
 //! One plain SQLite file per actor, served on a thread of its own.
+//!
+//! The file is in write-ahead mode with normal sync, and in SQLite's
+//! exclusive locking mode, so no other connection can open it while
+//! the host runs the actor.
 
 use std::path::Path;
 use std::sync::mpsc as std_mpsc;
 use std::thread;
 
-use anyhow::{Context, Result, anyhow};
-use hamlet_actor_wire::sqlite_types::{
+use anyhow::{Context, Result, anyhow, ensure};
+use hamlet_actor_core::{
     BindParam, ColumnValue, ExecuteResult, QueryResult,
+    SqliteBatchStatement,
 };
 use rusqlite::fallible_iterator::FallibleIterator;
 use rusqlite::types::{Value, ValueRef};
-use rusqlite::{Batch, Connection};
+use rusqlite::{Batch, Connection, params_from_iter};
 use tokio::sync::oneshot;
-
-use crate::sqlite::SqliteBatchStatement;
 
 enum Command {
     Exec(String, oneshot::Sender<Result<QueryResult>>),
@@ -26,6 +29,10 @@ enum Command {
         Vec<SqliteBatchStatement>,
         oneshot::Sender<Result<Vec<ExecuteResult>>>,
     ),
+    /// A write of the host's own, held while the actor has a
+    /// transaction open so it never joins the actor's transaction.
+    HostWrite(String, Vec<Value>, oneshot::Sender<Result<()>>),
+    Close(oneshot::Sender<()>),
 }
 
 #[derive(Clone)]
@@ -33,23 +40,37 @@ pub struct PlainSqlite {
     tx: std_mpsc::Sender<Command>,
 }
 
-impl PlainSqlite {
-    pub fn open(path: &Path) -> Result<Self> {
-        let conn = Connection::open(path)
-            .with_context(|| format!("open {}", path.display()))?;
-        conn.execute_batch(
-            "PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL;",
-        )?;
-        Self::serve_connection(conn)
-    }
+/// Opens the actor's file in exclusive locking mode and write-ahead
+/// mode with normal sync. The exclusive lock is taken at the first
+/// access, so the caller writes before it serves the file.
+pub fn open(path: &Path) -> Result<Connection> {
+    let conn = Connection::open(path)
+        .with_context(|| format!("open {}", path.display()))?;
+    // The locking mode comes first, so the write-ahead log keeps its
+    // index in this process's memory instead of a shared file.
+    conn.pragma_update(None, "locking_mode", "EXCLUSIVE")?;
+    let journal: String = conn.pragma_update_and_check(
+        None,
+        "journal_mode",
+        "WAL",
+        |row| row.get(0),
+    )?;
+    ensure!(
+        journal.eq_ignore_ascii_case("wal"),
+        "{} stays in journal mode {journal}",
+        path.display()
+    );
+    conn.pragma_update(None, "synchronous", "NORMAL")?;
+    Ok(conn)
+}
 
-    /// Serves an already open connection, such as an in-memory one in
-    /// tests.
-    pub fn serve_connection(conn: Connection) -> Result<Self> {
+impl PlainSqlite {
+    /// Serves `conn` on a thread of its own until [`Self::close`].
+    pub fn serve(conn: Connection) -> Result<Self> {
         let (tx, rx) = std_mpsc::channel::<Command>();
         thread::Builder::new()
             .name("plain-sqlite".into())
-            .spawn(move || serve(conn, rx))?;
+            .spawn(move || serve(conn, &rx))?;
         Ok(Self { tx })
     }
 
@@ -78,6 +99,27 @@ impl PlainSqlite {
         rx.await.map_err(|_| anyhow!("sqlite thread stopped"))?
     }
 
+    /// Runs a write of the host's own once the actor has no
+    /// transaction open.
+    pub async fn host_write(
+        &self,
+        sql: &str,
+        params: Vec<Value>,
+    ) -> Result<()> {
+        let (reply, rx) = oneshot::channel();
+        self.send(Command::HostWrite(sql.to_owned(), params, reply))?;
+        rx.await.map_err(|_| anyhow!("sqlite thread stopped"))?
+    }
+
+    /// Closes the connection, which releases the file's lock, and
+    /// returns once it is closed.
+    pub async fn close(&self) {
+        let (reply, rx) = oneshot::channel();
+        if self.send(Command::Close(reply)).is_ok() {
+            let _ = rx.await;
+        }
+    }
+
     fn send(&self, command: Command) -> Result<()> {
         self.tx
             .send(command)
@@ -85,7 +127,8 @@ impl PlainSqlite {
     }
 }
 
-fn serve(conn: Connection, rx: std_mpsc::Receiver<Command>) {
+fn serve(conn: Connection, rx: &std_mpsc::Receiver<Command>) {
+    let mut held = Vec::new();
     while let Ok(command) = rx.recv() {
         match command {
             Command::Exec(sql, reply) => {
@@ -101,7 +144,38 @@ fn serve(conn: Connection, rx: std_mpsc::Receiver<Command>) {
             Command::Batch(statements, reply) => {
                 let _ = reply.send(batch(&conn, statements));
             }
+            Command::HostWrite(sql, params, reply) => {
+                held.push((sql, params, reply));
+            }
+            Command::Close(reply) => {
+                run_held(&conn, &mut held);
+                if let Err((_, error)) = conn.close() {
+                    tracing::error!(
+                        ?error,
+                        "sqlite file did not close"
+                    );
+                }
+                let _ = reply.send(());
+                return;
+            }
         }
+        run_held(&conn, &mut held);
+    }
+}
+
+type HostWrite = (String, Vec<Value>, oneshot::Sender<Result<()>>);
+
+/// Runs the host's held writes when no transaction is open.
+fn run_held(conn: &Connection, held: &mut Vec<HostWrite>) {
+    if !conn.is_autocommit() {
+        return;
+    }
+    for (sql, params, reply) in held.drain(..) {
+        let result = conn
+            .execute(&sql, params_from_iter(params))
+            .map(drop)
+            .map_err(Into::into);
+        let _ = reply.send(result);
     }
 }
 

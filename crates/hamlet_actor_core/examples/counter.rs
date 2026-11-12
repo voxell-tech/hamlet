@@ -11,11 +11,11 @@ use std::path::Path;
 
 use anyhow::{Result, anyhow};
 use ciborium::{from_reader, into_writer};
-use hamlet_actor_core::host::Host;
 use hamlet_actor_core::{
     ActorConfig, ActorEvent, ActorFactory, ActorStart,
     RequestSaveOpts, SerializeStateReason, StateDelta,
 };
+use hamlet_host::Host;
 
 fn encode_count(count: i64) -> Result<Vec<u8>> {
     let mut out = Vec::new();

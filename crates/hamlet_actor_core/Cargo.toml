@@ -35,7 +35,6 @@ opentelemetry = { version = "0.28", default-features = false, features = [
 opentelemetry-otlp = { version = "0.28", default-features = false, optional = true, features = ["trace", "http-json", "http-proto", "grpc-tonic", "reqwest-blocking-client"] }
 opentelemetry_sdk = { version = "0.28", default-features = false, features = ["trace", "internal-logs"] }
 rand.workspace = true
-rusqlite.workspace = true
 hamlet_actor_error.workspace = true
 hamlet_actor_wire.workspace = true
 lazy_static.workspace = true
@@ -51,6 +50,10 @@ tracing.workspace = true
 tracing-opentelemetry = { version = "0.29", default-features = false }
 tracing-subscriber = { workspace = true, optional = true }
 vbare = { workspace = true, features = ["serde"] }
+
+[dev-dependencies]
+# The examples run on the local host, which builds on this crate.
+hamlet_host.workspace = true
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 # `block_in_place` in the queue's sync bridge needs the multi-thread runtime, which the

@@ -4,8 +4,6 @@
 //! and the plain types the core took from the engine client. Each
 //! module below mirrors the path the core imports from.
 
-mod local;
-mod plain_sqlite;
 mod running;
 
 use std::sync::Arc;
@@ -14,8 +12,6 @@ use anyhow::Result;
 use hamlet_actor_wire::shared_types::actor_key;
 use tokio::sync::{oneshot, watch};
 
-pub use self::local::{Host, now_ms, read_alarm};
-pub use self::plain_sqlite::PlainSqlite;
 pub use self::running::{RunningActor, StartRequest};
 use self::tunnel::HibernatingWebSocketMetadata;
 use crate::async_counter::AsyncCounter;

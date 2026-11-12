@@ -4629,6 +4629,7 @@ dependencies = [
  "getrandom 0.2.17",
  "hamlet_actor_error",
  "hamlet_actor_wire",
+ "hamlet_host",
  "http",
  "js-sys",
  "lazy_static",
@@ -4638,7 +4639,6 @@ dependencies = [
  "parking_lot",
  "prometheus",
  "rand 0.8.8",
- "rusqlite",
  "scc",
  "serde",
  "serde_bare",
@@ -4807,6 +4807,19 @@ dependencies = [
  "gix",
  "hamlet_testing",
  "serde",
+]
+
+[[package]]
+name = "hamlet_host"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "hamlet_actor_core",
+ "hamlet_testing",
+ "parking_lot",
+ "rusqlite",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]

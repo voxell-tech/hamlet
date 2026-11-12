@@ -1,0 +1,22 @@
+[package]
+name = "hamlet_host"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+description = "Runs actors in this process, each in one plain SQLite file"
+
+[dependencies]
+anyhow.workspace = true
+hamlet_actor_core.workspace = true
+parking_lot.workspace = true
+rusqlite.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+hamlet_testing.workspace = true
+
+[lints]
+workspace = true
