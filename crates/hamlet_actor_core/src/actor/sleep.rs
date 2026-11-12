@@ -30,7 +30,11 @@ use crate::async_counter::AsyncCounter;
 use crate::host::HostHandle as EnvoyHandle;
 #[cfg(feature = "wasm-runtime")]
 use crate::runtime::RuntimeSpawner;
+#[cfg(test)]
+use crate::time::sleep_until;
 use crate::time::{Instant, sleep};
+#[cfg(test)]
+use crate::types::ActorKey;
 
 /// Per-actor sleep state.
 ///
@@ -125,6 +129,18 @@ impl std::fmt::Debug for SleepState {
 }
 
 impl ActorContext {
+    #[cfg(test)]
+    pub(crate) fn new_for_sleep_tests(
+        actor_id: impl Into<String>,
+    ) -> Self {
+        Self::new(
+            actor_id,
+            "sleep-test",
+            ActorKey::default(),
+            "local",
+        )
+    }
+
     pub(crate) fn configure_sleep_state(&self, config: ActorConfig) {
         *self.0.sleep.config.lock() = config;
     }
@@ -385,6 +401,32 @@ impl ActorContext {
             .await
     }
 
+    #[cfg(test)]
+    pub(crate) async fn wait_for_sleep_idle_window(
+        &self,
+        deadline: Instant,
+    ) -> bool {
+        loop {
+            let activity = self.sleep_activity_notify();
+            let activity_notified = activity.notified();
+            tokio::pin!(activity_notified);
+            activity_notified.as_mut().enable();
+            let idle = self.0.sleep.work.idle_notify.notified();
+            tokio::pin!(idle);
+            idle.as_mut().enable();
+
+            if self.can_finalize_shutdown(ShutdownKind::Sleep) {
+                return true;
+            }
+
+            tokio::select! {
+                _ = &mut activity_notified => {}
+                _ = &mut idle => {}
+                _ = sleep_until(deadline) => return false,
+            }
+        }
+    }
+
     pub async fn wait_for_tracked_shutdown_work(&self) -> bool {
         let shutdown_deadline = self.shutdown_deadline_token();
         tokio::select! {
@@ -426,9 +468,12 @@ impl ActorContext {
         counter.wait_zero(deadline).await
     }
 
-    #[expect(
-        dead_code,
-        reason = "ported; nothing in Hamlet calls it yet"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "ported; nothing in Hamlet calls it yet"
+        )
     )]
     pub(crate) async fn wait_for_http_requests_idle(&self) {
         loop {
@@ -993,3 +1038,6 @@ impl ActorContext {
 
 // Test shim keeps moved tests in crate-root tests/ with
 // private-module access.
+#[cfg(test)]
+#[path = "../../tests/sleep.rs"]
+mod tests;

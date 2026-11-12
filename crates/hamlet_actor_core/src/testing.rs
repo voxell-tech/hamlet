@@ -575,3 +575,28 @@ pub(crate) async fn persist_actor_snapshot(
     )
     .await
 }
+
+// --- sleep ---
+
+impl TestHost {
+    /// A host of its own, for a test that hands it to a context.
+    pub(crate) fn new_for_tests() -> Arc<Self> {
+        Arc::new(Self::new("http://127.0.0.1:1".to_owned(), None))
+    }
+
+    /// Waits for the oldest call not yet taken and takes it. The
+    /// calls are recorded synchronously, so this polls; under paused
+    /// time each poll advances the clock by a millisecond.
+    pub(crate) async fn next_call(&self) -> HostCall {
+        loop {
+            {
+                let mut calls = self.calls.lock();
+                if !calls.is_empty() {
+                    return calls.remove(0);
+                }
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(1))
+                .await;
+        }
+    }
+}

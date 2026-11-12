@@ -305,3 +305,6 @@ impl fmt::Debug for WebSocket {
 
 // Test shim keeps moved tests in crate-root tests/ with
 // private-module access.
+#[cfg(test)]
+#[path = "../tests/websocket.rs"]
+mod tests;

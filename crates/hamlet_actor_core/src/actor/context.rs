@@ -488,6 +488,22 @@ impl ActorContext {
         Arc::as_ptr(&self.0) as usize
     }
 
+    #[cfg(test)]
+    pub(crate) fn new(
+        actor_id: impl Into<String>,
+        name: impl Into<String>,
+        key: ActorKey,
+        region: impl Into<String>,
+    ) -> Self {
+        crate::testing::new_with_kv(
+            actor_id,
+            name,
+            key,
+            region,
+            LegacyActorKv::new_in_memory(),
+        )
+    }
+
     pub(crate) fn build(
         actor_id: String,
         name: String,
