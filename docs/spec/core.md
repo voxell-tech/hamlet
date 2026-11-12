@@ -242,13 +242,13 @@ conversations of a ChatGPT or Claude export as one project. A project is
 the root of the git repository a conversation worked in, else its
 folder; linked worktrees, Downloads and the home folder are none. Each
 project becomes a hamlet named for it and working on its folder, or the
-chief's hamlet that works on it already, and each of its conversations
-of the last [30] days a hire under its mayor, as the hamlet's tier has
-room, whose chat begins with that conversation. A conversation is
-brought in once per chief. The window offers the projects once, when
-first-run setup ends on a realm with no hamlet, and again from Settings;
-the chief picks which conversations of each project to bring in, listed
-newest first, and the newest [49] of git repositories of [3]
+chief's hamlet that works on it already, and each of its newest [20]
+conversations of the last [30] days a hire under its mayor, as the
+hamlet's tier has room, whose chat begins with that conversation. A
+conversation is brought in once per chief. The window offers the
+projects once, when first-run setup ends on a realm with no hamlet, and
+again from Settings; the chief picks which conversations of each project
+to bring in, listed newest first, and those of git repositories of [3]
 conversations or more start picked. A
 conversation keeps the words of the chief's messages and the answers,
 its first message and the newest [200], and a notice says where it came
