@@ -70,6 +70,11 @@ impl SqliteTransaction {
     pub async fn rollback(&self) -> Result<()> {
         self.db.finish_transaction(&self.key, false).await
     }
+
+    #[cfg(test)]
+    pub async fn expire(&self) -> Result<()> {
+        self.db.expire_transaction(&self.key).await
+    }
 }
 
 pub(super) struct TransactionCoordinator {
@@ -428,6 +433,16 @@ impl SqliteDb {
         .await
     }
 
+    #[cfg(test)]
+    pub async fn begin_transaction_with_key(
+        &self,
+        key: impl Into<String>,
+        timeout: Option<Duration>,
+    ) -> Result<SqliteTransaction> {
+        self.begin_transaction_with_key_and_name(key, None, timeout)
+            .await
+    }
+
     async fn begin_transaction_with_key_and_name(
         &self,
         key: impl Into<String>,
@@ -458,6 +473,16 @@ impl SqliteDb {
             "sqlite transaction begin task failed",
         );
         self.traced(SqliteOperation::TransactionBegin, task).await
+    }
+
+    #[cfg(test)]
+    pub(super) async fn begin_transaction_inner(
+        &self,
+        key: String,
+        timeout: Duration,
+    ) -> Result<SqliteTransaction> {
+        self.begin_transaction_profiled_inner(key, timeout, None)
+            .await
     }
 
     async fn begin_transaction_profiled_inner(

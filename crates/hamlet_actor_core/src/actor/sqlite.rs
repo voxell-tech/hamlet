@@ -35,6 +35,11 @@ pub use tx::{
     TransactionInvalidArgumentError, TransactionQueueFullError,
     TransactionTerminalError, TransactionUnknownError,
 };
+#[cfg(test)]
+use tx::{
+    TRANSACTION_TERMINAL_CAPACITY, TransactionCoordinatorState,
+    TransactionTerminalState, insert_terminal_state,
+};
 use tx::{TransactionCoordinator, run_detached_transaction_task};
 
 use crate::error::SqliteRuntimeError;
@@ -1239,3 +1244,7 @@ fn json_type_name(value: &JsonValue) -> &'static str {
         JsonValue::Object(_) => "object",
     }
 }
+
+#[cfg(test)]
+#[path = "../../tests/sqlite.rs"]
+mod tests;
