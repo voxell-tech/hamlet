@@ -19,9 +19,12 @@ pub struct ActionDispatchError {
 }
 
 impl ActionDispatchError {
-    #[expect(
-        dead_code,
-        reason = "ported; nothing in Hamlet calls it yet"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "ported; nothing in Hamlet calls it yet"
+        )
     )]
     pub(crate) fn from_anyhow(error: anyhow::Error) -> Self {
         let original_message = error.to_string();
@@ -41,17 +44,23 @@ impl ActionDispatchError {
         }
     }
 
-    #[expect(
-        dead_code,
-        reason = "ported; nothing in Hamlet calls it yet"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "ported; nothing in Hamlet calls it yet"
+        )
     )]
     pub(crate) fn client_message(&self) -> &str {
         client_error_message(&self.group, &self.code, &self.message)
     }
 
-    #[expect(
-        dead_code,
-        reason = "ported; nothing in Hamlet calls it yet"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "ported; nothing in Hamlet calls it yet"
+        )
     )]
     pub(crate) fn client_metadata(&self) -> Option<&JsonValue> {
         client_error_metadata(
@@ -95,3 +104,6 @@ impl ActionDispatchError {
 
 // Test shim keeps moved tests under tests while retaining private
 // module access.
+#[cfg(test)]
+#[path = "../../tests/modules/action_dispatch_error.rs"]
+mod tests;
