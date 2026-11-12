@@ -10,7 +10,6 @@ use croner::Cron;
 use futures::future::BoxFuture;
 #[cfg(feature = "wasm-runtime")]
 use futures::future::{AbortHandle, Abortable};
-use hamlet_actor_engine_client::handle::EnvoyHandle;
 use hamlet_actor_error::ActorError;
 use serde::{Deserialize, Serialize};
 use tokio::runtime::Handle;
@@ -27,6 +26,7 @@ use crate::actor::internal_storage::{
 use crate::error::{
     ScheduleRuntimeError, client_error_message, client_error_metadata,
 };
+use crate::host::HostHandle as EnvoyHandle;
 use crate::runtime::RuntimeSpawner;
 use crate::sqlite::{BindParam, ColumnValue, SqliteBatchStatement};
 use crate::telemetry::{

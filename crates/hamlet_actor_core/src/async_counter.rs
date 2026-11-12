@@ -12,7 +12,7 @@ use tokio::sync::Notify;
 // deadlines, so this API keeps it.
 #[cfg(target_arch = "wasm32")]
 use crate::time::Instant;
-use crate::utils::sleep;
+use crate::time::sleep;
 
 pub struct AsyncCounter {
     value: AtomicUsize,

@@ -29,7 +29,6 @@
 //! those held so far early instead.
 
 use anyhow::{Context, Result};
-use hamlet_actor_engine_client::protocol;
 use hamlet_actor_persist::generated::fork_v1;
 use hamlet_actor_persist::versioned as persist_versioned;
 
@@ -71,28 +70,6 @@ pub(crate) struct StartFork {
     /// The source's own chain as the engine recorded it, oldest
     /// first, without this fork.
     source_chain: Vec<fork_v1::ForkLink>,
-}
-
-impl StartFork {
-    pub(crate) fn from_protocol(fork: protocol::ActorFork) -> Self {
-        Self {
-            fork_id: fork.fork_id.to_vec(),
-            link: fork_v1::ForkLink {
-                actor_id: fork.actor_id.to_string().into(),
-                key: fork.key.map(|key| key.to_string().into()),
-                forked_at: fork.forked_at,
-            },
-            source_chain: fork
-                .chain
-                .into_iter()
-                .map(|link| fork_v1::ForkLink {
-                    actor_id: link.actor_id.to_string().into(),
-                    key: link.key.map(|key| key.to_string().into()),
-                    forked_at: link.forked_at,
-                })
-                .collect(),
-        }
-    }
 }
 
 /// The actor's fork state as stored, empty for an actor that was
@@ -183,7 +160,7 @@ pub(crate) fn chain_of(state: &fork_v1::ForkState) -> Vec<ForkLink> {
 fn link_of(stored: &fork_v1::ForkLink) -> ForkLink {
     ForkLink {
         actor_id: stored.actor_id.to_string(),
-        key: crate::registry::actor_key_from_protocol(
+        key: crate::host::actor_key_from_protocol(
             stored.key.as_ref().map(ToString::to_string),
         ),
         forked_at: stored.forked_at,

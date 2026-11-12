@@ -2,12 +2,9 @@
 [package]
 name = "hamlet_actor_inspector_protocol"
 version.workspace = true
-authors.workspace = true
 license.workspace = true
-homepage.workspace = true
 repository.workspace = true
 edition.workspace = true
-workspace = "../../../"
 description = "Inspector protocol types for actors"
 
 [dependencies]

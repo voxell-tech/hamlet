@@ -1,3 +1,8 @@
 [alias]
 # Hamlet's build, install and check tasks; `cargo xtask help` lists them.
 xtask = "run --quiet --locked --manifest-path xtask/Cargo.toml --"
+
+[env]
+# The actor error derive writes one JSON file per error code at build
+# time; keep them out of the source tree.
+HAMLET_ACTOR_ERROR_OUTPUT_DIR = { value = "target/actor-errors", relative = true }

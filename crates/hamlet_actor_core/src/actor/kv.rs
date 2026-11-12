@@ -1,7 +1,7 @@
 // This file was changed for Hamlet. See NOTICE in this crate.
 use anyhow::Result;
-use hamlet_actor_engine_client::handle::EnvoyHandle;
 
+use crate::host::HostHandle as EnvoyHandle;
 use crate::types::ListOpts;
 
 /// Narrow access to the actor's pre-SQLite KV namespace.

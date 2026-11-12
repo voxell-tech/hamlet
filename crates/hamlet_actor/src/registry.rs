@@ -1,4 +1,5 @@
 // This file was changed for Hamlet. See NOTICE in this crate.
+use std::collections::HashMap;
 use std::future::Future;
 use std::sync::Arc;
 
@@ -6,27 +7,22 @@ use anyhow::Result;
 use hamlet_actor_core::metrics::{
     RenderedMetrics, render_prometheus_metrics,
 };
-use hamlet_actor_core::registry::CoreEnvoyHandle;
-use hamlet_actor_core::serverless::CoreServerlessRuntime;
 use hamlet_actor_core::{
     ActorConfig, ActorFactory as CoreActorFactory, ActorStart,
-    CoreRegistry, RuntimeMode, ServeConfig,
 };
 use hamlet_actor_error::ActorError;
-use tokio_util::sync::CancellationToken;
 
 use crate::actor::Actor;
-use crate::serverless_listener;
 use crate::start::{Start, run_actor, wrap_start};
 
 pub struct Registry {
-    inner: CoreRegistry,
+    inner: HashMap<String, CoreActorFactory>,
 }
 
 impl Registry {
     pub fn new() -> Self {
         Self {
-            inner: CoreRegistry::new(),
+            inner: HashMap::new(),
         }
     }
 
@@ -82,175 +78,24 @@ impl Registry {
         F: Fn(Start<A>) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = Result<()>> + Send + 'static,
     {
-        self.inner.register(
-            name,
+        self.inner.insert(
+            name.to_owned(),
             build_factory::<A, F, Fut>(config, entry),
         );
         self
-    }
-
-    pub async fn serve(
-        self,
-        shutdown: CancellationToken,
-    ) -> Result<()> {
-        self.inner.serve(shutdown).await
-    }
-
-    pub async fn serve_with_config(
-        self,
-        config: ServeConfig,
-        shutdown: CancellationToken,
-    ) -> Result<()> {
-        self.inner.serve_with_config(config, shutdown).await
-    }
-
-    pub(crate) async fn serve_with_config_and_handle_observer(
-        self,
-        config: ServeConfig,
-        shutdown: CancellationToken,
-        on_handle: impl Fn(CoreEnvoyHandle) + Send + 'static,
-    ) -> Result<()> {
-        self.inner
-            .serve_with_config_and_handle_observer(
-                config, shutdown, on_handle,
-            )
-            .await
-    }
-
-    /// Converts the registry into a serverless runtime. The returned
-    /// runtime lazily starts an envoy on first request and handles
-    /// serverless HTTP requests (start, metadata, health, metrics)
-    /// via [`CoreServerlessRuntime::handle_request`]. Equivalent to
-    /// the TypeScript `registry.handler` entry point for platform
-    /// fetch handlers.
-    pub async fn into_serverless_runtime(
-        self,
-        config: ServeConfig,
-    ) -> Result<CoreServerlessRuntime> {
-        self.inner.into_serverless_runtime(config).await
     }
 
     /// Renders the process-global Prometheus metrics. Equivalent to
     /// the TypeScript `registry.routes.prometheusMetrics()`. Metrics
     /// are process-global, so this does not depend on registry
     /// instance state.
+    /// The registered actors' factories, by name, for a host to run.
+    pub fn into_factories(self) -> HashMap<String, CoreActorFactory> {
+        self.inner
+    }
+
     pub fn prometheus_metrics(&self) -> Result<RenderedMetrics> {
         render_prometheus_metrics()
-    }
-
-    /// Serves actors until the process receives SIGINT or SIGTERM,
-    /// then cancels and drains. This is the standalone-binary entry
-    /// point and mirrors the TypeScript `registry.start()`.
-    /// Connection settings (including the
-    /// `HAMLET_ACTOR_ENGINE_BINARY_PATH` used to spawn or reuse a
-    /// local engine) are read from the environment.
-    ///
-    /// Unlike TypeScript, this blocks until shutdown because Rust has
-    /// no implicit runtime to keep the process alive. For
-    /// programmatic lifecycle control (tests, embedding), drive
-    /// [`serve`](Self::serve) with your own [`CancellationToken`]
-    /// instead.
-    ///
-    /// Flushes pending telemetry spans before returning.
-    pub async fn start(self) -> Result<()> {
-        self.start_with_config(ServeConfig::from_env()?).await
-    }
-
-    /// [`start`](Self::start) with an explicit [`ServeConfig`].
-    ///
-    /// Selects the run mode from `HAMLET_ACTOR_RUNTIME_MODE` (see
-    /// [`RuntimeMode`]), mirroring the TypeScript `registry.start()`.
-    /// `Envoy` (default) holds one long-lived outbound envoy;
-    /// `Serverless` runs an HTTP listener that lazily starts and
-    /// caches an envoy on the first request.
-    ///
-    /// Flushes pending telemetry spans before returning.
-    pub async fn start_with_config(
-        self,
-        config: ServeConfig,
-    ) -> Result<()> {
-        let result = match RuntimeMode::from_env() {
-            RuntimeMode::Envoy => self.start_envoy(config).await,
-            RuntimeMode::Serverless => {
-                self.start_serverless(config).await
-            }
-        };
-        crate::telemetry::shutdown().await;
-        result
-    }
-
-    /// Persistent-envoy `start`: serves until SIGINT/SIGTERM, then
-    /// drains.
-    async fn start_envoy(self, config: ServeConfig) -> Result<()> {
-        let shutdown = CancellationToken::new();
-        let mut serve = tokio::spawn({
-            let shutdown = shutdown.clone();
-            async move { self.serve_with_config(config, shutdown).await }
-        });
-
-        tokio::select! {
-            // Surface an early serve failure instead of waiting for a signal.
-            result = &mut serve => return result?,
-            _ = shutdown_signal() => {}
-        }
-
-        shutdown.cancel();
-        serve.await?
-    }
-
-    /// Serverless `start`: runs the HTTP listener until
-    /// SIGINT/SIGTERM, then drains the cached envoy.
-    async fn start_serverless(
-        self,
-        config: ServeConfig,
-    ) -> Result<()> {
-        let runtime = self.into_serverless_runtime(config).await?;
-        let shutdown = CancellationToken::new();
-        let mut serve = tokio::spawn({
-            let shutdown = shutdown.clone();
-            async move {
-                serverless_listener::serve(runtime, shutdown).await
-            }
-        });
-
-        tokio::select! {
-            // Surface an early listener failure instead of waiting for a signal.
-            result = &mut serve => return result?,
-            _ = shutdown_signal() => {}
-        }
-
-        shutdown.cancel();
-        serve.await?
-    }
-}
-
-/// Resolves when the process receives SIGINT or, on Unix, SIGTERM.
-async fn shutdown_signal() {
-    #[cfg(unix)]
-    {
-        use tokio::signal::unix::{SignalKind, signal};
-
-        let mut terminate = match signal(SignalKind::terminate()) {
-            Ok(terminate) => terminate,
-            Err(error) => {
-                tracing::warn!(
-                    ?error,
-                    "failed to install SIGTERM handler"
-                );
-                let _ = tokio::signal::ctrl_c().await;
-                return;
-            }
-        };
-
-        tokio::select! {
-            _ = tokio::signal::ctrl_c() => {}
-            _ = terminate.recv() => {}
-        }
-    }
-
-    #[cfg(not(unix))]
-    {
-        let _ = tokio::signal::ctrl_c().await;
     }
 }
 

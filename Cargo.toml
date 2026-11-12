@@ -5,18 +5,6 @@ members = ["crates/*"]
 exclude = [
     "vendor",
     "xtask",
-    # Ported crates, kept out until each builds in the workspace.
-    "crates/hamlet_actor",
-    "crates/hamlet_actor_client",
-    "crates/hamlet_actor_client_protocol",
-    "crates/hamlet_actor_core",
-    "crates/hamlet_actor_error",
-    "crates/hamlet_actor_error_macros",
-    "crates/hamlet_actor_inspector_protocol",
-    "crates/hamlet_actor_metrics",
-    "crates/hamlet_actor_persist",
-    "crates/hamlet_actor_shared_types",
-    "crates/hamlet_actor_sqlite_types",
 ]
 # The root holds no package, so `cargo build`, `cargo test` and
 # `cargo clippy` there cover every crate and the checks in AGENTS.md
@@ -47,6 +35,18 @@ hamlet_git = { version = "0.1.0", path = "crates/hamlet_git" }
 hamlet_sandbox = { version = "0.1.0", path = "crates/hamlet_sandbox" }
 hamlet_workspace_wire = { version = "0.1.0", path = "crates/hamlet_workspace_wire" }
 hamlet_update = { version = "0.1.0", path = "crates/hamlet_update" }
+# The actor runtime, ported. Each crate holds Apache-2.0 code; see its NOTICE.
+hamlet_actor = { version = "0.1.0", path = "crates/hamlet_actor" }
+hamlet_actor_client = { version = "0.1.0", path = "crates/hamlet_actor_client" }
+hamlet_actor_client_protocol = { version = "0.1.0", path = "crates/hamlet_actor_client_protocol" }
+hamlet_actor_core = { version = "0.1.0", path = "crates/hamlet_actor_core" }
+hamlet_actor_error = { version = "0.1.0", path = "crates/hamlet_actor_error" }
+hamlet_actor_error_macros = { version = "0.1.0", path = "crates/hamlet_actor_error_macros" }
+hamlet_actor_inspector_protocol = { version = "0.1.0", path = "crates/hamlet_actor_inspector_protocol" }
+hamlet_actor_metrics = { version = "0.1.0", path = "crates/hamlet_actor_metrics" }
+hamlet_actor_persist = { version = "0.1.0", path = "crates/hamlet_actor_persist" }
+hamlet_actor_shared_types = { version = "0.1.0", path = "crates/hamlet_actor_shared_types" }
+sqlite_types = { version = "0.1.0", path = "crates/hamlet_actor_sqlite_types", package = "hamlet_actor_sqlite_types" }
 
 # fynix
 bevy_fynix = { path = "vendor/fynix/crates/bevy_fynix" }
@@ -68,6 +68,35 @@ bevy_winit = { version = "0.20", default-features = false }
 bevy = { version = "0.20", default-features = false }
 # Its Bevy 0.20 port is not released yet: held to a commit of its main.
 bevy_hanabi = { git = "https://github.com/djeedai/bevy_hanabi", rev = "d277555d4a2350da6787245d15c56c62c739594d", default-features = false, features = ["3d"] }
+
+# Used only by the ported actor crates, at the versions they were ported with.
+async-trait = "0.1"
+bytes = "1.6.0"
+chrono-tz = "0.10.4"
+ciborium = "0.2"
+croner = "2.2.0"
+http = "1.3.1"
+indoc = "2.0.5"
+lazy_static = "1.4"
+opentelemetry-http = "0.28"
+parking_lot = "0.12"
+proc-macro2 = { version = "1.0", features = ["span-locations"] }
+prometheus = "0.14"
+quote = "1.0"
+rand = "0.8"
+# Held to the version whose SQLite is Diesel's, so both share one build.
+rusqlite = { version = "0.40", features = ["bundled"] }
+scc = "3.6.12"
+serde_bare = "0.5.0"
+serde_bytes = "0.11.17"
+subtle = "2"
+syn = { version = "2.0", features = ["full", "extra-traits"] }
+tokio-stream = "0.1.15"
+tokio-util = "0.7"
+tracing = "0.1.40"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["ansi", "fmt", "json", "env-filter"] }
+vbare = "0.2.0"
+vbare-compiler = "0.2.0"
 
 # other
 # The version bevy_a11y uses, which it no longer re-exports.

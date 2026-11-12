@@ -8,12 +8,6 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use deferred_bootstrap::DeferredBootstrap;
-use hamlet_actor_engine_client::handle::EnvoyHandle;
-use hamlet_actor_engine_client::protocol;
-use hamlet_actor_engine_client::utils::{
-    RemoteSqliteConnectionSessionLostError,
-    RemoteSqliteIndeterminateResultError,
-};
 use hamlet_actor_error::{ActorError, ActorSpecifier};
 #[cfg(feature = "sqlite-local")]
 use parking_lot::Mutex;
@@ -22,9 +16,6 @@ use serde_json::{Map as JsonMap, Value as JsonValue};
 pub use sqlite_types::{
     BindParam, ColumnValue, ExecResult, ExecuteResult, QueryResult,
 };
-use sqlite_types::{
-    is_head_fence_mismatch, is_transaction_too_large,
-};
 #[cfg(feature = "sqlite-local")]
 use tokio::sync::Mutex as AsyncMutex;
 use tokio::sync::watch;
@@ -32,6 +23,11 @@ use tokio::sync::watch;
 use tokio::task::JoinHandle;
 use tracing::Instrument as _;
 
+use crate::host::HostHandle as EnvoyHandle;
+use crate::host::utils::{
+    RemoteSqliteConnectionSessionLostError,
+    RemoteSqliteIndeterminateResultError,
+};
 use crate::telemetry::SqliteOperation;
 
 mod deferred_bootstrap;
@@ -448,20 +444,6 @@ impl SqliteDb {
         let result = future.instrument(span.span()).await;
         span.finish(result.as_ref().err());
         result
-    }
-
-    pub async fn get_pages(
-        &self,
-        request: protocol::SqliteGetPagesRequest,
-    ) -> Result<protocol::SqliteGetPagesResponse> {
-        self.handle()?.sqlite_get_pages(request).await
-    }
-
-    pub async fn commit(
-        &self,
-        request: protocol::SqliteCommitRequest,
-    ) -> Result<protocol::SqliteCommitResponse> {
-        self.handle()?.sqlite_commit(request).await
     }
 
     pub async fn open(&self) -> Result<()> {
@@ -1568,54 +1550,17 @@ impl SqliteDb {
 
     async fn remote_exec(&self, sql: String) -> Result<QueryResult> {
         let config = self.remote_config()?;
-        let response = config
-            .handle
-            .remote_sqlite_exec(protocol::SqliteExecRequest {
-                namespace_id: config.namespace_id.into(),
-                actor_id: config.actor_id.into(),
-                generation: config.generation,
-                sql: sql.into(),
-            })
-            .await
-            .map_err(remote_request_error)?;
-
-        match response {
-            protocol::SqliteExecResponse::SqliteExecOk(ok) => {
-                Ok(query_result_from_protocol(ok.result))
-            }
-            protocol::SqliteExecResponse::SqliteErrorResponse(
-                error,
-            ) => Err(self.remote_sqlite_error_response(error)),
-        }
+        config.handle.sqlite_file(&config.actor_id)?.exec(sql).await
     }
 
     async fn remote_exec_with_session(
         &self,
         sql: String,
-        expected_session: Option<u64>,
+        _expected_session: Option<u64>,
     ) -> Result<(QueryResult, u64)> {
-        let config = self.remote_config()?;
-        let (response, session) = config
-            .handle
-            .remote_sqlite_exec_with_session(
-                protocol::SqliteExecRequest {
-                    namespace_id: config.namespace_id.into(),
-                    actor_id: config.actor_id.into(),
-                    generation: config.generation,
-                    sql: sql.into(),
-                },
-                expected_session,
-            )
-            .await?;
-
-        match response {
-            protocol::SqliteExecResponse::SqliteExecOk(ok) => {
-                Ok((query_result_from_protocol(ok.result), session))
-            }
-            protocol::SqliteExecResponse::SqliteErrorResponse(
-                error,
-            ) => Err(self.remote_sqlite_error_response(error)),
-        }
+        let session =
+            self.handle()?.connection_session().unwrap_or_default();
+        Ok((self.remote_exec(sql).await?, session))
     }
 
     async fn remote_execute(
@@ -1624,26 +1569,11 @@ impl SqliteDb {
         params: Option<Vec<BindParam>>,
     ) -> Result<ExecuteResult> {
         let config = self.remote_config()?;
-        let response = config
+        config
             .handle
-            .remote_sqlite_execute(protocol::SqliteExecuteRequest {
-                namespace_id: config.namespace_id.into(),
-                actor_id: config.actor_id.into(),
-                generation: config.generation,
-                sql: sql.into(),
-                params: params.map(protocol_bind_params),
-            })
+            .sqlite_file(&config.actor_id)?
+            .execute(sql, params)
             .await
-            .map_err(remote_request_error)?;
-
-        match response {
-            protocol::SqliteExecuteResponse::SqliteExecuteOk(ok) => {
-                Ok(execute_result_from_protocol(ok.result))
-            }
-            protocol::SqliteExecuteResponse::SqliteErrorResponse(
-                error,
-            ) => Err(self.remote_sqlite_error_response(error)),
-        }
     }
 
     async fn remote_execute_batch(
@@ -1651,70 +1581,22 @@ impl SqliteDb {
         statements: Vec<SqliteBatchStatement>,
     ) -> Result<Vec<ExecuteResult>> {
         let config = self.remote_config()?;
-        let response = config
+        config
             .handle
-            .remote_sqlite_execute_batch(
-                protocol::SqliteExecuteBatchRequest {
-                    namespace_id: config.namespace_id.into(),
-                    actor_id: config.actor_id.into(),
-                    generation: config.generation,
-                    statements: statements
-                        .into_iter()
-                        .map(|statement| {
-                            protocol::SqliteBatchStatement {
-                                sql: statement.sql.into(),
-                                params: statement
-                                    .params
-                                    .map(protocol_bind_params),
-                            }
-                        })
-                        .collect(),
-                },
-            )
+            .sqlite_file(&config.actor_id)?
+            .execute_batch(statements)
             .await
-            .map_err(remote_request_error)?;
-
-        match response {
-			protocol::SqliteExecuteBatchResponse::SqliteExecuteBatchOk(ok) => Ok(ok
-				.results
-				.into_iter()
-				.map(execute_result_from_protocol)
-				.collect()),
-			protocol::SqliteExecuteBatchResponse::SqliteErrorResponse(error) => {
-				Err(self.remote_sqlite_error_response(error))
-			}
-		}
     }
 
     async fn remote_execute_with_session(
         &self,
         sql: String,
         params: Option<Vec<BindParam>>,
-        expected_session: Option<u64>,
+        _expected_session: Option<u64>,
     ) -> Result<(ExecuteResult, u64)> {
-        let config = self.remote_config()?;
-        let (response, session) = config
-            .handle
-            .remote_sqlite_execute_with_session(
-                protocol::SqliteExecuteRequest {
-                    namespace_id: config.namespace_id.into(),
-                    actor_id: config.actor_id.into(),
-                    generation: config.generation,
-                    sql: sql.into(),
-                    params: params.map(protocol_bind_params),
-                },
-                expected_session,
-            )
-            .await?;
-
-        match response {
-            protocol::SqliteExecuteResponse::SqliteExecuteOk(ok) => {
-                Ok((execute_result_from_protocol(ok.result), session))
-            }
-            protocol::SqliteExecuteResponse::SqliteErrorResponse(
-                error,
-            ) => Err(self.remote_sqlite_error_response(error)),
-        }
+        let session =
+            self.handle()?.connection_session().unwrap_or_default();
+        Ok((self.remote_execute(sql, params).await?, session))
     }
 
     pub(crate) async fn query_rows_cbor(
@@ -1768,47 +1650,6 @@ impl SqliteDb {
         self.handle
             .clone()
             .ok_or_else(|| sqlite_not_configured("handle"))
-    }
-
-    fn remote_sqlite_error_response(
-        &self,
-        error: protocol::SqliteErrorResponse,
-    ) -> anyhow::Error {
-        if let Some(retry_after_ms) =
-            sqlite_types::storage_overload_retry_after_ms(
-                &error.group,
-                &error.code,
-                &error.message,
-            )
-        {
-            return SqliteRuntimeError::StorageOverloaded {
-                retry_after_ms,
-                message: error.message.to_string(),
-            }
-            .build();
-        }
-        if is_head_fence_mismatch_response(&error) {
-            if let Ok(config) = self.runtime_config() {
-                report_sqlite_worker_fatal(
-                    &self.worker_fatal_reported,
-                    config,
-                    format!(
-                        "remote sqlite fatal storage error: {}",
-                        error.message
-                    ),
-                );
-            }
-            return SqliteRuntimeError::Closed.build();
-        }
-
-        if is_transaction_too_large(&error.group, &error.code) {
-            return SqliteRuntimeError::TransactionTooLarge {
-                detail: error.message.to_string(),
-            }
-            .build();
-        }
-
-        remote_sqlite_error_response(error.message.to_string())
     }
 }
 
@@ -1958,114 +1799,6 @@ fn map_local_worker_error(error: anyhow::Error) -> anyhow::Error {
     error
 }
 
-fn protocol_bind_params(
-    params: Vec<BindParam>,
-) -> Vec<protocol::SqliteBindParam> {
-    params.into_iter().map(protocol_bind_param).collect()
-}
-
-fn protocol_bind_param(
-    param: BindParam,
-) -> protocol::SqliteBindParam {
-    match param {
-        BindParam::Null => protocol::SqliteBindParam::SqliteValueNull,
-        BindParam::Integer(value) => {
-            protocol::SqliteBindParam::SqliteValueInteger(
-                protocol::SqliteValueInteger { value },
-            )
-        }
-        BindParam::Float(value) => {
-            protocol::SqliteBindParam::SqliteValueFloat(
-                protocol::SqliteValueFloat {
-                    value: value.to_bits().to_be_bytes(),
-                },
-            )
-        }
-        BindParam::Text(value) => {
-            protocol::SqliteBindParam::SqliteValueText(
-                protocol::SqliteValueText {
-                    value: value.into(),
-                },
-            )
-        }
-        BindParam::Blob(value) => {
-            protocol::SqliteBindParam::SqliteValueBlob(
-                protocol::SqliteValueBlob {
-                    value: value.into(),
-                },
-            )
-        }
-    }
-}
-
-fn query_result_from_protocol(
-    result: protocol::SqliteQueryResult,
-) -> QueryResult {
-    QueryResult {
-        columns: result
-            .columns
-            .into_iter()
-            .map(|column| column.to_string())
-            .collect(),
-        rows: result
-            .rows
-            .into_iter()
-            .map(|row| {
-                row.into_iter()
-                    .map(column_value_from_protocol)
-                    .collect()
-            })
-            .collect(),
-    }
-}
-
-fn execute_result_from_protocol(
-    result: protocol::SqliteExecuteResult,
-) -> ExecuteResult {
-    ExecuteResult {
-        columns: result
-            .columns
-            .into_iter()
-            .map(|column| column.to_string())
-            .collect(),
-        rows: result
-            .rows
-            .into_iter()
-            .map(|row| {
-                row.into_iter()
-                    .map(column_value_from_protocol)
-                    .collect()
-            })
-            .collect(),
-        changes: result.changes,
-        last_insert_row_id: result.last_insert_row_id,
-    }
-}
-
-fn column_value_from_protocol(
-    value: protocol::SqliteColumnValue,
-) -> ColumnValue {
-    match value {
-        protocol::SqliteColumnValue::SqliteValueNull => {
-            ColumnValue::Null
-        }
-        protocol::SqliteColumnValue::SqliteValueInteger(value) => {
-            ColumnValue::Integer(value.value)
-        }
-        protocol::SqliteColumnValue::SqliteValueFloat(value) => {
-            ColumnValue::Float(f64::from_bits(u64::from_be_bytes(
-                value.value,
-            )))
-        }
-        protocol::SqliteColumnValue::SqliteValueText(value) => {
-            ColumnValue::Text(value.value.to_string())
-        }
-        protocol::SqliteColumnValue::SqliteValueBlob(value) => {
-            ColumnValue::Blob(value.value.to_vec())
-        }
-    }
-}
-
 fn remote_request_error(error: anyhow::Error) -> anyhow::Error {
     if let Some(indeterminate) =
         error.downcast_ref::<RemoteSqliteIndeterminateResultError>()
@@ -2077,25 +1810,6 @@ fn remote_request_error(error: anyhow::Error) -> anyhow::Error {
     }
 
     error
-}
-
-fn remote_sqlite_error_response(message: String) -> anyhow::Error {
-    if message.contains("unavailable")
-        || message.contains("unsupported")
-    {
-        return SqliteRuntimeError::RemoteUnavailable {
-            reason: message,
-        }
-        .build();
-    }
-
-    SqliteRuntimeError::RemoteExecutionFailed { message }.build()
-}
-
-fn is_head_fence_mismatch_response(
-    error: &protocol::SqliteErrorResponse,
-) -> bool {
-    is_head_fence_mismatch(&error.group, &error.code)
 }
 impl std::fmt::Debug for SqliteDb {
     fn fmt(

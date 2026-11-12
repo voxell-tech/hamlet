@@ -4,8 +4,7 @@ use std::fmt;
 use std::sync::Arc;
 use std::time::Duration;
 
-use hamlet_actor_engine_client::config::HttpRequest;
-
+use crate::host::config::HttpRequest;
 use crate::inspector::InspectorTabEntry;
 
 const DEFAULT_STATE_SAVE_INTERVAL: Duration = Duration::from_secs(1);

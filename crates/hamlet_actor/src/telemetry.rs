@@ -13,10 +13,7 @@
 //!     .init();
 //! ```
 //!
-//! [`Registry::start`](crate::Registry::start) flushes pending spans
-//! before it returns. Call [`shutdown`] after
-//! [`Registry::serve`](crate::Registry::serve) returns when driving
-//! the registry directly.
+//! Call [`shutdown`] to flush pending spans before the host exits.
 
 pub use hamlet_actor_core::telemetry::export::{
     layer, shutdown_best_effort as shutdown,

@@ -3,9 +3,7 @@
 name = "hamlet_actor_error"
 version.workspace = true
 edition.workspace = true
-authors.workspace = true
 license.workspace = true
-homepage.workspace = true
 repository.workspace = true
 description = "Structured error helpers"
 
@@ -13,6 +11,6 @@ description = "Structured error helpers"
 anyhow.workspace = true
 indoc.workspace = true
 hamlet_actor_error_macros.workspace = true
-serde_json.workspace = true
+serde_json = { workspace = true, features = ["raw_value"] }
 serde.workspace = true
 

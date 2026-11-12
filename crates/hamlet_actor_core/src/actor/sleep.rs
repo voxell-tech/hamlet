@@ -7,8 +7,6 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use futures::channel::oneshot as futures_oneshot;
 #[cfg(feature = "wasm-runtime")]
 use futures::future::{AbortHandle, Abortable};
-use hamlet_actor_engine_client::async_counter::AsyncCounter;
-use hamlet_actor_engine_client::handle::EnvoyHandle;
 use parking_lot::Mutex;
 #[cfg(not(feature = "wasm-runtime"))]
 use tokio::runtime::Handle;
@@ -28,6 +26,8 @@ use crate::actor::work_registry::LocalShutdownTask;
 use crate::actor::work_registry::{
     ActorWorkKind, CountGuard, RegionGuard, WorkRegistry,
 };
+use crate::async_counter::AsyncCounter;
+use crate::host::HostHandle as EnvoyHandle;
 #[cfg(feature = "wasm-runtime")]
 use crate::runtime::RuntimeSpawner;
 use crate::time::{Instant, sleep};

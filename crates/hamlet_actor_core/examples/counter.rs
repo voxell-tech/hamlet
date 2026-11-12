@@ -5,12 +5,15 @@
 //! crate. This example shows the lower-level receive-loop API exposed
 //! by `hamlet_actor_core`.
 
+use std::collections::HashMap;
 use std::io::Cursor;
+use std::path::Path;
 
 use anyhow::{Result, anyhow};
 use ciborium::{from_reader, into_writer};
+use hamlet_actor_core::host::Host;
 use hamlet_actor_core::{
-    ActorConfig, ActorEvent, ActorFactory, ActorStart, CoreRegistry,
+    ActorConfig, ActorEvent, ActorFactory, ActorStart,
     RequestSaveOpts, SerializeStateReason, StateDelta,
 };
 
@@ -74,6 +77,11 @@ async fn run_counter(start: ActorStart) -> Result<()> {
                 reply.send(Ok(()));
                 break;
             }
+            ActorEvent::ConnectionPreflight { reply, .. }
+            | ActorEvent::ConnectionOpen { reply, .. }
+            | ActorEvent::DisconnectConn { reply, .. } => {
+                reply.send(Ok(()));
+            }
             _ => {}
         }
     }
@@ -105,24 +113,18 @@ fn counter_factory() -> ActorFactory {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let mut registry = CoreRegistry::new();
-    registry.register("counter", counter_factory());
-    let token = tokio_util::sync::CancellationToken::new();
-    let serve = tokio::spawn({
-        let token = token.clone();
-        async move { registry.serve(token).await }
-    });
-    match tokio::signal::ctrl_c().await {
-        Ok(()) => {}
-        Err(err) => tracing::warn!(
-            ?err,
-            "ctrl_c install failed; cancelling anyway"
-        ),
-    }
-    token.cancel();
-    match serve.await {
-        Ok(Ok(())) => Ok(()),
-        Ok(Err(err)) => Err(err),
-        Err(join_err) => Err(join_err.into()),
-    }
+    let dir = std::env::args()
+        .nth(1)
+        .ok_or_else(|| anyhow!("usage: counter <folder>"))?;
+    let host = Host::open(
+        Path::new(&dir),
+        HashMap::from([("counter".to_owned(), counter_factory())]),
+    )?;
+    host.boot().await?;
+    let actor_id = host.get_or_start("counter", "default").await?;
+    let count = host
+        .action(&actor_id, "increment", encode_count(1)?)
+        .await?;
+    println!("count {}", decode_count(&count)?);
+    host.stop_all().await
 }

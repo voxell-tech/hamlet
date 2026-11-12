@@ -6,12 +6,12 @@ use std::sync::atomic::AtomicBool;
 use futures::channel::oneshot as futures_oneshot;
 #[cfg(feature = "wasm-runtime")]
 use futures::future::AbortHandle;
-use hamlet_actor_engine_client::async_counter::AsyncCounter;
 use parking_lot::Mutex;
 use tokio::sync::Notify;
 use tokio::task::JoinSet;
 
 use crate::actor::task_types::UserTaskKind;
+use crate::async_counter::AsyncCounter;
 
 /// Classifies actor work so sleep can apply one policy model across
 /// different APIs.

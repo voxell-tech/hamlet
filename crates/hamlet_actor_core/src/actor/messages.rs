@@ -4,9 +4,6 @@ use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
 
 use anyhow::Result;
-use hamlet_actor_engine_client::config::{
-    HttpRequestBodyStream, ResponseChunk,
-};
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
@@ -17,6 +14,7 @@ use crate::actor::lifecycle_hooks::Reply;
 use crate::actor::schedule::ScheduledFireInfo;
 use crate::actor::task_types::ShutdownKind;
 use crate::error::ProtocolError;
+use crate::host::config::{HttpRequestBodyStream, ResponseChunk};
 use crate::telemetry::ActorInvocationTelemetry;
 use crate::types::ConnId;
 use crate::websocket::WebSocket;

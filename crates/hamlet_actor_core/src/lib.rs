@@ -6,22 +6,13 @@ compile_error!(
 );
 
 pub mod actor;
-#[cfg(feature = "native-runtime")]
-mod development_process;
-#[cfg(feature = "native-runtime")]
-pub mod engine_process;
+mod async_counter;
 pub mod error;
+pub mod host;
 pub mod inspector;
-pub mod inspector_bundle;
 pub mod metrics;
-pub mod registry;
 pub mod runtime;
 pub(crate) mod serde_metrics;
-pub mod serverless;
-#[cfg(feature = "native-runtime")]
-pub mod serverless_http;
-#[cfg(feature = "native-runtime")]
-mod services_process;
 pub mod telemetry;
 #[doc(hidden)]
 pub use telemetry::{
@@ -184,19 +175,13 @@ pub use actor::task_types::ShutdownKind;
 pub use actor::work_registry::{ActorWorkKind, ActorWorkPolicy};
 pub use actor::{kv, sqlite};
 pub use error::ActorLifecycle;
-pub use hamlet_actor_engine_client::config::{
+pub use host::config::{
     HTTP_BODY_MAX_CHUNK_SIZE, HTTP_BODY_STREAM_CHANNEL_CAPACITY,
     HttpRequestBodyQueue, HttpRequestBodyStream, ResponseChunk,
 };
 pub use inspector::{Inspector, InspectorSnapshot};
-pub use registry::{
-    CoreRegistry, EngineSpawnMode, RuntimeMode, ServeConfig,
-};
 pub use runtime::{
     RuntimeBoxFuture, RuntimeSpawner, boxed_runtime_future,
-};
-pub use serverless::{
-    CoreServerlessRuntime, ServerlessRequest, ServerlessResponse,
 };
 pub use types::{
     ActorKey, ActorKeySegment, ConnId, ListOpts, SaveStateOpts,

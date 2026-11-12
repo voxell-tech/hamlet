@@ -4,11 +4,11 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use futures::future::BoxFuture;
-use hamlet_actor_engine_client::config::WebSocketSender;
 use parking_lot::RwLock;
 
 use crate::actor::context::WebSocketCallbackRegion;
 use crate::error::ActorRuntime;
+use crate::host::config::WebSocketSender;
 use crate::types::WsMessage;
 
 // The engine supports a non-standard async close-listener extension

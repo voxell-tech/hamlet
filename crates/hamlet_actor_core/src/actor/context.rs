@@ -9,8 +9,6 @@ use std::time::Duration;
 
 use anyhow::{Context as AnyhowContext, Result};
 use futures::future::BoxFuture;
-use hamlet_actor_engine_client::handle::EnvoyHandle;
-use hamlet_actor_engine_client::tunnel::HibernatingWebSocketMetadata;
 use hamlet_actor_error::ActorSpecifier;
 use parking_lot::{Mutex, RwLock};
 use scc::{HashMap as SccHashMap, HashSet as SccHashSet};
@@ -21,6 +19,8 @@ use tokio::sync::{
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
+use crate::host::HostHandle as EnvoyHandle;
+use crate::host::tunnel::HibernatingWebSocketMetadata;
 use crate::time::Instant;
 
 #[cfg(not(feature = "wasm-runtime"))]

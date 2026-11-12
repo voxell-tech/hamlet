@@ -2,12 +2,9 @@
 [package]
 name = "hamlet_actor"
 version.workspace = true
-authors.workspace = true
 license.workspace = true
-homepage.workspace = true
 repository.workspace = true
 edition.workspace = true
-workspace = "../../../"
 description = "Rust SDK for actors, actions, events, queues, and test harnesses"
 
 [features]
@@ -18,7 +15,6 @@ sqlite-local = ["hamlet_actor_core/sqlite-local"]
 [dependencies]
 anyhow.workspace = true
 async-trait.workspace = true
-axum.workspace = true
 bytes.workspace = true
 ciborium.workspace = true
 futures.workspace = true
@@ -26,11 +22,9 @@ http.workspace = true
 hamlet_actor_error.workspace = true
 hamlet_actor_core.workspace = true
 hamlet_actor_client.workspace = true
-parking_lot.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
-tokio-stream.workspace = true
 tokio-util.workspace = true
 tracing.workspace = true
 
