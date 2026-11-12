@@ -1074,3 +1074,6 @@ where
 
 // Test shim keeps moved tests in crate-root tests/ with
 // private-module access.
+#[cfg(test)]
+#[path = "../../tests/metrics.rs"]
+mod tests;
