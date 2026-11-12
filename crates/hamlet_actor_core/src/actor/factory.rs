@@ -23,10 +23,22 @@ pub struct ActorFactory {
     streams_request_body: bool,
 }
 
+// SAFETY: the wasm runtime runs on one thread, so the factory never
+// crosses threads.
 #[cfg(feature = "wasm-runtime")]
+#[expect(
+    unsafe_code,
+    reason = "the wasm runtime's entry is not Send"
+)]
 unsafe impl Send for ActorFactory {}
 
+// SAFETY: the wasm runtime runs on one thread, so the factory never
+// crosses threads.
 #[cfg(feature = "wasm-runtime")]
+#[expect(
+    unsafe_code,
+    reason = "the wasm runtime's entry is not Send"
+)]
 unsafe impl Sync for ActorFactory {}
 
 impl ActorFactory {
