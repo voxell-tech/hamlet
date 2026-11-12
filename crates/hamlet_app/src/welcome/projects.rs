@@ -351,11 +351,9 @@ fn line_view(line: &Line) -> AnyView {
         } => {
             let picking = key.clone();
             let folding = key;
-            let fold = if unfolded {
-                Glyph::Chevron
-            } else {
-                Glyph::Into
-            };
+            // The chevron points up unturned: down while the
+            // project's conversations are listed, else left.
+            let turn = if unfolded { 180.0 } else { 270.0 };
             row((
                 checkbox(picked).on_change(move |world, on| {
                     pick_project(world, &picking, on);
@@ -370,7 +368,9 @@ fn line_view(line: &Line) -> AnyView {
                         .gap(2.0)
                         .grow(1.0)
                         .min_width(px(0.0)),
-                        glyph(fold, ICON).tone(Tone::Dim),
+                        glyph(Glyph::Chevron, ICON)
+                            .tone(Tone::Dim)
+                            .rotation(turn),
                     ))
                     .gap(8.0)
                     .align(AlignItems::Center)
