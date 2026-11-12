@@ -254,6 +254,17 @@ diesel::table! {
 }
 
 diesel::table! {
+    import (conversation) {
+        conversation -> BigInt,
+        agent -> BigInt,
+        chief -> BigInt,
+        source -> Text,
+        session -> Text,
+        earlier -> Nullable<Text>,
+    }
+}
+
+diesel::table! {
     input (conversation, request) {
         conversation -> BigInt,
         request -> Text,
@@ -616,6 +627,9 @@ diesel::joinable!(hire -> agent (agent));
 diesel::joinable!(hire -> hamlet (hamlet));
 diesel::joinable!(hire -> scholar (scholar));
 diesel::joinable!(hire_tool_off -> hire (hire));
+diesel::joinable!(import -> agent (agent));
+diesel::joinable!(import -> chief (chief));
+diesel::joinable!(import -> conversation (conversation));
 diesel::joinable!(input -> conversation (conversation));
 diesel::joinable!(input -> task (task));
 diesel::joinable!(item -> conversation (conversation));
@@ -677,6 +691,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     hire,
     hire_merge,
     hire_tool_off,
+    import,
     input,
     item,
     job,

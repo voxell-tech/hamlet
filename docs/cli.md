@@ -48,6 +48,8 @@ starts only the window.
 | `hamlet chat [--to <hand\|hire#<id>\|mayor@<hamlet>>] [--attach <path>]...` | Chats with the Hand or the named agent and answers what waits, in the terminal; each `--attach` (an image, a file or a folder) goes with the first line |
 | `hamlet dev [--port <n>] [--faux <script.json>] [--home <dir>] [--insecure] [--hot]` | Serves a scratch realm on a free port unless given one, and opens its window; `--hot` builds a window that reloads saved shaders and tuning files |
 | `hamlet window` | Opens a window connected to a running server |
+| `hamlet import [--all]` | Lists the conversations of other programs on this machine from the last 30 days, or every one, newest first: Claude Code's under `CLAUDE_CONFIG_DIR` or `~/.claude` |
+| `hamlet import <id> [--to <hand\|hire#<id>\|mayor@<hamlet>>]` | Brings in the conversation whose id is or begins with `<id>` as a new session of the chief's chat with the Hand or the named agent (C35) |
 | `hamlet edit <charter\|limits\|settings> [--hamlet <id>]` | Opens the chief's document in `$EDITOR` and saves through the server; limits and settings are JSON, and `--hamlet` selects a hamlet's limits in place of the realm's |
 | `hamlet edit character <scholar#id>` | Opens a scholar's character; a hire's address works too, for its scholar's |
 | `hamlet edit memory <scholar#id\|hire#<id>> [path]` | Opens a memory file of a scholar's `main` or a hire's lodge, `notes.md` under `memory/` unless a path is given |

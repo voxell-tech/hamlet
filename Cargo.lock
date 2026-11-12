@@ -4440,7 +4440,9 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
+ "chrono",
  "futures",
+ "hamlet_import",
  "hamlet_protocol",
  "hamlet_update",
  "rfd",
@@ -4506,6 +4508,16 @@ dependencies = [
  "gix",
  "hamlet_testing",
  "serde",
+]
+
+[[package]]
+name = "hamlet_import"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "hamlet_protocol",
+ "serde_json",
 ]
 
 [[package]]

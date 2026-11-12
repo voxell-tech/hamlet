@@ -12,40 +12,44 @@ use anyhow::{Result, bail};
 use hamlet_cli::process::{self, Action, Isolation};
 use hamlet_cli::{chat, terminal};
 
-const USAGE: &str = "usage: hamlet [--insecure]
+const USAGE: &str =
+    "usage: hamlet [--insecure]
        hamlet stop
        hamlet status
        hamlet server [--port <n>] [--faux <script.json>] [--insecure]
        hamlet dev [--port <n>] [--faux <script.json>] [--home <dir>] \
-                     [--insecure] [--hot]
+     [--insecure] [--hot]
        hamlet window
        hamlet chat [--to <hand|hire#<id>|mayor@<hamlet>>] [--attach \
-                     <path>]...
+     <path>]...
+       hamlet import [--all]
+       hamlet import <id> [--to <hand|hire#<id>|mayor@<hamlet>>]
        hamlet edit <charter|limits|settings> [--hamlet <id>]
        hamlet edit character <scholar#id>
        hamlet edit memory <scholar#id|hire#<id>> [path]
        hamlet login <provider> [--key]
        hamlet models [try [model] | refresh]
        hamlet models images <model> [off | [--width <px>] [--height \
-                     <px>] [--mb <n>] [--per-line <n>]]
+     <px>] [--mb <n>] [--per-line <n>]]
 
 Bare hamlet starts or reuses a background server and opens a window.
 Closing a window stops no agent. hamlet stop stops the local server.
 dev builds the checkout's server and window and serves a scratch \
-                     realm; Ctrl-C stops both. --hot builds a \
-                     window that reloads saved shaders and tuning \
-                     files.
+     realm; Ctrl-C stops both. --hot builds a window that reloads \
+     saved shaders and tuning files.
 server serves in the foreground; Ctrl-C stops it.
+import lists the conversations of other programs on this machine \
+     (Claude Code), and brings one in as a new session of a chat.
 --insecure, on Windows only, runs agents' commands with no sandbox.
 
 env: HAMLET_HOME (~/.hamlet), HAMLET_SERVER and HAMLET_TOKEN (remote \
-                     clients),
+     clients),
      HAMLET_APP (window executable), HAMLET_VIEW (window settings),
      HAMLET_SERVER_BIN (server executable), HAMLET_NODE (Node \
-                     executable),
+     executable),
      HAMLET_PI_HARNESS (Pi harness entry).
 Use Node from harnesses/pi/.nvmrc and npm ci --prefix harnesses/pi \
-                     before starting a server from source.";
+     before starting a server from source.";
 
 enum Command {
     Help,
@@ -68,6 +72,15 @@ enum Command {
         to: String,
         /// The images, files and folders the first line carries.
         attach: Vec<PathBuf>,
+    },
+    /// Lists the conversations found on this machine: the recent
+    /// ones, or every one.
+    Found {
+        all: bool,
+    },
+    Import {
+        session: String,
+        to: String,
     },
     Terminal(terminal::Command),
 }
@@ -181,6 +194,27 @@ fn parse(args: &[String]) -> Result<Command> {
                 _ => Command::Chat { to, attach },
             })
         }
+        "import" => match rest {
+            [] => Ok(Command::Found { all: false }),
+            [all] if all == "--all" => {
+                Ok(Command::Found { all: true })
+            }
+            [session, flags @ ..] if !session.starts_with("--") => {
+                let to = match flags {
+                    [] => hamlet_protocol::HAND.to_owned(),
+                    [flag, to] if flag == "--to" => to.clone(),
+                    [flag] if flag == "--to" => {
+                        bail!("--to needs an agent's address")
+                    }
+                    [other, ..] => return Err(unknown(other)),
+                };
+                Ok(Command::Import {
+                    session: session.clone(),
+                    to,
+                })
+            }
+            [other, ..] => Err(unknown(other)),
+        },
         "edit" => {
             let doc = rest
                 .first()
@@ -330,6 +364,10 @@ fn main() {
             println!("{USAGE}");
             return Ok(0);
         }
+        if let Command::Found { all } = command {
+            hamlet_cli::import::list(all);
+            return Ok(0);
+        }
         if let Command::Server {
             port,
             faux,
@@ -368,12 +406,23 @@ fn main() {
                         .await?;
                     Ok(0)
                 }
+                Command::Import { session, to } => {
+                    hamlet_cli::import::bring_in(
+                        &process::address()?,
+                        &session,
+                        &to,
+                    )
+                    .await?;
+                    Ok(0)
+                }
                 Command::Terminal(command) => {
                     terminal::run(command, &process::address()?)
                         .await?;
                     Ok(0)
                 }
-                Command::Help | Command::Server { .. } => {
+                Command::Help
+                | Command::Server { .. }
+                | Command::Found { .. } => {
                     unreachable!()
                 }
             }

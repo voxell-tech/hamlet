@@ -73,7 +73,7 @@ pub(crate) fn current(
 
 /// Begins session `session` of `chief`'s chat with `agent`, in the
 /// runtime of the agent's harness, with the model it runs now.
-fn begin(
+pub(crate) fn begin(
     cx: &mut Change<'_>,
     env: &Env,
     agent: AgentId,

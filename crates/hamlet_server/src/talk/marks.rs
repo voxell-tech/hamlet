@@ -46,6 +46,17 @@ pub(crate) enum Mark {
     Worker { author: String, at: i64 },
     #[serde(rename = "hamlet.dream")]
     Dream { at: i64 },
+    /// A chief's message in a conversation brought in from another
+    /// program (C35).
+    #[serde(rename = "hamlet.earlier")]
+    Earlier { chief: String, at: i64 },
+    /// A tool call another program made, for people alone (C35).
+    #[serde(rename = "hamlet.step")]
+    Step {
+        tool: String,
+        summary: String,
+        at: i64,
+    },
 }
 
 /// Who a message from another agent is from.
@@ -118,7 +129,9 @@ impl Mark {
             | Self::Notice { at, .. }
             | Self::Errand { at }
             | Self::Worker { at, .. }
-            | Self::Dream { at } => *at,
+            | Self::Dream { at }
+            | Self::Earlier { at, .. }
+            | Self::Step { at, .. } => *at,
             Self::Letter(from)
             | Self::Question(from)
             | Self::Reply(from) => from.at,

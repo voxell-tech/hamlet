@@ -9,6 +9,7 @@
 
 pub mod chat;
 pub mod client;
+pub mod import;
 pub mod launch;
 mod mentions;
 pub mod process;
