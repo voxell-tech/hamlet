@@ -1,5 +1,12 @@
 // This file was changed for Hamlet. See NOTICE in this crate.
+#[cfg(test)]
+use std::collections::BTreeMap;
+#[cfg(test)]
+use std::sync::Arc;
+
 use anyhow::Result;
+#[cfg(test)]
+use parking_lot::{Mutex, RwLock};
 
 use crate::host::HostHandle as EnvoyHandle;
 use crate::types::ListOpts;
@@ -21,6 +28,17 @@ enum LegacyActorKvBackend {
         handle: EnvoyHandle,
         actor_id: String,
     },
+    #[cfg(test)]
+    InMemory(Arc<TestLegacyActorKv>),
+}
+
+#[cfg(test)]
+struct TestLegacyActorKv {
+    store: RwLock<BTreeMap<Vec<u8>, Vec<u8>>>,
+    delete_range_after_write_lock:
+        Mutex<Option<Arc<dyn Fn() + Send + Sync + 'static>>>,
+    list_limit_cap: Mutex<Option<u32>>,
+    range_start_inclusive: Mutex<bool>,
 }
 
 impl LegacyActorKv {
@@ -34,6 +52,28 @@ impl LegacyActorKv {
                 actor_id: actor_id.into(),
             },
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn new_in_memory() -> Self {
+        Self {
+            backend: LegacyActorKvBackend::InMemory(Arc::new(
+                TestLegacyActorKv {
+                    store: RwLock::new(BTreeMap::new()),
+                    delete_range_after_write_lock: Mutex::new(None),
+                    list_limit_cap: Mutex::new(None),
+                    range_start_inclusive: Mutex::new(true),
+                },
+            )),
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) async fn get(
+        &self,
+        key: &[u8],
+    ) -> Result<Option<Vec<u8>>> {
+        Ok(self.batch_get(&[key]).await?.pop().flatten())
     }
 
     pub(crate) async fn put(
@@ -57,6 +97,14 @@ impl LegacyActorKv {
                     )
                     .await
             }
+            #[cfg(test)]
+            LegacyActorKvBackend::InMemory(store) => {
+                let store = store.store.read();
+                Ok(keys
+                    .iter()
+                    .map(|key| store.get(*key).cloned())
+                    .collect())
+            }
         }
     }
 
@@ -78,6 +126,14 @@ impl LegacyActorKv {
                     )
                     .await
             }
+            #[cfg(test)]
+            LegacyActorKvBackend::InMemory(store) => {
+                let mut store = store.store.write();
+                for (key, value) in entries {
+                    store.insert(key.to_vec(), value.to_vec());
+                }
+                Ok(())
+            }
         }
     }
 
@@ -96,6 +152,21 @@ impl LegacyActorKv {
                         opts.limit.map(u64::from),
                     )
                     .await
+            }
+            #[cfg(test)]
+            LegacyActorKvBackend::InMemory(store) => {
+                let mut entries: Vec<_> = store
+                    .store
+                    .read()
+                    .iter()
+                    .filter(|(key, _)| key.starts_with(prefix))
+                    .map(|(key, value)| (key.clone(), value.clone()))
+                    .collect();
+                apply_list_opts(
+                    &mut entries,
+                    store.capped_opts(opts),
+                );
+                Ok(entries)
             }
         }
     }
@@ -119,6 +190,146 @@ impl LegacyActorKv {
                     )
                     .await
             }
+            #[cfg(test)]
+            LegacyActorKvBackend::InMemory(store) => {
+                let entries_guard = store.store.read();
+                let mut entries: Vec<_> = entries_guard
+                    .range(start.to_vec()..end.to_vec())
+                    .filter(|(key, _)| {
+                        *store.range_start_inclusive.lock()
+                            || key.as_slice() > start
+                    })
+                    .map(|(key, value)| (key.clone(), value.clone()))
+                    .collect();
+                apply_list_opts(
+                    &mut entries,
+                    store.capped_opts(opts),
+                );
+                Ok(entries)
+            }
+        }
+    }
+
+    /// Deletes keys from the in-memory backend. A host has no legacy
+    /// KV delete, so the host backend refuses.
+    #[cfg(test)]
+    pub(crate) async fn batch_delete(
+        &self,
+        keys: &[&[u8]],
+    ) -> Result<()> {
+        match &self.backend {
+            LegacyActorKvBackend::Envoy { .. } => {
+                anyhow::bail!("the host has no legacy KV delete")
+            }
+            LegacyActorKvBackend::InMemory(store) => {
+                let mut store = store.store.write();
+                for key in keys {
+                    store.remove(*key);
+                }
+                Ok(())
+            }
+        }
+    }
+
+    /// Deletes a key range from the in-memory backend. A host has no
+    /// legacy KV delete, so the host backend refuses.
+    #[cfg(test)]
+    pub(crate) async fn delete_range(
+        &self,
+        start: &[u8],
+        end: &[u8],
+    ) -> Result<()> {
+        match &self.backend {
+            LegacyActorKvBackend::Envoy { .. } => {
+                anyhow::bail!("the host has no legacy KV delete")
+            }
+            LegacyActorKvBackend::InMemory(store) => {
+                let mut entries = store.store.write();
+                if let Some(hook) =
+                    store.delete_range_after_write_lock.lock().clone()
+                {
+                    hook();
+                }
+                entries.retain(|key, _| {
+                    key.as_slice() < start || key.as_slice() >= end
+                });
+                Ok(())
+            }
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_identity(&self) -> usize {
+        match &self.backend {
+            LegacyActorKvBackend::Envoy { handle, .. } => {
+                Arc::as_ptr(handle).cast::<()>() as usize
+            }
+            LegacyActorKvBackend::InMemory(store) => {
+                Arc::as_ptr(store) as usize
+            }
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_set_delete_range_after_write_lock_hook(
+        &self,
+        hook: impl Fn() + Send + Sync + 'static,
+    ) {
+        if let LegacyActorKvBackend::InMemory(store) = &self.backend {
+            *store.delete_range_after_write_lock.lock() =
+                Some(Arc::new(hook));
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_set_list_limit_cap(&self, cap: u32) {
+        if let LegacyActorKvBackend::InMemory(store) = &self.backend {
+            *store.list_limit_cap.lock() = Some(cap);
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_set_range_start_inclusive(
+        &self,
+        inclusive: bool,
+    ) {
+        if let LegacyActorKvBackend::InMemory(store) = &self.backend {
+            *store.range_start_inclusive.lock() = inclusive;
         }
     }
 }
+
+#[cfg(test)]
+impl TestLegacyActorKv {
+    fn capped_opts(&self, opts: ListOpts) -> ListOpts {
+        let Some(cap) = *self.list_limit_cap.lock() else {
+            return opts;
+        };
+        ListOpts {
+            reverse: opts.reverse,
+            limit: Some(
+                opts.limit.map_or(cap, |limit| limit.min(cap)),
+            ),
+        }
+    }
+}
+
+#[cfg(test)]
+fn apply_list_opts(
+    entries: &mut Vec<(Vec<u8>, Vec<u8>)>,
+    opts: ListOpts,
+) {
+    if opts.reverse {
+        entries.reverse();
+    }
+    if let Some(limit) = opts.limit {
+        entries.truncate(limit as usize);
+    }
+}
+
+#[cfg(test)]
+pub(crate) type Kv = LegacyActorKv;
+
+#[cfg(test)]
+#[path = "../../tests/kv.rs"]
+pub(crate) mod tests;

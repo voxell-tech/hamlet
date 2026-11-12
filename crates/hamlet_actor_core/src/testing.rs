@@ -59,7 +59,17 @@ impl ActorContextHarness {
     /// endpoint.
     pub fn with_client_endpoint(endpoint: impl Into<String>) -> Self {
         Self {
-            host: Arc::new(TestHost::new(endpoint.into())),
+            host: Arc::new(TestHost::new(endpoint.into(), None)),
+        }
+    }
+
+    /// A harness whose database stalls the statements `gate` matches.
+    pub(crate) fn with_write_gate(gate: TestSqliteWriteGate) -> Self {
+        Self {
+            host: Arc::new(TestHost::new(
+                "http://127.0.0.1:1".to_owned(),
+                Some(gate),
+            )),
         }
     }
 
@@ -88,6 +98,22 @@ impl ActorContextHarness {
         config: ActorConfig,
     ) -> ActorContext {
         let actor_id = actor_id.into();
+        let handle: HostHandle = self.host.clone();
+        let kv = LegacyActorKv::new(handle, actor_id.clone());
+        self.context_with_kv(actor_id, name, key, region, kv, config)
+    }
+
+    /// A context whose legacy KV is `kv`, such as the in-memory one.
+    pub(crate) fn context_with_kv(
+        &self,
+        actor_id: impl Into<String>,
+        name: impl Into<String>,
+        key: ActorKey,
+        region: impl Into<String>,
+        kv: LegacyActorKv,
+        config: ActorConfig,
+    ) -> ActorContext {
+        let actor_id = actor_id.into();
         let generation = Some(1);
         let handle: HostHandle = self.host.clone();
         let sql = SqliteDb::new_with_remote_sqlite(
@@ -108,12 +134,51 @@ impl ActorContextHarness {
             generation,
             handle.pool_name().to_owned(),
             config,
-            LegacyActorKv::new(handle.clone(), actor_id),
+            kv,
             sql,
         );
         ctx.configure_envoy(handle, generation);
         ctx
     }
+}
+
+/// A context on its own database whose legacy KV is `kv`.
+pub(crate) fn new_with_kv(
+    actor_id: impl Into<String>,
+    name: impl Into<String>,
+    key: ActorKey,
+    region: impl Into<String>,
+    kv: LegacyActorKv,
+) -> ActorContext {
+    ActorContextHarness::new().context_with_kv(
+        actor_id,
+        name,
+        key,
+        region,
+        kv,
+        ActorConfig::default(),
+    )
+}
+
+/// Like [`new_with_kv`], but the database stalls every statement
+/// matching `gate` until the test releases it. Used to observe
+/// in-flight state writes deterministically.
+pub(crate) fn new_with_kv_and_write_gate(
+    actor_id: impl Into<String>,
+    name: impl Into<String>,
+    key: ActorKey,
+    region: impl Into<String>,
+    kv: LegacyActorKv,
+    gate: TestSqliteWriteGate,
+) -> ActorContext {
+    ActorContextHarness::with_write_gate(gate).context_with_kv(
+        actor_id,
+        name,
+        key,
+        region,
+        kv,
+        ActorConfig::default(),
+    )
 }
 
 /// Constructs a context with its own in-memory SQLite store.
@@ -124,6 +189,26 @@ pub fn actor_context(
     region: impl Into<String>,
 ) -> ActorContext {
     ActorContextHarness::new().context(actor_id, name, key, region)
+}
+
+/// Stalls the statements whose SQL starts with `sql_prefix`: each
+/// matching request or batch first reports on `entered_tx`, then
+/// waits for one permit on `release` before it runs.
+pub(crate) struct TestSqliteWriteGate {
+    pub(crate) sql_prefix: &'static str,
+    pub(crate) entered_tx: tokio::sync::mpsc::UnboundedSender<()>,
+    pub(crate) release: Arc<tokio::sync::Semaphore>,
+}
+
+impl TestSqliteWriteGate {
+    fn pass(&self, mut sql: impl Iterator<Item = impl AsRef<str>>) {
+        if sql.any(|sql| sql.as_ref().starts_with(self.sql_prefix)) {
+            let _ = self.entered_tx.send(());
+            futures::executor::block_on(self.release.acquire())
+                .expect("write gate semaphore should stay open")
+                .forget();
+        }
+    }
 }
 
 /// What the core asked of a [`TestHost`].
@@ -155,10 +240,13 @@ pub struct TestHost {
 }
 
 impl TestHost {
-    fn new(endpoint: String) -> Self {
+    fn new(
+        endpoint: String,
+        gate: Option<TestSqliteWriteGate>,
+    ) -> Self {
         Self {
             endpoint,
-            sql: spawn_sqlite(),
+            sql: spawn_sqlite(gate),
             session: watch::channel(1).0,
             calls: Mutex::new(Vec::new()),
         }
@@ -279,7 +367,9 @@ enum SqlCommand {
 
 /// Serves one in-memory database, with the internal schema, on a
 /// thread of its own until the host is dropped.
-fn spawn_sqlite() -> std_mpsc::Sender<SqlCommand> {
+fn spawn_sqlite(
+    gate: Option<TestSqliteWriteGate>,
+) -> std_mpsc::Sender<SqlCommand> {
     let (tx, rx) = std_mpsc::channel::<SqlCommand>();
     thread::Builder::new()
         .name("test-sqlite".into())
@@ -294,6 +384,9 @@ fn spawn_sqlite() -> std_mpsc::Sender<SqlCommand> {
                         let _ = reply.send(exec_sqlite(&conn, &sql));
                     }
                     SqlCommand::Execute(sql, params, reply) => {
+                        if let Some(gate) = &gate {
+                            gate.pass(std::iter::once(&sql));
+                        }
                         let _ = reply.send(execute_sqlite(
                             &conn,
                             &sql,
@@ -301,6 +394,11 @@ fn spawn_sqlite() -> std_mpsc::Sender<SqlCommand> {
                         ));
                     }
                     SqlCommand::Batch(statements, reply) => {
+                        if let Some(gate) = &gate {
+                            gate.pass(
+                                statements.iter().map(|s| &s.sql),
+                            );
+                        }
                         let _ = reply.send(execute_sqlite_batch(
                             &conn, statements,
                         ));
