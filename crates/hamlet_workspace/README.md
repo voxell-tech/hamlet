@@ -97,7 +97,7 @@ that storage.
 
 A remote lodge is a copy. The server keeps each lodge as a checkout of
 its hire's branch and stays its source: it pushes the lodge to the
-worker when the server's copy changes (a gift, a purge, a chief's
+worker when the server's copy changes (a purge, a chief's
 edit, a job that checks the branch out again) and pulls it back after
 each tool call that may have written it. Dreams always run on the
 server.

@@ -112,6 +112,17 @@ pub enum Block {
     },
 }
 
+/// An image a model is given, with its bytes in base64.
+#[derive(
+    Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
+)]
+#[serde(deny_unknown_fields)]
+pub struct Picture {
+    pub data: String,
+    /// Its media type, such as `image/png`.
+    pub mime: String,
+}
+
 /// Hamlet's own kind and data of an entry, such as a chief's line or
 /// a notice, kept as the server gave them.
 #[derive(

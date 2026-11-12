@@ -167,20 +167,20 @@ fn move_inbox(
     let Ok(source) = Folder::open(absorbed) else {
         return Ok(());
     };
-    let gifts = source.list_under("inbox")?;
-    if gifts.is_empty() {
+    let waiting = source.list_under("inbox")?;
+    if waiting.is_empty() {
         return Ok(());
     }
     let target = Folder::make(kept)?;
-    for gift in gifts {
-        let rest = gift.path.trim_start_matches("inbox/");
-        let bytes = source.read(&gift.path)?;
+    for file in waiting {
+        let rest = file.path.trim_start_matches("inbox/");
+        let bytes = source.read(&file.path)?;
         target.write(
             &format!("inbox/from-{from}/{rest}"),
             &bytes,
-            gift.executable,
+            file.executable,
         )?;
-        source.remove(&gift.path)?;
+        source.remove(&file.path)?;
     }
     Ok(())
 }

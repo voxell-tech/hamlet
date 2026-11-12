@@ -2,21 +2,31 @@
 //! order: made or forked, cancelled, told its tools, then each kept
 //! input.
 
+use std::path::Path;
+
 use anyhow::{Context, Result};
-use hamlet_protocol::runtime::{self, ServerMessage};
+use hamlet_protocol::runtime::{
+    self, ModelRef, Picture, ServerMessage,
+};
 use hamlet_store::Db;
 
 use super::conversations::{self, Conversation};
+use super::inputs::{self, Input};
 use super::runtimes::{Pending, Phase, Runtimes};
-use super::{Env, inputs, models};
+use super::{Env, models};
+use crate::images::{self, Limits};
+use crate::providers::Providers;
 
 /// Sends runtime `index` what it is owed. With `again`, inputs it
 /// admitted whose end was not heard are sent again, so it answers
-/// them again.
+/// them again. The images of an input are made to fit the model of
+/// its conversation, from the folder `images`.
 pub(crate) async fn flush(
     db: &mut Db,
     env: &Env,
     runtimes: &mut Runtimes,
+    providers: &Providers,
+    images: &Path,
     index: usize,
     again: bool,
 ) -> Result<()> {
@@ -76,6 +86,18 @@ pub(crate) async fn flush(
             let mark = input.mark()?.wire();
             let conversation = handle.clone();
             let write = input.is_write();
+            let pictures = if write {
+                Vec::new()
+            } else {
+                pictures(
+                    db,
+                    providers,
+                    images,
+                    &owed.model()?,
+                    &input,
+                )
+                .await?
+            };
             runtimes
                 .request(index, pending, |v, id| {
                     if write {
@@ -92,6 +114,7 @@ pub(crate) async fn flush(
                             content: input.content,
                             conversation,
                             id,
+                            images: pictures,
                             mark: Some(mark),
                             request: input.request,
                             steer: input.steer,
@@ -104,6 +127,32 @@ pub(crate) async fn flush(
         }
     }
     Ok(())
+}
+
+/// The images of `input` as `model` takes them; none when it takes
+/// none now, and the captions in its words still say where they are.
+async fn pictures(
+    db: &mut Db,
+    providers: &Providers,
+    images: &Path,
+    model: &ModelRef,
+    input: &Input,
+) -> Result<Vec<Picture>> {
+    let mut ids = input
+        .mark()?
+        .images()
+        .into_iter()
+        .map(|image| image.id)
+        .collect::<Vec<_>>();
+    if ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let Some(takes) = providers.images(db, model)? else {
+        return Ok(Vec::new());
+    };
+    let limits = Limits::of(&takes);
+    ids.truncate(limits.per_line as usize);
+    images::pictures(images.to_owned(), ids, limits).await
 }
 
 /// Asks the runtime to make `owed`, or to fork it from its parent

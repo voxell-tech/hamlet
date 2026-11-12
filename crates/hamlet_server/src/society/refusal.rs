@@ -162,6 +162,19 @@ pub(crate) enum Refusal {
          Models"
     )]
     NoModelSetUp,
+    #[error(
+        "the model `{model}` takes no images; choose another model \
+         or leave the images out"
+    )]
+    NoImages { model: String },
+    #[error(
+        "the model `{model}` takes at most {most} images in a line"
+    )]
+    TooManyImages { model: String, most: u32 },
+    #[error("no image `{image}` was sent first")]
+    NoImage { image: String },
+    #[error("a command takes no images or files")]
+    CommandAttachments,
     #[error("no skill is named `{name}`")]
     NoSkill { name: String },
     #[error("there is no file `{path}` here")]

@@ -3,6 +3,7 @@
 
 use anyhow::{Context, Result};
 use diesel::prelude::*;
+use hamlet_protocol::client::{AttachedFile, AttachedImage};
 use hamlet_store::ids::{AgentId, ChiefId, ConversationId, TaskId};
 use hamlet_store::schema::{chat, chat_session};
 
@@ -11,6 +12,7 @@ use super::inputs::{self, InputKind, Keep};
 use super::marks::Mark;
 use super::tasks::{self, Origin};
 use super::{Env, models, runtimes};
+use crate::attached::Line;
 use crate::change::Change;
 use crate::society::{agents, chiefs};
 
@@ -98,7 +100,22 @@ pub(crate) fn say(
     request: &str,
     text: &str,
 ) -> Result<Said> {
+    say_with(cx, env, agent, chief, request, &Line::words(text))
+}
+
+/// [`say`] for a line that carries images and files (C33): the model
+/// is given the line's content, with a caption where each sits, and
+/// the transcript the images and files at their places.
+pub(crate) fn say_with(
+    cx: &mut Change<'_>,
+    env: &Env,
+    agent: AgentId,
+    chief: ChiefId,
+    request: &str,
+    line: &Line,
+) -> Result<Said> {
     let conversation = current(cx, env, agent, chief)?;
+    let text = line.text.as_str();
     let name = chiefs::find(cx.db, chief)?
         .context("the chief is not in the realm")?
         .name;
@@ -117,11 +134,13 @@ pub(crate) fn say(
             request: request.clone(),
             kind: InputKind::Chief,
             task: Some(task),
-            content: text.to_owned(),
+            content: line.content.clone(),
             mark: Mark::Chief {
                 chief: name,
                 text: text.to_owned(),
                 at: cx.at,
+                images: line.images.clone(),
+                files: line.files.clone(),
             },
             steer: false,
             boundary: false,
@@ -281,14 +300,19 @@ pub(crate) fn resume(
 /// Takes `chief`'s chat with `agent` back to before the chief's line
 /// shown as `item` (C27): the session points at a fork of its
 /// conversation made at the entry before that line, and what waited
-/// since lapses. Returns the line, for the chief to send again.
+/// since lapses. Returns the line's words and images, for the chief
+/// to send again.
 pub(crate) fn rewind(
     cx: &mut Change<'_>,
     env: &Env,
     agent: AgentId,
     chief: ChiefId,
     item: &str,
-) -> crate::change::Done<String> {
+) -> crate::change::Done<(
+    String,
+    Vec<AttachedImage>,
+    Vec<AttachedFile>,
+)> {
     use crate::society::refusal::Refusal;
     let not_a_line = || Refusal::Usage {
         words: "That is not one of your lines in this conversation."
@@ -320,11 +344,13 @@ pub(crate) fn rewind(
         .flatten();
     let Some(Mark::Chief {
         chief: by, text, ..
-    }) = mark
+    }) = &mark
     else {
         crate::change::refuse!(not_a_line());
     };
-    if by != name {
+    let images = mark.as_ref().map(Mark::images).unwrap_or_default();
+    let files = mark.as_ref().map(Mark::files).unwrap_or_default();
+    if *by != name {
         crate::change::refuse!(not_a_line());
     }
     let kept = conversations::get(cx.db, conversation)?;
@@ -344,7 +370,7 @@ pub(crate) fn rewind(
         .set(chat_session::conversation.eq(fork))
         .execute(cx.db)?;
     cx.touched.agents.insert(agent);
-    Ok(Ok(text))
+    Ok(Ok((text.clone(), images, files)))
 }
 
 /// Carries on the current session's failed or stopped turn as a new

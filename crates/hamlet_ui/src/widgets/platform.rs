@@ -41,6 +41,7 @@ use bevy::window::SystemCursorIcon;
 use bevy_fynix::EntityCursor;
 use bevy_fynix::dock::DockTab;
 use bevy_fynix::tokens::{TextTokens, Tone};
+use bevy_fynix::views::RichField;
 use hamlet_assets::fonts::{FRAUNCES, INTER, TWEMOJI};
 
 use crate::theme::Themed;
@@ -422,6 +423,7 @@ fn take_typed_on_press(
     press: On<PointerPress>,
     focus: Res<InputFocus>,
     texts: Query<&ChildOf, With<EditableText>>,
+    rich_fields: Query<(), With<RichField>>,
     parents: Query<&ChildOf>,
     mut commands: Commands,
 ) {
@@ -433,8 +435,12 @@ fn take_typed_on_press(
     let Some(input) = focus.get() else {
         return;
     };
-    let Ok(field) = texts.get(input).map(ChildOf::parent) else {
-        return;
+    // A text field's editable text is under its root, which a press
+    // inside is in. A rich field is its own root.
+    let field = match texts.get(input) {
+        Ok(parent) => parent.parent(),
+        Err(_) if rich_fields.contains(input) => input,
+        Err(_) => return,
     };
     let inside = pressed == field
         || parents

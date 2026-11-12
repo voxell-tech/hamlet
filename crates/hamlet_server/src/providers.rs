@@ -9,9 +9,10 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result};
 use diesel::prelude::*;
 use hamlet_protocol::client::{
-    Check, EditCatalogueSet, LinkState, Listed, ListedPriced, Login,
-    LoginMethod, LoginProgress, LoginStep, Price as ListedPrice,
-    ProviderView, Read, ReadResult, RequestId, ServerMessage,
+    Check, EditCatalogueSet, ImageInput, LinkState, Listed,
+    ListedPriced, Login, LoginMethod, LoginProgress, LoginStep,
+    Price as ListedPrice, ProviderView, Read, ReadResult, RequestId,
+    ServerMessage,
 };
 use hamlet_protocol::runtime::{
     self, ModelRef, Price, ProviderControl, ProviderEvent,
@@ -160,6 +161,21 @@ impl Providers {
             .unwrap_or(Value::Null)
     }
 
+    /// The images `model` takes, none when it takes none (S30).
+    pub fn images(
+        &self,
+        db: &mut Db,
+        model: &ModelRef,
+    ) -> Result<Option<ImageInput>> {
+        if model.provider == FAUX {
+            return Ok(Some(ImageInput::default()));
+        }
+        let name = format!("{}::{}", model.provider, model.id);
+        Ok(catalogue(db)?.remove(&name).and_then(|card| {
+            card.takes(&self.listed(&model.provider, &model.id))
+        }))
+    }
+
     /// The model call of `model` as it is made: its address, its size
     /// and its price.
     pub fn select(
@@ -225,6 +241,8 @@ impl Providers {
             max_tokens: size("maxTokens"),
             effort: effort.map(Effort::wire),
             fast: fast && card.is_some_and(|card| card.fast),
+            images: card
+                .is_some_and(|card| card.takes(&listed).is_some()),
             model: ModelRef { base_url, ..model },
             price,
         })
@@ -897,6 +915,8 @@ impl Core {
                 default_effort: None,
                 efforts: Vec::new(),
                 fast: false,
+                images: None,
+                images_yours: false,
                 name,
                 note: String::new(),
                 price: None,
@@ -980,7 +1000,13 @@ impl Core {
                         |(provider, _)| reached(provider),
                     )
             })
-            .map(Card::listed)
+            .map(|card| {
+                let (provider, id) =
+                    card.name.split_once("::").unwrap_or_default();
+                let takes =
+                    card.takes(&self.providers.listed(provider, id));
+                card.listed(takes)
+            })
             .collect();
         Ok(ServerMessage::Read(ReadResult::Models {
             to: id.clone(),
@@ -1007,6 +1033,21 @@ impl Core {
                 words: "A cost is a number of zero or more.".into(),
             }));
         }
+        let empty = set
+            .images
+            .as_ref()
+            .and_then(|images| images.as_ref())
+            .is_some_and(|takes| {
+                [takes.max_width, takes.max_height, takes.per_line]
+                    .contains(&Some(0))
+                    || takes.max_bytes == Some(0)
+            });
+        if empty {
+            return Ok(Err(Refusal::Usage {
+                words: "An image limit is a number above zero."
+                    .into(),
+            }));
+        }
         let db = self.realm.store().connection();
         let mut cards = catalogue(db)?;
         let Some(card) = cards.get_mut(name) else {
@@ -1014,6 +1055,10 @@ impl Core {
         };
         if let Some(note) = set.note {
             card.note = self.credentials.scrub_text(&note);
+        }
+        if let Some(images) = set.images {
+            card.images_yours = images.is_some();
+            card.images = images.map(Some);
         }
         if let Some(price) = set.price {
             card.priced = if price.is_some() {
@@ -1083,6 +1128,19 @@ struct Card {
     efforts: Vec<Effort>,
     #[serde(default)]
     fast: bool,
+    /// The images it takes, none when it takes none; unset in a card
+    /// kept before models were asked about images, which then takes
+    /// the images its provider lists.
+    #[serde(
+        default,
+        deserialize_with = "set",
+        skip_serializing_if = "Option::is_none"
+    )]
+    images: Option<Option<ImageInput>>,
+    /// Whether a chief said what it takes of images, which a listing
+    /// leaves alone.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    images_yours: bool,
     name: String,
     note: String,
     price: Option<ListedPrice>,
@@ -1094,14 +1152,17 @@ struct Card {
 
 impl Card {
     /// Takes in what pi says of `model`: what it is called, the
-    /// efforts it can be asked for, its default among them, and
-    /// whether its API has a fast tier.
+    /// efforts it can be asked for, its default among them, whether
+    /// its API has a fast tier, and what it takes of images.
     fn learn(&mut self, model: &Value) {
         model["name"]
             .as_str()
             .unwrap_or_default()
             .trim()
             .clone_into(&mut self.title);
+        if !self.images_yours {
+            self.images = Some(listed_images(model));
+        }
         self.efforts =
             if model["reasoning"].as_bool().unwrap_or(false) {
                 Effort::ALL
@@ -1130,7 +1191,16 @@ impl Card {
         );
     }
 
-    fn listed(self) -> Listed {
+    /// The images the model takes: as the card says, else as
+    /// `listed`, its provider's listing of it, does.
+    fn takes(&self, listed: &Value) -> Option<ImageInput> {
+        match &self.images {
+            Some(images) => images.clone(),
+            None => listed_images(listed),
+        }
+    }
+
+    fn listed(self, takes: Option<ImageInput>) -> Listed {
         Listed {
             context: self.context,
             default_effort: self.default_effort.map(Effort::wire),
@@ -1140,6 +1210,7 @@ impl Card {
                 .map(Effort::wire)
                 .collect(),
             fast: self.fast,
+            images: takes,
             name: self.name,
             note: self.note,
             price: self.price,
@@ -1147,6 +1218,37 @@ impl Card {
             title: self.title,
         }
     }
+}
+
+/// A value that is there, even when it is null.
+fn set<'de, D, T>(
+    deserializer: D,
+) -> Result<Option<Option<T>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Option::<T>::deserialize(deserializer).map(Some)
+}
+
+/// The images a model listed by its provider takes, none when it
+/// takes none.
+fn listed_images(model: &Value) -> Option<ImageInput> {
+    let takes = model["input"].as_array().is_some_and(|input| {
+        input.iter().any(|kind| kind == "image")
+    });
+    let limits = &model["inputLimits"]["images"];
+    let size =
+        |value: &Value| value.as_u64().filter(|size| *size > 0);
+    takes.then(|| ImageInput {
+        max_bytes: size(&limits["resize"]["maxBytes"]),
+        max_height: size(&limits["resize"]["maxHeight"])
+            .and_then(|size| u32::try_from(size).ok()),
+        max_width: size(&limits["resize"]["maxWidth"])
+            .and_then(|size| u32::try_from(size).ok()),
+        per_line: size(&limits["maxPerMessage"])
+            .and_then(|size| u32::try_from(size).ok()),
+    })
 }
 
 /// The model catalogue: each model's card, by its name.
@@ -1238,4 +1340,28 @@ fn plainly(error: &str, hello: bool) -> String {
             .into();
     }
     format!("It answered with an error. Try again. ({detail})")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_card_kept_before_images_takes_what_its_provider_lists() {
+        let old = r#"{"context":null,"name":"orchard::wren","note":"",
+            "price":null,"priced":"unknown"}"#;
+        let card = serde_json::from_str::<Card>(old).unwrap();
+        assert_eq!(card.images, None);
+        let sees = serde_json::json!({"input": ["text", "image"]});
+        let blind = serde_json::json!({"input": ["text"]});
+        assert!(card.takes(&sees).is_some());
+        assert_eq!(card.takes(&blind), None);
+
+        // A card that says it takes none keeps saying it.
+        let none = r#"{"context":null,"images":null,"name":"x::y",
+            "note":"","price":null,"priced":"unknown"}"#;
+        let card = serde_json::from_str::<Card>(none).unwrap();
+        assert_eq!(card.images, Some(None));
+        assert_eq!(card.takes(&sees), None);
+    }
 }

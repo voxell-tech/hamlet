@@ -65,6 +65,18 @@ impl Folder {
         Ok(out)
     }
 
+    /// Whether anything, a link included, is at `path`.
+    pub fn exists(&self, path: &str) -> bool {
+        let Ok(tree) = TreePath::parse(path) else {
+            return false;
+        };
+        let Ok((dir, name)) = self.0.parent(&tree, Missing::Fail)
+        else {
+            return false;
+        };
+        matches!(dir.stat(name), Ok(Some(_)))
+    }
+
     pub fn read(&self, path: &str) -> Result<Vec<u8>> {
         let path = TreePath::parse(path)?;
         let (dir, name) = self.0.parent(&path, Missing::Fail)?;
@@ -237,7 +249,7 @@ mod tests {
         let lodge = Folder::make(&dir.join("lodge")).unwrap();
         lodge.write("memory/notes.md", b"n", false).unwrap();
         lodge.write("skills/a/run.sh", b"#!", true).unwrap();
-        lodge.write("inbox/gift.bin", b"g", false).unwrap();
+        lodge.write("inbox/file.bin", b"g", false).unwrap();
         hamlet_testing::links::symlink(
             &outside,
             dir.join("lodge/out"),

@@ -687,7 +687,23 @@ class Runtime {
                     request.type === "submit"
                         ? {
                               type: "input",
-                              content: request.content,
+                              content:
+                                  request.images === undefined ||
+                                  request.images.length === 0
+                                      ? request.content
+                                      : [
+                                            {
+                                                type: "text" as const,
+                                                text: request.content,
+                                            },
+                                            ...request.images.map(
+                                                ({ data, mime }) => ({
+                                                    type: "image" as const,
+                                                    data,
+                                                    mimeType: mime,
+                                                }),
+                                            ),
+                                        ],
                               requestId: request.request,
                               whenBusy: request.steer ? "steer" : "followUp",
                               ...(request.mark === undefined

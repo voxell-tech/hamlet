@@ -249,7 +249,7 @@ fn a_folder_is_checked_out_and_committed_by_its_listing() {
     );
 
     // The hire changes its notes, adds a skill, drops one, and has a
-    // gift in its inbox and a stray character file.
+    // file in its inbox and a stray character file.
     let notes = repo.write_blob(b"n2").unwrap();
     let skill = repo.write_blob(b"b").unwrap();
     let listing = vec![
@@ -260,7 +260,7 @@ fn a_folder_is_checked_out_and_committed_by_its_listing() {
         },
         Entry {
             path: "inbox/big.bin".into(),
-            blob: blob_id(b"gift"),
+            blob: blob_id(b"file"),
             executable: false,
         },
         Entry {

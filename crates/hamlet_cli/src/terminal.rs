@@ -38,6 +38,53 @@ pub enum Command {
         action: String,
         model: Option<String>,
     },
+    /// Says what a model takes of images; none leaves it to its
+    /// endpoint's listing.
+    Images {
+        model: String,
+        images: Option<ImageInput>,
+    },
+}
+
+/// The limits the flags `args` of `models images` name, or none for
+/// `off`. No flags is a model that takes images within the defaults.
+pub fn image_flags(args: &[String]) -> Result<Option<ImageInput>> {
+    if args == ["off"] {
+        return Ok(None);
+    }
+    let mut input = ImageInput::default();
+    let mut args = args.iter();
+    while let Some(flag) = args.next() {
+        let value = args
+            .next()
+            .with_context(|| format!("{flag} needs a number"))?;
+        let number = |text: &str| -> Result<u32> {
+            match text.parse::<u32>() {
+                Ok(0) | Err(_) => {
+                    bail!("{flag} needs a whole number above zero")
+                }
+                Ok(number) => Ok(number),
+            }
+        };
+        match flag.as_str() {
+            "--width" => input.max_width = Some(number(value)?),
+            "--height" => input.max_height = Some(number(value)?),
+            "--per-line" => input.per_line = Some(number(value)?),
+            "--mb" => {
+                let megabytes = value
+                    .parse::<f64>()
+                    .ok()
+                    .filter(|mb| *mb > 0.0 && *mb <= 20.0)
+                    .with_context(|| {
+                        format!("{flag} needs a number up to 20")
+                    })?;
+                input.max_bytes =
+                    Some((megabytes * 1_048_576.0) as u64);
+            }
+            other => bail!("unknown option `{other}`"),
+        }
+    }
+    Ok(Some(input))
 }
 
 /// Runs a terminal operation, leaving agents running when its
@@ -53,6 +100,9 @@ pub async fn run(
         }
         Command::Models { action, model } => {
             models(&mut client, &action, model).await
+        }
+        Command::Images { model, images } => {
+            take_images(&mut client, model, images).await
         }
         Command::Edit {
             doc,
@@ -85,6 +135,31 @@ fn checked(message: ServerMessage) -> Result<ServerMessage> {
         }) => bail!("{text}"),
         message => Ok(message),
     }
+}
+
+async fn take_images(
+    client: &mut Client,
+    model: String,
+    images: Option<ImageInput>,
+) -> Result<()> {
+    let id = RequestId::new();
+    let takes = images.is_some();
+    let message = ClientMessage::Edit(Edit::Catalogue {
+        id: id.clone(),
+        model: model.clone(),
+        set: EditCatalogueSet {
+            images: Some(images),
+            note: None,
+            price: None,
+        },
+    });
+    checked(client.request(&id, message).await?)?;
+    if takes {
+        println!("{model} takes images.");
+    } else {
+        println!("{model} takes the images its endpoint lists.");
+    }
+    Ok(())
 }
 
 async fn models(
@@ -123,13 +198,17 @@ async fn models(
                     .context
                     .map(|c| c.to_string())
                     .unwrap_or("unknown".into());
+                let images = match model.images {
+                    Some(_) => "images",
+                    None => "text only",
+                };
                 let note = if model.note.is_empty() {
                     String::new()
                 } else {
                     format!("\t{}", model.note)
                 };
                 println!(
-                    "{}\t{price}\t{context} context{note}",
+                    "{}\t{price}\t{context} context\t{images}{note}",
                     model.name
                 );
             }

@@ -1,6 +1,7 @@
 //! The Hamlet server: the realm, its society, and its agents'
 //! conversations and work.
 
+mod attached;
 mod calls;
 mod change;
 mod claim;
@@ -12,7 +13,9 @@ mod credentials;
 mod diagnostic;
 mod dreaming;
 mod fault;
-mod gifts;
+mod files;
+mod images;
+mod inbox;
 mod jobs;
 mod knowledge;
 mod layout;

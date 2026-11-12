@@ -134,10 +134,10 @@ pub(crate) fn new_session(world: &mut World) {
         return;
     };
     seat_as(world, agent, to, with);
-    world.trigger(hamlet_client::messages::ChiefMessage {
+    world.trigger(hamlet_client::messages::ChiefMessage::words(
         to,
-        text: "/new".into(),
-    });
+        "/new".into(),
+    ));
 }
 
 fn seat_as(
@@ -299,7 +299,11 @@ mod tests {
             .get::<Chat>(convo.session)
             .expect("a watched chat");
         assert_eq!(chat.0.with, protocol::AgentId(1));
-        crate::chat::send(app.world_mut(), "Find the key".into());
+        crate::chat::send(
+            app.world_mut(),
+            "Find the key".into(),
+            &Default::default(),
+        );
         let sent = app
             .world()
             .resource::<Outbox>()

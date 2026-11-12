@@ -186,7 +186,6 @@ fn parse(
         locked: vec![
             root.join("tools"),
             dir.to_owned(),
-            root.join(".gifts"),
             root.join(".erasing"),
         ],
         ..Policy::default()
@@ -327,5 +326,6 @@ pub(crate) async fn run(
             ("degraded".into(), env.degraded()),
         ])),
         diagnostics,
+        images: Vec::new(),
     }
 }

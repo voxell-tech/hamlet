@@ -412,10 +412,10 @@ pub(crate) fn entry_view(session: Entity, id: String) -> AnyView {
                         else {
                             return;
                         };
-                        world.trigger(ChiefMessage {
+                        world.trigger(ChiefMessage::words(
                             to,
-                            text: "/retry".into(),
-                        });
+                            "/retry".into(),
+                        ));
                     },
                 ),)),
             ))

@@ -235,4 +235,20 @@ test("a selection is made as its provider lists the model, at the server's price
         baseUrl: "http://localhost:8080/v1",
         cost: price,
     });
+    // The server says it takes images, which no listing of it does.
+    expect(endpoint.input).not.toContain("image");
+    const sees = selectedModel(
+        called,
+        {
+            model: {
+                provider: "local",
+                id: "small",
+                baseUrl: "http://localhost:8080/v1",
+            },
+            price,
+            images: true,
+        },
+        available,
+    );
+    expect(sees.input).toContain("image");
 });

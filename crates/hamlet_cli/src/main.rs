@@ -6,6 +6,8 @@
     reason = "a terminal program: printing is its job"
 )]
 
+use std::path::PathBuf;
+
 use anyhow::{Result, bail};
 use hamlet_cli::process::{self, Action, Isolation};
 use hamlet_cli::{chat, terminal};
@@ -17,12 +19,15 @@ const USAGE: &str = "usage: hamlet [--insecure]
        hamlet dev [--port <n>] [--faux <script.json>] [--home <dir>] \
                      [--insecure] [--hot]
        hamlet window
-       hamlet chat [--to <hand|hire#<id>|mayor@<hamlet>>]
+       hamlet chat [--to <hand|hire#<id>|mayor@<hamlet>>] [--attach \
+                     <path>]...
        hamlet edit <charter|limits|settings> [--hamlet <id>]
        hamlet edit character <scholar#id>
        hamlet edit memory <scholar#id|hire#<id>> [path]
        hamlet login <provider> [--key]
        hamlet models [try [model] | refresh]
+       hamlet models images <model> [off | [--width <px>] [--height \
+                     <px>] [--mb <n>] [--per-line <n>]]
 
 Bare hamlet starts or reuses a background server and opens a window.
 Closing a window stops no agent. hamlet stop stops the local server.
@@ -59,7 +64,11 @@ enum Command {
         hot: bool,
     },
     Window,
-    Chat(String),
+    Chat {
+        to: String,
+        /// The images, files and folders the first line carries.
+        attach: Vec<PathBuf>,
+    },
     Terminal(terminal::Command),
 }
 
@@ -100,6 +109,7 @@ fn parse(args: &[String]) -> Result<Command> {
             let mut isolation = Isolation::Sandboxed;
             let mut hot = false;
             let mut to = hamlet_protocol::HAND.to_owned();
+            let mut attach = Vec::new();
             let mut flags = rest.iter();
             while let Some(flag) = flags.next() {
                 let flag = flag.as_str();
@@ -120,6 +130,9 @@ fn parse(args: &[String]) -> Result<Command> {
                         "the path of a scratch realm"
                     }
                     "--to" if name == "chat" => "an agent's address",
+                    "--attach" if name == "chat" => {
+                        "the path of an image, a file or a folder"
+                    }
                     _ => return Err(unknown(flag)),
                 };
                 let value = flags.next().ok_or_else(|| {
@@ -148,6 +161,7 @@ fn parse(args: &[String]) -> Result<Command> {
                     "--faux" => faux = Some(value.clone()),
                     "--home" => home = Some(value.clone()),
                     "--to" => to = value.clone(),
+                    "--attach" => attach.push(PathBuf::from(value)),
                     _ => unreachable!(),
                 }
             }
@@ -164,7 +178,7 @@ fn parse(args: &[String]) -> Result<Command> {
                     isolation,
                     hot,
                 },
-                _ => Command::Chat(to),
+                _ => Command::Chat { to, attach },
             })
         }
         "edit" => {
@@ -260,6 +274,21 @@ fn parse(args: &[String]) -> Result<Command> {
                 key: rest.len() == 2,
             }))
         }
+        "models"
+            if rest.first().is_some_and(|word| word == "images") =>
+        {
+            let model = rest
+                .get(1)
+                .filter(|model| !model.starts_with("--"))
+                .ok_or_else(|| {
+                    anyhow::anyhow!("models images needs a model")
+                })?
+                .clone();
+            Ok(Command::Terminal(terminal::Command::Images {
+                model,
+                images: terminal::image_flags(&rest[2..])?,
+            }))
+        }
         "models" => {
             let action =
                 rest.first().map(String::as_str).unwrap_or("list");
@@ -334,8 +363,9 @@ fn main() {
                     .await
                 }
                 Command::Window => process::window().await,
-                Command::Chat(to) => {
-                    chat::run(&process::address()?, &to).await?;
+                Command::Chat { to, attach } => {
+                    chat::run(&process::address()?, &to, &attach)
+                        .await?;
                     Ok(0)
                 }
                 Command::Terminal(command) => {

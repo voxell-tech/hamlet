@@ -444,6 +444,24 @@ export const schema = {
             ],
             "type": "object"
         },
+        "Picture": {
+            "additionalProperties": false,
+            "description": "An image a model is given, with its bytes in base64.",
+            "properties": {
+                "data": {
+                    "type": "string"
+                },
+                "mime": {
+                    "description": "Its media type, such as `image/png`.",
+                    "type": "string"
+                }
+            },
+            "required": [
+                "data",
+                "mime"
+            ],
+            "type": "object"
+        },
         "Price": {
             "additionalProperties": false,
             "description": "A model's price in dollars per million tokens.",
@@ -1359,6 +1377,10 @@ export const schema = {
                     "description": "Whether the call asks for the provider's fast tier.",
                     "type": "boolean"
                 },
+                "images": {
+                    "description": "Whether the model takes images, which the server says of it\nwhatever its provider lists.",
+                    "type": "boolean"
+                },
                 "maxTokens": {
                     "format": "uint64",
                     "minimum": 1,
@@ -1671,6 +1693,13 @@ export const schema = {
                         "id": {
                             "minLength": 1,
                             "type": "string"
+                        },
+                        "images": {
+                            "description": "The images that go with `content`, in its message.",
+                            "items": {
+                                "$ref": "#/$defs/Picture"
+                            },
+                            "type": "array"
                         },
                         "mark": {
                             "$ref": "#/$defs/Mark",
@@ -2075,6 +2104,13 @@ export const schema = {
                         "id": {
                             "minLength": 1,
                             "type": "string"
+                        },
+                        "images": {
+                            "description": "Images the result holds, given to the model after `text`.",
+                            "items": {
+                                "$ref": "#/$defs/Picture"
+                            },
+                            "type": "array"
                         },
                         "re": {
                             "minLength": 1,

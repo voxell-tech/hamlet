@@ -502,6 +502,10 @@ mod tests {
                 kind: protocol::ReplyKind::Notice,
                 text: "Saved.".into(),
                 upload: None,
+                image: None,
+                images: Vec::new(),
+                file: None,
+                files: Vec::new(),
             }),
         );
         received(
@@ -606,6 +610,10 @@ mod tests {
                 kind: protocol::ReplyKind::Error,
                 text: stopped.into(),
                 upload: None,
+                image: None,
+                images: Vec::new(),
+                file: None,
+                files: Vec::new(),
             }),
         );
         settle(&mut app);

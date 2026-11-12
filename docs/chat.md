@@ -140,10 +140,6 @@ apps: the bubble draws it dim beside a bar. It is no more than words,
 with nothing behind it, and the model reads it as a Markdown quote.
 Shift+Enter starts a new line at the caret, in place of what is selected,
 and the field grows with its lines, so a quote can be followed by the chief's own words.
-Past eight lines the field scrolls, with a thin bar along its edge. The wheel
-scrolls it away from the caret, and typing or moving the caret brings the
-caret's line back. `fields.rs` runs Bevy's scroll-to-caret only when the caret,
-the text or the focus has changed.
 
 ## Selecting words
 
@@ -187,8 +183,8 @@ reply gives the words back; a reset followed by a transcript replaces the
 shown items. The server refuses a rewind while work is running or queued
 and closes waits raised by the part taken back.
 
-**What is not undone.** Files changed, commands run, memory, skills, gifts
-and everything spent. The question says so before anything happens.
+**What is not undone.** Files changed, commands run, memory, skills, files
+attached and everything spent. The question says so before anything happens.
 
 **In the window.** Each rewindable chief message carries a small mark,
 shown while the pointer is on the row and no turn runs. A click asks
@@ -198,8 +194,9 @@ while it asks.
 ## Pictures
 
 A picture an agent names in a reply, `![words](place)`, is drawn where the
-reply put it. Pictures are shown only: the window sends no picture bytes
-back to the server or a model.
+reply put it. Pictures a reply names are shown only: the window sends no
+bytes of them back to the server or a model. Images a chief attaches to a
+line are another thing (see Images on a line below).
 
 | The place is | What is drawn |
 |---|---|
@@ -224,6 +221,86 @@ size it is shown at. A picture too large to decode safely is refused.
 row that names it shares it. One that is shown is never dropped. Those no
 row shows are kept up to `picture_memory` bytes, the oldest dropped first.
 The limits are `[chat]` in `assets/ui.toml`.
+
+## The field and its chips
+
+The field is fynix's `rich_field`: text with inline elements, Enter to send and
+Shift+Enter for a new line, with "Message" shown while it is empty. Everything
+attached to a line is a chip in it, put at the caret: a small picture of an
+image, or an icon for a file or a folder, then its name and, dimmer, its size
+or how far it has got. The chip is an `Atom` of the field, so the caret steps
+over it, a selection takes it and Backspace removes it, and the attachment is
+let go with it. A cross in the chip does the same. A chip copies as the name
+of what is attached. `attach.rs` keeps what is attached in `Attached` and
+follows the field's content, which says which chips are still in it. The field
+grows with its lines up to eight, and scrolls past them with the caret kept in
+view.
+
+On send the field's plain text, which has no chip in it, is the line's words,
+trimmed, and the byte each chip stood at in it is its attachment's `at`. A
+reply puts its line before the words, so every `at` moves by the length of
+that line. Escape leaves the field with its words and chips kept. A line that cannot be sent yet, because an attachment is
+still going up, waits for a word or was refused, leaves the field as it is.
+
+## Images on a line
+
+A chief attaches PNG, JPEG, WebP and GIF images to a line (C33), animated
+ones too. Drop files on the window, paste with Cmd+V on macOS or Ctrl+V
+elsewhere in the field, or press the picture button beside the field and
+choose them. A paste takes image files copied in a file manager, or a picture
+such as a screenshot; words on the clipboard are pasted as words. Each image
+is uploaded at once, shown as a chip in the field, and sent with the line,
+which may hold only images. A line waits for every image to be kept; the chip
+of one the server refused is marked, and says why in its tooltip, until it is
+taken out. Files are read off the frame, and one over 20 MiB is refused
+unread.
+
+## Files and folders on a line
+
+The same ways attach any file or folder (C33): drop, paste, or the file and
+folder buttons beside the picture button. A folder goes with everything under
+it, links left out, and is one chip with its name and its files' count and
+size. Each is uploaded at once as the images are, one file at a time
+(`put-file`). The agent's model is not given a file; the line names where each
+is saved in the agent's `inbox/`, and the agent opens it with its tools. Any
+model takes files, so the file button is never greyed out. Images are given to
+the model as on any line and keep their own limits.
+
+What is attached other than images is held at 32 MiB or 1000 files: its chip
+is marked and says so in its tooltip, and a line over the field says it too,
+with "Send anyway". It is uploaded only after the chief presses that. A
+rewind puts the files back in the field, in their places in the line's words.
+
+**Where an attachment sits.** A line's images and files may each carry a place
+in its words, a byte offset on a character boundary (`at` in
+[the protocol](protocol.md)). The server puts each one's caption in the words at
+its place, for the model, and the transcript keeps the words alone with each
+place beside them. The window sends the place of each chip; the terminal chat
+places the ones its `@path` tokens name.
+
+A model that takes no images has the button greyed out, and a drag over
+the window says it cannot be dropped; a paste or drop is refused the same way.
+The chip of an image already in the field when the model is changed is greyed
+out with a tooltip that says so, and the server refuses the line (S30).
+The catalogue entry of the agent's model tells which: a model the catalogue
+does not list is taken to see, and the server refuses what it cannot (S30).
+The number of images a line takes is the model's limit. A chief says that a
+model of a custom endpoint takes images, and within what limits, in the model
+catalogue in Settings, or with `hamlet models images`.
+
+A sent line shows each image as a chip in its words, at its place, with a small
+copy the server makes (S29) fetched by its id when the row is built and kept as
+a picture like the rest (see Pictures above), and each file or folder as a chip
+with its name and size. The words of a line with a place are drawn plain, so a
+link or a quote in them is drawn as in any line, with the chips among the words;
+the attachments of a line with no place follow its words in a row of chips. A
+click on an image's chip fetches the image itself and opens it with the
+program the system keeps for it. The window only reads the bytes of what is
+attached; the server checks, resizes and keeps them. A rewind puts the images of the line back in the field with its words.
+
+The system reports no pointer with a drop, so the hand holds each dropped
+file until the pointer is seen on something. Over the chat, a file is
+attached. A file that is seen on nothing within a moment is let lie.
 
 ## Questions to the chief
 

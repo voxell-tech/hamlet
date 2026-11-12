@@ -26,7 +26,8 @@ use crate::clients::fold::Fold;
 use crate::clock;
 use crate::credentials::Credentials;
 use crate::diagnostic::{self, Secrets, tell};
-use crate::gifts::Gifts;
+use crate::files::FileUploads;
+use crate::images::Uploads;
 use crate::knowledge::runner::{Runner, Writing, run_due};
 use crate::providers::{FAUX, Providers};
 use crate::realm::Realm;
@@ -73,8 +74,10 @@ pub(crate) struct Core {
     pub providers: Providers,
     /// Which runtime may read or rotate which provider's credential.
     pub leases: Authority,
-    /// The file gifts being sent.
-    pub gifts: Gifts,
+    /// The images being sent.
+    pub images: Uploads,
+    /// The files being sent.
+    pub files: FileUploads,
     /// The remote workspace the agents' tools run in, chosen before
     /// the server started; none for this machine.
     pub workspace: Option<Transport>,
@@ -138,9 +141,11 @@ impl Core {
         let layout = realm.layout().clone();
         crate::knowledge::library::open(&layout, clock::now())?;
         // Agents read it, so it is there even with nothing in it.
-        std::fs::create_dir_all(layout.tools()).with_context(
-            || format!("making {}", layout.tools().display()),
-        )?;
+        for folder in [layout.tools(), layout.images()] {
+            std::fs::create_dir_all(&folder).with_context(|| {
+                format!("making {}", folder.display())
+            })?;
+        }
         let shells = Shells::local();
         let (added, faults) = added::load(layout.root());
         for fault in &faults {
@@ -181,7 +186,8 @@ impl Core {
             calls: Calls::new(ran_to),
             providers,
             leases: Authority::default(),
-            gifts: Gifts::default(),
+            images: Uploads::default(),
+            files: FileUploads::default(),
             workspace,
             synced: HashMap::new(),
             moving: None,
@@ -275,6 +281,8 @@ impl Core {
             }
             () = tokio::time::sleep(wait) => {
                 self.dream_tick().await?;
+                self.sweep_images()?;
+                self.sweep_files()?;
                 Ok(false)
             }
         }
@@ -524,11 +532,14 @@ impl Core {
 
     /// Sends every ready runtime what it is owed.
     pub(crate) async fn flush(&mut self, again: bool) -> Result<()> {
+        let images = self.realm.layout().images();
         for index in 0..self.runtimes.list.len() {
             sync::flush(
                 self.realm.store().connection(),
                 &self.env,
                 &mut self.runtimes,
+                &self.providers,
+                &images,
                 index,
                 again,
             )
@@ -665,10 +676,13 @@ impl Core {
                                 )
                             })
                             .await;
+                        let images = self.realm.layout().images();
                         sync::flush(
                             self.realm.store().connection(),
                             &self.env,
                             &mut self.runtimes,
+                            &self.providers,
+                            &images,
                             index,
                             true,
                         )

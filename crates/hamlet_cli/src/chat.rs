@@ -1,7 +1,8 @@
 //! Streaming terminal conversations and the chief's typed lines.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::{IsTerminal, Write};
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 use hamlet_protocol::client::{transcript, *};
@@ -9,6 +10,7 @@ use hamlet_protocol::{HAND, MAYOR};
 use tokio::io::{AsyncBufReadExt, BufReader};
 
 use crate::client::{self, Client, ServerAddress};
+use crate::mentions;
 
 fn chat_ref(with: AgentId) -> ChatRef {
     ChatRef {
@@ -57,8 +59,13 @@ pub(crate) fn resolve(state: &State, to: &str) -> Result<AgentId> {
 }
 
 /// Chats until EOF has received every submitted line's reply;
-/// disconnecting stops no agent.
-pub async fn run(address: &ServerAddress, to: &str) -> Result<()> {
+/// disconnecting stops no agent. The first line carries what the
+/// paths `attach` name: images, files and folders (C33).
+pub async fn run(
+    address: &ServerAddress,
+    to: &str,
+    attach: &[PathBuf],
+) -> Result<()> {
     let (client, state) = client::connect(address).await?;
     let target = resolve(&state, to)?;
     let mut screen = Screen::default();
@@ -81,6 +88,11 @@ pub async fn run(address: &ServerAddress, to: &str) -> Result<()> {
         );
     }
     let mut session = Session {
+        address: address.clone(),
+        attached: Vec::new(),
+        files: Vec::new(),
+        held: VecDeque::new(),
+        unsent: None,
         client,
         state,
         target,
@@ -97,6 +109,9 @@ pub async fn run(address: &ServerAddress, to: &str) -> Result<()> {
     };
     let chat = chat_ref(session.target);
     session.open(RequestId::new(), chat).await?;
+    for path in attach {
+        session.attach(path, None).await?;
+    }
     let mut input = BufReader::new(tokio::io::stdin()).lines();
     loop {
         tokio::select! {
@@ -116,6 +131,17 @@ pub async fn run(address: &ServerAddress, to: &str) -> Result<()> {
 
 /// A terminal chat with one agent at a time.
 struct Session {
+    address: ServerAddress,
+    /// The images the next line carries.
+    attached: Vec<AttachedImage>,
+    /// The files the next line carries.
+    files: Vec<AttachedFile>,
+    /// The sends over what one message takes, which wait for a yes,
+    /// first one first, with each place in the line.
+    held: VecDeque<(String, client::Plan, Option<u64>)>,
+    /// The words of a line that is said once what is held is
+    /// answered.
+    unsent: Option<String>,
     client: Client,
     state: State,
     target: AgentId,
@@ -158,11 +184,41 @@ impl Session {
     /// Takes a line the chief typed, or the end of input.
     async fn on_line(&mut self, line: Option<String>) -> Result<()> {
         let Some(line) = line else {
+            // The end of input answers what is held with no.
+            self.held.clear();
+            let unsent = self.unsent.take();
+            if unsent.is_some()
+                || !self.attached.is_empty()
+                || !self.files.is_empty()
+            {
+                self.say(unsent.unwrap_or_default()).await?;
+            }
             let barrier = RequestId::new();
             self.open(barrier.clone(), chat_ref(self.target)).await?;
             self.last = Some(barrier);
             return Ok(());
         };
+        if let Some((shown, plan, at)) = self.held.pop_front() {
+            if matches!(
+                line.trim().to_lowercase().as_str(),
+                "y" | "yes"
+            ) {
+                if let Err(error) =
+                    self.send_plan(&shown, &plan, at).await
+                {
+                    eprintln!("error: {error:#}");
+                }
+            } else {
+                eprintln!("  (left out {shown})");
+            }
+            self.ask_held();
+            if self.held.is_empty()
+                && let Some(text) = self.unsent.take()
+            {
+                return self.say(text).await;
+            }
+            return prompt(&mut self.screen, self.interactive);
+        }
         let trimmed = line.trim();
         if trimmed.is_empty() {
             return prompt(&mut self.screen, self.interactive);
@@ -170,14 +226,16 @@ impl Session {
         let (command, name) = trimmed
             .split_once(char::is_whitespace)
             .unwrap_or((trimmed, ""));
+        if command == "/attach" {
+            if let Err(error) =
+                self.attach(Path::new(name.trim()), None).await
+            {
+                eprintln!("error: {error:#}");
+            }
+            return prompt(&mut self.screen, self.interactive);
+        }
         if !matches!(command, "/agent" | "/hamlet" | "/hand") {
-            let id = RequestId::new();
-            self.pending.insert(id.clone());
-            let to = self.target;
-            return self
-                .client
-                .send(ClientMessage::Say(Say { id, to, text: line }))
-                .await;
+            return self.say_line(line).await;
         }
         let name = name.trim();
         match switch(&self.state, command, name) {
@@ -202,6 +260,136 @@ impl Session {
             Err(error) => eprintln!("error: {error}"),
         }
         prompt(&mut self.screen, self.interactive)
+    }
+
+    /// Says `line`, with what its `@path` tokens name attached where
+    /// the tokens stood. The line is not said if one cannot be
+    /// attached.
+    async fn say_line(&mut self, line: String) -> Result<()> {
+        if line.trim_start().starts_with('/') {
+            return self.say(line).await;
+        }
+        let taken = mentions::take(&line, Path::exists);
+        if taken.paths.is_empty() {
+            return self.say(line).await;
+        }
+        let (images, files) = (self.attached.len(), self.files.len());
+        for (at, path) in &taken.paths {
+            if let Err(error) = self.attach(path, Some(*at)).await {
+                eprintln!(
+                    "error: {error:#}\n  (the line was not sent)"
+                );
+                self.attached.truncate(images);
+                self.files.truncate(files);
+                self.held.clear();
+                return prompt(&mut self.screen, self.interactive);
+            }
+        }
+        if self.held.is_empty() {
+            return self.say(taken.text).await;
+        }
+        self.unsent = Some(taken.text);
+        Ok(())
+    }
+
+    /// Attaches `path` to the next line, at `at` bytes into its words
+    /// if given: an image, or any other file or a folder. What is
+    /// over what one message takes waits for a yes, which only a
+    /// terminal can give.
+    async fn attach(
+        &mut self,
+        path: &Path,
+        at: Option<u64>,
+    ) -> Result<()> {
+        let shown = path.display().to_string();
+        if ImageInput::is_image_file(path) && !path.is_dir() {
+            let id =
+                client::upload_image(&self.address, path).await?;
+            self.attached.push(AttachedImage { at, id });
+            self.attached_note(&shown);
+            return Ok(());
+        }
+        let plan = client::plan(path)?;
+        let (files, bytes) = self.files.iter().fold(
+            (plan.files.len(), plan.bytes),
+            |(files, bytes), file| (files + 1, bytes + file.size),
+        );
+        if files > AttachedFile::CAP_FILES
+            || bytes > AttachedFile::CAP_BYTES
+        {
+            if !self.interactive {
+                bail!(
+                    "{shown} is more than one message takes ({} MiB \
+                     or {} files); attach it in a terminal to say \
+                     it may be sent.",
+                    AttachedFile::CAP_BYTES >> 20,
+                    AttachedFile::CAP_FILES
+                );
+            }
+            self.held.push_back((shown, plan, at));
+            if self.held.len() == 1 {
+                self.ask_held();
+            }
+            return Ok(());
+        }
+        self.send_plan(&shown, &plan, at).await
+    }
+
+    /// Sends the files of `plan`, which `shown` names, with the next
+    /// line, at `at` bytes into its words if given.
+    async fn send_plan(
+        &mut self,
+        shown: &str,
+        plan: &client::Plan,
+        at: Option<u64>,
+    ) -> Result<()> {
+        let mut files =
+            client::upload_files(&self.address, plan).await?;
+        for file in &mut files {
+            file.at = at;
+        }
+        self.files.extend(files);
+        self.attached_note(shown);
+        Ok(())
+    }
+
+    fn attached_note(&self, shown: &str) {
+        eprintln!(
+            "  (attached {shown}; {} with the next line)",
+            self.attached.len() + self.files.len()
+        );
+    }
+
+    /// Asks whether what is held first may be sent.
+    fn ask_held(&self) {
+        if let Some((shown, plan, _)) = self.held.front() {
+            eprintln!(
+                "  ({shown} is {} files, {}: over what one message \
+                 takes, {} MiB or {} files. Send it anyway? y/N)",
+                plan.files.len(),
+                AttachedFile::size_words(plan.bytes),
+                AttachedFile::CAP_BYTES >> 20,
+                AttachedFile::CAP_FILES
+            );
+        }
+    }
+
+    /// Says `text` with the images and files attached so far.
+    async fn say(&mut self, text: String) -> Result<()> {
+        let id = RequestId::new();
+        self.pending.insert(id.clone());
+        let to = self.target;
+        let images = std::mem::take(&mut self.attached);
+        let files = std::mem::take(&mut self.files);
+        self.client
+            .send(ClientMessage::Say(Say {
+                files,
+                id,
+                images,
+                to,
+                text,
+            }))
+            .await
     }
 
     /// Takes a server message. True once the chat is over.

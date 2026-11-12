@@ -315,6 +315,7 @@ async fn lists_prices_and_bills_an_endpoints_models() {
             .await;
     }
     let set = EditCatalogueSet {
+        images: None,
         note: Some("For careful work.".into()),
         price: Some(Some(Price {
             input: 2.0,
@@ -346,6 +347,7 @@ async fn lists_prices_and_bills_an_endpoints_models() {
             default_effort: Some(hamlet_protocol::Effort::Off),
             efforts: vec![hamlet_protocol::Effort::Off],
             fast: false,
+            images: None,
             name: "local::org/large".into(),
             note: "For careful work.".into(),
             price: Some(Price {

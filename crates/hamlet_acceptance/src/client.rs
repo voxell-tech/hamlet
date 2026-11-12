@@ -212,7 +212,9 @@ impl Client {
     ) -> RequestId {
         let id = RequestId::new();
         self.send(ClientMessage::Say(Say {
+            files: Vec::new(),
             id: id.clone(),
+            images: Vec::new(),
             to,
             text: text.into(),
         }))
@@ -239,77 +241,117 @@ impl Client {
         }
     }
 
-    /// Gives `files` to the inbox of `to`: the manifest, then each
-    /// file's bytes in parts. Gives the first refusal, else the last
-    /// reply.
-    pub async fn give(
+    /// Uploads an image in parts of `part` bytes. Gives the first
+    /// refusal, else the reply that names the kept image.
+    pub async fn put_image(
         &mut self,
-        to: AgentId,
-        files: &[(&str, &[u8])],
+        bytes: &[u8],
         part: usize,
     ) -> Reply {
-        let manifest = files
-            .iter()
-            .map(|(path, bytes)| GiveFile {
-                path: (*path).into(),
-                size: bytes.len() as u64,
-            })
-            .collect();
+        let size = bytes.len() as u64;
         let mut reply = self
             .request(|id| {
-                ClientMessage::Give(Give::Files {
-                    files: manifest,
-                    id,
-                    to,
-                })
+                ClientMessage::PutImage(PutImage { id, size })
             })
             .await;
         let Some(upload) = reply.upload.clone() else {
             return reply;
         };
-        for (path, bytes) in files {
-            for (n, bytes) in bytes.chunks(part).enumerate() {
-                reply =
-                    self.part(&upload, path, n * part, bytes).await;
-                if reply.kind == ReplyKind::Error {
-                    return reply;
-                }
+        for (n, bytes) in bytes.chunks(part).enumerate() {
+            let data = BASE64_STANDARD.encode(bytes);
+            let offset = (n * part) as u64;
+            reply = self
+                .request(|id| {
+                    ClientMessage::PutImagePart(PutImagePart {
+                        data,
+                        id,
+                        offset,
+                        upload: upload.clone(),
+                    })
+                })
+                .await;
+            if reply.kind == ReplyKind::Error {
+                return reply;
             }
         }
         reply
     }
 
-    /// Sends the bytes of `path` at `offset` for the gift `upload`.
-    pub async fn part(
+    /// Sends a chief's line with `images` and waits for its reply.
+    pub async fn say_with(
         &mut self,
-        upload: &str,
-        path: &str,
-        offset: usize,
-        bytes: &[u8],
+        to: AgentId,
+        text: &str,
+        images: Vec<AttachedImage>,
     ) -> Reply {
-        let data = BASE64_STANDARD.encode(bytes);
+        let text = text.to_owned();
         self.request(|id| {
-            ClientMessage::GivePart(GivePart {
-                data,
+            ClientMessage::Say(Say {
+                files: Vec::new(),
                 id,
-                offset: offset as u64,
-                path: path.into(),
-                upload: upload.into(),
+                images,
+                to,
+                text,
             })
         })
         .await
     }
 
-    /// Gives the skill `skill` to the scholar `to`.
-    pub async fn give_skill(
+    /// Sends a chief's line with `files` and waits for its reply.
+    pub async fn say_files(
         &mut self,
-        to: ScholarId,
-        skill: GiveSkillSource,
+        to: AgentId,
+        text: &str,
+        files: Vec<AttachedFile>,
     ) -> Reply {
+        let text = text.to_owned();
         self.request(|id| {
-            ClientMessage::Give(Give::Skill { id, skill, to })
+            ClientMessage::Say(Say {
+                files,
+                id,
+                images: Vec::new(),
+                to,
+                text,
+            })
         })
         .await
+    }
+
+    /// Uploads a file in parts of `part` bytes. Gives the first
+    /// refusal, else the reply that names the kept file.
+    pub async fn put_file(
+        &mut self,
+        bytes: &[u8],
+        part: usize,
+    ) -> Reply {
+        let size = bytes.len() as u64;
+        let begun = self
+            .request(|id| {
+                ClientMessage::PutFile(PutFile { id, size })
+            })
+            .await;
+        let Some(upload) = begun.upload.clone() else {
+            return begun;
+        };
+        let mut answer = begun;
+        for (n, bytes) in bytes.chunks(part).enumerate() {
+            let data = BASE64_STANDARD.encode(bytes);
+            let upload = upload.clone();
+            answer = self
+                .request(|id| {
+                    ClientMessage::PutFilePart(PutFilePart {
+                        data,
+                        id,
+                        offset: (n * part) as u64,
+                        upload,
+                    })
+                })
+                .await;
+            if answer.kind == ReplyKind::Error {
+                return answer;
+            }
+        }
+        answer
     }
 
     /// Takes `chat` back to before its input `item`.

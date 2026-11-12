@@ -1348,6 +1348,7 @@ mod tests {
             default_effort: Some(Effort::Medium),
             efforts: vec![Effort::Low, Effort::Medium, Effort::High],
             fast: false,
+            images: None,
             name: name.into(),
             note: String::new(),
             price: None,

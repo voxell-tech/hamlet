@@ -3,12 +3,14 @@
 
 use anyhow::Result;
 use diesel::prelude::*;
+use hamlet_protocol::client::ImageId;
 use hamlet_store::ids::{Actor, AgentId};
 use hamlet_store::schema::worker;
 
 use super::{Call, Step, list, said, task_chief, text};
 use crate::calls::place;
 use crate::core::Core;
+use crate::inbox::INBOX;
 use crate::society::agents::{self, EndHow};
 use crate::society::refusal::Refusal;
 use crate::society::workers::{self, Start, Starter};
@@ -18,6 +20,7 @@ use crate::talk::conversations::Kind;
 use crate::talk::letters::{self, Message, MessageKind, Send};
 use crate::talk::tasks::{self, Origin};
 use crate::work::catalogue::SOCIETY;
+use crate::work::tools::To;
 
 impl Core {
     pub(in crate::calls) async fn tell(
@@ -29,6 +32,7 @@ impl Core {
             MessageKind::Letter,
             "to",
             &text(call, "text"),
+            &list(call, "paths"),
         )
         .await
     }
@@ -42,6 +46,7 @@ impl Core {
             MessageKind::Question,
             "to",
             &text(call, "question"),
+            &list(call, "paths"),
         )
         .await
     }
@@ -70,18 +75,26 @@ impl Core {
             "I ask for a road to {name}: {}",
             text(call, "reason")
         );
-        self.deliver(call, MessageKind::Letter, lead, "lead", &words)
-            .await
+        self.deliver(
+            call,
+            MessageKind::Letter,
+            lead,
+            "lead",
+            &words,
+            &[],
+        )
+        .await
     }
 
-    /// Sends a letter or a question to the agent the argument `key`
-    /// names.
+    /// Sends a letter or a question, with the files under `paths`,
+    /// to the agent the argument `key` names.
     async fn send(
         &mut self,
         call: &Call<'_>,
         kind: MessageKind,
         key: &str,
         words: &str,
+        paths: &[String],
     ) -> Result<Step> {
         let sender = call.conversation.agent;
         let db = self.realm.store().connection();
@@ -96,7 +109,8 @@ impl Core {
             Err(refusal) => return Ok(Step::of(Err(refusal))),
         };
         let address = text(call, key);
-        self.deliver(call, kind, receiver, &address, words).await
+        self.deliver(call, kind, receiver, &address, words, paths)
+            .await
     }
 
     async fn deliver(
@@ -106,6 +120,7 @@ impl Core {
         receiver: AgentId,
         address: &str,
         words: &str,
+        paths: &[String],
     ) -> Result<Step> {
         let sender = call.conversation.agent;
         if receiver == sender {
@@ -138,6 +153,20 @@ impl Core {
                 ),
             })));
         }
+        let mut words = words.to_owned();
+        let mut images = Vec::new();
+        if !paths.is_empty() {
+            match self.parcel(call, receiver, paths).await? {
+                Ok((captions, kept)) => {
+                    words.push_str("\n\n");
+                    words.push_str(&captions);
+                    images = kept;
+                }
+                Err(refusal) => {
+                    return Ok(Step::of(Err(refusal)));
+                }
+            }
+        }
         let task = self.task_of(call)?;
         let (runtime, key) =
             (call.call.runtime.clone(), call.call.key.clone());
@@ -166,7 +195,8 @@ impl Core {
                         from,
                         address,
                         task,
-                        text: words,
+                        text: &words,
+                        images: &images,
                     },
                 )?))
             })
@@ -175,6 +205,54 @@ impl Core {
             Ok(found) => self.sent(&found),
             Err(refusal) => Ok(Step::of(Err(refusal))),
         }
+    }
+
+    /// Copies the files under `paths`, as the caller may read them,
+    /// into `receiver`'s inbox, and gives the captions that say where
+    /// each landed and the images among them.
+    async fn parcel(
+        &mut self,
+        call: &Call<'_>,
+        receiver: AgentId,
+        paths: &[String],
+    ) -> Result<Result<(String, Vec<ImageId>), Refusal>> {
+        let layout = self.realm.layout().clone();
+        let db = self.realm.store().connection();
+        let at =
+            place::of_conversation(db, &layout, &call.conversation)?;
+        let from =
+            addresses::address_of(db, call.conversation.agent)?
+                .replace('#', "-");
+        let session = match self
+            .tools_of(call, at.place, false)
+            .await?
+        {
+            Ok((session, _)) => session,
+            Err(words) => return Ok(Err(Refusal::Usage { words })),
+        };
+        let mut inbox = self
+            .open_inbox(receiver, &format!("{INBOX}/from-{from}"))?;
+        let sent = session
+            .parcel(
+                paths,
+                Some(To {
+                    inbox: &mut inbox,
+                    images: layout.images(),
+                }),
+            )
+            .await?;
+        let sent = match sent {
+            Ok(sent) => sent,
+            Err(refusal) => return Ok(Err(refusal)),
+        };
+        let mut captions = inbox.captions("of this message");
+        if sent.skipped > 0 {
+            captions.push_str(&format!(
+                "\n[{} links inside the folders were left out]",
+                sent.skipped
+            ));
+        }
+        Ok(Ok((captions, sent.images)))
     }
 
     /// What a message kept for a call answers it: a letter is sent; a

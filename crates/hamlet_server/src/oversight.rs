@@ -49,6 +49,8 @@ text_enum! {
         Edit = "edit",
         /// A command in manual mode.
         Command = "command",
+        /// Files sent to another agent, over the cap of one send.
+        Send = "send",
     }
 }
 
@@ -61,6 +63,7 @@ impl Danger {
             Self::Reserved => "wants to do what you reserved:",
             Self::Edit => "wants to edit",
             Self::Command => "wants to run",
+            Self::Send => "wants to send files:",
         }
     }
 
@@ -70,7 +73,7 @@ impl Danger {
         match self {
             Self::Edit | Self::Command => Some(Lasting::Session),
             Self::Network | Self::Unconfined => Some(Lasting::Grant),
-            Self::Reserved => None,
+            Self::Reserved | Self::Send => None,
         }
     }
 
@@ -91,6 +94,7 @@ impl Danger {
             Self::Reserved => WaitDanger::Reserved,
             Self::Edit => WaitDanger::Edit,
             Self::Command => WaitDanger::Command,
+            Self::Send => WaitDanger::Send,
         }
     }
 }

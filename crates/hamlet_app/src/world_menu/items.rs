@@ -6,7 +6,6 @@ use bevy::math::{Rect, Vec2};
 use bevy_fynix::ViewExt;
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{BehaviorExt, Label, label, menu_item};
-use hamlet_client::gifts::{give, offers};
 use hamlet_client::realm::{
     self as agents, Busy, Deeds, HamletId, Kind, Left, Mayor,
 };
@@ -17,7 +16,7 @@ use hamlet_realm::{moving, orders};
 use hamlet_ui::AnyView;
 
 use super::deed::Deed;
-use super::{Open, close, restore, stop};
+use super::{close, restore, stop};
 
 /// A hire of the hamlet that is not its mayor and has not left, with
 /// its name.
@@ -93,37 +92,16 @@ fn road(world: &World, agent: Entity) -> Option<AnyView> {
     })
 }
 
-/// Whether `agent` can be given a skill now.
-fn can_give(world: &World, agent: Entity) -> bool {
-    Deeds::is_allowed(world, "give")
-        && !offers(world, agent).is_empty()
-}
-
-fn gifts(world: &World, agent: Entity, at: Vec2) -> Vec<AnyView> {
-    if !can_give(world, agent) {
-        return Vec::new();
-    }
-    vec![
-        menu_item(label("Give a skill...").wrap(false))
-            .on_activate(move |world| {
-                *world.resource_mut::<Open>() =
-                    Open::Skills(agent, at);
-            })
-            .boxed(),
-    ]
-}
-
-fn for_mayor(world: &World, at: Vec2) -> Vec<AnyView> {
+fn for_mayor(world: &World) -> Vec<AnyView> {
     let mut items = vec![item("Stop the Mayor".into(), |world| {
         if let Some(mayor) = agents::first_mayor(world) {
             stop(world, mayor);
         }
     })];
-    if let Some(mayor) = agents::first_mayor(world) {
-        if let Some(hire) = hire_under(world, mayor) {
-            items.insert(0, hire);
-        }
-        items.extend(gifts(world, mayor, at));
+    if let Some(mayor) = agents::first_mayor(world)
+        && let Some(hire) = hire_under(world, mayor)
+    {
+        items.insert(0, hire);
     }
     items
 }
@@ -150,7 +128,6 @@ fn for_agent(
     let name = |agent: Entity| agents::shown_of(world, agent);
     let mut items = Vec::from_iter(hire_under(world, agent));
     items.extend(road(world, agent));
-    items.extend(gifts(world, agent, at));
     if world.get::<Busy>(agent).is_some() {
         items.push(item(format!("Stop {}", name(agent)), move |w| {
             stop(w, agent);
@@ -266,23 +243,12 @@ fn for_library(thing: Thing) -> Vec<AnyView> {
     ]
 }
 
-/// The skills `agent` could be given, each pressed to give it.
-pub(super) fn skills(world: &World, agent: Entity) -> Vec<AnyView> {
-    offers(world, agent)
-        .into_iter()
-        .map(|offer| {
-            let text = format!("{} (of {})", offer.skill, offer.from);
-            item(text, move |w| give(w, agent, &offer))
-        })
-        .collect()
-}
-
 /// Whether [`items`] holds anything for `thing`: for the Hand, only
-/// while it can be given a skill or stopped.
+/// while it can be stopped.
 pub(super) fn has_items(world: &World, thing: Thing) -> bool {
     match (thing, agents::hand(world)) {
         (Thing::Hand, Some(hand)) => {
-            can_give(world, hand) || world.get::<Busy>(hand).is_some()
+            world.get::<Busy>(hand).is_some()
         }
         (Thing::Hand, None) => false,
         _ => true,
@@ -305,7 +271,7 @@ pub(super) fn items(
     at: Vec2,
 ) -> Vec<AnyView> {
     match thing {
-        Thing::Keeper | Thing::Cottage => for_mayor(world, at),
+        Thing::Keeper | Thing::Cottage => for_mayor(world),
         Thing::Ruin(agent) => for_ruin(world, agent),
         Thing::Agent(agent) | Thing::House(agent) => {
             for_agent(world, thing, agent, at)
@@ -321,11 +287,7 @@ pub(super) fn items(
         // moves.
         // Choosing it opens its chat, with the rest.
         Thing::Hand => match agents::hand(world) {
-            Some(hand) => {
-                let mut items = gifts(world, hand, at);
-                items.extend(stop_hand(world, hand));
-                items
-            }
+            Some(hand) => Vec::from_iter(stop_hand(world, hand)),
             None => Vec::new(),
         },
         // A scholar's house, or the scholar waiting on the pier.

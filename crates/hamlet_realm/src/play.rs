@@ -26,14 +26,10 @@ pub enum Play {
     Wave,
     /// A robot was cheered for its work.
     Cheer,
-    /// A robot was handed something to read.
-    Letter,
     /// A thinking agent's light was nudged.
     Nudge,
     /// Two robots were introduced, for a road between them.
     Introduce,
-    /// An agent was given a skill.
-    Gift,
     /// A chief's mascot went out by Wickstep, and was lit again
     /// where it was going.
     WickOut,

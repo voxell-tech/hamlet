@@ -11,7 +11,7 @@ use hamlet_protocol::client::{
     self as protocol, ChatRef, ChatRefKind, ClientMessage, RequestId,
     ServerMessage, Transcript,
 };
-use hamlet_store::ids::{Actor, AgentId, ConversationId, ScholarId};
+use hamlet_store::ids::{Actor, AgentId, ConversationId};
 
 use super::check::{fault, reply};
 use super::connection::{self, Event};
@@ -54,8 +54,8 @@ impl Core {
             Event::Gone(client) => {
                 self.clients.gone(client);
                 self.providers.disconnect(client);
-                let staging = self.realm.layout().staging();
-                self.gifts.disconnect(client, &staging);
+                self.images.disconnect(client);
+                self.files.disconnect(client);
                 self.send_providers().await
             }
         }
@@ -200,6 +200,16 @@ impl Core {
                 };
                 let text = say.text.trim();
                 if text.starts_with('/') {
+                    if !say.images.is_empty() || !say.files.is_empty()
+                    {
+                        return self.answer(
+                            client,
+                            reply(
+                                &say.id,
+                                Err(Refusal::CommandAttachments),
+                            ),
+                        );
+                    }
                     let answer = self.command(agent, text).await?;
                     // A command may write what no change publishes,
                     // such as a revoked grant.
@@ -215,11 +225,25 @@ impl Core {
                         reply(&say.id, Err(Refusal::NoModelSetUp)),
                     );
                 }
+                let attached = match self
+                    .attach(agent, &say.text, &say.images, &say.files)
+                    .await?
+                {
+                    Ok(attached) => attached,
+                    Err(refusal) => {
+                        return self.answer(
+                            client,
+                            reply(&say.id, Err(refusal)),
+                        );
+                    }
+                };
                 let request = say.id.as_str().to_owned();
-                let line = self.credentials.scrub_text(&say.text);
+                let line = attached.place(&say.text, |words| {
+                    self.credentials.scrub_text(words)
+                });
                 let said = self
                     .change(Actor::Chief(chief), |cx, env| {
-                        chats::say(
+                        chats::say_with(
                             cx, env, agent, chief, &request, &line,
                         )
                     })
@@ -360,28 +384,20 @@ impl Core {
                     .await?;
                 self.answer(client, reply(&answer.id, words))
             }
-            ClientMessage::Give(protocol::Give::Files {
-                files,
-                id,
-                to,
-            }) => {
-                let to = AgentId(i64::try_from(to.0)?);
-                let answer =
-                    self.give_files(client, &id, to, files)?;
+            ClientMessage::PutImage(put) => {
+                let answer = self.put_image(client, put);
                 self.answer(client, answer)
             }
-            ClientMessage::Give(protocol::Give::Skill {
-                id,
-                skill,
-                to,
-            }) => {
-                let to = ScholarId(i64::try_from(to.0)?);
-                let words = self.give_skill(to, skill).await?;
-                self.publish().await?;
-                self.answer(client, reply(&id, words))
+            ClientMessage::PutImagePart(part) => {
+                let answer = self.put_image_part(client, part)?;
+                self.answer(client, answer)
             }
-            ClientMessage::GivePart(part) => {
-                let answer = self.give_part(client, part).await?;
+            ClientMessage::PutFile(put) => {
+                let answer = self.put_file(client, put)?;
+                self.answer(client, answer)
+            }
+            ClientMessage::PutFilePart(part) => {
+                let answer = self.put_file_part(client, part)?;
                 self.answer(client, answer)
             }
             ClientMessage::Rewind(rewind) => {
@@ -419,8 +435,14 @@ impl Core {
                     .await?;
                 self.rewatch(agent).await?;
                 let answer = match done {
-                    Ok(text) => {
+                    Ok((text, images, files)) => {
+                        self.keep_images(&images);
+                        self.keep_files(&files);
                         ServerMessage::Reply(protocol::Reply {
+                            file: None,
+                            files,
+                            image: None,
+                            images,
                             kind: protocol::ReplyKind::Rewound,
                             text,
                             to: rewind.id.clone(),

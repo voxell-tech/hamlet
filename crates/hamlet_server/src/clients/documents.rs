@@ -470,6 +470,10 @@ impl Core {
     ) -> Result<()> {
         let chief = self.realm.chief();
         let message = match read {
+            Read::Image { id, image, size } => {
+                self.read_image(&id, &image, size.unwrap_or_default())
+                    .await?
+            }
             Read::Charter { id } => {
                 let db = self.realm.store().connection();
                 let own = document::table

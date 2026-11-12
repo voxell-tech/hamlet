@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use bevy::color::Color;
-use bevy::ecs::hierarchy::ChildOf;
+use bevy::ecs::hierarchy::{ChildOf, Children};
 use bevy::ecs::world::World;
 use bevy::text::{
     FontSize, FontSource, FontStyle, FontWeight, LineHeight,
@@ -12,12 +12,14 @@ use bevy::text::{
 };
 use bevy::ui::{
     AlignItems, Display, JustifyContent, MaxTrackSizingFunction,
-    MinTrackSizingFunction, Node, RepeatedGridTrack, UiRect, px,
+    MinTrackSizingFunction, Node, RepeatedGridTrack, UiRect, percent,
+    px,
 };
 use bevy::window::SystemCursorIcon;
 use bevy_fynix::tokens::{TextTokens, Tone};
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, column, frame, label, row,
+    Atom, BehaviorExt, FrameProps, LineColor, Span as Run, column,
+    frame, label, row,
 };
 use bevy_fynix::{
     EntityCursor, ScopedExt, Signal, ViewExt, derived, each, keyed,
@@ -149,9 +151,11 @@ fn kept_whole(text: &str) -> String {
     joined
 }
 
-/// A [`rich`] paragraph set as `setting` says.
-fn set_rich(spans: &[Span], ink: Ink, setting: Setting) -> AnyView {
-    let spans = spans.to_vec();
+/// `view`, built again when the folders paths are searched in
+/// change, as a link in it may then lead somewhere else.
+fn relinked(
+    view: impl Fn() -> AnyView + Send + Sync + 'static,
+) -> AnyView {
     let mut links = resource::<PathLinks, _>(|_| ());
     keyed(
         derived(|world: &World| {
@@ -160,98 +164,102 @@ fn set_rich(spans: &[Span], ink: Ink, setting: Setting) -> AnyView {
                 .map(|links| links.generation)
         })
         .when(move |world: &World| links.changed(world)),
-        move |_| {
-            let spans = spans.clone();
-            AnyView::new(move |cx: &mut Cx| {
-                let spans = anchored(cx.world, spans);
-                let theme = cx.theme();
-                let size = ink.size.unwrap_or(theme.text.body);
-                let root = cx.build(label("").size(size));
-                let leading = match setting {
-                    Setting::Running => LineHeight::default(),
-                    Setting::Page => {
-                        LineHeight::RelativeToFont(PAGE_LEADING)
-                    }
-                };
-                cx.world.entity_mut(root).insert(leading);
-                let mono = cx
-                    .world
-                    .get_resource::<Mono>()
-                    .map(|m| m.0.clone());
-                for (span, anchor) in spans {
-                    let Style {
-                        bold,
-                        italic,
-                        code,
-                        strike,
-                    } = span.style;
-                    let tone = match anchor {
-                        Some(_) => Tone::Accent,
-                        None => ink.tone,
-                    };
-                    let font = TextFont {
-                        font: mono
-                            .clone()
-                            .filter(|_| code)
-                            .map(FontSource::from)
-                            .unwrap_or_default(),
-                        font_size: FontSize::Px(if code {
-                            size - 1.0
-                        } else {
-                            size
-                        }),
-                        weight: if bold || ink.face != Face::Body {
-                            FontWeight::BOLD
-                        } else {
-                            FontWeight::NORMAL
-                        },
-                        style: if italic {
-                            FontStyle::Italic
-                        } else {
-                            FontStyle::Normal
-                        },
-                        ..TextFont::default()
-                    };
-                    let text = if code && setting == Setting::Page {
-                        kept_whole(&span.text)
-                    } else {
-                        span.text
-                    };
-                    let mut entity = cx.world.spawn((
-                        TextSpan(text),
-                        leading,
-                        font,
-                        TextColor(theme.tone(tone)),
-                        ChildOf(root),
-                    ));
-                    // Names and links are references, in blue.
-                    if code {
-                        entity.insert((
-                            MonoText,
-                            TextColor(theme.tone(Tone::Reference)),
-                            TextBackgroundColor(
-                                theme.palette.status.info.fill,
-                            ),
-                        ));
-                    }
-                    if let Some(anchor) = anchor {
-                        entity.insert((
-                            anchor,
-                            TextColor(theme.tone(Tone::Reference)),
-                            Underline,
-                            EntityCursor(SystemCursorIcon::Pointer),
-                        ));
-                    }
-                    if strike {
-                        entity.insert(Strikethrough);
-                    }
-                }
-                root
-            })
-        },
+        move |_| view(),
     )
     .within(bare())
     .boxed()
+}
+
+/// A [`rich`] paragraph set as `setting` says.
+fn set_rich(spans: &[Span], ink: Ink, setting: Setting) -> AnyView {
+    let spans = spans.to_vec();
+    relinked(move || {
+        let spans = spans.clone();
+        AnyView::new(move |cx: &mut Cx| {
+            let spans = anchored(cx.world, spans);
+            let theme = cx.theme();
+            let size = ink.size.unwrap_or(theme.text.body);
+            let root = cx.build(label("").size(size));
+            let leading = match setting {
+                Setting::Running => LineHeight::default(),
+                Setting::Page => {
+                    LineHeight::RelativeToFont(PAGE_LEADING)
+                }
+            };
+            cx.world.entity_mut(root).insert(leading);
+            let mono =
+                cx.world.get_resource::<Mono>().map(|m| m.0.clone());
+            for (span, anchor) in spans {
+                let Style {
+                    bold,
+                    italic,
+                    code,
+                    strike,
+                } = span.style;
+                let tone = match anchor {
+                    Some(_) => Tone::Accent,
+                    None => ink.tone,
+                };
+                let font = TextFont {
+                    font: mono
+                        .clone()
+                        .filter(|_| code)
+                        .map(FontSource::from)
+                        .unwrap_or_default(),
+                    font_size: FontSize::Px(if code {
+                        size - 1.0
+                    } else {
+                        size
+                    }),
+                    weight: if bold || ink.face != Face::Body {
+                        FontWeight::BOLD
+                    } else {
+                        FontWeight::NORMAL
+                    },
+                    style: if italic {
+                        FontStyle::Italic
+                    } else {
+                        FontStyle::Normal
+                    },
+                    ..TextFont::default()
+                };
+                let text = if code && setting == Setting::Page {
+                    kept_whole(&span.text)
+                } else {
+                    span.text
+                };
+                let mut entity = cx.world.spawn((
+                    TextSpan(text),
+                    leading,
+                    font,
+                    TextColor(theme.tone(tone)),
+                    ChildOf(root),
+                ));
+                // Names and links are references, in blue.
+                if code {
+                    entity.insert((
+                        MonoText,
+                        TextColor(theme.tone(Tone::Reference)),
+                        TextBackgroundColor(
+                            theme.palette.status.info.fill,
+                        ),
+                    ));
+                }
+                if let Some(anchor) = anchor {
+                    entity.insert((
+                        anchor,
+                        TextColor(theme.tone(Tone::Reference)),
+                        Underline,
+                        EntityCursor(SystemCursorIcon::Pointer),
+                    ));
+                }
+                if strike {
+                    entity.insert(Strikethrough);
+                }
+            }
+            root
+        })
+    })
 }
 
 fn code_view(cx: &Cx, lang: &str, text: &str) -> impl View {
@@ -547,6 +555,83 @@ pub fn typed(text: &str, tail: &str) -> Option<AnyView> {
             face: Face::Body,
         },
     ))
+}
+
+/// The character that stands for an atom in the words of
+/// [`typed_with`]. It is white space, so it ends the word before it
+/// as a view in the line does.
+pub const ATOM: char = '\u{2028}';
+
+/// Words set as [`typed`] sets them, whether or not a link is in
+/// them, in `tone`, with the next of `atoms` in the place of each
+/// [`ATOM`] and `tail` after them.
+pub fn typed_with(
+    text: &str,
+    tail: &str,
+    tone: Tone,
+    atoms: Vec<Atom>,
+) -> AnyView {
+    let mut spans = plain(text);
+    spans.push(Span {
+        text: tail.to_string(),
+        style: Style::default(),
+        link: None,
+    });
+    relinked(move || {
+        let (spans, atoms) = (spans.clone(), atoms.clone());
+        AnyView::new(move |cx: &mut Cx| {
+            let accent = cx.theme().tone(Tone::Accent);
+            let mut atoms = atoms.into_iter();
+            let mut runs = Vec::new();
+            // The place each run leads to, in the order of the runs.
+            let mut leads = Vec::new();
+            for (span, anchor) in anchored(cx.world, spans) {
+                let pieces =
+                    span.text.split(ATOM).collect::<Vec<_>>();
+                let last = pieces.len() - 1;
+                for (at, piece) in pieces.into_iter().enumerate() {
+                    if !piece.is_empty() {
+                        let run = Run::new(piece);
+                        runs.push(match anchor {
+                            Some(_) => run
+                                .color(accent)
+                                .underline(LineColor::Ink),
+                            None => run,
+                        });
+                        leads.push(anchor.clone());
+                    }
+                    if at < last
+                        && let Some(atom) = atoms.next()
+                    {
+                        runs.push(Run::atom(atom));
+                        leads.push(None);
+                    }
+                }
+            }
+            let body = cx.build(
+                bevy_fynix::views::rich(runs)
+                    .tone(tone)
+                    .atoms()
+                    .max_width(percent(100.0)),
+            );
+            let kids = cx
+                .world
+                .get::<Children>(body)
+                .and_then(|kids| kids.first().copied())
+                .and_then(|text| cx.world.get::<Children>(text))
+                .map(|kids| kids.to_vec())
+                .unwrap_or_default();
+            for (kid, lead) in kids.into_iter().zip(leads) {
+                if let Some(anchor) = lead {
+                    cx.world.entity_mut(kid).insert((
+                        anchor,
+                        EntityCursor(SystemCursorIcon::Pointer),
+                    ));
+                }
+            }
+            body
+        })
+    })
 }
 
 /// A Markdown document that is drawn once, one view per block. Its

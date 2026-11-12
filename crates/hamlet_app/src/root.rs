@@ -367,6 +367,10 @@ mod tests {
                 kind: protocol::ReplyKind::Notice,
                 text: "Not this test".into(),
                 upload: None,
+                image: None,
+                images: Vec::new(),
+                file: None,
+                files: Vec::new(),
             }),
         );
         hamlet_client::receive(
@@ -376,6 +380,10 @@ mod tests {
                 kind: protocol::ReplyKind::Notice,
                 text: "Reached the default model.".into(),
                 upload: None,
+                image: None,
+                images: Vec::new(),
+                file: None,
+                files: Vec::new(),
             }),
         );
         app.update();

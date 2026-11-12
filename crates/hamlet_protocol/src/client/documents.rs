@@ -4,8 +4,8 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::client::{
-    AgentId, Endpoint, Listed, Past, Price, RequestId, ScholarId,
-    Skill,
+    AgentId, Endpoint, ImageBytes, ImageId, ImageInput, ImageSize,
+    Listed, Past, Price, RequestId, ScholarId, Skill,
 };
 
 #[derive(
@@ -145,6 +145,12 @@ pub struct EditSettingsSetWorkspace {
 )]
 #[serde(deny_unknown_fields)]
 pub struct EditCatalogueSet {
+    /// What the model takes of images, as the chief says; none for
+    /// what its listing says.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "crate::client::present")]
+    #[schemars(with = "Option<ImageInput>")]
+    pub images: Option<Option<ImageInput>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[serde(deserialize_with = "crate::client::present")]
     #[schemars(with = "String")]
@@ -183,6 +189,16 @@ pub enum Read {
     },
     #[serde(rename = "charter")]
     Charter { id: RequestId },
+    #[serde(rename = "image")]
+    Image {
+        id: RequestId,
+        image: ImageId,
+        /// The original when absent.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[serde(deserialize_with = "crate::client::present")]
+        #[schemars(with = "ImageSize")]
+        size: Option<ImageSize>,
+    },
 }
 
 #[derive(
@@ -200,6 +216,10 @@ pub enum ReadResult {
     },
     Models {
         models: Vec<Listed>,
+        to: RequestId,
+    },
+    Image {
+        image: ImageBytes,
         to: RequestId,
     },
     Papers {

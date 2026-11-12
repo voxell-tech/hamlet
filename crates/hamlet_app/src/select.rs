@@ -51,7 +51,7 @@ use bevy::ui::{
 use bevy::ui_widgets::Button;
 use bevy::window::SystemCursorIcon;
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, column, frame, row,
+    BehaviorExt, FrameProps, RichField, column, frame, row,
 };
 use bevy_fynix::{EntityCursor, ViewExt, keyed, resource};
 use hamlet_ui::View;
@@ -243,8 +243,12 @@ struct Texts<'w, 's> {
         's,
         (Option<&'static Text>, Option<&'static TextSpan>),
     >,
-    controls:
-        Query<'w, 's, (), Or<(With<Button>, With<EditableText>)>>,
+    controls: Query<
+        'w,
+        's,
+        (),
+        Or<(With<Button>, With<EditableText>, With<RichField>)>,
+    >,
     cursors: Query<'w, 's, &'static EntityCursor>,
     seen: Query<
         'w,
@@ -734,7 +738,7 @@ fn keys(
     mut typed: MessageReader<KeyboardInput>,
     held: Res<ButtonInput<Key>>,
     focus: Res<InputFocus>,
-    fields: Query<(), With<EditableText>>,
+    fields: Query<(), Or<(With<EditableText>, With<RichField>)>>,
     clipboard: Option<ResMut<Clipboard>>,
     mut selecting: ResMut<Selecting>,
 ) {

@@ -77,10 +77,6 @@ name = "cli"
 required-features = ["acceptance"]
 
 [[test]]
-name = "gifts"
-required-features = ["acceptance"]
-
-[[test]]
 name = "versions"
 required-features = ["acceptance"]
 
@@ -98,6 +94,14 @@ required-features = ["acceptance"]
 
 [[test]]
 name = "dreams"
+required-features = ["acceptance"]
+
+[[test]]
+name = "images"
+required-features = ["acceptance"]
+
+[[test]]
+name = "files"
 required-features = ["acceptance"]
 
 [[test]]

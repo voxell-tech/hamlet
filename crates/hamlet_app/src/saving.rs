@@ -237,6 +237,10 @@ mod tests {
                 kind: protocol::ReplyKind::Notice,
                 text: "Saved.".into(),
                 upload: None,
+                image: None,
+                images: Vec::new(),
+                file: None,
+                files: Vec::new(),
             }),
         );
         app.update();

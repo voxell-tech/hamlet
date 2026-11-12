@@ -14,10 +14,14 @@ alone is not sufficient.
 
 `work/tools.rs` builds the policy from the server-owned `Place`: the agent's
 lodge (or a worker's scratch folder), the folder its hamlet works on, the
-realm's folder (never read) and what is only read, the library and the tools
-added by hand. The pi harness has no host-tool implementation; it submits
-operations to the server (see [the harness](harness.md)). `oversight/gate.rs`
-decides admission and `calls.rs` checks permissions at execution, including
+realm's folder (never read) and what is only read, the library, the tools
+added by hand. The images saved with a line are in the agent's own lodge, under
+`inbox/images/`, and the files under `inbox/`, so an agent reads only what was
+given to it; what another agent sends with `tell` or `ask` lands under
+`inbox/from-<sender>/`, read from the sender's own reach without following
+links. The realm's `images/` and `files/` folders are never in reach. The pi
+harness has no host-tool implementation; it submits operations to the
+server (see [the harness](harness.md)). `oversight/gate.rs` decides admission and `calls.rs` checks permissions at execution, including
 after approval or replay.
 
 Without a folder, commands write in their own lodge and a private temporary
@@ -70,21 +74,6 @@ These boundaries differ from running the entire server in a sandbox: the
 server itself owns the credentials and the database, and only exposes the
 confined operations it implements. Credentials are scrubbed before tool
 output or provider text is persisted or sent to clients.
-
-## Gifts
-
-The chief sends a manifest and parts through [the client protocol](protocol.md).
-`gifts.rs` owns unfinished uploads by connection; an upload ID from another
-connection is refused. The manifest is checked before staging: at most 32 MiB
-and 1000 files, no unsafe or duplicate normalized paths. Staging is under the
-realm's `staging/` folder, outside the lodges. Files are delivered to the
-agent's `inbox/`, which is never committed, and the server then admits the
-chief's notification as an input to the receiving agent.
-
-A skill gift is a commit to a scholar's `main`: the skill comes from
-another scholar or a hire's lodge, and the chief is the author. Typed `/give` and structured requests use the same owner. Gift
-transport and the agent's subsequent model work are separate: a complete
-delivered file is not undone by stopping its turn.
 
 ## Insecure mode on Windows
 

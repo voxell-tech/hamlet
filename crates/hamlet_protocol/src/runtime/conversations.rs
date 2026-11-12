@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::Version;
-use crate::runtime::{Item, Mark, ModelRef, Partial};
+use crate::runtime::{Item, Mark, ModelRef, Partial, Picture};
 
 /// Creates a conversation once per `key`; asking again answers with
 /// the same conversation.
@@ -80,6 +80,9 @@ pub struct Submit {
     pub conversation: String,
     #[schemars(length(min = 1))]
     pub id: String,
+    /// The images that go with `content`, in its message.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub images: Vec<Picture>,
     /// Hamlet's kind and data for the entry that places it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[serde(deserialize_with = "crate::runtime::present")]

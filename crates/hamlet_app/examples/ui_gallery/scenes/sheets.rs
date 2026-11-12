@@ -3,13 +3,11 @@
 
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
-use bevy::ecs::hierarchy::Children;
 use bevy::ecs::query::With;
 use bevy::ecs::system::{Commands, Local, Query, Res, ResMut};
 use bevy::ecs::world::World;
 use bevy::input_focus::{FocusCause, InputFocus};
 use bevy::picking::hover::Hovered;
-use bevy::text::EditableText;
 use bevy::ui::{AlignItems, Overflow, Pressed, UiRect, percent, px};
 use bevy::ui_widgets::Activate;
 use bevy_fynix::tokens::Tone;
@@ -457,8 +455,7 @@ pub(super) fn hold(
     scene: Res<Scene>,
     strike: Option<Res<Strike>>,
     held: Query<(Entity, &Held, Option<&Hovered>)>,
-    line: Query<&Children, With<chat::ChatField>>,
-    texts: Query<(), With<EditableText>>,
+    line: Query<Entity, With<chat::ChatField>>,
     mut focus: ResMut<InputFocus>,
     mut update: Local<u32>,
 ) {
@@ -484,10 +481,7 @@ pub(super) fn hold(
     if *scene != Scene::Field {
         return;
     }
-    let typed = line
-        .iter()
-        .flat_map(|children| children.iter().copied())
-        .find(|child| texts.contains(*child));
+    let typed = line.iter().next();
     if let Some(typed) = typed
         && focus.get() != Some(typed)
     {

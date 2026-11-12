@@ -168,12 +168,6 @@ const TABLE: &[Command] = &[
         does: "Take a file out of a scholar's whole history",
     },
     Command {
-        name: "give",
-        usage: "/give <scholar#id|address> <skill> from \
-                <scholar#id|address>",
-        does: "Copy a skill from one scholar to another",
-    },
-    Command {
         name: "unshelve",
         usage: "/unshelve <skill> [reason]",
         does: "Take a skill off the library's shelves",

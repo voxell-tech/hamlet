@@ -4,6 +4,8 @@ use hamlet_protocol::client::*;
 use serde_json::{Value, json};
 
 const ID: &str = "00000000-0000-4000-8000-000000000001";
+const IMAGE: &str =
+    "0000000000000000000000000000000000000000000000000000000000000001";
 
 fn id() -> RequestId {
     ID.parse().unwrap()
@@ -34,7 +36,11 @@ fn catalogue_edits_preserve_missing_null_and_assigned_prices() {
             ClientMessage::Edit(Edit::Catalogue {
                 id: id(),
                 model: "faux/test".into(),
-                set: EditCatalogueSet { price, note: None },
+                set: EditCatalogueSet {
+                    images: None,
+                    price,
+                    note: None,
+                },
             }),
             json!({"type": "edit", "id": ID, "doc": "catalogue", "model": "faux/test", "set": set}),
         );
@@ -69,11 +75,57 @@ fn hello_carries_the_version_and_token() {
 fn chief_requests_carry_addresses_ids_and_choices() {
     client(
         ClientMessage::Say(Say {
+            files: Vec::new(),
             id: id(),
+            images: Vec::new(),
             to: agent(),
             text: "Hello".into(),
         }),
         json!({"type": "say", "id": ID, "to": 2, "text": "Hello"}),
+    );
+    client(
+        ClientMessage::Say(Say {
+            files: Vec::new(),
+            id: id(),
+            images: vec![
+                AttachedImage::last(IMAGE.parse().unwrap()),
+                AttachedImage {
+                    at: Some(2),
+                    id: IMAGE.parse().unwrap(),
+                },
+            ],
+            to: agent(),
+            text: "Look".into(),
+        }),
+        json!({"type": "say", "id": ID, "images": [{"id": IMAGE}, {"at": 2, "id": IMAGE}], "to": 2, "text": "Look"}),
+    );
+    client(
+        ClientMessage::Say(Say {
+            files: vec![AttachedFile {
+                at: Some(4),
+                id: IMAGE.parse().unwrap(),
+                name: "notes/a.md".into(),
+                size: 3,
+            }],
+            id: id(),
+            images: Vec::new(),
+            to: agent(),
+            text: "Read".into(),
+        }),
+        json!({"type": "say", "id": ID, "files": [{"at": 4, "id": IMAGE, "name": "notes/a.md", "size": 3}], "to": 2, "text": "Read"}),
+    );
+    client(
+        ClientMessage::PutFile(PutFile { id: id(), size: 3 }),
+        json!({"type": "put-file", "id": ID, "size": 3}),
+    );
+    client(
+        ClientMessage::PutFilePart(PutFilePart {
+            data: "YWJj".into(),
+            id: id(),
+            offset: 0,
+            upload: "u".into(),
+        }),
+        json!({"type": "put-file-part", "id": ID, "data": "YWJj", "offset": 0, "upload": "u"}),
     );
     client(
         ClientMessage::Answer(Answer {
@@ -138,32 +190,6 @@ fn chief_requests_carry_addresses_ids_and_choices() {
             to: agent(),
         }),
         json!({"type": "retry", "id": ID, "to": 2}),
-    );
-}
-
-#[test]
-fn gifts_name_the_agent_for_files_and_the_scholar_for_skills() {
-    client(
-        ClientMessage::Give(Give::Files {
-            id: id(),
-            to: agent(),
-            files: vec![GiveFile {
-                path: "a.md".into(),
-                size: 1,
-            }],
-        }),
-        json!({"type": "give", "id": ID, "to": 2, "files": [{"path": "a.md", "size": 1}]}),
-    );
-    client(
-        ClientMessage::Give(Give::Skill {
-            id: id(),
-            to: ScholarId(1),
-            skill: GiveSkillSource {
-                from: Keeper::Agent(agent()),
-                name: "maps".into(),
-            },
-        }),
-        json!({"type": "give", "id": ID, "to": 1, "skill": {"from": {"agent": 2}, "name": "maps"}}),
     );
 }
 
@@ -282,11 +308,15 @@ fn edits_choose_the_document_and_keep_limits_set_and_whole_distinct()
             id: id(),
             model: "faux/test".into(),
             set: EditCatalogueSet {
+                images: Some(Some(ImageInput {
+                    per_line: Some(4),
+                    ..Default::default()
+                })),
                 price: None,
                 note: Some("Local".into()),
             },
         }),
-        json!({"type": "edit", "id": ID, "doc": "catalogue", "model": "faux/test", "set": {"note": "Local"}}),
+        json!({"type": "edit", "id": ID, "doc": "catalogue", "model": "faux/test", "set": {"images": {"perLine": 4}, "note": "Local"}}),
     );
 }
 

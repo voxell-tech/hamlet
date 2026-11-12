@@ -108,7 +108,16 @@ export function hamletExtension(host: Host, tools: readonly ToolSpec[]) {
                     switch (answer.type) {
                         case "result":
                             return {
-                                output: [{ type: "text", text: answer.text }],
+                                output: [
+                                    { type: "text", text: answer.text },
+                                    ...(answer.images ?? []).map(
+                                        ({ data, mime }) => ({
+                                            type: "image" as const,
+                                            data,
+                                            mimeType: mime,
+                                        }),
+                                    ),
+                                ],
                                 isError: answer.error,
                                 ...(answer.details === undefined
                                     ? {}

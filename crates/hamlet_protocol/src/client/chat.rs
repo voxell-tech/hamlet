@@ -4,14 +4,25 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::client::{AgentId, RequestId, UsageView};
+use crate::client::{
+    AgentId, AttachedFile, AttachedImage, RequestId, UsageView,
+};
 
 #[derive(
     Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
 )]
 #[serde(deny_unknown_fields)]
 pub struct Say {
+    /// The files the line carries, each sent before it. They are
+    /// saved for the agent; its model is not given them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schemars(length(max = 10000))]
+    pub files: Vec<AttachedFile>,
     pub id: RequestId,
+    /// The images the line carries, each sent before it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schemars(length(max = 20))]
+    pub images: Vec<AttachedImage>,
     pub text: String,
     pub to: AgentId,
 }
@@ -160,6 +171,10 @@ pub struct Transcript {
     Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
 )]
 #[serde(tag = "op", deny_unknown_fields)]
+#[expect(
+    clippy::large_enum_variant,
+    reason = "a wire type; a box would show in every pattern"
+)]
 pub enum TranscriptOperation {
     #[serde(rename = "add")]
     Add {
@@ -211,7 +226,13 @@ pub struct Item {
     #[serde(deserialize_with = "crate::client::present")]
     #[schemars(with = "String")]
     pub chief: Option<String>,
+    /// The files a chief's line carried.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub files: Vec<AttachedFile>,
     pub id: String,
+    /// The images a chief's line carried.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub images: Vec<AttachedImage>,
     pub kind: ItemKind,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[serde(deserialize_with = "crate::client::present")]

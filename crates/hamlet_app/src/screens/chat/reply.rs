@@ -174,22 +174,25 @@ fn take(world: &mut World, session: Entity, id: &str, by: &str) {
     };
     let open = world.resource::<Convo>().session;
     world.resource_mut::<Replying>().0 = Some((open, answers));
-    // The field is focused one step on.
-    world.resource_mut::<Draft>().step = 1;
+    world.resource_mut::<Draft>().focus = true;
 }
 
-/// `text` sent as a reply to the message waiting in the open chat,
-/// which it uses up.
-pub(super) fn attach(world: &mut World, text: String) -> String {
+/// `text` as a reply to the message waiting in the open chat, and
+/// the bytes the reply puts before the words. Without one, `text`
+/// and no bytes.
+pub(super) fn attach(world: &World, text: String) -> (String, usize) {
     if text.trim().is_empty() {
-        return text;
+        return (text, 0);
     }
     let open = world.resource::<Convo>().session;
-    match world.resource_mut::<Replying>().0.take() {
-        Some((session, answers)) if session == open => {
-            replied(&answers, text.trim())
+    match &world.resource::<Replying>().0 {
+        Some((session, answers)) if *session == open => {
+            let words = text.trim();
+            let said = replied(answers, words);
+            let shift = said.len() - words.len();
+            (said, shift)
         }
-        _ => text,
+        _ => (text, 0),
     }
 }
 

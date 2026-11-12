@@ -168,6 +168,11 @@ pub struct Listed {
     /// Whether the model's provider has a fast tier it can be asked
     /// for.
     pub fast: bool,
+    /// What the model takes of images; none when it takes no images.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "crate::client::present")]
+    #[schemars(with = "crate::client::ImageInput")]
+    pub images: Option<crate::client::ImageInput>,
     pub name: String,
     pub note: String,
     #[serde(deserialize_with = "Option::deserialize")]

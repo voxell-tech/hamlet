@@ -41,10 +41,7 @@ fn chief_messages_become_requests_with_fresh_uuid_ids_and_wire_ids() {
         &world.resource_mut::<Outbox>().drain().collect::<Vec<_>>()[..],
         [protocol::ClientMessage::Open(_)]
     ));
-    world.trigger(ChiefMessage {
-        to: ada(),
-        text: "hello".into(),
-    });
+    world.trigger(ChiefMessage::words(ada(), "hello".into()));
     world.trigger(Answer {
         wait,
         choice: Choice::Allow,
@@ -134,6 +131,10 @@ fn structured_questions_reconcile_and_send_picks_without_forging_chief_text()
         world,
         protocol::ServerMessage::Reply(protocol::Reply {
             upload: None,
+            image: None,
+            images: Vec::new(),
+            file: None,
+            files: Vec::new(),
             to: refused.id.clone(),
             kind: protocol::ReplyKind::Error,
             text: "question 1 takes no words".into(),
@@ -165,6 +166,10 @@ fn structured_questions_reconcile_and_send_picks_without_forging_chief_text()
         world,
         protocol::ServerMessage::Reply(protocol::Reply {
             upload: None,
+            image: None,
+            images: Vec::new(),
+            file: None,
+            files: Vec::new(),
             to: answer.id.clone(),
             kind: protocol::ReplyKind::Notice,
             text: "answered".into(),
@@ -202,6 +207,10 @@ fn addressed_answers_reach_observers_and_a_rewind_returns_its_removed_words()
     });
     let reply = protocol::ServerMessage::Reply(protocol::Reply {
         upload: None,
+        image: None,
+        images: Vec::new(),
+        file: None,
+        files: Vec::new(),
         to: id.clone(),
         kind: protocol::ReplyKind::Notice,
         text: "read".into(),
@@ -241,6 +250,10 @@ fn addressed_answers_reach_observers_and_a_rewind_returns_its_removed_words()
         world,
         protocol::ServerMessage::Reply(protocol::Reply {
             upload: None,
+            image: None,
+            images: Vec::new(),
+            file: None,
+            files: Vec::new(),
             to: rewind.id.clone(),
             kind: protocol::ReplyKind::Rewound,
             text: "removed words".into(),

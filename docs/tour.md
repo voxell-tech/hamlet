@@ -44,7 +44,8 @@ Windows window's clippy. `deny.toml` at the root configures cargo deny,
 which `deny` runs.
 
 `vendor/fynix` is the submodule that supplies `bevy_fynix`, the panels'
-view layer; the workspace excludes it, and it is not edited here.
+view layer, with the rich field the chat is typed in; the workspace excludes
+it, and it is not edited here.
 
 | Crate or package | Owns |
 |---|---|
@@ -58,8 +59,8 @@ view layer; the workspace excludes it, and it is not edited here.
 | `harnesses/pi/` | Node pi-durable/pi-ai runtime; conversations, provider calls, compaction and forks |
 | `hamlet_protocol` | Both protocols' types: `client` and `runtime`; `Version`, the semver version each protocol carries; `RequestId`, which holds only a hyphenated UUID; `State::apply` for a client's changes; recorded frames, the schema pi reads and the client schema's fingerprint |
 | `hamlet_acceptance` | Real-process protocol, CLI and OAuth scenarios on scratch realm folders, through the typed `Client`, the `hamlet` command and `hamlet_testing`'s server |
-| `hamlet_client` | Connection, outbox, realm, waits and watched chats as Bevy entities, the `Index` that finds them by their protocol ids, and gifts read in parts off the frame |
-| `hamlet_desktop` | File/link openers, editor files, dialogs, wake locks and window icon |
+| `hamlet_client` | Connection, outbox, realm, waits and watched chats as Bevy entities, the `Index` that finds them by their protocol ids, and images and files read in parts off the frame |
+| `hamlet_desktop` | File/link openers, editor files, dialogs (`choose.rs`), the clipboard's images and files, wake locks and window icon |
 | `hamlet_update` | A release updating itself: how this copy was installed, the signed manifest, the download and putting it in place; its `check` feature, the window's alone, is what touches the network |
 | `hamlet_assets` | Embedded assets and Bevy asset loading |
 | `hamlet_realm` | The two islands, the city, the harbor, hamlets, houses, roads, robots, the Hand, the library, chief, sound and camera |
@@ -79,14 +80,12 @@ Bevy's parts (`bevy_app`, `bevy_ecs`, `bevy_asset`, ...) rather than
 `PreUpdate` (`ClientSystems::Receive`), so the realm and the panels see a
 frame in the update it arrives in, and sends the outbox in `Last`
 (`ClientSystems::Send`). The connect task calls the `Wake` resource after
-each frame it hands over, and a gift's read after each folder walked or
-part read; `hamlet_app/src/window.rs` inserts one that wakes winit's
+each frame it hands over; `hamlet_app/src/window.rs` inserts one that wakes winit's
 reactive loop, so a frame is drawn at once rather than at the loop's
 next timeout. `connection::Contact` is the window's standing
 with its server: connecting, connected, lost or refused. `index.rs` finds
 a hamlet, an agent, a scholar, a wait or a chat by its protocol id, kept by the
-components' hooks, and `gifts.rs` walks and reads a gift's files on
-Tokio's blocking threads.
+components' hooks.
 
 `RealmPlugin` in `hamlet_realm/src/lib.rs` adds the scene, then the
 generator, the chief's interactions and the bridge from client entities.
@@ -168,7 +167,9 @@ double of the remote workspace worker.
 | `commands.rs`, `commands/` | The chief's `/` commands: the table of them (advertised to clients as deeds) and what each does; `oversight.rs`, `shelves.rs` and `versions.rs` hold those on waits and grants, skills and a scholar's history |
 | `spend.rs` | Budgets and allowances: attempts admitted against them, usage charged once, budget resets and reports |
 | `dreaming.rs` | When agents dream: the hours, who is due, and `/dream` |
-| `gifts.rs` | Files sent in parts to an inbox, and skills committed to a scholar's `main` |
+| `images.rs` | Images (C33, S29): uploaded in parts, checked and kept once by hash in the realm's `images/` folder, fitted to a model's limits, given to an agent in its own folder, shown by a small copy, swept when nothing uses them, and read back by id |
+| `files.rs`, `inbox.rs` | Files a chief attaches (C33, S29): uploaded in parts and kept once by hash in the realm's `files/` folder; `inbox.rs` saves them, and what agents send with `tell` and `ask` (H30), in the receiver's `inbox/` and names where |
+| `attached.rs` | A chief's line with its attachments: each caption set in the words at its attachment's place (C33) |
 | `work.rs`, `work/` | What agents' tools do: the built-in tools in `tools.rs` and `tools/` (`files`, `shell`, `search`, `find`, `diff`, `environment` which is each agent's reach under the sandbox), tools added by hand in `added.rs`, the catalogue of society tools by name in `catalogue.rs`, and an edit's shown change in `cut.rs` |
 | `clients.rs`, `clients/` | Connections (`connection.rs`), strict parsing of client messages (`check.rs`), the requests and who answers each (`requests.rs`), the state and its changes (`state.rs`), transcripts (`fold.rs`) and the chief's documents (`documents.rs`) |
 | `workspace.rs`, `workspace/` | The remote workspace: each agent's session there (`serving.rs`) and a lodge's copy kept in step with the server's (`lodges.rs`) |
@@ -242,7 +243,9 @@ built-in ones.
 | Client protocol | `hamlet_protocol/src/client/`, then `cargo test -p hamlet_protocol` for `client_schema.fingerprint`; [`protocol.md`](protocol.md) |
 | Runtime protocol | `hamlet_protocol/src/runtime/`, then `cargo test -p hamlet_protocol`; [`harness.md`](harness.md) |
 | Received entities | `hamlet_client/src/connection.rs`, `realm.rs`, `waits.rs`, `chats.rs`, `index.rs` |
-| Gifts of skills and files, their upload in parts | `hamlet_client/src/gifts.rs`; dropped files reach it through `hamlet_realm/src/orders.rs` |
+| The message field and its chips: typing, sending, the place of each attachment, the chips in a sent line | `hamlet_app/src/screens/chat.rs` (`send_typed`), `chat/field.rs`, `chat/attach.rs` (the chips), `chat/bubble.rs` (a sent line); the field itself is fynix's `rich_field` |
+| Images on a line: upload, fitting, what a model takes, the read tool's images | `hamlet_server/src/images.rs`, `providers.rs`, `work/tools/files.rs`; in the window `hamlet_client/src/images.rs`, `hamlet_desktop/src/clipboard.rs`, `hamlet_app/src/screens/chat/attach.rs` and, for a custom model's limits, `hamlet_app/src/models/home.rs`; in the CLI `hamlet_cli/src/chat.rs` and `terminal.rs` |
+| Files and folders on a line, and sent with `tell` or `ask`: upload, the inbox, the cap | `hamlet_server/src/files.rs`, `inbox.rs`, `attached.rs`, `images.rs` (`attach`), `work/tools/parcel.rs`, `calls/society/letters.rs`, `oversight/gate.rs` (`Call::Parcel`); in the window `hamlet_client/src/files.rs`, `hamlet_desktop/src/choose.rs`, `hamlet_app/src/screens/chat/attach.rs`; in the CLI `hamlet_cli/src/client.rs`, `chat.rs` and `mentions.rs` (the `@path` tokens) |
 | A panel or right-click menu | `hamlet_app/src/screens/`, `world_menu/items.rs` |
 | The Hub: its rail, a thread, its details sheet, scholar and hamlet pages | `hamlet_app/src/screens/hub.rs`, `hub/` (`rail.rs`, `thread.rs`, `details.rs`, `scholar.rs`) |
 | Toasts that answer petitions in place | `hamlet_app/src/toasts.rs` |

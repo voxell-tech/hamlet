@@ -22,11 +22,6 @@ budget of the Hand and of the workers started outside a hamlet (H8).
 **H24.** Only a line a human types can be a command. A letter between agents
 is words, whatever it begins with.
 
-**H25.** A chief can give a hire or the Hand a file or folder, which lands in
-its inbox (at most 32 MB and 1000 files at once), or give a scholar a skill,
-which is committed to its `main` and copied from another scholar or a hire's
-lodge. The library's skills need no gift: every agent reads the library.
-
 **H26.** A chief has these commands. A command that names an agent takes its
 address (H14); one that names no hamlet means the hamlet of the agent the
 chief is talking to.
@@ -54,7 +49,6 @@ chief is talking to.
 | `/nickname <address> [nickname]` | What a hire or a worker is called in the world, or its own name again (H46) |
 | `/road <address> <address> [reason]`, `/unroad <address> <address> [reason]` | Lay or take up a road between two hires (H3) |
 | `/worker <task>` | Start a worker on a task in the hamlet (H42) |
-| `/give <scholar#id\|address> <skill> from <scholar#id\|address>` | Copy a skill from one scholar to another (H25) |
 | `/folder <folder\|none>`, `/mode <manual\|auto>` | The hamlet's folder and its mode (C20, C21) |
 | `/budget`, `/reset-budget` | The hamlet's spend, and starting its period again (H8) |
 | `/history` | The record: who was hired, ended, merged and restored, and the other decisions (H17) |
@@ -130,9 +124,8 @@ skills/<name>/SKILL.md    one folder per skill, with its files
   from the city's middle, clear of the middle and of every other house, its
   door toward the middle. A chief can set it down elsewhere
   (`/move-house`), on a spot just as clear.
-- `main` changes by a chief's edit of the character or a memory file, a skill
-  given to the scholar (H25), a dream (H43), or a revert (H39). Never by a
-  hire's tool.
+- `main` changes by a chief's edit of the character or a memory file, a dream
+  (H43), or a revert (H39). Never by a hire's tool.
 - Archiving a scholar ends its living hires first, each with a final commit
   of its lodge; it is refused while one of its hires
   holds a hamlet's office. Restoring brings back the
@@ -340,6 +333,17 @@ absorbed it, and are not charged again.
 Each letter, question and reply names its sender (C11, C30). A question
 that would leave a conversation waiting on its own answer, directly or
 through other questions, is refused.
+
+A letter or a question can name `paths`: files or folders in the sender's
+lodge or its hamlet's folder, which the server copies into the receiver's lodge
+under `inbox/from-<sender>/`, links not followed, as far as the sender's
+sandbox lets it read. The message says where each landed. An image among them
+is also given to the receiver's model when that model takes images. One send
+holds at most [32 MiB and 1000 files], images among them; a larger one waits for
+a chief, who is told what is sent and how large, and who allows it or refuses
+it, and the sender is told of a refusal. No send holds more than [256 MiB] in
+one file, [1 GiB] or [10000 files] in all. A remote workspace gives at most 4
+MiB of a file at once, so a sender working there sends no larger file.
 
 A hire can ask its lead for a road to another hire of its hamlet
 (`request_road`).

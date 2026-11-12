@@ -33,6 +33,7 @@ use hamlet_client::messages::Response;
 use hamlet_client::outbox::Outbox;
 use hamlet_client::realm::Kind;
 use hamlet_protocol::client as protocol;
+use hamlet_realm::hand::FileDrop;
 use hamlet_ui::styles::{
     Fills, LINE, Looks, Tipped, lettered, note, small_rules,
 };
@@ -963,7 +964,8 @@ pub fn transcript() -> impl View {
         x: OverflowAxis::Clip,
         y: OverflowAxis::Scroll,
     })
-    .tagged(ChatScroll);
+    .tagged(ChatScroll)
+    .tagged(FileDrop);
     // The way back to the end, over the corner of the chat, offered
     // only when the chat is not at its end.
     let back = each(
@@ -1031,10 +1033,12 @@ fn quiet() -> impl View {
                         lettered(*said)
                             .rules(hamlet_ui::styles::button)
                             .on_activate(move |world| {
-                                let mut draft = world
-                                    .resource_mut::<super::Draft>();
-                                draft.text = said.to_string();
-                                draft.step = 2;
+                                super::field::set(
+                                    world,
+                                    vec![super::Piece::Text(
+                                        said.to_string(),
+                                    )],
+                                );
                             })
                             .boxed()
                     })

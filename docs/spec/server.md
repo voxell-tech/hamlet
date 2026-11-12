@@ -46,6 +46,36 @@ from existing absolute paths or paths under the received work folder.
 A path inside the server's realm folder is never a link, even when
 reached through a symbolic link.
 
+**S29.** An image a chief sends is kept once in the realm's folder, under the
+SHA-256 of its bytes, however often it is sent. A client sends an image
+once, in parts, and then names it by that id on each line; the conversation
+keeps ids and never bytes, and a client fetches an image by its id to show
+it. Only a PNG, JPEG, WebP or GIF of at most 20 MiB is kept (C33). The
+server also keeps a small copy of each image, made once when a client first
+asks for it, which the transcript shows; the image itself is read only when a
+chief opens it. An image given to an agent is copied into that agent's own
+folder, inside its sandbox's reach, and into its remote workspace when there is
+one (an image too large to send there is only named); the realm's own folder of
+images is never in any agent's reach. An image no kept input, transcript item or
+agent's folder names, and that was last touched a day ago, is removed, which
+includes uploads never sent with a line.
+
+A file a chief attaches (C33) is kept the same way in the realm's `files/`
+folder, of any kind and at most 256 MiB, and a client names it by its id and
+the name the agent finds it under. The server copies each file named by a line
+into the `inbox/` of the agent's lodge, and into its remote workspace when
+there is one; the realm's folder of files is never in any agent's reach. A
+file named by no kept input, transcript item or tool result, last touched a day
+ago, is removed.
+
+**S30.** The server knows from its listing of a model whether it takes images,
+and its limits: the width, height and bytes of one image and how many a message
+holds. A chief can say that a model takes images and set its limits, as a model
+of a custom endpoint, whose listing says none, needs; the server keeps what the
+chief said until they clear it, and a later listing leaves it alone. It refuses
+a line with images to a model that takes none, and gives a model each image
+only once made to fit within its limits.
+
 ## Credentials
 
 **S7.** The server keeps its credentials (model keys, subscription logins,

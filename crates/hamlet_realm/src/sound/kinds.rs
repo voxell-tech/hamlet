@@ -141,8 +141,6 @@ pub enum Sound {
     /// A thinking light nudged.
     Nudge,
     Introduce,
-    /// A skill given.
-    Gift,
     /// A chief's mascot going out by Wickstep, and lit again.
     WickOut,
     WickIn,
@@ -202,7 +200,7 @@ pub enum Sound {
 }
 
 impl Sound {
-    pub const ALL: [Self; 68] = [
+    pub const ALL: [Self; 67] = [
         Self::Step,
         Self::RoadStep,
         Self::Hammer,
@@ -234,7 +232,6 @@ impl Sound {
         Self::Hand,
         Self::Nudge,
         Self::Introduce,
-        Self::Gift,
         Self::WickOut,
         Self::WickIn,
         Self::Clockwork,
@@ -312,7 +309,6 @@ impl Sound {
             | Self::Hand
             | Self::Nudge
             | Self::Introduce
-            | Self::Gift
             | Self::WickOut
             | Self::WickIn
             | Self::Clockwork => Family::Hand,
@@ -374,10 +370,8 @@ impl Sound {
             Play::Drop => Self::Drop,
             Play::Wave => Self::Wave,
             Play::Cheer => Self::Cheer,
-            Play::Letter => Self::Hand,
             Play::Nudge => Self::Nudge,
             Play::Introduce => Self::Introduce,
-            Play::Gift => Self::Gift,
             Play::WickOut => Self::WickOut,
             Play::WickIn => Self::WickIn,
             Play::Clockwork => Self::Clockwork,
@@ -464,7 +458,6 @@ impl Sound {
             Self::Hand => "hand",
             Self::Nudge => "nudge",
             Self::Introduce => "introduce",
-            Self::Gift => "gift",
             Self::WickOut => "wick-out",
             Self::WickIn => "wick-in",
             Self::Clockwork => "clockwork",

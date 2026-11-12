@@ -2,6 +2,7 @@
 //! transcript shows it. The runtime protocol carries it untyped.
 
 use anyhow::{Context, Result};
+use hamlet_protocol::client::{AttachedFile, AttachedImage};
 use hamlet_protocol::runtime;
 use hamlet_store::ids::AgentId;
 use serde::{Deserialize, Serialize};
@@ -16,6 +17,12 @@ pub(crate) enum Mark {
         chief: String,
         text: String,
         at: i64,
+        /// The images the line carried, at their places in `text`.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        images: Vec<AttachedImage>,
+        /// The files the line carried, at their places in `text`.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        files: Vec<AttachedFile>,
     },
     /// A failed or stopped turn carried on.
     #[serde(rename = "hamlet.retry")]
@@ -48,6 +55,9 @@ pub(crate) struct From {
     /// The sender as a transcript shows it.
     pub author: String,
     pub at: i64,
+    /// The images sent with it, by their ids.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub images: Vec<String>,
 }
 
 impl Mark {
@@ -70,6 +80,28 @@ impl Mark {
                 .expect("a mark has only string keys"),
         )
         .expect("each mark's data is an object")
+    }
+
+    /// The images a chief's line or an agent's message carried.
+    pub fn images(&self) -> Vec<AttachedImage> {
+        match self {
+            Self::Chief { images, .. } => images.clone(),
+            Self::Letter(From { images, .. })
+            | Self::Question(From { images, .. }) => images
+                .iter()
+                .filter_map(|image| image.parse().ok())
+                .map(AttachedImage::last)
+                .collect(),
+            _ => Vec::new(),
+        }
+    }
+
+    /// The files a chief's line carried.
+    pub fn files(&self) -> Vec<AttachedFile> {
+        match self {
+            Self::Chief { files, .. } => files.clone(),
+            _ => Vec::new(),
+        }
     }
 
     /// Whether its turn is one a chief asked for.

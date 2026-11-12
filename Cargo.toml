@@ -58,6 +58,9 @@ bevy_hanabi = { git = "https://github.com/djeedai/bevy_hanabi", rev = "d277555d4
 # The version bevy_a11y uses, which it no longer re-exports.
 accesskit = { version = "0.24", default-features = false }
 anyhow = "1"
+# The system clipboard, for the images on it; Bevy's own copy of it
+# holds text and raw pixels only.
+arboard = { version = "3.7", default-features = false, features = ["image-data"] }
 base64 = "0.22"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 diesel = { version = "2.3", default-features = false, features = ["sqlite", "returning_clauses_for_sqlite_3_35", "32-column-tables"] }

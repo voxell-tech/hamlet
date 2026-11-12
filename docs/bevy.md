@@ -43,7 +43,7 @@ trusting memory: the engine moves every release.
 | A mode with work on entering and leaving | A state, `OnEnter`, `OnExit`, a computed state | `ThemeState`, `WorldShown`, `DayPart`, `Dark` |
 | A result from another thread | A channel in a resource, drained by one system gated on it | `connection::receive`, `pictures::take` |
 | Heavy work off the frame | A task on `AsyncComputeTaskPool`, polled each frame | The mesh builds in `generator/building.rs` |
-| A file read for the window | A task on Tokio's blocking threads, collected by a system gated on it | `gifts::collect` |
+| A file read for the window | A task on Tokio's blocking threads, collected by a system gated on it | `files::collect` |
 
 An observer runs inside the command that triggered it, and `World::trigger`
 does not flush. Code that triggers from `&mut World` and then reads what the
@@ -81,8 +81,8 @@ that runs every frame is also work that keeps the app from resting.
    `chats::find`), which component hooks keep.
 5. **No file is read in a frame.** A `stat` is the limit: a picture is
    read again on the task pool only when its file's time or size moved
-   (`pictures::look_again`). The gifts' folder walks and part reads run
-   on Tokio's blocking threads, and `gifts::collect` runs only while a
+   (`pictures::look_again`). The attached files' folder walks and part reads
+   run on Tokio's blocking threads, and `files::collect` runs only while a
    read is pending. The editor's open files are the exception, read on
    a one-second timer (`on_real_timer`), never per frame.
 6. **Look for the loop inside the loop.** A closure that calls
@@ -110,7 +110,7 @@ frames in `PreUpdate`, so every system after it sees a frame in the
 update it arrives in, and `ClientSystems::Send` sends the outbox in
 `Last`, so a request queued anywhere in the update leaves in it. The
 connect task calls the `Wake` resource after each frame it hands over,
-as a gift's read does after each folder walked or part read, and the
+as an attached file's read does after each folder walked or part read, and the
 window's `Wake` wakes winit's reactive loop.
 
 fynix's sets are private to the vendored crate, which does not change,

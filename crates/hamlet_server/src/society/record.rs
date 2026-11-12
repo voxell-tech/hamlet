@@ -40,7 +40,6 @@ text_enum! {
         Reverted = "reverted",
         Forked = "forked",
         Purged = "purged",
-        SkillGiven = "skill-given",
         Hired = "hired",
         Ended = "ended",
         Merged = "merged",

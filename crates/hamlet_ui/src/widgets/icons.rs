@@ -208,6 +208,8 @@ pub enum Glyph {
     Merge,
     /// A mallet: a worker, started for one task.
     Worker,
+    /// A framed picture: an image to attach.
+    Picture,
 }
 
 /// A part of an icon, in the units of its square, y downward. Angles
@@ -236,7 +238,7 @@ enum Shape {
 
 impl Glyph {
     /// Every icon.
-    pub const ALL: [Glyph; 68] = [
+    pub const ALL: [Glyph; 69] = [
         Glyph::Plus,
         Glyph::Cross,
         Glyph::Check,
@@ -305,6 +307,7 @@ impl Glyph {
         Glyph::Fast,
         Glyph::Merge,
         Glyph::Worker,
+        Glyph::Picture,
     ];
 
     /// Its image for a side of `size`, to be tinted.
@@ -776,6 +779,17 @@ impl Glyph {
             Glyph::Worker => &[
                 Round(2.5, 2.5, 13.5, 6.5, 1.25),
                 Round(6.75, 6.5, 9.25, 13.5, 1.0),
+            ],
+            Glyph::Picture => &[
+                Round(2.0, 2.75, 14.0, 13.25, 1.75),
+                Dot(5.5, 6.25, 1.0),
+                Path(&[
+                    [2.5, 12.0],
+                    [6.0, 8.75],
+                    [9.0, 11.25],
+                    [11.0, 9.5],
+                    [13.5, 12.0],
+                ]),
             ],
         }
     }

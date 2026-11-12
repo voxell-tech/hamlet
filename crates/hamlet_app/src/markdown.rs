@@ -143,6 +143,8 @@ mod tests {
                         entry: Entry::Chief {
                             name: "a".into(),
                             text: "go".into(),
+                            images: Vec::new(),
+                            files: Vec::new(),
                         },
                     },
                     Item {

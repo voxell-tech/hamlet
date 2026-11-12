@@ -193,6 +193,12 @@ pub enum Scene {
     /// A chat with pictures in it: drawn, made smaller, missing and
     /// one of the web that waits to be asked for.
     Pictures,
+    /// A chat with images sent in a line and attached to the next,
+    /// an image dragged over the window, and the picture button.
+    Images,
+    /// The same for a model that sees no images: the button greyed
+    /// out and the drag refused.
+    NoImages,
     /// A chat with the pointer on one of the chief's messages, and
     /// the question its mark asks before the chat is taken back to
     /// it.

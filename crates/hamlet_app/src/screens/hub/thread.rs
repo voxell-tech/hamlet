@@ -10,9 +10,7 @@ use bevy::ecs::query::Has;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::system::{Commands, Query, Res, ResMut};
 use bevy::ecs::world::World;
-use bevy::ui::{
-    AlignItems, Display, Overflow, UiRect, Val, percent, px,
-};
+use bevy::ui::{AlignItems, Overflow, UiRect, Val, percent, px};
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, TooltipExt, button, column, dropdown,
@@ -509,7 +507,7 @@ fn header(agent: Entity) -> impl View {
                     return frame().boxed();
                 }
                 more_button(
-                    "Hiring, gifts, roads, merging and ending it",
+                    "Hiring, roads, merging and ending it",
                     move |world| {
                         world_menu::open_for(world, thing);
                     },
@@ -697,25 +695,6 @@ fn mode_chip(agent: Entity) -> impl View {
     .within(bare())
 }
 
-/// The `+` that offers the skills an agent could be given.
-fn gifts(agent: Entity) -> impl View {
-    row((button(glyph(Glyph::Plus, ICON))
-        .padding(UiRect::axes(px(8.0), px(0.0)))
-        .tip("Give it a skill")
-        .rules(choice(false))
-        .tagged(Variant::Text)
-        .on_activate(move |world| {
-            world_menu::open_skills(world, agent);
-        }),))
-    .display(rolled(move |world| {
-        if hamlet_client::gifts::offers(world, agent).is_empty() {
-            Display::None
-        } else {
-            Display::Flex
-        }
-    }))
-}
-
 /// The side of the round send and stop buttons.
 const ROUND: f32 = 30.0;
 
@@ -767,8 +746,8 @@ fn send_or_stop(agent: Entity) -> impl View {
     .within(bare())
 }
 
-/// The composer's toolbar, under its field: the gifts, the model and
-/// effort and the hamlet's mode, then Send or Stop.
+/// The composer's toolbar, under its field: the model and effort and
+/// the hamlet's mode, then Send or Stop.
 fn chips(agent: Entity) -> impl View {
     // With no model set up, the model's chip is the way to set one
     // up.
@@ -798,7 +777,6 @@ fn chips(agent: Entity) -> impl View {
     )
     .within(bare());
     row((
-        gifts(agent),
         model,
         mode_chip(agent),
         frame().grow(1.0),

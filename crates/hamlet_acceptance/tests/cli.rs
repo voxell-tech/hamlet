@@ -69,6 +69,62 @@ async fn chats_with_answers_on_stdout_and_the_rest_on_stderr() {
 }
 
 #[tokio::test]
+async fn attaches_a_file_and_a_folder_to_the_first_line() {
+    let mut s =
+        Session::start(Faux::new().responses([words("Got them.")]))
+            .await;
+    let side = s.home.side().join("send");
+    std::fs::create_dir_all(side.join("notes")).unwrap();
+    std::fs::write(side.join("notes/a.txt"), "alpha").unwrap();
+    std::fs::write(side.join("b.txt"), "beta").unwrap();
+    std::fs::write(side.join("c.txt"), "gamma").unwrap();
+    let (notes, b) = (side.join("notes"), side.join("b.txt"));
+    let c = side.join("c.txt");
+    let chat = Cli::run(
+        s.home.path(),
+        &[
+            "chat",
+            "--attach",
+            notes.to_str().unwrap(),
+            "--attach",
+            b.to_str().unwrap(),
+        ],
+        &format!(
+            "Read @\"{}\" these, @nobody.\n/attach /nowhere\n",
+            c.display()
+        ),
+        &[],
+    )
+    .await;
+    assert_eq!(chat.code(), Some(0), "{chat:?}");
+    assert!(chat.out.starts_with("Got them."), "{chat:?}");
+    // A token that names a path is attached where it stood.
+    let now = hamlet_acceptance::chat(s.hand());
+    let items = s.chief.open(&now).await.items;
+    assert_eq!(items[0].text, "Read these, @nobody.");
+    let placed = items[0]
+        .files
+        .iter()
+        .map(|file| (file.name.as_str(), file.at))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        placed,
+        [("c.txt", Some(5)), ("notes/a.txt", None), ("b.txt", None)]
+    );
+    let inbox = s.home.file("hand/inbox");
+    assert_eq!(
+        std::fs::read_to_string(inbox.join("notes/a.txt")).unwrap(),
+        "alpha"
+    );
+    assert_eq!(
+        std::fs::read_to_string(inbox.join("b.txt")).unwrap(),
+        "beta"
+    );
+    // A path that is not there is told, and the chat goes on.
+    assert!(chat.err.contains("/nowhere"), "{chat:?}");
+}
+
+#[tokio::test]
 async fn ends_with_a_failure_when_its_agent_does_not_exist() {
     let mut s = Session::start(Faux::new()).await;
     for input in ["", "Hello.\n"] {
