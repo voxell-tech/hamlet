@@ -121,6 +121,23 @@ fn view(
     .expect("a terminal")
 }
 
+/// Gives the agents of the overview's realm that ran commands a log
+/// each.
+pub(super) fn logs(state: &mut protocol::State) {
+    for (id, hamlet, agent) in
+        [("l2", "home", 2), ("l10", "home", 10)]
+    {
+        state.terminals.push(view(
+            id,
+            "commands",
+            Some(hamlet),
+            Some(agent),
+            "commands",
+            None,
+        ));
+    }
+}
+
 /// Adds the hamlets, the agents and the terminals to `state`: the
 /// mayor of `home` with a hire under it, and a worker the hire
 /// started, so the list shows its tree.

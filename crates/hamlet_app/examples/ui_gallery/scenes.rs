@@ -265,6 +265,8 @@ pub enum Scene {
     TerminalPanels,
     /// The Terminal panel with the menu of its "+" open.
     TerminalPick,
+    /// The Hub's thread with the menu of its "..." open.
+    HubMenu,
     /// The first-run screen at one of its steps.
     Welcome(welcome::Step),
     /// The first-run provider step, every provider shown and searched
