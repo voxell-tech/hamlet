@@ -1,130 +1,18 @@
 //! The local host: start by key, stop, the folder lock, alarms armed
 //! at start, and the commit hook.
 
-use std::collections::HashMap;
 use std::path::Path;
 use std::time::Duration;
 
-use anyhow::{Result, anyhow};
-use hamlet_actor_core::{
-    ActorConfig, ActorEvent, ActorFactory, ActorStart, BindParam,
-    ColumnValue, SerializeStateReason, ShutdownKind,
-};
+use hamlet_actor_core::ShutdownKind;
 use hamlet_host::Host;
 use hamlet_testing::Scratch;
 use rusqlite::{Connection, OpenFlags};
 
-/// A counter kept in a SQL table. `increment` adds one in a
-/// transaction, `discard` adds one and rolls it back, and `schedule`
-/// arms a one-shot `increment` after the milliseconds in its
-/// arguments.
-async fn run_counter(start: ActorStart) -> Result<()> {
-    let ActorStart {
-        ctx, mut events, ..
-    } = start;
-    let sql = ctx.sql();
-    sql.exec(
-        "CREATE TABLE IF NOT EXISTS counter (id INTEGER PRIMARY \
-         KEY, value INTEGER NOT NULL)"
-            .to_owned(),
-    )
-    .await?;
-    while let Some(event) = events.recv().await {
-        match event {
-            ActorEvent::Action {
-                name, args, reply, ..
-            } => {
-                let result = match name.as_str() {
-                    "increment" => add_one(&ctx, true).await,
-                    "discard" => add_one(&ctx, false).await,
-                    "get" => read_count(&ctx).await,
-                    "schedule" => {
-                        let ms = u64::from_le_bytes(
-                            args.try_into().map_err(|_| {
-                                anyhow!("schedule takes a u64")
-                            })?,
-                        );
-                        ctx.after(
-                            Duration::from_millis(ms),
-                            "increment",
-                            &[],
-                        )
-                        .await?;
-                        read_count(&ctx).await
-                    }
-                    other => Err(anyhow!("unknown action `{other}`")),
-                };
-                reply.send(
-                    result.map(|count| count.to_le_bytes().to_vec()),
-                );
-            }
-            ActorEvent::SerializeState {
-                reason: SerializeStateReason::Save,
-                reply,
-            } => reply.send(Ok(Vec::new())),
-            ActorEvent::RunGracefulCleanup { reply, .. } => {
-                reply.send(Ok(()));
-                break;
-            }
-            ActorEvent::ConnectionPreflight { reply, .. }
-            | ActorEvent::ConnectionOpen { reply, .. }
-            | ActorEvent::DisconnectConn { reply, .. } => {
-                reply.send(Ok(()));
-            }
-            _ => {}
-        }
-    }
-    Ok(())
-}
+#[path = "../examples/demo/counter.rs"]
+mod counter;
 
-async fn add_one(
-    ctx: &hamlet_actor_core::ActorContext,
-    commit: bool,
-) -> Result<i64> {
-    let tx = ctx.sql().begin_transaction(None).await?;
-    tx.execute(
-        "INSERT INTO counter (id, value) VALUES (0, 1) ON CONFLICT \
-         (id) DO UPDATE SET value = value + 1",
-        None,
-    )
-    .await?;
-    if commit {
-        tx.commit().await?;
-    } else {
-        tx.rollback().await?;
-    }
-    read_count(ctx).await
-}
-
-async fn read_count(
-    ctx: &hamlet_actor_core::ActorContext,
-) -> Result<i64> {
-    let result = ctx
-        .sql()
-        .execute(
-            "SELECT value FROM counter WHERE id = ?".to_owned(),
-            Some(vec![BindParam::Integer(0)]),
-        )
-        .await?;
-    Ok(match result.rows.first().and_then(|row| row.first()) {
-        Some(ColumnValue::Integer(value)) => *value,
-        _ => 0,
-    })
-}
-
-fn factories() -> HashMap<String, ActorFactory> {
-    let config = ActorConfig {
-        name: Some("counter".to_owned()),
-        has_database: true,
-        ..ActorConfig::default()
-    };
-    HashMap::from([(
-        "counter".to_owned(),
-        ActorFactory::new(config, |start| {
-            Box::pin(run_counter(start))
-        }),
-    )])
-}
+use counter::factories;
 
 async fn call(host: &Host, actor_id: &str, action: &str) -> i64 {
     call_with(host, actor_id, action, Vec::new()).await
