@@ -1,6 +1,8 @@
 // This file was changed for Hamlet. See NOTICE in this crate.
 use std::future::Future;
 use std::sync::Arc;
+#[cfg(test)]
+use std::sync::atomic::AtomicUsize as TestAtomicUsize;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 #[cfg(feature = "wasm-runtime")]
@@ -53,6 +55,8 @@ pub(crate) struct SleepState {
     // intent is sent to the envoy. Its presence is what makes the
     // intent a sleep rather than a destroy.
     pub(super) stop_error: Mutex<Option<String>>,
+    #[cfg(test)]
+    sleep_request_count: TestAtomicUsize,
     pub(super) lifecycle_started: AtomicBool,
     pub(super) run_handler_active_count: AtomicUsize,
     // Forced-sync: the compatibility sleep timer is aborted from
@@ -83,6 +87,8 @@ impl SleepState {
             generation: Mutex::new(None),
             http_request_counter: Mutex::new(None),
             stop_error: Mutex::new(None),
+            #[cfg(test)]
+            sleep_request_count: TestAtomicUsize::new(0),
             lifecycle_started: AtomicBool::new(false),
             run_handler_active_count: AtomicUsize::new(0),
             sleep_timer: Mutex::new(None),
@@ -169,6 +175,11 @@ impl ActorContext {
     }
 
     pub(crate) fn request_sleep_from_envoy(&self) {
+        #[cfg(test)]
+        self.0
+            .sleep
+            .sleep_request_count
+            .fetch_add(1, Ordering::SeqCst);
         let envoy_handle = self.0.sleep.envoy_handle.lock().clone();
         let generation = *self.0.sleep.generation.lock();
         if let Some(envoy_handle) = envoy_handle {
@@ -250,6 +261,11 @@ impl ActorContext {
     pub fn run_handler_active(&self) -> bool {
         self.0.sleep.run_handler_active_count.load(Ordering::SeqCst)
             > 0
+    }
+
+    #[cfg(test)]
+    pub(crate) fn sleep_request_count(&self) -> usize {
+        self.0.sleep.sleep_request_count.load(Ordering::SeqCst)
     }
 
     pub(crate) async fn can_arm_sleep_timer(&self) -> CanSleep {

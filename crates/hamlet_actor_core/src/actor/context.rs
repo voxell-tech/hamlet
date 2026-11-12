@@ -504,6 +504,36 @@ impl ActorContext {
         )
     }
 
+    #[cfg(test)]
+    pub(crate) fn new_with_kv(
+        actor_id: impl Into<String>,
+        name: impl Into<String>,
+        key: ActorKey,
+        region: impl Into<String>,
+        legacy_kv: LegacyActorKv,
+    ) -> Self {
+        crate::testing::new_with_kv(
+            actor_id, name, key, region, legacy_kv,
+        )
+    }
+
+    #[cfg(test)]
+    pub(crate) fn new_for_state_tests(
+        legacy_kv: LegacyActorKv,
+        config: ActorConfig,
+    ) -> Self {
+        let ctx = crate::testing::new_with_kv(
+            "state-test",
+            "state-test",
+            Vec::new(),
+            "local",
+            legacy_kv,
+        );
+        ctx.configure_connection_runtime(config.clone());
+        ctx.configure_queue(config);
+        ctx
+    }
+
     pub(crate) fn build(
         actor_id: String,
         name: String,
@@ -1461,6 +1491,13 @@ impl ActorContext {
         }
     }
 
+    #[cfg(test)]
+    pub(crate) fn add_conn(&self, conn: ConnHandle) {
+        self.insert_existing(conn);
+        self.record_connections_updated();
+        self.reset_sleep_timer();
+    }
+
     pub(crate) fn remove_conn(
         &self,
         conn_id: &str,
@@ -1877,14 +1914,24 @@ impl ActorContext {
         *self.0.inspector_overlay_tx.write() = Some(overlay_tx);
     }
 
-    #[expect(
-        dead_code,
-        reason = "ported; nothing in Hamlet calls it yet"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "ported; nothing in Hamlet calls it yet"
+        )
     )]
     pub(crate) fn inspector_attach(
         &self,
     ) -> Option<InspectorAttachGuard> {
         InspectorAttachGuard::new(self.clone())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn inspector_attach_count(&self) -> u32 {
+        self.inspector_attach_count_arc()
+            .map(|attach_count| attach_count.load(Ordering::SeqCst))
+            .unwrap_or(0)
     }
 
     #[expect(
@@ -2021,9 +2068,12 @@ impl ActorContext {
         self.reset_sleep_timer_state();
     }
 
-    #[expect(
-        dead_code,
-        reason = "ported; nothing in Hamlet calls it yet"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "ported; nothing in Hamlet calls it yet"
+        )
     )]
     fn notify_inspector_attachments_changed(&self) {
         self.try_send_lifecycle_event(
@@ -2488,9 +2538,12 @@ impl ActorContext {
 		});
     }
 
-    #[expect(
-        dead_code,
-        reason = "ported; nothing in Hamlet calls it yet"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "ported; nothing in Hamlet calls it yet"
+        )
     )]
     fn inspector_attach_count_arc(&self) -> Option<Arc<AtomicU32>> {
         self.0.inspector_attach_count.read().clone()
@@ -2599,18 +2652,24 @@ impl Drop for ActorWorkRegion {
 
 #[must_use]
 #[derive(Debug)]
-#[expect(
-    dead_code,
-    reason = "ported; nothing in Hamlet calls it yet"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "ported; nothing in Hamlet calls it yet"
+    )
 )]
 pub(crate) struct InspectorAttachGuard {
     ctx: ActorContext,
 }
 
 impl InspectorAttachGuard {
-    #[expect(
-        dead_code,
-        reason = "ported; nothing in Hamlet calls it yet"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "ported; nothing in Hamlet calls it yet"
+        )
     )]
     fn new(ctx: ActorContext) -> Option<Self> {
         let attach_count = ctx.inspector_attach_count_arc()?;
@@ -2694,3 +2753,7 @@ impl std::fmt::Debug for ActorContext {
 
 // Test shim keeps moved tests in crate-root tests/ with
 // private-module access.
+
+#[cfg(test)]
+#[path = "../../tests/context.rs"]
+pub(crate) mod tests;

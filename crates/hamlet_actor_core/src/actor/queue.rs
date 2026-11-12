@@ -1072,6 +1072,11 @@ impl ActorContext {
         self.0.queue_config.lock().clone()
     }
 
+    #[cfg(test)]
+    pub(crate) fn queue_config_for_tests(&self) -> ActorConfig {
+        self.config()
+    }
+
     fn notify_wait_activity(&self) {
         if let Some(callback) =
             self.0.queue_wait_activity_callback.lock().clone()

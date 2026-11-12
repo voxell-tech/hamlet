@@ -31,9 +31,12 @@ struct InspectorInner {
     active_connections: AtomicU32,
     queue_size: AtomicU32,
     connected_clients: AtomicUsize,
-    #[expect(
-        dead_code,
-        reason = "ported; nothing in Hamlet calls it yet"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "ported; nothing in Hamlet calls it yet"
+        )
     )]
     next_listener_id: AtomicU64,
     // Forced-sync: subscriptions are created/dropped from sync paths
@@ -58,9 +61,12 @@ pub(crate) enum InspectorSignal {
     SchedulesUpdated,
 }
 
-#[expect(
-    dead_code,
-    reason = "ported; nothing in Hamlet calls it yet"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "ported; nothing in Hamlet calls it yet"
+    )
 )]
 pub(crate) struct InspectorSubscription {
     inspector: Weak<InspectorInner>,
@@ -185,9 +191,12 @@ impl Inspector {
         }
     }
 
-    #[expect(
-        dead_code,
-        reason = "ported; nothing in Hamlet calls it yet"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "ported; nothing in Hamlet calls it yet"
+        )
     )]
     pub(crate) fn subscribe(
         &self,
@@ -243,9 +252,12 @@ impl Inspector {
         self.notify(InspectorSignal::SchedulesUpdated);
     }
 
-    #[expect(
-        dead_code,
-        reason = "ported; nothing in Hamlet calls it yet"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "ported; nothing in Hamlet calls it yet"
+        )
     )]
     pub(crate) fn set_connected_clients(
         &self,
@@ -294,3 +306,7 @@ pub fn encode_response_payload(
 
 // Test shim keeps moved tests in crate-root tests/ with
 // private-module access.
+
+#[cfg(test)]
+#[path = "../tests/inspector.rs"]
+mod tests;

@@ -616,3 +616,13 @@ pub(crate) async fn ensure_internal_schema(
     )
     .await
 }
+
+// --- ctxstate ---
+
+/// The actor's saved row, alarm and run wake deadline, as the
+/// internal storage loaded them when the tests were written.
+pub(crate) async fn load_actor_snapshot(
+    db: &SqliteDb,
+) -> Result<Option<internal_storage::InternalActorSnapshot>> {
+    Ok(internal_storage::load_actor_startup(db).await?.snapshot)
+}

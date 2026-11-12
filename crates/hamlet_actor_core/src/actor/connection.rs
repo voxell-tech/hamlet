@@ -340,9 +340,12 @@ impl ConnHandle {
         *self.0.disconnect_handler.write() = disconnect_handler;
     }
 
-    #[expect(
-        dead_code,
-        reason = "ported; nothing in Hamlet calls it yet"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "ported; nothing in Hamlet calls it yet"
+        )
     )]
     pub(crate) fn configure_transport_disconnect_handler(
         &self,
@@ -1019,6 +1022,11 @@ impl ActorContext {
         self.0.connection_config.read().clone()
     }
 
+    #[cfg(test)]
+    pub(crate) fn connection_config_for_tests(&self) -> ActorConfig {
+        self.connection_config()
+    }
+
     async fn disconnect_managed(
         &self,
         conn_id: &str,
@@ -1229,3 +1237,7 @@ fn disconnect_message(conn_id: &str, reason: Option<&str>) -> String {
 
 // Test shim keeps moved tests in crate-root tests/ with
 // private-module access.
+
+#[cfg(test)]
+#[path = "../../tests/connection.rs"]
+mod tests;

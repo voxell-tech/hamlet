@@ -60,14 +60,6 @@ pub(crate) fn decode_persisted_actor(
     Ok(actor)
 }
 
-pub(crate) fn decode_last_pushed_alarm(
-    payload: &[u8],
-) -> Result<Option<i64>> {
-    decode_latest_with_embedded_version::<
-        persist_versioned::LastPushedAlarm,
-    >(payload, "last pushed alarm")
-}
-
 #[cfg(test)]
 pub(crate) fn encode_last_pushed_alarm(
     alarm_ts: Option<i64>,
@@ -75,6 +67,14 @@ pub(crate) fn encode_last_pushed_alarm(
     encode_latest_with_embedded_version::<
         persist_versioned::LastPushedAlarm,
     >(alarm_ts, LAST_PUSHED_ALARM_VERSION, "last pushed alarm")
+}
+
+pub(crate) fn decode_last_pushed_alarm(
+    payload: &[u8],
+) -> Result<Option<i64>> {
+    decode_latest_with_embedded_version::<
+        persist_versioned::LastPushedAlarm,
+    >(payload, "last pushed alarm")
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -1595,6 +1595,11 @@ impl ActorContext {
         self.0.tracked_persist.lock().take()
     }
 
+    #[cfg(test)]
+    pub(crate) fn tracked_persist_pending(&self) -> bool {
+        self.has_tracked_persist()
+    }
+
     fn has_tracked_persist(&self) -> bool {
         self.0.tracked_persist.lock().is_some()
     }
@@ -1845,3 +1850,7 @@ fn throttled_save_delay(
 
 // Test shim keeps moved tests in crate-root tests/ with
 // private-module access.
+
+#[cfg(test)]
+#[path = "../../tests/state.rs"]
+mod tests;

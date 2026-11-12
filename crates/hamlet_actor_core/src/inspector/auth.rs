@@ -1,4 +1,6 @@
 // This file was changed for Hamlet. See NOTICE in this crate.
+#[cfg(test)]
+use std::sync::Mutex;
 use std::sync::OnceLock;
 
 use anyhow::{Context, Result};
@@ -26,6 +28,12 @@ const INSPECTOR_TOKEN_BYTES: usize = 32;
 static INSPECTOR_TEST_TOKEN_OVERRIDE: OnceLock<
     RwLock<Option<String>>,
 > = OnceLock::new();
+
+#[cfg(test)]
+pub(crate) fn test_inspector_env_lock() -> &'static Mutex<()> {
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
+}
 
 pub fn set_test_inspector_token_override(token: Option<String>) {
     *INSPECTOR_TEST_TOKEN_OVERRIDE
