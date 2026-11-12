@@ -29,9 +29,10 @@ use hamlet_desktop::choose::{Choose, Chosen, What};
 use hamlet_import::{Found, Project};
 use hamlet_ui::styles::{
     self, ICON, Looks, description, good_action, lettered, link_row,
-    note,
+    note, note_rules,
 };
 use hamlet_ui::widgets::effects::Variant;
+use hamlet_ui::widgets::ellipsis::one_line;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::{AnyView, View, with_cx};
 
@@ -362,8 +363,9 @@ fn line_view(line: &Line) -> AnyView {
                 button(
                     row((
                         column((
-                            label(name).bold(true).wrap(false),
-                            note(detail),
+                            one_line(label(name).bold(true)),
+                            column((one_line(label(detail)),))
+                                .rules(note_rules),
                         ))
                         .gap(2.0)
                         .grow(1.0)
@@ -394,10 +396,13 @@ fn line_view(line: &Line) -> AnyView {
             checkbox(picked).on_change(move |world, on| {
                 pick(world, &key, on);
             }),
-            column((label(title).wrap(false), note(detail)))
-                .gap(2.0)
-                .grow(1.0)
-                .min_width(px(0.0)),
+            column((
+                one_line(label(title)),
+                column((one_line(label(detail)),)).rules(note_rules),
+            ))
+            .gap(2.0)
+            .grow(1.0)
+            .min_width(px(0.0)),
         ))
         .gap(12.0)
         .padding(UiRect::left(px(INDENT)))
