@@ -4472,6 +4472,7 @@ dependencies = [
  "bevy_ecs",
  "bevy_log",
  "futures",
+ "hamlet_import",
  "hamlet_protocol",
  "hamlet_testing",
  "rustix 1.1.6",
