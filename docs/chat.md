@@ -49,11 +49,10 @@ disc in the paint of its robot. The steps of a turn are folded into one
 quiet line that opens, under the reply before them. Steps that open a turn
 stand under its first reply, joined by those after it.
 
-Rows build 6 at a time. When the rows already built reach the transcript's
-first item and it has an earlier page, scrolling to the top sends `open`
-with `before` set to the first item's ID. Only one page request is
-outstanding, and the returned items go above the rows
-already there. The hint reads "Earlier lines. Scroll up to read them."
+When a transcript has an earlier page, scrolling to the top, or a chat
+that fits without scrolling, sends `open` with `before` set to the first
+item's ID. Only one page request is outstanding, and the returned items go
+above the rows already there, which stay where they are on screen.
 
 Sending a line triggers `ChiefMessage`, which the client sends as `say` to
 the selected address. Typed slash lines are refused locally with directions
@@ -363,15 +362,29 @@ the questions in them.
 
 The chat is put in order again only when a conversation's shape changes:
 an entry added, a tool ended, the selection or a fold changed. A word
-added to a reply changes no shape. Rows are keyed, so a row is built once.
+added to a reply changes no shape.
 
-Only a window of rows is built: a page at first, up to three pages, then it
-slides. Reading to the top builds the page before it and, once the window is
-full, drops the page at its far end. Reading to the bottom turns back. The row
-at the edge is held in place through the turn. While the window is read back,
-rows added or removed elsewhere do not move it: it stays at its last row.
-Sending jumps to the end, and so does the button at the chat's lower corner,
-which shows whenever the chat is not at its end.
+The chat is a virtual list, fynix's `virtual_list`. Only the rows within
+1,000 pixels above and below the view are built, at most 199 of them. A
+row scrolled further away is not removed: its slot shows another row.
+Each slot is keyed by its row, so it builds its row again only when it
+is given another one. A row counts as 60 pixels high (`ROW_ESTIMATE` in
+`screens/chat/lines.rs`) until it is first laid out. Once the median
+height of the rows laid out in a frame is below 0.8 or above 1.25 times
+that, the median takes its place. The scrollbar can shift a little as
+rows are measured.
+
+When the rows change, `fold_lines` compares them with the rows before by
+their keys and tells the list which span changed. Rows added or removed
+above the view do not move what is being read. The view stays at the end
+as rows are added or grow, until it is scrolled up, and again once it is
+back at the end. Sending, opening another conversation and the button at
+the chat's lower corner take it to the end. The button shows whenever the
+view does not follow the end.
+
+A past conversation read from History is not a virtual list. It builds
+its last 40 rows, and "Earlier" builds 40 more; once every row it holds
+is built, "Earlier" also asks the server for the page before them.
 
 A reply that grows is read again from its last settled block, and the blocks
 before it are shared, not parsed or compared again.
