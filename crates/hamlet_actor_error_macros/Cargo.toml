@@ -3,7 +3,7 @@
 name = "hamlet_actor_error_macros"
 version.workspace = true
 edition.workspace = true
-license.workspace = true
+license = "Apache-2.0"
 repository.workspace = true
 description = "Derive macros for structured errors"
 
@@ -15,3 +15,6 @@ syn.workspace = true
 quote.workspace = true
 proc-macro2.workspace = true
 serde_json.workspace = true
+
+[lints]
+workspace = true

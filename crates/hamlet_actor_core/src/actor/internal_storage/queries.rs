@@ -249,6 +249,10 @@ pub(crate) fn user_kv_batch_get_sql(key_count: usize) -> String {
     )
 }
 
+#[expect(
+    clippy::fn_params_excessive_bools,
+    reason = "ported signature"
+)]
 pub(crate) fn user_kv_list_sql(
     where_clause: &str,
     reverse: bool,

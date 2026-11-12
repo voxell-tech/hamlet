@@ -1,19 +1,19 @@
 // This file was changed for Hamlet. See NOTICE in this crate.
-#[allow(dead_code)]
+#[expect(dead_code, reason = "part of the protocol's header set")]
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const USER_AGENT_VALUE: &str =
     concat!("ActorClient-Rust/", env!("CARGO_PKG_VERSION"));
 
 // Headers
-#[allow(dead_code)]
+#[expect(dead_code, reason = "part of the protocol's header set")]
 pub const HEADER_ACTOR_QUERY: &str = "x-hamlet-actor-query";
 pub const HEADER_ENCODING: &str = "x-hamlet-actor-encoding";
 pub const HEADER_CONN_PARAMS: &str = "x-hamlet-actor-conn-params";
-#[allow(dead_code)]
+#[expect(dead_code, reason = "part of the protocol's header set")]
 pub const HEADER_ACTOR_ID: &str = "x-hamlet-actor-actor";
-#[allow(dead_code)]
+#[expect(dead_code, reason = "part of the protocol's header set")]
 pub const HEADER_CONN_ID: &str = "x-hamlet-actor-conn";
-#[allow(dead_code)]
+#[expect(dead_code, reason = "part of the protocol's header set")]
 pub const HEADER_CONN_TOKEN: &str = "x-hamlet-actor-conn-token";
 
 // Gateway headers
@@ -47,10 +47,11 @@ pub enum TransportKind {
     Sse,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum EncodingKind {
     Json,
     Cbor,
+    #[default]
     Bare,
 }
 
@@ -64,15 +65,12 @@ impl EncodingKind {
     }
 }
 
-impl Default for EncodingKind {
-    fn default() -> Self {
-        Self::Bare
-    }
-}
-
-impl ToString for EncodingKind {
-    fn to_string(&self) -> String {
-        self.as_str().to_string()
+impl std::fmt::Display for EncodingKind {
+    fn fmt(
+        &self,
+        f: &mut std::fmt::Formatter<'_>,
+    ) -> std::fmt::Result {
+        f.write_str(self.as_str())
     }
 }
 

@@ -1,7 +1,9 @@
+# This file was changed for Hamlet. See NOTICE in this crate.
+
 [package]
 name = "hamlet_actor_wire"
 version.workspace = true
-license.workspace = true
+license = "Apache-2.0"
 repository.workspace = true
 edition.workspace = true
 description = "Shared types and versioned wire formats for actors"
@@ -11,10 +13,12 @@ anyhow.workspace = true
 bytes.workspace = true
 serde.workspace = true
 serde_bare.workspace = true
-serde_bytes.workspace = true
 serde_json.workspace = true
 url.workspace = true
 vbare.workspace = true
 
 [build-dependencies]
 vbare-compiler.workspace = true
+
+[lints]
+workspace = true

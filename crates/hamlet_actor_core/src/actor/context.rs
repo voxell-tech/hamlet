@@ -121,13 +121,12 @@ pub(crate) struct ActorContextInner {
     /// `before_storage` startup phase. Startup consumes it once.
     // Forced-sync: set once before the actor task starts and taken
     // by its startup.
-    start_received_at:
-        parking_lot::Mutex<Option<crate::time::Instant>>,
+    start_received_at: Mutex<Option<Instant>>,
     /// The individual actor fork the start command named. Startup
     /// consumes it once.
     // Forced-sync: set once before the actor task starts and taken
     // by its startup.
-    start_fork: parking_lot::Mutex<Option<StartFork>>,
+    start_fork: Mutex<Option<StartFork>>,
     /// The individual actor forks behind this actor, oldest first,
     /// loaded at startup. A start that runs a fork hook appends that
     /// fork before the hook runs.
@@ -155,9 +154,8 @@ pub(crate) struct ActorContextInner {
     pub(super) save_requested_immediate: AtomicBool,
     // Forced-sync: debounce bookkeeping is updated from sync
     // save-request paths.
-    pub(super) save_requested_within_deadline:
-        Mutex<Option<crate::time::Instant>>,
-    pub(super) last_save_at: Mutex<Option<crate::time::Instant>>,
+    pub(super) save_requested_within_deadline: Mutex<Option<Instant>>,
+    pub(super) last_save_at: Mutex<Option<Instant>>,
     pub(super) pending_save: Mutex<Option<PendingSave>>,
     pub(super) tracked_persist: Mutex<Option<JoinHandle<()>>>,
     pub(super) save_guard: Arc<AsyncMutex<()>>,
@@ -513,8 +511,8 @@ impl ActorContext {
             user_kv,
             sql,
             new_actor_storage: AtomicBool::new(false),
-            start_received_at: parking_lot::Mutex::new(None),
-            start_fork: parking_lot::Mutex::new(None),
+            start_received_at: Mutex::new(None),
+            start_fork: Mutex::new(None),
             fork_chain: RwLock::new(Vec::new()),
             current_state: RwLock::new(Vec::new()),
             persisted: RwLock::new(PersistedActor::default()),
@@ -711,15 +709,16 @@ impl ActorContext {
     }
 
     /// Records when the runtime received this generation's start.
-    pub(crate) fn set_start_received_at(
-        &self,
-        received_at: crate::time::Instant,
-    ) {
+    pub(crate) fn set_start_received_at(&self, received_at: Instant) {
         *self.0.start_received_at.lock() = Some(received_at);
     }
 
     /// Records the individual actor fork this generation's start
     /// command named.
+    #[expect(
+        dead_code,
+        reason = "ported; nothing in Hamlet calls it yet"
+    )]
     pub(crate) fn set_start_fork(&self, fork: Option<StartFork>) {
         *self.0.start_fork.lock() = fork;
     }
@@ -743,9 +742,7 @@ impl ActorContext {
 
     /// When the runtime received this generation's start, at most
     /// once.
-    pub(crate) fn take_start_received_at(
-        &self,
-    ) -> Option<crate::time::Instant> {
+    pub(crate) fn take_start_received_at(&self) -> Option<Instant> {
         self.0.start_received_at.lock().take()
     }
 
@@ -1079,7 +1076,7 @@ impl ActorContext {
         let invocation = self
             .1
             .as_ref()
-            .and_then(crate::ActorInvocationTelemetry::hold_open);
+            .and_then(ActorInvocationTelemetry::hold_open);
         self.spawn_work(ActorWorkKind::WaitUntil, async move {
             future.await;
             drop(invocation);
@@ -1272,7 +1269,6 @@ impl ActorContext {
     /// Do not hold the returned iterator across `.await`. It keeps a
     /// read lock on the connection map until dropped, which blocks
     /// connection writers.
-    #[must_use]
     pub fn conns(&self) -> ConnHandles<'_> {
         self.iter_connections()
     }
@@ -1389,6 +1385,10 @@ impl ActorContext {
         self.0.metrics.inc_shutdown_timeout(reason);
     }
 
+    #[expect(
+        dead_code,
+        reason = "ported; nothing in Hamlet calls it yet"
+    )]
     pub(crate) fn record_direct_subsystem_shutdown_warning(
         &self,
         subsystem: &str,
@@ -1538,6 +1538,10 @@ impl ActorContext {
         Ok(conn)
     }
 
+    #[expect(
+        dead_code,
+        reason = "ported; nothing in Hamlet calls it yet"
+    )]
     pub(crate) async fn connect_conn_with_prepare<F, P>(
         &self,
         params: Vec<u8>,
@@ -1579,6 +1583,10 @@ impl ActorContext {
             .await
     }
 
+    #[expect(
+        dead_code,
+        reason = "ported; nothing in Hamlet calls it yet"
+    )]
     pub(crate) fn reconnect_hibernatable_conn(
         &self,
         gateway_id: &[u8],
@@ -1694,8 +1702,8 @@ impl ActorContext {
         }
 
         let mut next_deltas = Vec::new();
-        let mut explicit_updates = std::collections::BTreeMap::new();
-        let mut explicit_removals = std::collections::BTreeSet::new();
+        let mut explicit_updates = BTreeMap::new();
+        let mut explicit_removals = BTreeSet::new();
 
         for delta in deltas {
             match delta {
@@ -1714,7 +1722,7 @@ impl ActorContext {
         let mut removal_ids = pending.removed.clone();
         removal_ids.extend(explicit_removals.iter().cloned());
 
-        let explicit_update_ids: std::collections::BTreeSet<_> =
+        let explicit_update_ids: BTreeSet<_> =
             explicit_updates.keys().cloned().collect();
         pending.updated.extend(explicit_update_ids.iter().cloned());
         pending.removed.extend(explicit_removals.iter().cloned());
@@ -1810,6 +1818,10 @@ impl ActorContext {
         Ok(restored)
     }
 
+    #[expect(
+        dead_code,
+        reason = "ported; nothing in Hamlet calls it yet"
+    )]
     pub(crate) fn configure_inspector(
         &self,
         inspector: Option<Inspector>,
@@ -1836,12 +1848,20 @@ impl ActorContext {
         *self.0.inspector_overlay_tx.write() = Some(overlay_tx);
     }
 
+    #[expect(
+        dead_code,
+        reason = "ported; nothing in Hamlet calls it yet"
+    )]
     pub(crate) fn inspector_attach(
         &self,
     ) -> Option<InspectorAttachGuard> {
         InspectorAttachGuard::new(self.clone())
     }
 
+    #[expect(
+        dead_code,
+        reason = "ported; nothing in Hamlet calls it yet"
+    )]
     pub(crate) fn subscribe_inspector(
         &self,
     ) -> Option<broadcast::Receiver<Arc<Vec<u8>>>> {
@@ -1972,6 +1992,10 @@ impl ActorContext {
         self.reset_sleep_timer_state();
     }
 
+    #[expect(
+        dead_code,
+        reason = "ported; nothing in Hamlet calls it yet"
+    )]
     fn notify_inspector_attachments_changed(&self) {
         self.try_send_lifecycle_event(
             LifecycleEvent::InspectorAttachmentsChanged,
@@ -1989,6 +2013,10 @@ impl ActorContext {
         self.sleep_state_config()
     }
 
+    #[expect(
+        dead_code,
+        reason = "ported; nothing in Hamlet calls it yet"
+    )]
     pub(crate) fn sleep_requested(&self) -> bool {
         self.0.sleep_requested.load(Ordering::SeqCst)
     }
@@ -2016,6 +2044,10 @@ impl ActorContext {
         }
     }
 
+    #[expect(
+        dead_code,
+        reason = "ported; nothing in Hamlet calls it yet"
+    )]
     pub(crate) async fn with_websocket_callback<F, Fut, T>(
         &self,
         run: F,
@@ -2035,6 +2067,10 @@ impl ActorContext {
         if !kind.policy().blocks_idle_sleep {
             return None;
         }
+        #[expect(
+            clippy::match_same_arms,
+            reason = "one arm per kind of work"
+        )]
         let region = match kind {
             ActorWorkKind::Action => {
                 self.internal_keep_awake_region()
@@ -2388,8 +2424,8 @@ impl ActorContext {
 				.await;
 			if let (Some(name), Some(error)) = (recurring_name, dispatch_error.as_ref()) {
 				let structured = hamlet_actor_error::ActorError::extract(error);
-				if structured.group() == "actor" && structured.code() == "action_not_found" {
-					if let Err(delete_error) = ctx.cron_delete_if_action(&name, &action_name).await
+				if structured.group() == "actor" && structured.code() == "action_not_found"
+					&& let Err(delete_error) = ctx.cron_delete_if_action(&name, &action_name).await
 					{
 						tracing::error!(
 							?delete_error,
@@ -2397,7 +2433,6 @@ impl ActorContext {
 							"failed to delete recurring schedule for missing action"
 						);
 					}
-				}
 			}
 
 			ctx.record_user_task_finished(
@@ -2407,6 +2442,10 @@ impl ActorContext {
 		});
     }
 
+    #[expect(
+        dead_code,
+        reason = "ported; nothing in Hamlet calls it yet"
+    )]
     fn inspector_attach_count_arc(&self) -> Option<Arc<AtomicU32>> {
         self.0.inspector_attach_count.read().clone()
     }
@@ -2514,11 +2553,19 @@ impl Drop for ActorWorkRegion {
 
 #[must_use]
 #[derive(Debug)]
+#[expect(
+    dead_code,
+    reason = "ported; nothing in Hamlet calls it yet"
+)]
 pub(crate) struct InspectorAttachGuard {
     ctx: ActorContext,
 }
 
 impl InspectorAttachGuard {
+    #[expect(
+        dead_code,
+        reason = "ported; nothing in Hamlet calls it yet"
+    )]
     fn new(ctx: ActorContext) -> Option<Self> {
         let attach_count = ctx.inspector_attach_count_arc()?;
         let previous = attach_count.fetch_add(1, Ordering::SeqCst);

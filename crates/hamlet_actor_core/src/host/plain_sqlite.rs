@@ -115,7 +115,7 @@ fn exec(conn: &Connection, sql: &str) -> Result<QueryResult> {
         let columns: Vec<String> = stmt
             .column_names()
             .iter()
-            .map(|c| c.to_string())
+            .map(ToString::to_string)
             .collect();
         let width = columns.len();
         let mut rows = Vec::new();
@@ -141,8 +141,11 @@ fn execute(
     {
         stmt.raw_bind_parameter(index + 1, to_value(param))?;
     }
-    let columns: Vec<String> =
-        stmt.column_names().iter().map(|c| c.to_string()).collect();
+    let columns: Vec<String> = stmt
+        .column_names()
+        .iter()
+        .map(ToString::to_string)
+        .collect();
     let width = columns.len();
     let readonly = stmt.readonly();
     let mut rows = Vec::new();

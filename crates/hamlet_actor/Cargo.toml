@@ -2,7 +2,7 @@
 [package]
 name = "hamlet_actor"
 version.workspace = true
-license.workspace = true
+license = "Apache-2.0"
 repository.workspace = true
 edition.workspace = true
 description = "Rust SDK for actors, actions, events, queues, and test harnesses"
@@ -27,3 +27,5 @@ tokio.workspace = true
 tokio-util.workspace = true
 tracing.workspace = true
 
+[lints]
+workspace = true

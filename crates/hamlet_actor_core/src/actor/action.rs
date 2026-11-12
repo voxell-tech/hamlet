@@ -19,6 +19,10 @@ pub struct ActionDispatchError {
 }
 
 impl ActionDispatchError {
+    #[expect(
+        dead_code,
+        reason = "ported; nothing in Hamlet calls it yet"
+    )]
     pub(crate) fn from_anyhow(error: anyhow::Error) -> Self {
         let original_message = error.to_string();
         let error = ActorError::extract(&error);
@@ -37,10 +41,18 @@ impl ActionDispatchError {
         }
     }
 
+    #[expect(
+        dead_code,
+        reason = "ported; nothing in Hamlet calls it yet"
+    )]
     pub(crate) fn client_message(&self) -> &str {
         client_error_message(&self.group, &self.code, &self.message)
     }
 
+    #[expect(
+        dead_code,
+        reason = "ported; nothing in Hamlet calls it yet"
+    )]
     pub(crate) fn client_metadata(&self) -> Option<&JsonValue> {
         client_error_metadata(
             &self.group,
@@ -49,6 +61,10 @@ impl ActionDispatchError {
         )
     }
 
+    #[expect(
+        dead_code,
+        reason = "ported; nothing in Hamlet calls it yet"
+    )]
     pub(crate) fn into_anyhow(self) -> anyhow::Error {
         let ActionDispatchError {
             group,

@@ -37,8 +37,9 @@ pub struct ActorHandleStateless {
     params: Option<JsonValue>,
     encoding_kind: EncodingKind,
     // Mutex (not RefCell) so the handle is `Sync` and `&handle`
-    // futures remain `Send` — required to call `.action(...)` from
-    // within axum middleware that needs `Send` futures.
+    // futures remain `Send`, which is required to call
+    // `.action(...)` from within axum middleware that needs `Send`
+    // futures.
     query: Mutex<ActorQuery>,
 }
 
@@ -437,7 +438,7 @@ pub struct ActorHandle {
     params: Option<JsonValue>,
     query: ActorQuery,
     client_shutdown_tx: Arc<tokio::sync::broadcast::Sender<()>>,
-    transport_kind: crate::TransportKind,
+    transport_kind: TransportKind,
     encoding_kind: EncodingKind,
 }
 

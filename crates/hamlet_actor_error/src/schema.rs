@@ -18,7 +18,6 @@ pub struct ActorErrorSchema {
     pub group: &'static str,
     pub code: &'static str,
     pub default_message: &'static str,
-    #[allow(dead_code)]
     pub meta_type: Option<&'static str>,
     /// Private marker that ensures this was created by the macro
     pub _macro_marker: MacroMarker,

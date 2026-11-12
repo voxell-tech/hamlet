@@ -25,10 +25,13 @@ pub fn public_error_status_code(
     group: &str,
     code: &str,
 ) -> Option<u16> {
+    #[expect(
+        clippy::match_same_arms,
+        reason = "one arm per error code"
+    )]
     match (group, code) {
         ("auth", "forbidden") => Some(403),
-        ("actor", "not_found") => Some(404),
-        ("actor", "action_not_found") => Some(404),
+        ("actor", "not_found" | "action_not_found") => Some(404),
         ("actor", "method_not_allowed") => Some(405),
         ("actor", "action_timed_out") => Some(408),
         ("actor", "aborted") => Some(400),
@@ -133,6 +136,10 @@ pub(crate) enum KvRuntimeError {
     KeyTooLarge { size: usize, limit: usize },
 }
 
+#[expect(
+    dead_code,
+    reason = "ported; nothing in Hamlet calls it yet"
+)]
 pub(crate) fn is_internal_error(group: &str, code: &str) -> bool {
     (group == "core" || group == "hamlet_actor")
         && code == "internal_error"

@@ -81,7 +81,7 @@ impl DriverHandle {
 impl Drop for DriverHandle {
     fn drop(&mut self) {
         debug!("DriverHandle dropped, aborting task");
-        self.disconnect()
+        self.disconnect();
     }
 }
 

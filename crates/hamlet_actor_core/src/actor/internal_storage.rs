@@ -59,9 +59,9 @@ const CONNECTION_DESTINATION_ROWS_PER_RECORD: usize = 2;
 /// Splits `entries` into contiguous chunks that each stay within the
 /// per-transaction row and payload budgets. A single oversized entry
 /// gets its own chunk; per-entry limits are enforced by the callers.
-pub(crate) fn split_kv_tx_chunks<'a, K, V>(
-    entries: &'a [(K, V)],
-) -> Vec<&'a [(K, V)]>
+pub(crate) fn split_kv_tx_chunks<K, V>(
+    entries: &[(K, V)],
+) -> Vec<&[(K, V)]>
 where
     K: AsRef<[u8]>,
     V: AsRef<[u8]>,

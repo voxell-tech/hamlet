@@ -803,7 +803,7 @@ impl Versioned for HttpResponseError {
                 Ok(())
             }
             (_, version) => {
-                return Err(EncodeError::UnsupportedVersion(version));
+                Err(EncodeError::UnsupportedVersion(version))
             }
         }
     }

@@ -113,8 +113,12 @@ impl Default for SqliteProfilingMetrics {
 impl SqliteProfilingMetrics {
     /// Compact cache discriminator for sinks with different metric
     /// selections.
+    #[expect(
+        dead_code,
+        reason = "ported; nothing in Hamlet calls it yet"
+    )]
     pub(crate) fn cache_key(&self) -> u32 {
-        (u32::from(self.duration) << 0)
+        u32::from(self.duration)
             | (u32::from(self.duration_histogram) << 1)
             | (u32::from(self.outcomes) << 2)
             | (u32::from(self.phase_duration_histogram) << 3)

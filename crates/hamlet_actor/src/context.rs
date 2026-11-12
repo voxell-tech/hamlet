@@ -40,10 +40,7 @@ impl<A: Actor> fmt::Debug for Ctx<A> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Ctx")
             .field("inner", &self.inner)
-            .field(
-                "conn_id",
-                &self.conn.as_ref().map(|conn| conn.id()),
-            )
+            .field("conn_id", &self.conn.as_ref().map(ConnCtx::id))
             .finish_non_exhaustive()
     }
 }
@@ -178,7 +175,10 @@ impl<A: Actor> Ctx<A> {
     #[deprecated(note = "actor KV was deprecated in 3.0 and will \
                          be removed in a future version. Store \
                          data in SQLite (`sql()`).")]
-    #[allow(deprecated)]
+    #[expect(
+        deprecated,
+        reason = "forwards to the core's deprecated KV"
+    )]
     pub fn kv(&self) -> &ActorKv {
         self.inner.kv()
     }
@@ -297,7 +297,10 @@ impl<A: Actor> Ctx<A> {
                          It is a no-op. Use `keep_awake` or \
                          `wait_until`.")]
     pub fn set_prevent_sleep(&self, enabled: bool) {
-        #[allow(deprecated)]
+        #[expect(
+            deprecated,
+            reason = "forwards to the core's deprecated call"
+        )]
         self.inner.set_prevent_sleep(enabled);
     }
 
@@ -306,7 +309,10 @@ impl<A: Actor> Ctx<A> {
                          is a no-op that always returns false. Use \
                          `keep_awake` or `wait_until`.")]
     pub fn prevent_sleep(&self) -> bool {
-        #[allow(deprecated)]
+        #[expect(
+            deprecated,
+            reason = "forwards to the core's deprecated call"
+        )]
         self.inner.prevent_sleep()
     }
 
@@ -435,10 +441,10 @@ impl<A: Actor> Ctx<A> {
 impl Schedule<'_> {
     pub async fn after(
         &self,
-        duration: std::time::Duration,
+        duration: Duration,
         action_name: &str,
         args: &[u8],
-    ) -> anyhow::Result<String> {
+    ) -> Result<String> {
         self.inner.after(duration, action_name, args).await
     }
 
@@ -447,27 +453,22 @@ impl Schedule<'_> {
         timestamp_ms: i64,
         action_name: &str,
         args: &[u8],
-    ) -> anyhow::Result<String> {
+    ) -> Result<String> {
         self.inner.at(timestamp_ms, action_name, args).await
     }
 
-    pub async fn cancel(
-        &self,
-        event_id: &str,
-    ) -> anyhow::Result<bool> {
+    pub async fn cancel(&self, event_id: &str) -> Result<bool> {
         self.inner.cancel_schedule(event_id).await
     }
 
     pub async fn get(
         &self,
         event_id: &str,
-    ) -> anyhow::Result<Option<ScheduledEventInfo>> {
+    ) -> Result<Option<ScheduledEventInfo>> {
         self.inner.get_scheduled_event(event_id).await
     }
 
-    pub async fn list(
-        &self,
-    ) -> anyhow::Result<Vec<ScheduledEventInfo>> {
+    pub async fn list(&self) -> Result<Vec<ScheduledEventInfo>> {
         self.inner.list_scheduled_events().await
     }
 }
@@ -476,7 +477,7 @@ impl Cron<'_> {
     pub async fn set(
         &self,
         options: CronSetOptions<'_>,
-    ) -> anyhow::Result<()> {
+    ) -> Result<()> {
         self.inner
             .cron_set(
                 options.name,
@@ -492,7 +493,7 @@ impl Cron<'_> {
     pub async fn every(
         &self,
         options: CronEveryOptions<'_>,
-    ) -> anyhow::Result<()> {
+    ) -> Result<()> {
         let interval_ms = i64::try_from(options.interval.as_millis())
             .unwrap_or(i64::MAX);
         self.inner
@@ -509,7 +510,7 @@ impl Cron<'_> {
     pub async fn get(
         &self,
         name: &str,
-    ) -> anyhow::Result<Option<CronJobInfo>> {
+    ) -> Result<Option<CronJobInfo>> {
         self.inner
             .cron_get(name)
             .await?
@@ -517,7 +518,7 @@ impl Cron<'_> {
             .transpose()
     }
 
-    pub async fn list(&self) -> anyhow::Result<Vec<CronJobInfo>> {
+    pub async fn list(&self) -> Result<Vec<CronJobInfo>> {
         self.inner
             .cron_list()
             .await?
@@ -526,7 +527,7 @@ impl Cron<'_> {
             .collect()
     }
 
-    pub async fn delete(&self, name: &str) -> anyhow::Result<bool> {
+    pub async fn delete(&self, name: &str) -> Result<bool> {
         self.inner.cron_delete(name).await
     }
 
@@ -534,14 +535,14 @@ impl Cron<'_> {
         &self,
         name: &str,
         limit: Option<i64>,
-    ) -> anyhow::Result<Vec<CronFire>> {
+    ) -> Result<Vec<CronFire>> {
         self.inner.cron_history(name, limit).await
     }
 }
 
 fn cron_job_info_from_core(
     value: CoreCronJobInfo,
-) -> anyhow::Result<CronJobInfo> {
+) -> Result<CronJobInfo> {
     let interval = value
         .interval_ms
         .map(|interval| {

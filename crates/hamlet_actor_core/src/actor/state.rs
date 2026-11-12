@@ -117,7 +117,7 @@ impl Drop for StateSaveExclusion {
                 StateTransactionSlot::Idle
                 | StateTransactionSlot::Beginning
                 | StateTransactionSlot::Open(_) => {
-                    *slot = StateTransactionSlot::Idle
+                    *slot = StateTransactionSlot::Idle;
                 }
             }
         }
@@ -435,7 +435,7 @@ impl ActorContext {
                 StateTransactionSlot::Idle
                 | StateTransactionSlot::Beginning
                 | StateTransactionSlot::Open(_) => {
-                    *slot = StateTransactionSlot::Beginning
+                    *slot = StateTransactionSlot::Beginning;
                 }
             }
         }
@@ -449,7 +449,7 @@ impl ActorContext {
         self.wait_for_in_flight_writes().await;
         let rollback_connection_states = self
             .iter_connections()
-            .filter(|conn| conn.is_hibernatable())
+            .filter(super::connection::ConnHandle::is_hibernatable)
             .map(|conn| (conn.id().to_owned(), conn.state()))
             .collect();
         let sql = self.invocation_sql();
@@ -1608,9 +1608,7 @@ impl ActorContext {
     /// waits for it.
     pub(crate) fn run_startup_commit(
         &self,
-        commit: impl std::future::Future<Output = Result<()>>
-        + Send
-        + 'static,
+        commit: impl Future<Output = Result<()>> + Send + 'static,
     ) {
         self.0
             .startup_commit
@@ -1680,6 +1678,10 @@ impl ActorContext {
     /// Waits until every startup commit of this generation is
     /// durable. An error means one failed and the actor is stopping,
     /// so a request served in the meantime must not report success.
+    #[expect(
+        dead_code,
+        reason = "ported; nothing in Hamlet calls it yet"
+    )]
     pub(crate) async fn wait_startup_commit(&self) -> Result<()> {
         let mut startup = self.0.startup_commit.subscribe();
         let failed = startup

@@ -14,8 +14,12 @@ ignore = [
     # SQLite before 3.54 can return stale memory when a database is
     # opened with a crafted `-wal` file beside it. The fix is in
     # libsqlite3-sys 0.39, which Diesel 2.3.14 does not yet accept.
-    # The server opens only the realm database it writes itself.
-    { id = "RUSTSEC-2026-0459", reason = "Diesel caps libsqlite3-sys below 0.39; only the server's own database is opened" },
+    # The server opens only the realm database it writes itself, and
+    # the actor host only the one file per actor it writes itself.
+    { id = "RUSTSEC-2026-0459", reason = "Diesel caps libsqlite3-sys below 0.39; only databases Hamlet writes itself are opened" },
+    # serde_cbor, unmaintained, with no known vulnerability. The ported
+    # actor client encodes its protocol with it.
+    { id = "RUSTSEC-2021-0127", reason = "no vulnerability; the ported actor client's wire format uses it" },
 ]
 
 [licenses]
@@ -24,6 +28,9 @@ ignore = [
 allow = [
     "0BSD",
     "Apache-2.0",
+    # ar_archive_writer, which the actor wire crate's schema compiler
+    # uses at build time; nothing of it ships.
+    "Apache-2.0 WITH LLVM-exception",
     "BSD-2-Clause",
     "BSD-3-Clause",
     "BSL-1.0",

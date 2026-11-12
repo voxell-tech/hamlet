@@ -360,13 +360,29 @@ fn harness(root: &Path) -> Result<(), Failure> {
     ))
 }
 
+/// `hamlet_actor_core`'s `native-runtime` and `wasm-runtime` features
+/// exclude each other, so it is documented at its default features.
 fn doc() -> Result<(), Failure> {
     status(
         locked(
             "doc",
             &[
                 "--workspace",
+                "--exclude",
+                "hamlet_actor_core",
                 "--all-features",
+                "--no-deps",
+                "--document-private-items",
+            ],
+        )
+        .env("RUSTDOCFLAGS", "-D warnings"),
+    )?;
+    status(
+        locked(
+            "doc",
+            &[
+                "-p",
+                "hamlet_actor_core",
                 "--no-deps",
                 "--document-private-items",
             ],

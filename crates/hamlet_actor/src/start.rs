@@ -132,6 +132,10 @@ impl<A: Actor> Events<A> {
         &self,
         event: ActorEvent,
     ) -> Option<ActorEvent> {
+        #[expect(
+            clippy::match_same_arms,
+            reason = "one arm per event"
+        )]
         match event {
             ActorEvent::ConnectionOpen { reply, .. } => {
                 reply.send(Ok(()));
@@ -169,6 +173,10 @@ impl<A: Actor> Events<A> {
         &self,
         event: ActorEvent,
     ) -> Option<ActorEvent> {
+        #[expect(
+            clippy::match_same_arms,
+            reason = "one arm per event"
+        )]
         match event {
             ActorEvent::ConnectionOpen { reply, .. } => {
                 reply.send(Ok(()));
@@ -405,6 +413,7 @@ async fn handle_actor_event<A: Actor>(
     http_pools: Option<&HttpCallbackPools>,
     event: ActorEvent,
 ) -> Result<bool> {
+    #[expect(clippy::match_same_arms, reason = "one arm per event")]
     match event {
         ActorEvent::Action {
             name,

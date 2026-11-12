@@ -112,6 +112,10 @@ fn counter_factory() -> ActorFactory {
 }
 
 #[tokio::main]
+#[expect(
+    clippy::print_stdout,
+    reason = "the example prints its result"
+)]
 async fn main() -> Result<()> {
     let dir = std::env::args()
         .nth(1)

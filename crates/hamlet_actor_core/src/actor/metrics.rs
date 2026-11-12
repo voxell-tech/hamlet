@@ -161,6 +161,10 @@ struct ActorMetricCollectors {
     shutdown_wait_seconds: HistogramVec,
     shutdown_timeout_total: CounterVec,
     state_mutation_total: CounterVec,
+    #[expect(
+        dead_code,
+        reason = "ported; nothing in Hamlet calls it yet"
+    )]
     direct_subsystem_shutdown_warning_total: CounterVec,
 }
 
@@ -569,8 +573,7 @@ impl ActorMetrics {
     }
 
     pub(crate) fn finish_startup(&self) {
-        *self.inner.ready_at.lock() =
-            Some(crate::time::Instant::now());
+        *self.inner.ready_at.lock() = Some(Instant::now());
         self.inner.startup_complete.store(true, Ordering::Release);
     }
 
@@ -628,8 +631,8 @@ impl ActorMetrics {
         phase: startup_phase::StartupPhase,
         is_new: Option<bool>,
         started_at: Instant,
-        result: std::result::Result<T, E>,
-    ) -> std::result::Result<T, E> {
+        result: Result<T, E>,
+    ) -> Result<T, E> {
         let outcome =
             if result.is_ok() { "success" } else { "error" };
         self.observe_startup_phase(
@@ -861,6 +864,10 @@ impl ActorMetrics {
             .inc();
     }
 
+    #[expect(
+        dead_code,
+        reason = "ported; nothing in Hamlet calls it yet"
+    )]
     pub(crate) fn inc_direct_subsystem_shutdown_warning(
         &self,
         subsystem: &str,
@@ -1054,11 +1061,7 @@ impl ActorMetricLabels {
 
 fn register_metric<M>(registry: &Registry, metric: M)
 where
-    M: crate::metrics::prometheus::core::Collector
-        + Clone
-        + Send
-        + Sync
-        + 'static,
+    M: prometheus::core::Collector + Clone + Send + Sync + 'static,
 {
     if let Err(error) = registry.register(Box::new(metric)) {
         tracing::warn!(

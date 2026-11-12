@@ -132,6 +132,10 @@ impl Request {
     /// cancelling the parent (for example the actor abort signal)
     /// also cancels this request. Call it before any clone of the
     /// token is handed out.
+    #[expect(
+        dead_code,
+        reason = "ported; nothing in Hamlet calls it yet"
+    )]
     pub(crate) fn set_cancellation_parent(
         &mut self,
         parent: &CancellationToken,
@@ -448,6 +452,10 @@ pub enum QueueSendStatus {
 }
 
 impl QueueSendStatus {
+    #[expect(
+        dead_code,
+        reason = "ported; nothing in Hamlet calls it yet"
+    )]
     pub(crate) fn as_str(&self) -> &'static str {
         match self {
             Self::Completed => "completed",
@@ -479,7 +487,7 @@ pub enum ActorEvent {
         request: Request,
         /// Telemetry of the invocation this request runs as. See
         /// `Action`.
-        invocation_telemetry: Option<crate::ActorInvocationTelemetry>,
+        invocation_telemetry: Option<ActorInvocationTelemetry>,
         reply: Reply<ActorHttpResponse>,
     },
     QueueSend {
@@ -491,7 +499,7 @@ pub enum ActorEvent {
         timeout_ms: Option<u64>,
         /// Telemetry of the invocation this send runs as. See
         /// `Action`.
-        invocation_telemetry: Option<crate::ActorInvocationTelemetry>,
+        invocation_telemetry: Option<ActorInvocationTelemetry>,
         reply: Reply<QueueSendResult>,
     },
     WebSocketOpen {

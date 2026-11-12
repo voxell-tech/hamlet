@@ -431,7 +431,6 @@ impl ActorContext {
         self.sync_alarm().await
     }
 
-    #[allow(clippy::too_many_arguments)]
     async fn upsert_recurring(
         &self,
         event_id: &str,
@@ -912,9 +911,10 @@ impl ActorContext {
     }
 
     fn should_prune_global_history(&self) -> bool {
-        self.0.schedule_history_insert_count.load(Ordering::Relaxed)
-            % GLOBAL_HISTORY_PRUNE_INTERVAL
-            == 0
+        self.0
+            .schedule_history_insert_count
+            .load(Ordering::Relaxed)
+            .is_multiple_of(GLOBAL_HISTORY_PRUNE_INTERVAL)
     }
 
     fn record_schedule_history_inserted(&self) {
@@ -1319,9 +1319,8 @@ impl ActorContext {
             return;
         }
         #[cfg(not(feature = "wasm-runtime"))]
-        let tokio_handle = match Handle::try_current() {
-            Ok(handle) => handle,
-            Err(_) => return,
+        let Ok(tokio_handle) = Handle::try_current() else {
+            return;
         };
         let delay_ms = next_alarm
             .saturating_sub(self.schedule_now_timestamp_ms())

@@ -574,7 +574,7 @@ impl ActorInvocation {
 
     pub(crate) fn finish_request(
         self,
-        response: std::result::Result<
+        response: Result<
             &crate::actor::messages::ActorHttpResponse,
             &anyhow::Error,
         >,
@@ -731,7 +731,7 @@ impl ActorInvocationTelemetry {
                 .span
                 .as_ref()
                 .and_then(otel_span_context_of)
-                .map_or(true, |own| own.span_id() != parent.span_id())
+                .is_none_or(|own| own.span_id() != parent.span_id())
         });
         Self {
             inner: self.inner.clone(),
@@ -1248,7 +1248,7 @@ impl Injector for OwnedTraceHeaders {
         match key {
             "traceparent" => self.traceparent = Some(value),
             "tracestate" if !value.is_empty() => {
-                self.tracestate = Some(value)
+                self.tracestate = Some(value);
             }
             _ => {}
         }

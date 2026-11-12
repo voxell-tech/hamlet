@@ -187,11 +187,7 @@ fn observe_size(
 
 fn register_metric<M>(registry: &Registry, metric: M)
 where
-    M: crate::metrics::prometheus::core::Collector
-        + Clone
-        + Send
-        + Sync
-        + 'static,
+    M: prometheus::core::Collector + Clone + Send + Sync + 'static,
 {
     if let Err(error) = registry.register(Box::new(metric)) {
         tracing::warn!(

@@ -74,6 +74,10 @@ impl ActorFactory {
         self.manual_startup_ready
     }
 
+    #[expect(
+        dead_code,
+        reason = "ported; nothing in Hamlet calls it yet"
+    )]
     pub(crate) fn streams_request_body(&self) -> bool {
         self.streams_request_body
     }

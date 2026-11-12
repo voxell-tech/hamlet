@@ -207,7 +207,6 @@ impl<A: Actor> RuntimeEvent<A> {
 #[derive(Debug)]
 #[must_use = "reply to the action or dropping it sends \
               actor/dropped_reply"]
-#[allow(dead_code)]
 pub struct ActionCall<A: Actor> {
     pub(crate) name: String,
     pub(crate) args: Vec<u8>,
@@ -658,7 +657,6 @@ impl HttpCall {
 #[derive(Debug)]
 #[must_use = "reply to the websocket open or dropping it sends \
               actor/dropped_reply"]
-#[allow(dead_code)]
 pub struct WsOpen<A: Actor> {
     pub(crate) ws: WebSocket,
     pub(crate) request: Option<Request>,
@@ -704,7 +702,6 @@ impl<A: Actor> WsOpen<A> {
 #[derive(Debug)]
 #[must_use = "reply to the connection open or dropping it sends \
               actor/dropped_reply"]
-#[allow(dead_code)]
 pub struct ConnOpen<A: Actor> {
     pub(crate) conn: ConnCtx<A>,
     pub(crate) params: Vec<u8>,
@@ -758,7 +755,6 @@ pub struct ConnClosed<A: Actor> {
 #[derive(Debug)]
 #[must_use = "reply to the subscribe request or dropping it sends \
               actor/dropped_reply"]
-#[allow(dead_code)]
 pub struct Subscribe<A: Actor> {
     pub(crate) conn: ConnCtx<A>,
     pub(crate) event_name: String,

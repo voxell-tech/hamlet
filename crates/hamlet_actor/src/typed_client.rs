@@ -202,7 +202,7 @@ impl<A: Actor> TypedActorConnection<A> {
                             ?error,
                             event_name = E::NAME,
                             "failed to decode typed event"
-                        )
+                        );
                     }
                 }
             })

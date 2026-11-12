@@ -3,7 +3,7 @@
 name = "hamlet_actor_error"
 version.workspace = true
 edition.workspace = true
-license.workspace = true
+license = "Apache-2.0"
 repository.workspace = true
 description = "Structured error helpers"
 
@@ -14,3 +14,5 @@ hamlet_actor_error_macros.workspace = true
 serde_json = { workspace = true, features = ["raw_value"] }
 serde.workspace = true
 
+[lints]
+workspace = true

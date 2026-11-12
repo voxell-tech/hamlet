@@ -130,10 +130,10 @@ impl WebSocket {
             move |message| {
                 match message {
                     WsMessage::Text(text) => {
-                        send_sender.send_text(&text)
+                        send_sender.send_text(&text);
                     }
                     WsMessage::Binary(bytes) => {
-                        send_sender.send(bytes, true)
+                        send_sender.send(bytes, true);
                     }
                 }
                 Ok(())

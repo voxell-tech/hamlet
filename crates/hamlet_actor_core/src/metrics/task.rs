@@ -57,10 +57,6 @@ pub fn monitor_task<F: Future>(
     task: &'static str,
     future: F,
 ) -> MonitoredTask<F> {
-    #[allow(
-        clippy::disallowed_methods,
-        reason = "metrics use real time"
-    )]
     let origin = Instant::now();
     let recorder = Arc::new(WakeRecorder {
         origin,

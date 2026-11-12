@@ -369,6 +369,10 @@ impl ActorContext {
         }
     }
 
+    #[expect(
+        dead_code,
+        reason = "ported; nothing in Hamlet calls it yet"
+    )]
     pub(crate) async fn wait_for_internal_keep_awake_idle(
         &self,
         deadline: Instant,
@@ -408,6 +412,10 @@ impl ActorContext {
         }
     }
 
+    #[expect(
+        dead_code,
+        reason = "ported; nothing in Hamlet calls it yet"
+    )]
     pub(crate) async fn wait_for_http_requests_drained(
         &self,
         deadline: Instant,
@@ -418,6 +426,10 @@ impl ActorContext {
         counter.wait_zero(deadline).await
     }
 
+    #[expect(
+        dead_code,
+        reason = "ported; nothing in Hamlet calls it yet"
+    )]
     pub(crate) async fn wait_for_http_requests_idle(&self) {
         loop {
             let idle = self.0.sleep.work.idle_notify.notified();

@@ -286,7 +286,7 @@ pub(crate) fn bootstrap_statements()
     Ok(statements)
 }
 
-/// [`ensure_internal_schema`] for a caller that already probed for
+/// `ensure_internal_schema` for a caller that already probed for
 /// the schema, so a start does not read the schema table twice.
 pub(crate) async fn ensure_probed_internal_schema(
     db: &SqliteDb,

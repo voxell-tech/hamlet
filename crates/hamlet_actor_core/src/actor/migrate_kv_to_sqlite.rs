@@ -171,8 +171,8 @@ pub(crate) async fn ensure_startup_storage(
 
 /// One bounded read covers every legacy namespace that can affect the
 /// import. Start below the first reserved key so even older
-/// exclusive-start range implementations include actor state at [1].
-/// Trace-only actors remain empty.
+/// exclusive-start range implementations include actor state at
+/// `[1]`. Trace-only actors remain empty.
 async fn legacy_bootstrap_range_empty(
     ctx: &ActorContext,
 ) -> Result<bool> {
@@ -696,10 +696,10 @@ impl<'a> LegacyPrefixScan<'a> {
                 // Backends differ on whether a range scan includes
                 // its start key, so drop cursor re-reads instead of
                 // assuming either bound semantic.
-                if let Some(cursor) = &self.cursor {
-                    if key.as_slice() <= cursor.as_slice() {
-                        continue;
-                    }
+                if let Some(cursor) = &self.cursor
+                    && key.as_slice() <= cursor.as_slice()
+                {
+                    continue;
                 }
                 if !key.starts_with(self.prefix) {
                     self.done = true;

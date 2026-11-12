@@ -227,6 +227,10 @@ impl SqliteDb {
         )
     }
 
+    #[expect(
+        clippy::fn_params_excessive_bools,
+        reason = "ported signature"
+    )]
     pub fn new_with_remote_sqlite(
         handle: EnvoyHandle,
         actor_id: impl Into<String>,
@@ -685,8 +689,8 @@ impl SqliteDb {
 
     async fn close_backend(&self, _close: NativeClose) -> Result<()> {
         match self.backend {
-            SqliteBackend::LocalNative => Ok(()),
-            SqliteBackend::RemoteEnvoy => Ok(()),
+            SqliteBackend::LocalNative
+            | SqliteBackend::RemoteEnvoy => Ok(()),
         }
     }
 
@@ -727,7 +731,7 @@ impl SqliteDb {
     }
 
     pub fn metrics(&self) -> Option<SqliteVfsMetricsSnapshot> {
-        { None }
+        None
     }
 
     pub fn runtime_config(&self) -> Result<SqliteRuntimeConfig> {
@@ -964,8 +968,16 @@ fn report_sqlite_worker_fatal(
 
 struct RemoteSqliteConfig {
     handle: EnvoyHandle,
+    #[expect(
+        dead_code,
+        reason = "ported; nothing in Hamlet calls it yet"
+    )]
     namespace_id: String,
     actor_id: String,
+    #[expect(
+        dead_code,
+        reason = "ported; nothing in Hamlet calls it yet"
+    )]
     generation: u64,
 }
 
@@ -976,7 +988,7 @@ fn select_sqlite_backend(
         return Ok(SqliteBackend::RemoteEnvoy);
     }
 
-    { Err(SqliteRuntimeError::Unavailable.build()) }
+    Err(SqliteRuntimeError::Unavailable.build())
 }
 
 fn bind_param_count(params: &Option<Vec<BindParam>>) -> usize {

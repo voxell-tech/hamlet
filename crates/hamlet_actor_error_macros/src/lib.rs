@@ -306,20 +306,26 @@ fn derive_enum_error(
             .attrs
             .iter()
             .find(|attr| attr.path().is_ident("error"))
-            .expect(&format!(
-                "Variant {} requires #[error(...)] attribute",
-                variant_name
-            ));
+            .unwrap_or_else(|| {
+                panic!(
+                    "Variant {} requires #[error(...)] attribute",
+                    variant_name
+                )
+            });
 
         let (code, description, formatted_desc) =
             match &variant_error_attr.meta {
                 Meta::List(meta_list) => {
                     let tokens = &meta_list.tokens;
-                    parse_variant_error_args(tokens).expect(&format!(
-                        "Failed to parse variant error attributes \
-                         for {}",
-                        variant_name
-                    ))
+                    parse_variant_error_args(tokens).unwrap_or_else(
+                        |_| {
+                            panic!(
+                                "Failed to parse variant error \
+                                 attributes for {}",
+                                variant_name
+                            )
+                        },
+                    )
                 }
                 _ => panic!(
                     "error attribute for variant must be in the \
@@ -354,7 +360,7 @@ fn derive_enum_error(
 							struct VariantMeta #fields
 
 							let meta = VariantMeta {
-								#(#field_names: #field_names),*
+								#(#field_names),*
 							};
 
 							#[allow(non_upper_case_globals)]
@@ -384,7 +390,7 @@ fn derive_enum_error(
                         .map(|field_name| {
                             let field_name_str = field_name
                                 .as_ref()
-                                .map(|x| x.to_string());
+                                .map(ToString::to_string);
 
                             quote! { #field_name_str: #field_name }
                         })
@@ -449,7 +455,7 @@ fn derive_enum_error(
 							}
 
 							let meta = VariantMeta {
-								#(#field_names: #field_names),*
+								#(#field_names),*
 							};
 
 							#[allow(non_upper_case_globals)]
@@ -624,12 +630,6 @@ impl syn::parse::Parse for ErrorArgs {
     }
 }
 
-#[allow(
-    clippy::disallowed_methods,
-    clippy::disallowed_types,
-    reason = "proc-macro code generation reads and writes host \
-              files at build time"
-)]
 fn write_error_doc(
     group: &str,
     code: &str,
@@ -642,14 +642,12 @@ fn write_error_doc(
         return Ok(());
     }
 
-    let workspace_root = find_workspace_root()?;
     let errors_dir =
-        if std::env::var("HAMLET_ACTOR_ERROR_OUTPUT_DIR").is_ok() {
-            // If custom dir is specified, errors go directly there
-            workspace_root
-        } else {
-            // Otherwise use the standard out/errors path
-            workspace_root.join("engine/artifacts/errors")
+        match std::env::var_os("HAMLET_ACTOR_ERROR_OUTPUT_DIR") {
+            Some(dir) => std::path::PathBuf::from(dir),
+            None => {
+                std::path::Path::new(env!("OUT_DIR")).join("errors")
+            }
         };
     fs::create_dir_all(&errors_dir)?;
 
@@ -669,45 +667,4 @@ fn write_error_doc(
     file.write_all(content.as_bytes())?;
 
     Ok(())
-}
-
-#[allow(
-    clippy::disallowed_methods,
-    clippy::disallowed_types,
-    reason = "proc-macro code generation reads and writes host \
-              files at build time"
-)]
-fn find_workspace_root() -> std::io::Result<std::path::PathBuf> {
-    use std::path::Path;
-
-    // Check if a custom output directory is specified via env var
-    if let Ok(custom_dir) =
-        std::env::var("HAMLET_ACTOR_ERROR_OUTPUT_DIR")
-    {
-        return Ok(Path::new(&custom_dir).to_path_buf());
-    }
-
-    let manifest_dir =
-        std::env::var("CARGO_MANIFEST_DIR").map_err(|e| {
-            std::io::Error::new(std::io::ErrorKind::NotFound, e)
-        })?;
-
-    let mut current = Path::new(&manifest_dir);
-
-    loop {
-        if current.join("Cargo.toml").exists() {
-            let content =
-                std::fs::read_to_string(current.join("Cargo.toml"))?;
-            if content.contains("[workspace]") {
-                return Ok(current.to_path_buf());
-            }
-        }
-
-        match current.parent() {
-            Some(parent) => current = parent,
-            None => {
-                return Ok(Path::new(&manifest_dir).to_path_buf());
-            }
-        }
-    }
 }

@@ -291,16 +291,14 @@ impl Client {
         params: Option<JsonValue>,
         query: ActorQuery,
     ) -> ActorHandle {
-        let handle = ActorHandle::new(
+        ActorHandle::new(
             self.remote_manager.clone(),
             params,
             query,
             self.shutdown_tx.clone(),
             self.transport_kind,
             self.encoding_kind,
-        );
-
-        handle
+        )
     }
 
     pub fn get(
@@ -351,7 +349,7 @@ impl Client {
         let actor_query = ActorQuery::GetOrCreateForKey {
             get_or_create_for_key: GetOrCreateRequest {
                 name: name.to_string(),
-                key: key,
+                key,
                 input,
                 region,
                 pool_name: opts.pool_name,
@@ -390,11 +388,11 @@ impl Client {
     }
 
     pub fn disconnect(self) {
-        drop(self)
+        drop(self);
     }
 
     pub fn dispose(self) {
-        self.disconnect()
+        self.disconnect();
     }
 }
 

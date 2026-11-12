@@ -145,9 +145,7 @@ static EXPIRED_KEY_METRICS: LazyLock<ExpiredKeyMetrics> =
 
         for collector in [
             Box::new(keys.clone())
-                as Box<
-                    dyn crate::metrics::prometheus::core::Collector,
-                >,
+                as Box<dyn prometheus::core::Collector>,
             Box::new(capacity),
             Box::new(evicted_total.clone()),
         ] {
@@ -197,7 +195,7 @@ static MANUAL_TRANSACTION_WAIT_METRICS: LazyLock<
 
     for collector in [
         Box::new(waiters.clone())
-            as Box<dyn crate::metrics::prometheus::core::Collector>,
+            as Box<dyn prometheus::core::Collector>,
         Box::new(timeouts_total.clone()),
     ] {
         if let Err(error) =
@@ -1563,13 +1561,12 @@ fn spawn_transaction_timeout(
             )
             .await
         };
-        if let Err(error) = result {
-            if error
+        if let Err(error) = result
+            && error
                 .downcast_ref::<TransactionTerminalError>()
                 .is_none()
-            {
-                tracing::error!(%error, "sqlite transaction terminal cleanup failed");
-            }
+        {
+            tracing::error!(%error, "sqlite transaction terminal cleanup failed");
         }
     };
 

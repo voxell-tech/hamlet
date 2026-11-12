@@ -1,21 +1,15 @@
 // This file was changed for Hamlet. See NOTICE in this crate.
+#![expect(
+    dead_code,
+    reason = "the inspector's serving path is not ported"
+)]
 use anyhow::Result;
 use hamlet_actor_wire::inspector_protocol::{
     self as wire, versioned,
 };
 use vbare::Versioned;
 pub(crate) use wire::{
-    ActionResponse, Connection as ConnectionDetails,
-    ConnectionsResponse, ConnectionsUpdated, DatabaseSchemaResponse,
-    DatabaseTableRowsResponse, Error as ErrorMessage,
-    Init as InitMessage, QueueMessageSummary, QueueResponse,
-    QueueStatus, QueueUpdated, RpcsListResponse, Schedule,
-    ScheduleDeleteResponse, ScheduleError, ScheduleFire,
-    ScheduleHistoryResponse, SchedulesResponse, SchedulesUpdated,
-    StateResponse, StateUpdated, TabConfigEntry,
     ToClientBody as ServerMessage, ToServerBody as ClientMessage,
-    TraceQueryResponse, WorkflowHistoryResponse,
-    WorkflowHistoryUpdated, WorkflowReplayResponse,
 };
 
 const MAX_QUEUE_STATUS_LIMIT: u32 = 200;

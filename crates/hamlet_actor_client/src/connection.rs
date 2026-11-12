@@ -85,14 +85,9 @@ impl SubscriptionHandle {
     }
 }
 
+#[derive(Default)]
 struct SendMsgOpts {
     ephemeral: bool,
-}
-
-impl Default for SendMsgOpts {
-    fn default() -> Self {
-        Self { ephemeral: false }
-    }
 }
 
 type WatchPair = (watch::Sender<bool>, watch::Receiver<bool>);
@@ -182,7 +177,7 @@ impl ActorConnectionInner {
     }
 
     fn is_disconnecting(self: &Arc<Self>) -> bool {
-        *self.dc_watch.1.borrow() == true
+        *self.dc_watch.1.borrow()
     }
 
     async fn try_connect(self: &Arc<Self>) -> ConnectionAttempt {
@@ -332,7 +327,6 @@ impl ActorConnectionInner {
                 };
                 if let Err(e) = tx.send(Ok(ar.clone())) {
                     debug!("{:?}", e);
-                    return;
                 }
             }
             to_client::ToClientBody::Event(ev) => {
@@ -434,11 +428,9 @@ impl ActorConnectionInner {
         }
 
         // Otherwise queue
-        if opts.ephemeral == false {
+        if !opts.ephemeral {
             self.msg_queue.lock().await.push(msg.clone());
         }
-
-        return;
     }
 
     pub async fn action(
@@ -451,7 +443,7 @@ impl ActorConnectionInner {
         {
             return Err(stop_error.to_rpc_error());
         }
-        let id: u64 = self.rpc_counter.fetch_add(1, Ordering::SeqCst);
+        let id = self.rpc_counter.fetch_add(1, Ordering::SeqCst);
 
         let (tx, rx) = oneshot::channel();
         if self.in_flight_rpcs.insert_async(id, tx).await.is_err() {
@@ -760,7 +752,7 @@ impl ActorConnectionInner {
     }
 
     pub async fn dispose(self: &Arc<Self>) {
-        self.disconnect().await
+        self.disconnect().await;
     }
 
     async fn stop_permanently(
@@ -857,6 +849,10 @@ pub fn start_connection(
                     break 'keepalive;
                 }
 
+                #[expect(
+                    clippy::match_same_arms,
+                    reason = "each stop reason keeps its own arm"
+                )]
                 match &attempt.task_end_reason {
                     DriverStopReason::ActorDestroyed { reason } => {
                         conn.stop_permanently(
@@ -908,7 +904,7 @@ pub fn start_connection(
 
                 tokio::select! {
                     _ = backoff.tick() => {},
-                    _ = dc_rx.wait_for(|x| *x == true) => {
+                    _ = dc_rx.wait_for(|x| *x) => {
                         break 'keepalive;
                     }
                     _ = shutdown_rx.recv() => {

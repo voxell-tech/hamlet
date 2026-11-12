@@ -1,5 +1,5 @@
 // This file was changed for Hamlet. See NOTICE in this crate.
-#![allow(dead_code)]
+#![expect(dead_code, reason = "the full key layout, ported whole")]
 
 // This module mirrors the old TypeScript actor key layout. Some
 // helpers are reserved for storage owned by foreign-runtime layers.

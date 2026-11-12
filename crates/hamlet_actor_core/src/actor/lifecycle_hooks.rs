@@ -34,7 +34,7 @@ impl<T> Reply<T> {
     /// already started executing.
     pub async fn send_or_cancel<F>(mut self, work: F)
     where
-        F: std::future::Future<Output = Result<T>>,
+        F: Future<Output = Result<T>>,
     {
         let Some(tx) = self.tx.as_mut() else {
             return;

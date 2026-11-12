@@ -113,6 +113,10 @@ struct ConnectionNotHibernatable {
     "restore_not_found",
     "Hibernatable connection restore target was not found"
 )]
+#[expect(
+    dead_code,
+    reason = "ported; nothing in Hamlet calls it yet"
+)]
 struct ConnectionRestoreNotFound;
 
 #[derive(ActorError, Serialize)]
@@ -173,6 +177,10 @@ impl DisconnectOnDrop {
         Self { conn: Some(conn) }
     }
 
+    #[expect(
+        dead_code,
+        reason = "ported; nothing in Hamlet calls it yet"
+    )]
     pub(crate) async fn disconnect(mut self) -> Result<()> {
         match self.conn.take() {
             Some(conn) => conn.disconnect(None).await,
@@ -314,6 +322,10 @@ impl ConnHandle {
         handler(reason.map(str::to_owned)).await
     }
 
+    #[expect(
+        dead_code,
+        reason = "ported; nothing in Hamlet calls it yet"
+    )]
     pub(crate) fn configure_event_sender(
         &self,
         event_sender: Option<EventSendCallback>,
@@ -328,6 +340,10 @@ impl ConnHandle {
         *self.0.disconnect_handler.write() = disconnect_handler;
     }
 
+    #[expect(
+        dead_code,
+        reason = "ported; nothing in Hamlet calls it yet"
+    )]
     pub(crate) fn configure_transport_disconnect_handler(
         &self,
         disconnect_handler: Option<DisconnectCallback>,
@@ -343,6 +359,10 @@ impl ConnHandle {
         self.0.subscriptions.write().insert(event_name.into())
     }
 
+    #[expect(
+        dead_code,
+        reason = "ported; nothing in Hamlet calls it yet"
+    )]
     pub(crate) fn unsubscribe(&self, event_name: &str) -> bool {
         self.0.subscriptions.write().remove(event_name)
     }
@@ -379,6 +399,10 @@ impl ConnHandle {
         *self.0.state_change_handler.write() = handler;
     }
 
+    #[expect(
+        dead_code,
+        reason = "ported; nothing in Hamlet calls it yet"
+    )]
     pub(crate) fn set_server_message_index(
         &self,
         message_index: u16,
@@ -477,6 +501,10 @@ impl ConnHandle {
         })
     }
 
+    #[expect(
+        dead_code,
+        reason = "ported; nothing in Hamlet calls it yet"
+    )]
     pub(crate) fn managed_disconnect_handler(
         &self,
     ) -> Result<DisconnectCallback> {
@@ -789,7 +817,7 @@ impl ActorContext {
         create_state: F,
     ) -> Result<ConnHandle>
     where
-        F: std::future::Future<Output = Result<Vec<u8>>> + Send,
+        F: Future<Output = Result<Vec<u8>>> + Send,
     {
         self.connect_with_state_and_prepare(
             params,
@@ -812,7 +840,7 @@ impl ActorContext {
         prepare_connection: P,
     ) -> Result<ConnHandle>
     where
-        F: std::future::Future<Output = Result<Vec<u8>>> + Send,
+        F: Future<Output = Result<Vec<u8>>> + Send,
         P: FnOnce(&ConnHandle) -> Result<()>,
     {
         let config = self.connection_config();
@@ -836,9 +864,7 @@ impl ActorContext {
         conn.configure_hibernation(hibernation);
         self.prepare_managed_conn(&conn);
 
-        if let Err(error) = prepare_connection(&conn) {
-            return Err(error);
-        }
+        prepare_connection(&conn)?;
 
         self.emit_connection_preflight(
             &conn,
@@ -913,6 +939,10 @@ impl ActorContext {
         Ok(restored)
     }
 
+    #[expect(
+        dead_code,
+        reason = "ported; nothing in Hamlet calls it yet"
+    )]
     pub(crate) fn reconnect_hibernatable(
         &self,
         gateway_id: &[u8],

@@ -31,22 +31,37 @@ struct InspectorInner {
     active_connections: AtomicU32,
     queue_size: AtomicU32,
     connected_clients: AtomicUsize,
+    #[expect(
+        dead_code,
+        reason = "ported; nothing in Hamlet calls it yet"
+    )]
     next_listener_id: AtomicU64,
     // Forced-sync: subscriptions are created/dropped from sync paths
     // and listener callbacks are cloned before invocation.
     listeners: RwLock<Vec<(u64, InspectorListener)>>,
 }
 
-#[allow(clippy::enum_variant_names)]
+#[expect(
+    clippy::enum_variant_names,
+    reason = "each variant names what was updated"
+)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum InspectorSignal {
     StateUpdated,
     ConnectionsUpdated,
     QueueUpdated,
+    #[expect(
+        dead_code,
+        reason = "ported; nothing in Hamlet calls it yet"
+    )]
     WorkflowHistoryUpdated,
     SchedulesUpdated,
 }
 
+#[expect(
+    dead_code,
+    reason = "ported; nothing in Hamlet calls it yet"
+)]
 pub(crate) struct InspectorSubscription {
     inspector: Weak<InspectorInner>,
     listener_id: u64,
@@ -170,6 +185,10 @@ impl Inspector {
         }
     }
 
+    #[expect(
+        dead_code,
+        reason = "ported; nothing in Hamlet calls it yet"
+    )]
     pub(crate) fn subscribe(
         &self,
         listener: InspectorListener,
@@ -211,6 +230,10 @@ impl Inspector {
         self.notify(InspectorSignal::QueueUpdated);
     }
 
+    #[expect(
+        dead_code,
+        reason = "ported; nothing in Hamlet calls it yet"
+    )]
     pub(crate) fn record_workflow_history_updated(&self) {
         self.notify(InspectorSignal::WorkflowHistoryUpdated);
     }
@@ -220,6 +243,10 @@ impl Inspector {
         self.notify(InspectorSignal::SchedulesUpdated);
     }
 
+    #[expect(
+        dead_code,
+        reason = "ported; nothing in Hamlet calls it yet"
+    )]
     pub(crate) fn set_connected_clients(
         &self,
         connected_clients: usize,

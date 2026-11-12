@@ -102,12 +102,11 @@ pub fn parse_endpoint_auth(
     // auth always have an authority component, so clearing cannot
     // fail there, while opaque-scheme URLs without auth would reject
     // the setters.
-    if namespace.is_some() || token.is_some() {
-        if url.set_username("").is_err()
-            || url.set_password(None).is_err()
-        {
-            return Err(EndpointParseError::CredentialsUnsupported);
-        }
+    if (namespace.is_some() || token.is_some())
+        && (url.set_username("").is_err()
+            || url.set_password(None).is_err())
+    {
+        return Err(EndpointParseError::CredentialsUnsupported);
     }
 
     Ok(ParsedEndpoint {

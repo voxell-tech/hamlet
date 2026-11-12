@@ -1023,7 +1023,7 @@ impl ActorContext {
 
     fn block_on<T>(
         &self,
-        future: impl std::future::Future<Output = Result<T>>,
+        future: impl Future<Output = Result<T>>,
     ) -> Result<T> {
         #[cfg(not(target_arch = "wasm32"))]
         {

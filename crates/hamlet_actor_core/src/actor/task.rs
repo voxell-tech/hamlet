@@ -200,8 +200,7 @@ impl LifecycleCommand {
             Self::Stop { reason, .. } => {
                 Some(shutdown_reason_label(*reason))
             }
-            Self::Start { .. } => None,
-            Self::FireAlarm { .. } => None,
+            Self::Start { .. } | Self::FireAlarm { .. } => None,
         }
     }
 }
@@ -226,7 +225,7 @@ pub enum DispatchCommand {
     QueueSend {
         name: String,
         body: Vec<u8>,
-        incoming: crate::telemetry::IncomingInvocationContext,
+        incoming: IncomingInvocationContext,
         conn: ConnHandle,
         request: Request,
         wait: bool,
@@ -512,12 +511,10 @@ impl ActorTask {
         ctx.on_request_save(Box::new(move |_opts| {
             if inspector_attach_count_for_hook.load(Ordering::SeqCst)
                 > 0
-            {
-                if let Some(ctx) =
+                && let Some(ctx) =
                     ActorContext::from_weak(&inspector_ctx)
-                {
-                    ctx.notify_inspector_serialize_requested();
-                }
+            {
+                ctx.notify_inspector_serialize_requested();
             }
         }));
         Self {
@@ -602,10 +599,10 @@ impl ActorTask {
         let activity_notify = self.ctx.sleep_activity_notify();
 
         loop {
-            if self.ctx.acknowledge_activity_dirty() {
-                if let Some(exit) = self.on_activity_signal().await {
-                    return exit;
-                }
+            if self.ctx.acknowledge_activity_dirty()
+                && let Some(exit) = self.on_activity_signal().await
+            {
+                return exit;
             }
             // TODO: Sample inbox depths periodically instead of on
             // every loop iteration.
@@ -1147,7 +1144,7 @@ impl ActorTask {
     ) {
         match completion {
             PersistenceCompletion::StateSave => {
-                self.on_state_save_finished(outcome)
+                self.on_state_save_finished(outcome);
             }
             PersistenceCompletion::Workflow { writes, reply } => {
                 match outcome {
@@ -1321,7 +1318,7 @@ impl ActorTask {
                         reply: Reply::from(reply).on_reply(
                             move |result| {
                                 invocation
-                                    .finish(result.as_ref().err())
+                                    .finish(result.as_ref().err());
                             },
                         ),
                     },
@@ -1358,7 +1355,7 @@ impl ActorTask {
                         reply: Reply::from(reply).on_reply(
                             move |result| {
                                 invocation
-                                    .finish_request(result.as_ref())
+                                    .finish_request(result.as_ref());
                             },
                         ),
                     },
@@ -1491,6 +1488,10 @@ impl ActorTask {
         error: anyhow::Error,
     ) {
         let error = self.ctx.attach_actor_to_error(error);
+        #[expect(
+            clippy::match_same_arms,
+            reason = "each reply has its own type"
+        )]
         match command {
             DispatchCommand::Action { reply, .. } => {
                 let _ = reply.send(Err(error));
@@ -1728,7 +1729,7 @@ impl ActorTask {
 				}
 				(_, true, false) => {}
 				(Some(token), false, false) => {
-					spawn_inspector_mirror_check(&self.ctx, token.clone())
+					spawn_inspector_mirror_check(&self.ctx, token.clone());
 				}
 				(None, false, false) => crate::inspector::auth::init_inspector_token(&self.ctx)
 					.await
@@ -2143,20 +2144,18 @@ impl ActorTask {
         // actor whose legacy KV import is unfinished imports it and
         // reads again.
         let mut read =
-            crate::actor::internal_storage::load_actor_startup(
-                self.ctx.sql(),
-            )
-            .await
-            .context(
-                "load persisted actor startup data from sqlite",
-            )?;
+            internal_storage::load_actor_startup(self.ctx.sql())
+                .await
+                .context(
+                    "load persisted actor startup data from sqlite",
+                )?;
         if read.import_state.as_deref()
 			!= Some(crate::actor::migrate_kv_to_sqlite::KV_IMPORT_STATE_DONE)
 		{
 			crate::actor::migrate_kv_to_sqlite::import_core_state_if_needed(&self.ctx)
 				.await
 				.context("import legacy core actor storage to sqlite")?;
-			read = crate::actor::internal_storage::load_actor_startup(self.ctx.sql())
+			read = internal_storage::load_actor_startup(self.ctx.sql())
 				.await
 				.context("load persisted actor startup data from sqlite")?;
 		}
@@ -2238,7 +2237,7 @@ impl ActorTask {
             hibernated: self
                 .ctx
                 .conns()
-                .filter(|conn| conn.is_hibernatable())
+                .filter(ConnHandle::is_hibernatable)
                 .map(|conn| {
                     let bytes = conn.state();
                     (conn, bytes)
@@ -2288,8 +2287,7 @@ impl ActorTask {
     ) -> Result<()> {
         let actor_id = ctx.actor_id().to_owned();
         let mut dead_conn_ids = Vec::new();
-        for conn in ctx.conns().filter(|conn| conn.is_hibernatable())
-        {
+        for conn in ctx.conns().filter(ConnHandle::is_hibernatable) {
             if drop_all {
                 tracing::debug!(
                     actor_id = %actor_id,
@@ -2568,9 +2566,7 @@ impl ActorTask {
         if self.pending_persistence.is_some() {
             return None;
         }
-        let Some(grace) = self.sleep_grace.as_ref() else {
-            return None;
-        };
+        let grace = self.sleep_grace.as_ref()?;
         if self.ctx.can_finalize_shutdown(grace.reason) {
             let reason = grace.reason;
             self.sleep_grace = None;
@@ -2580,9 +2576,7 @@ impl ActorTask {
     }
 
     async fn on_sleep_grace_deadline(&mut self) -> Option<LiveExit> {
-        let Some(grace) = self.sleep_grace.take() else {
-            return None;
-        };
+        let grace = self.sleep_grace.take()?;
         if let Some(run_handle) = self.run_handle.as_mut() {
             run_handle.abort();
         }
@@ -2885,7 +2879,7 @@ impl ActorTask {
                     cap_ms,
                     rollback_cap_ms = duration_ms_f64(rollback_cap),
                     "a hook left a state transaction open after a failed start and is still inside it; continuing the teardown, and the transaction rolls back instead of committing"
-                )
+                );
             }
         }
     }

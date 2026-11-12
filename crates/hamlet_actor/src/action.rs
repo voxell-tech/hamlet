@@ -21,9 +21,9 @@ pub(crate) type BoxActionFuture =
 /// must be JSON-compatible; they are carried through the JSON value
 /// model to match the TypeScript runtime.
 pub trait Action:
-    serde::Serialize + DeserializeOwned + Send + Sync + 'static
+    Serialize + DeserializeOwned + Send + Sync + 'static
 {
-    type Output: serde::Serialize + DeserializeOwned + Send + 'static;
+    type Output: Serialize + DeserializeOwned + Send + 'static;
 
     const NAME: &'static str;
 }

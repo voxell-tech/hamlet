@@ -22,7 +22,6 @@ use reqwest::header::{
 };
 use reqwest::Method;
 use serde::{Deserialize, Serialize};
-use serde_cbor;
 use tokio::sync::OnceCell;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tracing_opentelemetry::OpenTelemetrySpanExt as _;
@@ -963,7 +962,7 @@ impl RemoteManager {
 
     fn apply_websocket_headers(
         &self,
-        headers: &mut tokio_tungstenite::tungstenite::http::HeaderMap,
+        headers: &mut HeaderMap,
     ) -> Result<()> {
         for (key, value) in &self.headers {
             if is_trace_context_header(key) {

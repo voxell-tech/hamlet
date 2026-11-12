@@ -7,7 +7,7 @@ pub use generated::v4::*;
 
 pub const CURRENT_VERSION: u16 = 4;
 
-impl Default for generated::v4::Actor {
+impl Default for Actor {
     fn default() -> Self {
         Self {
             input: None,
@@ -18,7 +18,7 @@ impl Default for generated::v4::Actor {
     }
 }
 
-impl Default for generated::v4::ScheduleEvent {
+impl Default for ScheduleEvent {
     fn default() -> Self {
         Self {
             event_id: String::new().into(),
@@ -29,7 +29,7 @@ impl Default for generated::v4::ScheduleEvent {
     }
 }
 
-impl Default for generated::v4::Subscription {
+impl Default for Subscription {
     fn default() -> Self {
         Self {
             event_name: String::new().into(),
@@ -37,7 +37,7 @@ impl Default for generated::v4::Subscription {
     }
 }
 
-impl Default for generated::v4::Conn {
+impl Default for Conn {
     fn default() -> Self {
         Self {
             id: String::new().into(),
@@ -54,7 +54,8 @@ impl Default for generated::v4::Conn {
     }
 }
 
-impl Default for generated::v4::QueueMetadata {
+#[expect(clippy::derivable_impls, reason = "the type is generated")]
+impl Default for QueueMetadata {
     fn default() -> Self {
         Self {
             next_id: 0,
@@ -63,7 +64,7 @@ impl Default for generated::v4::QueueMetadata {
     }
 }
 
-impl Default for generated::v4::QueueMessage {
+impl Default for QueueMessage {
     fn default() -> Self {
         Self {
             name: String::new().into(),

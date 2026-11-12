@@ -38,7 +38,10 @@ impl Registry {
         F: Fn(Start<A>) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = Result<()>> + Send + 'static,
     {
-        #[allow(deprecated)]
+        #[expect(
+            deprecated,
+            reason = "register_with still holds the registration"
+        )]
         self.register_with::<A, F, Fut>(
             name,
             ActorConfig::default(),
@@ -61,7 +64,10 @@ impl Registry {
     where
         A: Actor,
     {
-        #[allow(deprecated)]
+        #[expect(
+            deprecated,
+            reason = "register_with still holds the registration"
+        )]
         self.register_with::<A, _, _>(name, config, run_actor::<A>)
     }
 
@@ -114,7 +120,7 @@ where
     F: Fn(Start<A>) -> Fut + Send + Sync + 'static,
     Fut: Future<Output = Result<()>> + Send + 'static,
 {
-    let config = actor_config::<A>(config);
+    let config = actor_config(config);
     let entry = Arc::new(entry);
     CoreActorFactory::new_with_manual_startup_ready(
         config,
@@ -143,7 +149,7 @@ where
     )
 }
 
-fn actor_config<A: Actor>(mut config: ActorConfig) -> ActorConfig {
+fn actor_config(mut config: ActorConfig) -> ActorConfig {
     // Every Rust actor gets a database; `ctx.sql()` is the only
     // durable storage API.
     config.has_database = true;
