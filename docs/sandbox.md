@@ -128,5 +128,4 @@ dream works on the server's checkout of its scholar, never remotely. Remote
 execution never falls back to the host's files or commands.
 
 The worker's configuration and deployment notes are in
-[`crates/hamlet_workspace/README.md`](../crates/hamlet_workspace/README.md),
-and what remains to build in [the proposal](proposals/remote-workspaces.md).
+[`crates/hamlet_workspace/README.md`](../crates/hamlet_workspace/README.md).
