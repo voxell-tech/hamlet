@@ -4,8 +4,8 @@ use std::sync::{Arc, Weak};
 use std::time::Duration;
 
 use anyhow::{Context, Result};
-use hamlet_actor_persist::generated::v4 as persist_v4;
-use hamlet_actor_persist::versioned as persist_versioned;
+use hamlet_actor_wire::persist::generated::v4 as persist_v4;
+use hamlet_actor_wire::persist::versioned as persist_versioned;
 #[cfg(not(feature = "wasm-runtime"))]
 use tokio::runtime::Handle;
 use tokio::sync::{

@@ -6,21 +6,44 @@ use std::process::Command;
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let manifest_dir =
         PathBuf::from(std::env::var("CARGO_MANIFEST_DIR")?);
-    let schema_dir = manifest_dir.join("schemas");
+    let out_dir = PathBuf::from(std::env::var("OUT_DIR")?);
     let repo_root = manifest_dir
         .parent()
         .and_then(|p| p.parent())
         .and_then(|p| p.parent())
         .ok_or("Failed to find repository root")?;
 
-    let cfg = vbare_compiler::Config::default();
-    vbare_compiler::process_schemas_with_config(&schema_dir, &cfg)?;
+    // Each protocol's code goes under a folder of OUT_DIR named for
+    // it, and its module file includes from that folder.
+    for (name, typescript_name) in [
+        ("persist", None),
+        ("client_protocol", Some("client-protocol")),
+        ("inspector_protocol", Some("inspector")),
+    ] {
+        let schema_dir = manifest_dir.join("schemas").join(name);
+        let protocol_out = out_dir.join(name);
+        fs::create_dir_all(&protocol_out)?;
+        let cfg = vbare_compiler::Config::default();
+        vbare_compiler::process_schemas_to_dir(
+            &schema_dir,
+            &protocol_out,
+            &cfg,
+        )?;
+        let imports = protocol_out.join("combined_imports.rs");
+        let content = fs::read_to_string(&imports)?.replace(
+            "env!(\"OUT_DIR\"), \"/",
+            &format!("env!(\"OUT_DIR\"), \"/{name}/"),
+        );
+        fs::write(&imports, content)?;
 
-    typescript::generate_versions(
-        repo_root,
-        &schema_dir,
-        "client-protocol",
-    );
+        if let Some(typescript_name) = typescript_name {
+            typescript::generate_versions(
+                repo_root,
+                &schema_dir,
+                typescript_name,
+            );
+        }
+    }
 
     Ok(())
 }

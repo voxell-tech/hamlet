@@ -3,7 +3,7 @@
 
 use std::sync::LazyLock;
 
-use hamlet_actor_metrics::prometheus::{
+use crate::metrics::prometheus::{
     Histogram, HistogramOpts, HistogramVec, IntGauge, Opts,
 };
 
@@ -43,7 +43,7 @@ static POOL_METRICS: LazyLock<PoolCollectors> = LazyLock::new(|| {
             "time a runnable database waited for a native SQLite \
              worker pool thread",
         )
-        .buckets(hamlet_actor_metrics::MICRO_BUCKETS.to_vec()),
+        .buckets(crate::metrics::MICRO_BUCKETS.to_vec()),
     )
     .expect("create sqlite_worker_pool_queue_wait_seconds histogram");
     let lock_wait_seconds = HistogramVec::new(
@@ -52,7 +52,7 @@ static POOL_METRICS: LazyLock<PoolCollectors> = LazyLock::new(|| {
             "time a caller waited for a native SQLite worker pool \
              lock, by lock",
         )
-        .buckets(hamlet_actor_metrics::MICRO_BUCKETS.to_vec()),
+        .buckets(crate::metrics::MICRO_BUCKETS.to_vec()),
         &["lock"],
     )
     .expect("create sqlite_worker_pool_lock_wait_seconds histogram");
@@ -96,9 +96,7 @@ static POOL_METRICS: LazyLock<PoolCollectors> = LazyLock::new(|| {
         .expect("create sqlite_pager_cache_unbudgeted_bytes gauge");
     for collector in [
         Box::new(threads.clone())
-            as Box<
-                dyn hamlet_actor_metrics::prometheus::core::Collector,
-            >,
+            as Box<dyn crate::metrics::prometheus::core::Collector>,
         Box::new(busy.clone()),
         Box::new(runnable.clone()),
         Box::new(queue_wait_seconds.clone()),
@@ -111,7 +109,7 @@ static POOL_METRICS: LazyLock<PoolCollectors> = LazyLock::new(|| {
         Box::new(pager_cache_unbudgeted_bytes.clone()),
     ] {
         if let Err(error) =
-            hamlet_actor_metrics::REGISTRY.register(collector)
+            crate::metrics::REGISTRY.register(collector)
         {
             tracing::warn!(
                 ?error,

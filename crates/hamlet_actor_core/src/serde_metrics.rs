@@ -14,11 +14,10 @@
 use std::sync::LazyLock;
 use std::time::Duration;
 
-use hamlet_actor_metrics::MICRO_BUCKETS;
-use hamlet_actor_metrics::prometheus::{
+use crate::metrics::MICRO_BUCKETS;
+use crate::metrics::prometheus::{
     HistogramOpts, HistogramVec, Registry,
 };
-
 use crate::time::Instant;
 
 const SERDE_LABELS: &[&str] = &["format", "location"];
@@ -84,19 +83,19 @@ impl SerdeMetricCollectors {
         );
 
         register_metric(
-            &hamlet_actor_metrics::REGISTRY,
+            &crate::metrics::REGISTRY,
             serialize_size.clone(),
         );
         register_metric(
-            &hamlet_actor_metrics::REGISTRY,
+            &crate::metrics::REGISTRY,
             deserialize_size.clone(),
         );
         register_metric(
-            &hamlet_actor_metrics::REGISTRY,
+            &crate::metrics::REGISTRY,
             serialize_duration_seconds.clone(),
         );
         register_metric(
-            &hamlet_actor_metrics::REGISTRY,
+            &crate::metrics::REGISTRY,
             deserialize_duration_seconds.clone(),
         );
 
@@ -188,7 +187,7 @@ fn observe_size(
 
 fn register_metric<M>(registry: &Registry, metric: M)
 where
-    M: hamlet_actor_metrics::prometheus::core::Collector
+    M: crate::metrics::prometheus::core::Collector
         + Clone
         + Send
         + Sync

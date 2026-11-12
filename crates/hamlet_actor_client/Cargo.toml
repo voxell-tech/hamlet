@@ -17,8 +17,7 @@ opentelemetry-http.workspace = true
 opentelemetry_sdk = { version = "0.28", default-features = false, features = ["trace"] }
 parking_lot.workspace = true
 reqwest = { version = "0.12.12", default-features = false, features = ["json", "charset", "http2", "macos-system-configuration", "rustls-tls-native-roots", "rustls-tls-webpki-roots"] }
-hamlet_actor_client_protocol.workspace = true
-hamlet_actor_shared_types.workspace = true
+hamlet_actor_wire.workspace = true
 scc.workspace = true
 serde = { version = "1.0", features = ["derive"] }
 serde_bare.workspace = true

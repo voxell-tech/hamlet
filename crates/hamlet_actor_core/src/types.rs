@@ -1,5 +1,5 @@
 // This file was changed for Hamlet. See NOTICE in this crate.
-use hamlet_actor_shared_types::actor_key;
+use hamlet_actor_wire::shared_types::actor_key;
 use serde::{Deserialize, Serialize};
 
 pub type ActorKey = Vec<ActorKeySegment>;

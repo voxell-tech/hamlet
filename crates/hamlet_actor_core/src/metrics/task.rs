@@ -26,7 +26,7 @@ use prometheus::{
     register_histogram_vec_with_registry,
 };
 
-use crate::{MICRO_BUCKETS, REGISTRY};
+use super::{MICRO_BUCKETS, REGISTRY};
 
 lazy_static::lazy_static! {
     static ref TASK_POLL_SECONDS: CounterVec = register_counter_vec_with_registry!(

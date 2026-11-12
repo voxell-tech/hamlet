@@ -11,18 +11,18 @@ use std::time::Duration;
 #[cfg(feature = "sqlite-local")]
 use std::time::{SystemTime, UNIX_EPOCH};
 
-#[cfg(feature = "sqlite-local")]
-use hamlet_actor_metrics::prometheus::{
-    Counter, Histogram, IntCounter, IntGauge,
-};
-use hamlet_actor_metrics::prometheus::{
-    CounterVec, HistogramOpts, HistogramVec, IntCounterVec,
-    IntGaugeVec, Opts, Registry,
-};
 use parking_lot::Mutex;
 
 use crate::actor::task_types::{
     ShutdownKind, StateMutationReason, UserTaskKind,
+};
+#[cfg(feature = "sqlite-local")]
+use crate::metrics::prometheus::{
+    Counter, Histogram, IntCounter, IntGauge,
+};
+use crate::metrics::prometheus::{
+    CounterVec, HistogramOpts, HistogramVec, IntCounterVec,
+    IntGaugeVec, Opts, Registry,
 };
 use crate::time::Instant;
 
@@ -197,7 +197,7 @@ struct ActorMetricInner {
         OnceLock<Option<Arc<SqliteLowCardMetricHandles>>>,
     state: Mutex<ActorMetricState>,
     /// Counts this actor on `actor_active_count` until it stops.
-    active: Mutex<Option<hamlet_actor_metrics::IntGaugeGuard>>,
+    active: Mutex<Option<crate::metrics::IntGaugeGuard>>,
     startup_is_new: AtomicU8,
     startup_complete: AtomicBool,
     current_startup_phase: AtomicU8,
@@ -458,7 +458,7 @@ pub(crate) fn configure_sqlite_duration_histogram(
                 "outcome_class",
             ],
         )?;
-        hamlet_actor_metrics::REGISTRY
+        crate::metrics::REGISTRY
             .register(Box::new(metric.clone()))?;
         *configured = Some((buckets.to_vec(), metric));
     }
@@ -1078,15 +1078,15 @@ impl SqliteProfileCollectors {
         )
         .expect("pages fetched counter");
         register_metric(
-            &hamlet_actor_metrics::REGISTRY,
+            &crate::metrics::REGISTRY,
             operation_total.clone(),
         );
         register_metric(
-            &hamlet_actor_metrics::REGISTRY,
+            &crate::metrics::REGISTRY,
             duration_seconds_total.clone(),
         );
         register_metric(
-            &hamlet_actor_metrics::REGISTRY,
+            &crate::metrics::REGISTRY,
             pages_fetched_total.clone(),
         );
         let phase_duration_seconds = HistogramVec::new(
@@ -1268,63 +1268,63 @@ impl SqliteProfileCollectors {
         .expect("create sqlite coordinator queue depth gauge");
 
         register_metric(
-            &hamlet_actor_metrics::REGISTRY,
+            &crate::metrics::REGISTRY,
             phase_duration_seconds.clone(),
         );
         register_metric(
-            &hamlet_actor_metrics::REGISTRY,
+            &crate::metrics::REGISTRY,
             get_pages_round_trips.clone(),
         );
         register_metric(
-            &hamlet_actor_metrics::REGISTRY,
+            &crate::metrics::REGISTRY,
             transaction_statement_count.clone(),
         );
         register_metric(
-            &hamlet_actor_metrics::REGISTRY,
+            &crate::metrics::REGISTRY,
             outcome_total.clone(),
         );
         register_metric(
-            &hamlet_actor_metrics::REGISTRY,
+            &crate::metrics::REGISTRY,
             local_pages_total.clone(),
         );
         register_metric(
-            &hamlet_actor_metrics::REGISTRY,
+            &crate::metrics::REGISTRY,
             local_bytes_total.clone(),
         );
         register_metric(
-            &hamlet_actor_metrics::REGISTRY,
+            &crate::metrics::REGISTRY,
             get_pages_duration_seconds.clone(),
         );
         register_metric(
-            &hamlet_actor_metrics::REGISTRY,
+            &crate::metrics::REGISTRY,
             get_pages_pages.clone(),
         );
         register_metric(
-            &hamlet_actor_metrics::REGISTRY,
+            &crate::metrics::REGISTRY,
             get_pages_response_bytes.clone(),
         );
         register_metric(
-            &hamlet_actor_metrics::REGISTRY,
+            &crate::metrics::REGISTRY,
             get_pages_missing_pages_total.clone(),
         );
         register_metric(
-            &hamlet_actor_metrics::REGISTRY,
+            &crate::metrics::REGISTRY,
             fingerprint_overflow_total.clone(),
         );
         register_metric(
-            &hamlet_actor_metrics::REGISTRY,
+            &crate::metrics::REGISTRY,
             event_dropped_total.clone(),
         );
         register_metric(
-            &hamlet_actor_metrics::REGISTRY,
+            &crate::metrics::REGISTRY,
             worker_queue_depth.clone(),
         );
         register_metric(
-            &hamlet_actor_metrics::REGISTRY,
+            &crate::metrics::REGISTRY,
             worker_inflight.clone(),
         );
         register_metric(
-            &hamlet_actor_metrics::REGISTRY,
+            &crate::metrics::REGISTRY,
             coordinator_queue_depth.clone(),
         );
 
@@ -1699,9 +1699,7 @@ impl ActorMetricCollectors {
                 "actor_actor_sqlite_vfs_commit_dirty_pages",
                 "dirty pages written by each successful VFS commit",
             )
-            .buckets(
-                hamlet_actor_metrics::PAGE_COUNT_BUCKETS.to_vec(),
-            ),
+            .buckets(crate::metrics::PAGE_COUNT_BUCKETS.to_vec()),
             ACTOR_LABELS,
         )
         .expect(
@@ -1846,206 +1844,206 @@ impl ActorMetricCollectors {
         );
 
         register_metric(
-            &hamlet_actor_metrics::REGISTRY,
+            &crate::metrics::REGISTRY,
             actor_active_count.clone(),
         );
         register_metric(
-            &hamlet_actor_metrics::REGISTRY,
+            &crate::metrics::REGISTRY,
             actor_started_total.clone(),
         );
         register_metric(
-            &hamlet_actor_metrics::REGISTRY,
+            &crate::metrics::REGISTRY,
             actor_stopped_total.clone(),
         );
         register_metric(
-            &hamlet_actor_metrics::REGISTRY,
+            &crate::metrics::REGISTRY,
             create_state_duration_seconds.clone(),
         );
         register_metric(
-            &hamlet_actor_metrics::REGISTRY,
+            &crate::metrics::REGISTRY,
             startup_phase_duration_seconds.clone(),
         );
         register_metric(
-            &hamlet_actor_metrics::REGISTRY,
+            &crate::metrics::REGISTRY,
             create_vars_duration_seconds.clone(),
         );
         register_metric(
-            &hamlet_actor_metrics::REGISTRY,
+            &crate::metrics::REGISTRY,
             runtime_callback_duration_seconds.clone(),
         );
         register_metric(
-            &hamlet_actor_metrics::REGISTRY,
+            &crate::metrics::REGISTRY,
             queue_depth.clone(),
         );
         register_metric(
-            &hamlet_actor_metrics::REGISTRY,
+            &crate::metrics::REGISTRY,
             queue_messages_sent_total.clone(),
         );
         register_metric(
-            &hamlet_actor_metrics::REGISTRY,
+            &crate::metrics::REGISTRY,
             queue_messages_received_total.clone(),
         );
         register_metric(
-            &hamlet_actor_metrics::REGISTRY,
+            &crate::metrics::REGISTRY,
             active_connections.clone(),
         );
         register_metric(
-            &hamlet_actor_metrics::REGISTRY,
+            &crate::metrics::REGISTRY,
             connections_total.clone(),
         );
         register_metric(
-            &hamlet_actor_metrics::REGISTRY,
+            &crate::metrics::REGISTRY,
             inbox_depth.clone(),
         );
         register_metric(
-            &hamlet_actor_metrics::REGISTRY,
+            &crate::metrics::REGISTRY,
             user_tasks_active.clone(),
         );
         register_metric(
-            &hamlet_actor_metrics::REGISTRY,
+            &crate::metrics::REGISTRY,
             user_task_duration_seconds.clone(),
         );
         register_metric(
-            &hamlet_actor_metrics::REGISTRY,
+            &crate::metrics::REGISTRY,
             http_requests_active.clone(),
         );
         register_metric(
-            &hamlet_actor_metrics::REGISTRY,
+            &crate::metrics::REGISTRY,
             keep_awake_active.clone(),
         );
         register_metric(
-            &hamlet_actor_metrics::REGISTRY,
+            &crate::metrics::REGISTRY,
             shutdown_tasks_active.clone(),
         );
         register_metric(
-            &hamlet_actor_metrics::REGISTRY,
+            &crate::metrics::REGISTRY,
             shutdown_wait_seconds.clone(),
         );
         register_metric(
-            &hamlet_actor_metrics::REGISTRY,
+            &crate::metrics::REGISTRY,
             shutdown_timeout_total.clone(),
         );
         register_metric(
-            &hamlet_actor_metrics::REGISTRY,
+            &crate::metrics::REGISTRY,
             state_mutation_total.clone(),
         );
         register_metric(
-            &hamlet_actor_metrics::REGISTRY,
+            &crate::metrics::REGISTRY,
             direct_subsystem_shutdown_warning_total.clone(),
         );
         #[cfg(feature = "sqlite-local")]
         {
             register_metric(
-                &hamlet_actor_metrics::REGISTRY,
+                &crate::metrics::REGISTRY,
                 sqlite_open_phase_duration_seconds.clone(),
             );
             register_metric(
-                &hamlet_actor_metrics::REGISTRY,
+                &crate::metrics::REGISTRY,
                 sqlite_startup_preload_pages_total.clone(),
             );
             register_metric(
-                &hamlet_actor_metrics::REGISTRY,
+                &crate::metrics::REGISTRY,
                 sqlite_vfs_resolve_pages_total.clone(),
             );
             register_metric(
-                &hamlet_actor_metrics::REGISTRY,
+                &crate::metrics::REGISTRY,
                 sqlite_vfs_resolve_pages_requested_total.clone(),
             );
             register_metric(
-                &hamlet_actor_metrics::REGISTRY,
+                &crate::metrics::REGISTRY,
                 sqlite_vfs_resolve_pages_cache_hits_total.clone(),
             );
             register_metric(
-                &hamlet_actor_metrics::REGISTRY,
+                &crate::metrics::REGISTRY,
                 sqlite_vfs_resolve_pages_cache_misses_total.clone(),
             );
             register_metric(
-                &hamlet_actor_metrics::REGISTRY,
+                &crate::metrics::REGISTRY,
                 sqlite_vfs_prefetch_unused_pages_total.clone(),
             );
             register_metric(
-                &hamlet_actor_metrics::REGISTRY,
+                &crate::metrics::REGISTRY,
                 sqlite_vfs_get_pages_total.clone(),
             );
             register_metric(
-                &hamlet_actor_metrics::REGISTRY,
+                &crate::metrics::REGISTRY,
                 sqlite_vfs_pages_fetched_total.clone(),
             );
             register_metric(
-                &hamlet_actor_metrics::REGISTRY,
+                &crate::metrics::REGISTRY,
                 sqlite_vfs_prefetch_pages_total.clone(),
             );
             register_metric(
-                &hamlet_actor_metrics::REGISTRY,
+                &crate::metrics::REGISTRY,
                 sqlite_vfs_bytes_fetched_total.clone(),
             );
             register_metric(
-                &hamlet_actor_metrics::REGISTRY,
+                &crate::metrics::REGISTRY,
                 sqlite_vfs_prefetch_bytes_total.clone(),
             );
             register_metric(
-                &hamlet_actor_metrics::REGISTRY,
+                &crate::metrics::REGISTRY,
                 sqlite_vfs_get_pages_duration_seconds.clone(),
             );
             register_metric(
-                &hamlet_actor_metrics::REGISTRY,
+                &crate::metrics::REGISTRY,
                 sqlite_vfs_commit_total.clone(),
             );
             register_metric(
-                &hamlet_actor_metrics::REGISTRY,
+                &crate::metrics::REGISTRY,
                 sqlite_vfs_commit_dirty_pages.clone(),
             );
             register_metric(
-                &hamlet_actor_metrics::REGISTRY,
+                &crate::metrics::REGISTRY,
                 sqlite_vfs_commit_phase_duration_seconds_total
                     .clone(),
             );
             register_metric(
-                &hamlet_actor_metrics::REGISTRY,
+                &crate::metrics::REGISTRY,
                 sqlite_vfs_commit_duration_seconds_total.clone(),
             );
             register_metric(
-                &hamlet_actor_metrics::REGISTRY,
+                &crate::metrics::REGISTRY,
                 sqlite_worker_queue_depth.clone(),
             );
             register_metric(
-                &hamlet_actor_metrics::REGISTRY,
+                &crate::metrics::REGISTRY,
                 sqlite_vfs_cached_bytes.clone(),
             );
             register_metric(
-                &hamlet_actor_metrics::REGISTRY,
+                &crate::metrics::REGISTRY,
                 sqlite_workers_active.clone(),
             );
             register_metric(
-                &hamlet_actor_metrics::REGISTRY,
+                &crate::metrics::REGISTRY,
                 sqlite_worker_queue_overload_total.clone(),
             );
             register_metric(
-                &hamlet_actor_metrics::REGISTRY,
+                &crate::metrics::REGISTRY,
                 sqlite_worker_command_duration_seconds.clone(),
             );
             register_metric(
-                &hamlet_actor_metrics::REGISTRY,
+                &crate::metrics::REGISTRY,
                 sqlite_transaction_round_trips.clone(),
             );
             register_metric(
-                &hamlet_actor_metrics::REGISTRY,
+                &crate::metrics::REGISTRY,
                 sqlite_worker_command_error_total.clone(),
             );
             register_metric(
-                &hamlet_actor_metrics::REGISTRY,
+                &crate::metrics::REGISTRY,
                 sqlite_worker_close_duration_seconds.clone(),
             );
             register_metric(
-                &hamlet_actor_metrics::REGISTRY,
+                &crate::metrics::REGISTRY,
                 sqlite_worker_close_timeout_total.clone(),
             );
             register_metric(
-                &hamlet_actor_metrics::REGISTRY,
+                &crate::metrics::REGISTRY,
                 sqlite_worker_crash_total.clone(),
             );
             register_metric(
-                &hamlet_actor_metrics::REGISTRY,
+                &crate::metrics::REGISTRY,
                 sqlite_worker_unclean_close_total.clone(),
             );
         }
@@ -2171,7 +2169,7 @@ impl ActorMetrics {
             _sqlite_profiling.diagnostic_event_queue_capacity,
         );
         let metrics = &*METRICS;
-        let active = hamlet_actor_metrics::GaugeGuardExt::inc_guard(
+        let active = crate::metrics::GaugeGuardExt::inc_guard(
             &metrics
                 .actor_active_count
                 .with_label_values(&labels.as_label_values()),
@@ -3836,7 +3834,7 @@ impl ActorMetricLabels {
 
 fn register_metric<M>(registry: &Registry, metric: M)
 where
-    M: hamlet_actor_metrics::prometheus::core::Collector
+    M: crate::metrics::prometheus::core::Collector
         + Clone
         + Send
         + Sync

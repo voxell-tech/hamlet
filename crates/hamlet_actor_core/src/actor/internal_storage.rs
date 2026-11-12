@@ -3,7 +3,7 @@ use std::collections::{BTreeSet, HashMap};
 use std::io::Cursor;
 
 use anyhow::{Context, Result, bail};
-use hamlet_actor_persist::versioned as persist_versioned;
+use hamlet_actor_wire::persist::versioned as persist_versioned;
 
 use crate::actor::connection::{
     PersistedConnection, PersistedSubscription,

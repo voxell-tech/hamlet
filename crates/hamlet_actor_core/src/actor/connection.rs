@@ -9,8 +9,8 @@ use std::time::Duration;
 use anyhow::{Context, Result};
 use futures::future::BoxFuture;
 use hamlet_actor_error::ActorError;
-use hamlet_actor_persist::generated::v4 as persist_v4;
-use hamlet_actor_persist::versioned as persist_versioned;
+use hamlet_actor_wire::persist::generated::v4 as persist_v4;
+use hamlet_actor_wire::persist::versioned as persist_versioned;
 use parking_lot::{RwLock, RwLockReadGuard};
 use serde::Serialize;
 use tokio::sync::oneshot;
@@ -146,7 +146,7 @@ pub(crate) fn encode_persisted_connection(
 ) -> Result<Vec<u8>> {
     encode_latest_with_embedded_version::<persist_versioned::Conn>(
         connection.clone(),
-        hamlet_actor_persist::CURRENT_VERSION,
+        hamlet_actor_wire::persist::CURRENT_VERSION,
         "persisted connection",
     )
 }

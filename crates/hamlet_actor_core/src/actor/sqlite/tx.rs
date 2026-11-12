@@ -8,7 +8,6 @@ use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 
 use anyhow::{Context, Result};
-use hamlet_actor_metrics::prometheus::{IntCounter, IntGauge};
 use serde::Serialize;
 #[cfg(target_arch = "wasm32")]
 use tokio::sync::oneshot;
@@ -26,6 +25,7 @@ use super::{
     BindParam, ExecuteResult, QueryResult, SqliteDb,
     report_sqlite_worker_fatal,
 };
+use crate::metrics::prometheus::{IntCounter, IntGauge};
 #[cfg(not(target_arch = "wasm32"))]
 use crate::runtime::RuntimeSpawner;
 use crate::telemetry::SqliteOperation;
@@ -116,7 +116,7 @@ pub(super) struct CoordinatorDrainTimedOut {
 /// key gauge while it is kept.
 pub(super) struct ExpiredKey {
     pub(super) timeout: Duration,
-    _metric: hamlet_actor_metrics::IntGaugeGuard,
+    _metric: crate::metrics::IntGaugeGuard,
 }
 
 /// Process-wide usage of the per-actor expired transaction key maps.
@@ -151,17 +151,23 @@ static EXPIRED_KEY_METRICS: LazyLock<ExpiredKeyMetrics> =
         capacity.set(TRANSACTION_EXPIRED_CAPACITY as i64);
 
         for collector in [
-		Box::new(keys.clone()) as Box<dyn hamlet_actor_metrics::prometheus::core::Collector>,
-		Box::new(capacity),
-		Box::new(evicted_total.clone()),
-	] {
-		if let Err(error) = hamlet_actor_metrics::REGISTRY.register(collector) {
-			tracing::warn!(
-				?error,
-				"sqlite transaction metric registration failed, using existing collector"
-			);
-		}
-	}
+            Box::new(keys.clone())
+                as Box<
+                    dyn crate::metrics::prometheus::core::Collector,
+                >,
+            Box::new(capacity),
+            Box::new(evicted_total.clone()),
+        ] {
+            if let Err(error) =
+                crate::metrics::REGISTRY.register(collector)
+            {
+                tracing::warn!(
+                    ?error,
+                    "sqlite transaction metric registration failed, \
+                     using existing collector"
+                );
+            }
+        }
 
         ExpiredKeyMetrics {
             keys,
@@ -198,13 +204,11 @@ static MANUAL_TRANSACTION_WAIT_METRICS: LazyLock<
 
     for collector in [
         Box::new(waiters.clone())
-            as Box<
-                dyn hamlet_actor_metrics::prometheus::core::Collector,
-            >,
+            as Box<dyn crate::metrics::prometheus::core::Collector>,
         Box::new(timeouts_total.clone()),
     ] {
         if let Err(error) =
-            hamlet_actor_metrics::REGISTRY.register(collector)
+            crate::metrics::REGISTRY.register(collector)
         {
             tracing::warn!(
                 ?error,
@@ -223,7 +227,7 @@ static MANUAL_TRANSACTION_WAIT_METRICS: LazyLock<
 /// Counts one coordinated begin parked behind a manual transaction.
 struct ManualTransactionWaitGuard<'a> {
     coordinator: &'a TransactionCoordinator,
-    _metric: hamlet_actor_metrics::IntGaugeGuard,
+    _metric: crate::metrics::IntGaugeGuard,
 }
 
 impl<'a> ManualTransactionWaitGuard<'a> {
@@ -246,7 +250,7 @@ impl<'a> ManualTransactionWaitGuard<'a> {
         }
         Self {
             coordinator,
-            _metric: hamlet_actor_metrics::GaugeGuardExt::inc_guard(
+            _metric: crate::metrics::GaugeGuardExt::inc_guard(
                 &MANUAL_TRANSACTION_WAIT_METRICS.waiters,
             ),
         }
@@ -1967,7 +1971,7 @@ pub(super) fn insert_terminal_state(
     if let TransactionTerminalState::Expired(timeout) = terminal {
         let expired = ExpiredKey {
             timeout,
-            _metric: hamlet_actor_metrics::GaugeGuardExt::inc_guard(
+            _metric: crate::metrics::GaugeGuardExt::inc_guard(
                 &EXPIRED_KEY_METRICS.keys,
             ),
         };

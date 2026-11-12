@@ -5,7 +5,7 @@ use vbare::{
     EncodeError, Message, Sink, Versioned,
 };
 
-use crate::generated::{v1, v2, v3, v4, v5, v6};
+use super::generated::{v1, v2, v3, v4, v5, v6};
 
 const WORKFLOW_HISTORY_DROPPED_ERROR: &str =
     "inspector.workflow_history_dropped";

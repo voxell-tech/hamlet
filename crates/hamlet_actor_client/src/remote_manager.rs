@@ -8,11 +8,11 @@ use base64::engine::general_purpose;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine as _;
 use bytes::Bytes;
-use hamlet_actor_client_protocol::telemetry_headers::{
+use hamlet_actor_wire::client_protocol::telemetry_headers::{
     bounded_ray_id, HEADER_HAMLET_ACTOR_RAY_ID, HEADER_TRACEPARENT,
     HEADER_TRACESTATE, RAY_BAGGAGE_KEY,
 };
-use hamlet_actor_shared_types::actor_key;
+use hamlet_actor_wire::shared_types::actor_key;
 use opentelemetry::baggage::BaggageExt as _;
 use opentelemetry::propagation::TextMapPropagator as _;
 use opentelemetry_http::HeaderInjector;

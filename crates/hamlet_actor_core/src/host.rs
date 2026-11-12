@@ -5,7 +5,7 @@
 mod local;
 mod plain_sqlite;
 
-use hamlet_actor_shared_types::actor_key;
+use hamlet_actor_wire::shared_types::actor_key;
 
 pub use self::local::{Host, HostHandle, now_ms, read_alarm};
 pub use self::plain_sqlite::PlainSqlite;

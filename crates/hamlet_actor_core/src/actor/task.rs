@@ -363,7 +363,7 @@ struct PersistedStartup {
     inspector_token: Option<String>,
     /// The individual actor forks behind the actor and the fork
     /// whose hook last ran.
-    fork: hamlet_actor_persist::generated::fork_v1::ForkState,
+    fork: hamlet_actor_wire::persist::generated::fork_v1::ForkState,
 }
 
 struct PendingLifecycleReply {

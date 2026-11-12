@@ -4594,8 +4594,7 @@ dependencies = [
  "base64 0.22.1",
  "bytes",
  "futures-util",
- "hamlet_actor_client_protocol",
- "hamlet_actor_shared_types",
+ "hamlet_actor_wire",
  "opentelemetry",
  "opentelemetry-http",
  "opentelemetry_sdk",
@@ -4616,17 +4615,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "hamlet_actor_client_protocol"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "serde",
- "serde_bytes",
- "vbare",
- "vbare-compiler",
-]
-
-[[package]]
 name = "hamlet_actor_core"
 version = "0.1.0"
 dependencies = [
@@ -4639,19 +4627,16 @@ dependencies = [
  "croner",
  "futures",
  "getrandom 0.2.17",
- "hamlet_actor_client_protocol",
  "hamlet_actor_error",
- "hamlet_actor_inspector_protocol",
- "hamlet_actor_metrics",
- "hamlet_actor_persist",
- "hamlet_actor_shared_types",
- "hamlet_actor_sqlite_types",
+ "hamlet_actor_wire",
  "http",
  "js-sys",
+ "lazy_static",
  "opentelemetry",
  "opentelemetry-otlp",
  "opentelemetry_sdk",
  "parking_lot",
+ "prometheus",
  "rand 0.8.8",
  "rusqlite",
  "scc",
@@ -4694,52 +4679,18 @@ dependencies = [
 ]
 
 [[package]]
-name = "hamlet_actor_inspector_protocol"
+name = "hamlet_actor_wire"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "serde",
- "serde_bytes",
- "vbare",
- "vbare-compiler",
-]
-
-[[package]]
-name = "hamlet_actor_metrics"
-version = "0.1.0"
-dependencies = [
- "lazy_static",
- "parking_lot",
- "prometheus",
-]
-
-[[package]]
-name = "hamlet_actor_persist"
-version = "0.1.0"
-dependencies = [
- "anyhow",
+ "bytes",
  "serde",
  "serde_bare",
  "serde_bytes",
- "vbare",
- "vbare-compiler",
-]
-
-[[package]]
-name = "hamlet_actor_shared_types"
-version = "0.1.0"
-dependencies = [
- "serde",
  "serde_json",
  "url",
-]
-
-[[package]]
-name = "hamlet_actor_sqlite_types"
-version = "0.1.0"
-dependencies = [
- "bytes",
- "serde",
+ "vbare",
+ "vbare-compiler",
 ]
 
 [[package]]

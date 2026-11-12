@@ -4,7 +4,7 @@ use std::env;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
-use hamlet_actor_shared_types::endpoint::{
+use hamlet_actor_wire::shared_types::endpoint::{
     is_local_engine_endpoint, parse_endpoint_auth,
 };
 use serde_json::Value as JsonValue;

@@ -9,13 +9,13 @@ use std::time::Duration;
 use anyhow::{Context, Result};
 use deferred_bootstrap::DeferredBootstrap;
 use hamlet_actor_error::{ActorError, ActorSpecifier};
+pub use hamlet_actor_wire::sqlite_types::{
+    BindParam, ColumnValue, ExecResult, ExecuteResult, QueryResult,
+};
 #[cfg(feature = "sqlite-local")]
 use parking_lot::Mutex;
 use serde::Serialize;
 use serde_json::{Map as JsonMap, Value as JsonValue};
-pub use sqlite_types::{
-    BindParam, ColumnValue, ExecResult, ExecuteResult, QueryResult,
-};
 #[cfg(feature = "sqlite-local")]
 use tokio::sync::Mutex as AsyncMutex;
 use tokio::sync::watch;

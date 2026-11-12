@@ -27,7 +27,7 @@ pub struct IncomingInvocationContext {
     remote_parent: Option<SpanContext>,
 }
 
-pub(crate) use hamlet_actor_client_protocol::telemetry_headers::HEADER_HAMLET_ACTOR_RAY_ID;
+pub(crate) use hamlet_actor_wire::client_protocol::telemetry_headers::HEADER_HAMLET_ACTOR_RAY_ID;
 
 impl IncomingInvocationContext {
     pub(crate) fn from_headers(
@@ -68,7 +68,7 @@ impl IncomingInvocationContext {
 fn invocation_ray_id(headers: &http::HeaderMap) -> Option<String> {
     let value =
         headers.get(HEADER_HAMLET_ACTOR_RAY_ID)?.to_str().ok()?;
-    hamlet_actor_client_protocol::telemetry_headers::bounded_ray_id(
+    hamlet_actor_wire::client_protocol::telemetry_headers::bounded_ray_id(
         value,
     )
     .map(str::to_owned)

@@ -1,6 +1,6 @@
 // This file was changed for Hamlet. See NOTICE in this crate.
 use anyhow::{anyhow, Context, Result};
-use hamlet_actor_client_protocol as wire;
+use hamlet_actor_wire::client_protocol as wire;
 use serde::Serialize;
 use serde_json::{json, Value as JsonValue};
 use vbare::Versioned;

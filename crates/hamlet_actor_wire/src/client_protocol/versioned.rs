@@ -5,7 +5,7 @@ use vbare::{
     EncodeError, Message, Sink, Versioned,
 };
 
-use crate::generated::{v1, v2, v3, v4};
+use super::generated::{v1, v2, v3, v4};
 
 pub enum ToClient {
     V1(v1::ToClient),

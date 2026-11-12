@@ -6,7 +6,7 @@ use vbare::{
     EncodeError, Message, Sink, Versioned,
 };
 
-use crate::generated::{v1, v2, v3, v4};
+use super::generated::{v1, v2, v3, v4};
 
 pub enum Actor {
     V1(v1::PersistedActor),
@@ -684,12 +684,12 @@ impl_v1_body!(
 /// last ran, stored in `_actor_meta`, where an older runtime that
 /// knows nothing of forks leaves it alone.
 pub enum ForkState {
-    V1(crate::generated::fork_v1::ForkState),
+    V1(super::generated::fork_v1::ForkState),
 }
 
 impl_v1_body!(
     ForkState,
-    crate::generated::fork_v1::ForkState,
+    super::generated::fork_v1::ForkState,
     "fork state"
 );
 

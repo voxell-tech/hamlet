@@ -16,13 +16,13 @@ use std::sync::LazyLock;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
-use hamlet_actor_metrics::REGISTRY;
-use hamlet_actor_metrics::prometheus::{
+use crate::metrics::REGISTRY;
+use crate::metrics::prometheus::{
     CounterVec, IntGauge, register_counter_vec_with_registry,
     register_int_gauge_with_registry,
 };
 #[cfg(tokio_unstable)]
-use hamlet_actor_metrics::prometheus::{
+use crate::metrics::prometheus::{
     IntGaugeVec, register_int_gauge_vec_with_registry,
 };
 

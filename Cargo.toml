@@ -38,15 +38,10 @@ hamlet_update = { version = "0.1.0", path = "crates/hamlet_update" }
 # The actor runtime, ported. Each crate holds Apache-2.0 code; see its NOTICE.
 hamlet_actor = { version = "0.1.0", path = "crates/hamlet_actor" }
 hamlet_actor_client = { version = "0.1.0", path = "crates/hamlet_actor_client" }
-hamlet_actor_client_protocol = { version = "0.1.0", path = "crates/hamlet_actor_client_protocol" }
 hamlet_actor_core = { version = "0.1.0", path = "crates/hamlet_actor_core" }
 hamlet_actor_error = { version = "0.1.0", path = "crates/hamlet_actor_error" }
 hamlet_actor_error_macros = { version = "0.1.0", path = "crates/hamlet_actor_error_macros" }
-hamlet_actor_inspector_protocol = { version = "0.1.0", path = "crates/hamlet_actor_inspector_protocol" }
-hamlet_actor_metrics = { version = "0.1.0", path = "crates/hamlet_actor_metrics" }
-hamlet_actor_persist = { version = "0.1.0", path = "crates/hamlet_actor_persist" }
-hamlet_actor_shared_types = { version = "0.1.0", path = "crates/hamlet_actor_shared_types" }
-sqlite_types = { version = "0.1.0", path = "crates/hamlet_actor_sqlite_types", package = "hamlet_actor_sqlite_types" }
+hamlet_actor_wire = { version = "0.1.0", path = "crates/hamlet_actor_wire" }
 
 # fynix
 bevy_fynix = { path = "vendor/fynix/crates/bevy_fynix" }

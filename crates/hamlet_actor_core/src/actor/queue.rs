@@ -9,8 +9,8 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use hamlet_actor_error::ActorError;
-use hamlet_actor_persist::generated::v4 as persist_v4;
-use hamlet_actor_persist::versioned as persist_versioned;
+use hamlet_actor_wire::persist::generated::v4 as persist_v4;
+use hamlet_actor_wire::persist::versioned as persist_versioned;
 use serde::{Deserialize, Serialize};
 #[cfg(not(target_arch = "wasm32"))]
 use tokio::runtime::{Builder, Handle};
@@ -154,7 +154,7 @@ pub(crate) fn encode_queue_message(
         persist_versioned::QueueMessage,
     >(
         message.clone(),
-        hamlet_actor_persist::CURRENT_VERSION,
+        hamlet_actor_wire::persist::CURRENT_VERSION,
         "queue message",
     )
 }

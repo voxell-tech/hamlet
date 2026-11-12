@@ -29,8 +29,8 @@
 //! those held so far early instead.
 
 use anyhow::{Context, Result};
-use hamlet_actor_persist::generated::fork_v1;
-use hamlet_actor_persist::versioned as persist_versioned;
+use hamlet_actor_wire::persist::generated::fork_v1;
+use hamlet_actor_wire::persist::versioned as persist_versioned;
 
 use crate::actor::persist::{
     decode_latest_with_embedded_version,

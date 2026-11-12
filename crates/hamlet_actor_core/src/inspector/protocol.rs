@@ -1,6 +1,8 @@
 // This file was changed for Hamlet. See NOTICE in this crate.
 use anyhow::Result;
-use hamlet_actor_inspector_protocol::{self as wire, versioned};
+use hamlet_actor_wire::inspector_protocol::{
+    self as wire, versioned,
+};
 use vbare::Versioned;
 pub(crate) use wire::{
     ActionResponse, Connection as ConnectionDetails,

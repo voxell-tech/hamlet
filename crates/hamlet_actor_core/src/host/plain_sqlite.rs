@@ -5,12 +5,12 @@ use std::sync::mpsc as std_mpsc;
 use std::thread;
 
 use anyhow::{Context, Result, anyhow};
+use hamlet_actor_wire::sqlite_types::{
+    BindParam, ColumnValue, ExecuteResult, QueryResult,
+};
 use rusqlite::fallible_iterator::FallibleIterator;
 use rusqlite::types::{Value, ValueRef};
 use rusqlite::{Batch, Connection};
-use sqlite_types::{
-    BindParam, ColumnValue, ExecuteResult, QueryResult,
-};
 use tokio::sync::oneshot;
 
 use crate::sqlite::SqliteBatchStatement;

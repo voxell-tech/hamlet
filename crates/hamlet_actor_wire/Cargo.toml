@@ -1,18 +1,20 @@
-# This file was changed for Hamlet. See NOTICE in this crate.
 [package]
-name = "hamlet_actor_client_protocol"
+name = "hamlet_actor_wire"
 version.workspace = true
 license.workspace = true
 repository.workspace = true
 edition.workspace = true
-description = "Client protocol types for actors"
+description = "Shared types and versioned wire formats for actors"
 
 [dependencies]
 anyhow.workspace = true
+bytes.workspace = true
 serde.workspace = true
+serde_bare.workspace = true
 serde_bytes.workspace = true
+serde_json.workspace = true
+url.workspace = true
 vbare.workspace = true
 
 [build-dependencies]
 vbare-compiler.workspace = true
-
