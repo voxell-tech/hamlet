@@ -33,6 +33,8 @@ pub(crate) struct Screen {
     /// The last command typed into it or run in it.
     pub(super) last: Option<String>,
     pub(super) seq: u64,
+    /// Whether a command run in it has not yet ended.
+    pub(super) running: bool,
     pub(super) ended: Option<i64>,
 }
 
@@ -83,6 +85,7 @@ impl Screen {
             typing: None,
             entered: None,
             last: None,
+            running: false,
             seq: 0,
             ended: None,
         }
@@ -249,6 +252,7 @@ impl Screen {
     }
 
     /// The text it shows, with up to `above` lines of scrollback.
+    #[cfg(test)]
     pub(crate) fn text(&mut self, above: usize) -> String {
         let screen = self.parser.screen_mut();
         screen.set_scrollback(above);
@@ -273,14 +277,6 @@ impl Screen {
             .collect::<Vec<_>>()
             .join("\n")
     }
-
-    pub(crate) fn ended(&self) -> Option<i64> {
-        self.ended
-    }
-
-    pub(crate) fn seq(&self) -> u64 {
-        self.seq
-    }
 }
 
 #[cfg(test)]
@@ -288,7 +284,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn an_agent_reads_the_screen_with_the_scrollback_it_asks_for() {
+    fn the_screen_text_has_the_scrollback_asked_for() {
         let mut screen = Screen::new(Size { rows: 3, cols: 20 });
         for line in 1..=6 {
             screen.take(format!("line {line}\r\n").as_bytes());

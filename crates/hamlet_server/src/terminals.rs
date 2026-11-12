@@ -1,17 +1,15 @@
-//! Terminals: shells on pseudo-terminals that the chief and agents
-//! type into, and the commands of each agent's shell tool, kept for
-//! the windows that watch them and across restarts.
+//! Terminals: the chief's own shells on pseudo-terminals, and the
+//! commands of each agent's shell tool, kept for the windows that
+//! watch them and across restarts.
 //!
-//! An agent's terminal runs under the sandbox with that agent's
-//! reach. One the chief opens in a hamlet runs under the sandbox
-//! with the hamlet's folder alone to write. An unbounded terminal is
-//! the chief's own shell, with the server account's reach.
+//! A shell is the chief's own, with the server account's reach and
+//! no sandbox; agents have none. An agent's commands terminal shows
+//! what its shell tool ran, and takes no input.
 
 pub(crate) mod chief;
 pub(crate) mod kept;
 mod screen;
 mod shell;
-mod tool;
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -29,7 +27,6 @@ use tokio::task::AbortHandle;
 
 use self::screen::{LAST, Screen, lock};
 use self::shell::{Key, Launch, start};
-pub(crate) use self::tool::{Tool, call, command, specs};
 use crate::calls::place::Workplace;
 use crate::core::Core;
 
@@ -106,13 +103,15 @@ impl Feed {
     pub(crate) fn command(&self, command: &str) {
         let command = command.trim();
         if !command.is_empty() {
-            lock(&self.screen).last =
-                Some(command.chars().take(LAST).collect());
+            let mut screen = lock(&self.screen);
+            screen.last = Some(command.chars().take(LAST).collect());
+            screen.running = true;
         }
     }
 
     /// Prints the end of a command that ran, on a line of its own.
     pub(crate) fn ended_run(&self, code: Option<i64>) {
+        lock(&self.screen).running = false;
         let fresh =
             lock(&self.screen).parser.screen().cursor_position().1
                 == 0;
@@ -157,34 +156,6 @@ impl Terminals {
 
     pub(crate) fn views(&self) -> Vec<TerminalView> {
         self.open.values().map(|t| t.view.clone()).collect()
-    }
-
-    /// The terminal with the id or the name `named` that `agent`, of
-    /// `hamlet`, may use, and its screen: its own, or one the chief
-    /// opened in its hamlet, which writes only the hamlet's folder.
-    /// Another agent's would reach that agent's lodge.
-    pub(crate) fn usable(
-        &self,
-        named: &str,
-        agent: AgentId,
-        hamlet: Option<&str>,
-    ) -> Option<(TerminalView, Arc<Mutex<Screen>>)> {
-        let usable = |t: &&Terminal| match t.view.agent {
-            Some(owner) => owner == agent,
-            None => {
-                hamlet.is_some() && t.view.hamlet.as_deref() == hamlet
-            }
-        };
-        self.open
-            .get(named)
-            .filter(usable)
-            .or_else(|| {
-                self.open
-                    .values()
-                    .filter(usable)
-                    .rfind(|t| t.view.name == named)
-            })
-            .map(|t| (t.view.clone(), t.screen.clone()))
     }
 
     /// Types `bytes` into terminal `id`. False when it takes none.
@@ -277,7 +248,7 @@ impl Terminals {
                     name: format!("{address}'s commands"),
                     named: false,
                     rows: 30,
-                    sandboxed: true,
+                    running: false,
                     title: String::new(),
                 };
                 let id = view.id.clone();
@@ -370,6 +341,10 @@ impl Terminals {
                 && *title != terminal.view.title
             {
                 terminal.view.title = title.clone();
+                changed = true;
+            }
+            if screen.running != terminal.view.running {
+                terminal.view.running = screen.running;
                 changed = true;
             }
             if screen.last.is_some()

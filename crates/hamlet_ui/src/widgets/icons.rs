@@ -66,6 +66,16 @@ const BOLT: [[f32; 2]; 6] = [
 /// once.
 const SPIN_PERIOD: f64 = 1.2;
 
+/// The head of a pin: a cap, a neck and a flange, above its needle.
+const PIN: [[f32; 2]; 6] = [
+    [6.0, 2.0],
+    [10.0, 2.0],
+    [10.0, 6.0],
+    [12.0, 9.0],
+    [4.0, 9.0],
+    [6.0, 6.0],
+];
+
 pub fn plugin(app: &mut App) {
     app.insert_resource(dock()).add_systems(Startup, draw);
 }
@@ -212,6 +222,10 @@ pub enum Glyph {
     Worker,
     /// A framed picture: an image to attach.
     Picture,
+    /// A pin, to keep something in the list.
+    Pin,
+    /// A pin that holds something already.
+    Pinned,
     /// A prompt in a window: a terminal.
     Terminal,
     /// A window halved side by side: another panel beside this one.
@@ -246,7 +260,7 @@ enum Shape {
 
 impl Glyph {
     /// Every icon.
-    pub const ALL: [Glyph; 73] = [
+    pub const ALL: [Glyph; 75] = [
         Glyph::Plus,
         Glyph::Cross,
         Glyph::Check,
@@ -317,6 +331,8 @@ impl Glyph {
         Glyph::Merge,
         Glyph::Worker,
         Glyph::Picture,
+        Glyph::Pin,
+        Glyph::Pinned,
         Glyph::Terminal,
         Glyph::Split,
         Glyph::Sidebar,
@@ -806,6 +822,10 @@ impl Glyph {
                     [13.5, 12.0],
                 ]),
             ],
+            Glyph::Pin => &[Loop(&PIN), Line(8.0, 9.0, 8.0, 14.5)],
+            Glyph::Pinned => {
+                &[Loop(&PIN), Fill(&PIN), Line(8.0, 9.0, 8.0, 14.5)]
+            }
             Glyph::Terminal => &[
                 Round(1.75, 2.75, 14.25, 13.25, 1.5),
                 Path(&[[4.5, 6.0], [6.75, 8.0], [4.5, 10.0]]),

@@ -607,15 +607,6 @@ impl Core {
                                 return Ok(());
                             }
                         }
-                    } else if let Some(terminal) =
-                        crate::terminals::Tool::named(tool)
-                    {
-                        self.run_terminal(
-                            &call,
-                            reply.clone(),
-                            terminal,
-                            net,
-                        )?
                     } else {
                         self.run_tool(
                             &call,
@@ -733,41 +724,6 @@ impl Core {
                 }
                 outcome
             },
-        );
-        Ok(None)
-    }
-
-    /// Runs the terminal tool `tool` of `call` with the network
-    /// `net`, after marking it begun when it may not run again.
-    fn run_terminal(
-        &mut self,
-        call: &Call<'_>,
-        reply: Reply,
-        tool: crate::terminals::Tool,
-        net: bool,
-    ) -> Result<Option<Outcome>> {
-        if self.runs_once(call.tool) {
-            marker::begin(
-                self.realm.store().connection(),
-                call.call.identity(),
-                &call.request,
-                crate::clock::now(),
-            )?;
-        }
-        let work = crate::terminals::call(
-            self,
-            call.conversation.agent,
-            tool,
-            call.arguments,
-            net,
-        )?;
-        self.calls.run(
-            call.call.clone(),
-            call.conversation.id,
-            reply,
-            call.request.clone(),
-            None,
-            work,
         );
         Ok(None)
     }

@@ -5,10 +5,9 @@ use hamlet_os::process::pty::Size;
 use hamlet_protocol::client::{
     Reply, ReplyKind, RequestId, ServerMessage, Terminal as Asked,
 };
-use hamlet_store::ids::HamletId;
 
 use super::screen::lock;
-use super::shell::{Key, Owner, open};
+use super::shell::{Key, open};
 use crate::core::Core;
 
 impl Core {
@@ -19,26 +18,13 @@ impl Core {
         asked: Asked,
     ) -> Result<()> {
         let answers = match asked {
-            Asked::Open {
-                cols,
-                hamlet,
-                id,
-                rows,
-            } => {
-                let size = Size { rows, cols };
-                let owner = match hamlet {
-                    Some(hamlet) => Owner::Hamlet(HamletId(hamlet)),
-                    None => Owner::Unbounded,
-                };
-                let answer =
-                    match open(self, &owner, None, size, true)? {
-                        Ok(terminal) => self.terminals.watch(
-                            client,
-                            &terminal,
-                            Some(&id),
-                        ),
-                        Err(words) => Some(said(&id, Err(words))),
-                    };
+            Asked::Open { cols, id, rows } => {
+                let terminal = open(self, Size { rows, cols });
+                let answer = self.terminals.watch(
+                    client,
+                    &terminal,
+                    Some(&id),
+                );
                 self.publish().await?;
                 answer.into_iter().collect()
             }

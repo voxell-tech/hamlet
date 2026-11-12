@@ -263,6 +263,8 @@ pub enum Scene {
     TerminalShell,
     /// Two Terminal panels side by side, the second's list hidden.
     TerminalPanels,
+    /// The Terminal panel with the menu of its "+" open.
+    TerminalPick,
     /// The first-run screen at one of its steps.
     Welcome(welcome::Step),
     /// The first-run provider step, every provider shown and searched

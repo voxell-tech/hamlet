@@ -1,8 +1,9 @@
-//! The terminals beside the screen: by hamlet, then the Hand's, the
-//! workers' of no hamlet and the unbounded ones, each a tree of the
-//! agents they are under, whose groups and agents fold away or open.
-//! Each terminal shows its name, what it is, the last command it ran,
-//! and its close. A double click names one.
+//! The terminals beside the screen, in one flat list by hamlet, the
+//! Hand's, the workers' of no hamlet, and the chief's own, whose
+//! groups fold away or open. An agent's log of the commands it ran
+//! shows only once the agent is pinned. Each row shows where its
+//! terminal stands as a breadcrumb, the last command it ran, and
+//! whether one runs. A double click names one.
 use std::collections::{BTreeMap, BTreeSet};
 
 use bevy::app::{App, PostUpdate, PreUpdate};
@@ -23,24 +24,27 @@ use bevy::input_focus::{FocusCause, InputFocus};
 use bevy::picking::events::PointerClick;
 use bevy::picking::pointer::PointerButton;
 use bevy::text::{EditableText, TextEdit};
-use bevy::ui::{AlignItems, JustifyContent, UiRect, percent, px};
+use bevy::ui::{
+    AlignItems, JustifyContent, Overflow, UiRect, percent, px,
+};
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, button, column, label, row, text_field,
+    BehaviorExt, FrameProps, TooltipExt, button, column, frame,
+    label, row, text_field,
 };
 use bevy_fynix::{ScopedExt, ViewExt, derived, every_frame, keyed};
 use hamlet_client::realm;
 use hamlet_client::terminals::{self, Terminal, TerminalKind};
 use hamlet_protocol::client::{AgentId, AgentKind};
 use hamlet_ui::styles::{
-    Fills, ICON, caption, close_button, hairline, link_row,
+    Fills, ICON, caption, close_button, hairline, link_row, note,
     scroll_area, text_input,
 };
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::widgets::platform::MonoText;
 use hamlet_ui::{AnyView, View, with_cx};
 
-use super::{Adding, Folds, Handing, PanelId, Panels, activate};
+use super::{Folds, Handing, PanelId, Panels, Pins, activate};
 use crate::PanelSystems;
 
 pub(super) fn plugin(app: &mut App) {
@@ -109,8 +113,12 @@ pub(super) struct Branch {
     pub(super) address: String,
     /// Its name, when it has one besides its address.
     pub(super) name: Option<String>,
+    pub(super) kind: AgentKind,
     pub(super) mayor: bool,
-    /// The terminals under it, its own and its agents'.
+    /// The log of the commands it ran, which the list shows once the
+    /// agent is pinned.
+    pub(super) log: Option<Item>,
+    /// The shells under it, its own and its agents'.
     pub(super) held: usize,
 }
 
@@ -120,11 +128,17 @@ pub(super) struct Item {
     pub(super) name: String,
     /// The agent's address, or "chief".
     pub(super) owner: String,
-    pub(super) sandboxed: bool,
     pub(super) exit: Option<i64>,
     pub(super) commands: bool,
+    /// What pins its agent's log: `agent#<id>`.
+    pub(super) key: Option<String>,
     /// The last command it ran.
     pub(super) last: Option<String>,
+    /// Whether a command is running in it.
+    pub(super) running: bool,
+    /// What it is under: the hamlet and the agents, the outermost
+    /// first. Empty for the chief's own shells.
+    pub(super) crumbs: Vec<String>,
 }
 
 impl Listed {
@@ -136,21 +150,9 @@ impl Listed {
         self.0.iter().flat_map(|group| &group.rows).filter_map(
             |row| match &row.what {
                 What::Terminal(item) => Some(item),
-                What::Agent(_) => None,
+                What::Agent(branch) => branch.log.as_ref(),
             },
         )
-    }
-
-    /// The keys of the agents above `terminal`, the outermost first.
-    pub(super) fn path(&self, terminal: Entity) -> Option<&[String]> {
-        self.0.iter().flat_map(|group| &group.rows).find_map(|row| {
-            match &row.what {
-                What::Terminal(item) if item.terminal == terminal => {
-                    Some(row.path.as_slice())
-                }
-                _ => None,
-            }
-        })
     }
 }
 
@@ -203,7 +205,11 @@ pub(super) fn list(world: &mut World) {
         }
         let commands = view.kind == TerminalKind::Commands;
         // A name the chief gave shows over what programs set.
-        let name = if view.named || view.title.is_empty() {
+        let name = if view.named {
+            view.name.clone()
+        } else if commands {
+            "bash".to_owned()
+        } else if view.title.is_empty() {
             view.name.clone()
         } else {
             view.title.clone()
@@ -219,10 +225,15 @@ pub(super) fn list(world: &mut World) {
                 terminal: entity,
                 name,
                 owner: address.unwrap_or_else(|| "chief".into()),
-                sandboxed: view.sandboxed,
                 exit: view.exit,
                 commands,
+                key: view
+                    .agent
+                    .filter(|_| commands)
+                    .map(|agent| format!("agent#{}", agent.0)),
                 last: view.last.clone(),
+                running: view.running,
+                crumbs: Vec::new(),
             },
             agent: view.agent,
             hamlet: view.hamlet.clone(),
@@ -352,7 +363,7 @@ pub(super) fn tree(
         .into_iter()
         .map(|key| {
             let (rank, title) = match key.as_str() {
-                "" => (3, "Unbounded".to_owned()),
+                "" => (3, "This computer".to_owned()),
                 HAND => (1, "Hand".to_owned()),
                 WORKERS => (2, "Workers".to_owned()),
                 hamlet => (0, titles(hamlet)),
@@ -377,8 +388,22 @@ pub(super) fn tree(
                     &mut nodes,
                     owners,
                     &mut Vec::new(),
+                    &mut Vec::new(),
                     &mut rows,
                 );
+            }
+            if !key.is_empty() {
+                for row in &mut rows {
+                    if let What::Agent(Branch {
+                        log: Some(log),
+                        ..
+                    }) = &mut row.what
+                    {
+                        if log.crumbs.first() != Some(&title) {
+                            log.crumbs.insert(0, title.clone());
+                        }
+                    }
+                }
             }
             Group { key, title, rows }
         })
@@ -414,28 +439,36 @@ fn branch(
     nodes: &mut BTreeMap<AgentId, Node>,
     owners: &BTreeMap<AgentId, Owner>,
     path: &mut Vec<String>,
+    crumbs: &mut Vec<String>,
     rows: &mut Vec<Row>,
 ) -> usize {
-    let Node {
-        mut terminals,
-        under,
-    } = nodes.remove(&agent).unwrap_or_default();
+    let Node { terminals, under } =
+        nodes.remove(&agent).unwrap_or_default();
+    let (logs, mut terminals): (Vec<_>, Vec<_>) =
+        terminals.into_iter().partition(|t| t.item.commands);
     let found = owners.get(&agent);
     let key = format!("agent#{}", agent.0);
+    let name = found.map(|o| o.name.clone()).filter(|name| {
+        !name.is_empty() && Some(name) != found.map(|o| &o.address)
+    });
+    let address = found.map_or_else(
+        || format!("agent#{}", agent.0),
+        |o| o.address.clone(),
+    );
+    crumbs.push(name.clone().unwrap_or_else(|| address.clone()));
     let at = rows.len();
     rows.push(Row {
         path: path.clone(),
         what: What::Agent(Branch {
             key: key.clone(),
-            address: found.map_or_else(
-                || format!("agent#{}", agent.0),
-                |o| o.address.clone(),
-            ),
-            name: found.map(|o| o.name.clone()).filter(|name| {
-                !name.is_empty()
-                    && Some(name) != found.map(|o| &o.address)
-            }),
+            address,
+            name,
+            kind: found.map_or(AgentKind::Worker, |o| o.kind),
             mayor: found.is_some_and(|o| o.mayor),
+            log: logs.into_iter().next().map(|mut log| {
+                log.item.crumbs = crumbs.clone();
+                log.item
+            }),
             held: 0,
         }),
     });
@@ -447,16 +480,18 @@ fn branch(
         what: What::Terminal(terminal.item),
     }));
     for below in ordered(under, owners, false) {
-        held += branch(below, nodes, owners, path, rows);
+        held += branch(below, nodes, owners, path, crumbs, rows);
     }
     path.pop();
+    crumbs.pop();
     if let What::Agent(branch) = &mut rows[at].what {
         branch.held = held;
     }
     held
 }
 
-/// The list of terminals in `panel` and the press that opens another.
+/// The list of terminals in `panel` and the press that opens the menu
+/// of what to add.
 pub(super) fn side(panel: &PanelId) -> impl View + use<> {
     let panel = panel.clone();
     with_cx(move |cx| {
@@ -468,15 +503,11 @@ pub(super) fn side(panel: &PanelId) -> impl View + use<> {
                 button(glyph(Glyph::Plus, ICON).tone(Tone::Dim))
                     .padding(UiRect::all(px(4.0)))
                     .rules(link_row)
+                    .tooltip(|| note("New terminal or pin a bash"))
                     .on_activate_with({
                         let panel = panel.clone();
                         move |world, node| {
-                            let anchor =
-                                crate::menu::rect_of(world, node);
-                            world.resource_mut::<Adding>().0 = anchor
-                                .map(|anchor| {
-                                    (anchor, panel.clone())
-                                });
+                            super::pick::toggle(world, node, &panel)
                         }
                     }),
             ))
@@ -497,6 +528,7 @@ pub(super) fn side(panel: &PanelId) -> impl View + use<> {
                             world.resource::<Panels>().get(&panel);
                         (
                             world.resource::<Listed>().clone(),
+                            world.resource::<Pins>().clone(),
                             world
                                 .resource::<Folds>()
                                 .0
@@ -518,9 +550,9 @@ pub(super) fn side(panel: &PanelId) -> impl View + use<> {
                 .when(every_frame()),
                 {
                     let panel = panel.clone();
-                    move |(listed, folded, active, renaming)| {
+                    move |(listed, pins, folded, active, renaming)| {
                         groups(
-                            &panel, listed, folded, *active,
+                            &panel, listed, pins, folded, *active,
                             *renaming,
                         )
                         .boxed()
@@ -536,122 +568,111 @@ pub(super) fn side(panel: &PanelId) -> impl View + use<> {
     })
 }
 
+impl Listed {
+    /// The terminals the list shows, by group: the chief's shells,
+    /// and the logs of the agents `pins` holds.
+    pub(super) fn shown(
+        &self,
+        pins: &Pins,
+    ) -> Vec<(&Group, Vec<&Item>)> {
+        self.0
+            .iter()
+            .map(|group| {
+                let items = group
+                    .rows
+                    .iter()
+                    .filter_map(|row| match &row.what {
+                        What::Terminal(item) => Some(item),
+                        What::Agent(branch) => branch
+                            .log
+                            .as_ref()
+                            .filter(|_| pins.0.contains(&branch.key)),
+                    })
+                    .collect::<Vec<_>>();
+                (group, items)
+            })
+            .filter(|(_, items)| !items.is_empty())
+            .collect()
+    }
+}
+
 fn groups(
     panel: &PanelId,
     listed: &Listed,
+    pins: &Pins,
     folded: &BTreeSet<String>,
     active: Option<Entity>,
     renaming: Option<Entity>,
 ) -> impl View + use<> {
-    // The guide of the agent the shown terminal is under is lit.
-    let lit = active.and_then(|active| listed.path(active)).and_then(
-        |path| {
-            Some((path.len().checked_sub(1)?, path.last()?.clone()))
-        },
-    );
+    let shown = Shown {
+        panel,
+        active,
+        renaming,
+    };
     let groups = listed
-        .0
-        .iter()
-        .map(|group| {
+        .shown(pins)
+        .into_iter()
+        .enumerate()
+        .map(|(at, (group, items))| {
             let shut = folded.contains(&group.key);
             let rows = if shut {
                 Vec::new()
             } else {
-                group
-                    .rows
-                    .iter()
-                    .filter(|row| {
-                        !row.path
-                            .iter()
-                            .any(|key| folded.contains(key))
+                let count = items.len();
+                items
+                    .into_iter()
+                    .enumerate()
+                    .map(|(row, item)| {
+                        entry(&shown, item.clone(), row + 1 == count)
                     })
-                    .map(|row| {
-                        let guides = guides(&row.path, lit.as_ref());
-                        match &row.what {
-                            What::Agent(branch) => agent_row(
-                                panel,
-                                branch.clone(),
-                                folded.contains(&branch.key),
-                                guides,
-                            ),
-                            What::Terminal(item) => entry(
-                                panel,
-                                item.clone(),
-                                active,
-                                renaming,
-                                guides,
-                            ),
-                        }
-                    })
-                    .collect::<Vec<_>>()
+                    .collect()
             };
             let held = group
                 .rows
                 .iter()
-                .filter(|row| matches!(row.what, What::Terminal(_)))
+                .filter(|row| match &row.what {
+                    What::Terminal(_) => true,
+                    What::Agent(branch) => {
+                        branch.log.is_some()
+                            && pins.0.contains(&branch.key)
+                    }
+                })
                 .count();
-            column((
-                heading(panel, group, held, shut),
-                column(rows).gap(0.0),
-            ))
-            .gap(0.0)
+            let first = at == 0;
+            let head = heading(panel, group, held, shut);
+            with_cx(move |cx| {
+                column((
+                    hairline(if first {
+                        Color::NONE
+                    } else {
+                        cx.theme().palette.border
+                    }),
+                    head,
+                    column(rows)
+                        .gap(0.0)
+                        .padding(UiRect::axes(px(BOX_GAP), px(2.0))),
+                ))
+                .gap(0.0)
+                .fill(cx.theme().palette.button.with_alpha(0.5))
+            })
             .boxed()
         })
         .collect::<Vec<_>>();
     column(groups).gap(0.0).padding(UiRect::bottom(px(8.0)))
 }
 
-/// How far each level of the tree stands in from the one above.
-const INDENT: f32 = 14.0;
-
-/// What a row at `path` stands in by: a guide for each agent above
-/// it, the one of `lit` lit.
-#[derive(Clone)]
-struct Guides(Vec<bool>);
-
-fn guides(path: &[String], lit: Option<&(usize, String)>) -> Guides {
-    Guides(
-        path.iter()
-            .enumerate()
-            .map(|(level, key)| {
-                lit.is_some_and(|(at, lit)| {
-                    *at == level && lit == key
-                })
-            })
-            .collect(),
-    )
+/// What a list draws its rows by.
+struct Shown<'a> {
+    panel: &'a PanelId,
+    active: Option<Entity>,
+    renaming: Option<Entity>,
 }
 
-/// The guides of a row, as tall as the row, so a level's guides join
-/// from row to row.
-fn guide_views(guides: &Guides) -> Vec<AnyView> {
-    guides
-        .0
-        .iter()
-        .map(|lit| {
-            let lit = *lit;
-            with_cx(move |cx| {
-                let palette = &cx.theme().palette;
-                let color = if lit {
-                    palette.gold_4.with_alpha(0.7)
-                } else {
-                    palette.border
-                };
-                column((column(())
-                    .width(px(1.0))
-                    .height(percent(100.0))
-                    .fill(color),))
-                .width(px(INDENT))
-                .shrink(0.0)
-                .align(AlignItems::Center)
-            })
-            .boxed()
-        })
-        .collect()
-}
+/// How far the rows stand in from the list's edge.
+const BOX_GAP: f32 = 4.0;
 
 /// A group's title, which folds the group away or opens it, with how
-/// many it holds while folded.
+/// many terminals it shows.
 fn heading(
     panel: &PanelId,
     group: &Group,
@@ -661,101 +682,42 @@ fn heading(
     let panel = panel.clone();
     let key = group.key.clone();
     let title = group.title.to_uppercase();
-    let count = shut.then(|| held.to_string());
+    let home = group.key.is_empty();
     with_cx(move |cx| {
         let space = &cx.theme().space;
         let mark = if shut { Glyph::Into } else { Glyph::Down };
-        let mut words = vec![
+        let words = vec![
             glyph(mark, ICON).tone(Tone::Faint).boxed(),
+            glyph(
+                if home { Glyph::Globe } else { Glyph::Hamlet },
+                ICON,
+            )
+            .tone(Tone::Dim)
+            .boxed(),
             caption(title.clone(), Tone::Dim).boxed(),
+            caption(held.to_string(), Tone::Faint).boxed(),
         ];
-        if let Some(count) = &count {
-            words.push(caption(count.clone(), Tone::Faint).boxed());
-        }
         let key = key.clone();
         let panel = panel.clone();
-        button(row(words).gap(4.0).align(AlignItems::Center))
-            .justify(JustifyContent::FlexStart)
-            .padding(UiRect::new(
-                px(space.section - 4.0),
-                px(space.section),
-                px(space.gap),
-                px(2.0),
-            ))
-            .rules(link_row)
-            .on_activate(move |world| fold(world, &panel, &key))
+        button(
+            row(words)
+                .gap(4.0)
+                .align(AlignItems::Center)
+                .width(percent(100.0)),
+        )
+        .justify(JustifyContent::FlexStart)
+        .padding(UiRect::new(
+            px(space.section - 4.0),
+            px(space.section),
+            px(space.gap),
+            px(4.0),
+        ))
+        .rules(link_row)
+        .on_activate(move |world| fold(world, &panel, &key))
     })
 }
 
-/// An agent in the tree: its address, then its name, which folds
-/// what is under it away or opens it, with how many terminals that
-/// holds while folded.
-fn agent_row(
-    panel: &PanelId,
-    branch: Branch,
-    shut: bool,
-    guides: Guides,
-) -> AnyView {
-    let panel = panel.clone();
-    with_cx(move |cx| {
-        let theme = cx.theme();
-        let small = theme.text.small;
-        let mark = if shut { Glyph::Into } else { Glyph::Down };
-        let who = if branch.mayor {
-            Glyph::Mayor
-        } else {
-            Glyph::Robot
-        };
-        let mut words = vec![
-            glyph(mark, ICON).tone(Tone::Faint).boxed(),
-            glyph(who, ICON).tone(Tone::Dim).boxed(),
-            label(branch.address.clone())
-                .size(small)
-                .tone(Tone::Body)
-                .wrap(false)
-                .boxed(),
-        ];
-        if let Some(name) = &branch.name {
-            words.push(
-                label(name.clone())
-                    .size(small)
-                    .tone(Tone::Faint)
-                    .wrap(false)
-                    .boxed(),
-            );
-        }
-        if shut {
-            words.push(
-                caption(branch.held.to_string(), Tone::Faint).boxed(),
-            );
-        }
-        let key = branch.key.clone();
-        let panel = panel.clone();
-        let mut parts = guide_views(&guides);
-        parts.push(
-            button(row(words).gap(4.0).align(AlignItems::Center))
-                .grow(1.0)
-                .min_width(px(0.0))
-                .justify(JustifyContent::FlexStart)
-                .padding(UiRect::new(
-                    px(0.0),
-                    px(4.0),
-                    px(3.0),
-                    px(3.0),
-                ))
-                .rules(link_row)
-                .on_activate(move |world| fold(world, &panel, &key))
-                .boxed(),
-        );
-        row(parts)
-            .gap(0.0)
-            .padding(UiRect::left(px(theme.space.section - 4.0)))
-    })
-    .boxed()
-}
-
-/// Folds the group or the agent of `key` in the list of `panel` away,
-/// or opens it.
+/// Folds the group of `key` in the list of `panel` away, or opens it.
 fn fold(world: &mut World, panel: &PanelId, key: &str) {
     let mut folds = world.resource_mut::<Folds>();
     let folded = folds.0.entry(panel.0.clone()).or_default();
@@ -764,116 +726,126 @@ fn fold(world: &mut World, panel: &PanelId, key: &str) {
     }
 }
 
-/// One terminal: its name, what it is, the last command it ran, and
-/// its close, lit when it is the one `panel` shows; the chief's says
-/// so. While it is named, a field holds its name.
-fn entry(
-    panel: &PanelId,
-    item: Item,
-    shown: Option<Entity>,
-    renaming: Option<Entity>,
-    guides: Guides,
-) -> AnyView {
-    let panel = panel.clone();
-    let active = shown == Some(item.terminal);
-    let renaming = renaming == Some(item.terminal);
-    let depth = guides.0.len();
+/// One terminal: where it stands as a breadcrumb, the last command it
+/// ran, whether one runs, and its close, or for a pinned log its
+/// unpin. It is lit, with a bar at its edge, when it is the one the
+/// panel shows. While it is named, a field holds its name.
+fn entry(shown: &Shown, item: Item, last: bool) -> AnyView {
+    let panel = shown.panel.clone();
+    let active = shown.active == Some(item.terminal);
+    let renaming = shown.renaming == Some(item.terminal);
     with_cx(move |cx| {
         let theme = cx.theme();
-        let small = theme.text.small;
         let terminal = item.terminal;
-        let mut about = Vec::new();
-        // Under an agent, the tree says whose it is.
-        if depth == 0 {
-            about.push(item.owner.clone());
-        }
-        if item.commands {
-            about.push("read-only".into());
-        }
-        if !item.sandboxed {
-            about.push("unsandboxed".into());
-        }
-        if let Some(code) = item.exit {
-            about.push(format!("exit {code}"));
-        }
-        if about.is_empty() {
-            about.push("shell".into());
-        }
-        let mark = if item.commands {
-            Glyph::Play
-        } else {
-            Glyph::Terminal
-        };
-        let tone = if active { Tone::Accent } else { Tone::Dim };
-        let fill = if active {
-            theme.palette.button
-        } else {
-            Color::NONE
-        };
-        let name = if renaming {
+        let crumbs = if renaming {
             rename_field(panel.clone(), terminal, item.name.clone())
         } else {
-            label(item.name.clone())
-                .size(small)
-                .bold(active)
-                .tone(if active { Tone::Body } else { Tone::Dim })
-                .wrap(false)
-                .boxed()
+            crumbs(&item, 1, active).boxed()
         };
-        let mut lines = vec![
-            name,
-            label(about.join(" \u{b7} "))
-                .size(theme.text.small)
-                .tone(if item.exit.is_some_and(|code| code != 0) {
-                    Tone::Critical
-                } else {
-                    Tone::Faint
-                })
-                .wrap(false)
-                .boxed(),
-        ];
+        let mut marks = Vec::new();
+        if let Some(code) = item.exit {
+            marks.push(
+                label(format!("exit {code}"))
+                    .size(theme.text.small)
+                    .tone(Tone::Critical)
+                    .wrap(false)
+                    .boxed(),
+            );
+        } else if item.running {
+            marks.push(
+                frame()
+                    .width(px(7.0))
+                    .height(px(7.0))
+                    .radius(3.5)
+                    .fill(theme.palette.gold_4)
+                    .tooltip(|| note("Running"))
+                    .boxed(),
+            );
+        }
+        let mut lines: Vec<AnyView> = vec![crumbs];
         if let Some(last) = &item.last {
-            // What the row leaves for the line: the list less its
-            // paddings, the guides, the mark, the close and the gaps
-            // between.
             let room = theme.terminal.list
-                - theme.space.section
+                - BOX_GAP * 2.0
                 - 4.0
-                - depth as f32 * INDENT
                 - ICON
                 - theme.space.gap * 2.0
-                - (ICON + 8.0);
-            let most = (room / (theme.text.small * MONO_ADVANCE))
-                .floor()
-                .max(4.0) as usize;
+                - (ICON + 8.0)
+                - marks.len() as f32 * 56.0
+                - 12.0;
+            let size = theme.text.small * PREVIEW_SCALE;
+            let most = (room / (size * MONO_ADVANCE)).floor().max(4.0)
+                as usize;
             lines.push(
                 label(elided(&format!("$ {last}"), most))
-                    .size(theme.text.small)
+                    .size(size)
                     .tone(Tone::Faint)
+                    .opacity(0.7)
                     .wrap(false)
                     .tagged(MonoText)
                     .boxed(),
             );
         }
-        let mut parts = guide_views(&guides);
-        parts.push(
+        let fill = if active {
+            theme.palette.button
+        } else {
+            Color::NONE
+        };
+        let bar = if active {
+            theme.palette.gold_4
+        } else {
+            Color::NONE
+        };
+        let close: AnyView = match &item.key {
+            Some(key) => {
+                let key = key.clone();
+                button(glyph(Glyph::Pinned, ICON).tone(Tone::Faint))
+                    .padding(UiRect::all(px(4.0)))
+                    .rules(link_row)
+                    .tooltip(|| note("Unpin"))
+                    .on_activate(move |world| {
+                        super::pick::pin(world, &key)
+                    })
+                    .boxed()
+            }
+            None => close_button({
+                let panel = panel.clone();
+                move |world| close(world, &panel, terminal)
+            })
+            .boxed(),
+        };
+        column((
             row((
+                frame()
+                    .width(px(2.0))
+                    .height(percent(100.0))
+                    .fill(bar),
                 button(
                     row((
-                        glyph(mark, ICON).tone(tone),
+                        glyph(Glyph::Terminal, ICON).tone(
+                            if active {
+                                Tone::Accent
+                            } else {
+                                Tone::Dim
+                            },
+                        ),
                         column(lines)
                             .gap(1.0)
+                            .width(px(0.0))
                             .min_width(px(0.0))
+                            .overflow(Overflow::clip())
                             .grow(1.0),
                     ))
                     .gap(theme.space.gap)
+                    .width(percent(100.0))
                     .align(AlignItems::Center),
                 )
                 .grow(1.0)
+                .width(px(0.0))
                 .min_width(px(0.0))
+                .overflow(Overflow::clip())
                 .justify(JustifyContent::FlexStart)
                 .padding(UiRect::new(
-                    px(if depth == 0 { 4.0 } else { 0.0 }),
+                    px(6.0),
                     px(4.0),
                     px(5.0),
                     px(5.0),
@@ -884,28 +856,68 @@ fn entry(
                     move |world| activate(world, &panel, terminal)
                 })
                 .tagged(Entry(terminal, panel.clone())),
-                close_button({
-                    let panel = panel.clone();
-                    move |world| close(world, &panel, terminal)
-                }),
+                row(marks).gap(4.0).align(AlignItems::Center),
+                close,
             ))
-            .grow(1.0)
+            .gap(4.0)
             .min_width(px(0.0))
             .align(AlignItems::Center)
-            .boxed(),
-        );
-        row(parts)
-            .gap(0.0)
-            .padding(UiRect::new(
-                px(theme.space.section - 4.0),
-                px(theme.space.gap),
-                px(0.0),
-                px(0.0),
-            ))
-            .fill(fill)
+            .fill(fill),
+            // The last row of a group has the group's edge under it.
+            hairline(if last {
+                Color::NONE
+            } else {
+                theme.palette.border
+            }),
+        ))
+        .gap(0.0)
     })
     .boxed()
 }
+
+/// What stands over `item`: the agents above a bash log, each
+/// followed by a chevron, then its name, the first `skip` left out.
+pub(super) fn crumbs(
+    item: &Item,
+    skip: usize,
+    active: bool,
+) -> impl View + use<> {
+    let item = item.clone();
+    with_cx(move |cx| {
+        let theme = cx.theme();
+        let small = theme.text.small;
+        let mut parts = Vec::<AnyView>::new();
+        for name in item.crumbs.iter().skip(skip) {
+            parts.push(
+                label(name.clone())
+                    .size(small)
+                    .tone(Tone::Dim)
+                    .wrap(false)
+                    .boxed(),
+            );
+            parts.push(
+                glyph(Glyph::Into, 12.0).tone(Tone::Accent).boxed(),
+            );
+        }
+        parts.push(
+            label(item.name.clone())
+                .size(small)
+                .bold(true)
+                .tone(if active { Tone::Accent } else { Tone::Body })
+                .wrap(false)
+                .boxed(),
+        );
+        row(parts)
+            .gap(3.0)
+            .align(AlignItems::Center)
+            .width(percent(100.0))
+            .min_width(px(0.0))
+            .overflow(Overflow::clip())
+    })
+}
+
+/// How much smaller than a caption a command preview is set.
+const PREVIEW_SCALE: f32 = 0.85;
 
 /// The width of a monospace letter, in ems.
 const MONO_ADVANCE: f32 = 0.6;
@@ -1049,8 +1061,7 @@ mod tests {
         serde_json::from_value(json!({
             "agent": null, "cols": 80, "rows": 24, "cwd": "/",
             "exit": null, "hamlet": null, "id": id, "kind": "shell",
-            "name": id, "named": named, "title": title, "sandboxed": false,
-            "last": "cargo test"
+            "name": id, "named": named, "title": title, "last": "cargo test"
         }))
         .unwrap()
     }
@@ -1064,7 +1075,7 @@ mod tests {
         serde_json::from_value(json!({
             "agent": agent, "cols": 80, "rows": 24, "cwd": "/",
             "exit": null, "hamlet": hamlet, "id": id, "kind": kind,
-            "name": id, "sandboxed": true, "title": ""
+            "name": id, "title": ""
         }))
         .unwrap()
     }
@@ -1153,9 +1164,9 @@ mod tests {
         };
         // The chief's come first in a hamlet, then the workers a
         // chief started, then the mayor's tree: each agent's
-        // commands, its shells, then the agents under it, one
-        // with no terminal of its own still shown above those
-        // that have.
+        // shells, then the agents under it, one with no terminal of
+        // its own still shown above those that have. An agent's
+        // commands are its log, not a row.
         assert_eq!(
             rows(app.world().resource::<Listed>()),
             [
@@ -1165,8 +1176,7 @@ mod tests {
                         "0:mine",
                         "0:worker#6 (1)",
                         "1:w6",
-                        "0:hire#2 (3)",
-                        "1:m-cmd",
+                        "0:hire#2 (2)",
                         "1:m-sh",
                         "1:hire#4 (1)",
                         "2:worker#5 (1)",
@@ -1184,9 +1194,54 @@ mod tests {
                     ]
                 ),
                 group("Workers", &["0:worker#8 (1)", "1:w8"]),
-                group("Unbounded", &["0:loose"]),
+                group("This computer", &["0:loose"]),
             ]
         );
+        let logs = app
+            .world()
+            .resource::<Listed>()
+            .0
+            .iter()
+            .flat_map(|group| &group.rows)
+            .filter_map(|row| match &row.what {
+                What::Agent(branch) => {
+                    branch.log.as_ref().map(|log| {
+                        (branch.address.as_str(), log.name.as_str())
+                    })
+                }
+                What::Terminal(_) => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(logs, [("hire#2", "bash")]);
+
+        // A log shows only once its agent is pinned, under the hamlet
+        // and the agents above it.
+        let listed = app.world().resource::<Listed>();
+        let (key, log) = listed
+            .0
+            .iter()
+            .flat_map(|group| &group.rows)
+            .find_map(|row| match &row.what {
+                What::Agent(Branch {
+                    key,
+                    log: Some(log),
+                    ..
+                }) => Some((key.clone(), log.clone())),
+                _ => None,
+            })
+            .expect("a log");
+        assert_eq!(log.key.as_deref(), Some(key.as_str()));
+        assert_eq!(log.crumbs.len(), 2);
+        assert_eq!(log.crumbs[0], "home");
+        let count = |pins: &Pins| {
+            listed
+                .shown(pins)
+                .iter()
+                .map(|(_, items)| items.len())
+                .sum::<usize>()
+        };
+        let loose = count(&Pins::default());
+        assert_eq!(count(&Pins(BTreeSet::from([key]))), loose + 1);
     }
 
     #[test]

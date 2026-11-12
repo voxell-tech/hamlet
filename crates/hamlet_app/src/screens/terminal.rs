@@ -9,6 +9,7 @@ mod input;
 pub mod keys;
 mod list;
 mod mouse;
+mod pick;
 mod screen;
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -26,7 +27,6 @@ use bevy::ecs::schedule::common_conditions::resource_changed;
 use bevy::ecs::system::{Commands, Query, Res};
 use bevy::ecs::world::World;
 use bevy::input_focus::{FocusCause, InputFocus};
-use bevy::math::Rect;
 use bevy::picking::Pickable;
 use bevy::ui::widget::Text;
 use bevy::ui::{
@@ -36,14 +36,12 @@ use bevy::ui::{
 use bevy_fynix::dock::{DockTab, DockTree, DockWindowKind};
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, TooltipExt, button, column, frame,
-    label, menu_item, overlay, popup, row,
+    BehaviorExt, FrameProps, TooltipExt, button, column, frame, row,
 };
 use bevy_fynix::{
     ScopedExt, Theme, ViewExt, derived, every_frame, keyed,
 };
 use hamlet_client::outbox::RequestId;
-use hamlet_client::realm::{self, HamletId};
 use hamlet_client::terminals::{
     self, TerminalId, TerminalOpened, Watched,
 };
@@ -52,10 +50,10 @@ use hamlet_ui::styles::{
 };
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
-use hamlet_ui::widgets::platform::DisplayText;
 use hamlet_ui::{AnyView, View, with_cx};
 
 use self::list::Listed;
+pub use self::pick::{open_menu, show_menu};
 pub use self::screen::Canvas;
 use crate::dock::{
     PanelAppExt, flush_panel, number, on_a_desk, open_another,
@@ -73,11 +71,11 @@ pub fn plugin(app: &mut App) {
     app.add_numbered_panel(PANEL, window)
         .init_resource::<Panels>()
         .init_resource::<Handing>()
-        .init_resource::<Adding>()
         .init_resource::<Opening>()
         .init_resource::<Shown>()
         .init_resource::<Restoring>()
         .init_resource::<Folds>()
+        .init_resource::<Pins>()
         .add_observer(opened)
         .add_systems(
             Update,
@@ -96,7 +94,12 @@ pub fn plugin(app: &mut App) {
                 name_tabs,
             ),
         )
-        .add_plugins((input::plugin, list::plugin, carry::plugin));
+        .add_plugins((
+            input::plugin,
+            list::plugin,
+            carry::plugin,
+            pick::plugin,
+        ));
 }
 
 /// The dock window of the Terminal panel `id`. Its tab is named after
@@ -156,6 +159,10 @@ pub struct Shown(pub BTreeMap<String, String>);
 /// or an agent with what is under it, as `agent#<id>`.
 #[derive(Resource, Default, Clone, PartialEq, Debug)]
 pub struct Folds(pub BTreeMap<String, BTreeSet<String>>);
+
+/// The agents whose bash logs the lists show, as `agent#<id>`.
+#[derive(Resource, Default, Clone, PartialEq, Debug)]
+pub struct Pins(pub BTreeSet<String>);
 
 /// What Terminal panels showed and are to show again once they are in
 /// the dock and their terminals are there: as the view kept it, or as
@@ -375,11 +382,6 @@ fn light_edge(
 #[derive(Resource, Default)]
 struct Handing(Option<PanelId>);
 
-/// Where the menu that opens a terminal hangs, and the panel it opens
-/// it in, while it is open.
-#[derive(Resource, Default, Clone, PartialEq)]
-struct Adding(Option<(Rect, PanelId)>);
-
 /// The open a panel waits on, to show what it opens.
 #[derive(Resource, Default)]
 struct Opening(Option<(RequestId, PanelId)>);
@@ -520,16 +522,15 @@ fn hand_keys(world: &mut World) {
     }
 }
 
-/// Opens a shell in `hamlet`, or an unbounded one, at the size the
-/// screen of `panel` has room for.
-fn open(world: &mut World, panel: &PanelId, hamlet: Option<String>) {
-    world.resource_mut::<Adding>().0 = None;
+/// Opens the chief's own shell at the size the screen of `panel` has
+/// room for.
+fn open(world: &mut World, panel: &PanelId) {
     let (cols, rows) = world
         .resource::<Panels>()
         .get(panel)
         .and_then(|panel| panel.room)
         .unwrap_or(FIRST_SIZE);
-    let request = terminals::open(world, hamlet, cols, rows);
+    let request = terminals::open(world, cols, rows);
     world.resource_mut::<Opening>().0 =
         Some((request, panel.clone()));
 }
@@ -646,7 +647,6 @@ fn heading(panel: &PanelId) -> impl View + use<> {
             let panel = panel.clone();
             with_cx(move |cx| {
                 let space = &cx.theme().space;
-                let small = cx.theme().text.small;
                 let mut parts = Vec::<AnyView>::new();
                 match &item {
                     Some(item) => {
@@ -656,24 +656,12 @@ fn heading(panel: &PanelId) -> impl View + use<> {
                                 .boxed(),
                         );
                         parts.push(
-                            row((label(item.name.clone())
-                                .size(small)
-                                .bold(true)
-                                .wrap(false),))
-                            .min_width(px(0.0))
-                            .overflow(Overflow::clip())
-                            .boxed(),
+                            row((list::crumbs(item, 0, true),))
+                                .min_width(px(0.0))
+                                .overflow(Overflow::clip())
+                                .boxed(),
                         );
-                        parts.push(
-                            row((label(item.owner.clone())
-                                .size(small)
-                                .tone(Tone::Faint)
-                                .wrap(false),))
-                            .grow(1.0)
-                            .min_width(px(0.0))
-                            .overflow(Overflow::clip())
-                            .boxed(),
-                        );
+                        parts.push(frame().grow(1.0).boxed());
                         parts.push(
                             row(hints(item))
                                 .gap(space.gap)
@@ -708,7 +696,7 @@ fn heading(panel: &PanelId) -> impl View + use<> {
     .within(column(()).gap(0.0))
 }
 
-/// What the heading says of `item`: read-only, ended, unsandboxed.
+/// What the heading says of `item`: read-only or ended.
 fn hints(item: &list::Item) -> Vec<AnyView> {
     let mut hints = Vec::<AnyView>::new();
     if item.commands {
@@ -716,9 +704,6 @@ fn hints(item: &list::Item) -> Vec<AnyView> {
     }
     if let Some(code) = item.exit {
         hints.push(badge(format!("EXIT {code}"), Tone::Dim).boxed());
-    }
-    if !item.sandboxed {
-        hints.push(badge("UNSANDBOXED", Tone::Critical).boxed());
     }
     hints
 }
@@ -728,14 +713,14 @@ fn hints(item: &list::Item) -> Vec<AnyView> {
 fn actions(panel: &PanelId, hidden: bool) -> Vec<AnyView> {
     let mut presses = Vec::<AnyView>::new();
     if hidden {
-        presses.push(press(Glyph::Plus, "New terminal", {
-            let panel = panel.clone();
-            move |world, node| {
-                let anchor = crate::menu::rect_of(world, node);
-                world.resource_mut::<Adding>().0 =
-                    anchor.map(|anchor| (anchor, panel.clone()));
-            }
-        }));
+        presses.push(press(
+            Glyph::Plus,
+            "New terminal or pin a bash",
+            {
+                let panel = panel.clone();
+                move |world, node| pick::toggle(world, node, &panel)
+            },
+        ));
     }
     let words = if hidden {
         "Show the list"
@@ -851,90 +836,6 @@ fn body(panel: &PanelId) -> impl View + use<> {
     )
 }
 
-/// The hamlets a terminal can be opened in, by id and name.
-fn hamlets(world: &World) -> Vec<(String, String)> {
-    let mut found = world
-        .try_query::<(Entity, &HamletId)>()
-        .map(|mut query| {
-            query
-                .iter(world)
-                .map(|(entity, id)| (entity, id.0.clone()))
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default()
-        .into_iter()
-        .map(|(entity, id)| {
-            let name = realm::name_of(world, entity);
-            (id.clone(), if name.is_empty() { id } else { name })
-        })
-        .collect::<Vec<_>>();
-    found.sort_by(|a, b| a.1.cmp(&b.1));
-    found
-}
-
-/// The menu of where to open a terminal, while it is open.
-pub fn open_menu() -> impl View {
-    keyed(
-        derived(|world: &World| {
-            (world.resource::<Adding>().0.clone(), hamlets(world))
-        })
-        .when(every_frame()),
-        |(adding, hamlets)| match adding {
-            Some((anchor, panel)) => {
-                let anchor = *anchor;
-                let mut items = vec![place(
-                    panel.clone(),
-                    Glyph::Terminal,
-                    "Unbounded".into(),
-                    None,
-                )];
-                items.extend(hamlets.iter().map(|(id, name)| {
-                    place(
-                        panel.clone(),
-                        Glyph::Hamlet,
-                        name.clone(),
-                        Some(id.clone()),
-                    )
-                }));
-                with_cx(move |cx| {
-                    popup(anchor, items)
-                        .on_dismiss(|world, _| {
-                            world.resource_mut::<Adding>().0 = None;
-                        })
-                        .min_width(px(cx.theme().space.menu_width))
-                })
-                .boxed()
-            }
-            None => frame().boxed(),
-        },
-    )
-    .within(overlay(()))
-}
-
-fn place(
-    panel: PanelId,
-    which: Glyph,
-    name: String,
-    hamlet: Option<String>,
-) -> AnyView {
-    with_cx(move |cx| {
-        menu_item(
-            row((
-                glyph(which, ICON).tone(Tone::Faint),
-                label(name).wrap(false).tagged(DisplayText),
-            ))
-            .gap(cx.theme().space.menu_gap)
-            .align(AlignItems::Center),
-        )
-        .on_activate({
-            let panel = panel.clone();
-            let hamlet = hamlet.clone();
-            move |world| open(world, &panel, hamlet.clone())
-        })
-    })
-    .boxed()
-}
-
 #[cfg(test)]
 mod tests {
     use hamlet_protocol::client as protocol;
@@ -952,7 +853,7 @@ mod tests {
             "agent": agent,
             "cols": 80, "rows": 24, "cwd": "/", "exit": null,
             "hamlet": hamlet, "id": id, "kind": kind, "name": id,
-            "sandboxed": hamlet.is_some(), "title": ""
+            "title": ""
         }))
         .unwrap()
     }
@@ -1011,6 +912,7 @@ mod tests {
         app.init_resource::<Panels>()
             .init_resource::<Shown>()
             .init_resource::<Folds>()
+            .init_resource::<Pins>()
             .insert_resource(Restoring(BTreeMap::from([
                 ("terminal-2".to_owned(), "t2".to_owned()),
                 ("terminal-3".to_owned(), "t9".to_owned()),
@@ -1075,10 +977,12 @@ mod tests {
             terminal: Entity::PLACEHOLDER,
             name: "zsh 3".into(),
             owner: "chief".into(),
-            sandboxed: false,
             exit: None,
             commands: false,
+            key: None,
             last: last.map(str::to_owned),
+            running: false,
+            crumbs: Vec::new(),
         };
         assert_eq!(tab_name(None), "TERMINAL");
         assert_eq!(tab_name(Some(&item(None))), "TERMINAL (zsh 3)");

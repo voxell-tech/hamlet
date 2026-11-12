@@ -164,7 +164,6 @@ impl Core {
             );
         }
         let mut catalogue = tools::specs(&shells);
-        catalogue.extend(crate::terminals::specs());
         catalogue.extend(calls::specs());
         catalogue.extend(
             added.iter().map(|manifest| manifest.spec.clone()),

@@ -142,7 +142,7 @@ and watch failures can answer with `fault` (see [Errors](#errors)).
 
 | `op` | Fields | Answer |
 |---|---|---|
-| `open` | `id`, `hamlet?: string`, `cols`, `rows` | Opens a shell in the hamlet's folder under a sandbox that writes only that folder, or the chief's own login shell with no sandbox when `hamlet` is left out. The connection watches it: the first `terminal` message has `to` and names it. A refusal is a `reply`. |
+| `open` | `id`, `cols`, `rows` | Opens the chief's own login shell, with no sandbox. The connection watches it: the first `terminal` message has `to` and names it. A refusal is a `reply`. |
 | `input` | `terminal`, `data: string`; no `id` | Types `data`, keys and pastes as the terminal reads them, into the shell. No answer. A `commands` terminal or an ended shell ignores it. |
 | `rename` | `id`, `terminal`, `name: string` (1–64) | Names it: its `name` changes and `named` becomes true, so the name shows over its `title`. `reply`; a blank name is refused. |
 | `resize` | `terminal`, `cols`, `rows`; no `id` | No answer. |
@@ -273,13 +273,14 @@ entry and content block (`<entryId>:<block>`); use them as opaque cursors. Tool 
 at most 240 characters, plus total and added/removed counts.
 
 `TerminalView` is a terminal the server runs: `id`, `name`, `kind`,
-`hamlet` (null for one of no hamlet: the chief's own
-unbounded shell, or the Hand's or a hamlet-less worker's), `agent` (the `AgentId`
-that opened it, null when the chief did), `cols`, `rows`, `cwd`, `exit`
-(null while its shell runs), `sandboxed`, the `title` its programs set,
+`hamlet` (null for the chief's own shell, or for the commands of the Hand or a hamlet-less worker), `agent` (the `AgentId`
+whose commands it shows, null for the chief's shell), `cols`, `rows`, `cwd`, `exit`
+(null while its shell runs), the `title` its programs set,
 `named` (whether the chief or its agent named it, its name then shown over
 the title) and `last`, the last command typed into it or, for `commands`, the
-last its agent ran (null before one). A typed command is the line entered
+last its agent ran (null before one), and `running`, whether a command is
+running now: for `commands`, an agent's `bash` call that has not ended; for a
+shell, one entered that has not returned to its prompt. A typed command is the line entered
 after a prompt, read once the shell echoes its Enter and kept only while
 that line still shows the prompt typing began after; what a full-screen
 program is typed is not one, and nor is what a prompt does not echo.

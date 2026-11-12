@@ -86,10 +86,11 @@ that would have had it.
 | `bash`, `powershell` | One tool per shell. `bash` is offered wherever bash is found, which on Windows is Git Bash, and `powershell` on Windows alone, naming the edition it found. Each runs in the hamlet's folder when it has one, else in the lodge, and says with a `network` flag whether it needs the network. Stops after 120 s, or an earlier timeout; keeps the last 2000 lines or 50 KiB of stdout and stderr, and gives a file holding the whole output when it spills |
 | `search` | Finds a linear-time regular expression in files, with a name filter and optional case-insensitive matching, up to 100 hits; skips binary files, files that are not UTF-8, files over 1 MiB and build folders |
 | `find` | Lists a folder, or finds files by name under it, up to 100 matches |
-| `terminal_open`, `terminal_write`, `terminal_read`, `terminal_close` | A bash shell on a terminal that stays open between calls, in the same place and sandbox as `bash`, for servers, watchers and programs that ask for input. A write types text and keys, then gives the screen once the output settles; a read gives the screen and up to 2000 lines above it. A terminal is named by its id or its name, among the agent's own and those the chief opened in its hamlet. The chief sees each one and may type into it. Opening one and every write pass the gate as a `bash` call does. An agent's terminals close when it ends |
 
 Each `bash` call's command and its output, as it comes, are also shown in
 the agent's commands terminal, which the chief can watch and nobody types into.
+A server an agent starts runs from `bash` with `&`, its output sent to a file the
+agent reads later; it is kept until the server stops.
 
 A lead can turn tools off for a hire under it (H41); the prompt names them. A
 worker has only the built-in tools its starter gave it (H42). The society's

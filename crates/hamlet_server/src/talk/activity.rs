@@ -274,32 +274,9 @@ fn doing_of(
                 Doing::Run
             }
         }
-        // A terminal runs what is typed into it.
-        _ if crate::terminals::Tool::named(name).is_some() => {
-            Doing::Run
-        }
         "hire" | "create_scholar" => Doing::Think,
         "ask" | "request_road" | "agree_road" | "ask_librarian"
         | "submit_skill" => Doing::Await,
         _ => Doing::Custom,
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_terminal_tool_has_its_agent_running_a_command() {
-        let none = BTreeMap::new();
-        for tool in [
-            "terminal_open",
-            "terminal_write",
-            "terminal_read",
-            "terminal_close",
-        ] {
-            assert_eq!(doing_of(tool, &none), Doing::Run, "{tool}");
-        }
-        assert_eq!(doing_of("weather_now", &none), Doing::Custom);
     }
 }

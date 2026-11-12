@@ -5,7 +5,8 @@
 use bevy::ecs::entity::Entity;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::world::World;
-use hamlet_app::terminal::{PanelId, Panels, show};
+use bevy::math::{Rect, Vec2};
+use hamlet_app::terminal::{PanelId, Panels, Pins, show, show_menu};
 use hamlet_client::terminals::{self, TerminalScreen, TerminalView};
 use hamlet_protocol::client as protocol;
 use serde_json::json;
@@ -115,7 +116,7 @@ fn view(
         "agent": agent,
         "cols": 110, "rows": 30, "cwd": "/home/orchard", "exit": exit,
         "hamlet": hamlet, "id": id, "kind": kind, "name": name,
-        "sandboxed": hamlet.is_some(), "title": ""
+        "title": ""
     }))
     .expect("a terminal")
 }
@@ -129,6 +130,7 @@ pub(super) fn state(state: &mut protocol::State, scene: Scene) {
         Scene::Terminal
             | Scene::TerminalShell
             | Scene::TerminalPanels
+            | Scene::TerminalPick
     ) {
         return;
     }
@@ -151,7 +153,7 @@ pub(super) fn state(state: &mut protocol::State, scene: Scene) {
             "commands",
             None,
         ),
-        view("t2", "zsh", Some("home"), None, "shell", None),
+        view("t2", "zsh", None, None, "shell", None),
         view(
             "t3",
             "commands",
@@ -160,27 +162,38 @@ pub(super) fn state(state: &mut protocol::State, scene: Scene) {
             "commands",
             None,
         ),
-        view("t4", "bash", Some("mill"), None, "shell", Some(0)),
+        view("t4", "bash", None, None, "shell", Some(0)),
         view("t5", "login", None, None, "shell", None),
-        view("t6", "vite", Some("home"), Some(4), "shell", None),
+        view(
+            "t6",
+            "commands",
+            Some("home"),
+            Some(4),
+            "commands",
+            None,
+        ),
         view(
             "t7",
             "commands",
             Some("home"),
             Some(5),
             "commands",
-            None,
+            Some(1),
         ),
     ];
-    state.terminals[5].last = Some("npm run dev".into());
+    state.terminals[0].running = true;
+    state.terminals[0].last = Some("cargo test -p orchard".into());
+    state.terminals[5].last = Some("git push origin main".into());
+    state.terminals[6].last = Some("rg \"TODO\" src/".into());
     state.terminals[1].last = Some("git log --oneline -3".into());
+    state.terminals[4].last = Some("ls -la ~/Repos".into());
 }
 
 /// Shows the scene's terminals, each in its panel, which are given
 /// what they printed once the panels watch them.
 pub(super) fn setup(world: &mut World, scene: Scene) {
     let shown = match scene {
-        Scene::Terminal => {
+        Scene::Terminal | Scene::TerminalPick => {
             vec![(PanelId::first(), "t1", RUNS.to_owned())]
         }
         Scene::TerminalShell => {
@@ -204,6 +217,18 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
         world
             .resource_mut::<Panels>()
             .hide_list(&PanelId("terminal-2".into()));
+    }
+    world.resource_mut::<Pins>().0 =
+        ["agent#2", "agent#4", "agent#5"].map(String::from).into();
+    if scene == Scene::TerminalPick {
+        show_menu(
+            world,
+            &PanelId::first(),
+            Rect::from_corners(
+                Vec2::new(686.0, 396.0),
+                Vec2::new(708.0, 416.0),
+            ),
+        );
     }
     world.insert_resource(Printed(printed));
 }

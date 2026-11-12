@@ -104,6 +104,7 @@ pub(crate) fn restore(core: &mut Core) -> Result<()> {
         .map(|hamlet| hamlet.id.0)
         .collect::<Vec<_>>();
     for Kept { mut view, replay } in kept {
+        view.running = false;
         let gone = view.agent.is_some_and(|a| !agents.contains(&a))
             || view
                 .hamlet
@@ -117,7 +118,7 @@ pub(crate) fn restore(core: &mut Core) -> Result<()> {
         let mut replay = STANDARD.decode(replay).unwrap_or_default();
         let launch = match (&view.kind, view.exit) {
             (TerminalKind::Commands, _) | (_, Some(_)) => None,
-            (TerminalKind::Shell, None) => relaunch(core, &view)?,
+            (TerminalKind::Shell, None) => relaunch(&view),
         };
         if launch.is_some() {
             replay.extend_from_slice(RESTARTED.as_bytes());

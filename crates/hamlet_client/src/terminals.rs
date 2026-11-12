@@ -125,23 +125,16 @@ fn id_of(world: &World, terminal: Entity) -> Option<String> {
     world.get::<TerminalId>(terminal).map(|id| id.0.clone())
 }
 
-/// Opens a shell in `hamlet`, or an unbounded one without. Its first
-/// output triggers [`TerminalOpened`] with the returned id.
-pub fn open(
-    world: &mut World,
-    hamlet: Option<String>,
-    cols: u16,
-    rows: u16,
-) -> RequestId {
+/// Opens the chief's own shell. Its first output triggers
+/// [`TerminalOpened`] with the returned id.
+pub fn open(world: &mut World, cols: u16, rows: u16) -> RequestId {
     let (cols, rows) = (fit(cols).get(), fit(rows).get());
-    let request = world.resource_mut::<Outbox>().send(|id| {
-        protocol::ClientMessage::Terminal(protocol::Terminal::Open {
-            cols,
-            hamlet,
-            id,
-            rows,
-        })
-    });
+    let request =
+        world.resource_mut::<Outbox>().send(|id| {
+            protocol::ClientMessage::Terminal(
+                protocol::Terminal::Open { cols, id, rows },
+            )
+        });
     world
         .resource_mut::<Opening>()
         .0
@@ -443,7 +436,7 @@ mod tests {
         serde_json::from_value(json!({
             "agent": null, "cols": 20, "rows": 4, "cwd": "/",
             "exit": null, "hamlet": "home", "id": id, "kind": kind,
-            "name": id, "sandboxed": true, "title": ""
+            "name": id, "title": ""
         }))
         .unwrap()
     }
@@ -549,7 +542,7 @@ mod tests {
     fn the_answer_to_an_open_names_a_watched_terminal_before_it_is_listed()
      {
         let mut app = app(vec![]);
-        let request = open(app.world_mut(), None, 30, 5);
+        let request = open(app.world_mut(), 30, 5);
         let opened = std::sync::Arc::new(std::sync::Mutex::new(None));
         let seen = opened.clone();
         app.world_mut().add_observer(

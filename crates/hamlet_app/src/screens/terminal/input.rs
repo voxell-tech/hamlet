@@ -717,7 +717,7 @@ mod reporting {
         serde_json::from_value(json!({
             "agent": null, "cols": 80, "rows": 24, "cwd": "/",
             "exit": null, "hamlet": null, "id": id, "kind": kind,
-            "name": id, "sandboxed": false, "title": ""
+            "name": id, "title": ""
         }))
         .unwrap()
     }

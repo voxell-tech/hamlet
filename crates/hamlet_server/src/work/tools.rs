@@ -144,7 +144,6 @@ pub(crate) fn diagnostic(
 pub(crate) fn reserved_names() -> impl Iterator<Item = String> {
     specs(&Shells::local())
         .into_iter()
-        .chain(crate::terminals::specs())
         .map(|tool| tool.name)
         .chain(Dialect::ALL.map(|dialect| dialect.tool().to_owned()))
 }

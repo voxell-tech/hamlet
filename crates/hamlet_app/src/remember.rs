@@ -150,6 +150,9 @@ pub struct View {
     /// What each Terminal panel's list had folded away, by panel id.
     #[serde(default)]
     terminal_folds: BTreeMap<String, BTreeSet<String>>,
+    /// The agents whose bash logs the Terminal panels list.
+    #[serde(default)]
+    terminal_pins: BTreeSet<String>,
 }
 
 /// The view kept in the window's folder, as read at launch; none
@@ -352,6 +355,7 @@ pub fn restore(world: &mut World) {
     world.insert_resource(view.model_side);
     world.insert_resource(terminal::Restoring(view.terminals));
     world.insert_resource(terminal::Folds(view.terminal_folds));
+    world.insert_resource(terminal::Pins(view.terminal_pins));
 }
 
 /// Puts back the kept appearance and zoom.
@@ -394,7 +398,7 @@ pub fn keep(
     sound: Res<SoundSettings>,
     quality: Res<Quality>,
     awake: Res<KeepAwake>,
-    (pending, kept, north, favorites, side, terminals, folds): (
+    (pending, kept, north, favorites, side, terminals, folds, pins): (
         Res<Pending>,
         Res<Kept>,
         Res<NorthTarget>,
@@ -402,6 +406,7 @@ pub fn keep(
         Res<LastSide>,
         Res<terminal::Shown>,
         Res<terminal::Folds>,
+        Res<terminal::Pins>,
     ),
     (fog, far, wind, appearance, zoom): (
         Res<VolumetricFogSettings>,
@@ -430,6 +435,7 @@ pub fn keep(
         || zoom.is_changed()
         || terminals.is_changed()
         || folds.is_changed()
+        || pins.is_changed()
     {
         *due = Some(now + SETTLE);
     }
@@ -461,6 +467,7 @@ pub fn keep(
         zoom: *zoom,
         terminals: terminals.0.clone(),
         terminal_folds: folds.0.clone(),
+        terminal_pins: pins.0.clone(),
     };
     if written.as_ref() == Some(&view) {
         return;
@@ -527,6 +534,7 @@ mod tests {
                 "terminal".into(),
                 BTreeSet::from(["home".into(), "agent#3".into()]),
             )]),
+            terminal_pins: BTreeSet::from(["agent#2".into()]),
         }
     }
 

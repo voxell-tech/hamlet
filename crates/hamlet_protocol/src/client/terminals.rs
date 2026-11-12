@@ -1,5 +1,5 @@
-//! Terminals the server runs: shells the chief and agents type into,
-//! and the views of what they print.
+//! Terminals the server runs: the chief's own shells, and each
+//! agent's commands, and the views of what they print.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -15,8 +15,8 @@ pub const TERMINAL_SIZE: u16 = 1000;
 )]
 #[serde(deny_unknown_fields)]
 pub struct TerminalView {
-    /// The agent whose terminal it is. None when the chief opened
-    /// it.
+    /// The agent whose commands it shows. None for the chief's
+    /// shell.
     #[serde(deserialize_with = "Option::deserialize")]
     pub agent: Option<AgentId>,
     pub cols: u16,
@@ -25,13 +25,14 @@ pub struct TerminalView {
     /// The exit code of its shell, once the shell ended.
     #[serde(deserialize_with = "Option::deserialize")]
     pub exit: Option<i64>,
-    /// The hamlet it belongs to. None for an unbounded terminal,
-    /// which runs as the server's account with no sandbox.
+    /// The hamlet of the agent whose commands it shows. None for the
+    /// chief's shell, which runs as the server's account with no
+    /// sandbox.
     #[serde(deserialize_with = "Option::deserialize")]
     pub hamlet: Option<String>,
     pub id: String,
     pub kind: TerminalKind,
-    /// The last command typed into it, or that its agent ran in it.
+    /// The last command typed into it, or that its agent ran.
     #[serde(default)]
     pub last: Option<String>,
     pub name: String,
@@ -40,8 +41,10 @@ pub struct TerminalView {
     #[serde(default)]
     pub named: bool,
     pub rows: u16,
-    /// Whether the sandbox holds its commands.
-    pub sandboxed: bool,
+    /// Whether a command its agent ran is still running. Always
+    /// false for the chief's shell.
+    #[serde(default)]
+    pub running: bool,
     /// The title its programs last set, if any.
     pub title: String,
 }
@@ -57,7 +60,7 @@ pub struct TerminalView {
     JsonSchema,
 )]
 pub enum TerminalKind {
-    /// A shell that takes input.
+    /// The chief's own shell, which takes input.
     #[serde(rename = "shell")]
     Shell,
     /// The commands an agent's shell tool ran and what they printed.
@@ -71,17 +74,13 @@ pub enum TerminalKind {
 )]
 #[serde(tag = "op", deny_unknown_fields)]
 pub enum Terminal {
-    /// Opens a shell in `hamlet`'s folder under the sandbox, or an
-    /// unbounded one without a hamlet. Its first output answers `id`
-    /// and names it.
+    /// Opens the chief's own shell, which runs as the server's
+    /// account with no sandbox. Its first output answers `id` and
+    /// names it.
     #[serde(rename = "open")]
     Open {
         #[schemars(range(min = 1, max = TERMINAL_SIZE))]
         cols: u16,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[serde(deserialize_with = "crate::client::present")]
-        #[schemars(with = "String")]
-        hamlet: Option<String>,
         id: RequestId,
         #[schemars(range(min = 1, max = TERMINAL_SIZE))]
         rows: u16,

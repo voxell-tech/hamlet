@@ -581,7 +581,7 @@ fn terminal_wire() -> Value {
     json!({
         "id": "t-1", "name": "dev", "kind": "shell", "hamlet": "home",
         "agent": 2, "cols": 80, "rows": 24,
-        "cwd": "/home/chief/work", "exit": null, "sandboxed": true, "title": "",
+        "cwd": "/home/chief/work", "exit": null, "running": true, "title": "",
         "last": "cargo test", "named": true
     })
 }
@@ -647,7 +647,6 @@ fn terminal_output_and_requests_keep_their_shape() {
     client(
         ClientMessage::Terminal(Terminal::Open {
             cols: 80,
-            hamlet: None,
             id: id(),
             rows: 24,
         }),

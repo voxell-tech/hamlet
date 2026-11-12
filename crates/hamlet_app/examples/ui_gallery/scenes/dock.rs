@@ -84,6 +84,7 @@ pub(super) fn seed_dock(world: &mut World) {
         Scene::Terminal
             | Scene::TerminalShell
             | Scene::TerminalPanels
+            | Scene::TerminalPick
     ) && let Some((low, _)) =
         tree.split(centre, Edge::Bottom, "terminal".into())
         && let Some(parent) = tree.parent_of(low)
