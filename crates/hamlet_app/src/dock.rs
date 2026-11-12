@@ -90,14 +90,31 @@ pub fn highlight_panel(
     view: impl View,
     highlight: Highlight,
 ) -> AnyView {
+    padded_panel(view, highlight, None)
+}
+
+/// A panel whose contents reach its edges, for a canvas or a picture
+/// that draws its own margins.
+#[expect(dead_code, reason = "no panel is flush yet")]
+pub fn flush_panel(view: impl View) -> AnyView {
+    padded_panel(view, Highlight::default(), Some(0.0))
+}
+
+/// A panel padded by `padding`, else by the theme's panel space.
+fn padded_panel(
+    view: impl View,
+    highlight: Highlight,
+    padding: Option<f32>,
+) -> AnyView {
     AnyView::new(move |cx: &mut Cx| {
         let fill = cx.theme().palette.surface;
+        let padding = padding.unwrap_or(cx.theme().space.panel);
         // The dock frames the area; this is what fills it.
         cx.build(
             column((highlight_layer(highlight), glow_layer(), view))
                 .fills_width()
                 .min_height(px(0.0))
-                .padding(UiRect::all(px(cx.theme().space.panel)))
+                .padding(UiRect::all(px(padding)))
                 .gap(0.0)
                 .fill(fill)
                 // Overflow is cut at the padding.
