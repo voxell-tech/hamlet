@@ -47,7 +47,7 @@ impl ClientMessage {
             | Self::Rewind(Rewind { id, .. })
             | Self::New(New { id, .. })
             | Self::Resume(Resume { id, .. })
-            | Self::Import(Import { id, .. })
+            | Self::ImportProject(ImportProject { id, .. })
             | Self::Retry(Retry { id, .. })
             | Self::Edit(
                 Edit::Charter { id, .. }
@@ -133,8 +133,8 @@ pub enum ClientMessage {
     New(New),
     #[serde(rename = "resume")]
     Resume(Resume),
-    #[serde(rename = "import")]
-    Import(Import),
+    #[serde(rename = "import-project")]
+    ImportProject(ImportProject),
     #[serde(rename = "retry")]
     Retry(Retry),
     #[serde(rename = "edit")]

@@ -426,8 +426,8 @@ CREATE TABLE chat_session (
     FOREIGN KEY (agent, chief) REFERENCES chat(agent, chief)
 ) STRICT, WITHOUT ROWID;
 
--- A chat's session brought in from another program (C35), once per
--- source conversation and agent. `earlier` holds the entries it
+-- A conversation of another program brought in as a session of a
+-- hire's chat (C35), once per chief. `earlier` holds the entries it
 -- begins with, as JSON, until its runtime has made it with them.
 CREATE TABLE import (
     conversation INTEGER PRIMARY KEY REFERENCES conversation(id),
@@ -436,7 +436,7 @@ CREATE TABLE import (
     source TEXT NOT NULL,
     session TEXT NOT NULL,
     earlier TEXT,
-    UNIQUE (agent, chief, source, session)
+    UNIQUE (chief, source, session)
 ) STRICT;
 
 -- An input to a conversation, taken in once and in order (S23).

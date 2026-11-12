@@ -1,49 +1,216 @@
-//! Chat sessions brought in from another program (C35). The server
-//! holds a session's entries until its runtime has made the
-//! conversation with them, which then keeps them alone (ADR 0002).
+//! Projects of other programs brought in (C35): a hamlet for each,
+//! working on its folder, and a hire for each of its conversations,
+//! whose chat begins with it. The server holds a conversation's
+//! entries until its runtime has made it with them, which then keeps
+//! them alone (ADR 0002).
 
 use anyhow::{Context, Result};
 use diesel::prelude::*;
 use hamlet_protocol::client::{FileId, Imported, ImportedEntry};
 use hamlet_protocol::runtime::Earlier;
 use hamlet_store::Db;
-use hamlet_store::ids::{AgentId, ChiefId, ConversationId};
+use hamlet_store::ids::{AgentId, ChiefId, ConversationId, HamletId};
 use hamlet_store::schema::{chat, chat_session, import};
 use schemars::generate::SchemaSettings;
 use serde_json::Value;
 
 use super::marks::Mark;
 use super::{Env, chats};
-use crate::change::{Change, Done, refuse};
+use crate::change::{Change, Done, done};
 use crate::files::Files;
 use crate::society::chiefs;
+use crate::society::hamlets::{self, Founding};
+use crate::society::hires::{self, Hiring, Spec};
+use crate::society::names::NAME_LENGTH;
 use crate::society::refusal::Refusal;
 
-/// Brings in `imported` as a new session of `chief`'s chat with
-/// `agent`, current only when the chat has none. Returns its number.
-pub(crate) fn bring_in(
+/// A project to bring in.
+pub(crate) struct Project<'a> {
+    pub name: &'a str,
+    /// The folder its hamlet works on, when it is one on this
+    /// machine.
+    pub folder: Option<&'a str>,
+    pub conversations: &'a [Imported],
+}
+
+/// What bringing in a project did.
+pub(crate) struct Brought {
+    pub hamlet: HamletId,
+    pub founded: bool,
+    /// The hires made, one for each conversation.
+    pub hired: usize,
+    /// The conversations brought in before, and those the hamlet had
+    /// no room for.
+    pub before: usize,
+    pub full: usize,
+}
+
+impl Brought {
+    /// What it did, for the chief.
+    pub fn words(&self) -> String {
+        let hires = match self.hired {
+            1 => "1 hire".to_owned(),
+            count => format!("{count} hires"),
+        };
+        let mut words = match self.founded {
+            true => format!(
+                "Founded hamlet `{}` with {hires}.",
+                self.hamlet
+            ),
+            false => {
+                format!("Added {hires} to hamlet `{}`.", self.hamlet)
+            }
+        };
+        if self.before > 0 {
+            words.push_str(&format!(
+                " {} brought in before were left out.",
+                self.before
+            ));
+        }
+        if self.full > 0 {
+            words.push_str(&format!(
+                " {} did not fit under the hamlet's tier.",
+                self.full
+            ));
+        }
+        words
+    }
+}
+
+/// Brings in `project` for `chief`: into the living hamlet of theirs
+/// that works on its folder, else into one founded for it.
+pub(crate) fn bring_in_project(
+    cx: &mut Change<'_>,
+    env: &Env,
+    chief: ChiefId,
+    project: &Project<'_>,
+) -> Done<Brought> {
+    let folder = project
+        .folder
+        .filter(|folder| std::path::Path::new(folder).is_dir());
+    let mut working = None;
+    if let Some(folder) = folder {
+        for hamlet in hamlets::all(cx.db)? {
+            if hamlet.is_living()
+                && hamlet.folder.as_deref() == Some(folder)
+                && hamlets::chiefs(cx.db, &hamlet.id)?
+                    .contains(&chief)
+            {
+                working = Some((hamlet.id, hamlet.mayor));
+                break;
+            }
+        }
+    }
+    let founded = working.is_none();
+    let (hamlet, mayor) = match working {
+        Some(working) => working,
+        None => {
+            let name = label(project.name, "Project");
+            let hired = done!(hamlets::found(
+                cx,
+                Founding {
+                    purpose: format!("Mayor of {name}."),
+                    name,
+                    chief,
+                    mayor: Hiring::Blank {
+                        name: String::new(),
+                        character: String::new(),
+                    },
+                }
+            ));
+            if let Some(folder) = folder {
+                done!(hamlets::set_folder(
+                    cx,
+                    &hired.hamlet,
+                    Some(folder)
+                ));
+            }
+            (hired.hamlet, hired.agent)
+        }
+    };
+    let tier = hamlets::get(cx.db, &hamlet)?.tier;
+    let mut brought = Brought {
+        hamlet: hamlet.clone(),
+        founded,
+        hired: 0,
+        before: 0,
+        full: 0,
+    };
+    for imported in project.conversations {
+        if is_brought_in(cx.db, chief, imported)? {
+            brought.before += 1;
+            continue;
+        }
+        if hires::count_living(cx.db, &hamlet)? >= tier {
+            brought.full += 1;
+            continue;
+        }
+        let hired = done!(hires::hire(
+            cx,
+            Spec {
+                hamlet: hamlet.clone(),
+                parent: Some(mayor),
+                hiring: Hiring::Blank {
+                    name: label(&imported.title, ""),
+                    character: String::new(),
+                },
+                purpose: format!(
+                    "Carry on the conversation brought in from {}: \
+                     {}",
+                    imported.source.name(),
+                    imported.title
+                ),
+                reason: String::new(),
+                owner: chief,
+            }
+        ));
+        begin(cx, env, hired.agent, chief, imported)?;
+        brought.hired += 1;
+    }
+    Ok(Ok(brought))
+}
+
+/// `text` as a name: one line with no colon, cut to the longest a
+/// name is; `or` when nothing is left.
+fn label(text: &str, or: &str) -> String {
+    let line = text
+        .replace(':', " ")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    let name = line.chars().take(NAME_LENGTH).collect::<String>();
+    match name.trim() {
+        "" => or.to_owned(),
+        name => name.to_owned(),
+    }
+}
+
+/// Whether `chief` brought in `imported` before.
+fn is_brought_in(
+    db: &mut Db,
+    chief: ChiefId,
+    imported: &Imported,
+) -> Result<bool> {
+    Ok(import::table
+        .filter(import::chief.eq(chief))
+        .filter(import::source.eq(imported.source.word()))
+        .filter(import::session.eq(&imported.session))
+        .select(import::conversation)
+        .first::<ConversationId>(db)
+        .optional()?
+        .is_some())
+}
+
+/// Begins a session of `chief`'s chat with `agent` with `imported`,
+/// current only when the chat has none. Returns its number.
+fn begin(
     cx: &mut Change<'_>,
     env: &Env,
     agent: AgentId,
     chief: ChiefId,
     imported: &Imported,
-) -> Done<i64> {
+) -> Result<i64> {
     let source = imported.source.word();
-    let already = import::table
-        .filter(import::agent.eq(agent))
-        .filter(import::chief.eq(chief))
-        .filter(import::source.eq(source))
-        .filter(import::session.eq(&imported.session))
-        .select(import::conversation)
-        .first::<ConversationId>(cx.db)
-        .optional()?;
-    if let Some(conversation) = already {
-        let number = chat_session::table
-            .filter(chat_session::conversation.eq(conversation))
-            .select(chat_session::session)
-            .first(cx.db)?;
-        refuse!(Refusal::AlreadyImported { number });
-    }
     let has_chat =
         chats::current_number(cx.db, agent, chief)?.is_some();
     let number = chats::sessions(cx.db, agent, chief)?
@@ -83,7 +250,7 @@ pub(crate) fn bring_in(
         ))
         .execute(cx.db)?;
     cx.touched.agents.insert(agent);
-    Ok(Ok(number))
+    Ok(number)
 }
 
 /// The conversation a client sent as the file `id`, checked against

@@ -327,35 +327,34 @@ impl Core {
                 });
                 self.answer(client, reply(&resume.id, words))
             }
-            ClientMessage::Import(import) => {
-                let Some(agent) =
-                    self.reached(client, &import.id, import.to.0)?
-                else {
-                    return Ok(());
-                };
+            ClientMessage::ImportProject(project) => {
                 let files = Files::new(self.realm.layout().files());
-                let imported =
-                    match imports::read(&files, &import.file)? {
-                        Ok(imported) => imported,
+                let mut conversations = Vec::new();
+                for file in &project.files {
+                    match imports::read(&files, file)? {
+                        Ok(imported) => conversations.push(imported),
                         Err(refusal) => {
                             return self.answer(
                                 client,
-                                reply(&import.id, Err(refusal)),
+                                reply(&project.id, Err(refusal)),
                             );
                         }
-                    };
+                    }
+                }
+                let wanted = imports::Project {
+                    name: &project.name,
+                    folder: project.folder.as_deref(),
+                    conversations: &conversations,
+                };
                 let done = self
                     .attempt(Actor::Chief(chief), |cx, env| {
-                        imports::bring_in(
-                            cx, env, agent, chief, &imported,
+                        imports::bring_in_project(
+                            cx, env, chief, &wanted,
                         )
                     })
                     .await?;
-                self.rewatch(agent).await?;
-                let words = done.map(|number| {
-                    format!("Brought in as session {number}.")
-                });
-                self.answer(client, reply(&import.id, words))
+                let words = done.map(|brought| brought.words());
+                self.answer(client, reply(&project.id, words))
             }
             ClientMessage::Retry(retry) => {
                 let Some(agent) =

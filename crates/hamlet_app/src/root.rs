@@ -164,6 +164,7 @@ pub fn layout(cx: &Cx) -> impl View {
             dock::<HamletTheme>(),
             status_bar(),
             welcome::view(),
+            welcome::projects::view(),
         ))
         .fills_height()
         .gap(0.0),

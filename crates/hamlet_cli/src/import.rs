@@ -1,139 +1,162 @@
-//! `hamlet import`: conversations of other programs, on this machine
-//! or in a file they exported, listed and brought in as a chat's
-//! session (C35).
+//! `hamlet import`: projects of other programs, on this machine or in
+//! a file they exported, each brought in as a hamlet with a hire for
+//! each of its conversations (C35).
 
 use std::path::Path;
-use std::time::{Duration, SystemTime};
+use std::time::SystemTime;
 
 use anyhow::{Result, bail};
-use hamlet_import::Found;
+use hamlet_import::Project;
 use hamlet_protocol::client::{
-    ClientMessage, Import, Imported, Reply, ReplyKind, RequestId,
-    ServerMessage,
+    ClientMessage, ImportProject, Imported, Reply, ReplyKind,
+    RequestId, ServerMessage,
 };
 
-use crate::chat::resolve;
-use crate::client::{self, ServerAddress};
+use crate::client::{self, Client, ServerAddress};
 
-/// How far back a list of this machine's conversations reaches
-/// without `--all`.
-const RECENT: Duration = Duration::from_secs(30 * 24 * 60 * 60);
-
-/// The conversations of the file `file`, or of this machine.
-fn found(file: Option<&Path>) -> Result<Vec<Found>> {
-    match file {
-        Some(file) => hamlet_import::find_in(file),
-        None => Ok(hamlet_import::find()),
-    }
+/// Which projects a command names.
+pub enum Chosen {
+    /// Those suggested: git repositories with three conversations or
+    /// more.
+    Suggested,
+    /// Those named by their name or folder.
+    Named(Vec<String>),
 }
 
-/// Prints the conversations of the file `file`, or those found on
-/// this machine in the last 30 days, or every one with `all`; newest
-/// first.
+/// The projects of the export `file`, or of this machine: those of
+/// the last 30 days, or of all time with `all`.
+fn projects(file: Option<&Path>, all: bool) -> Result<Vec<Project>> {
+    let found = match file {
+        Some(file) => hamlet_import::find_in(file)?,
+        None => hamlet_import::find(),
+    };
+    let since = match all {
+        true => SystemTime::UNIX_EPOCH,
+        false => SystemTime::now() - hamlet_import::RECENT,
+    };
+    Ok(hamlet_import::projects(found, since))
+}
+
+/// Prints the projects found, the suggested ones marked.
 pub fn list(file: Option<&Path>, all: bool) -> Result<()> {
-    let found = found(file)?;
-    let since = SystemTime::now() - RECENT;
-    let shown = found
-        .iter()
-        .filter(|found| {
-            all || file.is_some() || found.modified >= since
-        })
-        .collect::<Vec<_>>();
-    if shown.is_empty() {
-        println!("No conversations found.");
+    let projects = projects(file, all)?;
+    if projects.is_empty() {
+        println!("No projects found.");
+        return Ok(());
     }
-    for found in &shown {
-        let day =
-            chrono::DateTime::<chrono::Local>::from(found.modified)
-                .format("%Y-%m-%d");
+    for project in &projects {
+        let mark = if project.is_suggested() { "*" } else { " " };
+        let day = chrono::DateTime::<chrono::Local>::from(
+            project.modified(),
+        )
+        .format("%Y-%m-%d");
+        let count = project.conversations.len();
         println!(
-            "{}  {}  {}",
-            found.session,
-            day,
-            found.source.word()
+            "{mark} {}  {count} conversation{}  {day}",
+            project.name,
+            if count == 1 { "" } else { "s" }
         );
-        println!("    {}", found.title);
-        if let Some(folder) = &found.folder {
-            println!("    in {folder}");
+        if let Some(folder) = &project.folder {
+            println!("    {folder}");
         }
     }
-    let older = found.len() - shown.len();
-    if older > 0 {
-        println!(
-            "{older} older conversation{} not shown; hamlet import \
-             --all lists every one.",
-            if older == 1 { " is" } else { "s are" }
-        );
-    }
-    if !shown.is_empty() {
-        let file = file.map_or(String::new(), |file| {
-            format!("--file {} ", file.display())
-        });
-        println!(
-            "Bring one in with: hamlet import {file}<id> [--to \
-             <agent>]"
-        );
-    }
+    let file = file.map_or(String::new(), |file| {
+        format!("--file {} ", file.display())
+    });
+    println!(
+        "Bring them in, each as a hamlet with a hire for each \
+         conversation: hamlet import {file}<project>... or hamlet \
+         import {file}--suggested for those marked *."
+    );
     Ok(())
 }
 
-/// Brings in the conversation of the file `file`, or of this machine,
-/// whose id is or begins with `session` as a new session of the
-/// chief's chat with `to`.
+/// Brings in the projects `chosen` of the export `file`, or of this
+/// machine.
 pub async fn bring_in(
     address: &ServerAddress,
     file: Option<&Path>,
-    session: &str,
-    to: &str,
+    all: bool,
+    chosen: &Chosen,
 ) -> Result<()> {
-    let found = found(file)?;
-    let matching = found
-        .iter()
-        .filter(|found| found.session.starts_with(session))
-        .collect::<Vec<_>>();
-    let found: &Found = match matching.as_slice() {
-        [found] => found,
-        [] => bail!("no conversation's id begins with `{session}`"),
-        _ => {
-            bail!("several conversations' ids begin with `{session}`")
+    let projects = projects(file, all)?;
+    let picked = match chosen {
+        Chosen::Suggested => projects
+            .iter()
+            .filter(|project| project.is_suggested())
+            .collect::<Vec<_>>(),
+        Chosen::Named(names) => {
+            let mut picked = Vec::new();
+            for name in names {
+                let matching = projects
+                    .iter()
+                    .filter(|project| {
+                        project.name == *name
+                            || project.folder.as_deref()
+                                == Some(name.as_str())
+                    })
+                    .collect::<Vec<_>>();
+                match matching.as_slice() {
+                    [project] => picked.push(*project),
+                    [] => bail!("no project is named `{name}`"),
+                    _ => bail!(
+                        "several projects are named `{name}`; name \
+                         it by its folder"
+                    ),
+                }
+            }
+            picked
         }
     };
-    let imported = hamlet_import::read(found)?;
-    let bytes = serde_json::to_vec(&imported)?;
-    anyhow::ensure!(
-        bytes.len() as u64 <= Imported::MOST_BYTES,
-        "that conversation is over 16 MiB, more than Hamlet takes"
-    );
-    let (mut client, state) = client::connect(address).await?;
-    let agent = resolve(&state, to)?;
-    let file = client::put_file(&mut client, &bytes).await?;
+    if picked.is_empty() {
+        bail!("no project to bring in");
+    }
+    let (mut client, _) = client::connect(address).await?;
+    for project in picked {
+        let words = send(&mut client, project).await?;
+        println!("{}: {words}", project.name);
+    }
+    let _ = client.close().await;
+    Ok(())
+}
+
+/// Sends the conversations of `project` and asks for it to be
+/// brought in; the server's words.
+async fn send(
+    client: &mut Client,
+    project: &Project,
+) -> Result<String> {
+    let mut files = Vec::new();
+    for found in &project.conversations {
+        let imported = hamlet_import::read(found)?;
+        let bytes = serde_json::to_vec(&imported)?;
+        if bytes.len() as u64 > Imported::MOST_BYTES {
+            eprintln!("Left out {}, over 16 MiB.", found.title);
+            continue;
+        }
+        files.push(client::put_file(client, &bytes).await?);
+    }
+    if files.is_empty() {
+        bail!("{} has no conversation to bring in", project.name);
+    }
     let id = RequestId::new();
     let answer = client
         .request(
             &id,
-            ClientMessage::Import(Import {
-                file,
+            ClientMessage::ImportProject(ImportProject {
+                files,
+                folder: project.folder.clone(),
                 id: id.clone(),
-                to: agent,
+                name: project.name.chars().take(40).collect(),
             }),
         )
         .await?;
-    let _ = client.close().await;
     match answer {
         ServerMessage::Reply(Reply {
             kind: ReplyKind::Notice,
             text,
             ..
-        }) => {
-            println!("{text}");
-            if imported.left_out > 0 {
-                println!(
-                    "Its first message and the newest {} were kept.",
-                    Imported::NEWEST
-                );
-            }
-            Ok(())
-        }
+        }) => Ok(text),
         ServerMessage::Reply(reply) => bail!("{}", reply.text),
         ServerMessage::Fault(fault) => bail!("{}", fault.text),
         _ => bail!("The server answered with something else."),

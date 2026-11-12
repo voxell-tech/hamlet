@@ -4411,6 +4411,7 @@ dependencies = [
  "hamlet_assets",
  "hamlet_client",
  "hamlet_desktop",
+ "hamlet_import",
  "hamlet_protocol",
  "hamlet_realm",
  "hamlet_testing",

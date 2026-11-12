@@ -5,7 +5,7 @@
 use std::fs::File;
 use std::io::{BufRead, BufReader, Read as _};
 use std::path::{Path, PathBuf};
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 
 use anyhow::{Context, Result};
 use hamlet_protocol::client::{
@@ -45,6 +45,114 @@ pub fn find() -> Vec<Found> {
     found.extend(pi::find());
     found.sort_by_key(|found| std::cmp::Reverse(found.modified));
     found
+}
+
+/// How far back the conversations of a project reach.
+pub const RECENT: Duration = Duration::from_secs(30 * 24 * 60 * 60);
+
+/// A project: the folder conversations worked in, or the program of
+/// those with none, as an export's are.
+#[derive(Clone, Debug)]
+pub struct Project {
+    pub name: String,
+    /// The root of its git repository, else the folder itself.
+    pub folder: Option<String>,
+    pub is_git: bool,
+    /// Its conversations, newest first.
+    pub conversations: Vec<Found>,
+}
+
+impl Project {
+    /// Whether to bring it in unless the chief says not to: a git
+    /// repository with three conversations or more.
+    pub fn is_suggested(&self) -> bool {
+        self.is_git && self.conversations.len() >= 3
+    }
+
+    pub fn modified(&self) -> SystemTime {
+        self.conversations
+            .first()
+            .map_or(SystemTime::UNIX_EPOCH, |found| found.modified)
+    }
+}
+
+/// The projects of the conversations `found` since `since`, the
+/// newest first. A linked git worktree, a folder under Downloads,
+/// Codex's scratch folders and the home folder are no project.
+pub fn projects(
+    found: Vec<Found>,
+    since: SystemTime,
+) -> Vec<Project> {
+    let home = std::env::home_dir();
+    let mut projects = Vec::<Project>::new();
+    for found in found {
+        if found.modified < since {
+            continue;
+        }
+        let (name, folder, is_git) = match &found.folder {
+            Some(folder) => {
+                let Some((root, is_git)) = root_of(Path::new(folder))
+                else {
+                    continue;
+                };
+                let skipped = home.as_deref().is_some_and(|home| {
+                    root == home
+                        || root.starts_with(home.join("Downloads"))
+                        || root
+                            .starts_with(home.join("Documents/Codex"))
+                });
+                if skipped {
+                    continue;
+                }
+                let name = root.file_name().map_or_else(
+                    || root.display().to_string(),
+                    |name| name.to_string_lossy().into_owned(),
+                );
+                (name, Some(root.display().to_string()), is_git)
+            }
+            None => (found.source.name().to_owned(), None, false),
+        };
+        match projects.iter_mut().find(|project| {
+            project.folder == folder
+                && (folder.is_some() || project.name == name)
+        }) {
+            Some(project) => project.conversations.push(found),
+            None => projects.push(Project {
+                name,
+                folder,
+                is_git,
+                conversations: vec![found],
+            }),
+        }
+    }
+    for project in &mut projects {
+        project
+            .conversations
+            .sort_by_key(|found| std::cmp::Reverse(found.modified));
+    }
+    projects.sort_by_key(|project| {
+        (!project.is_git, std::cmp::Reverse(project.modified()))
+    });
+    projects
+}
+
+/// The root of the git repository `folder` is in, and true; else
+/// `folder` and false. `None` for a linked worktree, whose `.git` is
+/// a file, or a folder that is gone.
+fn root_of(folder: &Path) -> Option<(PathBuf, bool)> {
+    if !folder.is_dir() {
+        return None;
+    }
+    for at in folder.ancestors() {
+        let git = at.join(".git");
+        if git.is_dir() {
+            return Some((at.to_owned(), true));
+        }
+        if git.is_file() {
+            return None;
+        }
+    }
+    Some((folder.to_owned(), false))
 }
 
 /// Every conversation in a file ChatGPT or Claude exported, as its

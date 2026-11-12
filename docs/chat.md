@@ -27,16 +27,19 @@ comes from `read history`, listed by the day each was last used; Read
 opens a numbered past conversation read-only, drawn as the chat is, and
 Resume sends `/resume <n>`. Every conversation is kept.
 
-A conversation brought in from another program (C35) is one more
-numbered session. Import on the Hub's sessions page lists those found on
-the window's machine, or those in an export file chosen in the system's
-dialog; choosing one brings it in. `hamlet_import` reads it on the
-chief's machine, off the frame (`hamlet_client/src/imports.rs`), the
-client sends it as a file and `import`, and the server holds its entries
-until the runtime makes the conversation with them. It opens with a
-notice of where it came from. The chief's messages in it are the chief's
-rows, not rewindable; the other program's tool calls are tool rows of
-their tool and summary, kept for people alone.
+A hire made for a conversation brought in from another program (C35)
+has it as the first session of its chat. The card "Bring in your
+projects" (`hamlet_app/src/welcome/projects.rs`) lists the projects
+found on the window's machine, or in an export file chosen in the
+system's dialog; it opens once when first-run setup ends on a realm with
+no hamlet, and from Settings. `hamlet_import` reads the conversations on
+the chief's machine, off the frame (`hamlet_client/src/imports.rs`), the
+client sends each as a file and the project as `import-project`, and the
+server (`talk/imports.rs`) founds or finds the hamlet, makes the hires
+and holds each conversation's entries until the runtime makes it with
+them. It opens with a notice of where it came from. The chief's messages
+in it are the chief's rows, not rewindable; the other program's tool
+calls are tool rows of their tool and summary, kept for people alone.
 
 The session menu of the Hub's chat lists the agent's sessions, its
 conversations with other agents and the workers it started. Choosing a

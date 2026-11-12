@@ -1,22 +1,31 @@
-//! Conversations brought in from another program as a new session of
-//! a chief's chat (C35).
+//! A project of another program brought in as a hamlet, each of its
+//! conversations a hire (C35).
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::client::{AgentId, FileId, RequestId};
+use crate::client::{FileId, RequestId};
 
-/// Brings in the conversation sent as the file `file`, an
-/// [`Imported`] as JSON, as a new session of the chief's chat with
-/// `to`.
+/// Brings in a project: a hamlet named `name` that works on
+/// `folder`, founded unless one of the chief's works on it already,
+/// with a hire for each conversation sent as a file, an [`Imported`]
+/// as JSON. A conversation brought in before is left out.
 #[derive(
     Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
 )]
 #[serde(deny_unknown_fields)]
-pub struct Import {
-    pub file: FileId,
+pub struct ImportProject {
+    #[schemars(length(min = 1, max = 500))]
+    pub files: Vec<FileId>,
+    /// The folder on the server's machine it works in, if it had
+    /// one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "crate::client::present")]
+    #[schemars(with = "String", length(min = 1, max = 4096))]
+    pub folder: Option<String>,
     pub id: RequestId,
-    pub to: AgentId,
+    #[schemars(length(min = 1, max = 40))]
+    pub name: String,
 }
 
 /// A conversation from another program, as the client read it.
@@ -52,7 +61,7 @@ impl Imported {
     pub const NEWEST: usize = 200;
     /// The entries, tool calls included.
     pub const MOST_ENTRIES: usize = 4000;
-    /// The bytes of the file an [`Import`] names.
+    /// The bytes of each file an [`ImportProject`] names.
     pub const MOST_BYTES: u64 = 16 << 20;
 }
 

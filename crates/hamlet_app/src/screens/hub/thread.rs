@@ -115,8 +115,6 @@ enum Go {
     Past(i64),
     Peer(protocol::ConversationView),
     Worker(Entity),
-    /// The conversations of other programs to bring in (C35).
-    Import,
 }
 
 /// The names of the session menu, what each leads to, and which of
@@ -165,13 +163,6 @@ fn entries(world: &World) -> (Vec<(String, Go)>, usize) {
     for worker in workers(world, agent) {
         items.push((shown_of(world, worker), Go::Worker(worker)));
     }
-    // A worker has its one task, never a session brought in.
-    if world
-        .get::<Kind>(agent)
-        .is_none_or(|kind| kind.0 != protocol::AgentKind::Worker)
-    {
-        items.push(("Import a conversation".to_string(), Go::Import));
-    }
     let now = conversations::peer_shown(world)
         .and_then(|shown| {
             items.iter().position(|(_, go)| {
@@ -214,10 +205,6 @@ fn go(world: &mut World, to: &Go) {
         }
         Go::Peer(peer) => conversations::open(world, peer.clone()),
         Go::Worker(worker) => crate::convo::talk_to(world, *worker),
-        Go::Import => {
-            crate::history::import(world);
-            show(world, Showing::Sessions);
-        }
     }
 }
 
