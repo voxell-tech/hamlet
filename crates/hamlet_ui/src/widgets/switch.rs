@@ -14,7 +14,9 @@ use bevy::time::Time;
 use bevy::ui::{AlignItems, Checked, Node, px};
 use bevy::ui_widgets::{Checkbox as CheckboxBehavior, ValueChange};
 use bevy::window::SystemCursorIcon;
-use bevy_fynix::tokens::{Motion, SurfaceTokens, TextTokens, Tone};
+use bevy_fynix::tokens::{
+    MotionTokens, SurfaceTokens, TextTokens, Tone,
+};
 use bevy_fynix::views::{FrameProps, frame, label, row};
 use bevy_fynix::{EntityCursor, Prop, component, style};
 
@@ -88,7 +90,7 @@ fn switch_of(
                 .tone(Tone::Faint)
                 .hovered(|s| s.tone(Tone::Body))
                 .pressed(|s| s.tone(Tone::Dim))
-                .transition(Motion::Interact)
+                .transition(HamletTheme::interact)
                 .apply(cx);
             let root =
                 cx.build(row(()).gap(gap).align(AlignItems::Center));

@@ -16,7 +16,7 @@ room stays dark so that the world stays the bright thing on screen.
 | Soot, wood and brass | Warm near-black panels, walnut buttons, brass frames and lettering | The room. It never glows |
 | A flame in the glass | A pool of amber light low inside a control | The pointer is here, or you are typing here |
 | A lamp that burns low | The one good action of a screen is the only control glowing at rest | This is what the screen is for |
-| A hand over the lamp | A held button sinks, shrinks a little and goes dark | Your press has it |
+| A hand over the lamp | A held button goes dark, where it stands and at its size | Your press has it |
 | The flame catching | On release the flame flares, and the good action throws a few sparks | It was done |
 | A coal | A refusing button glows red-brown under the pointer | This stops, refuses or throws away |
 | Candle under a word | A low pool of light under a menu title or a tab | Where you are in a menu or a set of tabs |

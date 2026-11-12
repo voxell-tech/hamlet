@@ -30,8 +30,8 @@ use bevy::ui::{BoxShadow, UiSystems, px};
 use bevy::window::WindowTheme;
 use bevy_fynix::scroll::ScrollbarStyle;
 use bevy_fynix::tokens::{
-    Curve, Motion, MotionTokens, SpacingTokens, SurfaceTokens,
-    TextTokens, Tone,
+    Curve, MotionTokens, SpacingTokens, SurfaceTokens, TextTokens,
+    Tone,
 };
 use hamlet_assets::{File, Tuning, TuningPlugin, tint};
 use serde::{Deserialize, Serialize};
@@ -904,15 +904,21 @@ impl SpacingTokens for HamletTheme {
     }
 }
 
+/// A curve `seconds` long that eases out: quick to answer, gentle to
+/// land.
+fn eased_out(seconds: f32) -> Curve {
+    Curve {
+        duration: Duration::from_secs_f32(seconds),
+        ease: |t| 1.0 - (1.0 - t) * (1.0 - t),
+    }
+}
+
 impl MotionTokens for HamletTheme {
-    fn motion(&self, motion: Motion) -> Curve {
-        let seconds = match motion {
-            Motion::Interact => self.motion.interact,
-            Motion::Expand => self.motion.expand,
-        };
-        Curve {
-            duration: Duration::from_secs_f32(seconds),
-            ease: |t| 1.0 - (1.0 - t) * (1.0 - t),
-        }
+    fn interact(&self) -> Curve {
+        eased_out(self.motion.interact)
+    }
+
+    fn expand(&self) -> Curve {
+        eased_out(self.motion.expand)
     }
 }

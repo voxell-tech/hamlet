@@ -18,7 +18,7 @@ use bevy::window::Window;
 use bevy_fynix::shortcut::{
     Chord, CommandId, CommandSpec, GLOBAL, Scope, ShortcutAppExt,
 };
-use bevy_fynix::tokens::{Motion, Tone};
+use bevy_fynix::tokens::{MotionTokens, Tone};
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, POPUP, button, frame, label, menu_item,
     overlay, popup, row,
@@ -193,7 +193,7 @@ pub fn nav(cx: &mut Cx) {
             s.fill(|t: &HamletTheme| t.palette.selected)
                 .tone(Tone::Dim)
         })
-        .transition(Motion::Interact)
+        .transition(HamletTheme::interact)
         .apply(cx);
 }
 

@@ -8,7 +8,7 @@ use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::system::{Commands, Res, ResMut};
 use bevy::ecs::world::World;
 use bevy::ui::{AlignItems, UiRect, percent, px};
-use bevy_fynix::tokens::{Motion, Tone};
+use bevy_fynix::tokens::{MotionTokens, Tone};
 use bevy_fynix::views::{
     BehaviorExt, ContextMenuExt, FrameProps, button, column, frame,
     label, menu_item, row, text_field,
@@ -465,7 +465,7 @@ fn line_view(line: &Line) -> AnyView {
         .tagged(Variant::Default)
         .on_activate(move |world| open(world, number))
         .appear(hidden)
-        .transition(Motion::Expand)
+        .transition(HamletTheme::expand)
         .context_menu(move || choices(&menu))
     });
     let heading = line.heading;
@@ -534,6 +534,7 @@ fn list() -> impl View {
                 },
                 line_view,
             )
+            .presence(HamletTheme::expand)
             .within(column(()).gap(0.0)),)),
         ))
         .fills_height()

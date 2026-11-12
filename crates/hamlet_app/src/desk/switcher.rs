@@ -42,7 +42,7 @@ use bevy_fynix::scroll::{
 use bevy_fynix::shortcut::{
     Chord, CommandId, CommandSpec, GLOBAL, Invoke, ShortcutAppExt,
 };
-use bevy_fynix::tokens::{Motion, Tone};
+use bevy_fynix::tokens::{MotionTokens, Tone};
 use bevy_fynix::views::{
     BehaviorExt, ContextMenuExt, FrameProps, TooltipExt, button,
     column, frame, label, menu_item, overlay, popup, row, scroll,
@@ -421,7 +421,7 @@ fn segment_look(cx: &mut Cx) {
         .hovered(|s| s.fill(|_| Color::NONE).tone(Tone::Body))
         .pressed(|s| s.fill(|_| Color::NONE).tone(Tone::Faint))
         .when::<ShownDesk>(|s| s.tone(Tone::Body))
-        .transition(Motion::Interact)
+        .transition(HamletTheme::interact)
         .apply(cx);
 }
 

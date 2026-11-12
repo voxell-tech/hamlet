@@ -22,7 +22,7 @@ use bevy::ui::{
     PositionType, UiGlobalTransform, UiRect, Val, percent, px,
 };
 use bevy::window::SystemCursorIcon;
-use bevy_fynix::tokens::{Motion, SurfaceTokens, Tone};
+use bevy_fynix::tokens::{MotionTokens, SurfaceTokens, Tone};
 use bevy_fynix::views::{
     self, Axis, BehaviorExt, FrameProps, TooltipExt, button, column,
     frame, label, row, text_field,
@@ -227,7 +227,7 @@ fn revealed_line(cx: &mut Cx) {
         .when::<Dragging>(|s| {
             s.fill(|t: &HamletTheme| t.palette.gold_4)
         })
-        .transition(Motion::Interact)
+        .transition(HamletTheme::interact)
         .apply(cx);
 }
 
@@ -1522,7 +1522,7 @@ fn row_rules(cx: &mut Cx) {
                 .padding(UiRect::axes(px(ROW_INSET), px(ROW_DOWN)))
         })
         .pressed(|s| s.frame(|f, t| f.fill(t.pressed())))
-        .transition(Motion::Interact)
+        .transition(HamletTheme::interact)
         .apply(cx);
 }
 

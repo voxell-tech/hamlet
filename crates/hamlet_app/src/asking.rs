@@ -14,7 +14,7 @@ use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::system::{Query, Res, ResMut};
 use bevy::ecs::world::World;
 use bevy::ui::{AlignItems, JustifyContent, UiRect, percent, px};
-use bevy_fynix::tokens::{Motion, SurfaceTokens, Tone};
+use bevy_fynix::tokens::{MotionTokens, SurfaceTokens, Tone};
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, button, column, frame, label, row,
     text_field,
@@ -219,7 +219,7 @@ fn option(cx: &mut Cx) {
         })
         .hovered(|s| s.frame(|f, t| f.fill(t.palette.button_hover)))
         .pressed(|s| s.frame(|f, t| f.fill(t.pressed())))
-        .transition(Motion::Interact)
+        .transition(HamletTheme::interact)
         .apply(cx);
 }
 
@@ -233,7 +233,7 @@ fn picked(cx: &mut Cx) {
                 .radius(t.space.round)
         })
         .hovered(|s| s.frame(|f, t| f.border_color(t.palette.accent)))
-        .transition(Motion::Interact)
+        .transition(HamletTheme::interact)
         .apply(cx);
 }
 

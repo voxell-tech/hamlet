@@ -1,6 +1,7 @@
-//! The effects of a control: its glow under the pointer, its give
-//! under a press, the gradient inside it, the outer glow it throws
-//! and the particles of work done.
+//! The effects of a control: its glow under the pointer and under a
+//! press, the gradient inside it, the outer glow it throws, the
+//! particles of work done and the shake of a refusal. Only the shake
+//! moves it, and nothing resizes it.
 
 use std::collections::HashMap;
 
@@ -277,7 +278,7 @@ pub(super) fn animate(
         };
         let heat =
             ease(effect.heat, f32::from(over), set.glow_rate, dt);
-        // Nor does it give under a press.
+        // Nor does a press dim it.
         let press = ease(
             effect.press,
             f32::from(held && !disabled),
@@ -309,18 +310,11 @@ pub(super) fn animate(
         if still && steady == 0.0 && effect.glow == 0.0 {
             continue;
         }
-        // A pulse swells and falls back as it dies away.
-        let swell = 4.0 * pulse * (1.0 - pulse);
-        let scale =
-            1.0 - set.press_scale * press + set.pulse_scale * swell;
+        // A refusal shakes it side to side as it dies away.
         let slide =
             shake * set.shake_distance * (now * set.shake_rate).sin();
         let want = UiTransform {
-            translation: Val2::new(
-                px(slide),
-                px(set.press_offset * press),
-            ),
-            scale: Vec2::splat(scale),
+            translation: Val2::new(px(slide), px(0.0)),
             ..UiTransform::IDENTITY
         };
         if let Some(mut transform) = transform
