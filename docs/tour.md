@@ -62,7 +62,7 @@ it, and it is not edited here.
 | `hamlet_acceptance` | Real-process protocol, CLI and OAuth scenarios on scratch realm folders, through the typed `Client`, the `hamlet` command and `hamlet_testing`'s server |
 | `hamlet_client` | Connection, outbox, realm, waits and watched chats as Bevy entities, the `Index` that finds them by their protocol ids, and images and files read in parts off the frame |
 | `hamlet_desktop` | File/link openers, editor files, dialogs (`choose.rs`), the clipboard's images and files, wake locks and window icon |
-| `hamlet_import` | Conversations of other programs found on the chief's machine (Claude Code's sessions), each read as the `Imported` a client sends: its first message and newest ones, tool calls as steps (C35) |
+| `hamlet_import` | Conversations of other programs found on the chief's machine (Claude Code's, Codex's and pi's sessions) or in a ChatGPT or Claude export, each read as the `Imported` a client sends: the branch last shown, its first message and newest ones, tool calls as steps (C35) |
 | `hamlet_update` | A release updating itself: how this copy was installed, the signed manifest, the download and putting it in place; its `check` feature, the window's alone, is what touches the network |
 | `hamlet_assets` | Embedded assets and Bevy asset loading |
 | `hamlet_realm` | The two islands, the city, the harbor, hamlets, houses, roads, robots, the Hand, the library, chief, sound and camera |
