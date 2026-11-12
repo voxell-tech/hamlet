@@ -140,6 +140,11 @@ pub(crate) enum Refusal {
     RoadEnds,
     #[error("there is no past session {number} here")]
     NoSession { number: i64 },
+    #[error(
+        "that conversation was brought in before, as session \
+         {number}"
+    )]
+    AlreadyImported { number: i64 },
     #[error("a turn is running here; stop it, then {then}")]
     TurnRunning { then: String },
     #[error(

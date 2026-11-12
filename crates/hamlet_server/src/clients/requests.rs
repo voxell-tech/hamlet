@@ -18,12 +18,13 @@ use super::connection::{self, Event};
 use super::fold::Fold;
 use super::{Owed, Watch, changes};
 use crate::core::{Core, Live};
+use crate::files::Files;
 use crate::society::agents::{self, AgentKind, Effort};
 use crate::society::refusal::Refusal;
 use crate::society::{authority, hires, workers};
 use crate::talk::activity::Activity;
 use crate::talk::conversations::{self, Kind};
-use crate::talk::{chats, items};
+use crate::talk::{chats, imports, items};
 
 /// The most transcript entries one page holds.
 const PAGE: usize = 100;
@@ -325,6 +326,36 @@ impl Core {
                     format!("Back in session {}.", resume.number)
                 });
                 self.answer(client, reply(&resume.id, words))
+            }
+            ClientMessage::Import(import) => {
+                let Some(agent) =
+                    self.reached(client, &import.id, import.to.0)?
+                else {
+                    return Ok(());
+                };
+                let files = Files::new(self.realm.layout().files());
+                let imported =
+                    match imports::read(&files, &import.file)? {
+                        Ok(imported) => imported,
+                        Err(refusal) => {
+                            return self.answer(
+                                client,
+                                reply(&import.id, Err(refusal)),
+                            );
+                        }
+                    };
+                let done = self
+                    .attempt(Actor::Chief(chief), |cx, env| {
+                        imports::bring_in(
+                            cx, env, agent, chief, &imported,
+                        )
+                    })
+                    .await?;
+                self.rewatch(agent).await?;
+                let words = done.map(|number| {
+                    format!("Brought in as session {number}.")
+                });
+                self.answer(client, reply(&import.id, words))
             }
             ClientMessage::Retry(retry) => {
                 let Some(agent) =

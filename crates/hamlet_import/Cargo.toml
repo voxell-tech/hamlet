@@ -1,0 +1,17 @@
+[package]
+name = "hamlet_import"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+description = "Conversations of other programs found on this machine, read as Hamlet brings them in"
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow.workspace = true
+chrono.workspace = true
+hamlet_protocol.workspace = true
+serde_json.workspace = true

@@ -12,6 +12,7 @@ import {
 import {
     type Conversation,
     type ConversationId,
+    type Cursor,
     configure,
     createRegistry,
     defineDoc,
@@ -35,6 +36,7 @@ import {
     unexpected,
 } from "./channel.ts";
 import { serverCredentials } from "./credentials.ts";
+import { entriesOf } from "./earlier.ts";
 import { hamletExtension, Waits } from "./extension.ts";
 import { fault } from "./faults.ts";
 import { FAUX, queueOf, readScript, scriptedProvider } from "./faux.ts";
@@ -65,6 +67,9 @@ import { signIn } from "./sign-in.ts";
 export const ADAPTER = "hamlet-pi 0.1.0";
 /** The pinned harness this adapter drives. */
 export const HARNESS = "pi-durable 1.2.0";
+
+/** The entries one page of a told conversation holds. */
+const PAGE = 200;
 
 const CAPABILITIES: Capability[] = [
     "operations",
@@ -659,6 +664,9 @@ class Runtime {
                     re,
                     conversation: String(known.conversation),
                 });
+                // Kept with the conversation, before the server knew it.
+                if ((request.earlier ?? []).length > 0)
+                    await this.#tellKept(known, context);
                 return;
             }
             case "fork": {
@@ -898,6 +906,8 @@ class Runtime {
             });
             // Made now, so each model call can be told apart by its session from the first.
             await tx.doc(ProviderDoc, record.id);
+            for (const entry of entriesOf(request.earlier ?? []))
+                await tx.appendEntry(record.id, entry);
             const made: Bound = {
                 conversation: record.id,
                 agent: request.agent,
@@ -908,6 +918,31 @@ class Runtime {
             return made;
         }, context);
         return this.#remember(key, bound, context);
+    }
+
+    /** Tells the server every entry `known` keeps, oldest first; it keeps each once. */
+    async #tellKept(known: Known, context: Context): Promise<void> {
+        const conversation = await this.#harness.conversation(
+            known.conversation,
+            context,
+        );
+        if (conversation === undefined) return;
+        let cursor: Cursor | undefined;
+        do {
+            const page = await conversation.entries(
+                { order: "ascending" },
+                PAGE,
+                cursor,
+                context,
+            );
+            for (const entry of page.items)
+                this.#channel.send({
+                    type: "kept",
+                    conversation: String(known.conversation),
+                    item: itemOf(entry),
+                });
+            cursor = page.next;
+        } while (cursor !== undefined);
     }
 
     /** A copy of a bound conversation up to one of its entries, made once per key; it has a provider session of its own. */

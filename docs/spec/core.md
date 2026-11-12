@@ -236,6 +236,16 @@ the image itself when the chief asks to see it, and lists each file by its
 name. A rewind takes the images and files back with the line, and the words,
 images and files return to the chief's input together (C27).
 
+**C35.** A chief can bring in a conversation from another program as a
+new numbered conversation of a chat with an agent; it is current only
+when the chat has none. The client reads it on the chief's machine, so
+it works with a remote server. It keeps the words of the chief's messages
+and the answers, its first message and the newest [200], and a notice
+says where it came from and how many messages were left out. The other
+program's tool calls are shown, each by its tool and a short summary,
+and never given to the model. The same conversation is brought in to an
+agent once.
+
 **C34.** The `read` tool gives an image file (PNG, JPEG, WebP or GIF) to the
 model as an image, made to fit the model's limits (S30), when the model takes
 images; otherwise it answers in words that the file is an image.

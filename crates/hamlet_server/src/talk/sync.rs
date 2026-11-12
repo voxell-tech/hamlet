@@ -13,7 +13,7 @@ use hamlet_store::Db;
 use super::conversations::{self, Conversation};
 use super::inputs::{self, Input};
 use super::runtimes::{Pending, Phase, Runtimes};
-use super::{Env, models};
+use super::{Env, imports, models};
 use crate::images::{self, Limits};
 use crate::providers::Providers;
 
@@ -208,10 +208,12 @@ async fn make(
             let agent = u64::try_from(owed.agent.0)
                 .context("an agent's id is positive")?;
             let kind = owed.kind.wire();
+            let earlier = imports::earlier(db, owed.id)?;
             runtimes
                 .request(index, pending, |v, id| {
                     ServerMessage::Create(runtime::Create {
                         agent,
+                        earlier,
                         kind,
                         id,
                         key,

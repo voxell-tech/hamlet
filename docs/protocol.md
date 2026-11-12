@@ -126,6 +126,7 @@ and watch failures can answer with `fault` (see [Errors](#errors)).
 | `rewind` (`Rewind`) | `chat: ChatRef`, `item: string` | Take back a chief input and what followed. `reply` with kind `rewound` returns its words; watchers get a reset and replacement transcript. Refused while work is running or queued. |
 | `new` (`New`) | `to: AgentId` | Start a new numbered chief conversation; the previous queue can finish. `reply`. |
 | `resume` (`Resume`) | `to: AgentId`, `number: integer` | Make that saved chief conversation current; `reply`. |
+| `import` (`Import`) | `to: AgentId`, `file: FileId` | Bring in a conversation from another program, sent before with `put-file` as an `Imported` in JSON of at most 16 MiB, as a new numbered chief conversation. It becomes current only when the chat has none. `reply` names its number; the same source conversation brought in again to the same agent is refused with the number it has. |
 | `retry` (`Retry`) | `to: AgentId` | Ask the agent to carry on; `reply`. |
 | `edit` (`Edit`) | `doc` and fields below | Edit a chief-owned document or model setting; `reply`. |
 | `open` (`Open`) | `chat: ChatRef`, `before?: string` | Watch and fetch a page; `transcript` with `to`, or `fault`. |

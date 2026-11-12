@@ -25,6 +25,7 @@ export type Block = Def<"Block">;
 export type Capability = Def<"Capability">;
 export type ConversationKind = Def<"ConversationKind">;
 export type Credential = Def<"Credential">;
+export type Earlier = Def<"Earlier">;
 export type Item = Def<"Item">;
 export type Mark = Def<"Mark">;
 export type ModelRef = Def<"ModelRef">;

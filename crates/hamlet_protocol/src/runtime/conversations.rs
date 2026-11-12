@@ -17,6 +17,10 @@ use crate::runtime::{Item, Mark, ModelRef, Partial, Picture};
 pub struct Create {
     /// The id of the agent it is for.
     pub agent: u64,
+    /// The entries it begins with, kept in order before any input,
+    /// for a conversation brought in from another program.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub earlier: Vec<Earlier>,
     pub kind: ConversationKind,
     #[schemars(length(min = 1))]
     pub id: String,
@@ -24,6 +28,30 @@ pub struct Create {
     pub key: String,
     pub model: ModelRef,
     pub v: Version,
+}
+
+/// An entry a created conversation begins with. Times are
+/// milliseconds since the epoch.
+#[derive(
+    Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
+)]
+#[serde(tag = "type", rename_all = "lowercase", deny_unknown_fields)]
+pub enum Earlier {
+    /// A person's message, given to the model, kept with `mark`.
+    User { at: u64, mark: Mark, text: String },
+    /// An answer in words, given to the model.
+    Assistant {
+        at: u64,
+        /// The model that gave it, as its source names it.
+        #[schemars(length(min = 1))]
+        model: String,
+        /// The program it came from.
+        #[schemars(length(min = 1))]
+        source: String,
+        text: String,
+    },
+    /// An entry only people see.
+    Note { mark: Mark },
 }
 
 /// What a conversation is for.
