@@ -21,7 +21,7 @@ and at its own size.
 | `Write` | An upright bar | Over a text field |
 | `Resize(axis)` | A two-headed arrow | At an edge of the window, a divider, or a number field that is dragged |
 | `Refuse` | A barred ring | A panel refuses |
-| `Wait` | A flame with fireflies going round it | An action is about to run |
+| `Wait` | A flame with fireflies going round it | A request of the first-run page is out |
 
 The resize cursors are ours and not the system's, because they also show
 on dividers in the middle of the panels, where a white system arrow would
@@ -32,7 +32,7 @@ break the set.
 `Mode::choose` in `hamlet_app/src/cursor.rs` decides, and the first of
 these that holds is shown:
 
-1. Something waits: `Wait`.
+1. A request of the first-run page is out: `Wait`.
 2. The hand holds a robot off the ground: `Carry`, drawn faint so the
    robot is seen through it.
 3. A drag moves the camera: `Slide` or `Turn`.

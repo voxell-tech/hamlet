@@ -142,12 +142,13 @@ and the hamlet stays.
 
 ## Another kind of place
 
-Moving is built on `society::Ground`, a thing that holds a round of ground
-and can be picked up and set down. A hamlet is one kind; the Hearth and the
-Library are others. A kind of place needs four things:
+Moving is built on `Ground`, which names a place that holds a round of
+ground and can be picked up and set down. A hamlet (`Ground::Town`) is one
+kind; a scholar's house, the Hearth (`Ground::Chief`) and the Library are
+others. A kind of place needs four things:
 
-1. **A claim on its ground** (`society.claim`), which keeps hamlets and new
-   sites off it and lets the camera go to it.
+1. **A claim on its ground** (an entry of `society.claims`), which keeps
+   hamlets and new sites off it and lets the camera go to it.
 2. **A way to start a move**: `moving::pick_up`. The footprint, the
    colours, the words and the click are the same code for every kind.
 3. **A record**: an arm in `set_down` in `hamlet_realm/src/orders.rs`.

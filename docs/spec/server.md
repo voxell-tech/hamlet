@@ -96,8 +96,8 @@ login on its own.
 **S12.** Tools reach files and processes only through one interface, so
 where they run can change without the agent noticing. On a chief's own
 machine they run in the sandbox of C18: bubblewrap on Linux, Seatbelt on
-macOS. Windows has only insecure mode for now, and Linux and macOS have no
-insecure mode.
+macOS. Windows has only insecure mode, and Linux and macOS have no insecure
+mode (ADR 0008).
 
 ## The realm's records and effects
 
@@ -181,13 +181,14 @@ server, and opens a window. Closing the window or terminal stops no agent.
 | `hamlet` | Serves the realm in the background or reuses its server, and opens a window |
 | `stop` | Stops the realm's server and waits for it to close in order |
 | `status` | Reports whether the realm's server runs |
-| `server` | Serves the realm; stopping it closes in order, and a second stop signal exits at once |
+| `server [--port <n>] [--faux <script.json>]` | Serves the realm; stopping it closes in order, and a second stop signal exits at once |
 | `chat [--to <hand\|hire#id\|mayor@hamlet>]` | Chats with the Hand or the named agent and answers what waits, with no window; end of input waits for that client's submissions and leaves the server running |
-| `dev [--port <n>] [--faux <script.json>] [--home <dir>]` | Builds the checkout's server and window unless `HAMLET_SERVER_BIN` and `HAMLET_APP` select them respectively, serves a scratch realm and opens its window; closing the window leaves the server running, and stopping the command closes both in order |
+| `dev [--port <n>] [--faux <script.json>] [--home <dir>] [--hot]` | Builds the checkout's server and window unless `HAMLET_SERVER_BIN` and `HAMLET_APP` select them respectively, serves a scratch realm and opens its window; closing the window leaves the server running, and stopping the command closes both in order; `--hot` builds a window that reloads saved shaders and tuning files |
 | `window` | Opens a window connected to a running server |
-| `edit <charter\|limits\|settings>`, `edit character <scholar#id>`, `edit memory <scholar#id\|hire#id> [path]` | Opens the chief's document in `$EDITOR` and saves it through the server |
+| `edit <charter\|limits\|settings>` (`limits --hamlet <id>` for a hamlet's), `edit character <scholar#id>`, `edit memory <scholar#id\|hire#id> [path]` | Opens the chief's document in `$EDITOR` and saves it through the server |
 | `login <provider> [--key]` | Gives a key, or follows an offered sign-in |
 | `models [try [model]\|refresh]` | Lists models, tries a one-word hello, or refreshes the list |
+| `models images <model> [off \| [--width <px>] [--height <px>] [--mb <n>] [--per-line <n>]]` | Says that a model takes images and sets its limits, or clears them (S30) |
 
 **S14.** No test contacts a model server or the internet, except those a
 developer asks for by name.

@@ -22,7 +22,8 @@ and `layout.rs` defines `Layout`. The server's chief is named by
 | `workers/<id>/` | A worker's scratch folder while it runs |
 | `library.git/`, `library/` | The library's repository, and its `main` checked out, read-only to agent tools |
 | `tools/` | Hand-added tool manifests and scripts |
-| `staging/`, `dreams/` | Uploads in parts, and the checkout of a scholar's `main` a dream writes, out of agents' reach |
+| `images/`, `files/` | The images chiefs sent and agents read, and the files chiefs sent, each kept once under the hash of its bytes, out of agents' reach |
+| `dreams/` | The checkout of a scholar's `main` a dream writes, out of agents' reach |
 
 A new realm is made with its first chief and its Hand. It has no hamlet: a
 chief creates the first with `/create-hamlet`, or asks the Hand to. The library is
@@ -137,6 +138,8 @@ or window does not stop the server.
 ## Starter skills
 
 `crates/hamlet_server/assets/starters/` supplies the embedded skills, built
-into the server by `knowledge/library.rs`; `assets/charter.md` is the default
-charter and `assets/hand.md` the Hand's first character. The library's first
-commit holds the starters once; a skill taken out or changed later stays so.
+into the server by `knowledge/library.rs`. Beside them,
+`crates/hamlet_server/assets/charter.md` is the default charter and
+`crates/hamlet_server/assets/hand.md` the Hand's first character. The
+library's first commit holds the starters once; a skill taken out or
+changed later stays so.

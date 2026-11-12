@@ -34,7 +34,7 @@ server, and `hamlet status` reports it. An installed app opens
 `hamlet_launch`, which does the same with no terminal: on Linux and
 macOS the window then takes its process, and a failure to start is shown
 in a dialog as well (see [releases](releases.md#the-launcher)).
-`hamlet_launch --update <file>` stops the home's server and puts that
+`hamlet_launch --update <file>` stops the realm's server and puts that
 update in place before it opens Hamlet; the window runs it to update
 ([releases](releases.md#updates)). Running `hamlet_app` directly
 starts only the window.

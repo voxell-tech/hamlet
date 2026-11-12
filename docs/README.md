@@ -19,7 +19,7 @@ Run `HAMLET_HOME=/tmp/hamlet-try cargo xtask dev`. It installs pi's dependencies
 then the Rust CLI builds the server and window, starts a scratch server
 and opens the window with its own scratch view folder.
 Closing the window leaves the server running; Ctrl-C stops it. The full
-setup is in [`../README.md`](../README.md#running).
+setup is in [`../README.md`](../README.md#try-it-without-installing).
 
 Then read the page for the part you are about to touch.
 
@@ -43,13 +43,13 @@ Then read the page for the part you are about to touch.
 | [`chat.md`](chat.md) | Watched conversations, paging, drawing, local links and pictures, and rewinds through the server |
 | [`icons.md`](icons.md) | The icons of the panels: where they are drawn, the rules of the family, how to add one |
 | [`cursors.md`](cursors.md) | The pointer and its modes |
-| [`releases.md`](releases.md) | Packaging the CLI, server, window and pi for Linux and macOS |
+| [`releases.md`](releases.md) | Packaging the CLI, server, window and pi for Linux, macOS and Windows, and a release updating itself |
 
 ## The rules
 
 | Page | What it sets |
 |---|---|
-| [`bevy.md`](bevy.md) | What Bevy 0.19 offers, which tool fits which job, and the habits that keep a frame cheap |
+| [`bevy.md`](bevy.md) | What Bevy 0.20 offers, which tool fits which job, and the habits that keep a frame cheap |
 | [`code_convention.md`](code_convention.md) | How code is written here: the guidelines base, names, errors, ownership, lints, tests, plugins, tuning values, shaders |
 | [`comment_convention.md`](comment_convention.md) | How comments are written here |
 
