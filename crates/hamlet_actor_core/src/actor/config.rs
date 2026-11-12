@@ -609,16 +609,6 @@ impl ActorConfig {
             &self.inspector_tabs,
         )?;
         self.sqlite_profiling.validate_buckets()?;
-        #[cfg(feature = "sqlite-local")]
-        if self.sqlite_profiling.metrics.duration
-            && self.sqlite_profiling.metrics.duration_histogram
-        {
-            super::metrics::configure_sqlite_duration_histogram(
-                &self
-                    .sqlite_profiling
-                    .duration_histogram_buckets_seconds,
-            )?;
-        }
         self.tracing.validate(&self.actions)?;
         anyhow::ensure!(
             self.sqlite_profiling.baseline_sample_rate.is_finite()

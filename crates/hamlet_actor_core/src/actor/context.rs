@@ -496,16 +496,10 @@ impl ActorContext {
         legacy_kv: LegacyActorKv,
         sql: SqliteDb,
     ) -> Self {
-        #[cfg(feature = "sqlite-local")]
-        let mut sql = sql;
-        #[cfg(feature = "sqlite-local")]
-        sql.set_profiling_config(config.sqlite_profiling.clone());
         let metrics = ActorMetrics::new_with_sqlite_profiling(
             name.clone(),
             config.sqlite_profiling.clone(),
         );
-        #[cfg(feature = "sqlite-local")]
-        sql.set_vfs_metrics(Arc::new(metrics.clone()));
         let diagnostics = ActorDiagnostics::new(actor_id.clone());
         let state_save_interval = config.state_save_interval;
         let tracing_config = Arc::clone(&config.tracing);

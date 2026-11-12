@@ -10,7 +10,6 @@ description = "Rust SDK for actors, actions, events, queues, and test harnesses"
 [features]
 default = ["sqlite"]
 sqlite = ["hamlet_actor_core/sqlite-remote"]
-sqlite-local = ["hamlet_actor_core/sqlite-local"]
 
 [dependencies]
 anyhow.workspace = true

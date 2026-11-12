@@ -15,10 +15,6 @@ native-runtime = [
 	"dep:tracing-subscriber",
 ]
 wasm-runtime = []
-sqlite = ["sqlite-local"]
-# The local backend's VFS is in an engine crate that is not ported, so
-# this feature does not build. Its code stays as ported behind it.
-sqlite-local = ["native-runtime"]
 sqlite-remote = []
 
 [dependencies]

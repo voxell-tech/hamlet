@@ -40,8 +40,6 @@ use std::time::Duration;
 
 use anyhow::{Context, Result, anyhow};
 use futures::FutureExt;
-#[cfg(feature = "sqlite-local")]
-use sqlite_embedded::vfs::CorkClose;
 use tokio::sync::{broadcast, mpsc, oneshot, watch};
 use tokio::task::{JoinError, JoinHandle};
 use tokio_util::sync::CancellationToken;
@@ -1684,22 +1682,6 @@ impl ActorTask {
         // would take the cork past one commit fails as too large
         // instead of sending part of it. Only the local backend
         // corks.
-        #[cfg(feature = "sqlite-local")]
-        let startup_corked = if is_new || pending_fork.is_some() {
-            let close = if pending_fork.is_some() {
-                CorkClose::Discard
-            } else {
-                CorkClose::Flush
-            };
-            self.ctx
-                .sql()
-                .cork_commits(close)
-                .await
-                .context("hold new actor startup commits")?
-        } else {
-            false
-        };
-        #[cfg(not(feature = "sqlite-local"))]
         let startup_corked = false;
         self.fork_start_held =
             startup_corked && pending_fork.is_some();

@@ -147,11 +147,8 @@ fn actor_config<A: Actor>(mut config: ActorConfig) -> ActorConfig {
     // Every Rust actor gets a database; `ctx.sql()` is the only
     // durable storage API.
     config.has_database = true;
-    // Internal storage (state, KV, queue) always uses SQLite, so
-    // without local SQLite compiled in every actor must route it
-    // through the engine.
-    if !cfg!(feature = "sqlite-local") {
-        config.remote_sqlite = true;
-    }
+    // Internal storage (state, KV, queue) always uses SQLite, which
+    // every actor routes through its host.
+    config.remote_sqlite = true;
     config
 }
