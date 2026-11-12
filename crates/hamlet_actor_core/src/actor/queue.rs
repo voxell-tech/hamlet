@@ -1262,3 +1262,6 @@ fn duration_ms(duration: Duration) -> u64 {
 
 // Test shim keeps moved tests in crate-root tests/ with
 // private-module access.
+#[cfg(test)]
+#[path = "../../tests/queue.rs"]
+mod tests;
