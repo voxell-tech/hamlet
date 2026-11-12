@@ -1,9 +1,9 @@
 # The docs
 
 How Hamlet is built and how to work on it. The pages here describe the
-project as it stands. Three folders hold the rest: `spec/` the design,
-`adr/` the decisions that are hard to reverse, and `proposals/` what is
-not built. What is left for later is kept outside this repository.
+project as it stands. Two folders hold the rest: `spec/` the design and
+`adr/` the decisions that are hard to reverse. Proposals for what is not
+built, and what is left for later, are kept outside this repository.
 
 ## Start here
 
@@ -56,6 +56,6 @@ Then read the page for the part you are about to touch.
 ## Adding a page
 
 A page here explains something that exists. It has no status line, no
-"not yet" list and no screenshots: a design for something not built goes
-in `proposals/`, and what is unfinished is kept outside this repository.
+"not yet" list and no screenshots: a design for something not built, and
+what is unfinished, are kept outside this repository.
 Add the new page to the table above.

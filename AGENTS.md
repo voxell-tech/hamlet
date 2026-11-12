@@ -10,8 +10,7 @@
 - [Code convention](docs/code_convention.md)
 - The design is in [`docs/spec/`](docs/spec/). Code refers to its
   requirements by ID (C1, H10, ...). Read it before non-trivial changes.
-  Decisions that are hard to reverse are in [`docs/adr/`](docs/adr/), and
-  proposals for what is not built in [`docs/proposals/`](docs/proposals/).
+  Decisions that are hard to reverse are in [`docs/adr/`](docs/adr/).
 - [`CONTEXT.md`](CONTEXT.md) is the glossary: the words for Hamlet's
   concepts, and the ones to avoid.
 - [`docs/islands.md`](docs/islands.md) before touching the ground, the
@@ -19,9 +18,13 @@
 - What is known and deliberately left for later is kept outside this
   repository, in `../hamlet_backlog/README.md` where that folder exists.
   Check it before reporting something as a new problem, and add to it when
-  something is deferred. Outside `docs/spec/`, `docs/adr/` and
-  `docs/proposals/`, `docs/` is only for what exists: no progress notes,
-  no screenshots.
+  something is deferred. Outside `docs/spec/` and `docs/adr/`, `docs/`
+  is only for what exists: no progress notes, no screenshots.
+- Proposals, designs for what is not built and the research behind
+  them, are never in this repository. Write them in
+  `../hamlet_backlog/proposals/`, and nothing in the repository links to
+  them. When one is built, what exists is described in `docs/`, and a
+  decision that is hard to reverse becomes an ADR.
 
 ## Branches
 

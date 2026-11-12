@@ -25,8 +25,6 @@ these may run under the chief's own git later.
   repository made during one.
 - Git on a remote machine. Left for deployment: either a proxy or a
   short-lived GitHub App token inside the remote machine.
-  [`docs/proposals/research/git-credentials-in-agent-sandboxes.md`](../proposals/research/git-credentials-in-agent-sandboxes.md)
-  is how other products do this.
 
 ## Consequences
 
