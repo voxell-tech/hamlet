@@ -18,9 +18,7 @@ use crate::actor::connection::{
     PersistedConnection, encode_persisted_connection,
 };
 use crate::actor::context::ActorContext;
-use crate::actor::internal_storage::{
-    self, InternalActorSnapshot, schema as internal_schema,
-};
+use crate::actor::internal_storage::{self, InternalActorSnapshot};
 use crate::actor::keys::{
     INSPECTOR_TOKEN_KEY, KV_PREFIX, LAST_PUSHED_ALARM_KEY,
     PERSIST_DATA_KEY, QUEUE_METADATA_KEY, make_connection_key,
@@ -44,7 +42,9 @@ use crate::sqlite::{
     BindParam, ColumnValue, ExecuteResult, QueryResult,
     SqliteBatchStatement, SqliteDb,
 };
-use crate::testing::persist_actor_snapshot;
+use crate::testing::{
+    ensure_internal_schema, persist_actor_snapshot,
+};
 use crate::types::{ActorKeySegment, ListOpts};
 
 /// The SQLite requests the core sends its host, which a task of the
@@ -527,14 +527,6 @@ async fn load_actor_snapshot(
     Ok(internal_storage::load_actor_startup(db).await?.snapshot)
 }
 
-/// The reference's `ensure_internal_schema`, which upstream split
-/// into a probe and an ensure.
-async fn ensure_internal_schema(db: &SqliteDb) -> Result<()> {
-    let has_schema = internal_schema::has_internal_schema(db).await?;
-    internal_schema::ensure_probed_internal_schema(db, has_schema)
-        .await
-}
-
 #[tokio::test]
 async fn marks_empty_legacy_import_done_without_runtime_rows()
 -> Result<()> {
@@ -645,7 +637,8 @@ async fn user_kv_batch_get_chunks_queries_and_preserves_input_order()
 #[tokio::test]
 #[expect(
     deprecated,
-    reason = "the legacy queue message fields are deprecated"
+    reason = "reads the imported entries through the deprecated \
+              actor KV"
 )]
 async fn imports_legacy_kv_snapshot_to_sqlite_once() -> Result<()> {
     let kv = Kv::new_in_memory();

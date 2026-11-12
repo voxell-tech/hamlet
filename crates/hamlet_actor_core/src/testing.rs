@@ -600,3 +600,19 @@ impl TestHost {
         }
     }
 }
+
+// --- migq ---
+
+/// Creates or migrates the internal schema, as the reference's
+/// `ensure_internal_schema` did before upstream split it into a probe
+/// and an ensure.
+pub(crate) async fn ensure_internal_schema(
+    db: &SqliteDb,
+) -> Result<()> {
+    let has_schema =
+        internal_storage::schema::has_internal_schema(db).await?;
+    internal_storage::schema::ensure_probed_internal_schema(
+        db, has_schema,
+    )
+    .await
+}

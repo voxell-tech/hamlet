@@ -12,12 +12,12 @@ mod moved_tests {
     use super::{QueueNextBatchOpts, QueueNextOpts, QueueWaitOpts};
     use crate::actor::config::ActorConfig;
     use crate::actor::context::ActorContext;
-    use crate::actor::internal_storage::schema as internal_schema;
     use crate::actor::keys::{
         QUEUE_METADATA_KEY, decode_queue_message_key,
         make_queue_message_key,
     };
     use crate::kv::Kv;
+    use crate::testing::ensure_internal_schema;
 
     fn test_queue() -> ActorContext {
         crate::testing::new_with_kv(
@@ -27,17 +27,6 @@ mod moved_tests {
             "local",
             Kv::new_in_memory(),
         )
-    }
-
-    /// The reference's `ensure_internal_schema`, which upstream split
-    /// into a probe and an ensure.
-    async fn ensure_internal_schema(
-        db: &crate::sqlite::SqliteDb,
-    ) -> anyhow::Result<()> {
-        let has_schema =
-            internal_schema::has_internal_schema(db).await?;
-        internal_schema::ensure_probed_internal_schema(db, has_schema)
-            .await
     }
 
     fn assert_actor_aborted(error: anyhow::Error) {
