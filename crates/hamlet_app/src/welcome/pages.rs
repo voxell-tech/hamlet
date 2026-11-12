@@ -880,9 +880,12 @@ pub(super) fn over(cx: &Cx, page: AnyView) -> impl View + use<> {
     let space = &theme.space;
     // The page pads its own parts, so its rules run edge to edge,
     // and scrolls its own body.
+    // Its height is what the window leaves: a percentage of a parent
+    // sized by its content means nothing, so it shrinks from its
+    // content's height instead, and its body scrolls.
     let card = kinds::card((page,))
         .width(percent(100.0))
-        .max_height(percent(100.0))
+        .min_height(px(0.0))
         .padding(UiRect::all(px(0.0)))
         .gap(0.0)
         .tagged(theme.shadow())
@@ -891,6 +894,7 @@ pub(super) fn over(cx: &Cx, page: AnyView) -> impl View + use<> {
         .width(percent(100.0))
         .max_width(px(space.overlay_width))
         .max_height(percent(100.0))
+        .min_height(px(0.0))
         .gap(0.0);
     row((hung,))
         .width(percent(100.0))
