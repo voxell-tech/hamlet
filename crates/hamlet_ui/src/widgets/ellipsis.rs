@@ -2,6 +2,7 @@
 //! does not fit, between letters, so the column after it stays clear.
 
 use bevy::app::{App, PostUpdate};
+use bevy::camera::visibility::{InheritedVisibility, Visibility};
 use bevy::ecs::change_detection::{DetectChanges, Ref};
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
@@ -33,6 +34,9 @@ const HEAD: f32 = 0.4;
 const MOST_HEAD: f32 = 0.6;
 
 pub(super) fn plugin(app: &mut App) {
+    // Visibility is propagated before layout, through the menus'
+    // focus, so `fit` hides a label in this frame by its inherited
+    // visibility, which its own takes over from in the next.
     app.add_systems(PostUpdate, fit.after(UiSystems::PostLayout));
 }
 
@@ -102,6 +106,10 @@ struct Ellipsis {
     /// The width of the ellipsis, once laid out.
     dots: Option<f32>,
     scale: f32,
+    /// It wrote a cut whose layout is still to be made.
+    laying: bool,
+    /// It hid the label until its layout is of the text it shows.
+    hidden: bool,
 }
 
 impl Ellipsis {
@@ -110,6 +118,7 @@ impl Ellipsis {
         self.full = full;
         self.stops.clear();
         self.dots = None;
+        self.laying = true;
     }
 
     /// The longest cut of `full`, with its ellipsis, no wider than
@@ -206,7 +215,9 @@ fn fit(
             Ref<TextFont>,
             &ComputedNode,
             &ComputedTextBlock,
-            &TextLayoutInfo,
+            Ref<TextLayoutInfo>,
+            &mut Visibility,
+            &mut InheritedVisibility,
         ),
         Or<(
             Changed<Text>,
@@ -216,8 +227,16 @@ fn fit(
         )>,
     >,
 ) {
-    for (mut text, mut ellipsis, font, node, block, info) in
-        &mut texts
+    for (
+        mut text,
+        mut ellipsis,
+        font,
+        node,
+        block,
+        info,
+        mut seen,
+        mut inherited,
+    ) in &mut texts
     {
         // Its stops hold for one text in one font at one scale.
         if text.0 != ellipsis.shown
@@ -228,30 +247,48 @@ fn fit(
             ellipsis.reset(full);
             ellipsis.scale = info.scale_factor;
         }
+        // A layout made since is of the text last written, which is
+        // laid out in the update it is written in or the next.
+        if info.is_changed() {
+            ellipsis.laying = false;
+        }
         let layout = block.buffer();
-        if ellipsis.stops.is_empty() {
-            let laid = stops(layout);
+        let laid = stops(layout);
+        if !ellipsis.laying {
             // Only a layout of the whole text tells where it can be
             // cut.
-            if ellipsis.shown != ellipsis.full
-                || laid.last().map(|&(end, _)| end)
-                    != Some(ellipsis.full.len())
+            if ellipsis.stops.is_empty()
+                && ellipsis.shown == ellipsis.full
             {
-                continue;
+                ellipsis.stops.clone_from(&laid);
             }
-            ellipsis.stops = laid;
-        }
-        if ellipsis.dots.is_none() {
-            ellipsis.dots = dots_width(layout, &ellipsis.shown);
+            if ellipsis.dots.is_none() {
+                ellipsis.dots = dots_width(layout, &ellipsis.shown);
+            }
         }
         let room = node.content_box().width();
-        if room <= 0.0 {
-            continue;
+        if !ellipsis.stops.is_empty() && room > 0.0 {
+            let fitted = ellipsis.fitted(room, info.size.y);
+            if fitted != ellipsis.shown {
+                text.0.clone_from(&fitted);
+                ellipsis.shown = fitted;
+                ellipsis.laying = true;
+            }
         }
-        let fitted = ellipsis.fitted(room, info.size.y);
-        if fitted != ellipsis.shown {
-            text.0.clone_from(&fitted);
-            ellipsis.shown = fitted;
+        // A frame draws the layout of the text before this cut, so
+        // the label is hidden until the layout is of what it shows: a
+        // text wider than its room never shows whole for a frame.
+        let overshoots = ellipsis.shown == ellipsis.full
+            && laid.last().is_some_and(|&(_, x)| x > room + 0.5);
+        let hide = room > 0.0 && (ellipsis.laying || overshoots);
+        if hide != ellipsis.hidden {
+            ellipsis.hidden = hide;
+            *seen = if hide {
+                *inherited = InheritedVisibility::HIDDEN;
+                Visibility::Hidden
+            } else {
+                Visibility::Inherited
+            };
         }
     }
 }
