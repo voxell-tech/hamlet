@@ -49,6 +49,8 @@ pub enum Is {
     /// this much.
     Acked(&'static str, i64),
     Exactly(i64),
+    /// The restart showed it, with any value.
+    Present,
     /// The restart did not show it.
     Absent,
 }
@@ -80,15 +82,13 @@ const COUNTER_TRANSACTION: &[Expect] = &[
 ];
 
 /// The first start after the one-shot came due is boot's own, and
-/// the one-shot fired in it.
+/// the one-shot fired in it. The start runs the one-shot on a task of
+/// its own, so the replies may come before it; the file, read once
+/// the host stopped, holds its end.
 const SCHEDULE_FIRED_AT_BOOT: &[Expect] = &[
     Expect {
         value: "boot counter/a",
-        is: Is::Acked("counter/a", 1),
-    },
-    Expect {
-        value: "counter/a",
-        is: Is::Acked("counter/a", 1),
+        is: Is::Present,
     },
     Expect {
         value: "a.value",

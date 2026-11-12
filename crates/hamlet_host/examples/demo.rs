@@ -12,7 +12,7 @@
 //!
 //! Each command prints `counter/<key> <count>`, the count the actor
 //! replied with. Booting prints `boot counter/<key> <count>` for each
-//! actor it started.
+//! actor it started. Warnings and errors go to standard error.
 
 #[path = "demo/counter.rs"]
 mod counter;
@@ -27,6 +27,10 @@ use tokio::sync::mpsc;
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::WARN)
+        .with_writer(std::io::stderr)
+        .init();
     let home = std::env::var_os("HAMLET_HOME")
         .map(PathBuf::from)
         .context("set HAMLET_HOME to the realm folder")?;

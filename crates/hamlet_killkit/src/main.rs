@@ -195,6 +195,16 @@ impl Report {
                         Some(acked + plus)
                     }
                     Is::Exactly(value) => Some(value),
+                    Is::Present => {
+                        if !restart.contains_key(expect.value) {
+                            failures.push(format!(
+                                "restart {}: {} is missing",
+                                n + 1,
+                                expect.value
+                            ));
+                        }
+                        continue;
+                    }
                     Is::Absent => None,
                 };
                 let got = restart.get(expect.value).copied();

@@ -25,8 +25,9 @@ fn factories() -> HashMap<String, ActorFactory> {
 /// nothing.
 const CHILD_HOME: &str = "HAMLET_HOST_TEST_HOME";
 
-/// How far ahead the child schedules its one-shot.
-const SCHEDULE_MS: u64 = 1500;
+/// How far ahead the child schedules its one-shot: room for a kill,
+/// a restart and a clean stop before it is due.
+const SCHEDULE_MS: u64 = 4000;
 
 /// Runs as the child: schedules a one-shot on `counter/a`, prints
 /// `acked` once the action replied, and waits to be killed.
@@ -51,12 +52,19 @@ fn child_host() {
     });
 }
 
+/// When the child's one-shot is due: no earlier than `earliest`, no
+/// later than `latest`.
+struct Due {
+    earliest: Instant,
+    latest: Instant,
+}
+
 /// Runs a child host that schedules a one-shot and is killed once
 /// the schedule is acknowledged and its alarm write is stopped at
-/// the fault point `alarm-store`. Returns when the one-shot is due.
-fn kill_after_the_ack_before_the_alarm_is_stored(
-    home: &Path,
-) -> Instant {
+/// the fault point `alarm-store`.
+fn kill_after_the_ack_before_the_alarm_is_stored(home: &Path) -> Due {
+    let schedule = Duration::from_millis(SCHEDULE_MS);
+    let earliest = Instant::now() + schedule;
     let faults = home.join("faults");
     std::fs::create_dir_all(&faults).unwrap();
     let mut child = Command::new(std::env::current_exe().unwrap())
@@ -72,7 +80,7 @@ fn kill_after_the_ack_before_the_alarm_is_stored(
         .lines()
         .map_while(Result::ok)
         .any(|line| line == "acked");
-    let due = Instant::now() + Duration::from_millis(SCHEDULE_MS);
+    let latest = Instant::now() + schedule;
     let deadline = Instant::now() + Duration::from_secs(10);
     while !faults.join("host-paused").exists() {
         assert!(Instant::now() < deadline, "the child never paused");
@@ -81,7 +89,7 @@ fn kill_after_the_ack_before_the_alarm_is_stored(
     child.kill().unwrap();
     child.wait().unwrap();
     assert!(acked, "the child never acknowledged the schedule");
-    due
+    Due { earliest, latest }
 }
 
 fn sleep_until(instant: Instant) {
@@ -96,16 +104,30 @@ async fn count(host: &Host, actor_id: &str) -> i64 {
     i64::from_le_bytes(reply.try_into().unwrap())
 }
 
+/// Waits for the actor's count to reach `want`: a start runs an
+/// overdue one-shot on a task of its own, after it returns.
+async fn wait_for_count(host: &Host, actor_id: &str, want: i64) {
+    let deadline =
+        tokio::time::Instant::now() + Duration::from_secs(10);
+    while count(host, actor_id).await != want {
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "the count never reached {want}"
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn a_schedule_acknowledged_before_its_alarm_was_stored_fires_once_after_a_kill()
  {
     let home = Scratch::new("kill-due");
     let due = kill_after_the_ack_before_the_alarm_is_stored(&home);
-    sleep_until(due + Duration::from_millis(200));
+    sleep_until(due.latest + Duration::from_millis(200));
 
     let host = Host::open(&home, factories()).unwrap();
     assert_eq!(host.boot().await.unwrap(), vec!["counter/a"]);
-    assert_eq!(count(&host, "counter/a").await, 1);
+    wait_for_count(&host, "counter/a", 1).await;
     host.stop_all().await.unwrap();
     drop(host);
 
@@ -128,11 +150,14 @@ async fn a_start_before_the_schedule_is_due_stores_its_alarm_again() {
     host.boot().await.unwrap();
     host.stop_all().await.unwrap();
     drop(host);
-    assert!(Instant::now() < due, "the first start came after due");
-    sleep_until(due + Duration::from_millis(200));
+    assert!(
+        Instant::now() < due.earliest,
+        "the first start came after due"
+    );
+    sleep_until(due.latest + Duration::from_millis(200));
 
     let host = Host::open(&home, factories()).unwrap();
     assert_eq!(host.boot().await.unwrap(), vec!["counter/a"]);
-    assert_eq!(count(&host, "counter/a").await, 1);
+    wait_for_count(&host, "counter/a", 1).await;
     host.stop_all().await.unwrap();
 }
