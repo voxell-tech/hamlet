@@ -42,8 +42,6 @@ use super::pages::{footed, over, sheet};
 /// The file in the window's folder that says the projects were
 /// offered on this machine.
 const OFFERED: &str = "projects-offered";
-/// The hires a hamlet holds at its first tier, its mayor among them.
-const ROOM: usize = 49;
 /// How far in a project's conversations stand under it.
 const INDENT: f32 = 32.0;
 
@@ -111,9 +109,9 @@ fn key(found: &Found) -> String {
     format!("{}:{}", found.source.word(), found.session)
 }
 
-/// The newest conversations of `project` a hamlet has room for.
-fn newest(project: &Project) -> impl Iterator<Item = String> + '_ {
-    project.conversations.iter().take(ROOM).map(key)
+/// The conversations of `project`, by their keys.
+fn keys(project: &Project) -> impl Iterator<Item = String> + '_ {
+    project.conversations.iter().map(key)
 }
 
 /// Opens the card on the projects of this machine.
@@ -151,8 +149,8 @@ fn offer(
     }
 }
 
-/// Picks the newest conversations of the suggested projects once they
-/// are found.
+/// Picks the conversations of the suggested projects once they are
+/// found.
 fn pick_suggested(
     imports: Res<Imports>,
     mut projects: ResMut<Projects>,
@@ -165,7 +163,7 @@ fn pick_suggested(
         .projects
         .iter()
         .filter(|project| project.is_suggested())
-        .flat_map(newest)
+        .flat_map(keys)
         .collect();
 }
 
@@ -195,29 +193,20 @@ fn chosen(
     }
 }
 
-/// Picks the newest conversations of the project `key` there is room
-/// for, or none of them.
+/// Picks every conversation of the project `project`, or none.
 fn pick_project(world: &mut World, project: &str, on: bool) {
-    let keys = world
+    let Some(all) = world
         .resource::<Imports>()
         .projects
         .iter()
         .find(|found| project_key(found) == project)
-        .map(|found| {
-            let all = found
-                .conversations
-                .iter()
-                .map(key)
-                .collect::<Vec<_>>();
-            let newest = newest(found).collect::<Vec<_>>();
-            (all, newest)
-        });
-    let Some((all, newest)) = keys else {
+        .map(|found| keys(found).collect::<Vec<_>>())
+    else {
         return;
     };
     let mut projects = world.resource_mut::<Projects>();
     if on {
-        projects.picked.extend(newest);
+        projects.picked.extend(all);
     } else {
         for key in all {
             projects.picked.remove::<String>(&key);
@@ -289,15 +278,10 @@ fn lines(world: &World) -> Vec<Line> {
             continue;
         }
         let count = project.conversations.len();
-        let mut detail = match (picked, count) {
-            (_, 1) => format!("{picked} of 1 conversation"),
-            (_, count) => {
-                format!("{picked} of {count} conversations")
-            }
+        let mut detail = match count {
+            1 => format!("{picked} of 1 conversation"),
+            count => format!("{picked} of {count} conversations"),
         };
-        if picked > ROOM {
-            detail.push_str(&format!(", {ROOM} fit"));
-        }
         if let Some(folder) = &project.folder {
             let shown = home
                 .as_deref()
