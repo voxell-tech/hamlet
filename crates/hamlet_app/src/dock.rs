@@ -5,6 +5,7 @@ use std::collections::HashMap;
 
 use bevy::app::{App, PreUpdate, Update};
 use bevy::ecs::query::With;
+use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::system::{Query, ResMut};
 use bevy::ecs::world::World;
@@ -39,11 +40,12 @@ pub(crate) const HUB: &str = "hub";
 const GONE: [&str; 2] = ["agent", "needs"];
 
 pub(crate) fn plugin(app: &mut App) {
-    app.add_systems(
-        PreUpdate,
-        count_waits.in_set(PanelSystems::Bind),
-    )
-    .add_systems(Update, keep_wide);
+    app.init_resource::<Numbered>()
+        .add_systems(
+            PreUpdate,
+            count_waits.in_set(PanelSystems::Bind),
+        )
+        .add_systems(Update, keep_wide);
 }
 
 /// Tells the panels' highlights how many things wait for the chief.
@@ -64,6 +66,15 @@ pub(crate) trait PanelAppExt {
         id: &str,
         kind: DockWindowKind<HamletTheme>,
     ) -> &mut Self;
+
+    /// Registers a panel that opens more than once: `id` now, and
+    /// each other as it is opened or laid out.
+    #[expect(dead_code, reason = "no panel opens more than once yet")]
+    fn add_numbered_panel(
+        &mut self,
+        id: &str,
+        make: MakePanel,
+    ) -> &mut Self;
 }
 
 impl PanelAppExt for App {
@@ -78,7 +89,30 @@ impl PanelAppExt for App {
             .register(id, kind);
         self
     }
+
+    fn add_numbered_panel(
+        &mut self,
+        id: &str,
+        make: MakePanel,
+    ) -> &mut Self {
+        self.add_panel(id, make(id));
+        self.init_resource::<Numbered>();
+        self.world_mut()
+            .resource_mut::<Numbered>()
+            .0
+            .push((id.to_owned(), make));
+        self
+    }
 }
+
+/// What makes the dock window of a numbered panel from its id.
+pub(crate) type MakePanel = fn(&str) -> DockWindowKind<HamletTheme>;
+
+/// The panels that open more than once, by the id of the first, with
+/// what makes a window of each. The others are `<id>-2`, `<id>-3` and
+/// so on, registered as they are opened or laid out.
+#[derive(Resource, Default)]
+pub(crate) struct Numbered(Vec<(String, MakePanel)>);
 
 /// A dock panel's contents.
 pub fn panel(view: impl View) -> AnyView {
