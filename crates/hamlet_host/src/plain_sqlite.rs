@@ -31,7 +31,7 @@ enum Command {
     ),
     /// A write of the host's own, held while the actor has a
     /// transaction open so it never joins the actor's transaction.
-    HostWrite(String, Vec<Value>, oneshot::Sender<Result<()>>),
+    HostWrite(HostWrite),
     Close(oneshot::Sender<()>),
 }
 
@@ -101,14 +101,21 @@ impl PlainSqlite {
 
     /// Queues a write of the host's own, which runs once the actor
     /// has no transaction open. Writes run in the order they are
-    /// queued. The receiver gets the write's result.
+    /// queued, each after the fault point `point`. The receiver gets
+    /// the write's result.
     pub fn host_write(
         &self,
+        point: &'static str,
         sql: &str,
         params: Vec<Value>,
     ) -> Result<HostWriteResult> {
         let (reply, rx) = oneshot::channel();
-        self.send(Command::HostWrite(sql.to_owned(), params, reply))?;
+        self.send(Command::HostWrite(HostWrite {
+            point,
+            sql: sql.to_owned(),
+            params,
+            reply,
+        }))?;
         Ok(HostWriteResult(rx))
     }
 
@@ -145,9 +152,7 @@ fn serve(conn: Connection, rx: &std_mpsc::Receiver<Command>) {
             Command::Batch(statements, reply) => {
                 let _ = reply.send(batch(&conn, statements));
             }
-            Command::HostWrite(sql, params, reply) => {
-                held.push((sql, params, reply));
-            }
+            Command::HostWrite(write) => held.push(write),
             Command::Close(reply) => {
                 run_held(&conn, &mut held);
                 if let Err((_, error)) = conn.close() {
@@ -164,7 +169,12 @@ fn serve(conn: Connection, rx: &std_mpsc::Receiver<Command>) {
     }
 }
 
-type HostWrite = (String, Vec<Value>, oneshot::Sender<Result<()>>);
+struct HostWrite {
+    point: &'static str,
+    sql: String,
+    params: Vec<Value>,
+    reply: oneshot::Sender<Result<()>>,
+}
 
 /// The result of a queued host write.
 pub struct HostWriteResult(oneshot::Receiver<Result<()>>);
@@ -180,7 +190,14 @@ fn run_held(conn: &Connection, held: &mut Vec<HostWrite>) {
     if !conn.is_autocommit() {
         return;
     }
-    for (sql, params, reply) in held.drain(..) {
+    for HostWrite {
+        point,
+        sql,
+        params,
+        reply,
+    } in held.drain(..)
+    {
+        crate::fault::point(point);
         let result = conn
             .execute(&sql, params_from_iter(params))
             .map(drop)
@@ -320,6 +337,7 @@ mod tests {
             .unwrap();
         let written = file
             .host_write(
+                "test-write",
                 "INSERT INTO t VALUES (?)",
                 vec![Value::Text("host".to_owned())],
             )

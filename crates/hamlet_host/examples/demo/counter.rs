@@ -6,7 +6,12 @@
 //! - `discard` adds one in a transaction and rolls it back.
 //! - `get` reads the count.
 //! - `schedule` takes a little-endian `u64` of milliseconds and arms
-//!   a one-shot `increment` that far ahead.
+//!   a one-shot `increment` that far ahead. It replies with the count
+//!   it read before, so its reply waits for no write after the
+//!   schedule's.
+//!
+//! `increment` passes the fault point `tx-open` inside its
+//! transaction.
 
 use std::collections::HashMap;
 use std::time::Duration;
@@ -84,9 +89,10 @@ async fn action(
                 args.try_into()
                     .map_err(|_| anyhow!("schedule takes a u64"))?,
             );
+            let count = read_count(ctx).await?;
             ctx.after(Duration::from_millis(ms), "increment", &[])
                 .await?;
-            read_count(ctx).await
+            Ok(count)
         }
         other => Err(anyhow!("unknown action `{other}`")),
     }
@@ -100,6 +106,7 @@ async fn add_one(ctx: &ActorContext, commit: bool) -> Result<i64> {
         None,
     )
     .await?;
+    hamlet_host::fault::point("tx-open");
     if commit {
         tx.commit().await?;
     } else {

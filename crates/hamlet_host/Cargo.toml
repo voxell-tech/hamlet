@@ -15,7 +15,13 @@ rusqlite.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 
+[features]
+# Fault points a kill test stops the host at; see `fault`.
+faults = []
+
 [dev-dependencies]
+# The crate's own tests and examples run with its fault points.
+hamlet_host = { workspace = true, features = ["faults"] }
 hamlet_testing.workspace = true
 
 [lints]

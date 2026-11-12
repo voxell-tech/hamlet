@@ -2,6 +2,7 @@
 //! file under the realm folder, on the host trait of
 //! `hamlet_actor_core`.
 
+pub mod fault;
 mod local;
 mod plain_sqlite;
 

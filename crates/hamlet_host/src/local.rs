@@ -3,6 +3,13 @@
 //! finds an actor by kind and key, starts it, stops it, and keeps its
 //! next alarm in the file's `_hamlet_actor` row, so an actor whose
 //! alarm is due starts when the host boots.
+//!
+//! The stored alarm trails the actor's own schedule: the core goes on
+//! once the alarm is queued, so an action can reply before the host
+//! stored it. The row also marks an actor running from its start
+//! until a clean stop, and boot starts again each actor a kill left
+//! marked. That start takes the next alarm from the actor's own
+//! schedule and stores it again.
 
 use std::collections::HashMap;
 use std::fs::{File, TryLockError};
@@ -39,7 +46,8 @@ const ACTOR_TABLE: &str = "CREATE TABLE IF NOT EXISTS _hamlet_actor \
 	kind TEXT NOT NULL,
 	key TEXT NOT NULL,
 	generation INTEGER NOT NULL,
-	wake_at INTEGER)";
+	wake_at INTEGER,
+	running INTEGER NOT NULL DEFAULT 0)";
 
 struct HostInner {
     dir: PathBuf,
@@ -101,18 +109,45 @@ impl Host {
         })))
     }
 
-    /// Reads every actor file's alarm. Starts each actor whose alarm
-    /// is due, and arms a timer for each later one. Returns the
-    /// started actors.
+    /// Reads every actor file's row. Starts each actor whose alarm
+    /// is due or whose run a kill cut off, and arms a timer for each
+    /// later alarm. Returns the started actors. An actor that fails
+    /// to start is logged and left for the next boot.
     pub async fn boot(&self) -> Result<Vec<String>> {
         let mut started = Vec::new();
-        for (actor_id, wake_at) in self.stored_alarms()? {
-            self.0.alarms.lock().insert(actor_id.clone(), wake_at);
-            if wake_at <= now_ms() {
-                self.fire_alarm(&actor_id, wake_at).await?;
-                started.push(actor_id);
-            } else {
-                arm_alarm(Arc::downgrade(&self.0), actor_id, wake_at);
+        for stored in self.stored_actors()? {
+            let actor_id = stored.actor_id;
+            let due =
+                stored.wake_at.filter(|&wake_at| wake_at <= now_ms());
+            if let Some(wake_at) = stored.wake_at {
+                self.0
+                    .alarms
+                    .lock()
+                    .insert(actor_id.clone(), wake_at);
+                if due.is_none() {
+                    arm_alarm(
+                        Arc::downgrade(&self.0),
+                        actor_id.clone(),
+                        wake_at,
+                    );
+                }
+            }
+            let start = match due {
+                Some(wake_at) => {
+                    self.fire_alarm(&actor_id, wake_at).await
+                }
+                None if stored.cut_off => {
+                    self.ensure_started(&actor_id).await
+                }
+                None => continue,
+            };
+            match start {
+                Ok(()) => started.push(actor_id),
+                Err(error) => tracing::error!(
+                    ?error,
+                    actor_id,
+                    "host failed to start an actor at boot"
+                ),
             }
         }
         Ok(started)
@@ -209,6 +244,7 @@ impl Host {
             return Ok(());
         };
         file.host_write(
+            "alarm-fired",
             "UPDATE _hamlet_actor SET wake_at = NULL WHERE wake_at \
              = ?",
             vec![Value::Integer(wake_at)],
@@ -217,10 +253,11 @@ impl Host {
         .await
     }
 
-    /// Each actor file's stored alarm. The files are closed again;
-    /// starting an actor opens its file anew.
-    fn stored_alarms(&self) -> Result<Vec<(String, i64)>> {
-        let mut alarms = Vec::new();
+    /// Each actor file's row that holds an alarm or a run a kill cut
+    /// off. The files are closed again; starting an actor opens its
+    /// file anew.
+    fn stored_actors(&self) -> Result<Vec<StoredActor>> {
+        let mut stored = Vec::new();
         let actors = self.0.dir.join("actors");
         for kind in std::fs::read_dir(&actors)? {
             let kind = kind?;
@@ -233,22 +270,31 @@ impl Host {
                 {
                     continue;
                 }
-                if let Some(alarm) = stored_alarm(&path)
+                if let Some(actor) = stored_actor(&path)
                     .with_context(|| {
                         format!("read {}", path.display())
                     })?
                 {
-                    alarms.push(alarm);
+                    stored.push(actor);
                 }
             }
         }
-        Ok(alarms)
+        Ok(stored)
     }
 }
 
-/// The actor id and alarm stored in one actor file, if it has an
-/// alarm.
-fn stored_alarm(path: &Path) -> Result<Option<(String, i64)>> {
+/// What boot needs from one actor file's `_hamlet_actor` row.
+struct StoredActor {
+    actor_id: String,
+    wake_at: Option<i64>,
+    /// The actor was running when the host died: no clean stop
+    /// cleared its mark.
+    cut_off: bool,
+}
+
+/// The `_hamlet_actor` row of one actor file, if it holds an alarm
+/// or a run a kill cut off.
+fn stored_actor(path: &Path) -> Result<Option<StoredActor>> {
     let conn = plain_sqlite::open(path)?;
     let has_row: bool = conn.query_row(
         "SELECT EXISTS (SELECT 1 FROM sqlite_schema WHERE name = \
@@ -259,16 +305,29 @@ fn stored_alarm(path: &Path) -> Result<Option<(String, i64)>> {
     if !has_row {
         return Ok(None);
     }
-    let stored: Option<(String, String, Option<i64>)> = conn
+    let stored: Option<(String, String, Option<i64>, bool)> = conn
         .query_row(
-            "SELECT kind, key, wake_at FROM _hamlet_actor",
+            "SELECT kind, key, wake_at, running FROM _hamlet_actor",
             [],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                ))
+            },
         )
         .optional()?;
     match stored {
-        Some((kind, key, Some(wake_at))) => {
-            Ok(Some((actor_id(&kind, &key)?, wake_at)))
+        Some((kind, key, wake_at, cut_off))
+            if wake_at.is_some() || cut_off =>
+        {
+            Ok(Some(StoredActor {
+                actor_id: actor_id(&kind, &key)?,
+                wake_at,
+                cut_off,
+            }))
         }
         _ => Ok(None),
     }
@@ -324,8 +383,8 @@ fn actor_path(dir: &Path, actor_id: &str) -> PathBuf {
 }
 
 /// Opens the actor's file, adds a generation to its `_hamlet_actor`
-/// row, and serves it. Returns the file, the new generation, and
-/// whether this is the actor's first start.
+/// row, marks it running, and serves it. Returns the file, the new
+/// generation, and whether this is the actor's first start.
 fn open_actor_file(
     dir: &Path,
     kind: &str,
@@ -353,8 +412,8 @@ fn bump_generation(
         (kind, key),
     )? == 1;
     let generation = tx.query_row(
-        "UPDATE _hamlet_actor SET generation = generation + 1 \
-         RETURNING generation",
+        "UPDATE _hamlet_actor SET generation = generation + 1, \
+         running = 1 RETURNING generation",
         [],
         |row| row.get(0),
     )?;
@@ -386,6 +445,8 @@ async fn start_actor(
         new_storage: first,
     })
     .await;
+    // A failed start keeps its running mark, so the next boot tries
+    // it again rather than leave an alarm it may not have stored.
     if started.is_err() {
         host.files.lock().remove(actor_id);
         file.close().await;
@@ -407,7 +468,21 @@ async fn stop_actor(
     actor.stop(reason).await;
     let file = host.files.lock().remove(actor_id);
     if let Some(file) = file {
+        // Queued behind every alarm the actor stored, so the mark
+        // goes only once they are in the file.
+        let cleared = file.host_write(
+            "run-ended",
+            "UPDATE _hamlet_actor SET running = 0",
+            Vec::new(),
+        );
         file.close().await;
+        if let Err(error) = async { cleared?.wait().await }.await {
+            tracing::error!(
+                ?error,
+                actor_id,
+                "host failed to clear the running mark"
+            );
+        }
     }
     drop(running);
     if matches!(reason, ShutdownKind::Destroy) {
@@ -518,6 +593,7 @@ impl ActorHost for LocalHandle {
         // Queued here, so the file stores alarms in the order the
         // core set them, and before a stop closes it.
         let stored = file.host_write(
+            "alarm-store",
             "UPDATE _hamlet_actor SET wake_at = ?",
             vec![alarm_ts.map_or(Value::Null, Value::Integer)],
         );

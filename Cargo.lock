@@ -4815,6 +4815,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "hamlet_actor_core",
+ "hamlet_host",
  "hamlet_testing",
  "parking_lot",
  "rusqlite",
