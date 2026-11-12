@@ -321,3 +321,7 @@ pub(crate) type CountGuard = RegionGuard;
 
 // Test shim keeps moved tests in crate-root tests/ with
 // private-module access.
+
+#[cfg(test)]
+#[path = "../../tests/work_registry.rs"]
+mod tests;

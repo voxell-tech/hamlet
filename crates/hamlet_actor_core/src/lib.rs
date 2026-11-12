@@ -14,6 +14,8 @@ pub mod metrics;
 pub mod runtime;
 pub(crate) mod serde_metrics;
 pub mod telemetry;
+#[cfg(test)]
+pub(crate) mod testing;
 #[doc(hidden)]
 pub use telemetry::{
     ActorInvocationSpanContext, ActorInvocationTelemetry,

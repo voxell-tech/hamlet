@@ -186,7 +186,22 @@ struct StoredSchedule {
 }
 
 impl ActorContext {
+    #[cfg(test)]
+    pub fn set_schedule_time_for_tests(&self, timestamp_ms: i64) {
+        self.0
+            .schedule_now_override
+            .store(timestamp_ms, Ordering::SeqCst);
+    }
+
     pub(crate) fn schedule_now_timestamp_ms(&self) -> i64 {
+        #[cfg(test)]
+        {
+            let timestamp_ms =
+                self.0.schedule_now_override.load(Ordering::SeqCst);
+            if timestamp_ms != i64::MIN {
+                return timestamp_ms;
+            }
+        }
         system_now_timestamp_ms()
     }
 
@@ -1031,6 +1046,19 @@ impl ActorContext {
     }
 
     async fn sync_alarm(&self) -> Result<()> {
+        #[cfg(test)]
+        if self
+            .0
+            .schedule_sync_alarm_failures
+            .try_update(
+                Ordering::SeqCst,
+                Ordering::SeqCst,
+                |remaining| remaining.checked_sub(1),
+            )
+            .is_ok()
+        {
+            anyhow::bail!("injected schedule alarm sync failure");
+        }
         let next_alarm = min_deadline(
             self.next_schedule_timestamp(false).await?,
             self.run_wake_at(),
@@ -1219,6 +1247,13 @@ impl ActorContext {
         };
         let generation = *self.0.schedule_generation.lock();
         self.set_alarm_tracked(envoy_handle, None, generation);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn fail_next_schedule_alarm_sync_for_tests(&self) {
+        self.0
+            .schedule_sync_alarm_failures
+            .fetch_add(1, Ordering::SeqCst);
     }
 
     pub(crate) async fn wait_for_pending_alarm_writes(&self) {
@@ -1856,3 +1891,7 @@ fn system_now_timestamp_ms() -> i64 {
         .unwrap_or_default();
     i64::try_from(duration.as_millis()).unwrap_or(i64::MAX)
 }
+
+#[cfg(test)]
+#[path = "../../tests/schedule.rs"]
+mod tests;

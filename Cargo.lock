@@ -4639,6 +4639,7 @@ dependencies = [
  "parking_lot",
  "prometheus",
  "rand 0.8.8",
+ "rusqlite",
  "scc",
  "serde",
  "serde_bare",

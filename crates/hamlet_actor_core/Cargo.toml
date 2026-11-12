@@ -54,6 +54,9 @@ vbare = { workspace = true, features = ["serde"] }
 [dev-dependencies]
 # The examples run on the local host, which builds on this crate.
 hamlet_host.workspace = true
+# The tests' host serves SQL from an in-memory database.
+rusqlite.workspace = true
+tokio = { workspace = true, features = ["test-util"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 # `block_in_place` in the queue's sync bridge needs the multi-thread runtime, which the

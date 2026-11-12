@@ -1,6 +1,8 @@
 // This file was changed for Hamlet. See NOTICE in this crate.
 use std::collections::{BTreeMap, BTreeSet};
 use std::future::Future;
+#[cfg(test)]
+use std::sync::atomic::AtomicI64;
 use std::sync::atomic::{
     AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering,
 };
@@ -205,6 +207,10 @@ pub(crate) struct ActorContextInner {
     pub(super) schedule_running: SccHashSet<String>,
     pub(super) schedule_history_insert_count: AtomicUsize,
     pub(super) max_schedules: u32,
+    #[cfg(test)]
+    pub(super) schedule_now_override: AtomicI64,
+    #[cfg(test)]
+    pub(super) schedule_sync_alarm_failures: AtomicUsize,
     // Forced-sync: queue config is read from sync public methods
     // before blocking on async queue work.
     pub(super) queue_config: Mutex<ActorConfig>,
@@ -565,6 +571,10 @@ impl ActorContext {
             schedule_running: SccHashSet::new(),
             schedule_history_insert_count: AtomicUsize::new(0),
             max_schedules,
+            #[cfg(test)]
+            schedule_now_override: AtomicI64::new(i64::MIN),
+            #[cfg(test)]
+            schedule_sync_alarm_failures: AtomicUsize::new(0),
             queue_config: Mutex::new(config.clone()),
             queue_abort_signal: Mutex::new(abort_signal.clone()),
             queue_initialize: OnceCell::new(),
@@ -1818,9 +1828,12 @@ impl ActorContext {
         Ok(restored)
     }
 
-    #[expect(
-        dead_code,
-        reason = "ported; nothing in Hamlet calls it yet"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "ported; nothing in Hamlet calls it yet"
+        )
     )]
     pub(crate) fn configure_inspector(
         &self,

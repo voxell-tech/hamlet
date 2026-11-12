@@ -286,6 +286,38 @@ pub(crate) fn bootstrap_statements()
     Ok(statements)
 }
 
+/// Creates the internal schema on a test connection, as a fresh
+/// actor's bootstrap does.
+#[cfg(test)]
+pub(crate) fn initialize_test_schema(
+    conn: &rusqlite::Connection,
+) -> Result<()> {
+    for statement in bootstrap_statements()? {
+        let params = statement
+            .params
+            .unwrap_or_default()
+            .into_iter()
+            .map(|param| match param {
+                BindParam::Null => rusqlite::types::Value::Null,
+                BindParam::Integer(v) => {
+                    rusqlite::types::Value::Integer(v)
+                }
+                BindParam::Float(v) => {
+                    rusqlite::types::Value::Real(v)
+                }
+                BindParam::Text(v) => rusqlite::types::Value::Text(v),
+                BindParam::Blob(v) => rusqlite::types::Value::Blob(v),
+            })
+            .collect::<Vec<_>>();
+        conn.execute(
+            &statement.sql,
+            rusqlite::params_from_iter(params),
+        )
+        .context("initialize test internal schema")?;
+    }
+    Ok(())
+}
+
 /// `ensure_internal_schema` for a caller that already probed for
 /// the schema, so a start does not read the schema table twice.
 pub(crate) async fn ensure_probed_internal_schema(
@@ -406,3 +438,7 @@ fn decode_schema_version(value: &[u8]) -> Result<i64> {
 
 // Test shim keeps moved tests in crate-root tests/ with
 // private-module access.
+
+#[cfg(test)]
+#[path = "../../../tests/internal_schema.rs"]
+mod tests;

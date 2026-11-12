@@ -1814,3 +1814,7 @@ fn decode_cbor_blob<T: serde::de::DeserializeOwned>(
 
 // Test shim keeps moved tests in crate-root tests/ with
 // private-module access.
+
+#[cfg(test)]
+#[path = "../../tests/internal_storage.rs"]
+mod tests;
