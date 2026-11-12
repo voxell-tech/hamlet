@@ -1,0 +1,197 @@
+// This file was changed for Hamlet. See NOTICE in this crate.
+//! One generation of an actor's task, as a host starts it, calls its
+//! actions and stops it. The steps follow the engine registry's
+//! start, action dispatch and stop paths.
+
+use std::sync::Arc;
+
+use anyhow::{Context, Result, anyhow};
+use parking_lot::Mutex;
+use tokio::sync::{mpsc, oneshot};
+use tokio::task::JoinHandle;
+
+use super::HostHandle;
+use crate::actor::kv::LegacyActorKv;
+use crate::actor::task::{
+    DispatchCommand, LifecycleCommand, try_send_dispatch_command,
+    try_send_lifecycle_command,
+};
+use crate::telemetry::IncomingInvocationContext;
+use crate::types::{ActorKey, format_actor_key};
+use crate::{
+    ActorContext, ActorFactory, ActorTask, RuntimeSpawner,
+    ShutdownKind, SqliteDb,
+};
+
+/// What a host gives to start one generation of an actor.
+pub struct StartRequest {
+    pub actor_id: String,
+    pub name: String,
+    pub key: ActorKey,
+    pub generation: u32,
+    pub factory: Arc<ActorFactory>,
+    pub handle: HostHandle,
+    /// The actor's storage was never written, so the start skips
+    /// probing it for the core's schema.
+    pub new_storage: bool,
+}
+
+/// A started actor's task.
+pub struct RunningActor {
+    actor_id: String,
+    generation: u32,
+    ctx: ActorContext,
+    lifecycle: mpsc::UnboundedSender<LifecycleCommand>,
+    dispatch: mpsc::UnboundedSender<DispatchCommand>,
+    join: Mutex<Option<JoinHandle<Result<()>>>>,
+}
+
+impl RunningActor {
+    /// Builds the actor's context, spawns its task and waits until
+    /// the task has started.
+    pub async fn start(request: StartRequest) -> Result<Self> {
+        let StartRequest {
+            actor_id,
+            name,
+            key,
+            generation,
+            factory,
+            handle,
+            new_storage,
+        } = request;
+        let sql = SqliteDb::new_with_remote_sqlite(
+            handle.clone(),
+            actor_id.clone(),
+            Some(format_actor_key(&key)),
+            Some(u64::from(generation)),
+            factory.config().has_database,
+            true,
+        )?;
+        let ctx = ActorContext::build(
+            actor_id.clone(),
+            name,
+            key,
+            "local".to_owned(),
+            handle.namespace().to_owned(),
+            Some(generation),
+            handle.pool_name().to_owned(),
+            factory.config().clone(),
+            LegacyActorKv::new(handle.clone(), actor_id.clone()),
+            sql,
+        );
+        ctx.configure_envoy(handle, Some(generation));
+        ctx.set_new_actor_storage(new_storage);
+        ctx.set_start_received_at(crate::time::Instant::now());
+
+        let (lifecycle_tx, lifecycle_rx) = mpsc::unbounded_channel();
+        let (dispatch_tx, dispatch_rx) = mpsc::unbounded_channel();
+        let (events_tx, events_rx) = mpsc::unbounded_channel();
+        ctx.configure_lifecycle_events(Some(events_tx));
+        ctx.cancel_sleep_timer();
+        ctx.set_local_alarm_callback(Some(Arc::new({
+            let lifecycle_tx = lifecycle_tx.clone();
+            move || {
+                let lifecycle_tx = lifecycle_tx.clone();
+                Box::pin(async move {
+                    let (reply, rx) = oneshot::channel();
+                    if let Err(error) = try_send_lifecycle_command(
+                        &lifecycle_tx,
+                        LifecycleCommand::FireAlarm { reply },
+                    ) {
+                        tracing::warn!(
+                            ?error,
+                            "failed to enqueue actor alarm"
+                        );
+                        return;
+                    }
+                    let _ = rx.await;
+                })
+            }
+        })));
+        let task = ActorTask::new(
+            actor_id.clone(),
+            generation,
+            lifecycle_rx,
+            dispatch_rx,
+            events_rx,
+            factory,
+            ctx.clone(),
+            None,
+        );
+        let join = RuntimeSpawner::spawn(task.run());
+        let (reply, rx) = oneshot::channel();
+        try_send_lifecycle_command(
+            &lifecycle_tx,
+            LifecycleCommand::Start { reply },
+        )
+        .context("send actor task start command")?;
+        rx.await
+            .context("receive actor task start reply")?
+            .with_context(|| format!("start actor `{actor_id}`"))?;
+        Ok(Self {
+            actor_id,
+            generation,
+            ctx,
+            lifecycle: lifecycle_tx,
+            dispatch: dispatch_tx,
+            join: Mutex::new(Some(join)),
+        })
+    }
+
+    pub fn generation(&self) -> u32 {
+        self.generation
+    }
+
+    /// Calls an action: a connection for the call, the action through
+    /// the actor task, then the connection closes.
+    pub async fn action(
+        &self,
+        name: &str,
+        args: Vec<u8>,
+    ) -> Result<Vec<u8>> {
+        let conn = self
+            .ctx
+            .connect_conn_with_request(Vec::new(), None, async {
+                Ok::<Vec<u8>, anyhow::Error>(Vec::new())
+            })
+            .await?;
+        let (reply, rx) = oneshot::channel();
+        try_send_dispatch_command(
+            &self.dispatch,
+            DispatchCommand::Action {
+                name: name.to_owned(),
+                args,
+                incoming: IncomingInvocationContext::default(),
+                conn: conn.clone(),
+                reply,
+            },
+        )?;
+        let result = rx
+            .await
+            .map_err(|_| anyhow!("actor dropped the action reply"))?;
+        let _ = conn.disconnect(None).await;
+        result
+    }
+
+    /// Stops the task and waits until it has ended.
+    pub async fn stop(&self, reason: ShutdownKind) {
+        let (reply, rx) = oneshot::channel();
+        if try_send_lifecycle_command(
+            &self.lifecycle,
+            LifecycleCommand::Stop { reason, reply },
+        )
+        .is_ok()
+        {
+            let _ = rx.await;
+        }
+        let join = self.join.lock().take();
+        if let Some(join) = join {
+            let _ = join.await;
+        }
+        tracing::debug!(
+            actor_id = self.actor_id,
+            generation = self.generation,
+            "actor stopped"
+        );
+    }
+}

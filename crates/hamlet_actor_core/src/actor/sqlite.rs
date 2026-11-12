@@ -840,7 +840,7 @@ impl SqliteDb {
 
     async fn remote_exec(&self, sql: String) -> Result<QueryResult> {
         let config = self.remote_config()?;
-        config.handle.sqlite_file(&config.actor_id)?.exec(sql).await
+        config.handle.sqlite_exec(config.actor_id, sql).await
     }
 
     async fn remote_exec_with_session(
@@ -861,8 +861,7 @@ impl SqliteDb {
         let config = self.remote_config()?;
         config
             .handle
-            .sqlite_file(&config.actor_id)?
-            .execute(sql, params)
+            .sqlite_execute(config.actor_id, sql, params)
             .await
     }
 
@@ -871,11 +870,12 @@ impl SqliteDb {
         statements: Vec<SqliteBatchStatement>,
     ) -> Result<Vec<ExecuteResult>> {
         let config = self.remote_config()?;
-        config
+        let results = config
             .handle
-            .sqlite_file(&config.actor_id)?
-            .execute_batch(statements)
-            .await
+            .sqlite_execute_batch(config.actor_id.clone(), statements)
+            .await?;
+        config.handle.transaction_committed(&config.actor_id);
+        Ok(results)
     }
 
     async fn remote_execute_with_session(

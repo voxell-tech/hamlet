@@ -6,44 +6,30 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Weak};
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Result, anyhow};
 use parking_lot::Mutex;
 use rusqlite::{Connection, OptionalExtension};
-use tokio::sync::{Mutex as AsyncMutex, mpsc, oneshot};
-use tokio::task::JoinHandle;
+use tokio::sync::{Mutex as AsyncMutex, oneshot};
 
 use super::plain_sqlite::PlainSqlite;
-use super::tunnel::HibernatingWebSocketMetadata;
-use crate::actor::kv::LegacyActorKv;
-use crate::actor::task::{
-    DispatchCommand, LifecycleCommand, try_send_dispatch_command,
-    try_send_lifecycle_command,
+use super::{ActorHost, RunningActor, StartRequest};
+use crate::runtime::RuntimeBoxFuture;
+use crate::sqlite::{
+    BindParam, ExecuteResult, QueryResult, SqliteBatchStatement,
 };
-use crate::async_counter::AsyncCounter;
-use crate::telemetry::IncomingInvocationContext;
-use crate::types::{ActorKey, ActorKeySegment, format_actor_key};
-use crate::{
-    ActorContext, ActorFactory, ActorTask, ShutdownKind, SqliteDb,
-};
+use crate::types::ActorKeySegment;
+use crate::{ActorFactory, ShutdownKind};
 
 /// The one session a local file has. The transaction code compares
 /// sessions to detect a lost connection, which a local file cannot
 /// have.
 const LOCAL_SESSION: u64 = 1;
 
-struct Running {
-    generation: u32,
-    ctx: ActorContext,
-    lifecycle: mpsc::UnboundedSender<LifecycleCommand>,
-    dispatch: mpsc::UnboundedSender<DispatchCommand>,
-    join: JoinHandle<Result<()>>,
-}
-
 struct HostInner {
     dir: PathBuf,
     factories: HashMap<String, Arc<ActorFactory>>,
     index: Mutex<Connection>,
-    running: AsyncMutex<HashMap<String, Running>>,
+    running: AsyncMutex<HashMap<String, Arc<RunningActor>>>,
     files: Mutex<HashMap<String, PlainSqlite>>,
     session: tokio::sync::watch::Sender<u64>,
 }
@@ -51,9 +37,8 @@ struct HostInner {
 #[derive(Clone)]
 pub struct Host(Arc<HostInner>);
 
-/// What the core calls to reach its host.
-#[derive(Clone)]
-pub struct HostHandle(Weak<HostInner>);
+/// What the core calls to reach this host.
+struct LocalHandle(Weak<HostInner>);
 
 impl Host {
     pub fn open(
@@ -132,34 +117,17 @@ impl Host {
         name: &str,
         args: Vec<u8>,
     ) -> Result<Vec<u8>> {
-        let (ctx, dispatch) = {
-            let running = self.0.running.lock().await;
-            let actor = running.get(actor_id).ok_or_else(|| {
+        let actor = self
+            .0
+            .running
+            .lock()
+            .await
+            .get(actor_id)
+            .cloned()
+            .ok_or_else(|| {
                 anyhow!("actor {actor_id} is not running")
             })?;
-            (actor.ctx.clone(), actor.dispatch.clone())
-        };
-        let conn = ctx
-            .connect_conn_with_request(Vec::new(), None, async {
-                Ok::<Vec<u8>, anyhow::Error>(Vec::new())
-            })
-            .await?;
-        let (reply, rx) = oneshot::channel();
-        try_send_dispatch_command(
-            &dispatch,
-            DispatchCommand::Action {
-                name: name.to_owned(),
-                args,
-                incoming: IncomingInvocationContext::default(),
-                conn: conn.clone(),
-                reply,
-            },
-        )?;
-        let result = rx
-            .await
-            .map_err(|_| anyhow!("actor dropped the action reply"))?;
-        let _ = conn.disconnect(None).await;
-        result
+        actor.action(name, args).await
     }
 
     pub async fn stop(
@@ -185,7 +153,7 @@ impl Host {
             return Ok(());
         }
         let actor = start_actor(&self.0, actor_id).await?;
-        running.insert(actor_id.to_owned(), actor);
+        running.insert(actor_id.to_owned(), Arc::new(actor));
         Ok(())
     }
 
@@ -254,7 +222,7 @@ fn arm_host_alarm(
 async fn start_actor(
     host: &Arc<HostInner>,
     actor_id: &str,
-) -> Result<Running> {
+) -> Result<RunningActor> {
     let (name, key, generation): (String, String, u32) = {
         let index = host.index.lock();
         index.execute(
@@ -279,80 +247,16 @@ async fn start_actor(
         .lock()
         .insert(actor_id.to_owned(), PlainSqlite::open(&path)?);
 
-    let handle = HostHandle(Arc::downgrade(host));
-    let key: ActorKey = vec![ActorKeySegment::String(key)];
-    let sql = SqliteDb::new_with_remote_sqlite(
-        handle.clone(),
-        actor_id.to_owned(),
-        Some(format_actor_key(&key)),
-        Some(generation as u64),
-        factory.config().has_database,
-        true,
-    )?;
-    let ctx = ActorContext::build(
-        actor_id.to_owned(),
-        name.clone(),
-        key,
-        "local".to_owned(),
-        "local".to_owned(),
-        Some(generation),
-        "local".to_owned(),
-        factory.config().clone(),
-        LegacyActorKv::new(handle.clone(), actor_id.to_owned()),
-        sql,
-    );
-    ctx.configure_envoy(handle, Some(generation));
-    ctx.set_new_actor_storage(new_actor_storage);
-    ctx.set_start_received_at(crate::time::Instant::now());
-
-    let (lifecycle_tx, lifecycle_rx) = mpsc::unbounded_channel();
-    let (dispatch_tx, dispatch_rx) = mpsc::unbounded_channel();
-    let (events_tx, events_rx) = mpsc::unbounded_channel();
-    ctx.configure_lifecycle_events(Some(events_tx));
-    ctx.cancel_sleep_timer();
-    ctx.set_local_alarm_callback(Some(Arc::new({
-        let lifecycle_tx = lifecycle_tx.clone();
-        move || {
-            let lifecycle_tx = lifecycle_tx.clone();
-            Box::pin(async move {
-                let (reply, rx) = oneshot::channel();
-                if try_send_lifecycle_command(
-                    &lifecycle_tx,
-                    LifecycleCommand::FireAlarm { reply },
-                )
-                .is_ok()
-                {
-                    let _ = rx.await;
-                }
-            })
-        }
-    })));
-    let task = ActorTask::new(
-        actor_id.to_owned(),
+    RunningActor::start(StartRequest {
+        actor_id: actor_id.to_owned(),
+        name,
+        key: vec![ActorKeySegment::String(key)],
         generation,
-        lifecycle_rx,
-        dispatch_rx,
-        events_rx,
         factory,
-        ctx.clone(),
-        None,
-    );
-    let join = tokio::spawn(task.run());
-    let (reply, rx) = oneshot::channel();
-    try_send_lifecycle_command(
-        &lifecycle_tx,
-        LifecycleCommand::Start { reply },
-    )?;
-    rx.await
-        .context("receive actor task start reply")?
-        .with_context(|| format!("start actor `{actor_id}`"))?;
-    Ok(Running {
-        generation,
-        ctx,
-        lifecycle: lifecycle_tx,
-        dispatch: dispatch_tx,
-        join,
+        handle: Arc::new(LocalHandle(Arc::downgrade(host))),
+        new_storage: new_actor_storage,
     })
+    .await
 }
 
 async fn stop_actor(
@@ -364,16 +268,7 @@ async fn stop_actor(
     else {
         return Ok(());
     };
-    let (reply, rx) = oneshot::channel();
-    if try_send_lifecycle_command(
-        &actor.lifecycle,
-        LifecycleCommand::Stop { reason, reply },
-    )
-    .is_ok()
-    {
-        let _ = rx.await;
-    }
-    let _ = actor.join.await;
+    actor.stop(reason).await;
     host.files.lock().remove(actor_id);
     if matches!(reason, ShutdownKind::Destroy) {
         host.index.lock().execute(
@@ -381,79 +276,21 @@ async fn stop_actor(
             [actor_id],
         )?;
     }
-    tracing::debug!(
-        actor_id,
-        generation = actor.generation,
-        "actor stopped"
-    );
     Ok(())
 }
 
-impl HostHandle {
+impl LocalHandle {
     fn host(&self) -> Option<Arc<HostInner>> {
         self.0.upgrade()
     }
 
-    pub(crate) fn sqlite_file(
-        &self,
-        actor_id: &str,
-    ) -> Result<PlainSqlite> {
+    fn sqlite_file(&self, actor_id: &str) -> Result<PlainSqlite> {
         let host =
             self.host().ok_or_else(|| anyhow!("host is gone"))?;
         let file = host.files.lock().get(actor_id).cloned();
         file.ok_or_else(|| {
             anyhow!("sqlite file for {actor_id} is not open")
         })
-    }
-
-    pub fn endpoint(&self) -> &str {
-        "local"
-    }
-
-    pub fn token(&self) -> Option<&str> {
-        None
-    }
-
-    pub fn namespace(&self) -> &str {
-        "local"
-    }
-
-    pub fn pool_name(&self) -> &str {
-        "local"
-    }
-
-    pub fn connection_session(&self) -> Option<u64> {
-        Some(LOCAL_SESSION)
-    }
-
-    /// The session never changes, so a transaction never sees its
-    /// connection lost.
-    pub fn subscribe_connection_session(
-        &self,
-    ) -> tokio::sync::watch::Receiver<u64> {
-        match self.host() {
-            Some(host) => host.session.subscribe(),
-            None => tokio::sync::watch::channel(0).1,
-        }
-    }
-
-    /// The actor asks to sleep, and the host stops it.
-    pub fn sleep_actor(
-        &self,
-        actor_id: String,
-        _generation: Option<u32>,
-        _error: Option<String>,
-    ) {
-        self.spawn_stop(actor_id, ShutdownKind::Sleep);
-    }
-
-    /// The actor asks to be destroyed.
-    pub fn stop_actor(
-        &self,
-        actor_id: String,
-        _generation: Option<u32>,
-    ) {
-        self.spawn_stop(actor_id, ShutdownKind::Destroy);
     }
 
     fn spawn_stop(&self, actor_id: String, reason: ShutdownKind) {
@@ -470,9 +307,50 @@ impl HostHandle {
             }
         });
     }
+}
 
-    /// Stores the actor's next alarm durably, then acknowledges it.
-    pub fn set_alarm_with_ack(
+impl ActorHost for LocalHandle {
+    fn endpoint(&self) -> &str {
+        "local"
+    }
+
+    fn namespace(&self) -> &str {
+        "local"
+    }
+
+    fn pool_name(&self) -> &str {
+        "local"
+    }
+
+    fn connection_session(&self) -> Option<u64> {
+        Some(LOCAL_SESSION)
+    }
+
+    /// The session never changes, so a transaction never sees its
+    /// connection lost.
+    fn subscribe_connection_session(
+        &self,
+    ) -> tokio::sync::watch::Receiver<u64> {
+        match self.host() {
+            Some(host) => host.session.subscribe(),
+            None => tokio::sync::watch::channel(0).1,
+        }
+    }
+
+    fn sleep_actor(
+        &self,
+        actor_id: String,
+        _generation: Option<u32>,
+        _error: Option<String>,
+    ) {
+        self.spawn_stop(actor_id, ShutdownKind::Sleep);
+    }
+
+    fn stop_actor(&self, actor_id: String, _generation: Option<u32>) {
+        self.spawn_stop(actor_id, ShutdownKind::Destroy);
+    }
+
+    fn set_alarm_with_ack(
         &self,
         actor_id: String,
         alarm_ts: Option<i64>,
@@ -500,77 +378,35 @@ impl HostHandle {
         }
     }
 
-    pub fn http_request_counter(
+    fn sqlite_exec(
         &self,
-        _actor_id: &str,
-        _generation: Option<u32>,
-    ) -> Option<Arc<AsyncCounter>> {
-        None
+        actor_id: String,
+        sql: String,
+    ) -> RuntimeBoxFuture<Result<QueryResult>> {
+        let file = self.sqlite_file(&actor_id);
+        Box::pin(async move { file?.exec(sql).await })
     }
 
-    pub fn hibernatable_connection_is_live(
+    fn sqlite_execute(
         &self,
-        _actor_id: &str,
-        _generation: Option<u32>,
-        _gateway_id: [u8; 4],
-        _request_id: [u8; 4],
-    ) -> bool {
-        false
+        actor_id: String,
+        sql: String,
+        params: Option<Vec<BindParam>>,
+    ) -> RuntimeBoxFuture<Result<ExecuteResult>> {
+        let file = self.sqlite_file(&actor_id);
+        Box::pin(async move { file?.execute(sql, params).await })
     }
 
-    pub fn restore_hibernating_requests(
+    fn sqlite_execute_batch(
         &self,
-        _actor_id: String,
-        _entries: Vec<HibernatingWebSocketMetadata>,
-    ) {
+        actor_id: String,
+        statements: Vec<SqliteBatchStatement>,
+    ) -> RuntimeBoxFuture<Result<Vec<ExecuteResult>>> {
+        let file = self.sqlite_file(&actor_id);
+        Box::pin(async move { file?.execute_batch(statements).await })
     }
 
-    pub fn send_hibernatable_ws_message_ack(
-        &self,
-        _gateway_id: [u8; 4],
-        _request_id: [u8; 4],
-        _index: u16,
-    ) {
-    }
-
-    /// The key-value store from before SQLite. A local host has none.
-    pub async fn kv_get(
-        &self,
-        _actor_id: String,
-        keys: Vec<Vec<u8>>,
-    ) -> Result<Vec<Option<Vec<u8>>>> {
-        Ok(vec![None; keys.len()])
-    }
-
-    pub async fn kv_put(
-        &self,
-        _actor_id: String,
-        _entries: Vec<(Vec<u8>, Vec<u8>)>,
-    ) -> Result<()> {
-        Ok(())
-    }
-
-    pub async fn kv_list_prefix(
-        &self,
-        _actor_id: String,
-        _prefix: Vec<u8>,
-        _reverse: Option<bool>,
-        _limit: Option<u64>,
-    ) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
-        Ok(Vec::new())
-    }
-
-    pub async fn kv_list_range(
-        &self,
-        _actor_id: String,
-        _start: Vec<u8>,
-        _end: Vec<u8>,
-        _exclusive: bool,
-        _reverse: Option<bool>,
-        _limit: Option<u64>,
-    ) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
-        Ok(Vec::new())
-    }
+    fn transaction_committed(&self, _actor_id: &str) {}
 }
 
 pub fn now_ms() -> i64 {
