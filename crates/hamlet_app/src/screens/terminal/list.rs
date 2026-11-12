@@ -395,8 +395,7 @@ pub(super) fn tree(
             if !key.is_empty() {
                 for row in &mut rows {
                     if let What::Agent(Branch {
-                        log: Some(log),
-                        ..
+                        log: Some(log), ..
                     }) = &mut row.what
                         && log.crumbs.first() != Some(&title)
                     {

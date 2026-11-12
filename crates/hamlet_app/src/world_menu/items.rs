@@ -7,7 +7,8 @@ use bevy_fynix::ViewExt;
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{BehaviorExt, Label, label, menu_item};
 use hamlet_client::realm::{
-    self as agents, Busy, Deeds, HamletId, Kind, Left, Mayor,
+    self as agents, Busy, Deeds, HamletId, Identity, Kind, Left,
+    Mayor,
 };
 use hamlet_protocol::client as protocol;
 use hamlet_realm::generator::society::Ground;
@@ -17,6 +18,7 @@ use hamlet_ui::AnyView;
 
 use super::deed::Deed;
 use super::{close, restore, stop};
+use crate::screens::terminal::{Pins, pin};
 
 /// A hire of the hamlet that is not its mayor and has not left, with
 /// its name.
@@ -92,16 +94,43 @@ fn road(world: &World, agent: Entity) -> Option<AnyView> {
     })
 }
 
+/// Pins the log of the commands `agent` ran to the Terminal list, or
+/// lets it go, while it has one.
+fn pin_bash(world: &World, agent: Entity) -> Option<AnyView> {
+    let id = world.get::<Identity>(agent)?.0;
+    let logged = world
+        .try_query::<&hamlet_client::terminals::Terminal>()?
+        .iter(world)
+        .any(|t| {
+            t.0.kind == protocol::TerminalKind::Commands
+                && t.0.agent == Some(id)
+        });
+    let key = format!("agent#{}", id.0);
+    let pinned = world.get_resource::<Pins>()?.0.contains(&key);
+    logged.then(|| {
+        item(
+            if pinned {
+                "Unpin agent bash"
+            } else {
+                "Pin agent bash"
+            }
+            .into(),
+            move |world| pin(world, &key),
+        )
+    })
+}
+
 fn for_mayor(world: &World) -> Vec<AnyView> {
     let mut items = vec![item("Stop the Mayor".into(), |world| {
         if let Some(mayor) = agents::first_mayor(world) {
             stop(world, mayor);
         }
     })];
-    if let Some(mayor) = agents::first_mayor(world)
-        && let Some(hire) = hire_under(world, mayor)
-    {
-        items.insert(0, hire);
+    if let Some(mayor) = agents::first_mayor(world) {
+        if let Some(hire) = hire_under(world, mayor) {
+            items.insert(0, hire);
+        }
+        items.extend(pin_bash(world, mayor));
     }
     items
 }
@@ -128,6 +157,7 @@ fn for_agent(
     let name = |agent: Entity| agents::shown_of(world, agent);
     let mut items = Vec::from_iter(hire_under(world, agent));
     items.extend(road(world, agent));
+    items.extend(pin_bash(world, agent));
     if world.get::<Busy>(agent).is_some() {
         items.push(item(format!("Stop {}", name(agent)), move |w| {
             stop(w, agent);

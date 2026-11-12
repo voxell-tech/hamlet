@@ -389,7 +389,7 @@ fn agent_row(
 }
 
 /// Pins the bash of the agent of `key`, or lets it go.
-pub(super) fn pin(world: &mut World, key: &str) {
+pub fn pin(world: &mut World, key: &str) {
     let mut pins = world.resource_mut::<Pins>();
     if !pins.0.remove(key) {
         pins.0.insert(key.to_owned());

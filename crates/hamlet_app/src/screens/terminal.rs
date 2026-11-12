@@ -53,7 +53,7 @@ use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::{AnyView, View, with_cx};
 
 use self::list::Listed;
-pub use self::pick::{open_menu, show_menu};
+pub use self::pick::{open_menu, pin, show_menu};
 pub use self::screen::Canvas;
 use crate::dock::{
     PanelAppExt, flush_panel, number, on_a_desk, open_another,
