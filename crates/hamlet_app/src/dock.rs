@@ -13,7 +13,7 @@ use bevy::ecs::world::World;
 use bevy::ui::{ComputedNode, Overflow, UiRect, px};
 use bevy_fynix::dock::{
     DockArea, DockAreaStyle, DockLeaf, DockNode, DockRegistry,
-    DockTree, DockWindowKind, Edge, NodeId, SplitAxis,
+    DockTree, DockWindowKind, DropTarget, Edge, NodeId, SplitAxis,
 };
 use bevy_fynix::views::{BehaviorExt, FrameProps, column};
 use hamlet_client::waits::Waiting;
@@ -144,6 +144,17 @@ fn tabs_of(parts: &[Part]) -> impl Iterator<Item = &String> {
     })
 }
 
+/// Whether a desk holds the panel `id`.
+#[expect(dead_code, reason = "no panel opens more than once yet")]
+pub(crate) fn on_a_desk(world: &World, id: &str) -> bool {
+    world.get_resource::<Desks>().is_some_and(|desks| {
+        desks
+            .list()
+            .iter()
+            .any(|desk| tabs_of(&desk.dock).any(|tab| tab == id))
+    })
+}
+
 /// Registers the numbered panels the shown desk and the dock hold, so
 /// the desk is laid out with them.
 pub fn register_numbered(world: &mut World) {
@@ -210,6 +221,71 @@ fn register(world: &mut World, id: &str) {
     if registry.get(id).is_none() {
         registry.register(id, make(id));
     }
+}
+
+/// Opens another of the numbered panel `first` where `target` says,
+/// and gives its id: one neither the dock nor a desk holds.
+#[expect(dead_code, reason = "no panel opens more than once yet")]
+pub(crate) fn open_numbered(
+    world: &mut World,
+    first: &str,
+    target: DropTarget,
+) -> Option<String> {
+    let id = (2u32..).map(|n| format!("{first}-{n}")).find(|id| {
+        world
+            .resource::<DockTree>()
+            .find_leaf_with_window(id)
+            .is_none()
+            && !on_a_desk(world, id)
+    })?;
+    register(world, &id);
+    let mut tree = world.resource_mut::<DockTree>();
+    let placed = match target {
+        DropTarget::Tabs { leaf, index } => {
+            tree.add_tab(leaf, id.clone()).map(|tab| {
+                tree.insert_tab(tab, leaf, true, Some(index));
+            })
+        }
+        DropTarget::Area(leaf) => {
+            tree.add_tab(leaf, id.clone()).map(|_| ())
+        }
+        DropTarget::Edge { leaf, edge } => {
+            tree.split(leaf, edge, id.clone()).map(|_| ())
+        }
+    };
+    if placed.is_none() {
+        world
+            .resource_mut::<DockRegistry<HamletTheme>>()
+            .unregister(&id);
+        return None;
+    }
+    Some(id)
+}
+
+/// Opens another of the numbered panel `first` beside the panel
+/// `beside`, or beside the first area when it is not in the dock,
+/// and gives its id.
+#[expect(dead_code, reason = "no panel opens more than once yet")]
+pub(crate) fn open_another(
+    world: &mut World,
+    first: &str,
+    beside: &str,
+) -> Option<String> {
+    let leaf = {
+        let tree = world.resource::<DockTree>();
+        tree.find_leaf_with_window(beside).or_else(|| {
+            let root = tree.root?;
+            tree.leaves_under(root).first().map(|(leaf, _)| *leaf)
+        })?
+    };
+    open_numbered(
+        world,
+        first,
+        DropTarget::Edge {
+            leaf,
+            edge: Edge::Right,
+        },
+    )
 }
 
 /// A dock panel's contents.
