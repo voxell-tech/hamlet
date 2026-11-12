@@ -22,11 +22,20 @@ use hamlet_actor_core::{
     BindParam, ColumnValue, SerializeStateReason,
 };
 
+/// Whether counters sleep once idle.
+#[derive(Clone, Copy)]
+#[cfg_attr(test, expect(dead_code, reason = "the tests use one"))]
+pub enum Sleep {
+    WhenIdle,
+    Never,
+}
+
 /// The actor kinds the demo host runs.
-pub fn factories() -> HashMap<String, ActorFactory> {
+pub fn factories(sleep: Sleep) -> HashMap<String, ActorFactory> {
     let config = ActorConfig {
         name: Some("counter".to_owned()),
         has_database: true,
+        no_sleep: matches!(sleep, Sleep::Never),
         ..ActorConfig::default()
     };
     HashMap::from([(

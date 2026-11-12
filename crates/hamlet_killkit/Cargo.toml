@@ -1,0 +1,15 @@
+[package]
+name = "hamlet_killkit"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+description = "Kills the demo actor host at named steps and checks what survives"
+
+[dependencies]
+anyhow.workspace = true
+rusqlite.workspace = true
+
+[lints]
+workspace = true

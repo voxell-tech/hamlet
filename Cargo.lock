@@ -4824,6 +4824,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "hamlet_killkit"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "rusqlite",
+]
+
+[[package]]
 name = "hamlet_os"
 version = "0.1.0"
 dependencies = [

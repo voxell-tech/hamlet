@@ -4,39 +4,46 @@
 //! It is a workspace of its own, so it builds before the vendored
 //! fynix that the main workspace needs has been fetched.
 
+mod idle;
+
 use std::path::Path;
 use std::process::{Command, ExitCode, ExitStatus};
 use std::{env, fmt, fs, io};
 
-const USAGE: &str = "\
+const USAGE: &str =
+    "\
 Usage: cargo xtask <task> [args]
 
   build            build the CLI, server, window and the app's \
-                     launcher (release); args go to cargo build
+     launcher (release); args go to cargo build
   all              build every binary of the workspace (release); \
-                     args go to cargo build
+     args go to cargo build
   install          put the CLI, server and window in ~/.cargo/bin
   uninstall        remove all three from ~/.cargo/bin
   dev              try this checkout on a scratch home (HAMLET_HOME \
-                     picks it); --hot reloads saved shaders and \
-                     tuning in the window
+     picks it); --hot reloads saved shaders and tuning in the window
   check            every check a commit needs: the nine steps below, \
-                     in order
+     in order
   format           check that Rust is formatted (fmt formats it)
   clippy           clippy with warnings as errors, on the workspace \
-                     and on xtask
+     and on xtask
   cross            clippy with warnings as errors on hamlet_os for \
-                     Windows, which needs no C compiler
+     Windows, which needs no C compiler
   deny             cargo deny check: licences and advisories
   test             build every target, then cargo test
   acceptance       the acceptance suite, on the plain CLI and server
   harness          the server's tests that start pi, built with \
-                     fault points
+     fault points
   doc              the documentation, with warnings as errors
   node             pi's TypeScript, Biome and tests
   fmt              format Rust, with the latest nightly, and pi
   workspace-image  build the remote workspace image; args go to \
-                     docker build
+     docker build
+  killkit          build the demo actor host and kill it at a \
+     scenario's step: <scenario> --runs <n>, or --list
+  idle             a command tree's memory and wakeups per second \
+     while idle: [--settle <s>] [--window <s>] <command> [args], 30 \
+     and 60 seconds by default; Linux only
 
 Every task but help and uninstall first fetches the vendored fynix
 when it is missing. Tasks that build, run or check pi install its
@@ -143,6 +150,8 @@ enum Failure {
     Spawn { command: String, error: io::Error },
     #[error("{command} failed ({status})")]
     Exit { command: String, status: ExitStatus },
+    #[error("idle: {0}")]
+    Idle(String),
 }
 
 /// The binaries a chief runs, with the packages that hold them.
@@ -249,6 +258,27 @@ fn run(task: &str, rest: &[String]) -> Result<(), Failure> {
             status(&mut npm(&["run", "format"]))
         }
         "workspace-image" => workspace_image(rest),
+        "killkit" => {
+            status(&mut cargo(&[
+                "build",
+                "-p",
+                "hamlet_host",
+                "--example",
+                "demo",
+            ]))?;
+            status(
+                cargo(&["run", "-q", "-p", "hamlet_killkit", "--"])
+                    .args(rest),
+            )
+        }
+        "idle" => {
+            let options =
+                idle::Options::parse(rest).map_err(Failure::Idle)?;
+            let reading =
+                idle::measure(&options).map_err(Failure::Idle)?;
+            println!("{reading}");
+            Ok(())
+        }
         "" | "help" | "-h" | "--help" => {
             println!("{USAGE}");
             Ok(())

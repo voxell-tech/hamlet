@@ -1,10 +1,11 @@
 //! The local host: start by key, stop, the folder lock, alarms armed
 //! at start, and the commit hook.
 
+use std::collections::HashMap;
 use std::path::Path;
 use std::time::Duration;
 
-use hamlet_actor_core::ShutdownKind;
+use hamlet_actor_core::{ActorFactory, ShutdownKind};
 use hamlet_host::Host;
 use hamlet_testing::Scratch;
 use rusqlite::{Connection, OpenFlags};
@@ -12,7 +13,9 @@ use rusqlite::{Connection, OpenFlags};
 #[path = "../examples/demo/counter.rs"]
 mod counter;
 
-use counter::factories;
+fn factories() -> HashMap<String, ActorFactory> {
+    counter::factories(counter::Sleep::WhenIdle)
+}
 
 async fn call(host: &Host, actor_id: &str, action: &str) -> i64 {
     call_with(host, actor_id, action, Vec::new()).await

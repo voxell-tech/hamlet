@@ -4,16 +4,22 @@
 
 #![cfg(unix)]
 
+use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
+use hamlet_actor_core::ActorFactory;
 use hamlet_host::Host;
 use hamlet_testing::Scratch;
 
 #[path = "../examples/demo/counter.rs"]
 mod counter;
+
+fn factories() -> HashMap<String, ActorFactory> {
+    counter::factories(counter::Sleep::WhenIdle)
+}
 
 /// The realm folder the child host opens. Unset, the child test does
 /// nothing.
@@ -31,8 +37,7 @@ fn child_host() {
     };
     let runtime = tokio::runtime::Runtime::new().unwrap();
     runtime.block_on(async {
-        let host = Host::open(Path::new(&home), counter::factories())
-            .unwrap();
+        let host = Host::open(Path::new(&home), factories()).unwrap();
         let id = host.get_or_start("counter", "a").await.unwrap();
         host.action(
             &id,
@@ -98,13 +103,13 @@ async fn a_schedule_acknowledged_before_its_alarm_was_stored_fires_once_after_a_
     let due = kill_after_the_ack_before_the_alarm_is_stored(&home);
     sleep_until(due + Duration::from_millis(200));
 
-    let host = Host::open(&home, counter::factories()).unwrap();
+    let host = Host::open(&home, factories()).unwrap();
     assert_eq!(host.boot().await.unwrap(), vec!["counter/a"]);
     assert_eq!(count(&host, "counter/a").await, 1);
     host.stop_all().await.unwrap();
     drop(host);
 
-    let host = Host::open(&home, counter::factories()).unwrap();
+    let host = Host::open(&home, factories()).unwrap();
     assert!(host.boot().await.unwrap().is_empty());
     let id = host.get_or_start("counter", "a").await.unwrap();
     assert_eq!(count(&host, &id).await, 1);
@@ -119,14 +124,14 @@ async fn a_start_before_the_schedule_is_due_stores_its_alarm_again() {
     let home = Scratch::new("kill-early");
     let due = kill_after_the_ack_before_the_alarm_is_stored(&home);
 
-    let host = Host::open(&home, counter::factories()).unwrap();
+    let host = Host::open(&home, factories()).unwrap();
     host.boot().await.unwrap();
     host.stop_all().await.unwrap();
     drop(host);
     assert!(Instant::now() < due, "the first start came after due");
     sleep_until(due + Duration::from_millis(200));
 
-    let host = Host::open(&home, counter::factories()).unwrap();
+    let host = Host::open(&home, factories()).unwrap();
     assert_eq!(host.boot().await.unwrap(), vec!["counter/a"]);
     assert_eq!(count(&host, "counter/a").await, 1);
     host.stop_all().await.unwrap();
