@@ -21,8 +21,8 @@ const USAGE: &str = "usage: hamlet [--insecure]
        hamlet window
        hamlet chat [--to <hand|hire#<id>|mayor@<hamlet>>] [--attach \
                      <path>]...
-       hamlet import [--file <export>] [--all] [--suggested | \
-                     <project>...]
+       hamlet import [--file <export>] [--all] [--sessions | \
+                     --suggested | <project or conversation id>...]
        hamlet edit <charter|limits|settings> [--hamlet <id>]
        hamlet edit character <scholar#id>
        hamlet edit memory <scholar#id|hire#<id>> [path]
@@ -80,6 +80,7 @@ enum Command {
     Found {
         file: Option<PathBuf>,
         all: bool,
+        listing: hamlet_cli::import::Listing,
     },
     Import {
         file: Option<PathBuf>,
@@ -202,6 +203,7 @@ fn parse(args: &[String]) -> Result<Command> {
             use hamlet_cli::import::Chosen;
             let mut all = false;
             let mut suggested = false;
+            let mut sessions = false;
             let mut file = None;
             let mut names = Vec::new();
             let mut args = rest.iter();
@@ -209,6 +211,7 @@ fn parse(args: &[String]) -> Result<Command> {
                 match arg.as_str() {
                     "--all" => all = true,
                     "--suggested" => suggested = true,
+                    "--sessions" => sessions = true,
                     "--file" => {
                         let value = args.next().ok_or_else(|| {
                             anyhow::anyhow!(
@@ -224,7 +227,16 @@ fn parse(args: &[String]) -> Result<Command> {
                 }
             }
             Ok(match (suggested, names.is_empty()) {
-                (false, true) => Command::Found { file, all },
+                (false, true) => Command::Found {
+                    file,
+                    all,
+                    listing: match sessions {
+                        true => hamlet_cli::import::Listing::Sessions,
+                        false => {
+                            hamlet_cli::import::Listing::Projects
+                        }
+                    },
+                },
                 (true, true) => Command::Import {
                     file,
                     all,
@@ -389,8 +401,12 @@ fn main() {
             println!("{USAGE}");
             return Ok(0);
         }
-        if let Command::Found { file, all } = &command {
-            hamlet_cli::import::list(file.as_deref(), *all)?;
+        if let Command::Found { file, all, listing } = &command {
+            hamlet_cli::import::list(
+                file.as_deref(),
+                *all,
+                *listing,
+            )?;
             return Ok(0);
         }
         if let Command::Server {

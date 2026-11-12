@@ -246,8 +246,10 @@ chief's hamlet that works on it already, and each of its conversations
 of the last [30] days a hire under its mayor, as the hamlet's tier has
 room, whose chat begins with that conversation. A conversation is
 brought in once per chief. The window offers the projects once, when
-first-run setup ends on a realm with no hamlet, with git repositories of
-[3] conversations or more picked, and again from Settings. A
+first-run setup ends on a realm with no hamlet, and again from Settings;
+the chief picks which conversations of each project to bring in, listed
+newest first, and the newest [49] of git repositories of [3]
+conversations or more start picked. A
 conversation keeps the words of the chief's messages and the answers,
 its first message and the newest [200], and a notice says where it came
 from and how many messages were left out. The other program's tool calls
