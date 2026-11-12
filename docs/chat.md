@@ -49,9 +49,10 @@ disc in the paint of its robot. The steps of a turn are folded into one
 quiet line that opens, under the reply before them. Steps that open a turn
 stand under its first reply, joined by those after it.
 
-Rows build 24 at a time. When a transcript has an earlier page, scrolling
-to the top sends `open` with `before` set to the first item's ID. Only one
-page request is outstanding, and the returned items go above the rows
+Rows build 6 at a time. When the rows already built reach the transcript's
+first item and it has an earlier page, scrolling to the top sends `open`
+with `before` set to the first item's ID. Only one page request is
+outstanding, and the returned items go above the rows
 already there. The hint reads "Earlier lines. Scroll up to read them."
 
 Sending a line triggers `ChiefMessage`, which the client sends as `say` to
@@ -376,5 +377,6 @@ A reply that grows is read again from its last settled block, and the blocks
 before it are shared, not parsed or compared again.
 
 Bevy marks every text input changed each frame, which would set its size and
-lay out everything above it again. `fields.rs` runs that size system only
-when a font, a scale, a new field or the lines a field asks for have changed.
+lay out everything above it again. `hamlet_ui/src/fields.rs` runs that
+size system only when a font, a scale, a new field or the lines a field
+asks for have changed.

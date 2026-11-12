@@ -35,7 +35,7 @@ whose terms are Anthropic's, so a released pi offers no Claude
 ## The launcher
 
 `hamlet_launch` does what bare `hamlet` does, for a chief with no
-terminal: it starts the home's server, or reuses the one running, and
+terminal: it starts the realm's server, or reuses the one running, and
 opens the window. On Linux and macOS the window takes the launcher's
 process, so the dock shows the app that was opened; on Windows the
 window is opened apart and the launcher, which asks for no console,
@@ -67,7 +67,7 @@ Windows: an Inno Setup installer, `.github/scripts/hamlet.iss`, installs
 for the current account in `%LOCALAPPDATA%\Programs\Hamlet`, with no
 administrator, and adds Hamlet to the Start menu. An update stops the
 running server first, since it holds its programs open, and replaces
-pi whole; uninstalling stops it too. The home is never touched. Windows
+pi whole; uninstalling stops it too. The realm is never touched. Windows
 has no server sandbox, so a server starts only in insecure mode,
 which needs `hamlet.exe --insecure` in a terminal: the installed app
 says so in its dialog. Agents' commands then reach whatever the account
@@ -112,7 +112,7 @@ from `brand/icon/hamlet-icon.png`.
 `cargo xtask install` is a different, source-development workflow: it installs
 the CLI, server and window into Cargo's bin directory but leaves pi in the build
 checkout. Retain that checkout, or set `HAMLET_PI_HARNESS` to another fully
-installed pi entry. `cargo xtask uninstall` removes the three binaries, not homes.
+installed pi entry. `cargo xtask uninstall` removes the three binaries, not realms.
 
 ## Signing
 
@@ -150,7 +150,7 @@ checks again. Once one is found, the Hamlet menu's item reads
 
 Restart notes the version being installed and hands the file to
 `hamlet_launch --update <file>`, then the window closes. The launcher
-stops the home's server and puts the update in place:
+stops the realm's server and puts the update in place:
 
 - macOS: the zip is unpacked beside the app, and the new app takes the
   old one's place once `codesign` finds it whole and, when the old app
@@ -168,7 +168,7 @@ links to the release's page instead.
 
 Only a release looks: the workflow gives a tag's build the public key,
 from the repository variable `HAMLET_UPDATE_KEY`, and a build without
-it never looks. `HAMLET_NO_UPDATE` set to anything stops a release
+it never looks. `HAMLET_NO_UPDATE` set to a non-empty value stops a release
 from looking. `HAMLET_UPDATE_FEED` names another manifest, for trying
 an update before it is published. The key pair is made once with
 OpenSSL; the private key goes in the secret `HAMLET_UPDATE_SIGNING_KEY`
@@ -201,5 +201,5 @@ is therefore a publishing action, not a local packaging check.
 Validate an extracted archive from outside the checkout on a fresh
 `HAMLET_HOME`: start the server, complete a faux chat, stop it and check
 that its publication is removed. Do not point release smoke tests at a
-personal home. This checks discovery and dependencies, not exhaustive
+personal realm. This checks discovery and dependencies, not exhaustive
 behavior, real-provider access, or every platform.

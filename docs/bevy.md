@@ -1,17 +1,18 @@
 # Bevy as it is used here
 
-What Bevy 0.19 offers, which of it this project leans on, and the habits
+What Bevy 0.20 offers, which of it this project leans on, and the habits
 that keep a frame cheap and a change correct. It was written from the
 0.19 release notes, the 0.18 to 0.19 migration guide, the Bevy sources and
-a review of every crate that touches the engine (2026-10-10). The rules in
+a review of every crate that touches the engine (2026-10-10), and checked
+against the 0.20 sources. The rules in
 [`code_convention.md`](code_convention.md) still win where they differ.
 
 Sources: <https://bevy.org/news/bevy-0-19/>,
 <https://bevy.org/learn/migration-guides/0-18-to-0-19/>, and the crates
-under `~/.cargo/registry/src/*/bevy_*-0.19.1`. Check an API there before
+under `~/.cargo/registry/src/*/bevy_*-0.20.1`. Check an API there before
 trusting memory: the engine moves every release.
 
-## What 0.19 changed that matters here
+## What changed in 0.19 that matters here
 
 | Change | What it means in this code |
 |---|---|
@@ -20,7 +21,7 @@ trusting memory: the engine moves every release.
 | Observers take `.run_if(..)` | A condition on an observer replaces an early return at its top |
 | `commands.delayed().secs(n)` | Work for later without a timer component. It cannot be cancelled, so keep the entity and check it |
 | `SystemState::get` returns a `Result` | As does a custom `SystemParam::get_param`. `Single` and `Populated` fail there, and the system is skipped |
-| `NextState::set` to the same state runs the enter schedule again | The window relies on it to show itself twice. `set_if_neq` is the one that does not |
+| `NextState::set` to the same state runs the enter schedule again | `set_if_different` is the one that does not |
 | `Replace` became `Discard` | `on_replace` hooks are `on_discard` |
 | Text is laid out by Parley | `TextFont::font` is a `FontSource`, `font_size` a `FontSize` |
 | The render graph is systems | A custom pass is a system in `Core3d`, ordered against the engine's own |
@@ -30,13 +31,13 @@ trusting memory: the engine moves every release.
 
 | The need | The tool | Here |
 |---|---|---|
-| A fact about one thing | A component | `AgentNumber`, `Busy`, `Housed` |
+| A fact about one thing | A component | `Faulted`, `Busy`, `Housed` |
 | A fact nothing may edit in place | `#[component(immutable)]`, replaced by inserting it again | Server facts projected into client entities (`docs/tour.md`) |
 | One thing points at another, and the other should know | A relationship | `LivesIn` and `Agents`, `TalksTo`, `RaisedBy`, and a road's `RoadFrom` and `RoadTo`, which take it with either end |
 | A link kept as a bare `Entity` and found by scanning | Make it a relationship, with `linked_spawn` where one goes with the other | `Sign` and `Signed` |
 | One of a kind for the whole app | A resource | `Society`, `Stage`, `Selected` |
 | Something happened, and whoever cares answers at once | An observer event (`commands.trigger`, `On<E>`) | `ChiefMessage`, `Carried`, `Reconnected` |
-| Something happened to one thing | An `EntityEvent` aimed at that entity, observed on it or by all | `Answer`, `SessionOutput`, `TagAnswered`, `SkillGiven` |
+| Something happened to one thing | An `EntityEvent` aimed at that entity, observed on it or by all | `Answer`, `SessionOutput`, `TagAnswered`, `JobFinished` |
 | Something happened, and a system reads it in its turn | A message (`MessageWriter`, `MessageReader`) | `Played`, `Cue`, `SetDown` |
 | A component came or went | `On<Add, T>`, `On<Insert, T>`, `On<Discard, T>` | A chat is opened when its `Chat` is inserted and closed when it is discarded |
 | A map that must follow a component | `on_insert` and `on_discard` hooks on an `immutable` component | `hamlet_client`'s `Index` |

@@ -19,9 +19,9 @@ the chief's answers are heard the same wherever the camera is.
 Each playing is varied by its `turn`. A sound with no note strays a little
 in pitch, and a sound with a note moves only to other notes of the scale.
 
-A cue is left out when its family is full, when the same sound has just
-played, when it is out of earshot, or when it is a second alert within a
-few seconds.
+A cue is left out when its family is switched off or full, when the same
+sound has just played, when it is out of earshot or too many sounds of the
+world are playing, or when it is a second alert within a few seconds.
 
 ## The sounds
 

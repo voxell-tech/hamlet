@@ -4,7 +4,7 @@ description: Search the web and get the top results (title, URL, snippet) as pla
 usage: python3 skills/web-search/scripts/search.py "your query" [max_results]
 ---
 
-Needs tool network access (the user turns it on in the Connection settings) and python3.
+Needs tool network access (a chief turns on "Tools network access" in the settings) and python3.
 
 ```sh
 python3 skills/web-search/scripts/search.py "your query" [max_results]

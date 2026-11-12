@@ -40,6 +40,7 @@ cyan working, orange waiting for the chief, red fault, moon reflecting.
 | Waiting for the chief | `Wait`, `Object` |
 | Gone wrong | `Fault`, `Failed` |
 | Coming and going | `Appear`, `Leave`, `MergeInto`, `MergeHost` |
+| Chores at home ([`working-alone.md`](working-alone.md)) | `Amble`, `Pace`, `Read`, `Jot`, `Write`, `Crank`, `Tend`, `Kite`, `Recall`, `Stow`, `Tinker`, `Oops`, `Done` |
 | The hamlet's life | `Celebrate` |
 | Under the chief's hand | `Startle`, `Sulk`, `Wiggle`, `Dangle`, `Land`, `Greet`, `Wave` |
 
@@ -119,7 +120,7 @@ each part is a pure function of the time since it began.
 - **A house that moves with its hamlet** sinks on its old plot and rises on the new.
 
 What a house rests as is decided in one place: `Agent::remains` in
-`society.rs`, read from `HouseSettings`.
+`generator/society.rs`, read from `HouseSettings`.
 
 A house that is there when its hamlet is first drawn does not move, which
 covers everything at load.

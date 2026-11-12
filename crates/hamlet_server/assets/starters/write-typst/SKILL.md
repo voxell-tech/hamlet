@@ -4,7 +4,7 @@ description: Write a document in Typst and compile it to a PDF. Read this before
 usage: typst compile report.typ
 ---
 
-Needs the `typst` program. Write the `.typ` file in the workspace, then compile:
+Needs the `typst` program. Write the `.typ` file in your lodge, then compile:
 
 ```sh
 typst compile report.typ        # writes report.pdf beside it
@@ -45,6 +45,6 @@ Plain text. *Bold* uses one star each side, _italic_ one underscore.
   `cell-text`. Bold in a cell is `[*text*]`.
 - `#set page(...)` takes `paper`, `width`, `height`, `margin`. It has no `title`.
 - A literal `#`, `*`, `_`, `$` or `@` in text needs a backslash: `\#`, `\$`.
-- `#image` reads a file in the workspace, never a URL. Download it first with
+- `#image` reads a file in your lodge, never a URL. Download it first with
   `curl -sL "<url>" -o picture.jpg`, and check it is an image, not an error page.
 - The date is `#datetime.today().display()`.

@@ -39,8 +39,9 @@ workspace: it holds no package, so `cargo build`, `cargo test` and
 `xtask/` is a workspace of its own, run as `cargo xtask`. Its `check`
 is nine steps, `format`, `clippy`, `cross`, `deny`, `test`, `acceptance`,
 `harness`, `doc` and `node`, each a task of its own;
-`.github/workflows/rust.yml` runs them by name, and spells out only the
-Windows window's clippy. `deny.toml` at the root configures cargo deny,
+`.github/workflows/rust.yml` runs them by name, and spells out only what
+no task covers: the mingw clippy of the server and CLI, and the macOS and
+Windows jobs. `deny.toml` at the root configures cargo deny,
 which `deny` runs.
 
 `vendor/fynix` is the submodule that supplies `bevy_fynix`, the panels'

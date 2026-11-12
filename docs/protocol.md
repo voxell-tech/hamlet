@@ -68,14 +68,15 @@ are in
 | `AttachedImage` | `{id: ImageId, at?: integer}`: an image a line carries and where it sits in the line's text. |
 | `AttachedFile` | `{id: FileId, name: string, size: integer, at?: integer}`: a file a line carries and the name the agent finds it under, its path in an attached folder with `/` between the parts (no empty part, no `.` or `..`), at most 1024 characters, and where it sits in the line's text. |
 
-`at` is a byte offset into the line's `text`, on a character boundary and at
-most the text's length in bytes; a line with any other `at` is refused. An
-attachment without `at` goes after the text. The files of one folder share
-the folder's `at`.
 | `Choice` | `allow`, `always`, `deny`, `go`, `withdraw`, `reply`, `dismiss`, `welcome`. Use the choices advertised by the wait. |
 | `Endpoint` | `{name: string, baseUrl: string}`. |
 | `Price` | `{input: number, output: number}`: dollars per million tokens. |
 | `Amount` | `{tokens: integer, micros: integer, ms: integer}`: tokens, millionths of a dollar, milliseconds. |
+
+`at` is a byte offset into the line's `text`, on a character boundary and at
+most the text's length in bytes; a line with any other `at` is refused. An
+attachment without `at` goes after the text. The files of one folder share
+the folder's `at`.
 
 `ChatRef.with` selects the agent the chief talks to. Without `past`, it
 selects the current chief conversation; `past` selects a stable conversation
@@ -315,7 +316,7 @@ Reflections and retries show as notices, as does a compaction.
 
 A `Wait` has the fields every wait has (`id`, `by`, `agent`, `about`,
 `subject`, `change`, `answers`, `since`, `asked`, `chat`) and a `detail`
-discriminated by `kind`: `approval` with its `danger` (`network`, `unconfined`, `reserved`, `edit`, `command` or `send`, files an agent sends over what one send holds), the agent's wish as
+discriminated by `kind`: `approval` with its `danger` (`network`, `unconfined`, `destructive`, `reserved`, `edit`, `command` or `send`, files an agent sends over what one send holds), the agent's wish as
 `says` and how long `always` lasts (`session`, `grant`, or `null` when it is
 not offered); `fault`; `question` with its `questions`; `objection`; or
 `newcomer` with the `scholar` waiting at the harbor, whose answers are
