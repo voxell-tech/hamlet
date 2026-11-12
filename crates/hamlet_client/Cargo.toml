@@ -11,6 +11,7 @@ description = "The window's components and requests, filled from the server"
 workspace = true
 
 [dependencies]
+anyhow.workspace = true
 base64.workspace = true
 bevy_app.workspace = true
 bevy_ecs.workspace = true

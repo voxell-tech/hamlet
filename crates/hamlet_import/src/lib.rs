@@ -2,12 +2,13 @@
 //! file they exported, each read as an [`Imported`] for the server to
 //! bring in (C35).
 
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Read as _};
 use std::path::{Path, PathBuf};
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, anyhow};
 use hamlet_protocol::client::{
     ImportSource, Imported, ImportedEntry,
 };
@@ -47,6 +48,129 @@ pub fn find() -> Vec<Found> {
     found
 }
 
+/// How far back the conversations of a project reach.
+pub const RECENT: Duration = Duration::from_secs(30 * 24 * 60 * 60);
+
+/// A project: the folder conversations worked in, or the program of
+/// those with none, as an export's are.
+#[derive(Clone, Debug)]
+pub struct Project {
+    pub name: String,
+    /// The root of its git repository, else the folder itself.
+    pub folder: Option<String>,
+    pub is_git: bool,
+    /// Its conversations, newest first.
+    pub conversations: Vec<Found>,
+}
+
+impl Project {
+    /// Whether to bring it in unless the chief says not to: a git
+    /// repository with three conversations or more.
+    pub fn is_suggested(&self) -> bool {
+        self.is_git && self.conversations.len() >= 3
+    }
+
+    pub fn modified(&self) -> SystemTime {
+        self.conversations
+            .first()
+            .map_or(SystemTime::UNIX_EPOCH, |found| found.modified)
+    }
+}
+
+/// The projects of the conversations `found` since `since`, the
+/// newest first. A linked git worktree, a folder under Downloads,
+/// Codex's scratch folders and the home folder are no project.
+pub fn projects(
+    found: Vec<Found>,
+    since: SystemTime,
+) -> Vec<Project> {
+    let home = std::env::home_dir();
+    let mut projects = Vec::<Project>::new();
+    for found in found {
+        if found.modified < since {
+            continue;
+        }
+        let (name, folder, is_git) = match &found.folder {
+            Some(folder) => {
+                let Some((root, is_git)) = root_of(Path::new(folder))
+                else {
+                    continue;
+                };
+                let skipped = home.as_deref().is_some_and(|home| {
+                    root == home
+                        || root.starts_with(home.join("Downloads"))
+                        || root
+                            .starts_with(home.join("Documents/Codex"))
+                });
+                if skipped {
+                    continue;
+                }
+                let name = root.file_name().map_or_else(
+                    || root.display().to_string(),
+                    |name| name.to_string_lossy().into_owned(),
+                );
+                (name, Some(root.display().to_string()), is_git)
+            }
+            None => (found.source.name().to_owned(), None, false),
+        };
+        match projects.iter_mut().find(|project| {
+            project.folder == folder
+                && (folder.is_some() || project.name == name)
+        }) {
+            Some(project) => project.conversations.push(found),
+            None => projects.push(Project {
+                name,
+                folder,
+                is_git,
+                conversations: vec![found],
+            }),
+        }
+    }
+    for project in &mut projects {
+        project
+            .conversations
+            .sort_by_key(|found| std::cmp::Reverse(found.modified));
+    }
+    projects.sort_by_key(|project| {
+        (!project.is_git, std::cmp::Reverse(project.modified()))
+    });
+    projects
+}
+
+/// The root of the git repository `folder` is in, and true; else
+/// `folder` and false. `None` for a linked worktree or a folder that
+/// is gone.
+fn root_of(folder: &Path) -> Option<(PathBuf, bool)> {
+    if !folder.is_dir() {
+        return None;
+    }
+    for at in folder.ancestors() {
+        let git = at.join(".git");
+        if git.is_dir() {
+            return Some((at.to_owned(), true));
+        }
+        if git.is_file() {
+            return (is_worktree(&git) == Some(false))
+                .then(|| (at.to_owned(), true));
+        }
+    }
+    Some((folder.to_owned(), false))
+}
+
+/// Whether the `.git` file `git` is a linked worktree's, whose git
+/// folder is under its repository's `worktrees`, where a submodule's
+/// is under `modules`.
+fn is_worktree(git: &Path) -> Option<bool> {
+    let text = std::fs::read_to_string(git).ok()?;
+    let folder = Path::new(text.strip_prefix("gitdir:")?.trim());
+    Some(
+        folder
+            .parent()
+            .and_then(Path::file_name)
+            .is_some_and(|name| name == "worktrees"),
+    )
+}
+
 /// Every conversation in a file ChatGPT or Claude exported, as its
 /// zip or its `conversations.json`, newest first.
 pub fn find_in(path: &Path) -> Result<Vec<Found>> {
@@ -62,10 +186,42 @@ pub fn read(found: &Found) -> Result<Imported> {
         ImportSource::Codex => codex::read(&found.path)?,
         ImportSource::Pi => pi::read(&found.path)?,
         ImportSource::Chatgpt | ImportSource::Claude => {
-            exports::read(&found.path, &found.session)?
+            let conversations = exports::conversations(&found.path)?;
+            exports::read(
+                &conversations,
+                &found.path,
+                &found.session,
+            )?
         }
     };
     Ok(read.finish())
+}
+
+/// The conversations `found`, each as [`read`] reads it, an export
+/// read once for all of its conversations.
+pub fn read_all(found: &[Found]) -> Vec<Result<Imported>> {
+    let mut exported = HashMap::<&Path, Result<Vec<Value>>>::new();
+    found
+        .iter()
+        .map(|found| match found.source {
+            ImportSource::Chatgpt | ImportSource::Claude => {
+                let conversations =
+                    exported.entry(&found.path).or_insert_with(
+                        || exports::conversations(&found.path),
+                    );
+                match conversations {
+                    Ok(conversations) => exports::read(
+                        conversations,
+                        &found.path,
+                        &found.session,
+                    )
+                    .map(Draft::finish),
+                    Err(error) => Err(anyhow!("{error:#}")),
+                }
+            }
+            _ => read(found),
+        })
+        .collect()
 }
 
 /// A conversation as a source reads it, before it is cut.
@@ -75,6 +231,9 @@ struct Draft {
     title: Option<String>,
     model: Option<String>,
     entries: Vec<ImportedEntry>,
+    /// Where each of the person's turns began in `entries`, those
+    /// with no words included.
+    turns: Vec<usize>,
 }
 
 impl Draft {
@@ -85,7 +244,14 @@ impl Draft {
             title: None,
             model: None,
             entries: Vec::new(),
+            turns: Vec::new(),
         }
+    }
+
+    /// Begins one of the person's turns, which [`Self::take_back`]
+    /// counts.
+    fn turn(&mut self) {
+        self.turns.push(self.entries.len());
     }
 
     fn user(&mut self, at: u64, text: &str) {
@@ -99,15 +265,17 @@ impl Draft {
     }
 
     /// Adds an answer's words, to the answer before them when nothing
-    /// came between.
+    /// came between, not even a turn without words.
     fn assistant(&mut self, at: u64, text: &str) {
         let text = text.trim();
         if text.is_empty() {
             return;
         }
-        if let Some(ImportedEntry::Assistant {
-            text: so_far, ..
-        }) = self.entries.last_mut()
+        let turned = self.turns.last() == Some(&self.entries.len());
+        if !turned
+            && let Some(ImportedEntry::Assistant {
+                text: so_far, ..
+            }) = self.entries.last_mut()
         {
             so_far.push_str("\n\n");
             so_far.push_str(text);
@@ -116,6 +284,16 @@ impl Draft {
                 at,
                 text: text.to_owned(),
             });
+        }
+    }
+
+    /// Takes back the newest `turns` turns begun with [`Self::turn`]
+    /// and everything after them.
+    fn take_back(&mut self, turns: usize) {
+        let kept = self.turns.len().saturating_sub(turns);
+        if let Some(&start) = self.turns.get(kept) {
+            self.entries.truncate(start);
+            self.turns.truncate(kept);
         }
     }
 
@@ -187,16 +365,14 @@ fn keep(
         entries.drain(first + 1..newest);
     }
     // Past the most entries, the oldest tool calls go first.
-    let mut index = 0;
-    while entries.len() > Imported::MOST_ENTRIES
-        && index < entries.len()
-    {
-        if matches!(entries[index], ImportedEntry::Step { .. }) {
-            entries.remove(index);
-        } else {
-            index += 1;
-        }
-    }
+    let mut over =
+        entries.len().saturating_sub(Imported::MOST_ENTRIES);
+    entries.retain(|entry| {
+        let goes =
+            over > 0 && matches!(entry, ImportedEntry::Step { .. });
+        over -= usize::from(goes);
+        !goes
+    });
     (entries, left_out)
 }
 
@@ -242,16 +418,45 @@ fn call_summary(input: &Value) -> String {
     summary(&named.unwrap_or_else(|| input.to_string()))
 }
 
-/// The JSON records of a file of one per line, the unreadable ones
-/// left out; the first `limit` bytes of it when given.
+/// The JSON records of a file of one per line, those not JSON left
+/// out; the first `limit` bytes of it when given, where the line the
+/// limit cuts is left out too.
 fn records(path: &Path, limit: Option<u64>) -> Result<Vec<Value>> {
     let file = File::open(path)
         .with_context(|| format!("opening {}", path.display()))?;
-    Ok(BufReader::new(file.take(limit.unwrap_or(u64::MAX)))
-        .lines()
-        .map_while(Result::ok)
-        .filter_map(|line| serde_json::from_str::<Value>(&line).ok())
-        .collect())
+    let mut records = Vec::new();
+    for line in
+        BufReader::new(file.take(limit.unwrap_or(u64::MAX))).lines()
+    {
+        let line = match line {
+            Ok(line) => line,
+            // The limit may cut a letter in two.
+            Err(_) if limit.is_some() => break,
+            Err(error) => {
+                return Err(error).with_context(|| {
+                    format!("reading {}", path.display())
+                });
+            }
+        };
+        if let Ok(record) = serde_json::from_str(&line) {
+            records.push(record);
+        }
+    }
+    Ok(records)
+}
+
+/// What `pick` finds in the records at the start of `path`, its first
+/// [`HEAD`] bytes, else in all of them, for a file whose first record
+/// of note is longer than that.
+fn listing<T>(
+    path: &Path,
+    pick: impl Fn(&[Value]) -> Option<T>,
+) -> Option<T> {
+    if let Some(found) = pick(&records(path, Some(HEAD)).ok()?) {
+        return Some(found);
+    }
+    let longer = std::fs::metadata(path).ok()?.len() > HEAD;
+    longer.then(|| pick(&records(path, None).ok()?)).flatten()
 }
 
 /// An RFC 3339 time in milliseconds since the epoch.
@@ -347,5 +552,27 @@ mod tests {
         assert_eq!(ats.last(), Some(&(count - 1)));
         // What answered a message left out goes with it.
         assert!(matches!(kept[1], ImportedEntry::User { at: 5, .. }));
+    }
+
+    #[test]
+    fn takes_back_a_wordless_turn_with_its_answer() {
+        let mut draft =
+            Draft::new(ImportSource::Codex, "session".into());
+        draft.turn();
+        draft.user(0, "0");
+        draft.assistant(1, "kept");
+        draft.turn();
+        draft.assistant(2, "taken back");
+        draft.take_back(1);
+        assert_eq!(
+            draft.entries,
+            [
+                user(0),
+                ImportedEntry::Assistant {
+                    at: 1,
+                    text: "kept".into(),
+                },
+            ]
+        );
     }
 }

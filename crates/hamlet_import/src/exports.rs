@@ -50,8 +50,13 @@ pub(crate) fn find(path: &Path) -> Result<Vec<Found>> {
     Ok(listed)
 }
 
-pub(crate) fn read(path: &Path, session: &str) -> Result<Draft> {
-    let conversations = conversations(path)?;
+/// The conversation `session` of `conversations`, those of the export
+/// at `path`.
+pub(crate) fn read(
+    conversations: &[Value],
+    path: &Path,
+    session: &str,
+) -> Result<Draft> {
     let conversation = conversations
         .iter()
         .find(|conversation| {
@@ -79,7 +84,7 @@ pub(crate) fn read(path: &Path, session: &str) -> Result<Draft> {
 
 /// The conversations of the export at `path`: its zip, or the
 /// `conversations.json` taken out of it.
-fn conversations(path: &Path) -> Result<Vec<Value>> {
+pub(crate) fn conversations(path: &Path) -> Result<Vec<Value>> {
     let mut file = File::open(path)
         .with_context(|| format!("opening {}", path.display()))?;
     let mut magic = [0; 2];

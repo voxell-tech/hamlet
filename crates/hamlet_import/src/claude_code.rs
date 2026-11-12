@@ -10,7 +10,7 @@ use hamlet_protocol::client::ImportSource;
 use serde_json::Value;
 
 use crate::{
-    Draft, Found, HEAD, files_under, folder, modified, records,
+    Draft, Found, files_under, folder, listing, modified, records,
     summary, time,
 };
 
@@ -32,21 +32,23 @@ pub(crate) fn find() -> Vec<Found> {
 /// The session at `path` as a list shows it, from its first records;
 /// `None` for one with no message of the person's there.
 fn listed(path: &Path) -> Option<Found> {
-    let mut folder = None;
-    let mut title = None;
-    let mut first = None;
-    for record in records(path, Some(HEAD)).ok()? {
-        if folder.is_none() {
-            folder = record["cwd"].as_str().map(str::to_owned);
+    let (folder, title, first) = listing(path, |records| {
+        let mut folder = None;
+        let mut title = None;
+        let mut first = None;
+        for record in records {
+            if folder.is_none() {
+                folder = record["cwd"].as_str().map(str::to_owned);
+            }
+            if let Some(custom) = record["customTitle"].as_str() {
+                title = Some(custom.to_owned());
+            }
+            if first.is_none() && is_message(record) {
+                first = user_text(record);
+            }
         }
-        if let Some(custom) = record["customTitle"].as_str() {
-            title = Some(custom.to_owned());
-        }
-        if first.is_none() && is_message(&record) {
-            first = user_text(&record);
-        }
-    }
-    let first = first?;
+        Some((folder, title, first?))
+    })?;
     Some(Found {
         source: ImportSource::ClaudeCode,
         session: path.file_stem()?.to_string_lossy().into_owned(),

@@ -132,6 +132,19 @@ pub(super) fn card(
         },
     )
     .within(bare());
+    let head = with_cx(move |cx| {
+        column((named, track(at))).gap(cx.theme().space.section)
+    });
+    sheet(head, body, foot)
+}
+
+/// A card: `head` over `body`, which scrolls, over the buttons of
+/// `foot`, with rules between.
+pub(super) fn sheet(
+    head: impl View + 'static,
+    body: impl View + 'static,
+    foot: Vec<AnyView>,
+) -> AnyView {
     with_cx(move |cx| {
         let theme = cx.theme();
         let space = &theme.space;
@@ -148,10 +161,7 @@ pub(super) fn card(
             .overflow(Overflow::scroll_y()),
         );
         column((
-            column((named, track(at)))
-                .gap(space.section)
-                .padding(pad)
-                .shrink(0.0),
+            column((head,)).padding(pad).shrink(0.0),
             hairline(line).shrink(0.0),
             body,
             hairline(line).shrink(0.0),
@@ -862,7 +872,7 @@ fn screen() -> AnyView {
 const VEIL: f32 = 0.7;
 
 /// The card over a veil on whatever is behind.
-fn over(cx: &Cx, page: AnyView) -> impl View + use<> {
+pub(super) fn over(cx: &Cx, page: AnyView) -> impl View + use<> {
     let theme = cx.theme();
     let space = &theme.space;
     // The page pads its own parts, so its rules run edge to edge,

@@ -8,8 +8,8 @@ use std::panic::AssertUnwindSafe;
 use anyhow::Result;
 use futures::FutureExt;
 use hamlet_protocol::client::{
-    self as protocol, ChatRef, ChatRefKind, ClientMessage, RequestId,
-    ServerMessage, Transcript,
+    self as protocol, ChatRef, ChatRefKind, ClientMessage,
+    ImportProject, RequestId, ServerMessage, Transcript,
 };
 use hamlet_store::ids::{Actor, AgentId, ConversationId};
 
@@ -327,35 +327,56 @@ impl Core {
                 });
                 self.answer(client, reply(&resume.id, words))
             }
-            ClientMessage::Import(import) => {
-                let Some(agent) =
-                    self.reached(client, &import.id, import.to.0)?
-                else {
-                    return Ok(());
-                };
+            ClientMessage::ImportProject(project) => {
                 let files = Files::new(self.realm.layout().files());
-                let imported =
-                    match imports::read(&files, &import.file)? {
-                        Ok(imported) => imported,
+                // Every file is held read at once.
+                let together = project
+                    .files
+                    .iter()
+                    .filter_map(|file| files.size(file))
+                    .sum::<u64>();
+                if together > ImportProject::MOST_BYTES {
+                    return self.answer(
+                        client,
+                        reply(
+                            &project.id,
+                            Err(Refusal::Usage {
+                                words: format!(
+                                    "A project's conversations come \
+                                     to at most {} MiB together; \
+                                     bring in fewer at a time.",
+                                    ImportProject::MOST_BYTES >> 20
+                                ),
+                            }),
+                        ),
+                    );
+                }
+                let mut conversations = Vec::new();
+                for file in &project.files {
+                    match imports::read(&files, file)? {
+                        Ok(imported) => conversations.push(imported),
                         Err(refusal) => {
                             return self.answer(
                                 client,
-                                reply(&import.id, Err(refusal)),
+                                reply(&project.id, Err(refusal)),
                             );
                         }
-                    };
+                    }
+                }
+                let wanted = imports::Project {
+                    name: &project.name,
+                    folder: project.folder.as_deref(),
+                    conversations: &conversations,
+                };
                 let done = self
                     .attempt(Actor::Chief(chief), |cx, env| {
-                        imports::bring_in(
-                            cx, env, agent, chief, &imported,
+                        imports::bring_in_project(
+                            cx, env, chief, &wanted,
                         )
                     })
                     .await?;
-                self.rewatch(agent).await?;
-                let words = done.map(|number| {
-                    format!("Brought in as session {number}.")
-                });
-                self.answer(client, reply(&import.id, words))
+                let words = done.map(|brought| brought.words());
+                self.answer(client, reply(&project.id, words))
             }
             ClientMessage::Retry(retry) => {
                 let Some(agent) =

@@ -1,6 +1,6 @@
 //! pi's sessions: one JSON line per entry in
-//! `<sessions>/<folder>/<time>_<id>.jsonl`, where `<sessions>` is
-//! `PI_CODING_AGENT_SESSION_DIR`, else `sessions` under
+//! `<time>_<id>.jsonl` files, in `PI_CODING_AGENT_SESSION_DIR`, else
+//! in a folder for each project under `sessions` in
 //! `PI_CODING_AGENT_DIR` or `~/.pi/agent`. Entries form a tree; the
 //! last one written ends the branch pi opens.
 
@@ -12,47 +12,54 @@ use hamlet_protocol::client::ImportSource;
 use serde_json::Value;
 
 use crate::{
-    Draft, Found, HEAD, files_under, folder, modified, records,
+    Draft, Found, files_under, folder, listing, modified, records,
     summary, time,
 };
 
-fn sessions() -> Option<PathBuf> {
+/// The folder of pi's sessions, and how many folders down they are in
+/// it: none in the one `PI_CODING_AGENT_SESSION_DIR` names, one for
+/// each project in its own.
+fn sessions() -> Option<(PathBuf, usize)> {
     std::env::var_os("PI_CODING_AGENT_SESSION_DIR")
         .filter(|sessions| !sessions.is_empty())
-        .map(PathBuf::from)
+        .map(|sessions| (PathBuf::from(sessions), 0))
         .or_else(|| {
             folder("PI_CODING_AGENT_DIR", ".pi/agent")
-                .map(|agent| agent.join("sessions"))
+                .map(|agent| (agent.join("sessions"), 1))
         })
 }
 
 pub(crate) fn find() -> Vec<Found> {
-    let Some(sessions) = sessions() else {
+    let Some((sessions, depth)) = sessions() else {
         return Vec::new();
     };
-    files_under(&sessions, 1, "jsonl")
+    files_under(&sessions, depth, "jsonl")
         .iter()
         .filter_map(|path| listed(path))
         .collect()
 }
 
 fn listed(path: &Path) -> Option<Found> {
-    let mut session = None;
-    let mut folder = None;
-    let mut first = None;
-    for record in records(path, Some(HEAD)).ok()? {
-        if record["type"] == "session" {
-            session = record["id"].as_str().map(str::to_owned);
-            folder = record["cwd"].as_str().map(str::to_owned);
+    let (session, folder, first) = listing(path, |records| {
+        let mut session = None;
+        let mut folder = None;
+        let mut first = None;
+        for record in records {
+            if record["type"] == "session" {
+                session = record["id"].as_str().map(str::to_owned);
+                folder = record["cwd"].as_str().map(str::to_owned);
+            }
+            if first.is_none() && record["message"]["role"] == "user"
+            {
+                first = text_of(&record["message"]["content"]);
+            }
         }
-        if first.is_none() && record["message"]["role"] == "user" {
-            first = text_of(&record["message"]["content"]);
-        }
-    }
+        Some((session?, folder, first?))
+    })?;
     Some(Found {
         source: ImportSource::Pi,
-        session: session?,
-        title: summary(&first?),
+        session,
+        title: summary(&first),
         folder,
         modified: modified(path)?,
         path: path.to_owned(),
@@ -67,13 +74,19 @@ pub(crate) fn read(path: &Path) -> Result<Draft> {
         .and_then(|record| record["id"].as_str())
         .unwrap_or_default()
         .to_owned();
+    // Sessions of pi's first format give their entries no id and keep
+    // them in a line, all of them open.
+    let lined = !records.iter().any(|record| {
+        record["type"] == "message" && record["id"].is_string()
+    });
     let open = open_branch(&records);
     let mut read = Draft::new(ImportSource::Pi, session);
     for record in &records {
-        let Some(id) = record["id"].as_str() else {
-            continue;
-        };
-        if record["type"] != "message" || !open.contains(id) {
+        let is_open = lined
+            || record["id"]
+                .as_str()
+                .is_some_and(|id| open.contains(id));
+        if record["type"] != "message" || !is_open {
             continue;
         }
         let message = &record["message"];

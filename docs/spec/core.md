@@ -236,15 +236,23 @@ the image itself when the chief asks to see it, and lists each file by its
 name. A rewind takes the images and files back with the line, and the words,
 images and files return to the chief's input together (C27).
 
-**C35.** A chief can bring in a conversation from another program as a
-new numbered conversation of a chat with an agent; it is current only
-when the chat has none. The client reads it on the chief's machine, so
-it works with a remote server. It keeps the words of the chief's messages
-and the answers, its first message and the newest [200], and a notice
-says where it came from and how many messages were left out. The other
-program's tool calls are shown, each by its tool and a short summary,
-and never given to the model. The same conversation is brought in to an
-agent once.
+**C35.** A chief can bring in the projects other programs (Claude
+Code, Codex, pi) worked on, found on the chief's machine, or the
+conversations of a ChatGPT or Claude export as one project. A project is
+the root of the git repository a conversation worked in, else its
+folder; linked worktrees, Downloads and the home folder are none. Each
+project becomes a hamlet named for it and working on its folder, or the
+chief's hamlet that works on it already, and each of its conversations
+of the last [30] days a hire under its mayor, as the hamlet's tier has
+room, whose chat begins with that conversation. A conversation is
+brought in once per chief. The window offers the projects once, when
+first-run setup ends on a realm with no hamlet, with git repositories of
+[3] conversations or more picked, and again from Settings. A
+conversation keeps the words of the chief's messages and the answers,
+its first message and the newest [200], and a notice says where it came
+from and how many messages were left out. The other program's tool calls
+are shown, each by its tool and a short summary, and never given to the
+model.
 
 **C34.** The `read` tool gives an image file (PNG, JPEG, WebP or GIF) to the
 model as an image, made to fit the model's limits (S30), when the model takes

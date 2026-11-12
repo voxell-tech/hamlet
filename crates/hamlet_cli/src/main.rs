@@ -12,46 +12,46 @@ use anyhow::{Result, bail};
 use hamlet_cli::process::{self, Action, Isolation};
 use hamlet_cli::{chat, terminal};
 
-const USAGE: &str =
-    "usage: hamlet [--insecure]
+const USAGE: &str = "usage: hamlet [--insecure]
        hamlet stop
        hamlet status
        hamlet server [--port <n>] [--faux <script.json>] [--insecure]
        hamlet dev [--port <n>] [--faux <script.json>] [--home <dir>] \
-     [--insecure] [--hot]
+                     [--insecure] [--hot]
        hamlet window
        hamlet chat [--to <hand|hire#<id>|mayor@<hamlet>>] [--attach \
-     <path>]...
-       hamlet import [--all | --file <export>]
-       hamlet import [--file <export>] <id> [--to \
-     <hand|hire#<id>|mayor@<hamlet>>]
+                     <path>]...
+       hamlet import [--file <export>] [--all] [--suggested | \
+                     <project>...]
        hamlet edit <charter|limits|settings> [--hamlet <id>]
        hamlet edit character <scholar#id>
        hamlet edit memory <scholar#id|hire#<id>> [path]
        hamlet login <provider> [--key]
        hamlet models [try [model] | refresh]
        hamlet models images <model> [off | [--width <px>] [--height \
-     <px>] [--mb <n>] [--per-line <n>]]
+                     <px>] [--mb <n>] [--per-line <n>]]
 
 Bare hamlet starts or reuses a background server and opens a window.
 Closing a window stops no agent. hamlet stop stops the local server.
 dev builds the checkout's server and window and serves a scratch \
-     realm; Ctrl-C stops both. --hot builds a window that reloads \
-     saved shaders and tuning files.
+                     realm; Ctrl-C stops both. --hot builds a \
+                     window that reloads saved shaders and tuning \
+                     files.
 server serves in the foreground; Ctrl-C stops it.
-import lists the conversations of Claude Code, Codex and pi on this \
-     machine, or those in a ChatGPT or Claude export, and brings \
-     one in as a new session of a chat.
+import lists the projects Claude Code, Codex and pi worked on in the \
+                     last 30 days, or those of a ChatGPT or Claude \
+                     export, and brings each one named in as a \
+                     hamlet with a hire for each conversation.
 --insecure, on Windows only, runs agents' commands with no sandbox.
 
 env: HAMLET_HOME (~/.hamlet), HAMLET_SERVER and HAMLET_TOKEN (remote \
-     clients),
+                     clients),
      HAMLET_APP (window executable), HAMLET_VIEW (window settings),
      HAMLET_SERVER_BIN (server executable), HAMLET_NODE (Node \
-     executable),
+                     executable),
      HAMLET_PI_HARNESS (Pi harness entry).
 Use Node from harnesses/pi/.nvmrc and npm ci --prefix harnesses/pi \
-     before starting a server from source.";
+                     before starting a server from source.";
 
 enum Command {
     Help,
@@ -75,16 +75,16 @@ enum Command {
         /// The images, files and folders the first line carries.
         attach: Vec<PathBuf>,
     },
-    /// Lists the conversations in an exported file, or those found on
-    /// this machine: the recent ones, or every one.
+    /// Lists the projects of an exported file, or of this machine:
+    /// the recent ones, or every one.
     Found {
         file: Option<PathBuf>,
         all: bool,
     },
     Import {
         file: Option<PathBuf>,
-        session: String,
-        to: String,
+        all: bool,
+        chosen: hamlet_cli::import::Chosen,
     },
     Terminal(terminal::Command),
 }
@@ -199,50 +199,44 @@ fn parse(args: &[String]) -> Result<Command> {
             })
         }
         "import" => {
+            use hamlet_cli::import::Chosen;
             let mut all = false;
+            let mut suggested = false;
             let mut file = None;
-            let mut to = None;
-            let mut session = None;
+            let mut names = Vec::new();
             let mut args = rest.iter();
             while let Some(arg) = args.next() {
                 match arg.as_str() {
                     "--all" => all = true,
-                    "--file" | "--to" => {
+                    "--suggested" => suggested = true,
+                    "--file" => {
                         let value = args.next().ok_or_else(|| {
                             anyhow::anyhow!(
-                                "{arg} needs {}",
-                                if arg == "--to" {
-                                    "an agent's address"
-                                } else {
-                                    "the path of an export"
-                                }
+                                "--file needs the path of an export"
                             )
                         })?;
-                        if arg == "--to" {
-                            to = Some(value.clone());
-                        } else {
-                            file = Some(PathBuf::from(value));
-                        }
+                        file = Some(PathBuf::from(value));
                     }
-                    id if session.is_none()
-                        && !id.starts_with("--") =>
-                    {
-                        session = Some(id.to_owned());
+                    name if !name.starts_with("--") => {
+                        names.push(name.to_owned());
                     }
                     other => return Err(unknown(other)),
                 }
             }
-            Ok(match session {
-                Some(session) if !all => Command::Import {
+            Ok(match (suggested, names.is_empty()) {
+                (false, true) => Command::Found { file, all },
+                (true, true) => Command::Import {
                     file,
-                    session,
-                    to: to.unwrap_or_else(|| {
-                        hamlet_protocol::HAND.to_owned()
-                    }),
+                    all,
+                    chosen: Chosen::Suggested,
                 },
-                None if to.is_none() => Command::Found { file, all },
-                _ => bail!(
-                    "import takes an id with --to, or --all to list"
+                (false, false) => Command::Import {
+                    file,
+                    all,
+                    chosen: Chosen::Named(names),
+                },
+                (true, false) => bail!(
+                    "import takes --suggested or projects, not both"
                 ),
             })
         }
@@ -437,12 +431,12 @@ fn main() {
                         .await?;
                     Ok(0)
                 }
-                Command::Import { file, session, to } => {
+                Command::Import { file, all, chosen } => {
                     hamlet_cli::import::bring_in(
                         &process::address()?,
                         file.as_deref(),
-                        &session,
-                        &to,
+                        all,
+                        &chosen,
                     )
                     .await?;
                     Ok(0)

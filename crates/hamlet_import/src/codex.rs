@@ -11,9 +11,29 @@ use hamlet_protocol::client::ImportSource;
 use serde_json::Value;
 
 use crate::{
-    Draft, Found, HEAD, files_under, folder, modified, records,
+    Draft, Found, files_under, folder, listing, modified, records,
     summary, time,
 };
+
+/// How the parts Codex adds to a user message begin, each in a part
+/// of its own: the context it gives the model and what its window
+/// attached.
+const GENERATED: [&str; 14] = [
+    "<environment_context>",
+    "<user_instructions>",
+    "<permissions instructions>",
+    "<collaboration_mode>",
+    "<turn_aborted>",
+    "<user_shell_command>",
+    "<subagent_notification>",
+    "<skill>",
+    "<image ",
+    "</image>",
+    "<external_",
+    "<in-app-browser-context",
+    "# AGENTS.md instructions",
+    "# Files mentioned by the user",
+];
 
 pub(crate) fn find() -> Vec<Found> {
     let Some(home) = folder("CODEX_HOME", ".codex") else {
@@ -39,22 +59,27 @@ fn listed(
     path: &Path,
     names: &HashMap<String, String>,
 ) -> Option<Found> {
-    let mut session = None;
-    let mut folder = None;
-    let mut first = None;
-    for record in records(path, Some(HEAD)).ok()? {
-        if record["type"] == "session_meta" {
-            session =
-                record["payload"]["id"].as_str().map(str::to_owned);
-            folder =
-                record["payload"]["cwd"].as_str().map(str::to_owned);
+    let (session, folder, title) = listing(path, |records| {
+        let mut session = None;
+        let mut folder = None;
+        let mut first = None;
+        for record in records {
+            if record["type"] == "session_meta" {
+                session = record["payload"]["id"]
+                    .as_str()
+                    .map(str::to_owned);
+                folder = record["payload"]["cwd"]
+                    .as_str()
+                    .map(str::to_owned);
+            }
+            if first.is_none() && is_message(record, "user") {
+                first = user_text(&record["payload"]);
+            }
         }
-        if first.is_none() && is_message(&record, "user") {
-            first = user_text(&record["payload"]);
-        }
-    }
-    let session = session?;
-    let title = names.get(&session).cloned().or(first)?;
+        let session = session?;
+        let title = names.get(&session).cloned().or(first)?;
+        Some((session, folder, title))
+    })?;
     Some(Found {
         source: ImportSource::Codex,
         session,
@@ -82,12 +107,27 @@ pub(crate) fn read(path: &Path) -> Result<Draft> {
         {
             read.model = Some(model.to_owned());
         }
+        // Codex takes back the newest turns when it replays them.
+        if record["type"] == "event_msg"
+            && payload["type"] == "thread_rolled_back"
+        {
+            let turns = payload["num_turns"].as_u64().unwrap_or(0);
+            read.take_back(
+                usize::try_from(turns).unwrap_or(usize::MAX),
+            );
+        }
         if record["type"] != "response_item" {
             continue;
         }
         match payload["type"].as_str() {
             Some("message") if payload["role"] == "user" => {
-                if let Some(text) = user_text(payload) {
+                let text = user_text(payload);
+                // An image alone is a turn too, which a rollback
+                // counts.
+                if text.is_some() || has_image(payload) {
+                    read.turn();
+                }
+                if let Some(text) = text {
                     read.user(at, &text);
                 }
             }
@@ -122,6 +162,13 @@ pub(crate) fn read(path: &Path) -> Result<Draft> {
     Ok(read)
 }
 
+/// Whether a user message attached an image.
+fn has_image(payload: &Value) -> bool {
+    payload["content"].as_array().is_some_and(|parts| {
+        parts.iter().any(|part| part["type"] == "input_image")
+    })
+}
+
 fn is_message(record: &Value, role: &str) -> bool {
     record["type"] == "response_item"
         && record["payload"]["type"] == "message"
@@ -138,8 +185,9 @@ fn user_text(payload: &Value) -> Option<String> {
         .map(str::trim)
         .filter(|text| {
             !text.is_empty()
-                && !text.starts_with('<')
-                && !text.starts_with("# AGENTS.md instructions")
+                && !GENERATED
+                    .iter()
+                    .any(|made| text.starts_with(made))
         })
         .collect::<Vec<_>>()
         .join("\n\n");
