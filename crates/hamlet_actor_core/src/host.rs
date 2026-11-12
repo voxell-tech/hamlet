@@ -95,8 +95,10 @@ pub trait ActorHost: Send + Sync + 'static {
     /// A transaction on the actor's database committed: a
     /// transaction's commit, which state transactions use, or a
     /// batch. A statement that commits on its own, and a `COMMIT`
-    /// sent as a statement, do not call it. It runs after the
-    /// transaction released its gate, and must return at once.
+    /// sent as a statement, do not call it. After a transaction it
+    /// runs once the transaction released its gate; after a batch it
+    /// runs while the batch still holds the gate. It must return at
+    /// once.
     fn transaction_committed(&self, actor_id: &str);
 
     fn http_request_counter(

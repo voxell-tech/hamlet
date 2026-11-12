@@ -99,16 +99,17 @@ impl PlainSqlite {
         rx.await.map_err(|_| anyhow!("sqlite thread stopped"))?
     }
 
-    /// Runs a write of the host's own once the actor has no
-    /// transaction open.
-    pub async fn host_write(
+    /// Queues a write of the host's own, which runs once the actor
+    /// has no transaction open. Writes run in the order they are
+    /// queued. The receiver gets the write's result.
+    pub fn host_write(
         &self,
         sql: &str,
         params: Vec<Value>,
-    ) -> Result<()> {
+    ) -> Result<HostWriteResult> {
         let (reply, rx) = oneshot::channel();
         self.send(Command::HostWrite(sql.to_owned(), params, reply))?;
-        rx.await.map_err(|_| anyhow!("sqlite thread stopped"))?
+        Ok(HostWriteResult(rx))
     }
 
     /// Closes the connection, which releases the file's lock, and
@@ -164,6 +165,15 @@ fn serve(conn: Connection, rx: &std_mpsc::Receiver<Command>) {
 }
 
 type HostWrite = (String, Vec<Value>, oneshot::Sender<Result<()>>);
+
+/// The result of a queued host write.
+pub struct HostWriteResult(oneshot::Receiver<Result<()>>);
+
+impl HostWriteResult {
+    pub async fn wait(self) -> Result<()> {
+        self.0.await.map_err(|_| anyhow!("sqlite thread stopped"))?
+    }
+}
 
 /// Runs the host's held writes when no transaction is open.
 fn run_held(conn: &Connection, held: &mut Vec<HostWrite>) {
@@ -287,5 +297,45 @@ fn to_value(param: &BindParam) -> Value {
         BindParam::Float(v) => Value::Real(*v),
         BindParam::Text(v) => Value::Text(v.clone()),
         BindParam::Blob(v) => Value::Blob(v.clone()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use hamlet_testing::Scratch;
+
+    use super::*;
+
+    #[tokio::test]
+    async fn a_host_write_waits_out_an_open_transaction() {
+        let dir = Scratch::new("plain-sqlite-held");
+        let conn = open(&dir.join("a.sqlite")).unwrap();
+        conn.execute_batch("CREATE TABLE t (who TEXT NOT NULL)")
+            .unwrap();
+        let file = PlainSqlite::serve(conn).unwrap();
+
+        file.exec("BEGIN".to_owned()).await.unwrap();
+        file.exec("INSERT INTO t VALUES ('actor')".to_owned())
+            .await
+            .unwrap();
+        let written = file
+            .host_write(
+                "INSERT INTO t VALUES (?)",
+                vec![Value::Text("host".to_owned())],
+            )
+            .unwrap();
+        file.exec("ROLLBACK".to_owned()).await.unwrap();
+        written.wait().await.unwrap();
+
+        let rows = file
+            .exec("SELECT who FROM t".to_owned())
+            .await
+            .unwrap()
+            .rows;
+        assert_eq!(
+            rows,
+            vec![vec![ColumnValue::Text("host".into())]]
+        );
+        file.close().await;
     }
 }

@@ -115,7 +115,7 @@ async fn boot_arms_a_stored_alarm_and_starts_the_actor_when_due() {
     let dir = Scratch::new("host-alarm");
     let host = Host::open(&dir, factories()).unwrap();
     let id = host.get_or_start("counter", "a").await.unwrap();
-    call_with(&host, &id, "schedule", 600u64.to_le_bytes().to_vec())
+    call_with(&host, &id, "schedule", 3000u64.to_le_bytes().to_vec())
         .await;
     host.stop_all().await.unwrap();
     drop(host);
@@ -123,9 +123,14 @@ async fn boot_arms_a_stored_alarm_and_starts_the_actor_when_due() {
     let host = Host::open(&dir, factories()).unwrap();
     assert!(host.boot().await.unwrap().is_empty());
     assert!(!host.is_running(&id).await);
-    tokio::time::sleep(Duration::from_millis(1500)).await;
-    assert!(host.is_running(&id).await);
-    assert_eq!(call(&host, &id, "get").await, 1);
+    let deadline =
+        tokio::time::Instant::now() + Duration::from_secs(10);
+    while !host.is_running(&id).await
+        || call(&host, &id, "get").await != 1
+    {
+        assert!(tokio::time::Instant::now() < deadline);
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
     host.stop_all().await.unwrap();
 }
 

@@ -212,7 +212,8 @@ impl Host {
             "UPDATE _hamlet_actor SET wake_at = NULL WHERE wake_at \
              = ?",
             vec![Value::Integer(wake_at)],
-        )
+        )?
+        .wait()
         .await
     }
 
@@ -397,8 +398,10 @@ async fn stop_actor(
     actor_id: &str,
     reason: ShutdownKind,
 ) -> Result<()> {
-    let Some(actor) = host.running.lock().await.remove(actor_id)
-    else {
+    // The running list stays locked until the file is closed, so a
+    // start of the same actor waits for the lock on its file to go.
+    let mut running = host.running.lock().await;
+    let Some(actor) = running.remove(actor_id) else {
         return Ok(());
     };
     actor.stop(reason).await;
@@ -406,6 +409,7 @@ async fn stop_actor(
     if let Some(file) = file {
         file.close().await;
     }
+    drop(running);
     if matches!(reason, ShutdownKind::Destroy) {
         host.alarms.lock().remove(actor_id);
         let path = actor_path(&host.dir, actor_id);
@@ -511,15 +515,18 @@ impl ActorHost for LocalHandle {
             }
             None => host.alarms.lock().remove(&actor_id),
         };
+        // Queued here, so the file stores alarms in the order the
+        // core set them, and before a stop closes it.
+        let stored = file.host_write(
+            "UPDATE _hamlet_actor SET wake_at = ?",
+            vec![alarm_ts.map_or(Value::Null, Value::Integer)],
+        );
+        let host = Arc::downgrade(&host);
         tokio::spawn(async move {
-            let stored = file
-                .host_write(
-                    "UPDATE _hamlet_actor SET wake_at = ?",
-                    vec![
-                        alarm_ts.map_or(Value::Null, Value::Integer),
-                    ],
-                )
-                .await;
+            let stored = match stored {
+                Ok(stored) => stored.wait().await,
+                Err(error) => Err(error),
+            };
             if let Err(error) = stored {
                 tracing::error!(
                     ?error,
@@ -529,7 +536,7 @@ impl ActorHost for LocalHandle {
                 return;
             }
             if let Some(wake_at) = alarm_ts {
-                arm_alarm(Arc::downgrade(&host), actor_id, wake_at);
+                arm_alarm(host, actor_id, wake_at);
             }
             if let Some(ack_tx) = ack_tx {
                 let _ = ack_tx.send(());
