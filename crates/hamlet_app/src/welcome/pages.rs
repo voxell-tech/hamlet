@@ -158,7 +158,10 @@ pub(super) fn sheet(
                 .padding(pad)
                 .width(percent(100.0))
                 .min_width(px(0.0)),))
-            .overflow(Overflow::scroll_y()),
+            .overflow(Overflow::scroll_y())
+            // Shorter than what it holds when the card is.
+            .grow(1.0)
+            .min_height(px(0.0)),
         );
         column((
             column((head,)).padding(pad).shrink(0.0),

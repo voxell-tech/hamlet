@@ -1,9 +1,10 @@
 //! The projects of other programs brought in (C35): each a hamlet
-//! working on its folder, with a hire for each of its conversations.
+//! working on its folder, with a hire for each conversation picked.
 //! Offered once, when first-run setup ends on a realm with no hamlet,
 //! and from Settings.
 
 use std::collections::BTreeSet;
+use std::time::SystemTime;
 
 use bevy::app::{App, Update};
 use bevy::ecs::entity::Entity;
@@ -12,25 +13,26 @@ use bevy::ecs::query::With;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::system::{Commands, Local, Query, Res, ResMut};
 use bevy::ecs::world::{FromWorld, World};
-use bevy::ui::{AlignItems, px};
+use bevy::ui::{AlignItems, UiRect, px};
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, checkbox, column, frame, label, overlay,
-    row,
+    BehaviorExt, FrameProps, button, checkbox, column, frame, label,
+    overlay, row,
 };
 use bevy_fynix::{
-    ViewExt, derived, each, every_frame, keyed, resource,
+    ScopedExt, ViewExt, derived, each, every_frame, keyed, resource,
 };
 use hamlet_client::ViewFolder;
 use hamlet_client::imports::{BringIn, FindProjects, Imports};
 use hamlet_client::realm::HamletId;
 use hamlet_desktop::choose::{Choose, Chosen, What};
-use hamlet_import::Project;
+use hamlet_import::{Found, Project};
 use hamlet_ui::styles::{
-    self, Looks, description, good_action, lettered, note,
+    self, ICON, Looks, description, good_action, lettered, link_row,
+    note,
 };
 use hamlet_ui::widgets::effects::Variant;
-use hamlet_ui::widgets::icons::Glyph;
+use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::{AnyView, View, with_cx};
 
 use super::Welcome;
@@ -41,6 +43,8 @@ use super::pages::{footed, over, sheet};
 const OFFERED: &str = "projects-offered";
 /// The hires a hamlet holds at its first tier, its mayor among them.
 const ROOM: usize = 49;
+/// How far in a project's conversations stand under it.
+const INDENT: f32 = 32.0;
 
 pub(super) fn plugin(app: &mut App) {
     app.init_resource::<Projects>()
@@ -53,9 +57,12 @@ pub(super) fn plugin(app: &mut App) {
 #[derive(Resource, Default)]
 pub struct Projects {
     pub open: bool,
-    /// The projects picked, by their key.
+    /// The conversations picked, by their key.
     picked: BTreeSet<String>,
-    /// Every project is listed, not only the suggested ones.
+    /// The projects whose conversations are listed, by their key.
+    unfolded: BTreeSet<String>,
+    /// Every project is listed, not only the suggested ones and
+    /// those with a conversation picked.
     all: bool,
     /// The suggested ones were picked for the projects found.
     seeded: bool,
@@ -71,21 +78,41 @@ impl FromWorld for Asker {
     }
 }
 
-/// A project as a row shows it.
+/// A row of the list: a project, or one of its conversations under
+/// it.
 #[derive(Clone, PartialEq)]
-struct Line {
-    key: String,
-    name: String,
-    detail: String,
-    picked: bool,
+enum Line {
+    Project {
+        key: String,
+        name: String,
+        detail: String,
+        picked: bool,
+        unfolded: bool,
+    },
+    Conversation {
+        key: String,
+        title: String,
+        detail: String,
+        picked: bool,
+    },
 }
 
 /// What names a project among those found.
-fn key(project: &Project) -> String {
+fn project_key(project: &Project) -> String {
     project
         .folder
         .clone()
         .unwrap_or_else(|| project.name.clone())
+}
+
+/// What names a conversation among those found.
+fn key(found: &Found) -> String {
+    format!("{}:{}", found.source.word(), found.session)
+}
+
+/// The newest conversations of `project` a hamlet has room for.
+fn newest(project: &Project) -> impl Iterator<Item = String> + '_ {
+    project.conversations.iter().take(ROOM).map(key)
 }
 
 /// Opens the card on the projects of this machine.
@@ -123,7 +150,8 @@ fn offer(
     }
 }
 
-/// Picks the suggested projects once they are found.
+/// Picks the newest conversations of the suggested projects once they
+/// are found.
 fn pick_suggested(
     imports: Res<Imports>,
     mut projects: ResMut<Projects>,
@@ -136,7 +164,7 @@ fn pick_suggested(
         .projects
         .iter()
         .filter(|project| project.is_suggested())
-        .map(key)
+        .flat_map(newest)
         .collect();
 }
 
@@ -166,7 +194,37 @@ fn chosen(
     }
 }
 
-fn toggle(world: &mut World, key: &str, on: bool) {
+/// Picks the newest conversations of the project `key` there is room
+/// for, or none of them.
+fn pick_project(world: &mut World, project: &str, on: bool) {
+    let keys = world
+        .resource::<Imports>()
+        .projects
+        .iter()
+        .find(|found| project_key(found) == project)
+        .map(|found| {
+            let all = found
+                .conversations
+                .iter()
+                .map(key)
+                .collect::<Vec<_>>();
+            let newest = newest(found).collect::<Vec<_>>();
+            (all, newest)
+        });
+    let Some((all, newest)) = keys else {
+        return;
+    };
+    let mut projects = world.resource_mut::<Projects>();
+    if on {
+        projects.picked.extend(newest);
+    } else {
+        for key in all {
+            projects.picked.remove::<String>(&key);
+        }
+    }
+}
+
+fn pick(world: &mut World, key: &str, on: bool) {
     let mut projects = world.resource_mut::<Projects>();
     if on {
         projects.picked.insert(key.to_owned());
@@ -175,79 +233,177 @@ fn toggle(world: &mut World, key: &str, on: bool) {
     }
 }
 
+fn unfold(world: &mut World, project: &str) {
+    let mut projects = world.resource_mut::<Projects>();
+    if !projects.unfolded.remove(project) {
+        projects.unfolded.insert(project.to_owned());
+    }
+}
+
+/// Brings in each project with a conversation picked, with those
+/// picked alone.
 fn bring(world: &mut World) {
     let picked = world.resource::<Projects>().picked.clone();
     let projects = world
         .resource::<Imports>()
         .projects
         .iter()
-        .filter(|project| picked.contains(&key(project)))
-        .cloned()
+        .filter_map(|project| {
+            let conversations = project
+                .conversations
+                .iter()
+                .filter(|found| picked.contains(&key(found)))
+                .cloned()
+                .collect::<Vec<_>>();
+            (!conversations.is_empty()).then(|| Project {
+                conversations,
+                ..project.clone()
+            })
+        })
         .collect::<Vec<_>>();
     if !projects.is_empty() {
         world.trigger(BringIn { projects });
     }
 }
 
+/// When `at` was, as a row of a conversation says it.
+fn when(at: SystemTime) -> String {
+    chrono::DateTime::<chrono::Local>::from(at)
+        .format("%-d %b, %H:%M")
+        .to_string()
+}
+
 fn lines(world: &World) -> Vec<Line> {
     let projects = world.resource::<Projects>();
     let home = std::env::home_dir();
-    world
-        .resource::<Imports>()
-        .projects
-        .iter()
-        .filter(|project| projects.all || project.is_suggested())
-        .map(|project| {
-            let count = project.conversations.len();
-            let mut detail = match count {
-                1 => "1 conversation".to_owned(),
-                count if count > ROOM => {
-                    format!(
-                        "The newest {ROOM} of {count} conversations"
-                    )
-                }
-                count => format!("{count} conversations"),
-            };
-            if let Some(folder) = &project.folder {
-                let shown = home
-                    .as_deref()
-                    .and_then(|home| {
-                        std::path::Path::new(folder)
-                            .strip_prefix(home)
-                            .ok()
-                    })
-                    .map_or_else(
-                        || folder.clone(),
-                        |under| format!("~/{}", under.display()),
-                    );
-                detail.push_str(&format!(" · {shown}"));
+    let mut lines = Vec::new();
+    for project in &world.resource::<Imports>().projects {
+        let project_key = project_key(project);
+        let picked = project
+            .conversations
+            .iter()
+            .filter(|found| projects.picked.contains(&key(found)))
+            .count();
+        if !projects.all && !project.is_suggested() && picked == 0 {
+            continue;
+        }
+        let count = project.conversations.len();
+        let mut detail = match (picked, count) {
+            (_, 1) => format!("{picked} of 1 conversation"),
+            (_, count) => {
+                format!("{picked} of {count} conversations")
             }
-            let key = key(project);
-            Line {
+        };
+        if picked > ROOM {
+            detail.push_str(&format!(", {ROOM} fit"));
+        }
+        if let Some(folder) = &project.folder {
+            let shown = home
+                .as_deref()
+                .and_then(|home| {
+                    std::path::Path::new(folder)
+                        .strip_prefix(home)
+                        .ok()
+                })
+                .map_or_else(
+                    || folder.clone(),
+                    |under| format!("~/{}", under.display()),
+                );
+            detail.push_str(&format!(" · {shown}"));
+        }
+        let unfolded = projects.unfolded.contains(&project_key);
+        lines.push(Line::Project {
+            key: project_key,
+            name: project.name.clone(),
+            detail,
+            picked: picked > 0,
+            unfolded,
+        });
+        if !unfolded {
+            continue;
+        }
+        for found in &project.conversations {
+            let key = key(found);
+            lines.push(Line::Conversation {
                 picked: projects.picked.contains(&key),
                 key,
-                name: project.name.clone(),
-                detail,
-            }
-        })
-        .collect()
+                title: found.title.clone(),
+                detail: format!(
+                    "{} · {}",
+                    found.source.name(),
+                    when(found.modified)
+                ),
+            });
+        }
+    }
+    lines
 }
 
 fn line_view(line: &Line) -> AnyView {
-    let key = line.key.clone();
-    let (name, detail) = (line.name.clone(), line.detail.clone());
-    row((
-        checkbox(line.picked).on_change(move |world, on| {
-            toggle(world, &key, on);
-        }),
-        column((label(name).bold(true).wrap(false), note(detail)))
-            .gap(2.0)
-            .grow(1.0)
-            .min_width(px(0.0)),
-    ))
-    .gap(12.0)
-    .align(AlignItems::Center)
-    .boxed()
+    match line.clone() {
+        Line::Project {
+            key,
+            name,
+            detail,
+            picked,
+            unfolded,
+        } => {
+            let picking = key.clone();
+            let folding = key;
+            let fold = if unfolded {
+                Glyph::Chevron
+            } else {
+                Glyph::Into
+            };
+            row((
+                checkbox(picked).on_change(move |world, on| {
+                    pick_project(world, &picking, on);
+                }),
+                button(
+                    row((
+                        column((
+                            label(name).bold(true).wrap(false),
+                            note(detail),
+                        ))
+                        .gap(2.0)
+                        .grow(1.0)
+                        .min_width(px(0.0)),
+                        glyph(fold, ICON).tone(Tone::Dim),
+                    ))
+                    .gap(8.0)
+                    .align(AlignItems::Center)
+                    .grow(1.0),
+                )
+                .grow(1.0)
+                .min_width(px(0.0))
+                .padding(UiRect::all(px(4.0)))
+                .rules(link_row)
+                .tagged(Variant::Default)
+                .on_activate(move |world| unfold(world, &folding)),
+            ))
+            .gap(8.0)
+            .align(AlignItems::Center)
+            .boxed()
+        }
+        Line::Conversation {
+            key,
+            title,
+            detail,
+            picked,
+        } => row((
+            checkbox(picked).on_change(move |world, on| {
+                pick(world, &key, on);
+            }),
+            column((label(title).wrap(false), note(detail)))
+                .gap(2.0)
+                .grow(1.0)
+                .min_width(px(0.0)),
+        ))
+        .gap(12.0)
+        .padding(UiRect::left(px(INDENT)))
+        .align(AlignItems::Center)
+        .boxed(),
+    }
 }
 
 /// What the card says over the list: what it does, or what was
@@ -256,15 +412,18 @@ fn status() -> AnyView {
     keyed(
         derived(|world: &World| {
             let imports = world.resource::<Imports>();
-            let shown = lines(world).len();
             let all = imports.projects.len();
+            let picked = world.resource::<Projects>().picked.len();
             let found = match (&imports.unread, imports.looking) {
                 (_, true) => "Looking…".to_owned(),
                 (Some(why), false) => why.clone(),
                 (None, false) if all == 0 => "No projects found \
                                               from the last 30 days."
                     .to_owned(),
-                (None, false) => format!("{shown} of {all} projects"),
+                (None, false) => format!(
+                    "{picked} conversations picked from {all} \
+                     projects"
+                ),
             };
             let busy = imports
                 .bringing
@@ -325,9 +484,9 @@ fn page() -> AnyView {
         styles::title("Bring in your projects"),
         description(
             "Each project Claude Code, Codex or pi worked on \
-             becomes a hamlet working on its folder, and each of \
-             its conversations from the last 30 days a hire that \
-             carries it on.",
+             becomes a hamlet working on its folder, and each \
+             conversation picked a hire that carries it on. Open a \
+             project to pick its conversations.",
         ),
     ))
     .gap(4.0);
@@ -338,7 +497,7 @@ fn page() -> AnyView {
             |line: &Line| line.clone(),
             line_view,
         )
-        .within(column(()).gap(12.0)),
+        .within(column(()).gap(8.0)),
     ))
     .gap(12.0);
     let bring = keyed(
@@ -351,12 +510,7 @@ fn page() -> AnyView {
         .when(every_frame()),
         |(picked, busy)| match (*picked, *busy) {
             (_, true) | (0, _) => frame().boxed(),
-            (1, false) => {
-                good_action(Glyph::Plus, "Bring in 1 project", bring)
-            }
-            (_, false) => {
-                good_action(Glyph::Plus, "Bring in projects", bring)
-            }
+            (_, false) => good_action(Glyph::Plus, "Bring in", bring),
         },
     )
     .within(footed())

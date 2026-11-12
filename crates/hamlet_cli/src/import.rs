@@ -19,8 +19,17 @@ pub enum Chosen {
     /// Those suggested: git repositories with three conversations or
     /// more.
     Suggested,
-    /// Those named by their name or folder.
+    /// Those named by their name or folder, and conversations by
+    /// their ids.
     Named(Vec<String>),
+}
+
+/// What a list of projects shows.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Listing {
+    Projects,
+    /// Each project's conversations too.
+    Sessions,
 }
 
 /// The projects of the export `file`, or of this machine: those of
@@ -37,8 +46,13 @@ fn projects(file: Option<&Path>, all: bool) -> Result<Vec<Project>> {
     Ok(hamlet_import::projects(found, since))
 }
 
-/// Prints the projects found, the suggested ones marked.
-pub fn list(file: Option<&Path>, all: bool) -> Result<()> {
+/// Prints the projects found, the suggested ones marked, as `listing`
+/// says, conversations newest first.
+pub fn list(
+    file: Option<&Path>,
+    all: bool,
+    listing: Listing,
+) -> Result<()> {
     let projects = projects(file, all)?;
     if projects.is_empty() {
         println!("No projects found.");
@@ -59,6 +73,19 @@ pub fn list(file: Option<&Path>, all: bool) -> Result<()> {
         if let Some(folder) = &project.folder {
             println!("    {folder}");
         }
+        if listing == Listing::Projects {
+            continue;
+        }
+        for found in &project.conversations {
+            let at = chrono::DateTime::<chrono::Local>::from(
+                found.modified,
+            )
+            .format("%Y-%m-%d %H:%M");
+            println!(
+                "      {}  {at}  {}",
+                found.session, found.title
+            );
+        }
     }
     let file = file.map_or(String::new(), |file| {
         format!("--file {} ", file.display())
@@ -66,7 +93,9 @@ pub fn list(file: Option<&Path>, all: bool) -> Result<()> {
     println!(
         "Bring them in, each as a hamlet with a hire for each \
          conversation: hamlet import {file}<project>... or hamlet \
-         import {file}--suggested for those marked *."
+         import {file}--suggested for those marked *. Name \
+         conversations by their ids, listed with --sessions, to \
+         bring in those alone."
     );
     Ok(())
 }
@@ -84,40 +113,90 @@ pub async fn bring_in(
         Chosen::Suggested => projects
             .iter()
             .filter(|project| project.is_suggested())
+            .cloned()
             .collect::<Vec<_>>(),
-        Chosen::Named(names) => {
-            let mut picked = Vec::new();
-            for name in names {
-                let matching = projects
-                    .iter()
-                    .filter(|project| {
-                        project.name == *name
-                            || project.folder.as_deref()
-                                == Some(name.as_str())
-                    })
-                    .collect::<Vec<_>>();
-                match matching.as_slice() {
-                    [project] => picked.push(*project),
-                    [] => bail!("no project is named `{name}`"),
-                    _ => bail!(
-                        "several projects are named `{name}`; name \
-                         it by its folder"
-                    ),
-                }
-            }
-            picked
-        }
+        Chosen::Named(names) => named(&projects, names)?,
     };
     if picked.is_empty() {
         bail!("no project to bring in");
     }
     let (mut client, _) = client::connect(address).await?;
-    for project in picked {
+    for project in &picked {
         let words = send(&mut client, project).await?;
         println!("{}: {words}", project.name);
     }
     let _ = client.close().await;
     Ok(())
+}
+
+/// The projects `names` names, each whole when named by its name or
+/// folder, else with the conversations whose ids, or the start of
+/// them, are named.
+fn named(
+    projects: &[Project],
+    names: &[String],
+) -> Result<Vec<Project>> {
+    let mut picked = Vec::<Project>::new();
+    for name in names {
+        let whole = projects
+            .iter()
+            .filter(|project| {
+                project.name == *name
+                    || project.folder.as_deref()
+                        == Some(name.as_str())
+            })
+            .collect::<Vec<_>>();
+        match whole.as_slice() {
+            [project] => {
+                picked.push((*project).clone());
+                continue;
+            }
+            [] => {}
+            _ => bail!(
+                "several projects are named `{name}`; name it by \
+                 its folder"
+            ),
+        }
+        let conversations = projects
+            .iter()
+            .flat_map(|project| {
+                project
+                    .conversations
+                    .iter()
+                    .filter(|found| {
+                        found.session.starts_with(name.as_str())
+                    })
+                    .map(move |found| (project, found))
+            })
+            .collect::<Vec<_>>();
+        let [(project, found)] = conversations.as_slice() else {
+            bail!(match conversations.len() {
+                0 =>
+                    format!("no project or conversation is `{name}`"),
+                _ => format!(
+                    "several conversations' ids begin with `{name}`"
+                ),
+            });
+        };
+        match picked.iter_mut().find(|kept| {
+            kept.name == project.name && kept.folder == project.folder
+        }) {
+            Some(kept) => {
+                if !kept
+                    .conversations
+                    .iter()
+                    .any(|c| c.session == found.session)
+                {
+                    kept.conversations.push((*found).clone());
+                }
+            }
+            None => picked.push(Project {
+                conversations: vec![(*found).clone()],
+                ..(*project).clone()
+            }),
+        }
+    }
+    Ok(picked)
 }
 
 /// Sends the conversations of `project` and asks for it to be
