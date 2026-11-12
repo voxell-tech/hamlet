@@ -16,6 +16,7 @@ bevy_app.workspace = true
 bevy_ecs.workspace = true
 bevy_log.workspace = true
 futures.workspace = true
+hamlet_import.workspace = true
 hamlet_protocol.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true

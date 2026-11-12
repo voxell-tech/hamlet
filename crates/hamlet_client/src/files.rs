@@ -195,7 +195,7 @@ fn reading(reading: Res<Reading>) -> bool {
 
 /// `work` run on the runtime's blocking threads, its result to be
 /// collected by the update it wakes the window for.
-fn off_frame<T: Send + 'static>(
+pub(crate) fn off_frame<T: Send + 'static>(
     world: &World,
     work: impl FnOnce() -> T + Send + 'static,
 ) -> Option<oneshot::Receiver<T>> {

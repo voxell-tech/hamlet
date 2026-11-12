@@ -28,7 +28,10 @@ opens a numbered past conversation read-only, drawn as the chat is, and
 Resume sends `/resume <n>`. Every conversation is kept.
 
 A conversation brought in from another program (C35) is one more
-numbered session. `hamlet_import` reads it on the chief's machine, the
+numbered session. Import on the Hub's sessions page lists those found on
+the window's machine, or those in an export file chosen in the system's
+dialog; choosing one brings it in. `hamlet_import` reads it on the
+chief's machine, off the frame (`hamlet_client/src/imports.rs`), the
 client sends it as a file and `import`, and the server holds its entries
 until the runtime makes the conversation with them. It opens with a
 notice of where it came from. The chief's messages in it are the chief's

@@ -41,11 +41,14 @@ use crate::dock::{HUB, show_tab};
 use crate::hub::{self, Showing};
 use crate::{PanelSystems, chat};
 
+mod import;
+
 /// Characters of a title a row shows.
 const TITLE_SHOWN: usize = 90;
 
 pub(crate) fn plugin(app: &mut App) {
-    app.init_resource::<History>()
+    app.add_plugins(import::plugin)
+        .init_resource::<History>()
         .init_resource::<Requests>()
         .add_observer(response)
         .add_observer(stale_on_job)
@@ -272,6 +275,7 @@ fn format_tokens(n: u64) -> String {
 /// The numbered conversation opened as a read-only watched chat.
 pub(crate) fn open(world: &mut World, number: i64) {
     close(world);
+    world.resource_mut::<import::Importing>().0 = false;
     let Some(with) = id_of(world, world.resource::<Convo>().agent)
     else {
         return;
@@ -288,6 +292,12 @@ pub(crate) fn open(world: &mut World, number: i64) {
         ))
         .id();
     read(world, number, holder);
+}
+
+/// The page of conversations of other programs to bring in.
+pub(crate) fn import(world: &mut World) {
+    close(world);
+    import::open(world);
 }
 
 /// The reader's conversation resumed by its stable number.
@@ -513,6 +523,7 @@ fn list() -> impl View {
                     "Search sessions",
                 ),
                 note(resource::<History, _>(History::count)),
+                command("Import", import::open),
             ))
             .gap(space.section)
             .align(AlignItems::Center),
@@ -601,12 +612,21 @@ pub fn screen() -> AnyView {
         resource::<Convo, _>(|m| (m.session, m.with.clone())),
         |_| {
             keyed(
-                resource::<History, _>(|h| {
-                    h.reading.as_ref().map(|r| r.number)
-                }),
-                |reading| match reading {
-                    Some(_) => reader().boxed(),
-                    None => list().boxed(),
+                derived(|world: &World| {
+                    (
+                        world
+                            .resource::<History>()
+                            .reading
+                            .as_ref()
+                            .map(|r| r.number),
+                        world.resource::<import::Importing>().0,
+                    )
+                })
+                .when(every_frame()),
+                |(reading, importing)| match (reading, importing) {
+                    (Some(_), _) => reader().boxed(),
+                    (None, true) => import::screen(),
+                    (None, false) => list().boxed(),
                 },
             )
             .within(filling())
