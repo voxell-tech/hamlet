@@ -7,6 +7,7 @@ use bevy::app::{App, PreUpdate, Update};
 use bevy::ecs::query::With;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::IntoScheduleConfigs;
+use bevy::ecs::schedule::common_conditions::resource_changed;
 use bevy::ecs::system::{Query, ResMut};
 use bevy::ecs::world::World;
 use bevy::ui::{ComputedNode, Overflow, UiRect, px};
@@ -24,6 +25,7 @@ use hamlet_ui::widgets::effects::{
 use hamlet_ui::widgets::platform::{ClipInside, Glow};
 use hamlet_ui::{AnyView, Cx, View};
 
+use crate::desk::{Desks, Part};
 use crate::{PanelSystems, desk, remember};
 
 /// The least width a panel keeps, in logical pixels.
@@ -45,7 +47,15 @@ pub(crate) fn plugin(app: &mut App) {
             PreUpdate,
             count_waits.in_set(PanelSystems::Bind),
         )
-        .add_systems(Update, keep_wide);
+        .add_systems(
+            Update,
+            (
+                keep_wide,
+                register_numbered
+                    .run_if(resource_changed::<Desks>)
+                    .before(desk::show),
+            ),
+        );
 }
 
 /// Tells the panels' highlights how many things wait for the chief.
@@ -113,6 +123,62 @@ pub(crate) type MakePanel = fn(&str) -> DockWindowKind<HamletTheme>;
 /// so on, registered as they are opened or laid out.
 #[derive(Resource, Default)]
 pub(crate) struct Numbered(Vec<(String, MakePanel)>);
+
+/// The number of `id` as another of the numbered panel `first`.
+pub(crate) fn number(first: &str, id: &str) -> Option<u32> {
+    id.strip_prefix(first)?
+        .strip_prefix('-')?
+        .parse()
+        .ok()
+        .filter(|n| *n >= 2)
+}
+
+/// The ids of the panels in the tabs of `parts`.
+fn tabs_of(parts: &[Part]) -> impl Iterator<Item = &String> {
+    parts.iter().flat_map(|part| match part {
+        Part::Tabs { tabs, .. } => tabs.as_slice(),
+        Part::Split { .. } => &[],
+    })
+}
+
+/// Registers the numbered panels the shown desk and the dock hold, so
+/// the desk is laid out with them.
+pub fn register_numbered(world: &mut World) {
+    let mut ids = world
+        .get_resource::<Desks>()
+        .and_then(|desks| desks.list().get(desks.shown()))
+        .map(|desk| tabs_of(&desk.dock).cloned().collect::<Vec<_>>())
+        .unwrap_or_default();
+    if let Some(tree) = world.get_resource::<DockTree>() {
+        ids.extend(
+            tree.nodes
+                .values()
+                .filter_map(DockNode::as_leaf)
+                .flat_map(|leaf| {
+                    leaf.tabs().map(|(id, _)| id.to_owned())
+                }),
+        );
+    }
+    for id in ids {
+        register(world, &id);
+    }
+}
+
+/// Registers the numbered panel `id`, unless it is or it is not one.
+fn register(world: &mut World, id: &str) {
+    let Some(make) = world.get_resource::<Numbered>().and_then(|n| {
+        n.0.iter()
+            .find(|(first, _)| number(first, id).is_some())
+            .map(|(_, make)| *make)
+    }) else {
+        return;
+    };
+    let mut registry =
+        world.resource_mut::<DockRegistry<HamletTheme>>();
+    if registry.get(id).is_none() {
+        registry.register(id, make(id));
+    }
+}
 
 /// A dock panel's contents.
 pub fn panel(view: impl View) -> AnyView {
@@ -233,6 +299,7 @@ pub(crate) fn keep_wide(
 /// Puts back the kept view and lays out the desk shown.
 pub(crate) fn seed(world: &mut World) {
     remember::restore(world);
+    register_numbered(world);
     // Here rather than in the next frame, so the panels are mounted
     // on the desk.
     let _ = world.run_system_cached(desk::show);
