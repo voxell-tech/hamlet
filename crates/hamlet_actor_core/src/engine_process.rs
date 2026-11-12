@@ -1,0 +1,11 @@
+// This file was changed for Hamlet. See NOTICE in this crate.
+//! The engine subprocess manager lives in the standalone
+//! `hamlet_actor_engine_process` crate so the CLI and other hosts can
+//! reuse the same resolution, spawn, reuse, and orphan-lifetime
+//! logic. This module re-exports it for existing in-crate callers.
+
+pub use hamlet_actor_engine_process::{
+    EngineProcessError, EngineProcessManager, EngineResolverConfig,
+    ResolvedEngine, engine_data_path, engine_env,
+    resolve_engine_binary, resolve_engine_binary_path,
+};

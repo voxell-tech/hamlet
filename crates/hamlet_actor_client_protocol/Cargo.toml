@@ -1,0 +1,21 @@
+# This file was changed for Hamlet. See NOTICE in this crate.
+[package]
+name = "hamlet_actor_client_protocol"
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+homepage.workspace = true
+repository.workspace = true
+edition.workspace = true
+workspace = "../../../"
+description = "Client protocol types for actors"
+
+[dependencies]
+anyhow.workspace = true
+serde.workspace = true
+serde_bytes.workspace = true
+vbare.workspace = true
+
+[build-dependencies]
+vbare-compiler.workspace = true
+

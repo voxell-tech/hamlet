@@ -1,0 +1,105 @@
+# This file was changed for Hamlet. See NOTICE in this crate.
+[package]
+name = "hamlet_actor_core"
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+homepage.workspace = true
+repository.workspace = true
+edition.workspace = true
+workspace = "../../../"
+autotests = false
+description = "Core runtime primitives for actor hosts"
+
+[features]
+default = ["native-runtime"]
+native-runtime = [
+	"dep:nix",
+	"dep:reqwest",
+	"dep:opentelemetry-otlp",
+	"dep:tracing-subscriber",
+	"dep:hamlet_actor_engine_process",
+	"dep:axum",
+	"dep:bytes",
+	"dep:http-body-util",
+	"dep:tokio-stream",
+	"dep:tower-http",
+	"hamlet_actor_engine_client/native-transport",
+]
+wasm-runtime = ["hamlet_actor_engine_client/wasm-transport"]
+sqlite = ["sqlite-local"]
+sqlite-local = ["native-runtime", "dep:sqlite-embedded"]
+sqlite-remote = []
+
+[build-dependencies]
+anyhow.workspace = true
+fs_extra = { workspace = true }
+
+[dependencies]
+anyhow.workspace = true
+async-trait.workspace = true
+axum = { workspace = true, optional = true }
+base64.workspace = true
+bytes = { workspace = true, optional = true }
+ciborium.workspace = true
+chrono.workspace = true
+chrono-tz.workspace = true
+croner.workspace = true
+futures.workspace = true
+http.workspace = true
+http-body-util = { workspace = true, optional = true }
+include_dir = { workspace = true }
+nix = { workspace = true, optional = true, features = ["process"] }
+parking_lot.workspace = true
+opentelemetry = { version = "0.28", default-features = false, features = [
+	"trace",
+	"internal-logs",
+] }
+opentelemetry-otlp = { version = "0.28", default-features = false, optional = true, features = ["trace", "http-json", "http-proto", "grpc-tonic", "reqwest-blocking-client"] }
+opentelemetry_sdk = { version = "0.28", default-features = false, features = ["trace", "internal-logs"] }
+rand.workspace = true
+reqwest = { workspace = true, optional = true }
+rusqlite = { workspace = true, optional = true }
+hamlet_actor_error.workspace = true
+hamlet_actor_engine_client = { workspace = true, default-features = false }
+hamlet_actor_metrics.workspace = true
+hamlet_actor_shared_types.workspace = true
+hamlet_actor_persist.workspace = true
+hamlet_actor_client_protocol.workspace = true
+hamlet_actor_engine_process = { workspace = true, optional = true }
+hamlet_actor_inspector_protocol.workspace = true
+sqlite_types.workspace = true
+sqlite-embedded = { workspace = true, optional = true, features = ["transport"] }
+scc.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde_bare.workspace = true
+serde_bytes.workspace = true
+sha2.workspace = true
+subtle.workspace = true
+tokio-stream = { workspace = true, optional = true }
+tokio-util.workspace = true
+tower-http = { workspace = true, optional = true, features = ["fs"] }
+tracing.workspace = true
+tracing-opentelemetry = { version = "0.29", default-features = false }
+tracing-subscriber = { workspace = true, optional = true }
+url.workspace = true
+vbare.workspace = true
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+# `block_in_place` in the queue's sync bridge needs the multi-thread runtime, which the
+# workspace tokio does not enable.
+tokio = { workspace = true, features = ["rt-multi-thread"] }
+uuid.workspace = true
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = { version = "0.2", features = ["js"] }
+js-sys = "0.3"
+tokio = { version = "1.44.0", default-features = false, features = ["macros", "rt", "sync", "time"] }
+uuid = { version = "1.11.0", features = ["v4", "serde", "js"] }
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+web-time = "1.1"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(tokio_unstable)"] }

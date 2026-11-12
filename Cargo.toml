@@ -2,7 +2,22 @@
 resolver = "3"
 members = ["crates/*"]
 # The vendored fynix and xtask are workspaces of their own.
-exclude = ["vendor", "xtask"]
+exclude = [
+    "vendor",
+    "xtask",
+    # Ported crates, kept out until each builds in the workspace.
+    "crates/hamlet_actor",
+    "crates/hamlet_actor_client",
+    "crates/hamlet_actor_client_protocol",
+    "crates/hamlet_actor_core",
+    "crates/hamlet_actor_error",
+    "crates/hamlet_actor_error_macros",
+    "crates/hamlet_actor_inspector_protocol",
+    "crates/hamlet_actor_metrics",
+    "crates/hamlet_actor_persist",
+    "crates/hamlet_actor_shared_types",
+    "crates/hamlet_actor_sqlite_types",
+]
 # The root holds no package, so `cargo build`, `cargo test` and
 # `cargo clippy` there cover every crate and the checks in AGENTS.md
 # need no flags.

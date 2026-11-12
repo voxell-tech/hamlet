@@ -1,0 +1,67 @@
+// This file was changed for Hamlet. See NOTICE in this crate.
+use anyhow::Result;
+
+use crate::engine_process::{
+    EngineProcessManager, EngineResolverConfig,
+};
+use crate::registry::ServeConfig;
+use crate::services_process::{
+    SERVICES_POOL_NAME, ServicesProcessConfig, ServicesProcessManager,
+};
+
+/// Owns the processes the runtime starts for a local development
+/// environment.
+///
+/// After the registry drains, shutdown stops Services and any Engine
+/// this host spawned. An Engine reused from another host keeps its
+/// existing owner and remains running. Keeping this orchestration
+/// here gives serverful and serverless runtimes the same process
+/// ownership rules.
+#[derive(Debug)]
+pub(crate) struct DevelopmentProcessManager {
+    _engine: EngineProcessManager,
+    services: Option<ServicesProcessManager>,
+}
+
+impl DevelopmentProcessManager {
+    pub(crate) async fn start(config: &ServeConfig) -> Result<Self> {
+        let engine = EngineProcessManager::start_or_reuse(
+            EngineResolverConfig::from_parts(
+                &config.endpoint,
+                config.engine_binary_path.clone(),
+                config.engine_host.clone(),
+                config.engine_port,
+                config.engine_auto_download,
+            ),
+        )
+        .await?;
+
+        let services = if config.start_services {
+            Some(
+				ServicesProcessManager::start(ServicesProcessConfig {
+					binary_path: config.services_binary_path.clone(),
+					endpoint: config.endpoint.clone(),
+					token: config.token.clone(),
+					namespace: config.namespace.clone(),
+					pool_name: SERVICES_POOL_NAME.to_owned(),
+					engine_protocol_version: hamlet_actor_engine_client::protocol::PROTOCOL_VERSION,
+				})
+				.await?,
+			)
+        } else {
+            None
+        };
+
+        Ok(Self {
+            _engine: engine,
+            services,
+        })
+    }
+
+    pub(crate) async fn shutdown(mut self) {
+        if let Some(services) = self.services.take() {
+            services.shutdown().await;
+        }
+        self._engine.shutdown().await;
+    }
+}
