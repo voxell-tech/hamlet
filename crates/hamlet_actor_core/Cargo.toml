@@ -58,6 +58,10 @@ hamlet_host.workspace = true
 rusqlite.workspace = true
 tokio = { workspace = true, features = ["test-util"] }
 
+[[test]]
+name = "integration"
+path = "tests/integration.rs"
+
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 # `block_in_place` in the queue's sync bridge needs the multi-thread runtime, which the
 # workspace tokio does not enable.
