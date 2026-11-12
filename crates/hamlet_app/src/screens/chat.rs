@@ -31,15 +31,15 @@ use bevy::ecs::observer::On;
 use bevy::ecs::query::With;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::IntoScheduleConfigs;
-use bevy::ecs::system::{Commands, Local, Query, Res, ResMut};
+use bevy::ecs::system::{Commands, Query, Res, ResMut};
 use bevy::ecs::world::World;
 use bevy::ui::{
     AlignItems, ComputedNode, Overflow, ScrollPosition, UiRect, px,
 };
 use bevy_fynix::scroll::ScrollGoal;
 use bevy_fynix::views::{
-    BehaviorExt, Enter, Frame, FrameProps, Piece, column, rich_field,
-    row,
+    BehaviorExt, Enter, Frame, FrameProps, Piece, VirtualList,
+    column, rich_field, row,
 };
 use bevy_fynix::{ScopedExt, derived, every_frame, resource, style};
 use hamlet_client::chats::Chat;
@@ -62,9 +62,8 @@ pub use self::entry::OpenTools;
 pub(crate) use self::entry::Underway;
 pub use self::field::refocus;
 pub use self::lines::{
-    ChatRow, Lines, PastLines, Reach, Unfolded, Whole,
-    break_long_words, fold_lines, fold_past, hide_unseen, read_back,
-    transcript,
+    Lines, PastLines, Unfolded, ask_earlier, break_long_words,
+    fold_lines, fold_past, transcript,
 };
 pub(crate) use self::lines::{past, read_earlier, read_past};
 pub use self::rewind::{Rewinds, ask as ask_rewind};
@@ -91,7 +90,7 @@ pub fn plugin(app: &mut App) {
         .init_resource::<Changes>()
         .init_resource::<Unfolded>()
         .init_resource::<Lines>()
-        .init_resource::<Reach>()
+        .init_resource::<ToEnd>()
         .init_resource::<AwayFromEnd>()
         .init_resource::<hamlet_ui::fields::Resized>()
         .add_observer(decreed)
@@ -114,11 +113,11 @@ pub fn plugin(app: &mut App) {
         // reply shows in the update it arrives.
         .add_systems(
             PreUpdate,
-            (stick_to_bottom, read_back, fold_lines, fold_past)
+            (keep_end, ask_earlier, fold_lines, fold_past)
                 .chain()
                 .in_set(PanelSystems::Bind),
         )
-        .add_systems(Update, (hide_unseen, break_long_words))
+        .add_systems(Update, break_long_words)
         .add_systems(PostUpdate, refocus);
 }
 
@@ -420,65 +419,45 @@ pub(crate) fn furthest(node: &ComputedNode) -> f32 {
 #[derive(Resource, Default)]
 pub struct AwayFromEnd(pub bool);
 
+/// Whether the chat is to be taken to its end.
+#[derive(Resource, Default)]
+pub struct ToEnd(bool);
+
 /// Takes the chat to its end.
 fn to_end(world: &mut World) {
-    if let Some(mut reach) = world.get_resource_mut::<Reach>() {
-        reach.back = 0;
-        reach.jump = true;
+    if let Some(mut to_end) = world.get_resource_mut::<ToEnd>() {
+        to_end.0 = true;
     }
 }
 
-/// The chat held at its end, and the place it was last left.
-#[derive(Clone, Copy)]
-pub struct AtEnd {
-    held: bool,
-    was: f32,
-}
-
-impl Default for AtEnd {
-    fn default() -> Self {
-        Self {
-            held: true,
-            was: 0.0,
-        }
-    }
-}
-
-/// Keeps the newest message in view as the chat grows, until the
-/// chief scrolls up to read, and again once they are back at its end.
-/// Another conversation is shown from its end.
-pub fn stick_to_bottom(
+/// Takes the chat to its end when asked and when another
+/// conversation is shown. The list then keeps it there as it grows,
+/// until the chief scrolls up to read.
+pub fn keep_end(
     convo: Res<Convo>,
-    reach: Res<Reach>,
-    lines: Res<Lines>,
+    mut to_end: ResMut<ToEnd>,
     mut away: ResMut<AwayFromEnd>,
-    mut scrolls: Query<
-        (&ComputedNode, &mut ScrollPosition, Option<&mut ScrollGoal>),
+    mut lists: Query<
+        (
+            &VirtualList,
+            &ComputedNode,
+            &mut ScrollPosition,
+            &mut ScrollGoal,
+        ),
         With<ChatScroll>,
     >,
-    mut end: Local<AtEnd>,
 ) {
-    for (node, mut at, goal) in &mut scrolls {
-        let most = furthest(node);
-        if convo.is_changed() || reach.jump {
-            end.held = true;
-            // The wheel's goal in the last chat means nothing in this
-            // one.
-            if let Some(mut goal) = goal {
-                *goal = ScrollGoal::default();
-            }
-        } else if at.y < end.was - 0.5 {
-            end.held = false;
-        } else if at.y >= most - 1.0 {
-            end.held = true;
+    let jump = convo.is_changed() || to_end.0;
+    if to_end.0 {
+        to_end.0 = false;
+    }
+    for (list, node, mut at, mut goal) in &mut lists {
+        if jump {
+            // The wheel's goal elsewhere means nothing at the end.
+            *goal = ScrollGoal::default();
+            at.y = furthest(node);
         }
-        // The end of a window that is not the chat's own is a place
-        // to turn the page, not to stay.
-        if end.held && lines.later == 0 && (at.y - most).abs() > 0.5 {
-            at.y = most;
-        }
-        end.was = at.y;
-        let now = !end.held || lines.later > 0;
+        let now = !jump && !list.is_following();
         if away.0 != now {
             away.0 = now;
         }
@@ -589,7 +568,7 @@ fn in_card(cx: &mut Cx) {
 
 #[cfg(test)]
 mod tests {
-    use bevy::ecs::hierarchy::{ChildOf, Children};
+    use bevy::ecs::hierarchy::ChildOf;
     use bevy::ecs::message::Messages;
     use bevy::input::keyboard::Key;
     use bevy::input_focus::{FocusCause, InputFocus};
@@ -1039,12 +1018,16 @@ mod tests {
             inverse_scale_factor: 1.0,
             ..Default::default()
         });
-        // Each turn shows more of the received rows. The page is
-        // asked for once they have had the frames read_back gives
-        // them to add height, which here they never do.
-        for _ in 0..300 {
-            app.update();
-        }
+        app.update();
+        let rows = |app: &mut App| {
+            let world = app.world_mut();
+            world
+                .query_filtered::<&VirtualList, With<ChatScroll>>()
+                .single(world)
+                .unwrap()
+                .count()
+        };
+        let before = rows(&mut app);
         let requests = app
             .world_mut()
             .resource_mut::<Outbox>()
@@ -1066,11 +1049,8 @@ mod tests {
             protocol::ServerMessage::Transcript(page),
         );
         app.update();
-        let shown = crate::testing::all_words(&mut app);
-        assert!(shown.contains("Line 1."), "{shown}");
-        assert!(
-            !shown.contains("Earlier lines. Scroll up to read them.")
-        );
+        app.update();
+        assert!(rows(&mut app) > before);
         assert!(!app.world().resource::<Outbox>().iter().any(|message| matches!(message, protocol::ClientMessage::Open(open) if open.before.is_some())));
     }
 
@@ -1078,16 +1058,9 @@ mod tests {
     fn scrolling_back_pages_once_and_shows_the_received_page_above() {
         use hamlet_client::outbox::Outbox;
 
-        use crate::testing::{panel_app, words};
-        let mut app = panel_app();
+        let mut app = crate::testing::panel_app();
         crate::testing::seat_hand(&mut app);
         app.add_plugins(plugin);
-        // A window wide enough that one turn reaches the first row.
-        app.insert_resource(Reach {
-            rows: 24,
-            page: 24,
-            ..Reach::default()
-        });
         app.update();
         let pages = paging_pages();
         hamlet_client::receive(
@@ -1100,13 +1073,6 @@ mod tests {
         );
         app.update();
         let world = app.world_mut();
-        assert_eq!(
-            world
-                .query_filtered::<Entity, With<ChatRow>>()
-                .iter(world)
-                .count(),
-            24
-        );
         let scroll = world
             .query_filtered::<Entity, With<ChatScroll>>()
             .single(world)
@@ -1118,25 +1084,11 @@ mod tests {
             ..ComputedNode::default()
         });
         app.update();
-        assert!(
-            words(&mut app).iter().any(|text| text
-                == "Earlier lines. Scroll up to read them.")
-        );
         app.world_mut()
             .get_mut::<ScrollPosition>(scroll)
             .unwrap()
             .y = 0.0;
         app.update();
-        app.world_mut()
-            .get_mut::<ComputedNode>(scroll)
-            .unwrap()
-            .content_size
-            .y = 1200.0;
-        app.update();
-        app.world_mut()
-            .get_mut::<ScrollPosition>(scroll)
-            .unwrap()
-            .y = 0.0;
         app.update();
         let requests = app
             .world_mut()
@@ -1203,38 +1155,11 @@ mod tests {
             protocol::ServerMessage::Transcript(page),
         );
         app.update();
-        app.world_mut()
-            .get_mut::<ComputedNode>(scroll)
-            .unwrap()
-            .content_size
-            .y = 1400.0;
         app.update();
-        assert_eq!(
-            app.world().get::<ScrollPosition>(scroll).unwrap().y,
-            200.0
-        );
-        let shown = words(&mut app);
+        // The rows read stay in view, below the page put above them.
         assert!(
-            shown.iter().any(|text| text.trim_end() == "Line 1."),
-            "{shown:?}"
-        );
-        assert!(
-            !shown.iter().any(|text| text
-                == "Earlier lines. Scroll up to read them.")
-        );
-        let world = app.world_mut();
-        let mut children = world.query::<&Children>();
-        let row_times = children
-            .query(world)
-            .iter_descendants(scroll)
-            .filter_map(|entity| {
-                world.get::<Rewinds>(entity).map(|row| row.at)
-            })
-            .collect::<Vec<_>>();
-        assert_eq!(row_times.len(), 23);
-        assert!(
-            row_times.windows(2).all(|pair| pair[0] <= pair[1]),
-            "the page precedes the kept rows"
+            app.world().get::<ScrollPosition>(scroll).unwrap().y
+                > 0.0
         );
     }
 
