@@ -398,10 +398,9 @@ pub(super) fn tree(
                         log: Some(log),
                         ..
                     }) = &mut row.what
+                        && log.crumbs.first() != Some(&title)
                     {
-                        if log.crumbs.first() != Some(&title) {
-                            log.crumbs.insert(0, title.clone());
-                        }
+                        log.crumbs.insert(0, title.clone());
                     }
                 }
             }
@@ -507,7 +506,7 @@ pub(super) fn side(panel: &PanelId) -> impl View + use<> {
                     .on_activate_with({
                         let panel = panel.clone();
                         move |world, node| {
-                            super::pick::toggle(world, node, &panel)
+                            super::pick::toggle(world, node, &panel);
                         }
                     }),
             ))
@@ -803,7 +802,7 @@ fn entry(shown: &Shown, item: Item, last: bool) -> AnyView {
                     .rules(link_row)
                     .tooltip(|| note("Unpin"))
                     .on_activate(move |world| {
-                        super::pick::pin(world, &key)
+                        super::pick::pin(world, &key);
                     })
                     .boxed()
             }

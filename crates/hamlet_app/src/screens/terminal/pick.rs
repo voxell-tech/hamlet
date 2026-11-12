@@ -263,9 +263,7 @@ fn visible<'a>(
     let agents = group
         .rows
         .iter()
-        .filter(|row| {
-            matches!(&row.what, What::Agent(Branch { log: _, .. }))
-        })
+        .filter(|row| matches!(&row.what, What::Agent(Branch { .. })))
         .collect::<Vec<_>>();
     if word.is_empty() || group.title.to_lowercase().contains(&word) {
         return agents.into_iter().map(|row| (row, false)).collect();
@@ -323,6 +321,11 @@ const ROW: f32 = 28.0;
 
 /// One agent in its tree, with the pin of its log when it has one;
 /// `dim` when it only leads to a match.
+#[expect(
+    clippy::fn_params_excessive_bools,
+    reason = "dimmed by the search, and pinned: two plain facts of \
+              a row"
+)]
 fn agent_row(
     branch: Branch,
     tree: Tree,
