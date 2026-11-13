@@ -1,5 +1,5 @@
-//! A stand-in for the realm: it sets agents' reach on the workspace
-//! by a call.
+//! A stand-in for the realm: the actor `realm/local`, which sets
+//! agents' reach on the workspace by calling it as itself.
 //!
 //! ```text
 //! demo realm reach <n> <version> [project=<path>] [mode=manual|auto]
@@ -8,14 +8,16 @@
 //!                    set agent <n>'s reach; manual mode by default
 //! ```
 //!
-//! `reach` prints `reach <n> <version> in force <v>`, the version the
-//! workspace answered with, or `reach <n> <version> refused: <why>`.
+//! `reach` prints `reach/<n> <v>`, the version in force the workspace
+//! answered with, or `reach/<n> refused: <why>`.
 
 use std::io::Write;
+use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
-use hamlet_actor::Action;
+use hamlet_actor::{Action, Actor, Ctx, Handler, Registry};
+use hamlet_actor_core::{ActorConfig, ActorFactory};
 use hamlet_actors::workspace::reach::{
     Footing, Mode, Project, Reach, SecretsVersion, Trust,
 };
@@ -23,7 +25,66 @@ use hamlet_actors::workspace::{
     self, AgentNumber, ConversationId, ReachAnswer, ReachVersion,
     SetReach,
 };
-use hamlet_host::{Address, Cause, Host};
+use hamlet_host::{Address, Caller, Cause, Host};
+
+/// The realm's key.
+const KEY: &str = "local";
+
+/// The kind `realm`.
+pub fn factory() -> ActorFactory {
+    let mut registry = Registry::new();
+    registry.register_actor_with::<Realm>(
+        workspace::REALM,
+        ActorConfig::default(),
+    );
+    registry
+        .into_factories()
+        .remove(workspace::REALM)
+        .expect("the registry holds the kind it registered")
+}
+
+struct Realm;
+
+/// Asks the realm to set an agent's reach on the workspace.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct Grant(SetReach);
+
+impl Action for Grant {
+    type Output = ReachAnswer;
+    const NAME: &'static str = "grant";
+}
+
+#[async_trait::async_trait]
+impl Actor for Realm {
+    type Input = ();
+    type Actions = (Grant,);
+    type Events = ();
+    type ConnParams = Option<Caller>;
+    type Action = ();
+
+    async fn create(_: &Ctx<Self>) -> Result<Self> {
+        Ok(Self)
+    }
+}
+
+impl Handler<Grant> for Realm {
+    async fn handle(
+        self: Arc<Self>,
+        ctx: Ctx<Self>,
+        Grant(set): Grant,
+    ) -> Result<ReachAnswer> {
+        let reply = Host::call_from(
+            ctx.inner(),
+            &Address::new(workspace::KIND, workspace::MACHINE),
+            SetReach::NAME,
+            hamlet_actor::action::encode_positional(&set)?,
+            Duration::from_secs(10),
+            Cause::root("realm"),
+        )
+        .await?;
+        Ok(ciborium::from_reader(reply.as_slice())?)
+    }
+}
 
 /// Runs `demo realm <words>`.
 pub async fn run(host: &Host, words: &[String]) -> Result<()> {
@@ -40,29 +101,23 @@ pub async fn run(host: &Host, words: &[String]) -> Result<()> {
     };
     host.get_or_start(workspace::KIND, workspace::MACHINE)
         .await?;
-    // The host's own call stands in for the realm's until one actor
-    // can call another.
+    host.get_or_start(workspace::REALM, KEY).await?;
     let reply = host
         .call(
-            &Address::new(workspace::KIND, workspace::MACHINE),
-            SetReach::NAME,
-            hamlet_actor::action::encode_positional(&set)?,
-            Duration::from_secs(10),
+            &Address::new(workspace::REALM, KEY),
+            Grant::NAME,
+            hamlet_actor::action::encode_positional(&Grant(set))?,
+            Duration::from_secs(20),
             Cause::root("demo"),
         )
         .await?;
     let mut out = std::io::stdout();
     match ciborium::from_reader(reply.as_slice())? {
-        ReachAnswer::InForce(in_force) => writeln!(
-            out,
-            "reach {agent} {version} in force {}",
-            in_force.0
-        )?,
+        ReachAnswer::InForce(in_force) => {
+            writeln!(out, "reach/{agent} {}", in_force.0)?;
+        }
         ReachAnswer::Refused(refusal) => {
-            writeln!(
-                out,
-                "reach {agent} {version} refused: {refusal}"
-            )?;
+            writeln!(out, "reach/{agent} refused: {refusal}")?;
         }
     }
     Ok(())
