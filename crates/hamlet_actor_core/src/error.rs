@@ -136,13 +136,6 @@ pub(crate) enum KvRuntimeError {
     KeyTooLarge { size: usize, limit: usize },
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "ported; nothing in Hamlet calls it yet"
-    )
-)]
 pub(crate) fn is_internal_error(group: &str, code: &str) -> bool {
     (group == "core" || group == "hamlet_actor")
         && code == "internal_error"

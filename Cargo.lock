@@ -4817,6 +4817,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "hamlet_actor_core",
+ "hamlet_actor_error",
  "hamlet_host",
  "hamlet_sqlite",
  "hamlet_testing",

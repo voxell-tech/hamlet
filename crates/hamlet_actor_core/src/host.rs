@@ -4,6 +4,7 @@
 //! and the plain types the core took from the engine client. Each
 //! module below mirrors the path the core imports from.
 
+pub(crate) mod dispatch;
 mod running;
 
 use std::sync::Arc;

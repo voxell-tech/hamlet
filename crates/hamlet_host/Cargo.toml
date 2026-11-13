@@ -22,6 +22,7 @@ faults = []
 
 [dev-dependencies]
 # The crate's own tests and examples run with its fault points.
+hamlet_actor_error.workspace = true
 hamlet_host = { workspace = true, features = ["faults"] }
 hamlet_testing.workspace = true
 tracing-subscriber.workspace = true

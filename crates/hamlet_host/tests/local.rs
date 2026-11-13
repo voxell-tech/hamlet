@@ -5,7 +5,10 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::time::Duration;
 
-use hamlet_actor_core::{ActorFactory, ShutdownKind};
+use hamlet_actor_core::{
+    ActorConfig, ActorEvent, ActorFactory, ActorStart, ShutdownKind,
+};
+use hamlet_actor_error::ActorError;
 use hamlet_host::Host;
 use hamlet_testing::Scratch;
 use rusqlite::{Connection, OpenFlags};
@@ -214,4 +217,71 @@ async fn an_actor_that_asks_to_sleep_or_be_destroyed_stops_at_once() {
                 .exists()
         );
     }
+}
+
+/// An action the actor never answers fails with the structured
+/// timeout error once the kind's action timeout passes.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_action_with_no_reply_times_out() {
+    let dir = Scratch::new("host-action-timeout");
+    let config = ActorConfig {
+        name: Some("mute".to_owned()),
+        action_timeout: Duration::from_millis(200),
+        ..ActorConfig::default()
+    };
+    let factories = HashMap::from([(
+        "mute".to_owned(),
+        ActorFactory::new(config, |start: ActorStart| {
+            Box::pin(async move {
+                let mut events = start.events;
+                let mut unanswered = Vec::new();
+                while let Some(event) = events.recv().await {
+                    match event {
+                        ActorEvent::Action { reply, .. } => {
+                            unanswered.push(reply);
+                        }
+                        ActorEvent::SerializeState {
+                            reply, ..
+                        } => {
+                            reply.send(Ok(Vec::new()));
+                        }
+                        ActorEvent::RunGracefulCleanup {
+                            reply,
+                            ..
+                        }
+                        | ActorEvent::ConnectionPreflight {
+                            reply,
+                            ..
+                        }
+                        | ActorEvent::ConnectionOpen {
+                            reply, ..
+                        }
+                        | ActorEvent::DisconnectConn {
+                            reply, ..
+                        } => {
+                            reply.send(Ok(()));
+                        }
+                        _ => {}
+                    }
+                }
+                Ok(())
+            })
+        }),
+    )]);
+    let host = Host::open(&dir, factories).unwrap();
+    let id = host.get_or_start("mute", "a").await.unwrap();
+
+    let error = tokio::time::timeout(
+        Duration::from_secs(5),
+        host.action(&id, "wait", Vec::new()),
+    )
+    .await
+    .expect("the action timeout did not end the call")
+    .expect_err("an unanswered action must fail");
+    let error = ActorError::extract(&error);
+    assert_eq!(error.group(), "actor");
+    assert_eq!(error.code(), "action_timed_out");
+    assert_eq!(error.message(), "Action timed out");
+    // A stop would wait out the grace period for the unanswered
+    // action, so the test ends with the actor still running.
 }

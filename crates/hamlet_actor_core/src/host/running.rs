@@ -4,17 +4,21 @@
 //! start, action dispatch and stop paths.
 
 use std::sync::Arc;
+use std::time::Duration;
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result};
 use parking_lot::Mutex;
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
 
 use super::HostHandle;
+use super::dispatch::{
+    dispatch_action_through_task, with_action_dispatch_timeout,
+};
+use crate::actor::action::ActionDispatchError;
 use crate::actor::kv::LegacyActorKv;
 use crate::actor::task::{
-    DispatchCommand, LifecycleCommand, try_send_dispatch_command,
-    try_send_lifecycle_command,
+    DispatchCommand, LifecycleCommand, try_send_lifecycle_command,
 };
 use crate::telemetry::IncomingInvocationContext;
 use crate::types::{ActorKey, format_actor_key};
@@ -43,6 +47,7 @@ pub struct RunningActor {
     ctx: ActorContext,
     lifecycle: mpsc::UnboundedSender<LifecycleCommand>,
     dispatch: mpsc::UnboundedSender<DispatchCommand>,
+    action_timeout: Duration,
     join: Mutex<Option<JoinHandle<Result<()>>>>,
 }
 
@@ -59,6 +64,7 @@ impl RunningActor {
             handle,
             new_storage,
         } = request;
+        let action_timeout = factory.config().action_timeout;
         let sql = SqliteDb::new_with_remote_sqlite(
             handle.clone(),
             actor_id.clone(),
@@ -134,6 +140,7 @@ impl RunningActor {
             ctx,
             lifecycle: lifecycle_tx,
             dispatch: dispatch_tx,
+            action_timeout,
             join: Mutex::new(Some(join)),
         })
     }
@@ -143,7 +150,8 @@ impl RunningActor {
     }
 
     /// Calls an action: a connection for the call, the action through
-    /// the actor task, then the connection closes.
+    /// the actor task within the kind's action timeout, then the
+    /// connection closes.
     pub async fn action(
         &self,
         name: &str,
@@ -155,22 +163,19 @@ impl RunningActor {
                 Ok::<Vec<u8>, anyhow::Error>(Vec::new())
             })
             .await?;
-        let (reply, rx) = oneshot::channel();
-        try_send_dispatch_command(
-            &self.dispatch,
-            DispatchCommand::Action {
-                name: name.to_owned(),
+        let result = with_action_dispatch_timeout(
+            self.action_timeout,
+            dispatch_action_through_task(
+                &self.dispatch,
+                conn.clone(),
+                name.to_owned(),
                 args,
-                incoming: IncomingInvocationContext::default(),
-                conn: conn.clone(),
-                reply,
-            },
-        )?;
-        let result = rx
-            .await
-            .map_err(|_| anyhow!("actor dropped the action reply"))?;
+                IncomingInvocationContext::default(),
+            ),
+        )
+        .await;
         let _ = conn.disconnect(None).await;
-        result
+        result.map_err(ActionDispatchError::into_anyhow)
     }
 
     /// Stops the task and waits until it has ended.

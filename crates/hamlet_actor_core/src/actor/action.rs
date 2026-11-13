@@ -19,13 +19,6 @@ pub struct ActionDispatchError {
 }
 
 impl ActionDispatchError {
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "ported; nothing in Hamlet calls it yet"
-        )
-    )]
     pub(crate) fn from_anyhow(error: anyhow::Error) -> Self {
         let original_message = error.to_string();
         let error = ActorError::extract(&error);
@@ -70,10 +63,6 @@ impl ActionDispatchError {
         )
     }
 
-    #[expect(
-        dead_code,
-        reason = "ported; nothing in Hamlet calls it yet"
-    )]
     pub(crate) fn into_anyhow(self) -> anyhow::Error {
         let ActionDispatchError {
             group,
