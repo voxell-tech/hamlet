@@ -180,7 +180,8 @@ kind.
 `local/create.rs` holds `create`, the other way to make an actor: it
 makes the actor with an input, kept in the file's `_hamlet_actor` row
 and given to each start, and fails with `actor.duplicate_key` for a key
-that holds an actor. A create of a key whose destroy is unfinished
+that holds an actor. A create whose own start fails removes the actor it
+made, so the key is free again. A create of a key whose destroy is unfinished
 never opens the old data. Nothing else
 makes an actor. `local/call.rs` holds the calls: `call` calls an action
 of the actor at an `Address`, starting it from its file first, within

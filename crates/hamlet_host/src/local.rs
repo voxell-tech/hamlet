@@ -122,6 +122,7 @@ const ACTOR_TABLE: &str = "CREATE TABLE IF NOT EXISTS _hamlet_actor \
 /// | `Starting` | the start ended well | `Running`, also for a kept sleep if woken; else `Stopping`, or `Destroying` with its file marked, for a kept request |
 /// | `Starting` | the start failed or panicked, or missed its deadline | absent, the failure told to its waiters |
 /// | `Starting` | such a start, for a deadline that came, the host not shut and no destroy asked | `Stopped`, its timer armed after the start retry, the failure told to its waiters |
+/// | `Starting` | a create's own start that failed, its file closed | absent, the actor's files removed first, its waiters told nothing |
 /// | `Starting` | a start that may not make the actor found none, or a create's found one | absent, its waiters told nothing |
 /// | `Running` | its generation asks to sleep or reports a crash, or `Host::stop(Sleep)` | `Stopping` |
 /// | `Running` | its generation asks to be destroyed, or `Host::stop(Destroy)` | `Destroying`, its file marked |
@@ -1845,7 +1846,7 @@ struct Bumped {
     first: bool,
     /// The input the actor was made with. Every start gives it to
     /// the core, which reads it only while the actor has no state:
-    /// so a first start that fails leaves it for the next.
+    /// so a first start that a kill cut off leaves it for the next.
     input: Option<Vec<u8>>,
 }
 
@@ -1912,7 +1913,10 @@ fn bump_generation(
 /// waiting [`CLOSE_GRACE`] at most, tells its waiters why, and does
 /// what `at_failure` says. One that finds no actor, or a create's
 /// that finds one, tells them nothing, so each reads the state again,
-/// and is not tried again.
+/// and is not tried again. A create's own start that fails removes
+/// the actor it made, its files with it, and tells its waiters
+/// nothing either, since no actor is left; unless the file did not
+/// close within the grace, when the actor stays, as for any start.
 async fn start_actor(
     owned: Owned,
     id: u64,
@@ -1921,6 +1925,7 @@ async fn start_actor(
 ) -> Result<Arc<Generation>> {
     let host = owned.host.clone();
     let actor_id = owned.actor_id.clone();
+    let creates = matches!(open, Open::New(_));
     let opened = Mutex::new(None);
     let started = host
         .within_start_deadline(
@@ -1939,12 +1944,19 @@ async fn start_actor(
         // waits for the lock, and fails if it outlasts that wait.
         Err(error) => {
             let file = opened.lock().take();
-            if let Some(file) = file {
-                close_within_grace(&file).await;
-            }
+            // The file is open only once the start's transaction
+            // wrote the row: a create's start made the actor then.
+            let made = creates && file.is_some();
+            let closed = match file {
+                Some(file) => close_within_grace(&file).await,
+                None => true,
+            };
             // Not told to the waiters: each reads the map again.
             if let Some(found) = error.downcast_ref::<Found>() {
                 return Err(found.to_error(&actor_id));
+            }
+            if made && closed && unmake(&host, &actor_id).await {
+                return Err(error);
             }
             if at_failure == AtFailure::Retry {
                 retry_start(&owned);
@@ -2009,10 +2021,34 @@ enum AtFailure {
     Retry,
 }
 
-/// Closes `file`, waiting [`CLOSE_GRACE`] at most. A file whose
-/// thread still runs a statement closes once the statement ends.
-async fn close_within_grace(file: &PlainSqlite) {
-    let _ = tokio::time::timeout(CLOSE_GRACE, file.close()).await;
+/// Closes `file`, waiting [`CLOSE_GRACE`] at most, and answers
+/// whether it closed. A file whose thread still runs a statement
+/// closes once the statement ends.
+async fn close_within_grace(file: &PlainSqlite) -> bool {
+    tokio::time::timeout(CLOSE_GRACE, file.close())
+        .await
+        .is_ok()
+}
+
+/// Removes the actor that a create's own start made and could not
+/// start, with its files, so the key is free again. Answers whether
+/// it did: a failure is logged, and leaves the actor made.
+async fn unmake(host: &HostInner, actor_id: &str) -> bool {
+    let path = actor_path(&host.dir, actor_id);
+    let removed =
+        tokio::task::spawn_blocking(move || destroy_file(&path))
+            .await
+            .map_err(anyhow::Error::from)
+            .flatten();
+    if let Err(error) = &removed {
+        tracing::warn!(
+            ?error,
+            actor_id,
+            "host failed to remove an actor its create could not \
+             start"
+        );
+    }
+    removed.is_ok()
 }
 
 /// Opens the actor's file and starts its core, as the generation of

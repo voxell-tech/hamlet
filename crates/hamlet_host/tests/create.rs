@@ -325,34 +325,79 @@ async fn of_two_creates_of_one_key_at_once_one_makes_the_actor() {
     assert_eq!(made.created.load(Ordering::SeqCst), 50);
 }
 
-/// K2: the actor keeps its input, so a create whose first start fails
-/// leaves an actor that the next start, a call's, creates from that
-/// input. A second create of the key fails with
-/// `actor.duplicate_key`.
+/// Whether any of the three files of `made/<key>` is in `dir`.
+fn any_file(dir: &Scratch, key: &str) -> bool {
+    ["", "-wal", "-shm"].iter().any(|suffix| {
+        dir.join(format!("actors/made/{key}.sqlite{suffix}"))
+            .exists()
+    })
+}
+
+/// A create whose own first start fails leaves nothing of the actor:
+/// no file, a call fails with `actor.not_found`, and the key is free
+/// for a create that makes the actor from its own input. So for a
+/// kind whose start fails once, and for an input the kind cannot
+/// read, empty bytes included.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_create_whose_first_start_fails_keeps_its_input() {
+async fn a_create_whose_first_start_fails_leaves_no_actor() {
     let dir = Scratch::new("create-fails");
     let made = Arc::new(Counts::default());
-    let fail = Arc::new(FailNext(AtomicBool::new(true)));
+    let fail = Arc::new(FailNext(AtomicBool::new(false)));
     let host = open(
         &dir,
         HostOptions::default()
             .with_value(made.clone())
             .with_value(fail.clone()),
     );
-    let first = failed(host.create("made", "a", cbor("first")).await);
-    let input = call(&host, "a", &Input).await.unwrap();
-    let notes = call(&host, "a", &Notes).await.unwrap();
-    let again =
-        failed(host.create("made", "a", cbor("second")).await);
+    for (key, input, fails) in [
+        ("fails-once", cbor("first"), true),
+        ("unreadable", vec![0xff], false),
+        ("empty", Vec::new(), false),
+    ] {
+        fail.0.store(fails, Ordering::SeqCst);
+        let first = failed(host.create("made", key, input).await);
+        assert_ne!(code(&first), "actor.duplicate_key", "{first:#}");
+        assert!(!any_file(&dir, key), "{key}: a file is left");
+        let error = call(&host, key, &Input)
+            .await
+            .expect_err("a call to an actor whose create failed");
+        assert_eq!(code(&error), "actor.not_found", "{error:#}");
+        host.create("made", key, cbor("second")).await.unwrap();
+        let input = call(&host, key, &Input).await.unwrap();
+        let notes = call(&host, key, &Notes).await.unwrap();
+        assert_eq!(input, "second", "{key}");
+        assert_eq!(notes, ["second"], "{key}");
+    }
     host.shutdown().await.unwrap();
-    // The core reports the failed start as an internal error.
     assert!(!fail.0.load(Ordering::SeqCst), "the first start failed");
-    assert_ne!(code(&first), "actor.duplicate_key", "{first:#}");
-    assert_eq!(input, "first");
-    assert_eq!(notes, ["first"]);
-    assert_eq!(code(&again), "actor.duplicate_key", "{again:#}");
-    assert_eq!(made.created.load(Ordering::SeqCst), 1);
+    assert_eq!(made.created.load(Ordering::SeqCst), 3);
+}
+
+/// Of two creates of one key at once, one with an input the kind
+/// cannot read, the other makes the actor, also when it waited for
+/// the failed one's start: that start tells its waiters nothing.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_create_that_fails_leaves_the_key_to_a_create_that_waited()
+{
+    let dir = Scratch::new("create-fails-race");
+    let made = Arc::new(Counts::default());
+    let host =
+        open(&dir, HostOptions::default().with_value(made.clone()));
+    for round in 0..50 {
+        let key = format!("k{round}");
+        let (bad, good) = tokio::join!(
+            host.create("made", &key, vec![0xff]),
+            host.create("made", &key, cbor("good")),
+        );
+        let bad = failed(bad);
+        if let Err(error) = good {
+            panic!("round {round}: {error:#}; the other: {bad:#}");
+        }
+        let notes = call(&host, &key, &Notes).await.unwrap();
+        assert_eq!(notes, ["good"], "round {round}");
+    }
+    host.shutdown().await.unwrap();
+    assert_eq!(made.created.load(Ordering::SeqCst), 50);
 }
 
 /// K3, K4: a create of a key whose destroy is under way fails at once

@@ -30,12 +30,17 @@ impl Host {
     /// comes back. Fails at once with `actor.not_registered` for a
     /// kind the directory does not hold.
     ///
-    /// The actor is made once its file holds its row, before its
-    /// first start ends. A create whose start fails returns that
-    /// failure and leaves the actor made: a later call or
-    /// `get_or_start` starts it, and that start gives the core the
-    /// input. A create that waited for another start that failed
-    /// fails with that start's error.
+    /// A create whose own start fails, for an input the kind cannot
+    /// read or any other reason, returns that failure and leaves
+    /// nothing of the actor: its files are removed, and the key is
+    /// free for another create. Only a statement of that start that
+    /// still holds the file past the close's grace leaves the actor
+    /// made, to start or destroy as any other. A create that waited
+    /// for another create's start that failed then makes the actor
+    /// itself; one that waited for any other start that failed fails
+    /// with that start's error. A kill during the create's start
+    /// leaves the actor made, with its input, which each start gives
+    /// the core until one starts it.
     pub async fn create(
         &self,
         kind: &str,
