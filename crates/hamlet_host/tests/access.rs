@@ -14,13 +14,15 @@ use hamlet_actor::{
 use hamlet_actor_core::{
     ActorContext, ActorEvent, ActorFactory, ActorStart, ShutdownKind,
 };
-use hamlet_actor_error::ActorError;
 use hamlet_host::{
     Address, Caller, Cause, Host, HostOptions, HostRef,
 };
 use hamlet_testing::Scratch;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
+use support::{call, code};
+
+mod support;
 
 /// The kind `kind`, an actor of the trait API `A`, with a database.
 fn kind<A: Actor>(registry: &mut Registry, kind: &str) {
@@ -31,28 +33,6 @@ fn kind<A: Actor>(registry: &mut Registry, kind: &str) {
             ..ActorConfig::default()
         },
     );
-}
-
-/// Calls `action` of the actor at `to` from the embedder, and decodes
-/// its answer.
-async fn call<M: Action>(
-    host: &Host,
-    to: &Address,
-    action: &M,
-) -> anyhow::Result<M::Output>
-where
-    M::Output: DeserializeOwned,
-{
-    let reply = host
-        .call(
-            to,
-            M::NAME,
-            hamlet_actor::action::encode_positional(action)?,
-            Duration::from_secs(10),
-            Cause::root("test"),
-        )
-        .await?;
-    Ok(ciborium::from_reader(reply.as_slice())?)
 }
 
 /// Keeps the realm folder its host gave it in `create`.
@@ -276,12 +256,6 @@ async fn an_actor_that_keeps_its_host_ref_does_not_keep_the_host() {
         }
     };
     host.shutdown().await.unwrap();
-}
-
-/// The error's `group.code`.
-fn code(error: &anyhow::Error) -> String {
-    let error = ActorError::extract(error);
-    format!("{}.{}", error.group(), error.code())
 }
 
 /// Answers who called it, and holds when asked to.
