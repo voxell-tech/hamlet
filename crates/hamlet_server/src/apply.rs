@@ -47,6 +47,8 @@ pub(crate) struct Changed {
     pub committed: bool,
     /// An agent or a hamlet changed, so its tools may have.
     pub reshaped: bool,
+    /// A runtime answered a request, so what waited on it may go.
+    pub answered: bool,
 }
 
 pub(crate) fn plugin(app: &mut App) {
@@ -73,7 +75,7 @@ pub(crate) fn plugin(app: &mut App) {
                 stop_cancelled
                     .in_set(Step::StopCancelled)
                     .run_if(committed),
-                flush.in_set(Step::Flush).run_if(committed),
+                flush.in_set(Step::Flush).run_if(owed),
                 publish.in_set(Step::Publish).run_if(committed),
                 (reply, forget).chain().in_set(Step::Reply),
             ),
@@ -86,6 +88,11 @@ fn committed(changed: Res<Changed>) -> bool {
 
 fn reshaped(changed: Res<Changed>) -> bool {
     changed.reshaped
+}
+
+/// Whether a runtime may be owed something new.
+fn owed(changed: Res<Changed>) -> bool {
+    changed.committed || changed.answered
 }
 
 fn retool(

@@ -16,6 +16,9 @@ use bevy_app::App;
 use bevy_ecs::error::{BevyError, ErrorContext};
 use bevy_ecs::system::SystemState;
 use futures::FutureExt;
+use hamlet_protocol::runtime::{
+    ErrorCode, ProtocolError, RuntimeMessage, ServerMessage,
+};
 use hamlet_sandbox::{AllLeftovers, Sandbox};
 use hamlet_store::ids::Actor;
 use tokio::net::{TcpListener, TcpStream};
@@ -44,7 +47,7 @@ use crate::talk::leases::Authority;
 use crate::talk::process::{Pi, Received};
 use crate::talk::runtimes::{self, Runtimes};
 use crate::talk::sync::{Fitted, Fitting};
-use crate::talk::{Env, inputs};
+use crate::talk::{Env, heard, inputs};
 use crate::work::added;
 use crate::work::tools::{self, Shells};
 use crate::workspace::Transport;
@@ -389,8 +392,92 @@ impl Server {
     }
 
     async fn handle(&mut self, input: Input) -> Result<()> {
+        if let Input::Line(received) = input {
+            return self.line(received).await;
+        }
         let mut core = self.core()?;
         Self::dispatch(&mut core, input).await
+    }
+
+    /// Takes in a runtime's line: its message is run by the system
+    /// for it. A message whose handling fails leaves its transaction
+    /// rolled back, and a runtime that waits is told; it goes on.
+    async fn line(&mut self, received: Received) -> Result<()> {
+        let mut core = self.core()?;
+        if !core.runtimes.is_current(&received) {
+            return Ok(());
+        }
+        let index = received.runtime;
+        let Some(line) = received.line else {
+            core.runtimes.failed(index);
+            core.leases.gone(index);
+            return Ok(());
+        };
+        let message =
+            match serde_json::from_str::<RuntimeMessage>(&line) {
+                Ok(message) => message,
+                Err(error) => {
+                    tell(
+                        Secrets::Of(&core.credentials),
+                        format!(
+                            "a runtime's line is not a message: \
+                             {error}"
+                        ),
+                    );
+                    return Ok(());
+                }
+            };
+        let re = heard::awaited(&message);
+        let heard = AssertUnwindSafe(self.hear(index, message))
+            .catch_unwind()
+            .await;
+        let failure = match heard {
+            Ok(Ok(())) => None,
+            Ok(Err(error)) => Some(format!("{error:#}")),
+            Err(panic) => Some(diagnostic::panicked(&*panic)),
+        };
+        let mut core = self.core()?;
+        if let Some(failure) = failure {
+            hamlet_store::unwind(core.realm.store().connection())?;
+            tell(
+                Secrets::Of(&core.credentials),
+                format!("a runtime's line failed: {failure}"),
+            );
+            if let Some(re) = re {
+                let message = core.credentials.scrub_text(&format!(
+                    "The server failed: {failure}"
+                ));
+                core.runtimes.send(index, |v, id| {
+                    ServerMessage::Error(ProtocolError {
+                        code: ErrorCode::Failed,
+                        id,
+                        message,
+                        re: Some(re),
+                        v,
+                    })
+                });
+            }
+        }
+        core.answer_credentials();
+        Ok(())
+    }
+
+    /// Runs the system for `message` from runtime `index`; a tool
+    /// call's request awaits the workspace and is carried out here.
+    async fn hear(
+        &mut self,
+        index: usize,
+        message: RuntimeMessage,
+    ) -> Result<()> {
+        match heard::hear(self.app.world_mut(), index, message)? {
+            Some(RuntimeMessage::Allow(asked)) => {
+                self.core()?.allow_call(index, asked).await
+            }
+            Some(RuntimeMessage::Operation(asked)) => {
+                self.core()?.operation(index, asked).await
+            }
+            Some(_) | None => Ok(()),
+        }
     }
 
     async fn dispatch(
@@ -398,7 +485,7 @@ impl Server {
         input: Input,
     ) -> Result<()> {
         match input {
-            Input::Line(received) => core.received(received).await,
+            Input::Line(_) => Ok(()),
             Input::Worked(done) => {
                 core.owe_pushes(&done);
                 core.publish()

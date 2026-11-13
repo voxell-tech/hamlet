@@ -4,16 +4,11 @@
 //! the runtimes and the clients.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
-use std::panic::AssertUnwindSafe;
 
 use anyhow::Result;
 use bevy_ecs::system::{Res, ResMut, SystemParam};
-use futures::FutureExt;
 use hamlet_protocol::client as protocol;
-use hamlet_protocol::runtime::{
-    self, AdmittedStatus, ErrorCode, ProtocolError, RuntimeMessage,
-    ServerMessage, SettledStatus, ToolSpec,
-};
+use hamlet_protocol::runtime::{self, ServerMessage, ToolSpec};
 use hamlet_store::ids::{Actor, AgentId, ConversationId};
 
 use crate::apply::Changed;
@@ -24,24 +19,19 @@ use crate::clients::check::reply;
 use crate::clients::fold::Fold;
 use crate::clock;
 use crate::credentials::Credentials;
-use crate::diagnostic::{self, Secrets, tell};
+use crate::diagnostic::{Secrets, tell};
 use crate::files::FileUploads;
 use crate::images::Uploads;
 use crate::knowledge::runner::{Runner, Writing, run_due};
-use crate::providers::{FAUX, Providers};
+use crate::providers::Providers;
 use crate::realm::Realm;
 use crate::society::refusal::Refusal;
 use crate::talk::activity::Activity;
 use crate::talk::follow::{Followed, follow};
-use crate::talk::inputs::{self, Status};
 use crate::talk::leases::Authority;
-use crate::talk::process::Received;
-use crate::talk::runtimes::{Pending, Runtimes};
+use crate::talk::runtimes::Runtimes;
 use crate::talk::sync::Fitting;
-use crate::talk::turns::Admission;
-use crate::talk::{
-    Env, conversations, items, prompt, sync, turns, verdicts,
-};
+use crate::talk::{Env, conversations, prompt, sync};
 use crate::work::added::Manifest;
 use crate::work::tools::Shells;
 use crate::workspace::Transport;
@@ -285,7 +275,10 @@ impl Core<'_> {
 
     /// Sends the watchers of `conversation` what changed in its
     /// transcript.
-    fn stream(&mut self, conversation: ConversationId) -> Result<()> {
+    pub(crate) fn stream(
+        &mut self,
+        conversation: ConversationId,
+    ) -> Result<()> {
         let watching = self.clients.watching(conversation);
         let Some(live) = self.live.get_mut(&conversation) else {
             return Ok(());
@@ -323,7 +316,7 @@ impl Core<'_> {
 
     /// Sends the watchers of `conversation` its usage totals, after a
     /// model call of it was charged.
-    fn stream_usage(
+    pub(crate) fn stream_usage(
         &mut self,
         conversation: ConversationId,
     ) -> Result<()> {
@@ -392,7 +385,11 @@ impl Core<'_> {
     }
 
     /// Sends runtime `index` what it is owed.
-    fn flush_one(&mut self, index: usize, again: bool) -> Result<()> {
+    pub(crate) fn flush_one(
+        &mut self,
+        index: usize,
+        again: bool,
+    ) -> Result<()> {
         let images = self.realm.layout().images();
         let mut owed = sync::Owed {
             db: self.realm.store().connection(),
@@ -405,73 +402,8 @@ impl Core<'_> {
         sync::flush(&mut owed, index, again)
     }
 
-    pub(crate) async fn received(
-        &mut self,
-        received: Received,
-    ) -> Result<()> {
-        if !self.runtimes.is_current(&received) {
-            return Ok(());
-        }
-        let index = received.runtime;
-        let Some(line) = received.line else {
-            self.runtimes.failed(index);
-            self.leases.gone(index);
-            return Ok(());
-        };
-        match serde_json::from_str::<RuntimeMessage>(&line) {
-            Ok(message) => {
-                let re = awaited(&message);
-                // A line whose handling fails leaves its transaction
-                // rolled back; the runtime is told and goes on.
-                let heard =
-                    AssertUnwindSafe(self.heard(index, message))
-                        .catch_unwind()
-                        .await;
-                let failure = match heard {
-                    Ok(Ok(())) => None,
-                    Ok(Err(error)) => Some(format!("{error:#}")),
-                    Err(panic) => Some(diagnostic::panicked(&*panic)),
-                };
-                if let Some(failure) = failure {
-                    hamlet_store::unwind(
-                        self.realm.store().connection(),
-                    )?;
-                    tell(
-                        Secrets::Of(&self.credentials),
-                        format!("a runtime's line failed: {failure}"),
-                    );
-                    if let Some(re) = re {
-                        let message = self.credentials.scrub_text(
-                            &format!("The server failed: {failure}"),
-                        );
-                        self.runtimes.send(index, |v, id| {
-                            ServerMessage::Error(ProtocolError {
-                                code: ErrorCode::Failed,
-                                id,
-                                message,
-                                re: Some(re),
-                                v,
-                            })
-                        });
-                    }
-                }
-                self.answer_credentials();
-                Ok(())
-            }
-            Err(error) => {
-                tell(
-                    Secrets::Of(&self.credentials),
-                    format!(
-                        "a runtime's line is not a message: {error}"
-                    ),
-                );
-                Ok(())
-            }
-        }
-    }
-
     /// Answers the credential requests the leases let through.
-    fn answer_credentials(&mut self) {
+    pub(crate) fn answer_credentials(&mut self) {
         let serving = self
             .env
             .settings
@@ -488,403 +420,4 @@ impl Core<'_> {
             });
         }
     }
-
-    async fn heard(
-        &mut self,
-        index: usize,
-        message: RuntimeMessage,
-    ) -> Result<()> {
-        let runtime = self.runtimes.list[index].id.clone();
-        let at = clock::now();
-        match message {
-            RuntimeMessage::Hello(hello) => {
-                let refusal = self.runtimes.hello(
-                    self.realm.store().connection(),
-                    index,
-                    &hello,
-                )?;
-                let re = hello.id;
-                match refusal {
-                    Some(words) => {
-                        tell(Secrets::Fixed, &words);
-                        self.runtimes.send(index, |v, id| {
-                            ServerMessage::Refused(runtime::Refused {
-                                id,
-                                re,
-                                v,
-                                words,
-                            })
-                        });
-                    }
-                    None => {
-                        let tools = self.catalogue.0.clone();
-                        self.runtimes.send(index, |v, id| {
-                            ServerMessage::Welcome(runtime::Welcome {
-                                id,
-                                re,
-                                tools,
-                                v,
-                                windows: BTreeMap::new(),
-                            })
-                        });
-                        self.flush_one(index, true)?;
-                        self.send_providers()?;
-                    }
-                }
-            }
-            RuntimeMessage::Created(created) => {
-                if let Some((_, Pending::Create(conversation))) =
-                    self.runtimes.reply(&created.re)
-                {
-                    let db = self.realm.store().connection();
-                    let (adapter, version) =
-                        self.runtimes.versions(db, index)?;
-                    conversations::bound(
-                        db,
-                        conversation,
-                        &created.conversation,
-                        &adapter,
-                        &version,
-                    )?;
-                }
-                self.flush(false)?;
-            }
-            RuntimeMessage::Admitted(admitted) => {
-                if let Some((
-                    _,
-                    Pending::Submit(conversation, request),
-                )) = self.runtimes.reply(&admitted.re)
-                {
-                    let status = match admitted.status {
-                        AdmittedStatus::Queued => Status::Queued,
-                        AdmittedStatus::Placed => Status::Placed,
-                        AdmittedStatus::Done => Status::Done,
-                        AdmittedStatus::Unanswered => {
-                            Status::Unanswered
-                        }
-                    };
-                    let detail =
-                        admitted.detail.map(|d| d.to_string());
-                    let ended = inputs::admitted(
-                        self.realm.store().connection(),
-                        conversation,
-                        &request,
-                        &admitted.submission,
-                        status,
-                        admitted.reason.as_deref(),
-                        detail.as_deref(),
-                    )?;
-                    if ended {
-                        self.input_ended(conversation, &request)?;
-                    }
-                }
-                self.flush(false)?;
-            }
-            RuntimeMessage::Settled(settled) => {
-                let db = self.realm.store().connection();
-                let conversation = turns::conversation(
-                    db,
-                    &runtime,
-                    &settled.conversation,
-                )?;
-                let status = match settled.status {
-                    SettledStatus::Done => Status::Done,
-                    SettledStatus::Unanswered => Status::Unanswered,
-                };
-                let detail = settled.detail.map(|d| d.to_string());
-                if inputs::settled(
-                    db,
-                    conversation.id,
-                    &settled.request,
-                    status,
-                    settled.reason.as_deref(),
-                    detail.as_deref(),
-                )? {
-                    self.input_ended(
-                        conversation.id,
-                        &settled.request,
-                    )?;
-                }
-            }
-            RuntimeMessage::Kept(kept) => {
-                let db = self.realm.store().connection();
-                let conversation = turns::conversation(
-                    db,
-                    &runtime,
-                    &kept.conversation,
-                )?;
-                let new =
-                    items::keep(db, conversation.id, &kept.item)?;
-                if new {
-                    let loaded =
-                        self.live.contains_key(&conversation.id);
-                    let live = self.live(conversation.id)?;
-                    // A fold read now already holds the entry.
-                    if loaded {
-                        live.fold.entry(&kept.item)?;
-                        live.activity.kept(&kept.item);
-                    }
-                }
-                if new
-                    && !self
-                        .clients
-                        .watching(conversation.id)
-                        .is_empty()
-                {
-                    self.stream(conversation.id)?;
-                }
-            }
-            RuntimeMessage::Live(running) => {
-                let db = self.realm.store().connection();
-                let conversation = turns::conversation(
-                    db,
-                    &runtime,
-                    &running.conversation,
-                )?;
-                let secrets = self.credentials.secrets();
-                let live = self.live(conversation.id)?;
-                live.fold.live(
-                    running.running,
-                    running.pending,
-                    running.partial.as_ref(),
-                    &secrets,
-                );
-                live.activity.live(
-                    running.running,
-                    running.pending,
-                    running.partial.as_ref(),
-                );
-                self.stream(conversation.id)?;
-                self.publish()?;
-            }
-            RuntimeMessage::Cancelled(cancelled) => {
-                if let Some((_, Pending::Cancel(conversation))) =
-                    self.runtimes.reply(&cancelled.re)
-                {
-                    conversations::set_cancelling(
-                        self.realm.store().connection(),
-                        conversation,
-                        false,
-                    )?;
-                }
-                self.flush(false)?;
-            }
-            RuntimeMessage::Configured(configured) => {
-                if let Some((
-                    _,
-                    Pending::Configure(conversation, told),
-                )) = self.runtimes.reply(&configured.re)
-                {
-                    conversations::told_tools(
-                        self.realm.store().connection(),
-                        conversation,
-                        &told,
-                    )?;
-                }
-                self.flush(false)?;
-            }
-            RuntimeMessage::Prompt(asked) => {
-                let db = self.realm.store().connection();
-                let conversation = turns::conversation(
-                    db,
-                    &runtime,
-                    &asked.conversation,
-                )?;
-                let re = asked.id.clone();
-                if let Some((key, words)) = self.before_prompt(
-                    &conversation,
-                    asked.input.as_deref(),
-                )? {
-                    self.runtimes.send(index, |v, id| {
-                        ServerMessage::Waiting(runtime::Waiting {
-                            id,
-                            key,
-                            re,
-                            v,
-                            words,
-                        })
-                    });
-                    return Ok(());
-                }
-                let sections = self.prompt(&conversation)?;
-                self.runtimes.send(index, |v, id| {
-                    ServerMessage::Sections(runtime::Sections {
-                        id,
-                        re,
-                        sections,
-                        v,
-                    })
-                });
-            }
-            RuntimeMessage::Attempt(asked) => {
-                let admission = turns::allow(
-                    self.realm.store().connection(),
-                    &self.env,
-                    &self.providers,
-                    &runtime,
-                    &asked,
-                    at,
-                )?;
-                let re = asked.id;
-                match admission {
-                    Admission::Allowed(selection) => {
-                        let provider =
-                            selection.model.provider.clone();
-                        self.leases
-                            .grant(index, &asked.key, &provider);
-                        let db = self.realm.store().connection();
-                        let conversation = turns::conversation(
-                            db,
-                            &runtime,
-                            &asked.conversation,
-                        )?;
-                        self.live(conversation.id)?
-                            .activity
-                            .attempted();
-                        self.publish()?;
-                        let serving = self
-                            .env
-                            .settings
-                            .provider()
-                            .unwrap_or_default()
-                            .to_owned();
-                        let credential = (provider != FAUX)
-                            .then(|| {
-                                self.credentials
-                                    .model(&provider, &serving)
-                            })
-                            .flatten()
-                            .map(crate::credentials::pack)
-                            .transpose()?;
-                        self.runtimes.send(index, |v, id| {
-                            ServerMessage::Allowance(
-                                runtime::Allowance {
-                                    credential,
-                                    id,
-                                    re,
-                                    selection,
-                                    v,
-                                },
-                            )
-                        });
-                    }
-                    Admission::Stopped(words) => {
-                        let notice = Some(
-                            crate::talk::marks::Mark::Notice {
-                                text: words.clone(),
-                                at,
-                            }
-                            .wire(),
-                        );
-                        self.runtimes.send(index, |v, id| {
-                            ServerMessage::Stopped(runtime::Stopped {
-                                id,
-                                notice,
-                                re,
-                                v,
-                                words,
-                            })
-                        });
-                    }
-                }
-            }
-            RuntimeMessage::Usage(report) => {
-                self.leases.finish(index, &report.key);
-                let charged = turns::charge(
-                    self.realm.store().connection(),
-                    &runtime,
-                    &report.key,
-                    &report.usage,
-                    at,
-                )?;
-                if let Some(conversation) = charged {
-                    self.stream_usage(conversation)?;
-                    self.publish()?;
-                }
-                let re = report.id;
-                self.runtimes.send(index, |v, id| {
-                    ServerMessage::Charged(runtime::Charged {
-                        id,
-                        re,
-                        v,
-                    })
-                });
-            }
-            RuntimeMessage::Allow(asked) => {
-                self.allow_call(index, asked).await?;
-            }
-            RuntimeMessage::Operation(asked) => {
-                self.operation(index, asked).await?;
-            }
-            RuntimeMessage::Yield(answer) => {
-                let db = self.realm.store().connection();
-                let conversation = turns::conversation(
-                    db,
-                    &runtime,
-                    &answer.conversation,
-                )?;
-                let ruled = self.change(Actor::Realm, |cx, _| {
-                    verdicts::rule(cx, &conversation, &answer)
-                })?;
-                let re = answer.id;
-                self.runtimes.send(index, |v, id| {
-                    ServerMessage::Verdict(runtime::Verdict {
-                        compact: ruled.compact.then_some(true),
-                        id,
-                        notice: ruled.notice,
-                        re,
-                        v,
-                        words: ruled.words,
-                    })
-                });
-            }
-            RuntimeMessage::Scrub(asked) => {
-                let mut value = asked.value;
-                self.credentials.scrub(&mut value);
-                let re = asked.id;
-                self.runtimes.send(index, |v, id| {
-                    ServerMessage::Scrubbed(runtime::Scrubbed {
-                        id,
-                        re,
-                        v,
-                        value,
-                    })
-                });
-            }
-            RuntimeMessage::Error(error) => {
-                tell(
-                    Secrets::Of(&self.credentials),
-                    format!("{runtime}: {}", error.message),
-                );
-            }
-            RuntimeMessage::CredentialRequest(request) => {
-                self.leases.request(index, request);
-            }
-            RuntimeMessage::ProviderResult(result) => {
-                self.provider_result(Some(index), result)?;
-            }
-            RuntimeMessage::ProviderEvent(event) => {
-                self.provider_event(index, event)?;
-            }
-            RuntimeMessage::Page(_) | RuntimeMessage::Statuses(_) => {
-            }
-        }
-        Ok(())
-    }
-}
-
-/// The id of `message` when the runtime waits for its answer.
-fn awaited(message: &RuntimeMessage) -> Option<String> {
-    let id = match message {
-        RuntimeMessage::Prompt(asked) => &asked.id,
-        RuntimeMessage::Attempt(asked) => &asked.id,
-        RuntimeMessage::Usage(report) => &report.id,
-        RuntimeMessage::Allow(asked) => &asked.id,
-        RuntimeMessage::Operation(asked) => &asked.id,
-        RuntimeMessage::Yield(answer) => &answer.id,
-        RuntimeMessage::Scrub(asked) => &asked.id,
-        RuntimeMessage::CredentialRequest(request) => &request.id,
-        _ => return None,
-    };
-    Some(id.clone())
 }
