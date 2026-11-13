@@ -19,6 +19,9 @@
         "@earendil-works/pi-coding-agent": "1.5.2",
         "@opentelemetry/api": "1.10.0"
     },
+    "devDependencies": {
+        "@opentelemetry/sdk-trace-node": "2.12.1"
+    },
     "peerDependencies": {
         "@earendil-works/chord": "1.5.2",
         "@earendil-works/pi-ai": "1.5.2",

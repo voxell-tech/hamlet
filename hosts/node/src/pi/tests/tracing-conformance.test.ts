@@ -1,4 +1,5 @@
 // This file was changed for Hamlet. See NOTICE in this package.
+import { describe, test } from "node:test";
 import type { SpanAttributes } from "@earendil-works/pi-telemetry";
 import {
     createTelemetryAdapterConformance,
@@ -11,8 +12,7 @@ import {
     type ReadableSpan,
     SimpleSpanProcessor,
 } from "@opentelemetry/sdk-trace-node";
-import { describe, test } from "vitest";
-import { createPiTelemetry } from "../src/tracing.js";
+import { createPiTelemetry } from "../tracing.ts";
 
 /** The attributes the adapter adds on top of what Pi asked for. */
 const ADAPTER_ATTRIBUTES = new Set(["hamlet.actor.id", "error.type"]);
