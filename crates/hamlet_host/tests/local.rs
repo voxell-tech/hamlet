@@ -323,14 +323,22 @@ async fn a_new_alarm_replaces_the_armed_timer() {
 
     // Each alarm is earlier than the last, so each is stored and
     // armed.
+    // Read before the first alarm is armed, the count is at most one
+    // lower, which only loosens the check.
     schedule(600_000).await;
-    tokio::time::sleep(Duration::from_millis(200)).await;
     let before = alive();
     for n in 1..=20 {
         schedule(600_000 - n * 1000).await;
     }
-    tokio::time::sleep(Duration::from_millis(200)).await;
-    let after = alive();
+    // The stores' own tasks end soon after; the timers do not.
+    let deadline =
+        tokio::time::Instant::now() + Duration::from_secs(5);
+    let mut after = alive();
+    while after > before + 2 && tokio::time::Instant::now() < deadline
+    {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        after = alive();
+    }
     assert!(
         after <= before + 2,
         "{before} tasks alive after one alarm, {after} after 21"
