@@ -18,7 +18,7 @@ use hamlet_actor_core::{
     ColumnValue, ShutdownKind,
 };
 use hamlet_actor_error::ActorError;
-use hamlet_host::{Address, Cause, Host, HostOptions};
+use hamlet_host::{Address, Cause, Host, HostEvent, HostOptions};
 use hamlet_testing::Scratch;
 use parking_lot::Mutex;
 use rusqlite::{Connection, OpenFlags};
@@ -1699,5 +1699,132 @@ async fn hosts_of_different_names_share_a_folder() {
     assert_eq!(call(&main, &a, "increment").await, 1);
     assert_eq!(call(&node, &x, "increment").await, 1);
     main.shutdown().await.unwrap();
+    node.shutdown().await.unwrap();
+}
+
+/// E1. One actor file that boot cannot read does not fail the boot.
+/// Boot logs it once, raises an event that names its actor, and
+/// boots the rest: a counter whose one-shot came due while the host
+/// was down starts and runs it.
+#[tokio::test(flavor = "multi_thread")]
+async fn boot_goes_past_a_file_it_cannot_read() {
+    use tracing_subscriber::util::SubscriberInitExt;
+
+    let dir = Scratch::new("host-boot-unreadable");
+    let host = Host::open(&dir, factories()).unwrap();
+    let id = host.get_or_start("counter", "a").await.unwrap();
+    call_with(&host, &id, "schedule", 100u64.to_le_bytes().to_vec())
+        .await;
+    host.shutdown().await.unwrap();
+    drop(host);
+    std::fs::write(
+        dir.join("actors/counter/bad.sqlite"),
+        b"not a database, only bytes".repeat(64),
+    )
+    .unwrap();
+    tokio::time::sleep(Duration::from_millis(200)).await;
+
+    let host = Host::open(&dir, factories()).unwrap();
+    let mut events = host.events();
+    let logs = Logs::default();
+    let logging = tracing_subscriber::fmt()
+        .with_max_level(tracing_subscriber::filter::LevelFilter::WARN)
+        .with_ansi(false)
+        .with_writer({
+            let logs = logs.clone();
+            move || logs.clone()
+        })
+        .finish()
+        .set_default();
+    let began = host.boot().await;
+    drop(logging);
+    assert_eq!(began.unwrap(), std::slice::from_ref(&id));
+    let logged = String::from_utf8(logs.0.lock().clone()).unwrap();
+    assert_eq!(logged.matches("bad.sqlite").count(), 1, "{logged}");
+    let event = events.try_recv().expect("no event for the file");
+    assert!(
+        matches!(
+            &event,
+            HostEvent::UnreadableFile { actor, .. }
+                if *actor == Address::new("counter", "bad")
+        ),
+        "{event:?}"
+    );
+    assert!(events.try_recv().is_err(), "a second event");
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(call(&host, &id, "get").await, 1);
+    host.shutdown().await.unwrap();
+}
+
+/// A start that begins while boot reads the same actor's file waits
+/// for the read, and never fails on the file's lock. Each round
+/// boots a host over `KEYS` counters that stopped cleanly, so boot
+/// reads every file and starts none, and starts every counter while
+/// boot runs.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_start_during_boots_read_of_its_file_waits_for_the_read() {
+    const KEYS: usize = 8;
+    const ROUNDS: usize = 100;
+    let dir = Scratch::new("host-boot-read-race");
+    let keys: Vec<String> =
+        (0..KEYS).map(|n| format!("k{n}")).collect();
+    let host = Host::open(&dir, factories()).unwrap();
+    for key in &keys {
+        host.get_or_start("counter", key).await.unwrap();
+    }
+    host.shutdown().await.unwrap();
+    drop(host);
+
+    for round in 0..ROUNDS {
+        let host = Host::open(&dir, factories()).unwrap();
+        let boot = tokio::spawn({
+            let host = host.clone();
+            async move { host.boot().await }
+        });
+        let starts: Vec<_> = keys
+            .iter()
+            .map(|key| {
+                let host = host.clone();
+                let key = key.clone();
+                tokio::spawn(async move {
+                    host.get_or_start("counter", &key).await
+                })
+            })
+            .collect();
+        for start in starts {
+            if let Err(error) = start.await.unwrap() {
+                panic!("round {round}: a start failed: {error:#}");
+            }
+        }
+        assert!(boot.await.unwrap().unwrap().is_empty());
+        host.shutdown().await.unwrap();
+    }
+}
+
+/// Hosts of different names cannot both hold one kind: a host given a
+/// kind that another host holds fails to open, and names that kind's
+/// lock. The kind is free once its host has shut down.
+#[tokio::test(flavor = "multi_thread")]
+async fn hosts_of_different_names_cannot_share_a_kind() {
+    let dir = Scratch::new("host-shared-kind");
+    let named = |name: &str| HostOptions {
+        name: name.to_owned(),
+        ..HostOptions::default()
+    };
+    let main =
+        Host::open_with(&dir, factories(), named("main")).unwrap();
+    let Err(error) =
+        Host::open_with(&dir, factories(), named("node"))
+    else {
+        panic!("a second host of the kind counter opened the folder");
+    };
+    let lock = dir.join("actors").join("counter").join(".lock");
+    assert!(
+        error.to_string().contains(&lock.display().to_string()),
+        "{error:#}"
+    );
+    main.shutdown().await.unwrap();
+    let node =
+        Host::open_with(&dir, factories(), named("node")).unwrap();
     node.shutdown().await.unwrap();
 }

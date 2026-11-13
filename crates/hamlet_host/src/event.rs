@@ -24,4 +24,7 @@ pub enum HostEvent {
         /// came back.
         error: Option<String>,
     },
+    /// Boot could not read the file of the actor at `actor`, and
+    /// booted the rest without it. `error` says why.
+    UnreadableFile { actor: Address, error: String },
 }

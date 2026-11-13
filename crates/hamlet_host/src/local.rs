@@ -90,8 +90,11 @@ const ACTOR_TABLE: &str = "CREATE TABLE IF NOT EXISTS _hamlet_actor \
 ///
 /// | From | Event | To |
 /// |---|---|---|
-/// | absent | `get_or_start` or a call, or boot for a run a kill cut off or a deadline that has come, the host not shut | `Starting` |
-/// | absent | boot finds a deadline to come in its file, the host not shut | `Stopped` |
+/// | absent | `get_or_start` or a call, the host not shut | `Starting` |
+/// | absent | boot reads its file, the host not shut | `Reading` |
+/// | `Reading` | boot found a run a kill cut off, or a deadline that has come | `Starting` |
+/// | `Reading` | boot found a deadline to come | `Stopped` |
+/// | `Reading` | boot found neither, or could not read the file | absent |
 /// | `Stopped` | `get_or_start` or a call, the host not shut | `Starting`, its timer aborted |
 /// | `Stopped` | its timer fires with the deadline the state holds | `Starting`, from the file it has |
 /// | `Stopped` | `Host::shutdown`, or the last `Host` dropped | absent, its timer aborted |
@@ -108,13 +111,18 @@ const ACTOR_TABLE: &str = "CREATE TABLE IF NOT EXISTS _hamlet_actor \
 /// | any | a request from a generation the state does not hold | unchanged |
 ///
 /// Callers wait without a transition of their own. A start, a call's
-/// included, waits for a `Starting` or `Stopping` actor and then
-/// starts it, and fails at once for a `Destroying` one. A start that
-/// waited for a start that failed fails with it, rather than start
-/// again. `Host::stop` waits for a `Starting` actor and then stops
-/// it, waits for a stop under way, and leaves a `Stopped` actor as it
-/// is. `Host::shutdown` stops each actor as `Host::stop` does.
+/// included, waits for a `Reading`, `Starting` or `Stopping` actor
+/// and then starts it, and fails at once for a `Destroying` one. A
+/// start that waited for a start that failed fails with it, rather
+/// than start again. `Host::stop` waits for a `Reading` or `Starting`
+/// actor and then stops it, waits for a stop under way, and leaves a
+/// `Stopped` actor as it is. `Host::shutdown` stops each actor as
+/// `Host::stop` does.
 enum Life {
+    /// Boot reads its file, to learn whether to start it.
+    Reading {
+        done: Waiters,
+    },
     /// Stopped, with the deadline its last stop left. `timer` starts
     /// it then, if the state still holds that deadline.
     Stopped {
@@ -142,9 +150,9 @@ enum Life {
     },
 }
 
-/// What the waiters of a `Starting`, `Stopping` or `Destroying` state
-/// await: the channel closes when the work that owns the state ends,
-/// and holds how a start failed.
+/// What the waiters of a `Reading`, `Starting`, `Stopping` or
+/// `Destroying` state await: the channel closes when the work that
+/// owns the state ends, and holds how a start failed.
 type Waiters = watch::Receiver<Option<StartFailed>>;
 
 /// How a start failed, for each of its waiters to return.
@@ -175,7 +183,9 @@ impl Life {
     /// its start until its stop closed the file.
     fn loaded(&self) -> Option<&Arc<Generation>> {
         match self {
-            Self::Stopped { .. } | Self::Starting { .. } => None,
+            Self::Reading { .. }
+            | Self::Stopped { .. }
+            | Self::Starting { .. } => None,
             Self::Running(generation)
             | Self::Stopping { generation, .. }
             | Self::Destroying { generation, .. } => Some(generation),
@@ -197,7 +207,8 @@ impl Life {
     fn waiters(&self) -> Option<&Waiters> {
         match self {
             Self::Stopped { .. } | Self::Running(_) => None,
-            Self::Starting { ready: waiters, .. }
+            Self::Reading { done: waiters }
+            | Self::Starting { ready: waiters, .. }
             | Self::Stopping { done: waiters, .. }
             | Self::Destroying { done: waiters, .. } => Some(waiters),
         }
@@ -219,7 +230,7 @@ struct Generation {
     alarm: Arc<Mutex<Option<i64>>>,
 }
 
-/// The work that owns an actor's `Starting`, `Stopping` or
+/// The work that owns an actor's `Reading`, `Starting`, `Stopping` or
 /// `Destroying` state. When it is dropped, however its work ended, it
 /// removes the state from the map if the state is still its own, and
 /// then wakes the state's waiters.
@@ -365,11 +376,13 @@ impl Stop {
 
 struct HostInner {
     dir: PathBuf,
-    /// Held while the host may open actor files: it keeps a second
-    /// host out of the folder. [`Host::shutdown`] lets it go once
-    /// every file is closed, since a task of the host may still hold
-    /// the rest for a moment. Otherwise it goes with the host.
-    lock: Mutex<Option<FolderLock>>,
+    /// Held while the host may open actor files: its name's lock,
+    /// which keeps a second host of that name out of the folder, and
+    /// each of its kinds' locks, which keep another host from
+    /// holding that kind. [`Host::shutdown`] lets them go once every
+    /// file is closed, since a task of the host may still hold the
+    /// rest for a moment. Otherwise they go with the host.
+    locks: Mutex<Vec<FolderLock>>,
     directory: Directory,
     actors: Mutex<Actors>,
     session: watch::Sender<u64>,
@@ -379,10 +392,31 @@ struct HostInner {
     starts_end: watch::Sender<Option<tokio::time::Instant>>,
 }
 
-/// The lock of the host's `<name>.lock`. Its drop unlocks the file
-/// before it closes it: a child process forked meanwhile shares the
+/// A lock the host holds on one file: `<name>.lock` in the folder, or
+/// `.lock` in a kind's folder. Its drop unlocks the file before it
+/// closes it: a child process forked meanwhile shares the
 /// open file, and would keep the lock until it runs its program.
 struct FolderLock(File);
+
+impl FolderLock {
+    /// Locks the file at `path`, made if it is missing. Fails when
+    /// another host holds it.
+    fn take(path: &Path) -> Result<Self> {
+        let file = File::create(path)
+            .with_context(|| format!("open {}", path.display()))?;
+        match file.try_lock() {
+            Ok(()) => Ok(Self(file)),
+            Err(TryLockError::WouldBlock) => {
+                bail!(
+                    "another host holds the lock {}",
+                    path.display()
+                )
+            }
+            Err(TryLockError::Error(error)) => Err(error)
+                .with_context(|| format!("lock {}", path.display())),
+        }
+    }
+}
 
 impl Drop for FolderLock {
     fn drop(&mut self) {
@@ -400,8 +434,10 @@ pub struct HostOptions {
     /// The host's name, a plain file name: `host` by default. The
     /// host locks the folder with `<name>.lock`, so hosts of
     /// different names open one folder at once, and a second host of
-    /// one name is refused. Hosts that share a folder must run kinds
-    /// of their own.
+    /// one name is refused. Hosts that share a folder run kinds of
+    /// their own: each host locks `actors/<kind>/.lock` for each of
+    /// its kinds, and a host given a kind another host holds is
+    /// refused.
     pub name: String,
     /// What the host gives its actors, by type: none by default. See
     /// [`HostOptions::with_value`].
@@ -568,7 +604,8 @@ impl HostInner {
                 };
                 None
             }
-            Life::Stopped { .. }
+            Life::Reading { .. }
+            | Life::Stopped { .. }
             | Life::Stopping { .. }
             | Life::Destroying { .. } => None,
         }
@@ -632,7 +669,8 @@ impl Host {
     /// Takes the folder's lock and opens it, with each kind of
     /// `factories` running in this host, with the default
     /// [`HostOptions`]. Fails when another host of the same name
-    /// holds the lock.
+    /// holds the folder's lock, or another host holds one of the
+    /// kinds.
     pub fn open(
         dir: &Path,
         factories: HashMap<String, ActorFactory>,
@@ -648,26 +686,23 @@ impl Host {
     ) -> Result<Self> {
         plain(&options.name, "host name")?;
         std::fs::create_dir_all(dir.join("actors"))?;
-        let lock_path = dir.join(format!("{}.lock", options.name));
-        let lock = File::create(&lock_path).with_context(|| {
-            format!("open {}", lock_path.display())
-        })?;
-        match lock.try_lock() {
-            Ok(()) => {}
-            Err(TryLockError::WouldBlock) => bail!(
-                "another host holds the lock {}",
-                lock_path.display()
-            ),
-            Err(TryLockError::Error(error)) => {
-                return Err(error).with_context(|| {
-                    format!("lock {}", lock_path.display())
-                });
-            }
+        let directory = Directory::local(factories);
+        let mut locks = vec![FolderLock::take(
+            &dir.join(format!("{}.lock", options.name)),
+        )?];
+        for kind in directory.local_kinds() {
+            let folder = dir.join("actors").join(kind);
+            std::fs::create_dir_all(&folder).with_context(|| {
+                format!("make {}", folder.display())
+            })?;
+            // A key never starts with a dot, so no actor's file is
+            // named so.
+            locks.push(FolderLock::take(&folder.join(".lock"))?);
         }
         Ok(Self(Arc::new(Handle(Arc::new(HostInner {
             dir: dir.to_owned(),
-            lock: Mutex::new(Some(FolderLock(lock))),
-            directory: Directory::local(factories),
+            locks: Mutex::new(locks),
+            directory,
             actors: Mutex::new(Actors {
                 lives: HashMap::new(),
                 shut: false,
@@ -691,26 +726,60 @@ impl Host {
     /// timer for each other deadline, and returns the actors whose
     /// start it began, without waiting for the starts: a call to one
     /// of them waits for its start. A start that fails is logged and
-    /// left for the next boot. Fails at once in a host that has shut
-    /// down, which may no longer hold the folder: it reads no file.
+    /// left for the next boot, and a file that cannot be read is
+    /// reported and passed over. A start of an actor whose file boot
+    /// reads waits for the read. Fails at once in a host that has
+    /// shut down, which may no longer hold the folder: it reads no
+    /// file.
     pub async fn boot(&self) -> Result<Vec<String>> {
         let host = self.inner();
         if host.actors.lock().shut {
             return Err(host_shut_down());
         }
         let mut began = Vec::new();
-        for stored in self.stored_actors()? {
-            let StoredActor {
-                actor_id,
-                wake_at,
-                cut_off,
-            } = stored;
-            let (owned, generation) = {
+        for (actor_id, actor, path) in self.actor_files()? {
+            // While boot reads the file, a start of the actor waits.
+            let reading = {
                 let mut actors = host.actors.lock();
-                // It started since its file was read.
+                if actors.shut {
+                    return Err(host_shut_down());
+                }
+                // A running actor holds its file, and a stopped one
+                // has its timer.
                 if actors.lives.contains_key(&actor_id) {
                     continue;
                 }
+                let reading = Owned::new(host, &actor_id);
+                actors.lives.insert(
+                    actor_id.clone(),
+                    Life::Reading {
+                        done: reading.waiters.clone(),
+                    },
+                );
+                reading
+            };
+            let stored = match stored_actor(&path) {
+                Ok(Some(stored)) => stored,
+                Ok(None) => continue,
+                Err(error) => {
+                    let error = format!("{error:#}");
+                    tracing::warn!(
+                        path = %path.display(),
+                        error,
+                        "boot could not read an actor's file and goes \
+                         on without it"
+                    );
+                    let _ =
+                        host.events.send(HostEvent::UnreadableFile {
+                            actor,
+                            error,
+                        });
+                    continue;
+                }
+            };
+            let StoredActor { wake_at, cut_off } = stored;
+            let (owned, generation) = {
+                let mut actors = host.actors.lock();
                 match wake_at {
                     // Whatever deadline an earlier stop left, a run a
                     // kill cut off starts again, and its core pushes
@@ -734,6 +803,7 @@ impl Host {
                     actors.begin_start(host, &actor_id)?;
                 (owned, generation)
             };
+            drop(reading);
             began.push(actor_id.clone());
             tokio::spawn(async move {
                 let started = if cut_off {
@@ -878,23 +948,24 @@ impl Host {
             {
                 return tokio::spawn(stop.run()).await?;
             }
-            let (mut waiters, starting) =
+            let (mut waiters, ask_again) =
                 match host.actors.lock().lives.get(actor_id) {
                     None | Some(Life::Stopped { .. }) => {
                         return Ok(());
                     }
                     // It started since: ask again.
                     Some(Life::Running(_)) => continue,
-                    Some(Life::Starting { ready, .. }) => {
-                        (ready.clone(), true)
-                    }
+                    Some(
+                        Life::Reading { done: waiters }
+                        | Life::Starting { ready: waiters, .. },
+                    ) => (waiters.clone(), true),
                     Some(
                         Life::Stopping { done, .. }
                         | Life::Destroying { done, .. },
                     ) => (done.clone(), false),
                 };
             let _ = waiters.changed().await;
-            if !starting {
+            if !ask_again {
                 return Ok(());
             }
         }
@@ -943,7 +1014,7 @@ impl Host {
         }
         // The host opens no file again. A file only a stop that
         // panicked still holds keeps its own lock.
-        drop(self.inner().lock.lock().take());
+        drop(std::mem::take(&mut *self.inner().locks.lock()));
         if !failed.is_empty() {
             bail!("the host failed to stop {}", failed.join("; "));
         }
@@ -988,7 +1059,8 @@ impl Host {
                             )));
                     }
                     Some(
-                        Life::Starting { ready: waiters, .. }
+                        Life::Reading { done: waiters }
+                        | Life::Starting { ready: waiters, .. }
                         | Life::Stopping { done: waiters, .. },
                     ) => Next::Wait(waiters.clone()),
                     Some(Life::Stopped { .. }) | None => {
@@ -1025,15 +1097,12 @@ impl Host {
         }
     }
 
-    /// The row of each file of this host's kinds that holds a
-    /// deadline or a run a kill cut off, but for the actors the host
-    /// holds: a running one holds its file locked, and a stopped one
-    /// has its timer. Another kind's folder is never read, since
-    /// another host may run it. The files are closed again; starting
-    /// an actor opens its file anew.
-    fn stored_actors(&self) -> Result<Vec<StoredActor>> {
+    /// The id, the address and the path of each actor file of this
+    /// host's kinds. Another kind's folder is never read, since
+    /// another host may run it.
+    fn actor_files(&self) -> Result<Vec<(String, Address, PathBuf)>> {
         let host = self.inner();
-        let mut stored = Vec::new();
+        let mut found = Vec::new();
         for kind in host.directory.local_kinds() {
             let folder = host.dir.join("actors").join(kind);
             let files = match std::fs::read_dir(&folder) {
@@ -1060,38 +1129,20 @@ impl Host {
                             .is_some_and(|ext| ext == "sqlite")
                     });
                 // Not an actor's file.
-                let Some(Ok(actor_id)) =
-                    key.map(|key| actor_id(kind, key))
+                let Some((key, Ok(actor_id))) =
+                    key.map(|key| (key, actor_id(kind, key)))
                 else {
                     continue;
                 };
-                let held = || {
-                    host.actors.lock().lives.contains_key(&actor_id)
-                };
-                if held() {
-                    continue;
-                }
-                match stored_actor(&path, &actor_id) {
-                    Ok(Some(actor)) => stored.push(actor),
-                    Ok(None) => {}
-                    // A start that began since holds it.
-                    Err(_) if held() => {}
-                    Err(error) => {
-                        return Err(error.context(format!(
-                            "read {}",
-                            path.display()
-                        )));
-                    }
-                }
+                found.push((actor_id, Address::new(kind, key), path));
             }
         }
-        Ok(stored)
+        Ok(found)
     }
 }
 
 /// The part of one actor file's `_hamlet_actor` row that boot reads.
 struct StoredActor {
-    actor_id: String,
     /// The deadline the actor's last clean stop left.
     wake_at: Option<i64>,
     /// The actor was running when the host died: no clean stop
@@ -1099,12 +1150,10 @@ struct StoredActor {
     cut_off: bool,
 }
 
-/// The `_hamlet_actor` row of the file of the actor `actor_id`, if it
-/// holds a deadline or a run a kill cut off.
-fn stored_actor(
-    path: &Path,
-    actor_id: &str,
-) -> Result<Option<StoredActor>> {
+/// The `_hamlet_actor` row of the actor file at `path`, if it holds a
+/// deadline or a run a kill cut off. The file is closed again;
+/// starting the actor opens it anew.
+fn stored_actor(path: &Path) -> Result<Option<StoredActor>> {
     let conn = plain_sqlite::open(path, false)?;
     if !has_table(&conn, "_hamlet_actor")? {
         return Ok(None);
@@ -1118,11 +1167,7 @@ fn stored_actor(
         .optional()?;
     Ok(stored
         .filter(|(wake_at, cut_off)| wake_at.is_some() || *cut_off)
-        .map(|(wake_at, cut_off)| StoredActor {
-            actor_id: actor_id.to_owned(),
-            wake_at,
-            cut_off,
-        }))
+        .map(|(wake_at, cut_off)| StoredActor { wake_at, cut_off }))
 }
 
 /// Whether the file has the table `name`. A table the core makes

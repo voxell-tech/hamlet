@@ -582,8 +582,13 @@ fn run_aborting_child(home: &Path, step: &str) -> Ended {
         }
         std::thread::sleep(Duration::from_millis(10));
     };
-    let known =
-        ["armed", "timer ", "set-aside events ", "survived", "rearmed "];
+    let known = [
+        "armed",
+        "timer ",
+        "set-aside events ",
+        "survived",
+        "rearmed ",
+    ];
     let lines = out
         .join()
         .unwrap()
@@ -616,7 +621,11 @@ fn a_one_shot_that_kills_its_host_is_set_aside_at_the_fifth_boot() {
     assert!(booted.status.success(), "boot 5: {booted:?}");
     assert_eq!(
         booted.lines,
-        ["timer abort 5 -", "set-aside events match: true", "survived"]
+        [
+            "timer abort 5 -",
+            "set-aside events match: true",
+            "survived"
+        ]
     );
     assert_eq!(
         stored(&home, "a"),
