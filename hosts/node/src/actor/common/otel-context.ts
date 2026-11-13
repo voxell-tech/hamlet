@@ -9,6 +9,7 @@ import {
     trace,
 } from "@opentelemetry/api";
 import type { ActorInvocationSpanContext } from "./actor-telemetry-context.ts";
+import { omitUndefined } from "./utils.ts";
 
 /** W3C headers derived from the active JavaScript OTel context. */
 export interface ActiveTraceHeaders {
@@ -84,7 +85,7 @@ function invocationSpanContext(
 ): SpanContext | undefined {
     if (!invocation) return undefined;
     try {
-        const spanContext: SpanContext = {
+        const spanContext: SpanContext = omitUndefined({
             traceId: invocation.traceId,
             spanId: invocation.spanId,
             traceFlags: invocation.traceFlags,
@@ -92,7 +93,7 @@ function invocationSpanContext(
                 ? createTraceState(invocation.tracestate)
                 : undefined,
             isRemote: false,
-        };
+        });
         return isSpanContextValid(spanContext) ? spanContext : undefined;
     } catch {
         return undefined;

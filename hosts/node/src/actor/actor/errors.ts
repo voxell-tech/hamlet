@@ -34,10 +34,10 @@ export interface ActorErrorLike {
     code: string;
     message: string;
     metadata?: unknown;
-    rayId?: string;
+    rayId?: string | undefined;
     public?: boolean;
     statusCode?: number;
-    actor?: ActorSpecifier;
+    actor?: ActorSpecifier | undefined;
 }
 
 export interface BridgeActorErrorPayload extends ActorErrorLike {}
@@ -145,9 +145,9 @@ export class ActorError extends Error {
 
     public public: boolean;
     public metadata?: unknown;
-    public readonly rayId?: string;
+    public readonly rayId?: string | undefined;
     public statusCode: number;
-    public actor?: ActorSpecifier;
+    public actor?: ActorSpecifier | undefined;
     public readonly group: string;
     public readonly code: string;
 

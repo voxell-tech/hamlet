@@ -25,7 +25,7 @@ interface NativeHttpRequestInit {
     method: string;
     uri: string;
     headers?: Record<string, string>;
-    body?: RuntimeBytes;
+    body?: RuntimeBytes | undefined;
     bodyStream?: NativeHttpRequestBodyStream;
     signal?: AbortSignal;
     abortController?: AbortController;

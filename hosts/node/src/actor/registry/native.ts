@@ -67,7 +67,11 @@ import {
     decodeWorkflowHistoryTransport,
     type WorkflowHistoryBytes,
 } from "../common/inspector-transport.ts";
-import { deconstructError, stringifyError } from "../common/utils.ts";
+import {
+    deconstructError,
+    omitUndefined,
+    stringifyError,
+} from "../common/utils.ts";
 import type {
     SocketCloseEvent,
     SocketEvent,
@@ -335,15 +339,15 @@ type NativePersistActorState = {
     // Set when a coalesced save and onStateChange flush is pending for the
     // current event loop tick.
     saveScheduled?: boolean;
-    pendingSaveHandle?: ReturnType<typeof setImmediate>;
-    activeStateTransactionOwner?: symbol;
+    pendingSaveHandle?: ReturnType<typeof setImmediate> | undefined;
+    activeStateTransactionOwner?: symbol | undefined;
     pendingStateTransactionOwners?: Set<symbol>;
     stateTransactionTail?: Promise<void>;
     stateTransactionSaveDeferred?: boolean;
 };
 type NativeDestroyGate = {
-    destroyCompletion?: Promise<void>;
-    resolveDestroy?: () => void;
+    destroyCompletion?: Promise<void> | undefined;
+    resolveDestroy?: (() => void) | undefined;
 };
 type NativeDatabaseClientState = {
     client: unknown;
@@ -354,8 +358,8 @@ type NativeActorAbort = {
 };
 
 type NativeActorRuntimeState = {
-    sql?: ReturnType<typeof wrapJsNativeDatabase>;
-    databaseClient?: NativeDatabaseClientState;
+    sql?: ReturnType<typeof wrapJsNativeDatabase> | undefined;
+    databaseClient?: NativeDatabaseClientState | undefined;
     varsInitialized?: boolean;
     vars?: unknown;
     destroyGate?: NativeDestroyGate;
@@ -1374,9 +1378,9 @@ class NativeConnAdapter {
     #runtime: CoreRuntime;
     #conn: ConnHandle;
     #schemas: NativeValidationConfig;
-    #ctx?: ActorContextHandle;
-    #queueHibernationRemoval?: (connId: string) => void;
-    #assertCanMutateState?: () => void;
+    #ctx?: ActorContextHandle | undefined;
+    #queueHibernationRemoval?: ((connId: string) => void) | undefined;
+    #assertCanMutateState?: (() => void) | undefined;
     #stateProxy?: unknown;
     #stateProxyTarget?: unknown;
 
@@ -1779,10 +1783,10 @@ class NativeKvAdapter {
                         options?.keyType,
                     ),
                 ),
-                {
+                omitUndefined({
                     reverse: options?.reverse,
                     limit: options?.limit,
-                },
+                }),
             ),
         );
         return entries.map((entry) => [
@@ -1829,10 +1833,10 @@ class NativeKvAdapter {
                         options?.keyType,
                     ),
                 ),
-                {
+                omitUndefined({
                     reverse: options?.reverse,
                     limit: options?.limit,
-                },
+                }),
             ),
         );
         return entries.map((entry) => [
@@ -1961,11 +1965,11 @@ class NativeQueueAdapter {
     }
 
     async nextBatch(options?: {
-        names?: readonly string[];
-        count?: number;
-        timeout?: number;
-        signal?: AbortSignal;
-        completable?: boolean;
+        names?: readonly string[] | undefined;
+        count?: number | undefined;
+        timeout?: number | undefined;
+        signal?: AbortSignal | undefined;
+        completable?: boolean | undefined;
     }) {
         const completable = options?.completable === true;
         if (this.#pendingCompletableMessageIds.size > 0) {
@@ -1989,12 +1993,12 @@ class NativeQueueAdapter {
             const messages = await callNative(() =>
                 this.#runtime.actorQueueNextBatch(
                     this.#ctx,
-                    {
+                    omitUndefined({
                         names: this.#normalizeNames(options?.names),
                         count: options?.count,
                         timeoutMs: options?.timeout,
                         completable,
-                    },
+                    }),
                     token,
                 ),
             );
@@ -2030,10 +2034,10 @@ class NativeQueueAdapter {
                     this.#runtime.actorQueueWaitForNames(
                         this.#ctx,
                         [...names],
-                        {
+                        omitUndefined({
                             timeoutMs: options?.timeout,
                             completable: options?.completable,
-                        },
+                        }),
                         token,
                     ),
                 ),
@@ -2048,7 +2052,7 @@ class NativeQueueAdapter {
         names: readonly string[],
         options?: {
             timeout?: number;
-            signal?: AbortSignal;
+            signal?: AbortSignal | undefined;
         },
     ) {
         const { token, cleanup } = await createCancellationTokenHandle(
@@ -2061,9 +2065,9 @@ class NativeQueueAdapter {
                 this.#runtime.actorQueueWaitForNamesAvailable(
                     this.#ctx,
                     [...names],
-                    {
+                    omitUndefined({
                         timeoutMs: options?.timeout,
-                    },
+                    }),
                     token,
                 ),
             );
@@ -2102,7 +2106,7 @@ class NativeQueueAdapter {
         name: string,
         body: unknown,
         options?: {
-            timeout?: number;
+            timeout?: number | undefined;
             signal?: AbortSignal;
         },
     ) {
@@ -2118,9 +2122,9 @@ class NativeQueueAdapter {
                     this.#ctx,
                     name,
                     encodeValue(validatedBody),
-                    {
+                    omitUndefined({
                         timeoutMs: options?.timeout,
-                    },
+                    }),
                     token,
                 ),
             );
@@ -2149,9 +2153,9 @@ class NativeQueueAdapter {
     }
 
     async tryNextBatch(options?: {
-        names?: readonly string[];
+        names?: readonly string[] | undefined;
         count?: number;
-        completable?: boolean;
+        completable?: boolean | undefined;
     }) {
         if (options?.completable) {
             return await this.nextBatch({
@@ -2784,20 +2788,20 @@ export class ActorContextHandleAdapter {
     #ctx: ActorContextHandle;
     #schemas: NativeValidationConfig;
     #abortSignal?: AbortSignal;
-    #abortSignalCleanup?: () => void;
+    #abortSignalCleanup?: (() => void) | undefined;
     #connMap?: NativeConnectionMap;
     #cron?: NativeCronAdapter;
     #databaseProvider?: Exclude<AnyDatabaseProvider, undefined>;
     #db?: unknown;
-    #dispatchCancelToken?: CancellationTokenHandle;
+    #dispatchCancelToken?: CancellationTokenHandle | undefined;
     #kv?: NativeKvAdapter;
     #logByInvocationScope = new WeakMap<object, ActorLogger>();
     #queue?: NativeQueueAdapter;
-    #request?: Request;
+    #request?: Request | undefined;
     #schedule?: NativeScheduleAdapter;
     #run?: ActorRun;
     #runHandlerConfigured: boolean;
-    #onStateChange?: NativeOnStateChangeHandler;
+    #onStateChange?: NativeOnStateChangeHandler | undefined;
     #stateEnabled: boolean;
     #stateProxy?: unknown;
     #stateProxyTarget?: unknown;
@@ -3373,10 +3377,11 @@ export class ActorContextHandleAdapter {
             return;
         }
 
-        if (opts?.maxWait != null) {
+        const maxWait = opts?.maxWait;
+        if (maxWait != null) {
             callNativeSync(() =>
                 this.#runtime.actorRequestSave(this.#ctx, {
-                    maxWaitMs: opts.maxWait,
+                    maxWaitMs: maxWait,
                 }),
             );
             return;
@@ -3768,7 +3773,7 @@ class NativeWorkflowRuntimeAdapter {
                 name: string;
                 body: unknown;
                 createdAt: number;
-                complete?: (response?: unknown) => Promise<void>;
+                complete?: ((response?: unknown) => Promise<void>) | undefined;
             }>
         >;
         completeMessage: (
@@ -3962,10 +3967,10 @@ function buildActorTracingConfig(
     tracing: { sampler?: number; actions?: ActionSampleRates } | undefined,
 ): RuntimeActorTracingConfig | undefined {
     if (tracing === undefined) return undefined;
-    return {
+    return omitUndefined({
         sampler: tracing.sampler,
         actions: flattenActionTraceSamplers(actions, tracing.actions),
-    };
+    });
 }
 
 function buildActorConfig(
@@ -3982,7 +3987,7 @@ function buildActorConfig(
         config.db as { sqliteProfiling?: SqliteProfilingOptions } | undefined
     )?.sqliteProfiling;
 
-    return {
+    return omitUndefined({
         name: options.name as string | undefined,
         icon: options.icon as string | undefined,
         hasDatabase: true,
@@ -4036,7 +4041,7 @@ function buildActorConfig(
             .sort()
             .map((name) => ({ name })),
         inspectorTabs: buildInspectorTabs(config.inspector, runtimeKind),
-    };
+    });
 }
 
 function buildInspectorTabs(
@@ -4068,12 +4073,12 @@ function buildInspectorTabs(
                     "inspector.tabs[].source is not supported on wasm runners (current host: wasm). Tab descriptors will still appear in the dashboard strip but the tab body will render a not-available placeholder.",
                 );
             }
-            return {
+            return omitUndefined({
                 id: entry.id,
                 label: entry.label,
                 icon: entry.icon,
                 source: undefined,
-            };
+            });
         }
 
         const resolved =
@@ -4083,12 +4088,12 @@ function buildInspectorTabs(
         if (resolved !== undefined) {
             validateInspectorTabSource(entry.id, resolved);
         }
-        return {
+        return omitUndefined({
             id: entry.id,
             label: entry.label,
             icon: entry.icon,
             source: resolved,
-        };
+        });
     });
 }
 
@@ -5689,7 +5694,7 @@ export async function buildServeConfig(
         throw nativeEndpointNotConfiguredError();
     }
 
-    const serveConfig: RuntimeServeConfig = {
+    const serveConfig: RuntimeServeConfig = omitUndefined({
         version: config.node.version,
         endpoint: config.endpoint,
         engineSpawn: config.engineSpawn,
@@ -5705,7 +5710,7 @@ export async function buildServeConfig(
         serverlessClientToken: config.publicToken,
         serverlessValidateEndpoint: config.validateServerlessEndpoint,
         serverlessMaxStartPayloadBytes: config.serverless.maxStartPayloadBytes,
-    };
+    });
 
     // For native runtimes, best-effort resolve the npm-installed engine binary
     // and hand its path to the core. The core decides whether to spawn a local

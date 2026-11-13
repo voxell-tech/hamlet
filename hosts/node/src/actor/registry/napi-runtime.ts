@@ -16,6 +16,7 @@ import {
     readActiveTraceHeaders,
     runWithActorInvocationSpan,
 } from "../common/otel-context.ts";
+import { omitUndefined } from "../common/utils.ts";
 import { logger } from "./log.ts";
 import type {
     ActorContextHandle,
@@ -152,10 +153,10 @@ function toNapiSqlBindParams(params?: RuntimeSqlBindParams): NapiSqlBindParams {
 function toNapiSqlBatchStatement(
     statement: RuntimeSqlBatchStatement,
 ): NapiSqlBatchStatement {
-    return {
+    return omitUndefined({
         sql: statement.sql,
         params: toNapiSqlBindParams(statement.params) ?? undefined,
-    };
+    });
 }
 
 function toNapiBuffer(value: RuntimeBytes): Buffer {
@@ -218,23 +219,23 @@ function toNapiHttpRequest(
     if (!request) {
         return request;
     }
-    return {
+    return omitUndefined({
         ...request,
         body: request.body ? toNapiBuffer(request.body) : undefined,
-    };
+    });
 }
 
 function toNapiStateDeltaPayload(
     payload: RuntimeStateDeltaPayload,
 ): Parameters<NativeActorContext["saveState"]>[0] {
-    return {
+    return omitUndefined({
         ...payload,
         state: payload.state ? toNapiBuffer(payload.state) : undefined,
         connHibernation: payload.connHibernation.map((conn) => ({
             ...conn,
             bytes: toNapiBuffer(conn.bytes),
         })),
-    };
+    });
 }
 
 function toNapiKvEntry(entry: RuntimeKvEntry): {
@@ -427,11 +428,11 @@ export class NapiCoreRuntime implements CoreRuntime {
             ? toNapiApplication(listener.application)
             : undefined;
         await asNativeRegistry(registry).serveListener(
-            {
+            omitUndefined({
                 port: listener.port,
                 host: listener.host,
                 publicDir: listener.publicDir,
-            },
+            }),
             config,
             application,
         );
@@ -443,11 +444,11 @@ export class NapiCoreRuntime implements CoreRuntime {
         config: RuntimeServeConfig,
     ): Promise<void> {
         await asNativeRegistry(registry).serveApplicationListener(
-            {
+            omitUndefined({
                 port: listener.port,
                 host: listener.host,
                 publicDir: listener.publicDir,
-            },
+            }),
             toNapiApplication(listener.application),
             config,
         );

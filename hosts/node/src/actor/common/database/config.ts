@@ -217,7 +217,7 @@ export type DatabaseProvider<DB extends RawAccess> = {
      * @experimental This entire configuration surface is experimental and
      * subject to change without notice.
      */
-    sqliteProfiling?: SqliteProfilingOptions;
+    sqliteProfiling?: SqliteProfilingOptions | undefined;
     /**
      * Creates a new database client for the actor.
      * The result is passed to the actor context as `c.db`.

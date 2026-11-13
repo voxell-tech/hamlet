@@ -13,7 +13,7 @@ import {
 const CONN_PARAMS_KEY = "__conn_params__";
 
 export interface NativeValidationConfig {
-    actionInputSchemas?: Record<string, PrimitiveSchema>;
+    actionInputSchemas?: Record<string, PrimitiveSchema> | undefined;
     connParamsSchema?: PrimitiveSchema;
     events?: EventSchemaConfig;
     queues?: QueueSchemaConfig;

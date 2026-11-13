@@ -16,11 +16,11 @@ interface ActorRunState {
     closed: boolean;
     exclusive: boolean;
     exclusiveGeneration: number;
-    exclusiveOutcome?: "success" | "failure";
+    exclusiveOutcome?: "success" | "failure" | undefined;
     queued: number;
     restart?: () => void | Promise<void>;
     inspectorInitialized: boolean;
-    inspector?: RunInspectorFactoryResult;
+    inspector?: RunInspectorFactoryResult | undefined;
     waiters: Set<() => void>;
 }
 

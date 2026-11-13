@@ -37,6 +37,23 @@ export function safeStringify(obj: unknown, maxSize: number) {
     return JSON.stringify(obj, replacer);
 }
 
+/** `T` with each member that may be undefined made optional instead. */
+type WithoutUndefined<T> = {
+    [K in keyof T as undefined extends T[K] ? never : K]: T[K];
+} & {
+    [K in keyof T as undefined extends T[K] ? K : never]?: Exclude<
+        T[K],
+        undefined
+    >;
+};
+
+/** Copies `value` without the members whose value is undefined. */
+export function omitUndefined<T extends object>(value: T): WithoutUndefined<T> {
+    return Object.fromEntries(
+        Object.entries(value).filter(([, member]) => member !== undefined),
+    ) as WithoutUndefined<T>;
+}
+
 export interface DeconstructedError {
     __type: "ActorError";
     statusCode: ContentfulStatusCode;
@@ -45,8 +62,8 @@ export interface DeconstructedError {
     code: string;
     message: string;
     metadata?: unknown;
-    rayId?: string;
-    actor?: errors.ActorSpecifier;
+    rayId?: string | undefined;
+    actor?: errors.ActorSpecifier | undefined;
 }
 
 /**

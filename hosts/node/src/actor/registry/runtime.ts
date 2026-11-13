@@ -8,7 +8,7 @@ import type {
     SqliteNativeMetrics,
     SqliteProfilingOptions,
 } from "../common/database/config.ts";
-import { stringifyError } from "../common/utils.ts";
+import { omitUndefined, stringifyError } from "../common/utils.ts";
 import type { RegistryConfig } from "./config/index.ts";
 import { logger } from "./log.ts";
 
@@ -53,7 +53,7 @@ export interface RuntimeOutboundCall {
      * W3C context of the call's own span, to send to the callee so it parents to
      * the call. Absent when tracing is disabled.
      */
-    readonly span?: ActorInvocationSpanContext;
+    readonly span?: ActorInvocationSpanContext | undefined;
     /**
      * Records the call's outcome. `error` is the failure encoded the way the
      * bridge encodes errors, so a structured error keeps its group and code.
@@ -93,7 +93,7 @@ export interface RuntimeHttpResponseBodyStream {
 }
 
 export interface RuntimeStateDeltaPayload {
-    state?: RuntimeBytes;
+    state?: RuntimeBytes | undefined;
     connHibernation: Array<{
         connId: string;
         bytes: RuntimeBytes;
@@ -910,7 +910,7 @@ export async function buildServeConfig(
         throw new Error("registry endpoint is required");
     }
 
-    const serveConfig: RuntimeServeConfig = {
+    const serveConfig: RuntimeServeConfig = omitUndefined({
         version: config.node.version,
         endpoint: config.endpoint,
         engineSpawn: config.engineSpawn,
@@ -926,7 +926,7 @@ export async function buildServeConfig(
         serverlessClientToken: config.publicToken,
         serverlessValidateEndpoint: config.validateServerlessEndpoint,
         serverlessMaxStartPayloadBytes: config.serverless.maxStartPayloadBytes,
-    };
+    });
 
     // Always best-effort resolve the engine binary path and hand it to the core.
     // The core alone decides whether to actually spawn a local engine, so JS must

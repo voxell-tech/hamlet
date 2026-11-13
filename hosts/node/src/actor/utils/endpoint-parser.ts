@@ -13,9 +13,9 @@ export interface TryParseEndpointOptions {
     /** Path prefix for error messages (default: ["endpoint"]) */
     path?: (string | number)[];
     /** Namespace from config, to check for duplicate specification */
-    namespace?: string;
+    namespace?: string | undefined;
     /** Token from config, to check for duplicate specification */
-    token?: string;
+    token?: string | undefined;
 }
 
 /**

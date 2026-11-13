@@ -255,13 +255,13 @@ export function setLongTimeout(
  */
 export class SinglePromiseQueue {
     /** Next operation to execute in the queue. If attempting to enqueue another op, it will override the existing op. */
-    #queuedOp?: () => Promise<void>;
+    #queuedOp?: (() => Promise<void>) | undefined;
 
     /** The currently running promise of #drainLoop. Do not await this, instead await `pending` to await the current cycle. */
-    runningDrainLoop?: Promise<void>;
+    runningDrainLoop?: Promise<void> | undefined;
 
     /** Pending resolver fro the currently queued entry. */
-    #pending?: ReturnType<typeof promiseWithResolvers<void>>;
+    #pending?: ReturnType<typeof promiseWithResolvers<void>> | undefined;
 
     /** Queue the next operation and return a promise that resolves when it flushes. */
     enqueue(op: () => Promise<void>): Promise<void> {

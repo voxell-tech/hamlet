@@ -179,7 +179,7 @@ export type CronJobInfo = {
     action: string;
     args: unknown[];
     nextRunAt: number;
-    lastRunAt?: number;
+    lastRunAt?: number | undefined;
     maxHistory: number;
 } & (
     | { kind: "cron"; expression: string; timezone: string }
@@ -914,16 +914,18 @@ export type InspectorUnsubscribe = () => void;
 /** @experimental */
 export interface WorkflowInspectorConfig<THistory = unknown> {
     getHistory: () => THistory | null;
-    getState?: () => Promise<WorkflowState | null>;
-    onHistoryUpdated?: (
-        listener: (history: THistory) => void,
-    ) => InspectorUnsubscribe;
-    replayFromStep?: (entryId?: string) => Promise<THistory | null>;
+    getState?: (() => Promise<WorkflowState | null>) | undefined;
+    onHistoryUpdated?:
+        | ((listener: (history: THistory) => void) => InspectorUnsubscribe)
+        | undefined;
+    replayFromStep?:
+        | ((entryId?: string) => Promise<THistory | null>)
+        | undefined;
 }
 
 /** @experimental */
 export interface RunInspectorConfig<THistory = unknown> {
-    workflow?: WorkflowInspectorConfig<THistory>;
+    workflow?: WorkflowInspectorConfig<THistory> | undefined;
 }
 
 const WorkflowInspectorConfigSchema = z.object({
@@ -1116,7 +1118,11 @@ export interface RunInspectorFactoryContext {
 /** @experimental */
 export interface RunInspectorFactoryResult<THistory = unknown> {
     inspector: {
-        workflow: Required<WorkflowInspectorConfig<THistory>> & {
+        workflow: {
+            [K in keyof WorkflowInspectorConfig<THistory>]-?: NonNullable<
+                WorkflowInspectorConfig<THistory>[K]
+            >;
+        } & {
             getState: () => Promise<WorkflowState | null>;
         };
     };
@@ -1232,7 +1238,7 @@ export function getRunFunction(
 /** Extract run metadata (name/icon) from RunConfig if provided. */
 export function getRunMetadata(
     run: ((...args: any[]) => any) | AnyRunConfig | undefined,
-): { name?: string; icon?: string } {
+): { name?: string | undefined; icon?: string | undefined } {
     if (!run) return {};
     if (typeof run === "function") {
         const config = (run as RunFunctionWithConfig)[
