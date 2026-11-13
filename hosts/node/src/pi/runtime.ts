@@ -18,10 +18,7 @@ import {
     type ModelRef,
     type Wake,
 } from "@earendil-works/pi-durable";
-import {
-    type SqliteDatabase,
-    SqliteStorage,
-} from "@earendil-works/pi-durable/storage/sqlite";
+import { SqliteStorage } from "@earendil-works/pi-durable/storage/sqlite";
 import { type ActorContext, UserError } from "../actor/actor/mod.ts";
 import type { DatabaseProvider, RawAccess } from "../actor/db/mod.ts";
 import { actorSqlite } from "./actor-sqlite.ts";
@@ -76,15 +73,6 @@ export function piActor(context: Context): PiContext {
     return actor;
 }
 
-/**
- * What `databaseLayer` builds: the database Pi Durable's storage opens, and
- * what follows each harness opened on it.
- */
-export interface PiDatabaseLayer {
-    readonly database: SqliteDatabase;
-    follow(harness: Harness): void;
-}
-
 /** Whether Pi Durable is open in this actor generation, or why it closed. */
 export type PiStatus = "open" | "sleeping" | "destroyed";
 
@@ -113,13 +101,6 @@ export interface PiOptions extends PiModelOptions {
     onReport?: HarnessOptions["onReport"];
     /** The starting thinking level of every new conversation. */
     thinkingLevel?: ModelThinkingLevel;
-    /**
-     * Builds the database Pi Durable's storage opens over the actor's own, such
-     * as a layer that writes rows in Pi's commits. Called with the actor's
-     * context each time the harness opens. Without it, the storage opens the
-     * actor's database as it is.
-     */
-    databaseLayer?: (c: PiContext, database: SqliteDatabase) => PiDatabaseLayer;
     /** App documents that clients may read by `kind` with `harness.snapshot`. */
     documents?: readonly ConversationDocToken<any>[];
     /**
@@ -339,14 +320,14 @@ async function openHarness(
     options: PiOptions,
     open: { resume: boolean } = { resume: true },
 ): Promise<OpenHarness> {
-    const database = actorSqlite(c.db, (body) =>
-        // An older runtime has no such call, so it traces Pi's storage.
-        c.run?.runOutsideWorkflowSpan
-            ? c.run.runOutsideWorkflowSpan(body)
-            : body(),
+    const storage = await SqliteStorage.open(
+        actorSqlite(c.db, (body) =>
+            // An older runtime has no such call, so it traces Pi's storage.
+            c.run?.runOutsideWorkflowSpan
+                ? c.run.runOutsideWorkflowSpan(body)
+                : body(),
+        ),
     );
-    const layer = options.databaseLayer?.(c, database);
-    const storage = await SqliteStorage.open(layer?.database ?? database);
     const now = options.now ?? Date.now;
     const { registry, settings } = options.onAnswer
         ? withAnswerHook(options, c, options.onAnswer, (error) => {
@@ -389,7 +370,6 @@ async function openHarness(
         },
         withContextValue(PI_ACTOR, c, BACKGROUND_CONTEXT),
     );
-    layer?.follow(harness);
     wake.attach(harness);
     reportBlockedTasks(c, await harness.inspect(BACKGROUND_CONTEXT));
     if (open.resume) harness.resume();

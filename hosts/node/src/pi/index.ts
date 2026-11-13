@@ -24,7 +24,6 @@ export type {
 } from "./credentials.ts";
 export type { PiModelOptions, PiProviderConfig } from "./models.ts";
 export {
-    type PiDatabaseLayer,
     type PiDatabaseProvider,
     type PiOptions,
     piActor,

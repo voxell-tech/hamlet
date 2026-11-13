@@ -15,7 +15,6 @@ import { SqliteStorage } from "@earendil-works/pi-durable/storage/sqlite";
 import { createStorageConformance } from "@earendil-works/pi-durable/testing";
 import { actor } from "../../src/actor/actor/mod.ts";
 import { db } from "../../src/actor/db/mod.ts";
-import { agentDatabase } from "../../src/agent/database.ts";
 import { pi } from "../../src/pi/actor.ts";
 import { actorSqlite } from "../../src/pi/actor-sqlite.ts";
 import { piActor } from "../../src/pi/runtime.ts";
@@ -27,7 +26,6 @@ import {
     scratchFolder,
     startHost,
     tablesIn,
-    writeLetter,
 } from "../testing.ts";
 
 /** The tables the pi wrapper keeps in an agent's file, beside the actor core's. */
@@ -155,8 +153,8 @@ test("each tool and environment of the actor gets the context its onWake got", a
 
 /**
  * An actor that runs one case of pi-durable's storage conformance suite on its
- * own `c.db`, under Hamlet's database layer over the wrapper's facade, and
- * returns the tables it left or how the case failed.
+ * own `c.db`, over the wrapper's facade, and returns the tables it left or how
+ * the case failed.
  */
 const conformance = actor({
     db: db(),
@@ -165,8 +163,7 @@ const conformance = actor({
             const [each] = createStorageConformance({
                 assertions: conformanceAssertions,
                 withStorage: async (use) => {
-                    const layer = agentDatabase(actorSqlite(c.db), writeLetter);
-                    const storage = await SqliteStorage.open(layer.database);
+                    const storage = await SqliteStorage.open(actorSqlite(c.db));
                     try {
                         await use(storage);
                     } finally {
@@ -193,7 +190,7 @@ const conformance = actor({
     },
 });
 
-describe("pi-durable's storage conformance on c.db inside an actor, under the layer over the wrapper's facade, tables prefixed pi_", () => {
+describe("pi-durable's storage conformance on c.db inside an actor, over the wrapper's facade, tables prefixed pi_", () => {
     const names = createStorageConformance({
         assertions: conformanceAssertions,
         withStorage: () => {

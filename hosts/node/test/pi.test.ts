@@ -1,11 +1,32 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { test } from "node:test";
 import { fauxAssistantMessage, fauxText } from "@earendil-works/pi-ai";
+import { createRegistry, Harness } from "@earendil-works/pi-durable";
+import { SqliteStorage } from "@earendil-works/pi-durable/storage/sqlite";
 import type { RawAccess } from "../src/actor/common/database/mod.ts";
-import { context, openAgent } from "./testing.ts";
+import { actorSqlite } from "../src/pi/actor-sqlite.ts";
+import { context, fauxModels, plainDatabase, scratchFile } from "./testing.ts";
+
+/**
+ * A pi-durable Harness on the wrapper's facade over a plain SQLite file,
+ * with one faux model.
+ */
+async function openAgent(file: string) {
+    const database = plainDatabase(file);
+    const storage = await SqliteStorage.open(actorSqlite(database));
+    const { faux, models, ref } = fauxModels();
+    const harness = await Harness.open(
+        storage,
+        { models, registry: createRegistry() },
+        context,
+    );
+    const root = await harness.root(context, { agent: { model: ref } });
+    const close = async () => {
+        await harness.close(context);
+        await database.close();
+    };
+    return { database, faux, root, close };
+}
 
 /** Every row of pi-durable's entries and submissions tables. */
 async function transcript(database: RawAccess) {
@@ -20,9 +41,7 @@ async function transcript(database: RawAccess) {
 }
 
 test("the pi wrapper's storage answers one prompt once on a plain SQLite file", async (t) => {
-    const folder = mkdtempSync(join(tmpdir(), "hamlet-pi-"));
-    t.after(() => rmSync(folder, { recursive: true, force: true }));
-    const file = join(folder, "agent.sqlite");
+    const file = scratchFile(t);
     const prompt = {
         type: "input",
         content: "What is the capital of France?",

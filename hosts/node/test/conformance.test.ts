@@ -9,7 +9,6 @@ import {
     SqliteStorage,
 } from "@earendil-works/pi-durable/storage/sqlite";
 import { createStorageConformance } from "@earendil-works/pi-durable/testing";
-import { agentDatabase } from "../src/agent/database.ts";
 import { actorSqlite } from "../src/pi/actor-sqlite.ts";
 import {
     CONFORMANCE_CASES,
@@ -17,12 +16,11 @@ import {
     context,
     plainDatabase,
     tablesIn,
-    writeLetter,
 } from "./testing.ts";
 
 /**
- * pi-durable's storage on Hamlet's database layer over `open`'s database,
- * once per case. `tablesOf` gets the tables each case left.
+ * pi-durable's storage over `open`'s database, once per case. `tablesOf`
+ * gets the tables each case left.
  */
 function cases(
     open: (file: string) => Promise<SqliteDatabase>,
@@ -34,9 +32,8 @@ function cases(
             const folder = mkdtempSync(join(tmpdir(), "hamlet-conformance-"));
             const file = join(folder, "agent.sqlite");
             try {
-                const layer = agentDatabase(await open(file), writeLetter);
                 // Closing the storage closes the database under it.
-                const storage = await SqliteStorage.open(layer.database);
+                const storage = await SqliteStorage.open(await open(file));
                 try {
                     await use(storage);
                 } finally {
@@ -50,7 +47,7 @@ function cases(
     });
 }
 
-describe("pi-durable's storage conformance on the layer over the wrapper's facade, tables prefixed pi_", () => {
+describe("pi-durable's storage conformance on the wrapper's facade, tables prefixed pi_", () => {
     const seen = new Set<string>();
     const list = cases(
         async (file) => {
@@ -77,7 +74,9 @@ describe("pi-durable's storage conformance on the layer over the wrapper's facad
     });
 });
 
-describe("pi-durable's storage conformance on the layer over node:sqlite, tables unprefixed", () => {
+// The control: pi-durable's own driver, so a case that fails only on the
+// facade is the facade's.
+describe("pi-durable's storage conformance on node:sqlite, tables unprefixed", () => {
     const seen = new Set<string>();
     const list = cases(
         (file) => openNodeSqliteDatabase(file),
