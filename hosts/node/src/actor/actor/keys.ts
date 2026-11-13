@@ -1,5 +1,4 @@
 // This file was changed for Hamlet. See NOTICE in this package.
-/** An actor key: its parts in order. The dropped client defined it. */
 type ActorKey = string[];
 
 export const EMPTY_KEY = "/";
