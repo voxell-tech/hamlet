@@ -156,6 +156,11 @@ impl RunningActor {
         self.generation
     }
 
+    /// The context of the actor this task runs.
+    pub fn context(&self) -> &ActorContext {
+        &self.ctx
+    }
+
     /// Calls an action: a connection for the call, the action through
     /// the actor task within `deadline` or the kind's action timeout,
     /// whichever is shorter, then the connection closes.
