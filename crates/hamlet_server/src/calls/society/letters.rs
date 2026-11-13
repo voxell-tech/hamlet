@@ -171,8 +171,8 @@ impl Core<'_> {
         let (runtime, key) =
             (call.call.runtime.clone(), call.call.key.clone());
         let from = call.conversation.id;
-        let sent = self
-            .attempt(Actor::Agent(sender), |cx, env| {
+        let sent =
+            self.attempt(Actor::Agent(sender), |cx, env| {
                 let task = match task {
                     Some(task) => task,
                     None => tasks::mint(
@@ -199,8 +199,7 @@ impl Core<'_> {
                         images: &images,
                     },
                 )?))
-            })
-            .await?;
+            })?;
         match sent {
             Ok(found) => self.sent(&found),
             Err(refusal) => Ok(Step::of(Err(refusal))),
@@ -279,7 +278,7 @@ impl Core<'_> {
     }
 
     /// Starts a worker on the call's task, once per call.
-    pub(in crate::calls) async fn start_worker(
+    pub(in crate::calls) fn start_worker(
         &mut self,
         call: &Call<'_>,
     ) -> Result<Step> {
@@ -328,8 +327,8 @@ impl Core<'_> {
         let author = self.name(starter)?;
         let db = self.realm.store().connection();
         let chief = task_chief(db, task)?;
-        let done = self
-            .attempt(Actor::Agent(starter), |cx, env| {
+        let done =
+            self.attempt(Actor::Agent(starter), |cx, env| {
                 let id = match workers::start(
                     cx,
                     Start {
@@ -347,8 +346,7 @@ impl Core<'_> {
                 };
                 briefs::give(cx, env, id, &brief, &author, chief)?;
                 Ok(Ok(id))
-            })
-            .await?;
+            })?;
         match done {
             Ok(id) => self.worked(id),
             Err(refusal) => Ok(Step::of(Err(refusal))),

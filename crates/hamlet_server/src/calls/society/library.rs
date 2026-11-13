@@ -53,7 +53,7 @@ impl Core<'_> {
         Ok(format!("{ROLE}\n\n# The shelves\n{shelves}"))
     }
 
-    pub(in crate::calls) async fn ask_librarian(
+    pub(in crate::calls) fn ask_librarian(
         &mut self,
         call: &Call<'_>,
     ) -> Result<Step> {
@@ -105,12 +105,11 @@ impl Core<'_> {
                     task,
                 },
             )
-        })
-        .await?;
+        })?;
         Ok(Step::Wait("The librarian is looking.".into()))
     }
 
-    pub(in crate::calls) async fn submit_skill(
+    pub(in crate::calls) fn submit_skill(
         &mut self,
         call: &Call<'_>,
     ) -> Result<Step> {
@@ -181,21 +180,19 @@ impl Core<'_> {
         let task = self.task_of(call)?;
         let (runtime, key) =
             (call.call.runtime.clone(), call.call.key.clone());
-        let id = self
-            .change(Actor::Agent(agent), |cx, _| {
-                shelf::offer(
-                    cx,
-                    Offering {
-                        agent,
-                        skill: &name,
-                        reason: &reason,
-                        task,
-                        runtime: &runtime,
-                        key: &key,
-                    },
-                )
-            })
-            .await?;
+        let id = self.change(Actor::Agent(agent), |cx, _| {
+            shelf::offer(
+                cx,
+                Offering {
+                    agent,
+                    skill: &name,
+                    reason: &reason,
+                    task,
+                    runtime: &runtime,
+                    key: &key,
+                },
+            )
+        })?;
         let tree = library::keep_offer(
             &layout,
             id.0,
@@ -234,8 +231,7 @@ impl Core<'_> {
                     task,
                 },
             )
-        })
-        .await?;
+        })?;
         Ok(Step::Wait("The librarian is judging it.".into()))
     }
 }

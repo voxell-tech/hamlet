@@ -539,9 +539,9 @@ impl Core<'_> {
             Some(unavailable(tool))
         } else if tool == "ask_chief" || tool == "object" {
             let ruled = if tool == "object" {
-                self.object(&call).await?
+                self.object(&call)?
             } else {
-                self.ask_chief(&call).await?
+                self.ask_chief(&call)?
             };
             match ruled {
                 Ok(outcome) => Some(outcome),
@@ -993,48 +993,42 @@ impl Core<'_> {
         let (runtime, key) =
             (call.call.runtime.clone(), call.call.key.clone());
         let conversation = call.conversation.id;
-        let decision = self
-            .change(Actor::Realm, |cx, _| {
-                let change = change.as_deref();
-                Ok(match verdict {
-                    Verdict::Run { net } => {
-                        held::allow(
-                            cx.db, &runtime, &key, net, change,
-                        )?;
-                        Decision::Run { net }
-                    }
-                    Verdict::Block(words) => {
-                        asked.keep(cx.db, conversation)?;
-                        held::block(
-                            cx.db, &runtime, &key, &words, change,
-                        )?;
-                        Decision::Block(words)
-                    }
-                    Verdict::Ask(danger) => {
-                        asked.keep(cx.db, conversation)?;
-                        let wait = oversight::raise(
-                            cx,
-                            Raise {
-                                kind: WaitKind::Approval,
-                                danger: Some(danger),
-                                agent,
-                                scholar: None,
-                                conversation: Some(conversation),
-                                task,
-                                about,
-                                change: change.map(String::from),
-                                answers: danger.answers(),
-                                questions: None,
-                            },
-                        )?;
-                        held::hold(
-                            cx.db, &runtime, &key, wait, change,
-                        )?;
-                        Decision::Wait(WAITING)
-                    }
-                })
+        let decision = self.change(Actor::Realm, |cx, _| {
+            let change = change.as_deref();
+            Ok(match verdict {
+                Verdict::Run { net } => {
+                    held::allow(cx.db, &runtime, &key, net, change)?;
+                    Decision::Run { net }
+                }
+                Verdict::Block(words) => {
+                    asked.keep(cx.db, conversation)?;
+                    held::block(
+                        cx.db, &runtime, &key, &words, change,
+                    )?;
+                    Decision::Block(words)
+                }
+                Verdict::Ask(danger) => {
+                    asked.keep(cx.db, conversation)?;
+                    let wait = oversight::raise(
+                        cx,
+                        Raise {
+                            kind: WaitKind::Approval,
+                            danger: Some(danger),
+                            agent,
+                            scholar: None,
+                            conversation: Some(conversation),
+                            task,
+                            about,
+                            change: change.map(String::from),
+                            answers: danger.answers(),
+                            questions: None,
+                        },
+                    )?;
+                    held::hold(cx.db, &runtime, &key, wait, change)?;
+                    Decision::Wait(WAITING)
+                }
             })
-            .await?;
+        })?;
         Ok(decision)
     }
 
@@ -1058,7 +1052,7 @@ impl Core<'_> {
     /// Asks the chief the questions of `call`, or gives the chief's
     /// answer once there is one. `Err` is the runtime's answer while
     /// it waits or when it may not ask.
-    async fn ask_chief(
+    fn ask_chief(
         &mut self,
         call: &Call<'_>,
     ) -> Result<std::result::Result<Outcome, Answer>> {
@@ -1155,8 +1149,7 @@ impl Core<'_> {
                 },
             )?;
             held::hold(cx.db, &runtime, &key, wait, None)
-        })
-        .await?;
+        })?;
         Ok(Err(Answer::Waiting(WAITING.into())))
     }
 

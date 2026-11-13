@@ -187,7 +187,7 @@ impl Core<'_> {
     ) -> Result<()> {
         crate::fault::panic_at("request");
         let chief = self.realm.chief();
-        if self.model_request(client, &message).await? {
+        if self.model_request(client, &message)? {
             return Ok(());
         }
         match message {
@@ -213,10 +213,10 @@ impl Core<'_> {
                             ),
                         );
                     }
-                    let answer = self.command(agent, text).await?;
+                    let answer = self.command(agent, text)?;
                     // A command may write what no change publishes,
                     // such as a revoked grant.
-                    self.publish().await?;
+                    self.publish()?;
                     return self
                         .answer(client, reply(&say.id, answer));
                 }
@@ -244,13 +244,12 @@ impl Core<'_> {
                 let line = attached.place(&say.text, |words| {
                     self.credentials.scrub_text(words)
                 });
-                let said = self
-                    .change(Actor::Chief(chief), |cx, env| {
+                let said =
+                    self.change(Actor::Chief(chief), |cx, env| {
                         chats::say_with(
                             cx, env, agent, chief, &request, &line,
                         )
-                    })
-                    .await?;
+                    })?;
                 self.clients.owed.push(Owed {
                     client,
                     id: say.id,
@@ -260,7 +259,7 @@ impl Core<'_> {
                 Ok(())
             }
             ClientMessage::Open(open) => {
-                let found = self.watch_target(&open.chat).await?;
+                let found = self.watch_target(&open.chat)?;
                 let conversation = match found {
                     Ok(conversation) => conversation,
                     Err(refusal) => {
@@ -298,12 +297,11 @@ impl Core<'_> {
                 else {
                     return Ok(());
                 };
-                let number = self
-                    .change(Actor::Chief(chief), |cx, env| {
+                let number =
+                    self.change(Actor::Chief(chief), |cx, env| {
                         chats::new_session(cx, env, agent, chief)
-                    })
-                    .await?;
-                self.rewatch(agent).await?;
+                    })?;
+                self.rewatch(agent)?;
                 self.answer(
                     client,
                     reply(
@@ -318,12 +316,11 @@ impl Core<'_> {
                 else {
                     return Ok(());
                 };
-                let done = self
-                    .attempt(Actor::Chief(chief), |cx, _| {
+                let done =
+                    self.attempt(Actor::Chief(chief), |cx, _| {
                         chats::resume(cx, agent, chief, resume.number)
-                    })
-                    .await?;
-                self.rewatch(agent).await?;
+                    })?;
+                self.rewatch(agent)?;
                 let words = done.map(|()| {
                     format!("Back in session {}.", resume.number)
                 });
@@ -338,8 +335,7 @@ impl Core<'_> {
                 let done = self
                     .attempt(Actor::Chief(chief), |cx, env| {
                         chats::retry(cx, env, agent, chief)
-                    })
-                    .await?;
+                    })?;
                 let words = done.map(|_| "Carrying on.".to_owned());
                 self.answer(client, reply(&retry.id, words))
             }
@@ -360,8 +356,7 @@ impl Core<'_> {
                     stopped += self
                         .change(Actor::Chief(chief), |cx, _| {
                             chats::stop(cx, agent)
-                        })
-                        .await?;
+                        })?;
                 }
                 let words = if stopped == 0 {
                     "Nothing was running.".to_owned()
@@ -370,21 +365,17 @@ impl Core<'_> {
                 };
                 self.answer(client, reply(&stop.id, Ok(words)))
             }
-            ClientMessage::Edit(edit) => {
-                self.edit(client, edit).await
-            }
+            ClientMessage::Edit(edit) => self.edit(client, edit),
             ClientMessage::Read(read) => {
                 self.read(client, read).await
             }
             ClientMessage::Answer(answer) => {
-                let words = self
-                    .answer_wait(
-                        &answer.wait,
-                        &answer.choice,
-                        answer.text.as_deref(),
-                        answer.picks.as_deref(),
-                    )
-                    .await?;
+                let words = self.answer_wait(
+                    &answer.wait,
+                    &answer.choice,
+                    answer.text.as_deref(),
+                    answer.picks.as_deref(),
+                )?;
                 self.answer(client, reply(&answer.id, words))
             }
             ClientMessage::PutImage(put) => {
@@ -425,8 +416,8 @@ impl Core<'_> {
                 else {
                     return Ok(());
                 };
-                let done = self
-                    .attempt(Actor::Chief(chief), |cx, env| {
+                let done =
+                    self.attempt(Actor::Chief(chief), |cx, env| {
                         chats::rewind(
                             cx,
                             env,
@@ -434,9 +425,8 @@ impl Core<'_> {
                             chief,
                             &rewind.item,
                         )
-                    })
-                    .await?;
-                self.rewatch(agent).await?;
+                    })?;
+                self.rewatch(agent)?;
                 let answer = match done {
                     Ok((text, images, files)) => {
                         self.keep_images(&images);
@@ -557,7 +547,7 @@ impl Core<'_> {
     }
 
     /// The conversation `chat` names for this server's chief.
-    async fn watch_target(
+    fn watch_target(
         &mut self,
         chat: &ChatRef,
     ) -> Result<Result<ConversationId, Refusal>> {
@@ -594,11 +584,12 @@ impl Core<'_> {
                     }
                 }
                 None => {
-                    let conversation = self
-                        .change(Actor::Chief(chief), |cx, env| {
+                    let conversation = self.change(
+                        Actor::Chief(chief),
+                        |cx, env| {
                             chats::current(cx, env, agent, chief)
-                        })
-                        .await?;
+                        },
+                    )?;
                     Ok(Ok(conversation))
                 }
             },
@@ -683,10 +674,7 @@ impl Core<'_> {
 
     /// Sends the watchers of `agent`'s chats the session they now
     /// stand for.
-    pub(crate) async fn rewatch(
-        &mut self,
-        agent: AgentId,
-    ) -> Result<()> {
+    pub(crate) fn rewatch(&mut self, agent: AgentId) -> Result<()> {
         let watches = self
             .clients
             .watches
@@ -701,7 +689,7 @@ impl Core<'_> {
             .collect::<Vec<_>>();
         for watch in watches {
             if let Ok(conversation) =
-                self.watch_target(&watch.chat).await?
+                self.watch_target(&watch.chat)?
             {
                 for kept in &mut self.clients.watches {
                     if kept.client == watch.client
@@ -724,7 +712,7 @@ impl Core<'_> {
 
     /// Sends every welcomed client what changed since the state it
     /// was sent last.
-    pub(crate) async fn publish(&mut self) -> Result<()> {
+    pub(crate) fn publish(&mut self) -> Result<()> {
         if !self.clients.list.values().any(|c| c.welcomed) {
             self.clients.sent = None;
             return Ok(());

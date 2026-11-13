@@ -27,7 +27,7 @@ use crate::clients::connection::Event;
 use crate::clock;
 use crate::core::{
     Added, Catalogue, Confined, Core, Leftovers, Lives, Lodged,
-    Moving, ToolFaults, Workspace,
+    Moving, ToolFaults, Unpushed, Workspace,
 };
 use crate::credentials::Credentials;
 use crate::diagnostic::{self, Secrets, tell};
@@ -185,7 +185,7 @@ impl Server {
     /// Takes `realm` on in `app`: its jobs runner and its harness's
     /// runtime, and follows the turns that ended before the last stop
     /// but were not followed.
-    pub async fn start(
+    pub fn start(
         mut app: App,
         mut realm: Realm,
         env: Env,
@@ -258,6 +258,7 @@ impl Server {
             .insert_resource(FileUploads::default())
             .insert_resource(Workspace(workspace))
             .insert_resource(Lodged(Default::default()))
+            .insert_resource(Unpushed(Default::default()))
             .insert_resource(Moving(None))
             .insert_resource(runner)
             .insert_resource(writing);
@@ -282,8 +283,7 @@ impl Server {
             // No runtime waits on anything from before the stop.
             core.change(Actor::Realm, |cx, env| {
                 follow(cx, env, input.conversation, &input.request)
-            })
-            .await?;
+            })?;
         }
         Ok(server)
     }
@@ -363,11 +363,22 @@ impl Server {
 
     async fn handle(&mut self, input: Input) -> Result<()> {
         let mut core = self.core()?;
+        let handled = Self::dispatch(&mut core, input).await;
+        // What the input's changes owe the remote workspace is pushed
+        // before the next input, whether or not the input failed.
+        core.push_owed().await;
+        handled
+    }
+
+    async fn dispatch(
+        core: &mut Core<'_>,
+        input: Input,
+    ) -> Result<()> {
         match input {
             Input::Line(received) => core.received(received).await,
             Input::Worked(done) => {
-                core.push_lodges(&done).await;
-                core.publish().await
+                core.owe_pushes(&done);
+                core.publish()
             }
             Input::Connection(event) => core.connection(event).await,
             Input::Accepted(stream) => {
@@ -384,8 +395,8 @@ impl Server {
                 let db = core.realm.store().connection();
                 core.runtimes.start(db, &layout)
             }
-            Input::Expiry => core.expire_providers().await,
-            Input::Dream => core.dream_tick().await,
+            Input::Expiry => core.expire_providers(),
+            Input::Dream => core.dream_tick(),
             Input::SweepImages => core.sweep_images(),
             Input::SweepFiles => core.sweep_files(),
         }
@@ -456,7 +467,7 @@ mod tests {
         script: &str,
         text: &str,
     ) -> (Server, chats::Said) {
-        let (mut server, said) = say(dir, script, text).await;
+        let (mut server, said) = say(dir, script, text);
         ended(&mut server, &said).await;
         (server, said)
     }
@@ -474,7 +485,7 @@ mod tests {
 
     /// A realm on `dir` served with the faux `script`, and a chief's
     /// line `text` to the Hand, kept.
-    async fn say(
+    fn say(
         dir: &Scratch,
         script: &str,
         text: &str,
@@ -504,7 +515,6 @@ mod tests {
             sandbox,
             closed,
         )
-        .await
         .unwrap();
         let mut core = server.core().unwrap();
         let hand = hand::id(core.realm.store().connection()).unwrap();
@@ -512,7 +522,6 @@ mod tests {
             .change(Actor::Chief(chief_id), |cx, env| {
                 chats::say(cx, env, hand, chief_id, "r1", text)
             })
-            .await
             .unwrap();
         (server, said)
     }
@@ -536,7 +545,6 @@ mod tests {
                     cx, "ada", chief, "Careful.", None,
                 )
             })
-            .await
             .unwrap()
             .unwrap();
         until(&mut server, "the scholar planted", |core| {
@@ -550,7 +558,6 @@ mod tests {
             .core()
             .unwrap()
             .dream_command(None, &[&address])
-            .await
             .unwrap();
         assert!(began.is_ok(), "{began:?}");
         until(&mut server, "the dream's end", |core| {
@@ -580,7 +587,7 @@ mod tests {
             {"calls": [{"name": "bash", "arguments": {"command": "echo curl reached"}}]},
             "Done."
         ]}"#;
-        let (mut server, said) = say(&dir, script, "Fetch it").await;
+        let (mut server, said) = say(&dir, script, "Fetch it");
         until(&mut server, "the approval", |core| {
             let db = core.realm.store().connection();
             Ok(!crate::oversight::open(db)?.is_empty())
@@ -601,7 +608,6 @@ mod tests {
                 None,
                 None,
             )
-            .await
             .unwrap();
         assert!(answered.is_ok(), "{answered:?}");
         ended(&mut server, &said).await;

@@ -112,13 +112,13 @@ impl Core<'_> {
         self.push_lodge(agent).await
     }
 
-    /// Pushes the lodges the jobs `done` changed, when the realm
-    /// works in a remote workspace.
-    pub(crate) async fn push_lodges(&mut self, done: &[Job]) {
+    /// Owes the remote workspace a push of the lodges the jobs `done`
+    /// changed, when the realm works in one. The runner pushes them
+    /// before the next input.
+    pub(crate) fn owe_pushes(&mut self, done: &[Job]) {
         if self.workspace.is_none() {
             return;
         }
-        let mut agents = Vec::new();
         for job in done {
             let found = match job {
                 Job::Lodge { hire } | Job::TakeIn { hire } => {
@@ -147,11 +147,13 @@ impl Core<'_> {
                 }
                 _ => Vec::new(),
             };
-            agents.extend(found);
+            self.unpushed.extend(found);
         }
-        agents.sort();
-        agents.dedup();
-        for agent in agents {
+    }
+
+    /// Pushes the lodges owed a push.
+    pub(crate) async fn push_owed(&mut self) {
+        for agent in std::mem::take(&mut self.unpushed.0) {
             if let Err(error) = self.push_lodge(agent).await {
                 tell(
                     Secrets::Of(&self.credentials),
@@ -201,7 +203,7 @@ impl Core<'_> {
                 state: SettingsViewWorkspaceMoveState::Moving,
                 text: "Copying the lodges.".into(),
             });
-            self.publish().await?;
+            self.publish()?;
             if let Err(error) = self.push_lodge(agent).await {
                 failed = Some(
                     self.credentials
@@ -230,7 +232,7 @@ impl Core<'_> {
             state,
             text: text.clone(),
         });
-        self.publish().await?;
+        self.publish()?;
         let answer = match failed {
             None => Ok(text),
             Some(_) => Err(Refusal::Usage { words: text }),

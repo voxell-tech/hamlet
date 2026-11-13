@@ -12,7 +12,7 @@ use crate::society::refusal::Refusal;
 
 impl Core<'_> {
     /// Runs the command `name` with `words` when it is one of these.
-    pub(super) async fn shelves_command(
+    pub(super) fn shelves_command(
         &mut self,
         here: Option<&HamletId>,
         name: &str,
@@ -20,7 +20,7 @@ impl Core<'_> {
     ) -> Result<Option<Result<String, Refusal>>> {
         Ok(Some(match name {
             "unshelve" => self.unshelve(words)?,
-            "dream" => self.dream_command(here, words).await?,
+            "dream" => self.dream_command(here, words)?,
             _ => return Ok(None),
         }))
     }

@@ -402,13 +402,13 @@ impl Core<'_> {
             "tell" => return self.tell(call).await,
             "ask" => return self.ask(call).await,
             "request_road" => return self.request_road(call).await,
-            "start_worker" => return self.start_worker(call).await,
-            "submit_skill" => return self.submit_skill(call).await,
-            "ask_librarian" => return self.ask_librarian(call).await,
+            "start_worker" => return self.start_worker(call),
+            "submit_skill" => return self.submit_skill(call),
+            "ask_librarian" => return self.ask_librarian(call),
             "read_scholar" => self.read_scholar(call)?,
-            "edit_scholar" => self.edit_scholar(call).await?,
+            "edit_scholar" => self.edit_scholar(call)?,
             "tag" => self.tag_scholar(call)?,
-            "revert" => self.revert_scholar(call).await?,
+            "revert" => self.revert_scholar(call)?,
             "create_scholar" => {
                 let name = text(call, "name");
                 let character = text(call, "character");
@@ -434,10 +434,9 @@ impl Core<'_> {
                         Err(refusal) => return Ok(Err(refusal)),
                     };
                     Ok(Ok(arrived(cx, env, made, &character)?))
-                })
-                .await?
+                })?
             }
-            "hire" => self.hire_tool(call, here.as_ref()).await?,
+            "hire" => self.hire_tool(call, here.as_ref())?,
             "end_hire" => {
                 let hire =
                     match self.led(call, "hire", here.as_ref())? {
@@ -450,8 +449,7 @@ impl Core<'_> {
                 self.carry(call, |cx, _| {
                     Ok(hires::end(cx, hire, EndHow::Ended, &reason)?
                         .map(|()| format!("Ended {name}.")))
-                })
-                .await?
+                })?
             }
             "set_model" => {
                 let hire =
@@ -476,8 +474,7 @@ impl Core<'_> {
                         &reason,
                     )?
                     .map(|()| words))
-                })
-                .await?
+                })?
             }
             "set_tools" => {
                 let hire =
@@ -496,8 +493,7 @@ impl Core<'_> {
                     .map(|()| {
                         format!("Changed the tools of {name}.")
                     }))
-                })
-                .await?
+                })?
             }
             "set_allowance" => {
                 let hire =
@@ -520,8 +516,7 @@ impl Core<'_> {
                     .map(|()| {
                         format!("Set the allowance of {name}.")
                     }))
-                })
-                .await?
+                })?
             }
             "nickname" => {
                 let hire =
@@ -549,8 +544,7 @@ impl Core<'_> {
                         &reason,
                     )?
                     .map(|()| words))
-                })
-                .await?
+                })?
             }
             "lay_road" | "take_up_road" => {
                 let a = match self.led(call, "a", here.as_ref())? {
@@ -577,8 +571,7 @@ impl Core<'_> {
                                 )
                             },
                         ))
-                    })
-                    .await?
+                    })?
                 } else {
                     self.carry(call, |cx, _| {
                         Ok(roads::take_up(cx, a, b, &reason)?.map(
@@ -589,8 +582,7 @@ impl Core<'_> {
                                 )
                             },
                         ))
-                    })
-                    .await?
+                    })?
                 }
             }
             "merge_hires" => {
@@ -618,12 +610,9 @@ impl Core<'_> {
                         cx, kept, absorbed, &reason,
                     )?
                     .map(|_| format!("Merged {one} into {other}.")))
-                })
-                .await?
+                })?
             }
-            "agree_road" => {
-                self.agree_road(call, here.as_ref()).await?
-            }
+            "agree_road" => self.agree_road(call, here.as_ref())?,
             "found_hamlet" => {
                 let name = text(call, "name");
                 let purpose = text(call, "purpose");
@@ -669,8 +658,7 @@ impl Core<'_> {
                         "Founded {name} (`{}`).",
                         hired.hamlet
                     )))
-                })
-                .await?
+                })?
             }
             "seat_mayor" => {
                 let hire =
@@ -700,16 +688,14 @@ impl Core<'_> {
                             )
                         },
                     ))
-                })
-                .await?
+                })?
             }
             "remove_hamlet" => {
                 let id = HamletId(text(call, "hamlet"));
                 self.carry(call, |cx, _| {
                     Ok(hamlets::remove(cx, &id, &reason)?
                         .map(|()| format!("Removed {id}.")))
-                })
-                .await?
+                })?
             }
             "read_budget" => {
                 let db = self.realm.store().connection();
@@ -736,7 +722,7 @@ impl Core<'_> {
     /// answer in the same transaction: a call cut off by a crash
     /// after its change is answered the same when it is asked again,
     /// and never changes anything twice.
-    async fn carry(
+    fn carry(
         &mut self,
         call: &Call<'_>,
         make: impl FnOnce(&mut Change<'_>, &Env) -> Done<String>,
@@ -761,7 +747,6 @@ impl Core<'_> {
                 Ok(made)
             },
         )
-        .await
     }
 
     /// Marks `call` begun before an effect outside the store, which
@@ -847,7 +832,7 @@ impl Core<'_> {
         self.existing(scholar, version)
     }
 
-    async fn hire_tool(
+    fn hire_tool(
         &mut self,
         call: &Call<'_>,
         here: Option<&HamletId>,
@@ -959,10 +944,9 @@ impl Core<'_> {
             let name = addresses::name_of(cx.db, hired.agent)?;
             Ok(Ok(format!("Hired {name}.")))
         })
-        .await
     }
 
-    async fn agree_road(
+    fn agree_road(
         &mut self,
         call: &Call<'_>,
         here: Option<&HamletId>,
@@ -996,7 +980,6 @@ impl Core<'_> {
                     ),
                 }))
         })
-        .await
     }
 }
 

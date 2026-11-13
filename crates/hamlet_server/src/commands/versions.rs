@@ -18,7 +18,7 @@ const MOST_SHOWN: usize = 12;
 
 impl Core<'_> {
     /// Runs the command `name` with `words` when it is one of these.
-    pub(super) async fn versions_command(
+    pub(super) fn versions_command(
         &mut self,
         here: Option<&HamletId>,
         name: &str,
@@ -27,10 +27,10 @@ impl Core<'_> {
         Ok(Some(match name {
             "tag" => self.tag(words)?,
             "versions" => self.list_versions(words)?,
-            "pin" => self.pin(here, words).await?,
-            "revert" => self.revert(words).await?,
-            "fork" => self.fork(words).await?,
-            "purge" => self.purge(words).await?,
+            "pin" => self.pin(here, words)?,
+            "revert" => self.revert(words)?,
+            "fork" => self.fork(words)?,
+            "purge" => self.purge(words)?,
             _ => return Ok(None),
         }))
     }
@@ -155,7 +155,7 @@ impl Core<'_> {
         Ok(Ok(lines.join("\n")))
     }
 
-    async fn pin(
+    fn pin(
         &mut self,
         here: Option<&HamletId>,
         words: &[&str],
@@ -197,11 +197,9 @@ impl Core<'_> {
         let name = addresses::name_of(db, hire)?;
         let reason = reason.join(" ");
         let chief = self.realm.chief();
-        let done = self
-            .attempt(Actor::Chief(chief), |cx, _| {
-                hires::set_pin(cx, hire, target, &reason)
-            })
-            .await?;
+        let done = self.attempt(Actor::Chief(chief), |cx, _| {
+            hires::set_pin(cx, hire, target, &reason)
+        })?;
         Ok(done.map(|()| match target {
             Some(version) => format!(
                 "{name} takes {version} in once idle, and no later \
@@ -213,7 +211,7 @@ impl Core<'_> {
         }))
     }
 
-    async fn revert(
+    fn revert(
         &mut self,
         words: &[&str],
     ) -> Result<Result<String, Refusal>> {
@@ -246,7 +244,7 @@ impl Core<'_> {
             },
         )?;
         drop(held);
-        self.main_moved(by, id).await?;
+        self.main_moved(by, id)?;
         let label = addresses::scholar_name_of(
             self.realm.store().connection(),
             id,
@@ -263,7 +261,7 @@ impl Core<'_> {
         }))
     }
 
-    async fn fork(
+    fn fork(
         &mut self,
         words: &[&str],
     ) -> Result<Result<String, Refusal>> {
@@ -283,20 +281,18 @@ impl Core<'_> {
         };
         let chief = self.realm.chief();
         let name = name.join(" ");
-        let done = self
-            .attempt(Actor::Chief(chief), |cx, _| {
-                city::make(
-                    cx,
-                    &name,
-                    chief,
-                    "",
-                    Some(Fork {
-                        from: id,
-                        commit: commit.to_string(),
-                    }),
-                )
-            })
-            .await?;
+        let done = self.attempt(Actor::Chief(chief), |cx, _| {
+            city::make(
+                cx,
+                &name,
+                chief,
+                "",
+                Some(Fork {
+                    from: id,
+                    commit: commit.to_string(),
+                }),
+            )
+        })?;
         let label = addresses::scholar_name_of(
             self.realm.store().connection(),
             id,
@@ -312,7 +308,7 @@ impl Core<'_> {
 
     /// Takes the path out of every commit, every branch and every
     /// lodge of the scholar's hires.
-    async fn purge(
+    fn purge(
         &mut self,
         words: &[&str],
     ) -> Result<Result<String, Refusal>> {
@@ -349,10 +345,10 @@ impl Core<'_> {
         drop(held);
         let db = self.realm.store().connection();
         for hire in hires::living_of(db, id)? {
-            self.push_lodge(hire.agent).await?;
+            self.unpushed.insert(hire.agent);
         }
         let by = Actor::Chief(self.realm.chief());
-        self.main_moved(by, id).await?;
+        self.main_moved(by, id)?;
         let label = addresses::scholar_name_of(
             self.realm.store().connection(),
             id,

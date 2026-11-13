@@ -3,7 +3,7 @@
 //! one transaction, and wakes what it needs after: the jobs runner,
 //! the runtimes and the clients.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::panic::AssertUnwindSafe;
 
 use anyhow::Result;
@@ -108,6 +108,11 @@ holder! {
     Lodged(HashMap<AgentId, Synced>)
 }
 holder! {
+    /// The lodges whose remote copy is owed a push, which the runner
+    /// makes before the next input.
+    Unpushed(BTreeSet<AgentId>)
+}
+holder! {
     /// How moving the lodges to the chosen workspace goes.
     Moving(Option<protocol::SettingsViewWorkspaceMove>)
 }
@@ -142,6 +147,7 @@ pub(crate) struct Core<'w> {
     pub files: ResMut<'w, FileUploads>,
     pub workspace: ResMut<'w, Workspace>,
     pub synced: ResMut<'w, Lodged>,
+    pub unpushed: ResMut<'w, Unpushed>,
     pub moving: ResMut<'w, Moving>,
     pub runner: Res<'w, Runner>,
     /// Held while anything writes the realm's repositories and
@@ -159,7 +165,7 @@ pub(crate) struct Live {
 impl Core<'_> {
     /// Makes a change by `actor` in one transaction, then wakes what
     /// it needs.
-    pub async fn change<T>(
+    pub fn change<T>(
         &mut self,
         actor: Actor,
         make: impl FnOnce(&mut Change<'_>, &Env) -> Result<T>,
@@ -171,13 +177,13 @@ impl Core<'_> {
         let made = make(&mut cx, &env)?;
         let touched = std::mem::take(&mut cx.touched);
         tx.commit()?;
-        self.after(touched).await?;
+        self.after(touched)?;
         Ok(made)
     }
 
     /// Makes a change by `actor` that may be refused, leaving nothing
     /// of it when it is.
-    pub async fn attempt<T>(
+    pub fn attempt<T>(
         &mut self,
         actor: Actor,
         make: impl FnOnce(&mut Change<'_>, &Env) -> Done<T>,
@@ -190,11 +196,11 @@ impl Core<'_> {
                 make(cx, &env)
             })?;
         tx.commit()?;
-        self.after(touched).await?;
+        self.after(touched)?;
         Ok(made)
     }
 
-    async fn after(&mut self, touched: Touched) -> Result<()> {
+    fn after(&mut self, touched: Touched) -> Result<()> {
         if touched.jobs {
             crate::fault::point("jobs");
             // The change's effects come before anything that reads
@@ -202,7 +208,7 @@ impl Core<'_> {
             let layout = self.realm.layout().clone();
             let db = self.realm.store().connection();
             match run_due(db, &layout, &self.writing) {
-                Ok(done) => self.push_lodges(&done).await,
+                Ok(done) => self.owe_pushes(&done),
                 Err(error) => tell(
                     Secrets::Fixed,
                     format!("running jobs: {error:#}"),
@@ -215,7 +221,7 @@ impl Core<'_> {
         }
         self.stop_cancelled()?;
         self.flush(false)?;
-        self.publish().await
+        self.publish()
     }
 
     /// Narrows the tools of every living agent's conversations to its
@@ -353,17 +359,15 @@ impl Core<'_> {
 
     /// Follows the end of input `request` of `conversation`, wakes
     /// what its follow freed and answers the replies owed for it.
-    pub(crate) async fn input_ended(
+    pub(crate) fn input_ended(
         &mut self,
         conversation: ConversationId,
         request: &str,
     ) -> Result<()> {
         crate::fault::point("followed");
-        let followed = self
-            .change(Actor::Realm, |cx, env| {
-                follow(cx, env, conversation, request)
-            })
-            .await?;
+        let followed = self.change(Actor::Realm, |cx, env| {
+            follow(cx, env, conversation, request)
+        })?;
         self.woken(followed);
         self.settle_owed(conversation, request)
     }
@@ -591,8 +595,7 @@ impl Core<'_> {
                         detail.as_deref(),
                     )?;
                     if ended {
-                        self.input_ended(conversation, &request)
-                            .await?;
+                        self.input_ended(conversation, &request)?;
                     }
                 }
                 self.flush(false)?;
@@ -620,8 +623,7 @@ impl Core<'_> {
                     self.input_ended(
                         conversation.id,
                         &settled.request,
-                    )
-                    .await?;
+                    )?;
                 }
             }
             RuntimeMessage::Kept(kept) => {
@@ -673,7 +675,7 @@ impl Core<'_> {
                     running.partial.as_ref(),
                 );
                 self.stream(conversation.id)?;
-                self.publish().await?;
+                self.publish()?;
             }
             RuntimeMessage::Cancelled(cancelled) => {
                 if let Some((_, Pending::Cancel(conversation))) =
@@ -709,13 +711,10 @@ impl Core<'_> {
                     &asked.conversation,
                 )?;
                 let re = asked.id.clone();
-                if let Some((key, words)) = self
-                    .before_prompt(
-                        &conversation,
-                        asked.input.as_deref(),
-                    )
-                    .await?
-                {
+                if let Some((key, words)) = self.before_prompt(
+                    &conversation,
+                    asked.input.as_deref(),
+                )? {
                     self.runtimes.send(index, |v, id| {
                         ServerMessage::Waiting(runtime::Waiting {
                             id,
@@ -762,7 +761,7 @@ impl Core<'_> {
                         self.live(conversation.id)?
                             .activity
                             .attempted();
-                        self.publish().await?;
+                        self.publish()?;
                         let serving = self
                             .env
                             .settings
@@ -820,7 +819,7 @@ impl Core<'_> {
                 )?;
                 if let Some(conversation) = charged {
                     self.stream_usage(conversation)?;
-                    self.publish().await?;
+                    self.publish()?;
                 }
                 let re = report.id;
                 self.runtimes.send(index, |v, id| {
@@ -844,11 +843,9 @@ impl Core<'_> {
                     &runtime,
                     &answer.conversation,
                 )?;
-                let ruled = self
-                    .change(Actor::Realm, |cx, _| {
-                        verdicts::rule(cx, &conversation, &answer)
-                    })
-                    .await?;
+                let ruled = self.change(Actor::Realm, |cx, _| {
+                    verdicts::rule(cx, &conversation, &answer)
+                })?;
                 let re = answer.id;
                 self.runtimes.send(index, |v, id| {
                     ServerMessage::Verdict(runtime::Verdict {
@@ -884,7 +881,7 @@ impl Core<'_> {
                 self.leases.request(index, request);
             }
             RuntimeMessage::ProviderResult(result) => {
-                self.provider_result(Some(index), result).await?;
+                self.provider_result(Some(index), result)?;
             }
             RuntimeMessage::ProviderEvent(event) => {
                 self.provider_event(index, event)?;

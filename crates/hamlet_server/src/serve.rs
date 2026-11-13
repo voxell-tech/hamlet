@@ -172,7 +172,7 @@ async fn serve(app: App, options: Options) -> Result<()> {
     let pi = Pi::from_env(options.faux.clone())?;
     let (shutdown, closing) = watch::channel(false);
     let mut server =
-        Server::start(app, realm, env, pi, sandbox, closing).await?;
+        Server::start(app, realm, env, pi, sandbox, closing)?;
     let listener = TcpListener::bind((
         std::net::Ipv4Addr::LOCALHOST,
         options.port,

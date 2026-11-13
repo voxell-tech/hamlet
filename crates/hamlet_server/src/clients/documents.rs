@@ -42,17 +42,17 @@ fn memory_path(path: &str) -> Result<String, Refusal> {
 }
 
 impl Core<'_> {
-    pub(crate) async fn edit(
+    pub(crate) fn edit(
         &mut self,
         client: u64,
         edit: Edit,
     ) -> Result<()> {
         let id = edit_id(&edit).clone();
-        let answer = self.edited(edit).await?;
+        let answer = self.edited(edit)?;
         self.answer(client, reply(&id, answer))
     }
 
-    async fn edited(
+    fn edited(
         &mut self,
         edit: Edit,
     ) -> Result<Result<String, Refusal>> {
@@ -79,7 +79,7 @@ impl Core<'_> {
                         .execute(db)?;
                     }
                 }
-                self.publish().await?;
+                self.publish()?;
                 Ok(Ok("The charter is saved.".into()))
             }
             Edit::Character { scholar, text, .. } => {
@@ -98,8 +98,7 @@ impl Core<'_> {
                         bytes: text.into_bytes(),
                     }],
                     "Edited the character",
-                )
-                .await?;
+                )?;
                 Ok(Ok("The character is saved.".into()))
             }
             Edit::Memory { of, path, text, .. } => {
@@ -127,8 +126,7 @@ impl Core<'_> {
                             scholar,
                             &[change],
                             "Edited the memory",
-                        )
-                        .await?;
+                        )?;
                         Ok(Ok("The memory is saved.".into()))
                     }
                     Keeper::Agent(agent) => {
@@ -155,15 +153,14 @@ impl Core<'_> {
                             )?;
                         }
                         drop(held);
-                        self.push_lodge(agent).await?;
+                        self.unpushed.insert(agent);
                         self.change(Actor::Chief(chief), |cx, _| {
                             jobs::add(
                                 cx,
                                 &Job::Commit { hire: agent },
                             )?;
                             Ok(())
-                        })
-                        .await?;
+                        })?;
                         Ok(Ok("The memory is saved.".into()))
                     }
                 }
@@ -174,10 +171,10 @@ impl Core<'_> {
                 let value = serde_json::Value::Object(
                     whole.into_iter().collect(),
                 );
-                self.set_limits(hamlet, |_| Ok(value)).await
+                self.set_limits(hamlet, |_| Ok(value))
             }
-            Edit::Limits(EditLimits::Set { hamlet, set, .. }) => {
-                self.set_limits(hamlet, |mut current| {
+            Edit::Limits(EditLimits::Set { hamlet, set, .. }) => self
+                .set_limits(hamlet, |mut current| {
                     let section = current
                         .get_mut(&set.section)
                         .and_then(serde_json::Value::as_object_mut);
@@ -193,9 +190,7 @@ impl Core<'_> {
                         }
                     }
                     Ok(current)
-                })
-                .await
-            }
+                }),
             Edit::Settings { set, .. } => {
                 let db = self.realm.store().connection();
                 let mut settings = crate::settings::stored(db)?;
@@ -297,12 +292,12 @@ impl Core<'_> {
                 }
                 self.env.settings =
                     self.env.overrides.apply(settings);
-                self.publish().await?;
+                self.publish()?;
                 Ok(Ok("The settings are saved.".into()))
             }
             Edit::Catalogue { model, set, .. } => {
                 let answer = self.edit_catalogue(&model, set)?;
-                self.publish().await?;
+                self.publish()?;
                 Ok(answer)
             }
         }
@@ -310,7 +305,7 @@ impl Core<'_> {
 
     /// Replaces the limits of `hamlet`, or the realm's, with what
     /// `edit` makes of their client form.
-    async fn set_limits(
+    fn set_limits(
         &mut self,
         hamlet: Option<String>,
         edit: impl FnOnce(serde_json::Value) -> Result<serde_json::Value>,
@@ -345,8 +340,7 @@ impl Core<'_> {
                 let done = self
                     .attempt(Actor::Chief(chief), |cx, _| {
                         hamlets::set_limits(cx, &id, &own)
-                    })
-                    .await?;
+                    })?;
                 Ok(done.map(|()| {
                     format!("The limits of `{hamlet}` are saved.")
                 }))
@@ -379,7 +373,7 @@ impl Core<'_> {
                         document::chief.eq(chief),
                     ))
                     .execute(db)?;
-                self.publish().await?;
+                self.publish()?;
                 Ok(Ok("The realm's limits are saved.".into()))
             }
         }
@@ -387,7 +381,7 @@ impl Core<'_> {
 
     /// Commits `changes` to the `main` of `scholar` as `by`'s, and
     /// has its idle hires take them in.
-    pub(crate) async fn commit_main(
+    pub(crate) fn commit_main(
         &mut self,
         by: Actor,
         scholar: ScholarId,
@@ -409,12 +403,12 @@ impl Core<'_> {
             },
         )?;
         drop(held);
-        self.main_moved(by, scholar).await
+        self.main_moved(by, scholar)
     }
 
     /// Has the idle hires of `scholar` take in its `main`, which `by`
     /// moved.
-    pub(crate) async fn main_moved(
+    pub(crate) fn main_moved(
         &mut self,
         by: Actor,
         scholar: ScholarId,
@@ -429,8 +423,7 @@ impl Core<'_> {
             }
             cx.touched.scholars.insert(scholar);
             Ok(())
-        })
-        .await?;
+        })?;
         Ok(())
     }
 
@@ -494,8 +487,7 @@ impl Core<'_> {
                 let conversation = self
                     .change(Actor::Chief(chief), |cx, env| {
                         chats::current(cx, env, agent, chief)
-                    })
-                    .await?;
+                    })?;
                 let db = self.realm.store().connection();
                 let kept = crate::talk::conversations::get(
                     db,

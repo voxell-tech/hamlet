@@ -398,7 +398,7 @@ fn usage(name: &str) -> Refusal {
 impl Core<'_> {
     /// Runs the command `line`, said to `agent`, whose hamlet it
     /// means.
-    pub(crate) async fn command(
+    pub(crate) fn command(
         &mut self,
         agent: AgentId,
         line: &str,
@@ -414,21 +414,20 @@ impl Core<'_> {
             let db = self.realm.store().connection();
             hires::find(db, agent)?.map(|hire| hire.hamlet)
         };
-        if let Some(answer) = self
-            .oversight_command(agent, here.as_ref(), name, rest)
-            .await?
+        if let Some(answer) =
+            self.oversight_command(agent, here.as_ref(), name, rest)?
         {
             return Ok(answer);
         }
         if let Some(answer) =
-            self.versions_command(here.as_ref(), name, &words).await?
+            self.versions_command(here.as_ref(), name, &words)?
         {
             return Ok(answer);
         }
         if let Some(answer) =
-            self.shelves_command(here.as_ref(), name, &words).await?
+            self.shelves_command(here.as_ref(), name, &words)?
         {
-            self.publish().await?;
+            self.publish()?;
             return Ok(answer);
         }
         let tail = |from: usize| {
@@ -440,15 +439,13 @@ impl Core<'_> {
                                                   client."
                 .into())),
             "new" => {
-                let number = self
-                    .change(by, |cx, env| {
-                        crate::talk::chats::new_session(
-                            cx, env, agent, chief,
-                        )
-                    })
-                    .await?;
+                let number = self.change(by, |cx, env| {
+                    crate::talk::chats::new_session(
+                        cx, env, agent, chief,
+                    )
+                })?;
                 // Who watches the chat turns to the new session.
-                self.rewatch(agent).await?;
+                self.rewatch(agent)?;
                 Ok(Ok(format!("Session {number} began.")))
             }
             "resume" => {
@@ -472,25 +469,19 @@ impl Core<'_> {
                         list
                     }));
                 };
-                let done = self
-                    .attempt(by, |cx, _| {
-                        crate::talk::chats::resume(
-                            cx, agent, chief, number,
-                        )
-                    })
-                    .await?;
-                self.rewatch(agent).await?;
+                let done = self.attempt(by, |cx, _| {
+                    crate::talk::chats::resume(
+                        cx, agent, chief, number,
+                    )
+                })?;
+                self.rewatch(agent)?;
                 Ok(done
                     .map(|()| format!("Back in session {number}.")))
             }
             "retry" => {
-                let done = self
-                    .attempt(by, |cx, env| {
-                        crate::talk::chats::retry(
-                            cx, env, agent, chief,
-                        )
-                    })
-                    .await?;
+                let done = self.attempt(by, |cx, env| {
+                    crate::talk::chats::retry(cx, env, agent, chief)
+                })?;
                 Ok(done.map(|_| "Carrying on.".into()))
             }
             "stop" => {
@@ -499,11 +490,9 @@ impl Core<'_> {
                     Some(&"all") => {
                         let mut stopped = 0;
                         for each in self.every_reached()? {
-                            stopped += self
-                                .change(by, |cx, _| {
-                                    crate::talk::chats::stop(cx, each)
-                                })
-                                .await?;
+                            stopped += self.change(by, |cx, _| {
+                                crate::talk::chats::stop(cx, each)
+                            })?;
                         }
                         return Ok(Ok(format!(
                             "Stopped {stopped} running turns."
@@ -518,11 +507,9 @@ impl Core<'_> {
                         Err(refusal) => return Ok(Err(refusal)),
                     },
                 };
-                let stopped = self
-                    .change(by, |cx, _| {
-                        crate::talk::chats::stop(cx, target)
-                    })
-                    .await?;
+                let stopped = self.change(by, |cx, _| {
+                    crate::talk::chats::stop(cx, target)
+                })?;
                 Ok(Ok(format!("Stopped {stopped} running turns.")))
             }
             "hamlets" => {
@@ -571,19 +558,17 @@ impl Core<'_> {
                     "" => format!("Mayor of {shown}."),
                     given => given.to_owned(),
                 };
-                let done = self
-                    .attempt(by, |cx, _| {
-                        hamlets::found(
-                            cx,
-                            Founding {
-                                name: shown.clone(),
-                                chief,
-                                mayor,
-                                purpose,
-                            },
-                        )
-                    })
-                    .await?;
+                let done = self.attempt(by, |cx, _| {
+                    hamlets::found(
+                        cx,
+                        Founding {
+                            name: shown.clone(),
+                            chief,
+                            mayor,
+                            purpose,
+                        },
+                    )
+                })?;
                 let db = self.realm.store().connection();
                 Ok(match done {
                     Ok(hired) => Ok(format!(
@@ -604,11 +589,9 @@ impl Core<'_> {
                     return Ok(Err(refusal));
                 }
                 let shown = tail(1);
-                let done = self
-                    .attempt(by, |cx, _| {
-                        hamlets::rename(cx, &id, &shown)
-                    })
-                    .await?;
+                let done = self.attempt(by, |cx, _| {
+                    hamlets::rename(cx, &id, &shown)
+                })?;
                 Ok(done.map(|()| {
                     format!(
                         "The hamlet `{id}` is named {}.",
@@ -628,11 +611,9 @@ impl Core<'_> {
                 if let Err(refusal) = self.chief_of(&id)? {
                     return Ok(Err(refusal));
                 }
-                let done = self
-                    .attempt(by, |cx, _| {
-                        hamlets::place(cx, &id, x, z)
-                    })
-                    .await?;
+                let done = self.attempt(by, |cx, _| {
+                    hamlets::place(cx, &id, x, z)
+                })?;
                 Ok(done.map(|()| {
                     format!(
                         "The hamlet `{id}` is set down at {x}, {z}."
@@ -655,17 +636,15 @@ impl Core<'_> {
                     }
                     said => said,
                 };
-                let done = self
-                    .attempt(by, |cx, _| match name {
-                        "remove-hamlet" => {
-                            hamlets::remove(cx, &id, &reason)
-                        }
-                        "restore-hamlet" => {
-                            hamlets::restore(cx, &id, &reason)
-                        }
-                        _ => hamlets::erase(cx, &id),
-                    })
-                    .await?;
+                let done = self.attempt(by, |cx, _| match name {
+                    "remove-hamlet" => {
+                        hamlets::remove(cx, &id, &reason)
+                    }
+                    "restore-hamlet" => {
+                        hamlets::restore(cx, &id, &reason)
+                    }
+                    _ => hamlets::erase(cx, &id),
+                })?;
                 Ok(done.map(|()| match name {
                     "remove-hamlet" => format!(
                         "The hamlet `{id}` was removed and its \
@@ -691,11 +670,9 @@ impl Core<'_> {
                 if let Err(refusal) = self.chief_of(&id)? {
                     return Ok(Err(refusal));
                 }
-                let done = self
-                    .attempt(by, |cx, _| {
-                        hamlets::set_tier(cx, &id, tier)
-                    })
-                    .await?;
+                let done = self.attempt(by, |cx, _| {
+                    hamlets::set_tier(cx, &id, tier)
+                })?;
                 Ok(done.map(|()| {
                     format!(
                         "The hamlet `{id}` holds at most {tier} \
@@ -722,16 +699,14 @@ impl Core<'_> {
                     Err(refusal) => return Ok(Err(refusal)),
                 };
                 let reason = tail(1);
-                let done = self
-                    .attempt(by, |cx, _| {
-                        hires::seat(cx, &id, hire, &reason)
-                    })
-                    .await?;
+                let done = self.attempt(by, |cx, _| {
+                    hires::seat(cx, &id, hire, &reason)
+                })?;
                 Ok(done.map(|()| {
                     format!("`{text}` holds the office of `{id}`.")
                 }))
             }
-            "hire" => self.hire_command(here.as_ref(), &words).await,
+            "hire" => self.hire_command(here.as_ref(), &words),
             "end" | "restore" | "erase" => {
                 let Some(text) = words.first() else {
                     return Ok(Err(usage(name)));
@@ -758,8 +733,8 @@ impl Core<'_> {
                     }
                     _ => None,
                 };
-                let done = self
-                    .attempt(by, |cx, _| match (name, &merge) {
+                let done =
+                    self.attempt(by, |cx, _| match (name, &merge) {
                         ("end", _) => hires::end(
                             cx,
                             hire,
@@ -775,8 +750,7 @@ impl Core<'_> {
                             hires::come_back(cx, hire, &reason)
                         }
                         _ => hires::erase(cx, hire),
-                    })
-                    .await?;
+                    })?;
                 Ok(done.map(|()| match name {
                     "end" => format!("`{text}` was ended."),
                     "restore" if merge.is_some() => format!(
@@ -820,13 +794,11 @@ impl Core<'_> {
                 } else {
                     reason
                 };
-                let done = self
-                    .attempt(by, |cx, _| {
-                        crate::society::merges::merge(
-                            cx, kept, absorbed, &reason,
-                        )
-                    })
-                    .await?;
+                let done = self.attempt(by, |cx, _| {
+                    crate::society::merges::merge(
+                        cx, kept, absorbed, &reason,
+                    )
+                })?;
                 Ok(done.map(|_| {
                     format!(
                         "Merged `{}` into `{}`.",
@@ -853,11 +825,9 @@ impl Core<'_> {
                 }
                 let model = (*model != "none").then_some(*model);
                 let reason = tail(2);
-                let done = self
-                    .attempt(by, |cx, _| {
-                        agents::set_model(cx, hire, model, &reason)
-                    })
-                    .await?;
+                let done = self.attempt(by, |cx, _| {
+                    agents::set_model(cx, hire, model, &reason)
+                })?;
                 Ok(done.map(|()| {
                     format!(
                         "`{text}` runs {}.",
@@ -888,11 +858,9 @@ impl Core<'_> {
                         "off" => false,
                         _ => return Ok(Err(usage(name))),
                     };
-                    let done = self
-                        .attempt(by, |cx, _| {
-                            agents::set_fast(cx, agent, fast)
-                        })
-                        .await?;
+                    let done = self.attempt(by, |cx, _| {
+                        agents::set_fast(cx, agent, fast)
+                    })?;
                     return Ok(done.map(|()| {
                         format!(
                             "`{text}` asks for the fast tier: \
@@ -907,11 +875,9 @@ impl Core<'_> {
                         None => return Ok(Err(usage(name))),
                     },
                 };
-                let done = self
-                    .attempt(by, |cx, _| {
-                        agents::set_effort(cx, agent, effort)
-                    })
-                    .await?;
+                let done = self.attempt(by, |cx, _| {
+                    agents::set_effort(cx, agent, effort)
+                })?;
                 Ok(done.map(|()| match effort {
                     Some(effort) => {
                         format!("`{text}` thinks at {effort}.")
@@ -951,24 +917,22 @@ impl Core<'_> {
                 let nickname = tail(1);
                 let given =
                     (!nickname.is_empty()).then_some(nickname);
-                let done = self
-                    .attempt(by, |cx, _| {
-                        if worker {
-                            workers::set_nickname(
-                                cx,
-                                agent,
-                                given.as_deref(),
-                            )
-                        } else {
-                            hires::set_nickname(
-                                cx,
-                                agent,
-                                given.as_deref(),
-                                "",
-                            )
-                        }
-                    })
-                    .await?;
+                let done = self.attempt(by, |cx, _| {
+                    if worker {
+                        workers::set_nickname(
+                            cx,
+                            agent,
+                            given.as_deref(),
+                        )
+                    } else {
+                        hires::set_nickname(
+                            cx,
+                            agent,
+                            given.as_deref(),
+                            "",
+                        )
+                    }
+                })?;
                 Ok(done.map(|()| match &given {
                     Some(nickname) => {
                         format!("`{text}` is called {nickname} now.")
@@ -1015,11 +979,9 @@ impl Core<'_> {
                         )
                     }));
                 }
-                let done = self
-                    .attempt(by, |cx, _| {
-                        hires::set_tools(cx, hire, &off, &on, "")
-                    })
-                    .await?;
+                let done = self.attempt(by, |cx, _| {
+                    hires::set_tools(cx, hire, &off, &on, "")
+                })?;
                 Ok(done.map(|()| {
                     format!("`{text}`'s tools are changed.")
                 }))
@@ -1053,11 +1015,9 @@ impl Core<'_> {
                         _ => return Ok(Err(usage(name))),
                     },
                 };
-                let done = self
-                    .attempt(by, |cx, _| {
-                        hires::set_allowance(cx, hire, allowance, "")
-                    })
-                    .await?;
+                let done = self.attempt(by, |cx, _| {
+                    hires::set_allowance(cx, hire, allowance, "")
+                })?;
                 Ok(done.map(|()| match allowance {
                     Some(micros) => format!(
                         "`{text}` may spend {} a period.",
@@ -1097,18 +1057,14 @@ impl Core<'_> {
                 }
                 let reason = tail(2);
                 if name == "road" {
-                    let done = self
-                        .attempt(by, |cx, _| {
-                            roads::lay(cx, a, b, &reason, None)
-                        })
-                        .await?;
+                    let done = self.attempt(by, |cx, _| {
+                        roads::lay(cx, a, b, &reason, None)
+                    })?;
                     Ok(done.map(|_| "The road is laid.".into()))
                 } else {
-                    let done = self
-                        .attempt(by, |cx, _| {
-                            roads::take_up(cx, a, b, &reason)
-                        })
-                        .await?;
+                    let done = self.attempt(by, |cx, _| {
+                        roads::take_up(cx, a, b, &reason)
+                    })?;
                     Ok(done.map(|()| "The road is taken up.".into()))
                 }
             }
@@ -1132,15 +1088,13 @@ impl Core<'_> {
                             path: folder.clone(),
                         }));
                     }
-                    let done = self
-                        .attempt(by, |cx, _| {
-                            hamlets::set_folder(
-                                cx,
-                                &id,
-                                folder.as_deref(),
-                            )
-                        })
-                        .await?;
+                    let done = self.attempt(by, |cx, _| {
+                        hamlets::set_folder(
+                            cx,
+                            &id,
+                            folder.as_deref(),
+                        )
+                    })?;
                     Ok(done.map(|()| match &folder {
                         Some(folder) => {
                             format!("`{id}` works on {folder}.")
@@ -1153,11 +1107,9 @@ impl Core<'_> {
                         Some(&"auto") => Mode::Auto,
                         _ => return Ok(Err(usage(name))),
                     };
-                    let done = self
-                        .attempt(by, |cx, _| {
-                            hamlets::set_mode(cx, &id, mode)
-                        })
-                        .await?;
+                    let done = self.attempt(by, |cx, _| {
+                        hamlets::set_mode(cx, &id, mode)
+                    })?;
                     Ok(done.map(|()| {
                         format!("`{id}` is in {mode} mode.")
                     }))
@@ -1181,7 +1133,7 @@ impl Core<'_> {
                 let at = crate::clock::now();
                 let db = self.realm.store().connection();
                 spend::reset(db, here.as_ref(), chief, at)?;
-                self.publish().await?;
+                self.publish()?;
                 Ok(Ok("The budget's period starts again from now."
                     .into()))
             }
@@ -1232,13 +1184,9 @@ impl Core<'_> {
                             )
                         },
                     );
-                let done = self
-                    .attempt(by, |cx, _| {
-                        city::make(
-                            cx, &scholar, chief, &character, None,
-                        )
-                    })
-                    .await?;
+                let done = self.attempt(by, |cx, _| {
+                    city::make(cx, &scholar, chief, &character, None)
+                })?;
                 let db = self.realm.store().connection();
                 Ok(match done {
                     Ok(id) => Ok(format!(
@@ -1267,11 +1215,9 @@ impl Core<'_> {
                     }
                 }
                 let new = tail(1);
-                let done = self
-                    .attempt(by, |cx, _| {
-                        city::rename(cx, scholar, &new)
-                    })
-                    .await?;
+                let done = self.attempt(by, |cx, _| {
+                    city::rename(cx, scholar, &new)
+                })?;
                 let db = self.realm.store().connection();
                 Ok(match done {
                     Ok(()) => Ok(format!(
@@ -1321,34 +1267,28 @@ impl Core<'_> {
                     }) else {
                         return Ok(Err(usage(name)));
                     };
-                    let done = self
-                        .attempt(by, |cx, _| {
-                            city::place(cx, scholar, x, z, turn)
-                        })
-                        .await?;
+                    let done = self.attempt(by, |cx, _| {
+                        city::place(cx, scholar, x, z, turn)
+                    })?;
                     return Ok(done.map(|()| {
                         format!(
                             "`{text}`'s house stands at {x}, {z}."
                         )
                     }));
                 }
-                let done = self
-                    .attempt(by, |cx, _| match name {
-                        "remove-scholar" => {
-                            city::archive(cx, scholar, &reason)
-                        }
-                        "restore-scholar" => {
-                            city::restore(cx, scholar, &reason)
-                        }
-                        "welcome" => {
-                            city::welcome(cx, scholar, &reason)
-                        }
-                        "turn-away" => {
-                            city::turn_away(cx, scholar, &reason)
-                        }
-                        _ => city::erase(cx, scholar),
-                    })
-                    .await?;
+                let done = self.attempt(by, |cx, _| match name {
+                    "remove-scholar" => {
+                        city::archive(cx, scholar, &reason)
+                    }
+                    "restore-scholar" => {
+                        city::restore(cx, scholar, &reason)
+                    }
+                    "welcome" => city::welcome(cx, scholar, &reason),
+                    "turn-away" => {
+                        city::turn_away(cx, scholar, &reason)
+                    }
+                    _ => city::erase(cx, scholar),
+                })?;
                 Ok(done.map(|()| match name {
                     "remove-scholar" => format!(
                         "`{text}` left the city, with its hires."
@@ -1377,7 +1317,7 @@ impl Core<'_> {
         }
     }
 
-    async fn hire_command(
+    fn hire_command(
         &mut self,
         here: Option<&HamletId>,
         words: &[&str],
@@ -1434,21 +1374,19 @@ impl Core<'_> {
                 Err(refusal) => return Ok(Err(refusal)),
             }
         };
-        let done = self
-            .attempt(Actor::Chief(chief), |cx, _| {
-                hires::hire(
-                    cx,
-                    Spec {
-                        hamlet: hamlet.clone(),
-                        parent: Some(parent),
-                        hiring,
-                        purpose,
-                        reason: String::new(),
-                        owner: chief,
-                    },
-                )
-            })
-            .await?;
+        let done = self.attempt(Actor::Chief(chief), |cx, _| {
+            hires::hire(
+                cx,
+                Spec {
+                    hamlet: hamlet.clone(),
+                    parent: Some(parent),
+                    hiring,
+                    purpose,
+                    reason: String::new(),
+                    owner: chief,
+                },
+            )
+        })?;
         let db = self.realm.store().connection();
         Ok(match done {
             Ok(hired) => Ok(format!(

@@ -103,7 +103,7 @@ fn withdraw(
 impl Core<'_> {
     /// A chief's `choice` on the wait `id`, in the words a reply
     /// gives.
-    pub(crate) async fn answer_wait(
+    pub(crate) fn answer_wait(
         &mut self,
         id: &str,
         choice: &Choice,
@@ -164,103 +164,94 @@ impl Core<'_> {
             Some(agent) => addresses::name_of(db, agent)?,
             None => "the realm".into(),
         };
-        let settled = self
-            .change(Actor::Chief(chief), |cx, _| {
-                if !oversight::settle(
-                    cx,
-                    wait.id,
-                    ruling,
-                    &text,
-                    Some(chief),
-                )? {
-                    return Ok(false);
-                }
-                // A newcomer gone or let in since stays as it is.
-                if wait.kind == WaitKind::Newcomer
-                    && ruling == Ruling::Welcome
-                    && let Some(scholar) = wait.scholar
+        let settled = self.change(Actor::Chief(chief), |cx, _| {
+            if !oversight::settle(
+                cx,
+                wait.id,
+                ruling,
+                &text,
+                Some(chief),
+            )? {
+                return Ok(false);
+            }
+            // A newcomer gone or let in since stays as it is.
+            if wait.kind == WaitKind::Newcomer
+                && ruling == Ruling::Welcome
+                && let Some(scholar) = wait.scholar
+            {
+                let _ = crate::society::city::welcome(
+                    cx, scholar, &text,
+                )?;
+            }
+            if wait.kind == WaitKind::Objection {
+                super::objections::rule(
+                    cx.db, wait.id, ruling, cx.at,
+                )?;
+                if ruling == Ruling::Withdraw
+                    && let (Some(task), Some(conversation)) =
+                        (wait.task, wait.conversation)
                 {
-                    let _ = crate::society::city::welcome(
-                        cx, scholar, &text,
-                    )?;
+                    withdraw(cx, conversation, task)?;
                 }
-                if wait.kind == WaitKind::Objection {
-                    super::objections::rule(
-                        cx.db, wait.id, ruling, cx.at,
+            }
+            if ruling == Ruling::Always
+                && let (
+                    Some(
+                        danger @ (Danger::Network
+                        | Danger::Unconfined),
+                    ),
+                    Some(agent),
+                ) = (wait.danger, wait.agent)
+            {
+                let permission = if danger == Danger::Network {
+                    Permission::Network
+                } else {
+                    Permission::Unconfined
+                };
+                gate::give(cx.db, agent, &permission, chief, cx.at)?;
+            }
+            let mut struck = Vec::new();
+            for (call, conversation, net) in &ruled {
+                if ruling.is_allowing() {
+                    held::set_net(
+                        cx.db,
+                        &call.runtime,
+                        &call.key,
+                        *net,
                     )?;
-                    if ruling == Ruling::Withdraw
-                        && let (Some(task), Some(conversation)) =
-                            (wait.task, wait.conversation)
-                    {
-                        withdraw(cx, conversation, task)?;
-                    }
                 }
                 if ruling == Ruling::Always
-                    && let (
-                        Some(
-                            danger @ (Danger::Network
-                            | Danger::Unconfined),
-                        ),
-                        Some(agent),
-                    ) = (wait.danger, wait.agent)
+                    && let Some(
+                        danger @ (Danger::Edit | Danger::Command),
+                    ) = wait.danger
+                    && let Some(session) = chat_session(conversation)
                 {
-                    let permission = if danger == Danger::Network {
-                        Permission::Network
-                    } else {
-                        Permission::Unconfined
-                    };
-                    gate::give(
+                    gate::trust(cx.db, session, danger)?;
+                }
+                if ruling == Ruling::Deny
+                    && let Some(danger) = wait.danger
+                    && !struck.contains(&conversation.id)
+                {
+                    let mut asked = Asked::of(
                         cx.db,
-                        agent,
-                        &permission,
-                        chief,
-                        cx.at,
+                        conversation.id,
+                        call.input.as_deref(),
                     )?;
+                    asked.refuse(
+                        danger,
+                        &wait.about,
+                        if text.is_empty() {
+                            "no reason given"
+                        } else {
+                            &text
+                        },
+                    );
+                    asked.keep(cx.db, conversation.id)?;
+                    struck.push(conversation.id);
                 }
-                let mut struck = Vec::new();
-                for (call, conversation, net) in &ruled {
-                    if ruling.is_allowing() {
-                        held::set_net(
-                            cx.db,
-                            &call.runtime,
-                            &call.key,
-                            *net,
-                        )?;
-                    }
-                    if ruling == Ruling::Always
-                        && let Some(
-                            danger @ (Danger::Edit | Danger::Command),
-                        ) = wait.danger
-                        && let Some(session) =
-                            chat_session(conversation)
-                    {
-                        gate::trust(cx.db, session, danger)?;
-                    }
-                    if ruling == Ruling::Deny
-                        && let Some(danger) = wait.danger
-                        && !struck.contains(&conversation.id)
-                    {
-                        let mut asked = Asked::of(
-                            cx.db,
-                            conversation.id,
-                            call.input.as_deref(),
-                        )?;
-                        asked.refuse(
-                            danger,
-                            &wait.about,
-                            if text.is_empty() {
-                                "no reason given"
-                            } else {
-                                &text
-                            },
-                        );
-                        asked.keep(cx.db, conversation.id)?;
-                        struck.push(conversation.id);
-                    }
-                }
-                Ok(true)
-            })
-            .await?;
+            }
+            Ok(true)
+        })?;
         if !settled {
             return Ok(Err(Refusal::NoWait));
         }

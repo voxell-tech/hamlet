@@ -17,7 +17,7 @@ use crate::talk::{chats, reflections};
 impl Core<'_> {
     /// Runs the command `name` with `rest` when it is one of these,
     /// said to `agent` in `here`.
-    pub(super) async fn oversight_command(
+    pub(super) fn oversight_command(
         &mut self,
         agent: AgentId,
         here: Option<&HamletId>,
@@ -35,24 +35,22 @@ impl Core<'_> {
             _ => None,
         };
         if let Some(choice) = choice {
-            return Ok(Some(
-                self.answer_line(agent, &choice, rest).await?,
-            ));
+            return Ok(Some(self.answer_line(agent, &choice, rest)?));
         }
         Ok(Some(match name {
             "queue" => self.queue()?,
             "grants" => self.grants()?,
             "revoke" => self.revoke(here, rest)?,
-            "to" => self.instruct(here, rest).await?,
-            "reflect" => self.reflect(agent).await?,
-            "worker" => self.chiefs_worker(here, rest).await?,
+            "to" => self.instruct(here, rest)?,
+            "reflect" => self.reflect(agent)?,
+            "worker" => self.chiefs_worker(here, rest)?,
             _ => return Ok(None),
         }))
     }
 
     /// Answers a wait with `choice`: the one `#<id>` names, else the
     /// oldest of `agent`'s, else the oldest of all.
-    async fn answer_line(
+    fn answer_line(
         &mut self,
         agent: AgentId,
         choice: &Choice,
@@ -88,7 +86,7 @@ impl Core<'_> {
             }
         };
         let text = (!text.is_empty()).then_some(text);
-        self.answer_wait(&id, choice, text, None).await
+        self.answer_wait(&id, choice, text, None)
     }
 
     fn queue(&mut self) -> Result<Result<String, Refusal>> {
@@ -204,7 +202,7 @@ impl Core<'_> {
     }
 
     /// Instructs the agent `rest` begins with, from any chat.
-    async fn instruct(
+    fn instruct(
         &mut self,
         here: Option<&HamletId>,
         rest: &str,
@@ -240,24 +238,20 @@ impl Core<'_> {
         let request = format!("to:{}", uuid::Uuid::new_v4());
         self.change(Actor::Chief(chief), |cx, env| {
             chats::say(cx, env, target, chief, &request, &line)
-        })
-        .await?;
+        })?;
         let name = self.name_of(target)?;
         Ok(Ok(format!("Told {name}.")))
     }
 
-    async fn reflect(
+    fn reflect(
         &mut self,
         agent: AgentId,
     ) -> Result<Result<String, Refusal>> {
         let chief = self.realm.chief();
-        let asked = self
-            .change(Actor::Chief(chief), |cx, env| {
-                let conversation =
-                    chats::current(cx, env, agent, chief)?;
-                reflections::ask(cx, conversation)
-            })
-            .await?;
+        let asked = self.change(Actor::Chief(chief), |cx, env| {
+            let conversation = chats::current(cx, env, agent, chief)?;
+            reflections::ask(cx, conversation)
+        })?;
         let name = self.name_of(agent)?;
         Ok(Ok(match asked {
             Some(_) => format!("Asked {name} to reflect."),
@@ -267,7 +261,7 @@ impl Core<'_> {
 
     /// Starts a worker on `brief` in `here`, or outside every hamlet,
     /// whose answer shows in its own transcript.
-    async fn chiefs_worker(
+    fn chiefs_worker(
         &mut self,
         here: Option<&HamletId>,
         brief: &str,
@@ -281,46 +275,43 @@ impl Core<'_> {
             addresses::actor_name(db, Some(Actor::Chief(chief)))?;
         let hamlet = here.cloned();
         let brief = self.credentials.scrub_text(brief);
-        let done = self
-            .attempt(Actor::Chief(chief), |cx, env| {
-                let id = match crate::society::workers::start(
-                    cx,
-                    crate::society::workers::Start {
-                        starter:
-                            crate::society::workers::Starter::Chief(
-                                chief,
-                            ),
-                        hamlet,
-                        brief: brief.clone(),
-                        tools: Vec::new(),
-                        model: None,
-                        waits: false,
-                        call: None,
-                    },
-                )? {
-                    Ok(id) => id,
-                    Err(refusal) => return Ok(Err(refusal)),
-                };
-                // A worker no model can run would never start.
-                if !crate::talk::models::has_model(
-                    cx.db,
-                    &env.settings,
-                    &env.overrides,
-                    id,
-                )? {
-                    return Ok(Err(Refusal::NoModelSetUp));
-                }
-                crate::talk::briefs::give(
-                    cx,
-                    env,
-                    id,
-                    &brief,
-                    &author,
-                    Some(chief),
-                )?;
-                Ok(Ok(id))
-            })
-            .await?;
+        let done = self.attempt(Actor::Chief(chief), |cx, env| {
+            let id = match crate::society::workers::start(
+                cx,
+                crate::society::workers::Start {
+                    starter: crate::society::workers::Starter::Chief(
+                        chief,
+                    ),
+                    hamlet,
+                    brief: brief.clone(),
+                    tools: Vec::new(),
+                    model: None,
+                    waits: false,
+                    call: None,
+                },
+            )? {
+                Ok(id) => id,
+                Err(refusal) => return Ok(Err(refusal)),
+            };
+            // A worker no model can run would never start.
+            if !crate::talk::models::has_model(
+                cx.db,
+                &env.settings,
+                &env.overrides,
+                id,
+            )? {
+                return Ok(Err(Refusal::NoModelSetUp));
+            }
+            crate::talk::briefs::give(
+                cx,
+                env,
+                id,
+                &brief,
+                &author,
+                Some(chief),
+            )?;
+            Ok(Ok(id))
+        })?;
         Ok(done.map(|id| {
             format!(
                 "Started worker#{id}; open it to watch it and read \

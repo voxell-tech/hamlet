@@ -36,7 +36,7 @@ pub(crate) enum Dreamer {
 
 impl Core<'_> {
     /// Starts a dream when one is due.
-    pub(crate) async fn dream_tick(&mut self) -> Result<()> {
+    pub(crate) fn dream_tick(&mut self) -> Result<()> {
         let dreams = &self.env.settings.dreams;
         if !dreams.on {
             return Ok(());
@@ -57,7 +57,7 @@ impl Core<'_> {
             return Ok(());
         }
         if let Some(dreamer) = self.due()? {
-            self.dream(dreamer).await?;
+            self.dream(dreamer)?;
         }
         Ok(())
     }
@@ -125,7 +125,7 @@ impl Core<'_> {
     }
 
     /// `/dream <scholar#id|address>`: dreams now, outside the hours.
-    pub(crate) async fn dream_command(
+    pub(crate) fn dream_command(
         &mut self,
         here: Option<&hamlet_store::ids::HamletId>,
         words: &[&str],
@@ -179,7 +179,7 @@ impl Core<'_> {
                 ending,
             }
         };
-        Ok(Ok(match self.dream(dreamer).await? {
+        Ok(Ok(match self.dream(dreamer)? {
             Some(_) => "The dream began.".into(),
             None => "There is nothing to dream about.".into(),
         }))
@@ -187,7 +187,7 @@ impl Core<'_> {
 
     /// Starts `dreamer`'s dream. `None` when there is nothing to
     /// dream about.
-    pub(crate) async fn dream(
+    pub(crate) fn dream(
         &mut self,
         dreamer: Dreamer,
     ) -> Result<Option<DreamId>> {
@@ -212,11 +212,9 @@ impl Core<'_> {
                 hand::id(db)?,
             ),
         };
-        let id = self
-            .change(Actor::Realm, |cx, _| {
-                dreams::begin(cx, kind, scholar, hire, ending)
-            })
-            .await?;
+        let id = self.change(Actor::Realm, |cx, _| {
+            dreams::begin(cx, kind, scholar, hire, ending)
+        })?;
         let writing = self.writing.clone();
         let held = writing.hold();
         let db = self.realm.store().connection();
@@ -318,8 +316,7 @@ impl Core<'_> {
                 },
             )?;
             dreams::runs_in(cx.db, id, conversation, task)
-        })
-        .await?;
+        })?;
         Ok(Some(id))
     }
 }

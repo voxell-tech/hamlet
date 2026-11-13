@@ -116,7 +116,7 @@ impl Core<'_> {
         })
     }
 
-    pub(super) async fn edit_scholar(
+    pub(super) fn edit_scholar(
         &mut self,
         call: &Call<'_>,
     ) -> Result<Result<String, Refusal>> {
@@ -161,8 +161,7 @@ impl Core<'_> {
             } else {
                 &message
             },
-        )
-        .await?;
+        )?;
         Ok(Ok(format!("Wrote {path} of {}.", text(call, "scholar"))))
     }
 
@@ -205,7 +204,7 @@ impl Core<'_> {
         Ok(Ok(format!("Tagged {name}'s main as {tag}.")))
     }
 
-    pub(super) async fn revert_scholar(
+    pub(super) fn revert_scholar(
         &mut self,
         call: &Call<'_>,
     ) -> Result<Result<String, Refusal>> {
@@ -239,7 +238,7 @@ impl Core<'_> {
             },
         )?;
         drop(held);
-        self.main_moved(by, scholar).await?;
+        self.main_moved(by, scholar)?;
         Ok(Ok(if merged.clashes.is_empty() {
             format!("Reverted the commit on {name}'s main.")
         } else {

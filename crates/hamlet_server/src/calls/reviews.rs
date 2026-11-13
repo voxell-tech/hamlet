@@ -32,7 +32,7 @@ impl Core<'_> {
     /// `submission`: the lead's review of a chief's instruction,
     /// begun once, and the hold while a chief considers an objection
     /// to it, as its key and words.
-    pub(crate) async fn before_prompt(
+    pub(crate) fn before_prompt(
         &mut self,
         conversation: &Conversation,
         submission: Option<&str>,
@@ -124,8 +124,7 @@ impl Core<'_> {
                 ))
                 .execute(cx.db)?;
             Ok(())
-        })
-        .await?;
+        })?;
         Ok(None)
     }
 

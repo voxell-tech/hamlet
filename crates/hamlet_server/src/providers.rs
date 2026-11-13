@@ -386,16 +386,16 @@ impl Core<'_> {
     }
 
     /// Answers the provider requests that timed out.
-    pub(crate) async fn expire_providers(&mut self) -> Result<()> {
+    pub(crate) fn expire_providers(&mut self) -> Result<()> {
         for result in self.providers.expired() {
-            self.provider_result(None, result).await?;
+            self.provider_result(None, result)?;
         }
         Ok(())
     }
 
     /// Takes a client's sign-in, check or read of the models. `false`
     /// when `message` is none of them.
-    pub(crate) async fn model_request(
+    pub(crate) fn model_request(
         &mut self,
         client: u64,
         message: &hamlet_protocol::client::ClientMessage,
@@ -418,7 +418,7 @@ impl Core<'_> {
                     client,
                     reply(id, Ok::<_, Refusal>(words.into())),
                 )?;
-                self.publish().await?;
+                self.publish()?;
                 return Ok(true);
             }
             ClientMessage::Check(check) => {
@@ -655,7 +655,7 @@ impl Core<'_> {
 
     /// The end of a provider request, from the runtime of `index` or
     /// its timeout.
-    pub(crate) async fn provider_result(
+    pub(crate) fn provider_result(
         &mut self,
         index: Option<usize>,
         result: ProviderResult,
@@ -692,7 +692,7 @@ impl Core<'_> {
             if let Some((client, id)) = &pending.from {
                 self.answer(*client, login_step(id, &login, step))?;
             }
-            self.publish().await?;
+            self.publish()?;
             return Ok(());
         }
         if let Some(providers) = result.providers {
@@ -724,7 +724,7 @@ impl Core<'_> {
             )?;
         }
         if pending.action == ProviderRequestAction::Describe {
-            self.publish().await?;
+            self.publish()?;
             return Ok(());
         }
         let count = self
@@ -771,7 +771,7 @@ impl Core<'_> {
                 )?;
             }
         }
-        self.publish().await
+        self.publish()
     }
 
     fn named_model(

@@ -114,7 +114,7 @@ impl Core<'_> {
 
     /// Objects to the instruction of `call`'s turn, or gives the
     /// chief's ruling once there is one.
-    pub(super) async fn object(
+    pub(super) fn object(
         &mut self,
         call: &Call<'_>,
     ) -> Result<std::result::Result<Outcome, Answer>> {
@@ -210,8 +210,7 @@ impl Core<'_> {
                 ))
                 .execute(cx.db)?;
             held::hold(cx.db, &runtime, &key, on, None)
-        })
-        .await?;
+        })?;
         Ok(Err(Answer::Waiting(OBJECTING.into())))
     }
 }
