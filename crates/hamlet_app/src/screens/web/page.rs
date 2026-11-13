@@ -93,7 +93,12 @@ pub(super) fn helper() -> PathBuf {
         .map(PathBuf::from)
         .or_else(|| {
             let window = std::env::current_exe().ok()?;
-            Some(window.parent()?.join(HELPER))
+            Some(
+                window
+                    .parent()?
+                    .join(HELPER)
+                    .with_extension(std::env::consts::EXE_EXTENSION),
+            )
         })
         .unwrap_or_else(|| PathBuf::from(HELPER))
 }
