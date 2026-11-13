@@ -336,12 +336,16 @@ fn stored_actor(path: &Path) -> Result<Option<StoredActor>> {
 /// When the alarm is due and still stored, wakes the actor. A running
 /// actor's own timer fires the alarm; this only starts a stopped one.
 /// The timer replaces the actor's earlier one, unless that one is
-/// already due.
+/// already due. An alarm that is no longer stored arms nothing: each
+/// store arms from a task of its own, so arms can come out of order.
 fn arm_alarm(host: &Arc<HostInner>, actor_id: String, wake_at: i64) {
     let weak = Arc::downgrade(host);
     // Held until the new timer is in the map, so the timer cannot
     // look for itself there first.
     let mut timers = host.timers.lock();
+    if host.alarms.lock().get(&actor_id) != Some(&wake_at) {
+        return;
+    }
     let timer = tokio::spawn({
         let actor_id = actor_id.clone();
         async move {
@@ -686,4 +690,66 @@ fn now_ms() -> i64 {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX))
         .unwrap_or_default()
+}
+
+#[cfg(test)]
+#[path = "../examples/demo/counter.rs"]
+mod counter;
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use hamlet_testing::Scratch;
+    use tokio::time::{Instant, sleep};
+
+    use super::*;
+
+    /// Each store arms its alarm from a task of its own, so an
+    /// earlier alarm's arm can come after a newer one's. It must not
+    /// replace the newer timer.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_late_arm_of_a_replaced_alarm_keeps_the_newer_timer() {
+        let dir = Scratch::new("host-late-arm");
+        let host = Host::open(
+            &dir,
+            counter::factories(counter::Sleep::WhenIdle),
+        )
+        .unwrap();
+        let id = host.get_or_start("counter", "a").await.unwrap();
+        host.action(&id, "schedule", 300u64.to_le_bytes().to_vec())
+            .await
+            .unwrap();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !host.0.timers.lock().contains_key(&id) {
+            assert!(
+                Instant::now() < deadline,
+                "the alarm was not armed"
+            );
+            sleep(Duration::from_millis(10)).await;
+        }
+        host.stop(&id, ShutdownKind::Sleep).await.unwrap();
+
+        // The arm of an alarm the 300 ms one replaced, arriving last.
+        arm_alarm(&host.0, id.clone(), now_ms() + 600_000);
+
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            if host.is_running(&id).await {
+                let reply = host
+                    .action(&id, "get", Vec::new())
+                    .await
+                    .unwrap();
+                if counter::count(reply).unwrap() == 1 {
+                    break;
+                }
+            }
+            assert!(
+                Instant::now() < deadline,
+                "the actor never woke"
+            );
+            sleep(Duration::from_millis(20)).await;
+        }
+        host.stop_all().await.unwrap();
+    }
 }
