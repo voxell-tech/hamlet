@@ -10,6 +10,7 @@ description = "Runs actors in this process, each in one plain SQLite file"
 [dependencies]
 anyhow.workspace = true
 hamlet_actor_core.workspace = true
+hamlet_actor_error.workspace = true
 hamlet_sqlite.workspace = true
 parking_lot.workspace = true
 rusqlite.workspace = true
@@ -24,7 +25,6 @@ faults = []
 async-trait.workspace = true
 ciborium.workspace = true
 hamlet_actor.workspace = true
-hamlet_actor_error.workspace = true
 # The crate's own tests and examples run with its fault points.
 hamlet_host = { workspace = true, features = ["faults"] }
 hamlet_testing.workspace = true

@@ -1,6 +1,7 @@
 //! The local host: start by key, calls and their deadlines, stop,
 //! shutdown, the folder lock, the deadline a stop leaves, the commit
-//! hook, and how one actor's start or stop leaves the others alone.
+//! hook, how one actor's start or stop leaves the others alone, and
+//! the deadline of a start.
 
 use std::collections::HashMap;
 use std::future::Future;
@@ -8,6 +9,7 @@ use std::mem::ManuallyDrop;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use act::{DEADLINE, act};
@@ -16,7 +18,7 @@ use hamlet_actor_core::{
     ColumnValue, ShutdownKind,
 };
 use hamlet_actor_error::ActorError;
-use hamlet_host::{Address, Cause, Host};
+use hamlet_host::{Address, Cause, Host, HostOptions};
 use hamlet_testing::Scratch;
 use parking_lot::Mutex;
 use rusqlite::{Connection, OpenFlags};
@@ -1195,4 +1197,199 @@ async fn a_dropped_host_starts_nothing() {
     }
     again.shutdown().await.unwrap();
     assert_eq!(probe(&dir, "slow", "y").unwrap(), 1);
+}
+
+/// A start deadline short enough for a test.
+const START_DEADLINE: Duration = Duration::from_millis(500);
+
+/// Sets its flag when dropped.
+struct DropFlag(Arc<AtomicBool>);
+
+impl Drop for DropFlag {
+    fn drop(&mut self) {
+        self.0.store(true, Ordering::SeqCst);
+    }
+}
+
+/// The kind `kind`, whose start never ends: its run handler never
+/// signals that it is ready. Its run future sets `dropped` when it is
+/// dropped.
+fn stuck(
+    kind: &str,
+    dropped: &Arc<AtomicBool>,
+) -> HashMap<String, ActorFactory> {
+    let config = ActorConfig {
+        name: Some(kind.to_owned()),
+        has_database: true,
+        ..ActorConfig::default()
+    };
+    let dropped = dropped.clone();
+    HashMap::from([(
+        kind.to_owned(),
+        ActorFactory::new_with_manual_startup_ready(
+            config,
+            move |start: ActorStart| {
+                let flag = DropFlag(dropped.clone());
+                Box::pin(async move {
+                    let _held = (flag, start);
+                    std::future::pending::<()>().await;
+                    Ok(())
+                })
+            },
+        ),
+    )])
+}
+
+/// Waits up to a second for `dropped` to be set.
+async fn wait_for_the_drop(dropped: &AtomicBool) {
+    let deadline =
+        tokio::time::Instant::now() + Duration::from_secs(1);
+    while !dropped.load(Ordering::SeqCst) {
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "the run future was not dropped"
+        );
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+}
+
+/// A start that never finishes fails at its deadline with
+/// `actor.not_ready`, and closes the actor's file, which keeps its
+/// running mark. A call and a stop that came during the start end
+/// with it, without a start of their own: the call with the start's
+/// error, the stop with nothing to stop. The run handler's future is
+/// dropped.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_start_that_never_finishes_fails_at_its_deadline() {
+    let dir = Scratch::new("host-stuck-start");
+    let dropped = Arc::new(AtomicBool::new(false));
+    let host = Host::open_with(
+        &dir,
+        stuck("stuck", &dropped),
+        HostOptions {
+            start_deadline: START_DEADLINE,
+        },
+    )
+    .unwrap();
+    let began = tokio::time::Instant::now();
+    let start = tokio::spawn({
+        let host = host.clone();
+        async move { host.get_or_start("stuck", "a").await }
+    });
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    let call = tokio::spawn({
+        let host = host.clone();
+        async move {
+            host.call(
+                &Address::new("stuck", "a"),
+                "get",
+                Vec::new(),
+                Duration::from_secs(30),
+                Cause::root("test"),
+            )
+            .await
+        }
+    });
+    let stop = tokio::spawn({
+        let host = host.clone();
+        async move { host.stop("stuck/a", ShutdownKind::Sleep).await }
+    });
+    let by = began + START_DEADLINE * 3;
+    let start = tokio::time::timeout_at(by, start)
+        .await
+        .expect("the start outlived its deadline")
+        .unwrap()
+        .expect_err("a start that never finishes must fail");
+    assert!(is_actor_error(&start, "not_ready"), "{start:#}");
+    let call = tokio::time::timeout_at(by, call)
+        .await
+        .expect("the call outlived the start")
+        .unwrap()
+        .expect_err("the call must fail with the start");
+    assert!(is_actor_error(&call, "not_ready"), "{call:#}");
+    tokio::time::timeout_at(by, stop)
+        .await
+        .expect("the stop outlived the start")
+        .unwrap()
+        .unwrap();
+    assert!(!host.is_running("stuck/a"));
+    let running = Connection::open_with_flags(
+        dir.join("actors/stuck/a.sqlite"),
+        OpenFlags::SQLITE_OPEN_READ_ONLY,
+    )
+    .and_then(|conn| {
+        conn.query_row(
+            "SELECT running FROM _hamlet_actor",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+    });
+    assert_eq!(running.map_err(|error| error.to_string()), Ok(1));
+    wait_for_the_drop(&dropped).await;
+    host.shutdown().await.unwrap();
+}
+
+/// A shutdown does not wait out a stuck start's deadline: it ends the
+/// start after a short grace.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_shutdown_returns_while_a_start_is_stuck() {
+    let dir = Scratch::new("host-stuck-shutdown");
+    let dropped = Arc::new(AtomicBool::new(false));
+    let host = Host::open(&dir, stuck("stuck", &dropped)).unwrap();
+    let start = tokio::spawn({
+        let host = host.clone();
+        async move { host.get_or_start("stuck", "a").await }
+    });
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    tokio::time::timeout(Duration::from_secs(3), host.shutdown())
+        .await
+        .expect("the shutdown waited for the stuck start")
+        .unwrap();
+    let start = tokio::time::timeout(PROMPT, start)
+        .await
+        .expect("the start outlived the shutdown")
+        .unwrap()
+        .expect_err("a start the shutdown ended must fail");
+    assert!(is_actor_error(&start, "not_ready"), "{start:#}");
+    assert!(!host.is_running("stuck/a"));
+    wait_for_the_drop(&dropped).await;
+}
+
+/// Boot starts the actors a kill left running all at once, so three
+/// stuck starts cost it one deadline, not three.
+#[tokio::test(flavor = "multi_thread")]
+async fn boot_waits_one_deadline_for_many_stuck_starts() {
+    let dir = Scratch::new("host-stuck-boot");
+    let keys = ["a", "b", "c"];
+    let host = Host::open(&dir, factories()).unwrap();
+    for key in keys {
+        host.get_or_start("counter", key).await.unwrap();
+    }
+    host.shutdown().await.unwrap();
+    drop(host);
+    // As a kill leaves them.
+    for key in keys {
+        Connection::open(
+            dir.join(format!("actors/counter/{key}.sqlite")),
+        )
+        .unwrap()
+        .execute("UPDATE _hamlet_actor SET running = 1", [])
+        .unwrap();
+    }
+    let dropped = Arc::new(AtomicBool::new(false));
+    let host = Host::open_with(
+        &dir,
+        stuck("counter", &dropped),
+        HostOptions {
+            start_deadline: START_DEADLINE,
+        },
+    )
+    .unwrap();
+    let started =
+        tokio::time::timeout(START_DEADLINE * 2, host.boot())
+            .await
+            .expect("boot waited for each stuck start in turn")
+            .unwrap();
+    assert!(started.is_empty(), "{started:?}");
+    host.shutdown().await.unwrap();
 }
