@@ -447,8 +447,7 @@ export function buildActorNames(
     config: RegistryConfig,
 ): Record<string, { metadata: Record<string, unknown> }> {
     return Object.fromEntries(
-        Object.keys(config.use).map((actorName) => {
-            const definition = config.use[actorName];
+        Object.entries(config.use).map(([actorName, definition]) => {
             const options = definition.config.options ?? {};
             const runMeta = getRunMetadata(definition.config.run);
             const metadata: Record<string, unknown> = {};

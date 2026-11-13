@@ -284,8 +284,8 @@ function rowToObject<TRow extends Record<string, unknown>>(
     columns: string[],
 ): TRow {
     const rowObj: Record<string, unknown> = {};
-    for (let i = 0; i < columns.length; i++) {
-        rowObj[columns[i]] = row[i];
+    for (const [i, column] of columns.entries()) {
+        rowObj[column] = row[i];
     }
     return rowObj as TRow;
 }

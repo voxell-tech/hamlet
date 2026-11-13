@@ -20,9 +20,8 @@ export function uint8ArrayToBase64(uint8Array: Uint8Array): string {
 
     // Browser environment - use btoa
     let binary = "";
-    const len = uint8Array.byteLength;
-    for (let i = 0; i < len; i++) {
-        binary += String.fromCharCode(uint8Array[i]);
+    for (const byte of uint8Array) {
+        binary += String.fromCharCode(byte);
     }
     return btoa(binary);
 }

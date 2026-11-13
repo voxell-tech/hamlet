@@ -188,7 +188,7 @@ function extractNamedSqliteParameters(sql: string): string[] {
     const seen = new Set<string>();
     const pattern = /([:@$][A-Za-z_][A-Za-z0-9_]*)/g;
     for (const match of sql.matchAll(pattern)) {
-        const name = match[1];
+        const name = match[0];
         if (seen.has(name)) {
             continue;
         }

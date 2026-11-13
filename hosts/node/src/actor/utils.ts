@@ -24,12 +24,13 @@ export function joinSignals(
         (signal): signal is AbortSignal => signal != null,
     );
 
-    if (validSignals.length === 0) {
+    const [first] = validSignals;
+    if (first === undefined) {
         return new AbortController().signal;
     }
 
     if (validSignals.length === 1) {
-        return validSignals[0];
+        return first;
     }
 
     const signalAny = (
@@ -358,7 +359,7 @@ export function combineUrlPath(
 
     // Extract path and query from the provided path
     const pathParts = path.split("?");
-    const pathOnly = pathParts[0];
+    const pathOnly = pathParts[0] ?? "";
     const existingQuery = pathParts[1] || "";
 
     // Remove trailing slash from base path and ensure path starts with /

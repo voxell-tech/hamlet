@@ -116,8 +116,8 @@ export function writeWorkflowLocation(
     x: WorkflowLocation,
 ): void {
     bare.writeUintSafe(bc, x.length);
-    for (let i = 0; i < x.length; i++) {
-        writeWorkflowPathSegment(bc, x[i]);
+    for (const segment of x) {
+        writeWorkflowPathSegment(bc, segment);
     }
 }
 
@@ -752,8 +752,8 @@ function read4(bc: bare.ByteCursor): readonly string[] {
 
 function write4(bc: bare.ByteCursor, x: readonly string[]): void {
     bare.writeUintSafe(bc, x.length);
-    for (let i = 0; i < x.length; i++) {
-        bare.writeString(bc, x[i]);
+    for (const item of x) {
+        bare.writeString(bc, item);
     }
 }
 
@@ -771,8 +771,8 @@ function read5(bc: bare.ByteCursor): readonly WorkflowEntry[] {
 
 function write5(bc: bare.ByteCursor, x: readonly WorkflowEntry[]): void {
     bare.writeUintSafe(bc, x.length);
-    for (let i = 0; i < x.length; i++) {
-        writeWorkflowEntry(bc, x[i]);
+    for (const entry of x) {
+        writeWorkflowEntry(bc, entry);
     }
 }
 
