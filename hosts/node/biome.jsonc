@@ -1,8 +1,7 @@
 {
     "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
     "files": {
-        // The ported pi wrapper is left out until it passes the checks.
-        "includes": ["src/**", "!src/pi", "test/**", "*.json", "*.jsonc"]
+        "includes": ["src/**", "test/**", "*.json", "*.jsonc"]
     },
     "formatter": {
         "indentStyle": "space",
@@ -20,6 +19,19 @@
             // noExplicitAny off for it too, and most of its explicit any
             // are generic arguments where unknown does not type-check.
             "includes": ["src/actor/**"],
+            "linter": {
+                "rules": {
+                    "suspicious": {
+                        "noExplicitAny": "off"
+                    }
+                }
+            }
+        },
+        {
+            // The pi wrapper is ported code too: its own repository turns
+            // noExplicitAny off, and its explicit any are the generic
+            // arguments of the actor context and definition it builds on.
+            "includes": ["src/pi/**"],
             "linter": {
                 "rules": {
                     "suspicious": {
