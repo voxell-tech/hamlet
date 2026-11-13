@@ -1,18 +1,20 @@
 //! A real kill of the host. The test runs its own binary again as a
 //! child host, stops the child at a fault point, kills it with
-//! SIGKILL, and opens the folder in a new host.
+//! SIGKILL, and opens the folder in a new host; or the child's own
+//! timer aborts it.
 
 #![cfg(unix)]
 
 use std::collections::HashMap;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
+use std::os::unix::process::ExitStatusExt;
 use std::path::Path;
-use std::process::{Command, Stdio};
-use std::time::{Duration, Instant};
+use std::process::{Command, ExitStatus, Stdio};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use act::act;
 use hamlet_actor_core::ActorFactory;
-use hamlet_host::Host;
+use hamlet_host::{Address, Host, HostEvent, Letter};
 use hamlet_testing::Scratch;
 
 #[path = "../examples/demo/act.rs"]
@@ -161,16 +163,16 @@ async fn wait_for_count(host: &Host, actor_id: &str, want: i64) {
     }
 }
 
-/// What `counter/a`'s file holds, read with no host open.
+/// What `counter/<key>`'s file holds, read with no host open.
 #[derive(Debug, PartialEq)]
 struct Stored {
     count: i64,
     schedules: i64,
 }
 
-fn stored(home: &Path) -> Stored {
+fn stored(home: &Path, key: &str) -> Stored {
     let conn = rusqlite::Connection::open_with_flags(
-        home.join("actors/counter/a.sqlite"),
+        home.join(format!("actors/counter/{key}.sqlite")),
         rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
     )
     .unwrap();
@@ -234,7 +236,7 @@ async fn restart(home: &Path) -> (Vec<String>, Stored) {
     let started = host.boot().await.unwrap();
     host.shutdown().await.unwrap();
     drop(host);
-    (started, stored(home))
+    (started, stored(home, "a"))
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -288,7 +290,7 @@ async fn a_kill_while_a_one_shot_runs_runs_it_once() {
     let home = Scratch::new("kill-one-shot");
     kill_child_at(&home, Some(SOON_MS), "tx-open");
     assert_eq!(
-        stored(&home).count,
+        stored(&home, "a").count,
         0,
         "the kill came after the commit"
     );
@@ -330,7 +332,7 @@ async fn a_kill_on_the_boot_that_fires_a_due_alarm_runs_it_once() {
         host.shutdown().await.unwrap();
     }
     assert_eq!(
-        stored(&home),
+        stored(&home, "a"),
         Stored {
             count: 1,
             schedules: 1
@@ -341,7 +343,7 @@ async fn a_kill_on_the_boot_that_fires_a_due_alarm_runs_it_once() {
     tokio::time::sleep(Duration::from_millis(900)).await;
     kill_child_at(&home, None, "timer-fired");
     assert_eq!(
-        (stored(&home), marks(&home)),
+        (stored(&home, "a"), marks(&home)),
         (
             Stored {
                 count: 1,
@@ -385,7 +387,7 @@ async fn a_kill_after_the_timer_handler_commits_runs_it_once() {
     let home = Scratch::new("kill-committed");
     kill_child_at(&home, Some(SOON_MS), "tx-committed");
     assert_eq!(
-        stored(&home),
+        stored(&home, "a"),
         Stored {
             count: 1,
             schedules: 0
@@ -411,4 +413,226 @@ async fn a_kill_after_the_timer_handler_commits_runs_it_once() {
             schedules: 0
         }
     );
+}
+
+/// What the aborting child does: `arm`, `boot` or `rearm`. Unset, the
+/// aborting child does nothing.
+const ABORT_STEP: &str = "HAMLET_HOST_TEST_ABORT_STEP";
+
+/// How long the aborting child stays up after its boot.
+const STAY: Duration = Duration::from_secs(2);
+
+/// How far ahead the bystander's one-shot is due, so that it comes
+/// due while a child that survives its boot stays up, or before.
+const BYSTANDER_DUE_MS: u64 = 1500;
+
+/// How far ahead a re-armed timer is due, so that the child prints
+/// before the timer aborts it.
+const REARM_DUE_MS: i64 = 500;
+
+/// Runs as the child of the test of a timer that aborts its host.
+/// `counter/a`'s one-shot `abort` aborts the process; `counter/k`
+/// stands by.
+/// - `arm` counts `counter/k` to 7 and schedules its `increment`
+///   `BYSTANDER_DUE_MS` ahead, prints `armed`, then schedules
+///   `counter/a`'s `abort` 100 ms ahead and waits.
+/// - `boot` boots and stays up `STAY`. Then it prints each timer
+///   `counter/a` set aside, as `timer <action> <tries> <error|->`,
+///   whether the host's events are one dead letter for each, and
+///   `survived` once it has shut the host down.
+/// - `rearm` puts each timer `counter/a` set aside back,
+///   `REARM_DUE_MS` ahead, prints `rearmed <true|false>`, and waits.
+#[test]
+fn aborting_child() {
+    let (Some(home), Ok(step)) =
+        (std::env::var_os(CHILD_HOME), std::env::var(ABORT_STEP))
+    else {
+        return;
+    };
+    let mut out = std::io::stdout();
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    runtime.block_on(async {
+        let host = Host::open(Path::new(&home), factories()).unwrap();
+        let at = Address::new("counter", "a");
+        match step.as_str() {
+            "arm" => {
+                let k =
+                    host.get_or_start("counter", "k").await.unwrap();
+                for _ in 0..7 {
+                    act(&host, &k, "increment", Vec::new())
+                        .await
+                        .unwrap();
+                }
+                let due = BYSTANDER_DUE_MS.to_le_bytes().to_vec();
+                act(&host, &k, "schedule", due).await.unwrap();
+                writeln!(out, "armed").unwrap();
+                let a =
+                    host.get_or_start("counter", "a").await.unwrap();
+                let mut abort = 100u64.to_le_bytes().to_vec();
+                abort.extend_from_slice(b"abort");
+                act(&host, &a, "schedule", abort).await.unwrap();
+            }
+            "boot" => {
+                let mut events = host.events();
+                host.boot().await.unwrap();
+                tokio::time::sleep(STAY).await;
+                let timers =
+                    host.set_aside_timers(&at).await.unwrap();
+                let letters: Vec<HostEvent> = timers
+                    .iter()
+                    .map(|timer| HostEvent::DeadLetter {
+                        holder: at.clone(),
+                        letter: Letter::Timer {
+                            event_id: timer.event_id.clone(),
+                            action: timer.action.clone(),
+                            due_at: timer.due_at,
+                        },
+                        tries: timer.tries,
+                        error: timer.last_error.clone(),
+                    })
+                    .collect();
+                let raised: Vec<HostEvent> =
+                    std::iter::from_fn(|| events.try_recv().ok())
+                        .collect();
+                for timer in &timers {
+                    writeln!(
+                        out,
+                        "timer {} {} {}",
+                        timer.action,
+                        timer.tries,
+                        timer.last_error.as_deref().unwrap_or("-")
+                    )
+                    .unwrap();
+                }
+                writeln!(
+                    out,
+                    "dead letters match: {}",
+                    raised == letters
+                )
+                .unwrap();
+                host.shutdown().await.unwrap();
+                writeln!(out, "survived").unwrap();
+                return;
+            }
+            "rearm" => {
+                let due = now_ms() + REARM_DUE_MS;
+                for timer in host.set_aside_timers(&at).await.unwrap()
+                {
+                    let rearmed = host
+                        .rearm_timer(&at, &timer.event_id, due)
+                        .await
+                        .unwrap();
+                    writeln!(out, "rearmed {rearmed}").unwrap();
+                }
+            }
+            other => panic!("unknown step {other}"),
+        }
+        std::future::pending::<()>().await;
+    });
+}
+
+/// Milliseconds since the Unix epoch, the clock timers use.
+fn now_ms() -> i64 {
+    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
+    i64::try_from(now.as_millis()).unwrap()
+}
+
+/// How one aborting child ended, and what it printed.
+#[derive(Debug)]
+struct Ended {
+    status: ExitStatus,
+    lines: Vec<String>,
+}
+
+impl Ended {
+    fn aborted(&self) -> bool {
+        self.status.signal() == Some(6)
+    }
+}
+
+/// Runs the aborting child's `step` on `home` until it exits, with
+/// core dumps off. Fails if it runs for more than 30 seconds.
+fn run_aborting_child(home: &Path, step: &str) -> Ended {
+    let mut child = Command::new("sh")
+        .args(["-c", "ulimit -c 0 && exec \"$0\" \"$@\""])
+        .arg(std::env::current_exe().unwrap())
+        .args(["--exact", "aborting_child", "--nocapture"])
+        .env(CHILD_HOME, home)
+        .env(ABORT_STEP, step)
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut stdout = child.stdout.take().unwrap();
+    let out = std::thread::spawn(move || {
+        let mut text = String::new();
+        stdout.read_to_string(&mut text).unwrap();
+        text
+    });
+    let deadline = Instant::now() + Duration::from_secs(30);
+    let status = loop {
+        if let Some(status) = child.try_wait().unwrap() {
+            break status;
+        }
+        if Instant::now() > deadline {
+            child.kill().unwrap();
+            child.wait().unwrap();
+            panic!("the {step} child ran for more than 30 s");
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    };
+    let known =
+        ["armed", "timer ", "dead letters ", "survived", "rearmed "];
+    let lines = out
+        .join()
+        .unwrap()
+        .lines()
+        .filter(|line| {
+            known.iter().any(|word| line.starts_with(word))
+        })
+        .map(str::to_owned)
+        .collect();
+    Ended { status, lines }
+}
+
+/// M2. A one-shot whose handler aborts the process. The process that
+/// armed it and the first four boots after it each try it and die.
+/// The fifth boot finds it tried five times and sets it aside, with
+/// no outcome recorded, and its process stays up. The bystander
+/// `counter/k` in the same folder keeps its count, and its own
+/// one-shot runs once. A re-arm tries the timer again.
+#[test]
+fn a_one_shot_that_kills_its_host_is_set_aside_at_the_fifth_boot() {
+    let home = Scratch::new("kill-abort-loop");
+    let armed = run_aborting_child(&home, "arm");
+    assert!(armed.aborted(), "{armed:?}");
+    assert_eq!(armed.lines, ["armed"]);
+    for boot in 1..=4 {
+        let booted = run_aborting_child(&home, "boot");
+        assert!(booted.aborted(), "boot {boot}: {booted:?}");
+    }
+    let booted = run_aborting_child(&home, "boot");
+    assert!(booted.status.success(), "boot 5: {booted:?}");
+    assert_eq!(
+        booted.lines,
+        ["timer abort 5 -", "dead letters match: true", "survived"]
+    );
+    assert_eq!(
+        stored(&home, "a"),
+        Stored {
+            count: 5,
+            schedules: 0
+        }
+    );
+    assert_eq!(
+        stored(&home, "k"),
+        Stored {
+            count: 8,
+            schedules: 0
+        }
+    );
+
+    let rearmed = run_aborting_child(&home, "rearm");
+    assert!(rearmed.aborted(), "{rearmed:?}");
+    assert_eq!(rearmed.lines, ["rearmed true"]);
+    assert_eq!(stored(&home, "a").count, 6);
 }
