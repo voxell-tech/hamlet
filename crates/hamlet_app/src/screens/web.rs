@@ -2,19 +2,19 @@
 //! (ADR 0014). The addresses are kept with the view in every build;
 //! the panels are only in a macOS build with the `web` feature.
 
-#[cfg(all(feature = "web", target_os = "macos"))]
+#[cfg(all(feature = "web", any(target_os = "macos", windows)))]
 mod agents;
-#[cfg(all(feature = "web", target_os = "macos"))]
+#[cfg(all(feature = "web", any(target_os = "macos", windows)))]
 mod bridge;
-#[cfg(all(feature = "web", target_os = "macos"))]
+#[cfg(all(feature = "web", any(target_os = "macos", windows)))]
 pub mod engine;
-#[cfg(all(feature = "web", target_os = "macos"))]
+#[cfg(all(feature = "web", any(target_os = "macos", windows)))]
 mod fetch;
-#[cfg(all(feature = "web", target_os = "macos"))]
+#[cfg(all(feature = "web", any(target_os = "macos", windows)))]
 mod keys;
-#[cfg(all(feature = "web", target_os = "macos"))]
+#[cfg(all(feature = "web", any(target_os = "macos", windows)))]
 mod page;
-#[cfg(all(feature = "web", target_os = "macos"))]
+#[cfg(all(feature = "web", any(target_os = "macos", windows)))]
 mod panel;
 
 use std::collections::BTreeMap;
@@ -29,7 +29,7 @@ pub const PANEL: &str = "web";
 pub fn plugin(app: &mut App) {
     app.init_resource::<Addresses>()
         .init_resource::<AgentTabs>();
-    #[cfg(all(feature = "web", target_os = "macos"))]
+    #[cfg(all(feature = "web", any(target_os = "macos", windows)))]
     {
         app.add_plugins((panel::plugin, fetch::plugin));
         // The engine panics on start without its framework, so it is

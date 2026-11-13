@@ -83,7 +83,10 @@ pub(crate) trait PanelAppExt {
     /// Registers a panel that opens more than once: `id` now, and
     /// each other as it is opened or laid out.
     #[cfg_attr(
-        not(any(test, all(feature = "web", target_os = "macos"))),
+        not(any(
+            test,
+            all(feature = "web", any(target_os = "macos", windows))
+        )),
         expect(
             dead_code,
             reason = "only the Web panels open more than once"
@@ -308,7 +311,10 @@ pub fn highlight_panel(
 /// A panel whose contents reach its edges, for a canvas or a picture
 /// that draws its own margins.
 #[cfg_attr(
-    not(any(test, all(feature = "web", target_os = "macos"))),
+    not(any(
+        test,
+        all(feature = "web", any(target_os = "macos", windows))
+    )),
     expect(dead_code, reason = "only the Web panels are flush")
 )]
 pub fn flush_panel(view: impl View) -> AnyView {
