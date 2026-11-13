@@ -1347,6 +1347,7 @@ async fn a_start_that_never_finishes_fails_at_its_deadline() {
         stuck("stuck", &dropped),
         HostOptions {
             start_deadline: START_DEADLINE,
+            ..HostOptions::default()
         },
     )
     .unwrap();
@@ -1514,6 +1515,7 @@ async fn boot_waits_one_deadline_for_many_stuck_starts() {
         stuck("counter", &dropped),
         HostOptions {
             start_deadline: START_DEADLINE,
+            ..HostOptions::default()
         },
     )
     .unwrap();
@@ -1601,4 +1603,52 @@ async fn boot_reads_only_the_files_of_its_kinds() {
     drop(host);
     drop(held);
     assert_eq!(probe(&dir, "other", "x").unwrap(), 1);
+}
+
+/// L2. Hosts of different names, each with a kind of its own, open
+/// one folder at once, and each boots while the other runs an actor.
+/// A second host of one name is refused by that name's lock, and a
+/// name must be a plain file name.
+#[tokio::test(flavor = "multi_thread")]
+async fn hosts_of_different_names_share_a_folder() {
+    let dir = Scratch::new("host-names");
+    let named = |name: &str| HostOptions {
+        name: name.to_owned(),
+        ..HostOptions::default()
+    };
+    let others = || {
+        let config = ActorConfig {
+            name: Some("other".to_owned()),
+            has_database: true,
+            ..ActorConfig::default()
+        };
+        HashMap::from([(
+            "other".to_owned(),
+            ActorFactory::new(config, |start| {
+                Box::pin(counter::run(start))
+            }),
+        )])
+    };
+    let main =
+        Host::open_with(&dir, factories(), named("main")).unwrap();
+    let a = main.get_or_start("counter", "a").await.unwrap();
+    let node =
+        Host::open_with(&dir, others(), named("node")).unwrap();
+    let x = node.get_or_start("other", "x").await.unwrap();
+    assert!(main.boot().await.unwrap().is_empty());
+    assert!(node.boot().await.unwrap().is_empty());
+
+    let Err(error) = Host::open_with(&dir, others(), named("node"))
+    else {
+        panic!("a second host named node opened the folder");
+    };
+    assert!(error.to_string().contains("node.lock"), "{error:#}");
+    assert!(
+        Host::open_with(&dir, others(), named("../node")).is_err()
+    );
+
+    assert_eq!(call(&main, &a, "increment").await, 1);
+    assert_eq!(call(&node, &x, "increment").await, 1);
+    main.shutdown().await.unwrap();
+    node.shutdown().await.unwrap();
 }

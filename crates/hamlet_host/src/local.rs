@@ -10,7 +10,9 @@
 //! host keeps no timer for it. A stopped actor with a deadline has
 //! one timer, which starts it from its own file. Boot reads the files
 //! of the host's own kinds, starts again each actor a kill left
-//! marked running, and arms a timer for each other stored deadline.
+//! marked running, and arms a timer for each other stored deadline. A
+//! host locks the folder by its name, so hosts of different names,
+//! each with kinds of its own, share one folder.
 //!
 //! Each actor's place in its lifecycle is one [`Life`] in the host's
 //! map. One actor's start or stop waits only on that actor's work. A
@@ -24,7 +26,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Weak};
 use std::time::{Duration, Instant};
 
-use anyhow::{Context, Result, anyhow, bail};
+use anyhow::{Context, Result, anyhow, bail, ensure};
 use hamlet_actor_core::actor::schedule::{
     RUN_WAKE_AT_META_KEY, SetAsideTimer, decode_run_wake_at,
 };
@@ -393,12 +395,19 @@ pub struct HostOptions {
     /// until its core is ready. A start that takes longer fails with
     /// `actor.not_ready`. 60 seconds by default.
     pub start_deadline: Duration,
+    /// The host's name, a plain file name: `host` by default. The
+    /// host locks the folder with `<name>.lock`, so hosts of
+    /// different names open one folder at once, and a second host of
+    /// one name is refused. Hosts that share a folder must run kinds
+    /// of their own.
+    pub name: String,
 }
 
 impl Default for HostOptions {
     fn default() -> Self {
         Self {
             start_deadline: Duration::from_secs(60),
+            name: "host".to_owned(),
         }
     }
 }
@@ -616,7 +625,8 @@ struct LocalHandle {
 impl Host {
     /// Takes the folder's lock and opens it, with each kind of
     /// `factories` running in this host, with the default
-    /// [`HostOptions`]. Fails when another host holds the lock.
+    /// [`HostOptions`]. Fails when another host of the same name
+    /// holds the lock.
     pub fn open(
         dir: &Path,
         factories: HashMap<String, ActorFactory>,
@@ -630,8 +640,9 @@ impl Host {
         factories: HashMap<String, ActorFactory>,
         options: HostOptions,
     ) -> Result<Self> {
+        plain(&options.name, "host name")?;
         std::fs::create_dir_all(dir.join("actors"))?;
-        let lock_path = dir.join("host.lock");
+        let lock_path = dir.join(format!("{}.lock", options.name));
         let lock = File::create(&lock_path).with_context(|| {
             format!("open {}", lock_path.display())
         })?;
@@ -1229,22 +1240,26 @@ async fn wake(
 /// Both must be plain file names.
 fn actor_id(kind: &str, key: &str) -> Result<String> {
     for part in [kind, key] {
-        let plain = !part.is_empty()
-            && !part.starts_with('.')
-            && part.len() <= 128
-            && part.bytes().all(|byte| {
-                byte.is_ascii_alphanumeric()
-                    || matches!(byte, b'-' | b'_' | b'.')
-            });
-        if !plain {
-            bail!(
-                "`{part}` is not a valid actor kind or key: use \
-                 letters, digits, `-`, `_` and `.`, and do not \
-                 start with `.`"
-            );
-        }
+        plain(part, "actor kind or key")?;
     }
     Ok(format!("{kind}/{key}"))
+}
+
+/// Fails unless `name`, a `what`, is a plain file name.
+fn plain(name: &str, what: &str) -> Result<()> {
+    let plain = !name.is_empty()
+        && !name.starts_with('.')
+        && name.len() <= 128
+        && name.bytes().all(|byte| {
+            byte.is_ascii_alphanumeric()
+                || matches!(byte, b'-' | b'_' | b'.')
+        });
+    ensure!(
+        plain,
+        "`{name}` is not a valid {what}: use letters, digits, `-`, \
+         `_` and `.`, and do not start with `.`"
+    );
+    Ok(())
 }
 
 fn actor_path(dir: &Path, actor_id: &str) -> PathBuf {

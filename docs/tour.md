@@ -172,7 +172,9 @@ the helpers of an actor's HTTP routes that need no engine; nothing calls
 them yet.
 
 `hamlet_host/src/local.rs` is a host on that trait. `Host::open` locks
-the realm folder with `host.lock` and refuses a second host.
+the realm folder with `<name>.lock`, `host.lock` for the default name,
+and refuses a second host of that name; hosts of different names, each
+with kinds of its own, share the folder.
 `get_or_start` finds an actor by kind and key and starts it on the file
 `actors/<kind>/<key>.sqlite`. `call` calls an action of the actor at an
 `Address`, starting it first, within the caller's deadline, and logs the
