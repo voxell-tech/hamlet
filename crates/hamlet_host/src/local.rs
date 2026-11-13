@@ -830,8 +830,8 @@ impl Host {
         kind: &str,
         key: &str,
     ) -> Result<String> {
-        let actor_id = self.located(kind, key)?;
-        self.ensure_started(&actor_id, true).await?;
+        let actor_id = self.inner().located(kind, key)?;
+        self.inner().ensure_started(&actor_id, true).await?;
         Ok(actor_id)
     }
 
@@ -851,7 +851,7 @@ impl Host {
         deadline: Duration,
         cause: Cause,
     ) -> Result<Vec<u8>> {
-        let actor_id = self.located(&to.kind, &to.key)?;
+        let actor_id = self.inner().located(&to.kind, &to.key)?;
         let span = tracing::debug_span!(
             "call",
             actor_id,
@@ -862,7 +862,7 @@ impl Host {
             let begun = Instant::now();
             let generation = tokio::time::timeout(
                 deadline,
-                self.ensure_started(&actor_id, true),
+                self.inner().ensure_started(&actor_id, true),
             )
             .await
             .map_err(|_| ActionTimedOut.build())??;
@@ -872,14 +872,18 @@ impl Host {
         .instrument(span)
         .await
     }
+}
 
+impl HostInner {
     /// The id of the actor of `kind` and `key`. Fails for a kind the
     /// directory does not hold, before anything reaches the folder.
     fn located(&self, kind: &str, key: &str) -> Result<String> {
-        let Place::Local(_) = self.inner().directory.place(kind)?;
+        let Place::Local(_) = self.directory.place(kind)?;
         actor_id(kind, key)
     }
+}
 
+impl Host {
     /// Whether the actor holds its file: from the end of its start
     /// until its stop closed the file.
     pub fn is_running(&self, actor_id: &str) -> bool {
@@ -905,9 +909,9 @@ impl Host {
         &self,
         at: &Address,
     ) -> Result<Vec<SetAsideTimer>> {
-        let actor_id = self.located(&at.kind, &at.key)?;
+        let actor_id = self.inner().located(&at.kind, &at.key)?;
         let generation =
-            self.ensure_started(&actor_id, false).await?;
+            self.inner().ensure_started(&actor_id, false).await?;
         generation.actor.context().set_aside_timers().await
     }
 
@@ -922,9 +926,9 @@ impl Host {
         event_id: &str,
         due_at: i64,
     ) -> Result<bool> {
-        let actor_id = self.located(&at.kind, &at.key)?;
+        let actor_id = self.inner().located(&at.kind, &at.key)?;
         let generation =
-            self.ensure_started(&actor_id, false).await?;
+            self.inner().ensure_started(&actor_id, false).await?;
         generation
             .actor
             .context()
@@ -1020,7 +1024,9 @@ impl Host {
         }
         Ok(())
     }
+}
 
+impl HostInner {
     /// Starts the actor unless it runs, and returns the generation
     /// that runs it. Waits for a start or a stop under way first, and
     /// fails with a start it waited for. Fails at once for an actor
@@ -1031,7 +1037,7 @@ impl Host {
     /// `get_or_start` and a call ask for: boot starts an actor from
     /// the file it has, and never makes an empty one.
     async fn ensure_started(
-        &self,
+        self: &Arc<Self>,
         actor_id: &str,
         create: bool,
     ) -> Result<Arc<Generation>> {
@@ -1040,10 +1046,10 @@ impl Host {
             Start(Owned, u64),
         }
         // Holds a time once the host has shut down.
-        let mut shut = self.inner().starts_end.subscribe();
+        let mut shut = self.starts_end.subscribe();
         loop {
             let next = {
-                let mut actors = self.inner().actors.lock();
+                let mut actors = self.actors.lock();
                 if actors.shut {
                     return Err(host_shut_down());
                 }
@@ -1064,8 +1070,8 @@ impl Host {
                         | Life::Stopping { done: waiters, .. },
                     ) => Next::Wait(waiters.clone()),
                     Some(Life::Stopped { .. }) | None => {
-                        let (owned, generation, replaced) = actors
-                            .begin_start(self.inner(), actor_id)?;
+                        let (owned, generation, replaced) =
+                            actors.begin_start(self, actor_id)?;
                         if let Some(Life::Stopped { timer, .. }) =
                             replaced
                         {
@@ -1096,7 +1102,9 @@ impl Host {
             }
         }
     }
+}
 
+impl Host {
     /// The id, the address and the path of each actor file of this
     /// host's kinds. Another kind's folder is never read, since
     /// another host may run it.
