@@ -26,6 +26,7 @@ use crate::actor::internal_storage::schema::initialize_test_schema;
 use crate::actor::internal_storage::{self, RUN_WAKE_AT_META_KEY};
 use crate::actor::kv::LegacyActorKv;
 use crate::actor::persist::decode_latest_with_embedded_version;
+use crate::actor::schedule::SetAsideTimer;
 use crate::actor::state::PersistedActor;
 use crate::host::{ActorHost, HostHandle};
 use crate::runtime::RuntimeBoxFuture;
@@ -227,6 +228,10 @@ pub enum HostCall {
         actor_id: String,
         generation: Option<u32>,
     },
+    TimerSetAside {
+        actor_id: String,
+        timer: SetAsideTimer,
+    },
 }
 
 /// A host for tests: one in-memory SQLite database served on a thread
@@ -311,6 +316,13 @@ impl ActorHost for TestHost {
         self.calls.lock().push(HostCall::Stop {
             actor_id,
             generation,
+        });
+    }
+
+    fn timer_set_aside(&self, actor_id: &str, timer: &SetAsideTimer) {
+        self.calls.lock().push(HostCall::TimerSetAside {
+            actor_id: actor_id.to_owned(),
+            timer: timer.clone(),
         });
     }
 
@@ -457,6 +469,11 @@ impl TestHost {
     /// A host of its own, for a test that hands it to a context.
     pub(crate) fn new_for_tests() -> Arc<Self> {
         Arc::new(Self::new("http://127.0.0.1:1".to_owned(), None))
+    }
+
+    /// The calls not yet taken, oldest first.
+    pub(crate) fn calls(&self) -> Vec<HostCall> {
+        self.calls.lock().clone()
     }
 
     /// Waits for the oldest call not yet taken and takes it. The

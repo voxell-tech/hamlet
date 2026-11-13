@@ -25,7 +25,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, anyhow, bail};
 use hamlet_actor_core::actor::schedule::{
-    RUN_WAKE_AT_META_KEY, decode_run_wake_at,
+    RUN_WAKE_AT_META_KEY, SetAsideTimer, decode_run_wake_at,
 };
 use hamlet_actor_core::host::{
     ActionTimedOut, ActorHost, RunningActor, StartRequest,
@@ -45,6 +45,7 @@ use tracing::Instrument;
 
 use crate::cause::Cause;
 use crate::directory::{Address, Directory, Place};
+use crate::event::{HostEvent, Letter};
 use crate::plain_sqlite::{self, PlainSqlite};
 use crate::send::{self, Outbox};
 
@@ -326,6 +327,7 @@ pub(crate) struct HostInner {
     actors: Mutex<Actors>,
     session: watch::Sender<u64>,
     commits: broadcast::Sender<String>,
+    events: broadcast::Sender<HostEvent>,
 }
 
 /// The host's actors, and whether it has shut down.
@@ -520,6 +522,7 @@ impl Host {
             }),
             session: watch::Sender::new(LOCAL_SESSION),
             commits: broadcast::channel(64).0,
+            events: broadcast::channel(64).0,
         })))))
     }
 
@@ -658,6 +661,47 @@ impl Host {
     /// Follows the actors whose transactions commit, by id.
     pub fn commits(&self) -> broadcast::Receiver<String> {
         self.inner().commits.subscribe()
+    }
+
+    /// Follows what happens to the host's actors from now on. A
+    /// receiver that falls behind loses the oldest events; the actor
+    /// files keep the record.
+    pub fn events(&self) -> broadcast::Receiver<HostEvent> {
+        self.inner().events.subscribe()
+    }
+
+    /// The one-shot timers the actor at `at` set aside after their
+    /// last try. Starts the actor from its file if it is not running,
+    /// and never makes one.
+    pub async fn set_aside_timers(
+        &self,
+        at: &Address,
+    ) -> Result<Vec<SetAsideTimer>> {
+        let actor_id = self.located(&at.kind, &at.key)?;
+        let generation =
+            self.inner().ensure_started(&actor_id, false).await?;
+        generation.actor.context().set_aside_timers().await
+    }
+
+    /// Puts the set-aside timer `event_id` of the actor at `at` back,
+    /// due at `due_at` in ms since the Unix epoch, with its tries
+    /// counted from none. Returns false when the actor holds no
+    /// set-aside timer of that id. Starts the actor as
+    /// [`Host::set_aside_timers`] does.
+    pub async fn rearm_timer(
+        &self,
+        at: &Address,
+        event_id: &str,
+        due_at: i64,
+    ) -> Result<bool> {
+        let actor_id = self.located(&at.kind, &at.key)?;
+        let generation =
+            self.inner().ensure_started(&actor_id, false).await?;
+        generation
+            .actor
+            .context()
+            .rearm_set_aside(event_id, due_at)
+            .await
     }
 
     /// Stops the actor and closes its file, or removes it for a
@@ -1313,6 +1357,33 @@ impl ActorHost for LocalHandle {
             let _ = host.commits.send(actor_id.to_owned());
         }
         self.outbox.committed();
+    }
+
+    fn timer_set_aside(&self, actor_id: &str, timer: &SetAsideTimer) {
+        tracing::warn!(
+            actor_id,
+            event_id = timer.event_id,
+            action = timer.action,
+            tries = timer.tries,
+            error = timer.last_error,
+            "dead letter: the host set a timer aside"
+        );
+        let Some(host) = self.host.upgrade() else {
+            return;
+        };
+        let Some((kind, key)) = actor_id.split_once('/') else {
+            return;
+        };
+        let _ = host.events.send(HostEvent::DeadLetter {
+            holder: Address::new(kind, key),
+            letter: Letter::Timer {
+                event_id: timer.event_id.clone(),
+                action: timer.action.clone(),
+                due_at: timer.due_at,
+            },
+            tries: timer.tries,
+            error: timer.last_error.clone(),
+        });
     }
 }
 

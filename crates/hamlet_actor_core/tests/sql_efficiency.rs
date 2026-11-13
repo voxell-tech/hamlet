@@ -149,11 +149,19 @@ fn fixture(row_count: usize) -> Connection {
         .prepare(
             "INSERT INTO _actor_schedule_events (event_id, \
              trigger_at, action, args, kind, cron_expression, \
-             timezone, interval_ms, last_started_at, max_history) \
-             VALUES (?, ?, 'run', x'01', ?, NULL, NULL, NULL, NULL, \
-             100)",
+             timezone, interval_ms, last_started_at, max_history, \
+             tries, last_error) VALUES (?, ?, 'run', x'01', ?, \
+             NULL, NULL, NULL, NULL, 100, 0, NULL)",
         )
         .expect("prepare schedule seed");
+    let mut set_aside_insert = tx
+        .prepare(
+            "INSERT INTO _actor_schedule_set_aside (event_id, \
+             action, args, trigger_at, tries, last_error, \
+             set_aside_at) VALUES (?, 'run', x'01', ?, 5, \
+             'actor.dropped_reply', ?)",
+        )
+        .expect("prepare set-aside seed");
     let mut history_insert = tx
         .prepare(
             "INSERT INTO _actor_schedule_history (schedule_id, \
@@ -184,6 +192,15 @@ fn fixture(row_count: usize) -> Connection {
         schedule_insert
             .execute((&event_id, index as i64, (index % 3) as i64))
             .expect("seed schedule");
+        if index % 10 == 0 {
+            set_aside_insert
+                .execute((
+                    format!("aside:{key}"),
+                    index as i64,
+                    index as i64,
+                ))
+                .expect("seed set-aside schedule");
+        }
         let schedule_id = format!("cron:{:04}", index % 100);
         history_insert
             .execute((
@@ -201,6 +218,7 @@ fn fixture(row_count: usize) -> Connection {
     drop(user_kv_insert);
     drop(workflow_kv_insert);
     drop(schedule_insert);
+    drop(set_aside_insert);
     drop(history_insert);
     tx.commit().expect("commit fixture seed");
     db.execute_batch("ANALYZE").expect("analyze fixture");
@@ -626,11 +644,52 @@ fn query_catalog() -> Vec<QueryCase> {
 			id: "schedule.count",
 			sql: queries::COUNT_SCHEDULES_SQL.into(),
 			params: vec![],
+			expectation: bounded_scan(&[
+				AllowedScan {
+					table: "_actor_schedule_events",
+					reason: "SQLite represents its optimized COUNT(*) opcode as a covering-index scan in the query plan",
+					bound: "runtime VM-step scaling verifies row-count-independent work; ActorConfig.max_schedules also caps rows",
+				},
+				AllowedScan {
+					table: "_actor_schedule_set_aside",
+					reason: "set-aside one-shots count toward the cap; SQLite represents its optimized COUNT(*) opcode as a scan",
+					bound: "ActorConfig.max_schedules caps the rows of both schedule tables",
+				},
+			]),
+		},
+		QueryCase {
+			id: "schedule.set_aside",
+			sql: queries::SET_ASIDE_ONE_SHOT_SQL.into(),
+			params: vec![5_i64.into(), text("at:00000000"), 0_i64.into(), 5_i64.into()],
+			expectation: indexed(None, &["_actor_schedule_events", "_actor_schedule_set_aside"]),
+		},
+		QueryCase {
+			id: "schedule.keep_one_shot",
+			sql: queries::KEEP_ONE_SHOT_SQL.into(),
+			params: vec![text("actor.dropped_reply"), text("at:00000000"), 0_i64.into(), 1_i64.into()],
+			expectation: indexed(None, all_schedules),
+		},
+		QueryCase {
+			id: "schedule.list_set_aside",
+			sql: queries::LIST_SET_ASIDE_SQL.into(),
+			params: vec![],
 			expectation: bounded_scan(&[AllowedScan {
-				table: "_actor_schedule_events",
-				reason: "SQLite represents its optimized COUNT(*) opcode as a covering-index scan in the query plan",
-				bound: "runtime VM-step scaling verifies row-count-independent work; ActorConfig.max_schedules also caps rows",
+				table: "_actor_schedule_set_aside",
+				reason: "lists every set-aside one-shot, in primary key order",
+				bound: "ActorConfig.max_schedules caps the rows of both schedule tables",
 			}]),
+		},
+		QueryCase {
+			id: "schedule.rearm_set_aside",
+			sql: queries::REARM_SET_ASIDE_SQL.into(),
+			params: vec![5_i64.into(), 0_i64.into(), text("aside:00000000")],
+			expectation: indexed(None, &["_actor_schedule_events", "_actor_schedule_set_aside"]),
+		},
+		QueryCase {
+			id: "schedule.discard_set_aside",
+			sql: queries::DISCARD_SET_ASIDE_SQL.into(),
+			params: vec![text("aside:00000000")],
+			expectation: indexed(None, &["_actor_schedule_set_aside"]),
 		},
 		QueryCase {
 			id: "schedule.due",

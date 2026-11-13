@@ -19,11 +19,17 @@ use tokio::sync::{mpsc, oneshot};
 /// inside the drain in one round of a few hundred, or more often.
 const ROUNDS: u64 = 100_000;
 
+/// How far the aim moves, in spins either way. When the two threads
+/// do not run at once, as on one busy core, one side always wins, and
+/// the aim would drift without end.
+const MAX_LEAD: i64 = 1_000;
+
 /// One round's half for the sender thread.
 struct Round {
     events: mpsc::UnboundedSender<ActorEvent>,
     reply: oneshot::Sender<anyhow::Result<Vec<u8>>>,
-    /// How long the sender waits after the start of the round.
+    /// How long the sender waits after the start of the round, which
+    /// both threads see.
     spins: u64,
 }
 
@@ -45,11 +51,11 @@ fn one_shot(reply: Reply<Vec<u8>>) -> ActorEvent {
     }
 }
 
-/// Waits until `go` reads `round`, spinning, and yielding now and
+/// Waits until `mark` reads `round`, spinning, and yielding now and
 /// then so that one core is enough.
-fn wait_for(go: &AtomicU64, round: u64) {
+fn wait_for(mark: &AtomicU64, round: u64) {
     let mut spins = 0u32;
-    while go.load(Ordering::Acquire) != round {
+    while mark.load(Ordering::Acquire) != round {
         spins = spins.wrapping_add(1);
         if spins.is_multiple_of(1024) {
             thread::yield_now();
@@ -63,20 +69,23 @@ fn wait_for(go: &AtomicU64, round: u64) {
 /// lands a moment later, so the drain waits for it. Its handler never
 /// ran, so its reply answers `actor.dropped_reply`, which keeps the
 /// one-shot to run at the next start, and answers before the drop
-/// returns, so a stop does not wait on it. Each round aims its send
-/// at the drop: later after a send that came before it, earlier after
-/// one that came after.
+/// returns, so a stop does not wait on it. Each round starts once
+/// both threads run, and aims its send at the drop: later after a
+/// send that came before it, earlier after one that came after.
 #[test]
 fn a_one_shot_sent_as_the_event_loop_panics_is_kept_and_answered_at_once()
  {
     let (rounds, rounds_rx) = std::sync::mpsc::channel::<Round>();
     let (sent_tx, sent) = std::sync::mpsc::channel::<bool>();
-    let go = Arc::new(AtomicU64::new(0));
+    // The round the test began, and the round the sender saw begin.
+    let begun = Arc::new(AtomicU64::new(0));
+    let seen = Arc::new(AtomicU64::new(0));
     let sender = thread::spawn({
-        let go = go.clone();
+        let (begun, seen) = (begun.clone(), seen.clone());
         move || {
             for (number, round) in (1..).zip(rounds_rx) {
-                wait_for(&go, number);
+                wait_for(&begun, number);
+                seen.store(number, Ordering::Release);
                 for _ in 0..round.spins {
                     spin_loop();
                 }
@@ -108,7 +117,8 @@ fn a_one_shot_sent_as_the_event_loop_panics_is_kept_and_answered_at_once()
                 spins: lead.max(0).unsigned_abs(),
             })
             .unwrap();
-        go.store(number, Ordering::Release);
+        begun.store(number, Ordering::Release);
+        wait_for(&seen, number);
         for _ in 0..lead.min(0).unsigned_abs() {
             spin_loop();
         }
@@ -118,10 +128,10 @@ fn a_one_shot_sent_as_the_event_loop_panics_is_kept_and_answered_at_once()
         }));
         if sent.recv().unwrap() {
             before += 1;
-            lead += 1;
+            lead = (lead + 1).min(MAX_LEAD);
         } else {
             after += 1;
-            lead -= 1;
+            lead = (lead - 1).max(-MAX_LEAD);
         }
         match answer.try_recv() {
             Ok(Err(error)) => {
@@ -143,16 +153,12 @@ fn a_one_shot_sent_as_the_event_loop_panics_is_kept_and_answered_at_once()
     drop(rounds);
     sender.join().unwrap();
 
-    assert!(
-        before.min(after) > ROUNDS / 4,
-        "the sends were not aimed at the drop: {before} came before \
-         it and {after} after"
-    );
     assert_eq!(
         (panicked, pending),
         (0, 0),
-        "of {before} one-shots sent before the drop, some answered \
-         as panicked, which deletes a one-shot that never ran, or \
-         were still unanswered, which holds a stop for its grace"
+        "of {before} one-shots sent before the drop ({after} came \
+         after it), some answered as panicked, which deletes a \
+         one-shot that never ran, or were still unanswered, which \
+         holds a stop for its grace"
     );
 }

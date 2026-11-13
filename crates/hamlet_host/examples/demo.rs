@@ -8,6 +8,9 @@
 //!                               increment, <ms> ahead
 //! demo sleep <key>              ask the actor to sleep
 //! demo destroy <key>            ask the actor to destroy itself
+//! demo timers <kind>/<key>      print the actor's set-aside timers
+//! demo rearm <kind>/<key> <event_id>
+//!                               put a set-aside timer back, due now
 //! demo boot <ms>                boot, wait <ms>, print what booting started
 //! demo serve [<n>]              boot, start <n> counters that never
 //!                               sleep, then run one command per line
@@ -16,7 +19,10 @@
 //!
 //! Each command prints `counter/<key> <count>`, the count the actor
 //! replied with. Booting prints `boot counter/<key> <count>` for each
-//! actor it started. Warnings and errors go to standard error.
+//! actor it started. `timers` prints `timer <kind>/<key> <event_id>
+//! <action> due=<ms> tries=<n> error=<code>` for each timer, and
+//! `rearm` prints `rearm <kind>/<key> <event_id> <true|false>`.
+//! Warnings and errors go to standard error.
 
 #[path = "demo/act.rs"]
 mod act;
@@ -25,11 +31,11 @@ mod counter;
 
 use std::io::Write;
 use std::path::PathBuf;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use act::act;
 use anyhow::{Context, Result, anyhow, bail};
-use hamlet_host::Host;
+use hamlet_host::{Address, Host};
 use tokio::sync::mpsc;
 
 #[tokio::main]
@@ -72,7 +78,8 @@ async fn main() -> Result<()> {
         }
         None => Err(anyhow!(
             "usage: demo \
-             increment|get|schedule|sleep|destroy|boot|serve ..."
+             increment|get|schedule|sleep|destroy|timers|rearm|boot|\
+             serve ..."
         )),
     };
     host.shutdown().await?;
@@ -85,6 +92,39 @@ async fn run(host: &Host, words: &[String]) -> Result<()> {
         [command, key, ..] => (command.as_str(), key.as_str()),
         _ => bail!("a command takes an actor key"),
     };
+    let mut out = std::io::stdout();
+    match command {
+        "timers" => {
+            let at = address(key)?;
+            for timer in host.set_aside_timers(&at).await? {
+                writeln!(
+                    out,
+                    "timer {key} {} {} due={} tries={} error={}",
+                    timer.event_id,
+                    timer.action,
+                    timer.due_at,
+                    timer.tries,
+                    timer.last_error.as_deref().unwrap_or("-")
+                )?;
+            }
+            return Ok(());
+        }
+        "rearm" => {
+            let event_id =
+                words.get(2).context("rearm takes an event id")?;
+            let now = SystemTime::now().duration_since(UNIX_EPOCH)?;
+            let rearmed = host
+                .rearm_timer(
+                    &address(key)?,
+                    event_id,
+                    i64::try_from(now.as_millis())?,
+                )
+                .await?;
+            writeln!(out, "rearm {key} {event_id} {rearmed}")?;
+            return Ok(());
+        }
+        _ => {}
+    }
     let actor_id = format!("counter/{key}");
     let reply = match command {
         "increment" => {
@@ -185,6 +225,14 @@ fn print_reply(
     let count = counter::count(reply)?;
     writeln!(std::io::stdout(), "{prefix}{actor_id} {count}")?;
     Ok(())
+}
+
+/// The address a `<kind>/<key>` word names.
+fn address(word: &str) -> Result<Address> {
+    let (kind, key) = word
+        .split_once('/')
+        .with_context(|| format!("`{word}` is not <kind>/<key>"))?;
+    Ok(Address::new(kind, key))
 }
 
 fn number(word: Option<&String>) -> Result<u64> {
