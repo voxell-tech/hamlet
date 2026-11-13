@@ -4842,6 +4842,7 @@ dependencies = [
  "hamlet_actor_error",
  "hamlet_actors",
  "hamlet_host",
+ "hamlet_sandbox",
  "hamlet_sqlite",
  "hamlet_testing",
  "parking_lot",
