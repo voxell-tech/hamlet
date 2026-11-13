@@ -1,4 +1,6 @@
 // This file was changed for Hamlet. See NOTICE in this crate.
+use std::cell::Cell;
+
 use anyhow::Result;
 use tokio::sync::{mpsc, oneshot};
 
@@ -63,22 +65,25 @@ impl<T> Reply<T> {
 /// so the panic reads as the handler's outcome, like an error it
 /// returned, and a one-shot it ran is not kept to run again.
 ///
-/// Two panics are not told apart. One in another task than the
-/// reply's leaves the reply's holder to answer it. One in an actor's
-/// event loop answers every reply the loop holds as panicked, those
-/// still queued in its channel included, so a one-shot queued there
-/// and never run is not kept either.
+/// A panic in an actor's event loop answers each reply the loop
+/// received as panicked. A reply still queued in the loop's channel
+/// never reached the actor's code, so [`ActorEvents`]' drop answers
+/// it `actor.dropped_reply`, and its one-shot is kept. A panic in
+/// another task than the reply's leaves the reply's holder to answer
+/// it.
 impl<T> Drop for Reply<T> {
     fn drop(&mut self) {
         if self.tx.is_some() {
-            self.deliver(Err(if std::thread::panicking() {
-                crate::error::ActorRuntime::Panicked {
-                    operation: "a handler".to_owned(),
-                }
-                .build()
-            } else {
-                crate::error::ActorLifecycle::DroppedReply.build()
-            }));
+            self.deliver(Err(
+                if std::thread::panicking() && !UNREACHED.get() {
+                    crate::error::ActorRuntime::Panicked {
+                        operation: "a handler".to_owned(),
+                    }
+                    .build()
+                } else {
+                    crate::error::ActorLifecycle::DroppedReply.build()
+                },
+            ));
         }
     }
 }
@@ -138,6 +143,34 @@ impl ActorEvents {
             );
         }
         event
+    }
+}
+
+thread_local! {
+    /// Set while [`ActorEvents`]' drop drops the events still queued
+    /// in its channel, which never reached the actor's code.
+    static UNREACHED: Cell<bool> = const { Cell::new(false) };
+}
+
+/// Closes the channel and drops the events still queued in it. A
+/// reply among them answers `actor.dropped_reply`, also while a panic
+/// of the loop that held the channel unwinds: the panic was not
+/// theirs.
+impl Drop for ActorEvents {
+    fn drop(&mut self) {
+        /// Clears [`UNREACHED`] however the drain ends.
+        struct Reached;
+        impl Drop for Reached {
+            fn drop(&mut self) {
+                UNREACHED.set(false);
+            }
+        }
+        self.inner.close();
+        UNREACHED.set(true);
+        let _reached = Reached;
+        while let Ok(event) = self.inner.try_recv() {
+            drop(event);
+        }
     }
 }
 

@@ -1239,13 +1239,13 @@ mod counter;
 
 #[cfg(test)]
 mod tests {
-    use hamlet_actor_core::{ActorConfig, ActorEvent, ActorStart};
+    use hamlet_actor_core::{ActorConfig, ActorStart};
     use hamlet_testing::Scratch;
 
     use super::*;
 
     /// The kind `waker`, whose run handler sets the run wake deadline
-    /// `wake_at` and then answers each event with nothing.
+    /// `wake_at` and then answers only lifecycle events.
     fn waker(wake_at: i64) -> HashMap<String, ActorFactory> {
         let config = ActorConfig {
             name: Some("waker".to_owned()),
@@ -1261,17 +1261,7 @@ mod tests {
                     } = start;
                     ctx.set_run_wake_at(Some(wake_at)).await?;
                     while let Some(event) = events.recv().await {
-                        match event {
-                            ActorEvent::SerializeState {
-                                reply,
-                                ..
-                            } => reply.send(Ok(Vec::new())),
-                            ActorEvent::RunGracefulCleanup {
-                                reply,
-                                ..
-                            } => reply.send(Ok(())),
-                            _ => {}
-                        }
+                        counter::answer(event);
                     }
                     Ok(())
                 })

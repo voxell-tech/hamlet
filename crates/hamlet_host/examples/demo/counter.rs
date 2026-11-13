@@ -104,22 +104,30 @@ async fn run(start: ActorStart) -> Result<()> {
                     );
                 });
             }
-            // The count is in SQL, so the actor keeps no other state.
-            ActorEvent::SerializeState { reply, .. } => {
-                reply.send(Ok(Vec::new()));
-            }
-            // The loop ends when the core closes the channel, after
-            // the stop's last event.
-            ActorEvent::RunGracefulCleanup { reply, .. }
-            | ActorEvent::ConnectionPreflight { reply, .. }
-            | ActorEvent::ConnectionOpen { reply, .. }
-            | ActorEvent::DisconnectConn { reply, .. } => {
-                reply.send(Ok(()));
-            }
-            _ => {}
+            other => answer(other),
         }
     }
+    // The loop ends when the core closes the channel, after the
+    // stop's last event.
     Ok(())
+}
+
+/// Answers the lifecycle events of an actor whose state is all in
+/// SQL: it has no other state to save, nothing to clean up, and lets
+/// every connection in. Drops any other event's reply.
+pub fn answer(event: ActorEvent) {
+    match event {
+        ActorEvent::SerializeState { reply, .. } => {
+            reply.send(Ok(Vec::new()));
+        }
+        ActorEvent::RunGracefulCleanup { reply, .. }
+        | ActorEvent::ConnectionPreflight { reply, .. }
+        | ActorEvent::ConnectionOpen { reply, .. }
+        | ActorEvent::DisconnectConn { reply, .. } => {
+            reply.send(Ok(()));
+        }
+        _ => {}
+    }
 }
 
 async fn action(

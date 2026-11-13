@@ -93,28 +93,12 @@ fn napper(kind: &str, has_database: bool) -> ActorFactory {
                             }),
                         );
                     }
-                    other => answer(other),
+                    other => counter::answer(other),
                 }
             }
             Ok(())
         })
     })
-}
-
-/// Answers the lifecycle events a test actor has no use for.
-fn answer(event: ActorEvent) {
-    match event {
-        ActorEvent::SerializeState { reply, .. } => {
-            reply.send(Ok(Vec::new()));
-        }
-        ActorEvent::RunGracefulCleanup { reply, .. }
-        | ActorEvent::ConnectionPreflight { reply, .. }
-        | ActorEvent::ConnectionOpen { reply, .. }
-        | ActorEvent::DisconnectConn { reply, .. } => {
-            reply.send(Ok(()));
-        }
-        _ => {}
-    }
 }
 
 /// Each generation's context, in the order they started.
@@ -180,7 +164,7 @@ fn keeper(contexts: &Contexts) -> HashMap<String, ActorFactory> {
                                     }
                                 }));
                             }
-                            other => answer(other),
+                            other => counter::answer(other),
                         }
                     }
                     Ok(())
@@ -409,7 +393,7 @@ async fn an_action_with_no_reply_times_out() {
                         ActorEvent::Action { reply, .. } => {
                             unanswered.push(reply);
                         }
-                        other => answer(other),
+                        other => counter::answer(other),
                     }
                 }
                 Ok(())

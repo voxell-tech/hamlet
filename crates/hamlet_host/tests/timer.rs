@@ -13,7 +13,10 @@ use async_trait::async_trait;
 use hamlet_actor::{
     Action, Actor, ActorConfig, Ctx, Handler, Registry,
 };
-use hamlet_actor_core::{ActorFactory, ShutdownKind};
+use hamlet_actor_core::actor::schedule::end_one_shot;
+use hamlet_actor_core::{
+    ActorEvent, ActorFactory, ActorStart, ShutdownKind,
+};
 use hamlet_host::Host;
 use hamlet_testing::Scratch;
 use serde::{Deserialize, Serialize};
@@ -54,6 +57,22 @@ fn stored(dir: &Path, actor_id: &str, table: &str) -> Stored {
             "SELECT COUNT(*) FROM _actor_schedule_events",
         ),
     }
+}
+
+/// Makes the table `table`, of one count, as [`stored`] reads it.
+fn count_table(table: &str) -> String {
+    format!(
+        "CREATE TABLE IF NOT EXISTS {table} (id INTEGER PRIMARY \
+         KEY, value INTEGER NOT NULL)"
+    )
+}
+
+/// Adds one to the count in the table `table`.
+fn add_one(table: &str) -> String {
+    format!(
+        "INSERT INTO {table} (id, value) VALUES (0, 1) ON CONFLICT \
+         (id) DO UPDATE SET value = value + 1"
+    )
 }
 
 /// Calls `action` until `runs` reads its reply as `want`.
@@ -171,12 +190,7 @@ impl Actor for Fuse {
     type Action = ();
 
     async fn create(ctx: &Ctx<Self>) -> Result<Self> {
-        ctx.sql()
-            .exec(
-                "CREATE TABLE IF NOT EXISTS runs (id INTEGER \
-                 PRIMARY KEY, value INTEGER NOT NULL)",
-            )
-            .await?;
+        ctx.sql().exec(&count_table("runs")).await?;
         Ok(Self)
     }
 }
@@ -200,13 +214,7 @@ impl Handler<Fire> for Fuse {
         ctx: Ctx<Self>,
         _: Fire,
     ) -> Result<()> {
-        ctx.sql()
-            .execute(
-                "INSERT INTO runs (id, value) VALUES (0, 1) ON \
-                 CONFLICT (id) DO UPDATE SET value = value + 1",
-                None,
-            )
-            .await?;
+        ctx.sql().execute(&add_one("runs"), None).await?;
         panic!("`fire` panics");
     }
 }
@@ -257,6 +265,121 @@ async fn a_one_shot_whose_trait_handler_panics_runs_once() {
         "runs",
     )
     .await;
+}
+
+/// How long `arm` of the kind `inline` waits for the core to queue
+/// the one-shots it scheduled. The core queues a due one-shot well
+/// within a millisecond.
+const QUEUED: Duration = Duration::from_millis(200);
+
+/// The kind `inline`, of the raw event API, which runs each action
+/// inside its event loop, so that the events that come meanwhile wait
+/// in its channel. It counts the runs of `boom` and of `inc` in
+/// tables of those names.
+/// - `arm` schedules a one-shot `boom` due at once and waits for the
+///   core to queue it, then schedules three one-shots `inc` due at
+///   once and waits for them to queue behind it.
+/// - `boom` counts its run and panics, in the event loop.
+/// - `inc` counts its run and ends its one-shot, in one transaction.
+fn inline() -> HashMap<String, ActorFactory> {
+    let config = ActorConfig {
+        name: Some("inline".to_owned()),
+        has_database: true,
+        ..ActorConfig::default()
+    };
+    HashMap::from([(
+        "inline".to_owned(),
+        ActorFactory::new(config, |start| {
+            Box::pin(run_inline(start))
+        }),
+    )])
+}
+
+async fn run_inline(start: ActorStart) -> Result<()> {
+    let ActorStart {
+        ctx, mut events, ..
+    } = start;
+    for table in ["boom", "inc"] {
+        ctx.sql().exec(count_table(table)).await?;
+    }
+    while let Some(event) = events.recv().await {
+        let ActorEvent::Action {
+            name,
+            scheduled_fire,
+            reply,
+            ..
+        } = event
+        else {
+            counter::answer(event);
+            continue;
+        };
+        match name.as_str() {
+            "arm" => {
+                ctx.after(Duration::ZERO, "boom", &[]).await?;
+                sleep(QUEUED).await;
+                for _ in 0..3 {
+                    ctx.after(Duration::ZERO, "inc", &[]).await?;
+                }
+                sleep(QUEUED).await;
+            }
+            "boom" => {
+                ctx.sql().execute(add_one("boom"), None).await?;
+                panic!("the event loop panics");
+            }
+            "inc" => {
+                let tx = ctx.sql().begin_transaction(None).await?;
+                if let Some(fire) = &scheduled_fire {
+                    end_one_shot(&tx, fire).await?;
+                }
+                tx.execute(&add_one("inc"), None).await?;
+                tx.commit().await?;
+            }
+            _ => {}
+        }
+        reply.send(Ok(Vec::new()));
+    }
+    Ok(())
+}
+
+/// The event loop of a raw actor panics in one one-shot's handler
+/// while three other one-shots wait in its channel. The panic ends
+/// only the row of the one-shot whose handler it cut short. The three
+/// never reached the actor's code, so their rows are kept, and each
+/// runs once after the actor starts again: by the timer the crash
+/// stop leaves, or at the next boot. A later boot runs none again.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_panic_in_the_event_loop_keeps_the_one_shots_queued_behind_it()
+ {
+    let dir = Scratch::new("timer-loop-panic");
+    let host = Host::open(&dir, inline()).unwrap();
+    let id = host.get_or_start("inline", "a").await.unwrap();
+    act(&host, &id, "arm", Vec::new()).await.unwrap();
+    sleep(Duration::from_secs(1)).await;
+    host.shutdown().await.unwrap();
+    drop(host);
+
+    let mut boots = Vec::new();
+    for _ in 0..2 {
+        let host = Host::open(&dir, inline()).unwrap();
+        boots.push(host.boot().await.unwrap());
+        sleep(Duration::from_millis(500)).await;
+        host.shutdown().await.unwrap();
+        drop(host);
+        assert_eq!(
+            stored(&dir, &id, "inc"),
+            Stored {
+                runs: 3,
+                schedules: 0
+            },
+            "the queued one-shots did not each run once"
+        );
+        assert_eq!(
+            stored(&dir, &id, "boom").runs,
+            1,
+            "the panicking handler did not run once"
+        );
+    }
+    assert!(boots[1].is_empty(), "the second boot started it");
 }
 
 /// The due time of each one-shot in a sweep.
