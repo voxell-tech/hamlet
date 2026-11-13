@@ -23,6 +23,7 @@ import {
     type PiContext,
     type PiOptions,
     piActor,
+    withHarness,
 } from "../src/pi/runtime.ts";
 import { migratePiTables } from "../src/pi/storage.ts";
 import {
@@ -59,7 +60,7 @@ async function tables(database: RawAccess): Promise<string[]> {
     return rows.map((row) => row.name);
 }
 
-test("each hook and tool gets its actor's context, and the wrapper writes through the database layer", {
+test("each hook, tool and environment gets its actor's context, and the wrapper writes through the database layer", {
     timeout: 30_000,
 }, async (t) => {
     const database = plainDatabase(scratchFile(t));
@@ -74,7 +75,7 @@ test("each hook and tool gets its actor's context, and the wrapper writes throug
         if (layer === undefined) throw new Error("no layer for this actor");
         return layer;
     };
-    const seen: { by: "tool" | "beforeTool"; actor: PiContext }[] = [];
+    const seen: { by: "env" | "tool" | "beforeTool"; actor: PiContext }[] = [];
     const cutOff = Promise.withResolvers<void>();
     const tell = defineTool({
         name: "tell",
@@ -131,6 +132,10 @@ test("each hook and tool gets its actor's context, and the wrapper writes throug
         registry,
         models,
         model: `${model.provider}/${model.id}`,
+        env: (_target, envContext) => {
+            seen.push({ by: "env", actor: piActor(envContext) });
+            return undefined;
+        },
         databaseLayer: (actor, base) => {
             const layer = agentDatabase(base, writeLetter);
             layers.set(actor, layer);
@@ -168,9 +173,13 @@ test("each hook and tool gets its actor's context, and the wrapper writes throug
     assert.deepEqual(
         seen.map(({ by, actor }) => [by, actor === first ? 1 : 2]),
         [
+            ["env", 1],
             ["beforeTool", 1],
+            ["env", 1],
             ["tool", 1],
+            ["env", 2],
             ["tool", 2],
+            ["env", 2],
         ],
     );
     assert.deepEqual(await stored(database), {
@@ -195,5 +204,31 @@ test("each hook and tool gets its actor's context, and the wrapper writes throug
         "pi_tasks",
         "stand_in_sends",
     ]);
+    await database.close();
+});
+
+test("a call through withHarness gets its generation's context, not the call's", async (t) => {
+    const database = plainDatabase(scratchFile(t));
+    await migratePiTables(database);
+    const faux = fauxProvider();
+    const models = createModels();
+    models.setProvider(faux.provider);
+    const options: PiOptions = { registry: createRegistry(), models };
+    const actor = generation(database);
+    await openOnWake(actor, options);
+    // An action's own context: another object over the same generation.
+    const call = { ...actor } as PiContext;
+
+    const seen = await withHarness(
+        call,
+        options,
+        async (harness, callContext) => {
+            await harness.root(callContext);
+            return piActor(callContext);
+        },
+    );
+
+    assert.equal(seen, actor);
+    await closeHarness(actor, { reason: "destroy" });
     await database.close();
 });
