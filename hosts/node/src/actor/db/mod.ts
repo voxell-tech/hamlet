@@ -10,8 +10,8 @@ export type {
     SqliteBindings,
     SqliteDatabase,
     SqliteNativeMetrics,
-    SqliteProfilingOptions,
     SqliteProfilingMetricsOptions,
+    SqliteProfilingOptions,
     SqliteQueryResult,
     SqliteTransactionOptions,
 } from "../common/database/config.ts";

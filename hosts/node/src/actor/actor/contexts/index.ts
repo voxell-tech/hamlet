@@ -20,12 +20,9 @@ import type {
 
 export type { ActorContextOf } from "../config.ts";
 
-import type {
-    AnyActorDefinition,
-    BaseActorDefinition,
-} from "../definition.ts";
-import type { EventSchemaConfig, QueueSchemaConfig } from "../schema.ts";
 import type { AnyDatabaseProvider } from "../../common/database/config.ts";
+import type { AnyActorDefinition, BaseActorDefinition } from "../definition.ts";
+import type { EventSchemaConfig, QueueSchemaConfig } from "../schema.ts";
 
 export type ActionContextOf<AD extends AnyActorDefinition> =
     AD extends BaseActorDefinition<

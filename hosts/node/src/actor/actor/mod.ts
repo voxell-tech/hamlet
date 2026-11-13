@@ -1,5 +1,4 @@
 // This file was changed for Hamlet. See NOTICE in this package.
-export type { ActorKey } from "@/client/query";
 export { ALLOWED_PUBLIC_HEADERS } from "../common/actor-router-consts.ts";
 export type { Encoding } from "../common/encoding.ts";
 export type {
@@ -52,7 +51,6 @@ export {
     lookupInRegistry,
 } from "./definition.ts";
 export {
-    ActorError,
     ActorError,
     type ActorErrorLike,
     type ActorErrorOptions,
