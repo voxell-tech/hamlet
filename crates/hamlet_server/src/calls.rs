@@ -3,6 +3,7 @@
 //! chief's answer to what waits lets held calls go on.
 
 mod answer;
+mod deciding;
 mod held;
 pub(crate) mod looks;
 mod objections;
@@ -34,22 +35,18 @@ use tokio::task::AbortHandle;
 use self::held::State;
 use self::looks::Look;
 use self::objections::OBJECTING;
-use self::society::args::{Ask, Called, Tell};
 pub(crate) use self::society::library::LIBRARIAN;
 pub(crate) use self::society::welcome;
 use crate::core::Core;
 use crate::images::{Limits, kept_pictures};
 use crate::knowledge::CHARACTER;
 use crate::later::{Again, Finished};
-use crate::oversight::gate::{
-    self, Asked, Session, Standing, Verdict,
-};
+use crate::oversight::gate::{Asked, Session};
 use crate::oversight::{self, Raise, Ruling, WaitKind};
 use crate::talk::conversations::{Conversation, Kind};
 use crate::talk::marks::Mark;
 use crate::talk::{asking, conversations, inputs, models};
 use crate::work::catalogue::Society;
-use crate::work::cut::change_between;
 use crate::work::tools::{Outcome, Sight, ToolSession};
 use crate::workspace::serving::Lodging;
 
@@ -877,265 +874,6 @@ impl Core<'_, '_> {
             );
         }
         Ok(())
-    }
-
-    /// The gate's decision of `call`: the one kept, else one made now
-    /// and kept, raising a wait when it asks a chief.
-    fn decide(&mut self, call: &Call<'_>) -> Result<Decision> {
-        let layout = self.realm.layout().clone();
-        let db = self.realm.store().connection();
-        if let Some(kept) =
-            held::kept(db, &call.call.runtime, &call.call.key)?
-        {
-            match kept.state {
-                State::Blocked(words) => {
-                    return Ok(Decision::Block(words));
-                }
-                State::Ruled { ruling, net, .. }
-                    if ruling.is_allowing() =>
-                {
-                    return Ok(Decision::Run { net });
-                }
-                State::Ruled {
-                    ruling: Ruling::Deny,
-                    text,
-                    ..
-                } => {
-                    return Ok(Decision::Block(format!(
-                        "the chief refused it: {}",
-                        if text.is_empty() {
-                            "no reason given"
-                        } else {
-                            &text
-                        }
-                    )));
-                }
-                State::Ruled {
-                    ruling: Ruling::Stopped,
-                    ..
-                } => {
-                    return Ok(Decision::Block(STOPPED.into()));
-                }
-                State::Ruled { .. } => {
-                    return Ok(Decision::Block(NOBODY.into()));
-                }
-                State::Held(_) => return Ok(Decision::Wait(WAITING)),
-                State::Objected => {
-                    return Ok(Decision::Wait(OBJECTING));
-                }
-                State::Allowed { .. } | State::Open => {}
-            }
-        }
-        if call.conversation.cancelling {
-            let db = self.realm.store().connection();
-            held::block(
-                db,
-                &call.call.runtime,
-                &call.call.key,
-                STOPPED,
-                None,
-            )?;
-            return Ok(Decision::Block(STOPPED.into()));
-        }
-        let agent = call.conversation.agent;
-        let at =
-            place::of_conversation(db, &layout, &call.conversation)?;
-        let added = self
-            .added
-            .iter()
-            .find(|manifest| manifest.spec.name == call.tool)
-            .map(crate::work::added::Manifest::has_net);
-        let mut classified =
-            gate::call_of(call.tool, &call.args(), added);
-        if let gate::Call::Society {
-            tool: tool @ (Society::Tell | Society::Ask),
-            args,
-        } = &classified
-        {
-            // Arguments that do not fit are refused once the call
-            // runs.
-            let paths = match Called::read(*tool, call.arguments) {
-                Ok(
-                    Called::Tell(Tell { paths, .. })
-                    | Called::Ask(Ask { paths, .. }),
-                ) => paths,
-                _ => Vec::new(),
-            };
-            if !paths.is_empty() {
-                let (name, args) =
-                    (tool.name().to_owned(), args.clone());
-                let Some(measured) =
-                    self.looks.measured(&call.call).cloned()
-                else {
-                    let (session, lodging) =
-                        self.tools_of(call, at.place.clone(), false)?;
-                    return Ok(Decision::Look(Box::new(
-                        Look::Measure {
-                            session,
-                            lodging,
-                            paths,
-                        },
-                    )));
-                };
-                match measured {
-                    Ok((files, bytes)) => {
-                        classified = gate::Call::Parcel {
-                            name,
-                            args,
-                            files,
-                            bytes,
-                        };
-                    }
-                    Err(refusal) => {
-                        let words = refusal.to_string();
-                        let db = self.realm.store().connection();
-                        held::block(
-                            db,
-                            &call.call.runtime,
-                            &call.call.key,
-                            &words,
-                            None,
-                        )?;
-                        return Ok(Decision::Block(words));
-                    }
-                }
-            }
-        }
-        if let gate::Call::Edit {
-            write: true,
-            path,
-            old,
-            created,
-            ..
-        } = &mut classified
-        {
-            let Some(previewed) =
-                self.looks.previewed(&call.call).cloned()
-            else {
-                let (session, lodging) =
-                    self.tools_of(call, at.place.clone(), false)?;
-                return Ok(Decision::Look(Box::new(Look::Preview {
-                    session,
-                    lodging,
-                    path: path.clone(),
-                })));
-            };
-            match previewed {
-                Ok(Some(before)) => {
-                    *old = before;
-                    *created = false;
-                }
-                Ok(None) => {}
-                Err(words) => {
-                    let db = self.realm.store().connection();
-                    held::block(
-                        db,
-                        &call.call.runtime,
-                        &call.call.key,
-                        &words,
-                        None,
-                    )?;
-                    return Ok(Decision::Block(words));
-                }
-            }
-        }
-        let (session, _) =
-            self.tools_of(call, at.place.clone(), false)?;
-        let (change, lodge_edit) = match &classified {
-            gate::Call::Edit {
-                write,
-                path,
-                old,
-                now,
-                created,
-            } => {
-                let mut change =
-                    serde_json::to_value(change_between(
-                        path,
-                        old,
-                        now,
-                        *write && *created,
-                    ))?;
-                self.credentials.scrub(&mut change);
-                (
-                    Some(change.to_string()),
-                    session.is_lodge_edit(path),
-                )
-            }
-            _ => (None, false),
-        };
-        let about = self
-            .credentials
-            .scrub_text(&gate::call_text(&classified));
-        let allow_net = self.env.settings.allow_net;
-        let task = self.task_of(call)?;
-        let db = self.realm.store().connection();
-        let limits = society::limits_of(db, at.hamlet.as_ref())?;
-        let (edit, command) = match chat_session(&call.conversation) {
-            Some(session) => gate::trusted(db, session)?,
-            None => (false, false),
-        };
-        let standing = Standing {
-            lodge_edit,
-            net: allow_net
-                || gate::has_grant(
-                    db,
-                    agent,
-                    &hamlet_protocol::client::Permission::Network,
-                )?,
-            asks_edits: at.manual && !edit,
-            asks_commands: at.manual && !command,
-        };
-        let asked = Asked::of(db, call.conversation.id, call.input)?;
-        let verdict = gate::rule(
-            &classified,
-            &standing,
-            at.caller,
-            &limits.reserved,
-            &asked,
-            &about,
-            limits.asking.refusals,
-        );
-        let (runtime, key) =
-            (call.call.runtime.clone(), call.call.key.clone());
-        let conversation = call.conversation.id;
-        let decision = self.change(Actor::Realm, |cx, _| {
-            let change = change.as_deref();
-            Ok(match verdict {
-                Verdict::Run { net } => {
-                    held::allow(cx.db, &runtime, &key, net, change)?;
-                    Decision::Run { net }
-                }
-                Verdict::Block(words) => {
-                    asked.keep(cx.db, conversation)?;
-                    held::block(
-                        cx.db, &runtime, &key, &words, change,
-                    )?;
-                    Decision::Block(words)
-                }
-                Verdict::Ask(danger) => {
-                    asked.keep(cx.db, conversation)?;
-                    let wait = oversight::raise(
-                        cx,
-                        Raise {
-                            kind: WaitKind::Approval,
-                            danger: Some(danger),
-                            agent,
-                            scholar: None,
-                            conversation: Some(conversation),
-                            task,
-                            about,
-                            change: change.map(String::from),
-                            answers: danger.answers(),
-                            questions: None,
-                        },
-                    )?;
-                    held::hold(cx.db, &runtime, &key, wait, change)?;
-                    Decision::Wait(WAITING)
-                }
-            })
-        })?;
-        Ok(decision)
     }
 
     /// The task of the turn that makes `call`.
