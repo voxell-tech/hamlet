@@ -131,7 +131,6 @@ import type {
     WebSocketHandle,
 } from "./runtime.ts";
 import { servicesBinaryUnavailable } from "./runtime.ts";
-import { loadWasmRuntime } from "./wasm-runtime.ts";
 import {
     createWriteThroughProxy,
     unwrapWriteThroughProxy,
@@ -141,14 +140,6 @@ const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 
 type ResolvedRuntimeKind = Exclude<RuntimeKind, "auto">;
-type RuntimeHostKind = "node-like" | "edge-like";
-export type RuntimeLoaders = {
-    loadNative: () => ReturnType<typeof loadNapiRuntime>;
-    loadWasm: (
-        config?: RegistryConfig["wasm"],
-    ) => ReturnType<typeof loadWasmRuntime>;
-    detectHost: () => RuntimeHostKind;
-};
 
 type SerializeStateReason = "save" | "inspector";
 type NativeOnStateChangeHandler = (
@@ -167,12 +158,6 @@ type NativeStateTransactionScope = {
     release: () => void;
 };
 
-const defaultRuntimeLoaders: RuntimeLoaders = {
-    loadNative: loadNapiRuntime,
-    loadWasm: loadWasmRuntime,
-    detectHost: detectRuntimeHost,
-};
-
 function trySetProcessEnv(key: string, value: string) {
     if (typeof process === "undefined") return;
     try {
@@ -180,109 +165,6 @@ function trySetProcessEnv(key: string, value: string) {
     } catch {
         // Some edge runtimes expose a read-only Node-compatible process.env.
     }
-}
-
-export function detectRuntimeHost(): RuntimeHostKind {
-    const globalScope = globalThis as typeof globalThis & {
-        Bun?: unknown;
-        Deno?: unknown;
-        process?: { versions?: { node?: string } };
-        self?: unknown;
-        window?: unknown;
-    };
-
-    if (
-        globalScope.Deno !== undefined ||
-        globalScope.Bun !== undefined ||
-        typeof globalScope.process?.versions?.node === "string"
-    ) {
-        return "node-like";
-    }
-
-    return "edge-like";
-}
-
-export function resolveRuntimeKind(
-    runtime: RuntimeKind | undefined,
-): RuntimeKind {
-    return runtime ?? "auto";
-}
-
-function loadedRuntimeKind(runtime: CoreRuntime): ResolvedRuntimeKind {
-    switch (runtime.kind) {
-        case "napi":
-            return "native";
-        case "wasm":
-            return "wasm";
-    }
-
-    throw new ActorError(
-        "config",
-        "unknown_runtime",
-        "The actor runtime must be NAPI or wasm.",
-        {
-            public: true,
-            statusCode: 500,
-        },
-    );
-}
-
-export async function loadAutoRuntime(
-    config: RegistryConfig,
-    loaders: RuntimeLoaders = defaultRuntimeLoaders,
-): Promise<CoreRuntime> {
-    if (loaders.detectHost() === "edge-like") {
-        return (await loaders.loadWasm(config.wasm)).runtime;
-    }
-
-    let nativeError: unknown;
-    try {
-        return (await loaders.loadNative()).runtime;
-    } catch (error) {
-        nativeError = error;
-        // Native is the expected runtime on a node-like host, so this is the
-        // actionable error even when the wasm fallback goes on to succeed.
-        // Discarding it hides causes such as a platform binding that npm
-        // silently skipped, which then resurfaces as an unrelated wasm error.
-        logger().warn({
-            msg: "native runtime failed to load; falling back to wasm",
-            error: stringifyError(error),
-        });
-    }
-
-    try {
-        return (await loaders.loadWasm(config.wasm)).runtime;
-    } catch (wasmError) {
-        // Report both, native first. The wasm failure on a node-like host is
-        // usually just its loader fetching over `file://`, which says nothing
-        // about why native was unavailable.
-        throw new ActorError(
-            "config",
-            "runtime_unavailable",
-            `The actor runtime could not load a core runtime. Native runtime: ${stringifyError(nativeError)} Wasm runtime: ${stringifyError(wasmError)}`,
-            {
-                public: true,
-                statusCode: 500,
-            },
-        );
-    }
-}
-
-export async function loadConfiguredRuntime(
-    config: RegistryConfig,
-    loaders: RuntimeLoaders = defaultRuntimeLoaders,
-): Promise<CoreRuntime> {
-    const requested = resolveRuntimeKind(config.runtime);
-
-    if (requested === "native") {
-        return (await loaders.loadNative()).runtime;
-    }
-
-    if (requested === "wasm") {
-        return (await loaders.loadWasm(config.wasm)).runtime;
-    }
-
-    return loadAutoRuntime(config, loaders);
 }
 
 function sqliteBackendForConfig(
@@ -324,13 +206,6 @@ export function normalizeRuntimeConfigForKind(
             sqliteBackend: "remote",
         },
     };
-}
-
-export function normalizeRuntimeConfig(
-    config: RegistryConfig,
-    runtime: CoreRuntime,
-): RegistryConfig {
-    return normalizeRuntimeConfigForKind(config, loadedRuntimeKind(runtime));
 }
 type NativePersistActorState = {
     state: unknown;
@@ -827,20 +702,9 @@ function decodeNativeKvValue<T extends NativeKvValueType = "text">(
     }
 }
 
-async function loadEngineCli(): Promise<typeof import("@hamlet/engine-cli")> {
-    // LOAD-BEARING: the specifier is computed (`.join("/")`) on purpose. Do NOT
-    // "simplify" it to a literal `import("@hamlet/engine-cli")`. Edge adapters
-    // pre-bundle this module for Deno; a literal
-    // dynamic import is statically resolvable, so Deno's eszip bundler would
-    // snapshot the ~117 MB engine-cli binary into the deploy and 413. The
-    // computed specifier keeps it opaque to static analysis so it is never
-    // bundled. Enforced by scripts/ci/check-edge-native-closure.mjs.
-    return import(["@hamlet", "engine-cli"].join("/"));
-}
-
 async function loadServices(): Promise<{ getServicesPath: () => string }> {
-    // Keep the native binary opaque to edge bundlers for the same reason as
-    // engine-cli above.
+    // The computed specifier keeps bundlers from resolving the import and
+    // bundling the native binary.
     return import(["@hamlet", "services"].join("/"));
 }
 
@@ -5712,29 +5576,6 @@ export async function buildServeConfig(
         serverlessMaxStartPayloadBytes: config.serverless.maxStartPayloadBytes,
     });
 
-    // For native runtimes, best-effort resolve the npm-installed engine binary
-    // and hand its path to the core. The core decides whether to spawn a local
-    // engine using the resolved spawn decision, so
-    // JS must not duplicate that decision here. Only JS knows the npm
-    // `node_modules` layout, so it resolves the path; if no binary is available
-    // (remote-only install, unsupported platform, optional deps skipped), leave
-    // it unset and let the core report `engine.binary_unavailable` if it actually
-    // needs one.
-    if (resolveNativeBinaries) {
-        try {
-            const { getEnginePath } = await loadEngineCli();
-            serveConfig.engineBinaryPath = getEnginePath();
-        } catch (error) {
-            // The npm-installed engine binary could not be resolved. The core still
-            // decides whether it needs to spawn a local engine; if it does, it will
-            // fail with engine.binary_unavailable (auto-download is off in the napi
-            // runtime). Warn so the cause is actionable.
-            logger().warn({
-                msg: "could not resolve a local engine binary; if a local engine must be spawned it will fail with engine.binary_unavailable — set HAMLET_ACTOR_ENGINE_BINARY_PATH or install the @hamlet/engine-cli platform package",
-                error: stringifyError(error),
-            });
-        }
-    }
     if (resolveNativeBinaries && config.startServices) {
         const servicesBinary = getEnvUniversal("HAMLET_ACTOR_SERVICES_BINARY");
         if (servicesBinary) {
@@ -5805,18 +5646,6 @@ export async function buildNativeRegistry(config: RegistryConfig): Promise<{
     const { runtime } = await loadNapiRuntime();
     return buildRegistryWithRuntime(
         normalizeRuntimeConfigForKind(config, "native"),
-        runtime,
-    );
-}
-
-export async function buildConfiguredRegistry(config: RegistryConfig): Promise<{
-    runtime: CoreRuntime;
-    registry: RegistryHandle;
-    serveConfig: RuntimeServeConfig;
-}> {
-    const runtime = await loadConfiguredRuntime(config);
-    return buildRegistryWithRuntime(
-        normalizeRuntimeConfig(config, runtime),
         runtime,
     );
 }

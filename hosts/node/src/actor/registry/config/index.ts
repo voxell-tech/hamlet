@@ -39,10 +39,6 @@ export type RegistryActors = z.infer<typeof ActorsSchema>;
 
 export const RuntimeKindSchema = z.enum(["auto", "native", "wasm"]);
 export type RuntimeKind = z.infer<typeof RuntimeKindSchema>;
-export type WasmRuntimeBindings = typeof import("@hamlet/actor-wasm");
-export type WasmRuntimeInitInput = Parameters<
-    WasmRuntimeBindings["default"]
->[0];
 export const SqliteBackendSchema = z.enum(["local", "remote"]);
 export type SqliteBackend = z.infer<typeof SqliteBackendSchema>;
 
@@ -51,12 +47,6 @@ export const TestConfigSchema = z.object({
     sqliteBackend: SqliteBackendSchema.optional(),
 });
 export type TestConfig = z.infer<typeof TestConfigSchema>;
-
-export const WasmRuntimeConfigSchema = z.object({
-    bindings: z.custom<WasmRuntimeBindings>().optional(),
-    initInput: z.custom<WasmRuntimeInitInput>().optional(),
-});
-export type WasmRuntimeConfig = z.infer<typeof WasmRuntimeConfigSchema>;
 
 export const SqliteConfigSchema = z
     .union([
@@ -119,13 +109,6 @@ export const RegistryConfigSchema = z
 
             return parsed.data;
         }),
-
-        /**
-         * @experimental
-         *
-         * WebAssembly runtime configuration.
-         * */
-        wasm: WasmRuntimeConfigSchema.optional().default(() => ({})),
 
         /**
          * @experimental
