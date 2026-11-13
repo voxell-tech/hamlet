@@ -192,10 +192,12 @@ of its own and opens it with `rusqlite` in exclusive locking mode, in
 write-ahead mode with `synchronous=NORMAL`. `hamlet_sqlite` runs the
 actor's SQL on that connection. The runtime's tables are named
 `_actor_*`, and the host's one row per file is `_hamlet_actor`, with the
-actor's generation, a mark that it is running, and the deadline its last
-clean stop left: the earliest of its schedule rows, its run wake
-deadline and the last alarm its core pushed, read once the core has
-stopped. The host keeps no timer for a running actor. A stopped actor
+actor's generation, a mark that it is running, a mark that it is
+destroyed, and the deadline its last clean stop left: the earliest of
+its schedule rows, its run wake deadline and the last alarm its core
+pushed, read once the core has stopped. A destroy writes its mark
+before it removes the actor's file, write-ahead file and shared-memory
+file, and a boot or a start that finds the mark finishes the destroy. The host keeps no timer for a running actor. A stopped actor
 with a deadline has one, which starts it from the file it has and never
 makes a file. `boot` reads the files of the host's own kinds, but for
 the actors it holds already, begins the start of each actor a kill left
