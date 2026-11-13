@@ -6,5 +6,5 @@ file.
    Copyright 2023 Rivet Gaming, Inc.
 
 The files were changed for Hamlet: renamed, reformatted and edited by
-hand. Each changed file says so on its first line, or, in package.json,
-in its "//" member.
+hand. Each changed file says so on its first line, or on the line after
+a script's shebang line, or, in package.json, in its "//" member.
