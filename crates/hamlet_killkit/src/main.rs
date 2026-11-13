@@ -122,6 +122,7 @@ fn options(
                 runs = value.parse().with_context(|| {
                     format!("`{value}` is not a number")
                 })?;
+                ensure!(runs > 0, "--runs must be at least 1");
             }
             "--demo" => {
                 demo = Some(PathBuf::from(
@@ -484,5 +485,30 @@ impl Drop for Host {
             let _ = self.child.kill();
             let _ = self.child.wait();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn args(list: &[&str]) -> impl Iterator<Item = String> {
+        list.iter()
+            .map(|arg| (*arg).to_owned())
+            .collect::<Vec<_>>()
+            .into_iter()
+    }
+
+    #[test]
+    fn zero_runs_is_an_error() {
+        assert!(
+            options(args(&["counter-transaction", "--runs", "0"]))
+                .is_err()
+        );
+        let options =
+            options(args(&["counter-transaction", "--runs", "2"]))
+                .unwrap()
+                .unwrap();
+        assert_eq!(options.runs, 2);
     }
 }
