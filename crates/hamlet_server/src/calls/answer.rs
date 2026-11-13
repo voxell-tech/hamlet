@@ -100,7 +100,7 @@ fn withdraw(
     Ok(())
 }
 
-impl Core<'_> {
+impl Core<'_, '_> {
     /// A chief's `choice` on the wait `id`, in the words a reply
     /// gives.
     pub(crate) fn answer_wait(

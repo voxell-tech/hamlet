@@ -628,7 +628,7 @@ fn society(In(line): In<Line>, mut core: Core) -> Answer {
     core.society_command(&line)
 }
 
-impl Core<'_> {
+impl Core<'_, '_> {
     /// Runs the society command `line`.
     fn society_command(&mut self, line: &Line) -> Answer {
         let name = line.name.as_str();

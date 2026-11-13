@@ -44,7 +44,7 @@ pub(super) fn run(In(line): In<Line>, mut core: Core) -> Answer {
     }
 }
 
-impl Core<'_> {
+impl Core<'_, '_> {
     /// Answers a wait with `choice`: the one `#<id>` names, else the
     /// oldest of `agent`'s, else the oldest of all.
     fn answer_line(

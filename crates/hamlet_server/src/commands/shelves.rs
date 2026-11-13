@@ -22,7 +22,7 @@ pub(super) fn run(In(line): In<Line>, mut core: Core) -> Answer {
     }
 }
 
-impl Core<'_> {
+impl Core<'_, '_> {
     fn unshelve(
         &mut self,
         words: &[&str],

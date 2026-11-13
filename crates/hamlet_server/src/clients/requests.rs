@@ -5,6 +5,9 @@
 use std::collections::BTreeMap;
 
 use anyhow::Result;
+use bevy_ecs::change_detection::Mut;
+use bevy_ecs::lifecycle::Remove;
+use bevy_ecs::observer::On;
 use hamlet_protocol::client::{
     self as protocol, ChatRef, ChatRefKind, ClientMessage, RequestId,
     ServerMessage, Transcript,
@@ -12,6 +15,7 @@ use hamlet_protocol::client::{
 use hamlet_store::ids::{Actor, AgentId, ConversationId};
 
 use super::check::{fault, reply};
+use super::connection::Connection;
 use super::fold::Fold;
 use super::{Owed, changes};
 use crate::core::{Core, Live};
@@ -25,13 +29,28 @@ use crate::talk::{chats, items};
 /// The most transcript entries one page holds.
 const PAGE: usize = 100;
 
-impl Core<'_> {
+/// A connection went: the sign-ins and uploads its client began end
+/// with it.
+pub(crate) fn left(
+    gone: On<Remove<Connection>>,
+    mut core: Core,
+) -> bevy_ecs::error::Result {
+    let Ok(client) = core.connections.get(gone.entity).map(|c| c.id)
+    else {
+        return Ok(());
+    };
+    core.providers.disconnect(client);
+    core.images.disconnect(client);
+    core.files.disconnect(client);
+    core.send_providers()?;
+    Ok(())
+}
+
+impl Core<'_, '_> {
     /// `client` sent no hello in time.
     pub(crate) fn late(&mut self, client: u64) {
         if self
-            .clients
-            .list
-            .get(&client)
+            .connection(client)
             .is_some_and(|found| !found.welcomed)
         {
             self.clients.refuse(
@@ -42,13 +61,12 @@ impl Core<'_> {
         }
     }
 
-    /// `client` left: what it held goes.
-    pub(crate) fn gone(&mut self, client: u64) -> Result<()> {
-        self.clients.gone(client);
-        self.providers.disconnect(client);
-        self.images.disconnect(client);
-        self.files.disconnect(client);
-        self.send_providers()
+    /// The connection of `client`, while it is there.
+    pub(crate) fn connection(
+        &mut self,
+        client: u64,
+    ) -> Option<Mut<'_, Connection>> {
+        self.connections.iter_mut().find(|found| found.id == client)
     }
 
     /// The request `text` of `client`, checked; none when it was
@@ -58,7 +76,7 @@ impl Core<'_> {
         client: u64,
         text: &str,
     ) -> Result<Option<ClientMessage>> {
-        let Some(found) = self.clients.list.get(&client) else {
+        let Some(found) = self.connection(client) else {
             return Ok(None);
         };
         if found.refused {
@@ -102,9 +120,7 @@ impl Core<'_> {
                     self.clients.refuse(client, &words, 4002);
                     return Ok(None);
                 }
-                if let Some(found) =
-                    self.clients.list.get_mut(&client)
-                {
+                if let Some(mut found) = self.connection(client) {
                     found.welcomed = true;
                 }
                 let state = self.compose()?;
@@ -520,7 +536,7 @@ impl Core<'_> {
     /// Sends every welcomed client what changed since the state it
     /// was sent last.
     pub(crate) fn publish(&mut self) -> Result<()> {
-        if !self.clients.list.values().any(|c| c.welcomed) {
+        if !self.connections.iter().any(|c| c.welcomed) {
             self.clients.sent = None;
             return Ok(());
         }
@@ -550,7 +566,11 @@ impl Core<'_> {
             }
         };
         self.clients.sent = Some(state);
-        self.clients.broadcast(&self.credentials, &message)
+        super::broadcast(
+            &mut self.connections,
+            &self.credentials,
+            &message,
+        )
     }
 
     /// The state as it is now.

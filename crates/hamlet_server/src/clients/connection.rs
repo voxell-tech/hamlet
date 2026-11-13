@@ -6,6 +6,9 @@
 use std::time::Duration;
 
 use anyhow::Result;
+use bevy_ecs::component::Component;
+use bevy_ecs::lifecycle::HookContext;
+use bevy_ecs::world::DeferredWorld;
 use futures::{SinkExt, StreamExt};
 use hamlet_protocol::client::ServerMessage;
 use tokio::net::TcpStream;
@@ -35,11 +38,29 @@ pub(crate) enum Out {
     Close(u16),
 }
 
-/// The serve loop's end of one connection.
-pub(crate) struct Client {
+/// The serve loop's end of one connection: an entity of its own,
+/// despawned when the connection goes, which takes what the client
+/// held with it.
+#[derive(Component)]
+#[component(on_remove = forget)]
+pub(crate) struct Connection {
+    /// The id the inputs of this connection carry.
+    pub(crate) id: u64,
     pub(crate) send: mpsc::Sender<Out>,
     pub(crate) welcomed: bool,
     pub(crate) refused: bool,
+}
+
+/// A connection that went: what it watched and the replies owed to
+/// it go.
+fn forget(mut world: DeferredWorld, context: HookContext) {
+    let Some(id) = world
+        .get::<Connection>(context.entity)
+        .map(|connection| connection.id)
+    else {
+        return;
+    };
+    world.resource_mut::<super::Clients>().forget(id);
 }
 
 /// Starts carrying `stream` as connection `id`, its task in `tasks`;
@@ -50,10 +71,11 @@ pub(crate) fn accept(
     events: mpsc::Sender<Event>,
     closing: watch::Receiver<bool>,
     tasks: &mut JoinSet<()>,
-) -> Client {
+) -> Connection {
     let (send, receive) = mpsc::channel(128);
     tasks.spawn(connection(stream, id, events, receive, closing));
-    Client {
+    Connection {
+        id,
         send,
         welcomed: false,
         refused: false,
@@ -61,7 +83,7 @@ pub(crate) fn accept(
 }
 
 pub(crate) fn send(
-    client: &mut Client,
+    client: &mut Connection,
     credentials: &Credentials,
     message: ServerMessage,
 ) -> Result<()> {
@@ -76,7 +98,7 @@ pub(crate) fn send(
 }
 
 pub(crate) fn refuse(
-    client: &mut Client,
+    client: &mut Connection,
     text: &str,
     code: u16,
 ) -> Result<()> {

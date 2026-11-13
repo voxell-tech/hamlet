@@ -10,9 +10,8 @@ pub(crate) mod fold;
 pub(crate) mod requests;
 pub(crate) mod state;
 
-use std::collections::BTreeMap;
-
 use anyhow::Result;
+use bevy_ecs::system::Query;
 use hamlet_protocol::client::{
     self as protocol, ChatRef, RequestId, ServerMessage, Update,
 };
@@ -22,7 +21,7 @@ use tokio::sync::{mpsc, watch};
 use tokio::task::JoinSet;
 
 use self::check::Protocol;
-use self::connection::{Client, Event};
+use self::connection::{Connection, Event};
 use crate::credentials::Credentials;
 use crate::diagnostic::{Secrets, tell};
 
@@ -43,10 +42,29 @@ pub(crate) struct Owed {
     pub request: String,
 }
 
+pub(crate) fn plugin(app: &mut bevy_app::App) {
+    app.add_observer(requests::left);
+}
+
+/// Every connection, as the systems that send to them reach them.
+pub(crate) type Connections<'w, 's> =
+    Query<'w, 's, &'static mut Connection>;
+
+/// Sends `message` to every welcomed client of `connections` now.
+pub(crate) fn broadcast(
+    connections: &mut Connections,
+    credentials: &Credentials,
+    message: &ServerMessage,
+) -> Result<()> {
+    for mut client in connections.iter_mut().filter(|c| c.welcomed) {
+        connection::send(&mut client, credentials, message.clone())?;
+    }
+    Ok(())
+}
+
 #[derive(bevy_ecs::resource::Resource)]
 pub(crate) struct Clients {
     pub check: Protocol,
-    pub list: BTreeMap<u64, Client>,
     next: u64,
     events: mpsc::Sender<Event>,
     closing: watch::Receiver<bool>,
@@ -76,7 +94,6 @@ impl Clients {
     ) -> Result<Self> {
         Ok(Self {
             check: Protocol::new()?,
-            list: BTreeMap::new(),
             next: 0,
             events,
             closing,
@@ -90,16 +107,16 @@ impl Clients {
         })
     }
 
-    pub fn accept(&mut self, stream: TcpStream) {
+    /// Starts carrying `stream`; gives the connection to spawn.
+    pub fn accept(&mut self, stream: TcpStream) -> Connection {
         self.next += 1;
-        let client = connection::accept(
+        connection::accept(
             stream,
             self.next,
             self.events.clone(),
             self.closing.clone(),
             &mut self.tasks,
-        );
-        self.list.insert(self.next, client);
+        )
     }
 
     /// Queues `message` for `client`, to go out once the input that
@@ -112,9 +129,6 @@ impl Clients {
     /// Queues a refusal of `client` in `text`, closing it with
     /// `code`.
     pub fn refuse(&mut self, client: u64, text: &str, code: u16) {
-        if let Some(found) = self.list.get_mut(&client) {
-            found.refused = true;
-        }
         self.outbox.push(Outgoing::Refusal(
             client,
             text.into(),
@@ -122,13 +136,21 @@ impl Clients {
         ));
     }
 
-    /// Sends what is queued, in order, with every credential taken
-    /// out. A message that cannot be sent is logged and dropped.
-    pub fn deliver(&mut self, credentials: &Credentials) {
+    /// Sends what is queued, in order, to `connections`, with every
+    /// credential taken out. A message that cannot be sent is logged
+    /// and dropped.
+    pub fn deliver(
+        &mut self,
+        connections: &mut Connections,
+        credentials: &Credentials,
+    ) {
         for outgoing in std::mem::take(&mut self.outbox) {
-            let sent = match outgoing {
-                Outgoing::Message(client, message) => {
-                    match self.list.get_mut(&client) {
+            let (client, sent) = match outgoing {
+                Outgoing::Message(client, message) => (client, {
+                    let mut found = connections
+                        .iter_mut()
+                        .find(|found| found.id == client);
+                    match found.as_deref_mut() {
                         Some(found) => connection::send(
                             found,
                             credentials,
@@ -136,42 +158,33 @@ impl Clients {
                         ),
                         None => Ok(()),
                     }
-                }
-                Outgoing::Refusal(client, text, code) => {
-                    match self.list.get_mut(&client) {
+                }),
+                Outgoing::Refusal(client, text, code) => (client, {
+                    let mut found = connections
+                        .iter_mut()
+                        .find(|found| found.id == client);
+                    match found.as_deref_mut() {
                         Some(found) => {
                             connection::refuse(found, &text, code)
                         }
                         None => Ok(()),
                     }
-                }
+                }),
             };
             if let Err(error) = sent {
                 tell(
                     Secrets::Of(credentials),
                     format!(
-                        "a message to a client failed: {error:#}"
+                        "a message to client {client} failed: \
+                         {error:#}"
                     ),
                 );
             }
         }
     }
 
-    /// Sends `message` to every welcomed client now.
-    pub fn broadcast(
-        &mut self,
-        credentials: &Credentials,
-        message: &ServerMessage,
-    ) -> Result<()> {
-        for client in self.list.values_mut().filter(|c| c.welcomed) {
-            connection::send(client, credentials, message.clone())?;
-        }
-        Ok(())
-    }
-
-    /// `client` left: its watches and owed replies go.
-    pub fn gone(&mut self, client: u64) {
-        self.list.remove(&client);
+    /// `client` went: what it watched and the replies owed to it go.
+    pub fn forget(&mut self, client: u64) {
         self.watches.retain(|w| w.client != client);
         self.owed.retain(|o| o.client != client);
     }

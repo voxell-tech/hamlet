@@ -22,7 +22,7 @@ use crate::talk::tasks::{self, Origin};
 use crate::work::catalogue::SOCIETY;
 use crate::work::tools::To;
 
-impl Core<'_> {
+impl Core<'_, '_> {
     pub(in crate::calls) async fn tell(
         &mut self,
         call: &Call<'_>,

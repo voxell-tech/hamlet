@@ -14,9 +14,9 @@ use hamlet_store::ids::{Actor, AgentId, ConversationId};
 use crate::apply::Changed;
 use crate::calls::Calls;
 use crate::change::{Change, Done, Touched};
-use crate::clients::Clients;
 use crate::clients::check::reply;
 use crate::clients::fold::Fold;
+use crate::clients::{Clients, Connections};
 use crate::clock;
 use crate::commands::Commands;
 use crate::credentials::Credentials;
@@ -117,8 +117,10 @@ holder! {
 /// Every resource of the realm's live state, as the handlers reach
 /// it.
 #[derive(SystemParam)]
-pub(crate) struct Core<'w> {
+pub(crate) struct Core<'w, 's> {
     pub realm: ResMut<'w, Realm>,
+    /// The clients' connections, one entity each.
+    pub connections: Connections<'w, 's>,
     pub env: ResMut<'w, Env>,
     pub runtimes: ResMut<'w, Runtimes>,
     pub credentials: ResMut<'w, Credentials>,
@@ -163,7 +165,7 @@ pub(crate) struct Live {
     pub activity: Activity,
 }
 
-impl Core<'_> {
+impl Core<'_, '_> {
     /// Makes a change by `actor` in one transaction, then wakes what
     /// it needs.
     pub fn change<T>(

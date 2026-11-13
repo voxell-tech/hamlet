@@ -588,7 +588,7 @@ fn usage(words: &str) -> Refusal {
     }
 }
 
-impl Core<'_> {
+impl Core<'_, '_> {
     /// Begins an image of `size` bytes; the reply names the upload
     /// its parts are sent under.
     pub(crate) fn put_image(

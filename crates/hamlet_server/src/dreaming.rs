@@ -47,7 +47,7 @@ fn dream_tick(mut core: Core) -> Result<()> {
     core.dream_tick()
 }
 
-impl Core<'_> {
+impl Core<'_, '_> {
     /// Starts a dream when one is due.
     pub(crate) fn dream_tick(&mut self) -> Result<()> {
         let dreams = &self.env.settings.dreams;

@@ -41,7 +41,7 @@ fn memory_path(path: &str) -> Result<String, Refusal> {
     }
 }
 
-impl Core<'_> {
+impl Core<'_, '_> {
     pub(crate) fn edit(
         &mut self,
         client: u64,

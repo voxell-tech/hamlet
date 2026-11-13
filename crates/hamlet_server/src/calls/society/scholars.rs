@@ -18,7 +18,7 @@ use crate::society::{addresses, authority, names};
 /// The most of a file `read_scholar` gives.
 const MOST_READ: usize = 50 * 1024;
 
-impl Core<'_> {
+impl Core<'_, '_> {
     /// The living scholar `call`'s argument `scholar` names, which
     /// the caller may keep.
     fn kept_scholar(

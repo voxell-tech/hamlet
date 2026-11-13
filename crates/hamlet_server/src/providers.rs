@@ -267,7 +267,7 @@ impl Providers {
     }
 }
 
-impl Core<'_> {
+impl Core<'_, '_> {
     /// Asks the providers what they offer, and each endpoint for its
     /// models.
     pub(crate) fn start_providers(&mut self) -> Result<()> {

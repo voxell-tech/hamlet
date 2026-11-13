@@ -169,7 +169,7 @@ fn hex(hash: &[u8]) -> FileId {
         .expect("a SHA-256 is 64 lowercase hexadecimal digits")
 }
 
-impl Core<'_> {
+impl Core<'_, '_> {
     /// Begins a file of `size` bytes; the reply names the upload its
     /// parts are sent under. A file with no bytes is kept at once.
     pub(crate) fn put_file(

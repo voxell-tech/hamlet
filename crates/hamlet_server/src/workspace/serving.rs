@@ -19,7 +19,7 @@ use crate::society::refusal::Refusal;
 use crate::society::{agents, hamlets, hires, merges};
 use crate::work::hamlet_of;
 
-impl Core<'_> {
+impl Core<'_, '_> {
     /// The session of `agent`'s tools in the remote workspace, when
     /// the realm works in one; its commands reach the network with
     /// `net`.

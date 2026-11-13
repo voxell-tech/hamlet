@@ -15,7 +15,7 @@ use bevy_ecs::system::{Res, ResMut};
 use hamlet_store::Db;
 
 use crate::calls::{Calls, place};
-use crate::clients::Clients;
+use crate::clients::{Clients, Connections};
 use crate::core::{Catalogue, Core};
 use crate::credentials::Credentials;
 use crate::providers::Providers;
@@ -168,9 +168,10 @@ fn publish(mut core: Core) -> Result {
 /// it left.
 fn reply(
     mut clients: ResMut<Clients>,
+    mut connections: Connections,
     credentials: Res<Credentials>,
 ) {
-    clients.deliver(&credentials);
+    clients.deliver(&mut connections, &credentials);
 }
 
 fn forget(mut changed: ResMut<Changed>) {

@@ -13,6 +13,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context as _, Result};
 use bevy_app::App;
+use bevy_ecs::entity::Entity;
 use bevy_ecs::error::{BevyError, ErrorContext};
 use bevy_ecs::system::SystemState;
 use futures::FutureExt;
@@ -28,7 +29,7 @@ use tokio::sync::{mpsc, watch};
 use crate::apply::Apply;
 use crate::calls::{self, Calls, Ran};
 use crate::clients::check::fault;
-use crate::clients::connection::Event;
+use crate::clients::connection::{Connection, Event};
 use crate::clients::{Clients, asked};
 use crate::clock;
 use crate::core::{
@@ -174,7 +175,7 @@ fn recorded() -> Vec<String> {
 /// its inputs arrive on.
 pub(crate) struct Server {
     pub app: App,
-    core: SystemState<Core<'static>>,
+    core: SystemState<Core<'static, 'static>>,
     inbox: Inbox,
 }
 
@@ -237,6 +238,7 @@ impl Server {
         app.set_error_handler(record)
             .add_plugins((
                 crate::apply::plugin,
+                crate::clients::plugin,
                 crate::commands::plugin,
                 runtimes::plugin,
                 crate::providers::plugin,
@@ -300,7 +302,7 @@ impl Server {
     }
 
     /// The realm's live state, for one input.
-    pub fn core(&mut self) -> Result<Core<'_>> {
+    pub fn core(&mut self) -> Result<Core<'_, '_>> {
         Ok(self.core.get_mut(self.app.world_mut())?)
     }
 
@@ -396,6 +398,12 @@ impl Server {
         match input {
             Input::Line(received) => self.line(received).await,
             Input::Connection(event) => self.connection(event).await,
+            Input::Accepted(stream) => {
+                // A connection is an entity until it goes.
+                let connection = self.core()?.clients.accept(stream);
+                self.app.world_mut().spawn(connection);
+                Ok(())
+            }
             Input::Timer(fire) => self
                 .app
                 .world_mut()
@@ -417,7 +425,19 @@ impl Server {
                 self.core()?.late(client);
                 return Ok(());
             }
-            Event::Gone(client) => return self.core()?.gone(client),
+            Event::Gone(client) => {
+                // Its observers and hooks take what the client held.
+                let world = self.app.world_mut();
+                let gone = world
+                    .query::<(Entity, &Connection)>()
+                    .iter(world)
+                    .find(|(_, found)| found.id == client)
+                    .map(|(entity, _)| entity);
+                if let Some(gone) = gone {
+                    world.despawn(gone);
+                }
+                return Ok(());
+            }
             Event::Message(client, text) => (client, text),
         };
         let Some(message) = self.core()?.checked(client, &text)?
@@ -553,22 +573,19 @@ impl Server {
     }
 
     async fn dispatch(
-        core: &mut Core<'_>,
+        core: &mut Core<'_, '_>,
         input: Input,
     ) -> Result<()> {
         match input {
             // The runner takes these in itself.
             Input::Line(_)
             | Input::Connection(_)
+            | Input::Accepted(_)
             | Input::Due
             | Input::Timer(_) => Ok(()),
             Input::Worked(done) => {
                 core.owe_pushes(&done);
                 core.publish()
-            }
-            Input::Accepted(stream) => {
-                core.clients.accept(stream);
-                Ok(())
             }
             Input::Ran(ran) => core.ran(ran).await,
             Input::Fitted(fitted) => {
@@ -613,7 +630,7 @@ impl Server {
 pub(crate) async fn until(
     server: &mut Server,
     what: &str,
-    mut done: impl FnMut(&mut Core<'_>) -> Result<bool>,
+    mut done: impl FnMut(&mut Core<'_, '_>) -> Result<bool>,
 ) -> Result<()> {
     let deadline = Instant::now() + Duration::from_secs(20);
     while !done(&mut server.core()?)? {

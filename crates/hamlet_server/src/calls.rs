@@ -319,7 +319,7 @@ enum Decision {
     Wait(&'static str),
 }
 
-impl Core<'_> {
+impl Core<'_, '_> {
     /// Answers `reply` about the call `key`, unless its runtime
     /// started again since it asked.
     fn tell_call(

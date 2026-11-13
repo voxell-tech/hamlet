@@ -37,7 +37,7 @@ fn kept(
         .map(|(wait, ruling)| Kept { wait, ruling }))
 }
 
-impl Core<'_> {
+impl Core<'_, '_> {
     /// The chief's instruction the turn of `call` works on: its task,
     /// when the turn is a chief's line.
     fn instruction(
