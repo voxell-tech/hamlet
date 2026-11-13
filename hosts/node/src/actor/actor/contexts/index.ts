@@ -16,16 +16,16 @@ import type {
     StateChangeContext,
     WakeContext,
     WebSocketContext,
-} from "@/actor/config";
+} from "../config.ts";
 
-export type { ActorContextOf } from "@/actor/config";
+export type { ActorContextOf } from "../config.ts";
 
 import type {
     AnyActorDefinition,
     BaseActorDefinition,
-} from "@/actor/definition";
-import type { EventSchemaConfig, QueueSchemaConfig } from "@/actor/schema";
-import type { AnyDatabaseProvider } from "@/common/database/config";
+} from "../definition.ts";
+import type { EventSchemaConfig, QueueSchemaConfig } from "../schema.ts";
+import type { AnyDatabaseProvider } from "../../common/database/config.ts";
 
 export type ActionContextOf<AD extends AnyActorDefinition> =
     AD extends BaseActorDefinition<

@@ -1,21 +1,21 @@
 // This file was changed for Hamlet. See NOTICE in this package.
 export type { ActorKey } from "@/client/query";
-export { ALLOWED_PUBLIC_HEADERS } from "@/common/actor-router-consts";
-export type { Encoding } from "@/common/encoding";
+export { ALLOWED_PUBLIC_HEADERS } from "../common/actor-router-consts.ts";
+export type { Encoding } from "../common/encoding.ts";
 export type {
     UniversalErrorEvent,
     UniversalEvent,
     UniversalEventSource,
     UniversalMessageEvent,
-} from "@/common/eventsource-interface";
+} from "../common/eventsource-interface.ts";
 export type {
     SocketCloseEvent,
     SocketEvent,
     SocketMessageEvent,
     UniversalWebSocket,
-} from "@/common/websocket-interface";
-export type * from "./config";
-export { defineRunHandler } from "./config";
+} from "../common/websocket-interface.ts";
+export type * from "./config.ts";
+export { defineRunHandler } from "./config.ts";
 export type {
     ActionContextOf,
     BeforeActionResponseContextOf,
@@ -35,7 +35,7 @@ export type {
     StateChangeContextOf,
     WakeContextOf,
     WebSocketContextOf,
-} from "./contexts";
+} from "./contexts/index.ts";
 export type {
     AnyActorDefinition,
     AnyActorInstance,
@@ -43,14 +43,14 @@ export type {
     AnyStaticActorInstance,
     BaseActorDefinition,
     BaseActorInstance,
-} from "./definition";
+} from "./definition.ts";
 export {
     ActorDefinition,
     actor,
     isStaticActorDefinition,
     isStaticActorInstance,
     lookupInRegistry,
-} from "./definition";
+} from "./definition.ts";
 export {
     ActorError,
     ActorError,
@@ -58,7 +58,7 @@ export {
     type ActorErrorOptions,
     UserError,
     type UserErrorOptions,
-} from "./errors";
+} from "./errors.ts";
 export {
     type EventSchemaConfig,
     event,
@@ -67,9 +67,9 @@ export {
     type QueueSchemaConfig,
     queue,
     type Type,
-} from "./schema";
+} from "./schema.ts";
 export type {
     ActionSampleRates,
     ActionTraceSamplers,
     ActorTracingOptions,
-} from "./tracing";
+} from "./tracing.ts";

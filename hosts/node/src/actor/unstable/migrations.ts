@@ -1,5 +1,5 @@
 // This file was changed for Hamlet. See NOTICE in this package.
-import type { RawAccess } from "@/common/database/config";
+import type { RawAccess } from "../common/database/config.ts";
 
 export const DEFAULT_MIGRATION_TABLE_NAME = "actor_schema_version";
 

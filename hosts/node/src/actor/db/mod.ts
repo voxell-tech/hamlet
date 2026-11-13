@@ -14,5 +14,5 @@ export type {
     SqliteProfilingMetricsOptions,
     SqliteQueryResult,
     SqliteTransactionOptions,
-} from "@/common/database/config";
-export { db } from "@/common/database/mod";
+} from "../common/database/config.ts";
+export { db } from "../common/database/mod.ts";
