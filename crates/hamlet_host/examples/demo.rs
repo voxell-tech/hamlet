@@ -31,16 +31,19 @@
 
 #[path = "demo/act.rs"]
 mod act;
+#[path = "demo/command.rs"]
+mod command;
 #[path = "demo/counter.rs"]
 mod counter;
 
 use std::io::Write;
 use std::path::PathBuf;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 use act::act;
-use anyhow::{Context, Result, anyhow, bail};
-use hamlet_host::{Address, Host};
+use anyhow::{Context, Result, anyhow};
+use command::{number, print_reply, run};
+use hamlet_host::Host;
 use tokio::sync::mpsc;
 
 #[tokio::main]
@@ -99,76 +102,6 @@ async fn demo() -> Result<()> {
     };
     host.shutdown().await?;
     result
-}
-
-/// Runs one command line split into words.
-async fn run(host: &Host, words: &[String]) -> Result<()> {
-    let (command, key) = match words {
-        [command, key, ..] => (command.as_str(), key.as_str()),
-        _ => bail!("a command takes an actor key"),
-    };
-    let mut out = std::io::stdout();
-    match command {
-        "timers" => {
-            let at = address(key)?;
-            for timer in host.set_aside_timers(&at).await? {
-                writeln!(
-                    out,
-                    "timer {key} {} {} due={} tries={} error={}",
-                    timer.event_id,
-                    timer.action,
-                    timer.due_at,
-                    timer.tries,
-                    timer.last_error.as_deref().unwrap_or("-")
-                )?;
-            }
-            return Ok(());
-        }
-        "rearm" => {
-            let event_id =
-                words.get(2).context("rearm takes an event id")?;
-            let now = SystemTime::now().duration_since(UNIX_EPOCH)?;
-            let rearmed = host
-                .rearm_timer(
-                    &address(key)?,
-                    event_id,
-                    i64::try_from(now.as_millis())?,
-                )
-                .await?;
-            writeln!(out, "rearm {key} {event_id} {rearmed}")?;
-            return Ok(());
-        }
-        _ => {}
-    }
-    let actor_id = host.get_or_start("counter", key).await?;
-    let reply = match command {
-        "increment" => {
-            let mut reply = Vec::new();
-            for _ in 0..number(words.get(2)).unwrap_or(1) {
-                reply = act(host, &actor_id, "increment", Vec::new())
-                    .await?;
-            }
-            reply
-        }
-        "get" | "sleep" | "destroy" => {
-            act(host, &actor_id, command, Vec::new()).await?
-        }
-        "block" => {
-            let ms = number(words.get(2))?;
-            act(host, &actor_id, "block", ms.to_le_bytes().to_vec())
-                .await?
-        }
-        "schedule" => {
-            let mut args =
-                number(words.get(2))?.to_le_bytes().to_vec();
-            if let Some(action) = words.get(3) {
-                args.extend_from_slice(action.as_bytes());
-            }
-            act(host, &actor_id, "schedule", args).await?
-        }
-        other => bail!("unknown command `{other}`"),
-    };
-    print_reply("", &actor_id, reply)
 }
 
 /// Boots, starts `loaded` counters, then runs each line of stdin as
@@ -246,29 +179,4 @@ async fn print_began(host: &Host, began: Vec<String>) -> Result<()> {
         }
     }
     Ok(())
-}
-
-/// Prints the count a counter replied with.
-fn print_reply(
-    prefix: &str,
-    actor_id: &str,
-    reply: Vec<u8>,
-) -> Result<()> {
-    let count = counter::count(reply)?;
-    writeln!(std::io::stdout(), "{prefix}{actor_id} {count}")?;
-    Ok(())
-}
-
-/// The address a `<kind>/<key>` word names.
-fn address(word: &str) -> Result<Address> {
-    let (kind, key) = word
-        .split_once('/')
-        .with_context(|| format!("`{word}` is not <kind>/<key>"))?;
-    Ok(Address::new(kind, key))
-}
-
-fn number(word: Option<&String>) -> Result<u64> {
-    let word = word.context("a number is missing")?;
-    word.parse()
-        .with_context(|| format!("`{word}` is not a number"))
 }
