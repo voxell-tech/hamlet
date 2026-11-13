@@ -893,8 +893,8 @@ async fn a_timer_does_not_make_a_file_that_is_gone() {
 
 /// Stores `wake_at` as the deadline of a stopped counter, as its last
 /// stop would, and boots a host on the folder. Returns the host, the
-/// counter's id and what boot started. Fails if boot does not return
-/// within five seconds.
+/// counter's id and the starts boot began. Fails if boot does not
+/// return within five seconds.
 async fn boot_with_deadline(
     dir: &Path,
     wake_at: i64,
@@ -919,15 +919,20 @@ async fn boot_with_deadline(
     (host, id, started)
 }
 
-/// A deadline at the lowest time is past, so boot starts its actor at
-/// once.
+/// A deadline at the lowest time is past, so boot begins its actor's
+/// start at once.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_deadline_at_the_lowest_time_starts_the_actor_at_once() {
     let dir = Scratch::new("timer-deadline-min");
     let (host, id, started) =
         boot_with_deadline(&dir, i64::MIN).await;
     assert_eq!(started, vec![id.clone()]);
-    assert!(host.is_running(&id));
+    // Boot does not wait for the start it began.
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !host.is_running(&id) {
+        assert!(Instant::now() < deadline, "boot did not start it");
+        sleep(Duration::from_millis(10)).await;
+    }
     host.shutdown().await.unwrap();
 }
 

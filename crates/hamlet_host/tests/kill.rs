@@ -228,12 +228,16 @@ fn marks(home: &Path) -> Marks {
     }
 }
 
-/// Opens `home` in a new host and boots it, then stops every actor,
-/// which waits for the scheduled work the boot started. Returns what
-/// the boot started and what the file holds after the stop.
+/// Opens `home` in a new host and boots it, waits for the starts the
+/// boot began, then stops every actor, which waits for the scheduled
+/// work the starts began. Returns what the boot began and what the
+/// file holds after the stop.
 async fn restart(home: &Path) -> (Vec<String>, Stored) {
     let host = Host::open(home, factories()).unwrap();
     let started = host.boot().await.unwrap();
+    for id in &started {
+        act(&host, id, "get", Vec::new()).await.unwrap();
+    }
     host.shutdown().await.unwrap();
     drop(host);
     (started, stored(home, "a"))

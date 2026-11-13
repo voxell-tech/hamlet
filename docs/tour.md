@@ -198,8 +198,9 @@ deadline and the last alarm its core pushed, read once the core has
 stopped. The host keeps no timer for a running actor. A stopped actor
 with a deadline has one, which starts it from the file it has and never
 makes a file. `boot` reads the files of the host's own kinds, but for
-the actors it holds already, starts each actor a kill left marked
-running and arms a timer for each other stored deadline. `examples/demo.rs` drives
+the actors it holds already, begins the start of each actor a kill left
+marked running or whose deadline has come, without waiting for it, and
+arms a timer for each other stored deadline. `examples/demo.rs` drives
 the host from the command line, with the counter actor in
 `examples/demo/counter.rs`. `tests/local.rs` tests the host,
 `tests/timer.rs` tests one-shots that come due as their actor sleeps or

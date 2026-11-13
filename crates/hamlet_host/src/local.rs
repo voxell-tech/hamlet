@@ -9,10 +9,11 @@
 //! stopped. A running actor's alarms live in its core alone, and the
 //! host keeps no timer for it. A stopped actor with a deadline has
 //! one timer, which starts it from its own file. Boot reads the files
-//! of the host's own kinds, starts again each actor a kill left
-//! marked running, and arms a timer for each other stored deadline. A
-//! host locks the folder by its name, so hosts of different names,
-//! each with kinds of its own, share one folder.
+//! of the host's own kinds, begins the start of each actor a kill
+//! left marked running or whose deadline has come, without waiting
+//! for it, and arms a timer for each other stored deadline. A host
+//! locks the folder by its name, so hosts of different names, each
+//! with kinds of its own, share one folder.
 //!
 //! Each actor's place in its lifecycle is one [`Life`] in the host's
 //! map. One actor's start or stop waits only on that actor's work. A
@@ -44,7 +45,7 @@ use hamlet_actor_error::ActorError;
 use parking_lot::Mutex;
 use rusqlite::{Connection, OptionalExtension};
 use tokio::sync::{broadcast, oneshot, watch};
-use tokio::task::{AbortHandle, JoinHandle, JoinSet};
+use tokio::task::{AbortHandle, JoinHandle};
 use tracing::Instrument;
 
 use crate::cause::Cause;
@@ -86,8 +87,8 @@ const ACTOR_TABLE: &str = "CREATE TABLE IF NOT EXISTS _hamlet_actor \
 ///
 /// | From | Event | To |
 /// |---|---|---|
-/// | absent | `get_or_start` or a call, or boot for a run a kill cut off, the host not shut | `Starting` |
-/// | absent | boot finds a deadline in its file, the host not shut | `Stopped` |
+/// | absent | `get_or_start` or a call, or boot for a run a kill cut off or a deadline that has come, the host not shut | `Starting` |
+/// | absent | boot finds a deadline to come in its file, the host not shut | `Stopped` |
 /// | `Stopped` | `get_or_start` or a call, the host not shut | `Starting`, its timer aborted |
 /// | `Stopped` | its timer fires with the deadline the state holds | `Starting`, from the file it has |
 /// | `Stopped` | `Host::shutdown`, or the last `Host` dropped | absent, its timer aborted |
@@ -681,69 +682,74 @@ impl Host {
     }
 
     /// Reads the row of each file of this host's kinds, but for the
-    /// actors the host holds already. Starts again each actor whose
-    /// run a kill cut off, all at once, and arms a timer for each
-    /// other actor whose last stop left a deadline. A due timer
-    /// starts its actor at once, and boot waits for it. Returns the
-    /// started actors. An actor that fails to start is logged and
+    /// actors the host holds already. Begins the start of each actor
+    /// whose run a kill cut off or whose deadline has come, arms a
+    /// timer for each other deadline, and returns the actors whose
+    /// start it began, without waiting for the starts: a call to one
+    /// of them waits for its start. A start that fails is logged and
     /// left for the next boot. Fails at once in a host that has shut
     /// down, which may no longer hold the folder: it reads no file.
     pub async fn boot(&self) -> Result<Vec<String>> {
-        if self.inner().actors.lock().shut {
+        let host = self.inner();
+        if host.actors.lock().shut {
             return Err(host_shut_down());
         }
-        let mut started = Vec::new();
-        let mut cut_off = JoinSet::new();
-        let mut due = Vec::new();
+        let mut began = Vec::new();
         for stored in self.stored_actors()? {
-            let actor_id = stored.actor_id;
-            // Whatever deadline an earlier stop left, a run a kill
-            // cut off starts again, and its core pushes its alarms
-            // anew.
-            if stored.cut_off {
-                let host = self.clone();
-                cut_off.spawn(async move {
-                    let result =
-                        host.ensure_started(&actor_id, false).await;
-                    (actor_id, result)
-                });
-                continue;
-            }
-            let Some(wake_at) = stored.wake_at else {
-                continue;
+            let StoredActor {
+                actor_id,
+                wake_at,
+                cut_off,
+            } = stored;
+            let (owned, generation) = {
+                let mut actors = host.actors.lock();
+                // It started since its file was read.
+                if actors.lives.contains_key(&actor_id) {
+                    continue;
+                }
+                match wake_at {
+                    // Whatever deadline an earlier stop left, a run a
+                    // kill cut off starts again, and its core pushes
+                    // its alarms anew.
+                    _ if cut_off => {}
+                    Some(wake_at) if wake_at > now_ms() => {
+                        if actors.shut {
+                            return Err(host_shut_down());
+                        }
+                        let timer = arm(host, &actor_id, wake_at);
+                        actors.lives.insert(
+                            actor_id,
+                            Life::Stopped {
+                                wake_at,
+                                timer: timer.abort_handle(),
+                            },
+                        );
+                        continue;
+                    }
+                    Some(_) => {}
+                    None => continue,
+                }
+                let (owned, generation, _) =
+                    actors.begin_start(host, &actor_id)?;
+                (owned, generation)
             };
-            let mut actors = self.inner().actors.lock();
-            if actors.shut || actors.lives.contains_key(&actor_id) {
-                continue;
-            }
-            let timer = arm(self.inner(), &actor_id, wake_at);
-            actors.lives.insert(
-                actor_id.clone(),
-                Life::Stopped {
-                    wake_at,
-                    timer: timer.abort_handle(),
-                },
-            );
-            if wake_at <= now_ms() {
-                due.push((actor_id, timer));
-            }
+            began.push(actor_id.clone());
+            tokio::spawn(async move {
+                let started = if cut_off {
+                    start_actor(owned, generation, false).await
+                } else {
+                    start_when_due(owned, generation).await
+                };
+                if let Err(error) = started {
+                    tracing::error!(
+                        ?error,
+                        actor_id,
+                        "host failed to start an actor at boot"
+                    );
+                }
+            });
         }
-        while let Some(joined) = cut_off.join_next().await {
-            match joined? {
-                (actor_id, Ok(_)) => started.push(actor_id),
-                (actor_id, Err(error)) => tracing::error!(
-                    ?error,
-                    actor_id,
-                    "host failed to start an actor at boot"
-                ),
-            }
-        }
-        for (actor_id, timer) in due {
-            if timer.await.unwrap_or(false) {
-                started.push(actor_id);
-            }
-        }
-        Ok(started)
+        Ok(began)
     }
 
     /// The actor for `kind` and `key`, started if it is not running.
@@ -1232,8 +1238,18 @@ async fn wake(
             actors.begin_start(host, actor_id)?;
         (owned, generation)
     };
+    start_when_due(owned, generation).await.map(|_| true)
+}
+
+/// Starts, from the file it has, the actor that `owned` holds as
+/// `Starting`, as the generation of id `id`, for the deadline its
+/// last stop left, which has come.
+async fn start_when_due(
+    owned: Owned,
+    id: u64,
+) -> Result<Arc<Generation>> {
     crate::fault::point("timer-fired");
-    start_actor(owned, generation, false).await.map(|_| true)
+    start_actor(owned, id, false).await
 }
 
 /// The id of the actor of `kind` and `key`, which names its file.

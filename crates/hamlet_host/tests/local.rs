@@ -1488,10 +1488,12 @@ async fn a_shutdown_returns_while_a_start_is_stuck() {
     wait_for_the_drop(&dropped).await;
 }
 
-/// Boot starts the actors a kill left running all at once, so three
-/// stuck starts cost it one deadline, not three.
+/// Boot begins the starts of the actors a kill left running and
+/// returns before any of them ends, also when none ever ends. Each
+/// fails at its own deadline, and a call that waited for one fails
+/// with it.
 #[tokio::test(flavor = "multi_thread")]
-async fn boot_waits_one_deadline_for_many_stuck_starts() {
+async fn boot_returns_while_the_starts_it_began_are_stuck() {
     let dir = Scratch::new("host-stuck-boot");
     let keys = ["a", "b", "c"];
     let host = Host::open(&dir, factories()).unwrap();
@@ -1519,12 +1521,17 @@ async fn boot_waits_one_deadline_for_many_stuck_starts() {
         },
     )
     .unwrap();
-    let started =
-        tokio::time::timeout(START_DEADLINE * 2, host.boot())
-            .await
-            .expect("boot waited for each stuck start in turn")
-            .unwrap();
-    assert!(started.is_empty(), "{started:?}");
+    let mut began = tokio::time::timeout(START_DEADLINE, host.boot())
+        .await
+        .expect("boot waited for a stuck start")
+        .unwrap();
+    began.sort();
+    assert_eq!(began, keys.map(|key| format!("counter/{key}")));
+    for id in &began {
+        let error =
+            act(&host, id, "get", Vec::new()).await.unwrap_err();
+        assert!(is_actor_error(&error, "not_ready"), "{error:#}");
+    }
     host.shutdown().await.unwrap();
 }
 
@@ -1537,6 +1544,65 @@ async fn boot_succeeds_while_an_actor_of_its_host_runs() {
     let id = host.get_or_start("counter", "a").await.unwrap();
     assert!(host.boot().await.unwrap().is_empty());
     assert_eq!(call(&host, &id, "increment").await, 1);
+    host.shutdown().await.unwrap();
+}
+
+/// How long the start of a [`slow_counters`] actor takes.
+const SLOW_START: Duration = Duration::from_secs(5);
+
+/// The demo counter, whose start ends [`SLOW_START`] after its run
+/// handler begins.
+fn slow_counters() -> HashMap<String, ActorFactory> {
+    let config = ActorConfig {
+        name: Some("counter".to_owned()),
+        has_database: true,
+        ..ActorConfig::default()
+    };
+    HashMap::from([(
+        "counter".to_owned(),
+        ActorFactory::new_with_manual_startup_ready(
+            config,
+            |mut start: ActorStart| {
+                Box::pin(async move {
+                    let ready = start.startup_ready.take();
+                    tokio::time::sleep(SLOW_START).await;
+                    if let Some(ready) = ready {
+                        let _ = ready.send(Ok(()));
+                    }
+                    counter::run(start).await
+                })
+            },
+        ),
+    )])
+}
+
+/// L7. Boot begins the start of an actor a kill cut off, and returns
+/// without waiting for it. A call made meanwhile waits for the start.
+#[tokio::test(flavor = "multi_thread")]
+async fn boot_returns_before_the_starts_it_begins() {
+    let dir = Scratch::new("host-boot-returns");
+    let host = Host::open(&dir, factories()).unwrap();
+    let id = host.get_or_start("counter", "a").await.unwrap();
+    call(&host, &id, "increment").await;
+    host.shutdown().await.unwrap();
+    drop(host);
+    // As a kill leaves it.
+    Connection::open(dir.join("actors/counter/a.sqlite"))
+        .unwrap()
+        .execute("UPDATE _hamlet_actor SET running = 1", [])
+        .unwrap();
+
+    let host = Host::open(&dir, slow_counters()).unwrap();
+    let begun = tokio::time::Instant::now();
+    let began =
+        tokio::time::timeout(Duration::from_secs(1), host.boot())
+            .await
+            .expect("boot waited for the start it began")
+            .unwrap();
+    assert_eq!(began, std::slice::from_ref(&id));
+    assert!(!host.is_running(&id));
+    assert_eq!(call(&host, &id, "get").await, 1);
+    assert!(begun.elapsed() >= SLOW_START);
     host.shutdown().await.unwrap();
 }
 

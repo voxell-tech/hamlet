@@ -19,10 +19,10 @@
 //!
 //! Each command prints `counter/<key> <count>`, the count the actor
 //! replied with. Booting prints `boot counter/<key> <count>` for each
-//! actor it started. `timers` prints `timer <kind>/<key> <event_id>
-//! <action> due=<ms> tries=<n> error=<code>` for each timer, and
-//! `rearm` prints `rearm <kind>/<key> <event_id> <true|false>`.
-//! Warnings and errors go to standard error.
+//! actor it started, once its start ends. `timers` prints `timer
+//! <kind>/<key> <event_id> <action> due=<ms> tries=<n> error=<code>`
+//! for each timer, and `rearm` prints `rearm <kind>/<key> <event_id>
+//! <true|false>`. Warnings and errors go to standard error.
 
 #[path = "demo/act.rs"]
 mod act;
@@ -65,12 +65,9 @@ async fn main() -> Result<()> {
         Some("serve") => serve(&host, loaded.unwrap_or(0)).await,
         Some("boot") => {
             let ms = number(args.get(1))?;
-            let started = host.boot().await?;
+            let began = host.boot().await?;
             tokio::time::sleep(Duration::from_millis(ms)).await;
-            for actor_id in started {
-                print_count(&host, "boot ", &actor_id).await?;
-            }
-            Ok(())
+            print_began(&host, began).await
         }
         Some(_) => {
             host.boot().await?;
@@ -154,9 +151,7 @@ async fn run(host: &Host, words: &[String]) -> Result<()> {
 /// Boots, starts `loaded` counters, then runs each line of stdin as
 /// a command until stdin ends or the process gets SIGTERM or Ctrl-C.
 async fn serve(host: &Host, loaded: u64) -> Result<()> {
-    for actor_id in host.boot().await? {
-        print_count(host, "boot ", &actor_id).await?;
-    }
+    print_began(host, host.boot().await?).await?;
     if loaded > 0 {
         for n in 1..=loaded {
             host.get_or_start("counter", &format!("load-{n}"))
@@ -207,13 +202,20 @@ async fn stop_signal() {
     let _ = tokio::signal::ctrl_c().await;
 }
 
-async fn print_count(
-    host: &Host,
-    prefix: &str,
-    actor_id: &str,
-) -> Result<()> {
-    let reply = act(host, actor_id, "get", Vec::new()).await?;
-    print_reply(prefix, actor_id, reply)
+/// Prints the count of each actor whose start boot began, once the
+/// start ends. A start that failed is logged and printed as nothing.
+async fn print_began(host: &Host, began: Vec<String>) -> Result<()> {
+    for actor_id in began {
+        match act(host, &actor_id, "get", Vec::new()).await {
+            Ok(reply) => print_reply("boot ", &actor_id, reply)?,
+            Err(error) => tracing::error!(
+                ?error,
+                actor_id,
+                "the start boot began failed"
+            ),
+        }
+    }
+    Ok(())
 }
 
 /// Prints the count a counter replied with.
