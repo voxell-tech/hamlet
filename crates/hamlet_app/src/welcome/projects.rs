@@ -149,8 +149,8 @@ fn offer(
     }
 }
 
-/// Picks the conversations of the suggested projects once they are
-/// found.
+/// Picks the newest conversations of the suggested projects once they
+/// are found.
 fn pick_suggested(
     imports: Res<Imports>,
     mut projects: ResMut<Projects>,
@@ -163,7 +163,7 @@ fn pick_suggested(
         .projects
         .iter()
         .filter(|project| project.is_suggested())
-        .flat_map(keys)
+        .flat_map(|project| project.picked().iter().map(key))
         .collect();
 }
 

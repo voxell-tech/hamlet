@@ -117,7 +117,7 @@ pub async fn bring_in(
         Chosen::Suggested => projects
             .iter()
             .filter(|project| project.is_suggested())
-            .cloned()
+            .map(newest)
             .collect::<Vec<_>>(),
         Chosen::Named(names) => named(&projects, names)?,
     };
@@ -136,6 +136,14 @@ pub async fn bring_in(
 /// The projects `names` names, each whole when named by its name or
 /// folder, else with the conversations whose ids, or the start of
 /// them, are named.
+/// `project` with its newest conversations, as the window picks them.
+fn newest(project: &Project) -> Project {
+    Project {
+        conversations: project.picked().to_vec(),
+        ..project.clone()
+    }
+}
+
 fn named(
     projects: &[Project],
     names: &[String],
@@ -152,7 +160,7 @@ fn named(
             .collect::<Vec<_>>();
         match whole.as_slice() {
             [project] => {
-                picked.push((*project).clone());
+                picked.push(newest(project));
                 continue;
             }
             [] => {}
