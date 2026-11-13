@@ -233,7 +233,8 @@ fn settle_owed(ended: On<InputEnded>, mut connections: Connections) {
     }
 }
 
-fn retool(
+/// Narrows every living agent's tools to its role.
+pub(crate) fn retool(
     mut realm: ResMut<Realm>,
     catalogue: Res<Catalogue>,
 ) -> Result {

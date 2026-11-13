@@ -30,6 +30,7 @@ mod server;
 mod settings;
 mod society;
 mod spend;
+mod start;
 mod talk;
 #[cfg(test)]
 mod testing;

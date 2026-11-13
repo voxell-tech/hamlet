@@ -186,7 +186,8 @@ What differs from the window:
 
 - **The runner runs inputs, not frames.** `server.rs` sleeps until an
   input comes and runs it; the `Apply` schedule (`apply.rs`) runs once
-  after it. There is no `Main` schedule, so nothing runs that an input or
+  after it. The `Start` schedule (`start.rs`) runs once before the first
+  input. There is no `Main` schedule, so nothing runs that an input or
   a timer did not ask for, and messages are turned over by `Apply`'s last
   step instead of by a frame.
 - **A handler is a one-shot system, and never awaits.**

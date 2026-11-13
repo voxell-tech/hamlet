@@ -294,15 +294,6 @@ impl Core<'_, '_> {
         self.changed.republish = true;
     }
 
-    /// Narrows the tools of every living agent's conversations to its
-    /// role now; a runtime is told before the next input.
-    pub(crate) fn retool(&mut self) -> Result<()> {
-        crate::apply::retool_all(
-            self.realm.store().connection(),
-            &self.tools.catalogue,
-        )
-    }
-
     /// The prompt of `conversation`'s next call, with no secret in
     /// it.
     pub(crate) fn prompt(

@@ -24,7 +24,6 @@ use hamlet_protocol::runtime::{
     ErrorCode, ProtocolError, RuntimeMessage, ServerMessage,
 };
 use hamlet_sandbox::Sandbox;
-use hamlet_store::ids::Actor;
 use notify::RecommendedWatcher;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{mpsc, watch};
@@ -47,11 +46,11 @@ use crate::later::Finished;
 use crate::providers::Providers;
 use crate::realm::Realm;
 use crate::society::agents;
-use crate::talk::follow::follow;
+use crate::start::Start;
 use crate::talk::process::{Pi, Received};
 use crate::talk::runtimes::{self, Harness, Runtimes};
 use crate::talk::sync::Fitted;
-use crate::talk::{Env, heard, inputs};
+use crate::talk::{Env, heard};
 use crate::work::added;
 use crate::work::tools::shell::Shells;
 use crate::workspace::Transport;
@@ -303,6 +302,7 @@ impl Server {
             .add_plugins((
                 crate::core::plugin,
                 crate::apply::plugin,
+                crate::start::plugin,
                 crate::later::plugin,
                 crate::calls::plugin,
                 crate::talk::sync::plugin,
@@ -331,25 +331,9 @@ impl Server {
             inbox,
             watching,
         };
-        let world = server.app.world_mut();
-        for start in [
-            world.register_system_cached(runtimes::start),
-            world.register_system_cached(added::reload),
-        ] {
-            world
-                .run_system(start)
-                .map_err(|error| anyhow::anyhow!("{error}"))??;
-        }
-        let mut core = server.core()?;
-        core.retool()?;
-        core.start_providers()?;
-        let unfollowed =
-            inputs::unfollowed(core.realm.store().connection())?;
-        for input in unfollowed {
-            // No runtime waits on anything from before the stop.
-            core.change(Actor::Realm, |cx, env| {
-                follow(cx, env, input.conversation, &input.request)
-            })?;
+        server.app.world_mut().run_schedule(Start);
+        if let Some(failure) = recorded().into_iter().next() {
+            anyhow::bail!("starting the realm: {failure}");
         }
         if let Some(failure) = server.apply().into_iter().next() {
             anyhow::bail!(
@@ -762,12 +746,13 @@ pub(crate) async fn until(
 #[cfg(all(test, feature = "harness"))]
 mod tests {
     use hamlet_protocol::client as protocol;
+    use hamlet_store::ids::Actor;
     use hamlet_testing::Scratch;
 
     use super::*;
     use crate::settings::{Overrides, Settings};
     use crate::society::hand;
-    use crate::talk::{chats, items};
+    use crate::talk::{chats, inputs, items};
 
     /// A realm on `dir` served with the faux `script`, and a chief's
     /// line `text` to the Hand, answered.
