@@ -5,14 +5,116 @@
 pub mod reach;
 
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Duration;
 
+use anyhow::Result;
+use hamlet_actor::{Action, Actor, Ctx, Handler, Registry};
+use hamlet_actor_core::{ActorConfig, ActorFactory};
 use serde::{Deserialize, Serialize};
 
-use self::reach::Op;
+use self::reach::{Op, Reach};
+
+pub const KIND: &str = "workspace";
 
 /// The workspace's key.
 pub const MACHINE: &str = "local";
+
+/// The workspace's kind.
+pub fn factory() -> ActorFactory {
+    let mut registry = Registry::new();
+    registry.register_actor_with::<Workspace>(
+        KIND,
+        ActorConfig {
+            has_database: true,
+            ..ActorConfig::default()
+        },
+    );
+    registry
+        .into_factories()
+        .remove(KIND)
+        .expect("the registry holds the kind it registered")
+}
+
+struct Workspace;
+
+#[async_trait::async_trait]
+impl Actor for Workspace {
+    type Input = ();
+    type Actions = (SetReach,);
+    type Events = ();
+    type ConnParams = ();
+    type Action = ();
+
+    async fn create(ctx: &Ctx<Self>) -> Result<Self> {
+        ctx.sql().exec(reach::SCHEMA.to_owned()).await?;
+        Ok(Self)
+    }
+}
+
+impl Handler<SetReach> for Workspace {
+    async fn handle(
+        self: Arc<Self>,
+        ctx: Ctx<Self>,
+        set: SetReach,
+    ) -> Result<ReachAnswer> {
+        let tx = ctx.sql().begin_transaction(None).await?;
+        let in_force = reach::apply(&tx, &set).await?;
+        tx.commit().await?;
+        Ok(ReachAnswer::InForce(in_force))
+    }
+}
+
+/// The realm's version of one agent's reach, from 1.
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Serialize,
+    Deserialize,
+)]
+pub struct ReachVersion(pub u64);
+
+/// Sets an agent's reach when `version` is newer than the one in
+/// force. Called by the realm.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SetReach {
+    pub agent: AgentNumber,
+    pub version: ReachVersion,
+    pub reach: Reach,
+}
+
+impl Action for SetReach {
+    type Output = ReachAnswer;
+    const NAME: &'static str = "set_reach";
+}
+
+/// The workspace's answer to a [`SetReach`].
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ReachAnswer {
+    /// The agent's version in force after the call.
+    InForce(ReachVersion),
+    Refused(ReachRefusal),
+}
+
+/// A [`SetReach`] the workspace does not take.
+#[derive(
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    Serialize,
+    Deserialize,
+    thiserror::Error,
+)]
+pub enum ReachRefusal {
+    #[error("only the realm sets a reach")]
+    NotTheRealm,
+}
 
 /// The number in an agent actor's file name,
 /// `actors/agent/<n>.sqlite`.
