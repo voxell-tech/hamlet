@@ -49,8 +49,11 @@ pub fn find() -> Vec<Found> {
 
 /// How far back the conversations of a project reach.
 pub const RECENT: Duration = Duration::from_secs(30 * 24 * 60 * 60);
-/// The most conversations of a project, the newest, brought in.
-pub const MOST_PER_PROJECT: usize = 20;
+/// The most conversations of a project, the newest, listed.
+pub const MOST_LISTED: usize = 50;
+/// The most conversations of a project, the newest, brought in unless
+/// the chief picks others.
+pub const MOST_PICKED: usize = 20;
 
 /// A project: the folder conversations worked in, or the program of
 /// those with none, as an export's are.
@@ -60,8 +63,8 @@ pub struct Project {
     /// The root of its git repository, else the folder itself.
     pub folder: Option<String>,
     pub is_git: bool,
-    /// Its newest conversations, at most [`MOST_PER_PROJECT`],
-    /// newest first.
+    /// Its newest conversations, at most [`MOST_LISTED`], newest
+    /// first.
     pub conversations: Vec<Found>,
 }
 
@@ -72,6 +75,13 @@ impl Project {
         self.is_git && self.conversations.len() >= 3
     }
 
+    /// Its newest [`MOST_PICKED`] conversations, brought in unless
+    /// the chief picks others.
+    pub fn picked(&self) -> &[Found] {
+        &self.conversations
+            [..self.conversations.len().min(MOST_PICKED)]
+    }
+
     pub fn modified(&self) -> SystemTime {
         self.conversations
             .first()
@@ -80,9 +90,9 @@ impl Project {
 }
 
 /// The projects of the conversations `found` since `since`, the
-/// newest first, each with its newest [`MOST_PER_PROJECT`]
-/// conversations. A linked git worktree, a folder under Downloads,
-/// Codex's scratch folders and the home folder are no project.
+/// newest first, each with its newest [`MOST_LISTED`] conversations.
+/// A linked git worktree, a folder under Downloads, Codex's scratch
+/// folders and the home folder are no project.
 pub fn projects(
     found: Vec<Found>,
     since: SystemTime,
@@ -133,7 +143,7 @@ pub fn projects(
         project
             .conversations
             .sort_by_key(|found| std::cmp::Reverse(found.modified));
-        project.conversations.truncate(MOST_PER_PROJECT);
+        project.conversations.truncate(MOST_LISTED);
     }
     projects.sort_by_key(|project| {
         (!project.is_git, std::cmp::Reverse(project.modified()))
