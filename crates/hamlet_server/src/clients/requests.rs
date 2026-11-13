@@ -640,11 +640,16 @@ impl Core {
     ) -> Result<&mut Live> {
         if !self.live.contains_key(&conversation) {
             let db = self.realm.store().connection();
-            let entries =
+            let mut entries =
                 items::page(db, conversation, None, i64::MAX)?
                     .into_iter()
                     .map(|(_, item)| item)
                     .collect::<Vec<_>>();
+            // A conversation brought in shows what it begins with
+            // before its runtime makes it.
+            if entries.is_empty() {
+                entries = imports::held(db, conversation)?;
+            }
             let agent = conversations::get(db, conversation)?.agent;
             self.live.insert(
                 conversation,

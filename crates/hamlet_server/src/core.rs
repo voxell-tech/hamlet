@@ -705,7 +705,15 @@ impl Core {
                         &adapter,
                         &version,
                     )?;
-                    imports::made(db, conversation)?;
+                    // Its watchers held the entries it began with,
+                    // which the runtime keeps under its own ids now.
+                    if imports::made(db, conversation)? {
+                        let agent =
+                            conversations::get(db, conversation)?
+                                .agent;
+                        self.live.remove(&conversation);
+                        self.rewatch(agent).await?;
+                    }
                 }
                 self.flush(false).await?;
             }

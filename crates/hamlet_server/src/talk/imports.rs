@@ -7,7 +7,7 @@
 use anyhow::{Context, Result};
 use diesel::prelude::*;
 use hamlet_protocol::client::{FileId, Imported, ImportedEntry};
-use hamlet_protocol::runtime::Earlier;
+use hamlet_protocol::runtime::{self, Earlier};
 use hamlet_store::Db;
 use hamlet_store::ids::{AgentId, ChiefId, ConversationId, HamletId};
 use hamlet_store::schema::{chat, chat_session, import};
@@ -306,16 +306,73 @@ pub(crate) fn earlier(
     })
 }
 
+/// The entries `conversation` begins with as its transcript shows
+/// them, while its runtime has not made it, as while no model is set
+/// up.
+pub(crate) fn held(
+    db: &mut Db,
+    conversation: ConversationId,
+) -> Result<Vec<runtime::Item>> {
+    let item = |at, entry, kind| runtime::Item {
+        at,
+        blocks: None,
+        call: None,
+        details: None,
+        entry,
+        error: None,
+        failure: None,
+        kind,
+        mark: None,
+        ms: None,
+        request: None,
+        stop: None,
+        text: String::new(),
+        tool: None,
+        usage: None,
+    };
+    Ok(earlier(db, conversation)?
+        .into_iter()
+        .enumerate()
+        .map(|(n, held)| {
+            let entry = format!("held-{n}");
+            match held {
+                Earlier::User { at, mark, text } => runtime::Item {
+                    mark: Some(mark),
+                    text,
+                    ..item(at, entry, runtime::ItemKind::User)
+                },
+                Earlier::Assistant { at, text, .. } => {
+                    runtime::Item {
+                        blocks: Some(vec![runtime::Block::Text {
+                            text,
+                        }]),
+                        ..item(
+                            at,
+                            entry,
+                            runtime::ItemKind::Assistant,
+                        )
+                    }
+                }
+                Earlier::Note { mark } => runtime::Item {
+                    mark: Some(mark),
+                    ..item(0, entry, runtime::ItemKind::Other)
+                },
+            }
+        })
+        .collect())
+}
+
 /// Lets go of the entries of `conversation`, which its runtime keeps
-/// now.
+/// now; whether it held any.
 pub(crate) fn made(
     db: &mut Db,
     conversation: ConversationId,
-) -> Result<()> {
+) -> Result<bool> {
+    let held = !earlier(db, conversation)?.is_empty();
     diesel::update(import::table.find(conversation))
         .set(import::earlier.eq(None::<String>))
         .execute(db)?;
-    Ok(())
+    Ok(held)
 }
 
 /// The runtime's entries for `imported`: a notice of where it came
