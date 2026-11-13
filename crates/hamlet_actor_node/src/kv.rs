@@ -18,7 +18,11 @@ impl Kv {
 }
 
 #[napi]
-#[allow(deprecated)]
+#[expect(
+    deprecated,
+    reason = "the core marks its actor KV deprecated, and the \
+              layer's c.kv still calls it"
+)]
 impl Kv {
     #[napi]
     pub async fn get(

@@ -154,7 +154,7 @@ impl JsNativeDatabase {
             .db
             .run(sql, params)
             .await
-            .map_err(crate::napi_anyhow_error)?;
+            .map_err(napi_anyhow_error)?;
         Ok(ExecuteResult {
             changes: result.changes,
         })
@@ -172,7 +172,7 @@ impl JsNativeDatabase {
             .db
             .query(sql, params)
             .await
-            .map_err(crate::napi_anyhow_error)?;
+            .map_err(napi_anyhow_error)?;
         Ok(core_query_result_to_js(result))
     }
 
@@ -188,7 +188,7 @@ impl JsNativeDatabase {
             .db
             .execute(sql, params)
             .await
-            .map_err(crate::napi_anyhow_error)?;
+            .map_err(napi_anyhow_error)?;
         Ok(core_execute_result_to_js(result))
     }
 
@@ -202,7 +202,7 @@ impl JsNativeDatabase {
             .db
             .execute_batch(statements)
             .await
-            .map_err(crate::napi_anyhow_error)?;
+            .map_err(napi_anyhow_error)?;
         Ok(results
             .into_iter()
             .map(core_execute_result_to_js)
@@ -214,17 +214,14 @@ impl JsNativeDatabase {
         &self,
         sql: String,
     ) -> napi::Result<QueryResult> {
-        let result = self
-            .db
-            .exec(sql)
-            .await
-            .map_err(crate::napi_anyhow_error)?;
+        let result =
+            self.db.exec(sql).await.map_err(napi_anyhow_error)?;
         Ok(core_query_result_to_js(result))
     }
 
     #[napi]
     pub async fn close(&self) -> napi::Result<()> {
-        self.db.close().await.map_err(crate::napi_anyhow_error)
+        self.db.close().await.map_err(napi_anyhow_error)
     }
 
     #[napi]
@@ -239,7 +236,7 @@ impl JsNativeDatabase {
             .db
             .begin_named_transaction(name.as_deref(), timeout)
             .await
-            .map_err(crate::napi_anyhow_error)?;
+            .map_err(napi_anyhow_error)?;
         Ok(JsSqliteTransaction { transaction })
     }
 }
@@ -258,7 +255,7 @@ impl JsSqliteTransaction {
             .execute(sql, params)
             .await
             .map(core_execute_result_to_js)
-            .map_err(crate::napi_anyhow_error)
+            .map_err(napi_anyhow_error)
     }
 
     #[napi]
@@ -270,23 +267,17 @@ impl JsSqliteTransaction {
             .exec(sql)
             .await
             .map(core_query_result_to_js)
-            .map_err(crate::napi_anyhow_error)
+            .map_err(napi_anyhow_error)
     }
 
     #[napi]
     pub async fn commit(&self) -> napi::Result<()> {
-        self.transaction
-            .commit()
-            .await
-            .map_err(crate::napi_anyhow_error)
+        self.transaction.commit().await.map_err(napi_anyhow_error)
     }
 
     #[napi]
     pub async fn rollback(&self) -> napi::Result<()> {
-        self.transaction
-            .rollback()
-            .await
-            .map_err(crate::napi_anyhow_error)
+        self.transaction.rollback().await.map_err(napi_anyhow_error)
     }
 }
 
@@ -304,7 +295,7 @@ impl JsActorStateTransaction {
             .execute(sql, params)
             .await
             .map(core_execute_result_to_js)
-            .map_err(crate::napi_anyhow_error)
+            .map_err(napi_anyhow_error)
     }
 
     #[napi]
@@ -315,15 +306,12 @@ impl JsActorStateTransaction {
         self.transaction
             .commit(state_deltas_from_payload(payload))
             .await
-            .map_err(crate::napi_anyhow_error)
+            .map_err(napi_anyhow_error)
     }
 
     #[napi]
     pub async fn rollback(&self) -> napi::Result<()> {
-        self.transaction
-            .rollback()
-            .await
-            .map_err(crate::napi_anyhow_error)
+        self.transaction.rollback().await.map_err(napi_anyhow_error)
     }
 }
 

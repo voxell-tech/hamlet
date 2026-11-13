@@ -95,7 +95,11 @@ struct ActorContextShared {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-#[allow(dead_code)]
+#[expect(
+    dead_code,
+    reason = "ported; nothing in Hamlet ends an actor with a reason \
+              yet"
+)]
 pub(crate) enum EndReason {
     Sleep,
     Destroy,
@@ -281,7 +285,6 @@ impl ActorContext {
         Self { inner, shared }
     }
 
-    #[allow(dead_code)]
     pub(crate) fn inner(&self) -> &CoreActorContext {
         &self.inner
     }
@@ -322,12 +325,20 @@ impl ActorContext {
         self.shared.set_task_sender(sender);
     }
 
-    #[allow(dead_code)]
+    #[expect(
+        dead_code,
+        reason = "ported; nothing in Hamlet ends an actor with a \
+                  reason yet"
+    )]
     pub(crate) fn set_end_reason(&self, reason: EndReason) {
         self.shared.set_end_reason(reason);
     }
 
-    #[cfg_attr(not(test), allow(dead_code))]
+    #[expect(
+        dead_code,
+        reason = "ported; nothing in Hamlet ends an actor with a \
+                  reason yet"
+    )]
     pub(crate) fn take_end_reason(&self) -> Option<EndReason> {
         self.shared.take_end_reason()
     }
@@ -373,7 +384,10 @@ impl ActorContext {
         Ok(())
     }
 
-    #[allow(dead_code)]
+    #[expect(
+        dead_code,
+        reason = "ported; nothing in Hamlet calls it yet"
+    )]
     pub(crate) fn has_conn_changes(&self) -> bool {
         self.inner.conns().any(|conn| conn.is_hibernatable())
     }
@@ -400,7 +414,6 @@ impl ActorContext {
     // The NAPI bridge intentionally keeps the deprecated KV surface
     // available for TypeScript compatibility while steering new code
     // to SQLite or actor state.
-    #[allow(deprecated)]
     pub fn kv(&self) -> Kv {
         Kv::new(self.inner.clone())
     }
@@ -714,15 +727,22 @@ impl ActorContext {
     }
 
     #[napi]
-    #[allow(deprecated)]
     pub fn set_prevent_sleep(&self, prevent_sleep: bool) {
+        #[expect(
+            deprecated,
+            reason = "the layer still exposes the deprecated no-op"
+        )]
         self.inner.set_prevent_sleep(prevent_sleep);
     }
 
     #[napi]
-    #[allow(deprecated)]
     pub fn prevent_sleep(&self) -> bool {
-        self.inner.prevent_sleep()
+        #[expect(
+            deprecated,
+            reason = "the layer still exposes the deprecated no-op"
+        )]
+        let prevent_sleep = self.inner.prevent_sleep();
+        prevent_sleep
     }
 
     #[napi]
@@ -888,7 +908,7 @@ impl ActorContext {
         &self,
         env: Env,
         predicate: JsFunction,
-    ) -> napi::Result<napi::JsObject> {
+    ) -> napi::Result<JsObject> {
         let predicate = create_disconnect_predicate(&env, predicate)?;
         let ctx = self.inner.clone();
 
@@ -1073,7 +1093,11 @@ impl ActorContextShared {
         Ok(())
     }
 
-    #[allow(dead_code)]
+    #[expect(
+        dead_code,
+        reason = "ported; nothing in Hamlet ends an actor with a \
+                  reason yet"
+    )]
     fn set_end_reason(&self, reason: EndReason) {
         *self.end_reason.lock() = Some(reason);
     }
@@ -1131,7 +1155,10 @@ impl ActorContextShared {
         self.websocket_callback_regions.lock().remove(&region_id);
     }
 
-    #[cfg_attr(not(test), allow(dead_code))]
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "ported; only the tests read it")
+    )]
     fn take_end_reason(&self) -> Option<EndReason> {
         self.end_reason.lock().take()
     }

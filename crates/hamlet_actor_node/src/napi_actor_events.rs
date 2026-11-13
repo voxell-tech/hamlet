@@ -79,7 +79,7 @@ async fn restore_suppressed_run_wake<F, Fut>(
 ) -> Result<()>
 where
     F: FnOnce(i64, u64) -> Fut,
-    Fut: std::future::Future<Output = Result<()>>,
+    Fut: Future<Output = Result<()>>,
 {
     // Restore only after clearing the active marker. Otherwise an
     // immediately due alarm can be consumed under the assumption that
@@ -215,11 +215,10 @@ async fn run_event_loop(
             // without this the set grows for the entire actor lifetime and
             // shows up as native (non-V8) RSS growth.
             Some(result) = tasks.join_next(), if !tasks.is_empty() => {
-                if let Err(error) = result {
-                    if !error.is_cancelled() {
+                if let Err(error) = result
+                    && !error.is_cancelled() {
                         tracing::error!(?error, "napi background task failed to join");
                     }
-                }
             }
             event = events.recv() => {
                 let Some(event) = event else {
@@ -950,7 +949,7 @@ where
         &'a ActorContext,
         &'static str,
     ) -> Fut,
-    Fut: std::future::Future<Output = Result<Vec<StateDelta>>> + 'a,
+    Fut: Future<Output = Result<Vec<StateDelta>>> + 'a,
 {
     if reason != SerializeStateReason::Inspector
         && !dirty.swap(false, Ordering::AcqRel)
@@ -992,7 +991,6 @@ fn serialize_state_reason_name(
     }
 }
 
-#[allow(dead_code)]
 pub(crate) fn spawn_reply<T, F>(
     tasks: &mut JoinSet<()>,
     abort: CancellationToken,
@@ -1000,7 +998,7 @@ pub(crate) fn spawn_reply<T, F>(
     work: F,
 ) where
     T: Send + 'static,
-    F: std::future::Future<Output = Result<T>> + Send + 'static,
+    F: Future<Output = Result<T>> + Send + 'static,
 {
     tasks.spawn(async move {
         tokio::select! {
@@ -1020,7 +1018,7 @@ fn spawn_task<F>(
     actor_id: String,
     work: F,
 ) where
-    F: std::future::Future<Output = Result<()>> + Send + 'static,
+    F: Future<Output = Result<()>> + Send + 'static,
 {
     tasks.spawn(async move {
 		tokio::select! {
@@ -1045,13 +1043,13 @@ pub(crate) async fn drain_tasks(
             break;
         }
 
-        if let Some(result) = tasks.join_next().await {
-            if let Err(error) = result {
-                tracing::error!(
-                    ?error,
-                    "napi background task failed to join"
-                );
-            }
+        if let Some(result) = tasks.join_next().await
+            && let Err(error) = result
+        {
+            tracing::error!(
+                ?error,
+                "napi background task failed to join"
+            );
         }
     }
 }
@@ -1083,7 +1081,7 @@ async fn with_timeout<T, F>(
     future: F,
 ) -> Result<T>
 where
-    F: std::future::Future<Output = Result<T>>,
+    F: Future<Output = Result<T>>,
 {
     with_structured_timeout(
         "actor",
@@ -1108,7 +1106,7 @@ async fn with_structured_timeout<T, F>(
     future: F,
 ) -> Result<T>
 where
-    F: std::future::Future<Output = Result<T>>,
+    F: Future<Output = Result<T>>,
 {
     let message = message.into();
     let kind = structured_timeout_kind(group, code, &message);
@@ -1242,7 +1240,7 @@ async fn call_create_state(
         callback,
         CreateStatePayload {
             ctx: ctx.inner().clone(),
-            input: input.map(|input| input.to_vec()),
+            input: input.map(<[u8]>::to_vec),
         },
     )
     .await
@@ -1258,7 +1256,7 @@ async fn call_on_create(
         callback,
         CreateStatePayload {
             ctx: ctx.inner().clone(),
-            input: input.map(|input| input.to_vec()),
+            input: input.map(<[u8]>::to_vec),
         },
     )
     .await
@@ -1457,7 +1455,7 @@ async fn call_http_request(
 async fn with_dispatch_cancel_token<T, F, Fut>(work: F) -> Result<T>
 where
     F: FnOnce(CancellationToken) -> Fut,
-    Fut: std::future::Future<Output = Result<T>>,
+    Fut: Future<Output = Result<T>>,
 {
     let guard = DispatchCancelGuard::new();
     work(guard.token()).await

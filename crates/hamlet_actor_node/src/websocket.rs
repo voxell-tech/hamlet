@@ -31,7 +31,6 @@ pub struct WebSocket {
 }
 
 impl WebSocket {
-    #[allow(dead_code)]
     pub(crate) fn new(inner: CoreWebSocket) -> Self {
         tracing::debug!(
             class = "WebSocket",

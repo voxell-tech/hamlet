@@ -72,9 +72,9 @@ pub(crate) struct NapiInvalidState {
     pub(crate) reason: String,
 }
 
-pub(crate) fn napi_anyhow_error(error: anyhow::Error) -> napi::Error {
+pub(crate) fn napi_anyhow_error(error: anyhow::Error) -> Error {
     let payload = anyhow_to_bridge_actor_error_payload(error);
-    napi::Error::from_reason(format!(
+    Error::from_reason(format!(
         "{BRIDGE_HAMLET_ACTOR_ERROR_PREFIX}{}",
         payload
     ))
@@ -86,7 +86,8 @@ fn anyhow_to_bridge_actor_error_payload(
     // The bridge attaches this context with `.context(...)`, which
     // anyhow stores as a private wrapper type, so it is found through
     // `Error::downcast_ref` and never through `chain()`.
-    let bridge_context = error.downcast_ref::<crate::actor_factory::BridgeActorErrorContext>();
+    let bridge_context = error
+        .downcast_ref::<actor_factory::BridgeActorErrorContext>();
     let error = TransportError::extract(&error);
     let promoted_status_code =
         public_error_status_code(error.group(), error.code());
@@ -200,7 +201,7 @@ pub(crate) fn init_tracing(log_level: Option<&str>) {
 pub fn set_telemetry_log_sink(
     env: Env,
     callback: JsFunction,
-) -> napi::Result<()> {
+) -> Result<()> {
     telemetry::install(env, callback)
 }
 
@@ -212,5 +213,5 @@ pub async fn shutdown_telemetry() {
 }
 
 fn env_flag(name: &str) -> bool {
-    std::env::var(name).map_or(false, |x| x == "1")
+    std::env::var(name).is_ok_and(|x| x == "1")
 }

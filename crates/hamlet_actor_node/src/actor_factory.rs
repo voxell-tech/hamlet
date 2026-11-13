@@ -336,7 +336,6 @@ pub(crate) struct AdapterConfig {
     pub(crate) on_request_timeout: Duration,
 }
 
-#[allow(dead_code)]
 pub(crate) struct CallbackBindings {
     pub(crate) create_state: Option<CallbackTsfn<CreateStatePayload>>,
     pub(crate) on_create: Option<CallbackTsfn<CreateStatePayload>>,
@@ -411,14 +410,11 @@ impl std::error::Error for BridgeActorErrorContext {}
 
 #[napi]
 pub struct NapiActorFactory {
-    #[allow(dead_code)]
     _bindings: Arc<CallbackBindings>,
-    #[allow(dead_code)]
     inner: Arc<CoreActorFactory>,
 }
 
 impl NapiActorFactory {
-    #[allow(dead_code)]
     pub(crate) fn actor_factory(&self) -> Arc<CoreActorFactory> {
         Arc::clone(&self.inner)
     }
@@ -723,7 +719,6 @@ where
     )
 }
 
-#[allow(dead_code)]
 pub(crate) async fn call_void<T>(
     callback_name: &str,
     callback: &CallbackTsfn<T>,
@@ -760,7 +755,6 @@ where
         .map_err(|error| callback_error(callback_name, error))
 }
 
-#[allow(dead_code)]
 pub(crate) async fn call_buffer<T>(
     callback_name: &str,
     callback: &CallbackTsfn<T>,
@@ -780,7 +774,6 @@ where
     Ok(buffer.to_vec())
 }
 
-#[allow(dead_code)]
 pub(crate) async fn call_optional_buffer<T>(
     callback_name: &str,
     callback: &CallbackTsfn<T>,
@@ -800,7 +793,6 @@ where
     Ok(buffer.map(|buffer| buffer.to_vec()))
 }
 
-#[allow(dead_code)]
 pub(crate) async fn call_queue_send(
     callback_name: &str,
     callback: &CallbackTsfn<QueueSendPayload>,
@@ -816,7 +808,6 @@ pub(crate) async fn call_queue_send(
         .map_err(|error| callback_error(callback_name, error))
 }
 
-#[allow(dead_code)]
 pub(crate) async fn call_state_delta_payload(
     callback_name: &str,
     callback: &CallbackTsfn<SerializeStatePayload>,
@@ -962,7 +953,7 @@ impl TsfnPayloadSummary for ActionPayload {
             self.args.len(),
             self.conn
                 .as_ref()
-                .map(|conn| conn.id())
+                .map(hamlet_actor_core::ConnHandle::id)
                 .unwrap_or("<none>"),
             self.cancel_token.is_some()
         )
@@ -1247,7 +1238,7 @@ fn parse_bridge_actor_error(reason: &str) -> Option<anyhow::Error> {
         serde_json::value::to_raw_value(metadata).ok()
     });
     let message = payload.message;
-    let error = anyhow::Error::new(hamlet_actor_error::ActorError {
+    let error = anyhow::Error::new(ActorError {
         kind: ActorErrorKind::Dynamic {
             group: payload.group,
             code: payload.code,

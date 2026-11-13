@@ -265,10 +265,10 @@ pub(crate) fn build_http_request_payload(
     )?;
     match payload.response_stream {
         Some(response_stream) => {
-            object.set("responseBodyStream", response_stream)?
+            object.set("responseBodyStream", response_stream)?;
         }
         None => {
-            object.set("responseBodyStream", env.get_undefined()?)?
+            object.set("responseBodyStream", env.get_undefined()?)?;
         }
     }
     match payload.cancel_token {
