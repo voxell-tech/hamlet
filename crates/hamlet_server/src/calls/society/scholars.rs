@@ -27,7 +27,7 @@ impl Core<'_, '_> {
         &mut self,
         call: &Call<'_>,
         address: &str,
-    ) -> Result<Result<ScholarId, Refusal>> {
+    ) -> Done<ScholarId> {
         let address = address.to_owned();
         let id = match addresses::parse_scholar(&address) {
             Ok(id) => id,
@@ -59,7 +59,7 @@ impl Core<'_, '_> {
         repo: &Repository,
         name: &str,
         version: &str,
-    ) -> Result<Result<CommitId, Refusal>> {
+    ) -> Done<CommitId> {
         let wanted = if version.is_empty() { MAIN } else { version };
         Ok(match repo.resolve(wanted)? {
             Some(commit) => Ok(commit),

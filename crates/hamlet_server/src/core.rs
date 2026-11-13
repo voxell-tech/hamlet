@@ -31,7 +31,6 @@ use crate::knowledge::runner::Writing;
 use crate::later::Later;
 use crate::providers::Providers;
 use crate::realm::Realm;
-use crate::society::refusal::Refusal;
 use crate::talk::activity::Activity;
 use crate::talk::leases::Authority;
 use crate::talk::runtimes::Runtimes;
@@ -270,7 +269,7 @@ impl Core<'_, '_> {
         &mut self,
         actor: Actor,
         make: impl FnOnce(&mut Change<'_>, &Env) -> Done<T>,
-    ) -> Result<Result<T, Refusal>> {
+    ) -> Done<T> {
         let at = clock::now();
         let env = self.env.clone();
         let db = self.realm.store().connection();

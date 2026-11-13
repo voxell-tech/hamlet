@@ -33,6 +33,7 @@ use serde_json::{Map, Value, json};
 
 pub(crate) use self::parcel::{Sent, To};
 pub(crate) use self::shell::{Dialect, Shells};
+use crate::change::Done;
 use crate::images::Limits;
 use crate::society::refusal::Refusal;
 
@@ -412,7 +413,7 @@ impl ToolSession {
         &self,
         paths: &[String],
         to: Option<To<'_>>,
-    ) -> anyhow::Result<Result<Sent, Refusal>> {
+    ) -> Done<Sent> {
         match self {
             Self::Local {
                 place,

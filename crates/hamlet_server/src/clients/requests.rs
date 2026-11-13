@@ -18,6 +18,7 @@ use super::check::{fault, reply};
 use super::connection::Connection;
 use super::fold::Fold;
 use super::{Owed, changes};
+use crate::change::Done;
 use crate::core::{Core, Live};
 use crate::society::agents::{self, AgentKind, Effort};
 use crate::society::refusal::Refusal;
@@ -218,7 +219,7 @@ impl Core<'_, '_> {
         &mut self,
         agent: AgentId,
         number: i64,
-    ) -> Result<Result<String, Refusal>> {
+    ) -> Done<String> {
         let chief = self.realm.chief();
         let done = self.attempt(Actor::Chief(chief), |cx, _| {
             chats::resume(cx, agent, chief, number)
@@ -231,7 +232,7 @@ impl Core<'_, '_> {
     pub(crate) fn retry_turn(
         &mut self,
         agent: AgentId,
-    ) -> Result<Result<String, Refusal>> {
+    ) -> Done<String> {
         let chief = self.realm.chief();
         let done = self.attempt(Actor::Chief(chief), |cx, env| {
             chats::retry(cx, env, agent, chief)
@@ -315,10 +316,7 @@ impl Core<'_, '_> {
     /// Refuses unless this server's chief may reach `agent` (C7): the
     /// Hand, a hire of one of its hamlets, or a worker started by it
     /// or in its hamlets.
-    pub(crate) fn reaches(
-        &mut self,
-        agent: AgentId,
-    ) -> Result<Result<(), Refusal>> {
+    pub(crate) fn reaches(&mut self, agent: AgentId) -> Done<()> {
         let chief = self.realm.chief();
         let db = self.realm.store().connection();
         let Some(found) = agents::find(db, agent)? else {
@@ -373,7 +371,7 @@ impl Core<'_, '_> {
     pub(crate) fn watch_target(
         &mut self,
         chat: &ChatRef,
-    ) -> Result<Result<ConversationId, Refusal>> {
+    ) -> Done<ConversationId> {
         let chief = self.realm.chief();
         let agent = AgentId(i64::try_from(chat.with.0)?);
         if let Err(refusal) = self.reaches(agent)? {

@@ -21,6 +21,10 @@ use crate::oversight::{self, Raise, Ruling, WaitKind};
 use crate::work::catalogue::Society;
 use crate::work::cut::change_between;
 
+/// A call as the gate rules on it, or the decision made before the
+/// gate is asked: a look to wait for, or a block.
+type Classified = Result<Result<gate::Call, Decision>>;
+
 impl Core<'_, '_> {
     /// The gate's decision of `call`: the one kept, else one made now
     /// and kept, raising a wait when it asks a chief.
@@ -109,7 +113,7 @@ impl Core<'_, '_> {
         &mut self,
         call: &Call<'_>,
         at: &Workplace,
-    ) -> Result<Result<gate::Call, Decision>> {
+    ) -> Classified {
         let added = self
             .tools
             .added
@@ -142,7 +146,7 @@ impl Core<'_, '_> {
         at: &Workplace,
         tool: Society,
         args: serde_json::Value,
-    ) -> Result<Result<gate::Call, Decision>> {
+    ) -> Classified {
         // Arguments that do not fit are refused once the call runs.
         let paths = match Called::read(tool, call.arguments) {
             Ok(
@@ -189,7 +193,7 @@ impl Core<'_, '_> {
         mut old: String,
         now: String,
         mut created: bool,
-    ) -> Result<Result<gate::Call, Decision>> {
+    ) -> Classified {
         let Some(previewed) =
             self.looks.previewed(&call.call).cloned()
         else {

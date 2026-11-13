@@ -9,6 +9,7 @@ use hamlet_store::ids::{Actor, AgentId, HamletId};
 use hamlet_store::schema::permission_grant;
 
 use super::Line;
+use crate::change::Done;
 use crate::core::Core;
 use crate::oversight::{self, gate};
 use crate::society::addresses::{self, Reach};
@@ -23,7 +24,7 @@ impl Core<'_, '_> {
         &mut self,
         line: &Line,
         choice: &Choice,
-    ) -> Result<Result<String, Refusal>> {
+    ) -> Done<String> {
         let (agent, rest) = (line.agent, line.rest.as_str());
         let (named, text) = match rest.strip_prefix('#') {
             Some(after) => {
@@ -58,9 +59,7 @@ impl Core<'_, '_> {
         self.answer_wait(&id, choice, text, None)
     }
 
-    pub(super) fn queue(
-        &mut self,
-    ) -> Result<Result<String, Refusal>> {
+    pub(super) fn queue(&mut self) -> Done<String> {
         let db = self.realm.store().connection();
         let mut lines = Vec::new();
         for wait in oversight::open(db)? {
@@ -89,9 +88,7 @@ impl Core<'_, '_> {
         }))
     }
 
-    pub(super) fn grants(
-        &mut self,
-    ) -> Result<Result<String, Refusal>> {
+    pub(super) fn grants(&mut self) -> Done<String> {
         let db = self.realm.store().connection();
         let held = permission_grant::table
             .filter(permission_grant::revoked_at.is_null())
@@ -119,7 +116,7 @@ impl Core<'_, '_> {
         &mut self,
         here: Option<&HamletId>,
         rest: &str,
-    ) -> Result<Result<String, Refusal>> {
+    ) -> Done<String> {
         let mut words = rest.split_whitespace();
         let (Some(address), Some(permission)) =
             (words.next(), words.next())
@@ -179,7 +176,7 @@ impl Core<'_, '_> {
         &mut self,
         here: Option<&HamletId>,
         rest: &str,
-    ) -> Result<Result<String, Refusal>> {
+    ) -> Done<String> {
         let Some((address, text)) =
             rest.split_once(char::is_whitespace)
         else {
@@ -216,10 +213,7 @@ impl Core<'_, '_> {
         Ok(Ok(format!("Told {name}.")))
     }
 
-    pub(super) fn reflect(
-        &mut self,
-        agent: AgentId,
-    ) -> Result<Result<String, Refusal>> {
+    pub(super) fn reflect(&mut self, agent: AgentId) -> Done<String> {
         let chief = self.realm.chief();
         let asked = self.change(Actor::Chief(chief), |cx, env| {
             let conversation = chats::current(cx, env, agent, chief)?;
@@ -238,7 +232,7 @@ impl Core<'_, '_> {
         &mut self,
         here: Option<&HamletId>,
         brief: &str,
-    ) -> Result<Result<String, Refusal>> {
+    ) -> Done<String> {
         if brief.is_empty() {
             return Ok(Err(self.deeds.usage("worker")));
         }

@@ -2,10 +2,10 @@
 //! listed, a hire pinned, a commit undone, a scholar forked, and a
 //! path purged from all of it.
 
-use anyhow::Result;
 use hamlet_git::{Author, CommitId, MAIN, Repository};
 use hamlet_store::ids::{Actor, HamletId, ScholarId};
 
+use crate::change::Done;
 use crate::core::Core;
 use crate::jobs::Fork;
 use crate::knowledge::folder::Folder;
@@ -22,7 +22,7 @@ impl Core<'_, '_> {
     fn chiefs_scholar(
         &mut self,
         text: &str,
-    ) -> Result<Result<(ScholarId, Repository), Refusal>> {
+    ) -> Done<(ScholarId, Repository)> {
         let chief = self.realm.chief();
         let id = match self.scholar_at(text, false)? {
             Ok(id) => id,
@@ -43,10 +43,7 @@ impl Core<'_, '_> {
         Actor::Chief(self.realm.chief()).to_string()
     }
 
-    pub(super) fn tag(
-        &mut self,
-        words: &[&str],
-    ) -> Result<Result<String, Refusal>> {
+    pub(super) fn tag(&mut self, words: &[&str]) -> Done<String> {
         let [scholar, version, note @ ..] = words else {
             return Ok(Err(self.deeds.usage("tag")));
         };
@@ -94,7 +91,7 @@ impl Core<'_, '_> {
     pub(super) fn list_versions(
         &mut self,
         words: &[&str],
-    ) -> Result<Result<String, Refusal>> {
+    ) -> Done<String> {
         let [scholar] = words else {
             return Ok(Err(self.deeds.usage("versions")));
         };
@@ -141,7 +138,7 @@ impl Core<'_, '_> {
         &mut self,
         here: Option<&HamletId>,
         words: &[&str],
-    ) -> Result<Result<String, Refusal>> {
+    ) -> Done<String> {
         let [address, version, reason @ ..] = words else {
             return Ok(Err(self.deeds.usage("pin")));
         };
@@ -193,10 +190,7 @@ impl Core<'_, '_> {
         }))
     }
 
-    pub(super) fn revert(
-        &mut self,
-        words: &[&str],
-    ) -> Result<Result<String, Refusal>> {
+    pub(super) fn revert(&mut self, words: &[&str]) -> Done<String> {
         let [scholar, which, reason @ ..] = words else {
             return Ok(Err(self.deeds.usage("revert")));
         };
@@ -243,10 +237,7 @@ impl Core<'_, '_> {
         }))
     }
 
-    pub(super) fn fork(
-        &mut self,
-        words: &[&str],
-    ) -> Result<Result<String, Refusal>> {
+    pub(super) fn fork(&mut self, words: &[&str]) -> Done<String> {
         let [from, name @ ..] = words else {
             return Ok(Err(self.deeds.usage("fork")));
         };
@@ -290,10 +281,7 @@ impl Core<'_, '_> {
 
     /// Takes the path out of every commit, every branch and every
     /// lodge of the scholar's hires.
-    pub(super) fn purge(
-        &mut self,
-        words: &[&str],
-    ) -> Result<Result<String, Refusal>> {
+    pub(super) fn purge(&mut self, words: &[&str]) -> Done<String> {
         let [scholar, path] = words else {
             return Ok(Err(self.deeds.usage("purge")));
         };
@@ -348,7 +336,7 @@ fn commit_of(
     repo: &Repository,
     scholar: &str,
     which: &str,
-) -> Result<Result<CommitId, Refusal>> {
+) -> Done<CommitId> {
     Ok(match repo.resolve(which)? {
         Some(commit) => Ok(commit),
         None => Err(Refusal::NoVersion {

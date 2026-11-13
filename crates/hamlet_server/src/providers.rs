@@ -25,6 +25,7 @@ use hamlet_store::schema::document;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::change::Done;
 use crate::clients::check::reply;
 use crate::core::Core;
 use crate::credentials::write_whole;
@@ -608,7 +609,7 @@ impl Core<'_, '_> {
         &mut self,
         client: u64,
         cancel: &str,
-    ) -> Result<Result<String, Refusal>> {
+    ) -> Done<String> {
         let ours = self
             .providers
             .logins
@@ -801,10 +802,7 @@ impl Core<'_, '_> {
         Ok(())
     }
 
-    fn named_model(
-        &mut self,
-        name: &str,
-    ) -> Result<Result<(String, String), Refusal>> {
+    fn named_model(&mut self, name: &str) -> Done<(String, String)> {
         let usage = |words: String| Ok(Err(Refusal::Usage { words }));
         let Some((provider, id)) = name
             .split_once("::")
@@ -1024,7 +1022,7 @@ impl Core<'_, '_> {
         &mut self,
         name: &str,
         set: EditCatalogueSet,
-    ) -> Result<Result<String, Refusal>> {
+    ) -> Done<String> {
         let bad =
             set.price.as_ref().and_then(|p| p.as_ref()).is_some_and(
                 |p| {

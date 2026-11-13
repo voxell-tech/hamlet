@@ -2,9 +2,9 @@
 //! scholar, taking one off the library's shelves, and having a hire
 //! or a scholar dream.
 
-use anyhow::Result;
 use hamlet_store::ids::Actor;
 
+use crate::change::Done;
 use crate::core::Core;
 use crate::knowledge::library;
 use crate::society::library::{self as shelf, Event, EventKind};
@@ -14,7 +14,7 @@ impl Core<'_, '_> {
     pub(super) fn unshelve(
         &mut self,
         words: &[&str],
-    ) -> Result<Result<String, Refusal>> {
+    ) -> Done<String> {
         let [skill, reason @ ..] = words else {
             return Ok(Err(self.deeds.usage("unshelve")));
         };

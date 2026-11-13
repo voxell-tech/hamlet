@@ -9,6 +9,7 @@ use hamlet_protocol::client::{AttachedFile, ImageId, ImageInput};
 use hamlet_sandbox::{FileError, FileKind};
 
 use super::environment::Reach;
+use crate::change::Done;
 use crate::images::kept::Images;
 use crate::inbox::Inbox;
 use crate::society::refusal::Refusal;
@@ -54,7 +55,7 @@ pub(super) async fn run(
     paths: &[String],
     most_file: u64,
     mut to: Option<To<'_>>,
-) -> anyhow::Result<Result<Sent, Refusal>> {
+) -> Done<Sent> {
     let found = match find(env, paths, most_file).await {
         Ok(found) => found,
         Err(refusal) => return Ok(Err(refusal)),

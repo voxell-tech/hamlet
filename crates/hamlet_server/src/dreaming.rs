@@ -8,6 +8,7 @@ use chrono::Timelike;
 use hamlet_git::{MAIN, Repository};
 use hamlet_store::ids::{Actor, AgentId, DreamId, ScholarId};
 
+use crate::change::Done;
 use crate::core::Core;
 use crate::deadline::AddDeadline;
 use crate::knowledge::{self, dreaming};
@@ -141,7 +142,7 @@ impl Core<'_, '_> {
         &mut self,
         here: Option<&hamlet_store::ids::HamletId>,
         words: &[&str],
-    ) -> Result<Result<String, Refusal>> {
+    ) -> Done<String> {
         let [target] = words else {
             return Ok(Err(Refusal::Usage {
                 words: "Use /dream <scholar#id|address>".into(),

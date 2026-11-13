@@ -326,7 +326,7 @@ impl Core<'_, '_> {
         &mut self,
         hamlet: Option<String>,
         edit: impl FnOnce(serde_json::Value) -> Result<serde_json::Value>,
-    ) -> Result<Result<String, Refusal>> {
+    ) -> Done<String> {
         let chief = self.realm.chief();
         let db = self.realm.store().connection();
         match hamlet {
@@ -445,10 +445,7 @@ impl Core<'_, '_> {
     }
 
     /// Refuses unless this server's chief keeps `scholar`.
-    fn keeps(
-        &mut self,
-        scholar: ScholarId,
-    ) -> Result<Result<(), Refusal>> {
+    fn keeps(&mut self, scholar: ScholarId) -> Done<()> {
         let chief = self.realm.chief();
         let db = self.realm.store().connection();
         let Some(found) = city::find(db, scholar)? else {
@@ -556,10 +553,7 @@ impl Core<'_, '_> {
     }
 
     /// What `of` knows: a scholar's `main`, or an agent's lodge.
-    fn papers(
-        &mut self,
-        of: Keeper,
-    ) -> Result<Result<protocol::Papers, Refusal>> {
+    fn papers(&mut self, of: Keeper) -> Done<protocol::Papers> {
         let layout = self.realm.layout().clone();
         let db = self.realm.store().connection();
         let (scholar, lodge) = match of {

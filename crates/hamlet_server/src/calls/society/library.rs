@@ -7,6 +7,7 @@ use hamlet_store::ids::Actor;
 
 use super::args::{AskLibrarian, SubmitSkill};
 use super::{Call, Step, said};
+use crate::change::Done;
 use crate::core::Core;
 use crate::knowledge::folder::Folder;
 use crate::knowledge::{self, library};
@@ -246,7 +247,7 @@ impl Core<'_, '_> {
 fn skill_files(
     lodge: &std::path::Path,
     name: &str,
-) -> Result<Result<Vec<(String, Vec<u8>)>, Refusal>> {
+) -> Done<Vec<(String, Vec<u8>)>> {
     let Ok(folder) = Folder::open(lodge) else {
         return Ok(Err(Refusal::NoSkill { name: name.into() }));
     };

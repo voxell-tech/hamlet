@@ -17,6 +17,7 @@ use hamlet_git::Repository;
 use hamlet_protocol::client::{self as protocol, Choice};
 use hamlet_store::ids::{Actor, AgentId, HamletId, ScholarId};
 
+use crate::change::Done;
 use crate::core::Core;
 use crate::society::addresses::{self, Reach};
 use crate::society::agents::{self, AgentKind};
@@ -260,7 +261,7 @@ impl Line {
 }
 
 /// What a command answers: words for the chief, or a refusal.
-pub(crate) type Answer = Result<Result<String, Refusal>>;
+pub(crate) type Answer = Done<String>;
 
 /// Every command, as the deeds a client lists in this order, with the
 /// system that runs it. A command is added with its usage and its
@@ -486,7 +487,7 @@ impl Core<'_, '_> {
         &mut self,
         text: &str,
         chief: hamlet_store::ids::ChiefId,
-    ) -> Result<Result<Hiring, Refusal>> {
+    ) -> Done<Hiring> {
         let (scholar, version) = match self.scholar_pinned(text)? {
             Ok(found) => found,
             Err(refusal) => return Ok(Err(refusal)),
@@ -505,7 +506,7 @@ impl Core<'_, '_> {
     pub(crate) fn scholar_pinned(
         &mut self,
         text: &str,
-    ) -> Result<Result<(ScholarId, Option<String>), Refusal>> {
+    ) -> Done<(ScholarId, Option<String>)> {
         let (address, version) = match text.split_once('@') {
             Some((address, version)) => {
                 (address, Some(version.to_owned()))
@@ -523,7 +524,7 @@ impl Core<'_, '_> {
         &mut self,
         scholar: ScholarId,
         version: Option<String>,
-    ) -> Result<Result<Hiring, Refusal>> {
+    ) -> Done<Hiring> {
         if let Some(version) = &version {
             let found = Repository::open(
                 &self.realm.layout().repository(scholar),
@@ -550,7 +551,7 @@ impl Core<'_, '_> {
         text: &str,
         here: Option<&HamletId>,
         reach: Reach,
-    ) -> Result<Result<AgentId, Refusal>> {
+    ) -> Done<AgentId> {
         let address = match addresses::parse(text) {
             Ok(address) => address,
             Err(refusal) => return Ok(Err(refusal)),
@@ -565,7 +566,7 @@ impl Core<'_, '_> {
         &mut self,
         text: &str,
         archived: bool,
-    ) -> Result<Result<ScholarId, Refusal>> {
+    ) -> Done<ScholarId> {
         let id = match addresses::parse_scholar(text) {
             Ok(id) => id,
             Err(refusal) => return Ok(Err(refusal)),
@@ -584,10 +585,7 @@ impl Core<'_, '_> {
     }
 
     /// Refuses unless this server's chief is a chief of `hamlet`.
-    fn chief_of(
-        &mut self,
-        hamlet: &HamletId,
-    ) -> Result<Result<(), Refusal>> {
+    fn chief_of(&mut self, hamlet: &HamletId) -> Done<()> {
         let chief = self.realm.chief();
         let db = self.realm.store().connection();
         if hamlets::find(db, hamlet)?.is_none() {
@@ -604,10 +602,7 @@ impl Core<'_, '_> {
     }
 
     /// Refuses unless this server's chief leads the hire `hire`.
-    pub(crate) fn leads(
-        &mut self,
-        hire: AgentId,
-    ) -> Result<Result<(), Refusal>> {
+    pub(crate) fn leads(&mut self, hire: AgentId) -> Done<()> {
         let chief = self.realm.chief();
         let db = self.realm.store().connection();
         if agents::get(db, hire)?.kind != AgentKind::Hire {
@@ -623,10 +618,7 @@ impl Core<'_, '_> {
 
     /// Refuses unless this server's chief may choose the model,
     /// effort and fast tier of `agent`.
-    fn steers(
-        &mut self,
-        agent: AgentId,
-    ) -> Result<Result<(), Refusal>> {
+    fn steers(&mut self, agent: AgentId) -> Done<()> {
         let chief = self.realm.chief();
         let db = self.realm.store().connection();
         if !authority::may_steer(db, Actor::Chief(chief), agent)? {
