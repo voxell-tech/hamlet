@@ -4697,10 +4697,19 @@ dependencies = [
 name = "hamlet_actors"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
+ "async-trait",
+ "ciborium",
+ "hamlet_actor",
+ "hamlet_actor_core",
+ "hamlet_host",
  "hamlet_os",
  "hamlet_sandbox",
+ "hamlet_testing",
+ "rusqlite",
  "serde",
  "thiserror 2.0.21",
+ "tokio",
 ]
 
 [[package]]
