@@ -590,10 +590,7 @@ impl Core<'_, '_> {
             .filter(|s| s.client == client)
             .ok_or_else(no_sign_in)?;
         let prompt =
-            signin.prompt.take().ok_or_else(|| Refusal::Usage {
-                words: "That sign-in is not waiting for an answer."
-                    .into(),
-            })?;
+            signin.prompt.take().ok_or(Refusal::SignInNotWaiting)?;
         let scope = signin.scope.clone();
         self.credentials.remember(&answer.value);
         self.providers.controls.push(control(
@@ -803,21 +800,19 @@ impl Core<'_, '_> {
     }
 
     fn named_model(&mut self, name: &str) -> Done<(String, String)> {
-        let usage = |words: String| Ok(Err(Refusal::Usage { words }));
         let Some((provider, id)) = name
             .split_once("::")
             .filter(|(p, m)| !p.is_empty() && !m.is_empty())
         else {
-            return usage(format!(
-                "`{name}` names no endpoint. A model is named \
-                 `endpoint::model`."
-            ));
+            return Ok(Err(Refusal::NoEndpointNamed {
+                name: name.into(),
+            }));
         };
         if !self.provider_views()?.iter().any(|p| p.id == provider) {
-            return usage(format!(
-                "`{name}` is served by the endpoint `{provider}`, \
-                 which the settings do not have."
-            ));
+            return Ok(Err(Refusal::NoSuchEndpoint {
+                name: name.into(),
+                endpoint: provider.into(),
+            }));
         }
         let listed =
             self.providers.lists.get(provider).is_some_and(|list| {
@@ -1032,9 +1027,7 @@ impl Core<'_, '_> {
                 },
             );
         if bad {
-            return Ok(Err(Refusal::Usage {
-                words: "A cost is a number of zero or more.".into(),
-            }));
+            return Ok(Err(Refusal::BadCost));
         }
         let empty = set
             .images
@@ -1046,10 +1039,7 @@ impl Core<'_, '_> {
                     || takes.max_bytes == Some(0)
             });
         if empty {
-            return Ok(Err(Refusal::Usage {
-                words: "An image limit is a number above zero."
-                    .into(),
-            }));
+            return Ok(Err(Refusal::BadImageLimit));
         }
         let db = self.realm.store().connection();
         let mut cards = catalogue(db)?;
@@ -1089,9 +1079,7 @@ fn flat_price(rate: f64) -> Price {
 /// The refusal of a sign-in reply or cancel that is not the
 /// connection's own open one.
 fn no_sign_in() -> Refusal {
-    Refusal::Usage {
-        words: "No sign-in of yours is open.".into(),
-    }
+    Refusal::NoSignIn
 }
 
 fn control(

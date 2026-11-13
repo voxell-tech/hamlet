@@ -462,11 +462,11 @@ fn parse<A: DeserializeOwned>(
     tool: Society,
     given: Value,
 ) -> Result<A, Refusal> {
-    serde_json::from_value(given).map_err(|error| Refusal::Usage {
-        words: format!(
-            "The arguments of {} do not fit: {error}.",
-            tool.name()
-        ),
+    serde_json::from_value(given).map_err(|error| {
+        Refusal::ArgumentsUnfit {
+            tool: tool.name().into(),
+            error: error.to_string(),
+        }
     })
 }
 

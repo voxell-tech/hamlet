@@ -208,12 +208,10 @@ impl Core<'_, '_> {
     ) -> Result<()> {
         let Some(chosen) = self.credentials.workspace().cloned()
         else {
-            let refusal = Refusal::Usage {
-                words: "Choose a remote workspace in the settings \
-                        first."
-                    .into(),
-            };
-            return self.answer(client, reply(id, Err(refusal)));
+            return self.answer(
+                client,
+                reply(id, Err(Refusal::NoWorkspaceChosen)),
+            );
         };
         let transport = Transport::new(chosen)?;
         let layout = self.realm.layout().clone();
@@ -264,9 +262,7 @@ impl Core<'_, '_> {
             let last = progress(of, of, Some(failed.as_deref()));
             let answer = match failed {
                 None => Ok(last.text.clone()),
-                Some(_) => Err(Refusal::Usage {
-                    words: last.text.clone(),
-                }),
+                Some(error) => Err(Refusal::MoveFailed { error }),
             };
             report.send(Finished::Moving {
                 progress: last,

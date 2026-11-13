@@ -10,7 +10,7 @@ use hamlet_protocol::client::{
 };
 
 use super::kept::Images;
-use super::{MOST_BYTES, capitalised, usage};
+use super::{MOST_BYTES, capitalised};
 use crate::clients::check::{failed, fault, reply};
 use crate::clients::connection::UploadOf;
 use crate::core::Core;
@@ -42,10 +42,7 @@ impl Core<'_, '_> {
         let Some(connection) =
             self.clients.entities.get(&client).copied()
         else {
-            return reply(
-                &id,
-                Err(usage("This connection is closing.")),
-            );
+            return reply(&id, Err(Refusal::ConnectionClosing));
         };
         let sending = self
             .uploads
@@ -54,11 +51,11 @@ impl Core<'_, '_> {
             .filter(|(_, of, _)| of.0 == connection)
             .count();
         let refusal = if size == 0 {
-            Some(usage("An image has bytes."))
+            Some(Refusal::ImageEmpty)
         } else if size > MOST_BYTES as u64 {
-            Some(usage("An image is at most 20 MiB."))
+            Some(Refusal::ImageTooBig)
         } else if sending >= MOST_UPLOADS {
-            Some(usage("Too many images are being sent at once."))
+            Some(Refusal::TooManyImagesSent)
         } else {
             None
         };
@@ -90,7 +87,7 @@ impl Core<'_, '_> {
         client: u64,
         part: PutImagePart,
     ) -> Result<ServerMessage> {
-        let refuse = |words: &str| reply(&part.id, Err(usage(words)));
+        let refuse = |refusal: Refusal| reply(&part.id, Err(refusal));
         let connection = self.clients.entities.get(&client).copied();
         let Some((entity, _, mut sending)) =
             self.uploads.images.iter_mut().find(
@@ -100,23 +97,21 @@ impl Core<'_, '_> {
                 },
             )
         else {
-            return Ok(refuse(
-                "No image of yours is being sent under that upload.",
-            ));
+            return Ok(refuse(Refusal::NoImageUpload));
         };
         let Ok(bytes) = base64::engine::general_purpose::STANDARD
             .decode(&part.data)
         else {
-            return Ok(refuse("A part's data is base64."));
+            return Ok(refuse(Refusal::NotBase64));
         };
         let received = sending.bytes.len() as u64;
         if part.offset != received {
-            return Ok(refuse(&format!(
-                "The image continues at byte {received}."
-            )));
+            return Ok(refuse(Refusal::ImageContinuesAt {
+                received,
+            }));
         }
         if received + bytes.len() as u64 > sending.size {
-            return Ok(refuse("The image is longer than declared."));
+            return Ok(refuse(Refusal::ImageLongerThanDeclared));
         }
         sending.bytes.extend_from_slice(&bytes);
         if (sending.bytes.len() as u64) < sending.size {
@@ -139,9 +134,9 @@ impl Core<'_, '_> {
                 }
                 answer
             }
-            Err(unusable) => {
-                refuse(&capitalised(&unusable.to_string()))
-            }
+            Err(unusable) => refuse(Refusal::ImageUnusable {
+                why: capitalised(&unusable.to_string()),
+            }),
         })
     }
 

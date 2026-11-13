@@ -431,9 +431,11 @@ impl ToolSession {
                 {
                     Ok(env) => env,
                     Err(unopened) => {
-                        return Ok(Err(Refusal::Usage {
-                            words: unopened.to_string(),
-                        }));
+                        return Ok(Err(
+                            Refusal::WorkspaceNotOpened {
+                                error: unopened.to_string(),
+                            },
+                        ));
                     }
                 };
                 parcel::run(

@@ -84,10 +84,6 @@ fn numbered(name: &str, n: usize) -> String {
     }
 }
 
-fn usage(words: String) -> Refusal {
-    Refusal::Usage { words }
-}
-
 impl Inbox {
     /// Saves `bytes` as `name`, a path from the folder it was sent
     /// in, which is kept under a name nothing there has.
@@ -107,9 +103,9 @@ impl Inbox {
         at: Option<u64>,
     ) -> Result<std::result::Result<(), Refusal>> {
         if TreePath::parse(name).is_err() {
-            return Ok(Err(usage(format!(
-                "`{name}` is not a name of a file."
-            ))));
+            return Ok(Err(Refusal::NotFileName {
+                name: name.into(),
+            }));
         }
         let lodge = Folder::make(&self.lodge)?;
         let (top, rest) = match name.split_once('/') {

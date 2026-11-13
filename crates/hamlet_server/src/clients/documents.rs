@@ -232,9 +232,7 @@ impl Core<'_, '_> {
         }
         if let Some(every) = set.reflect_every {
             let Ok(every) = u64::try_from(every) else {
-                refuse!(Refusal::Usage {
-                    words: "Reflect after zero or more turns.".into(),
-                });
+                refuse!(Refusal::BadReflectEvery);
             };
             settings.reflect_every = every;
         }
@@ -249,11 +247,7 @@ impl Core<'_, '_> {
         }
         if let Some(character) = set.character {
             if character.trim().is_empty() {
-                refuse!(Refusal::Usage {
-                    words: "A blank scholar needs a character to \
-                            start from."
-                        .into(),
-                });
+                refuse!(Refusal::NoCharacter);
             }
             if character.chars().count() > CHARACTER_MOST {
                 refuse!(Refusal::LongCharacter);
@@ -269,8 +263,8 @@ impl Core<'_, '_> {
                     base_url: e.base_url.trim().to_owned(),
                 })
                 .collect::<Vec<_>>();
-            if let Some(words) = endpoint_fault(&endpoints) {
-                refuse!(Refusal::Usage { words });
+            if let Some(why) = endpoint_fault(&endpoints) {
+                refuse!(Refusal::BadEndpoint { why });
             }
             removed = settings
                 .endpoints
@@ -290,10 +284,10 @@ impl Core<'_, '_> {
                     name: "workspace".into(),
                     base_url: workspace.url.trim().to_owned(),
                 };
-                if let Some(words) =
+                if let Some(why) =
                     endpoint_fault(std::slice::from_ref(&address))
                 {
-                    refuse!(Refusal::Usage { words });
+                    refuse!(Refusal::BadEndpoint { why });
                 }
                 Some(Some(crate::credentials::WorkspaceAddress {
                     url: address.base_url,
@@ -345,14 +339,11 @@ impl Core<'_, '_> {
                 let Ok(edited) = serde_json::from_value::<
                     protocol::Limits,
                 >(edited) else {
-                    return Ok(Err(Refusal::Usage {
-                        words: "Those limits do not fit their form."
-                            .into(),
-                    }));
+                    return Ok(Err(Refusal::LimitsUnfit));
                 };
                 let own = limits_of(&edited);
-                if let Some(words) = own.fault() {
-                    return Ok(Err(Refusal::Usage { words }));
+                if let Some(why) = own.fault() {
+                    return Ok(Err(Refusal::BadLimits { why }));
                 }
                 let done = self
                     .attempt(Actor::Chief(chief), |cx, _| {
@@ -369,17 +360,14 @@ impl Core<'_, '_> {
                 let Ok(edited) = serde_json::from_value::<
                     protocol::RealmLimits,
                 >(edited) else {
-                    return Ok(Err(Refusal::Usage {
-                        words: "Those limits do not fit their form."
-                            .into(),
-                    }));
+                    return Ok(Err(Refusal::LimitsUnfit));
                 };
                 let own = RealmLimits {
                     roads_between: edited.roads_between,
                     budget: budget_of(&edited.budget),
                 };
-                if let Some(words) = own.budget.fault() {
-                    return Ok(Err(Refusal::Usage { words }));
+                if let Some(why) = own.budget.fault() {
+                    return Ok(Err(Refusal::BadLimits { why }));
                 }
                 diesel::replace_into(document::table)
                     .values((

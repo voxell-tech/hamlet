@@ -298,8 +298,8 @@ impl Deeds {
             .iter()
             .find(|(command, _)| command.name == name)
             .map_or("", |(command, _)| command.usage);
-        Refusal::Usage {
-            words: format!("Use {usage}"),
+        Refusal::CommandUsage {
+            usage: usage.into(),
         }
     }
 
@@ -375,13 +375,7 @@ pub(crate) fn said(
                 Some(system) => world
                     .run_system_with(system, line)
                     .map_err(|error| anyhow!("{error}"))??,
-                None => Err(Refusal::Usage {
-                    words: format!(
-                        "There is no command /{}; the client lists \
-                         the commands.",
-                        line.name
-                    ),
-                }),
+                None => Err(Refusal::NoCommand { name: line.name }),
             }
         }
     };
@@ -629,10 +623,6 @@ impl Core<'_, '_> {
     }
 
     fn no_hamlet(&self) -> Refusal {
-        Refusal::Usage {
-            words: "Say this to a hamlet's mayor or one of its \
-                    hires."
-                .into(),
-        }
+        Refusal::SayToMayorOrHire
     }
 }

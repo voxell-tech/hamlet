@@ -168,12 +168,6 @@ fn sweep(mut realm: ResMut<Realm>) -> Result<()> {
     Ok(())
 }
 
-fn usage(words: &str) -> Refusal {
-    Refusal::Usage {
-        words: words.into(),
-    }
-}
-
 fn hex(hash: &[u8]) -> FileId {
     hash.iter()
         .map(|byte| format!("{byte:02x}"))
@@ -194,10 +188,7 @@ impl Core<'_, '_> {
         let Some(connection) =
             self.clients.entities.get(&client).copied()
         else {
-            return Ok(reply(
-                &id,
-                Err(usage("This connection is closing.")),
-            ));
+            return Ok(reply(&id, Err(Refusal::ConnectionClosing)));
         };
         let sending = self
             .uploads
@@ -206,9 +197,9 @@ impl Core<'_, '_> {
             .filter(|(_, of, _)| of.0 == connection)
             .count();
         let refusal = if size > AttachedFile::MOST_FILE {
-            Some(usage("A file is at most 256 MiB."))
+            Some(Refusal::FileTooBig)
         } else if sending >= MOST_UPLOADS {
-            Some(usage("Too many files are being sent at once."))
+            Some(Refusal::TooManyFilesSent)
         } else {
             None
         };
@@ -257,7 +248,7 @@ impl Core<'_, '_> {
         client: u64,
         part: PutFilePart,
     ) -> Result<ServerMessage> {
-        let refuse = |words: &str| reply(&part.id, Err(usage(words)));
+        let refuse = |refusal: Refusal| reply(&part.id, Err(refusal));
         let connection = self.clients.entities.get(&client).copied();
         let Some((entity, _, mut sending)) =
             self.uploads.files.iter_mut().find(|(_, of, sending)| {
@@ -265,23 +256,20 @@ impl Core<'_, '_> {
                     && sending.upload == part.upload
             })
         else {
-            return Ok(refuse(
-                "No file of yours is being sent under that upload.",
-            ));
+            return Ok(refuse(Refusal::NoFileUpload));
         };
         let Ok(bytes) = base64::engine::general_purpose::STANDARD
             .decode(&part.data)
         else {
-            return Ok(refuse("A part's data is base64."));
+            return Ok(refuse(Refusal::NotBase64));
         };
         if part.offset != sending.received {
-            return Ok(refuse(&format!(
-                "The file continues at byte {}.",
-                sending.received
-            )));
+            return Ok(refuse(Refusal::FileContinuesAt {
+                received: sending.received,
+            }));
         }
         if sending.received + bytes.len() as u64 > sending.size {
-            return Ok(refuse("The file is longer than declared."));
+            return Ok(refuse(Refusal::FileLongerThanDeclared));
         }
         sending
             .file
@@ -348,29 +336,25 @@ impl Core<'_, '_> {
         files: &[AttachedFile],
     ) -> std::result::Result<(), Refusal> {
         if files.len() > AttachedFile::MOST_FILES {
-            return Err(usage("A line takes at most 10000 files."));
+            return Err(Refusal::TooManyFilesInLine);
         }
         let kept = Files::new(self.realm.layout().files());
         let mut total = 0_u64;
         for file in files {
             let Some(size) = kept.size(&file.id) else {
-                return Err(usage(&format!(
-                    "The file `{}` was not sent first.",
-                    file.name
-                )));
+                return Err(Refusal::FileNotSent {
+                    name: file.name.clone(),
+                });
             };
             if size != file.size {
-                return Err(usage(&format!(
-                    "The file `{}` is not the size it was sent as.",
-                    file.name
-                )));
+                return Err(Refusal::FileSizeDiffers {
+                    name: file.name.clone(),
+                });
             }
             total += size;
         }
         if total > AttachedFile::MOST_BYTES {
-            return Err(usage(
-                "A line takes at most 1 GiB of files.",
-            ));
+            return Err(Refusal::FilesTooBigInLine);
         }
         Ok(())
     }

@@ -126,8 +126,8 @@ impl Look {
     /// Looks, with `secrets` taken out of what it says. A remote
     /// workspace has the lodge in step first.
     pub async fn run(self, secrets: Vec<String>) -> Found {
-        let scrubbed = |error: anyhow::Error| Refusal::Usage {
-            words: hamlet_sandbox::scrub::scrub_text(
+        let scrubbed = |error: anyhow::Error| Refusal::LookFailed {
+            error: hamlet_sandbox::scrub::scrub_text(
                 &secrets,
                 &format!("{error:#}"),
             ),

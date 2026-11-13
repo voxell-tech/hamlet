@@ -494,9 +494,7 @@ impl Core<'_, '_> {
         let hamlet = match (here, named_hamlet.is_empty()) {
             (Some(here), _) => here.clone(),
             (None, false) => HamletId(named_hamlet),
-            (None, true) => refuse!(Refusal::Usage {
-                words: "Say which hamlet to hire into.".into(),
-            }),
+            (None, true) => refuse!(Refusal::NoHamletToHireInto),
         };
         let parent = if under.is_empty() {
             let db = self.realm.store().connection();
@@ -532,11 +530,7 @@ impl Core<'_, '_> {
                 name: blank,
                 character: self.env.settings.character.clone(),
             },
-            (false, false) => refuse!(Refusal::Usage {
-                words: "Give `scholar` to hire one of the city, or \
-                        `name` for a blank agent, not both."
-                    .into(),
-            }),
+            (false, false) => refuse!(Refusal::HireBoth),
         };
         let task = self.task_of(call)?;
         let db = self.realm.store().connection();

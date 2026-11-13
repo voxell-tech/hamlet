@@ -314,10 +314,7 @@ pub(crate) fn rewind(
     Vec<AttachedFile>,
 )> {
     use crate::society::refusal::Refusal;
-    let not_a_line = || Refusal::Usage {
-        words: "That is not one of your lines in this conversation."
-            .into(),
-    };
+    let not_a_line = || Refusal::NotYourLine;
     let conversation = current(cx, env, agent, chief)?;
     if inputs::is_busy(cx.db, conversation)? {
         crate::change::refuse!(Refusal::TurnRunning {

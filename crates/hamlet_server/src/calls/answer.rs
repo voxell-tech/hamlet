@@ -240,8 +240,8 @@ impl Core<'_, '_> {
             match words(&wait, choice, text.unwrap_or(""), picks)? {
                 Ok(text) => text,
                 Err(why) => {
-                    return Ok(Err(Refusal::Usage {
-                        words: why.to_string(),
+                    return Ok(Err(Refusal::WaitUnanswerable {
+                        why: why.to_string(),
                     }));
                 }
             };

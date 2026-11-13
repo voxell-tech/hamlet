@@ -144,16 +144,11 @@ impl Core<'_, '_> {
         words: &[&str],
     ) -> Done<String> {
         let [target] = words else {
-            return Ok(Err(Refusal::Usage {
-                words: "Use /dream <scholar#id|address>".into(),
-            }));
+            return Ok(Err(Refusal::DreamUsage));
         };
         let db = self.realm.store().connection();
         if dreams::running(db)?.is_some() {
-            return Ok(Err(Refusal::Usage {
-                words: "A dream is running; one dreams at a time."
-                    .into(),
-            }));
+            return Ok(Err(Refusal::DreamRunning));
         }
         let dreamer = if target.starts_with("scholar#") {
             let found = match addresses::parse_scholar(target) {

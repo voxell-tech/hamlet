@@ -607,12 +607,7 @@ pub(crate) fn check_nickname(
             if nickname.chars().count() > NICKNAME
                 || nickname.contains(char::is_control) =>
         {
-            Err(Refusal::Usage {
-                words: format!(
-                    "A nickname is one line of at most {NICKNAME} \
-                     letters."
-                ),
-            })
+            Err(Refusal::BadNickname { most: NICKNAME })
         }
         _ => Ok(nickname),
     }

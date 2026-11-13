@@ -308,12 +308,10 @@ fn rewind(
     mut core: Core,
 ) -> Result<()> {
     if rewind.chat.from.is_some() || rewind.chat.past.is_some() {
-        let refusal = Refusal::Usage {
-            words: "Only the current session of a chief's chat goes \
-                    back."
-                .into(),
-        };
-        return core.answer(client, reply(&rewind.id, Err(refusal)));
+        return core.answer(
+            client,
+            reply(&rewind.id, Err(Refusal::RewindNotCurrent)),
+        );
     }
     let Some(agent) =
         core.reached(client, &rewind.id, rewind.chat.with.0)?

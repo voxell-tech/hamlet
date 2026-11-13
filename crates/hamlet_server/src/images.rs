@@ -15,7 +15,6 @@ use std::time::Duration;
 use hamlet_protocol::client::ImageInput;
 
 use crate::deadline::AddDeadline;
-use crate::society::refusal::Refusal;
 
 /// The most bytes of an image the realm keeps.
 pub(crate) const MOST_BYTES: usize = 20 << 20;
@@ -141,12 +140,6 @@ impl Limits {
 
 pub(crate) fn plugin(app: &mut bevy_app::App) {
     app.add_every(SWEEP_EVERY, sweep::sweep);
-}
-
-fn usage(words: &str) -> Refusal {
-    Refusal::Usage {
-        words: words.into(),
-    }
 }
 
 /// `words` with its first letter in capitals.

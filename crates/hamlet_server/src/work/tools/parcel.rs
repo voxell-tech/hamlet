@@ -40,12 +40,11 @@ struct Piece {
     path: String,
 }
 
-fn usage(words: String) -> Refusal {
-    Refusal::Usage { words }
-}
-
 fn unreadable(path: &str, error: &FileError) -> Refusal {
-    usage(format!("`{path}` cannot be read: {}", error.message))
+    Refusal::FileUnreadable {
+        path: path.into(),
+        message: error.message.clone(),
+    }
 }
 
 /// The files under `paths`, at most `most_file` bytes each, saved
@@ -116,54 +115,45 @@ async fn find(
             .await
             .map_err(|error| unreadable(given, &error))?;
         if info.kind == FileKind::Symlink {
-            return Err(usage(format!(
-                "`{given}` is a link, and links are not sent."
-            )));
+            return Err(Refusal::FileIsLink {
+                path: given.clone(),
+            });
         }
         if info.name.is_empty() {
-            return Err(usage(format!(
-                "`{given}` has no name to send."
-            )));
+            return Err(Refusal::NoNameToSend {
+                path: given.clone(),
+            });
         }
         let mut stack = vec![(info.name.clone(), full, info)];
         while let Some((name, full, info)) = stack.pop() {
             visited += 1;
             if visited > VISITED {
-                return Err(usage(
-                    "That is too many folders and files to look \
-                     through."
-                        .into(),
-                ));
+                return Err(Refusal::TooManyToLookThrough);
             }
             if TreePath::parse(&name).is_err() {
-                return Err(usage(format!(
-                    "`{name}` is not a name of a file."
-                )));
+                return Err(Refusal::NotFileName { name });
             }
             match info.kind {
                 FileKind::File => {
                     if info.size > most_file {
-                        return Err(usage(format!(
-                            "`{name}` is more than {}.",
-                            AttachedFile::size_words(most_file)
-                        )));
+                        return Err(Refusal::FileOverSendLimit {
+                            name,
+                            most: AttachedFile::size_words(most_file),
+                        });
                     }
                     found.bytes += info.size;
                     if found.bytes > AttachedFile::MOST_BYTES {
-                        return Err(usage(format!(
-                            "That is more than {} to send at once.",
-                            AttachedFile::size_words(
-                                AttachedFile::MOST_BYTES
-                            )
-                        )));
+                        return Err(Refusal::SendOverBytes {
+                            most: AttachedFile::size_words(
+                                AttachedFile::MOST_BYTES,
+                            ),
+                        });
                     }
                     if found.pieces.len() >= AttachedFile::MOST_FILES
                     {
-                        return Err(usage(format!(
-                            "That is more than {} files to send at \
-                             once.",
-                            AttachedFile::MOST_FILES
-                        )));
+                        return Err(Refusal::SendOverFiles {
+                            most: AttachedFile::MOST_FILES,
+                        });
                     }
                     found.pieces.push(Piece { name, path: full });
                 }
@@ -191,9 +181,7 @@ async fn find(
         }
     }
     if found.pieces.is_empty() {
-        return Err(usage(
-            "There are no files in those paths.".into(),
-        ));
+        return Err(Refusal::NoFilesInPaths);
     }
     Ok(found)
 }

@@ -120,33 +120,21 @@ impl Core<'_, '_> {
     ) -> Result<Step> {
         let sender = call.conversation.agent;
         if receiver == sender {
-            return Ok(Step::of(Err(Refusal::Usage {
-                words: "That is you.".into(),
-            })));
+            return Ok(Step::of(Err(Refusal::TellSelf)));
         }
         if words.is_empty() {
-            return Ok(Step::of(Err(Refusal::Usage {
-                words: "Say what to send.".into(),
-            })));
+            return Ok(Step::of(Err(Refusal::NothingToSend)));
         }
         let other = self.name(receiver)?;
         let db = self.realm.store().connection();
         if roads::way(db, sender, receiver)?.is_none() {
-            return Ok(Step::of(Err(Refusal::Usage {
-                words: format!(
-                    "You have no road to {other}. Ask your lead for \
-                     one with request_road."
-                ),
-            })));
+            return Ok(Step::of(Err(Refusal::NoRoadTo { other })));
         }
         if kind == MessageKind::Question
             && letters::would_loop(db, sender, receiver)?
         {
-            return Ok(Step::of(Err(Refusal::Usage {
-                words: format!(
-                    "{other} is waiting on your answer already; \
-                     tell it what it needs instead of asking."
-                ),
+            return Ok(Step::of(Err(Refusal::AlreadyWaitingOn {
+                other,
             })));
         }
         let mut words = words.to_owned();

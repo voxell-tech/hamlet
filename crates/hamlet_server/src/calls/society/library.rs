@@ -81,9 +81,7 @@ impl Core<'_, '_> {
         }
         let question = args.question;
         if question.is_empty() {
-            return Ok(Step::of(Err(Refusal::Usage {
-                words: "Say what you need a skill for.".into(),
-            })));
+            return Ok(Step::of(Err(Refusal::NoSkillQuestion)));
         }
         let by = self.name(call.conversation.agent)?;
         let instructions = format!(
@@ -137,28 +135,17 @@ impl Core<'_, '_> {
                 b.is_ascii_alphanumeric() || b == b'-' || b == b'_'
             });
         if !plain {
-            return Ok(Step::of(Err(Refusal::Usage {
-                words: "`skill` is its folder under skills/, in \
-                        letters, digits, hyphens and underscores."
-                    .into(),
-            })));
+            return Ok(Step::of(Err(Refusal::BadSkillFolder)));
         }
         let layout = self.realm.layout().clone();
         if library::has(&layout, &name)? {
-            return Ok(Step::of(Err(Refusal::Usage {
-                words: format!(
-                    "The library has a skill named `{name}` \
-                     already. Use it, or offer yours under another \
-                     name if it does something else."
-                ),
+            return Ok(Step::of(Err(Refusal::SkillInLibrary {
+                name,
             })));
         }
         let db = self.realm.store().connection();
         if shelf::is_judging(db, &name)? {
-            return Ok(Step::of(Err(Refusal::Usage {
-                words: "Another offer of that skill is being judged."
-                    .into(),
-            })));
+            return Ok(Step::of(Err(Refusal::SkillBeingJudged)));
         }
         let agent = call.conversation.agent;
         let lodge = knowledge::lodging(db, &layout, agent)?.path;
@@ -176,11 +163,8 @@ impl Core<'_, '_> {
         if library::field(&paper, "name:").is_empty()
             || library::field(&paper, "description:").is_empty()
         {
-            return Ok(Step::of(Err(Refusal::Usage {
-                words: format!(
-                    "skills/{name}/SKILL.md must open with a front \
-                     matter `name:` and `description:`."
-                ),
+            return Ok(Step::of(Err(Refusal::SkillFrontMatter {
+                name,
             })));
         }
         let task = self.task_of(call)?;
@@ -262,11 +246,8 @@ fn skill_files(
         let bytes = folder.read(&entry.path)?;
         total += bytes.len();
         if total > library::MOST_BYTES {
-            return Ok(Err(Refusal::Usage {
-                words: format!(
-                    "`{name}` holds more than the library takes, 4 \
-                     MB."
-                ),
+            return Ok(Err(Refusal::SkillTooBig {
+                name: name.into(),
             }));
         }
         files.push((entry.path[prefix.len()..].to_owned(), bytes));

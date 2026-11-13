@@ -7,7 +7,7 @@ use hamlet_protocol::client::{AttachedFile, AttachedImage};
 use hamlet_store::ids::AgentId;
 
 use super::kept::Images;
-use super::{Limits, SEEN, usage};
+use super::{Limits, SEEN};
 use crate::attached::{Attached, Caption, is_place};
 use crate::core::Core;
 use crate::files::Files;
@@ -38,12 +38,10 @@ impl Core<'_, '_> {
             .chain(files.iter().filter_map(|file| file.at));
         for at in places {
             if !is_place(text, at) {
-                return Ok(Err(usage(&format!(
-                    "An attachment's place, {at}, is not a byte \
-                     offset on a character boundary of the line, \
-                     which is {} bytes.",
-                    text.len()
-                ))));
+                return Ok(Err(Refusal::BadAttachmentPlace {
+                    at,
+                    bytes: text.len(),
+                }));
             }
         }
         if let Err(refusal) = self.check_files(files) {
@@ -64,10 +62,9 @@ impl Core<'_, '_> {
         let mut inbox = self.open_inbox(agent, INBOX)?;
         for file in &files {
             let Some(bytes) = kept.read(&file.id)? else {
-                return Ok(Err(usage(&format!(
-                    "The file `{}` was not sent first.",
-                    file.name
-                ))));
+                return Ok(Err(Refusal::FileNotSent {
+                    name: file.name.clone(),
+                }));
             };
             if let Err(refusal) =
                 inbox.put_at(&file.name, &bytes, file.at)?
