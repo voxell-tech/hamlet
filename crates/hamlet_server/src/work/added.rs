@@ -83,7 +83,10 @@ pub(crate) fn load(root: &Path) -> (Vec<Manifest>, Vec<String>) {
         entries.filter_map(Result::ok).collect::<Vec<_>>();
     entries.sort_by_key(std::fs::DirEntry::file_name);
     let reserved = crate::work::tools::reserved_names()
-        .chain(crate::work::catalogue::SOCIETY.map(String::from))
+        .chain(
+            crate::work::catalogue::Society::names()
+                .map(String::from),
+        )
         .collect::<BTreeSet<_>>();
     let mut names = BTreeSet::new();
     for entry in entries {

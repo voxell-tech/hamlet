@@ -19,7 +19,7 @@ use crate::talk::briefs;
 use crate::talk::conversations::Kind;
 use crate::talk::letters::{self, Message, MessageKind, Send};
 use crate::talk::tasks::{self, Origin};
-use crate::work::catalogue::SOCIETY;
+use crate::work::catalogue::Society;
 use crate::work::tools::To;
 
 impl Core<'_, '_> {
@@ -297,13 +297,12 @@ impl Core<'_, '_> {
         }
         let brief = text(call, "task");
         let tools = list(call, "tools");
-        if tools.iter().any(|tool| SOCIETY.contains(&tool.as_str())) {
+        if tools.iter().any(|tool| Society::named(tool).is_some()) {
             return Ok(Step::of(Err(Refusal::WorkerTools)));
         }
         let names = self.catalogue.names();
         let db = self.realm.store().connection();
-        let offered =
-            place::tools(db, starter, Kind::Chat, &names, &SOCIETY)?;
+        let offered = place::tools(db, starter, Kind::Chat, &names)?;
         let hamlet_protocol::runtime::ConfigureTools::Only { only } =
             offered
         else {

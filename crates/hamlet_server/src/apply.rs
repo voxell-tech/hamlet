@@ -24,7 +24,6 @@ use crate::society::agents;
 use crate::talk::runtimes::Runtimes;
 use crate::talk::sync::{self, Fitting};
 use crate::talk::{Env, conversations};
-use crate::work::catalogue::SOCIETY;
 
 /// The schedule the runner runs after each input.
 #[derive(ScheduleLabel, Clone, Debug, PartialEq, Eq, Hash)]
@@ -112,8 +111,7 @@ pub(crate) fn retool_all(
     let names = catalogue.names();
     for agent in agents::living(db)? {
         for kept in conversations::of_agent(db, agent)? {
-            let tools =
-                place::tools(db, agent, kept.kind, &names, &SOCIETY)?;
+            let tools = place::tools(db, agent, kept.kind, &names)?;
             if kept.tools()?.as_ref() != Some(&tools) {
                 conversations::set_tools(db, kept.id, &tools)?;
             }

@@ -985,9 +985,7 @@ impl Core<'_, '_> {
                         "on" => true,
                         "off" => false,
                         _ => {
-                            return Ok(Err(self
-                                .deeds
-                                .usage(name)));
+                            return Ok(Err(self.deeds.usage(name)));
                         }
                     };
                     let done = self.attempt(by, |cx, _| {
@@ -1005,9 +1003,7 @@ impl Core<'_, '_> {
                     level => match Effort::named(level) {
                         Some(effort) => Some(effort),
                         None => {
-                            return Ok(Err(self
-                                .deeds
-                                .usage(name)));
+                            return Ok(Err(self.deeds.usage(name)));
                         }
                     },
                 };
@@ -1149,9 +1145,7 @@ impl Core<'_, '_> {
                             Some(spend::micros(dollars))
                         }
                         _ => {
-                            return Ok(Err(self
-                                .deeds
-                                .usage(name)));
+                            return Ok(Err(self.deeds.usage(name)));
                         }
                     },
                 };
@@ -1218,9 +1212,7 @@ impl Core<'_, '_> {
                 if name == "folder" {
                     let folder = match words.first() {
                         None => {
-                            return Ok(Err(self
-                                .deeds
-                                .usage(name)));
+                            return Ok(Err(self.deeds.usage(name)));
                         }
                         Some(&"none") => None,
                         Some(_) => Some(rest.to_owned()),
@@ -1250,9 +1242,7 @@ impl Core<'_, '_> {
                         Some(&"manual") => Mode::Manual,
                         Some(&"auto") => Mode::Auto,
                         _ => {
-                            return Ok(Err(self
-                                .deeds
-                                .usage(name)));
+                            return Ok(Err(self.deeds.usage(name)));
                         }
                     };
                     let done = self.attempt(by, |cx, _| {

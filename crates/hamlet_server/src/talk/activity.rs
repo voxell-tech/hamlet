@@ -7,6 +7,7 @@ use hamlet_protocol::client::Doing;
 use hamlet_protocol::runtime::{self, Block};
 use serde_json::Value;
 
+use crate::work::catalogue::Society;
 use crate::work::tools::Dialect;
 
 /// The most bytes of what an agent says that are shown.
@@ -274,9 +275,8 @@ fn doing_of(
                 Doing::Run
             }
         }
-        "hire" | "create_scholar" => Doing::Think,
-        "ask" | "request_road" | "agree_road" | "ask_librarian"
-        | "submit_skill" => Doing::Await,
-        _ => Doing::Custom,
+        _ => Society::named(name)
+            .and_then(|tool| tool.facts().doing.clone())
+            .unwrap_or(Doing::Custom),
     }
 }

@@ -36,6 +36,7 @@ use crate::oversight::{self, Raise, Ruling, WaitKind};
 use crate::talk::conversations::{Conversation, Kind};
 use crate::talk::marks::Mark;
 use crate::talk::{asking, conversations, inputs, models};
+use crate::work::catalogue::Society;
 use crate::work::cut::change_between;
 use crate::work::tools::{Outcome, Sight, ToolSession};
 
@@ -298,6 +299,8 @@ struct Call<'a> {
     conversation: Conversation,
     input: Option<&'a str>,
     tool: &'a str,
+    /// The society tool `tool` names, read once here.
+    society: Option<Society>,
     arguments: &'a BTreeMap<String, Value>,
     /// What its marker keeps it as.
     request: Request,
@@ -418,6 +421,7 @@ impl Core<'_, '_> {
             conversation: kept,
             input,
             tool,
+            society: Society::named(tool),
             arguments,
             request,
         }))
@@ -452,7 +456,9 @@ impl Core<'_, '_> {
                 return Ok(());
             }
         };
-        if call.tool != "object" && self.withdrawn(&call)? {
+        if call.society != Some(Society::Object)
+            && self.withdrawn(&call)?
+        {
             self.tell_call(
                 &reply,
                 &asked.key,
@@ -469,9 +475,10 @@ impl Core<'_, '_> {
             return Ok(());
         }
         let answer = if !offers(&call.conversation, call.tool)?
-            || call.tool == "ask_chief"
-            || call.tool == "object"
-        {
+            || matches!(
+                call.society,
+                Some(Society::AskChief | Society::Object)
+            ) {
             Answer::Allowed
         } else {
             match self.decide(&call).await? {
@@ -537,8 +544,11 @@ impl Core<'_, '_> {
         }
         let outcome = if !offers(&call.conversation, tool)? {
             Some(unavailable(tool))
-        } else if tool == "ask_chief" || tool == "object" {
-            let ruled = if tool == "object" {
+        } else if let Some(
+            chief @ (Society::AskChief | Society::Object),
+        ) = call.society
+        {
+            let ruled = if chief == Society::Object {
                 self.object(&call)?
             } else {
                 self.ask_chief(&call)?
@@ -578,9 +588,8 @@ impl Core<'_, '_> {
                     return Ok(());
                 }
                 Decision::Run { net } => {
-                    if crate::work::catalogue::SOCIETY.contains(&tool)
-                    {
-                        match self.society(&call).await? {
+                    if let Some(society) = call.society {
+                        match self.society(&call, society).await? {
                             society::Step::Done(outcome) => {
                                 crate::fault::point("carried");
                                 Some(outcome)
@@ -877,12 +886,15 @@ impl Core<'_, '_> {
                     return Ok(Decision::Block(words));
                 }
             };
-        if let gate::Call::Society { name, args } = &classified
-            && matches!(call.tool, "tell" | "ask")
+        if let gate::Call::Society {
+            tool: tool @ (Society::Tell | Society::Ask),
+            args,
+        } = &classified
         {
             let paths = society::list(call, "paths");
             if !paths.is_empty() {
-                let (name, args) = (name.clone(), args.clone());
+                let (name, args) =
+                    (tool.name().to_owned(), args.clone());
                 match session.parcel(&paths, None).await? {
                     Ok(sent) => {
                         classified = gate::Call::Parcel {

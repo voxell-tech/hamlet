@@ -15,44 +15,8 @@ use crate::society::agents::{self, AgentKind};
 use crate::society::hamlets::{self, Mode};
 use crate::society::{hires, workers};
 use crate::talk::conversations::Kind;
+use crate::work::catalogue::{Offered, Society};
 use crate::work::tools::Place;
-
-/// Every agent's tools but a worker's.
-const EVERYONE: [&str; 7] = [
-    "tell",
-    "ask",
-    "start_worker",
-    "submit_skill",
-    "ask_librarian",
-    "ask_chief",
-    "read_budget",
-];
-
-/// A lead's tools over its own tree, which the Hand has over all.
-const LEADS: [&str; 10] = [
-    "create_scholar",
-    "hire",
-    "end_hire",
-    "merge_hires",
-    "set_model",
-    "set_tools",
-    "set_allowance",
-    "nickname",
-    "lay_road",
-    "take_up_road",
-];
-
-/// The Hand's own tools.
-const HAND: [&str; 8] = [
-    "found_hamlet",
-    "seat_mayor",
-    "remove_hamlet",
-    "read_record",
-    "read_scholar",
-    "edit_scholar",
-    "tag",
-    "revert",
-];
 
 /// Where an agent's tools work, and how its calls are overseen.
 #[derive(Clone, Debug)]
@@ -178,11 +142,10 @@ pub(crate) fn tools(
     agent: AgentId,
     kind: Kind,
     names: &[String],
-    society: &[&str],
 ) -> Result<ConfigureTools> {
     let built_in = names
         .iter()
-        .filter(|name| !society.contains(&name.as_str()))
+        .filter(|name| Society::named(name).is_none())
         .cloned()
         .collect::<Vec<_>>();
     let kept = agents::get(db, agent)?;
@@ -198,9 +161,9 @@ pub(crate) fn tools(
         }
         AgentKind::Hand => {
             let mut only = built_in;
-            only.extend(EVERYONE.map(String::from));
-            only.extend(LEADS.map(String::from));
-            only.extend(HAND.map(String::from));
+            only.extend(Society::offered(Offered::Everyone));
+            only.extend(Society::offered(Offered::Leads));
+            only.extend(Society::offered(Offered::Hand));
             only
         }
         AgentKind::Hire => {
@@ -210,28 +173,28 @@ pub(crate) fn tools(
                 .into_iter()
                 .filter(|name| !off.contains(name))
                 .collect::<Vec<_>>();
-            only.extend(EVERYONE.map(String::from));
-            only.push("request_road".into());
+            only.extend(Society::offered(Offered::Everyone));
+            only.extend(Society::offered(Offered::Hires));
             // Any hire can come to lead: the tree has no floor.
-            only.extend(LEADS.map(String::from));
+            only.extend(Society::offered(Offered::Leads));
             if hires::is_mayor(db, agent)?
                 && hamlets::all(db)?
                     .iter()
                     .any(|h| h.is_living() && h.id != hire.hamlet)
             {
-                only.push("agree_road".into());
+                only.extend(Society::offered(Offered::Mayors));
             }
             only
         }
     };
     if matches!(kind, Kind::Chat) && kept.kind != AgentKind::Worker {
-        only.push("object".into());
+        only.extend(Society::offered(Offered::Chats));
     }
     match kind {
         // An errand answers in words alone.
         Kind::Errand => only.clear(),
         Kind::Dream => {
-            only.retain(|name| !society.contains(&name.as_str()));
+            only.retain(|name| Society::named(name).is_none());
         }
         _ => {}
     }

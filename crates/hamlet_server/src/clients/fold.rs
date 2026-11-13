@@ -14,6 +14,7 @@ use hamlet_sandbox::scrub::Scrubber;
 use serde_json::Value;
 
 use crate::talk::marks::Mark;
+use crate::work::catalogue::Society;
 
 /// Characters of a tool's arguments a transcript shows.
 const SUMMARY: usize = 200;
@@ -133,7 +134,8 @@ impl Fold {
                 failure,
                 change: change.map(Some),
             });
-            if entry.tool.as_deref() == Some("ask_chief")
+            if entry.tool.as_deref().and_then(Society::named)
+                == Some(Society::AskChief)
                 && let Some(text) =
                     crate::talk::asking::said(&entry.text)
             {

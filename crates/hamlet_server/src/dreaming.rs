@@ -19,7 +19,6 @@ use crate::talk::inputs::{self, InputKind, Keep};
 use crate::talk::marks::Mark;
 use crate::talk::tasks::{self, Origin};
 use crate::talk::{models, runtimes};
-use crate::work::catalogue::SOCIETY;
 
 /// The least time between two dreams of one hire.
 const HIRE_REST: i64 = 6 * 3_600_000;
@@ -302,7 +301,6 @@ impl Core<'_, '_> {
                 agent,
                 Kind::Dream,
                 &names,
-                &SOCIETY,
             )?;
             let mut opening = Begin::new(agent, Kind::Dream);
             opening.instructions = Some(instructions);

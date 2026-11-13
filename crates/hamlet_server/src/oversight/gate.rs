@@ -14,7 +14,7 @@ use serde_json::Value;
 
 use super::Danger;
 use crate::society::limits::Reserved;
-use crate::work::catalogue::SOCIETY;
+use crate::work::catalogue::{Reserve, Society};
 use crate::work::tools::Dialect;
 
 /// A tool call, classified by its reach.
@@ -34,7 +34,7 @@ pub(crate) enum Call {
     },
     Read,
     Society {
-        name: String,
+        tool: Society,
         args: Value,
     },
     /// A `tell` or `ask` that sends files, which were measured.
@@ -119,13 +119,15 @@ pub(crate) fn call_of(
             }
         }
         "read" | "search" | "find" => Call::Read,
-        _ if SOCIETY.contains(&tool) => Call::Society {
-            name: tool.into(),
-            args: args.clone(),
-        },
-        _ => Call::Other {
-            name: tool.into(),
-            args: args.clone(),
+        _ => match Society::named(tool) {
+            Some(tool) => Call::Society {
+                tool,
+                args: args.clone(),
+            },
+            None => Call::Other {
+                name: tool.into(),
+                args: args.clone(),
+            },
         },
     }
 }
@@ -152,9 +154,13 @@ pub(crate) fn call_text(call: &Call) -> String {
                 )
             }
         }
-        Call::Society { name, args }
-        | Call::Added { name, args, .. }
-        | Call::Other { name, args } => format!("{name} {args}"),
+        Call::Society { tool, args } => {
+            format!("{} {args}", tool.name())
+        }
+        Call::Added { name, args, .. }
+        | Call::Other { name, args } => {
+            format!("{name} {args}")
+        }
         Call::Parcel {
             name,
             args,
@@ -230,10 +236,6 @@ const COMMON_NETWORK: &[&str] = &[
     "cargo install",
 ];
 
-/// The Hand's acts that always wait for a chief.
-const HAND_RESERVED: &[&str] =
-    &["remove_hamlet", "edit_scholar", "tag", "revert"];
-
 /// The H11 decision, ordered by reach, reserved acts and the turn's
 /// refusals.
 pub(crate) fn rule(
@@ -266,19 +268,13 @@ fn is_reserved(
     caller: Caller,
     reserved: &Reserved,
 ) -> bool {
-    let Call::Society { name, .. } = call else {
+    let Call::Society { tool, .. } = call else {
         return false;
     };
-    match caller {
-        Caller::Hand => HAND_RESERVED.contains(&name.as_str()),
-        Caller::Hire => match name.as_str() {
-            "hire" => reserved.hire,
-            "lay_road" | "take_up_road" => reserved.roads,
-            "end_hire" => reserved.end,
-            "merge_hires" => reserved.merge,
-            _ => false,
-        },
-        Caller::Worker => false,
+    match (caller, tool.facts().reserve) {
+        (Caller::Hand, Reserve::Hand) => true,
+        (Caller::Hire, Reserve::Limit(limit)) => limit.kept(reserved),
+        _ => false,
     }
 }
 

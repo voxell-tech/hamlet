@@ -24,6 +24,7 @@ use crate::society::refusal::Refusal;
 use crate::society::{authority, city, limits, record, roads};
 use crate::spend::{self, micros, money};
 use crate::talk::Env;
+use crate::work::catalogue::Society;
 use crate::work::tools::Outcome;
 
 /// What a society call comes to.
@@ -394,22 +395,25 @@ impl Core<'_, '_> {
     pub(super) async fn society(
         &mut self,
         call: &Call<'_>,
+        tool: Society,
     ) -> Result<Step> {
         let agent = call.conversation.agent;
         let here = self.hamlet_of(agent)?;
         let reason = text(call, "reason");
-        let result = match call.tool {
-            "tell" => return self.tell(call).await,
-            "ask" => return self.ask(call).await,
-            "request_road" => return self.request_road(call).await,
-            "start_worker" => return self.start_worker(call),
-            "submit_skill" => return self.submit_skill(call),
-            "ask_librarian" => return self.ask_librarian(call),
-            "read_scholar" => self.read_scholar(call)?,
-            "edit_scholar" => self.edit_scholar(call)?,
-            "tag" => self.tag_scholar(call)?,
-            "revert" => self.revert_scholar(call)?,
-            "create_scholar" => {
+        let result = match tool {
+            Society::Tell => return self.tell(call).await,
+            Society::Ask => return self.ask(call).await,
+            Society::RequestRoad => {
+                return self.request_road(call).await;
+            }
+            Society::StartWorker => return self.start_worker(call),
+            Society::SubmitSkill => return self.submit_skill(call),
+            Society::AskLibrarian => return self.ask_librarian(call),
+            Society::ReadScholar => self.read_scholar(call)?,
+            Society::EditScholar => self.edit_scholar(call)?,
+            Society::Tag => self.tag_scholar(call)?,
+            Society::Revert => self.revert_scholar(call)?,
+            Society::CreateScholar => {
                 let name = text(call, "name");
                 let character = text(call, "character");
                 let task = self.task_of(call)?;
@@ -436,8 +440,8 @@ impl Core<'_, '_> {
                     Ok(Ok(arrived(cx, env, made, &character)?))
                 })?
             }
-            "hire" => self.hire_tool(call, here.as_ref())?,
-            "end_hire" => {
+            Society::Hire => self.hire_tool(call, here.as_ref())?,
+            Society::EndHire => {
                 let hire =
                     match self.led(call, "hire", here.as_ref())? {
                         Ok(hire) => hire,
@@ -451,7 +455,7 @@ impl Core<'_, '_> {
                         .map(|()| format!("Ended {name}.")))
                 })?
             }
-            "set_model" => {
+            Society::SetModel => {
                 let hire =
                     match self.led(call, "hire", here.as_ref())? {
                         Ok(hire) => hire,
@@ -476,7 +480,7 @@ impl Core<'_, '_> {
                     .map(|()| words))
                 })?
             }
-            "set_tools" => {
+            Society::SetTools => {
                 let hire =
                     match self.led(call, "hire", here.as_ref())? {
                         Ok(hire) => hire,
@@ -495,7 +499,7 @@ impl Core<'_, '_> {
                     }))
                 })?
             }
-            "set_allowance" => {
+            Society::SetAllowance => {
                 let hire =
                     match self.led(call, "hire", here.as_ref())? {
                         Ok(hire) => hire,
@@ -518,7 +522,7 @@ impl Core<'_, '_> {
                     }))
                 })?
             }
-            "nickname" => {
+            Society::Nickname => {
                 let hire =
                     match self.led(call, "hire", here.as_ref())? {
                         Ok(hire) => hire,
@@ -546,7 +550,7 @@ impl Core<'_, '_> {
                     .map(|()| words))
                 })?
             }
-            "lay_road" | "take_up_road" => {
+            Society::LayRoad | Society::TakeUpRoad => {
                 let a = match self.led(call, "a", here.as_ref())? {
                     Ok(a) => a,
                     Err(refusal) => {
@@ -561,7 +565,7 @@ impl Core<'_, '_> {
                 };
                 let (one, other) = (self.name(a)?, self.name(b)?);
                 let task = self.task_of(call)?;
-                if call.tool == "lay_road" {
+                if tool == Society::LayRoad {
                     self.carry(call, |cx, _| {
                         Ok(roads::lay(cx, a, b, &reason, task)?.map(
                             |_| {
@@ -585,7 +589,7 @@ impl Core<'_, '_> {
                     })?
                 }
             }
-            "merge_hires" => {
+            Society::MergeHires => {
                 let absorbed = match self.led(
                     call,
                     "absorbed",
@@ -612,8 +616,10 @@ impl Core<'_, '_> {
                     .map(|_| format!("Merged {one} into {other}.")))
                 })?
             }
-            "agree_road" => self.agree_road(call, here.as_ref())?,
-            "found_hamlet" => {
+            Society::AgreeRoad => {
+                self.agree_road(call, here.as_ref())?
+            }
+            Society::FoundHamlet => {
                 let name = text(call, "name");
                 let purpose = text(call, "purpose");
                 let task = self.task_of(call)?;
@@ -660,7 +666,7 @@ impl Core<'_, '_> {
                     )))
                 })?
             }
-            "seat_mayor" => {
+            Society::SeatMayor => {
                 let hire =
                     match self.named(call, "hire", here.as_ref())? {
                         Ok(hire) => hire,
@@ -690,18 +696,18 @@ impl Core<'_, '_> {
                     ))
                 })?
             }
-            "remove_hamlet" => {
+            Society::RemoveHamlet => {
                 let id = HamletId(text(call, "hamlet"));
                 self.carry(call, |cx, _| {
                     Ok(hamlets::remove(cx, &id, &reason)?
                         .map(|()| format!("Removed {id}.")))
                 })?
             }
-            "read_budget" => {
+            Society::ReadBudget => {
                 let db = self.realm.store().connection();
                 Ok(budget(db, agent)?)
             }
-            "read_record" => {
+            Society::ReadRecord => {
                 let id = HamletId(text(call, "hamlet"));
                 let db = self.realm.store().connection();
                 match hamlets::find(db, &id)? {
@@ -711,9 +717,12 @@ impl Core<'_, '_> {
                     }
                 }
             }
-            other => Err(Refusal::Unsupported {
-                what: format!("the tool {other}"),
-            }),
+            // The calls answer these before the gate.
+            Society::AskChief | Society::Object => {
+                Err(Refusal::Unsupported {
+                    what: format!("the tool {}", tool.name()),
+                })
+            }
         };
         Ok(Step::of(result))
     }
