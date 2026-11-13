@@ -779,7 +779,8 @@ impl Host {
     /// start it began, without waiting for the starts: a call to one
     /// of them waits for its start. A start that fails is logged and
     /// left for the next boot, and a file that cannot be read is
-    /// reported and passed over. Boot finishes each destroy that a
+    /// reported and passed over, as is one that a destroy removed
+    /// since boot listed the files. Boot finishes each destroy that a
     /// kill cut off, and starts no actor for it. A start of an actor
     /// whose file boot reads waits for the read. Fails at once in a
     /// host that has shut down, which may no longer hold the folder:
@@ -1244,9 +1245,18 @@ struct StoredActor {
 }
 
 /// The `_hamlet_actor` row of the actor file at `path`, if it holds a
-/// deadline, a run a kill cut off, or a destroy. The file is closed
-/// again; starting the actor opens it anew.
+/// deadline, a run a kill cut off, or a destroy. A file that is gone
+/// holds none: a destroy removed it after boot listed the files. The
+/// file is closed again; starting the actor opens it anew.
 fn stored_actor(path: &Path) -> Result<Option<StoredActor>> {
+    // Boot holds the actor as `Reading`, so nothing of the host makes
+    // or removes its file from here on.
+    if !path
+        .try_exists()
+        .with_context(|| format!("find {}", path.display()))?
+    {
+        return Ok(None);
+    }
     let conn = plain_sqlite::open(path, false)?;
     if !has_table(&conn, "_hamlet_actor")? {
         return Ok(None);

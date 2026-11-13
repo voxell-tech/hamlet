@@ -1,7 +1,7 @@
 //! The local host: start by key, calls and their deadlines, stop,
-//! shutdown, the folder lock, the deadline a stop leaves, the commit
-//! hook, how one actor's start or stop leaves the others alone, and
-//! the deadline of a start.
+//! shutdown, the folder lock, the deadline a stop leaves, boot,
+//! destroy, how one actor's start or stop leaves the others alone,
+//! and the deadline of a start.
 
 use std::collections::HashMap;
 use std::future::Future;
@@ -1754,6 +1754,55 @@ async fn boot_goes_past_a_file_it_cannot_read() {
     tokio::time::sleep(Duration::from_millis(300)).await;
     assert_eq!(call(&host, &id, "get").await, 1);
     host.shutdown().await.unwrap();
+}
+
+/// A file that a destroy removed after boot listed the files is not
+/// one boot cannot read: boot passes over it and raises no event.
+/// Each round makes `KEYS` counters that stopped cleanly, then boots
+/// a host while it destroys every one of them.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn boot_passes_over_a_file_a_destroy_removed_after_its_list() {
+    const KEYS: usize = 32;
+    const ROUNDS: usize = 20;
+    let dir = Scratch::new("host-boot-destroy-race");
+    let keys: Vec<String> =
+        (0..KEYS).map(|n| format!("k{n}")).collect();
+    for round in 0..ROUNDS {
+        let host = Host::open(&dir, factories()).unwrap();
+        for key in &keys {
+            host.get_or_start("counter", key).await.unwrap();
+        }
+        host.shutdown().await.unwrap();
+        drop(host);
+
+        let host = Host::open(&dir, factories()).unwrap();
+        let mut events = host.events();
+        let boot = tokio::spawn({
+            let host = host.clone();
+            async move { host.boot().await }
+        });
+        let destroys: Vec<_> = keys
+            .iter()
+            .map(|key| {
+                let host = host.clone();
+                let id = format!("counter/{key}");
+                tokio::spawn(async move {
+                    host.stop(&id, ShutdownKind::Destroy).await
+                })
+            })
+            .collect();
+        for destroy in destroys {
+            destroy.await.unwrap().unwrap();
+        }
+        assert!(boot.await.unwrap().unwrap().is_empty());
+        if let Ok(event) = events.try_recv() {
+            panic!("round {round}: boot raised {event:?}");
+        }
+        for key in &keys {
+            assert!(!any_file_of(&dir, "counter", key), "{key}");
+        }
+        host.shutdown().await.unwrap();
+    }
 }
 
 /// A start that begins while boot reads the same actor's file waits
