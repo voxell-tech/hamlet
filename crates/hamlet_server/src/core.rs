@@ -13,7 +13,7 @@ use hamlet_protocol::runtime::{self, ServerMessage, ToolSpec};
 use hamlet_store::ids::{Actor, AgentId, ConversationId};
 
 use crate::apply::Changed;
-use crate::calls::Calls;
+use crate::calls::{Calls, Runs};
 use crate::change::{Change, Done, Touched};
 use crate::clients::check::reply;
 use crate::clients::connection::UploadOf;
@@ -154,6 +154,8 @@ pub(crate) struct Core<'w, 's> {
         (Entity, &'static UploadOf, &'static mut FileUpload),
     >,
     pub calls: ResMut<'w, Calls>,
+    /// The tool runs in progress, one entity each.
+    pub runs: Runs<'w, 's>,
     /// The images of inputs being fitted to their models.
     pub fitting: ResMut<'w, Fitting>,
     /// The model catalogue and what waits on the providers.

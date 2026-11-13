@@ -11,10 +11,10 @@ use bevy_ecs::schedule::{
     IntoScheduleConfigs, Schedule, ScheduleLabel,
     SingleThreadedExecutor, SystemSet,
 };
-use bevy_ecs::system::{Res, ResMut};
+use bevy_ecs::system::{Commands, Res, ResMut};
 use hamlet_store::Db;
 
-use crate::calls::{Calls, place};
+use crate::calls::{Runs, place};
 use crate::clients::{Clients, Connections};
 use crate::core::{Catalogue, Core};
 use crate::credentials::Credentials;
@@ -120,15 +120,17 @@ pub(crate) fn retool_all(
     Ok(())
 }
 
-/// Stops the tool runs of every conversation being stopped.
+/// Stops the tool runs of every conversation being stopped: their
+/// entities go, and their tasks with them.
 fn stop_cancelled(
     mut realm: ResMut<Realm>,
-    mut calls: ResMut<Calls>,
+    runs: Runs,
+    mut commands: Commands,
 ) -> Result {
     let db = realm.store().connection();
-    for conversation in calls.conversations() {
-        if conversations::get(db, conversation)?.cancelling {
-            calls.stop(conversation);
+    for (entity, running) in &runs {
+        if conversations::get(db, running.conversation)?.cancelling {
+            commands.entity(entity).despawn();
         }
     }
     Ok(())

@@ -13,7 +13,9 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context as _, Result};
 use bevy_app::App;
+use bevy_ecs::entity::Entity;
 use bevy_ecs::error::{BevyError, ErrorContext};
+use bevy_ecs::query::With;
 use bevy_ecs::system::SystemState;
 use futures::FutureExt;
 use hamlet_protocol::client::ClientMessage;
@@ -26,7 +28,7 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{mpsc, watch};
 
 use crate::apply::Apply;
-use crate::calls::{self, Calls, Ran};
+use crate::calls::{self, Calls, Ran, Running};
 use crate::clients::check::fault;
 use crate::clients::connection::Event;
 use crate::clients::{Clients, asked};
@@ -615,7 +617,14 @@ impl Server {
     /// Stops the runtimes, giving each `grace` to finish.
     pub async fn stop(mut self, grace: Duration) -> Result<()> {
         let world = self.app.world_mut();
-        world.resource_mut::<Calls>().stop_all();
+        // Each run's task stops with its entity.
+        let runs = world
+            .query_filtered::<Entity, With<Running>>()
+            .iter(world)
+            .collect::<Vec<_>>();
+        for run in runs {
+            world.despawn(run);
+        }
         world.resource_mut::<Runtimes>().stop(grace).await;
         world.resource::<Leftovers>().end(|_| true);
         drop(world.remove_resource::<Runner>());

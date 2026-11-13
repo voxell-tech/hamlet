@@ -9,10 +9,15 @@ pub(crate) mod place;
 pub(crate) mod reviews;
 mod society;
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 use std::future::Future;
 
 use anyhow::Result;
+use bevy_ecs::component::Component;
+use bevy_ecs::entity::Entity;
+use bevy_ecs::lifecycle::HookContext;
+use bevy_ecs::system::Query;
+use bevy_ecs::world::DeferredWorld;
 use hamlet_protocol::runtime::{
     self, ConfigureTools, ServerMessage, ToolSpec, ToolSpecReplay,
 };
@@ -94,16 +99,20 @@ pub(crate) enum Answer {
     Result(Outcome),
 }
 
-/// The tool runs in progress.
+/// Where the tool runs that end are sent, as inputs.
 #[derive(bevy_ecs::resource::Resource)]
 pub(crate) struct Calls {
-    running: HashMap<CallId, Running>,
     ran: mpsc::UnboundedSender<Ran>,
 }
 
-struct Running {
+/// A tool run in progress: an entity of its own, despawned when it
+/// ends or its turn is stopped. Its task stops with it.
+#[derive(Component)]
+#[component(on_remove = stopped)]
+pub(crate) struct Running {
+    call: CallId,
     replies: Vec<Reply>,
-    conversation: ConversationId,
+    pub conversation: ConversationId,
     request: Request,
     /// The agent whose remote lodge the call may write, to pull once
     /// it ends.
@@ -111,80 +120,53 @@ struct Running {
     abort: AbortHandle,
 }
 
+/// What a run that ended still owes.
+struct Ended {
+    replies: Vec<Reply>,
+    request: Request,
+    pull: Option<AgentId>,
+}
+
+/// A run's entity went: its task, if still running, stops.
+fn stopped(world: DeferredWorld, context: HookContext) {
+    if let Some(running) = world.get::<Running>(context.entity) {
+        running.abort.abort();
+    }
+}
+
+/// Every tool run in progress.
+pub(crate) type Runs<'w, 's> =
+    Query<'w, 's, (Entity, &'static mut Running)>;
+
 impl Calls {
     pub fn new(ran: mpsc::UnboundedSender<Ran>) -> Self {
-        Self {
-            running: HashMap::new(),
-            ran,
-        }
+        Self { ran }
     }
 
+    /// Starts `work` for `call`; gives the run to spawn.
     fn run(
-        &mut self,
+        &self,
         call: CallId,
         conversation: ConversationId,
         reply: Reply,
         request: Request,
         pull: Option<AgentId>,
         work: impl Future<Output = Outcome> + Send + 'static,
-    ) {
+    ) -> Running {
         let ran = self.ran.clone();
         let id = call.clone();
         let task = tokio::spawn(async move {
             let outcome = work.await;
             let _ = ran.send(Ran { call: id, outcome });
         });
-        self.running.insert(
+        Running {
             call,
-            Running {
-                replies: vec![reply],
-                conversation,
-                request,
-                pull,
-                abort: task.abort_handle(),
-            },
-        );
-    }
-
-    /// Answers `reply` too when `call` runs already.
-    fn join(&mut self, call: &CallId, reply: &Reply) -> bool {
-        match self.running.get_mut(call) {
-            Some(running) => {
-                running.replies.push(reply.clone());
-                true
-            }
-            None => false,
+            replies: vec![reply],
+            conversation,
+            request,
+            pull,
+            abort: task.abort_handle(),
         }
-    }
-
-    /// Stops the tool runs of `conversation`.
-    pub fn stop(&mut self, conversation: ConversationId) {
-        self.running.retain(|_, running| {
-            let keep = running.conversation != conversation;
-            if !keep {
-                running.abort.abort();
-            }
-            keep
-        });
-    }
-
-    /// The conversations whose tools run now.
-    pub fn conversations(&self) -> Vec<ConversationId> {
-        let mut out = self
-            .running
-            .values()
-            .map(|running| running.conversation)
-            .collect::<Vec<_>>();
-        out.sort();
-        out.dedup();
-        out
-    }
-
-    pub fn stop_all(&mut self) {
-        for running in self.running.values() {
-            running.abort.abort();
-        }
-        self.running.clear();
     }
 }
 
@@ -515,7 +497,13 @@ impl Core<'_, '_> {
                 return Ok(());
             }
         };
-        if self.calls.join(&call.call, &reply) {
+        // A call that runs already answers this request too.
+        if let Some((_, mut running)) = self
+            .runs
+            .iter_mut()
+            .find(|(_, running)| running.call == call.call)
+        {
+            running.replies.push(reply);
             return Ok(());
         }
         let db = self.realm.store().connection();
@@ -676,7 +664,7 @@ impl Core<'_, '_> {
         let arguments =
             call.arguments.clone().into_iter().collect::<Map<_, _>>();
         let name = call.tool.to_owned();
-        self.calls.run(
+        let running = self.calls.run(
             call.call.clone(),
             call.conversation.id,
             reply,
@@ -694,6 +682,7 @@ impl Core<'_, '_> {
                 outcome
             },
         );
+        self.commands.spawn(running);
         Ok(None)
     }
 
@@ -770,10 +759,19 @@ impl Core<'_, '_> {
     /// Keeps the outcome of a tool run that ended and answers each
     /// runtime that asked.
     pub(crate) async fn ran(&mut self, ran: Ran) -> Result<()> {
-        let Some(running) = self.calls.running.remove(&ran.call)
+        let Some((entity, mut found)) = self
+            .runs
+            .iter_mut()
+            .find(|(_, running)| running.call == ran.call)
         else {
             return Ok(());
         };
+        let running = Ended {
+            replies: std::mem::take(&mut found.replies),
+            request: found.request.clone(),
+            pull: found.pull,
+        };
+        self.commands.entity(entity).despawn();
         crate::fault::point("ran");
         let db = self.realm.store().connection();
         marker::settle(
