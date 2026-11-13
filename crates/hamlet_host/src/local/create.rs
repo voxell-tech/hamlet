@@ -47,7 +47,8 @@ impl Host {
     /// itself; one that waited for any other start that failed fails
     /// with that start's error. A kill during the create's start
     /// leaves the actor made, with its input, which each start gives
-    /// the core until one starts it.
+    /// the core until one starts it: boot starts it, and tries again
+    /// after each start retry for as long as its start fails.
     pub async fn create(
         &self,
         kind: &str,

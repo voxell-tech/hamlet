@@ -206,7 +206,10 @@ until each file is closed, lets the folder go, and leaves the host
 starting none. A stop has a deadline, 45 seconds by default: an actor
 that does not stop by then, its code blocked, is given up and reported
 as not stopped, its file keeps its running mark for the next boot, and
-the host starts it no more. Each actor
+the host starts it no more. A failed start of an actor with a reason of
+its own to run, a run a kill cut off or a deadline that came, is tried
+again 30 seconds later, for as long as it fails; a call's failed start
+is not, and keeps the deadline the actor held. Each actor
 that is not stopped with no deadline is one `Life` in the host's map:
 stopped with a deadline, starting, running, stopping or being destroyed.
 A start or a stop runs on a task of its own and waits only on its own

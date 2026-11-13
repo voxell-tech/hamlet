@@ -113,7 +113,7 @@ const ACTOR_TABLE: &str = "CREATE TABLE IF NOT EXISTS _hamlet_actor \
 /// | `Reading` | boot found a run a kill cut off, or a deadline that has come | `Starting` |
 /// | `Reading` | boot found a deadline to come | `Stopped` |
 /// | `Reading` | boot found neither, or could not read the file | absent |
-/// | `Stopped` | `get_or_start` or a call, the host not shut | `Starting`, its timer aborted |
+/// | `Stopped` | `get_or_start` or a call, the host not shut | `Starting`, its timer aborted and its deadline kept for a failure |
 /// | `Stopped` | its timer fires with the deadline the state holds | `Starting`, from the file it has |
 /// | `Stopped` | `Host::shutdown`, or the last `Host` dropped | absent, its timer aborted |
 /// | absent, `Stopped` | `Host::stop(Destroy)`, the host not shut | `Destroying`, with no generation, its timer aborted |
@@ -121,7 +121,7 @@ const ACTOR_TABLE: &str = "CREATE TABLE IF NOT EXISTS _hamlet_actor \
 /// | `Starting` | a start of the actor, a call's included, waits for it | `Starting`, woken |
 /// | `Starting` | the start ended well | `Running`, also for a kept sleep if woken; else `Stopping`, or `Destroying` with its file marked, for a kept request |
 /// | `Starting` | the start failed or panicked, or missed its deadline | absent, the failure told to its waiters |
-/// | `Starting` | such a start, for a deadline that came, the host not shut and no destroy asked | `Stopped`, its timer armed after the start retry, the failure told to its waiters |
+/// | `Starting` | such a start, of an actor with a reason of its own to run: a run a kill cut off, or a deadline, come or kept, the host not shut and no destroy asked | `Stopped`, its timer armed at the deadline if it is ahead, else after the start retry, the failure told to its waiters |
 /// | `Starting` | a create's own start that failed, its file closed | absent, the actor's files removed first, its waiters told nothing |
 /// | `Starting` | a start that may not make the actor found none, or a create's found one | absent, its waiters told nothing |
 /// | `Running` | its generation asks to sleep or reports a crash, or `Host::stop(Sleep)` | `Stopping` |
@@ -594,10 +594,13 @@ pub struct HostOptions {
     /// kinds, 15 seconds unless a kind sets its own: a stop may take
     /// that long and more without being stuck.
     pub stop_deadline: Duration,
-    /// How long after a start for a deadline that came failed, a
-    /// timer's or a boot's, a timer starts the actor again: 30
-    /// seconds by default. The wait does not grow, and the host
-    /// tries again for as long as such starts fail.
+    /// How long after a failed start of an actor with a reason of
+    /// its own to run, a run a kill cut off or a deadline that came,
+    /// a timer starts it again: 30 seconds by default. The wait does
+    /// not grow, and the host tries again for as long as such starts
+    /// fail. A start a call, a create or `get_or_start` began is not
+    /// tried again, and a failure of it keeps the deadline the actor
+    /// held.
     pub start_retry: Duration,
     /// The host's name, a plain file name: `host` by default. The
     /// host locks the folder with `<name>.lock`, so hosts of
@@ -954,15 +957,14 @@ impl Host {
     /// whose run a kill cut off or whose deadline has come, arms a
     /// timer for each other deadline, and returns the actors whose
     /// start it began, without waiting for the starts: a call to one
-    /// of them waits for its start. A start that fails is logged: one
-    /// for a deadline is tried again after the start retry, one of a
-    /// run a kill cut off is left for the next boot. A file that
-    /// cannot be read is reported and passed over, as is one that a
-    /// destroy removed since boot listed the files. Boot finishes
-    /// each destroy that a kill cut off, and starts no actor for it.
-    /// A start of an actor whose file boot reads waits for the read.
-    /// Fails at once in a host that has shut down, which may no
-    /// longer hold the folder: it reads no file.
+    /// of them waits for its start. A start that fails is logged, and
+    /// tried again after each start retry until one starts the actor.
+    /// A file that cannot be read is reported and passed over, as is
+    /// one that a destroy removed since boot listed the files. Boot
+    /// finishes each destroy that a kill cut off, and starts no actor
+    /// for it. A start of an actor whose file boot reads waits for
+    /// the read. Fails at once in a host that has shut down, which
+    /// may no longer hold the folder: it reads no file.
     pub async fn boot(&self) -> Result<Vec<String>> {
         let host = self.inner();
         if host.actors.lock().shut {
@@ -1029,13 +1031,13 @@ impl Host {
                 }
                 continue;
             }
-            let (owned, generation) = {
+            let (owned, generation, due) = {
                 let mut actors = host.actors.lock();
-                match wake_at {
+                let due = match wake_at {
                     // Whatever deadline an earlier stop left, a run a
                     // kill cut off starts again, and its core pushes
                     // its alarms anew.
-                    _ if cut_off => {}
+                    _ if cut_off => now_ms(),
                     Some(wake_at) if wake_at > now_ms() => {
                         if actors.shut {
                             return Err(host_shut_down());
@@ -1047,12 +1049,12 @@ impl Host {
                         );
                         continue;
                     }
-                    Some(_) => {}
+                    Some(wake_at) => wake_at,
                     None => continue,
-                }
+                };
                 let (owned, generation, _) =
                     actors.begin_start(host, &actor_id)?;
-                (owned, generation)
+                (owned, generation, due)
             };
             drop(reading);
             began.push(actor_id.clone());
@@ -1062,11 +1064,11 @@ impl Host {
                         owned,
                         generation,
                         Open::Existing,
-                        AtFailure::Wait,
+                        AtFailure::Retry { due },
                     )
                     .await
                 } else {
-                    start_when_due(owned, generation).await
+                    start_when_due(owned, generation, due).await
                 };
                 if let Err(error) = started {
                     tracing::error!(
@@ -1314,7 +1316,7 @@ impl HostInner {
     ) -> Result<Arc<Generation>> {
         enum Next {
             Wait(Waiters),
-            Start(Owned, u64),
+            Start(Owned, u64, AtFailure),
         }
         // Holds a time once the host has shut down.
         let mut shut = self.starts_end.subscribe();
@@ -1370,12 +1372,19 @@ impl HostInner {
                     Some(Life::Stopped { .. }) | None => {
                         let (owned, generation, replaced) =
                             actors.begin_start(self, actor_id)?;
-                        if let Some(Life::Stopped { timer, .. }) =
-                            replaced
-                        {
-                            timer.abort();
-                        }
-                        Next::Start(owned, generation)
+                        // A failure keeps the deadline the actor
+                        // held.
+                        let at_failure = match replaced {
+                            Some(Life::Stopped {
+                                wake_at,
+                                timer,
+                            }) => {
+                                timer.abort();
+                                AtFailure::Retry { due: wake_at }
+                            }
+                            _ => AtFailure::Wait,
+                        };
+                        Next::Start(owned, generation, at_failure)
                     }
                 }
             };
@@ -1391,12 +1400,12 @@ impl HostInner {
                         return Err(failed.to_error());
                     }
                 }
-                Next::Start(owned, generation) => {
+                Next::Start(owned, generation, at_failure) => {
                     return tokio::spawn(start_actor(
                         owned,
                         generation,
                         open.clone(),
-                        AtFailure::Wait,
+                        at_failure,
                     ))
                     .await?;
                 }
@@ -1608,28 +1617,35 @@ async fn wake(
             actors.begin_start(host, actor_id)?;
         (owned, generation)
     };
-    start_when_due(owned, generation).await.map(|_| ())
+    start_when_due(owned, generation, wake_at).await.map(|_| ())
 }
 
 /// Starts, from the file it has, the actor that `owned` holds as
-/// `Starting`, as the generation of id `id`, for the deadline its
-/// last stop left, which has come. If the start fails, a timer starts
-/// the actor again after the host's start retry.
+/// `Starting`, as the generation of id `id`, for the deadline
+/// `wake_at` its last stop left, which has come. If the start fails,
+/// a timer starts the actor again after the host's start retry.
 async fn start_when_due(
     owned: Owned,
     id: u64,
+    wake_at: i64,
 ) -> Result<Arc<Generation>> {
     crate::fault::point("timer-fired");
-    start_actor(owned, id, Open::Existing, AtFailure::Retry).await
+    start_actor(
+        owned,
+        id,
+        Open::Existing,
+        AtFailure::Retry { due: wake_at },
+    )
+    .await
 }
 
 /// Makes the `Starting` state that `owned` holds, of a start that
-/// failed, `Stopped`, with a timer that starts the actor again after
+/// failed, `Stopped`, with a timer that starts the actor again at
+/// `due` if it is still ahead, else after
 /// [`HostOptions::start_retry`]: not for a generation that asked to
 /// be destroyed, nor in a host that has shut down. The actor's file
-/// keeps the deadline that came, or its running mark, for the next
-/// boot.
-fn retry_start(owned: &Owned) {
+/// keeps its deadline, or its running mark, for the next boot.
+fn retry_start(owned: &Owned, due: i64) {
     let host = &owned.host;
     let replaced = {
         let mut actors = host.actors.lock();
@@ -1647,10 +1663,15 @@ fn retry_start(owned: &Owned) {
                 },
             );
         retry.then(|| {
+            let now = now_ms();
             let after =
                 i64::try_from(host.options.start_retry.as_millis())
                     .unwrap_or(i64::MAX);
-            let wake_at = now_ms().saturating_add(after);
+            let wake_at = if due > now {
+                due
+            } else {
+                now.saturating_add(after)
+            };
             actors.lives.insert(
                 owned.actor_id.clone(),
                 Life::Stopped {
@@ -1954,8 +1975,8 @@ async fn start_actor(
             if made && closed && unmake(&host, &actor_id).await {
                 return Err(error);
             }
-            if at_failure == AtFailure::Retry {
-                retry_start(&owned);
+            if let AtFailure::Retry { due } = at_failure {
+                retry_start(&owned, due);
             }
             owned.fail(&error);
             return Err(error);
@@ -2008,13 +2029,15 @@ async fn start_actor(
 }
 
 /// What follows a start that fails, beyond telling its waiters.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy)]
 enum AtFailure {
-    /// The actor waits for its next start, or the next boot.
+    /// The actor has no reason of its own to run: it waits for its
+    /// next start, or the next boot.
     Wait,
-    /// The start was for a deadline that came: a timer starts the
-    /// actor again, as [`retry_start`] says.
-    Retry,
+    /// The actor has a reason of its own to run from `due`: the
+    /// deadline it held, or a run a kill cut off, due at once. A
+    /// timer starts it again, as [`retry_start`] says.
+    Retry { due: i64 },
 }
 
 /// Closes `file`, waiting [`CLOSE_GRACE`] at most, and answers
