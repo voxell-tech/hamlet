@@ -211,8 +211,12 @@ What differs from the window:
   records the failure for the runner, which logs it, rolls the input
   back and drops what it queued; it never panics.
 - **`Core` gathers the realm's live state** as one `SystemParam`, which
-  older handlers take whole. A new system takes only the resources and
-  queries it reads.
+  older handlers take whole. Parts of it are params of their own
+  (`Tooling`, `Remote`, `Uploads`) that a narrower system takes alone. A
+  new system takes only the resources and queries it reads.
+- **Each area's plugin inserts its own resources.** One whose tasks send
+  results back gets the sender from `server::arriving`, and the runner
+  takes in what arrives as inputs.
 
 ## Failing
 
