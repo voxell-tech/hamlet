@@ -11,6 +11,7 @@ mod clock;
 mod commands;
 mod core;
 mod credentials;
+mod deadline;
 mod diagnostic;
 mod dreaming;
 mod fault;

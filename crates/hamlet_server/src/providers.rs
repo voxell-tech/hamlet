@@ -27,6 +27,7 @@ use serde_json::Value;
 use crate::clients::check::reply;
 use crate::core::Core;
 use crate::credentials::write_whole;
+use crate::deadline::AddDeadline;
 use crate::layout::Layout;
 use crate::settings::Settings;
 use crate::society::agents::Effort;
@@ -39,6 +40,22 @@ const RATE: f64 = 1.0;
 const LOCAL_RATE: f64 = 0.1;
 /// The provider of the faux models a faux realm runs.
 pub(crate) const FAUX: &str = "faux";
+
+pub(crate) fn plugin(app: &mut bevy_app::App) {
+    app.add_deadline(expiry_due, expire);
+}
+
+/// The soonest a request to the providers runs out of time.
+fn expiry_due(
+    providers: bevy_ecs::system::Res<Providers>,
+) -> Option<Instant> {
+    providers.next_expiry()
+}
+
+/// Answers the requests to the providers that ran out of time.
+fn expire(mut core: Core) -> Result<()> {
+    core.expire_providers()
+}
 
 #[derive(bevy_ecs::resource::Resource)]
 pub(crate) struct Providers {

@@ -9,6 +9,7 @@ use hamlet_git::{MAIN, Repository};
 use hamlet_store::ids::{Actor, AgentId, DreamId, ScholarId};
 
 use crate::core::Core;
+use crate::deadline::AddDeadline;
 use crate::knowledge::{self, dreaming};
 use crate::society::dreams::{self, DreamKind, Outcome};
 use crate::society::refusal::Refusal;
@@ -32,6 +33,18 @@ const ENDING_WINDOW: i64 = 24 * 3_600_000;
 pub(crate) enum Dreamer {
     Hire { hire: AgentId, ending: bool },
     Scholar(ScholarId),
+}
+
+/// How often the server looks for a dream that is due.
+const DREAM_CHECK: std::time::Duration =
+    std::time::Duration::from_secs(60);
+
+pub(crate) fn plugin(app: &mut bevy_app::App) {
+    app.add_every(DREAM_CHECK, dream_tick);
+}
+
+fn dream_tick(mut core: Core) -> Result<()> {
+    core.dream_tick()
 }
 
 impl Core<'_> {

@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Duration, SystemTime};
 
 use anyhow::{Context, Result};
 use base64::Engine as _;
@@ -16,6 +16,7 @@ use sha2::{Digest, Sha256};
 
 use crate::clients::check::reply;
 use crate::core::Core;
+use crate::deadline::AddDeadline;
 use crate::society::refusal::Refusal;
 
 /// The time a file nothing uses is kept, and the time between the
@@ -117,12 +118,19 @@ impl Files {
     }
 }
 
-/// The files being sent, and when the realm last swept for those
-/// nothing uses.
+/// The files being sent.
 #[derive(bevy_ecs::resource::Resource, Default)]
 pub(crate) struct FileUploads {
     sending: HashMap<String, Sending>,
-    swept: Option<Instant>,
+}
+
+pub(crate) fn plugin(app: &mut bevy_app::App) {
+    app.add_every(SWEEP_EVERY, sweep);
+}
+
+/// Takes away the files nothing uses.
+fn sweep(mut core: Core) -> Result<()> {
+    core.sweep_files()
 }
 
 struct Sending {
@@ -344,14 +352,6 @@ impl Core<'_> {
     /// hour: those no kept input or transcript item names, untouched
     /// for a day, which includes uploads never sent with a line.
     pub(crate) fn sweep_files(&mut self) -> Result<()> {
-        if self
-            .files
-            .swept
-            .is_some_and(|at| at.elapsed() < SWEEP_EVERY)
-        {
-            return Ok(());
-        }
-        self.files.swept = Some(Instant::now());
         let files = Files::new(self.realm.layout().files());
         files.clear_incoming();
         let db = self.realm.store().connection();

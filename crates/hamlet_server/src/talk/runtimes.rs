@@ -17,7 +17,29 @@ use hamlet_store::schema::runtime;
 use tokio::sync::mpsc::UnboundedSender;
 
 use super::process::{Launch, Pi, Process, Received};
+use crate::deadline::AddDeadline;
 use crate::layout::Layout;
+use crate::realm::Realm;
+
+pub(crate) fn plugin(app: &mut bevy_app::App) {
+    app.add_deadline(restart_due, restart);
+}
+
+/// The soonest a failed runtime starts again.
+fn restart_due(
+    runtimes: bevy_ecs::system::Res<Runtimes>,
+) -> Option<Instant> {
+    runtimes.next_start()
+}
+
+/// Starts the failed runtimes whose wait is over.
+fn restart(
+    mut realm: bevy_ecs::system::ResMut<Realm>,
+    mut runtimes: bevy_ecs::system::ResMut<Runtimes>,
+) -> Result<()> {
+    let layout = realm.layout().clone();
+    runtimes.start(realm.store().connection(), &layout)
+}
 
 /// What every runtime must promise.
 const NEEDED: [Capability; 6] = [

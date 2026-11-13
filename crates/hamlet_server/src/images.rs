@@ -4,7 +4,7 @@
 use std::collections::{HashMap, HashSet};
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Duration, SystemTime};
 
 use anyhow::{Context, Result};
 use base64::Engine as _;
@@ -31,6 +31,7 @@ use sha2::{Digest, Sha256};
 use crate::attached::{Attached, Caption, is_place};
 use crate::clients::check::reply;
 use crate::core::Core;
+use crate::deadline::AddDeadline;
 use crate::diagnostic::{Secrets, tell};
 use crate::files::Files;
 use crate::inbox::{INBOX, write_remote};
@@ -553,12 +554,19 @@ fn encode(
 /// The most images one connection sends at once.
 const MOST_UPLOADS: usize = 32;
 
-/// The images being sent, and when the realm last swept for those
-/// nothing uses.
+/// The images being sent.
 #[derive(bevy_ecs::resource::Resource, Default)]
 pub(crate) struct Uploads {
     sending: HashMap<String, Sending>,
-    swept: Option<Instant>,
+}
+
+pub(crate) fn plugin(app: &mut bevy_app::App) {
+    app.add_every(SWEEP_EVERY, sweep);
+}
+
+/// Takes away the images nothing uses.
+fn sweep(mut core: Core) -> Result<()> {
+    core.sweep_images()
 }
 
 struct Sending {
@@ -881,14 +889,6 @@ impl Core<'_> {
     /// names and no agent's folder holds, untouched for a day, which
     /// includes uploads never sent with a line.
     pub(crate) fn sweep_images(&mut self) -> Result<()> {
-        if self
-            .images
-            .swept
-            .is_some_and(|at| at.elapsed() < SWEEP_EVERY)
-        {
-            return Ok(());
-        }
-        self.images.swept = Some(Instant::now());
         let layout = self.realm.layout().clone();
         let images = Images::new(layout.images());
         let held = held_by_agents(&layout);

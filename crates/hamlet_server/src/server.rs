@@ -36,6 +36,7 @@ use crate::core::{
     Moving, ToolFaults, Unpushed, Workspace,
 };
 use crate::credentials::Credentials;
+use crate::deadline::{self, Fire};
 use crate::diagnostic::{self, Secrets, tell};
 use crate::files::FileUploads;
 use crate::images::Uploads;
@@ -68,16 +69,10 @@ pub(crate) enum Input {
     Ran(Ran),
     /// The images of an input were fitted to its model.
     Fitted(Fitted),
-    /// A failed runtime is due to start again.
-    Restart,
-    /// Requests to the providers ran out of time.
-    Expiry,
-    /// The hour of the dreams came round.
-    Dream,
-    /// The images no one holds may go.
-    SweepImages,
-    /// The files no one holds may go.
-    SweepFiles,
+    /// A timer's deadline came.
+    Due,
+    /// A timer that was due runs.
+    Timer(Fire),
 }
 
 /// The channels inputs arrive on.
@@ -91,19 +86,16 @@ pub(crate) struct Inbox {
 }
 
 impl Inbox {
-    /// The next input, or none after `wait`. A failed runtime is due
-    /// at `restart`, and provider requests run out at `expiry`.
+    /// The next input, or none after `wait`. The soonest timer is due
+    /// at `due`.
     async fn next(
         &mut self,
         wait: Duration,
-        restart: Option<Instant>,
-        expiry: Option<Instant>,
+        due: Option<Instant>,
     ) -> Option<Input> {
-        let at = |instant: Option<Instant>| async move {
-            match instant {
-                Some(at) => {
-                    tokio::time::sleep_until(at.into()).await;
-                }
+        let due = async move {
+            match due {
+                Some(at) => tokio::time::sleep_until(at.into()).await,
                 None => std::future::pending().await,
             }
         };
@@ -126,8 +118,7 @@ impl Inbox {
                     None => std::future::pending().await,
                 }
             } => Some(Input::Accepted(stream)),
-            () = at(restart) => Some(Input::Restart),
-            () = at(expiry) => Some(Input::Expiry),
+            () = due => Some(Input::Due),
             () = tokio::time::sleep(wait) => None,
         }
     }
@@ -247,6 +238,11 @@ impl Server {
             .add_plugins((
                 crate::apply::plugin,
                 crate::commands::plugin,
+                runtimes::plugin,
+                crate::providers::plugin,
+                crate::dreaming::plugin,
+                crate::images::plugin,
+                crate::files::plugin,
             ))
             .insert_resource(realm)
             .insert_resource(env)
@@ -319,25 +315,25 @@ impl Server {
         &mut self,
         wait: Duration,
     ) -> Result<bool, Fatal> {
-        let (restart, expiry) = {
-            let core = self.core().map_err(Fatal)?;
-            (core.runtimes.next_start(), core.providers.next_expiry())
-        };
-        match self.inbox.next(wait, restart, expiry).await {
+        let due =
+            deadline::next(self.app.world_mut()).map_err(Fatal)?;
+        match self.inbox.next(wait, due).await {
+            Some(Input::Due) => {
+                let world = self.app.world_mut();
+                let fires = deadline::due(world, Instant::now())
+                    .map_err(Fatal)?;
+                // Each timer is an input of its own: one that fails
+                // fails alone.
+                for fire in fires {
+                    self.run(Input::Timer(fire)).await?;
+                }
+                Ok(true)
+            }
             Some(input) => {
                 self.run(input).await?;
                 Ok(true)
             }
-            None => {
-                for input in [
-                    Input::Dream,
-                    Input::SweepImages,
-                    Input::SweepFiles,
-                ] {
-                    self.run(input).await?;
-                }
-                Ok(false)
-            }
+            None => Ok(false),
         }
     }
 
@@ -400,6 +396,11 @@ impl Server {
         match input {
             Input::Line(received) => self.line(received).await,
             Input::Connection(event) => self.connection(event).await,
+            Input::Timer(fire) => self
+                .app
+                .world_mut()
+                .run_system(fire)
+                .map_err(|error| anyhow::anyhow!("{error}"))?,
             input => {
                 let mut core = self.core()?;
                 Self::dispatch(&mut core, input).await
@@ -557,7 +558,10 @@ impl Server {
     ) -> Result<()> {
         match input {
             // The runner takes these in itself.
-            Input::Line(_) | Input::Connection(_) => Ok(()),
+            Input::Line(_)
+            | Input::Connection(_)
+            | Input::Due
+            | Input::Timer(_) => Ok(()),
             Input::Worked(done) => {
                 core.owe_pushes(&done);
                 core.publish()
@@ -571,15 +575,6 @@ impl Server {
                 core.fitting.fitted(fitted);
                 core.flush(false)
             }
-            Input::Restart => {
-                let layout = core.realm.layout().clone();
-                let db = core.realm.store().connection();
-                core.runtimes.start(db, &layout)
-            }
-            Input::Expiry => core.expire_providers(),
-            Input::Dream => core.dream_tick(),
-            Input::SweepImages => core.sweep_images(),
-            Input::SweepFiles => core.sweep_files(),
         }
     }
 
