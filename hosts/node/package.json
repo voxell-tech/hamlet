@@ -9,6 +9,7 @@
     },
     "scripts": {
         "check": "tsc --noEmit && biome check --error-on-warnings .",
+        "test": "node --test",
         "format": "biome check --write ."
     },
     "dependencies": {
