@@ -15,6 +15,8 @@
 //! demo serve [<n>]              boot, start <n> counters that never
 //!                               sleep, then run one command per line
 //!                               of stdin until it ends or SIGTERM
+//! demo realm ...                the stub realm's commands, in
+//!                               demo/realm.rs
 //! ```
 //!
 //! Each command prints `counter/<key> <count>`, the count the actor
@@ -28,6 +30,8 @@
 mod act;
 #[path = "demo/counter.rs"]
 mod counter;
+#[path = "demo/realm.rs"]
+mod realm;
 
 use std::io::Write;
 use std::path::PathBuf;
@@ -35,6 +39,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use act::act;
 use anyhow::{Context, Result, anyhow, bail};
+use hamlet_actors::workspace;
 use hamlet_host::{Address, Host};
 use tokio::sync::mpsc;
 
@@ -60,7 +65,9 @@ async fn main() -> Result<()> {
     } else {
         counter::Sleep::WhenIdle
     };
-    let host = Host::open(&home, counter::factories(sleep))?;
+    let mut kinds = counter::factories(sleep);
+    kinds.insert(workspace::KIND.to_owned(), workspace::factory());
+    let host = Host::open(&home, kinds)?;
     let result = match command {
         Some("serve") => serve(&host, loaded.unwrap_or(0)).await,
         Some("boot") => {
@@ -91,6 +98,7 @@ async fn run(host: &Host, words: &[String]) -> Result<()> {
     };
     let mut out = std::io::stdout();
     match command {
+        "realm" => return realm::run(host, &words[1..]).await,
         "timers" => {
             let at = address(key)?;
             for timer in host.set_aside_timers(&at).await? {
