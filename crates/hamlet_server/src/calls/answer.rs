@@ -3,15 +3,17 @@
 
 use anyhow::Result;
 use hamlet_protocol::client::{Choice, Permission, Pick};
-use hamlet_store::ids::{Actor, WaitId};
+use hamlet_store::ids::{Actor, ChiefId, WaitId};
 
 use super::{chat_session, held};
 use crate::apply::Wake;
+use crate::change::Change;
 use crate::core::Core;
 use crate::oversight::gate::{self, Asked};
 use crate::oversight::{self, Danger, Ruling, Wait, WaitKind};
 use crate::society::addresses;
 use crate::society::refusal::Refusal;
+use crate::talk::conversations::Conversation;
 use crate::talk::{asking, conversations};
 
 /// The fault in a chief's choice that cannot answer a wait so.
@@ -79,7 +81,7 @@ fn words(
 /// Withdraws the chief's instruction of `task`: its turn in
 /// `conversation` stops, and the transcript says why.
 fn withdraw(
-    cx: &mut crate::change::Change<'_>,
+    cx: &mut Change<'_>,
     conversation: hamlet_store::ids::ConversationId,
     task: hamlet_store::ids::TaskId,
 ) -> Result<()> {
@@ -97,6 +99,114 @@ fn withdraw(
         conversation,
         &format!("The chief withdrew the instruction: {text}"),
     )?;
+    Ok(())
+}
+
+/// A call a wait held, as its ruling finds it.
+struct Ruled {
+    call: held::Holding,
+    conversation: Conversation,
+    /// It reaches the network once let run.
+    net: bool,
+}
+
+/// What `ruling` does to `wait` of its own kind: a newcomer let in,
+/// an objection ruled on and its instruction withdrawn.
+fn rule_wait(
+    cx: &mut Change<'_>,
+    wait: &Wait,
+    ruling: Ruling,
+    text: &str,
+) -> Result<()> {
+    // A newcomer gone or let in since stays as it is.
+    if wait.kind == WaitKind::Newcomer
+        && ruling == Ruling::Welcome
+        && let Some(scholar) = wait.scholar
+    {
+        let _ = crate::society::city::welcome(cx, scholar, text)?;
+    }
+    if wait.kind == WaitKind::Objection {
+        super::objections::rule(cx.db, wait.id, ruling, cx.at)?;
+        if ruling == Ruling::Withdraw
+            && let (Some(task), Some(conversation)) =
+                (wait.task, wait.conversation)
+        {
+            withdraw(cx, conversation, task)?;
+        }
+    }
+    Ok(())
+}
+
+/// The lasting grant an `/always` of the network or of running
+/// unconfined gives the agent that waited.
+fn grant_always(
+    cx: &mut Change<'_>,
+    wait: &Wait,
+    ruling: Ruling,
+    chief: ChiefId,
+) -> Result<()> {
+    if ruling == Ruling::Always
+        && let (
+            Some(danger @ (Danger::Network | Danger::Unconfined)),
+            Some(agent),
+        ) = (wait.danger, wait.agent)
+    {
+        let permission = if danger == Danger::Network {
+            Permission::Network
+        } else {
+            Permission::Unconfined
+        };
+        gate::give(cx.db, agent, &permission, chief, cx.at)?;
+    }
+    Ok(())
+}
+
+/// What `ruling` does to each call `wait` held: its network kept
+/// when it may run, its session trusted after an `/always`, and its
+/// turn told once of a denial.
+fn rule_calls(
+    cx: &mut Change<'_>,
+    wait: &Wait,
+    ruling: Ruling,
+    text: &str,
+    ruled: &[Ruled],
+) -> Result<()> {
+    let mut struck = Vec::new();
+    for Ruled {
+        call,
+        conversation,
+        net,
+    } in ruled
+    {
+        if ruling.is_allowing() {
+            held::set_net(cx.db, &call.runtime, &call.key, *net)?;
+        }
+        if ruling == Ruling::Always
+            && let Some(danger @ (Danger::Edit | Danger::Command)) =
+                wait.danger
+            && let Some(session) = chat_session(conversation)
+        {
+            gate::trust(cx.db, session, danger)?;
+        }
+        if ruling == Ruling::Deny
+            && let Some(danger) = wait.danger
+            && !struck.contains(&conversation.id)
+        {
+            let mut asked = Asked::of(
+                cx.db,
+                conversation.id,
+                call.input.as_deref(),
+            )?;
+            let why = if text.is_empty() {
+                "no reason given"
+            } else {
+                text
+            };
+            asked.refuse(danger, &wait.about, why);
+            asked.keep(cx.db, conversation.id)?;
+            struck.push(conversation.id);
+        }
+    }
     Ok(())
 }
 
@@ -138,28 +248,8 @@ impl Core<'_, '_> {
         let text =
             self.credentials.scrub_text(&text).trim().to_owned();
         let ruling = Ruling::of(choice);
-        let allow_net = self.env.settings.allow_net;
+        let ruled = self.held_calls(&wait, ruling)?;
         let db = self.realm.store().connection();
-        let holding = held::holding(db, wait.id)?;
-        let mut ruled = Vec::new();
-        for call in holding {
-            let conversation =
-                conversations::get(db, call.conversation)?;
-            let net = ruling.is_allowing()
-                && match wait.danger {
-                    Some(Danger::Network) => true,
-                    Some(Danger::Edit | Danger::Command) => {
-                        allow_net
-                            || gate::has_grant(
-                                db,
-                                conversation.agent,
-                                &Permission::Network,
-                            )?
-                    }
-                    _ => false,
-                };
-            ruled.push((call, conversation, net));
-        }
         let by = match wait.agent {
             Some(agent) => addresses::name_of(db, agent)?,
             None => "the realm".into(),
@@ -174,89 +264,16 @@ impl Core<'_, '_> {
             )? {
                 return Ok(false);
             }
-            // A newcomer gone or let in since stays as it is.
-            if wait.kind == WaitKind::Newcomer
-                && ruling == Ruling::Welcome
-                && let Some(scholar) = wait.scholar
-            {
-                let _ = crate::society::city::welcome(
-                    cx, scholar, &text,
-                )?;
-            }
-            if wait.kind == WaitKind::Objection {
-                super::objections::rule(
-                    cx.db, wait.id, ruling, cx.at,
-                )?;
-                if ruling == Ruling::Withdraw
-                    && let (Some(task), Some(conversation)) =
-                        (wait.task, wait.conversation)
-                {
-                    withdraw(cx, conversation, task)?;
-                }
-            }
-            if ruling == Ruling::Always
-                && let (
-                    Some(
-                        danger @ (Danger::Network
-                        | Danger::Unconfined),
-                    ),
-                    Some(agent),
-                ) = (wait.danger, wait.agent)
-            {
-                let permission = if danger == Danger::Network {
-                    Permission::Network
-                } else {
-                    Permission::Unconfined
-                };
-                gate::give(cx.db, agent, &permission, chief, cx.at)?;
-            }
-            let mut struck = Vec::new();
-            for (call, conversation, net) in &ruled {
-                if ruling.is_allowing() {
-                    held::set_net(
-                        cx.db,
-                        &call.runtime,
-                        &call.key,
-                        *net,
-                    )?;
-                }
-                if ruling == Ruling::Always
-                    && let Some(
-                        danger @ (Danger::Edit | Danger::Command),
-                    ) = wait.danger
-                    && let Some(session) = chat_session(conversation)
-                {
-                    gate::trust(cx.db, session, danger)?;
-                }
-                if ruling == Ruling::Deny
-                    && let Some(danger) = wait.danger
-                    && !struck.contains(&conversation.id)
-                {
-                    let mut asked = Asked::of(
-                        cx.db,
-                        conversation.id,
-                        call.input.as_deref(),
-                    )?;
-                    asked.refuse(
-                        danger,
-                        &wait.about,
-                        if text.is_empty() {
-                            "no reason given"
-                        } else {
-                            &text
-                        },
-                    );
-                    asked.keep(cx.db, conversation.id)?;
-                    struck.push(conversation.id);
-                }
-            }
+            rule_wait(cx, &wait, ruling, &text)?;
+            grant_always(cx, &wait, ruling, chief)?;
+            rule_calls(cx, &wait, ruling, &text, &ruled)?;
             Ok(true)
         })?;
         if !settled {
             return Ok(Err(Refusal::NoWait));
         }
-        for (call, _, _) in ruled {
-            self.wake_call(&call.runtime, &call.key);
+        for ruled in ruled {
+            self.wake_call(&ruled.call.runtime, &ruled.call.key);
         }
         if wait.kind == WaitKind::Objection {
             if let (Some(task), Some(conversation)) =
@@ -277,6 +294,41 @@ impl Core<'_, '_> {
             "Answered /{ruling}: {}",
             oversight::line(&wait, &by, 80)
         )))
+    }
+
+    /// The calls `wait` holds, each with its conversation and whether
+    /// it reaches the network once `ruling` lets it run.
+    fn held_calls(
+        &mut self,
+        wait: &Wait,
+        ruling: Ruling,
+    ) -> Result<Vec<Ruled>> {
+        let allow_net = self.env.settings.allow_net;
+        let db = self.realm.store().connection();
+        let mut ruled = Vec::new();
+        for call in held::holding(db, wait.id)? {
+            let conversation =
+                conversations::get(db, call.conversation)?;
+            let net = ruling.is_allowing()
+                && match wait.danger {
+                    Some(Danger::Network) => true,
+                    Some(Danger::Edit | Danger::Command) => {
+                        allow_net
+                            || gate::has_grant(
+                                db,
+                                conversation.agent,
+                                &Permission::Network,
+                            )?
+                    }
+                    _ => false,
+                };
+            ruled.push(Ruled {
+                call,
+                conversation,
+                net,
+            });
+        }
+        Ok(ruled)
     }
 
     /// Tells the runtime of a held call that its wait was answered,
