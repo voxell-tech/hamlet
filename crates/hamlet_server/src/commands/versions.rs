@@ -3,9 +3,11 @@
 //! path purged from all of it.
 
 use anyhow::Result;
+use bevy_ecs::system::In;
 use hamlet_git::{Author, CommitId, MAIN, Repository};
 use hamlet_store::ids::{Actor, HamletId, ScholarId};
 
+use super::{Answer, Line};
 use crate::core::Core;
 use crate::jobs::Fork;
 use crate::knowledge::folder::Folder;
@@ -16,25 +18,21 @@ use crate::society::{authority, city, hires, names};
 /// The most commits `/versions` lists.
 const MOST_SHOWN: usize = 12;
 
-impl Core<'_> {
-    /// Runs the command `name` with `words` when it is one of these.
-    pub(super) fn versions_command(
-        &mut self,
-        here: Option<&HamletId>,
-        name: &str,
-        words: &[&str],
-    ) -> Result<Option<Result<String, Refusal>>> {
-        Ok(Some(match name {
-            "tag" => self.tag(words)?,
-            "versions" => self.list_versions(words)?,
-            "pin" => self.pin(here, words)?,
-            "revert" => self.revert(words)?,
-            "fork" => self.fork(words)?,
-            "purge" => self.purge(words)?,
-            _ => return Ok(None),
-        }))
+/// Runs a command on a scholar's versions.
+pub(super) fn run(In(line): In<Line>, mut core: Core) -> Answer {
+    let words = line.words();
+    match line.name.as_str() {
+        "tag" => core.tag(&words),
+        "versions" => core.list_versions(&words),
+        "pin" => core.pin(line.here.as_ref(), &words),
+        "revert" => core.revert(&words),
+        "fork" => core.fork(&words),
+        // "purge".
+        _ => core.purge(&words),
     }
+}
 
+impl Core<'_> {
     /// The living scholar `text` addresses, which this chief keeps,
     /// with its repository.
     fn chiefs_scholar(
@@ -66,7 +64,7 @@ impl Core<'_> {
         words: &[&str],
     ) -> Result<Result<String, Refusal>> {
         let [scholar, version, note @ ..] = words else {
-            return Ok(Err(super::usage("tag")));
+            return Ok(Err(self.commands.usage("tag")));
         };
         let (scholar, at) = scholar
             .split_once('@')
@@ -114,7 +112,7 @@ impl Core<'_> {
         words: &[&str],
     ) -> Result<Result<String, Refusal>> {
         let [scholar] = words else {
-            return Ok(Err(super::usage("versions")));
+            return Ok(Err(self.commands.usage("versions")));
         };
         let (_, repo) = match self.chiefs_scholar(scholar)? {
             Ok(found) => found,
@@ -161,7 +159,7 @@ impl Core<'_> {
         words: &[&str],
     ) -> Result<Result<String, Refusal>> {
         let [address, version, reason @ ..] = words else {
-            return Ok(Err(super::usage("pin")));
+            return Ok(Err(self.commands.usage("pin")));
         };
         let parsed = match addresses::parse(address) {
             Ok(parsed) => parsed,
@@ -216,7 +214,7 @@ impl Core<'_> {
         words: &[&str],
     ) -> Result<Result<String, Refusal>> {
         let [scholar, which, reason @ ..] = words else {
-            return Ok(Err(super::usage("revert")));
+            return Ok(Err(self.commands.usage("revert")));
         };
         let (id, repo) = match self.chiefs_scholar(scholar)? {
             Ok(found) => found,
@@ -266,7 +264,7 @@ impl Core<'_> {
         words: &[&str],
     ) -> Result<Result<String, Refusal>> {
         let [from, name @ ..] = words else {
-            return Ok(Err(super::usage("fork")));
+            return Ok(Err(self.commands.usage("fork")));
         };
         let (scholar, at) = from
             .split_once('@')
@@ -313,7 +311,7 @@ impl Core<'_> {
         words: &[&str],
     ) -> Result<Result<String, Refusal>> {
         let [scholar, path] = words else {
-            return Ok(Err(super::usage("purge")));
+            return Ok(Err(self.commands.usage("purge")));
         };
         let path = path.trim_matches('/');
         if path.is_empty()

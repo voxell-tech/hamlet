@@ -5,7 +5,11 @@ mod oversight;
 mod shelves;
 mod versions;
 
-use anyhow::Result;
+use anyhow::{Result, anyhow};
+use bevy_app::App;
+use bevy_ecs::resource::Resource;
+use bevy_ecs::system::{In, IntoSystem, SystemId};
+use bevy_ecs::world::World;
 use hamlet_git::Repository;
 use hamlet_protocol::client as protocol;
 use hamlet_store::ids::{Actor, AgentId, HamletId, ScholarId};
@@ -21,7 +25,7 @@ use crate::spend;
 
 /// A command a chief can type: its name, how it is written, and what
 /// it does.
-struct Command {
+pub(crate) struct Command {
     name: &'static str,
     usage: &'static str,
     does: &'static str,
@@ -36,7 +40,8 @@ fn is_scholar(word: &str) -> bool {
     word.starts_with("scholar#")
 }
 
-const TABLE: &[Command] = &[
+/// The commands about the chat itself.
+const SESSIONS: &[Command] = &[
     Command {
         name: "hand",
         usage: "/hand",
@@ -72,6 +77,10 @@ const TABLE: &[Command] = &[
         usage: "/stop [address|all]",
         does: "Stop an agent's work",
     },
+];
+
+/// The commands that oversee the agents' work.
+const OVERSIGHT: &[Command] = &[
     Command {
         name: "to",
         usage: "/to <address> <instruction>",
@@ -137,6 +146,10 @@ const TABLE: &[Command] = &[
         usage: "/revoke <address> <network|unconfined>",
         does: "Take back a lasting grant",
     },
+];
+
+/// The commands about a scholar's versions.
+const VERSIONS: &[Command] = &[
     Command {
         name: "tag",
         usage: "/tag <scholar#id>[@<commit>] <version> [note]",
@@ -167,6 +180,10 @@ const TABLE: &[Command] = &[
         usage: "/purge <scholar#id> <path>",
         does: "Take a file out of a scholar's whole history",
     },
+];
+
+/// The commands about the library's shelves and dreams.
+const SHELVES: &[Command] = &[
     Command {
         name: "unshelve",
         usage: "/unshelve <skill> [reason]",
@@ -178,6 +195,10 @@ const TABLE: &[Command] = &[
         does: "Have a hire bring its learning home, or a scholar \
                tidy",
     },
+];
+
+/// The commands that shape the society: hamlets, hires and scholars.
+const SOCIETY: &[Command] = &[
     Command {
         name: "hamlets",
         usage: "/hamlets",
@@ -366,152 +387,260 @@ const TABLE: &[Command] = &[
     },
 ];
 
-/// The commands a client may offer.
-pub(crate) fn deeds() -> Vec<protocol::Deed> {
-    TABLE
-        .iter()
-        .map(|command| protocol::Deed {
-            description: command.does.into(),
-            name: command.name.into(),
-            // A deed's usage is what follows its name.
-            usage: command
-                .usage
-                .strip_prefix('/')
-                .and_then(|rest| rest.strip_prefix(command.name))
-                .unwrap_or(command.usage)
-                .trim()
-                .into(),
-        })
-        .collect()
+/// A command line said to an agent, as its system's input: the
+/// agent, its hamlet, which it means, the command's name and what
+/// follows it.
+pub(crate) struct Line {
+    pub agent: AgentId,
+    pub here: Option<HamletId>,
+    pub name: String,
+    pub rest: String,
 }
 
-fn usage(name: &str) -> Refusal {
-    let usage = TABLE
-        .iter()
-        .find(|c| c.name == name)
-        .map_or("", |c| c.usage);
-    Refusal::Usage {
-        words: format!("Use {usage}"),
+impl Line {
+    /// What follows the name, word by word.
+    pub fn words(&self) -> Vec<&str> {
+        self.rest.split_whitespace().collect()
     }
 }
 
-impl Core<'_> {
-    /// Runs the command `line`, said to `agent`, whose hamlet it
-    /// means.
-    pub(crate) fn command(
+/// What a command answers: words for the chief, or a refusal.
+pub(crate) type Answer = Result<Result<String, Refusal>>;
+
+/// Every command, in the order a client lists them, with the system
+/// that runs it. A command is added with its usage and the system in
+/// one call, so the list and what runs cannot drift.
+#[derive(Resource, Default)]
+pub(crate) struct Commands(
+    Vec<(&'static Command, SystemId<In<Line>, Answer>)>,
+);
+
+impl Commands {
+    /// The commands a client may offer.
+    pub fn deeds(&self) -> Vec<protocol::Deed> {
+        self.0
+            .iter()
+            .map(|(command, _)| protocol::Deed {
+                description: command.does.into(),
+                name: command.name.into(),
+                // A deed's usage is what follows its name.
+                usage: command
+                    .usage
+                    .strip_prefix('/')
+                    .and_then(|rest| rest.strip_prefix(command.name))
+                    .unwrap_or(command.usage)
+                    .trim()
+                    .into(),
+            })
+            .collect()
+    }
+
+    /// How command `name` is written, as a refusal.
+    pub fn usage(&self, name: &str) -> Refusal {
+        let usage = self
+            .0
+            .iter()
+            .find(|(command, _)| command.name == name)
+            .map_or("", |(command, _)| command.usage);
+        Refusal::Usage {
+            words: format!("Use {usage}"),
+        }
+    }
+
+    fn system(
+        &self,
+        name: &str,
+    ) -> Option<SystemId<In<Line>, Answer>> {
+        self.0
+            .iter()
+            .find(|(command, _)| command.name == name)
+            .map(|(_, system)| *system)
+    }
+}
+
+/// Adds commands to an app.
+pub(crate) trait AddCommands {
+    /// Adds the commands of `table`, each run by `system`.
+    fn add_commands<M>(
         &mut self,
-        agent: AgentId,
-        line: &str,
-    ) -> Result<Result<String, Refusal>> {
-        let line = line.trim().trim_start_matches('/');
-        let (name, rest) = line
-            .split_once(char::is_whitespace)
-            .map_or((line, ""), |(name, rest)| (name, rest.trim()));
-        let words = rest.split_whitespace().collect::<Vec<_>>();
+        table: &'static [Command],
+        system: impl IntoSystem<In<Line>, Answer, M> + 'static,
+    ) -> &mut Self;
+}
+
+impl AddCommands for App {
+    fn add_commands<M>(
+        &mut self,
+        table: &'static [Command],
+        system: impl IntoSystem<In<Line>, Answer, M> + 'static,
+    ) -> &mut Self {
+        let world = self.world_mut();
+        let system = world.register_system(system);
+        let mut commands = world.get_resource_or_init::<Commands>();
+        for command in table {
+            assert!(
+                commands.system(command.name).is_none(),
+                "the command /{} is added twice",
+                command.name
+            );
+            commands.0.push((command, system));
+        }
+        self
+    }
+}
+
+pub(crate) fn plugin(app: &mut App) {
+    app.add_commands(SESSIONS, sessions)
+        .add_commands(OVERSIGHT, oversight::run)
+        .add_commands(VERSIONS, versions::run)
+        .add_commands(SHELVES, shelves::run)
+        .add_commands(SOCIETY, society);
+}
+
+/// A line to an agent that begins with `/`: a command (H24, H26),
+/// run by the system it was added with, answered once the state it
+/// leaves is published.
+pub(crate) fn said(
+    In((client, say)): In<(u64, protocol::Say)>,
+    world: &mut World,
+) -> Result<()> {
+    let line = world
+        .run_system_cached_with(line_of, (client, say.clone()))
+        .map_err(|error| anyhow!("{error}"))??;
+    let answer = match line {
+        None => return Ok(()),
+        Some(Err(refusal)) => Err(refusal),
+        Some(Ok(line)) => {
+            let found =
+                world.resource::<Commands>().system(&line.name);
+            match found {
+                Some(system) => world
+                    .run_system_with(system, line)
+                    .map_err(|error| anyhow!("{error}"))??,
+                None => Err(Refusal::Usage {
+                    words: format!(
+                        "There is no command /{}; the client lists \
+                         the commands.",
+                        line.name
+                    ),
+                }),
+            }
+        }
+    };
+    world
+        .run_system_cached_with(answered, (client, say.id, answer))
+        .map_err(|error| anyhow!("{error}"))?
+}
+
+/// The command `say` holds, said to the agent it names; none when
+/// the agent is not this chief's to reach, which was answered.
+fn line_of(
+    In((client, say)): In<(u64, protocol::Say)>,
+    mut core: Core,
+) -> Result<Option<Result<Line, Refusal>>> {
+    let Some(agent) = core.reached(client, &say.id, say.to.0)? else {
+        return Ok(None);
+    };
+    if !say.images.is_empty() || !say.files.is_empty() {
+        return Ok(Some(Err(Refusal::CommandAttachments)));
+    }
+    let text = say.text.trim().trim_start_matches('/');
+    let (name, rest) = text
+        .split_once(char::is_whitespace)
+        .map_or((text, ""), |(name, rest)| (name, rest.trim()));
+    let db = core.realm.store().connection();
+    let here = hires::find(db, agent)?.map(|hire| hire.hamlet);
+    Ok(Some(Ok(Line {
+        agent,
+        here,
+        name: name.into(),
+        rest: rest.into(),
+    })))
+}
+
+/// Answers request `id` of `client` with what its command answered.
+fn answered(
+    In((client, id, answer)): In<(
+        u64,
+        protocol::RequestId,
+        Result<String, Refusal>,
+    )>,
+    mut core: Core,
+) -> Result<()> {
+    // A command may write what no change publishes, such as a
+    // revoked grant.
+    core.publish()?;
+    core.answer(client, crate::clients::check::reply(&id, answer))
+}
+
+/// The commands about the chat: the same requests a client's buttons
+/// make.
+fn sessions(In(line): In<Line>, mut core: Core) -> Answer {
+    let agent = line.agent;
+    let words = line.words();
+    match line.name.as_str() {
+        "new" => Ok(Ok(core.new_session(agent)?)),
+        "resume" => {
+            let Some(number) =
+                words.first().and_then(|w| w.parse::<i64>().ok())
+            else {
+                let chief = core.realm.chief();
+                let db = core.realm.store().connection();
+                let sessions =
+                    crate::talk::chats::sessions(db, agent, chief)?;
+                let list = sessions
+                    .iter()
+                    .map(|(number, _, _)| {
+                        format!("- session {number}")
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                return Ok(Ok(if list.is_empty() {
+                    "No sessions yet.".into()
+                } else {
+                    list
+                }));
+            };
+            core.resume_session(agent, number)
+        }
+        "retry" => core.retry_turn(agent),
+        "stop" => {
+            let targets = match words.first() {
+                None => vec![agent],
+                Some(&"all") => core.reachable()?,
+                Some(text) => match core.resolve(
+                    text,
+                    line.here.as_ref(),
+                    Reach::Living,
+                )? {
+                    Ok(found) => vec![found],
+                    Err(refusal) => return Ok(Err(refusal)),
+                },
+            };
+            Ok(Ok(core.stop_turns(&targets)?))
+        }
+        // "hand", "hamlet" and "agent".
+        _ => Ok(Ok("Choose who you talk to in your client.".into())),
+    }
+}
+
+fn society(In(line): In<Line>, mut core: Core) -> Answer {
+    core.society_command(&line)
+}
+
+impl Core<'_> {
+    /// Runs the society command `line`.
+    fn society_command(&mut self, line: &Line) -> Answer {
+        let name = line.name.as_str();
+        let rest = line.rest.as_str();
+        let here = line.here.clone();
+        let words = line.words();
         let chief = self.realm.chief();
         let by = Actor::Chief(chief);
-        let here = {
-            let db = self.realm.store().connection();
-            hires::find(db, agent)?.map(|hire| hire.hamlet)
-        };
-        if let Some(answer) =
-            self.oversight_command(agent, here.as_ref(), name, rest)?
-        {
-            return Ok(answer);
-        }
-        if let Some(answer) =
-            self.versions_command(here.as_ref(), name, &words)?
-        {
-            return Ok(answer);
-        }
-        if let Some(answer) =
-            self.shelves_command(here.as_ref(), name, &words)?
-        {
-            self.publish()?;
-            return Ok(answer);
-        }
         let tail = |from: usize| {
             words.get(from..).unwrap_or_default().join(" ")
         };
         match name {
-            "hand" | "hamlet" | "agent" => Ok(Ok("Choose who you \
-                                                  talk to in your \
-                                                  client."
-                .into())),
-            "new" => {
-                let number = self.change(by, |cx, env| {
-                    crate::talk::chats::new_session(
-                        cx, env, agent, chief,
-                    )
-                })?;
-                // Who watches the chat turns to the new session.
-                self.rewatch(agent)?;
-                Ok(Ok(format!("Session {number} began.")))
-            }
-            "resume" => {
-                let Some(number) =
-                    words.first().and_then(|w| w.parse::<i64>().ok())
-                else {
-                    let db = self.realm.store().connection();
-                    let sessions = crate::talk::chats::sessions(
-                        db, agent, chief,
-                    )?;
-                    let list = sessions
-                        .iter()
-                        .map(|(number, _, _)| {
-                            format!("- session {number}")
-                        })
-                        .collect::<Vec<_>>()
-                        .join("\n");
-                    return Ok(Ok(if list.is_empty() {
-                        "No sessions yet.".into()
-                    } else {
-                        list
-                    }));
-                };
-                let done = self.attempt(by, |cx, _| {
-                    crate::talk::chats::resume(
-                        cx, agent, chief, number,
-                    )
-                })?;
-                self.rewatch(agent)?;
-                Ok(done
-                    .map(|()| format!("Back in session {number}.")))
-            }
-            "retry" => {
-                let done = self.attempt(by, |cx, env| {
-                    crate::talk::chats::retry(cx, env, agent, chief)
-                })?;
-                Ok(done.map(|_| "Carrying on.".into()))
-            }
-            "stop" => {
-                let target = match words.first() {
-                    None => agent,
-                    Some(&"all") => {
-                        let mut stopped = 0;
-                        for each in self.every_reached()? {
-                            stopped += self.change(by, |cx, _| {
-                                crate::talk::chats::stop(cx, each)
-                            })?;
-                        }
-                        return Ok(Ok(format!(
-                            "Stopped {stopped} running turns."
-                        )));
-                    }
-                    Some(text) => match self.resolve(
-                        text,
-                        here.as_ref(),
-                        Reach::Living,
-                    )? {
-                        Ok(found) => found,
-                        Err(refusal) => return Ok(Err(refusal)),
-                    },
-                };
-                let stopped = self.change(by, |cx, _| {
-                    crate::talk::chats::stop(cx, target)
-                })?;
-                Ok(Ok(format!("Stopped {stopped} running turns.")))
-            }
             "hamlets" => {
                 let db = self.realm.store().connection();
                 let list = hamlets::all(db)?
@@ -552,7 +681,7 @@ impl Core<'_> {
                     .map_or((rest.as_str(), ""), |(n, p)| (n, p));
                 let shown = shown.trim().to_owned();
                 if shown.is_empty() {
-                    return Ok(Err(usage(name)));
+                    return Ok(Err(self.commands.usage(name)));
                 }
                 let purpose = match purpose.trim() {
                     "" => format!("Mayor of {shown}."),
@@ -582,7 +711,7 @@ impl Core<'_> {
             }
             "name-hamlet" => {
                 let Some(id) = words.first() else {
-                    return Ok(Err(usage(name)));
+                    return Ok(Err(self.commands.usage(name)));
                 };
                 let id = HamletId((*id).to_owned());
                 if let Err(refusal) = self.chief_of(&id)? {
@@ -605,7 +734,7 @@ impl Core<'_> {
                     words.get(1).and_then(|w| w.parse::<f64>().ok()),
                     words.get(2).and_then(|w| w.parse::<f64>().ok()),
                 ) else {
-                    return Ok(Err(usage(name)));
+                    return Ok(Err(self.commands.usage(name)));
                 };
                 let id = HamletId((*id).to_owned());
                 if let Err(refusal) = self.chief_of(&id)? {
@@ -622,7 +751,7 @@ impl Core<'_> {
             }
             "remove-hamlet" | "restore-hamlet" | "erase-hamlet" => {
                 let Some(id) = words.first() else {
-                    return Ok(Err(usage(name)));
+                    return Ok(Err(self.commands.usage(name)));
                 };
                 let id = HamletId((*id).to_owned());
                 if let Err(refusal) = self.chief_of(&id)? {
@@ -665,7 +794,7 @@ impl Core<'_> {
                 let Some(tier) =
                     words.first().and_then(|w| w.parse::<i64>().ok())
                 else {
-                    return Ok(Err(usage(name)));
+                    return Ok(Err(self.commands.usage(name)));
                 };
                 if let Err(refusal) = self.chief_of(&id)? {
                     return Ok(Err(refusal));
@@ -685,7 +814,7 @@ impl Core<'_> {
                     return Ok(Err(self.no_hamlet()));
                 };
                 let Some(text) = words.first() else {
-                    return Ok(Err(usage(name)));
+                    return Ok(Err(self.commands.usage(name)));
                 };
                 if let Err(refusal) = self.chief_of(&id)? {
                     return Ok(Err(refusal));
@@ -709,7 +838,7 @@ impl Core<'_> {
             "hire" => self.hire_command(here.as_ref(), &words),
             "end" | "restore" | "erase" => {
                 let Some(text) = words.first() else {
-                    return Ok(Err(usage(name)));
+                    return Ok(Err(self.commands.usage(name)));
                 };
                 let reach = if name == "end" {
                     Reach::Living
@@ -765,7 +894,7 @@ impl Core<'_> {
                 let (Some(absorbed), Some(&"into"), Some(kept)) =
                     (words.first(), words.get(1), words.get(2))
                 else {
-                    return Ok(Err(usage(name)));
+                    return Ok(Err(self.commands.usage(name)));
                 };
                 let absorbed = match self.resolve(
                     absorbed,
@@ -810,7 +939,7 @@ impl Core<'_> {
                 let (Some(text), Some(model)) =
                     (words.first(), words.get(1))
                 else {
-                    return Ok(Err(usage(name)));
+                    return Ok(Err(self.commands.usage(name)));
                 };
                 let hire = match self.resolve(
                     text,
@@ -839,7 +968,7 @@ impl Core<'_> {
                 let (Some(text), Some(value)) =
                     (words.first(), words.get(1))
                 else {
-                    return Ok(Err(usage(name)));
+                    return Ok(Err(self.commands.usage(name)));
                 };
                 let agent = match self.resolve(
                     text,
@@ -856,7 +985,9 @@ impl Core<'_> {
                     let fast = match *value {
                         "on" => true,
                         "off" => false,
-                        _ => return Ok(Err(usage(name))),
+                        _ => {
+                            return Ok(Err(self.commands.usage(name)));
+                        }
                     };
                     let done = self.attempt(by, |cx, _| {
                         agents::set_fast(cx, agent, fast)
@@ -872,7 +1003,9 @@ impl Core<'_> {
                     "none" => None,
                     level => match Effort::named(level) {
                         Some(effort) => Some(effort),
-                        None => return Ok(Err(usage(name))),
+                        None => {
+                            return Ok(Err(self.commands.usage(name)));
+                        }
                     },
                 };
                 let done = self.attempt(by, |cx, _| {
@@ -890,7 +1023,7 @@ impl Core<'_> {
             }
             "nickname" => {
                 let Some(text) = words.first() else {
-                    return Ok(Err(usage(name)));
+                    return Ok(Err(self.commands.usage(name)));
                 };
                 let agent = match self.resolve(
                     text,
@@ -944,7 +1077,7 @@ impl Core<'_> {
             }
             "tools" => {
                 let Some(text) = words.first() else {
-                    return Ok(Err(usage(name)));
+                    return Ok(Err(self.commands.usage(name)));
                 };
                 let hire = match self.resolve(
                     text,
@@ -990,7 +1123,7 @@ impl Core<'_> {
                 let (Some(text), Some(amount)) =
                     (words.first(), words.get(1))
                 else {
-                    return Ok(Err(usage(name)));
+                    return Ok(Err(self.commands.usage(name)));
                 };
                 let hire = match self.resolve(
                     text,
@@ -1012,7 +1145,9 @@ impl Core<'_> {
                         Ok(dollars) if dollars >= 0.0 => {
                             Some(spend::micros(dollars))
                         }
-                        _ => return Ok(Err(usage(name))),
+                        _ => {
+                            return Ok(Err(self.commands.usage(name)));
+                        }
                     },
                 };
                 let done = self.attempt(by, |cx, _| {
@@ -1032,7 +1167,7 @@ impl Core<'_> {
                 let (Some(a), Some(b)) =
                     (words.first(), words.get(1))
                 else {
-                    return Ok(Err(usage(name)));
+                    return Ok(Err(self.commands.usage(name)));
                 };
                 let a = match self.resolve(
                     a,
@@ -1077,7 +1212,9 @@ impl Core<'_> {
                 }
                 if name == "folder" {
                     let folder = match words.first() {
-                        None => return Ok(Err(usage(name))),
+                        None => {
+                            return Ok(Err(self.commands.usage(name)));
+                        }
                         Some(&"none") => None,
                         Some(_) => Some(rest.to_owned()),
                     };
@@ -1105,7 +1242,9 @@ impl Core<'_> {
                     let mode = match words.first() {
                         Some(&"manual") => Mode::Manual,
                         Some(&"auto") => Mode::Auto,
-                        _ => return Ok(Err(usage(name))),
+                        _ => {
+                            return Ok(Err(self.commands.usage(name)));
+                        }
                     };
                     let done = self.attempt(by, |cx, _| {
                         hamlets::set_mode(cx, &id, mode)
@@ -1170,7 +1309,7 @@ impl Core<'_> {
             }
             "scholar" => {
                 let Some(&"new") = words.first() else {
-                    return Ok(Err(usage(name)));
+                    return Ok(Err(self.commands.usage(name)));
                 };
                 // The name runs to the first colon, the character
                 // follows it.
@@ -1198,7 +1337,7 @@ impl Core<'_> {
             }
             "name-scholar" => {
                 let Some(text) = words.first() else {
-                    return Ok(Err(usage(name)));
+                    return Ok(Err(self.commands.usage(name)));
                 };
                 let scholar = match self.scholar_at(text, false)? {
                     Ok(found) => found,
@@ -1231,7 +1370,7 @@ impl Core<'_> {
             | "erase-scholar" | "move-house" | "welcome"
             | "turn-away" => {
                 let Some(text) = words.first() else {
-                    return Ok(Err(usage(name)));
+                    return Ok(Err(self.commands.usage(name)));
                 };
                 let archived = matches!(
                     name,
@@ -1260,12 +1399,12 @@ impl Core<'_> {
                     let (Some(Some(x)), Some(Some(z)), turn) =
                         (number(1), number(2), number(3))
                     else {
-                        return Ok(Err(usage(name)));
+                        return Ok(Err(self.commands.usage(name)));
                     };
                     let Some(turn) = turn.map_or(Some(None), |t| {
                         t.map(|degrees| Some(degrees.to_radians()))
                     }) else {
-                        return Ok(Err(usage(name)));
+                        return Ok(Err(self.commands.usage(name)));
                     };
                     let done = self.attempt(by, |cx, _| {
                         city::place(cx, scholar, x, z, turn)
@@ -1324,7 +1463,7 @@ impl Core<'_> {
     ) -> Result<Result<String, Refusal>> {
         let chief = self.realm.chief();
         let Some(scholar) = words.first() else {
-            return Ok(Err(usage("hire")));
+            return Ok(Err(self.commands.usage("hire")));
         };
         let mut rest = &words[1..];
         let mut hamlet = here.cloned();
@@ -1559,21 +1698,5 @@ impl Core<'_> {
                     hires."
                 .into(),
         }
-    }
-
-    fn every_reached(&mut self) -> Result<Vec<AgentId>> {
-        use diesel::prelude::*;
-        use hamlet_store::schema::agent;
-        let living = agent::table
-            .filter(agent::ended_at.is_null())
-            .select(agent::id)
-            .load::<AgentId>(self.realm.store().connection())?;
-        let mut out = Vec::new();
-        for each in living {
-            if self.reaches(each)?.is_ok() {
-                out.push(each);
-            }
-        }
-        Ok(out)
     }
 }

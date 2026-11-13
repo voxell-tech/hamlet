@@ -3,34 +3,32 @@
 //! or a scholar dream.
 
 use anyhow::Result;
-use hamlet_store::ids::{Actor, HamletId};
+use bevy_ecs::system::In;
+use hamlet_store::ids::Actor;
 
+use super::{Answer, Line};
 use crate::core::Core;
 use crate::knowledge::library;
 use crate::society::library::{self as shelf, Event, EventKind};
 use crate::society::refusal::Refusal;
 
-impl Core<'_> {
-    /// Runs the command `name` with `words` when it is one of these.
-    pub(super) fn shelves_command(
-        &mut self,
-        here: Option<&HamletId>,
-        name: &str,
-        words: &[&str],
-    ) -> Result<Option<Result<String, Refusal>>> {
-        Ok(Some(match name {
-            "unshelve" => self.unshelve(words)?,
-            "dream" => self.dream_command(here, words)?,
-            _ => return Ok(None),
-        }))
+/// Runs a command on the library's shelves or a dream.
+pub(super) fn run(In(line): In<Line>, mut core: Core) -> Answer {
+    let words = line.words();
+    match line.name.as_str() {
+        "unshelve" => core.unshelve(&words),
+        // "dream".
+        _ => core.dream_command(line.here.as_ref(), &words),
     }
+}
 
+impl Core<'_> {
     fn unshelve(
         &mut self,
         words: &[&str],
     ) -> Result<Result<String, Refusal>> {
         let [skill, reason @ ..] = words else {
-            return Ok(Err(super::usage("unshelve")));
+            return Ok(Err(self.commands.usage("unshelve")));
         };
         let reason = reason.join(" ");
         let chief = self.realm.chief();

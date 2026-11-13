@@ -3,10 +3,8 @@
 //! deeds.
 
 use std::collections::BTreeMap;
-use std::panic::AssertUnwindSafe;
 
 use anyhow::Result;
-use futures::FutureExt;
 use hamlet_protocol::client::{
     self as protocol, ChatRef, ChatRefKind, ClientMessage, RequestId,
     ServerMessage, Transcript,
@@ -14,9 +12,8 @@ use hamlet_protocol::client::{
 use hamlet_store::ids::{Actor, AgentId, ConversationId};
 
 use super::check::{fault, reply};
-use super::connection::Event;
 use super::fold::Fold;
-use super::{Owed, Watch, changes};
+use super::{Owed, changes};
 use crate::core::{Core, Live};
 use crate::society::agents::{self, AgentKind, Effort};
 use crate::society::refusal::Refusal;
@@ -29,50 +26,43 @@ use crate::talk::{chats, items};
 const PAGE: usize = 100;
 
 impl Core<'_> {
-    /// Takes in what a connection did.
-    pub(crate) async fn connection(
-        &mut self,
-        event: Event,
-    ) -> Result<()> {
-        match event {
-            Event::Message(client, text) => {
-                self.message(client, &text).await
-            }
-            Event::Late(client) => {
-                if self
-                    .clients
-                    .list
-                    .get(&client)
-                    .is_some_and(|found| !found.welcomed)
-                {
-                    self.clients.refuse(
-                        client,
-                        "No hello came in time.",
-                        1008,
-                    );
-                }
-                Ok(())
-            }
-            Event::Gone(client) => {
-                self.clients.gone(client);
-                self.providers.disconnect(client);
-                self.images.disconnect(client);
-                self.files.disconnect(client);
-                self.send_providers()
-            }
+    /// `client` sent no hello in time.
+    pub(crate) fn late(&mut self, client: u64) {
+        if self
+            .clients
+            .list
+            .get(&client)
+            .is_some_and(|found| !found.welcomed)
+        {
+            self.clients.refuse(
+                client,
+                "No hello came in time.",
+                1008,
+            );
         }
     }
 
-    async fn message(
+    /// `client` left: what it held goes.
+    pub(crate) fn gone(&mut self, client: u64) -> Result<()> {
+        self.clients.gone(client);
+        self.providers.disconnect(client);
+        self.images.disconnect(client);
+        self.files.disconnect(client);
+        self.send_providers()
+    }
+
+    /// The request `text` of `client`, checked; none when it was
+    /// answered here: a hello, or a message that is not one.
+    pub(crate) fn checked(
         &mut self,
         client: u64,
         text: &str,
-    ) -> Result<()> {
+    ) -> Result<Option<ClientMessage>> {
         let Some(found) = self.clients.list.get(&client) else {
-            return Ok(());
+            return Ok(None);
         };
         if found.refused {
-            return Ok(());
+            return Ok(None);
         }
         let welcomed = found.welcomed;
         let message = match self.clients.check.parse(text) {
@@ -87,7 +77,7 @@ impl Core<'_> {
                         1008,
                     );
                 }
-                return Ok(());
+                return Ok(None);
             }
         };
         match message {
@@ -99,7 +89,7 @@ impl Core<'_> {
                         "That token is not this server's.",
                         4001,
                     );
-                    return Ok(());
+                    return Ok(None);
                 }
                 let ours = protocol::VERSION;
                 if !ours.is_compatible(&hello.v) {
@@ -110,7 +100,7 @@ impl Core<'_> {
                         hello.v
                     );
                     self.clients.refuse(client, &words, 4002);
-                    return Ok(());
+                    return Ok(None);
                 }
                 if let Some(found) =
                     self.clients.list.get_mut(&client)
@@ -119,7 +109,8 @@ impl Core<'_> {
                 }
                 let state = self.compose()?;
                 self.clients.sent = Some(state.clone());
-                self.answer(client, ServerMessage::State(state))
+                self.answer(client, ServerMessage::State(state))?;
+                Ok(None)
             }
             _ if !welcomed => {
                 self.clients.refuse(
@@ -127,43 +118,9 @@ impl Core<'_> {
                     "The first message is a hello.",
                     1008,
                 );
-                Ok(())
+                Ok(None)
             }
-            message => {
-                let id = message.id().cloned();
-                // A handler that panics leaves its transaction rolled
-                // back, so the realm is as before the request.
-                let handled =
-                    AssertUnwindSafe(self.request(client, message))
-                        .catch_unwind()
-                        .await;
-                let (shown, logged) = match handled {
-                    Ok(Ok(())) => return Ok(()),
-                    Ok(Err(error)) => {
-                        (format!("{error}"), format!("{error:#}"))
-                    }
-                    Err(panic) => {
-                        let words =
-                            crate::diagnostic::panicked(&*panic);
-                        (words.clone(), words)
-                    }
-                };
-                hamlet_store::unwind(
-                    self.realm.store().connection(),
-                )?;
-                crate::diagnostic::tell(
-                    crate::diagnostic::Secrets::Of(&self.credentials),
-                    format!("a request failed: {logged}"),
-                );
-                self.answer(
-                    client,
-                    fault(
-                        id.as_ref(),
-                        format!("The server failed: {shown}"),
-                    ),
-                )?;
-                Ok(())
-            }
+            message => Ok(Some(message)),
         }
     }
 
@@ -177,285 +134,138 @@ impl Core<'_> {
         Ok(())
     }
 
-    async fn request(
+    /// A chief's line to an agent, with the images and files it
+    /// carries, kept for the agent; its reply is owed once the agent
+    /// is done with it.
+    pub(crate) async fn say(
         &mut self,
         client: u64,
-        message: ClientMessage,
+        say: protocol::Say,
     ) -> Result<()> {
-        crate::fault::panic_at("request");
         let chief = self.realm.chief();
-        if self.model_request(client, &message)? {
+        let Some(agent) = self.reached(client, &say.id, say.to.0)?
+        else {
             return Ok(());
-        }
-        match message {
-            ClientMessage::Hello(_) => self.answer(
+        };
+        // A line no model can answer is refused, so the agent is not
+        // left working on it for good.
+        if !self.has_model(agent)? {
+            return self.answer(
                 client,
-                fault(None, "This connection said hello already."),
-            ),
-            ClientMessage::Say(say) => {
-                let Some(agent) =
-                    self.reached(client, &say.id, say.to.0)?
-                else {
-                    return Ok(());
-                };
-                let text = say.text.trim();
-                if text.starts_with('/') {
-                    if !say.images.is_empty() || !say.files.is_empty()
-                    {
-                        return self.answer(
-                            client,
-                            reply(
-                                &say.id,
-                                Err(Refusal::CommandAttachments),
-                            ),
-                        );
-                    }
-                    let answer = self.command(agent, text)?;
-                    // A command may write what no change publishes,
-                    // such as a revoked grant.
-                    self.publish()?;
-                    return self
-                        .answer(client, reply(&say.id, answer));
-                }
-                // A line no model can answer is refused, so the
-                // agent is not left working on it for good.
-                if !self.has_model(agent)? {
-                    return self.answer(
-                        client,
-                        reply(&say.id, Err(Refusal::NoModelSetUp)),
-                    );
-                }
-                let attached = match self
-                    .attach(agent, &say.text, &say.images, &say.files)
-                    .await?
-                {
-                    Ok(attached) => attached,
-                    Err(refusal) => {
-                        return self.answer(
-                            client,
-                            reply(&say.id, Err(refusal)),
-                        );
-                    }
-                };
-                let request = say.id.as_str().to_owned();
-                let line = attached.place(&say.text, |words| {
-                    self.credentials.scrub_text(words)
-                });
-                let said =
-                    self.change(Actor::Chief(chief), |cx, env| {
-                        chats::say_with(
-                            cx, env, agent, chief, &request, &line,
-                        )
-                    })?;
-                self.clients.owed.push(Owed {
-                    client,
-                    id: say.id,
-                    conversation: said.conversation,
-                    request: said.request,
-                });
-                Ok(())
-            }
-            ClientMessage::Open(open) => {
-                let found = self.watch_target(&open.chat)?;
-                let conversation = match found {
-                    Ok(conversation) => conversation,
-                    Err(refusal) => {
-                        return self.answer(
-                            client,
-                            reply(&open.id, Err(refusal)),
-                        );
-                    }
-                };
-                let transcript = self.transcript(
-                    conversation,
-                    &open.chat,
-                    open.before.as_deref(),
-                    Some(&open.id),
-                )?;
-                self.clients.watches.retain(|w| {
-                    !(w.client == client && w.chat == open.chat)
-                });
-                self.clients.watches.push(Watch {
-                    client,
-                    chat: open.chat,
-                    conversation,
-                });
-                self.answer(client, transcript)
-            }
-            ClientMessage::Close(close) => {
-                self.clients.watches.retain(|w| {
-                    !(w.client == client && w.chat == close.chat)
-                });
-                Ok(())
-            }
-            ClientMessage::New(new) => {
-                let Some(agent) =
-                    self.reached(client, &new.id, new.to.0)?
-                else {
-                    return Ok(());
-                };
-                let number =
-                    self.change(Actor::Chief(chief), |cx, env| {
-                        chats::new_session(cx, env, agent, chief)
-                    })?;
-                self.rewatch(agent)?;
-                self.answer(
-                    client,
-                    reply(
-                        &new.id,
-                        Ok(format!("Session {number} began.")),
-                    ),
-                )
-            }
-            ClientMessage::Resume(resume) => {
-                let Some(agent) =
-                    self.reached(client, &resume.id, resume.to.0)?
-                else {
-                    return Ok(());
-                };
-                let done =
-                    self.attempt(Actor::Chief(chief), |cx, _| {
-                        chats::resume(cx, agent, chief, resume.number)
-                    })?;
-                self.rewatch(agent)?;
-                let words = done.map(|()| {
-                    format!("Back in session {}.", resume.number)
-                });
-                self.answer(client, reply(&resume.id, words))
-            }
-            ClientMessage::Retry(retry) => {
-                let Some(agent) =
-                    self.reached(client, &retry.id, retry.to.0)?
-                else {
-                    return Ok(());
-                };
-                let done = self
-                    .attempt(Actor::Chief(chief), |cx, env| {
-                        chats::retry(cx, env, agent, chief)
-                    })?;
-                let words = done.map(|_| "Carrying on.".to_owned());
-                self.answer(client, reply(&retry.id, words))
-            }
-            ClientMessage::Stop(stop) => {
-                let targets = match stop.agent {
-                    Some(agent) => {
-                        let Some(agent) =
-                            self.reached(client, &stop.id, agent.0)?
-                        else {
-                            return Ok(());
-                        };
-                        vec![agent]
-                    }
-                    None => self.reachable()?,
-                };
-                let mut stopped = 0;
-                for agent in targets {
-                    stopped += self
-                        .change(Actor::Chief(chief), |cx, _| {
-                            chats::stop(cx, agent)
-                        })?;
-                }
-                let words = if stopped == 0 {
-                    "Nothing was running.".to_owned()
-                } else {
-                    format!("Stopped {stopped} running turns.")
-                };
-                self.answer(client, reply(&stop.id, Ok(words)))
-            }
-            ClientMessage::Edit(edit) => self.edit(client, edit),
-            ClientMessage::Read(read) => {
-                self.read(client, read).await
-            }
-            ClientMessage::Answer(answer) => {
-                let words = self.answer_wait(
-                    &answer.wait,
-                    &answer.choice,
-                    answer.text.as_deref(),
-                    answer.picks.as_deref(),
-                )?;
-                self.answer(client, reply(&answer.id, words))
-            }
-            ClientMessage::PutImage(put) => {
-                let answer = self.put_image(client, put);
-                self.answer(client, answer)
-            }
-            ClientMessage::PutImagePart(part) => {
-                let answer = self.put_image_part(client, part)?;
-                self.answer(client, answer)
-            }
-            ClientMessage::PutFile(put) => {
-                let answer = self.put_file(client, put)?;
-                self.answer(client, answer)
-            }
-            ClientMessage::PutFilePart(part) => {
-                let answer = self.put_file_part(client, part)?;
-                self.answer(client, answer)
-            }
-            ClientMessage::Rewind(rewind) => {
-                if rewind.chat.from.is_some()
-                    || rewind.chat.past.is_some()
-                {
-                    let refusal = Refusal::Usage {
-                        words: "Only the current session of a \
-                                chief's chat goes back."
-                            .into(),
-                    };
-                    return self.answer(
-                        client,
-                        reply(&rewind.id, Err(refusal)),
-                    );
-                }
-                let Some(agent) = self.reached(
-                    client,
-                    &rewind.id,
-                    rewind.chat.with.0,
-                )?
-                else {
-                    return Ok(());
-                };
-                let done =
-                    self.attempt(Actor::Chief(chief), |cx, env| {
-                        chats::rewind(
-                            cx,
-                            env,
-                            agent,
-                            chief,
-                            &rewind.item,
-                        )
-                    })?;
-                self.rewatch(agent)?;
-                let answer = match done {
-                    Ok((text, images, files)) => {
-                        self.keep_images(&images);
-                        self.keep_files(&files);
-                        ServerMessage::Reply(protocol::Reply {
-                            file: None,
-                            files,
-                            image: None,
-                            images,
-                            kind: protocol::ReplyKind::Rewound,
-                            text,
-                            to: rewind.id.clone(),
-                            upload: None,
-                        })
-                    }
-                    Err(refusal) => reply(&rewind.id, Err(refusal)),
-                };
-                self.answer(client, answer)
-            }
-            ClientMessage::MoveLodges(asked) => {
-                self.move_lodges(client, &asked.id).await
-            }
-            // The providers answered these above.
-            ClientMessage::Login(_) | ClientMessage::Check(_) => {
-                Ok(())
-            }
+                reply(&say.id, Err(Refusal::NoModelSetUp)),
+            );
         }
+        let attached = match self
+            .attach(agent, &say.text, &say.images, &say.files)
+            .await?
+        {
+            Ok(attached) => attached,
+            Err(refusal) => {
+                return self
+                    .answer(client, reply(&say.id, Err(refusal)));
+            }
+        };
+        let request = say.id.as_str().to_owned();
+        let line = attached.place(&say.text, |words| {
+            self.credentials.scrub_text(words)
+        });
+        let said = self.change(Actor::Chief(chief), |cx, env| {
+            chats::say_with(cx, env, agent, chief, &request, &line)
+        })?;
+        self.clients.owed.push(Owed {
+            client,
+            id: say.id,
+            conversation: said.conversation,
+            request: said.request,
+        });
+        Ok(())
+    }
+
+    /// Begins a new session of the chief's chat with `agent`; who
+    /// watches it turns to the new one.
+    pub(crate) fn new_session(
+        &mut self,
+        agent: AgentId,
+    ) -> Result<String> {
+        let chief = self.realm.chief();
+        let number = self
+            .change(Actor::Chief(chief), |cx, env| {
+                chats::new_session(cx, env, agent, chief)
+            })?;
+        self.rewatch(agent)?;
+        Ok(format!("Session {number} began."))
+    }
+
+    /// Goes back to session `number` of the chief's chat with
+    /// `agent`.
+    pub(crate) fn resume_session(
+        &mut self,
+        agent: AgentId,
+        number: i64,
+    ) -> Result<Result<String, Refusal>> {
+        let chief = self.realm.chief();
+        let done = self.attempt(Actor::Chief(chief), |cx, _| {
+            chats::resume(cx, agent, chief, number)
+        })?;
+        self.rewatch(agent)?;
+        Ok(done.map(|()| format!("Back in session {number}.")))
+    }
+
+    /// Carries on `agent`'s failed or stopped turn.
+    pub(crate) fn retry_turn(
+        &mut self,
+        agent: AgentId,
+    ) -> Result<Result<String, Refusal>> {
+        let chief = self.realm.chief();
+        let done = self.attempt(Actor::Chief(chief), |cx, env| {
+            chats::retry(cx, env, agent, chief)
+        })?;
+        Ok(done.map(|_| "Carrying on.".to_owned()))
+    }
+
+    /// Stops the running turns of `agents`, in one change.
+    pub(crate) fn stop_turns(
+        &mut self,
+        agents: &[AgentId],
+    ) -> Result<String> {
+        let chief = self.realm.chief();
+        let stopped = self.change(Actor::Chief(chief), |cx, _| {
+            let mut stopped = 0;
+            for agent in agents {
+                stopped += chats::stop(cx, *agent)?;
+            }
+            Ok(stopped)
+        })?;
+        Ok(format!("Stopped {stopped} running turns."))
+    }
+
+    /// Takes the chief's chat with `agent` back to before its line
+    /// `item`, giving back what the line said and carried.
+    pub(crate) fn rewind_chat(
+        &mut self,
+        agent: AgentId,
+        item: &str,
+    ) -> Result<
+        Result<
+            (
+                String,
+                Vec<protocol::AttachedImage>,
+                Vec<protocol::AttachedFile>,
+            ),
+            Refusal,
+        >,
+    > {
+        let chief = self.realm.chief();
+        let done = self.attempt(Actor::Chief(chief), |cx, env| {
+            chats::rewind(cx, env, agent, chief, item)
+        })?;
+        self.rewatch(agent)?;
+        Ok(done)
     }
 
     /// The agent `to` names, or `None` once request `id` was refused
     /// because this server's chief may not reach it.
-    fn reached(
+    pub(crate) fn reached(
         &mut self,
         client: u64,
         id: &RequestId,
@@ -525,7 +335,7 @@ impl Core<'_> {
     }
 
     /// Every living agent this server's chief reaches.
-    fn reachable(&mut self) -> Result<Vec<AgentId>> {
+    pub(crate) fn reachable(&mut self) -> Result<Vec<AgentId>> {
         let living = {
             use diesel::prelude::*;
             use hamlet_store::schema::agent;
@@ -544,7 +354,7 @@ impl Core<'_> {
     }
 
     /// The conversation `chat` names for this server's chief.
-    fn watch_target(
+    pub(crate) fn watch_target(
         &mut self,
         chat: &ChatRef,
     ) -> Result<Result<ConversationId, Refusal>> {
@@ -620,7 +430,7 @@ impl Core<'_> {
     }
 
     /// A page of `conversation`'s transcript ending before `before`.
-    fn transcript(
+    pub(crate) fn transcript(
         &mut self,
         conversation: ConversationId,
         chat: &ChatRef,
@@ -802,7 +612,7 @@ impl Core<'_> {
             confinement,
             activity: &activity,
             providers,
-            deeds: crate::commands::deeds(),
+            deeds: self.commands.deeds(),
             settings_view,
             waits,
             library,

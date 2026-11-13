@@ -2,6 +2,7 @@
 //! and the changes after it, the conversations each watches, and the
 //! replies owed to them.
 
+pub(crate) mod asked;
 pub(crate) mod check;
 pub(crate) mod connection;
 pub(crate) mod documents;

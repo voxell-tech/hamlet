@@ -16,6 +16,7 @@ use bevy_app::App;
 use bevy_ecs::error::{BevyError, ErrorContext};
 use bevy_ecs::system::SystemState;
 use futures::FutureExt;
+use hamlet_protocol::client::ClientMessage;
 use hamlet_protocol::runtime::{
     ErrorCode, ProtocolError, RuntimeMessage, ServerMessage,
 };
@@ -26,8 +27,9 @@ use tokio::sync::{mpsc, watch};
 
 use crate::apply::Apply;
 use crate::calls::{self, Calls, Ran};
-use crate::clients::Clients;
+use crate::clients::check::fault;
 use crate::clients::connection::Event;
+use crate::clients::{Clients, asked};
 use crate::clock;
 use crate::core::{
     Added, Catalogue, Confined, Core, Leftovers, Lives, Lodged,
@@ -242,7 +244,10 @@ impl Server {
         runtimes.start(db, &layout)?;
         let clients = Clients::new(events_to, closing, clock::now())?;
         app.set_error_handler(record)
-            .add_plugins(crate::apply::plugin)
+            .add_plugins((
+                crate::apply::plugin,
+                crate::commands::plugin,
+            ))
             .insert_resource(realm)
             .insert_resource(env)
             .insert_resource(runtimes)
@@ -392,11 +397,77 @@ impl Server {
     }
 
     async fn handle(&mut self, input: Input) -> Result<()> {
-        if let Input::Line(received) = input {
-            return self.line(received).await;
+        match input {
+            Input::Line(received) => self.line(received).await,
+            Input::Connection(event) => self.connection(event).await,
+            input => {
+                let mut core = self.core()?;
+                Self::dispatch(&mut core, input).await
+            }
         }
+    }
+
+    /// Takes in what a connection did. A request is run by the system
+    /// for it; one whose handling fails leaves its transaction rolled
+    /// back, and the client is told.
+    async fn connection(&mut self, event: Event) -> Result<()> {
+        let (client, text) = match event {
+            Event::Late(client) => {
+                self.core()?.late(client);
+                return Ok(());
+            }
+            Event::Gone(client) => return self.core()?.gone(client),
+            Event::Message(client, text) => (client, text),
+        };
+        let Some(message) = self.core()?.checked(client, &text)?
+        else {
+            return Ok(());
+        };
+        let id = message.id().cloned();
+        let asked = AssertUnwindSafe(self.request(client, message))
+            .catch_unwind()
+            .await;
+        let (shown, logged) = match asked {
+            Ok(Ok(())) => return Ok(()),
+            Ok(Err(error)) => {
+                (format!("{error}"), format!("{error:#}"))
+            }
+            Err(panic) => {
+                let words = diagnostic::panicked(&*panic);
+                (words.clone(), words)
+            }
+        };
         let mut core = self.core()?;
-        Self::dispatch(&mut core, input).await
+        hamlet_store::unwind(core.realm.store().connection())?;
+        tell(
+            Secrets::Of(&core.credentials),
+            format!("a request failed: {logged}"),
+        );
+        core.answer(
+            client,
+            fault(id.as_ref(), format!("The server failed: {shown}")),
+        )
+    }
+
+    /// Runs the system for `message` from `client`; a request that
+    /// awaits files or the workspace is carried out here.
+    async fn request(
+        &mut self,
+        client: u64,
+        message: ClientMessage,
+    ) -> Result<()> {
+        match asked::ask(self.app.world_mut(), client, message)? {
+            Some(ClientMessage::Say(say)) => {
+                self.core()?.say(client, say).await
+            }
+            Some(ClientMessage::Read(read)) => {
+                self.core()?.read(client, read).await
+            }
+            Some(ClientMessage::MoveLodges(asked)) => {
+                self.core()?.move_lodges(client, &asked.id).await
+            }
+            Some(_) | None => Ok(()),
+        }
     }
 
     /// Takes in a runtime's line: its message is run by the system
@@ -485,12 +556,12 @@ impl Server {
         input: Input,
     ) -> Result<()> {
         match input {
-            Input::Line(_) => Ok(()),
+            // The runner takes these in itself.
+            Input::Line(_) | Input::Connection(_) => Ok(()),
             Input::Worked(done) => {
                 core.owe_pushes(&done);
                 core.publish()
             }
-            Input::Connection(event) => core.connection(event).await,
             Input::Accepted(stream) => {
                 core.clients.accept(stream);
                 Ok(())

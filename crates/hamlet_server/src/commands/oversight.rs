@@ -3,51 +3,48 @@
 //! a grant back, instructing another agent and asking a reflection.
 
 use anyhow::Result;
+use bevy_ecs::system::In;
 use diesel::prelude::*;
 use hamlet_protocol::client::{Choice, Permission};
 use hamlet_store::ids::{Actor, AgentId, HamletId};
 use hamlet_store::schema::permission_grant;
 
+use super::{Answer, Line};
 use crate::core::Core;
 use crate::oversight::{self, gate};
 use crate::society::addresses::{self, Reach};
 use crate::society::refusal::Refusal;
 use crate::talk::{chats, reflections};
 
-impl Core<'_> {
-    /// Runs the command `name` with `rest` when it is one of these,
-    /// said to `agent` in `here`.
-    pub(super) fn oversight_command(
-        &mut self,
-        agent: AgentId,
-        here: Option<&HamletId>,
-        name: &str,
-        rest: &str,
-    ) -> Result<Option<Result<String, Refusal>>> {
-        let choice = match name {
-            "allow" => Some(Choice::Allow),
-            "always" => Some(Choice::Always),
-            "deny" => Some(Choice::Deny),
-            "go" => Some(Choice::Go),
-            "withdraw" => Some(Choice::Withdraw),
-            "reply" => Some(Choice::Reply),
-            "dismiss" => Some(Choice::Dismiss),
-            _ => None,
-        };
-        if let Some(choice) = choice {
-            return Ok(Some(self.answer_line(agent, &choice, rest)?));
-        }
-        Ok(Some(match name {
-            "queue" => self.queue()?,
-            "grants" => self.grants()?,
-            "revoke" => self.revoke(here, rest)?,
-            "to" => self.instruct(here, rest)?,
-            "reflect" => self.reflect(agent)?,
-            "worker" => self.chiefs_worker(here, rest)?,
-            _ => return Ok(None),
-        }))
+/// Runs an oversight command.
+pub(super) fn run(In(line): In<Line>, mut core: Core) -> Answer {
+    let (agent, here, rest) =
+        (line.agent, line.here.as_ref(), &*line.rest);
+    let choice = match line.name.as_str() {
+        "allow" => Some(Choice::Allow),
+        "always" => Some(Choice::Always),
+        "deny" => Some(Choice::Deny),
+        "go" => Some(Choice::Go),
+        "withdraw" => Some(Choice::Withdraw),
+        "reply" => Some(Choice::Reply),
+        "dismiss" => Some(Choice::Dismiss),
+        _ => None,
+    };
+    if let Some(choice) = choice {
+        return core.answer_line(agent, &choice, rest);
     }
+    match line.name.as_str() {
+        "queue" => core.queue(),
+        "grants" => core.grants(),
+        "revoke" => core.revoke(here, rest),
+        "to" => core.instruct(here, rest),
+        "reflect" => core.reflect(agent),
+        // "worker".
+        _ => core.chiefs_worker(here, rest),
+    }
+}
 
+impl Core<'_> {
     /// Answers a wait with `choice`: the one `#<id>` names, else the
     /// oldest of `agent`'s, else the oldest of all.
     fn answer_line(
@@ -151,10 +148,10 @@ impl Core<'_> {
         let (Some(address), Some(permission)) =
             (words.next(), words.next())
         else {
-            return Ok(Err(super::usage("revoke")));
+            return Ok(Err(self.commands.usage("revoke")));
         };
         let Some(permission) = gate::permission(permission) else {
-            return Ok(Err(super::usage("revoke")));
+            return Ok(Err(self.commands.usage("revoke")));
         };
         let address = match addresses::parse(address) {
             Ok(address) => address,
@@ -210,11 +207,11 @@ impl Core<'_> {
         let Some((address, text)) =
             rest.split_once(char::is_whitespace)
         else {
-            return Ok(Err(super::usage("to")));
+            return Ok(Err(self.commands.usage("to")));
         };
         let text = text.trim();
         if text.is_empty() {
-            return Ok(Err(super::usage("to")));
+            return Ok(Err(self.commands.usage("to")));
         }
         let address = match addresses::parse(address) {
             Ok(address) => address,
@@ -267,7 +264,7 @@ impl Core<'_> {
         brief: &str,
     ) -> Result<Result<String, Refusal>> {
         if brief.is_empty() {
-            return Ok(Err(super::usage("worker")));
+            return Ok(Err(self.commands.usage("worker")));
         }
         let chief = self.realm.chief();
         let db = self.realm.store().connection();

@@ -18,6 +18,7 @@ use crate::clients::Clients;
 use crate::clients::check::reply;
 use crate::clients::fold::Fold;
 use crate::clock;
+use crate::commands::Commands;
 use crate::credentials::Credentials;
 use crate::diagnostic::{Secrets, tell};
 use crate::files::FileUploads;
@@ -132,6 +133,8 @@ pub(crate) struct Core<'w> {
     pub catalogue: ResMut<'w, Catalogue>,
     /// What the input's changes leave for the runner to follow up.
     pub changed: ResMut<'w, Changed>,
+    /// The chief's commands.
+    pub commands: Res<'w, Commands>,
     pub calls: ResMut<'w, Calls>,
     /// The images of inputs being fitted to their models.
     pub fitting: ResMut<'w, Fitting>,
