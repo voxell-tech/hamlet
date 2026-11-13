@@ -6,7 +6,7 @@
 
 mod idle;
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, ExitStatus};
 use std::{env, fmt, fs, io};
 
@@ -36,8 +36,9 @@ Usage: cargo xtask <task> [args]
   harness          the server's tests that start pi, built with \
      fault points
   doc              the documentation, with warnings as errors
-  node             pi's TypeScript, Biome and tests, and the Node \
-     host's TypeScript, Biome and tests
+  node             pi's TypeScript, Biome and tests, the Node host's \
+     TypeScript, Biome and tests, then the native module for Node \
+     (debug) and the Node host's tests that load it
   fmt              format Rust, with the latest nightly, and pi
   workspace-image  build the remote workspace image; args go to \
      docker build
@@ -66,6 +67,9 @@ const PI: &str = "harnesses/pi";
 
 /// The Node host's package, which holds the TypeScript actor layer.
 const NODE_HOST: &str = "hosts/node";
+
+/// The native module for Node, the crate the Node host loads.
+const NATIVE: &str = "crates/hamlet_actor_node";
 
 /// The toolchain that formats Rust: `rustfmt.toml` uses unstable
 /// options, so stable cannot.
@@ -164,6 +168,8 @@ enum Failure {
     Idle(String),
     #[error("cross: cannot write a placeholder libnode.dll: {0}")]
     Libnode(io::Error),
+    #[error("node: cannot put the native module where it loads: {0}")]
+    Native(io::Error),
 }
 
 /// The binaries a chief runs, with the packages that hold them.
@@ -463,7 +469,70 @@ fn node(root: &Path) -> Result<(), Failure> {
     status(&mut npm(PI, &["test"]))?;
     install(root, NODE_HOST)?;
     status(&mut npm(NODE_HOST, &["run", "check"]))?;
-    status(&mut npm(NODE_HOST, &["test"]))
+    status(&mut npm(NODE_HOST, &["test"]))?;
+    let Some(names) = native_names() else {
+        eprintln!(
+            "xtask: node: skips the native module and its tests: \
+             its loader has no name for {}-{}",
+            env::consts::OS,
+            env::consts::ARCH,
+        );
+        return Ok(());
+    };
+    native(root, names)?;
+    status(&mut npm(
+        NODE_HOST,
+        &["run", "test:native", "--if-present"],
+    ))
+}
+
+/// The native module's library as cargo builds it on this system, and
+/// the name the module's `index.js` loads it by, or `None` where the
+/// loader has no name this builds for.
+fn native_names() -> Option<(&'static str, &'static str)> {
+    match (env::consts::OS, env::consts::ARCH) {
+        ("linux", "x86_64") => Some((
+            "libhamlet_actor_node.so",
+            "actor-node.linux-x64-gnu.node",
+        )),
+        ("linux", "aarch64") => Some((
+            "libhamlet_actor_node.so",
+            "actor-node.linux-arm64-gnu.node",
+        )),
+        ("macos", "x86_64") => Some((
+            "libhamlet_actor_node.dylib",
+            "actor-node.darwin-x64.node",
+        )),
+        ("macos", "aarch64") => Some((
+            "libhamlet_actor_node.dylib",
+            "actor-node.darwin-arm64.node",
+        )),
+        ("windows", "x86_64") => Some((
+            "hamlet_actor_node.dll",
+            "actor-node.win32-x64-msvc.node",
+        )),
+        _ => None,
+    }
+}
+
+/// Builds the native module and puts it in its crate under the name
+/// its loader looks for, so the Node host loads this build.
+fn native(
+    root: &Path,
+    (library, loaded): (&str, &str),
+) -> Result<(), Failure> {
+    status(&mut locked("build", &["-p", "hamlet_actor_node"]))?;
+    let target = env::var_os("CARGO_TARGET_DIR")
+        .map_or_else(|| root.join("target"), PathBuf::from);
+    let folder = root.join(NATIVE);
+    // A new file renamed over the old one, never the old one
+    // rewritten: macOS kills a process that loads a signed library
+    // changed in place. The partial name ends in .node, which git
+    // ignores there.
+    let partial = folder.join(format!("partial-{loaded}"));
+    fs::copy(target.join("debug").join(library), &partial)
+        .and_then(|_| fs::rename(&partial, folder.join(loaded)))
+        .map_err(Failure::Native)
 }
 
 /// Builds the remote workspace image, tagged with the short commit
