@@ -1,0 +1,286 @@
+// This file was changed for Hamlet. See NOTICE in this package.
+import { serializeActorKey } from "@/actor/keys";
+import type { ClientConfig } from "@/client/client";
+import type { IssuedToken, IssueTokenOptions } from "@/client/auth";
+import type { MetadataResponse } from "@/common/router";
+import type {
+    ActorsCreateRequest,
+    ActorsCreateResponse,
+    ActorsDeleteResponse,
+    ActorsForkRequest,
+    ActorsForkResponse,
+    ActorsGetOrCreateRequest,
+    ActorsGetOrCreateResponse,
+    ActorsListResponse,
+} from "@/engine-api/actors";
+import type { EngineId } from "@/engine-api/common";
+import { apiCall } from "./api-utils";
+
+/** Engine's JSON response uses snake_case; the public result uses camelCase. */
+export type IssueTokenResponse = {
+    token: IssuedToken["token"];
+    issued_ts: IssuedToken["issuedAt"];
+    expires_ts: IssuedToken["expiresAt"];
+};
+
+export async function issueToken(
+    config: ClientConfig,
+    options: IssueTokenOptions,
+): Promise<IssueTokenResponse> {
+    return apiCall<
+        {
+            namespace: string;
+            subject?: IssueTokenOptions["subject"];
+            duration?: IssueTokenOptions["expiresIn"];
+            grants: IssueTokenOptions["grants"];
+        },
+        IssueTokenResponse
+    >(config, "POST", "/auth/tokens", {
+        namespace: config.namespace,
+        subject: options.subject,
+        duration: options.expiresIn,
+        grants: options.grants,
+    });
+}
+
+// MARK: Get actor
+export async function getActor(
+    config: ClientConfig,
+    _: string,
+    actorId: EngineId,
+): Promise<ActorsListResponse> {
+    return apiCall<never, ActorsListResponse>(
+        config,
+        "GET",
+        `/actors?actor_ids=${encodeURIComponent(actorId)}`,
+    );
+}
+
+// MARK: Get actor by key
+export async function getActorByKey(
+    config: ClientConfig,
+    name: string,
+    key: string[],
+): Promise<ActorsListResponse> {
+    const serializedKey = serializeActorKey(key);
+    return apiCall<never, ActorsListResponse>(
+        config,
+        "GET",
+        `/actors?name=${encodeURIComponent(name)}&key=${encodeURIComponent(serializedKey)}`,
+    );
+}
+
+// MARK: List actors by name
+export async function listActorsByName(
+    config: ClientConfig,
+    name: string,
+): Promise<ActorsListResponse> {
+    return apiCall<never, ActorsListResponse>(
+        config,
+        "GET",
+        `/actors?name=${encodeURIComponent(name)}`,
+    );
+}
+
+// MARK: Get or create actor by id
+export async function getOrCreateActor(
+    config: ClientConfig,
+    request: ActorsGetOrCreateRequest,
+): Promise<ActorsGetOrCreateResponse> {
+    return apiCall<ActorsGetOrCreateRequest, ActorsGetOrCreateResponse>(
+        config,
+        "PUT",
+        `/actors`,
+        request,
+    );
+}
+
+// MARK: Create actor
+export async function createActor(
+    config: ClientConfig,
+    request: ActorsCreateRequest,
+): Promise<ActorsCreateResponse> {
+    return apiCall<ActorsCreateRequest, ActorsCreateResponse>(
+        config,
+        "POST",
+        `/actors`,
+        request,
+    );
+}
+
+// MARK: Fork actor
+export async function forkActor(
+    config: ClientConfig,
+    actorId: EngineId,
+    request: ActorsForkRequest,
+): Promise<ActorsForkResponse> {
+    return apiCall<ActorsForkRequest, ActorsForkResponse>(
+        config,
+        "POST",
+        `/actors/${encodeURIComponent(actorId)}/fork`,
+        request,
+    );
+}
+
+// MARK: Destroy actor
+export async function destroyActor(
+    config: ClientConfig,
+    actorId: EngineId,
+): Promise<ActorsDeleteResponse> {
+    return apiCall<never, ActorsDeleteResponse>(
+        config,
+        "DELETE",
+        `/actors/${encodeURIComponent(actorId)}`,
+    );
+}
+
+// MARK: Get metadata
+export async function getMetadata(
+    config: ClientConfig,
+): Promise<MetadataResponse> {
+    return apiCall<never, MetadataResponse>(config, "GET", `/metadata`);
+}
+
+// MARK: Get datacenters
+export interface DatacentersResponse {
+    datacenters: { name: string }[];
+}
+
+export async function getDatacenters(
+    config: ClientConfig,
+): Promise<DatacentersResponse> {
+    return apiCall<never, DatacentersResponse>(config, "GET", `/datacenters`);
+}
+
+// MARK: Get runner configs
+export interface RunnerConfig {
+    normal?: {
+        drain_on_version_upgrade?: boolean;
+        actor_eviction_period?: number;
+        actor_eviction_rate?: number;
+    };
+    serverless?: {
+        url: string;
+        headers: Record<string, string>;
+        drain_grace_period?: number;
+        max_runners: number;
+        min_runners: number;
+        request_lifespan: number;
+        runners_margin: number;
+        slots_per_runner: number;
+        metadata_poll_interval?: number;
+        drain_on_version_upgrade?: boolean;
+        actor_eviction_period?: number;
+        actor_eviction_rate?: number;
+    };
+    protocol_version?: number;
+}
+
+export interface RunnerConfigDatacenters {
+    datacenters: Record<string, RunnerConfig>;
+}
+
+export interface RunnerConfigsResponse {
+    runner_configs: Record<string, RunnerConfigDatacenters>;
+}
+
+// MARK: Update runner config
+export interface RegistryConfigRequest {
+    datacenters: Record<
+        string,
+        {
+            normal?: {
+                drain_on_version_upgrade?: boolean;
+                actor_eviction_period?: number;
+                actor_eviction_rate?: number;
+            };
+            serverless?: {
+                url: string;
+                headers: Record<string, string>;
+                drain_grace_period?: number;
+                max_runners: number;
+                min_runners: number;
+                request_lifespan: number;
+                runners_margin: number;
+                slots_per_runner: number;
+                metadata_poll_interval?: number;
+                drain_on_version_upgrade?: boolean;
+                actor_eviction_period?: number;
+                actor_eviction_rate?: number;
+            };
+            metadata?: Record<string, unknown>;
+        }
+    >;
+}
+
+export async function updateRunnerConfig(
+    config: ClientConfig,
+    runnerName: string,
+    request: RegistryConfigRequest,
+): Promise<void> {
+    return apiCall<unknown, void>(
+        config,
+        "PUT",
+        `/pools/${encodeURIComponent(runnerName)}`,
+        Object.values(request.datacenters)[0],
+    );
+}
+
+// MARK: KV Get
+interface KvGetResponse {
+    update_ts: string;
+    value: string | null;
+}
+
+export async function kvGet(
+    config: ClientConfig,
+    actorId: EngineId,
+    key: string,
+): Promise<KvGetResponse> {
+    return apiCall<{}, KvGetResponse>(
+        config,
+        "GET",
+        `/actors/${encodeURIComponent(actorId)}/kv/keys/${encodeURIComponent(key)}`,
+    );
+}
+
+/** Pool changes apply when each node next connects. */
+export interface PoolConfig {
+    drain_on_version_upgrade?: boolean;
+    actor_eviction_delay?: number;
+    actor_eviction_period?: number;
+    actor_eviction_rate?: number;
+    metadata?: unknown;
+}
+
+export function upsertPool(
+    config: ClientConfig,
+    name: string,
+    pool: PoolConfig,
+): Promise<{ pool: PoolConfig & { name: string } }> {
+    return apiCall(config, "PUT", `/pools/${encodeURIComponent(name)}`, pool);
+}
+
+export function getPool(
+    config: ClientConfig,
+    name: string,
+): Promise<{ pool: PoolConfig & { name: string } }> {
+    return apiCall(config, "GET", `/pools/${encodeURIComponent(name)}`);
+}
+
+export function listPools(
+    config: ClientConfig,
+    page?: { limit?: number; cursor?: string },
+): Promise<{
+    pools: Array<PoolConfig & { name: string }>;
+    pagination: { cursor: string | null };
+}> {
+    const query = new URLSearchParams();
+    if (page?.limit !== undefined) query.set("limit", String(page.limit));
+    if (page?.cursor !== undefined) query.set("cursor", page.cursor);
+    return apiCall(config, "GET", `/pools?${query}`);
+}
+
+export function deletePool(config: ClientConfig, name: string): Promise<void> {
+    return apiCall(config, "DELETE", `/pools/${encodeURIComponent(name)}`);
+}

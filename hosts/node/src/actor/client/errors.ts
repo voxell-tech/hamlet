@@ -1,0 +1,84 @@
+// This file was changed for Hamlet. See NOTICE in this package.
+import {
+    type ActorSpecifier,
+    INTERNAL_ERROR_CODE,
+    ActorError,
+    type ActorErrorLike,
+    UserError,
+} from "@/actor/errors";
+
+export class ActorClientError extends Error {}
+
+export class ManagerError extends ActorClientError {
+    constructor(error: string, opts?: ErrorOptions) {
+        super(`Manager error: ${error}`, opts);
+    }
+}
+
+export class MalformedResponseMessage extends ActorClientError {
+    constructor(cause?: unknown) {
+        super(`Malformed response message: ${cause}`, { cause });
+    }
+}
+
+export { ActorError, ActorError as ActorError, UserError };
+export type ActorSchedulingError = ActorError;
+export type { ActorSpecifier, ActorErrorLike };
+
+export class HttpRequestError extends ActorClientError {
+    constructor(message: string, opts?: { cause?: unknown }) {
+        super(`HTTP request error: ${message}`, { cause: opts?.cause });
+    }
+}
+
+export class ActorConnDisposed extends ActorClientError {
+    constructor() {
+        super("Attempting to interact with a disposed actor connection.");
+    }
+}
+
+/**
+ * Checks if an error code indicates a scheduling error that may have more details.
+ */
+export function isSchedulingError(group: string, code: string): boolean {
+    return (
+        group === "guard" &&
+        (code === "actor_ready_timeout" || code === "actor_runner_failed")
+    );
+}
+
+/**
+ * Checks if a connection closed because its actor was destroyed. The actor is gone, so
+ * reconnecting through `getOrCreate` would create it again.
+ */
+export function isActorDestroyed(group: string, code: string): boolean {
+    return group === "actor" && code === "destroyed";
+}
+
+export function isActorNotFound(group: string, code: string): boolean {
+    return group === "actor" && code === "not_found";
+}
+
+export function actorSchedulingError(
+    group: string,
+    code: string,
+    actorId: string,
+    details: unknown,
+    rayId?: string,
+): ActorError {
+    return new ActorError(
+        group,
+        code,
+        `Actor failed to start (${actorId}): ${JSON.stringify(details)}`,
+        { metadata: { actorId, details }, rayId },
+    );
+}
+
+export function internalClientError(
+    message: string,
+    opts?: ErrorOptions,
+): ActorError {
+    return new ActorError("hamlet_actor", INTERNAL_ERROR_CODE, message, {
+        cause: opts?.cause,
+    });
+}

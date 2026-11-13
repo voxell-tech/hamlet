@@ -1,0 +1,102 @@
+// This file was changed for Hamlet. See NOTICE in this package.
+import type { ClientConfig } from "@/client/config";
+import {
+    HEADER_HAMLET_ACTOR_ACTOR,
+    HEADER_HAMLET_ACTOR_NAMESPACE,
+    HEADER_HAMLET_ACTOR_RAY_ID,
+    HEADER_HAMLET_ACTOR_SKIP_READY_WAIT,
+    HEADER_HAMLET_ACTOR_TARGET,
+    HEADER_HAMLET_ACTOR_TOKEN,
+    HEADER_TRACEPARENT,
+    HEADER_TRACESTATE,
+} from "@/common/actor-router-consts";
+import { readRequestBody } from "@/common/fetch-like";
+import { type GatewayRequestOptions, shouldSkipReadyWait } from "./driver";
+
+export interface HttpGatewayRequestOptions extends GatewayRequestOptions {
+    directActorId?: string;
+}
+
+export async function sendHttpRequestToGateway(
+    runConfig: ClientConfig,
+    gatewayUrl: string,
+    actorRequest: Request,
+    options: HttpGatewayRequestOptions = {},
+): Promise<Response> {
+    let bodyToSend: ArrayBuffer | null = null;
+    const guardHeaders = buildGuardHeaders(runConfig, actorRequest, options);
+
+    if (actorRequest.method !== "GET" && actorRequest.method !== "HEAD") {
+        if (actorRequest.bodyUsed) {
+            throw new Error("Request body has already been consumed");
+        }
+
+        // Browsers reject ReadableStream request bodies, so send bytes.
+        const bytes = await readRequestBody(actorRequest);
+        if (bytes.byteLength > 0) {
+            bodyToSend = bytes;
+            guardHeaders.delete("transfer-encoding");
+            guardHeaders.delete("content-length");
+        }
+    }
+
+    const fetchImpl = runConfig.fetch ?? fetch;
+    return fetchImpl(gatewayUrl, {
+        method: actorRequest.method,
+        headers: guardHeaders,
+        body: bodyToSend,
+        signal: actorRequest.signal,
+        mode: actorRequest.mode,
+        credentials: actorRequest.credentials,
+        redirect: actorRequest.redirect,
+        referrer: actorRequest.referrer,
+        referrerPolicy: actorRequest.referrerPolicy,
+        integrity: actorRequest.integrity,
+        keepalive: actorRequest.keepalive,
+    });
+}
+
+function buildGuardHeaders(
+    runConfig: ClientConfig,
+    actorRequest: Request,
+    options: HttpGatewayRequestOptions,
+): Headers {
+    const headers = new Headers();
+    // Copy all headers from the original request
+    actorRequest.headers.forEach((value, key) => {
+        headers.set(key, value);
+    });
+    // Add extra headers from config
+    for (const [key, value] of Object.entries(runConfig.headers)) {
+        headers.set(key, value as string);
+    }
+    // Configured trace context is never sent: it would pin every call to one span.
+    for (const name of [HEADER_TRACEPARENT, HEADER_TRACESTATE]) {
+        headers.delete(name);
+        const value = actorRequest.headers.get(name);
+        if (value !== null) {
+            headers.set(name, value);
+        }
+    }
+    const requestRayId = actorRequest.headers.get(HEADER_HAMLET_ACTOR_RAY_ID);
+    if (requestRayId !== null) {
+        headers.set(HEADER_HAMLET_ACTOR_RAY_ID, requestRayId);
+    }
+    // Add guard-specific headers
+    if (runConfig.token) {
+        headers.set(HEADER_HAMLET_ACTOR_TOKEN, runConfig.token);
+    }
+    if (options.directActorId !== undefined) {
+        headers.set(HEADER_HAMLET_ACTOR_TARGET, "actor");
+        headers.set(HEADER_HAMLET_ACTOR_ACTOR, options.directActorId);
+        // An actor ID resolves within its namespace. Without one the gateway falls back
+        // to the token's namespace, or to `default` for the admin token.
+        if (runConfig.namespace) {
+            headers.set(HEADER_HAMLET_ACTOR_NAMESPACE, runConfig.namespace);
+        }
+    }
+    if (shouldSkipReadyWait(options)) {
+        headers.set(HEADER_HAMLET_ACTOR_SKIP_READY_WAIT, "1");
+    }
+    return headers;
+}

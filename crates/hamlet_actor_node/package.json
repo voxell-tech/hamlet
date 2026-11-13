@@ -1,0 +1,52 @@
+{
+    "//": "This file was changed for Hamlet. See NOTICE in this crate.",
+    "name": "@hamlet/actor-node",
+    "version": "3.1.0",
+    "description": "Native N-API addon for the actor runtime, providing an envoy client and SQLite access",
+    "license": "Apache-2.0",
+    "main": "index.js",
+    "types": "index.d.ts",
+    "exports": {
+        ".": {
+            "types": "./index.d.ts",
+            "default": "./index.js"
+        }
+    },
+    "engines": {
+        "node": ">= 20.0.0"
+    },
+    "napi": {
+        "name": "actor-node",
+        "triples": {
+            "defaults": false,
+            "additional": [
+                "x86_64-unknown-linux-gnu",
+                "aarch64-unknown-linux-gnu",
+                "x86_64-unknown-linux-musl",
+                "aarch64-unknown-linux-musl",
+                "x86_64-apple-darwin",
+                "aarch64-apple-darwin",
+                "x86_64-pc-windows-msvc"
+            ]
+        }
+    },
+    "files": [
+        "index.js",
+        "index.d.ts",
+        "package.json",
+        "scripts/build.mjs"
+    ],
+    "scripts": {
+        "build": "node scripts/build.mjs",
+        "build:release": "node scripts/build.mjs --release",
+        "build:force": "node scripts/build.mjs --force",
+        "build:force:release": "node scripts/build.mjs --force --release",
+        "build:embed": "node scripts/build.mjs"
+    },
+    "dependencies": {
+        "@hamlet/engine-envoy-protocol": "workspace:*"
+    },
+    "devDependencies": {
+        "@napi-rs/cli": "^2.18.4"
+    }
+}

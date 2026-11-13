@@ -5,6 +5,8 @@ members = ["crates/*"]
 exclude = [
     "vendor",
     "xtask",
+    # Ported crates, kept out until each builds in the workspace.
+    "crates/hamlet_actor_node",
 ]
 # The root holds no package, so `cargo build`, `cargo test` and
 # `cargo clippy` there cover every crate and the checks in AGENTS.md
