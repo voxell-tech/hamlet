@@ -9,6 +9,7 @@ use std::time::Duration;
 
 use anyhow::Result;
 use bevy_ecs::resource::Resource;
+use diesel::connection::SimpleConnection;
 use hamlet_store::Store;
 use tokio::sync::mpsc::UnboundedSender;
 
@@ -26,8 +27,15 @@ pub(crate) struct Runner {
     thread: Option<JoinHandle<()>>,
 }
 
-/// Held while jobs run, so that the loop and the runner never write
-/// the realm's repositories and lodges at once.
+/// The longest the runner waits for the database while it holds
+/// [`Writing`]. The loop may hold the database's write lock while it
+/// waits for `Writing`, so the runner gives up soon instead, letting
+/// `Writing` go, and its job runs again later.
+const BUSY: Duration = Duration::from_millis(250);
+
+/// Held while a job runs, so that the loop and the runner never write
+/// the realm's repositories and lodges at once. The runner holds it
+/// for one job at a time.
 #[derive(Resource, Clone, Default)]
 pub(crate) struct Writing(Arc<Mutex<()>>);
 
@@ -39,18 +47,18 @@ impl Writing {
     }
 }
 
-/// Runs every job due now, holding `writing`. Returns the jobs done.
+/// Runs every job due now, each holding `writing`. Returns the jobs
+/// done.
 pub(crate) fn run_due(
     db: &mut hamlet_store::Db,
     layout: &Layout,
     writing: &Writing,
 ) -> Result<Vec<Job>> {
-    let _held = writing.hold();
     let mut done = Vec::new();
     // A job may keep jobs of its own, which run in the next pass.
     for _ in 0..4 {
         let now = clock::now();
-        let ran = super::run::due(db, layout, now)?;
+        let ran = super::run::due(db, layout, writing, now)?;
         if ran.is_empty() {
             break;
         }
@@ -68,7 +76,7 @@ impl Runner {
         worked: UnboundedSender<Vec<Job>>,
         writing: Writing,
     ) -> Result<Self> {
-        let mut store = Store::open(&layout.database())?;
+        let mut store = open(layout)?;
         let layout = layout.clone();
         let (wake, woken) = mpsc::channel::<()>();
         let thread = thread::Builder::new()
@@ -101,7 +109,7 @@ impl Runner {
                         if hamlet_store::unwind(store.connection())
                             .is_err()
                         {
-                            match Store::open(&layout.database()) {
+                            match open(&layout) {
                                 Ok(opened) => store = opened,
                                 Err(error) => tell(
                                     Secrets::Fixed,
@@ -142,6 +150,17 @@ impl Runner {
             let _ = wake.send(());
         }
     }
+}
+
+/// The runner's own connection to the realm's database, which waits
+/// at most [`BUSY`] for it.
+fn open(layout: &Layout) -> Result<Store> {
+    let mut store = Store::open(&layout.database())?;
+    store.connection().batch_execute(&format!(
+        "PRAGMA busy_timeout = {};",
+        BUSY.as_millis()
+    ))?;
+    Ok(store)
 }
 
 impl Drop for Runner {

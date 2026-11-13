@@ -7,6 +7,7 @@ use hamlet_store::Db;
 use hamlet_store::ids::{Actor, AgentId, OfferId, ScholarId};
 
 use super::folder::{Folder, remove_folder};
+use super::runner::Writing;
 use super::{CHARACTER, branch, lodging, outside_git};
 use crate::jobs::{Fork, Job};
 use crate::layout::Layout;
@@ -15,17 +16,20 @@ use crate::society::{city, hires, library as shelf};
 /// The longest a failed job waits before it runs again.
 const MOST_WAIT: i64 = 300_000;
 
-/// Runs every job due at `now`, once each, returning those done. A
-/// job that fails, panics or cannot be read runs again later,
-/// waiting longer each time, and the jobs after it still run.
+/// Runs every job due at `now`, once each and each holding `writing`,
+/// returning those done. A job that fails, panics or cannot be read
+/// runs again later, waiting longer each time, and the jobs after it
+/// still run.
 pub(crate) fn due(
     db: &mut Db,
     layout: &Layout,
+    writing: &Writing,
     now: i64,
 ) -> Result<Vec<Job>> {
     let jobs = hamlet_store::job::due(db, now)?;
     let mut done = Vec::new();
     for kept in jobs {
+        let _held = writing.hold();
         let ran = serde_json::from_str::<Job>(&kept.payload)
             .with_context(|| format!("reading job {}", kept.id))
             .and_then(|job| {

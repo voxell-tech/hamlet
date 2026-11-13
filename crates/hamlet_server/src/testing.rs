@@ -52,7 +52,9 @@ impl Realm {
     pub fn work(&mut self) {
         let layout = self.layout();
         let at = self.at;
-        crate::knowledge::run::due(self.db(), &layout, at).unwrap();
+        let writing = crate::knowledge::runner::Writing::default();
+        crate::knowledge::run::due(self.db(), &layout, &writing, at)
+            .unwrap();
         let left =
             hamlet_store::job::due(self.db(), i64::MAX).unwrap();
         assert!(left.is_empty(), "jobs failed: {left:?}");
