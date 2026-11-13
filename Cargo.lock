@@ -4703,12 +4703,12 @@ dependencies = [
  "hamlet_actor",
  "hamlet_actor_core",
  "hamlet_host",
+ "hamlet_messages",
  "hamlet_os",
  "hamlet_sandbox",
  "hamlet_testing",
  "rusqlite",
  "serde",
- "thiserror 2.0.21",
  "tokio",
 ]
 
@@ -4842,6 +4842,7 @@ dependencies = [
  "hamlet_actor_error",
  "hamlet_actors",
  "hamlet_host",
+ "hamlet_messages",
  "hamlet_sandbox",
  "hamlet_sqlite",
  "hamlet_testing",
@@ -4860,6 +4861,17 @@ dependencies = [
  "anyhow",
  "rand 0.8.8",
  "rusqlite",
+]
+
+[[package]]
+name = "hamlet_messages"
+version = "0.1.0"
+dependencies = [
+ "ciborium",
+ "hamlet_actor",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
