@@ -1040,6 +1040,7 @@ fn bump_generation(
         [],
         |row| row.get(0),
     )?;
+    tx.execute_batch(crate::send::SCHEMA)?;
     tx.commit()?;
     Ok((generation, first))
 }

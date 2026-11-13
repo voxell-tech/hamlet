@@ -7,6 +7,7 @@ mod directory;
 pub mod fault;
 mod local;
 mod plain_sqlite;
+pub mod send;
 
 pub use cause::Cause;
 pub use directory::Address;
