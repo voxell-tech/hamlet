@@ -535,7 +535,7 @@ impl Core<'_, '_> {
 
     /// Sends every welcomed client what changed since the state it
     /// was sent last.
-    pub(crate) fn publish(&mut self) -> Result<()> {
+    pub(crate) fn send_state(&mut self) -> Result<()> {
         if !self.connections.iter().any(|c| c.welcomed) {
             self.clients.sent = None;
             return Ok(());

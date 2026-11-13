@@ -26,7 +26,7 @@ use hamlet_store::ids::Actor;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{mpsc, watch};
 
-use crate::apply::Apply;
+use crate::apply::{Apply, Changed, discard};
 use crate::calls::looks::Looks;
 use crate::calls::{self, Calls, Ran, Running};
 use crate::clients::check::fault;
@@ -347,36 +347,44 @@ impl Server {
         }
     }
 
-    /// Runs `input`, then what follows it. One that fails or panics
-    /// leaves its transaction rolled back and is logged; the server
-    /// goes on unless the realm cannot be served. Nothing here
-    /// awaits: what awaits runs on a task, whose result is an input.
+    /// Runs `input` in one transaction, keeps it, then runs what
+    /// follows it. One that fails or panics is rolled back whole,
+    /// nothing it queued goes out, and it is logged; the server goes
+    /// on unless the realm cannot be served. Nothing here awaits:
+    /// what awaits runs on a task, whose result is an input.
     pub fn run(&mut self, input: Input) -> Result<(), Fatal> {
-        let ran =
-            catch_unwind(AssertUnwindSafe(|| self.handle(input)));
-        // What the input spawned and despawned takes effect now.
-        self.core.apply(self.app.world_mut());
-        let mut failures = recorded();
-        match ran {
-            Ok(Ok(())) => {}
+        let ran = catch_unwind(AssertUnwindSafe(|| {
+            hamlet_store::begin(
+                self.core()?.realm.store().connection(),
+            )?;
+            self.handle(input)?;
+            // What the input spawned and despawned takes effect in
+            // its transaction, with what that sets off.
+            self.core.apply(self.app.world_mut());
+            hamlet_store::commit(
+                self.core()?.realm.store().connection(),
+            )
+        }));
+        let failure = match ran {
+            Ok(Ok(())) => None,
             Ok(Err(error)) if is_fatal(&error) => {
                 return Err(Fatal(error));
             }
-            Ok(Err(error)) => failures.push(format!("{error:#}")),
-            Err(panic) => {
-                failures.push(diagnostic::panicked(&*panic));
-            }
-        }
-        if !failures.is_empty() {
+            Ok(Err(error)) => Some(format!("{error:#}")),
+            Err(panic) => Some(diagnostic::panicked(&*panic)),
+        };
+        if failure.is_some() {
+            self.core.apply(self.app.world_mut());
             // A connection that cannot roll back what a panic left
             // open cannot be trusted with the next change.
-            let mut core = self.core().map_err(Fatal)?;
-            hamlet_store::unwind(core.realm.store().connection())
+            self.unwind()
                 .context("rolling back a failed input")
                 .map_err(Fatal)?;
+        } else if self.app.world().resource::<Changed>().carried {
+            crate::fault::point("carried");
         }
-        // What the input kept is followed up whether or not it went
-        // on to fail.
+        let mut failures = recorded();
+        failures.extend(failure);
         failures.extend(self.apply());
         let core = self.core().map_err(Fatal)?;
         for failure in failures {
@@ -385,6 +393,15 @@ impl Server {
                 format!("an input failed: {failure}"),
             );
         }
+        Ok(())
+    }
+
+    /// Rolls back the input that failed, and drops what it queued.
+    fn unwind(&mut self) -> Result<()> {
+        hamlet_store::unwind(
+            self.core()?.realm.store().connection(),
+        )?;
+        discard(self.app.world_mut());
         Ok(())
     }
 
@@ -504,8 +521,8 @@ impl Server {
                 (words.clone(), words)
             }
         };
+        self.unwind()?;
         let mut core = self.core()?;
-        hamlet_store::unwind(core.realm.store().connection())?;
         tell(
             Secrets::Of(&core.credentials),
             format!("a request failed: {logged}"),
@@ -554,9 +571,11 @@ impl Server {
             Ok(Err(error)) => Some(format!("{error:#}")),
             Err(panic) => Some(diagnostic::panicked(&*panic)),
         };
+        if failure.is_some() {
+            self.unwind()?;
+        }
         let mut core = self.core()?;
         if let Some(failure) = failure {
-            hamlet_store::unwind(core.realm.store().connection())?;
             tell(
                 Secrets::Of(&core.credentials),
                 format!("a runtime's line failed: {failure}"),

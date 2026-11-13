@@ -1,7 +1,8 @@
 //! The realm's live state as one view of the world: the resources
-//! the handlers of the server's inputs reach. Each change is made in
-//! one transaction, and wakes what it needs after: the jobs runner,
-//! the runtimes and the clients.
+//! the handlers of the server's inputs reach. Every change of an
+//! input is made in its one transaction, and what it needs woken
+//! after, the jobs, the runtimes and the clients, is left for
+//! [`crate::apply::Apply`] once it is kept.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
@@ -9,15 +10,15 @@ use anyhow::Result;
 use bevy_ecs::entity::Entity;
 use bevy_ecs::message::MessageWriter;
 use bevy_ecs::system::{Commands, Query, Res, ResMut, SystemParam};
+use diesel::Connection;
 use hamlet_protocol::client as protocol;
 use hamlet_protocol::runtime::{self, ServerMessage, ToolSpec};
 use hamlet_store::ids::{Actor, AgentId, ConversationId};
 
-use crate::apply::{Changed, Wake};
+use crate::apply::{Changed, InputEnded, Wake};
 use crate::calls::looks::Looks;
 use crate::calls::{Calls, Runs};
 use crate::change::{Change, Done, Touched};
-use crate::clients::check::reply;
 use crate::clients::connection::UploadOf;
 use crate::clients::fold::Fold;
 use crate::clients::{Clients, Connections};
@@ -33,7 +34,6 @@ use crate::providers::Providers;
 use crate::realm::Realm;
 use crate::society::refusal::Refusal;
 use crate::talk::activity::Activity;
-use crate::talk::follow::{Followed, follow};
 use crate::talk::leases::Authority;
 use crate::talk::runtimes::Runtimes;
 use crate::talk::sync::Fitting;
@@ -142,6 +142,8 @@ pub(crate) struct Core<'w, 's> {
     pub changed: ResMut<'w, Changed>,
     /// The held calls to wake once the input's changes are sent.
     pub wakes: MessageWriter<'w, Wake>,
+    /// The runtimes' inputs that ended, followed once kept.
+    pub ended: MessageWriter<'w, InputEnded>,
     /// The chief's commands.
     pub deeds: Res<'w, Deeds>,
     /// What the input spawns and despawns, applied after it.
@@ -190,8 +192,9 @@ pub(crate) struct Live {
 }
 
 impl Core<'_, '_> {
-    /// Makes a change by `actor` in one transaction, then wakes what
-    /// it needs.
+    /// Makes a change by `actor` in the input's transaction, kept
+    /// with the rest of the input at its end. A change that fails
+    /// leaves nothing of it.
     pub fn change<T>(
         &mut self,
         actor: Actor,
@@ -199,12 +202,14 @@ impl Core<'_, '_> {
     ) -> Result<T> {
         let at = clock::now();
         let env = self.env.clone();
-        let mut tx = self.realm.store().immediate()?;
-        let mut cx = Change::new(&mut tx, at, actor);
-        let made = make(&mut cx, &env)?;
-        let touched = std::mem::take(&mut cx.touched);
-        tx.commit()?;
-        self.after(touched)?;
+        let db = self.realm.store().connection();
+        hamlet_store::begin(db)?;
+        let (made, touched) = db.transaction(|db| {
+            let mut cx = Change::new(db, at, actor);
+            let made = make(&mut cx, &env)?;
+            anyhow::Ok((made, std::mem::take(&mut cx.touched)))
+        })?;
+        self.after(&touched);
         Ok(made)
     }
 
@@ -217,38 +222,46 @@ impl Core<'_, '_> {
     ) -> Result<Result<T, Refusal>> {
         let at = clock::now();
         let env = self.env.clone();
-        let mut tx = self.realm.store().immediate()?;
+        let db = self.realm.store().connection();
+        hamlet_store::begin(db)?;
         let (made, touched) =
-            crate::change::run(&mut tx, at, actor, |cx| {
-                make(cx, &env)
-            })?;
-        tx.commit()?;
-        self.after(touched)?;
+            crate::change::run(db, at, actor, |cx| make(cx, &env))?;
+        self.after(&touched);
         Ok(made)
     }
 
-    fn after(&mut self, touched: Touched) -> Result<()> {
-        if touched.jobs {
-            crate::fault::point("jobs");
-            // The change's effects come before anything that reads
-            // them; one that fails is run again by the runner.
-            let layout = self.realm.layout().clone();
-            let db = self.realm.store().connection();
-            match run_due(db, &layout, &self.writing) {
-                Ok(done) => self.owe_pushes(&done),
-                Err(error) => tell(
-                    Secrets::Fixed,
-                    format!("running jobs: {error:#}"),
-                ),
-            }
-            self.runner.wake();
-        }
-        // What follows in memory, the runtimes and the clients is the
-        // runner's to do once the input is handled.
+    /// Leaves what a change touched for [`crate::apply::Apply`] to
+    /// follow up once the input is kept.
+    fn after(&mut self, touched: &Touched) {
         self.changed.committed = true;
+        self.changed.jobs |= touched.jobs;
         self.changed.reshaped |=
             !touched.agents.is_empty() || !touched.hamlets.is_empty();
-        Ok(())
+    }
+
+    /// Owes the clients the realm's state, sent once the input is
+    /// kept: for what changed outside a change, such as a setting.
+    pub(crate) fn publish(&mut self) {
+        self.changed.republish = true;
+    }
+
+    /// Runs the jobs the kept changes left, and wakes the runner for
+    /// what they leave in turn. Their effects come before anything
+    /// that reads them; one that fails is run again by the runner.
+    pub(crate) fn run_jobs(&mut self) {
+        crate::fault::point("jobs");
+        let layout = self.realm.layout().clone();
+        let db = self.realm.store().connection();
+        match run_due(db, &layout, &self.writing) {
+            Ok(done) => self.owe_pushes(&done),
+            Err(error) => {
+                tell(
+                    Secrets::Fixed,
+                    format!("running jobs: {error:#}"),
+                );
+            }
+        }
+        self.runner.wake();
     }
 
     /// Narrows the tools of every living agent's conversations to its
@@ -280,13 +293,6 @@ impl Core<'_, '_> {
             section.text = self.credentials.scrub_text(&section.text);
         }
         Ok(sections)
-    }
-
-    /// Wakes the calls a follow says waited, once its change is kept.
-    fn woken(&mut self, followed: Followed) {
-        for (runtime, key) in followed.wake {
-            self.wake_call(&runtime, &key);
-        }
     }
 
     /// How the agents' commands are confined, as a client is told.
@@ -363,54 +369,17 @@ impl Core<'_, '_> {
         )
     }
 
-    /// Follows the end of input `request` of `conversation`, wakes
-    /// what its follow freed and answers the replies owed for it.
+    /// Input `request` of `conversation` ended: once what said so is
+    /// kept, it is followed.
     pub(crate) fn input_ended(
         &mut self,
         conversation: ConversationId,
         request: &str,
-    ) -> Result<()> {
-        crate::fault::point("followed");
-        let followed = self.change(Actor::Realm, |cx, env| {
-            follow(cx, env, conversation, request)
-        })?;
-        self.woken(followed);
-        self.settle_owed(conversation, request)
-    }
-
-    /// Answers the replies owed for input `request` of
-    /// `conversation`, which ended.
-    fn settle_owed(
-        &mut self,
-        conversation: ConversationId,
-        request: &str,
-    ) -> Result<()> {
-        let owed = self
-            .clients
-            .owed
-            .iter()
-            .filter(|o| {
-                o.conversation == conversation && o.request == request
-            })
-            .cloned()
-            .collect::<Vec<_>>();
-        self.clients.owed.retain(|o| {
-            !(o.conversation == conversation && o.request == request)
+    ) {
+        self.ended.write(InputEnded {
+            conversation,
+            request: request.to_owned(),
         });
-        for owed in owed {
-            let message =
-                reply(&owed.id, Ok::<_, Refusal>(String::new()));
-            self.clients.send(owed.client, message);
-        }
-        Ok(())
-    }
-
-    /// Sends every ready runtime what it is owed.
-    pub(crate) fn flush(&mut self, again: bool) -> Result<()> {
-        for index in 0..self.runtimes.list.len() {
-            self.flush_one(index, again)?;
-        }
-        Ok(())
     }
 
     /// Sends runtime `index` what it is owed.

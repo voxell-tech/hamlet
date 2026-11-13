@@ -568,7 +568,7 @@ fn answered(
 ) -> Result<()> {
     // A command may write what no change publishes, such as a
     // revoked grant.
-    core.publish()?;
+    core.publish();
     core.answer(client, crate::clients::check::reply(&id, answer))
 }
 
@@ -1271,7 +1271,7 @@ impl Core<'_, '_> {
                 let at = crate::clock::now();
                 let db = self.realm.store().connection();
                 spend::reset(db, here.as_ref(), chief, at)?;
-                self.publish()?;
+                self.publish();
                 Ok(Ok("The budget's period starts again from now."
                     .into()))
             }

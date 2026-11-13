@@ -435,7 +435,7 @@ impl Core<'_, '_> {
                     client,
                     reply(id, Ok::<_, Refusal>(words.into())),
                 )?;
-                self.publish()?;
+                self.publish();
                 return Ok(true);
             }
             ClientMessage::Check(check) => {
@@ -709,7 +709,7 @@ impl Core<'_, '_> {
             if let Some((client, id)) = &pending.from {
                 self.answer(*client, login_step(id, &login, step))?;
             }
-            self.publish()?;
+            self.publish();
             return Ok(());
         }
         if let Some(providers) = result.providers {
@@ -741,7 +741,7 @@ impl Core<'_, '_> {
             )?;
         }
         if pending.action == ProviderRequestAction::Describe {
-            self.publish()?;
+            self.publish();
             return Ok(());
         }
         let count = self
@@ -788,7 +788,8 @@ impl Core<'_, '_> {
                 )?;
             }
         }
-        self.publish()
+        self.publish();
+        Ok(())
     }
 
     fn named_model(

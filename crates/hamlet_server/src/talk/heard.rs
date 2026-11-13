@@ -223,7 +223,7 @@ fn admitted(
         detail.as_deref(),
     )?;
     if ended {
-        core.input_ended(conversation, &request)?;
+        core.input_ended(conversation, &request);
     }
     Ok(())
 }
@@ -250,7 +250,7 @@ fn settled(
         settled.reason.as_deref(),
         detail.as_deref(),
     )? {
-        core.input_ended(conversation.id, &settled.request)?;
+        core.input_ended(conversation.id, &settled.request);
     }
     Ok(())
 }
@@ -303,7 +303,8 @@ fn live(
         running.partial.as_ref(),
     );
     core.stream(conversation.id)?;
-    core.publish()
+    core.publish();
+    Ok(())
 }
 
 /// A cancel was acknowledged: later inputs may go to the runtime.
@@ -411,7 +412,7 @@ fn attempt(
                 &asked.conversation,
             )?;
             core.live(conversation.id)?.activity.attempted();
-            core.publish()?;
+            core.publish();
             let serving = core
                 .env
                 .settings
@@ -471,7 +472,7 @@ fn usage(
     )?;
     if let Some(conversation) = charged {
         core.stream_usage(conversation)?;
-        core.publish()?;
+        core.publish();
     }
     let re = report.id;
     core.runtimes.send(index, |v, id| {

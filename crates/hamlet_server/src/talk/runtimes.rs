@@ -96,6 +96,9 @@ pub(crate) struct Runtimes {
     next: u64,
     pending: HashMap<String, (usize, Pending)>,
     lines: UnboundedSender<Received>,
+    /// The lines sent since the last delivery, by runtime and id:
+    /// they go out once the input that sent them is kept.
+    outbox: Vec<(usize, String, String)>,
 }
 
 /// The runtime new conversations of `harness` go to, made once.
@@ -127,6 +130,7 @@ impl Runtimes {
             next: 0,
             pending: HashMap::new(),
             lines,
+            outbox: Vec::new(),
         }
     }
 
@@ -336,7 +340,7 @@ impl Runtimes {
     }
 
     /// Sends the message `make` builds from the version and a new id,
-    /// returning the id.
+    /// once the input is kept; returns the id.
     pub fn send(
         &mut self,
         index: usize,
@@ -347,10 +351,25 @@ impl Runtimes {
         let message = make(VERSION, id.clone());
         let line = serde_json::to_string(&message)
             .expect("a server message is JSON");
-        if let Some(process) = self.list[index].process.as_mut() {
-            process.write(line);
-        }
+        self.outbox.push((index, id.clone(), line));
         id
+    }
+
+    /// Writes each runtime the lines sent to it.
+    pub fn deliver(&mut self) {
+        for (index, _, line) in std::mem::take(&mut self.outbox) {
+            if let Some(process) = self.list[index].process.as_mut() {
+                process.write(line);
+            }
+        }
+    }
+
+    /// Drops the lines of an input that failed, and the requests
+    /// among them, which nothing will answer.
+    pub fn discard(&mut self) {
+        for (_, id, _) in std::mem::take(&mut self.outbox) {
+            self.pending.remove(&id);
+        }
     }
 
     /// Tells `runtime` that the wait of its call `key` was answered.

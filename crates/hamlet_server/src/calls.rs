@@ -12,13 +12,15 @@ mod society;
 
 use std::collections::BTreeMap;
 use std::future::Future;
+use std::sync::{Mutex, PoisonError};
 
 use anyhow::Result;
 use bevy_ecs::component::Component;
 use bevy_ecs::entity::Entity;
 use bevy_ecs::lifecycle::HookContext;
-use bevy_ecs::system::Query;
+use bevy_ecs::system::{Commands, Query};
 use bevy_ecs::world::DeferredWorld;
+use futures::future::BoxFuture;
 use hamlet_protocol::runtime::{
     self, ConfigureTools, RuntimeMessage, ServerMessage, ToolSpec,
     ToolSpecReplay,
@@ -119,7 +121,31 @@ pub(crate) struct Running {
     replies: Vec<Reply>,
     pub conversation: ConversationId,
     request: Request,
-    abort: AbortHandle,
+    /// The run's task, once started.
+    abort: Option<AbortHandle>,
+}
+
+/// The work of a run not started yet: it starts once the input that
+/// asked for it is kept, so a failed input runs nothing.
+#[derive(Component)]
+pub(crate) struct Starting(Mutex<Option<BoxFuture<'static, ()>>>);
+
+/// Starts the work of every run its input kept.
+pub(crate) fn start(
+    mut runs: Query<(Entity, &mut Running, &mut Starting)>,
+    mut commands: Commands,
+) {
+    for (entity, mut running, mut starting) in &mut runs {
+        let work = starting
+            .0
+            .get_mut()
+            .unwrap_or_else(PoisonError::into_inner)
+            .take();
+        if let Some(work) = work {
+            running.abort = Some(tokio::spawn(work).abort_handle());
+        }
+        commands.entity(entity).remove::<Starting>();
+    }
 }
 
 /// What a run that ended still owes.
@@ -130,8 +156,11 @@ struct Ended {
 
 /// A run's entity went: its task, if still running, stops.
 fn stopped(world: DeferredWorld, context: HookContext) {
-    if let Some(running) = world.get::<Running>(context.entity) {
-        running.abort.abort();
+    if let Some(abort) = world
+        .get::<Running>(context.entity)
+        .and_then(|running| running.abort.as_ref())
+    {
+        abort.abort();
     }
 }
 
@@ -144,7 +173,8 @@ impl Calls {
         Self { ran }
     }
 
-    /// Starts `work` for `call`; gives the run to spawn.
+    /// The run of `work` for `call`, to spawn; it starts once its
+    /// input is kept.
     fn run(
         &self,
         call: CallId,
@@ -152,20 +182,21 @@ impl Calls {
         reply: Reply,
         request: Request,
         work: impl Future<Output = Outcome> + Send + 'static,
-    ) -> Running {
+    ) -> (Running, Starting) {
         let ran = self.ran.clone();
         let id = call.clone();
-        let task = tokio::spawn(async move {
+        let work = async move {
             let outcome = work.await;
             let _ = ran.send(Ran { call: id, outcome });
-        });
-        Running {
+        };
+        let running = Running {
             call,
             replies: vec![reply],
             conversation,
             request,
-            abort: task.abort_handle(),
-        }
+            abort: None,
+        };
+        (running, Starting(Mutex::new(Some(Box::pin(work)))))
     }
 }
 
@@ -616,7 +647,6 @@ impl Core<'_, '_> {
                     if let Some(society) = call.society {
                         match self.society(&call, society)? {
                             society::Step::Done(outcome) => {
-                                crate::fault::point("carried");
                                 Some(outcome)
                             }
                             society::Step::Wait(words) => {

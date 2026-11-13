@@ -270,7 +270,8 @@ impl Core<'_, '_> {
                     &super::reviews::hold_key(task),
                 );
             }
-            self.flush(false)?;
+            // What the objection held may go to its runtime now.
+            self.changed.answered = true;
         }
         Ok(Ok(format!(
             "Answered /{ruling}: {}",

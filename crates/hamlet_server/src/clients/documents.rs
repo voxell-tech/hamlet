@@ -79,7 +79,7 @@ impl Core<'_, '_> {
                         .execute(db)?;
                     }
                 }
-                self.publish()?;
+                self.publish();
                 Ok(Ok("The charter is saved.".into()))
             }
             Edit::Character { scholar, text, .. } => {
@@ -292,12 +292,12 @@ impl Core<'_, '_> {
                 }
                 self.env.settings =
                     self.env.overrides.apply(settings);
-                self.publish()?;
+                self.publish();
                 Ok(Ok("The settings are saved.".into()))
             }
             Edit::Catalogue { model, set, .. } => {
                 let answer = self.edit_catalogue(&model, set)?;
-                self.publish()?;
+                self.publish();
                 Ok(answer)
             }
         }
@@ -373,7 +373,7 @@ impl Core<'_, '_> {
                         document::chief.eq(chief),
                     ))
                     .execute(db)?;
-                self.publish()?;
+                self.publish();
                 Ok(Ok("The realm's limits are saved.".into()))
             }
         }

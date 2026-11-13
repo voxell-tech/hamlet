@@ -739,12 +739,13 @@ impl Core<'_, '_> {
     ) -> Result<Result<String, Refusal>> {
         let identity = call.call.identity();
         let request = &call.request;
-        self.attempt(
+        let split = crate::fault::is_marker_split();
+        let made = self.attempt(
             Actor::Agent(call.conversation.agent),
             |cx, env| {
                 let made = make(cx, env)?;
                 if let Ok(words) = &made
-                    && !crate::fault::is_marker_split()
+                    && !split
                 {
                     hamlet_store::marker::settle(
                         cx.db,
@@ -756,7 +757,18 @@ impl Core<'_, '_> {
                 }
                 Ok(made)
             },
-        )
+        )?;
+        if made.is_err() {
+            return Ok(made);
+        }
+        // The crash test's fault point comes once the change is kept:
+        // with its answer at the input's end, or apart from it.
+        self.changed.carried = true;
+        if split {
+            hamlet_store::commit(self.realm.store().connection())?;
+            crate::fault::point("carried");
+        }
+        Ok(made)
     }
 
     /// Marks `call` begun before an effect outside the store, which

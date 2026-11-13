@@ -143,6 +143,14 @@ impl Clients {
         ));
     }
 
+    /// Drops the messages of an input that failed, whose changes they
+    /// told of; its refusals of a client still go.
+    pub fn discard(&mut self) {
+        self.outbox.retain(|outgoing| {
+            matches!(outgoing, Outgoing::Refusal(..))
+        });
+    }
+
     /// Sends what is queued, in order, to `connections`, with every
     /// credential taken out. A message that cannot be sent is logged
     /// and dropped.

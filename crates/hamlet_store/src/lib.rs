@@ -164,6 +164,40 @@ impl Store {
     }
 }
 
+/// Begins a transaction on `db` that holds the write lock from its
+/// start, unless one is open already. It stays open until [`commit`]
+/// or [`unwind`].
+pub fn begin(db: &mut Db) -> Result<()> {
+    let open =
+        AnsiTransactionManager::transaction_manager_status_mut(db)
+            .transaction_depth()?;
+    if open.is_none() {
+        AnsiTransactionManager::begin_transaction_sql(
+            db,
+            "BEGIN IMMEDIATE",
+        )?;
+    }
+    Ok(())
+}
+
+/// Commits the transaction [`begin`] opened on `db`, if one is open.
+/// A savepoint still open inside it is a defect.
+pub fn commit(db: &mut Db) -> Result<()> {
+    let open =
+        AnsiTransactionManager::transaction_manager_status_mut(db)
+            .transaction_depth()?;
+    match open.map(std::num::NonZeroU32::get) {
+        None => Ok(()),
+        Some(1) => {
+            Ok(AnsiTransactionManager::commit_transaction(db)?)
+        }
+        Some(depth) => anyhow::bail!(
+            "a transaction to commit holds {} savepoints still open",
+            depth - 1
+        ),
+    }
+}
+
 /// Rolls back every transaction and savepoint `db` has open, as a
 /// panic inside one leaves them. An error means the connection
 /// cannot say or cannot roll back, and must be opened again.

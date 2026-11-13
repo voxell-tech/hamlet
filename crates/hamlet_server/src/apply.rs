@@ -1,27 +1,37 @@
-//! What follows an input's changes, once its handler is done: the
-//! tools narrowed to each agent's role, the stopped turns' tool runs
-//! ended, the runtimes sent what they are owed, the clients sent the
-//! state and then their replies. Each step is worked out again from
-//! the database, so one that fails is made good by the next input.
+//! What follows an input once its transaction is kept: the inputs it
+//! ended followed, the tools narrowed to each agent's role, the jobs
+//! it left run, the stopped turns' tool runs ended and the asked ones
+//! started, the runtimes sent what they are owed, and the clients
+//! sent the state and then their replies. Each step is worked out
+//! again from the database, so one that fails is made good by the
+//! next input. An input that fails leaves nothing to follow.
 
 use bevy_app::App;
+use bevy_ecs::entity::Entity;
 use bevy_ecs::error::Result;
+use bevy_ecs::event::Event;
 use bevy_ecs::message::{Message, MessageReader, Messages};
+use bevy_ecs::observer::On;
+use bevy_ecs::query::With;
 use bevy_ecs::resource::Resource;
 use bevy_ecs::schedule::{
     IntoScheduleConfigs, Schedule, ScheduleLabel,
     SingleThreadedExecutor, SystemSet,
 };
 use bevy_ecs::system::{Commands, Res, ResMut};
+use bevy_ecs::world::World;
 use hamlet_store::Db;
+use hamlet_store::ids::{Actor, ConversationId};
 
-use crate::calls::{Runs, place};
-use crate::clients::{Clients, Connections};
+use crate::calls::{Runs, Starting, place};
+use crate::clients::{Clients, Connections, check};
 use crate::core::{Catalogue, Core};
 use crate::credentials::Credentials;
 use crate::providers::Providers;
 use crate::realm::Realm;
 use crate::society::agents;
+use crate::society::refusal::Refusal;
+use crate::talk::follow::follow;
 use crate::talk::runtimes::Runtimes;
 use crate::talk::sync::{self, Fitting};
 use crate::talk::{Env, conversations};
@@ -33,11 +43,21 @@ pub(crate) struct Apply;
 /// The steps of [`Apply`], in their order.
 #[derive(SystemSet, Clone, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum Step {
+    /// The inputs that ended are followed.
+    Follow,
     Retool,
+    /// What the steps before changed is kept.
+    Keep,
+    /// The jobs the kept changes left are run.
+    Jobs,
     StopCancelled,
+    /// The tool runs the input asked for start.
+    Start,
     Flush,
     Publish,
     Reply,
+    /// The runtimes are sent what the input queued for them.
+    Send,
     /// The lodges the input owes the remote workspace are pushed.
     Push,
 }
@@ -51,18 +71,33 @@ pub(crate) struct Wake {
     pub key: String,
 }
 
+/// A runtime's input ended: its follow, which may end a worker or
+/// carry an answer back, and the replies owed for it come once what
+/// said so is kept. Written as a message by the input, it is
+/// triggered for the observers by [`Apply`].
+#[derive(Message, Event, Clone)]
+pub(crate) struct InputEnded {
+    pub conversation: ConversationId,
+    pub request: String,
+}
+
 /// What the input's changes leave for [`Apply`].
 #[derive(Resource, Default)]
 pub(crate) struct Changed {
-    /// A change was kept.
+    /// A change was made, kept with the input.
     pub committed: bool,
     /// An agent or a hamlet changed, so its tools may have.
     pub reshaped: bool,
+    /// Jobs were kept for the runner.
+    pub jobs: bool,
     /// A runtime answered a request, so what waited on it may go.
     pub answered: bool,
     /// What the clients see changed with no change kept, such as how
     /// moving the lodges goes.
     pub republish: bool,
+    /// A society call's change was kept with its answer: the crash
+    /// test's fault point comes once it is.
+    pub carried: bool,
 }
 
 pub(crate) fn plugin(app: &mut App) {
@@ -72,14 +107,22 @@ pub(crate) fn plugin(app: &mut App) {
     app.add_schedule(apply)
         .init_resource::<Changed>()
         .add_message::<Wake>()
+        .add_message::<InputEnded>()
+        .add_observer(follow_input)
+        .add_observer(settle_owed)
         .configure_sets(
             Apply,
             (
+                Step::Follow,
                 Step::Retool,
+                Step::Keep,
+                Step::Jobs,
                 Step::StopCancelled,
+                Step::Start,
                 Step::Flush,
                 Step::Publish,
                 Step::Reply,
+                Step::Send,
                 Step::Push,
             )
                 .chain(),
@@ -87,33 +130,54 @@ pub(crate) fn plugin(app: &mut App) {
         .add_systems(
             Apply,
             (
+                end_inputs.in_set(Step::Follow),
                 retool.in_set(Step::Retool).run_if(reshaped),
+                keep.in_set(Step::Keep),
+                jobs.in_set(Step::Jobs).run_if(jobs_kept),
                 stop_cancelled
                     .in_set(Step::StopCancelled)
                     .run_if(committed),
+                crate::calls::start.in_set(Step::Start),
                 (flush.run_if(owed), wake)
                     .chain()
                     .in_set(Step::Flush),
                 publish.in_set(Step::Publish).run_if(shown),
                 reply.in_set(Step::Reply),
+                send.in_set(Step::Send),
                 (push, forget).chain().in_set(Step::Push),
             ),
         );
+}
+
+/// Drops what a failed input left to follow it: its transaction was
+/// rolled back, so nothing it changed is so, and nothing it asked
+/// for runs.
+pub(crate) fn discard(world: &mut World) {
+    *world.resource_mut::<Changed>() = Changed::default();
+    world.resource_mut::<Messages<Wake>>().clear();
+    world.resource_mut::<Messages<InputEnded>>().clear();
+    world.resource_mut::<Clients>().discard();
+    world.resource_mut::<Runtimes>().discard();
+    let starting = world
+        .query_filtered::<Entity, With<Starting>>()
+        .iter(world)
+        .collect::<Vec<_>>();
+    for run in starting {
+        world.despawn(run);
+    }
 }
 
 fn committed(changed: Res<Changed>) -> bool {
     changed.committed
 }
 
+fn jobs_kept(changed: Res<Changed>) -> bool {
+    changed.jobs
+}
+
 /// Whether what the clients see may have changed.
 fn shown(changed: Res<Changed>) -> bool {
     changed.committed || changed.republish
-}
-
-/// Starts pushing the lodges the input owes the remote workspace.
-fn push(mut core: Core) -> Result {
-    core.push_owed()?;
-    Ok(())
 }
 
 fn reshaped(changed: Res<Changed>) -> bool {
@@ -123,6 +187,48 @@ fn reshaped(changed: Res<Changed>) -> bool {
 /// Whether a runtime may be owed something new.
 fn owed(changed: Res<Changed>) -> bool {
     changed.committed || changed.answered
+}
+
+/// Triggers each input that ended for its observers.
+fn end_inputs(
+    mut ended: MessageReader<InputEnded>,
+    mut commands: Commands,
+) {
+    for input in ended.read() {
+        commands.trigger(input.clone());
+    }
+}
+
+/// Follows an input that ended, and wakes what its follow freed.
+fn follow_input(ended: On<InputEnded>, mut core: Core) -> Result {
+    crate::fault::point("followed");
+    let followed = core.change(Actor::Realm, |cx, env| {
+        follow(cx, env, ended.conversation, &ended.request)
+    })?;
+    for (runtime, key) in followed.wake {
+        core.wake_call(&runtime, &key);
+    }
+    Ok(())
+}
+
+/// Answers the replies owed for an input that ended.
+fn settle_owed(ended: On<InputEnded>, mut clients: ResMut<Clients>) {
+    let owed = clients.owed.extract_if(.., |owed| {
+        owed.conversation == ended.conversation
+            && owed.request == ended.request
+    });
+    let answers = owed
+        .map(|owed| {
+            let answer = check::reply(
+                &owed.id,
+                Ok::<_, Refusal>(String::new()),
+            );
+            (owed.client, answer)
+        })
+        .collect::<Vec<_>>();
+    for (client, answer) in answers {
+        clients.send(client, answer);
+    }
 }
 
 fn retool(
@@ -149,6 +255,21 @@ pub(crate) fn retool_all(
         }
     }
     Ok(())
+}
+
+/// Keeps what the follows and the retooling changed. A commit that
+/// fails leaves nothing of them.
+fn keep(mut realm: ResMut<Realm>) -> Result {
+    let db = realm.store().connection();
+    if let Err(error) = hamlet_store::commit(db) {
+        hamlet_store::unwind(db)?;
+        return Err(error.into());
+    }
+    Ok(())
+}
+
+fn jobs(mut core: Core) {
+    core.run_jobs();
 }
 
 /// Stops the tool runs of every conversation being stopped: their
@@ -191,7 +312,7 @@ fn flush(
 }
 
 fn publish(mut core: Core) -> Result {
-    core.publish()?;
+    core.send_state()?;
     Ok(())
 }
 
@@ -215,12 +336,25 @@ fn wake(
     }
 }
 
+/// Writes each runtime the lines queued for it.
+fn send(mut runtimes: ResMut<Runtimes>) {
+    runtimes.deliver();
+}
+
+/// Starts pushing the lodges the input owes the remote workspace.
+fn push(mut core: Core) -> Result {
+    core.push_owed()?;
+    Ok(())
+}
+
 /// The input is followed up: the next starts afresh. No frame turns
 /// the messages over here, so the last step does.
 fn forget(
     mut changed: ResMut<Changed>,
     mut wakes: ResMut<Messages<Wake>>,
+    mut ended: ResMut<Messages<InputEnded>>,
 ) {
     *changed = Changed::default();
     wakes.update();
+    ended.update();
 }
