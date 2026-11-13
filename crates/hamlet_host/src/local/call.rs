@@ -41,8 +41,9 @@ impl Host {
     /// is left and the kind's action timeout: past either, it fails
     /// with `actor.action_timed_out`. Fails at once with
     /// `actor.not_registered` for a kind the directory does not hold,
-    /// and with `actor.destroying` for an actor that is being
-    /// destroyed. The host's log carries `cause`'s task.
+    /// with `actor.destroying` for an actor that is being destroyed,
+    /// and with `actor.shutdown_timeout` for one whose stop missed
+    /// its deadline. The host's log carries `cause`'s task.
     ///
     /// When the host begins to shut down, the call fails at once with
     /// `actor.stopping`, also when its action already runs. Its

@@ -22,13 +22,16 @@
 //!
 //! Each actor's place in its lifecycle is one [`Life`] in the host's
 //! map. One actor's start or stop waits only on that actor's work. A
-//! start has a deadline. A shutdown stops every actor at once, ends
-//! the starts under way after a short grace, and the host starts
-//! none after it, nor after its last [`Host`] is dropped.
+//! start and a stop each have a deadline; an actor that does not stop
+//! by its deadline is given up, and the host starts it no more. A
+//! shutdown stops every actor at once, ends the starts under way
+//! after a short grace, and the host starts none after it, nor after
+//! its last [`Host`] is dropped.
 
 use std::collections::HashMap;
 use std::fs::{File, TryLockError};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Weak};
 use std::time::Duration;
 
@@ -72,6 +75,11 @@ const LOCAL_SESSION: u64 = 1;
 /// How long a shutdown lets the starts under way go on before it
 /// ends them.
 const START_GRACE_AT_SHUTDOWN: Duration = Duration::from_secs(1);
+
+/// How long a stop that missed its deadline waits for the actor's
+/// file to close. A file whose thread still runs a statement closes
+/// only once the statement ends.
+const CLOSE_GRACE: Duration = Duration::from_secs(1);
 
 /// The host's row in each actor file. Its version ladder is Hamlet's,
 /// apart from the core's `_actor_` tables.
@@ -119,21 +127,25 @@ const ACTOR_TABLE: &str = "CREATE TABLE IF NOT EXISTS _hamlet_actor \
 /// | `Stopping` | its generation asks to sleep or reports a crash, or `Host::stop(Sleep)` | unchanged |
 /// | `Destroying` | any request | unchanged |
 /// | `Stopping` | the stop ended with a deadline, the host not shut | `Stopped`, its timer armed |
+/// | `Stopping`, `Destroying` | the generation did not stop within the stop deadline | `Stuck`, its file closed unmarked |
 /// | `Stopping`, `Destroying` | the stop or the removal ended otherwise, however it ended | absent |
+/// | `Stuck` | any request | unchanged |
 /// | any | a request from a generation the state does not hold | unchanged |
 ///
 /// Callers wait without a transition of their own. A start, a call's
 /// included, waits for a `Reading`, `Starting` or `Stopping` actor
-/// and then starts it, and fails at once for a `Destroying` one. A
-/// start that waited for a start that failed fails with it, rather
-/// than start again; one that waited for a start that found no actor
-/// reads the state again, so a `get_or_start` behind a call makes the
-/// actor the call could not. A create fails at once with
-/// `actor.duplicate_key` for a `Stopped`, `Running` or `Stopping`
-/// actor, and waits for a `Reading` or `Starting` one as a start
-/// does. `Host::stop` waits for a `Reading` or
-/// `Starting` actor and then stops it, and waits for a stop under
-/// way; a sleep leaves a `Stopped` actor as it is. `Host::shutdown`
+/// and then starts it, and fails at once for a `Destroying` or
+/// `Stuck` one. A start that waited for a start that failed, or for a
+/// stop that missed its deadline, fails with it, rather than start
+/// again; one that waited for a start that found no actor reads the
+/// state again, so a `get_or_start` behind a call makes the actor the
+/// call could not. A create fails at once with `actor.duplicate_key`
+/// for a `Stopped`, `Running` or `Stopping` actor, and waits for a
+/// `Reading` or `Starting` one as a start does. `Host::stop` waits
+/// for a `Reading` or `Starting` actor and then stops it, and waits
+/// for a stop under way, failing with it if it missed its deadline; a
+/// sleep leaves a `Stopped` actor as it is, and any stop of a `Stuck`
+/// one fails at once. `Host::shutdown`
 /// sleeps each actor as `Host::stop` does.
 enum Life {
     /// Boot reads its file, to learn whether to start it.
@@ -166,22 +178,31 @@ enum Life {
         generation: Option<Arc<Generation>>,
         done: Waiters,
     },
+    /// A generation's stop missed the stop deadline. Its code may
+    /// still run. Its file keeps its running mark, and a destroy's
+    /// mark if one was stored, and is closed, or closes once a
+    /// statement it still runs ends. This host starts the actor no
+    /// more, so nothing of it runs beside that code; the next boot
+    /// starts it, or finishes its destroy.
+    Stuck,
 }
 
 /// What the waiters of a `Reading`, `Starting`, `Stopping` or
 /// `Destroying` state await: the channel closes when the work that
-/// owns the state ends, and holds how a start failed.
-type Waiters = watch::Receiver<Option<StartFailed>>;
+/// owns the state ends, and holds how a start failed, or that a stop
+/// missed its deadline.
+type Waiters = watch::Receiver<Option<Failed>>;
 
-/// How a start failed, for each of its waiters to return.
+/// How a start failed, or a stop missed its deadline, for each of its
+/// waiters to return.
 #[derive(Clone)]
-struct StartFailed {
+struct Failed {
     error: ActorError,
-    /// The failure with its causes, as the start returned it.
+    /// The failure with its causes, as the work returned it.
     detail: String,
 }
 
-impl StartFailed {
+impl Failed {
     fn new(error: &anyhow::Error) -> Self {
         Self {
             error: ActorError::extract(error),
@@ -203,7 +224,8 @@ impl Life {
         match self {
             Self::Reading { .. }
             | Self::Stopped { .. }
-            | Self::Starting { .. } => None,
+            | Self::Starting { .. }
+            | Self::Stuck => None,
             Self::Running(generation)
             | Self::Stopping { generation, .. } => Some(generation),
             Self::Destroying { generation, .. } => {
@@ -226,7 +248,9 @@ impl Life {
     /// the work that owns the state ends.
     fn waiters(&self) -> Option<&Waiters> {
         match self {
-            Self::Stopped { .. } | Self::Running(_) => None,
+            Self::Stopped { .. } | Self::Running(_) | Self::Stuck => {
+                None
+            }
             Self::Reading { done: waiters }
             | Self::Starting { ready: waiters, .. }
             | Self::Stopping { done: waiters, .. }
@@ -250,6 +274,61 @@ struct Generation {
     alarm: Arc<Mutex<Option<i64>>>,
 }
 
+impl Generation {
+    /// Stops the generation's core, then marks its file stopped with
+    /// the deadline the generation leaves, and closes the file.
+    /// Returns what the mark returned, or `None` if the mark did not
+    /// begin within `deadline`. The file then keeps its running mark,
+    /// and is closed, so nothing the generation still runs reaches
+    /// it, unless its thread still runs a statement after
+    /// [`CLOSE_GRACE`]: such a file closes once the statement ends.
+    async fn stop(
+        &self,
+        reason: ShutdownKind,
+        deadline: Duration,
+    ) -> Option<Result<Option<i64>>> {
+        // Taken by the mark as it begins, or by the deadline: the
+        // first to take it decides whether the file is marked
+        // stopped.
+        let taken = Arc::new(AtomicBool::new(false));
+        let stop = async {
+            self.actor.stop(reason).await;
+            // The core has stopped and its alarm pushes are
+            // acknowledged, so the generation's last alarm and its
+            // file are final.
+            let alarm = *self.alarm.lock();
+            let taken = taken.clone();
+            self.file
+                .close_with(move |conn| {
+                    if taken.swap(true, Ordering::SeqCst) {
+                        return Ok(None);
+                    }
+                    mark_stopped(conn, alarm).map(Some)
+                })
+                .await
+        };
+        let mut stop = std::pin::pin!(stop);
+        let marked = match tokio::time::timeout(deadline, &mut stop)
+            .await
+        {
+            Ok(marked) => marked,
+            // The mark began in time; the file closes once it ends.
+            Err(_) if taken.swap(true, Ordering::SeqCst) => {
+                stop.await
+            }
+            Err(_) => {
+                let _ = tokio::time::timeout(
+                    CLOSE_GRACE,
+                    self.file.close(),
+                )
+                .await;
+                return None;
+            }
+        };
+        marked.transpose()
+    }
+}
+
 /// The work that owns an actor's `Reading`, `Starting`, `Stopping` or
 /// `Destroying` state. When it is dropped, however its work ended, it
 /// removes the state from the map if the state is still its own, and
@@ -258,7 +337,7 @@ struct Owned {
     host: Arc<HostInner>,
     actor_id: String,
     /// Wakes the waiters when it drops, after [`Drop::drop`].
-    wake: watch::Sender<Option<StartFailed>>,
+    wake: watch::Sender<Option<Failed>>,
     waiters: Waiters,
 }
 
@@ -273,10 +352,10 @@ impl Owned {
         }
     }
 
-    /// Tells the waiters that the start this owns failed with
-    /// `error`.
+    /// Tells the waiters that the start this owns failed, or the stop
+    /// it owns missed its deadline, with `error`.
     fn fail(&self, error: &anyhow::Error) {
-        self.wake.send_replace(Some(StartFailed::new(error)));
+        self.wake.send_replace(Some(Failed::new(error)));
     }
 
     fn owns(&self, life: &Life) -> bool {
@@ -318,29 +397,43 @@ impl Stop {
     /// destroy leaves the map when `owned` drops at the end. A sleep
     /// whose file could not be marked stopped fails, its file closed
     /// all the same: the file keeps its running mark, so the next
-    /// boot starts it again.
+    /// boot starts it again. A generation that does not stop within
+    /// the host's stop deadline leaves the actor `Stuck`, and the
+    /// stop fails with `actor.shutdown_timeout`, as do its waiters.
     async fn run(self) -> Result<()> {
         let Self {
             owned,
             generation,
             reason,
         } = self;
+        let host = &owned.host;
         let marked = match &generation {
             Some(generation) => {
-                generation.actor.stop(reason).await;
-                // The core has stopped and its alarm pushes are
-                // acknowledged, so the generation's last alarm and
-                // its file are final.
-                let alarm = *generation.alarm.lock();
                 generation
-                    .file
-                    .close_with(move |conn| mark_stopped(conn, alarm))
+                    .stop(reason, host.options.stop_deadline)
                     .await
             }
-            None => Ok(None),
+            None => Some(Ok(None)),
+        };
+        let Some(marked) = marked else {
+            let error = stop_missed(&owned.actor_id, &host.options);
+            let replaced = {
+                let mut actors = host.actors.lock();
+                let owns = actors
+                    .lives
+                    .get(&owned.actor_id)
+                    .is_some_and(|life| owned.owns(life));
+                owns.then(|| {
+                    actors
+                        .lives
+                        .insert(owned.actor_id.clone(), Life::Stuck)
+                })
+            };
+            drop(replaced);
+            owned.fail(&error);
+            return Err(error);
         };
         let wake_at = marked.as_ref().ok().copied().flatten();
-        let host = &owned.host;
         // One lock decides and, for a sleep, leaves `Stopping`, so a
         // destroy asked later finds the actor stopped rather than
         // turning a stop that is past its file removal, and a timer
@@ -459,6 +552,15 @@ pub struct HostOptions {
     /// until its core is ready. A start that takes longer fails with
     /// `actor.not_ready`. 60 seconds by default.
     pub start_deadline: Duration,
+    /// How long a stop may take, from asking the actor's core to
+    /// stop until its file is closed. Past it, the stop fails with
+    /// `actor.shutdown_timeout`, and the host gives the actor up:
+    /// its file is closed with its running mark, so the next boot
+    /// starts it, and this host starts it no more. 45 seconds by
+    /// default. Keep it above the longest sleep grace of the host's
+    /// kinds, 15 seconds unless a kind sets its own: a stop may take
+    /// that long and more without being stuck.
+    pub stop_deadline: Duration,
     /// The host's name, a plain file name: `host` by default. The
     /// host locks the folder with `<name>.lock`, so hosts of
     /// different names open one folder at once, and a second host of
@@ -476,6 +578,7 @@ impl Default for HostOptions {
     fn default() -> Self {
         Self {
             start_deadline: Duration::from_secs(60),
+            stop_deadline: Duration::from_secs(45),
             name: "host".to_owned(),
             values: Values::default(),
         }
@@ -661,7 +764,8 @@ impl HostInner {
             Life::Reading { .. }
             | Life::Stopped { .. }
             | Life::Stopping { .. }
-            | Life::Destroying { .. } => None,
+            | Life::Destroying { .. }
+            | Life::Stuck => None,
         }
     }
 }
@@ -671,6 +775,19 @@ fn host_shut_down() -> anyhow::Error {
     ActorLifecycle::Stopping
         .build()
         .context("the host has shut down")
+}
+
+/// What a stop of the actor `actor_id` that missed the stop deadline
+/// answers, and every later start or stop of that actor in the host.
+fn stop_missed(
+    actor_id: &str,
+    options: &HostOptions,
+) -> anyhow::Error {
+    ActorLifecycle::ShutdownTimeout.build().context(format!(
+        "actor {actor_id} did not stop within {:?}, and this host \
+         starts it no more",
+        options.stop_deadline
+    ))
 }
 
 /// The state of `generation` while `owned` stops it for `reason`.
@@ -1008,6 +1125,20 @@ impl Host {
     /// anything reaches the folder, and a destroy of a stopped actor
     /// fails in a host that has shut down, which may no longer hold
     /// the folder.
+    ///
+    /// A stop ends within [`HostOptions::stop_deadline`], whatever
+    /// the actor does. An actor that does not stop by then is given
+    /// up: the stop, and every caller that waited for it, fails with
+    /// `actor.shutdown_timeout`, and so does every later start or
+    /// stop of that actor in this host. Its file is closed with its
+    /// running mark, and its destroy's mark if one was stored, so the
+    /// next boot starts it again, or finishes the destroy. What it
+    /// leaves behind: its code runs on, holding the thread it blocks
+    /// until it returns, and a statement its file's thread still runs
+    /// keeps the file open, locked, until the statement ends. Nothing
+    /// ends either sooner but the process's exit, and a runtime's
+    /// drop waits for its threads, so a process with such an actor
+    /// exits without dropping its runtime.
     pub async fn stop(
         &self,
         actor_id: &str,
@@ -1046,11 +1177,20 @@ impl Host {
                         Life::Stopping { done, .. }
                         | Life::Destroying { done, .. },
                     ) => (done.clone(), false),
+                    Some(Life::Stuck) => {
+                        return Err(stop_missed(
+                            actor_id,
+                            &host.options,
+                        ));
+                    }
                 }
             };
             let _ = waiters.changed().await;
             if !ask_again {
-                return Ok(());
+                return match &*waiters.borrow() {
+                    Some(missed) => Err(missed.to_error()),
+                    None => Ok(()),
+                };
             }
         }
     }
@@ -1060,10 +1200,13 @@ impl Host {
     /// timers of stopped actors; their deadlines stay in their files
     /// for the next boot. A start under way that has not ended after
     /// a grace of one second fails. Waits for every stop, and for a
-    /// start or a stop under way, so it returns once every actor's
-    /// file is closed, and then lets the folder go: a new host may
-    /// open it at once. A stop that fails ends no other: the error
-    /// names each actor whose stop failed.
+    /// start or a stop under way, each within the stop deadline, so
+    /// it returns once every actor's file is closed, and then lets
+    /// the folder go: a new host may open it at once. A stop that
+    /// fails ends no other: the error names each actor whose stop
+    /// failed. An actor whose stop missed the deadline is named so,
+    /// and leaves behind what [`Host::stop`] says: a statement still
+    /// running on its file keeps that one file open.
     pub async fn shutdown(&self) -> Result<()> {
         self.inner().shut_down();
         // No state is added once the host is shut.
@@ -1109,10 +1252,11 @@ impl Host {
 impl HostInner {
     /// Starts the actor unless it runs, and returns the generation
     /// that runs it. Waits for a start or a stop under way first, and
-    /// fails with a start it waited for. Fails at once for an actor
-    /// that is being destroyed, and in a host that has shut down,
-    /// also when it shuts down during the wait: such a host starts
-    /// no actor again, so a wait could only delay the failure.
+    /// fails with a start it waited for, or a stop that missed its
+    /// deadline. Fails at once for an actor that is being destroyed,
+    /// or whose stop missed its deadline, and in a host that has shut
+    /// down, also when it shuts down during the wait: such a host
+    /// starts no actor again, so a wait could only delay the failure.
     /// Makes the actor only as `open` lets it: only `get_or_start`
     /// and a create make one. A call, a timer and boot start an actor
     /// from the file it has, and fail with `actor.not_found` for a
@@ -1159,6 +1303,12 @@ impl HostInner {
                             .context(format!(
                                 "actor {actor_id} is being destroyed"
                             )));
+                    }
+                    Some(Life::Stuck) => {
+                        return Err(stop_missed(
+                            actor_id,
+                            &self.options,
+                        ));
                     }
                     Some(
                         Life::Reading { done: waiters }
