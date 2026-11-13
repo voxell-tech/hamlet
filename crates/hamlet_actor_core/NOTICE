@@ -1,7 +1,8 @@
 This crate contains code from Rivet (https://github.com/rivet-dev/rivet),
-taken at commit 236a0404f79b03517dcfaa13b160e7c5ee4776b1 and licensed
-under the Apache License, Version 2.0, which is in LICENSE beside this
-file.
+taken at commit 236a0404f79b03517dcfaa13b160e7c5ee4776b1, and tests
+taken at commit fc23024b3ff7ee303ae757fe1c9b9760f87a0069, an earlier
+commit that still has them. Both are licensed under the Apache
+License, Version 2.0, which is in LICENSE beside this file.
 
    Copyright 2023 Rivet Gaming, Inc.
 
