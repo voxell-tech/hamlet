@@ -1,6 +1,6 @@
 // This file was changed for Hamlet. See NOTICE in this package.
 import type { WorkflowSpan } from "../actor/config.ts";
-import { decodeBridgeActorError, ActorError } from "../actor/errors.ts";
+import { ActorError, decodeBridgeActorError } from "../actor/errors.ts";
 import type { ActorInvocationTraceContext } from "../common/actor-telemetry-context.ts";
 import type {
     WasmRuntimeBindings,

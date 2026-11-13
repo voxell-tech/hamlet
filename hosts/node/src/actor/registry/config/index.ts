@@ -9,21 +9,21 @@ import {
     isLocalEngineEndpoint,
 } from "../../common/engine.ts";
 import { type Logger, LogLevelSchema } from "../../common/log.ts";
-import { VERSION } from "../../utils.ts";
 import { tryParseEndpoint } from "../../utils/endpoint-parser.ts";
 import {
     getActorEndpoint,
     getActorEngine,
-    getActorRuntime,
     getActorNamespace,
     getActorRunEngine,
     getActorRunEngineHost,
     getActorRunEnginePort,
     getActorRunEngineVersion,
     getActorRunServices,
+    getActorRuntime,
     getActorToken,
     isDev,
 } from "../../utils/env-vars.ts";
+import { VERSION } from "../../utils.ts";
 import { EnvoyConfigSchema } from "./envoy.ts";
 import {
     ConfigurePoolSchema,

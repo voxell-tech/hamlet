@@ -1,6 +1,7 @@
 // This file was changed for Hamlet. See NOTICE in this package.
-import type { ResponseLike } from "../common/fetch-like.ts";
+
 import { HEADER_ORIGINAL_REQUEST_URL } from "../common/actor-router-consts.ts";
+import type { ResponseLike } from "../common/fetch-like.ts";
 import { stringifyError } from "../common/utils.ts";
 import { logger } from "./log.ts";
 import type { RuntimeBytes, RuntimeHttpResponse } from "./runtime.ts";

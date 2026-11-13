@@ -1,5 +1,5 @@
 // This file was changed for Hamlet. See NOTICE in this package.
-import { VirtualWebSocket } from "../virtual-websocket/mod.ts";
+
 import {
     flattenActionHandlers,
     flattenActionInputSchemas,
@@ -28,6 +28,8 @@ import {
 } from "../actor/config.ts";
 import type { AnyActorDefinition } from "../actor/definition.ts";
 import {
+    ActorError,
+    type ActorErrorLike,
     actorStopping,
     decodeBridgeActorError,
     encodeBridgeActorError,
@@ -35,8 +37,6 @@ import {
     INTERNAL_ERROR_CODE,
     isActorAbortedError,
     isActorErrorLike,
-    ActorError,
-    type ActorErrorLike,
     toActorError,
 } from "../actor/errors.ts";
 import { makePrefixedKey, removePrefixFromKey } from "../actor/keys.ts";
@@ -58,7 +58,10 @@ import {
     registerNativeStateTransactionOpener,
 } from "../common/database/mod.ts";
 import { wrapJsNativeDatabase } from "../common/database/native-database.ts";
-import { assertJsonCompatValue, type JsonCompatValue } from "../common/encoding.ts";
+import {
+    assertJsonCompatValue,
+    type JsonCompatValue,
+} from "../common/encoding.ts";
 import { isResponseLike } from "../common/fetch-like.ts";
 import {
     decodeWorkflowHistoryTransport,
@@ -71,18 +74,19 @@ import type {
     SocketMessageEvent,
     UniversalWebSocket,
 } from "../common/websocket-interface.ts";
-import type {
-    RegistryConfig,
-    RuntimeKind,
-    SqliteBackend,
-} from "./config/index.ts";
 import { decodeCborCompat, encodeCborCompat } from "../serde.ts";
-import { getEnvUniversal, toUint8Array, VERSION } from "../utils.ts";
 import {
     getNodeFsSync,
     getNodePath,
     importNodeDependencies,
 } from "../utils/node.ts";
+import { getEnvUniversal, toUint8Array, VERSION } from "../utils.ts";
+import { VirtualWebSocket } from "../virtual-websocket/mod.ts";
+import type {
+    RegistryConfig,
+    RuntimeKind,
+    SqliteBackend,
+} from "./config/index.ts";
 import { logger } from "./log.ts";
 import { loadNapiRuntime } from "./napi-runtime.ts";
 import {

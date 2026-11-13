@@ -4,13 +4,13 @@ import invariant from "invariant";
 import type { VersionedDataHandler } from "vbare";
 import type { z } from "zod/v4";
 import type { Encoding, JsonCompatValue } from "./common/encoding.ts";
-import { assertUnreachable } from "./common/utils.ts";
 import {
     encodeJsonCompatValue,
     jsonParseCompat,
     jsonStringifyCompat,
     reviveJsonCompatValue,
 } from "./common/encoding.ts";
+import { assertUnreachable } from "./common/utils.ts";
 
 export function uint8ArrayToBase64(uint8Array: Uint8Array): string {
     // Check if Buffer is available (Node.js)
