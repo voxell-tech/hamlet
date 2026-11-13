@@ -91,15 +91,15 @@ impl Registry {
         self
     }
 
-    /// Renders the process-global Prometheus metrics. Equivalent to
-    /// the TypeScript `registry.routes.prometheusMetrics()`. Metrics
-    /// are process-global, so this does not depend on registry
-    /// instance state.
     /// The registered actors' factories, by name, for a host to run.
     pub fn into_factories(self) -> HashMap<String, CoreActorFactory> {
         self.inner
     }
 
+    /// Renders the process-global Prometheus metrics. Equivalent to
+    /// the TypeScript `registry.routes.prometheusMetrics()`. Metrics
+    /// are process-global, so this does not depend on registry
+    /// instance state.
     pub fn prometheus_metrics(&self) -> Result<RenderedMetrics> {
         render_prometheus_metrics()
     }
