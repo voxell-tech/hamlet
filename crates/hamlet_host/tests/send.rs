@@ -866,6 +866,16 @@ async fn a_set_aside_send_delivered_again_is_answered_from_its_row() {
         expected.extend(vec![format!("failed: {FAILS_FIRST}"); 5]);
         expected.sort();
         assert_eq!(answers(&dir, "failfirst/b"), expected);
+        // Its row is its only record. No delivery confirmed a send,
+        // so no prune could have taken a handled record.
+        assert_eq!(
+            one(
+                &dir,
+                "failfirst/b",
+                "SELECT COUNT(*) FROM _hamlet_handled"
+            ),
+            0
+        );
         assert_eq!(
             one(
                 &dir,
