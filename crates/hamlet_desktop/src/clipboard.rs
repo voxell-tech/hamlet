@@ -20,7 +20,34 @@ use tokio::sync::mpsc::{
 pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<Reader>()
         .add_observer(ask)
+        .add_observer(copy)
         .add_systems(Update, take);
+}
+
+/// Puts `html` on the clipboard, with `text` for what takes only
+/// words.
+#[derive(Event, Clone, Debug)]
+pub struct CopyRich {
+    pub text: String,
+    pub html: String,
+}
+
+fn copy(copy: On<CopyRich>) {
+    let CopyRich { text, html } = copy.event().clone();
+    // On Linux what was copied lasts while its owner does, so the
+    // thread holds it until another program takes the clipboard.
+    std::thread::spawn(move || {
+        let Ok(mut clipboard) = arboard::Clipboard::new() else {
+            return;
+        };
+        let set = clipboard.set();
+        #[cfg(target_os = "linux")]
+        let set = {
+            use arboard::SetExtLinux as _;
+            set.wait()
+        };
+        let _ = set.html(html, Some(text));
+    });
 }
 
 /// Asks for what is on the clipboard, for `asker`.

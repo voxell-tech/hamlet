@@ -133,6 +133,9 @@ fn for_agent(
             stop(w, agent);
         }));
     }
+    items.push(item("Copy Agent".into(), move |world| {
+        crate::reference::copy_agent(world, agent);
+    }));
     let Some((_, me)) = plain_agent(world, thing) else {
         return items;
     };
@@ -208,6 +211,9 @@ fn for_common(
         })
         .into_iter()
         .collect::<Vec<_>>();
+    items.push(item("Copy Hamlet".into(), move |world| {
+        crate::reference::copy_hamlet(world, hamlet);
+    }));
     // Last, and red, as nothing done to it is harder to undo.
     if !id.is_empty() && Deeds::is_allowed(world, "remove-hamlet") {
         items.push(asking(

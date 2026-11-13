@@ -32,6 +32,7 @@ hamlet_git = { version = "0.1.0", path = "crates/hamlet_git" }
 hamlet_sandbox = { version = "0.1.0", path = "crates/hamlet_sandbox" }
 hamlet_workspace_wire = { version = "0.1.0", path = "crates/hamlet_workspace_wire" }
 hamlet_update = { version = "0.1.0", path = "crates/hamlet_update" }
+hamlet_import = { version = "0.1.0", path = "crates/hamlet_import" }
 
 # fynix
 bevy_fynix = { path = "vendor/fynix/crates/bevy_fynix" }
@@ -101,6 +102,9 @@ objc2-foundation = { version = "0.2", default-features = false, features = ["std
 winit = { version = "0.30", default-features = false }
 windows-sys = "0.61"
 toml = "1"
+# The exports of other programs' conversations; deflate alone, on the
+# zlib-rs flate2 already uses.
+zip = { version = "9.5", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 # The desktop portal, asked whether the computer is light or dark.
 zbus = { version = "6", default-features = false, features = ["tokio", "proxy"] }
 

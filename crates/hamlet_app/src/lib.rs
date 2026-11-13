@@ -21,6 +21,7 @@ mod markdown;
 pub mod menu;
 pub mod models;
 mod naming;
+mod reference;
 mod remember;
 mod roll;
 mod root;

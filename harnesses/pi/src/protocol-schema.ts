@@ -262,6 +262,93 @@ export const schema = {
             ],
             "type": "string"
         },
+        "Earlier": {
+            "description": "An entry a created conversation begins with. Times are\nmilliseconds since the epoch.",
+            "oneOf": [
+                {
+                    "additionalProperties": false,
+                    "description": "A person's message, given to the model, kept with `mark`.",
+                    "properties": {
+                        "at": {
+                            "format": "uint64",
+                            "minimum": 0,
+                            "type": "integer"
+                        },
+                        "mark": {
+                            "$ref": "#/$defs/Mark"
+                        },
+                        "text": {
+                            "type": "string"
+                        },
+                        "type": {
+                            "const": "user",
+                            "type": "string"
+                        }
+                    },
+                    "required": [
+                        "type",
+                        "at",
+                        "mark",
+                        "text"
+                    ],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "description": "An answer in words, given to the model.",
+                    "properties": {
+                        "at": {
+                            "format": "uint64",
+                            "minimum": 0,
+                            "type": "integer"
+                        },
+                        "model": {
+                            "description": "The model that gave it, as its source names it.",
+                            "minLength": 1,
+                            "type": "string"
+                        },
+                        "source": {
+                            "description": "The program it came from.",
+                            "minLength": 1,
+                            "type": "string"
+                        },
+                        "text": {
+                            "type": "string"
+                        },
+                        "type": {
+                            "const": "assistant",
+                            "type": "string"
+                        }
+                    },
+                    "required": [
+                        "type",
+                        "at",
+                        "model",
+                        "source",
+                        "text"
+                    ],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "description": "An entry only people see.",
+                    "properties": {
+                        "mark": {
+                            "$ref": "#/$defs/Mark"
+                        },
+                        "type": {
+                            "const": "note",
+                            "type": "string"
+                        }
+                    },
+                    "required": [
+                        "type",
+                        "mark"
+                    ],
+                    "type": "object"
+                }
+            ]
+        },
         "Effort": {
             "description": "How hard a model thinks before it answers, where its provider\nlets it be asked.",
             "enum": [
@@ -1645,6 +1732,13 @@ export const schema = {
                             "format": "uint64",
                             "minimum": 0,
                             "type": "integer"
+                        },
+                        "earlier": {
+                            "description": "The entries it begins with, kept in order before any input,\nfor a conversation brought in from another program.",
+                            "items": {
+                                "$ref": "#/$defs/Earlier"
+                            },
+                            "type": "array"
                         },
                         "id": {
                             "minLength": 1,

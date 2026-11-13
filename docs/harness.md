@@ -70,6 +70,16 @@ forgets the failures once it has run for a minute. A runtime whose
 standard input closes stops its work and exits, so no agent runs without
 its server.
 
+### Beginning with earlier entries
+
+A `create` may carry `earlier`, the entries of a conversation brought in
+from another program (C35): the chief's messages and the answers, given
+to the model, and notes only people see. The runtime keeps them in the
+same commit that makes the conversation, answers `created`, then sends
+`kept` for each; asking again sends them again, and the server keeps each
+once. The server holds them until it has the runtime's id for the
+conversation.
+
 ### Admitting inputs
 
 The server keeps every input it owes a conversation, in order, before

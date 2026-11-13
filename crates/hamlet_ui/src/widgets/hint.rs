@@ -15,7 +15,7 @@ use bevy::ui::{
 use bevy_fynix::Prop;
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, column, label, row,
+    BehaviorExt, FrameProps, RichField, column, label, row,
 };
 
 use super::icons::{Glyph, glyph};
@@ -80,16 +80,20 @@ fn show(
     mut commands: Commands,
     fields: Query<(Entity, &ChildOf), With<Hinted>>,
     texts: Query<&EditableText>,
+    rich: Query<&RichField>,
     parents: Query<&ChildOf>,
     children: Query<&Children>,
     mut hints: Query<&mut Node, With<Hint>>,
     solid: Query<(), Without<Pickable>>,
 ) {
     for (field, holder) in &fields {
-        let empty = children
-            .iter_descendants(field)
-            .find_map(|part| texts.get(part).ok())
-            .is_none_or(|text| text.value() == "");
+        let empty = match rich.get(field) {
+            Ok(rich) => rich.is_empty(),
+            Err(_) => children
+                .iter_descendants(field)
+                .find_map(|part| texts.get(part).ok())
+                .is_none_or(|text| text.value() == ""),
+        };
         let display =
             if empty { Display::Flex } else { Display::None };
         // The field's holder and its hint are side by side.

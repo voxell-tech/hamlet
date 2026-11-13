@@ -14,6 +14,7 @@ mod documents;
 mod files;
 mod hash_id;
 mod images;
+mod imports;
 mod limits;
 mod request_id;
 mod settings;
@@ -24,6 +25,7 @@ pub use chat::*;
 pub use documents::*;
 pub use files::*;
 pub use images::*;
+pub use imports::*;
 pub use limits::*;
 pub use request_id::*;
 pub use settings::*;
@@ -45,6 +47,7 @@ impl ClientMessage {
             | Self::Rewind(Rewind { id, .. })
             | Self::New(New { id, .. })
             | Self::Resume(Resume { id, .. })
+            | Self::ImportProject(ImportProject { id, .. })
             | Self::Retry(Retry { id, .. })
             | Self::Edit(
                 Edit::Charter { id, .. }
@@ -130,6 +133,8 @@ pub enum ClientMessage {
     New(New),
     #[serde(rename = "resume")]
     Resume(Resume),
+    #[serde(rename = "import-project")]
+    ImportProject(ImportProject),
     #[serde(rename = "retry")]
     Retry(Retry),
     #[serde(rename = "edit")]
