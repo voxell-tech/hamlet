@@ -13,7 +13,5 @@
         "noEmit": true,
         "types": ["node"]
     },
-    "include": ["src", "test"],
-    // The ported pi wrapper, until it passes the checks.
-    "exclude": ["src/pi"]
+    "include": ["src", "test"]
 }
