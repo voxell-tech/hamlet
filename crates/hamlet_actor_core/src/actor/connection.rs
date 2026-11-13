@@ -177,10 +177,6 @@ impl DisconnectOnDrop {
         Self { conn: Some(conn) }
     }
 
-    #[expect(
-        dead_code,
-        reason = "ported; nothing in Hamlet calls it yet"
-    )]
     pub(crate) async fn disconnect(mut self) -> Result<()> {
         match self.conn.take() {
             Some(conn) => conn.disconnect(None).await,

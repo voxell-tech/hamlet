@@ -16,6 +16,7 @@ use super::dispatch::{
     dispatch_action_through_task, with_action_dispatch_timeout,
 };
 use crate::actor::action::ActionDispatchError;
+use crate::actor::connection::DisconnectOnDrop;
 use crate::actor::kv::LegacyActorKv;
 use crate::actor::task::{
     DispatchCommand, LifecycleCommand, try_send_lifecycle_command,
@@ -169,6 +170,7 @@ impl RunningActor {
                 Ok::<Vec<u8>, anyhow::Error>(Vec::new())
             })
             .await?;
+        let request_connection = DisconnectOnDrop::new(conn.clone());
         let result = with_action_dispatch_timeout(
             self.action_timeout,
             dispatch_action_through_task(
@@ -180,7 +182,14 @@ impl RunningActor {
             ),
         )
         .await;
-        let _ = conn.disconnect(None).await;
+        if let Err(error) = request_connection.disconnect().await {
+            tracing::warn!(
+                actor_id = self.actor_id,
+                conn_id = conn.id(),
+                ?error,
+                "failed to disconnect action connection"
+            );
+        }
         result.map_err(ActionDispatchError::into_anyhow)
     }
 
