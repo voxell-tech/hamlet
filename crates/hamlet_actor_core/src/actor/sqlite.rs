@@ -863,7 +863,11 @@ impl SqliteDb {
 
     async fn remote_exec(&self, sql: String) -> Result<QueryResult> {
         let config = self.remote_config()?;
-        config.handle.sqlite_exec(config.actor_id, sql).await
+        config
+            .handle
+            .sqlite_exec(config.actor_id, sql)
+            .await
+            .map_err(remote_request_error)
     }
 
     async fn remote_exec_with_session(
@@ -871,9 +875,12 @@ impl SqliteDb {
         sql: String,
         _expected_session: Option<u64>,
     ) -> Result<(QueryResult, u64)> {
+        let config = self.remote_config()?;
         let session =
-            self.handle()?.connection_session().unwrap_or_default();
-        Ok((self.remote_exec(sql).await?, session))
+            config.handle.connection_session().unwrap_or_default();
+        let result =
+            config.handle.sqlite_exec(config.actor_id, sql).await?;
+        Ok((result, session))
     }
 
     async fn remote_execute(
@@ -886,6 +893,7 @@ impl SqliteDb {
             .handle
             .sqlite_execute(config.actor_id, sql, params)
             .await
+            .map_err(remote_request_error)
     }
 
     async fn remote_execute_batch(
@@ -896,7 +904,8 @@ impl SqliteDb {
         let results = config
             .handle
             .sqlite_execute_batch(config.actor_id.clone(), statements)
-            .await?;
+            .await
+            .map_err(remote_request_error)?;
         config.handle.transaction_committed(&config.actor_id);
         Ok(results)
     }
@@ -907,9 +916,14 @@ impl SqliteDb {
         params: Option<Vec<BindParam>>,
         _expected_session: Option<u64>,
     ) -> Result<(ExecuteResult, u64)> {
+        let config = self.remote_config()?;
         let session =
-            self.handle()?.connection_session().unwrap_or_default();
-        Ok((self.remote_execute(sql, params).await?, session))
+            config.handle.connection_session().unwrap_or_default();
+        let result = config
+            .handle
+            .sqlite_execute(config.actor_id, sql, params)
+            .await?;
+        Ok((result, session))
     }
 
     pub(crate) async fn query_rows_cbor(

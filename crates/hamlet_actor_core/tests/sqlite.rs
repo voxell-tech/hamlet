@@ -453,6 +453,65 @@ fn remote_lost_response_errors_become_indeterminate_result() {
     assert_eq!(structured.code(), "remote_indeterminate_result");
 }
 
+// A lost response to a write outside a transaction is the same
+// structured error a transaction's statement gets.
+#[tokio::test]
+async fn lost_response_outside_a_transaction_is_indeterminate() {
+    let (handle, mut envoy_rx) = test_envoy_handle();
+    let db = SqliteDb::new_with_remote_sqlite(
+        handle,
+        "actor-a",
+        None,
+        Some(7),
+        true,
+        true,
+    )
+    .expect("test remote sqlite should be configured");
+    let lost = || {
+        Err(anyhow::anyhow!(RemoteSqliteIndeterminateResultError {
+            operation: "execute",
+        }))
+    };
+
+    let execute = tokio::spawn({
+        let db = db.clone();
+        async move { db.execute("UPDATE t SET v = 1", None).await }
+    });
+    receive_execute(&mut envoy_rx, "UPDATE t SET v = 1")
+        .await
+        .send(lost())
+        .expect("execute requester dropped response");
+    let error = execute.await.unwrap().unwrap_err();
+    assert_eq!(
+        ActorError::extract(&error).code(),
+        "remote_indeterminate_result"
+    );
+
+    let batch = tokio::spawn({
+        let db = db.clone();
+        async move {
+            db.execute_batch(vec![SqliteBatchStatement {
+                sql: "UPDATE t SET v = 2".to_owned(),
+                params: None,
+            }])
+            .await
+        }
+    });
+    let (_, response_tx) = receive_execute_batch(&mut envoy_rx).await;
+    response_tx
+        .send(Err(anyhow::anyhow!(
+            RemoteSqliteIndeterminateResultError {
+                operation: "execute_batch",
+            }
+        )))
+        .expect("batch requester dropped response");
+    let error = batch.await.unwrap().unwrap_err();
+    assert_eq!(
+        ActorError::extract(&error).code(),
+        "remote_indeterminate_result"
+    );
+}
+
 #[tokio::test]
 async fn remote_execute_logs_operation_context_at_source() {
     let (handle, envoy_rx) = test_envoy_handle();
