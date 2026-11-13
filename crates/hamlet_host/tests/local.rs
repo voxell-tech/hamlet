@@ -709,31 +709,54 @@ async fn an_ended_generation_cannot_write_to_the_next() {
     host.shutdown().await.unwrap();
 }
 
-/// A transaction an ended generation left open expires after the next
-/// generation started. Its rollback fails on the ended generation's
-/// closed file, and the core reports that as a crash of the ended
-/// generation, which must not stop the next one.
-#[tokio::test(flavor = "multi_thread")]
-async fn an_ended_generations_crash_does_not_stop_the_next() {
+/// A transaction an ended generation left open expires after the
+/// actor's next generation started. Its rollback fails on the ended
+/// generation's closed file, and the core reports that as a crash of
+/// the ended generation, which must not stop the actor. If
+/// `made_again`, the actor is destroyed and its key made again before
+/// that: the new file counts its generations from the start again.
+async fn an_ended_generations_crash_leaves_the_actor_running(
+    made_again: bool,
+) {
+    /// How long the leaked transaction lives.
+    const LEAK: Duration = Duration::from_millis(1500);
     let dir = Scratch::new("host-ended-crash");
     let contexts = Contexts::default();
     let host = Host::open(&dir, keeper(&contexts)).unwrap();
     let id = host.get_or_start("keeper", "t").await.unwrap();
     let ended = contexts.lock()[0].clone();
-    let leaked = ended
-        .sql()
-        .begin_transaction(Some(Duration::from_millis(500)))
-        .await
-        .unwrap();
+    let leaked_at = tokio::time::Instant::now();
+    let leaked =
+        ended.sql().begin_transaction(Some(LEAK)).await.unwrap();
     host.stop(&id, ShutdownKind::Sleep).await.unwrap();
     host.get_or_start("keeper", "t").await.unwrap();
+    if made_again {
+        host.stop(&id, ShutdownKind::Destroy).await.unwrap();
+        host.get_or_start("keeper", "t").await.unwrap();
+    }
+    assert_eq!(call(&host, &id, "count").await, 0);
+    assert!(
+        leaked_at.elapsed() < LEAK,
+        "the transaction expired before the actor started again"
+    );
 
-    tokio::time::sleep(Duration::from_millis(1000)).await;
+    tokio::time::sleep_until(leaked_at + LEAK + PROMPT / 2).await;
     assert!(leaked.rollback().await.is_err(), "it never expired");
     tokio::time::sleep(Duration::from_millis(300)).await;
-    assert!(host.is_running(&id));
+    assert!(host.is_running(&id), "the ended generation stopped it");
     assert_eq!(call(&host, &id, "count").await, 0);
     host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_ended_generations_crash_does_not_stop_the_next() {
+    an_ended_generations_crash_leaves_the_actor_running(false).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_ended_generations_crash_does_not_stop_its_key_made_again()
+{
+    an_ended_generations_crash_leaves_the_actor_running(true).await;
 }
 
 /// A destroy asked while the actor's sleep stop waits for an action

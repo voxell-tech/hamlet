@@ -82,7 +82,6 @@ const ACTOR_TABLE: &str = "CREATE TABLE IF NOT EXISTS _hamlet_actor \
 /// | `Stopped` | `get_or_start` or a call, the host not shut | `Starting`, its timer aborted |
 /// | `Stopped` | its timer fires with the deadline the state holds | `Starting`, from the file it has |
 /// | `Stopped` | `Host::shutdown` | absent, its timer aborted |
-/// | `Starting` | the start transaction ran | `Starting`, with its generation |
 /// | `Starting` | its generation asks to sleep or to be destroyed, or reports a crash | `Starting`, with the request kept; a destroy wins over a sleep |
 /// | `Starting` | the start ended well | `Running`, or `Stopping` or `Destroying` for a kept request |
 /// | `Starting` | the start failed or panicked | absent |
@@ -108,11 +107,11 @@ enum Life {
         wake_at: i64,
         timer: AbortHandle,
     },
-    /// Opening the file and starting the core. `generation` is set
-    /// once the start transaction has raised it; `request` is a stop
-    /// that generation asked for before its start ended.
+    /// Opening the file and starting the core. `generation` is the id
+    /// of the generation it starts; `request` is a stop that
+    /// generation asked for before its start ended.
     Starting {
-        generation: Option<u32>,
+        generation: u64,
         request: Option<ShutdownKind>,
         ready: watch::Receiver<()>,
     },
@@ -141,15 +140,13 @@ impl Life {
         }
     }
 
-    /// Whether the state belongs to generation `number`.
-    fn is_generation(&self, number: u32) -> bool {
+    /// Whether the state belongs to the generation of id `id`.
+    fn is_generation(&self, id: u64) -> bool {
         match self {
-            Self::Starting { generation, .. } => {
-                *generation == Some(number)
-            }
-            _ => self.loaded().is_some_and(|generation| {
-                generation.number == number
-            }),
+            Self::Starting { generation, .. } => *generation == id,
+            _ => self
+                .loaded()
+                .is_some_and(|generation| generation.id == id),
         }
     }
 
@@ -168,7 +165,11 @@ impl Life {
 /// One start of an actor, from its start transaction until its stop
 /// closed the file.
 struct Generation {
-    number: u32,
+    /// No other generation of this host has this id. The file counts
+    /// its own generations for the core, and a key destroyed and
+    /// made again counts from 1 again, so the host never compares
+    /// that count.
+    id: u64,
     actor: RunningActor,
     file: PlainSqlite,
     /// The last alarm the core pushed in this generation, `None`
@@ -203,15 +204,6 @@ impl Owned {
         life.waiters().is_some_and(|waiters| {
             waiters.same_channel(&self.waiters)
         })
-    }
-
-    /// The `Starting` state of the start this guard owns.
-    fn starting(&self) -> Life {
-        Life::Starting {
-            generation: None,
-            request: None,
-            ready: self.waiters.clone(),
-        }
     }
 }
 
@@ -342,23 +334,45 @@ struct Actors {
     /// Set by [`Host::shutdown`]. From then on no transition adds a
     /// state: the host starts no actor and arms no timer.
     shut: bool,
+    /// How many generations this host has begun to start. The last
+    /// one's id is this count. A generation's handle reaches only
+    /// the host that started it, so another host's ids may repeat
+    /// these.
+    generations: u64,
+}
+
+impl Actors {
+    /// Makes the actor `Starting`, for the start that `owned` runs,
+    /// with a new generation id. Returns the id and the state it
+    /// replaced.
+    fn begin_start(&mut self, owned: &Owned) -> (u64, Option<Life>) {
+        self.generations += 1;
+        let replaced = self.lives.insert(
+            owned.actor_id.clone(),
+            Life::Starting {
+                generation: self.generations,
+                request: None,
+                ready: owned.waiters.clone(),
+            },
+        );
+        (self.generations, replaced)
+    }
 }
 
 impl HostInner {
-    /// Asks the actor to stop: generation `generation` when the actor
-    /// asks, whichever generation runs when the host asks. Makes the
-    /// transition, and returns the stop to run if one begins.
+    /// Asks the actor to stop: the generation of id `generation` when
+    /// the actor asks, whichever generation runs when the host asks.
+    /// Makes the transition, and returns the stop to run if one
+    /// begins.
     fn ask_stop(
         self: &Arc<Self>,
         actor_id: &str,
-        generation: Option<u32>,
+        generation: Option<u64>,
         reason: ShutdownKind,
     ) -> Option<Stop> {
         let mut actors = self.actors.lock();
         let life = actors.lives.get_mut(actor_id)?;
-        if generation
-            .is_some_and(|number| !life.is_generation(number))
-        {
+        if generation.is_some_and(|id| !life.is_generation(id)) {
             return None;
         }
         match life {
@@ -422,7 +436,8 @@ pub struct Host(Arc<HostInner>);
 struct LocalHandle {
     host: Weak<HostInner>,
     actor_id: String,
-    generation: u32,
+    /// The generation's id, as [`Generation::id`].
+    generation: u64,
     file: PlainSqlite,
     alarm: Arc<Mutex<Option<i64>>>,
 }
@@ -459,6 +474,7 @@ impl Host {
             actors: Mutex::new(Actors {
                 lives: HashMap::new(),
                 shut: false,
+                generations: 0,
             }),
             session: watch::Sender::new(LOCAL_SESSION),
             commits: broadcast::channel(64).0,
@@ -689,7 +705,7 @@ impl Host {
     ) -> Result<Arc<Generation>> {
         enum Next {
             Wait(watch::Receiver<()>),
-            Start(Owned),
+            Start(Owned, u64),
         }
         loop {
             let next = {
@@ -716,15 +732,14 @@ impl Host {
                                 .context("the host has shut down"));
                         }
                         let owned = Owned::new(&self.0, actor_id);
+                        let (generation, replaced) =
+                            actors.begin_start(&owned);
                         if let Some(Life::Stopped { timer, .. }) =
-                            actors.lives.insert(
-                                actor_id.to_owned(),
-                                owned.starting(),
-                            )
+                            replaced
                         {
                             timer.abort();
                         }
-                        Next::Start(owned)
+                        Next::Start(owned, generation)
                     }
                 }
             };
@@ -732,9 +747,11 @@ impl Host {
                 Next::Wait(mut waiters) => {
                     let _ = waiters.changed().await;
                 }
-                Next::Start(owned) => {
-                    return tokio::spawn(start_actor(owned, create))
-                        .await?;
+                Next::Start(owned, generation) => {
+                    return tokio::spawn(start_actor(
+                        owned, generation, create,
+                    ))
+                    .await?;
                 }
             }
         }
@@ -909,7 +926,7 @@ async fn wake(
     actor_id: &str,
     wake_at: i64,
 ) -> Result<bool> {
-    let owned = {
+    let (owned, generation) = {
         let mut actors = host.actors.lock();
         if !matches!(
             actors.lives.get(actor_id),
@@ -921,11 +938,11 @@ async fn wake(
         let owned = Owned::new(host, actor_id);
         // Replaces the state that holds this timer's own handle;
         // dropping a handle does not abort its task.
-        actors.lives.insert(actor_id.to_owned(), owned.starting());
-        owned
+        let (generation, _) = actors.begin_start(&owned);
+        (owned, generation)
     };
     crate::fault::point("timer-fired");
-    start_actor(owned, false).await.map(|_| true)
+    start_actor(owned, generation, false).await.map(|_| true)
 }
 
 /// The id of the actor of `kind` and `key`, which names its file.
@@ -997,12 +1014,14 @@ fn bump_generation(
     Ok((generation, first))
 }
 
-/// Starts the actor that `owned` holds as `Starting`: opens its file,
-/// made first if `create`, off the async runtime, starts its core,
-/// and makes it `Running`, or begins the stop its generation asked
-/// for meanwhile. Returns the generation it started.
+/// Starts the actor that `owned` holds as `Starting`, as the
+/// generation of id `id`: opens its file, made first if `create`, off
+/// the async runtime, starts its core, and makes it `Running`, or
+/// begins the stop its generation asked for meanwhile. Returns the
+/// generation it started.
 async fn start_actor(
     owned: Owned,
+    id: u64,
     create: bool,
 ) -> Result<Arc<Generation>> {
     let host = owned.host.clone();
@@ -1018,11 +1037,6 @@ async fn start_actor(
         move || open_actor_file(&dir, &kind, &key, create)
     })
     .await??;
-    if let Some(Life::Starting { generation, .. }) =
-        host.actors.lock().lives.get_mut(&actor_id)
-    {
-        *generation = Some(number);
-    }
     let alarm = Arc::new(Mutex::new(None));
     let started = RunningActor::start(StartRequest {
         actor_id: actor_id.clone(),
@@ -1033,7 +1047,7 @@ async fn start_actor(
         handle: Arc::new(LocalHandle {
             host: Arc::downgrade(&host),
             actor_id: actor_id.clone(),
-            generation: number,
+            generation: id,
             file: file.clone(),
             alarm: alarm.clone(),
         }),
@@ -1052,7 +1066,7 @@ async fn start_actor(
         }
     };
     let generation = Arc::new(Generation {
-        number,
+        id,
         actor,
         file,
         alarm,
@@ -1294,10 +1308,14 @@ mod tests {
     }
 
     /// The core of an ended generation keeps its handle. Through it,
-    /// that generation can neither stop nor destroy the actor's next
-    /// generation, give it an alarm, nor reach its file.
-    #[tokio::test(flavor = "multi_thread")]
-    async fn an_ended_generations_handle_reaches_nothing() {
+    /// that generation can neither stop nor destroy the actor's
+    /// running generation, give it an alarm, nor reach its file. If
+    /// `made_again`, the actor is destroyed and its key made again
+    /// first: the new file counts its generations from the start
+    /// again.
+    async fn an_ended_generations_handle_reaches_nothing(
+        made_again: bool,
+    ) {
         let dir = Scratch::new("host-ended-handle");
         let host = Host::open(
             &dir,
@@ -1305,19 +1323,26 @@ mod tests {
         )
         .unwrap();
         let id = host.get_or_start("counter", "a").await.unwrap();
+        let running = || {
+            host.0.actors.lock().lives[&id].loaded().unwrap().clone()
+        };
         let ended = {
-            let actors = host.0.actors.lock();
-            let generation = actors.lives[&id].loaded().unwrap();
+            let generation = running();
             LocalHandle {
                 host: Arc::downgrade(&host.0),
                 actor_id: id.clone(),
-                generation: generation.number,
+                generation: generation.id,
                 file: generation.file.clone(),
                 alarm: generation.alarm.clone(),
             }
         };
         host.stop(&id, ShutdownKind::Sleep).await.unwrap();
         host.get_or_start("counter", "a").await.unwrap();
+        if made_again {
+            host.stop(&id, ShutdownKind::Destroy).await.unwrap();
+            host.get_or_start("counter", "a").await.unwrap();
+        }
+        let next = running();
         let counter_a = Address::new("counter", "a");
         let call = |name: &'static str| {
             host.call(
@@ -1357,11 +1382,23 @@ mod tests {
         assert!(matches!(
             host.0.actors.lock().lives.get(&id),
             Some(Life::Running(generation))
-                if generation.number == 2
+                if Arc::ptr_eq(generation, &next)
                     && generation.alarm.lock().is_none()
         ));
         let reply = call("get").await.unwrap();
         assert_eq!(counter::count(reply).unwrap(), 1);
         host.shutdown().await.unwrap();
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn an_ended_generations_handle_reaches_nothing_of_the_next()
+    {
+        an_ended_generations_handle_reaches_nothing(false).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn an_ended_generations_handle_reaches_nothing_of_its_key_made_again()
+     {
+        an_ended_generations_handle_reaches_nothing(true).await;
     }
 }
