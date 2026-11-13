@@ -28,6 +28,16 @@ use crate::society::{authority, hamlets};
 /// The variable that names the `openvscode-server` script to run.
 pub(crate) const PROGRAM: &str = "HAMLET_WEB_IDE";
 
+/// The variable that names a folder of extensions to give every web
+/// IDE, such as the viewers for PDF and slides.
+pub(crate) const EXTENSIONS: &str = "HAMLET_WEB_IDE_EXTENSIONS";
+
+/// The settings every web IDE starts with: an explorer and an
+/// editor, without the chat, git, debug and the like. They go where
+/// the server keeps its machine's settings, since the browser keeps
+/// the user's own.
+const SETTINGS: &str = include_str!("web_ide/settings.json");
+
 /// How long a server may take to listen after it starts.
 const LISTEN_WITHIN: Duration = Duration::from_secs(20);
 
@@ -179,12 +189,19 @@ fn start(
     std::fs::write(&token_file, &token).map_err(|error| {
         format!("The web IDE's token could not be written: {error}")
     })?;
+    let (data, extensions) =
+        (tmp.join("data"), tmp.join("extensions"));
+    prepare(&data, &extensions).map_err(|error| {
+        format!(
+            "The web IDE's settings could not be written: {error}"
+        )
+    })?;
     let confined = env.confine(&arguments(
         program,
         port,
         &token_file,
-        &tmp.join("data"),
-        &tmp.join("extensions"),
+        &data,
+        &extensions,
     ));
     let (mut tree, stdout, stderr) = Tree::spawn(
         Command {
@@ -218,6 +235,41 @@ fn start(
         task,
         _env: env,
     })
+}
+
+/// Writes the settings into `data` and copies the
+/// extensions to give into `extensions`, which the server may write.
+fn prepare(data: &Path, extensions: &Path) -> std::io::Result<()> {
+    let machine = data.join("Machine");
+    std::fs::create_dir_all(&machine)?;
+    std::fs::write(machine.join("settings.json"), SETTINGS)?;
+    std::fs::create_dir_all(extensions)?;
+    if let Some(from) = std::env::var_os(EXTENSIONS) {
+        copy_all(Path::new(&from), extensions)?;
+    }
+    Ok(())
+}
+
+/// Copies the files and folders in `from` into `to`. The server's
+/// list of extensions holds their places, which it is given anew.
+fn copy_all(from: &Path, to: &Path) -> std::io::Result<()> {
+    for entry in std::fs::read_dir(from)? {
+        let entry = entry?;
+        let target = to.join(entry.file_name());
+        if entry.file_type()?.is_dir() {
+            std::fs::create_dir_all(&target)?;
+            copy_all(&entry.path(), &target)?;
+        } else if entry.file_name() == "extensions.json" {
+            let list = std::fs::read_to_string(entry.path())?;
+            std::fs::write(
+                target,
+                list.replace(&text(from), &text(to)),
+            )?;
+        } else {
+            std::fs::copy(entry.path(), target)?;
+        }
+    }
+    Ok(())
 }
 
 /// The command line of a server on `port`.
