@@ -15,7 +15,7 @@
 //! Each actor's place in its lifecycle is one [`Life`] in the host's
 //! map. One actor's start or stop waits only on that actor's work. A
 //! shutdown stops every actor at once, and the host starts none after
-//! it.
+//! it, nor after its last [`Host`] is dropped.
 
 use std::collections::HashMap;
 use std::fs::{File, TryLockError};
@@ -81,7 +81,7 @@ const ACTOR_TABLE: &str = "CREATE TABLE IF NOT EXISTS _hamlet_actor \
 /// | absent | boot finds a deadline in its file, the host not shut | `Stopped` |
 /// | `Stopped` | `get_or_start` or a call, the host not shut | `Starting`, its timer aborted |
 /// | `Stopped` | its timer fires with the deadline the state holds | `Starting`, from the file it has |
-/// | `Stopped` | `Host::shutdown` | absent, its timer aborted |
+/// | `Stopped` | `Host::shutdown`, or the last `Host` dropped | absent, its timer aborted |
 /// | `Starting` | its generation asks to sleep or to be destroyed, or reports a crash | `Starting`, with the request kept; a destroy wins over a sleep |
 /// | `Starting` | the start ended well | `Running`, or `Stopping` or `Destroying` for a kept request |
 /// | `Starting` | the start failed or panicked | absent |
@@ -331,8 +331,9 @@ struct HostInner {
 struct Actors {
     /// Each actor that is not stopped with no deadline, by id.
     lives: HashMap<String, Life>,
-    /// Set by [`Host::shutdown`]. From then on no transition adds a
-    /// state: the host starts no actor and arms no timer.
+    /// Set by [`Host::shutdown`], or when the last [`Host`] drops.
+    /// From then on no transition adds a state: the host starts no
+    /// actor and arms no timer.
     shut: bool,
     /// How many generations this host has begun to start. The last
     /// one's id is this count. A generation's handle reaches only
@@ -342,20 +343,43 @@ struct Actors {
 }
 
 impl Actors {
-    /// Makes the actor `Starting`, for the start that `owned` runs,
-    /// with a new generation id. Returns the id and the state it
-    /// replaced.
-    fn begin_start(&mut self, owned: &Owned) -> (u64, Option<Life>) {
+    /// Makes the actor `Starting`, with a new generation id, for a
+    /// start to run with the returned [`Owned`]. Returns the id and
+    /// the state it replaced. Fails in a host that has shut down.
+    fn begin_start(
+        &mut self,
+        host: &Arc<HostInner>,
+        actor_id: &str,
+    ) -> Result<(Owned, u64, Option<Life>)> {
+        if self.shut {
+            return Err(ActorLifecycle::Stopping
+                .build()
+                .context("the host has shut down"));
+        }
+        let owned = Owned::new(host, actor_id);
         self.generations += 1;
         let replaced = self.lives.insert(
-            owned.actor_id.clone(),
+            actor_id.to_owned(),
             Life::Starting {
                 generation: self.generations,
                 request: None,
                 ready: owned.waiters.clone(),
             },
         );
-        (self.generations, replaced)
+        Ok((owned, self.generations, replaced))
+    }
+
+    /// Shuts the host: sets `shut`, and removes every `Stopped`
+    /// state, its timer aborted.
+    fn shut_down(&mut self) {
+        self.shut = true;
+        self.lives.retain(|_, life| {
+            let Life::Stopped { timer, .. } = life else {
+                return true;
+            };
+            timer.abort();
+            false
+        });
     }
 }
 
@@ -425,9 +449,23 @@ fn stopping(
     }
 }
 
-/// The actors of one realm folder, run in this process.
+/// The actors of one realm folder, run in this process. When the last
+/// clone drops, the host starts no actor again, as after
+/// [`Host::shutdown`], and cancels the timers of stopped actors;
+/// their deadlines stay in their files for the next boot. Starts and
+/// stops under way end on their own, without a `Host`.
 #[derive(Clone)]
-pub struct Host(Arc<HostInner>);
+pub struct Host(Arc<Handle>);
+
+/// What the clones of one [`Host`] share. The host's own tasks hold
+/// its [`HostInner`] alone, so this drops with the last `Host`.
+struct Handle(Arc<HostInner>);
+
+impl Drop for Handle {
+    fn drop(&mut self) {
+        self.0.actors.lock().shut_down();
+    }
+}
 
 /// The core's handle on the host for one generation of one actor. It
 /// reaches only that generation: its SQL goes to the generation's own
@@ -467,7 +505,7 @@ impl Host {
                 });
             }
         }
-        Ok(Self(Arc::new(HostInner {
+        Ok(Self(Arc::new(Handle(Arc::new(HostInner {
             dir: dir.to_owned(),
             _lock: lock,
             directory: Directory::local(factories),
@@ -478,7 +516,12 @@ impl Host {
             }),
             session: watch::Sender::new(LOCAL_SESSION),
             commits: broadcast::channel(64).0,
-        })))
+        })))))
+    }
+
+    /// The host that every clone of this `Host` reaches.
+    fn inner(&self) -> &Arc<HostInner> {
+        &self.0.0
     }
 
     /// Reads every actor file's row. Starts again each actor whose
@@ -509,11 +552,11 @@ impl Host {
             let Some(wake_at) = stored.wake_at else {
                 continue;
             };
-            let mut actors = self.0.actors.lock();
+            let mut actors = self.inner().actors.lock();
             if actors.shut || actors.lives.contains_key(&actor_id) {
                 continue;
             }
-            let timer = arm(&self.0, &actor_id, wake_at);
+            let timer = arm(self.inner(), &actor_id, wake_at);
             actors.lives.insert(
                 actor_id.clone(),
                 Life::Stopped {
@@ -586,14 +629,14 @@ impl Host {
     /// The id of the actor of `kind` and `key`. Fails for a kind the
     /// directory does not hold, before anything reaches the folder.
     fn located(&self, kind: &str, key: &str) -> Result<String> {
-        let Place::Local(_) = self.0.directory.place(kind)?;
+        let Place::Local(_) = self.inner().directory.place(kind)?;
         actor_id(kind, key)
     }
 
     /// Whether the actor holds its file: from the end of its start
     /// until its stop closed the file.
     pub fn is_running(&self, actor_id: &str) -> bool {
-        self.0
+        self.inner()
             .actors
             .lock()
             .lives
@@ -603,7 +646,7 @@ impl Host {
 
     /// Follows the actors whose transactions commit, by id.
     pub fn commits(&self) -> broadcast::Receiver<String> {
-        self.0.commits.subscribe()
+        self.inner().commits.subscribe()
     }
 
     /// Stops the actor and closes its file, or removes it for a
@@ -616,14 +659,14 @@ impl Host {
         actor_id: &str,
         reason: ShutdownKind,
     ) -> Result<()> {
+        let host = self.inner();
         loop {
-            if let Some(stop) =
-                self.0.ask_stop(actor_id, None, reason)
+            if let Some(stop) = host.ask_stop(actor_id, None, reason)
             {
                 return tokio::spawn(stop.run()).await?;
             }
             let (mut waiters, starting) =
-                match self.0.actors.lock().lives.get(actor_id) {
+                match host.actors.lock().lives.get(actor_id) {
                     None | Some(Life::Stopped { .. }) => {
                         return Ok(());
                     }
@@ -653,15 +696,8 @@ impl Host {
     /// actor whose stop failed.
     pub async fn shutdown(&self) -> Result<()> {
         let ids: Vec<String> = {
-            let mut actors = self.0.actors.lock();
-            actors.shut = true;
-            actors.lives.retain(|_, life| {
-                let Life::Stopped { timer, .. } = life else {
-                    return true;
-                };
-                timer.abort();
-                false
-            });
+            let mut actors = self.inner().actors.lock();
+            actors.shut_down();
             actors.lives.keys().cloned().collect()
         };
         let stops: Vec<_> = ids
@@ -709,7 +745,7 @@ impl Host {
         }
         loop {
             let next = {
-                let mut actors = self.0.actors.lock();
+                let mut actors = self.inner().actors.lock();
                 match actors.lives.get(actor_id) {
                     Some(Life::Running(generation)) => {
                         return Ok(generation.clone());
@@ -726,14 +762,8 @@ impl Host {
                         | Life::Stopping { done: waiters, .. },
                     ) => Next::Wait(waiters.clone()),
                     Some(Life::Stopped { .. }) | None => {
-                        if actors.shut {
-                            return Err(ActorLifecycle::Stopping
-                                .build()
-                                .context("the host has shut down"));
-                        }
-                        let owned = Owned::new(&self.0, actor_id);
-                        let (generation, replaced) =
-                            actors.begin_start(&owned);
+                        let (owned, generation, replaced) = actors
+                            .begin_start(self.inner(), actor_id)?;
                         if let Some(Life::Stopped { timer, .. }) =
                             replaced
                         {
@@ -762,7 +792,7 @@ impl Host {
     /// its file anew.
     fn stored_actors(&self) -> Result<Vec<StoredActor>> {
         let mut stored = Vec::new();
-        let actors = self.0.dir.join("actors");
+        let actors = self.inner().dir.join("actors");
         for kind in std::fs::read_dir(&actors)? {
             let kind = kind?;
             if !kind.file_type()?.is_dir() {
@@ -935,10 +965,10 @@ async fn wake(
         ) {
             return Ok(false);
         }
-        let owned = Owned::new(host, actor_id);
         // Replaces the state that holds this timer's own handle;
         // dropping a handle does not abort its task.
-        let (generation, _) = actors.begin_start(&owned);
+        let (owned, generation, _) =
+            actors.begin_start(host, actor_id)?;
         (owned, generation)
     };
     crate::fault::point("timer-fired");
@@ -1287,7 +1317,7 @@ mod tests {
         let id = host.get_or_start("waker", "a").await.unwrap();
         host.stop(&id, ShutdownKind::Sleep).await.unwrap();
         assert!(matches!(
-            host.0.actors.lock().lives.get(&id),
+            host.inner().actors.lock().lives.get(&id),
             Some(Life::Stopped { wake_at: stopped, .. })
                 if *stopped == wake_at
         ));
@@ -1314,12 +1344,15 @@ mod tests {
         .unwrap();
         let id = host.get_or_start("counter", "a").await.unwrap();
         let running = || {
-            host.0.actors.lock().lives[&id].loaded().unwrap().clone()
+            host.inner().actors.lock().lives[&id]
+                .loaded()
+                .unwrap()
+                .clone()
         };
         let ended = {
             let generation = running();
             LocalHandle {
-                host: Arc::downgrade(&host.0),
+                host: Arc::downgrade(host.inner()),
                 actor_id: id.clone(),
                 generation: generation.id,
                 file: generation.file.clone(),
@@ -1370,7 +1403,7 @@ mod tests {
         );
 
         assert!(matches!(
-            host.0.actors.lock().lives.get(&id),
+            host.inner().actors.lock().lives.get(&id),
             Some(Life::Running(generation))
                 if Arc::ptr_eq(generation, &next)
                     && generation.alarm.lock().is_none()

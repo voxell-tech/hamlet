@@ -1142,3 +1142,57 @@ async fn a_second_host_opens_the_folder_at_once_after_a_shutdown() {
         );
     }
 }
+
+/// Once the last `Host` is dropped, the host starts no actor, though
+/// a stop it began still runs and keeps the rest of it alive: here a
+/// stop of `slow/y`, which waits for a nap, while the timer of
+/// `counter/x` comes due. `x`'s deadline stays in its file, and the
+/// next host's boot runs it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_dropped_host_starts_nothing() {
+    let dir = Scratch::new("host-dropped");
+    let host = Host::open(&dir, with_nappers()).unwrap();
+    let x = host.get_or_start("counter", "x").await.unwrap();
+    let due = 1_000u64.to_le_bytes().to_vec();
+    call_with(&host, &x, "schedule", due).await;
+    host.stop(&x, ShutdownKind::Sleep).await.unwrap();
+    let y = host.get_or_start("slow", "y").await.unwrap();
+    // The nap, and the stop that waits for it, go on without their
+    // callers.
+    let short = Duration::from_millis(100);
+    let nap = act(&host, &y, "nap", Vec::new());
+    assert!(tokio::time::timeout(short, nap).await.is_err());
+    let stop = host.stop(&y, ShutdownKind::Sleep);
+    assert!(tokio::time::timeout(short, stop).await.is_err());
+    drop(host);
+
+    tokio::time::sleep(Duration::from_millis(1_500)).await;
+    assert_eq!(
+        probe(&dir, "counter", "x")
+            .map_err(|error| error.to_string()),
+        Ok(1),
+        "a timer started counter/x after its host was dropped"
+    );
+    let deadline =
+        tokio::time::Instant::now() + Duration::from_secs(10);
+    let again = loop {
+        match Host::open(&dir, with_nappers()) {
+            Ok(again) => break again,
+            Err(error) => {
+                assert!(
+                    tokio::time::Instant::now() < deadline,
+                    "the stop of slow/y never let the folder go: \
+                     {error:#}"
+                );
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+        }
+    };
+    assert_eq!(again.boot().await.unwrap(), std::slice::from_ref(&x));
+    while call(&again, &x, "get").await != 1 {
+        assert!(tokio::time::Instant::now() < deadline);
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    again.shutdown().await.unwrap();
+    assert_eq!(probe(&dir, "slow", "y").unwrap(), 1);
+}
