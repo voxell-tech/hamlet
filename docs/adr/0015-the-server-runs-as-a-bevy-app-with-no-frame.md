@@ -56,11 +56,11 @@ matched every message: it is what the server was, and adding a feature
 meant editing central matches. Mirroring rows as entities: an entity is
 updated only after the commit, so a decision read from it inside a
 transaction can contradict what the transaction already wrote. The
-requests in flight to a runtime and the conversations in memory as
-entities of their own: a spawned entity appears only once its input's
-commands apply, so the input that sends a request or loads a
-conversation could not reach it; the requests are a component of their
-runtime's entity, and the conversations a resource. Bevy's assets for
+conversations in memory as entities of their own: a spawned entity
+appears only once its input's commands apply, so the input that loads
+a conversation could not reach it; the conversations are a resource.
+The lines to a runtime are entities, since no input reads back one it
+sent: a reply finds its request among those sent before. Bevy's assets for
 the tools added by hand: its loader and its file watcher are read by
 frame schedules, so the server would have to tick; a watcher of its own
 wakes the runner instead.

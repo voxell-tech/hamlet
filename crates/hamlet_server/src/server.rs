@@ -47,7 +47,7 @@ use crate::realm::Realm;
 use crate::society::agents;
 use crate::talk::follow::follow;
 use crate::talk::process::{Pi, Received};
-use crate::talk::runtimes::{self, Harness};
+use crate::talk::runtimes::{self, Harness, Runtimes};
 use crate::talk::sync::Fitted;
 use crate::talk::{Env, heard, inputs};
 use crate::work::added;
@@ -656,9 +656,15 @@ impl Server {
             let mut core = self.core()?;
             core.providers.close_all();
             core.send_providers()?;
-            // No input follows to deliver them.
-            core.runtimes.deliver();
         }
+        // No input follows to deliver them.
+        let world = self.app.world_mut();
+        self.core.apply(world);
+        world
+            .run_system_cached(|mut runtimes: Runtimes| {
+                runtimes.deliver();
+            })
+            .map_err(|error| anyhow::anyhow!("{error}"))?;
         let deadline = Instant::now() + grace;
         while self.core()?.leases.is_holding()
             && Instant::now() < deadline

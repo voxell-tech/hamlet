@@ -2,12 +2,12 @@
 //! refused at their hello, started again after a failure (S22, S24),
 //! and the requests in flight to each.
 
-use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use bevy_ecs::component::Component;
 use bevy_ecs::entity::Entity;
+use bevy_ecs::relationship::RelationshipTarget;
 use bevy_ecs::resource::Resource;
 use bevy_ecs::system::{Commands, Query, ResMut, SystemParam};
 use diesel::prelude::*;
@@ -79,7 +79,6 @@ pub(crate) enum Phase {
 
 /// A runtime of the harness, an entity from its first start.
 #[derive(Component)]
-#[require(InFlight)]
 pub(crate) struct Runtime {
     pub id: String,
     pub phase: Phase,
@@ -90,12 +89,31 @@ pub(crate) struct Runtime {
     again_at: Option<Instant>,
 }
 
-/// The requests in flight to a runtime, by id, until their replies.
-/// A component of the runtime, not entities of their own: the input
-/// that sends one sees it at once, where a spawned entity would wait
-/// for the input's end.
-#[derive(Component, Default)]
-pub(crate) struct InFlight(HashMap<String, Pending>);
+/// A line to a runtime, an entity from the input that sends it until
+/// it is written, and a request's until its reply. It appears once
+/// the input's commands apply: no input reads back a line it sent.
+#[derive(Component)]
+pub(crate) struct Line {
+    /// The count of lines sent before it and with it, which is the
+    /// order they are written in.
+    number: u64,
+    id: String,
+    /// The line's text, until it is written once the input is kept.
+    text: Option<String>,
+    /// What a request's reply answers, until it comes.
+    pending: Option<Pending>,
+}
+
+/// The runtime a line goes to.
+#[derive(Component)]
+#[relationship(relationship_target = Lines)]
+pub(crate) struct LineTo(pub Entity);
+
+/// The lines to a runtime not written or not answered yet, which go
+/// with it.
+#[derive(Component)]
+#[relationship_target(relationship = LineTo, linked_spawn)]
+pub(crate) struct Lines(Vec<Entity>);
 
 /// The purpose of a request to a runtime, kept until its reply.
 #[derive(Clone, Debug, PartialEq)]
@@ -107,25 +125,18 @@ pub(crate) enum Pending {
     Configure(ConversationId, String),
 }
 
-/// The runtimes' launch settings and the lines sent to them.
+/// The runtimes' launch settings, and the count of lines sent to
+/// them.
 #[derive(Resource)]
 pub(crate) struct Harness {
     pi: Pi,
-    next: u64,
+    sent: u64,
     lines: UnboundedSender<Received>,
-    /// The lines sent since the last delivery, by runtime and id:
-    /// they go out once the input that sent them is kept.
-    outbox: Vec<(Entity, String, String)>,
 }
 
 impl Harness {
     pub fn new(pi: Pi, lines: UnboundedSender<Received>) -> Self {
-        Self {
-            pi,
-            next: 0,
-            lines,
-            outbox: Vec::new(),
-        }
+        Self { pi, sent: 0, lines }
     }
 }
 
@@ -157,8 +168,10 @@ pub(crate) struct Runtimes<'w, 's> {
     list: Query<
         'w,
         's,
-        (Entity, &'static mut Runtime, &'static mut InFlight),
+        (Entity, &'static mut Runtime, Option<&'static Lines>),
     >,
+    lines:
+        Query<'w, 's, (Entity, &'static LineTo, &'static mut Line)>,
     commands: Commands<'w, 's>,
 }
 
@@ -347,15 +360,14 @@ impl Runtimes<'_, '_> {
         Ok((adapter.unwrap_or_default(), version.unwrap_or_default()))
     }
 
-    /// `runtime` stopped: its requests in flight are dropped, and it
-    /// starts again after a wait that grows with each failure.
-    pub fn failed(&mut self, runtime: Entity) {
-        let Ok((_, mut runtime, mut in_flight)) =
-            self.list.get_mut(runtime)
+    /// `runtime` stopped: its lines are dropped, and it starts again
+    /// after a wait that grows with each failure.
+    pub fn failed(&mut self, entity: Entity) {
+        let Ok((_, mut runtime, _)) = self.list.get_mut(entity)
         else {
             return;
         };
-        in_flight.0.clear();
+        self.commands.entity(entity).despawn_related::<Lines>();
         runtime.process = None;
         if matches!(runtime.phase, Phase::Refused(_)) {
             return;
@@ -380,25 +392,64 @@ impl Runtimes<'_, '_> {
         runtime: Entity,
         make: impl FnOnce(Version, String) -> ServerMessage,
     ) -> String {
-        self.harness.next += 1;
-        let id = format!("s{}", self.harness.next);
+        self.line(runtime, None, make)
+    }
+
+    /// Spawns a line to `runtime` from the message `make` builds,
+    /// awaiting a reply as `pending` when it is a request; returns
+    /// its id.
+    fn line(
+        &mut self,
+        runtime: Entity,
+        pending: Option<Pending>,
+        make: impl FnOnce(Version, String) -> ServerMessage,
+    ) -> String {
+        self.harness.sent += 1;
+        let number = self.harness.sent;
+        let id = format!("s{number}");
         let message = make(VERSION, id.clone());
-        let line = serde_json::to_string(&message)
+        let text = serde_json::to_string(&message)
             .expect("a server message is JSON");
-        self.harness.outbox.push((runtime, id.clone(), line));
+        if self.list.contains(runtime) {
+            self.commands.spawn((
+                LineTo(runtime),
+                Line {
+                    number,
+                    id: id.clone(),
+                    text: Some(text),
+                    pending,
+                },
+            ));
+        }
         id
     }
 
-    /// Writes each runtime the lines sent to it.
+    /// Writes each runtime the lines sent to it, in the order they
+    /// were sent. A line with no reply to await goes once written,
+    /// and one to a runtime with no process goes unwritten.
     pub fn deliver(&mut self) {
-        for (runtime, _, line) in
-            std::mem::take(&mut self.harness.outbox)
-        {
-            if let Ok((_, mut runtime, _)) =
+        let mut unsent = self
+            .lines
+            .iter_mut()
+            .filter_map(|(line, to, mut found)| {
+                let text = found.text.take()?;
+                let done = found.pending.is_none();
+                Some((found.number, line, to.0, text, done))
+            })
+            .collect::<Vec<_>>();
+        unsent.sort_unstable_by_key(|(number, ..)| *number);
+        for (_, line, runtime, text, done) in unsent {
+            let written = if let Ok((_, mut runtime, _)) =
                 self.list.get_mut(runtime)
                 && let Some(process) = runtime.process.as_mut()
             {
-                process.write(line);
+                process.write(text);
+                true
+            } else {
+                false
+            };
+            if done || !written {
+                self.commands.entity(line).despawn();
             }
         }
     }
@@ -406,13 +457,9 @@ impl Runtimes<'_, '_> {
     /// Drops the lines of an input that failed, and the requests
     /// among them, which nothing will answer.
     pub fn discard(&mut self) {
-        for (runtime, id, _) in
-            std::mem::take(&mut self.harness.outbox)
-        {
-            if let Ok((.., mut in_flight)) =
-                self.list.get_mut(runtime)
-            {
-                in_flight.0.remove(&id);
+        for (line, _, found) in &self.lines {
+            if found.text.is_some() {
+                self.commands.entity(line).despawn();
             }
         }
     }
@@ -438,25 +485,22 @@ impl Runtimes<'_, '_> {
         pending: Pending,
         make: impl FnOnce(Version, String) -> ServerMessage,
     ) -> String {
-        let id = self.send(runtime, make);
-        if let Ok((.., mut in_flight)) = self.list.get_mut(runtime) {
-            in_flight.0.insert(id.clone(), pending);
-        }
-        id
+        self.line(runtime, Some(pending), make)
     }
 
     /// The request that `request_id` answers, and the runtime it went
-    /// to.
+    /// to. The request is answered at once, and its line goes.
     pub fn reply(
         &mut self,
         request_id: &str,
     ) -> Option<(Entity, Pending)> {
-        self.list.iter_mut().find_map(|(entity, _, mut in_flight)| {
-            in_flight
-                .0
-                .remove(request_id)
-                .map(|pending| (entity, pending))
-        })
+        let (line, to, mut found) =
+            self.lines.iter_mut().find(|(.., found)| {
+                found.id == request_id && found.pending.is_some()
+            })?;
+        let pending = found.pending.take()?;
+        self.commands.entity(line).despawn();
+        Some((to.0, pending))
     }
 
     pub fn is_in_flight(
@@ -464,8 +508,13 @@ impl Runtimes<'_, '_> {
         runtime: Entity,
         pending: &Pending,
     ) -> bool {
-        self.list.get(runtime).is_ok_and(|(.., in_flight)| {
-            in_flight.0.values().any(|kept| kept == pending)
+        let Ok((.., Some(lines))) = self.list.get(runtime) else {
+            return false;
+        };
+        lines.iter().any(|line| {
+            self.lines.get(line).is_ok_and(|(.., found)| {
+                found.pending.as_ref() == Some(pending)
+            })
         })
     }
 
