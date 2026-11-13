@@ -84,7 +84,7 @@ import {
     getNodePath,
     importNodeDependencies,
 } from "../utils/node.ts";
-import { getEnvUniversal, toUint8Array, VERSION } from "../utils.ts";
+import { getEnvUniversal, toUint8Array } from "../utils.ts";
 import { VirtualWebSocket } from "../virtual-websocket/mod.ts";
 import type {
     RegistryConfig,
@@ -126,11 +126,9 @@ import type {
     RuntimeQueueMessage,
     RuntimeScheduledEventInfo,
     RuntimeScheduledFireInfo,
-    RuntimeServeConfig,
     RuntimeStateDeltaPayload,
     WebSocketHandle,
 } from "./runtime.ts";
-import { servicesBinaryUnavailable } from "./runtime.ts";
 import {
     createWriteThroughProxy,
     unwrapWriteThroughProxy,
@@ -377,15 +375,6 @@ function stateNotEnabledError(): ActorError {
         "actor",
         "state_not_enabled",
         "State not enabled. Must implement `createState` or `state` to use state.",
-        { public: true },
-    );
-}
-
-function nativeEndpointNotConfiguredError(): ActorError {
-    return new ActorError(
-        "native",
-        "endpoint_not_configured",
-        "registry endpoint is required for native envoy startup",
         { public: true },
     );
 }
@@ -700,12 +689,6 @@ function decodeNativeKvValue<T extends NativeKvValueType = "text">(
         default:
             throw new TypeError("Invalid kv value type");
     }
-}
-
-async function loadServices(): Promise<{ getServicesPath: () => string }> {
-    // The computed specifier keeps bundlers from resolving the import and
-    // bundling the native binary.
-    return import(["@hamlet", "services"].join("/"));
 }
 
 function decodeValue<T>(value?: RuntimeBytes | null): T {
@@ -5550,62 +5533,12 @@ export function buildNativeFactory(
     );
 }
 
-export async function buildServeConfig(
-    config: RegistryConfig,
-    resolveNativeBinaries = true,
-): Promise<RuntimeServeConfig> {
-    if (!config.endpoint) {
-        throw nativeEndpointNotConfiguredError();
-    }
-
-    const serveConfig: RuntimeServeConfig = omitUndefined({
-        version: config.node.version,
-        endpoint: config.endpoint,
-        engineSpawn: config.engineSpawn,
-        token: config.token,
-        namespace: config.namespace,
-        poolName: config.node.poolName,
-        startServices: resolveNativeBinaries && config.startServices,
-        handleInspectorHttpInRuntime: true,
-        serverlessBasePath: config.serverless.basePath,
-        serverlessPackageVersion: VERSION,
-        serverlessClientEndpoint: config.publicEndpoint,
-        serverlessClientNamespace: config.publicNamespace,
-        serverlessClientToken: config.publicToken,
-        serverlessValidateEndpoint: config.validateServerlessEndpoint,
-        serverlessMaxStartPayloadBytes: config.serverless.maxStartPayloadBytes,
-    });
-
-    if (resolveNativeBinaries && config.startServices) {
-        const servicesBinary = getEnvUniversal("HAMLET_ACTOR_SERVICES_BINARY");
-        if (servicesBinary) {
-            serveConfig.servicesBinaryPath = servicesBinary;
-        } else {
-            try {
-                const { getServicesPath } = await loadServices();
-                serveConfig.servicesBinaryPath = getServicesPath();
-            } catch (error) {
-                throw servicesBinaryUnavailable(error);
-            }
-        }
-    }
-    serveConfig.engineHost = config.engineHost;
-    serveConfig.enginePort = config.enginePort;
-    if (config.test?.enabled) {
-        serveConfig.inspectorTestToken =
-            getEnvUniversal("_HAMLET_ACTOR_TEST_INSPECTOR_TOKEN") ?? "token";
-    }
-
-    return serveConfig;
-}
-
 export async function buildRegistryWithRuntime(
     config: RegistryConfig,
     runtime: CoreRuntime,
 ): Promise<{
     runtime: CoreRuntime;
     registry: RegistryHandle;
-    serveConfig: RuntimeServeConfig;
 }> {
     if (
         config.test?.enabled &&
@@ -5631,17 +5564,12 @@ export async function buildRegistryWithRuntime(
         );
     }
 
-    return {
-        runtime,
-        registry,
-        serveConfig: await buildServeConfig(config, runtime.kind === "napi"),
-    };
+    return { runtime, registry };
 }
 
 export async function buildNativeRegistry(config: RegistryConfig): Promise<{
     runtime: CoreRuntime;
     registry: RegistryHandle;
-    serveConfig: RuntimeServeConfig;
 }> {
     const { runtime } = await loadNapiRuntime();
     return buildRegistryWithRuntime(

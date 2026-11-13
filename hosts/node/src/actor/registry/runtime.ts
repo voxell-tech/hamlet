@@ -1,16 +1,10 @@
 // This file was changed for Hamlet. See NOTICE in this package.
 import type { WorkflowSpan } from "../actor/config.ts";
-import type {
-    ActorInvocationSpanContext,
-    ActorInvocationTraceContext,
-} from "../common/actor-telemetry-context.ts";
+import type { ActorInvocationTraceContext } from "../common/actor-telemetry-context.ts";
 import type {
     SqliteNativeMetrics,
     SqliteProfilingOptions,
 } from "../common/database/config.ts";
-import { omitUndefined, stringifyError } from "../common/utils.ts";
-import type { RegistryConfig } from "./config/index.ts";
-import { logger } from "./log.ts";
 
 declare const handleBrand: unique symbol;
 
@@ -42,35 +36,6 @@ export interface RuntimeForkLink {
     forkedAt: number;
 }
 
-/** Resolves correlation at operation time so retained clients cannot freeze stale context. */
-export type CurrentActorInvocation = () =>
-    | ActorInvocationTraceContext
-    | undefined;
-
-/** One open call from an actor out to another actor. */
-export interface RuntimeOutboundCall {
-    /**
-     * W3C context of the call's own span, to send to the callee so it parents to
-     * the call. Absent when tracing is disabled.
-     */
-    readonly span?: ActorInvocationSpanContext | undefined;
-    /**
-     * Records the call's outcome. `error` is the failure encoded the way the
-     * bridge encodes errors, so a structured error keeps its group and code.
-     */
-    finish(error?: string): void;
-}
-
-/**
- * Opens the span covering one call out to another actor, or returns `undefined`
- * outside an invocation or on a runtime without invocation telemetry. Callers
- * send their own context when it returns nothing.
- */
-export type StartCallSpan = (
-    actorName: string,
-    actionName: string,
-) => RuntimeOutboundCall | undefined;
-
 export interface RuntimeHttpRequest {
     method: string;
     uri: string;
@@ -83,13 +48,6 @@ export interface RuntimeHttpResponse {
     headers?: Record<string, string>;
     body?: RuntimeBytes;
     stream?: boolean;
-}
-
-export interface RuntimeHttpResponseBodyStream {
-    cancelled(): Promise<void>;
-    write(chunk: Uint8Array): Promise<void>;
-    end(): Promise<void>;
-    error(message: string): Promise<void>;
 }
 
 export interface RuntimeStateDeltaPayload {
@@ -381,95 +339,6 @@ export interface RuntimeInspectorTabEntry {
     hidden?: boolean;
 }
 
-export interface RuntimeServeConfig {
-    version: number;
-    endpoint: string;
-    token?: string;
-    namespace: string;
-    poolName: string;
-    engineBinaryPath?: string;
-    startServices?: boolean;
-    servicesBinaryPath?: string;
-    /** Whether config resolution selected a managed local development engine. */
-    engineSpawn?: boolean;
-    engineHost?: string;
-    enginePort?: number;
-    handleInspectorHttpInRuntime?: boolean;
-    inspectorTestToken?: string;
-    serverlessBasePath?: string;
-    serverlessPackageVersion: string;
-    serverlessClientEndpoint?: string;
-    serverlessClientNamespace?: string;
-    serverlessClientToken?: string;
-    serverlessValidateEndpoint: boolean;
-    serverlessMaxStartPayloadBytes: number;
-}
-
-export interface RuntimeListenerConfig {
-    port: number;
-    host?: string;
-    publicDir?: string;
-    application?: RuntimeApplicationFetch;
-}
-
-export interface RuntimeServerlessRequest {
-    method: string;
-    url: string;
-    headers: Record<string, string>;
-    body: RuntimeBytes;
-}
-
-export interface RuntimeApplicationRequest extends RuntimeServerlessRequest {
-    cancelToken?: CancellationTokenHandle;
-}
-
-export interface RuntimeApplicationResponse {
-    status: number;
-    headers: Record<string, string>;
-    body?: RuntimeBytes;
-    stream?: boolean;
-}
-
-export type RuntimeApplicationFetch = (
-    request: RuntimeApplicationRequest,
-    responseBodyStream?: RuntimeHttpResponseBodyStream,
-) => Promise<RuntimeApplicationResponse>;
-
-export interface RuntimeApplicationListenerConfig
-    extends RuntimeListenerConfig {
-    application: RuntimeApplicationFetch;
-}
-
-export interface RuntimeServerlessResponseHead {
-    status: number;
-    headers: Record<string, string>;
-}
-
-export interface RuntimeRegistryRouteResponse {
-    status: number;
-    headers: Record<string, string>;
-    body: RuntimeBytes;
-}
-
-export type RuntimeServerlessStreamEvent =
-    | {
-          kind: "chunk";
-          chunk?: RuntimeBytes;
-      }
-    | {
-          kind: "end";
-          error?: {
-              group: string;
-              code: string;
-              message: string;
-          };
-      };
-
-export type RuntimeServerlessStreamCallback = (
-    error: unknown,
-    event?: RuntimeServerlessStreamEvent,
-) => unknown;
-
 export type RuntimeWebSocketEvent =
     | {
           kind: "message";
@@ -493,48 +362,8 @@ export interface CoreRuntime {
         name: string,
         factory: ActorFactoryHandle,
     ): void;
-    serveRegistry(
-        registry: RegistryHandle,
-        config: RuntimeServeConfig,
-    ): Promise<void>;
-    waitRegistryReady(registry: RegistryHandle): Promise<void>;
     shutdownRegistry(registry: RegistryHandle): Promise<void>;
     shutdownTelemetry?(): Promise<void>;
-    registryActorStopThresholdMs?(
-        registry: RegistryHandle,
-    ): Promise<number | undefined>;
-    registryActiveActorCount?(registry: RegistryHandle): number;
-    onRegistryActiveActorCountChange?(
-        registry: RegistryHandle,
-        callback: (count: number) => void,
-        cancelToken: CancellationTokenHandle,
-    ): void;
-    handleServerlessRequest(
-        registry: RegistryHandle,
-        req: RuntimeServerlessRequest,
-        onStreamEvent: RuntimeServerlessStreamCallback,
-        cancelToken: CancellationTokenHandle,
-        config: RuntimeServeConfig,
-    ): Promise<RuntimeServerlessResponseHead>;
-    serveListener(
-        registry: RegistryHandle,
-        listener: RuntimeListenerConfig,
-        config: RuntimeServeConfig,
-    ): Promise<void>;
-    serveApplicationListener(
-        registry: RegistryHandle,
-        listener: RuntimeApplicationListenerConfig,
-        config: RuntimeServeConfig,
-    ): Promise<void>;
-    registryHealth?(
-        registry: RegistryHandle,
-    ): Promise<RuntimeRegistryRouteResponse>;
-    registryMetadata?(
-        registry: RegistryHandle,
-    ): Promise<RuntimeRegistryRouteResponse>;
-    registryMetrics?(
-        registry: RegistryHandle,
-    ): Promise<RuntimeRegistryRouteResponse>;
     createActorFactory(
         callbacks: object,
         config?: RuntimeActorConfig | undefined | null,
@@ -615,15 +444,6 @@ export interface CoreRuntime {
     actorInvocationTraceContext(
         ctx: ActorContextHandle,
     ): ActorInvocationTraceContext | undefined;
-    /**
-     * Opens the span covering one call this actor makes to another actor. See
-     * `StartCallSpan` for when this returns nothing.
-     */
-    startCallSpan(
-        ctx: ActorContextHandle,
-        actorName: string,
-        actionName: string,
-    ): RuntimeOutboundCall | undefined;
     /** Backs `ActorRun.startWorkflowSpan`. */
     startWorkflowSpan(ctx: ActorContextHandle): Promise<WorkflowSpan>;
     /** Backs `ActorRun.runOutsideWorkflowSpan`. */
@@ -891,78 +711,4 @@ export interface CoreRuntime {
 
 export interface RuntimeBundle {
     runtime: CoreRuntime;
-}
-
-export function servicesBinaryUnavailable(cause: unknown): Error {
-    return new Error(
-        "services.binary_unavailable: Install @hamlet/services to run local Services, set HAMLET_ACTOR_SERVICES_BINARY to its executable path, or set HAMLET_ACTOR_RUN_SERVICES=0 to disable Services.",
-        { cause },
-    );
-}
-
-export async function buildServeConfig(
-    config: RegistryConfig,
-    loadEnginePath: () => Promise<string>,
-    version: string,
-    loadServicesPath: () => Promise<string>,
-): Promise<RuntimeServeConfig> {
-    if (!config.endpoint) {
-        throw new Error("registry endpoint is required");
-    }
-
-    const serveConfig: RuntimeServeConfig = omitUndefined({
-        version: config.node.version,
-        endpoint: config.endpoint,
-        engineSpawn: config.engineSpawn,
-        token: config.token,
-        namespace: config.namespace,
-        poolName: config.node.poolName,
-        startServices: config.startServices,
-        handleInspectorHttpInRuntime: true,
-        serverlessBasePath: config.serverless.basePath,
-        serverlessPackageVersion: version,
-        serverlessClientEndpoint: config.publicEndpoint,
-        serverlessClientNamespace: config.publicNamespace,
-        serverlessClientToken: config.publicToken,
-        serverlessValidateEndpoint: config.validateServerlessEndpoint,
-        serverlessMaxStartPayloadBytes: config.serverless.maxStartPayloadBytes,
-    });
-
-    // Always best-effort resolve the engine binary path and hand it to the core.
-    // The core alone decides whether to actually spawn a local engine, so JS must
-    // not duplicate that decision here. `loadEnginePath` throws when no binary is
-    // available (remote-only install, unsupported platform, optional deps
-    // skipped); in that case leave it unset and let the core report
-    // `engine.binary_unavailable` only if it actually needs one.
-    try {
-        serveConfig.engineBinaryPath = await loadEnginePath();
-    } catch (error) {
-        // The engine binary could not be resolved. The core still decides whether
-        // it needs to spawn a local engine; if it does, it will fail with
-        // engine.binary_unavailable (auto-download is off in the napi runtime).
-        logger().warn({
-            msg: "could not resolve a local engine binary; if a local engine must be spawned it will fail with engine.binary_unavailable — set HAMLET_ACTOR_ENGINE_BINARY_PATH or install the @hamlet/engine-cli platform package",
-            error: stringifyError(error),
-        });
-    }
-    if (config.startServices) {
-        const servicesBinary = process.env.HAMLET_ACTOR_SERVICES_BINARY;
-        if (servicesBinary) {
-            serveConfig.servicesBinaryPath = servicesBinary;
-        } else {
-            try {
-                serveConfig.servicesBinaryPath = await loadServicesPath();
-            } catch (error) {
-                throw servicesBinaryUnavailable(error);
-            }
-        }
-    }
-    serveConfig.engineHost = config.engineHost;
-    serveConfig.enginePort = config.enginePort;
-    if (config.test?.enabled) {
-        serveConfig.inspectorTestToken =
-            process.env._HAMLET_ACTOR_TEST_INSPECTOR_TOKEN ?? "token";
-    }
-
-    return serveConfig;
 }

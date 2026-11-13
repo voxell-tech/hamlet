@@ -6,7 +6,6 @@ import type {
     CancellationToken as NativeCancellationToken,
     ConnHandle as NativeConnHandle,
     CoreRegistry as NativeCoreRegistry,
-    HttpResponseBodyStream as NativeHttpResponseBodyStream,
     WebSocket as NativeWebSocket,
 } from "@hamlet/actor-node";
 import type { WorkflowSpan } from "../actor/config.ts";
@@ -27,29 +26,19 @@ import type {
     CoreRuntime,
     RegistryHandle,
     RuntimeActorConfig,
-    RuntimeApplicationFetch,
-    RuntimeApplicationListenerConfig,
     RuntimeBytes,
     RuntimeCronFire,
     RuntimeCronJobInfo,
     RuntimeHttpRequest,
-    RuntimeHttpResponseBodyStream,
     RuntimeKvEntry,
     RuntimeKvListOptions,
-    RuntimeListenerConfig,
-    RuntimeOutboundCall,
     RuntimeQueueEnqueueAndWaitOptions,
     RuntimeQueueMessage,
     RuntimeQueueNextBatchOptions,
     RuntimeQueueTryNextBatchOptions,
     RuntimeQueueWaitOptions,
-    RuntimeRegistryRouteResponse,
     RuntimeRequestSaveOpts,
     RuntimeScheduledEventInfo,
-    RuntimeServeConfig,
-    RuntimeServerlessRequest,
-    RuntimeServerlessResponseHead,
-    RuntimeServerlessStreamCallback,
     RuntimeSqlBatchStatement,
     RuntimeSqlBindParam,
     RuntimeSqlBindParams,
@@ -161,56 +150,6 @@ function toNapiSqlBatchStatement(
 
 function toNapiBuffer(value: RuntimeBytes): Buffer {
     return Buffer.from(value);
-}
-
-function toNapiApplication(application: RuntimeApplicationFetch) {
-    return async (
-        error: unknown,
-        request?: {
-            method: string;
-            url: string;
-            headers: Record<string, string>;
-            body: Buffer;
-            cancelToken?: NativeCancellationToken;
-            responseBodyStream?: RuntimeHttpResponseBodyStream;
-        },
-    ) => {
-        if (error) throw error;
-        if (!request) {
-            throw new Error("application fetch callback received no request");
-        }
-        const response = await application(
-            {
-                ...request,
-                body: new Uint8Array(request.body),
-                cancelToken:
-                    request.cancelToken as unknown as CancellationTokenHandle,
-            },
-            request.responseBodyStream
-                ? fromNapiHttpResponseBodyStream(
-                      request.responseBodyStream as unknown as NativeHttpResponseBodyStream,
-                  )
-                : undefined,
-        );
-        return {
-            ...response,
-            body:
-                response.body === undefined
-                    ? undefined
-                    : toNapiBuffer(response.body),
-        };
-    };
-}
-
-function fromNapiHttpResponseBodyStream(
-    stream: NativeHttpResponseBodyStream,
-): RuntimeHttpResponseBodyStream {
-    return {
-        cancelled: () => stream.cancelled(),
-        write: (chunk) => stream.write(Buffer.from(chunk)),
-        end: () => stream.end(),
-        error: (message) => stream.error(message),
-    };
 }
 
 function toNapiHttpRequest(
@@ -328,130 +267,12 @@ export class NapiCoreRuntime implements CoreRuntime {
         asNativeRegistry(registry).register(name, asNativeFactory(factory));
     }
 
-    async serveRegistry(
-        registry: RegistryHandle,
-        config: RuntimeServeConfig,
-    ): Promise<void> {
-        await asNativeRegistry(registry).serve(config);
-    }
-
-    async waitRegistryReady(registry: RegistryHandle): Promise<void> {
-        await asNativeRegistry(registry).waitReady();
-    }
-
     async shutdownRegistry(registry: RegistryHandle): Promise<void> {
         await asNativeRegistry(registry).shutdown();
     }
 
     async shutdownTelemetry(): Promise<void> {
         await this.#bindings.shutdownTelemetry();
-    }
-
-    async registryActorStopThresholdMs(
-        registry: RegistryHandle,
-    ): Promise<number | undefined> {
-        return (
-            (await asNativeRegistry(registry).actorStopThresholdMs()) ??
-            undefined
-        );
-    }
-
-    registryActiveActorCount(registry: RegistryHandle): number {
-        return asNativeRegistry(registry).activeActorCount();
-    }
-
-    onRegistryActiveActorCountChange(
-        registry: RegistryHandle,
-        callback: (count: number) => void,
-        cancelToken: CancellationTokenHandle,
-    ): void {
-        asNativeRegistry(registry).onActiveActorCountChange(
-            callback,
-            asNativeCancellationToken(cancelToken),
-        );
-    }
-
-    async registryHealth(
-        registry: RegistryHandle,
-    ): Promise<RuntimeRegistryRouteResponse> {
-        const response = await asNativeRegistry(registry).health();
-        return {
-            status: response.status,
-            headers: response.headers,
-            body: response.body,
-        };
-    }
-
-    async registryMetadata(
-        registry: RegistryHandle,
-    ): Promise<RuntimeRegistryRouteResponse> {
-        const response = asNativeRegistry(registry).metadata();
-        return {
-            status: response.status,
-            headers: response.headers,
-            body: response.body,
-        };
-    }
-
-    async registryMetrics(
-        registry: RegistryHandle,
-    ): Promise<RuntimeRegistryRouteResponse> {
-        const response = asNativeRegistry(registry).metrics();
-        return {
-            status: response.status,
-            headers: response.headers,
-            body: response.body,
-        };
-    }
-
-    async handleServerlessRequest(
-        registry: RegistryHandle,
-        req: RuntimeServerlessRequest,
-        onStreamEvent: RuntimeServerlessStreamCallback,
-        cancelToken: CancellationTokenHandle,
-        config: RuntimeServeConfig,
-    ): Promise<RuntimeServerlessResponseHead> {
-        return await asNativeRegistry(registry).handleServerlessRequest(
-            { ...req, body: toNapiBuffer(req.body) },
-            onStreamEvent,
-            asNativeCancellationToken(cancelToken),
-            config,
-        );
-    }
-
-    async serveListener(
-        registry: RegistryHandle,
-        listener: RuntimeListenerConfig,
-        config: RuntimeServeConfig,
-    ): Promise<void> {
-        const application = listener.application
-            ? toNapiApplication(listener.application)
-            : undefined;
-        await asNativeRegistry(registry).serveListener(
-            omitUndefined({
-                port: listener.port,
-                host: listener.host,
-                publicDir: listener.publicDir,
-            }),
-            config,
-            application,
-        );
-    }
-
-    async serveApplicationListener(
-        registry: RegistryHandle,
-        listener: RuntimeApplicationListenerConfig,
-        config: RuntimeServeConfig,
-    ): Promise<void> {
-        await asNativeRegistry(registry).serveApplicationListener(
-            omitUndefined({
-                port: listener.port,
-                host: listener.host,
-                publicDir: listener.publicDir,
-            }),
-            toNapiApplication(listener.application),
-            config,
-        );
     }
 
     createActorFactory(
@@ -636,22 +457,6 @@ export class NapiCoreRuntime implements CoreRuntime {
             this.#actorContextForOperation(ctx).invocationTraceContext() ??
             undefined
         );
-    }
-
-    startCallSpan(
-        ctx: ActorContextHandle,
-        actorName: string,
-        actionName: string,
-    ): RuntimeOutboundCall | undefined {
-        const call = this.#actorContextForOperation(ctx).startCallSpan(
-            actorName,
-            actionName,
-        );
-        if (!call) return undefined;
-        return {
-            span: call.spanContext() ?? undefined,
-            finish: (error?: string) => call.finish(error),
-        };
     }
 
     async startWorkflowSpan(ctx: ActorContextHandle): Promise<WorkflowSpan> {
