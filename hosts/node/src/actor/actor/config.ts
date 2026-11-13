@@ -1,13 +1,11 @@
 // This file was changed for Hamlet. See NOTICE in this package.
 import { z } from "zod/v4";
-import type { Client } from "@/client/client";
 import type {
     AnyDatabaseProvider,
     InferDatabaseClient,
 } from "@/common/database/config";
 import type { UniversalWebSocket } from "@/common/websocket-interface";
 import type { WorkflowState } from "@/inspector/workflow";
-import type { Registry } from "@/registry";
 import { flattenActionHandlers } from "./actions";
 import type { BaseActorDefinition } from "./definition";
 import type {
@@ -65,8 +63,6 @@ type ActorKvListOptions<
     reverse?: boolean;
     limit?: number;
 };
-
-type ActorClientFor<T> = T extends Registry<any> ? Client<T> : T;
 
 /** @deprecated Actor KV was deprecated in 3.0 and will be removed in a future version. Store data in SQLite (`c.db`). */
 export interface ActorKv {
@@ -474,7 +470,6 @@ export interface ActorContext<
     setPreventSleep(preventSleep: boolean): void;
     sleep(): void;
     destroy(): void;
-    client<T = any>(): ActorClientFor<T>;
     [key: string]: any;
 }
 

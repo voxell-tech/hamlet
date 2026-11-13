@@ -46,12 +46,6 @@ import {
     hasSchemaConfigKey,
 } from "@/actor/schema";
 import type { ActionSampleRates } from "@/actor/tracing";
-import {
-    type AnyClient,
-    type Client,
-    createClientWithDriver,
-} from "@/client/client";
-import { convertRegistryConfigToClientConfig } from "@/client/config";
 import { HEADER_CONN_PARAMS } from "@/common/actor-router-consts";
 import type { ActorInvocationTraceContext } from "@/common/actor-telemetry-context";
 import type {
@@ -77,8 +71,6 @@ import type {
     SocketMessageEvent,
     UniversalWebSocket,
 } from "@/common/websocket-interface";
-import { RemoteEngineControlClient } from "@/engine-client/mod";
-import type { Registry } from "@/registry";
 import type {
     RegistryConfig,
     RuntimeKind,
@@ -502,15 +494,6 @@ function stateNotEnabledError(): ActorError {
         "actor",
         "state_not_enabled",
         "State not enabled. Must implement `createState` or `state` to use state.",
-        { public: true },
-    );
-}
-
-function nativeClientNotConfiguredError(): ActorError {
-    return new ActorError(
-        "native",
-        "client_not_configured",
-        "native actor client is not configured",
         { public: true },
     );
 }
@@ -2798,8 +2781,6 @@ export class ActorContextHandleAdapter {
     #schemas: NativeValidationConfig;
     #abortSignal?: AbortSignal;
     #abortSignalCleanup?: () => void;
-    #client?: AnyClient;
-    #clientFactory?: () => AnyClient;
     #connMap?: NativeConnectionMap;
     #cron?: NativeCronAdapter;
     #databaseProvider?: Exclude<AnyDatabaseProvider, undefined>;
@@ -2821,7 +2802,6 @@ export class ActorContextHandleAdapter {
     constructor(
         runtime: CoreRuntime,
         ctx: ActorContextHandle,
-        clientFactory?: () => AnyClient,
         schemas: NativeValidationConfig = {},
         databaseProvider?: AnyDatabaseProvider,
         request?: Request,
@@ -2832,7 +2812,6 @@ export class ActorContextHandleAdapter {
     ) {
         this.#runtime = runtime;
         this.#ctx = ctx;
-        this.#clientFactory = clientFactory;
         this.#schemas = schemas;
         this.#dispatchCancelToken = dispatchCancelToken;
         this.#runHandlerConfigured = runHandlerConfigured;
@@ -3570,17 +3549,6 @@ export class ActorContextHandleAdapter {
         markNativeDestroyRequested(this.#runtime, this.#ctx);
     }
 
-    client<T = AnyClient>(): T extends Registry<any> ? Client<T> : T {
-        if (!this.#client) {
-            if (!this.#clientFactory) {
-                throw nativeClientNotConfiguredError();
-            }
-            this.#client = this.#clientFactory();
-        }
-
-        return this.#client as T extends Registry<any> ? Client<T> : T;
-    }
-
     async dispose(): Promise<void> {
         // Flush any save coalesced for this tick before the context is torn
         // down so the request-save and onStateChange always run. Shutdown
@@ -3951,7 +3919,6 @@ function withConnContext(
     runtime: CoreRuntime,
     ctx: ActorContextHandle,
     conn: ConnHandle,
-    clientFactory?: () => AnyClient,
     schemas: NativeValidationConfig = {},
     databaseProvider?: AnyDatabaseProvider,
     request?: Request,
@@ -3963,7 +3930,6 @@ function withConnContext(
     const actorContext = new ActorContextHandleAdapter(
         runtime,
         ctx,
-        clientFactory,
         schemas,
         databaseProvider,
         request,
@@ -4179,23 +4145,6 @@ export function buildNativeFactory(
         events: config.events,
         queues: config.queues,
     };
-    const createClient = (ctx: ActorContextHandle) =>
-        createClientWithDriver(
-            new RemoteEngineControlClient(
-                convertRegistryConfigToClientConfig(registryConfig),
-            ),
-            {
-                encoding: "bare",
-                currentActorInvocation: () =>
-                    callNativeSync(() =>
-                        runtime.actorInvocationTraceContext(ctx),
-                    ),
-                startCallSpan: (actorName, actionName) =>
-                    callNativeSync(() =>
-                        runtime.startCallSpan(ctx, actorName, actionName),
-                    ),
-            },
-        );
     const run = getRunFunction(config.run);
     const runHandlerCoordinator =
         getRunInspectorKind(config.run) === "workflow"
@@ -4238,7 +4187,6 @@ export function buildNativeFactory(
         new ActorContextHandleAdapter(
             runtime,
             ctx,
-            () => createClient(ctx),
             schemaConfig,
             databaseProvider,
             request,
@@ -4257,7 +4205,6 @@ export function buildNativeFactory(
             runtime,
             ctx,
             conn,
-            () => createClient(ctx),
             schemaConfig,
             databaseProvider,
             request,
@@ -5626,7 +5573,6 @@ export function buildNativeFactory(
                     runtime,
                     ctx,
                     conn,
-                    () => createClient(ctx),
                     schemaConfig,
                     databaseProvider,
                     jsRequest,
