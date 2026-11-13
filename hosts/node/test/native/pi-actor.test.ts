@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import { join } from "node:path";
-import { DatabaseSync } from "node:sqlite";
 import { after, before, describe, test } from "node:test";
 import {
     fauxAssistantMessage,
@@ -27,6 +26,7 @@ import {
     fauxModels,
     scratchFolder,
     startHost,
+    tablesIn,
     writeLetter,
 } from "../testing.ts";
 
@@ -93,17 +93,10 @@ test("the pi wrapper as an actor answers one prompt once, and a second prompt wi
     assert.deepEqual(await host.call("agent", "a1", "transcript"), transcript);
     await host.shutdown();
 
-    const file = new DatabaseSync(join(dir, "actors", "agent", "a1.sqlite"), {
-        readOnly: true,
-    });
-    const tables = file
-        .prepare("SELECT name FROM sqlite_master WHERE type = 'table'")
-        .all()
-        .map((row) => String(row.name))
-        .sort();
-    file.close();
     assert.deepEqual(
-        tables.filter((name) => !CORE_TABLE.test(name)),
+        tablesIn(join(dir, "actors", "agent", "a1.sqlite")).filter(
+            (name) => !CORE_TABLE.test(name),
+        ),
         PI_TABLES,
     );
 });

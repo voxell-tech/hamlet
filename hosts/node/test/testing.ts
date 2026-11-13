@@ -57,6 +57,21 @@ export function fauxModels() {
     };
 }
 
+/** The tables a SQLite file holds, by name, read while nothing else has it open. */
+export function tablesIn(file: string): string[] {
+    const database = new DatabaseSync(file, { readOnly: true });
+    try {
+        return database
+            .prepare(
+                "SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name",
+            )
+            .all()
+            .map((row) => String(row.name));
+    } finally {
+        database.close();
+    }
+}
+
 /** pi-durable 1.5.2's storage conformance suite has 32 cases. */
 export const CONFORMANCE_CASES = 32;
 

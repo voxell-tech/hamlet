@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DatabaseSync } from "node:sqlite";
 import { describe, test } from "node:test";
 import { openNodeSqliteDatabase } from "@earendil-works/chord/sqlite/node";
 import {
@@ -17,21 +16,9 @@ import {
     conformanceAssertions,
     context,
     plainDatabase,
+    tablesIn,
     writeLetter,
 } from "./testing.ts";
-
-/** The tables a SQLite file holds. */
-function tables(file: string): string[] {
-    const database = new DatabaseSync(file, { readOnly: true });
-    try {
-        return database
-            .prepare("SELECT name FROM sqlite_master WHERE type = 'table'")
-            .all()
-            .map((row) => String(row.name));
-    } finally {
-        database.close();
-    }
-}
 
 /**
  * pi-durable's storage on Hamlet's database layer over `open`'s database,
@@ -55,7 +42,7 @@ function cases(
                 } finally {
                     await storage.close(context);
                 }
-                tablesOf(tables(file));
+                tablesOf(tablesIn(file));
             } finally {
                 rmSync(folder, { recursive: true, force: true });
             }
