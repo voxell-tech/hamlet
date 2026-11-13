@@ -34,6 +34,10 @@ use crate::settings::Settings;
 use crate::society::agents::Effort;
 use crate::society::refusal::Refusal;
 
+mod listing;
+
+use self::listing::Listing;
+
 /// The price in dollars per million tokens of a model nothing prices.
 const RATE: f64 = 1.0;
 /// [`RATE`] for a model served on this machine.
@@ -170,13 +174,16 @@ impl Providers {
             .collect()
     }
 
-    /// What `model` of `provider` is listed as, or null.
-    fn listed(&self, provider: &str, model: &str) -> Value {
+    /// What `model` of `provider` is listed as; nothing when it is
+    /// not listed.
+    fn listed(&self, provider: &str, model: &str) -> Listing {
         self.lists
             .get(provider)
-            .and_then(|list| list.iter().find(|m| m["id"] == model))
-            .cloned()
-            .unwrap_or(Value::Null)
+            .into_iter()
+            .flatten()
+            .map(Listing::of)
+            .find(|listed| listed.id == model)
+            .unwrap_or_default()
     }
 
     /// The images `model` takes, none when it takes none (S30).
@@ -209,12 +216,9 @@ impl Providers {
             settings
                 .base_url(&model.provider)
                 .map(String::from)
-                .or_else(|| {
-                    listed["baseUrl"].as_str().map(String::from)
-                })
+                .or_else(|| listed.base_url.clone())
         });
-        let size =
-            |key: &str| listed[key].as_u64().filter(|n| *n > 0);
+        let size = |size: Option<u64>| size.filter(|n| *n > 0);
         let name = format!("{}::{}", model.provider, model.id);
         let cards = catalogue(db)?;
         let price = if model.provider == FAUX {
@@ -230,18 +234,13 @@ impl Providers {
                     cache_read: input,
                     cache_write: input,
                 },
-                None => {
-                    serde_json::from_value(listed["cost"].clone())
-                        .unwrap_or_else(|_| {
-                            flat_price(
-                                if is_local(base_url.as_deref()) {
-                                    LOCAL_RATE
-                                } else {
-                                    RATE
-                                },
-                            )
-                        })
-                }
+                None => listed.price().unwrap_or_else(|| {
+                    flat_price(if is_local(base_url.as_deref()) {
+                        LOCAL_RATE
+                    } else {
+                        RATE
+                    })
+                }),
             }
         };
         // A model asked for an effort or tier it lacks gets the
@@ -255,8 +254,8 @@ impl Providers {
             _ => effort,
         });
         Ok(Selection {
-            context_window: size("contextWindow"),
-            max_tokens: size("maxTokens"),
+            context_window: size(listed.context_window),
+            max_tokens: size(listed.max_tokens),
             effort: effort.map(Effort::wire),
             fast: fast && card.is_some_and(|card| card.fast),
             images: card
@@ -722,10 +721,9 @@ impl Core<'_, '_> {
             let mut grouped = BTreeMap::<String, Vec<Value>>::new();
             for model in models {
                 let value = serde_json::to_value(model)?;
-                let provider = value["provider"]
-                    .as_str()
-                    .unwrap_or(&pending.provider)
-                    .to_owned();
+                let provider = Listing::of(&value)
+                    .provider
+                    .unwrap_or_else(|| pending.provider.clone());
                 grouped.entry(provider).or_default().push(value);
             }
             if !pending.provider.is_empty() {
@@ -823,7 +821,7 @@ impl Core<'_, '_> {
         }
         let listed =
             self.providers.lists.get(provider).is_some_and(|list| {
-                list.iter().any(|m| m["id"] == id)
+                list.iter().any(|m| Listing::of(m).id == id)
             });
         if !listed && self.env.settings.model != name {
             return Ok(Err(Refusal::NoModel { model: name.into() }));
@@ -921,17 +919,14 @@ impl Core<'_, '_> {
         let db = self.realm.store().connection();
         let mut cards = catalogue(db)?;
         let prefix = format!("{provider}::");
+        let list = list.iter().map(Listing::of).collect::<Vec<_>>();
         cards.retain(|name, _| {
             name.strip_prefix(&prefix).is_none_or(|id| {
-                list.iter()
-                    .any(|model| model["id"].as_str() == Some(id))
+                list.iter().any(|model| model.id == id)
             })
         });
-        for model in list {
-            let name = format!(
-                "{provider}::{}",
-                model["id"].as_str().unwrap_or_default()
-            );
+        for model in &list {
+            let name = format!("{provider}::{}", model.id);
             let card = cards.entry(name.clone()).or_insert(Card {
                 context: None,
                 default_effort: None,
@@ -946,31 +941,17 @@ impl Core<'_, '_> {
                 title: String::new(),
             });
             card.learn(model);
-            let context = model
-                .get("listedContext")
-                .unwrap_or(&model["contextWindow"]);
-            if let Some(context) = context.as_i64() {
+            let context =
+                model.listed_context.or(model.context_window);
+            if let Some(context) = context
+                .and_then(|context| i64::try_from(context).ok())
+            {
                 card.context = Some(context);
             }
             if card.priced == ListedPriced::Yours {
                 continue;
             }
-            let price = match model.get("listedPrice") {
-                Some(listed) => {
-                    serde_json::from_value(listed.clone())
-                        .context("a model's listed price")?
-                }
-                None => {
-                    let cost = &model["cost"];
-                    cost["input"]
-                        .as_f64()
-                        .zip(cost["output"].as_f64())
-                        .map(|(input, output)| ListedPrice {
-                            input,
-                            output,
-                        })
-                }
-            };
+            let price = model.shown_price();
             if price.is_some() {
                 card.price = price;
                 card.priced = ListedPriced::Listed;
@@ -979,7 +960,7 @@ impl Core<'_, '_> {
                 ListedPriced::Unknown | ListedPriced::Assigned
             ) {
                 (card.price, card.priced) =
-                    if is_local(model["baseUrl"].as_str()) {
+                    if is_local(model.base_url.as_deref()) {
                         (
                             Some(ListedPrice {
                                 input: LOCAL_RATE,
@@ -1176,49 +1157,45 @@ impl Card {
     /// Takes in what pi says of `model`: what it is called, the
     /// efforts it can be asked for, its default among them, whether
     /// its API has a fast tier, and what it takes of images.
-    fn learn(&mut self, model: &Value) {
-        model["name"]
-            .as_str()
-            .unwrap_or_default()
-            .trim()
-            .clone_into(&mut self.title);
+    fn learn(&mut self, model: &Listing) {
+        model.name.trim().clone_into(&mut self.title);
         if !self.images_yours {
-            self.images = Some(listed_images(model));
+            self.images = Some(model.images());
         }
-        self.efforts =
-            if model["reasoning"].as_bool().unwrap_or(false) {
-                Effort::ALL
-                    .into_iter()
-                    .filter(|effort| {
-                        match model["thinkingLevelMap"]
-                            .get(effort.as_str())
-                        {
-                            Some(Value::Null) => false,
-                            Some(_) => true,
-                            None => !matches!(
-                                effort,
-                                Effort::XHigh | Effort::Max
-                            ),
-                        }
-                    })
-                    .collect()
-            } else {
-                vec![Effort::Off]
-            };
+        self.efforts = if model.reasoning {
+            let levels = model.thinking_level_map.as_ref();
+            Effort::ALL
+                .into_iter()
+                .filter(|effort| {
+                    match levels
+                        .and_then(|map| map.get(effort.as_str()))
+                    {
+                        Some(Value::Null) => false,
+                        Some(_) => true,
+                        None => !matches!(
+                            effort,
+                            Effort::XHigh | Effort::Max
+                        ),
+                    }
+                })
+                .collect()
+        } else {
+            vec![Effort::Off]
+        };
         self.default_effort =
             Some(Effort::Medium.clamped(&self.efforts));
         self.fast = matches!(
-            model["api"].as_str(),
+            model.api.as_deref(),
             Some("openai-responses" | "openai-codex-responses")
         );
     }
 
     /// The images the model takes: as the card says, else as
     /// `listed`, its provider's listing of it, does.
-    fn takes(&self, listed: &Value) -> Option<ImageInput> {
+    fn takes(&self, listed: &Listing) -> Option<ImageInput> {
         match &self.images {
             Some(images) => images.clone(),
-            None => listed_images(listed),
+            None => listed.images(),
         }
     }
 
@@ -1251,26 +1228,6 @@ where
     T: Deserialize<'de>,
 {
     Option::<T>::deserialize(deserializer).map(Some)
-}
-
-/// The images a model listed by its provider takes, none when it
-/// takes none.
-fn listed_images(model: &Value) -> Option<ImageInput> {
-    let takes = model["input"].as_array().is_some_and(|input| {
-        input.iter().any(|kind| kind == "image")
-    });
-    let limits = &model["inputLimits"]["images"];
-    let size =
-        |value: &Value| value.as_u64().filter(|size| *size > 0);
-    takes.then(|| ImageInput {
-        max_bytes: size(&limits["resize"]["maxBytes"]),
-        max_height: size(&limits["resize"]["maxHeight"])
-            .and_then(|size| u32::try_from(size).ok()),
-        max_width: size(&limits["resize"]["maxWidth"])
-            .and_then(|size| u32::try_from(size).ok()),
-        per_line: size(&limits["maxPerMessage"])
-            .and_then(|size| u32::try_from(size).ok()),
-    })
 }
 
 /// The model catalogue: each model's card, by its name.
@@ -1374,8 +1331,11 @@ mod tests {
             "price":null,"priced":"unknown"}"#;
         let card = serde_json::from_str::<Card>(old).unwrap();
         assert_eq!(card.images, None);
-        let sees = serde_json::json!({"input": ["text", "image"]});
-        let blind = serde_json::json!({"input": ["text"]});
+        let sees = Listing::of(
+            &serde_json::json!({"input": ["text", "image"]}),
+        );
+        let blind =
+            Listing::of(&serde_json::json!({"input": ["text"]}));
         assert!(card.takes(&sees).is_some());
         assert_eq!(card.takes(&blind), None);
 

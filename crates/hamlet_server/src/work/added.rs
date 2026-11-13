@@ -14,6 +14,7 @@ use hamlet_sandbox::{
     Env, ExecError, Launch, Leftovers, LimitError, Policy, Sandbox,
 };
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
+use serde::Deserialize;
 use serde_json::{Map, Value, json};
 use tokio::sync::mpsc::UnboundedSender;
 
@@ -42,21 +43,13 @@ enum Unloaded {
     NotFolder,
     #[error(transparent)]
     Unread(std::io::Error),
-    #[error("manifest.json is not valid JSON")]
-    NotJson,
-    #[error("missing name")]
-    NoName,
-    #[error("exec must be an array")]
-    ExecNotArray,
+    /// Not JSON, or not a manifest's shape; serde's words say where.
+    #[error("manifest.json does not fit: {0}")]
+    Unfit(serde_json::Error),
     #[error("exec is empty")]
     ExecEmpty,
     #[error("name '{0}' must match [a-zA-Z0-9_-]{{1,64}}")]
     BadName(String),
-    #[error(
-        "parameters do not compile: parameters must be a JSON \
-         Schema object"
-    )]
-    ParametersNotObject,
     /// Boxed, as the schema's error is larger than the rest of the
     /// manifest's errors together.
     #[error("parameters do not compile: {0}")]
@@ -182,21 +175,82 @@ pub(crate) fn load(root: &Path) -> (Vec<Manifest>, Vec<String>) {
     (tools, faults)
 }
 
+/// A tool's manifest.json, as a chief writes it. A key it does not
+/// name is left alone.
+#[derive(Deserialize)]
+struct Written {
+    name: String,
+    #[serde(default)]
+    description: String,
+    /// The program and its arguments.
+    exec: Vec<String>,
+    /// The JSON Schema of its arguments; an object of none when left
+    /// out.
+    #[serde(default = "no_parameters")]
+    parameters: Map<String, Value>,
+    #[serde(default)]
+    sandbox: Reach,
+}
+
+/// What a tool's commands may reach beyond its own folder.
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct Reach {
+    /// Paths it may read, from its folder.
+    fs_ro: Vec<String>,
+    /// Paths it may write, from its folder.
+    fs_rw: Vec<String>,
+    /// Its environment; a value that is not text is set empty.
+    #[serde(deserialize_with = "texts")]
+    env: BTreeMap<String, String>,
+    net: bool,
+    limits: Limits,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct Limits {
+    wall_secs: Option<u64>,
+    cpu_secs: Option<u64>,
+}
+
+/// A map of texts, each value that is not text read as empty.
+fn texts<'de, D>(
+    deserializer: D,
+) -> Result<BTreeMap<String, String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let given = BTreeMap::<String, Value>::deserialize(deserializer)?;
+    Ok(given
+        .into_iter()
+        .map(|(key, value)| {
+            (key, value.as_str().unwrap_or_default().to_owned())
+        })
+        .collect())
+}
+
+fn no_parameters() -> Map<String, Value> {
+    let mut parameters = Map::new();
+    parameters.insert("type".into(), "object".into());
+    parameters.insert("properties".into(), Value::Object(Map::new()));
+    parameters
+}
+
 fn parse(
     data: &str,
     dir: &Path,
     root: &Path,
 ) -> Result<Manifest, Unloaded> {
-    let value = serde_json::from_str::<Value>(data)
-        .map_err(|_| Unloaded::NotJson)?;
-    let name = value["name"].as_str().ok_or(Unloaded::NoName)?;
-    let exec = value["exec"]
-        .as_array()
-        .ok_or(Unloaded::ExecNotArray)?
-        .iter()
-        .filter_map(Value::as_str)
-        .map(str::to_owned)
-        .collect::<Vec<_>>();
+    let written = serde_json::from_str::<Written>(data)
+        .map_err(Unloaded::Unfit)?;
+    let Written {
+        name,
+        description,
+        exec,
+        parameters,
+        sandbox,
+    } = written;
     if exec.is_empty() {
         return Err(Unloaded::ExecEmpty);
     }
@@ -206,41 +260,23 @@ fn parse(
             c.is_ascii_alphanumeric() || c == b'_' || c == b'-'
         })
     {
-        return Err(Unloaded::BadName(name.into()));
+        return Err(Unloaded::BadName(name));
     }
-    let parameters = value
-        .get("parameters")
-        .cloned()
-        .unwrap_or_else(|| json!({"type":"object","properties":{}}));
-    let parameters = parameters
-        .as_object()
-        .ok_or(Unloaded::ParametersNotObject)?;
     jsonschema::validator_for(&Value::Object(parameters.clone()))
         .map_err(|error| Unloaded::Uncompiled(Box::new(error)))?;
-    let sandbox = &value["sandbox"];
-    let paths = |key: &str| {
-        sandbox[key]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(Value::as_str)
+    let paths = |paths: &[String]| {
+        paths
+            .iter()
             .map(|path| PathBuf::from(resolve(&text(dir), path)))
             .collect::<Vec<_>>()
     };
     let mut env = hamlet_sandbox::base_env();
-    env.extend(sandbox["env"].as_object().into_iter().flatten().map(
-        |(key, value)| {
-            (
-                key.clone(),
-                value.as_str().unwrap_or_default().to_owned(),
-            )
-        },
-    ));
+    env.extend(sandbox.env);
     let mut policy = Policy {
-        ro: paths("fs_ro"),
-        rw: paths("fs_rw"),
+        ro: paths(&sandbox.fs_ro),
+        rw: paths(&sandbox.fs_rw),
         env,
-        net: sandbox["net"] == true,
+        net: sandbox.net,
         locked: vec![
             root.join("tools"),
             dir.to_owned(),
@@ -249,26 +285,18 @@ fn parse(
         ..Policy::default()
     };
     policy.ro.push(dir.to_owned());
-    for (key, field) in [
-        ("wall_secs", &mut policy.limits.wall_secs),
-        ("cpu_secs", &mut policy.limits.cpu_secs),
-    ] {
-        if let Some(seconds) = sandbox["limits"][key].as_u64() {
-            *field = seconds;
-        }
+    if let Some(seconds) = sandbox.limits.wall_secs {
+        policy.limits.wall_secs = seconds;
+    }
+    if let Some(seconds) = sandbox.limits.cpu_secs {
+        policy.limits.cpu_secs = seconds;
     }
     policy.check_limits()?;
     Ok(Manifest {
         spec: ToolSpec {
-            name: name.into(),
-            description: value["description"]
-                .as_str()
-                .unwrap_or_default()
-                .into(),
-            parameters: parameters
-                .clone()
-                .into_iter()
-                .collect::<BTreeMap<_, _>>(),
+            name,
+            description,
+            parameters: parameters.into_iter().collect(),
             replay: ToolSpecReplay::Unsafe,
             retain: None,
         },

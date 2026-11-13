@@ -23,7 +23,7 @@ use hamlet_protocol::client::{AttachedFile, ImageId};
 use hamlet_protocol::runtime::{
     Diagnostic, DiagnosticSeverity, ToolSpec, ToolSpecReplay,
 };
-use hamlet_sandbox::scrub::scrub_value;
+use hamlet_sandbox::scrub::{scrub_text, scrub_value};
 use hamlet_sandbox::{
     Env, FileError, Leftovers, Policy, Sandbox, SetupError, base_env,
     host_env,
@@ -604,25 +604,18 @@ async fn reach_run(
 /// `outcome` without `secrets`, as a hook takes them out of every
 /// tool's result (C32).
 fn scrub(secrets: &[String], outcome: &mut Outcome) {
-    let mut value = json!({
-        "text": outcome.text,
-        "details": outcome.details,
-        "diagnostics": outcome.diagnostics.iter().map(|each| {
-            json!({"code": each.code, "message": each.message})
-        }).collect::<Vec<_>>(),
-    });
-    scrub_value(secrets, &mut value);
-    let words =
-        |value: &Value| value.as_str().unwrap_or("").to_owned();
-    outcome.text = words(&value["text"]);
-    outcome.details = value["details"].as_object().cloned();
-    for (each, scrubbed) in outcome
-        .diagnostics
-        .iter_mut()
-        .zip(value["diagnostics"].as_array().into_iter().flatten())
-    {
-        each.code = words(&scrubbed["code"]);
-        each.message = words(&scrubbed["message"]);
+    outcome.text = scrub_text(secrets, &outcome.text);
+    if let Some(details) = outcome.details.take() {
+        let mut details = Value::Object(details);
+        scrub_value(secrets, &mut details);
+        outcome.details = match details {
+            Value::Object(details) => Some(details),
+            _ => None,
+        };
+    }
+    for each in &mut outcome.diagnostics {
+        each.code = scrub_text(secrets, &each.code);
+        each.message = scrub_text(secrets, &each.message);
     }
 }
 
