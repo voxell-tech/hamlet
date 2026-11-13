@@ -370,7 +370,7 @@ pub(crate) struct HostInner {
     actors: Mutex<Actors>,
     session: watch::Sender<u64>,
     commits: broadcast::Sender<String>,
-    events: broadcast::Sender<HostEvent>,
+    pub(crate) events: broadcast::Sender<HostEvent>,
     options: HostOptions,
     /// When the starts under way end, set once the host shuts down.
     starts_end: watch::Sender<Option<tokio::time::Instant>>,
