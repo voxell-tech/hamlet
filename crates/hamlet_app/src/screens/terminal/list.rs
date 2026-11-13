@@ -32,7 +32,9 @@ use bevy_fynix::views::{
     BehaviorExt, FrameProps, TooltipExt, button, column, frame,
     label, row, text_field,
 };
-use bevy_fynix::{ScopedExt, ViewExt, derived, every_frame, keyed};
+use bevy_fynix::{
+    ScopedExt, ViewExt, derived, every_frame, keyed, resource,
+};
 use hamlet_client::realm;
 use hamlet_client::terminals::{self, Terminal, TerminalKind};
 use hamlet_protocol::client::{AgentId, AgentKind};
@@ -44,6 +46,7 @@ use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::widgets::platform::MonoText;
 use hamlet_ui::{AnyView, View, with_cx};
 
+use super::resize::NARROWEST;
 use super::{Folds, Handing, PanelId, Panels, Pins, activate};
 use crate::PanelSystems;
 
@@ -494,6 +497,7 @@ pub(super) fn side(panel: &PanelId) -> impl View + use<> {
     let panel = panel.clone();
     with_cx(move |cx| {
         let space = &cx.theme().space;
+        let first = cx.theme().terminal.list;
         column((
             row((
                 row((caption("TERMINALS".to_string(), Tone::Faint),))
@@ -522,8 +526,8 @@ pub(super) fn side(panel: &PanelId) -> impl View + use<> {
                 derived({
                     let panel = panel.clone();
                     move |world: &World| {
-                        let shown =
-                            world.resource::<Panels>().get(&panel);
+                        let panels = world.resource::<Panels>();
+                        let shown = panels.get(&panel);
                         (
                             world.resource::<Listed>().clone(),
                             world.resource::<Pins>().clone(),
@@ -542,16 +546,24 @@ pub(super) fn side(panel: &PanelId) -> impl View + use<> {
                                     (*at == panel)
                                         .then_some(*terminal)
                                 }),
+                            panels.list_width(&panel, first),
                         )
                     }
                 })
                 .when(every_frame()),
                 {
                     let panel = panel.clone();
-                    move |(listed, pins, folded, active, renaming)| {
+                    move |(
+                        listed,
+                        pins,
+                        folded,
+                        active,
+                        renaming,
+                        width,
+                    )| {
                         groups(
                             &panel, listed, pins, folded, *active,
-                            *renaming,
+                            *renaming, *width,
                         )
                         .boxed()
                     }
@@ -560,7 +572,11 @@ pub(super) fn side(panel: &PanelId) -> impl View + use<> {
             .within(column(()).gap(0.0)),)),
         ))
         .gap(0.0)
-        .width(px(cx.theme().terminal.list))
+        .width(resource::<Panels, _>({
+            let panel = panel.clone();
+            move |panels| px(panels.list_width(&panel, first))
+        }))
+        .min_width(px(NARROWEST))
         .shrink(0.0)
         .fill(cx.theme().palette.card)
     })
@@ -601,11 +617,13 @@ fn groups(
     folded: &BTreeSet<String>,
     active: Option<Entity>,
     renaming: Option<Entity>,
+    width: f32,
 ) -> impl View + use<> {
     let shown = Shown {
         panel,
         active,
         renaming,
+        width,
     };
     let groups = listed
         .shown(pins)
@@ -664,6 +682,8 @@ struct Shown<'a> {
     panel: &'a PanelId,
     active: Option<Entity>,
     renaming: Option<Entity>,
+    /// The list's width, which the last commands are cut to.
+    width: f32,
 }
 
 /// How far the rows stand in from the list's edge.
@@ -732,6 +752,7 @@ fn entry(shown: &Shown, item: Item, last: bool) -> AnyView {
     let panel = shown.panel.clone();
     let active = shown.active == Some(item.terminal);
     let renaming = shown.renaming == Some(item.terminal);
+    let width = shown.width;
     with_cx(move |cx| {
         let theme = cx.theme();
         let terminal = item.terminal;
@@ -762,7 +783,7 @@ fn entry(shown: &Shown, item: Item, last: bool) -> AnyView {
         }
         let mut lines: Vec<AnyView> = vec![crumbs];
         if let Some(last) = &item.last {
-            let room = theme.terminal.list
+            let room = width
                 - BOX_GAP * 2.0
                 - 4.0
                 - ICON

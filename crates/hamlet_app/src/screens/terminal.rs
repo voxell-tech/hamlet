@@ -10,6 +10,7 @@ pub mod keys;
 mod list;
 mod mouse;
 mod pick;
+mod resize;
 mod screen;
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -99,6 +100,7 @@ pub fn plugin(app: &mut App) {
             list::plugin,
             carry::plugin,
             pick::plugin,
+            resize::plugin,
         ));
 }
 
@@ -316,6 +318,9 @@ pub(crate) struct Panel {
     pub(crate) room: Option<(u16, u16)>,
     /// Its list is out of sight.
     pub(crate) list_hidden: bool,
+    /// The width its list was dragged to, in logical pixels; the
+    /// theme's until then.
+    pub(crate) list_width: Option<f32>,
 }
 
 impl Panels {
@@ -330,6 +335,17 @@ impl Panels {
 
     pub(crate) fn edit(&mut self, panel: &PanelId) -> &mut Panel {
         self.0.entry(panel.clone()).or_default()
+    }
+
+    /// The width of the list of `panel`, `first` until it is dragged.
+    pub(crate) fn list_width(
+        &self,
+        panel: &PanelId,
+        first: f32,
+    ) -> f32 {
+        self.get(panel)
+            .and_then(|panel| panel.list_width)
+            .unwrap_or(first)
     }
 
     /// Hides the list of `panel`.
@@ -605,17 +621,10 @@ fn side(panel: &PanelId) -> impl View + use<> {
                 frame().boxed()
             } else {
                 let panel = panel.clone();
-                with_cx(move |cx| {
-                    row((
-                        frame()
-                            .width(px(1.0))
-                            .fill(cx.theme().palette.border),
-                        list::side(&panel),
-                    ))
+                row((resize::line(&panel), list::side(&panel)))
                     .gap(0.0)
                     .height(percent(100.0))
-                })
-                .boxed()
+                    .boxed()
             }
         },
     )
