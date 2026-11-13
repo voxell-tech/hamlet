@@ -31,7 +31,7 @@ use tokio::sync::{mpsc, watch};
 
 use crate::apply::{Apply, Changed, discard};
 use crate::calls::{Ran, Running};
-use crate::clients::check::fault;
+use crate::clients::check::{failed, fault};
 use crate::clients::connection::Event;
 use crate::clients::{Clients, asked};
 use crate::clock;
@@ -427,8 +427,10 @@ impl Server {
             self.unwind()
                 .context("rolling back a failed input")
                 .map_err(Fatal)?;
-        } else if self.app.world().resource::<Changed>().carried {
-            crate::fault::point("carried");
+        } else if let Some(point) =
+            self.app.world().resource::<Changed>().fault
+        {
+            crate::fault::point(point);
         }
         let mut failures = recorded();
         failures.extend(failure);
@@ -576,10 +578,7 @@ impl Server {
             Secrets::Of(&core.credentials),
             format!("a request failed: {logged}"),
         );
-        core.answer(
-            client,
-            fault(id.as_ref(), format!("The server failed: {shown}")),
-        )
+        core.answer(client, fault(id.as_ref(), failed(shown)))
     }
 
     /// Takes in a runtime's line: its message is run by the system
@@ -630,9 +629,8 @@ impl Server {
                 format!("a runtime's line failed: {failure}"),
             );
             if let Some(re) = re {
-                let message = core.credentials.scrub_text(&format!(
-                    "The server failed: {failure}"
-                ));
+                let message =
+                    core.credentials.scrub_text(&failed(failure));
                 core.runtimes.send(from, |v, id| {
                     ServerMessage::Error(ProtocolError {
                         code: ErrorCode::Failed,

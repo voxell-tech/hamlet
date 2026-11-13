@@ -46,6 +46,12 @@ pub(crate) fn fault(
     })
 }
 
+/// What a client or a runtime is told when the server failed at what
+/// it asked, for `why`.
+pub(crate) fn failed(why: impl std::fmt::Display) -> String {
+    format!("The server failed: {why}")
+}
+
 struct Form {
     schema: Value,
     validator: jsonschema::Validator,

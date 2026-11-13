@@ -98,9 +98,9 @@ pub(crate) struct Changed {
     /// What the clients see changed with no change kept, such as how
     /// moving the lodges goes.
     pub republish: bool,
-    /// A society call's change was kept with its answer: the crash
-    /// test's fault point comes once it is.
-    pub carried: bool,
+    /// The fault point a crash test stops at once the input is kept,
+    /// such as a society call's change kept with its answer.
+    pub fault: Option<&'static str>,
 }
 
 pub(crate) fn plugin(app: &mut App) {

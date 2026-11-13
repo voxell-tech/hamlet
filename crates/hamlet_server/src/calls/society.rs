@@ -396,10 +396,11 @@ impl Core<'_, '_> {
         }
         // The crash test's fault point comes once the change is kept:
         // with its answer at the input's end, or apart from it.
-        self.changed.carried = true;
         if split {
             hamlet_store::commit(self.realm.store().connection())?;
             crate::fault::point("carried");
+        } else {
+            self.changed.fault = Some("carried");
         }
         Ok(made)
     }

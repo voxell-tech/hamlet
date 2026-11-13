@@ -11,7 +11,7 @@ use hamlet_protocol::client::{
 
 use super::kept::Images;
 use super::{MOST_BYTES, capitalised, usage};
-use crate::clients::check::{fault, reply};
+use crate::clients::check::{failed, fault, reply};
 use crate::clients::connection::UploadOf;
 use crate::core::Core;
 use crate::later::Finished;
@@ -183,14 +183,8 @@ impl Core<'_, '_> {
                         image: image.to_string(),
                     }),
                 ),
-                Ok(Err(error)) => fault(
-                    Some(&id),
-                    format!("The server failed: {error}"),
-                ),
-                Err(panic) => fault(
-                    Some(&id),
-                    format!("The server failed: {panic}"),
-                ),
+                Ok(Err(error)) => fault(Some(&id), failed(error)),
+                Err(panic) => fault(Some(&id), failed(panic)),
             };
             Finished::Reply { client, message }
         });
