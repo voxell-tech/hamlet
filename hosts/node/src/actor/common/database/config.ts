@@ -122,6 +122,11 @@ export interface SqliteNativeMetrics {
     stateUpdateNs: number;
     totalNs: number;
     commitCount: number;
+    pageCacheEntries: number;
+    pageCacheWeightedSize: number;
+    pageCacheCapacityPages: number;
+    writeBufferDirtyPages: number;
+    dbSizePages: number;
 }
 
 export interface SqliteDatabase {
