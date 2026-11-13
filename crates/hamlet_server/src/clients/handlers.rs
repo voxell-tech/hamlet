@@ -185,6 +185,7 @@ fn write(
         ClientMessage::Mcp(m) => to(commands, client, m),
         ClientMessage::WebWindow(m) => to(commands, client, m),
         ClientMessage::Web(m) => to(commands, client, m),
+        ClientMessage::WebIde(m) => to(commands, client, m),
     }
 }
 
