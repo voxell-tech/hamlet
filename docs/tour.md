@@ -165,7 +165,10 @@ The core reaches its host through the `ActorHost` trait in
 `hamlet_actor_core/src/host.rs`: an actor that asks to sleep or to stop,
 the next alarm to store, and the SQL to serve. `transaction_committed`
 tells the host that one of an actor's transactions committed.
-`host::RunningActor` starts one actor on a host and stops it.
+`host::RunningActor` starts one actor on a host, calls its actions
+through `host/dispatch.rs` within the actor's action timeout, and stops
+it. `host/http.rs` keeps the helpers of an actor's HTTP routes that
+need no engine; nothing calls them yet.
 
 `hamlet_host/src/local.rs` is a host on that trait. `Host::open` locks
 the realm folder with `host.lock` and refuses a second host.
