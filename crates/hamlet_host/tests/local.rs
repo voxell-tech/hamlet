@@ -1051,8 +1051,9 @@ fn kept(dir: &Path, key: &str) -> Kept {
 }
 
 /// A shutdown cancels the timers of stopped actors, those its own
-/// stops leave included, and starts nothing after it. Their deadlines
-/// stay in their files, and the next host's boot runs them.
+/// stops leave included, and starts nothing after it, nor boots.
+/// Their deadlines stay in their files, and the next host's boot runs
+/// them.
 #[tokio::test(flavor = "multi_thread")]
 async fn no_timer_starts_an_actor_after_a_shutdown() {
     let dir = Scratch::new("host-shutdown-timers");
@@ -1075,6 +1076,7 @@ async fn no_timer_starts_an_actor_after_a_shutdown() {
         act(&host, "counter/new", "get", Vec::new()).await.is_err()
     );
     assert!(!dir.join("actors/counter/new.sqlite").exists());
+    assert!(host.boot().await.is_err(), "a shut host booted");
     drop(host);
     for key in ["stopped", "running"] {
         assert_eq!(
@@ -1143,6 +1145,67 @@ async fn a_second_host_opens_the_folder_at_once_after_a_shutdown() {
             "{kind}/{key}"
         );
     }
+}
+
+/// Once a shutdown returns and the last `Host` is dropped, a second
+/// host opens the folder, every time. Here each round's counters ask
+/// to sleep as the shutdown begins, so their own stops end beside
+/// it, each at its own moment.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_folder_is_free_after_every_shutdown() {
+    const ROUNDS: u64 = 400;
+    let dir = Scratch::new("host-shutdown-reopen-loop");
+    let keys: Vec<String> =
+        (0..16).map(|key| format!("counter/{key}")).collect();
+    let mut refused = Vec::new();
+    let mut host = Host::open(&dir, factories()).unwrap();
+    for round in 0..ROUNDS {
+        for id in &keys {
+            act(&host, id, "get", Vec::new()).await.unwrap();
+        }
+        let mut sleeps = tokio::task::JoinSet::new();
+        for id in keys.clone() {
+            let host = host.clone();
+            sleeps.spawn(async move {
+                // Fails once the shutdown has begun.
+                let _ = act(&host, &id, "sleep", Vec::new()).await;
+            });
+        }
+        tokio::time::sleep(Duration::from_micros(
+            round * 397 % 4_000,
+        ))
+        .await;
+        host.shutdown().await.unwrap();
+        // Only the host's own work may hold it now.
+        while sleeps.join_next().await.is_some() {}
+        drop(host);
+        host = match Host::open(&dir, factories()) {
+            Ok(again) => again,
+            Err(_) => {
+                refused.push(round);
+                let deadline = tokio::time::Instant::now()
+                    + Duration::from_secs(10);
+                loop {
+                    tokio::time::sleep(Duration::from_millis(10))
+                        .await;
+                    if let Ok(again) = Host::open(&dir, factories()) {
+                        break again;
+                    }
+                    assert!(
+                        tokio::time::Instant::now() < deadline,
+                        "the folder stayed locked after round \
+                         {round}"
+                    );
+                }
+            }
+        };
+    }
+    host.shutdown().await.unwrap();
+    assert!(
+        refused.is_empty(),
+        "the folder was still locked right after the shutdowns of \
+         rounds {refused:?} of {ROUNDS}"
+    );
 }
 
 /// Once the last `Host` is dropped, the host starts no actor, though
