@@ -11,3 +11,6 @@
 
 # The stills an example draws, wherever the examples live.
 **/examples/*/out/
+
+# The native module napi builds beside its crate for Node to load.
+/crates/hamlet_actor_node/*.node
