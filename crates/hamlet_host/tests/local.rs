@@ -1942,3 +1942,29 @@ async fn a_destroy_ends_a_transaction_its_generation_left_open() {
     assert!(!any_file_of(&dir, "keeper", "t"));
     host.shutdown().await.unwrap();
 }
+
+/// A file that holds a destroy, as a kill leaves one, is removed at
+/// the actor's next start: `get_or_start` makes the actor anew, and a
+/// start that makes no file fails as for a missing one.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_start_finishes_the_destroy_its_file_holds() {
+    let dir = Scratch::new("host-destroy-stored");
+    let host = Host::open(&dir, factories()).unwrap();
+    for key in ["made", "kept-out"] {
+        let id = host.get_or_start("counter", key).await.unwrap();
+        call(&host, &id, "increment").await;
+        host.stop(&id, ShutdownKind::Sleep).await.unwrap();
+        Connection::open(
+            dir.join(format!("actors/counter/{key}.sqlite")),
+        )
+        .unwrap()
+        .execute("UPDATE _hamlet_actor SET destroying = 1", [])
+        .unwrap();
+    }
+
+    assert_eq!(call(&host, "counter/made", "get").await, 0);
+    let kept_out = Address::new("counter", "kept-out");
+    assert!(host.set_aside_timers(&kept_out).await.is_err());
+    assert!(!any_file_of(&dir, "counter", "kept-out"));
+    host.shutdown().await.unwrap();
+}

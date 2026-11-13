@@ -15,6 +15,10 @@
 //! locks the folder by its name, so hosts of different names, each
 //! with kinds of its own, share one folder.
 //!
+//! A destroy is stored in the row before the actor's files are
+//! removed, so the next start of the actor, a boot's included,
+//! finishes a destroy that a kill cut off, and does not start it.
+//!
 //! Each actor's place in its lifecycle is one [`Life`] in the host's
 //! map. One actor's start or stop waits only on that actor's work. A
 //! start has a deadline. A shutdown stops every actor at once, ends
@@ -71,7 +75,8 @@ const ACTOR_TABLE: &str = "CREATE TABLE IF NOT EXISTS _hamlet_actor \
 	key TEXT NOT NULL,
 	generation INTEGER NOT NULL,
 	wake_at INTEGER,
-	running INTEGER NOT NULL DEFAULT 0)";
+	running INTEGER NOT NULL DEFAULT 0,
+	destroying INTEGER NOT NULL DEFAULT 0)";
 
 /// Where one actor is in its lifecycle. The map holds no entry for an
 /// actor that is stopped with no deadline: none of its files is open.
@@ -97,11 +102,11 @@ const ACTOR_TABLE: &str = "CREATE TABLE IF NOT EXISTS _hamlet_actor \
 /// | `Stopped` | `Host::shutdown`, or the last `Host` dropped | absent, its timer aborted |
 /// | absent, `Stopped` | `Host::stop(Destroy)`, the host not shut | `Destroying`, with no generation, its timer aborted |
 /// | `Starting` | its generation asks to sleep or to be destroyed, or reports a crash | `Starting`, with the request kept; a destroy wins over a sleep |
-/// | `Starting` | the start ended well | `Running`, or `Stopping` or `Destroying` for a kept request |
+/// | `Starting` | the start ended well | `Running`, or `Stopping`, or `Destroying` with its file marked, for a kept request |
 /// | `Starting` | the start failed or panicked, or missed its deadline | absent, the failure told to its waiters |
 /// | `Running` | its generation asks to sleep or reports a crash, or `Host::stop(Sleep)` | `Stopping` |
-/// | `Running` | its generation asks to be destroyed, or `Host::stop(Destroy)` | `Destroying` |
-/// | `Stopping` | its generation asks to be destroyed, or `Host::stop(Destroy)` | `Destroying` |
+/// | `Running` | its generation asks to be destroyed, or `Host::stop(Destroy)` | `Destroying`, its file marked |
+/// | `Stopping` | its generation asks to be destroyed, or `Host::stop(Destroy)` | `Destroying`, its file marked |
 /// | `Stopping` | its generation asks to sleep or reports a crash, or `Host::stop(Sleep)` | unchanged |
 /// | `Destroying` | any request | unchanged |
 /// | `Stopping` | the stop ended with a deadline, the host not shut | `Stopped`, its timer armed |
@@ -632,10 +637,7 @@ impl HostInner {
             Life::Stopping { generation, done }
                 if matches!(reason, ShutdownKind::Destroy) =>
             {
-                *life = Life::Destroying {
-                    generation: Some(generation.clone()),
-                    done: done.clone(),
-                };
+                *life = destroying(generation.clone(), done.clone());
                 None
             }
             Life::Reading { .. }
@@ -662,10 +664,25 @@ fn stopping(
     let done = owned.waiters.clone();
     match reason {
         ShutdownKind::Sleep => Life::Stopping { generation, done },
-        ShutdownKind::Destroy => Life::Destroying {
-            generation: Some(generation),
-            done,
-        },
+        ShutdownKind::Destroy => destroying(generation, done),
+    }
+}
+
+/// The state of an actor whose generation `generation` stops for a
+/// destroy that `done` follows. Marks the generation's file destroyed
+/// as soon as no transaction is open in it, ahead of the statements
+/// its actor sends after, but those of a transaction open now: a kill
+/// from then on leaves a file whose next start finishes the destroy.
+fn destroying(generation: Arc<Generation>, done: Waiters) -> Life {
+    // A file already closed is marked as it is removed.
+    let _ = generation.file.when_idle(|conn| {
+        mark_destroyed(conn)?;
+        crate::fault::point("destroy-marked");
+        Ok(())
+    });
+    Life::Destroying {
+        generation: Some(generation),
+        done,
     }
 }
 
@@ -762,10 +779,11 @@ impl Host {
     /// start it began, without waiting for the starts: a call to one
     /// of them waits for its start. A start that fails is logged and
     /// left for the next boot, and a file that cannot be read is
-    /// reported and passed over. A start of an actor whose file boot
-    /// reads waits for the read. Fails at once in a host that has
-    /// shut down, which may no longer hold the folder: it reads no
-    /// file.
+    /// reported and passed over. Boot finishes each destroy that a
+    /// kill cut off, and starts no actor for it. A start of an actor
+    /// whose file boot reads waits for the read. Fails at once in a
+    /// host that has shut down, which may no longer hold the folder:
+    /// it reads no file.
     pub async fn boot(&self) -> Result<Vec<String>> {
         let host = self.inner();
         if host.actors.lock().shut {
@@ -812,7 +830,26 @@ impl Host {
                     continue;
                 }
             };
-            let StoredActor { wake_at, cut_off } = stored;
+            let StoredActor {
+                wake_at,
+                cut_off,
+                destroyed,
+            } = stored;
+            if destroyed {
+                match destroy_file(&path) {
+                    Ok(()) => tracing::info!(
+                        actor_id,
+                        "boot finished a destroy that a kill cut off"
+                    ),
+                    Err(error) => tracing::error!(
+                        ?error,
+                        actor_id,
+                        "boot could not finish a destroy that a \
+                         kill cut off"
+                    ),
+                }
+                continue;
+            }
             let (owned, generation) = {
                 let mut actors = host.actors.lock();
                 match wake_at {
@@ -1202,26 +1239,34 @@ struct StoredActor {
     /// The actor was running when the host died: no clean stop
     /// cleared its mark.
     cut_off: bool,
+    /// A destroy of the actor was stored, and a kill cut it off.
+    destroyed: bool,
 }
 
 /// The `_hamlet_actor` row of the actor file at `path`, if it holds a
-/// deadline or a run a kill cut off. The file is closed again;
-/// starting the actor opens it anew.
+/// deadline, a run a kill cut off, or a destroy. The file is closed
+/// again; starting the actor opens it anew.
 fn stored_actor(path: &Path) -> Result<Option<StoredActor>> {
     let conn = plain_sqlite::open(path, false)?;
     if !has_table(&conn, "_hamlet_actor")? {
         return Ok(None);
     }
-    let stored: Option<(Option<i64>, bool)> = conn
+    let stored = conn
         .query_row(
-            "SELECT wake_at, running FROM _hamlet_actor",
+            "SELECT wake_at, running, destroying FROM _hamlet_actor",
             [],
-            |row| Ok((row.get(0)?, row.get(1)?)),
+            |row| {
+                Ok(StoredActor {
+                    wake_at: row.get(0)?,
+                    cut_off: row.get(1)?,
+                    destroyed: row.get(2)?,
+                })
+            },
         )
         .optional()?;
-    Ok(stored
-        .filter(|(wake_at, cut_off)| wake_at.is_some() || *cut_off)
-        .map(|(wake_at, cut_off)| StoredActor { wake_at, cut_off }))
+    Ok(stored.filter(|stored| {
+        stored.wake_at.is_some() || stored.cut_off || stored.destroyed
+    }))
 }
 
 /// Whether the file has the table `name`. A table the core makes
@@ -1277,6 +1322,12 @@ fn mark_stopped(
         [wake_at],
     )?;
     Ok(wake_at)
+}
+
+/// Stores a destroy of the actor in its file.
+fn mark_destroyed(conn: &Connection) -> Result<()> {
+    conn.execute("UPDATE _hamlet_actor SET destroying = 1", [])?;
+    Ok(())
 }
 
 /// The timer of a stopped actor. At `wake_at` it starts the actor, if
@@ -1374,13 +1425,30 @@ fn actor_path(dir: &Path, actor_id: &str) -> PathBuf {
     dir.join("actors").join(format!("{actor_id}.sqlite"))
 }
 
-/// Removes the actor's files at `path`: its write-ahead file and its
-/// shared-memory file, then the file itself, so that no write-ahead
-/// file outlives its file and joins one made later at that path. A
-/// file already missing is passed over, so a destroy repeated ends
-/// the same way.
+/// Removes the actor's files at `path`. It stores the destroy in the
+/// file first, and folds the write-ahead file into it, so a kill
+/// before the file itself is removed leaves it marked. Then it
+/// removes the write-ahead file and the shared-memory file, then the
+/// file itself, so that no write-ahead file outlives its file and
+/// joins one made later at that path. A file already missing is
+/// passed over, so a destroy repeated ends the same way.
 fn destroy_file(path: &Path) -> Result<()> {
+    if path.exists() {
+        let conn = plain_sqlite::open(path, false)?;
+        // A file whose actor never started has no row to mark.
+        if has_table(&conn, "_hamlet_actor")? {
+            mark_destroyed(&conn)?;
+        }
+        let busy: i64 = conn.query_row(
+            "PRAGMA wal_checkpoint(TRUNCATE)",
+            [],
+            |row| row.get(0),
+        )?;
+        ensure!(busy == 0, "{} stayed busy", path.display());
+        conn.close().map_err(|(_, error)| error)?;
+    }
     for suffix in ["-wal", "-shm", ""] {
+        crate::fault::point("destroy-remove");
         let mut file = path.as_os_str().to_owned();
         file.push(suffix);
         match std::fs::remove_file(&file) {
@@ -1400,7 +1468,10 @@ fn destroy_file(path: &Path) -> Result<()> {
 /// Opens the actor's file, made first if `create`, adds a generation
 /// to its `_hamlet_actor` row, marks it running, and serves it.
 /// Returns the file, the new generation, and whether this is the
-/// actor's first start.
+/// actor's first start. A file that holds a destroy a kill cut off
+/// is removed first, as the destroy would have: the start then makes
+/// the actor anew if `create`, and fails as for a missing file if
+/// not.
 fn open_actor_file(
     dir: &Path,
     kind: &str,
@@ -1411,20 +1482,44 @@ fn open_actor_file(
         std::fs::create_dir_all(dir.join("actors").join(kind))?;
     }
     let path = actor_path(dir, &format!("{kind}/{key}"));
-    let mut conn = plain_sqlite::open(&path, create)?;
-    let (generation, first) =
-        bump_generation(&mut conn, kind, key)
+    // Runs twice at most: the second open finds no file to destroy.
+    loop {
+        let mut conn = plain_sqlite::open(&path, create)?;
+        let bumped = bump_generation(&mut conn, kind, key)
             .with_context(|| format!("start {}", path.display()))?;
-    Ok((PlainSqlite::serve(conn)?, generation, first))
+        if let Some((generation, first)) = bumped {
+            return Ok((
+                PlainSqlite::serve(conn)?,
+                generation,
+                first,
+            ));
+        }
+        conn.close().map_err(|(_, error)| error)?;
+        destroy_file(&path)?;
+    }
 }
 
+/// Adds a generation to the file's `_hamlet_actor` row, made first if
+/// missing, and marks it running. Returns the generation and whether
+/// the row is new, or `None` for a file that holds a destroy.
 fn bump_generation(
     conn: &mut Connection,
     kind: &str,
     key: &str,
-) -> Result<(u32, bool)> {
+) -> Result<Option<(u32, bool)>> {
     let tx = conn.transaction()?;
     tx.execute_batch(ACTOR_TABLE)?;
+    let destroyed = tx
+        .query_row(
+            "SELECT destroying FROM _hamlet_actor",
+            [],
+            |row| row.get(0),
+        )
+        .optional()?
+        .unwrap_or(false);
+    if destroyed {
+        return Ok(None);
+    }
     let first = tx.execute(
         "INSERT OR IGNORE INTO _hamlet_actor (id, kind, key, \
          generation) VALUES (0, ?, ?, 0)",
@@ -1437,7 +1532,7 @@ fn bump_generation(
         |row| row.get(0),
     )?;
     tx.commit()?;
-    Ok((generation, first))
+    Ok(Some((generation, first)))
 }
 
 /// Starts the actor that `owned` holds as `Starting`, as the
