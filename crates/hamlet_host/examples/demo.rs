@@ -40,12 +40,14 @@ mod realm;
 
 use std::io::Write;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use act::act;
 use anyhow::{Context, Result, anyhow, bail};
 use hamlet_actors::workspace;
-use hamlet_host::{Address, Host};
+use hamlet_host::{Address, Host, HostOptions};
+use hamlet_sandbox::{Isolation, Sandbox};
 use tokio::sync::mpsc;
 
 #[tokio::main]
@@ -85,7 +87,13 @@ async fn demo() -> Result<()> {
     };
     let mut kinds = counter::factories(sleep);
     kinds.insert(workspace::KIND.to_owned(), workspace::factory());
-    let host = Host::open(&home, kinds)?;
+    kinds.insert(workspace::REALM.to_owned(), realm::factory());
+    // The workspace does not start where there is no sandbox.
+    let mut options = HostOptions::default();
+    if let Ok(sandbox) = Sandbox::open(Isolation::Sandboxed) {
+        options = options.with_value(Arc::new(sandbox));
+    }
+    let host = Host::open_with(&home, kinds, options)?;
     let result = match command {
         Some("serve") => serve(&host, loaded.unwrap_or(0)).await,
         Some("boot") => {
