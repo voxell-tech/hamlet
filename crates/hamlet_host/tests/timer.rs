@@ -180,9 +180,18 @@ async fn a_one_shot_whose_raw_handler_panics_runs_once() {
 }
 
 /// An actor of the authoring layer's trait API. `arm` schedules a
-/// one-shot `fire`, which records its run in the table `runs` and
-/// panics; `runs` reads the record.
-struct Fuse;
+/// one-shot `fire`, which records its run in the table `runs`; `runs`
+/// reads the record. Then `fire` panics, or, if `NAPS`, waits for
+/// good on its first run and ends on any later one.
+///
+/// `fire`'s record lands before its panic, and a stop between the two
+/// cuts it short: the authoring layer answers it `actor.stopping`,
+/// which keeps its one-shot to run again. So `fire` holds `firing`
+/// until it ends or naps, and `runs` takes it first: a run it counts
+/// has ended, or naps.
+struct Fuse<const NAPS: bool> {
+    firing: tokio::sync::Mutex<()>,
+}
 
 #[derive(Serialize, Deserialize)]
 struct Arm;
@@ -209,7 +218,7 @@ impl Action for Runs {
 }
 
 #[async_trait]
-impl Actor for Fuse {
+impl<const NAPS: bool> Actor for Fuse<NAPS> {
     type Input = ();
     type Actions = (Arm, Fire, Runs);
     type Events = ();
@@ -218,11 +227,13 @@ impl Actor for Fuse {
 
     async fn create(ctx: &Ctx<Self>) -> Result<Self> {
         ctx.sql().exec(&count_table("runs")).await?;
-        Ok(Self)
+        Ok(Self {
+            firing: tokio::sync::Mutex::new(()),
+        })
     }
 }
 
-impl Handler<Arm> for Fuse {
+impl<const NAPS: bool> Handler<Arm> for Fuse<NAPS> {
     async fn handle(
         self: Arc<Self>,
         ctx: Ctx<Self>,
@@ -235,38 +246,55 @@ impl Handler<Arm> for Fuse {
     }
 }
 
-impl Handler<Fire> for Fuse {
+impl<const NAPS: bool> Handler<Fire> for Fuse<NAPS> {
     async fn handle(
         self: Arc<Self>,
         ctx: Ctx<Self>,
         _: Fire,
     ) -> Result<()> {
+        let firing = self.firing.lock().await;
         ctx.sql().execute(&add_one("runs"), None).await?;
-        panic!("`fire` panics");
+        if !NAPS {
+            panic!("`fire` panics");
+        }
+        if count_in(ctx.sql(), "runs").await? == 1 {
+            drop(firing);
+            std::future::pending::<()>().await;
+        }
+        Ok(())
     }
 }
 
-impl Handler<Runs> for Fuse {
+impl<const NAPS: bool> Handler<Runs> for Fuse<NAPS> {
     async fn handle(
         self: Arc<Self>,
         ctx: Ctx<Self>,
         _: Runs,
     ) -> Result<i64> {
+        let _firing = self.firing.lock().await;
         count_in(ctx.sql(), "runs").await
     }
 }
 
-fn fuse_factories() -> HashMap<String, ActorFactory> {
+/// The kind `kind`, a [`Fuse`].
+fn fuse_factories<const NAPS: bool>(
+    kind: &str,
+) -> HashMap<String, ActorFactory> {
     let mut registry = Registry::new();
-    registry.register_actor_with::<Fuse>(
-        "fuse",
+    registry.register_actor_with::<Fuse<NAPS>>(
+        kind,
         ActorConfig {
-            name: Some("fuse".to_owned()),
+            name: Some(kind.to_owned()),
             has_database: true,
             ..ActorConfig::default()
         },
     );
     registry.into_factories()
+}
+
+/// Reads `runs`' reply.
+fn fuse_runs(reply: Vec<u8>) -> i64 {
+    ciborium::from_reader(&reply[..]).unwrap()
 }
 
 /// The trait API: `fire` panics in the task the authoring layer runs
@@ -276,13 +304,55 @@ async fn a_one_shot_whose_trait_handler_panics_runs_once() {
     let dir = Scratch::new("timer-panic-trait");
     a_panicking_handler_runs_once(
         &dir,
-        fuse_factories,
+        || fuse_factories::<false>("fuse"),
         "fuse",
         ("arm", Vec::new()),
-        ("runs", |reply| ciborium::from_reader(&reply[..]).unwrap()),
+        ("runs", fuse_runs),
         "runs",
     )
     .await;
+}
+
+/// A stop cuts short a one-shot's handler of the trait API that
+/// recorded its run outside the one-shot's transaction: the handler
+/// is answered `actor.stopping`, so its one-shot is kept, and the
+/// deadline the stop stores starts the actor again at once, which
+/// runs it again. Such a handler runs at least once; one that ends
+/// its one-shot in its own transaction runs once.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_one_shot_whose_trait_handler_a_stop_cuts_short_runs_again()
+{
+    let dir = Scratch::new("timer-cut-trait");
+    let factories = || fuse_factories::<true>("nap");
+    let host = Host::open(&dir, factories()).unwrap();
+    let id = host.get_or_start("nap", "a").await.unwrap();
+    act(&host, &id, "arm", Vec::new()).await.unwrap();
+    wait_for_runs(&host, &id, "runs", fuse_runs, 1).await;
+    host.stop(&id, ShutdownKind::Sleep).await.unwrap();
+    // Its own timer starts it: a call would start it too.
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !host.is_running(&id) {
+        assert!(
+            Instant::now() < deadline,
+            "not woken after its stop"
+        );
+        sleep(Duration::from_millis(10)).await;
+    }
+    wait_for_runs(&host, &id, "runs", fuse_runs, 2).await;
+    host.shutdown().await.unwrap();
+    drop(host);
+    assert_eq!(
+        stored(&dir, &id, "runs"),
+        Stored {
+            runs: 2,
+            schedules: 0
+        }
+    );
+
+    let host = Host::open(&dir, factories()).unwrap();
+    assert!(host.boot().await.unwrap().is_empty());
+    wait_for_runs(&host, &id, "runs", fuse_runs, 2).await;
+    host.shutdown().await.unwrap();
 }
 
 /// How long `arm` of the kind `inline` waits for the core to queue
