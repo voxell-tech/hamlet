@@ -1,10 +1,12 @@
 //! Timers: what a one-shot schedule does when its handler panics,
-//! and when its actor sleeps or is destroyed as it comes due, and a
+//! and when its actor sleeps or is destroyed as it comes due, a
+//! one-shot that never finishes set aside after five tries, and a
 //! stored deadline at either end of the clock's range.
 
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
 
 use act::act;
@@ -17,7 +19,7 @@ use hamlet_actor_core::actor::schedule::end_one_shot;
 use hamlet_actor_core::{
     ActorEvent, ActorFactory, ActorStart, ShutdownKind,
 };
-use hamlet_host::Host;
+use hamlet_host::{Address, Host, HostEvent, Letter};
 use hamlet_testing::Scratch;
 use serde::{Deserialize, Serialize};
 use tokio::time::{Instant, sleep};
@@ -37,14 +39,20 @@ struct Stored {
     schedules: i64,
 }
 
-/// Reads the actor's file. `runs` is the one row of its table
-/// `table`.
-fn stored(dir: &Path, actor_id: &str, table: &str) -> Stored {
-    let conn = rusqlite::Connection::open_with_flags(
+/// Opens the actor's file to read. No host may hold it: a host
+/// holds its actors' files alone.
+fn closed_file(dir: &Path, actor_id: &str) -> rusqlite::Connection {
+    rusqlite::Connection::open_with_flags(
         dir.join(format!("actors/{actor_id}.sqlite")),
         rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
     )
-    .unwrap();
+    .unwrap()
+}
+
+/// Reads the actor's file. `runs` is the one row of its table
+/// `table`.
+fn stored(dir: &Path, actor_id: &str, table: &str) -> Stored {
+    let conn = closed_file(dir, actor_id);
     let read = |sql: &str| -> i64 {
         conn.query_row(sql, [], |row| row.get(0)).unwrap()
     };
@@ -57,6 +65,18 @@ fn stored(dir: &Path, actor_id: &str, table: &str) -> Stored {
             "SELECT COUNT(*) FROM _actor_schedule_events",
         ),
     }
+}
+
+/// The generation the actor's file last started and the deadline its
+/// last stop left.
+fn last_start(dir: &Path, actor_id: &str) -> (i64, Option<i64>) {
+    closed_file(dir, actor_id)
+        .query_row(
+            "SELECT generation, wake_at FROM _hamlet_actor",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap()
 }
 
 /// Makes the table `table`, of one count, as [`stored`] reads it.
@@ -93,6 +113,14 @@ async fn wait_for_runs(
         assert!(Instant::now() < deadline, "never ran {want} times");
         sleep(Duration::from_millis(10)).await;
     }
+}
+
+/// The demo counter's `schedule` arguments: a one-shot of `action`
+/// `ms` ahead.
+fn schedule_args(ms: u64, action: &str) -> Vec<u8> {
+    let mut args = ms.to_le_bytes().to_vec();
+    args.extend_from_slice(action.as_bytes());
+    args
 }
 
 /// Schedules the actor's one-shot handler, which records its run and
@@ -139,13 +167,11 @@ async fn a_panicking_handler_runs_once(
 #[tokio::test(flavor = "multi_thread")]
 async fn a_one_shot_whose_raw_handler_panics_runs_once() {
     let dir = Scratch::new("timer-panic-raw");
-    let mut args = SOON_MS.to_le_bytes().to_vec();
-    args.extend_from_slice(b"panic");
     a_panicking_handler_runs_once(
         &dir,
         || counter::factories(counter::Sleep::WhenIdle),
         "counter",
-        ("schedule", args),
+        ("schedule", schedule_args(SOON_MS, "panic")),
         ("get", |reply| counter::count(reply).unwrap()),
         "counter",
     )
@@ -380,6 +406,139 @@ async fn a_panic_in_the_event_loop_keeps_the_one_shots_queued_behind_it()
         );
     }
     assert!(boots[1].is_empty(), "the second boot started it");
+}
+
+/// How many generations of a kind have begun.
+type Starts = Arc<AtomicU32>;
+
+/// The demo counter, sleeping after 200 ms idle. Counts its
+/// generations in `starts`.
+fn counters_that_sleep_soon(
+    starts: &Starts,
+) -> HashMap<String, ActorFactory> {
+    let config = ActorConfig {
+        name: Some("counter".to_owned()),
+        has_database: true,
+        sleep_timeout: Duration::from_millis(200),
+        ..ActorConfig::default()
+    };
+    let starts = starts.clone();
+    HashMap::from([(
+        "counter".to_owned(),
+        ActorFactory::new(config, move |start| {
+            starts.fetch_add(1, Ordering::SeqCst);
+            Box::pin(counter::run(start))
+        }),
+    )])
+}
+
+/// Waits until `starts` reaches `want`, then for `still`, and returns
+/// the count then.
+async fn starts_after(
+    starts: &Starts,
+    want: u32,
+    still: Duration,
+) -> u32 {
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while starts.load(Ordering::SeqCst) < want {
+        assert!(
+            Instant::now() < deadline,
+            "{} starts, not {want}",
+            starts.load(Ordering::SeqCst)
+        );
+        sleep(Duration::from_millis(10)).await;
+    }
+    sleep(still).await;
+    starts.load(Ordering::SeqCst)
+}
+
+/// Milliseconds since the Unix epoch, the clock timers use.
+fn now_ms() -> i64 {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap();
+    i64::try_from(now.as_millis()).unwrap()
+}
+
+/// M1. A one-shot whose handler drops its reply, without a panic, is
+/// kept to be tried again. Each generation tries it once, and its
+/// idle stop leaves the past deadline that starts the next at once.
+/// The sixth finds it tried five times, sets it aside, and stops for
+/// good. A re-arm tries it again.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_one_shot_that_drops_its_reply_is_set_aside_after_five_runs()
+ {
+    let dir = Scratch::new("timer-drop-loop");
+    let starts = Starts::default();
+    let host =
+        Host::open(&dir, counters_that_sleep_soon(&starts)).unwrap();
+    let mut events = host.events();
+    let id = host.get_or_start("counter", "a").await.unwrap();
+    act(&host, &id, "schedule", schedule_args(SOON_MS, "drop"))
+        .await
+        .unwrap();
+    assert_eq!(
+        starts_after(&starts, 6, Duration::from_secs(2)).await,
+        6,
+        "it started again after the sixth generation"
+    );
+    assert!(!host.is_running(&id));
+    let letter = events.try_recv().expect("no dead letter");
+    assert!(events.try_recv().is_err(), "a second event");
+    host.shutdown().await.unwrap();
+    drop(host);
+    assert_eq!(
+        stored(&dir, &id, "counter"),
+        Stored {
+            runs: 5,
+            schedules: 0
+        }
+    );
+    assert_eq!(last_start(&dir, &id), (6, None));
+
+    let host =
+        Host::open(&dir, counters_that_sleep_soon(&starts)).unwrap();
+    let at = Address::new("counter", "a");
+    let timers = host.set_aside_timers(&at).await.unwrap();
+    let [timer] = &timers[..] else {
+        panic!("set aside: {timers:?}");
+    };
+    assert_eq!(
+        (timer.action.as_str(), timer.tries),
+        ("drop", 5),
+        "{timer:?}"
+    );
+    assert_eq!(
+        letter,
+        HostEvent::DeadLetter {
+            holder: at.clone(),
+            letter: Letter::Timer {
+                event_id: timer.event_id.clone(),
+                action: timer.action.clone(),
+                due_at: timer.due_at,
+            },
+            tries: 5,
+            error: Some("actor.dropped_reply".to_owned()),
+        }
+    );
+    assert_eq!(
+        timer.last_error.as_deref(),
+        Some("actor.dropped_reply")
+    );
+    assert!(
+        host.rearm_timer(&at, &timer.event_id, now_ms())
+            .await
+            .unwrap()
+    );
+    wait_for_runs(
+        &host,
+        &id,
+        "get",
+        |reply| counter::count(reply).unwrap(),
+        6,
+    )
+    .await;
+    host.shutdown().await.unwrap();
 }
 
 /// The due time of each one-shot in a sweep.

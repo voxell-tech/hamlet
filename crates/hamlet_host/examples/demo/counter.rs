@@ -8,6 +8,10 @@
 //! - `get` reads the count.
 //! - `panic` adds one in a transaction that does not end its
 //!   one-shot, then panics.
+//! - `drop` adds one in a transaction that does not end its one-shot,
+//!   then drops its reply unsent.
+//! - `abort` adds one in a transaction that does not end its
+//!   one-shot, then aborts the process.
 //! - `schedule` takes a little-endian `u64` of milliseconds, then
 //!   optionally an action's name, and arms a one-shot of that action,
 //!   `increment` without one, that far ahead. It replies with the
@@ -68,7 +72,8 @@ pub fn count(reply: Vec<u8>) -> Result<i64> {
     Ok(i64::from_le_bytes(bytes))
 }
 
-async fn run(start: ActorStart) -> Result<()> {
+/// Runs one generation of a counter.
+pub async fn run(start: ActorStart) -> Result<()> {
     let ActorStart {
         ctx, mut events, ..
     } = start;
@@ -97,11 +102,11 @@ async fn run(start: ActorStart) -> Result<()> {
                         scheduled_fire.as_ref(),
                     )
                     .await;
-                    reply.send(
-                        count.map(|count| {
+                    if name != "drop" {
+                        reply.send(count.map(|count| {
                             count.to_le_bytes().to_vec()
-                        }),
-                    );
+                        }));
+                    }
                 });
             }
             other => answer(other),
@@ -142,6 +147,11 @@ async fn action(
         "panic" => {
             add_one(ctx, true, None).await?;
             panic!("the counter's `panic` action panics");
+        }
+        "drop" => add_one(ctx, true, None).await,
+        "abort" => {
+            add_one(ctx, true, None).await?;
+            std::process::abort();
         }
         "get" => read_count(ctx).await,
         "sleep" => {
