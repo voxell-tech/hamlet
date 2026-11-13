@@ -3,7 +3,9 @@
 //! ```text
 //! demo increment <key> [times]  add one per time, each in a transaction
 //! demo get <key>                print the count
-//! demo schedule <key> <ms>      arm a one-shot increment <ms> ahead
+//! demo schedule <key> <ms> [<action>]
+//!                               arm a one-shot of <action>, or of
+//!                               increment, <ms> ahead
 //! demo sleep <key>              ask the actor to sleep
 //! demo destroy <key>            ask the actor to destroy itself
 //! demo boot <ms>                boot, wait <ms>, print what booting started
@@ -95,13 +97,12 @@ async fn run(host: &Host, words: &[String]) -> Result<()> {
             host.action(&actor_id, command, Vec::new()).await?
         }
         "schedule" => {
-            let ms = number(words.get(2))?;
-            host.action(
-                &actor_id,
-                "schedule",
-                ms.to_le_bytes().to_vec(),
-            )
-            .await?
+            let mut args =
+                number(words.get(2))?.to_le_bytes().to_vec();
+            if let Some(action) = words.get(3) {
+                args.extend_from_slice(action.as_bytes());
+            }
+            host.action(&actor_id, "schedule", args).await?
         }
         other => bail!("unknown command `{other}`"),
     };

@@ -36,6 +36,7 @@ hamlet_sandbox = { version = "0.1.0", path = "crates/hamlet_sandbox" }
 hamlet_workspace_wire = { version = "0.1.0", path = "crates/hamlet_workspace_wire" }
 hamlet_update = { version = "0.1.0", path = "crates/hamlet_update" }
 # The actor runtime, ported. Each crate holds Apache-2.0 code; see its NOTICE.
+hamlet_actor = { version = "0.1.0", path = "crates/hamlet_actor" }
 hamlet_actor_client = { version = "0.1.0", path = "crates/hamlet_actor_client" }
 hamlet_actor_core = { version = "0.1.0", path = "crates/hamlet_actor_core" }
 hamlet_actor_error = { version = "0.1.0", path = "crates/hamlet_actor_error" }

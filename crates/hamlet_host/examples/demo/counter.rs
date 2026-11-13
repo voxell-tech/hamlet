@@ -6,9 +6,12 @@
 //!   schedule, the same transaction ends the one-shot.
 //! - `discard` adds one in a transaction and rolls it back.
 //! - `get` reads the count.
-//! - `schedule` takes a little-endian `u64` of milliseconds and arms
-//!   a one-shot `increment` that far ahead. It replies with the count
-//!   it read before, so its reply waits for no write after the
+//! - `panic` adds one in a transaction that does not end its
+//!   one-shot, then panics.
+//! - `schedule` takes a little-endian `u64` of milliseconds, then
+//!   optionally an action's name, and arms a one-shot of that action,
+//!   `increment` without one, that far ahead. It replies with the
+//!   count it read before, so its reply waits for no write after the
 //!   schedule's.
 //! - `sleep` and `destroy` ask the host to sleep or destroy the
 //!   actor, and reply with the count.
@@ -128,6 +131,10 @@ async fn action(
     match name {
         "increment" => add_one(ctx, true, fire).await,
         "discard" => add_one(ctx, false, fire).await,
+        "panic" => {
+            add_one(ctx, true, None).await?;
+            panic!("the counter's `panic` action panics");
+        }
         "get" => read_count(ctx).await,
         "sleep" => {
             ctx.sleep()?;
@@ -138,13 +145,20 @@ async fn action(
             read_count(ctx).await
         }
         "schedule" => {
-            let ms = u64::from_le_bytes(
-                args.try_into()
-                    .map_err(|_| anyhow!("schedule takes a u64"))?,
-            );
+            let (ms, action) = args
+                .split_first_chunk()
+                .ok_or_else(|| anyhow!("schedule takes a u64"))?;
+            let action = match std::str::from_utf8(action)? {
+                "" => "increment",
+                action => action,
+            };
             let count = read_count(ctx).await?;
-            ctx.after(Duration::from_millis(ms), "increment", &[])
-                .await?;
+            ctx.after(
+                Duration::from_millis(u64::from_le_bytes(*ms)),
+                action,
+                &[],
+            )
+            .await?;
             Ok(count)
         }
         other => Err(anyhow!("unknown action `{other}`")),

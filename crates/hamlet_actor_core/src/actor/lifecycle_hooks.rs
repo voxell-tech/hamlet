@@ -56,12 +56,29 @@ impl<T> Reply<T> {
     }
 }
 
+/// A reply dropped unsent answers `actor.dropped_reply`, or
+/// `actor.panicked` when the thread that drops it is unwinding from a
+/// panic. A handler that panics in the task holding its reply, as
+/// each action of the authoring layer does, drops the reply that way,
+/// so the panic reads as the handler's outcome, like an error it
+/// returned, and a one-shot it ran is not kept to run again.
+///
+/// Two panics are not told apart. One in another task than the
+/// reply's leaves the reply's holder to answer it. One in an actor's
+/// event loop answers every reply the loop holds as panicked, those
+/// still queued in its channel included, so a one-shot queued there
+/// and never run is not kept either.
 impl<T> Drop for Reply<T> {
     fn drop(&mut self) {
         if self.tx.is_some() {
-            self.deliver(Err(
-                crate::error::ActorLifecycle::DroppedReply.build(),
-            ));
+            self.deliver(Err(if std::thread::panicking() {
+                crate::error::ActorRuntime::Panicked {
+                    operation: "a handler".to_owned(),
+                }
+                .build()
+            } else {
+                crate::error::ActorLifecycle::DroppedReply.build()
+            }));
         }
     }
 }
