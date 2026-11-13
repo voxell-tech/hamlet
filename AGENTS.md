@@ -150,7 +150,8 @@ no C compiler and without bundled SQLite), `deny` (`cargo deny check`), `test`
 with `-D warnings` and every feature, except that `hamlet_actor_core` is
 documented on its own at its default features, because its
 `native-runtime` and `wasm-runtime` features exclude each other) and
-`node` (pi's checks, then the Node host's). `deny` needs cargo-deny:
+`node` (pi's checks, then the Node host's checks and tests).
+`deny` needs cargo-deny:
 `cargo install --locked cargo-deny`. `deny.toml` holds the allowed
 licences and the ignored advisories, each with its reason. With `CI`
 set, as on GitHub, the steps pass `--locked` to cargo. `cargo xtask fmt`
@@ -180,11 +181,13 @@ npm test
 
 `hosts/node/` is the Node package of the Node host, with the TypeScript
 actor layer in `src/actor/`. Install it with `npm ci --prefix hosts/node`
-and the same Node version. Its TypeScript and Biome check must be clean
-before a commit too. `cargo xtask node` runs it after pi's; by hand:
+and the same Node version. Its TypeScript and Biome check and its tests,
+on Node's own test runner, must be clean before a commit too.
+`cargo xtask node` runs both after pi's; by hand:
 
 ```sh
 npm run check --prefix hosts/node
+npm test --prefix hosts/node
 ```
 
 The acceptance suite in `crates/hamlet_acceptance` starts real server
