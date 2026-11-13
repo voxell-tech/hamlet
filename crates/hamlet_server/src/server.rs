@@ -8,7 +8,7 @@
 //! it.
 
 use std::cell::RefCell;
-use std::panic::AssertUnwindSafe;
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context as _, Result};
@@ -21,6 +21,7 @@ use hamlet_store::ids::Actor;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{mpsc, watch};
 
+use crate::apply::Apply;
 use crate::calls::{self, Calls, Ran};
 use crate::clients::Clients;
 use crate::clients::connection::Event;
@@ -238,6 +239,7 @@ impl Server {
         runtimes.start(db, &layout)?;
         let clients = Clients::new(events_to, closing, clock::now())?;
         app.set_error_handler(record)
+            .add_plugins(crate::apply::plugin)
             .insert_resource(realm)
             .insert_resource(env)
             .insert_resource(runtimes)
@@ -284,6 +286,11 @@ impl Server {
             core.change(Actor::Realm, |cx, env| {
                 follow(cx, env, input.conversation, &input.request)
             })?;
+        }
+        if let Some(failure) = server.apply().into_iter().next() {
+            anyhow::bail!(
+                "following the last stop's turns: {failure}"
+            );
         }
         Ok(server)
     }
@@ -343,15 +350,21 @@ impl Server {
                 failures.push(diagnostic::panicked(&*panic));
             }
         }
-        if failures.is_empty() {
-            return Ok(());
+        if !failures.is_empty() {
+            // A connection that cannot roll back what a panic left
+            // open cannot be trusted with the next change.
+            let mut core = self.core().map_err(Fatal)?;
+            hamlet_store::unwind(core.realm.store().connection())
+                .context("rolling back a failed input")
+                .map_err(Fatal)?;
         }
+        // What the input kept is followed up whether or not it went
+        // on to fail.
+        failures.extend(self.apply());
         let mut core = self.core().map_err(Fatal)?;
-        // A connection that cannot roll back what a panic left open
-        // cannot be trusted with the next change.
-        hamlet_store::unwind(core.realm.store().connection())
-            .context("rolling back a failed input")
-            .map_err(Fatal)?;
+        // What the input's changes owe the remote workspace is pushed
+        // before the next input.
+        core.push_owed().await;
         for failure in failures {
             tell(
                 Secrets::Of(&core.credentials),
@@ -361,13 +374,23 @@ impl Server {
         Ok(())
     }
 
+    /// Runs [`Apply`]: what follows the input's changes. Gives the
+    /// failures of its steps.
+    fn apply(&mut self) -> Vec<String> {
+        let world = self.app.world_mut();
+        let applied = catch_unwind(AssertUnwindSafe(|| {
+            world.run_schedule(Apply);
+        }));
+        let mut failures = recorded();
+        if let Err(panic) = applied {
+            failures.push(diagnostic::panicked(&*panic));
+        }
+        failures
+    }
+
     async fn handle(&mut self, input: Input) -> Result<()> {
         let mut core = self.core()?;
-        let handled = Self::dispatch(&mut core, input).await;
-        // What the input's changes owe the remote workspace is pushed
-        // before the next input, whether or not the input failed.
-        core.push_owed().await;
-        handled
+        Self::dispatch(&mut core, input).await
     }
 
     async fn dispatch(

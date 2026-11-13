@@ -274,7 +274,7 @@ impl Core<'_> {
                 checkout.display()
             ),
         };
-        let names = self.catalogue_names();
+        let names = self.catalogue.names();
         self.change(Actor::Realm, |cx, env| {
             let harness = agents::get(cx.db, agent)?.harness;
             let runtime = runtimes::of_harness(cx.db, &harness)?;

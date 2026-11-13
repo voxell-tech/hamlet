@@ -300,7 +300,7 @@ impl Core<'_> {
         if tools.iter().any(|tool| SOCIETY.contains(&tool.as_str())) {
             return Ok(Step::of(Err(Refusal::WorkerTools)));
         }
-        let names = self.catalogue_names();
+        let names = self.catalogue.names();
         let db = self.realm.store().connection();
         let offered =
             place::tools(db, starter, Kind::Chat, &names, &SOCIETY)?;
@@ -380,13 +380,5 @@ impl Core<'_> {
                 Step::Wait(format!("Waiting for {name}'s answer."))
             }
         })
-    }
-
-    /// The names of every tool in the catalogue.
-    pub(crate) fn catalogue_names(&self) -> Vec<String> {
-        self.catalogue
-            .iter()
-            .map(|spec| spec.name.clone())
-            .collect()
     }
 }

@@ -14,7 +14,7 @@ use hamlet_protocol::client::{
 use hamlet_store::ids::{Actor, AgentId, ConversationId};
 
 use super::check::{fault, reply};
-use super::connection::{self, Event};
+use super::connection::Event;
 use super::fold::Fold;
 use super::{Owed, Watch, changes};
 use crate::core::{Core, Live};
@@ -39,15 +39,17 @@ impl Core<'_> {
                 self.message(client, &text).await
             }
             Event::Late(client) => {
-                if let Some(found) =
-                    self.clients.list.get_mut(&client)
-                    && !found.welcomed
+                if self
+                    .clients
+                    .list
+                    .get(&client)
+                    .is_some_and(|found| !found.welcomed)
                 {
-                    connection::refuse(
-                        found,
+                    self.clients.refuse(
+                        client,
                         "No hello came in time.",
                         1008,
-                    )?;
+                    );
                 }
                 Ok(())
             }
@@ -78,33 +80,26 @@ impl Core<'_> {
             Err(failed) => {
                 let message = ServerMessage::Fault(failed);
                 self.answer(client, message)?;
-                if !welcomed
-                    && let Some(found) =
-                        self.clients.list.get_mut(&client)
-                {
-                    connection::refuse(
-                        found,
+                if !welcomed {
+                    self.clients.refuse(
+                        client,
                         "The first message is a hello.",
                         1008,
-                    )?;
+                    );
                 }
                 return Ok(());
             }
         };
         match message {
             ClientMessage::Hello(hello) if !welcomed => {
-                let found = self
-                    .clients
-                    .list
-                    .get_mut(&client)
-                    .expect("checked above");
                 if !self.credentials.is_connection_token(&hello.token)
                 {
-                    return connection::refuse(
-                        found,
+                    self.clients.refuse(
+                        client,
                         "That token is not this server's.",
                         4001,
                     );
+                    return Ok(());
                 }
                 let ours = protocol::VERSION;
                 if !ours.is_compatible(&hello.v) {
@@ -114,24 +109,25 @@ impl Core<'_> {
                          {ours}.",
                         hello.v
                     );
-                    return connection::refuse(found, &words, 4002);
+                    self.clients.refuse(client, &words, 4002);
+                    return Ok(());
                 }
-                found.welcomed = true;
+                if let Some(found) =
+                    self.clients.list.get_mut(&client)
+                {
+                    found.welcomed = true;
+                }
                 let state = self.compose()?;
                 self.clients.sent = Some(state.clone());
                 self.answer(client, ServerMessage::State(state))
             }
             _ if !welcomed => {
-                let found = self
-                    .clients
-                    .list
-                    .get_mut(&client)
-                    .expect("checked above");
-                connection::refuse(
-                    found,
+                self.clients.refuse(
+                    client,
                     "The first message is a hello.",
                     1008,
-                )
+                );
+                Ok(())
             }
             message => {
                 let id = message.id().cloned();
@@ -177,7 +173,8 @@ impl Core<'_> {
         client: u64,
         message: ServerMessage,
     ) -> Result<()> {
-        self.clients.send(client, &self.credentials, message)
+        self.clients.send(client, message);
+        Ok(())
     }
 
     async fn request(

@@ -16,6 +16,7 @@ use hamlet_protocol::runtime::{
 };
 use hamlet_store::ids::{Actor, AgentId, ConversationId};
 
+use crate::apply::Changed;
 use crate::calls::Calls;
 use crate::change::{Change, Done, Touched};
 use crate::clients::Clients;
@@ -29,7 +30,6 @@ use crate::images::Uploads;
 use crate::knowledge::runner::{Runner, Writing, run_due};
 use crate::providers::{FAUX, Providers};
 use crate::realm::Realm;
-use crate::society::agents;
 use crate::society::refusal::Refusal;
 use crate::talk::activity::Activity;
 use crate::talk::follow::{Followed, follow};
@@ -43,7 +43,6 @@ use crate::talk::{
     Env, conversations, items, prompt, sync, turns, verdicts,
 };
 use crate::work::added::Manifest;
-use crate::work::catalogue::SOCIETY;
 use crate::work::tools::Shells;
 use crate::workspace::Transport;
 use crate::workspace::lodges::Synced;
@@ -97,6 +96,13 @@ holder! {
     /// Every tool a model may be offered.
     Catalogue(Vec<ToolSpec>)
 }
+
+impl Catalogue {
+    /// The names of every tool in it.
+    pub fn names(&self) -> Vec<String> {
+        self.iter().map(|spec| spec.name.clone()).collect()
+    }
+}
 holder! {
     /// The remote workspace the agents' tools run in, chosen before
     /// the server started; none for this machine.
@@ -134,6 +140,8 @@ pub(crate) struct Core<'w> {
     pub added: Res<'w, Added>,
     pub faults: Res<'w, ToolFaults>,
     pub catalogue: ResMut<'w, Catalogue>,
+    /// What the input's changes leave for the runner to follow up.
+    pub changed: ResMut<'w, Changed>,
     pub calls: ResMut<'w, Calls>,
     /// The images of inputs being fitted to their models.
     pub fitting: ResMut<'w, Fitting>,
@@ -216,41 +224,21 @@ impl Core<'_> {
             }
             self.runner.wake();
         }
-        if !touched.agents.is_empty() || !touched.hamlets.is_empty() {
-            self.retool()?;
-        }
-        self.stop_cancelled()?;
-        self.flush(false)?;
-        self.publish()
+        // What follows in memory, the runtimes and the clients is the
+        // runner's to do once the input is handled.
+        self.changed.committed = true;
+        self.changed.reshaped |=
+            !touched.agents.is_empty() || !touched.hamlets.is_empty();
+        Ok(())
     }
 
     /// Narrows the tools of every living agent's conversations to its
     /// role now; a runtime is told before the next input.
     pub(crate) fn retool(&mut self) -> Result<()> {
-        let names = self.catalogue_names();
-        let db = self.realm.store().connection();
-        for agent in agents::living(db)? {
-            for kept in conversations::of_agent(db, agent)? {
-                let tools = crate::calls::place::tools(
-                    db, agent, kept.kind, &names, &SOCIETY,
-                )?;
-                if kept.tools()?.as_ref() != Some(&tools) {
-                    conversations::set_tools(db, kept.id, &tools)?;
-                }
-            }
-        }
-        Ok(())
-    }
-
-    /// Stops the tool runs of every conversation being stopped.
-    fn stop_cancelled(&mut self) -> Result<()> {
-        let db = self.realm.store().connection();
-        for conversation in self.calls.conversations() {
-            if conversations::get(db, conversation)?.cancelling {
-                self.calls.stop(conversation);
-            }
-        }
-        Ok(())
+        crate::apply::retool_all(
+            self.realm.store().connection(),
+            &self.catalogue,
+        )
     }
 
     /// The prompt of `conversation`'s next call, with no secret in
@@ -328,11 +316,7 @@ impl Core<'_> {
                     number,
                     operations: operations.clone(),
                 });
-            self.clients.send(
-                watch.client,
-                &self.credentials,
-                turn,
-            )?;
+            self.clients.send(watch.client, turn);
         }
         Ok(())
     }
@@ -394,11 +378,7 @@ impl Core<'_> {
         for owed in owed {
             let message =
                 reply(&owed.id, Ok::<_, Refusal>(String::new()));
-            self.clients.send(
-                owed.client,
-                &self.credentials,
-                message,
-            )?;
+            self.clients.send(owed.client, message);
         }
         Ok(())
     }

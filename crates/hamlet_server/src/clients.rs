@@ -23,6 +23,7 @@ use tokio::task::JoinSet;
 use self::check::Protocol;
 use self::connection::{Client, Event};
 use crate::credentials::Credentials;
+use crate::diagnostic::{Secrets, tell};
 
 /// A conversation a client watches.
 #[derive(Clone, Debug)]
@@ -55,6 +56,15 @@ pub(crate) struct Clients {
     pub sent: Option<protocol::State>,
     pub epoch: i64,
     pub revision: i64,
+    /// What goes to the clients once the input that made it is done.
+    outbox: Vec<Outgoing>,
+}
+
+/// Something for a client, queued.
+enum Outgoing {
+    Message(u64, Box<ServerMessage>),
+    /// A refusal's words and its closing code.
+    Refusal(u64, String, u16),
 }
 
 impl Clients {
@@ -75,6 +85,7 @@ impl Clients {
             sent: None,
             epoch,
             revision: 0,
+            outbox: Vec::new(),
         })
     }
 
@@ -90,20 +101,62 @@ impl Clients {
         self.list.insert(self.next, client);
     }
 
-    /// Sends `message` to `client`, with every credential taken out.
-    pub fn send(
-        &mut self,
-        client: u64,
-        credentials: &Credentials,
-        message: ServerMessage,
-    ) -> Result<()> {
-        if let Some(found) = self.list.get_mut(&client) {
-            connection::send(found, credentials, message)?;
-        }
-        Ok(())
+    /// Queues `message` for `client`, to go out once the input that
+    /// made it has published the state it leaves.
+    pub fn send(&mut self, client: u64, message: ServerMessage) {
+        self.outbox
+            .push(Outgoing::Message(client, Box::new(message)));
     }
 
-    /// Sends `message` to every welcomed client.
+    /// Queues a refusal of `client` in `text`, closing it with
+    /// `code`.
+    pub fn refuse(&mut self, client: u64, text: &str, code: u16) {
+        if let Some(found) = self.list.get_mut(&client) {
+            found.refused = true;
+        }
+        self.outbox.push(Outgoing::Refusal(
+            client,
+            text.into(),
+            code,
+        ));
+    }
+
+    /// Sends what is queued, in order, with every credential taken
+    /// out. A message that cannot be sent is logged and dropped.
+    pub fn deliver(&mut self, credentials: &Credentials) {
+        for outgoing in std::mem::take(&mut self.outbox) {
+            let sent = match outgoing {
+                Outgoing::Message(client, message) => {
+                    match self.list.get_mut(&client) {
+                        Some(found) => connection::send(
+                            found,
+                            credentials,
+                            *message,
+                        ),
+                        None => Ok(()),
+                    }
+                }
+                Outgoing::Refusal(client, text, code) => {
+                    match self.list.get_mut(&client) {
+                        Some(found) => {
+                            connection::refuse(found, &text, code)
+                        }
+                        None => Ok(()),
+                    }
+                }
+            };
+            if let Err(error) = sent {
+                tell(
+                    Secrets::Of(credentials),
+                    format!(
+                        "a message to a client failed: {error:#}"
+                    ),
+                );
+            }
+        }
+    }
+
+    /// Sends `message` to every welcomed client now.
     pub fn broadcast(
         &mut self,
         credentials: &Credentials,
