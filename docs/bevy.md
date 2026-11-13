@@ -189,16 +189,27 @@ What differs from the window:
   after it. There is no `Main` schedule, so nothing runs that an input or
   a timer did not ask for, and messages are turned over by `Apply`'s last
   step instead of by a frame.
-- **A handler is a one-shot system.** `world.run_system_cached_with`
-  runs the system for a runtime message or a client request; a command's
-  system is registered with its usage (`AddCommands`), and a timer's with
-  when it is due (`AddDeadline`).
+- **A handler is a one-shot system, and never awaits.**
+  `world.run_system_cached_with` runs the system for a runtime message or
+  a client request; a command's system is registered with its usage
+  (`AddCommands`), and a timer's with when it is due (`AddDeadline`).
+  What awaits runs on a task (`later.rs`), whose result is an input.
+- **An input is one transaction.** `Core::change` and `attempt` make
+  their changes in the input's transaction, which the runner commits at
+  its end. What an input sets off goes out only after: queue a runtime's
+  line with `Runtimes::send`, a client's message with `Clients::send`,
+  and write what follows as a message `Apply` reads, as `InputEnded` is.
+  A tool run is spawned with its work in `Starting`, which `Apply`
+  starts.
 - **The database is the truth.** An entity stands only for what lives in
-  the process: a connection, an upload, a tool run. A decision inside a
-  transaction reads the database, never an entity.
+  the process: a connection, an upload, a tool run, a runtime. A
+  decision inside a transaction reads the database, never an entity. An
+  entity spawned by an input appears only once its commands apply, so
+  what the same input must read back, such as a request in flight, is a
+  component of an entity that is there already.
 - **A system that fails fails its input.** The world's error handler
-  records the failure for the runner, which logs it and rolls the input
-  back; it never panics.
+  records the failure for the runner, which logs it, rolls the input
+  back and drops what it queued; it never panics.
 - **`Core` gathers the realm's live state** as one `SystemParam`, which
   older handlers take whole. A new system takes only the resources and
   queries it reads.

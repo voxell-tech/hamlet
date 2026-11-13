@@ -21,7 +21,7 @@ and `layout.rs` defines `Layout`. The server's chief is named by
 | `hamlets/<hamlet id>/<hire id>/` | A hire's lodge: `memory/`, `skills/` and `inbox/`, a checkout of its branch |
 | `workers/<id>/` | A worker's scratch folder while it runs |
 | `library.git/`, `library/` | The library's repository, and its `main` checked out, read-only to agent tools |
-| `tools/` | Hand-added tool manifests and scripts |
+| `tools/` | Hand-added tool manifests and scripts, loaded again whenever they change |
 | `images/`, `files/` | The images chiefs sent and agents read, and the files chiefs sent, each kept once under the hash of its bytes, out of agents' reach |
 | `dreams/` | The checkout of a scholar's `main` a dream writes, out of agents' reach |
 
