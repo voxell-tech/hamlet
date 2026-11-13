@@ -26,10 +26,6 @@ pub(crate) fn ask(
     message: ClientMessage,
 ) -> Result<()> {
     crate::fault::panic_at("request");
-    let Some(message) = world_run(world, models, (client, message))?
-    else {
-        return Ok(());
-    };
     match message {
         ClientMessage::Hello(_) => once(world, hello, (client, ())),
         ClientMessage::Say(say)
@@ -59,13 +55,44 @@ pub(crate) fn ask(
         }
         ClientMessage::Rewind(m) => once(world, rewind, (client, m)),
         ClientMessage::Say(m) => once(world, say, (client, m)),
+        ClientMessage::Read(protocol::Read::Models {
+            id,
+            refresh,
+        }) => once(world, read_models, (client, (id, refresh))),
         ClientMessage::Read(m) => once(world, read, (client, m)),
         ClientMessage::MoveLodges(m) => {
             once(world, move_lodges, (client, m))
         }
-        // The providers answered these.
-        ClientMessage::Login(_) | ClientMessage::Check(_) => Ok(()),
+        ClientMessage::Login(m) => once(world, login, (client, m)),
+        ClientMessage::Check(m) => once(world, check, (client, m)),
     }
+}
+
+/// A sign-in's start, answer or cancel.
+fn login(
+    In((client, login)): Asked<protocol::Login>,
+    mut core: Core,
+) -> Result<()> {
+    core.login(client, &login)
+}
+
+/// A try of the chosen model or of the connection.
+fn check(
+    In((client, check)): Asked<protocol::Check>,
+    mut core: Core,
+) -> Result<()> {
+    core.check(client, &check)
+}
+
+/// A read of the model catalogue.
+fn read_models(
+    In((client, (id, refresh))): Asked<(
+        protocol::RequestId,
+        Option<bool>,
+    )>,
+    mut core: Core,
+) -> Result<()> {
+    core.read_models(client, &id, refresh)
 }
 
 /// A chief's line to an agent.
@@ -114,15 +141,6 @@ where
     I: Send + 'static,
 {
     world_run(world, system, input)
-}
-
-/// A sign-in, a check or a read of the models, taken by the
-/// providers; any other message is given back.
-fn models(
-    In((client, message)): Asked<ClientMessage>,
-    mut core: Core,
-) -> Result<Option<ClientMessage>> {
-    Ok((!core.model_request(client, &message)?).then_some(message))
 }
 
 fn hello(

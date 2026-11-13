@@ -11,9 +11,9 @@ use bevy_ecs::entity::Entity;
 use diesel::prelude::*;
 use hamlet_protocol::client::{
     Check, EditCatalogueSet, ImageInput, LinkState, Listed,
-    ListedPriced, Login, LoginMethod, LoginProgress, LoginStep,
-    Price as ListedPrice, ProviderView, Read, ReadResult, RequestId,
-    ServerMessage,
+    ListedPriced, Login, LoginMethod, LoginProgress, LoginReply,
+    LoginStart, LoginStep, Price as ListedPrice, ProviderView,
+    ReadResult, RequestId, ServerMessage,
 };
 use hamlet_protocol::runtime::{
     self, ModelRef, Price, ProviderControl, ProviderEvent,
@@ -412,231 +412,233 @@ impl Core<'_, '_> {
         Ok(())
     }
 
-    /// Takes a client's sign-in, check or read of the models. `false`
-    /// when `message` is none of them.
-    pub(crate) fn model_request(
+    /// Tries the chosen model or the connection, for a client's
+    /// check; the faux model needs no trying.
+    pub(crate) fn check(
         &mut self,
         client: u64,
-        message: &hamlet_protocol::client::ClientMessage,
-    ) -> Result<bool> {
-        use hamlet_protocol::client::ClientMessage;
-        let mut answers = Vec::new();
-        match message {
-            ClientMessage::Check(check) if self.providers.faux => {
-                let id = match check {
-                    Check::Model { id, .. }
-                    | Check::Connection { id } => id,
-                };
-                let words = "Every agent runs the faux model here.";
-                self.model_link(
-                    LinkState::Connected,
-                    None,
-                    Some(words),
-                )?;
-                self.answer(
-                    client,
-                    reply(id, Ok::<_, Refusal>(words.into())),
-                )?;
-                self.publish();
-                return Ok(true);
+        check: &Check,
+    ) -> Result<()> {
+        let (id, name, action) = match check {
+            Check::Model { id, model } => {
+                (id, model.clone(), ProviderRequestAction::Hello)
             }
-            ClientMessage::Check(check) => {
-                let (id, name, action) = match check {
-                    Check::Model { id, model } => (
-                        id,
-                        model.clone(),
-                        ProviderRequestAction::Hello,
-                    ),
-                    Check::Connection { id } => {
-                        (id, None, ProviderRequestAction::Refresh)
-                    }
-                };
-                let name = name.unwrap_or_else(|| {
-                    self.env.settings.model.clone()
-                });
-                let (provider, model) = match self
-                    .named_model(&name)?
-                {
-                    Ok(found) => found,
-                    Err(refusal) => {
-                        self.answer(client, reply(id, Err(refusal)))?;
-                        return Ok(true);
-                    }
-                };
-                self.model_link(LinkState::Testing, None, None)?;
-                self.ask_provider(
-                    Some((client, id)),
-                    &provider,
-                    action,
-                    Some(model),
-                    None,
-                    false,
-                )?;
+            Check::Connection { id } => {
+                (id, None, ProviderRequestAction::Refresh)
             }
-            ClientMessage::Read(Read::Models { id, refresh }) => {
-                if *refresh == Some(true) && !self.providers.faux {
-                    let endpoints =
-                        self.env.settings.endpoints.clone();
-                    for endpoint in &endpoints {
-                        self.ask_provider(
-                            Some((client, id)),
-                            &endpoint.name,
-                            ProviderRequestAction::Refresh,
-                            None,
-                            None,
-                            true,
-                        )?;
-                    }
-                    if endpoints.is_empty() {
-                        answers.push(self.catalogue_read(id)?);
-                    }
-                } else {
-                    answers.push(self.catalogue_read(id)?);
-                }
+        };
+        if self.providers.faux {
+            let words = "Every agent runs the faux model here.";
+            self.model_link(LinkState::Connected, None, Some(words))?;
+            self.publish();
+            return self.answer(
+                client,
+                reply(id, Ok::<_, Refusal>(words.into())),
+            );
+        }
+        let name =
+            name.unwrap_or_else(|| self.env.settings.model.clone());
+        let (provider, model) = match self.named_model(&name)? {
+            Ok(found) => found,
+            Err(refusal) => {
+                return self.answer(client, reply(id, Err(refusal)));
             }
-            ClientMessage::Login(login) => match login {
-                Login::Start { id, start } => {
-                    let key = uuid::Uuid::new_v4().to_string();
-                    let provider = self
-                        .provider_views()?
-                        .into_iter()
-                        .find(|p| p.id == start.provider);
-                    let failure = match &provider {
-                        Some(provider) => (!provider
-                            .methods
-                            .contains(&start.method))
-                        .then(|| {
-                            format!(
-                                "Signing in with {} is not offered. \
-                                 Use an API key.",
-                                start.provider
-                            )
-                        }),
-                        None => Some(format!(
-                            "Unknown provider: {}",
-                            start.provider
-                        )),
-                    };
-                    if let Some(failed) = failure {
-                        answers.push(login_step(
-                            id,
-                            &key,
-                            LoginStep::Failed { failed },
-                        ));
-                    } else {
-                        let scope = self.ask_provider(
-                            Some((client, id)),
-                            &start.provider,
-                            ProviderRequestAction::Login,
-                            None,
-                            Some(key.clone()),
-                            false,
-                        )?;
-                        let request = self
-                            .providers
-                            .outgoing
-                            .last_mut()
-                            .context("the sign-in's request")?;
-                        request.method = Some(
-                            if start.method == LoginMethod::Key {
-                                ProviderRequestMethod::Key
-                            } else {
-                                ProviderRequestMethod::Subscription
-                            },
-                        );
-                        self.providers.logins.insert(
-                            key,
-                            SignIn {
-                                client,
-                                id: id.clone(),
-                                scope,
-                                prompt: None,
-                            },
-                        );
-                    }
-                }
-                Login::Reply { id, reply: answer } => {
-                    let Some(signin) = self
-                        .providers
-                        .logins
-                        .get_mut(&answer.login)
-                        .filter(|s| s.client == client)
-                    else {
-                        self.answer(
-                            client,
-                            reply(id, Err(no_sign_in())),
-                        )?;
-                        return Ok(true);
-                    };
-                    let Some(prompt) = signin.prompt.take() else {
-                        self.answer(
-                            client,
-                            reply(
-                                id,
-                                Err(Refusal::Usage {
-                                    words: "That sign-in is not \
-                                            waiting for an answer."
-                                        .into(),
-                                }),
-                            ),
-                        )?;
-                        return Ok(true);
-                    };
-                    let scope = signin.scope.clone();
-                    self.credentials.remember(&answer.value);
-                    self.providers.controls.push(control(
-                        &scope,
-                        Some(prompt),
-                        Some(answer.value.clone()),
-                    ));
-                    answers.push(reply(
-                        id,
-                        Ok::<_, Refusal>(
-                            "Sign-in answer received.".into(),
-                        ),
-                    ));
-                }
-                Login::Cancel { id, cancel } => {
-                    let Some(signin) = self
-                        .providers
-                        .logins
-                        .get(cancel)
-                        .filter(|s| s.client == client)
-                    else {
-                        self.answer(
-                            client,
-                            reply(id, Err(no_sign_in())),
-                        )?;
-                        return Ok(true);
-                    };
-                    answers.push(login_step(
-                        &signin.id,
-                        cancel,
-                        LoginStep::Failed {
-                            failed: "Sign-in cancelled.".into(),
-                        },
-                    ));
-                    let scope = signin.scope.clone();
-                    self.providers
-                        .controls
-                        .push(control(&scope, None, None));
-                    self.providers.logins.remove(cancel);
-                    self.providers.pending.retain(|_, p| {
-                        p.login.as_ref() != Some(cancel)
-                    });
-                    answers.push(reply(
-                        id,
-                        Ok::<_, Refusal>("Sign-in cancelled.".into()),
-                    ));
-                }
+        };
+        self.model_link(LinkState::Testing, None, None)?;
+        self.ask_provider(
+            Some((client, id)),
+            &provider,
+            action,
+            Some(model),
+            None,
+            false,
+        )?;
+        self.send_providers()
+    }
+
+    /// Answers a client's read of the models, asking each endpoint
+    /// for its models first when `refresh` says so.
+    pub(crate) fn read_models(
+        &mut self,
+        client: u64,
+        id: &RequestId,
+        refresh: Option<bool>,
+    ) -> Result<()> {
+        let endpoints =
+            if refresh == Some(true) && !self.providers.faux {
+                self.env.settings.endpoints.clone()
+            } else {
+                Vec::new()
+            };
+        // The catalogue is answered once every endpoint answered.
+        if endpoints.is_empty() {
+            let read = self.catalogue_read(id)?;
+            self.answer(client, read)?;
+        }
+        for endpoint in &endpoints {
+            self.ask_provider(
+                Some((client, id)),
+                &endpoint.name,
+                ProviderRequestAction::Refresh,
+                None,
+                None,
+                true,
+            )?;
+        }
+        self.send_providers()
+    }
+
+    /// Takes a step of a client's sign-in: its start, its answer to
+    /// what the provider asked, or its cancel.
+    pub(crate) fn login(
+        &mut self,
+        client: u64,
+        login: &Login,
+    ) -> Result<()> {
+        match login {
+            Login::Start { id, start } => {
+                self.login_start(client, id, start)?;
+            }
+            Login::Reply { id, reply: answer } => {
+                let words = self.login_reply(client, answer);
+                self.answer(client, reply(id, words))?;
+            }
+            Login::Cancel { id, cancel } => {
+                let words = self.login_cancel(client, cancel)?;
+                self.answer(client, reply(id, words))?;
+            }
+        }
+        self.send_providers()
+    }
+
+    /// Starts signing in to the provider `start` names, by the method
+    /// it chose.
+    fn login_start(
+        &mut self,
+        client: u64,
+        id: &RequestId,
+        start: &LoginStart,
+    ) -> Result<()> {
+        let key = uuid::Uuid::new_v4().to_string();
+        let provider = self
+            .provider_views()?
+            .into_iter()
+            .find(|p| p.id == start.provider);
+        let failure = match &provider {
+            Some(provider) => (!provider
+                .methods
+                .contains(&start.method))
+            .then(|| {
+                format!(
+                    "Signing in with {} is not offered. Use an API \
+                     key.",
+                    start.provider
+                )
+            }),
+            None => {
+                Some(format!("Unknown provider: {}", start.provider))
+            }
+        };
+        if let Some(failed) = failure {
+            return self.answer(
+                client,
+                login_step(id, &key, LoginStep::Failed { failed }),
+            );
+        }
+        let scope = self.ask_provider(
+            Some((client, id)),
+            &start.provider,
+            ProviderRequestAction::Login,
+            None,
+            Some(key.clone()),
+            false,
+        )?;
+        let request = self
+            .providers
+            .outgoing
+            .last_mut()
+            .context("the sign-in's request")?;
+        request.method = Some(if start.method == LoginMethod::Key {
+            ProviderRequestMethod::Key
+        } else {
+            ProviderRequestMethod::Subscription
+        });
+        self.providers.logins.insert(
+            key,
+            SignIn {
+                client,
+                id: id.clone(),
+                scope,
+                prompt: None,
             },
-            _ => return Ok(false),
-        }
-        for answer in answers {
-            self.answer(client, answer)?;
-        }
-        self.send_providers()?;
-        Ok(true)
+        );
+        Ok(())
+    }
+
+    /// Passes a client's answer to what its sign-in asked on to the
+    /// provider.
+    fn login_reply(
+        &mut self,
+        client: u64,
+        answer: &LoginReply,
+    ) -> Result<String, Refusal> {
+        let signin = self
+            .providers
+            .logins
+            .get_mut(&answer.login)
+            .filter(|s| s.client == client)
+            .ok_or_else(no_sign_in)?;
+        let prompt =
+            signin.prompt.take().ok_or_else(|| Refusal::Usage {
+                words: "That sign-in is not waiting for an answer."
+                    .into(),
+            })?;
+        let scope = signin.scope.clone();
+        self.credentials.remember(&answer.value);
+        self.providers.controls.push(control(
+            &scope,
+            Some(prompt),
+            Some(answer.value.clone()),
+        ));
+        Ok("Sign-in answer received.".into())
+    }
+
+    /// Cancels a client's sign-in `cancel`, telling its start too.
+    fn login_cancel(
+        &mut self,
+        client: u64,
+        cancel: &str,
+    ) -> Result<Result<String, Refusal>> {
+        let ours = self
+            .providers
+            .logins
+            .get(cancel)
+            .is_some_and(|s| s.client == client);
+        let Some(signin) = ours
+            .then(|| self.providers.logins.remove(cancel))
+            .flatten()
+        else {
+            return Ok(Err(no_sign_in()));
+        };
+        self.answer(
+            client,
+            login_step(
+                &signin.id,
+                cancel,
+                LoginStep::Failed {
+                    failed: "Sign-in cancelled.".into(),
+                },
+            ),
+        )?;
+        self.providers.controls.push(control(
+            &signin.scope,
+            None,
+            None,
+        ));
+        self.providers
+            .pending
+            .retain(|_, p| p.login.as_deref() != Some(cancel));
+        Ok(Ok("Sign-in cancelled.".into()))
     }
 
     /// A step of a sign-in the runtime `from` runs.
