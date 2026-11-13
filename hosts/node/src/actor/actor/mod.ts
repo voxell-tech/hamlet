@@ -57,6 +57,7 @@ export {
     UserError,
     type UserErrorOptions,
 } from "./errors.ts";
+export type { ActorKey } from "./keys.ts";
 export {
     type EventSchemaConfig,
     event,
