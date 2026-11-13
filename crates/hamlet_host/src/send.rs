@@ -922,6 +922,20 @@ impl Outbox {
     }
 }
 
+/// The deadline a stopping sender leaves for what its outbox still
+/// holds: now, if it holds a send, so the sender starts again and
+/// delivers it. A stop is safe at any point of a delivery: what was
+/// confirmed has left the outbox, and the receiver answers a send it
+/// applied again from its record.
+pub(crate) fn undelivered(conn: &Connection) -> Result<Option<i64>> {
+    let holds: bool = conn.query_row(
+        "SELECT EXISTS (SELECT 1 FROM _hamlet_outbox)",
+        [],
+        |row| row.get(0),
+    )?;
+    Ok(holds.then(now_ms))
+}
+
 /// Stand-in for the host's dead-letter event, until `Host::events()`
 /// exists: a warning in the host's log.
 fn report_dead_letter(from: &Address, to: &Address, seq: i64) {

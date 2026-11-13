@@ -919,8 +919,9 @@ fn has_table(
 
 /// Marks a stopped actor's file stopped, with the deadline that must
 /// wake it, and returns that deadline: the earliest of its schedule
-/// rows, claimed or not, its run wake deadline, and `alarm`, the last
-/// alarm its generation pushed. A missing table holds no deadline.
+/// rows, claimed or not, its run wake deadline, `alarm`, the last
+/// alarm its generation pushed, and now if its outbox holds a send.
+/// A missing table holds no deadline.
 fn mark_stopped(
     conn: &Connection,
     alarm: Option<i64>,
@@ -949,7 +950,10 @@ fn mark_stopped(
         None
     };
     let wake_at =
-        [scheduled, run_wake_at, alarm].into_iter().flatten().min();
+        [scheduled, run_wake_at, alarm, send::undelivered(conn)?]
+            .into_iter()
+            .flatten()
+            .min();
     crate::fault::point("run-ended");
     conn.execute(
         "UPDATE _hamlet_actor SET running = 0, wake_at = ?",
