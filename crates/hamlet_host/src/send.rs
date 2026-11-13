@@ -43,6 +43,7 @@ use tokio::time::Instant;
 
 use crate::cause::Cause;
 use crate::directory::Address;
+use crate::event::{HostEvent, Letter, Reason};
 use crate::local::{HostInner, now_ms};
 use crate::plain_sqlite::PlainSqlite;
 
@@ -69,6 +70,10 @@ const DELIVERY_DEADLINE: Duration = Duration::from_secs(60);
 /// transaction timeout. A run past it has failed.
 const RUN_TIMEOUT: Duration = Duration::from_secs(60);
 
+/// A send whose handler has this many runs that ended without
+/// success is set aside instead of run again.
+const MAX_FAILED_RUNS: i64 = 5;
+
 /// The delay before a pair's first retry. It doubles with each
 /// retry, up to [`LAST_RETRY`].
 const FIRST_RETRY: Duration = Duration::from_millis(100);
@@ -86,11 +91,18 @@ const LAST_RETRY: Duration = Duration::from_secs(30);
 /// - `_hamlet_peers`: per receiver, the next number to give and the
 ///   highest number it confirmed.
 /// - `_hamlet_inbound`: per sender life, the highest number handled
-///   here, the runs of the next one that ended without success, and
-///   the generation of this file whose run of it is under way.
+///   here, the runs of the next one that ended without success, the
+///   last of those runs' error, `NULL` when none came back, and the
+///   generation of this file whose run of it is under way.
 /// - `_hamlet_handled`: the answer to each send handled here, kept
 ///   until its sender has confirmed it.
-/// - `_hamlet_dead_letters`: sends set aside, with the reason.
+/// - `_hamlet_dead_letters`: sends set aside, with the reason. `peer`
+///   is the sender, for one this file received and set aside after
+///   [`MAX_FAILED_RUNS`] (`attempts`), with its life in `peer_file`;
+///   or the receiver, for one this file sent to no address
+///   (`no_address`), with `peer_file` `NULL`, since there is no file.
+///   A work's letter has no peer and leaves `peer_file` `NULL`. Each
+///   insert names every column: none has a default.
 pub(crate) const SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS _hamlet_file (
 	id INTEGER PRIMARY KEY CHECK (id = 0),
@@ -119,6 +131,7 @@ CREATE TABLE IF NOT EXISTS _hamlet_inbound (
 	file_id TEXT NOT NULL,
 	handled_in INTEGER NOT NULL,
 	attempts_in INTEGER NOT NULL,
+	last_error TEXT,
 	running_in INTEGER,
 	PRIMARY KEY (kind, key, file_id)) STRICT, WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS _hamlet_handled (
@@ -132,6 +145,7 @@ CREATE TABLE IF NOT EXISTS _hamlet_dead_letters (
 	id INTEGER PRIMARY KEY,
 	peer_kind TEXT NOT NULL,
 	peer_key TEXT NOT NULL,
+	peer_file TEXT,
 	seq INTEGER,
 	work_id TEXT,
 	name TEXT NOT NULL,
@@ -224,6 +238,13 @@ pub enum Delivery {
     OutOfOrder { expected: u64 },
     /// The run did not apply the send, which is tried again.
     Failed { error: String },
+    /// The receiver set the send aside after `failed_runs` runs of
+    /// its handler ended without success, the last with `error`, or
+    /// with no outcome when `None`. Its handler never runs it again.
+    DeadLettered {
+        failed_runs: u32,
+        error: Option<String>,
+    },
 }
 
 impl Delivery {
@@ -290,45 +311,63 @@ impl Message {
 /// it changed (design 5.7, R15).
 ///
 /// A claim does not run the handler: the receive transaction reads
-/// the count again, with [`RUNS`], as of its run.
+/// the count again, with [`RUNS`], as of its run. A cut run came
+/// back with no outcome, so counting one clears the last error.
 const CLAIM: &str =
     "INSERT INTO _hamlet_inbound (kind, key, file_id, handled_in, \
-     attempts_in, running_in) VALUES (?1, ?2, ?3, ?4 - 1, 0, \
-     (SELECT generation FROM _hamlet_actor)) ON CONFLICT (kind, \
-     key, file_id) DO UPDATE SET attempts_in = attempts_in + \
-     (running_in IS NOT NULL AND running_in IS NOT \
-     excluded.running_in), running_in = excluded.running_in WHERE \
+     attempts_in, last_error, running_in) VALUES (?1, ?2, ?3, ?4 - \
+     1, 0, NULL, (SELECT generation FROM _hamlet_actor)) ON \
+     CONFLICT (kind, key, file_id) DO UPDATE SET attempts_in = \
+     attempts_in + (running_in IS NOT NULL AND running_in IS NOT \
+     excluded.running_in), last_error = CASE WHEN running_in IS NOT \
+     NULL AND running_in IS NOT excluded.running_in THEN NULL ELSE \
+     last_error END, running_in = excluded.running_in WHERE \
      handled_in = excluded.handled_in RETURNING attempts_in";
 
 /// The receive transaction's first statement: the failed runs of the
-/// send, if it is still the next of its pair.
-const RUNS: &str = "SELECT attempts_in FROM _hamlet_inbound WHERE \
-                    kind = ?1 AND key = ?2 AND file_id = ?3 AND \
-                    handled_in = ?4 - 1";
+/// send and the last one's error, if it is still the next of its
+/// pair.
+const RUNS: &str = "SELECT attempts_in, last_error FROM \
+                    _hamlet_inbound WHERE kind = ?1 AND key = ?2 \
+                    AND file_id = ?3 AND handled_in = ?4 - 1";
 
-/// Marks the send handled if it is still the next of its pair.
+/// Marks the send handled, or set aside, if it is still the next of
+/// its pair.
 const TAKE: &str = "UPDATE _hamlet_inbound SET handled_in = ?4, \
-                    attempts_in = 0, running_in = NULL WHERE kind = \
-                    ?1 AND key = ?2 AND file_id = ?3 AND handled_in \
-                    = ?4 - 1";
+                    attempts_in = 0, last_error = NULL, running_in \
+                    = NULL WHERE kind = ?1 AND key = ?2 AND file_id \
+                    = ?3 AND handled_in = ?4 - 1";
 
-/// Counts a run that ended without success, if its send is still the
-/// next of its pair.
+/// Counts a run that ended without success, with its error `?5`, if
+/// its send is still the next of its pair.
 const FAIL: &str = "UPDATE _hamlet_inbound SET attempts_in = \
-                    attempts_in + 1, running_in = NULL WHERE kind = \
-                    ?1 AND key = ?2 AND file_id = ?3 AND handled_in \
-                    = ?4 - 1";
+                    attempts_in + 1, last_error = ?5, running_in = \
+                    NULL WHERE kind = ?1 AND key = ?2 AND file_id = \
+                    ?3 AND handled_in = ?4 - 1";
+
+/// Sets aside the send this file received, after the receive
+/// transaction's [`TAKE`] moved the pair past it.
+const SET_ASIDE: &str =
+    "INSERT INTO _hamlet_dead_letters (peer_kind, peer_key, \
+     peer_file, seq, work_id, name, payload, task, cause, reason, \
+     attempts, error, at) VALUES (?1, ?2, ?3, ?4, NULL, ?5, ?6, ?7, \
+     ?8, 'attempts', ?9, ?10, ?11)";
 
 /// Clears a claim whose run never began, counting nothing.
 const UNCLAIM: &str = "UPDATE _hamlet_inbound SET running_in = NULL \
                        WHERE kind = ?1 AND key = ?2 AND file_id = \
                        ?3 AND handled_in = ?4 - 1";
 
-/// The pair's position, and the record of the send, if kept.
+/// The pair's position, the record of the send, if kept, and the
+/// failed runs and last error of its dead letter, if it was set
+/// aside.
 const STANDING: &str =
-    "SELECT handled_in, (SELECT outcome FROM _hamlet_handled WHERE \
-     kind = ?1 AND key = ?2 AND file_id = ?3 AND seq = ?4) FROM \
-     _hamlet_inbound WHERE kind = ?1 AND key = ?2 AND file_id = ?3";
+    "SELECT i.handled_in, h.outcome, d.attempts, d.error FROM \
+     _hamlet_inbound i LEFT JOIN _hamlet_handled h ON h.kind = \
+     i.kind AND h.key = i.key AND h.file_id = i.file_id AND h.seq = \
+     ?4 LEFT JOIN _hamlet_dead_letters d ON d.peer_kind = i.kind \
+     AND d.peer_key = i.key AND d.peer_file = i.file_id AND d.seq = \
+     ?4 WHERE i.kind = ?1 AND i.key = ?2 AND i.file_id = ?3";
 
 const RECORD: &str = "INSERT INTO _hamlet_handled (kind, key, \
                       file_id, seq, outcome) VALUES (?1, ?2, ?3, \
@@ -410,12 +449,13 @@ where
         let Some(failed_runs) = integer(&runs.rows, 0) else {
             return Ok(None);
         };
+        let last_error = text_at(&runs.rows, 1);
         let taken = tx.execute(TAKE, Some(pair.params())).await?;
-        Ok((taken.changes == 1).then_some(failed_runs))
+        Ok((taken.changes == 1).then_some((failed_runs, last_error)))
     }
     .await;
-    let failed_runs = match taken {
-        Ok(Some(failed_runs)) => failed_runs,
+    let (failed_runs, last_error) = match taken {
+        Ok(Some(taken)) => taken,
         // Another delivery of the send ran it meanwhile.
         Ok(None) => {
             run.disarm();
@@ -427,6 +467,38 @@ where
             return Ok(uncounted(&db, Some(&tx), &pair, error).await);
         }
     };
+    let mut prune = pair.params();
+    prune[3] = BindParam::Integer(acked_through);
+    if failed_runs >= MAX_FAILED_RUNS {
+        // TAKE moved the pair past the send, so no run of it begins
+        // again, and this transaction sets it aside.
+        let set_aside = async {
+            let mut letter = pair.params();
+            letter.extend([
+                text(&name),
+                BindParam::Blob(payload),
+                text(&task),
+                cause.as_deref().map_or(BindParam::Null, text),
+                BindParam::Integer(failed_runs),
+                last_error.as_deref().map_or(BindParam::Null, text),
+                BindParam::Integer(now_ms()),
+            ]);
+            tx.execute(SET_ASIDE, Some(letter)).await?;
+            tx.execute(PRUNE, Some(prune)).await?;
+            tx.commit().await
+        }
+        .await;
+        run.disarm();
+        return Ok(match set_aside {
+            Ok(()) => Delivery::DeadLettered {
+                failed_runs: u32::try_from(failed_runs)?,
+                error: last_error,
+            },
+            Err(error) => {
+                uncounted(&db, Some(&tx), &pair, error).await
+            }
+        });
+    }
     let message = Message {
         from: pair.from.clone(),
         seq: u64::try_from(seq)?,
@@ -450,8 +522,6 @@ where
         let mut record = pair.params();
         record.push(BindParam::Blob(outcome.clone()));
         tx.execute(RECORD, Some(record)).await?;
-        let mut prune = pair.params();
-        prune[3] = BindParam::Integer(acked_through);
         tx.execute(PRUNE, Some(prune)).await?;
         tx.commit().await
     }
@@ -605,7 +675,8 @@ impl Position {
 }
 
 /// The answer to a send that is not the next of its pair: a repeat,
-/// with its record if kept, or out of order.
+/// with its record if kept, set aside again from its dead letter, or
+/// out of order.
 async fn standing(
     db: &SqliteDb,
     pair: &Position,
@@ -625,7 +696,13 @@ async fn standing(
         pair.from.key,
         pair.seq
     );
-    let outcome = match read.rows.first().and_then(|row| row.get(1)) {
+    if let Some(failed_runs) = integer(&read.rows, 2) {
+        return Ok(Delivery::DeadLettered {
+            failed_runs: u32::try_from(failed_runs)?,
+            error: text_at(&read.rows, 3),
+        });
+    }
+    let outcome = match read.rows[0].get(1) {
         Some(ColumnValue::Blob(outcome)) => Some(outcome.clone()),
         _ => None,
     };
@@ -671,10 +748,9 @@ impl Run {
     /// Ends the run as failed: rolls back, then counts it.
     async fn failed(mut self, error: anyhow::Error) -> Delivery {
         self.armed = false;
-        count_failed(&self.db, &self.tx, &self.pair).await;
-        Delivery::Failed {
-            error: format!("{error:#}"),
-        }
+        let error = format!("{error:#}");
+        count_failed(&self.db, &self.tx, &self.pair, &error).await;
+        Delivery::Failed { error }
     }
 }
 
@@ -684,22 +760,31 @@ impl Drop for Run {
             let (db, tx, pair) =
                 (self.db.clone(), self.tx.clone(), self.pair.clone());
             tokio::spawn(async move {
-                count_failed(&db, &tx, &pair).await;
+                count_failed(
+                    &db,
+                    &tx,
+                    &pair,
+                    "the run panicked or was dropped",
+                )
+                .await;
             });
         }
     }
 }
 
 /// Rolls the run's transaction back, so the failure write does not
-/// wait behind it, and counts the run.
+/// wait behind it, and counts the run with its `error`.
 async fn count_failed(
     db: &SqliteDb,
     tx: &SqliteTransaction,
     pair: &Position,
+    error: &str,
 ) {
     let _ = tx.rollback().await;
+    let mut failure = pair.params();
+    failure.push(text(error));
     if let Err(error) =
-        db.execute(FAIL.to_owned(), Some(pair.params())).await
+        db.execute(FAIL.to_owned(), Some(failure)).await
     {
         tracing::warn!(
             ?error,
@@ -920,7 +1005,24 @@ impl Outbox {
             Ok(Some(generation)) => generation,
             Ok(None) => {
                 return match self.set_aside(to, seq).await {
-                    Ok(()) => Step::Confirmed,
+                    // The record is the sender's own, and this
+                    // commit is its last step: a kill before the
+                    // event loses only the notice.
+                    Ok(()) => {
+                        self.raise(
+                            self.from.clone(),
+                            Letter::Send {
+                                peer: to.clone(),
+                                peer_file: None,
+                                seq: seq.cast_unsigned(),
+                                name: sent.name,
+                                reason: Reason::NoAddress,
+                            },
+                            0,
+                            None,
+                        );
+                        Step::Confirmed
+                    }
                     Err(_) => Step::Closed,
                 };
             }
@@ -934,13 +1036,14 @@ impl Outbox {
                 return Step::Again;
             }
         };
+        let name = sent.name;
         let envelope = Envelope {
             from_kind: self.from.kind.clone(),
             from_key: self.from.key.clone(),
             from_file: from_file.to_owned(),
             seq,
             acked_through: acked,
-            name: sent.name,
+            name: name.clone(),
             payload: sent.payload,
             task: sent.task,
             cause: sent.cause,
@@ -963,10 +1066,25 @@ impl Outbox {
         match answer {
             Ok(
                 Delivery::Handled { .. } | Delivery::Repeat { .. },
-            ) => match self.ack(to, seq).await {
-                Ok(()) => Step::Confirmed,
-                Err(_) => Step::Closed,
-            },
+            ) => self.ack(to, seq).await,
+            Ok(Delivery::DeadLettered { failed_runs, error }) => {
+                // Raised before the confirmation, so a kill between
+                // the two raises it again at the next delivery rather
+                // than lose it.
+                self.raise(
+                    to.clone(),
+                    Letter::Send {
+                        peer: self.from.clone(),
+                        peer_file: Some(from_file.to_owned()),
+                        seq: seq.cast_unsigned(),
+                        name,
+                        reason: Reason::Attempts,
+                    },
+                    failed_runs,
+                    error,
+                );
+                self.ack(to, seq).await
+            }
             Ok(Delivery::OutOfOrder { expected }) => {
                 tracing::warn!(
                     ?to,
@@ -1033,9 +1151,11 @@ impl Outbox {
 
     /// The receiver confirmed the send: it leaves the outbox, and the
     /// pair's confirmed number moves to it, in one host write.
-    async fn ack(&self, to: &Address, seq: i64) -> Result<()> {
+    /// `Closed` if the sender's file is closed.
+    async fn ack(&self, to: &Address, seq: i64) -> Step {
         let to = to.clone();
-        self.file
+        let acked = self
+            .file
             .between_transactions(move |conn| {
                 crate::fault::point("send-acked");
                 let tx = conn.unchecked_transaction()?;
@@ -1043,32 +1163,56 @@ impl Outbox {
                 tx.commit()?;
                 Ok(())
             })
-            .await
+            .await;
+        match acked {
+            Ok(()) => Step::Confirmed,
+            Err(_) => Step::Closed,
+        }
     }
 
     /// The send has no address: it moves from the outbox to the dead
     /// letters with the reason `no_address`, in one host write.
     async fn set_aside(&self, to: &Address, seq: i64) -> Result<()> {
-        let moved = to.clone();
+        let to = to.clone();
         self.file
             .between_transactions(move |conn| {
                 let tx = conn.unchecked_transaction()?;
                 tx.execute(
                     "INSERT INTO _hamlet_dead_letters (peer_kind, \
-                     peer_key, seq, name, payload, task, cause, \
-                     reason, attempts, at) SELECT to_kind, to_key, \
-                     seq, name, payload, task, cause, 'no_address', \
-                     0, ?4 FROM _hamlet_outbox WHERE to_kind = ?1 \
-                     AND to_key = ?2 AND seq = ?3",
-                    params![moved.kind, moved.key, seq, now_ms()],
+                     peer_key, peer_file, seq, work_id, name, \
+                     payload, task, cause, reason, attempts, error, \
+                     at) SELECT to_kind, to_key, NULL, seq, NULL, \
+                     name, payload, task, cause, 'no_address', 0, \
+                     NULL, ?4 FROM _hamlet_outbox WHERE to_kind = \
+                     ?1 AND to_key = ?2 AND seq = ?3",
+                    params![to.kind, to.key, seq, now_ms()],
                 )?;
-                confirm(&tx, &moved, seq)?;
+                confirm(&tx, &to, seq)?;
                 tx.commit()?;
                 Ok(())
             })
-            .await?;
-        report_dead_letter(&self.from, to, seq);
-        Ok(())
+            .await
+    }
+
+    /// Raises the dead letter `letter`, which `holder` keeps, and
+    /// logs it.
+    fn raise(
+        &self,
+        holder: Address,
+        letter: Letter,
+        tries: u32,
+        error: Option<String>,
+    ) {
+        let event = HostEvent::DeadLetter {
+            holder,
+            letter,
+            tries,
+            error,
+        };
+        tracing::warn!(?event, "dead letter: a send was set aside");
+        if let Some(host) = self.host.upgrade() {
+            let _ = host.events.send(event);
+        }
     }
 }
 
@@ -1084,17 +1228,6 @@ pub(crate) fn undelivered(conn: &Connection) -> Result<Option<i64>> {
         |row| row.get(0),
     )?;
     Ok(holds.then(now_ms))
-}
-
-/// Stand-in for the host's dead-letter event, until `Host::events()`
-/// exists: a warning in the host's log.
-fn report_dead_letter(from: &Address, to: &Address, seq: i64) {
-    tracing::warn!(
-        ?from,
-        ?to,
-        seq,
-        "a send has no address and is set aside"
-    );
 }
 
 /// Ends the delivery task's `running` mark if the task ends without
@@ -1177,6 +1310,17 @@ fn integer(rows: &[Vec<ColumnValue>], column: usize) -> Option<i64> {
     }
 }
 
+/// The text in column `column` of the first row.
+fn text_at(
+    rows: &[Vec<ColumnValue>],
+    column: usize,
+) -> Option<String> {
+    match rows.first()?.get(column)? {
+        ColumnValue::Text(value) => Some(value.clone()),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use rusqlite::OptionalExtension;
@@ -1219,6 +1363,80 @@ mod tests {
         .unwrap()
     }
 
+    /// The failure write of a run of send `seq` of `life`, with
+    /// `error`. Returns the rows it changed.
+    fn fail(
+        conn: &Connection,
+        life: &str,
+        seq: i64,
+        error: &str,
+    ) -> usize {
+        conn.execute(FAIL, params!["counter", "a", life, seq, error])
+            .unwrap()
+    }
+
+    /// The receive transaction's read of send `seq` of `life`: its
+    /// failed runs and last error, or `None` once it is not next.
+    fn runs(
+        conn: &Connection,
+        life: &str,
+        seq: i64,
+    ) -> Option<(i64, Option<String>)> {
+        conn.query_row(
+            RUNS,
+            params!["counter", "a", life, seq],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()
+        .unwrap()
+    }
+
+    /// The set-aside write of send `seq` of `life`, after `attempts`
+    /// failed runs ending in `error`.
+    fn set_aside(
+        conn: &Connection,
+        life: &str,
+        seq: i64,
+        attempts: i64,
+        error: &str,
+    ) {
+        conn.execute(
+            SET_ASIDE,
+            params![
+                "counter",
+                "a",
+                life,
+                seq,
+                "add",
+                b"",
+                "task",
+                None::<String>,
+                attempts,
+                error,
+                0
+            ],
+        )
+        .unwrap();
+    }
+
+    /// What a delivery of send `seq` of `life` that is not next
+    /// reads: for each row, the dead letter's failed runs and error,
+    /// if any.
+    fn standing(
+        conn: &Connection,
+        life: &str,
+        seq: i64,
+    ) -> Vec<(Option<i64>, Option<String>)> {
+        let mut statement = conn.prepare(STANDING).unwrap();
+        statement
+            .query_map(params!["counter", "a", life, seq], |row| {
+                Ok((row.get(2)?, row.get(3)?))
+            })
+            .unwrap()
+            .collect::<rusqlite::Result<_>>()
+            .unwrap()
+    }
+
     /// The pair's `(handled_in, attempts_in)` for `life`.
     fn position(conn: &Connection, life: &str) -> (i64, i64) {
         conn.query_row(
@@ -1249,7 +1467,7 @@ mod tests {
         assert_eq!(claim(&conn, "f1", 1), Some(0));
         assert_eq!(run(&conn, TAKE, "f1", 1), 1);
         assert_eq!(run(&conn, TAKE, "f1", 1), 0);
-        assert_eq!(run(&conn, FAIL, "f1", 1), 0);
+        assert_eq!(fail(&conn, "f1", 1, "late"), 0);
         assert_eq!(run(&conn, UNCLAIM, "f1", 1), 0);
         assert_eq!(claim(&conn, "f1", 1), None);
         assert_eq!(position(&conn, "f1"), (1, 0));
@@ -1266,11 +1484,64 @@ mod tests {
         next_generation(&conn);
         assert_eq!(claim(&conn, "f1", 1), Some(1));
         assert_eq!(claim(&conn, "f1", 1), Some(1));
-        assert_eq!(run(&conn, FAIL, "f1", 1), 1);
+        assert_eq!(fail(&conn, "f1", 1, "failed"), 1);
         assert_eq!(claim(&conn, "f1", 1), Some(2));
         assert_eq!(run(&conn, UNCLAIM, "f1", 1), 1);
         next_generation(&conn);
         assert_eq!(claim(&conn, "f1", 1), Some(2));
+    }
+
+    /// A cut run came back with no outcome: the claim that counts it
+    /// clears the error the failed run before it left.
+    #[test]
+    fn a_cut_run_clears_the_last_error() {
+        let conn = receiver();
+        assert_eq!(claim(&conn, "f1", 1), Some(0));
+        assert_eq!(fail(&conn, "f1", 1, "failed"), 1);
+        assert_eq!(claim(&conn, "f1", 1), Some(1));
+        assert_eq!(
+            runs(&conn, "f1", 1),
+            Some((1, Some("failed".into())))
+        );
+        next_generation(&conn);
+        assert_eq!(claim(&conn, "f1", 1), Some(2));
+        assert_eq!(runs(&conn, "f1", 1), Some((2, None)));
+    }
+
+    /// R2, the dead-letter half: two deliveries of a send that failed
+    /// five runs both claim it. The first's transaction takes it and
+    /// sets it aside. Then the second's read, its guard, its failure
+    /// write and a late claim each change nothing. A repeat finds the
+    /// one dead letter, and the pair's next send starts with no
+    /// failed run and no error.
+    #[test]
+    fn a_set_aside_send_is_recorded_once() {
+        let conn = receiver();
+        assert_eq!(claim(&conn, "f1", 1), Some(0));
+        for _ in 0..5 {
+            assert_eq!(fail(&conn, "f1", 1, "failed"), 1);
+        }
+        assert_eq!(claim(&conn, "f1", 1), Some(5));
+        assert_eq!(claim(&conn, "f1", 1), Some(5));
+
+        assert_eq!(
+            runs(&conn, "f1", 1),
+            Some((5, Some("failed".into())))
+        );
+        assert_eq!(run(&conn, TAKE, "f1", 1), 1);
+        set_aside(&conn, "f1", 1, 5, "failed");
+
+        assert_eq!(runs(&conn, "f1", 1), None);
+        assert_eq!(run(&conn, TAKE, "f1", 1), 0);
+        assert_eq!(fail(&conn, "f1", 1, "late"), 0);
+        assert_eq!(claim(&conn, "f1", 1), None);
+        assert_eq!(
+            standing(&conn, "f1", 1),
+            [(Some(5), Some("failed".into()))]
+        );
+        assert_eq!(standing(&conn, "f1", 2), [(None, None)]);
+        assert_eq!(claim(&conn, "f1", 2), Some(0));
+        assert_eq!(runs(&conn, "f1", 2), Some((0, None)));
     }
 
     /// First contact takes the send it is given; a later send is out

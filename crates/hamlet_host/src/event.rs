@@ -45,8 +45,8 @@ pub enum Letter {
         /// The pair's other actor: the sender, when the receiver
         /// holds the letter; the receiver, when the sender does.
         peer: Address,
-        /// Which life of the peer: the sender file's id. `None` for a
-        /// receiver with no address, which has no file.
+        /// Which life of the peer: the sender file's id. `None` for
+        /// a receiver with no address, which has no file.
         peer_file: Option<String>,
         /// The send's number within its pair.
         seq: u64,

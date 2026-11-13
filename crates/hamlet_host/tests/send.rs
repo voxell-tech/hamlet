@@ -1,11 +1,12 @@
 //! Durable sends: delivered once, in order within a pair, answered
 //! from the record when repeated, pruned once confirmed, set aside
-//! when the receiver has no address, and delivered once to and from
-//! a key destroyed and made again. The receive path's rules: R2, a
-//! race of deliveries of one send applies it once; R3, a slow handler
-//! is applied once and counts nothing; R15, a new life of a key is
-//! delivered once. A kind of the authoring layer's trait API receives
-//! through `send::receiving` (G3).
+//! when the receiver has no address or its handler failed five runs,
+//! and delivered once to and from a key destroyed and made again. The
+//! receive path's rules: R2, a race of deliveries of one send applies
+//! it once and sets it aside once; R3, a slow handler is applied once
+//! and counts nothing; R15, a new life of a key is delivered once. A
+//! kind of the authoring layer's trait API receives through
+//! `send::receiving` (G3).
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -19,7 +20,7 @@ use hamlet_actor_core::{
     BindParam, ColumnValue, ShutdownKind, SqliteTransaction,
 };
 use hamlet_host::send::{self, Delivery, Message};
-use hamlet_host::{Address, Cause, Host};
+use hamlet_host::{Address, Cause, Host, HostEvent, Letter, Reason};
 use hamlet_testing::Scratch;
 use rusqlite::{Connection, OpenFlags};
 use tokio::task::JoinSet;
@@ -51,7 +52,29 @@ enum Arm {
     Slow,
     /// The handler fails.
     Fail,
+    /// Receives the envelope once, with [`Handler::FailFirst`].
+    FailFirst,
+    /// Receives the envelope eight times at once, with
+    /// [`Handler::FailFirst`].
+    FanFailFirst,
 }
+
+/// How a receiver kind of these tests applies a send.
+#[derive(Clone, Copy)]
+enum Handler {
+    /// As the counter does.
+    Counter,
+    /// Fails the pair's first send, and applies the rest as the
+    /// counter does. A run of the first send that finds a dead letter
+    /// in its file fails with [`LATE`].
+    FailFirst,
+}
+
+/// The error of [`Handler::FailFirst`]'s first send.
+const FAILS_FIRST: &str = "this receiver fails the first send";
+
+/// The error of a run of a send that was already set aside.
+const LATE: &str = "a run of a send already set aside";
 
 /// The counters, a receiver kind for each [`Arm`], and the kind
 /// `flaky`, which receives as `flaky` does.
@@ -70,6 +93,8 @@ fn kinds() -> HashMap<String, ActorFactory> {
         ("gate", Arm::Gate),
         ("slow", Arm::Slow),
         ("fail", Arm::Fail),
+        ("failfirst", Arm::FailFirst),
+        ("fanfail", Arm::FanFailFirst),
     ] {
         kinds.insert(name.to_owned(), receiver(name, arm));
     }
@@ -237,16 +262,20 @@ async fn receive(
     arm: Arm,
     envelope: Vec<u8>,
 ) -> anyhow::Result<Vec<u8>> {
+    use Handler::Counter;
     let answers = match arm {
-        Arm::Once => vec![receive_once(ctx.clone(), envelope).await?],
+        Arm::Once => {
+            vec![receive_once(ctx.clone(), envelope, Counter).await?]
+        }
         Arm::Twice => vec![
-            receive_once(ctx.clone(), envelope.clone()).await?,
-            receive_once(ctx.clone(), envelope).await?,
+            receive_once(ctx.clone(), envelope.clone(), Counter)
+                .await?,
+            receive_once(ctx.clone(), envelope, Counter).await?,
         ],
-        Arm::Fan => eight(&ctx, &envelope).join_all().await,
+        Arm::Fan => eight(&ctx, &envelope, Counter).join_all().await,
         Arm::Gate => {
             let held = ctx.sql().begin_transaction(None).await?;
-            let waiting = eight(&ctx, &envelope);
+            let waiting = eight(&ctx, &envelope, Counter);
             tokio::time::sleep(Duration::from_millis(200)).await;
             held.rollback().await?;
             waiting.join_all().await
@@ -269,6 +298,15 @@ async fn receive(
             })
             .await?,
         ],
+        Arm::FailFirst => vec![
+            receive_once(ctx.clone(), envelope, Handler::FailFirst)
+                .await?,
+        ],
+        Arm::FanFailFirst => {
+            eight(&ctx, &envelope, Handler::FailFirst)
+                .join_all()
+                .await
+        }
     };
     for answer in &answers {
         ctx.sql()
@@ -285,25 +323,51 @@ async fn receive(
         .into_reply()
 }
 
-/// One receive of `envelope` as the counter applies it.
+/// One receive of `envelope`, applied by `handler`.
 async fn receive_once(
     ctx: ActorContext,
     envelope: Vec<u8>,
+    handler: Handler,
 ) -> anyhow::Result<Delivery> {
-    send::receive(&ctx, &envelope, |tx, message| async move {
-        counter::add_received(&tx, &message).await
+    send::receive(&ctx, &envelope, |tx, message| {
+        apply(handler, tx, message)
     })
     .await
 }
 
-/// Eight receives of `envelope`, begun at once. Each answer is the
-/// receive's, or `Failed` for an error.
-fn eight(ctx: &ActorContext, envelope: &[u8]) -> JoinSet<Delivery> {
+async fn apply(
+    handler: Handler,
+    tx: SqliteTransaction,
+    message: Message,
+) -> anyhow::Result<Vec<u8>> {
+    if matches!(handler, Handler::FailFirst) && message.seq == 1 {
+        let read = tx
+            .execute(
+                "SELECT COUNT(*) FROM _hamlet_dead_letters",
+                None,
+            )
+            .await?;
+        let set_aside = matches!(
+            read.rows.first().and_then(|row| row.first()),
+            Some(ColumnValue::Integer(letters)) if *letters > 0
+        );
+        anyhow::bail!(if set_aside { LATE } else { FAILS_FIRST });
+    }
+    counter::add_received(&tx, &message).await
+}
+
+/// Eight receives of `envelope`, begun at once, applied by
+/// `handler`. Each answer is the receive's, or `Failed` for an error.
+fn eight(
+    ctx: &ActorContext,
+    envelope: &[u8],
+    handler: Handler,
+) -> JoinSet<Delivery> {
     let mut receives = JoinSet::new();
     for _ in 0..8 {
         let (ctx, envelope) = (ctx.clone(), envelope.to_vec());
         receives.spawn(async move {
-            receive_once(ctx, envelope).await.unwrap_or_else(
+            receive_once(ctx, envelope, handler).await.unwrap_or_else(
                 |error| Delivery::Failed {
                     error: format!("{error:#}"),
                 },
@@ -313,7 +377,8 @@ fn eight(ctx: &ActorContext, envelope: &[u8]) -> JoinSet<Delivery> {
     receives
 }
 
-/// An answer in a word, with the counter's outcome, its `n`.
+/// An answer in a word, with the counter's outcome, its `n`, a
+/// failure's error, or a dead letter's failed runs.
 fn tag(answer: &Delivery) -> String {
     let n = |outcome: &[u8]| {
         outcome.try_into().map_or_else(
@@ -332,7 +397,10 @@ fn tag(answer: &Delivery) -> String {
         Delivery::OutOfOrder { expected } => {
             format!("out of order {expected}")
         }
-        Delivery::Failed { .. } => "failed".to_owned(),
+        Delivery::Failed { error } => format!("failed: {error}"),
+        Delivery::DeadLettered { failed_runs, .. } => {
+            format!("dead {failed_runs}")
+        }
     }
 }
 
@@ -615,27 +683,250 @@ async fn a_failed_run_is_counted_and_tried_again() {
 
 /// A send to a key with no file, or to a kind the host does not hold,
 /// is set aside in its sender's file with the reason `no_address`,
-/// and makes no file.
+/// makes no file, and raises an event with the sender as the holder.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_send_with_no_address_is_set_aside() {
     let dir = Scratch::new("send-no-address");
     let host = Host::open(&dir, kinds()).unwrap();
+    let mut events = host.events();
     send_n(&host, "a", "counter/nobody", 1).await;
     send_n(&host, "a", "ghost/b", 2).await;
     drained(&host, "a").await;
     host.shutdown().await.unwrap();
 
     assert_eq!(
-        column::<String>(
-            &dir,
-            "counter/a",
-            "SELECT peer_kind || '/' || peer_key || ' ' || reason \
-             FROM _hamlet_dead_letters ORDER BY id"
-        ),
-        ["counter/nobody no_address", "ghost/b no_address"]
+        dead_letters(&dir, "counter/a"),
+        [
+            "counter/nobody - 1 add no_address 0 -",
+            "ghost/b - 1 add no_address 0 -"
+        ]
+    );
+    let no_address = |kind: &str, key: &str| HostEvent::DeadLetter {
+        holder: Address::new("counter", "a"),
+        letter: Letter::Send {
+            peer: Address::new(kind, key),
+            peer_file: None,
+            seq: 1,
+            name: "add".to_owned(),
+            reason: Reason::NoAddress,
+        },
+        tries: 0,
+        error: None,
+    };
+    assert_eq!(
+        raised(&mut events),
+        [no_address("counter", "nobody"), no_address("ghost", "b")]
     );
     assert!(!dir.join("actors/counter/nobody.sqlite").exists());
     assert!(!dir.join("actors/ghost").exists());
+}
+
+/// The id of the file of `actor_id`: which life of its key it is.
+fn file_id(dir: &Path, actor_id: &str) -> String {
+    column::<String>(
+        dir,
+        actor_id,
+        "SELECT file_id FROM _hamlet_file",
+    )
+    .remove(0)
+}
+
+/// Each `_hamlet_dead_letters` row of `actor_id`, in a line: the
+/// peer, its life or `-`, the number, the name, the reason, the
+/// failed runs and the last error or `-`.
+fn dead_letters(dir: &Path, actor_id: &str) -> Vec<String> {
+    column(
+        dir,
+        actor_id,
+        "SELECT peer_kind || '/' || peer_key || ' ' || \
+         COALESCE(peer_file, '-') || ' ' || seq || ' ' || name || ' \
+         ' || reason || ' ' || attempts || ' ' || COALESCE(error, \
+         '-') FROM _hamlet_dead_letters ORDER BY id",
+    )
+}
+
+/// The events the host raised that `events` has not read yet.
+fn raised(
+    events: &mut tokio::sync::broadcast::Receiver<HostEvent>,
+) -> Vec<HostEvent> {
+    std::iter::from_fn(|| events.try_recv().ok()).collect()
+}
+
+/// The event of counter `a`'s first send to `failfirst/b`, set aside
+/// by its receiver after five failed runs. `a_file` is `a`'s life.
+fn first_send_set_aside(a_file: &str) -> HostEvent {
+    HostEvent::DeadLetter {
+        holder: Address::new("failfirst", "b"),
+        letter: Letter::Send {
+            peer: Address::new("counter", "a"),
+            peer_file: Some(a_file.to_owned()),
+            seq: 1,
+            name: "add".to_owned(),
+            reason: Reason::Attempts,
+        },
+        tries: 5,
+        error: Some(FAILS_FIRST.to_owned()),
+    }
+}
+
+/// A send whose handler failed five runs is set aside by its
+/// receiver instead of run a sixth time: one dead-letter row with the
+/// runs and the last error, one event with the receiver as the
+/// holder, and the sender's outbox row gone. The pair's next send is
+/// applied after it.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_send_that_fails_five_runs_is_set_aside_and_the_next_applied()
+ {
+    let dir = Scratch::new("send-dead");
+    let host = Host::open(&dir, kinds()).unwrap();
+    let mut events = host.events();
+    host.get_or_start("failfirst", "b").await.unwrap();
+    send_n(&host, "a", "failfirst/b", 1).await;
+    send_n(&host, "a", "failfirst/b", 2).await;
+    drained(&host, "a").await;
+    host.shutdown().await.unwrap();
+
+    let a_file = file_id(&dir, "counter/a");
+    assert_eq!(raised(&mut events), [first_send_set_aside(&a_file)]);
+    assert_eq!(
+        dead_letters(&dir, "failfirst/b"),
+        [format!(
+            "counter/a {a_file} 1 add attempts 5 {FAILS_FIRST}"
+        )]
+    );
+    let mut expected =
+        vec!["dead 5".to_owned(), "handled 2".to_owned()];
+    expected.extend(vec![format!("failed: {FAILS_FIRST}"); 5]);
+    expected.sort();
+    assert_eq!(answers(&dir, "failfirst/b"), expected);
+    assert_eq!(received(&dir, "failfirst/b"), [(2, 2, 0)]);
+    assert_eq!(
+        one(
+            &dir,
+            "failfirst/b",
+            "SELECT handled_in FROM _hamlet_inbound"
+        ),
+        2
+    );
+    assert_eq!(
+        one(&dir, "counter/a", "SELECT acked_out FROM _hamlet_peers"),
+        2
+    );
+}
+
+/// A set-aside send delivered again, as a kill between the
+/// receiver's answer and the sender's confirmation leaves it, is
+/// answered from its dead-letter row: the handler does not run, no
+/// second row is written, the sender raises the event again, and its
+/// outbox row goes. The sender's file is set back to that state
+/// twice, by hand.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_set_aside_send_delivered_again_is_answered_from_its_row() {
+    let dir = Scratch::new("send-dead-again");
+    let host = Host::open(&dir, kinds()).unwrap();
+    host.get_or_start("failfirst", "b").await.unwrap();
+    send_n(&host, "a", "failfirst/b", 1).await;
+    drained(&host, "a").await;
+    host.shutdown().await.unwrap();
+    drop(host);
+    let a_file = file_id(&dir, "counter/a");
+
+    for again in 1..=2 {
+        let sender =
+            Connection::open(dir.join("actors/counter/a.sqlite"))
+                .unwrap();
+        sender
+            .execute_batch(
+                "INSERT INTO _hamlet_outbox (to_kind, to_key, seq, \
+                 name, payload, task, cause, created_at) VALUES \
+                 ('failfirst', 'b', 1, 'add', x'0100000000000000', \
+                 'demo', NULL, 0); UPDATE _hamlet_peers SET \
+                 acked_out = 0",
+            )
+            .unwrap();
+        drop(sender);
+
+        let host = Host::open(&dir, kinds()).unwrap();
+        let mut events = host.events();
+        drained(&host, "a").await;
+        host.shutdown().await.unwrap();
+        drop(host);
+
+        assert_eq!(
+            raised(&mut events),
+            [first_send_set_aside(&a_file)]
+        );
+        assert_eq!(
+            dead_letters(&dir, "failfirst/b"),
+            [format!(
+                "counter/a {a_file} 1 add attempts 5 {FAILS_FIRST}"
+            )]
+        );
+        let mut expected = vec!["dead 5".to_owned(); 1 + again];
+        expected.extend(vec![format!("failed: {FAILS_FIRST}"); 5]);
+        expected.sort();
+        assert_eq!(answers(&dir, "failfirst/b"), expected);
+        assert_eq!(
+            one(
+                &dir,
+                "counter/a",
+                "SELECT COUNT(*) FROM _hamlet_outbox"
+            ),
+            0
+        );
+        assert_eq!(
+            one(
+                &dir,
+                "counter/a",
+                "SELECT acked_out FROM _hamlet_peers"
+            ),
+            1
+        );
+    }
+}
+
+/// R2, the dead-letter half: a failing send received eight times at
+/// once in each delivery is set aside once, and no receive after the
+/// set-aside runs its handler, in that delivery or a later one. The
+/// pair's next send is applied. How the receives interleave decides
+/// the split of answers and the runs counted, so rows are checked.
+#[tokio::test(flavor = "multi_thread")]
+async fn receives_of_a_set_aside_send_run_nothing_and_write_nothing()
+{
+    let dir = Scratch::new("send-dead-fan");
+    let host = Host::open(&dir, kinds()).unwrap();
+    host.get_or_start("fanfail", "b").await.unwrap();
+    send_n(&host, "a", "fanfail/b", 1).await;
+    send_n(&host, "a", "fanfail/b", 2).await;
+    drained(&host, "a").await;
+    host.shutdown().await.unwrap();
+
+    assert_eq!(
+        column::<String>(
+            &dir,
+            "fanfail/b",
+            "SELECT seq || ' ' || reason || ' ' || (attempts >= 5) \
+             FROM _hamlet_dead_letters"
+        ),
+        ["1 attempts 1"]
+    );
+    let late = format!("failed: {LATE}");
+    let answers = answers(&dir, "fanfail/b");
+    assert!(!answers.contains(&late), "{answers:?}");
+    assert!(answers.contains(&"handled 2".to_owned()), "{answers:?}");
+    assert_eq!(received(&dir, "fanfail/b"), [(2, 2, 0)]);
+    assert_eq!(
+        one(
+            &dir,
+            "fanfail/b",
+            "SELECT handled_in FROM _hamlet_inbound"
+        ),
+        2
+    );
+    assert_eq!(
+        one(&dir, "counter/a", "SELECT COUNT(*) FROM _hamlet_outbox"),
+        0
+    );
 }
 
 /// R15: a sender destroyed and made again numbers its sends from 1
