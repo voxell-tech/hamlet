@@ -45,6 +45,17 @@ use crate::plain_sqlite::PlainSqlite;
 /// host's: no caller outside the host reaches it (R5).
 pub const RECEIVE: &str = "hamlet.receive";
 
+/// Refuses an action under the host's prefix `hamlet.`: no caller
+/// outside the host reaches one (R5).
+pub(crate) fn refuse_reserved(action: &str) -> Result<()> {
+    anyhow::ensure!(
+        !action.starts_with("hamlet."),
+        "the action `{action}` is under `hamlet.`, which only the \
+         host calls"
+    );
+    Ok(())
+}
+
 /// How long a delivery waits for the receiver's answer. The core caps
 /// it at the receiver kind's action timeout.
 const DELIVERY_DEADLINE: Duration = Duration::from_secs(60);

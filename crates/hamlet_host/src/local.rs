@@ -603,7 +603,9 @@ impl Host {
     /// past either, it fails with `actor.action_timed_out`. Fails at
     /// once with `actor.not_registered` for a kind the directory does
     /// not hold, and with `actor.destroying` for an actor that is
-    /// being destroyed. The host's log carries `cause`'s task.
+    /// being destroyed. Refuses first an action under `hamlet.`,
+    /// which only the host reaches. The host's log carries `cause`'s
+    /// task.
     pub async fn call(
         &self,
         to: &Address,
@@ -612,6 +614,7 @@ impl Host {
         deadline: Duration,
         cause: Cause,
     ) -> Result<Vec<u8>> {
+        send::refuse_reserved(name)?;
         let actor_id = self.located(&to.kind, &to.key)?;
         let span = tracing::debug_span!(
             "call",

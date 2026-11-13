@@ -10,14 +10,14 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::time::Duration;
 
-use act::act;
+use act::{DEADLINE, act};
 use anyhow::anyhow;
 use hamlet_actor_core::{
     ActorConfig, ActorContext, ActorEvent, ActorFactory, ActorStart,
     BindParam, ShutdownKind,
 };
-use hamlet_host::Host;
 use hamlet_host::send::{self, Delivery};
+use hamlet_host::{Address, Cause, Host};
 use hamlet_testing::Scratch;
 use rusqlite::{Connection, OpenFlags};
 use tokio::task::JoinSet;
@@ -620,4 +620,32 @@ async fn a_sender_stopped_during_a_delivery_wakes_and_delivers_once()
     host.shutdown().await.unwrap();
 
     assert_eq!(received(&dir, "slow/b"), vec![(1, 9, 0)]);
+}
+
+/// R5: a call to an action under `hamlet.` is refused before the host
+/// looks up its actor, so a forged delivery neither runs nor makes
+/// the receiver's file.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_call_to_a_hamlet_action_is_refused() {
+    let dir = Scratch::new("send-forged");
+    let host = Host::open(&dir, kinds()).unwrap();
+    for action in [send::RECEIVE, "hamlet.other"] {
+        let error = host
+            .call(
+                &Address::new("counter", "b"),
+                action,
+                b"forged".to_vec(),
+                DEADLINE,
+                Cause::root("test"),
+            )
+            .await
+            .expect_err("a call to a `hamlet.` action must fail");
+        assert!(
+            format!("{error:#}").contains("`hamlet.`"),
+            "{error:#}"
+        );
+    }
+    assert!(!dir.join("actors/counter/b.sqlite").exists());
+    assert!(!host.is_running("counter/b"));
+    host.shutdown().await.unwrap();
 }
