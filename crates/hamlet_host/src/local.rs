@@ -684,8 +684,10 @@ impl Host {
     /// timer for each other deadline, and returns the actors whose
     /// start it began, without waiting for the starts: a call to one
     /// of them waits for its start. A start that fails is logged and
-    /// left for the next boot. Fails at once in a host that has shut
-    /// down, which may no longer hold the folder: it reads no file.
+    /// left for the next boot, and a file that cannot be read is
+    /// reported and passed over. Fails at once in a host that has
+    /// shut down, which may no longer hold the folder: it reads no
+    /// file.
     pub async fn boot(&self) -> Result<Vec<String>> {
         let host = self.inner();
         if host.actors.lock().shut {
@@ -1022,7 +1024,9 @@ impl Host {
     /// deadline or a run a kill cut off, but for the actors the host
     /// holds: a running one holds its file locked, and a stopped one
     /// has its timer. Another kind's folder is never read, since
-    /// another host may run it. The files are closed again; starting
+    /// another host may run it. A file that cannot be read is logged
+    /// and reported as [`HostEvent::UnreadableFile`], and the others
+    /// are read all the same. The files are closed again; starting
     /// an actor opens its file anew.
     fn stored_actors(&self) -> Result<Vec<StoredActor>> {
         let host = self.inner();
@@ -1053,8 +1057,8 @@ impl Host {
                             .is_some_and(|ext| ext == "sqlite")
                     });
                 // Not an actor's file.
-                let Some(Ok(actor_id)) =
-                    key.map(|key| actor_id(kind, key))
+                let Some((key, Ok(actor_id))) =
+                    key.map(|key| (key, actor_id(kind, key)))
                 else {
                     continue;
                 };
@@ -1070,10 +1074,19 @@ impl Host {
                     // A start that began since holds it.
                     Err(_) if held() => {}
                     Err(error) => {
-                        return Err(error.context(format!(
-                            "read {}",
-                            path.display()
-                        )));
+                        let error = format!("{error:#}");
+                        tracing::warn!(
+                            path = %path.display(),
+                            error,
+                            "boot could not read an actor's file and \
+                             goes on without it"
+                        );
+                        let _ = host.events.send(
+                            HostEvent::UnreadableFile {
+                                actor: Address::new(kind, key),
+                                error,
+                            },
+                        );
                     }
                 }
             }

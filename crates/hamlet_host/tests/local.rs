@@ -18,7 +18,7 @@ use hamlet_actor_core::{
     ColumnValue, ShutdownKind,
 };
 use hamlet_actor_error::ActorError;
-use hamlet_host::{Address, Cause, Host, HostOptions};
+use hamlet_host::{Address, Cause, Host, HostEvent, HostOptions};
 use hamlet_testing::Scratch;
 use parking_lot::Mutex;
 use rusqlite::{Connection, OpenFlags};
@@ -1700,4 +1700,58 @@ async fn hosts_of_different_names_share_a_folder() {
     assert_eq!(call(&node, &x, "increment").await, 1);
     main.shutdown().await.unwrap();
     node.shutdown().await.unwrap();
+}
+
+/// E1. One actor file that boot cannot read does not fail the boot.
+/// Boot logs it once, raises an event that names its actor, and
+/// boots the rest: a counter whose one-shot came due while the host
+/// was down starts and runs it.
+#[tokio::test(flavor = "multi_thread")]
+async fn boot_goes_past_a_file_it_cannot_read() {
+    use tracing_subscriber::util::SubscriberInitExt;
+
+    let dir = Scratch::new("host-boot-unreadable");
+    let host = Host::open(&dir, factories()).unwrap();
+    let id = host.get_or_start("counter", "a").await.unwrap();
+    call_with(&host, &id, "schedule", 100u64.to_le_bytes().to_vec())
+        .await;
+    host.shutdown().await.unwrap();
+    drop(host);
+    std::fs::write(
+        dir.join("actors/counter/bad.sqlite"),
+        b"not a database, only bytes".repeat(64),
+    )
+    .unwrap();
+    tokio::time::sleep(Duration::from_millis(200)).await;
+
+    let host = Host::open(&dir, factories()).unwrap();
+    let mut events = host.events();
+    let logs = Logs::default();
+    let logging = tracing_subscriber::fmt()
+        .with_max_level(tracing_subscriber::filter::LevelFilter::WARN)
+        .with_ansi(false)
+        .with_writer({
+            let logs = logs.clone();
+            move || logs.clone()
+        })
+        .finish()
+        .set_default();
+    let began = host.boot().await;
+    drop(logging);
+    assert_eq!(began.unwrap(), std::slice::from_ref(&id));
+    let logged = String::from_utf8(logs.0.lock().clone()).unwrap();
+    assert_eq!(logged.matches("bad.sqlite").count(), 1, "{logged}");
+    let event = events.try_recv().expect("no event for the file");
+    assert!(
+        matches!(
+            &event,
+            HostEvent::UnreadableFile { actor, .. }
+                if *actor == Address::new("counter", "bad")
+        ),
+        "{event:?}"
+    );
+    assert!(events.try_recv().is_err(), "a second event");
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(call(&host, &id, "get").await, 1);
+    host.shutdown().await.unwrap();
 }
