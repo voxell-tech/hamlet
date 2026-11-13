@@ -181,8 +181,8 @@ struct Report {
 }
 
 /// One restart's values, by name: each actor's last reply, the
-/// count of each actor its boot started, as `boot <actor>`, and each
-/// probe.
+/// count of each actor its boot started, as `boot <actor>`, what
+/// each drain left, as `outbox <actor>`, and each probe.
 type Restart = BTreeMap<String, i64>;
 
 impl Report {
@@ -191,7 +191,7 @@ impl Report {
         for (n, (restart, expects)) in
             self.restarts.iter().zip(&scenario.expect).enumerate()
         {
-            for expect in *expects {
+            for expect in expects.iter().copied().flatten() {
                 let want = match expect.is {
                     Is::Acked(actor, plus) => {
                         let Some(acked) = self.acked.get(actor)
@@ -323,13 +323,7 @@ fn run_once(
         }
         let mut restart = Restart::new();
         for line in host.finish()? {
-            let (name, count) = match line.strip_prefix("boot ") {
-                Some(reply) => {
-                    let (actor, count) = parse_reply(reply)?;
-                    (format!("boot {actor}"), count)
-                }
-                None => parse_reply(&line)?,
-            };
+            let (name, count) = parse_reply(&line)?;
             restart.insert(name, count);
         }
         for probe in scenario.probes {
@@ -391,10 +385,12 @@ fn read_probe(file: &Path, sql: &str) -> Result<i64> {
     Ok(conn.query_row(sql, [], |row| row.get(0))?)
 }
 
-/// Reads `counter/<key> <count>`.
+/// Reads `<name> <count>`: `counter/<key> 5`, or with a prefix,
+/// `boot counter/<key> 5`. A command's error is a failure.
 fn parse_reply(line: &str) -> Result<(String, i64)> {
-    let parsed = line.split_once(' ').and_then(|(actor, count)| {
-        Some((actor.to_owned(), count.parse().ok()?))
+    ensure!(!line.starts_with("error:"), "the host printed `{line}`");
+    let parsed = line.rsplit_once(' ').and_then(|(name, count)| {
+        Some((name.to_owned(), count.parse().ok()?))
     });
     parsed.ok_or_else(|| anyhow!("the host printed `{line}`"))
 }

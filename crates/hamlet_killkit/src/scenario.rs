@@ -23,8 +23,9 @@ pub struct Scenario {
     pub restart: &'static [&'static str],
     /// Values read from the actor files once each restart exited.
     pub probes: &'static [Probe],
-    /// The values the first and the second restart must show.
-    pub expect: [&'static [Expect]; 2],
+    /// The values the first and the second restart must show, each
+    /// as a list of groups.
+    pub expect: [&'static [&'static [Expect]]; 2],
 }
 
 /// When the kit kills the host, once the trigger was sent and, for a
@@ -48,7 +49,8 @@ pub struct Probe {
 
 /// A value a restart must show: an actor's last reply, as
 /// `counter/<key>`; the count of an actor its boot started, as
-/// `boot counter/<key>`; or a probe, by its name.
+/// `boot counter/<key>`; the sends a drain left unconfirmed, as
+/// `outbox counter/<key>`; or a probe, by its name.
 pub struct Expect {
     pub value: &'static str,
     pub is: Is,
@@ -79,6 +81,161 @@ const A_SCHEDULES: Probe = Probe {
     file: "actors/counter/a.sqlite",
     sql: "SELECT COUNT(*) FROM _actor_schedule_events",
 };
+
+const A_FILE: &str = "actors/counter/a.sqlite";
+const B_FILE: &str = "actors/counter/b.sqlite";
+
+/// The `ledger` rows of counter `a`: the sends it committed.
+const A_LEDGER: Probe = Probe {
+    name: "a.ledger",
+    file: A_FILE,
+    sql: "SELECT COUNT(*) FROM ledger",
+};
+
+/// The sends of counter `a` that their receiver has not confirmed.
+const A_OUTBOX: Probe = Probe {
+    name: "a.outbox",
+    file: A_FILE,
+    sql: "SELECT COUNT(*) FROM _hamlet_outbox",
+};
+
+/// The count of counter `b`, read from its file.
+const B_VALUE: Probe = Probe {
+    name: "b.value",
+    file: B_FILE,
+    sql: "SELECT COALESCE((SELECT value FROM counter WHERE id = 0), \
+          0)",
+};
+
+/// The `received` rows of counter `b`: the sends it applied.
+const B_RECEIVED: Probe = Probe {
+    name: "b.received",
+    file: B_FILE,
+    sql: "SELECT COUNT(*) FROM received",
+};
+
+/// The highest send counter `b` handled from its one sender.
+const B_HANDLED: Probe = Probe {
+    name: "b.handled",
+    file: B_FILE,
+    sql: "SELECT COALESCE(SUM(handled_in), 0) FROM _hamlet_inbound",
+};
+
+/// The runs that ended without success before the run that applied
+/// each send, summed over `b`'s `received` rows.
+const B_FAILED_RUNS: Probe = Probe {
+    name: "b.failed_runs",
+    file: B_FILE,
+    sql: "SELECT COALESCE(SUM(failed_runs), 0) FROM received",
+};
+
+/// The deliveries counter `b` was answered a repeat for.
+const B_REPEATS: Probe = Probe {
+    name: "b.repeats",
+    file: B_FILE,
+    sql: "SELECT COUNT(*) FROM repeats",
+};
+
+/// What every restart of a send scenario runs: wait until `a`'s
+/// sends are confirmed, then read `b`.
+const SEND_RESTART: &[&str] = &["drain a", "get b"];
+
+/// The send of 5 from `a` to `b` is applied once and confirmed:
+/// `b` counts 5 more and holds one `received` row, `a` one `ledger`
+/// row and an empty outbox.
+const SENT_ONCE: &[Expect] = &[
+    Expect {
+        value: "outbox counter/a",
+        is: Is::Exactly(0),
+    },
+    Expect {
+        value: "a.outbox",
+        is: Is::Exactly(0),
+    },
+    Expect {
+        value: "a.ledger",
+        is: Is::Exactly(1),
+    },
+    Expect {
+        value: "counter/b",
+        is: Is::Acked("counter/b", 5),
+    },
+    Expect {
+        value: "b.value",
+        is: Is::Acked("counter/b", 5),
+    },
+    Expect {
+        value: "b.received",
+        is: Is::Exactly(1),
+    },
+    Expect {
+        value: "b.handled",
+        is: Is::Exactly(1),
+    },
+];
+
+/// No delivery to `b` was answered as a repeat.
+const NO_REPEAT: &[Expect] = &[Expect {
+    value: "b.repeats",
+    is: Is::Exactly(0),
+}];
+
+/// One delivery to `b` was answered as a repeat.
+const ONE_REPEAT: &[Expect] = &[Expect {
+    value: "b.repeats",
+    is: Is::Exactly(1),
+}];
+
+/// The run that applied the send counts one run before it, the one
+/// the kill cut.
+const ONE_CUT_RUN: &[Expect] = &[Expect {
+    value: "b.failed_runs",
+    is: Is::Exactly(1),
+}];
+
+/// Nothing was sent: `a` holds no `ledger` row and an empty outbox,
+/// and `b` never received.
+const NOT_SENT: &[Expect] = &[
+    Expect {
+        value: "outbox counter/a",
+        is: Is::Exactly(0),
+    },
+    Expect {
+        value: "a.outbox",
+        is: Is::Exactly(0),
+    },
+    Expect {
+        value: "a.ledger",
+        is: Is::Exactly(0),
+    },
+    Expect {
+        value: "counter/b",
+        is: Is::Acked("counter/b", 0),
+    },
+    Expect {
+        value: "b.value",
+        is: Is::Acked("counter/b", 0),
+    },
+    Expect {
+        value: "b.received",
+        is: Is::Exactly(0),
+    },
+    Expect {
+        value: "b.handled",
+        is: Is::Exactly(0),
+    },
+];
+
+/// The probes of every send scenario.
+const SEND_PROBES: &[Probe] = &[
+    A_LEDGER,
+    A_OUTBOX,
+    B_VALUE,
+    B_RECEIVED,
+    B_HANDLED,
+    B_FAILED_RUNS,
+    B_REPEATS,
+];
 
 const COUNTER_TRANSACTION: &[Expect] = &[
     Expect {
@@ -143,7 +300,7 @@ pub const SCENARIOS: &[Scenario] = &[
         down_ms: 0,
         restart: &["get a"],
         probes: &[A_VALUE],
-        expect: [COUNTER_TRANSACTION, COUNTER_TRANSACTION],
+        expect: [&[COUNTER_TRANSACTION], &[COUNTER_TRANSACTION]],
     },
     Scenario {
         name: "schedule-before-due",
@@ -161,6 +318,64 @@ pub const SCENARIOS: &[Scenario] = &[
         down_ms: 2000,
         restart: &["get a"],
         probes: &[A_VALUE, A_SCHEDULES],
-        expect: [SCHEDULE_FIRED_AT_BOOT, SCHEDULE_FIRED_ONCE],
+        expect: [&[SCHEDULE_FIRED_AT_BOOT], &[SCHEDULE_FIRED_ONCE]],
+    },
+    Scenario {
+        name: "send-deliver",
+        about: "kill once a send's transaction committed, before \
+                its delivery starts; it is delivered once, with no \
+                repeat",
+        setup: &["get b"],
+        trigger: "send a b",
+        trigger_replies: false,
+        kill: Kill::Fault("send-committed"),
+        down_ms: 0,
+        restart: SEND_RESTART,
+        probes: SEND_PROBES,
+        expect: [&[SENT_ONCE, NO_REPEAT], &[SENT_ONCE, NO_REPEAT]],
+    },
+    Scenario {
+        name: "send-before-commit",
+        about: "kill inside the sender's transaction, after its \
+                send; nothing is sent and the receiver never \
+                receives",
+        setup: &["get b"],
+        trigger: "send a b",
+        trigger_replies: false,
+        kill: Kill::Fault("send-tx-open"),
+        down_ms: 0,
+        restart: SEND_RESTART,
+        probes: SEND_PROBES,
+        expect: [&[NOT_SENT, NO_REPEAT], &[NOT_SENT, NO_REPEAT]],
+    },
+    Scenario {
+        name: "send-receiver-mid",
+        about: "kill inside the receiver's receive transaction; the \
+                send is applied once, after one cut run",
+        setup: &["get b"],
+        trigger: "send a b",
+        trigger_replies: false,
+        kill: Kill::Fault("receive-tx-open"),
+        down_ms: 0,
+        restart: SEND_RESTART,
+        probes: SEND_PROBES,
+        expect: [
+            &[SENT_ONCE, ONE_CUT_RUN, NO_REPEAT],
+            &[SENT_ONCE, ONE_CUT_RUN, NO_REPEAT],
+        ],
+    },
+    Scenario {
+        name: "send-before-ack",
+        about: "kill after the receiver applied a send, before the \
+                sender confirms it; the first restart delivers it \
+                again as one repeat, the second delivers nothing",
+        setup: &["get b"],
+        trigger: "send a b",
+        trigger_replies: false,
+        kill: Kill::Fault("send-acked"),
+        down_ms: 0,
+        restart: SEND_RESTART,
+        probes: SEND_PROBES,
+        expect: [&[SENT_ONCE, ONE_REPEAT], &[SENT_ONCE, ONE_REPEAT]],
     },
 ];
