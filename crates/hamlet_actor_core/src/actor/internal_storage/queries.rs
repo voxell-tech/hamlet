@@ -54,14 +54,15 @@ pub(crate) const RESET_SCHEDULES_FOR_LEGACY_IMPORT_SQL: &str =
 pub(crate) const INSERT_SCHEDULE_EVENT_SQL: &str =
     "INSERT INTO _actor_schedule_events (event_id, trigger_at, \
      action, args, kind, cron_expression, timezone, interval_ms, \
-     last_started_at, max_history, ray_id, traceparent, tracestate) \
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+     last_started_at, max_history, ray_id, traceparent, tracestate, \
+     tries, last_error) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, \
+     ?, 0, NULL)";
 pub(crate) const UPSERT_RECURRING_SCHEDULE_SQL: &str =
     "INSERT INTO _actor_schedule_events (event_id, trigger_at, \
      action, args, kind, cron_expression, timezone, interval_ms, \
-     last_started_at, max_history, ray_id, traceparent, tracestate) \
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON \
-     CONFLICT(event_id) DO UPDATE SET trigger_at = \
+     last_started_at, max_history, ray_id, traceparent, tracestate, \
+     tries, last_error) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, \
+     ?, 0, NULL) ON CONFLICT(event_id) DO UPDATE SET trigger_at = \
      excluded.trigger_at, action = excluded.action, args = \
      excluded.args, kind = excluded.kind, cron_expression = \
      excluded.cron_expression, timezone = excluded.timezone, \
@@ -110,14 +111,16 @@ pub(crate) const LOAD_SCHEDULE_SQL: &str =
     "SELECT event_id, trigger_at, action, args, kind, \
      cron_expression, timezone, interval_ms, last_started_at, \
      max_history FROM _actor_schedule_events WHERE event_id = ?";
+// A set-aside one-shot is still a schedule the actor holds.
 pub(crate) const COUNT_SCHEDULES_SQL: &str =
-    "SELECT COUNT(*) FROM _actor_schedule_events";
+    "SELECT (SELECT COUNT(*) FROM _actor_schedule_events) + (SELECT \
+     COUNT(*) FROM _actor_schedule_set_aside)";
 pub(crate) const TAKE_DUE_SCHEDULES_SQL: &str =
     "SELECT event_id, trigger_at, action, args, kind, \
      cron_expression, timezone, interval_ms, last_started_at, \
-     max_history, ray_id, traceparent, tracestate FROM \
-     _actor_schedule_events WHERE trigger_at <= ? AND \
-     claimed_generation IS NOT ? ORDER BY trigger_at, event_id";
+     max_history, ray_id, traceparent, tracestate, tries, \
+     last_error FROM _actor_schedule_events WHERE trigger_at <= ? \
+     AND claimed_generation IS NOT ? ORDER BY trigger_at, event_id";
 pub(crate) const ADVANCE_SKIPPED_SCHEDULE_SQL: &str =
     "UPDATE _actor_schedule_events SET trigger_at = ? WHERE \
      event_id = ?";
@@ -157,11 +160,39 @@ pub(crate) fn claim_one_shots_sql(event_count: usize) -> String {
         .collect::<Vec<_>>()
         .join(", ");
     format!(
-        "UPDATE _actor_schedule_events SET claimed_generation = ? \
-         WHERE kind = ? AND (event_id, trigger_at) IN \
-         ({placeholders})"
+        "UPDATE _actor_schedule_events SET claimed_generation = ?, \
+         tries = tries + 1, last_error = NULL WHERE kind = ? AND \
+         (event_id, trigger_at) IN ({placeholders})"
     )
 }
+
+// Copies a one-shot out of the events table once it has had its
+// tries; `END_ONE_SHOT_SQL` then deletes it there, in the same batch.
+pub(crate) const SET_ASIDE_ONE_SHOT_SQL: &str =
+    "INSERT INTO _actor_schedule_set_aside (event_id, action, args, \
+     trigger_at, tries, last_error, set_aside_at, ray_id, \
+     traceparent, tracestate) SELECT event_id, action, args, \
+     trigger_at, tries, last_error, ?, ray_id, traceparent, \
+     tracestate FROM _actor_schedule_events WHERE event_id = ? AND \
+     kind = ? AND tries >= ?";
+pub(crate) const KEEP_ONE_SHOT_SQL: &str =
+    "UPDATE _actor_schedule_events SET last_error = ? WHERE \
+     event_id = ? AND kind = ? AND claimed_generation = ?";
+pub(crate) const LIST_SET_ASIDE_SQL: &str =
+    "SELECT event_id, action, args, trigger_at, tries, last_error, \
+     set_aside_at FROM _actor_schedule_set_aside ORDER BY event_id";
+// Puts a set-aside one-shot back with a new due time and no tries;
+// `DISCARD_SET_ASIDE_SQL` then deletes it there, in the same batch.
+pub(crate) const REARM_SET_ASIDE_SQL: &str =
+    "INSERT INTO _actor_schedule_events (event_id, trigger_at, \
+     action, args, kind, cron_expression, timezone, interval_ms, \
+     last_started_at, max_history, ray_id, traceparent, tracestate, \
+     claimed_generation, tries, last_error) SELECT event_id, ?, \
+     action, args, ?, NULL, NULL, NULL, NULL, 0, ray_id, \
+     traceparent, tracestate, NULL, 0, NULL FROM \
+     _actor_schedule_set_aside WHERE event_id = ?";
+pub(crate) const DISCARD_SET_ASIDE_SQL: &str =
+    "DELETE FROM _actor_schedule_set_aside WHERE event_id = ?";
 
 pub(crate) const LOAD_QUEUE_NEXT_ID_SQL: &str =
     "SELECT queue_next_id FROM _actor_runtime WHERE id = 1";

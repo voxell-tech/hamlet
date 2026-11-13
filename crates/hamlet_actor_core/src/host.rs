@@ -17,6 +17,7 @@ use tokio::sync::{oneshot, watch};
 pub use self::dispatch::ActionTimedOut;
 pub use self::running::{RunningActor, StartRequest};
 use self::tunnel::HibernatingWebSocketMetadata;
+use crate::actor::schedule::SetAsideTimer;
 use crate::async_counter::AsyncCounter;
 use crate::runtime::RuntimeBoxFuture;
 use crate::sqlite::{
@@ -103,6 +104,20 @@ pub trait ActorHost: Send + Sync + 'static {
     /// runs while the batch still holds the gate. It must return at
     /// once.
     fn transaction_committed(&self, actor_id: &str);
+
+    /// The core set aside the actor's one-shot `timer` after its last
+    /// try (see [`MAX_ONE_SHOT_TRIES`]): the actor is not woken for
+    /// it again. Called once per timer, after the move committed,
+    /// while the actor's drain holds its schedule lock: it must
+    /// return at once and must not call into the actor's schedule.
+    ///
+    /// [`MAX_ONE_SHOT_TRIES`]: crate::actor::schedule::MAX_ONE_SHOT_TRIES
+    fn timer_set_aside(
+        &self,
+        _actor_id: &str,
+        _timer: &SetAsideTimer,
+    ) {
+    }
 
     fn http_request_counter(
         &self,
