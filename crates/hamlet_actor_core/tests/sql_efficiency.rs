@@ -557,19 +557,25 @@ fn query_catalog() -> Vec<QueryCase> {
 		QueryCase {
 			id: "schedule.cancel",
 			sql: queries::CANCEL_SCHEDULE_SQL.into(),
+			params: vec![text("at:00000000"), 0_i64.into(), 1_i64.into()],
+			expectation: indexed(None, all_schedules),
+		},
+		QueryCase {
+			id: "schedule.end_one_shot",
+			sql: queries::END_ONE_SHOT_SQL.into(),
 			params: vec![text("at:00000000"), 0_i64.into()],
 			expectation: indexed(None, all_schedules),
 		},
 		QueryCase {
 			id: "schedule.get_one_shot",
 			sql: queries::GET_SCHEDULED_EVENT_SQL.into(),
-			params: vec![text("at:00000000"), 0_i64.into()],
+			params: vec![text("at:00000000"), 0_i64.into(), 1_i64.into()],
 			expectation: indexed(None, all_schedules),
 		},
 		QueryCase {
 			id: "schedule.list_one_shots",
 			sql: queries::LIST_SCHEDULED_EVENTS_SQL.into(),
-			params: vec![0_i64.into()],
+			params: vec![0_i64.into(), 1_i64.into()],
 			expectation: bounded_scan(&[AllowedScan {
 				table: "_actor_schedule_events",
 				reason: "the API enumerates all one-shot schedules in trigger order",
@@ -629,13 +635,14 @@ fn query_catalog() -> Vec<QueryCase> {
 		QueryCase {
 			id: "schedule.due",
 			sql: queries::TAKE_DUE_SCHEDULES_SQL.into(),
-			params: vec![5_i64.into()],
+			params: vec![5_i64.into(), 1_i64.into()],
 			expectation: indexed(Some("_actor_schedule_events_trigger_at"), all_schedules),
 		},
 		QueryCase {
 			id: "schedule.claim_one_shots",
 			sql: queries::claim_one_shots_sql(3),
 			params: vec![
+				1_i64.into(),
 				0_i64.into(),
 				text("at:00000000"),
 				0_i64.into(),
@@ -695,8 +702,15 @@ fn query_catalog() -> Vec<QueryCase> {
 		QueryCase {
 			id: "schedule.next",
 			sql: queries::NEXT_SCHEDULE_SQL.into(),
-			params: vec![],
-			expectation: indexed(Some("_actor_schedule_events_trigger_at"), all_schedules),
+			params: vec![1_i64.into()],
+			expectation: QueryPlanExpectation {
+				expected_index: Some("_actor_schedule_events_trigger_at"),
+				..bounded_scan(&[AllowedScan {
+					table: "_actor_schedule_events",
+					reason: "the index walk in trigger order steps over the one-shots this generation claimed before it reaches the next row",
+					bound: "a generation claims only due one-shots, and each leaves when its action ends; ActorConfig.max_schedules caps all schedules (default 1,000)",
+				}])
+			},
 		},
 		QueryCase {
 			id: "schedule.prune",
@@ -824,7 +838,12 @@ fn sql_efficiency_hot_paths_do_not_scale_with_unrelated_rows() {
         (
             "schedule.due",
             queries::TAKE_DUE_SCHEDULES_SQL.to_owned(),
-            vec![Value::Integer(5)],
+            vec![Value::Integer(5), Value::Integer(1)],
+        ),
+        (
+            "schedule.next",
+            queries::NEXT_SCHEDULE_SQL.to_owned(),
+            vec![Value::Integer(1)],
         ),
     ];
     for (id, sql, params) in cases {

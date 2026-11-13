@@ -6,7 +6,7 @@ use crate::sqlite::{
     BindParam, ColumnValue, SqliteBatchStatement, SqliteDb,
 };
 
-pub(crate) const INTERNAL_SCHEMA_VERSION: i64 = 2;
+pub(crate) const INTERNAL_SCHEMA_VERSION: i64 = 3;
 
 const SCHEMA_VERSION_KEY: &str = "schema_version";
 
@@ -34,7 +34,7 @@ CREATE TABLE IF NOT EXISTS _actor_meta (
 // shipped; after release, all changes must be appended as new
 // migrations and INTERNAL_SCHEMA_VERSION must advance.
 pub(crate) const MIGRATIONS: &[&[&str]] =
-    &[MIGRATION_V1, MIGRATION_V2];
+    &[MIGRATION_V1, MIGRATION_V2, MIGRATION_V3];
 
 const MIGRATION_V1: &[&str] = &[
     // W[queue_next_id per enqueue; alarm per head-change; token once
@@ -189,6 +189,14 @@ const MIGRATION_V2: &[&str] = &[
     "ALTER TABLE _actor_queue ADD COLUMN tracestate TEXT",
 ];
 
+// A one-shot keeps its row while its action runs, marked with the
+// generation that claimed it, until the action's own transaction or
+// the finish after its reply deletes it. A row an older generation
+// claimed is due again.
+const MIGRATION_V3: &[&str] = &[r#"
+ALTER TABLE _actor_schedule_events ADD COLUMN claimed_generation INTEGER
+"#];
+
 /// Returns a row when the bootstrap root exists.
 pub(crate) const HAS_INTERNAL_SCHEMA_SQL: &str =
     "SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = \
@@ -226,7 +234,8 @@ CREATE TABLE _actor_schedule_events (
     max_history      INTEGER NOT NULL,
     ray_id           TEXT,
     traceparent      TEXT,
-    tracestate       TEXT
+    tracestate       TEXT,
+    claimed_generation INTEGER
 ) STRICT, WITHOUT ROWID
 "#;
 

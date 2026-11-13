@@ -2,7 +2,8 @@
 //! `counter`. Every action replies with the count as a little-endian
 //! `i64`.
 //!
-//! - `increment` adds one in a transaction.
+//! - `increment` adds one in a transaction. Fired by a one-shot
+//!   schedule, the same transaction ends the one-shot.
 //! - `discard` adds one in a transaction and rolls it back.
 //! - `get` reads the count.
 //! - `schedule` takes a little-endian `u64` of milliseconds and arms
@@ -13,7 +14,8 @@
 //!   actor, and reply with the count.
 //!
 //! `increment` passes the fault point `tx-open` inside its
-//! transaction.
+//! transaction, and `tx-committed` after it commits and before it
+//! replies.
 //!
 //! Each action runs on a task of its own, as the authoring layer
 //! runs them, so an action that outlives its caller's deadline does
@@ -25,6 +27,9 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 use anyhow::{Result, anyhow};
+use hamlet_actor_core::actor::schedule::{
+    ScheduledFireInfo, end_one_shot,
+};
 use hamlet_actor_core::{
     ActorConfig, ActorContext, ActorEvent, ActorFactory, ActorStart,
     BindParam, ColumnValue,
@@ -74,11 +79,21 @@ async fn run(start: ActorStart) -> Result<()> {
     while let Some(event) = events.recv().await {
         match event {
             ActorEvent::Action {
-                name, args, reply, ..
+                name,
+                args,
+                scheduled_fire,
+                reply,
+                ..
             } => {
                 let ctx = ctx.clone();
                 tokio::spawn(async move {
-                    let count = action(&ctx, &name, args).await;
+                    let count = action(
+                        &ctx,
+                        &name,
+                        args,
+                        scheduled_fire.as_ref(),
+                    )
+                    .await;
                     reply.send(
                         count.map(|count| {
                             count.to_le_bytes().to_vec()
@@ -108,10 +123,11 @@ async fn action(
     ctx: &ActorContext,
     name: &str,
     args: Vec<u8>,
+    fire: Option<&ScheduledFireInfo>,
 ) -> Result<i64> {
     match name {
-        "increment" => add_one(ctx, true).await,
-        "discard" => add_one(ctx, false).await,
+        "increment" => add_one(ctx, true, fire).await,
+        "discard" => add_one(ctx, false, fire).await,
         "get" => read_count(ctx).await,
         "sleep" => {
             ctx.sleep()?;
@@ -135,8 +151,15 @@ async fn action(
     }
 }
 
-async fn add_one(ctx: &ActorContext, commit: bool) -> Result<i64> {
+async fn add_one(
+    ctx: &ActorContext,
+    commit: bool,
+    fire: Option<&ScheduledFireInfo>,
+) -> Result<i64> {
     let tx = ctx.sql().begin_transaction(None).await?;
+    if let Some(fire) = fire {
+        end_one_shot(&tx, fire).await?;
+    }
     tx.execute(
         "INSERT INTO counter (id, value) VALUES (0, 1) ON CONFLICT \
          (id) DO UPDATE SET value = value + 1",
@@ -146,6 +169,7 @@ async fn add_one(ctx: &ActorContext, commit: bool) -> Result<i64> {
     hamlet_host::fault::point("tx-open");
     if commit {
         tx.commit().await?;
+        hamlet_host::fault::point("tx-committed");
     } else {
         tx.rollback().await?;
     }

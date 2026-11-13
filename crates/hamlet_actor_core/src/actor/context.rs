@@ -2467,6 +2467,8 @@ impl ActorContext {
         let action = dispatch.action;
         let args = dispatch.args;
         let scheduled_fire = dispatch.fire;
+        let one_shot = scheduled_fire.kind
+            == crate::actor::schedule::ScheduleKind::At;
         let recurring_name = scheduled_fire.name.clone();
         let history_id = dispatch.history_id;
         let internal_keep_awake_region =
@@ -2486,6 +2488,7 @@ impl ActorContext {
 			let (reply_tx, reply_rx) = oneshot::channel();
 
 			let mut dispatch_error = None;
+			let mut replied = false;
 			match ctx.try_send_actor_event(
 				ActorEvent::Action {
 					name: action.clone(),
@@ -2498,8 +2501,9 @@ impl ActorContext {
 				"scheduled_action",
 			) {
 				Ok(()) => match reply_rx.await {
-					Ok(Ok(_)) => {}
+					Ok(Ok(_)) => replied = true,
 					Ok(Err(error)) => {
+						replied = true;
 						dispatch_error = Some(error);
 						tracing::error!(
 							error = ?dispatch_error.as_ref().expect("just assigned"),
@@ -2532,6 +2536,10 @@ impl ActorContext {
 
 			ctx.finish_schedule_dispatch(&event_id, history_id, dispatch_error.as_ref())
 				.await;
+			if one_shot {
+				ctx.finish_one_shot_dispatch(&event_id, replied, dispatch_error.as_ref())
+					.await;
+			}
 			if let (Some(name), Some(error)) = (recurring_name, dispatch_error.as_ref()) {
 				let structured = hamlet_actor_error::ActorError::extract(error);
 				if structured.group() == "actor" && structured.code() == "action_not_found"

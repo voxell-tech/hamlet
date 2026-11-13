@@ -1193,4 +1193,264 @@ mod moved_tests {
             Some(BASE_TIME + 9_000),
         );
     }
+
+    /// The claim mark of each stored one-shot, in trigger order.
+    async fn claimed_one_shots(
+        ctx: &ActorContext,
+    ) -> Vec<Option<i64>> {
+        let result = ctx
+            .sql()
+            .query(
+                "SELECT claimed_generation FROM \
+                 _actor_schedule_events WHERE kind = 0 ORDER BY \
+                 trigger_at, event_id",
+                None,
+            )
+            .await
+            .unwrap();
+        result
+            .rows
+            .iter()
+            .map(|row| match row.first() {
+                Some(ColumnValue::Integer(generation)) => {
+                    Some(*generation)
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn actor_error(group: &str, code: &str) -> anyhow::Error {
+        anyhow::Error::new(hamlet_actor_error::ActorError {
+            kind: ActorErrorKind::Dynamic {
+                group: group.to_owned(),
+                code: code.to_owned(),
+                default_message: code.to_owned(),
+            },
+            meta: None,
+            message: None,
+            actor: None,
+        })
+    }
+
+    #[tokio::test]
+    async fn a_claimed_one_shot_stays_stored_but_is_no_longer_scheduled()
+     {
+        let ctx = context("actor-claimed-one-shot");
+        let event_id = ctx.at(BASE_TIME, "tick", &[]).await.unwrap();
+
+        assert_eq!(
+            ctx.take_due_schedule_dispatches().await.unwrap().len(),
+            1
+        );
+        assert_eq!(claimed_one_shots(&ctx).await, vec![Some(1)]);
+        assert!(
+            ctx.get_scheduled_event(&event_id)
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            ctx.list_scheduled_events().await.unwrap().is_empty()
+        );
+        assert!(!ctx.cancel_schedule(&event_id).await.unwrap());
+        assert!(
+            ctx.take_due_schedule_dispatches()
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(claimed_one_shots(&ctx).await, vec![Some(1)]);
+    }
+
+    #[tokio::test]
+    async fn a_one_shot_claimed_by_another_generation_is_due() {
+        let ctx = context("actor-claimed-by-another");
+        let event_id = ctx.at(BASE_TIME, "tick", &[]).await.unwrap();
+        ctx.sql()
+            .execute(
+                "UPDATE _actor_schedule_events SET \
+                 claimed_generation = 7",
+                None,
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            ctx.list_scheduled_events().await.unwrap().len(),
+            1
+        );
+
+        let dispatches =
+            ctx.take_due_schedule_dispatches().await.unwrap();
+        assert_eq!(dispatches.len(), 1);
+        assert_eq!(dispatches[0].event_id, event_id);
+        assert_eq!(claimed_one_shots(&ctx).await, vec![Some(1)]);
+    }
+
+    #[tokio::test]
+    async fn a_context_without_a_generation_claims_as_zero() {
+        let ctx = context("actor-no-generation");
+        *ctx.0.schedule_generation.lock() = None;
+        ctx.at(BASE_TIME, "tick", &[]).await.unwrap();
+
+        assert_eq!(
+            ctx.take_due_schedule_dispatches().await.unwrap().len(),
+            1
+        );
+        assert_eq!(claimed_one_shots(&ctx).await, vec![Some(0)]);
+        assert!(
+            ctx.take_due_schedule_dispatches()
+                .await
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[tokio::test]
+    async fn a_fired_one_shot_is_kept_only_when_its_action_did_not_end()
+     {
+        let cases = [
+            ("ok", true, None, false),
+            ("handler error", true, Some(anyhow!("boom")), false),
+            (
+                "missing action",
+                true,
+                Some(actor_error("actor", "action_not_found")),
+                false,
+            ),
+            (
+                "handler returned not_configured",
+                true,
+                Some(actor_error("actor", "not_configured")),
+                false,
+            ),
+            (
+                "stopping",
+                true,
+                Some(actor_error("actor", "stopping")),
+                true,
+            ),
+            (
+                "aborted",
+                true,
+                Some(actor_error("actor", "aborted")),
+                true,
+            ),
+            (
+                "timed out",
+                true,
+                Some(actor_error("actor", "action_timed_out")),
+                true,
+            ),
+            (
+                "no reply",
+                false,
+                Some(actor_error("actor", "not_configured")),
+                true,
+            ),
+        ];
+        for (case, replied, error, kept) in cases {
+            let ctx = context("actor-one-shot-finish");
+            ctx.at(BASE_TIME, "tick", &[]).await.unwrap();
+            let dispatch = ctx
+                .take_due_schedule_dispatches()
+                .await
+                .unwrap()
+                .remove(0);
+            ctx.finish_one_shot_dispatch(
+                &dispatch.event_id,
+                replied,
+                error.as_ref(),
+            )
+            .await;
+            assert_eq!(
+                claimed_one_shots(&ctx).await,
+                if kept { vec![Some(1)] } else { Vec::new() },
+                "{case}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn a_one_shot_is_deleted_after_its_action_replies_and_kept_without_a_reply()
+     {
+        // Answers the action with Ok, drops its reply, or has no
+        // inbox to take it.
+        for (case, answer, kept) in [
+            ("ok", Some(true), false),
+            ("dropped", Some(false), true),
+            ("no inbox", None, true),
+        ] {
+            let ctx = context("actor-one-shot-reply");
+            ctx.at(BASE_TIME, "tick", &[]).await.unwrap();
+            let handler = answer.map(|reply_ok| {
+                let (events_tx, mut events_rx) =
+                    tokio::sync::mpsc::unbounded_channel();
+                ctx.configure_actor_events(Some(events_tx));
+                tokio::spawn(async move {
+                    let Some(
+                        crate::actor::messages::ActorEvent::Action {
+                            reply,
+                            ..
+                        },
+                    ) = events_rx.recv().await
+                    else {
+                        panic!("expected action event")
+                    };
+                    if reply_ok {
+                        reply.send(Ok(Vec::new()));
+                    }
+                })
+            });
+            ctx.drain_overdue_scheduled_events().await.unwrap();
+            if let Some(handler) = handler {
+                handler.await.unwrap();
+            }
+            ctx.wait_for_tracked_shutdown_work_unbounded().await;
+            assert_eq!(
+                claimed_one_shots(&ctx).await,
+                if kept { vec![Some(1)] } else { Vec::new() },
+                "{case}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn end_one_shot_deletes_a_one_shot_with_its_transaction() {
+        let ctx = context("actor-end-one-shot");
+        ctx.at(BASE_TIME, "tick", &[]).await.unwrap();
+        let fire = ctx.take_due_schedule_dispatches().await.unwrap()
+            [0]
+        .fire
+        .clone();
+
+        let tx = ctx.sql().begin_transaction(None).await.unwrap();
+        end_one_shot(&tx, &fire).await.unwrap();
+        tx.rollback().await.unwrap();
+        assert_eq!(claimed_one_shots(&ctx).await, vec![Some(1)]);
+
+        let tx = ctx.sql().begin_transaction(None).await.unwrap();
+        end_one_shot(&tx, &fire).await.unwrap();
+        tx.commit().await.unwrap();
+        assert!(claimed_one_shots(&ctx).await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn end_one_shot_leaves_a_recurring_schedule() {
+        let ctx = context("actor-end-recurring");
+        ctx.cron_every("tick", 5_000, "tick", &[], None)
+            .await
+            .unwrap();
+        ctx.set_schedule_time_for_tests(BASE_TIME + 5_000);
+        let dispatch = ctx
+            .take_due_schedule_dispatches()
+            .await
+            .unwrap()
+            .remove(0);
+
+        let tx = ctx.sql().begin_transaction(None).await.unwrap();
+        end_one_shot(&tx, &dispatch.fire).await.unwrap();
+        tx.commit().await.unwrap();
+        assert!(ctx.cron_get("tick").await.unwrap().is_some());
+    }
 }

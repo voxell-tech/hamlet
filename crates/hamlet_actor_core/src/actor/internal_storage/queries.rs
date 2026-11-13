@@ -68,19 +68,24 @@ pub(crate) const UPSERT_RECURRING_SCHEDULE_SQL: &str =
      interval_ms = excluded.interval_ms, max_history = \
      excluded.max_history, ray_id = excluded.ray_id, traceparent = \
      excluded.traceparent, tracestate = excluded.tracestate";
+// A one-shot claimed by the running generation has fired: the
+// queries that show, cancel or fire schedules skip it.
 pub(crate) const CANCEL_SCHEDULE_SQL: &str =
+    "DELETE FROM _actor_schedule_events WHERE event_id = ? AND kind \
+     = ? AND claimed_generation IS NOT ?";
+pub(crate) const END_ONE_SHOT_SQL: &str =
     "DELETE FROM _actor_schedule_events WHERE event_id = ? AND kind \
      = ?";
 pub(crate) const GET_SCHEDULED_EVENT_SQL: &str =
     "SELECT event_id, trigger_at, action, args, kind, \
      cron_expression, timezone, interval_ms, last_started_at, \
      max_history FROM _actor_schedule_events WHERE event_id = ? AND \
-     kind = ?";
+     kind = ? AND claimed_generation IS NOT ?";
 pub(crate) const LIST_SCHEDULED_EVENTS_SQL: &str =
     "SELECT event_id, trigger_at, action, args, kind, \
      cron_expression, timezone, interval_ms, last_started_at, \
-     max_history FROM _actor_schedule_events WHERE kind = ? ORDER \
-     BY trigger_at, event_id";
+     max_history FROM _actor_schedule_events WHERE kind = ? AND \
+     claimed_generation IS NOT ? ORDER BY trigger_at, event_id";
 pub(crate) const DELETE_CRON_HISTORY_SQL: &str =
     "DELETE FROM _actor_schedule_history WHERE schedule_id = ? AND \
      EXISTS (SELECT 1 FROM _actor_schedule_events WHERE event_id = \
@@ -111,8 +116,8 @@ pub(crate) const TAKE_DUE_SCHEDULES_SQL: &str =
     "SELECT event_id, trigger_at, action, args, kind, \
      cron_expression, timezone, interval_ms, last_started_at, \
      max_history, ray_id, traceparent, tracestate FROM \
-     _actor_schedule_events WHERE trigger_at <= ? ORDER BY \
-     trigger_at, event_id";
+     _actor_schedule_events WHERE trigger_at <= ? AND \
+     claimed_generation IS NOT ? ORDER BY trigger_at, event_id";
 pub(crate) const ADVANCE_SKIPPED_SCHEDULE_SQL: &str =
     "UPDATE _actor_schedule_events SET trigger_at = ? WHERE \
      event_id = ?";
@@ -136,7 +141,8 @@ pub(crate) const NEXT_FUTURE_SCHEDULE_SQL: &str =
     "SELECT MIN(trigger_at) FROM _actor_schedule_events WHERE \
      trigger_at > ?";
 pub(crate) const NEXT_SCHEDULE_SQL: &str =
-    "SELECT MIN(trigger_at) FROM _actor_schedule_events";
+    "SELECT MIN(trigger_at) FROM _actor_schedule_events WHERE \
+     claimed_generation IS NOT ?";
 pub(crate) const PRUNE_SCHEDULE_HISTORY_SQL: &str =
     "DELETE FROM _actor_schedule_history WHERE id IN (SELECT id \
      FROM _actor_schedule_history WHERE schedule_id = ? ORDER BY \
@@ -151,8 +157,9 @@ pub(crate) fn claim_one_shots_sql(event_count: usize) -> String {
         .collect::<Vec<_>>()
         .join(", ");
     format!(
-        "DELETE FROM _actor_schedule_events WHERE kind = ? AND \
-         (event_id, trigger_at) IN ({placeholders})"
+        "UPDATE _actor_schedule_events SET claimed_generation = ? \
+         WHERE kind = ? AND (event_id, trigger_at) IN \
+         ({placeholders})"
     )
 }
 

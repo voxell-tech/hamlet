@@ -28,7 +28,9 @@ use crate::error::{
 };
 use crate::host::HostHandle as EnvoyHandle;
 use crate::runtime::RuntimeSpawner;
-use crate::sqlite::{BindParam, ColumnValue, SqliteBatchStatement};
+use crate::sqlite::{
+    BindParam, ColumnValue, SqliteBatchStatement, SqliteTransaction,
+};
 use crate::telemetry::{
     ActorInvocationTelemetry, IncomingTraceContext,
 };
@@ -272,6 +274,7 @@ impl ActorContext {
                 Some(vec![
                     BindParam::Text(event_id.to_owned()),
                     BindParam::Integer(ScheduleKind::At.as_i64()),
+                    BindParam::Integer(self.claim_generation()),
                 ]),
             )
             .await
@@ -296,6 +299,7 @@ impl ActorContext {
                 Some(vec![
                     BindParam::Text(event_id.to_owned()),
                     BindParam::Integer(ScheduleKind::At.as_i64()),
+                    BindParam::Integer(self.claim_generation()),
                 ]),
             )
             .await
@@ -322,9 +326,10 @@ impl ActorContext {
             .sql()
             .query(
                 LIST_SCHEDULED_EVENTS_SQL,
-                Some(vec![BindParam::Integer(
-                    ScheduleKind::At.as_i64(),
-                )]),
+                Some(vec![
+                    BindParam::Integer(ScheduleKind::At.as_i64()),
+                    BindParam::Integer(self.claim_generation()),
+                ]),
             )
             .await
             .context("list one-shot schedules")?;
@@ -660,12 +665,16 @@ impl ActorContext {
             return Ok(Vec::new());
         }
         let now_ms = self.schedule_now_timestamp_ms();
+        let generation = self.claim_generation();
         let _mutation = self.0.schedule_mutation_lock.lock().await;
         let result = self
             .sql()
             .query(
                 TAKE_DUE_SCHEDULES_SQL,
-                Some(vec![BindParam::Integer(now_ms)]),
+                Some(vec![
+                    BindParam::Integer(now_ms),
+                    BindParam::Integer(generation),
+                ]),
             )
             .await
             .context("load due schedules")?;
@@ -681,7 +690,8 @@ impl ActorContext {
             .chunks(CLAIM_ONE_SHOT_BATCH_SIZE)
             .map(|events| {
                 let mut params =
-                    Vec::with_capacity(events.len() * 2 + 1);
+                    Vec::with_capacity(events.len() * 2 + 2);
+                params.push(BindParam::Integer(generation));
                 params.push(BindParam::Integer(
                     ScheduleKind::At.as_i64(),
                 ));
@@ -878,6 +888,40 @@ impl ActorContext {
         }
     }
 
+    /// Deletes the row of a one-shot that fired, unless its action
+    /// may not have run to its end: no reply came back, or the reply
+    /// is one of `UNFINISHED_ACTION_CODES`. A kept row stays claimed
+    /// by this generation, so the next one runs it.
+    pub(crate) async fn finish_one_shot_dispatch(
+        &self,
+        event_id: &str,
+        replied: bool,
+        error: Option<&anyhow::Error>,
+    ) {
+        let unfinished = error.is_some_and(|error| {
+            let error = ActorError::extract(error);
+            error.group() == "actor"
+                && UNFINISHED_ACTION_CODES.contains(&error.code())
+        });
+        if !replied || unfinished {
+            return;
+        }
+        if let Err(error) = self
+            .sql()
+            .execute(
+                END_ONE_SHOT_SQL,
+                Some(end_one_shot_params(event_id)),
+            )
+            .await
+        {
+            tracing::error!(
+                ?error,
+                event_id,
+                "failed to delete fired one-shot schedule"
+            );
+        }
+    }
+
     pub(crate) async fn recover_interrupted_schedule_history(
         &self,
     ) -> Result<()> {
@@ -1026,7 +1070,12 @@ impl ActorContext {
                 )]),
             )
         } else {
-            (NEXT_SCHEDULE_SQL, None)
+            (
+                NEXT_SCHEDULE_SQL,
+                Some(vec![BindParam::Integer(
+                    self.claim_generation(),
+                )]),
+            )
         };
         let result = self.sql().query(sql, params).await?;
         match result.rows.first().and_then(|row| row.first()) {
@@ -1194,6 +1243,12 @@ impl ActorContext {
             generation,
         );
         Ok(())
+    }
+
+    /// The generation a claim marks a one-shot with. A context with
+    /// no generation claims as 0, which no host generation is.
+    fn claim_generation(&self) -> i64 {
+        i64::from(self.0.schedule_generation.lock().unwrap_or(0))
     }
 
     pub(crate) fn configure_schedule_envoy(
@@ -1417,6 +1472,46 @@ impl ActorContext {
             .schedule_alarm_dispatch_enabled
             .store(false, Ordering::SeqCst);
     }
+}
+
+/// The `actor` error codes of an action that did not run to its end:
+/// its generation stopped it, or the core cannot tell. Any other
+/// error came from the action itself.
+const UNFINISHED_ACTION_CODES: &[&str] = &[
+    "starting",
+    "not_ready",
+    "stopping",
+    "destroying",
+    "destroyed",
+    "shutdown_timeout",
+    "dropped_reply",
+    "overloaded",
+    "aborted",
+    "action_timed_out",
+];
+
+/// Deletes the row of the one-shot `fire` inside `tx`, so it leaves
+/// with the action's change: a kill before `tx` commits runs the
+/// action again, and a kill after does not. Does nothing for a
+/// recurring fire.
+pub async fn end_one_shot(
+    tx: &SqliteTransaction,
+    fire: &ScheduledFireInfo,
+) -> Result<()> {
+    if fire.kind != ScheduleKind::At {
+        return Ok(());
+    }
+    tx.execute(END_ONE_SHOT_SQL, Some(end_one_shot_params(&fire.id)))
+        .await
+        .context("end one-shot schedule")?;
+    Ok(())
+}
+
+fn end_one_shot_params(event_id: &str) -> Vec<BindParam> {
+    vec![
+        BindParam::Text(event_id.to_owned()),
+        BindParam::Integer(ScheduleKind::At.as_i64()),
+    ]
 }
 
 fn validate_name(name: &str) -> Result<()> {
