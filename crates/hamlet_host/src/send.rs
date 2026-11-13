@@ -5,9 +5,9 @@
 //! - **The sender.** [`send`] numbers the send within its pair, from
 //!   1, and adds it to the sender's outbox, inside the sender's
 //!   transaction.
-//! - **The delivery.** Each generation of a sender has one
-//!   [`Outbox`]. Its commit, its start and a pair's retry timer start
-//!   one delivery task, which reads the committed outbox and delivers
+//! - **The delivery.** Each generation of a sender has one outbox.
+//!   Its commit, its start and a pair's retry timer start one
+//!   delivery task, which reads the committed outbox and delivers
 //!   each pair's sends in order, one at a time, by calling the
 //!   receiver's [`RECEIVE`] action with an envelope it builds from
 //!   the sender's own file. A confirmed send leaves the outbox. A
@@ -333,8 +333,8 @@ const PRUNE: &str = "DELETE FROM _hamlet_handled WHERE kind = ?1 \
 /// transaction it is given, which it must neither commit nor roll
 /// back; its result is the send's outcome. It runs at most once per
 /// send that commits, however many deliveries of the send arrive, and
-/// within [`RUN_TIMEOUT`]. A run that fails, panics, times out or is
-/// dropped rolls back and is counted.
+/// within the core's transaction timeout, 60 s. A run that fails,
+/// panics, times out or is dropped rolls back and is counted.
 pub async fn receive<F, Fut>(
     ctx: &ActorContext,
     envelope: &[u8],
@@ -773,7 +773,16 @@ impl Outbox {
         let Some(host) = self.host.upgrade() else {
             return Step::Closed;
         };
-        let receiver = host.receiver(to).await;
+        // A receiver stuck in a start or a stop holds up only its own
+        // pair, and only until the deadline.
+        let receiver = tokio::time::timeout(
+            DELIVERY_DEADLINE,
+            host.receiver(to),
+        )
+        .await
+        .unwrap_or_else(|_| {
+            Err(anyhow!("the receiver did not start in time"))
+        });
         // The host's lock on its folder is not held across the call.
         drop(host);
         let seq = sent.seq;
