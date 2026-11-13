@@ -9,35 +9,16 @@ import {
     type SqliteDatabase,
     SqliteStorage,
 } from "@earendil-works/pi-durable/storage/sqlite";
-import {
-    createStorageConformance,
-    type StorageConformanceAssertions,
-} from "@earendil-works/pi-durable/testing";
+import { createStorageConformance } from "@earendil-works/pi-durable/testing";
 import { agentDatabase } from "../src/agent/database.ts";
 import { actorSqlite } from "../src/pi/actor-sqlite.ts";
-import { context, plainDatabase, writeLetter } from "./testing.ts";
-
-/** pi-durable 1.5.2's storage conformance suite has 32 cases. */
-const CASES = 32;
-
-const assertions: StorageConformanceAssertions = {
-    ok: (value, message) => assert.ok(value, message),
-    strictEqual: (actual, expected) => assert.strictEqual(actual, expected),
-    deepEqual: (actual, expected) => assert.deepStrictEqual(actual, expected),
-    partialDeepEqual: (actual, expected) =>
-        assert.partialDeepStrictEqual(actual, expected),
-    greaterThan: (actual, expected) =>
-        assert.ok(actual > expected, `${actual} is not above ${expected}`),
-    rejects: (operation, messageIncludes) =>
-        assert.rejects(operation, (error: unknown) => {
-            const message = String((error as Error)?.message ?? error);
-            assert.ok(
-                message.includes(messageIncludes),
-                `${message} does not include ${messageIncludes}`,
-            );
-            return true;
-        }),
-};
+import {
+    CONFORMANCE_CASES,
+    conformanceAssertions,
+    context,
+    plainDatabase,
+    writeLetter,
+} from "./testing.ts";
 
 /** The tables a SQLite file holds. */
 function tables(file: string): string[] {
@@ -61,7 +42,7 @@ function cases(
     tablesOf: (names: string[]) => void,
 ) {
     return createStorageConformance({
-        assertions,
+        assertions: conformanceAssertions,
         withStorage: async (use) => {
             const folder = mkdtempSync(join(tmpdir(), "hamlet-conformance-"));
             const file = join(folder, "agent.sqlite");
@@ -96,7 +77,7 @@ describe("pi-durable's storage conformance on the layer over the wrapper's facad
             }
         },
     );
-    test("has every case", () => assert.equal(list.length, CASES));
+    test("has every case", () => assert.equal(list.length, CONFORMANCE_CASES));
     for (const each of list) {
         test(each.name, () => each.run());
     }
@@ -119,7 +100,7 @@ describe("pi-durable's storage conformance on the layer over node:sqlite, tables
             }
         },
     );
-    test("has every case", () => assert.equal(list.length, CASES));
+    test("has every case", () => assert.equal(list.length, CONFORMANCE_CASES));
     for (const each of list) {
         test(each.name, () => each.run());
     }

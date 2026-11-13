@@ -1,3 +1,4 @@
+import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -16,6 +17,10 @@ import {
     type SqliteDatabase,
     SqliteStorage,
 } from "@earendil-works/pi-durable/storage/sqlite";
+import type { StorageConformanceAssertions } from "@earendil-works/pi-durable/testing";
+import type { CoreRegistry } from "@hamlet/actor-node";
+import { decode, encode } from "cbor-x";
+import type { AnyActorDefinition } from "../src/actor/actor/definition.ts";
 import type { RawAccess } from "../src/actor/common/database/mod.ts";
 import {
     type AgentDatabase,
@@ -26,11 +31,99 @@ import { actorSqlite } from "../src/pi/actor-sqlite.ts";
 
 export const context = BACKGROUND_CONTEXT;
 
-/** A path for an agent's file in a folder removed after the test. */
-export function scratchFile(t: TestContext): string {
+/** A folder removed after the test or suite whose `after` this is given. */
+export function scratchFolder(t: { after(fn: () => void): void }): string {
     const folder = mkdtempSync(join(tmpdir(), "hamlet-agent-"));
     t.after(() => rmSync(folder, { recursive: true, force: true }));
-    return join(folder, "agent.sqlite");
+    return folder;
+}
+
+/** A path for an agent's file in a folder removed after the test. */
+export function scratchFile(t: TestContext): string {
+    return join(scratchFolder(t), "agent.sqlite");
+}
+
+/** A faux model provider, with its model by reference and by the name `pi()` takes. */
+export function fauxModels() {
+    const faux = fauxProvider();
+    const models = createModels();
+    models.setProvider(faux.provider);
+    const { provider, id } = faux.getModel();
+    return {
+        faux,
+        models,
+        model: `${provider}/${id}`,
+        ref: { provider, modelId: id },
+    };
+}
+
+/** pi-durable 1.5.2's storage conformance suite has 32 cases. */
+export const CONFORMANCE_CASES = 32;
+
+export const conformanceAssertions: StorageConformanceAssertions = {
+    ok: (value, message) => assert.ok(value, message),
+    strictEqual: (actual, expected) => assert.strictEqual(actual, expected),
+    deepEqual: (actual, expected) => assert.deepStrictEqual(actual, expected),
+    partialDeepEqual: (actual, expected) =>
+        assert.partialDeepStrictEqual(actual, expected),
+    greaterThan: (actual, expected) =>
+        assert.ok(actual > expected, `${actual} is not above ${expected}`),
+    rejects: (operation, messageIncludes) =>
+        assert.rejects(operation, (error: unknown) => {
+            const message = String((error as Error)?.message ?? error);
+            assert.ok(
+                message.includes(messageIncludes),
+                `${message} does not include ${messageIncludes}`,
+            );
+            return true;
+        }),
+};
+
+/**
+ * Starts `kinds` on the native module's host in this process, each actor in
+ * its own file at `actors/<kind>/<key>.sqlite` under `dir`. Needs the native
+ * module built and copied beside its loader in `crates/hamlet_actor_node`.
+ */
+export async function startHost(
+    dir: string,
+    kinds: Record<string, AnyActorDefinition>,
+) {
+    // Loaded here, not at the top: the layer's registry is large, and every
+    // test that starts no host, kill children included, would load it.
+    const [
+        { RegistryConfigSchema },
+        { buildNativeFactory },
+        { loadNapiRuntime },
+    ] = await Promise.all([
+        import("../src/actor/registry/config/index.ts"),
+        import("../src/actor/registry/native.ts"),
+        import("../src/actor/registry/napi-runtime.ts"),
+    ]);
+    const { runtime } = await loadNapiRuntime();
+    const config = RegistryConfigSchema.parse({ use: kinds });
+    const handle = runtime.createRegistry();
+    for (const [kind, definition] of Object.entries(kinds)) {
+        runtime.registerActor(
+            handle,
+            kind,
+            buildNativeFactory(runtime, config, definition),
+        );
+    }
+    const registry = handle as unknown as CoreRegistry;
+    const due = await registry.start(dir);
+    return {
+        /** The actors the host started at once: an alarm was due, or a kill cut off their run. */
+        due,
+        /** Calls `action` on the actor of `kind` and `key`, starting it if it is not running. */
+        call: async (
+            kind: string,
+            key: string,
+            action: string,
+            ...args: unknown[]
+        ): Promise<unknown> =>
+            decode(await registry.action(kind, key, action, encode(args))),
+        shutdown: () => registry.shutdown(),
+    };
 }
 
 /** A letter the `tell` tool sends, named by the call that sends it. */
@@ -128,17 +221,12 @@ export async function openAgent(file: string, options: AgentOptions = {}) {
     });
     const registry = createRegistry();
     registry.install(defineExtension({ name: "letters", tools: [tell] }));
-    const faux = fauxProvider();
-    const models = createModels();
-    models.setProvider(faux.provider);
+    const { faux, models, ref } = fauxModels();
     const sqlite = await SqliteStorage.open(layer.database);
     const storage = options.storage?.(sqlite, layer) ?? sqlite;
     const harness = await Harness.open(storage, { models, registry }, context);
     layer.follow(harness);
-    const model = faux.getModel();
-    const root = await harness.root(context, {
-        agent: { model: { provider: model.provider, modelId: model.id } },
-    });
+    const root = await harness.root(context, { agent: { model: ref } });
     const close = async () => {
         await harness.close(context);
         await database.close();

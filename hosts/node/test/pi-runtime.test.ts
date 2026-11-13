@@ -1,11 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import {
-    createModels,
-    fauxAssistantMessage,
-    fauxProvider,
-    fauxToolCall,
-} from "@earendil-works/pi-ai";
+import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import {
     createRegistry,
     defineExtension,
@@ -28,6 +23,7 @@ import {
 import { migratePiTables } from "../src/pi/storage.ts";
 import {
     context,
+    fauxModels,
     type Letter,
     plainDatabase,
     scratchFile,
@@ -118,10 +114,7 @@ test("each hook, tool and environment gets its actor's context, and the wrapper 
             ],
         }),
     );
-    const faux = fauxProvider();
-    const models = createModels();
-    models.setProvider(faux.provider);
-    const model = faux.getModel();
+    const { faux, models, model } = fauxModels();
     faux.setResponses([
         fauxAssistantMessage([fauxToolCall("tell", {}, { id: "call-1" })], {
             stopReason: "toolUse",
@@ -131,7 +124,7 @@ test("each hook, tool and environment gets its actor's context, and the wrapper 
     const options: PiOptions = {
         registry,
         models,
-        model: `${model.provider}/${model.id}`,
+        model,
         env: (_target, envContext) => {
             seen.push({ by: "env", actor: piActor(envContext) });
             return undefined;
@@ -210,9 +203,7 @@ test("each hook, tool and environment gets its actor's context, and the wrapper 
 test("a call through withHarness gets its generation's context, not the call's", async (t) => {
     const database = plainDatabase(scratchFile(t));
     await migratePiTables(database);
-    const faux = fauxProvider();
-    const models = createModels();
-    models.setProvider(faux.provider);
+    const { models } = fauxModels();
     const options: PiOptions = { registry: createRegistry(), models };
     const actor = generation(database);
     await openOnWake(actor, options);
