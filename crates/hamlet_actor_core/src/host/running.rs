@@ -23,7 +23,7 @@ use crate::actor::task::{
 use crate::telemetry::IncomingInvocationContext;
 use crate::types::{ActorKey, format_actor_key};
 use crate::{
-    ActorContext, ActorFactory, ActorTask, RuntimeSpawner,
+    ActorContext, ActorFactory, ActorTask, Inspector, RuntimeSpawner,
     ShutdownKind, SqliteDb,
 };
 
@@ -38,6 +38,10 @@ pub struct StartRequest {
     /// The actor's storage was never written, so the start skips
     /// probing it for the core's schema.
     pub new_storage: bool,
+    /// The input the actor is created with. The core keeps it with
+    /// the actor's first state, so a later start's input is unused,
+    /// except as a fork's input.
+    pub input: Option<Vec<u8>>,
 }
 
 /// A started actor's task.
@@ -63,6 +67,7 @@ impl RunningActor {
             factory,
             handle,
             new_storage,
+            input,
         } = request;
         let action_timeout = factory.config().action_timeout;
         let sql = SqliteDb::new_with_remote_sqlite(
@@ -122,7 +127,7 @@ impl RunningActor {
             events_rx,
             factory,
             ctx.clone(),
-            None,
+            input,
         );
         let join = RuntimeSpawner::spawn(task.run());
         let (reply, rx) = oneshot::channel();
@@ -134,6 +139,7 @@ impl RunningActor {
         rx.await
             .context("receive actor task start reply")?
             .with_context(|| format!("start actor `{actor_id}`"))?;
+        ctx.configure_inspector(Some(Inspector::new()));
         Ok(Self {
             actor_id,
             generation,
@@ -200,3 +206,7 @@ impl RunningActor {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "../../tests/running.rs"]
+mod tests;

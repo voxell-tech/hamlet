@@ -1896,13 +1896,6 @@ impl ActorContext {
         Ok(restored)
     }
 
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "ported; nothing in Hamlet calls it yet"
-        )
-    )]
     pub(crate) fn configure_inspector(
         &self,
         inspector: Option<Inspector>,

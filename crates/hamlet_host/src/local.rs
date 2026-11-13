@@ -443,6 +443,7 @@ async fn start_actor(
         factory,
         handle: Arc::new(LocalHandle(Arc::downgrade(host))),
         new_storage: first,
+        input: None,
     })
     .await;
     // A failed start keeps its running mark, so the next boot tries
