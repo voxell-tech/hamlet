@@ -4,7 +4,8 @@
 //! It starts the command with its standard input held open, waits
 //! out a settle time, and samples every thread of every process in
 //! the tree twice, a window apart. Memory is the sum of each
-//! process's resident set at the window's end. Wakeups are the growth
+//! process's resident set at the window's end, printed in megabytes
+//! of 1,000,000 bytes. Wakeups are the growth
 //! of `voluntary_ctxt_switches` summed over the threads, per second
 //! of the window; a thread born inside the window counts in full, and
 //! one that ended inside it is lost. It reads `/proc`, so it runs on
@@ -35,7 +36,7 @@ impl std::fmt::Display for Reading {
             f,
             "rss {:.1} MB, {:.2} wakeups/s, {} processes, {threads} \
              threads (",
-            self.rss_kib as f64 / 1024.0,
+            self.rss_kib as f64 * 1024.0 / 1e6,
             self.wakeups_per_second,
             self.processes,
         )?;
@@ -334,6 +335,22 @@ mod tests {
             "{reading}"
         );
         assert!(reading.rss_kib > 0, "{reading}");
+    }
+
+    /// Memory is in megabytes of a million bytes, the unit the
+    /// limits it is held to are written in.
+    #[test]
+    fn prints_memory_in_megabytes() {
+        let reading = Reading {
+            rss_kib: 10_000,
+            wakeups_per_second: 0.0,
+            processes: 1,
+            threads: BTreeMap::new(),
+        };
+        assert!(
+            reading.to_string().starts_with("rss 10.2 MB,"),
+            "{reading}"
+        );
     }
 
     #[test]

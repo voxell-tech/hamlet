@@ -125,8 +125,8 @@ run inside it, and removes a run's folder when the run passes.
 The kit stops the host at a step through `HAMLET_FAULT`, which works only
 in a build with `hamlet_host`'s `faults` feature; the crate's own tests
 and examples turn it on. `cargo xtask idle <command>` starts a command
-and reports the memory and wakeups per second of its process tree while
-it is idle, on Linux only.
+and reports the memory, in MB of 1,000,000 bytes, and wakeups per second
+of its process tree while it is idle, on Linux only.
 
 ## Checks
 

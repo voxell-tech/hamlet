@@ -41,9 +41,10 @@ Usage: cargo xtask <task> [args]
      docker build
   killkit          build the demo actor host and kill it at a \
      scenario's step: <scenario> --runs <n>, or --list
-  idle             a command tree's memory and wakeups per second \
-     while idle: [--settle <s>] [--window <s>] <command> [args], 30 \
-     and 60 seconds by default; Linux only
+  idle             a command tree's memory, in MB of 1,000,000 \
+     bytes, and wakeups per second while idle: [--settle <s>] \
+     [--window <s>] <command> [args], 30 and 60 seconds by default; \
+     Linux only
 
 Every task but help and uninstall first fetches the vendored fynix
 when it is missing. Tasks that build, run or check pi install its
