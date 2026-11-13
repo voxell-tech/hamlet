@@ -25,14 +25,14 @@ use std::collections::HashMap;
 use std::fs::{File, TryLockError};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Weak};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use anyhow::{Context, Result, anyhow, bail, ensure};
 use hamlet_actor_core::actor::schedule::{
     RUN_WAKE_AT_META_KEY, SetAsideTimer, decode_run_wake_at,
 };
 use hamlet_actor_core::host::{
-    ActionTimedOut, ActorHost, RunningActor, StartRequest,
+    ActorHost, RunningActor, StartRequest,
 };
 use hamlet_actor_core::sqlite::{
     BindParam, ExecuteResult, QueryResult, SqliteBatchStatement,
@@ -46,15 +46,15 @@ use parking_lot::Mutex;
 use rusqlite::{Connection, OptionalExtension};
 use tokio::sync::{broadcast, oneshot, watch};
 use tokio::task::AbortHandle;
-use tracing::Instrument;
 
 pub use self::access::{HostRef, Values};
-use crate::cause::Cause;
+pub use self::call::Caller;
 use crate::directory::{Address, Directory, Place};
 use crate::event::HostEvent;
 use crate::plain_sqlite::{self, PlainSqlite};
 
 mod access;
+mod call;
 
 /// The one session a local file has. The transaction code compares
 /// sessions to detect a lost connection, which a local file cannot
@@ -834,47 +834,6 @@ impl Host {
         self.inner().ensure_started(&actor_id, true).await?;
         Ok(actor_id)
     }
-
-    /// Calls the action `name` of the actor at `to`, started first if
-    /// it is not running, as `get_or_start` starts it. The call ends
-    /// within `deadline`, its start included, and the action within
-    /// the shorter of what is left and the kind's action timeout:
-    /// past either, it fails with `actor.action_timed_out`. Fails at
-    /// once with `actor.not_registered` for a kind the directory does
-    /// not hold, and with `actor.destroying` for an actor that is
-    /// being destroyed. The host's log carries `cause`'s task.
-    pub async fn call(
-        &self,
-        to: &Address,
-        name: &str,
-        args: Vec<u8>,
-        deadline: Duration,
-        cause: Cause,
-    ) -> Result<Vec<u8>> {
-        let actor_id = self.inner().located(&to.kind, &to.key)?;
-        let span = tracing::debug_span!(
-            "call",
-            actor_id,
-            action = name,
-            task = cause.task()
-        );
-        async {
-            let begun = Instant::now();
-            let generation = tokio::time::timeout(
-                deadline,
-                self.inner().ensure_started(&actor_id, true),
-            )
-            .await
-            .map_err(|_| ActionTimedOut.build())??;
-            let left = deadline.saturating_sub(begun.elapsed());
-            generation
-                .actor
-                .action(Vec::new(), name, args, left)
-                .await
-        }
-        .instrument(span)
-        .await
-    }
 }
 
 impl HostInner {
@@ -1648,6 +1607,7 @@ mod tests {
     use hamlet_testing::Scratch;
 
     use super::*;
+    use crate::cause::Cause;
 
     /// The kind `waker`, whose run handler sets the run wake deadline
     /// `wake_at` and then answers only lifecycle events.
