@@ -16,8 +16,9 @@ use hamlet_actor::{
     Action, Actor, ActorConfig, Ctx, Handler, Registry,
 };
 use hamlet_actor_core::actor::schedule::end_one_shot;
+use hamlet_actor_core::sqlite::SqliteDb;
 use hamlet_actor_core::{
-    ActorEvent, ActorFactory, ActorStart, ShutdownKind,
+    ActorEvent, ActorFactory, ActorStart, ColumnValue, ShutdownKind,
 };
 use hamlet_host::{Address, Host, HostEvent, Letter};
 use hamlet_testing::Scratch;
@@ -251,16 +252,7 @@ impl Handler<Runs> for Fuse {
         ctx: Ctx<Self>,
         _: Runs,
     ) -> Result<i64> {
-        let result = ctx
-            .sql()
-            .query("SELECT COALESCE(MAX(value), 0) FROM runs", None)
-            .await?;
-        match result.rows.first().and_then(|row| row.first()) {
-            Some(hamlet_actor::ColumnValue::Integer(runs)) => {
-                Ok(*runs)
-            }
-            other => anyhow::bail!("runs read {other:?}"),
-        }
+        count_in(ctx.sql(), "runs").await
     }
 }
 
@@ -539,6 +531,170 @@ async fn a_one_shot_that_drops_its_reply_is_set_aside_after_five_runs()
     )
     .await;
     host.shutdown().await.unwrap();
+}
+
+/// How far ahead `arm` of the kind `poison` schedules its one-shot.
+const POISON_DUE: Duration = Duration::from_millis(200);
+
+/// The kind `poison`, of the raw event API. Every action replies with
+/// the count of `inc`'s runs, as the demo counter does. Counts its
+/// generations in `starts`.
+/// - `arm` schedules a one-shot `inc` `POISON_DUE` ahead and poisons
+///   the actor: from its next start, its event loop panics 20 ms
+///   after the start, before it reads an event.
+/// - `inc` counts its run.
+fn poisoned(starts: &Starts) -> HashMap<String, ActorFactory> {
+    let config = ActorConfig {
+        name: Some("poison".to_owned()),
+        has_database: true,
+        ..ActorConfig::default()
+    };
+    let starts = starts.clone();
+    HashMap::from([(
+        "poison".to_owned(),
+        ActorFactory::new(config, move |start| {
+            starts.fetch_add(1, Ordering::SeqCst);
+            Box::pin(run_poisoned(start))
+        }),
+    )])
+}
+
+async fn run_poisoned(start: ActorStart) -> Result<()> {
+    let ActorStart {
+        ctx, mut events, ..
+    } = start;
+    for table in ["poison", "inc"] {
+        ctx.sql().exec(count_table(table)).await?;
+    }
+    if count_in(ctx.sql(), "poison").await? > 0 {
+        sleep(Duration::from_millis(20)).await;
+        panic!("the event loop panics before its first event");
+    }
+    while let Some(event) = events.recv().await {
+        let ActorEvent::Action { name, reply, .. } = event else {
+            counter::answer(event);
+            continue;
+        };
+        match name.as_str() {
+            "arm" => {
+                ctx.after(POISON_DUE, "inc", &[]).await?;
+                ctx.sql().execute(add_one("poison"), None).await?;
+            }
+            "inc" => {
+                ctx.sql().execute(add_one("inc"), None).await?;
+            }
+            _ => {}
+        }
+        reply.send(
+            count_in(ctx.sql(), "inc")
+                .await
+                .map(|count| count.to_le_bytes().to_vec()),
+        );
+    }
+    Ok(())
+}
+
+/// The count in the table `table`, as [`count_table`] makes it.
+async fn count_in(sql: &SqliteDb, table: &str) -> Result<i64> {
+    let result = sql
+        .query(
+            format!("SELECT COALESCE(MAX(value), 0) FROM {table}"),
+            None,
+        )
+        .await?;
+    match result.rows.first().and_then(|row| row.first()) {
+        Some(ColumnValue::Integer(count)) => Ok(*count),
+        other => anyhow::bail!("{table} read {other:?}"),
+    }
+}
+
+/// The third loop. From its second generation the actor's event loop
+/// panics before it reads the one-shot queued for it, so the one-shot
+/// is kept, and each crash stop leaves the past deadline that starts
+/// the next generation at once. Generations 2 to 6 each try it once.
+/// The seventh sets it aside, and its crash stop leaves no deadline.
+/// Cured, the actor runs the one-shot once it is re-armed.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_loop_that_panics_before_its_one_shot_sets_it_aside_after_five_starts()
+ {
+    let dir = Scratch::new("timer-poison-loop");
+    let starts = Starts::default();
+    let host = Host::open(&dir, poisoned(&starts)).unwrap();
+    let mut events = host.events();
+    let id = host.get_or_start("poison", "a").await.unwrap();
+    act(&host, &id, "arm", Vec::new()).await.unwrap();
+    host.stop(&id, ShutdownKind::Sleep).await.unwrap();
+    assert_eq!(
+        starts_after(&starts, 7, Duration::from_secs(1)).await,
+        7,
+        "it started again after the seventh generation"
+    );
+    assert!(!host.is_running(&id));
+    let letter = events.try_recv().expect("no dead letter");
+    assert!(events.try_recv().is_err(), "a second event");
+    host.shutdown().await.unwrap();
+    drop(host);
+    assert_eq!(
+        stored(&dir, &id, "inc"),
+        Stored {
+            runs: 0,
+            schedules: 0
+        }
+    );
+    assert_eq!(last_start(&dir, &id), (7, None));
+
+    rusqlite::Connection::open(
+        dir.join(format!("actors/{id}.sqlite")),
+    )
+    .unwrap()
+    .execute("DELETE FROM poison", [])
+    .unwrap();
+    let host = Host::open(&dir, poisoned(&starts)).unwrap();
+    let at = Address::new("poison", "a");
+    let timers = host.set_aside_timers(&at).await.unwrap();
+    let [timer] = &timers[..] else {
+        panic!("set aside: {timers:?}");
+    };
+    assert_eq!(
+        (timer.action.as_str(), timer.tries),
+        ("inc", 5),
+        "{timer:?}"
+    );
+    assert_eq!(
+        letter,
+        HostEvent::DeadLetter {
+            holder: at.clone(),
+            letter: Letter::Timer {
+                event_id: timer.event_id.clone(),
+                action: timer.action.clone(),
+                due_at: timer.due_at,
+            },
+            tries: 5,
+            error: timer.last_error.clone(),
+        }
+    );
+    assert!(
+        host.rearm_timer(&at, &timer.event_id, now_ms())
+            .await
+            .unwrap()
+    );
+    wait_for_runs(
+        &host,
+        &id,
+        "get",
+        |reply| counter::count(reply).unwrap(),
+        1,
+    )
+    .await;
+    host.shutdown().await.unwrap();
+    drop(host);
+    assert_eq!(
+        stored(&dir, &id, "inc"),
+        Stored {
+            runs: 1,
+            schedules: 0
+        }
+    );
 }
 
 /// The due time of each one-shot in a sweep.
