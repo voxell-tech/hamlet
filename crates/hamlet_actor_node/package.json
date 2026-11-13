@@ -2,7 +2,7 @@
     "//": "This file was changed for Hamlet. See NOTICE in this crate.",
     "name": "@hamlet/actor-node",
     "version": "3.1.0",
-    "description": "Native N-API addon for the actor runtime, providing an envoy client and SQLite access",
+    "description": "Native N-API addon for the actor runtime, running actors on a local host",
     "license": "Apache-2.0",
     "main": "index.js",
     "types": "index.d.ts",
@@ -42,9 +42,6 @@
         "build:force": "node scripts/build.mjs --force",
         "build:force:release": "node scripts/build.mjs --force --release",
         "build:embed": "node scripts/build.mjs"
-    },
-    "dependencies": {
-        "@hamlet/engine-envoy-protocol": "workspace:*"
     },
     "devDependencies": {
         "@napi-rs/cli": "^2.18.4"

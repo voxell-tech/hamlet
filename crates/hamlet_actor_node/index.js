@@ -341,9 +341,9 @@ const {
     HttpResponseBodyStream,
     HttpRequestBodyStream,
     Kv,
+    CoreRegistry,
     Queue,
     QueueMessage,
-    CoreRegistry,
     Schedule,
     WebSocket,
     setTelemetryLogSink,
@@ -366,9 +366,9 @@ module.exports.JsActorStateTransaction = JsActorStateTransaction;
 module.exports.HttpResponseBodyStream = HttpResponseBodyStream;
 module.exports.HttpRequestBodyStream = HttpRequestBodyStream;
 module.exports.Kv = Kv;
+module.exports.CoreRegistry = CoreRegistry;
 module.exports.Queue = Queue;
 module.exports.QueueMessage = QueueMessage;
-module.exports.CoreRegistry = CoreRegistry;
 module.exports.Schedule = Schedule;
 module.exports.WebSocket = WebSocket;
 module.exports.setTelemetryLogSink = setTelemetryLogSink;

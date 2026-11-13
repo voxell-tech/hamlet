@@ -9,19 +9,28 @@ export interface JsActorKeySegment {
     stringValue?: string;
     numberValue?: number;
 }
-/** One individual actor fork behind an actor, as `c.forkChain` lists it. */
+/**
+ * One individual actor fork behind an actor, as `c.forkChain` lists
+ * it.
+ */
 export interface JsForkLink {
     actorId: string;
     key: Array<JsActorKeySegment>;
     /** Milliseconds since the epoch. */
     forkedAt: number;
 }
-/** Active actor invocation correlation exposed to the TypeScript runtime adapter. */
+/**
+ * Active actor invocation correlation exposed to the TypeScript
+ * runtime adapter.
+ */
 export interface JsActorInvocationTraceContext {
     rayId?: string;
     span?: JsActorInvocationSpanContext;
 }
-/** W3C span context of the current invocation span, present only when tracing is active. */
+/**
+ * W3C span context of the current invocation span, present only when
+ * tracing is active.
+ */
 export interface JsActorInvocationSpanContext {
     traceId: string;
     spanId: string;
@@ -76,19 +85,22 @@ export interface JsActionDefinition {
 }
 /**
  * One entry in the actor's `inspector.tabs[]` declaration. Either a
- * custom-tab descriptor (id + label + source dir) or a built-in modifier
- * (id + hidden=true). Validation already happened on the TS side; the
- * runtime just splits the discriminator.
+ * custom-tab descriptor (id + label + source dir) or a built-in
+ * modifier (id + hidden=true). Validation already happened on the TS
+ * side; the runtime just splits the discriminator.
  */
 export interface JsInspectorTabEntry {
     id: string;
     /** Required for custom entries; omitted for HideBuiltin. */
     label?: string;
-    /** Required for custom entries — absolute path to the source directory. */
+    /**
+     * Required for custom entries — absolute path to the source
+     * directory.
+     */
     source?: string;
     /**
-     * Optional icon id for custom entries. Dashboard maps strings to
-     * glyphs; unknown ids fall back to a generic icon.
+     * Optional icon id for custom entries. Dashboard maps strings
+     * to glyphs; unknown ids fall back to a generic icon.
      */
     icon?: string;
     /** Set to true for HideBuiltin entries. */
@@ -115,8 +127,8 @@ export interface JsSqliteProfilingMetrics {
     eventDropped?: boolean;
 }
 /**
- * Experimental SQLite profiling configuration. This entire configuration
- * surface is subject to change without notice.
+ * Experimental SQLite profiling configuration. This entire
+ * configuration surface is subject to change without notice.
  */
 export interface JsSqliteProfilingConfig {
     metrics?: JsSqliteProfilingMetrics;
@@ -246,69 +258,13 @@ export interface JsQueueTryNextBatchOptions {
 }
 export interface JsQueueInspectMessage {
     /**
-     * Queue message id. Stored as the raw u64 reinterpreted as i64 so JS
-     * sees a plain number; ids are monotonic and fit comfortably in i64.
+     * Queue message id. Stored as the raw u64 reinterpreted as i64
+     * so JS sees a plain number; ids are monotonic and fit
+     * comfortably in i64.
      */
     id: number;
     name: string;
     createdAtMs: number;
-}
-export interface JsServeConfig {
-    version: number;
-    endpoint: string;
-    token?: string;
-    namespace: string;
-    poolName: string;
-    engineBinaryPath?: string;
-    startServices?: boolean;
-    servicesBinaryPath?: string;
-    engineSpawn?: boolean;
-    engineHost?: string;
-    enginePort?: number;
-    handleInspectorHttpInRuntime?: boolean;
-    serverlessBasePath?: string;
-    serverlessPackageVersion: string;
-    serverlessClientEndpoint?: string;
-    serverlessClientNamespace?: string;
-    serverlessClientToken?: string;
-    serverlessValidateEndpoint: boolean;
-    serverlessMaxStartPayloadBytes: number;
-}
-export interface JsListenerConfig {
-    /** Host to bind. Defaults to `0.0.0.0` when not provided. */
-    host?: string;
-    port: number;
-    /**
-     * Optional static file root mounted as a fallback below the framework
-     * routes.
-     */
-    publicDir?: string;
-}
-export interface JsServerlessRequest {
-    method: string;
-    url: string;
-    headers: Record<string, string>;
-    body: Buffer;
-}
-export interface JsServerlessResponseHead {
-    status: number;
-    headers: Record<string, string>;
-}
-export interface JsApplicationResponse {
-    status: number;
-    headers: Record<string, string>;
-    body?: Buffer;
-    stream?: boolean;
-}
-export interface JsRegistryRouteResponse {
-    status: number;
-    headers: Record<string, string>;
-    body: Buffer;
-}
-export interface JsServerlessStreamError {
-    group: string;
-    code: string;
-    message: string;
 }
 export interface JsScheduledEventInfo {
     id: string;
@@ -353,9 +309,9 @@ export interface JsKvEntry {
     value: Buffer;
 }
 /**
- * Routes the OpenTelemetry SDK's own warnings, such as dropped spans, to the
- * JavaScript logger. Each call replaces the previous sink. The sink is
- * released by `shutdownTelemetry`.
+ * Routes the OpenTelemetry SDK's own warnings, such as dropped
+ * spans, to the JavaScript logger. Each call replaces the previous
+ * sink. The sink is released by `shutdownTelemetry`.
  */
 export declare function setTelemetryLogSink(
     callback: (...args: any[]) => any,
@@ -370,8 +326,9 @@ export declare class ActorContext {
     sql(): JsNativeDatabase;
     sameActorInstance(other: ActorContext): boolean;
     /**
-     * Returns a handle for the same invocation whose Core spans parent to the
-     * application span active in JavaScript, given as W3C headers.
+     * Returns a handle for the same invocation whose Core spans
+     * parent to the application span active in JavaScript, given as
+     * W3C headers.
      */
     withApplicationSpan(
         traceparent?: string | undefined | null,
@@ -379,9 +336,10 @@ export declare class ActorContext {
     ): ActorContext;
     invocationTraceContext(): JsActorInvocationTraceContext | null;
     /**
-     * Opens the span covering one call out to another actor. Returns nothing
-     * when this handle serves no invocation or tracing is disabled, in which
-     * case the caller sends its own context as before.
+     * Opens the span covering one call out to another actor. Returns
+     * nothing when this handle serves no invocation or tracing is
+     * disabled, in which case the caller sends its own context as
+     * before.
      */
     startCallSpan(actorName: string, actionName: string): OutboundCall | null;
     startWorkflowSpan(): Promise<WorkflowSpan>;
@@ -454,26 +412,29 @@ export declare class ActorContext {
 /**
  * One open call out to another actor.
  *
- * The call spans a request made by the host runtime, so it is opened and closed
- * by two separate calls. Letting this be collected without finishing records
- * the call as cancelled rather than silently losing it.
+ * The call spans a request made by the host runtime, so it is opened
+ * and closed by two separate calls. Letting this be collected
+ * without finishing records the call as cancelled rather than
+ * silently losing it.
  */
 export declare class OutboundCall {
     /**
-     * W3C context of this call's span, to send to the callee so it parents to
-     * the call rather than to the invocation that made it.
+     * W3C context of this call's span, to send to the callee so it
+     * parents to the call rather than to the invocation that made
+     * it.
      */
     spanContext(): JsActorInvocationSpanContext | null;
     /**
-     * Records the call's outcome. `error` is the failure as the bridge encodes
-     * it, so a structured error keeps its group and code while anything else
-     * stays unstructured for Core to classify.
+     * Records the call's outcome. `error` is the failure as the
+     * bridge encodes it, so a structured error keeps its group and
+     * code while anything else stays unstructured for Core to
+     * classify.
      */
     finish(error?: string | undefined | null): void;
 }
 /**
- * One open workflow run. Collecting it without `finish` records the run as
- * abandoned.
+ * One open workflow run. Collecting it without `finish` records the
+ * run as abandoned.
  */
 export declare class WorkflowSpan {
     /** The context workflow code runs under. */
@@ -497,18 +458,20 @@ export declare class CancellationToken {
     /**
      * Calls `callback` once when the token is cancelled.
      *
-     * The returned listener must be released when the caller stops caring
-     * about cancellation. Releasing ends the waiting task and frees the
-     * threadsafe function, which otherwise stays alive (with its libuv handle
-     * and JS closure) until the token is cancelled.
+     * The returned listener must be released when the caller stops
+     * caring about cancellation. Releasing ends the waiting task and
+     * frees the threadsafe function, which otherwise stays alive
+     * (with its libuv handle and JS closure) until the token is
+     * cancelled.
      */
     onCancelled(callback: (...args: any[]) => any): CancellationListener;
 }
 /**
  * Registration returned by `CancellationToken.onCancelled`.
  *
- * Dropping the JS object does not release the listener, because the callback
- * must still fire if the caller keeps no reference to the registration.
+ * Dropping the JS object does not release the listener, because the
+ * callback must still fire if the caller keeps no reference to the
+ * registration.
  */
 export declare class CancellationListener {
     /**
@@ -598,6 +561,26 @@ export declare class Kv {
     batchPut(entries: Array<JsKvEntry>): Promise<void>;
     batchDelete(keys: Array<Buffer>): Promise<void>;
 }
+export declare class CoreRegistry {
+    constructor();
+    register(name: string, factory: NapiActorFactory): void;
+    /**
+     * Opens the host in `dir` with the registered kinds and starts
+     * every actor whose stored alarm is due. Returns their ids.
+     */
+    start(dir: string): Promise<Array<string>>;
+    /**
+     * Calls `action` on the actor of `kind` and `key`, starting it
+     * first if it is not running.
+     */
+    action(
+        kind: string,
+        key: string,
+        action: string,
+        args: Buffer,
+    ): Promise<Buffer>;
+    shutdown(): Promise<void>;
+}
 export declare class Queue {
     send(name: string, body: Buffer): Promise<QueueMessage>;
     next(
@@ -646,56 +629,6 @@ export declare class QueueMessage {
     createdAt(): number;
     isCompletable(): boolean;
     complete(response?: Buffer | undefined | null): Promise<void>;
-}
-export declare class CoreRegistry {
-    constructor();
-    register(name: string, factory: NapiActorFactory): void;
-    serve(config: JsServeConfig): Promise<void>;
-    /**
-     * Wait until the serverful envoy has completed its Engine registration.
-     *
-     * Readiness is the envoy client's `ToEnvoyInit` signal, not HTTP health or
-     * merely constructing the envoy handle.
-     */
-    waitReady(): Promise<void>;
-    /**
-     * Trip the shutdown token and tear down any live serverless runtime.
-     *
-     * Idempotent. Safe to call when neither mode has been activated.
-     * Does not block on the `serve()` future; TS awaits that promise
-     * separately to avoid re-entrancy.
-     */
-    shutdown(): Promise<void>;
-    actorStopThresholdMs(): Promise<number | null>;
-    /** Number of actors hosted by the serverful envoy, or zero while it is not serving. */
-    activeActorCount(): number;
-    /**
-     * Calls `callback` with the active actor count and every change until `cancelToken`
-     * is cancelled or the registry stops serving.
-     */
-    onActiveActorCountChange(
-        callback: (count: number) => void,
-        cancelToken: CancellationToken,
-    ): void;
-    health(): Promise<JsRegistryRouteResponse>;
-    metadata(): JsRegistryRouteResponse;
-    metrics(): JsRegistryRouteResponse;
-    serveApplicationListener(
-        listener: JsListenerConfig,
-        application: (...args: any[]) => any,
-        config: JsServeConfig,
-    ): Promise<void>;
-    serveListener(
-        listener: JsListenerConfig,
-        config: JsServeConfig,
-        application?: (...args: any[]) => any | undefined | null,
-    ): Promise<void>;
-    handleServerlessRequest(
-        req: JsServerlessRequest,
-        onStreamEvent: (...args: any[]) => any,
-        cancelToken: CancellationToken,
-        config: JsServeConfig,
-    ): Promise<JsServerlessResponseHead>;
 }
 export declare class Schedule {
     after(
