@@ -1,7 +1,7 @@
 {
     "//": "This file was changed for Hamlet. See NOTICE in this crate.",
     "name": "@hamlet/actor-node",
-    "version": "3.1.0",
+    "version": "0.1.0",
     "description": "Native N-API addon for the actor runtime, running actors on a local host",
     "license": "Apache-2.0",
     "main": "index.js",
