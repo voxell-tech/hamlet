@@ -176,12 +176,18 @@ with kinds of its own, share the folder. Each host also locks
 `actors/<kind>/.lock` for each of its kinds, so no two hosts hold one
 kind.
 `get_or_start` finds an actor by kind and key and starts it on the file
-`actors/<kind>/<key>.sqlite`, making it if it has none; nothing else
+`actors/<kind>/<key>.sqlite`, making it if it has none.
+`local/create.rs` holds `create`, the other way to make an actor: it
+makes the actor with an input, kept in the file's `_hamlet_actor` row
+and given to each start, and fails with `actor.duplicate_key` for a key
+that holds an actor. A create of a key whose destroy is unfinished
+never opens the old data. Nothing else
 makes an actor. `local/call.rs` holds the calls: `call` calls an action
 of the actor at an `Address`, starting it from its file first, within
 the caller's deadline, and logs the call's `Cause`, the task it belongs
 to. A call to a key with no actor fails with `actor.not_found` and
-makes no file. Each call carries its `Caller` as its connection's parameters: none
+makes no file. Each call carries its `Caller` as its connection's
+parameters: none
 for `call`, a client for `call_for_client`, and the calling actor's
 address for `Host::call_from(&ctx, ...)`, which takes it from the
 actor's context. One check, `admit`, runs before every call reaches the
@@ -207,7 +213,8 @@ actor's SQL on that connection. The runtime's tables are named
 actor's generation, a mark that it is running, a mark that it is
 destroyed, and the deadline its last clean stop left: the earliest of
 its schedule rows, its run wake deadline and the last alarm its core
-pushed, read once the core has stopped. A destroy writes its mark
+pushed, read once the core has stopped, and the input a create gave
+it, which each start gives the core. A destroy writes its mark
 before it removes the actor's file, write-ahead file and shared-memory
 file, and a boot or a start that finds the mark finishes the destroy. The host keeps no timer for a running actor. A stopped actor
 with a deadline has one, which starts it from the file it has and never
@@ -367,6 +374,7 @@ built-in ones.
 | An actor's lifecycle, schedules, state or SQL | `hamlet_actor_core/src/actor/`; [the actor runtime](#the-actor-runtime) |
 | Where actors' files are, deadlines and timers, shutdown, the folder lock | `hamlet_host/src/local.rs`, `plain_sqlite.rs` |
 | Calls between actors, and who made a call | `hamlet_host/src/local/call.rs` |
+| Making an actor with an input | `hamlet_host/src/local/create.rs` |
 | What an actor reaches of its host: the realm folder, the program's values | `hamlet_host/src/local/access.rs` |
 | Where each actor kind runs | `hamlet_host/src/directory.rs` |
 | A kill scenario | `hamlet_killkit/src/scenario.rs`, and a fault point with `hamlet_host::fault::point` |

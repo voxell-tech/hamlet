@@ -35,11 +35,11 @@ impl Host {
     /// Calls the action `name` of the actor at `to`, with no caller,
     /// started from its file first if it is not running. A call never
     /// makes an actor: for a key with no actor it fails with
-    /// `actor.not_found` and leaves no file, and only `get_or_start`
-    /// makes one. The call ends within `deadline`, its start
-    /// included, and the action within the shorter of what is left
-    /// and the kind's action timeout: past either, it fails with
-    /// `actor.action_timed_out`. Fails at once with
+    /// `actor.not_found` and leaves no file. Only `get_or_start` and
+    /// [`Host::create`] make one. The call ends within `deadline`,
+    /// its start included, and the action within the shorter of what
+    /// is left and the kind's action timeout: past either, it fails
+    /// with `actor.action_timed_out`. Fails at once with
     /// `actor.not_registered` for a kind the directory does not hold,
     /// and with `actor.destroying` for an actor that is being
     /// destroyed. The host's log carries `cause`'s task.
