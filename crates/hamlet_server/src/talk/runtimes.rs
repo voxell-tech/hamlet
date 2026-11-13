@@ -353,6 +353,19 @@ impl Runtimes {
         id
     }
 
+    /// Tells `runtime` that the wait of its call `key` was answered.
+    pub fn answered(&mut self, runtime: &str, key: &str) {
+        let Some(index) = self.index_of(runtime) else {
+            return;
+        };
+        let key = key.to_owned();
+        self.send(index, |v, id| {
+            ServerMessage::Answered(
+                hamlet_protocol::runtime::Answered { id, key, v },
+            )
+        });
+    }
+
     /// Sends a request whose reply is awaited as `pending`.
     pub fn request(
         &mut self,

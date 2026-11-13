@@ -3,10 +3,10 @@
 
 use anyhow::Result;
 use hamlet_protocol::client::{Choice, Permission, Pick};
-use hamlet_protocol::runtime::{self, ServerMessage};
 use hamlet_store::ids::{Actor, WaitId};
 
 use super::{chat_session, held};
+use crate::apply::Wake;
 use crate::core::Core;
 use crate::oversight::gate::{self, Asked};
 use crate::oversight::{self, Danger, Ruling, Wait, WaitKind};
@@ -279,14 +279,12 @@ impl Core<'_, '_> {
     }
 
     /// Tells the runtime of a held call that its wait was answered,
-    /// so asking again may get further.
+    /// so asking again may get further, once the input's changes are
+    /// sent.
     pub(crate) fn wake_call(&mut self, runtime: &str, key: &str) {
-        let Some(index) = self.runtimes.index_of(runtime) else {
-            return;
-        };
-        let key = key.to_owned();
-        self.runtimes.send(index, |v, id| {
-            ServerMessage::Answered(runtime::Answered { id, key, v })
+        self.wakes.write(Wake {
+            runtime: runtime.to_owned(),
+            key: key.to_owned(),
         });
     }
 }

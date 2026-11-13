@@ -6,6 +6,7 @@
 
 use bevy_app::App;
 use bevy_ecs::error::Result;
+use bevy_ecs::message::{Message, MessageReader, Messages};
 use bevy_ecs::resource::Resource;
 use bevy_ecs::schedule::{
     IntoScheduleConfigs, Schedule, ScheduleLabel,
@@ -39,6 +40,15 @@ pub(crate) enum Step {
     Reply,
 }
 
+/// A call held on a wait whose wait was answered: its runtime is
+/// told after the input's changes are sent, so asking again may get
+/// further.
+#[derive(Message)]
+pub(crate) struct Wake {
+    pub runtime: String,
+    pub key: String,
+}
+
 /// What the input's changes leave for [`Apply`].
 #[derive(Resource, Default)]
 pub(crate) struct Changed {
@@ -56,6 +66,7 @@ pub(crate) fn plugin(app: &mut App) {
     apply.set_executor(SingleThreadedExecutor::new());
     app.add_schedule(apply)
         .init_resource::<Changed>()
+        .add_message::<Wake>()
         .configure_sets(
             Apply,
             (
@@ -74,7 +85,9 @@ pub(crate) fn plugin(app: &mut App) {
                 stop_cancelled
                     .in_set(Step::StopCancelled)
                     .run_if(committed),
-                flush.in_set(Step::Flush).run_if(owed),
+                (flush.run_if(owed), wake)
+                    .chain()
+                    .in_set(Step::Flush),
                 publish.in_set(Step::Publish).run_if(committed),
                 (reply, forget).chain().in_set(Step::Reply),
             ),
@@ -174,6 +187,22 @@ fn reply(
     clients.deliver(&mut connections, &credentials);
 }
 
-fn forget(mut changed: ResMut<Changed>) {
+/// Tells each runtime of the held calls whose waits were answered.
+fn wake(
+    mut wakes: MessageReader<Wake>,
+    mut runtimes: ResMut<Runtimes>,
+) {
+    for wake in wakes.read() {
+        runtimes.answered(&wake.runtime, &wake.key);
+    }
+}
+
+/// The input is followed up: the next starts afresh. No frame turns
+/// the messages over here, so the last step does.
+fn forget(
+    mut changed: ResMut<Changed>,
+    mut wakes: ResMut<Messages<Wake>>,
+) {
     *changed = Changed::default();
+    wakes.update();
 }

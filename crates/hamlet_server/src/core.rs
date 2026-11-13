@@ -7,12 +7,13 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use anyhow::Result;
 use bevy_ecs::entity::Entity;
+use bevy_ecs::message::MessageWriter;
 use bevy_ecs::system::{Commands, Query, Res, ResMut, SystemParam};
 use hamlet_protocol::client as protocol;
 use hamlet_protocol::runtime::{self, ServerMessage, ToolSpec};
 use hamlet_store::ids::{Actor, AgentId, ConversationId};
 
-use crate::apply::Changed;
+use crate::apply::{Changed, Wake};
 use crate::calls::{Calls, Runs};
 use crate::change::{Change, Done, Touched};
 use crate::clients::check::reply;
@@ -137,6 +138,8 @@ pub(crate) struct Core<'w, 's> {
     pub catalogue: ResMut<'w, Catalogue>,
     /// What the input's changes leave for the runner to follow up.
     pub changed: ResMut<'w, Changed>,
+    /// The held calls to wake once the input's changes are sent.
+    pub wakes: MessageWriter<'w, Wake>,
     /// The chief's commands.
     pub deeds: Res<'w, Deeds>,
     /// What the input spawns and despawns, applied after it.
