@@ -37,7 +37,9 @@ the chief's machine, off the frame (`hamlet_client/src/imports.rs`), the
 client sends each as a file and the project as `import-project`, and the
 server (`talk/imports.rs`) founds or finds the hamlet, makes the hires
 and holds each conversation's entries until the runtime makes it with
-them. It opens with a notice of where it came from. The chief's messages
+them, which waits for a model to be set up. Until then its chat shows
+the entries held, and its watchers get its transcript anew once the
+runtime keeps them. It opens with a notice of where it came from. The chief's messages
 in it are the chief's rows, not rewindable; the other program's tool
 calls are tool rows of their tool and summary, kept for people alone.
 

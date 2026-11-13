@@ -705,7 +705,12 @@ impl Core {
                         &adapter,
                         &version,
                     )?;
-                    imports::made(db, conversation)?;
+                    // Its watchers held the entries it began with,
+                    // which the runtime keeps under its own ids now.
+                    if imports::made(db, conversation)? {
+                        self.live.remove(&conversation);
+                        self.retell(conversation)?;
+                    }
                 }
                 self.flush(false).await?;
             }

@@ -664,7 +664,15 @@ impl Core {
         for (number, conversation, began) in
             chats::sessions(db, agent, chief)?
         {
-            let page = items::page(db, conversation, None, 10_000)?;
+            let mut page =
+                items::page(db, conversation, None, 10_000)?;
+            if page.is_empty() {
+                page = crate::talk::imports::held(db, conversation)?
+                    .into_iter()
+                    .enumerate()
+                    .map(|(n, item)| (n as i64, item))
+                    .collect();
+            }
             let mut first = None;
             let mut messages = 0_i64;
             let mut modified = began;
