@@ -321,7 +321,7 @@ async fn a_kill_while_a_one_shot_runs_runs_it_once() {
 }
 
 /// The one-shot comes due while the actor is stopped, and the boot
-/// whose timer starts the actor for it is killed before the start.
+/// that starts the actor for it is killed before the start.
 /// The next boot runs the one-shot, once.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_kill_on_the_boot_that_fires_a_due_alarm_runs_it_once() {

@@ -377,9 +377,9 @@ struct HostInner {
     starts_end: watch::Sender<Option<tokio::time::Instant>>,
 }
 
-/// The lock of `host.lock`. Its drop unlocks the file before it
-/// closes it: a child process forked meanwhile shares the open file,
-/// and would keep the lock until it runs its program.
+/// The lock of the host's `<name>.lock`. Its drop unlocks the file
+/// before it closes it: a child process forked meanwhile shares the
+/// open file, and would keep the lock until it runs its program.
 struct FolderLock(File);
 
 impl Drop for FolderLock {
