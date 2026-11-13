@@ -313,7 +313,7 @@ fn flush(
     env: Res<Env>,
     mut runtimes: Runtimes,
     providers: Res<Providers>,
-    mut fitting: ResMut<Fitting>,
+    mut fitting: Fitting,
 ) -> Result {
     let images = realm.layout().images();
     let all = runtimes.all();

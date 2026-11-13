@@ -9,7 +9,7 @@ use hamlet_store::ids::AgentId;
 use super::kept::Images;
 use super::{Limits, SEEN};
 use crate::attached::{Attached, Caption, is_place};
-use crate::core::Core;
+use crate::core::{Core, Unpushed};
 use crate::files::Files;
 use crate::inbox::INBOX;
 use crate::society::refusal::Refusal;
@@ -115,7 +115,7 @@ impl Core<'_, '_> {
         .lodge;
         let remote = self.remote.workspace.is_some();
         if remote {
-            self.remote.unpushed.insert(agent);
+            self.remote.unpushed.write(Unpushed(agent));
         }
         let kept = Images::new(layout.images());
         let mut attached = Attached::default();

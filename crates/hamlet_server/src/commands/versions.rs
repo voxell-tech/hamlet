@@ -7,7 +7,7 @@ use hamlet_store::ids::{Actor, HamletId, ScholarId};
 
 use super::ScholarReach;
 use crate::change::Done;
-use crate::core::Core;
+use crate::core::{Core, Unpushed};
 use crate::jobs::Fork;
 use crate::knowledge::folder::Folder;
 use crate::society::addresses::{self, Reach};
@@ -316,7 +316,7 @@ impl Core<'_, '_> {
         drop(held);
         let db = self.realm.store().connection();
         for hire in hires::living_of(db, id)? {
-            self.remote.unpushed.insert(hire.agent);
+            self.remote.unpushed.write(Unpushed(hire.agent));
         }
         let by = Actor::Chief(self.realm.chief());
         self.main_moved(by, id)?;

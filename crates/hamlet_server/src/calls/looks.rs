@@ -2,14 +2,15 @@
 //! the files a `tell` or an `ask` sends, measured for the gate and
 //! then copied into the receiver's inbox (H30), and the file an edit
 //! writes as it is now, for the chief to see the change. Each look
-//! runs on a task and its finding is kept here; the runtime's request
-//! runs again and finds it, and the runtime waits for its answer
-//! meanwhile.
+//! runs on a task and its finding is kept on its call's entity; the
+//! runtime's request runs again and finds it, and the runtime waits
+//! for its answer meanwhile.
 
-use std::collections::HashMap;
 use std::path::PathBuf;
 
-use bevy_ecs::resource::Resource;
+use bevy_ecs::component::Component;
+use bevy_ecs::entity::Entity;
+use bevy_ecs::system::{Commands, Query, SystemParam};
 use hamlet_protocol::client::ImageId;
 use hamlet_store::ids::AgentId;
 
@@ -27,54 +28,103 @@ pub(crate) type Measure = (usize, u64);
 /// the images among them.
 pub(crate) type Copy = (String, Vec<ImageId>);
 
-/// The findings of the looks, by call, until the call is settled.
-#[derive(Resource, Default)]
-pub(crate) struct Looks {
-    measured: HashMap<CallId, Result<Measure, Refusal>>,
-    previewed: HashMap<CallId, Result<Option<String>, String>>,
-    copied: HashMap<CallId, Result<Copy, Refusal>>,
+/// A call whose looks found something: an entity until the call is
+/// settled, with a component for each finding.
+#[derive(Component)]
+pub(crate) struct Looked(CallId);
+
+/// The files a parcel would send, as measured.
+#[derive(Component)]
+pub(crate) struct Measured(Result<Measure, Refusal>);
+
+/// The file an edit writes, as it was before.
+#[derive(Component)]
+pub(crate) struct Previewed(Result<Option<String>, String>);
+
+/// The files a parcel sent, as copied.
+#[derive(Component)]
+pub(crate) struct Copied(Result<Copy, Refusal>);
+
+/// The findings of the looks, as the handlers reach them.
+#[derive(SystemParam)]
+pub(crate) struct Looks<'w, 's> {
+    list: Query<
+        'w,
+        's,
+        (
+            Entity,
+            &'static Looked,
+            Option<&'static Measured>,
+            Option<&'static Previewed>,
+            Option<&'static Copied>,
+        ),
+    >,
+    commands: Commands<'w, 's>,
 }
 
-impl Looks {
+impl Looks<'_, '_> {
+    fn of(
+        &self,
+        call: &CallId,
+    ) -> Option<(
+        Entity,
+        Option<&Measured>,
+        Option<&Previewed>,
+        Option<&Copied>,
+    )> {
+        self.list
+            .iter()
+            .find(|(_, looked, ..)| looked.0 == *call)
+            .map(|(entity, _, measured, previewed, copied)| {
+                (entity, measured, previewed, copied)
+            })
+    }
+
     pub fn measured(
         &self,
         call: &CallId,
     ) -> Option<&Result<Measure, Refusal>> {
-        self.measured.get(call)
+        Some(&self.of(call)?.1?.0)
     }
 
     pub fn previewed(
         &self,
         call: &CallId,
     ) -> Option<&Result<Option<String>, String>> {
-        self.previewed.get(call)
+        Some(&self.of(call)?.2?.0)
     }
 
     pub fn copied(
         &self,
         call: &CallId,
     ) -> Option<&Result<Copy, Refusal>> {
-        self.copied.get(call)
+        Some(&self.of(call)?.3?.0)
     }
 
-    /// Keeps what a look of `call` found. Gives the agent whose lodge
-    /// it wrote into, when it copied files.
+    /// Keeps what a look of `call` found, once the input's commands
+    /// apply. Gives the agent whose lodge it wrote into, when it
+    /// copied files.
     pub fn found(
         &mut self,
         call: CallId,
         found: Found,
     ) -> Option<AgentId> {
+        let entity = match self.of(&call) {
+            Some((entity, ..)) => entity,
+            None => self.commands.spawn(Looked(call)).id(),
+        };
+        let mut entity = self.commands.entity(entity);
         match found {
             Found::Measured(measured) => {
-                self.measured.insert(call, measured);
+                entity.insert(Measured(measured));
                 None
             }
             Found::Previewed(previewed) => {
-                self.previewed.insert(call, previewed);
+                entity.insert(Previewed(previewed));
                 None
             }
             Found::Copied { receiver, sent } => {
-                self.copied.insert(call, sent);
+                entity.insert(Copied(sent));
                 Some(receiver)
             }
         }
@@ -82,9 +132,9 @@ impl Looks {
 
     /// `call` is settled: what was found for it goes.
     pub fn forget(&mut self, call: &CallId) {
-        self.measured.remove(call);
-        self.previewed.remove(call);
-        self.copied.remove(call);
+        if let Some((entity, ..)) = self.of(call) {
+            self.commands.entity(entity).despawn();
+        }
     }
 }
 

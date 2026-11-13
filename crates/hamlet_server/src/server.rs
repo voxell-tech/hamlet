@@ -35,7 +35,9 @@ use crate::clients::check::{failed, fault};
 use crate::clients::connection::Event;
 use crate::clients::{Clients, asked};
 use crate::clock;
-use crate::core::{Confined, Core, Leftovers, Remote, Workspace};
+use crate::core::{
+    Confined, Core, Leftovers, Remote, Unpushed, Workspace,
+};
 use crate::credentials::Credentials;
 use crate::deadline::{self, Fire};
 use crate::diagnostic::{self, Secrets, tell};
@@ -512,7 +514,7 @@ impl Server {
             Finished::Looked { call, found, again } => {
                 if let Some(receiver) = core.looks.found(call, found)
                 {
-                    core.remote.unpushed.insert(receiver);
+                    core.remote.unpushed.write(Unpushed(receiver));
                 }
                 // A runtime that started again since asks again.
                 if core.runtimes.generation(again.from)
@@ -520,6 +522,8 @@ impl Server {
                 {
                     return Ok(());
                 }
+                // The request asked again finds what was found.
+                self.core.apply(self.app.world_mut());
                 heard::hear(
                     self.app.world_mut(),
                     again.from,

@@ -3,6 +3,7 @@
 //! and every lodge moved there at a chief's word. No handler awaits
 //! the workspace: a push, a pull or a move runs as a task.
 
+use std::collections::BTreeSet;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -17,7 +18,7 @@ use hamlet_store::ids::AgentId;
 use super::lodges::{self, Synced};
 use super::{Policy, Session, Transport, workspace_of};
 use crate::clients::check::reply;
-use crate::core::{Core, Remote};
+use crate::core::{Core, Remote, Unpushed};
 use crate::diagnostic::{Secrets, tell};
 use crate::jobs::Job;
 use crate::knowledge;
@@ -162,7 +163,9 @@ impl Remote<'_> {
             return;
         }
         for job in done {
-            self.unpushed.extend(job.lodges(db));
+            self.unpushed.write_batch(
+                job.lodges(db).into_iter().map(Unpushed),
+            );
         }
     }
 
@@ -175,7 +178,12 @@ impl Remote<'_> {
         writing: &Writing,
         secrets: &[String],
     ) -> Result<()> {
-        for agent in std::mem::take(&mut self.unpushed.0) {
+        let unpushed = self
+            .unpushed
+            .drain()
+            .map(|Unpushed(agent)| agent)
+            .collect::<BTreeSet<_>>();
+        for agent in unpushed {
             let Some(lodging) =
                 self.lodging(realm, writing, agent)?
             else {

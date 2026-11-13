@@ -64,11 +64,10 @@ const STOPPED: &str = "The chief stopped this turn.";
 const NO_CHIEF: &str =
     "No chief oversees this turn; go on with what you know.";
 
-/// The channel of ended tool runs and the looks made off the loop.
+/// The channel of ended tool runs.
 pub(crate) fn plugin(app: &mut bevy_app::App) {
     let ran = crate::server::arriving::<Ran>(app);
-    app.insert_resource(Calls { ran })
-        .init_resource::<looks::Looks>();
+    app.insert_resource(Calls { ran });
 }
 
 /// A tool call, by its runtime and key.

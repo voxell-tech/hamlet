@@ -4,11 +4,11 @@
 //! after, the jobs, the runtimes and the clients, is left for
 //! [`crate::apply::Apply`] once it is kept.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, HashMap};
 
 use anyhow::Result;
 use bevy_ecs::entity::Entity;
-use bevy_ecs::message::MessageWriter;
+use bevy_ecs::message::{Message, MessageWriter, Messages};
 use bevy_ecs::system::{Commands, Query, Res, ResMut, SystemParam};
 use diesel::Connection;
 use hamlet_protocol::client as protocol;
@@ -51,7 +51,7 @@ pub(crate) fn plugin(app: &mut bevy_app::App) {
         .init_resource::<ToolFaults>()
         .init_resource::<Catalogue>()
         .init_resource::<Lodged>()
-        .init_resource::<Unpushed>()
+        .add_message::<Unpushed>()
         .init_resource::<Moving>();
 }
 
@@ -140,12 +140,10 @@ holder! {
     #[derive(Default)]
     Lodged(HashMap<AgentId, RemoteCopy>)
 }
-holder! {
-    /// The lodges whose remote copy is owed a push, which the runner
-    /// makes before the next input.
-    #[derive(Default)]
-    Unpushed(BTreeSet<AgentId>)
-}
+/// A lodge whose remote copy is owed a push, by its agent, which the
+/// runner makes before the next input.
+#[derive(Message)]
+pub(crate) struct Unpushed(pub AgentId);
 holder! {
     /// The progress of moving the lodges to the chosen workspace.
     #[derive(Default)]
@@ -171,7 +169,7 @@ pub(crate) struct Tooling<'w> {
 pub(crate) struct Remote<'w> {
     pub workspace: Res<'w, Workspace>,
     pub lodged: ResMut<'w, Lodged>,
-    pub unpushed: ResMut<'w, Unpushed>,
+    pub unpushed: ResMut<'w, Messages<Unpushed>>,
     pub moving: ResMut<'w, Moving>,
 }
 
@@ -219,7 +217,7 @@ pub(crate) struct Core<'w, 's> {
     /// The tool runs in progress, one entity each.
     pub runs: Runs<'w, 's>,
     /// The images of inputs being fitted to their models.
-    pub fitting: ResMut<'w, Fitting>,
+    pub fitting: Fitting<'w, 's>,
     /// The model catalogue and what waits on the providers.
     pub providers: ResMut<'w, Providers>,
     /// The runtimes' leases on the providers' credentials.
@@ -229,7 +227,7 @@ pub(crate) struct Core<'w, 's> {
     pub later: ResMut<'w, Later>,
     /// The findings of looks off the loop, for the calls that wait
     /// on them.
-    pub looks: ResMut<'w, Looks>,
+    pub looks: Looks<'w, 's>,
     /// Held while anything writes the realm's repositories and
     /// lodges.
     pub writing: Res<'w, Writing>,

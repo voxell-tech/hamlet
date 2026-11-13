@@ -11,7 +11,7 @@ use hamlet_protocol::client::AttachedFile;
 use hamlet_store::ids::AgentId;
 
 use crate::attached::Caption;
-use crate::core::Core;
+use crate::core::{Core, Unpushed};
 use crate::knowledge::folder::Folder;
 use crate::society::refusal::Refusal;
 use crate::workspace::lodges::LODGE;
@@ -63,7 +63,7 @@ impl Core<'_, '_> {
         .lodge;
         let remote = self.remote.workspace.is_some();
         if remote {
-            self.remote.unpushed.insert(agent);
+            self.remote.unpushed.write(Unpushed(agent));
         }
         Ok(Inbox {
             lodge,
