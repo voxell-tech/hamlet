@@ -86,11 +86,7 @@ import {
 } from "../utils/node.ts";
 import { getEnvUniversal, toUint8Array } from "../utils.ts";
 import { VirtualWebSocket } from "../virtual-websocket/mod.ts";
-import type {
-    RegistryConfig,
-    RuntimeKind,
-    SqliteBackend,
-} from "./config/index.ts";
+import type { RegistryConfig, SqliteBackend } from "./config/index.ts";
 import { logger } from "./log.ts";
 import { loadNapiRuntime } from "./napi-runtime.ts";
 import {
@@ -137,8 +133,6 @@ import {
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 
-type ResolvedRuntimeKind = Exclude<RuntimeKind, "auto">;
-
 type SerializeStateReason = "save" | "inspector";
 type NativeOnStateChangeHandler = (
     ctx: ActorContextHandleAdapter,
@@ -171,40 +165,6 @@ function sqliteBackendForConfig(
     return config.sqlite?.backend ?? config.test?.sqliteBackend;
 }
 
-export function normalizeRuntimeConfigForKind(
-    config: RegistryConfig,
-    runtimeKind: ResolvedRuntimeKind,
-): RegistryConfig {
-    if (runtimeKind === "native") {
-        return config;
-    }
-
-    if (sqliteBackendForConfig(config) === "local") {
-        throw new ActorError(
-            "config",
-            "wasm_local_sqlite",
-            "WebAssembly runtime cannot use local SQLite. Use remote SQLite instead.",
-            {
-                public: true,
-                statusCode: 400,
-                metadata: { runtime: "wasm", sqliteBackend: "local" },
-            },
-        );
-    }
-
-    return {
-        ...config,
-        sqlite: {
-            ...config.sqlite,
-            backend: "remote",
-        },
-        test: {
-            ...config.test,
-            enabled: config.test?.enabled ?? false,
-            sqliteBackend: "remote",
-        },
-    };
-}
 type NativePersistActorState = {
     state: unknown;
     isInOnStateChange: boolean;
@@ -3823,7 +3783,6 @@ function buildActorTracingConfig(
 function buildActorConfig(
     definition: AnyActorDefinition,
     registryConfig: RegistryConfig,
-    runtimeKind: "napi" | "wasm",
 ): RuntimeActorConfig {
     const config = definition.config as unknown as Record<string, unknown>;
     const options = (config.options ?? {}) as Record<string, unknown>;
@@ -3887,13 +3846,12 @@ function buildActorConfig(
         actions: Object.keys(flattenActionHandlers(config.actions))
             .sort()
             .map((name) => ({ name })),
-        inspectorTabs: buildInspectorTabs(config.inspector, runtimeKind),
+        inspectorTabs: buildInspectorTabs(config.inspector),
     });
 }
 
 function buildInspectorTabs(
     inspector: unknown,
-    runtimeKind: "napi" | "wasm",
 ): Array<RuntimeInspectorTabEntry> | undefined {
     if (!inspector || typeof inspector !== "object") return undefined;
     const tabs = (inspector as { tabs?: unknown }).tabs;
@@ -3908,24 +3866,6 @@ function buildInspectorTabs(
         };
         if (entry.hidden === true) {
             return { id: entry.id, hidden: true };
-        }
-
-        if (runtimeKind === "wasm") {
-            if (entry.source !== undefined) {
-                logger().warn(
-                    {
-                        tabId: entry.id,
-                        runtimeKind,
-                    },
-                    "inspector.tabs[].source is not supported on wasm runners (current host: wasm). Tab descriptors will still appear in the dashboard strip but the tab body will render a not-available placeholder.",
-                );
-            }
-            return omitUndefined({
-                id: entry.id,
-                label: entry.label,
-                icon: entry.icon,
-                source: undefined,
-            });
         }
 
         const resolved =
@@ -4735,18 +4675,9 @@ export function buildNativeFactory(
                 // so immediate and deferred sleep cleanup share one save-state
                 // path instead of passing a callback through cleanup.
                 const saveActorState = async () => {
-                    if (runtime.kind === "wasm") {
-                        // Wasm cannot use the native context save helper here because
-                        // the runtime owns the serialized state handoff.
-                        await runtime.actorSaveState(
-                            ctx,
-                            actorCtx.serializeForTick("save"),
-                        );
-                    } else {
-                        await actorCtx.saveState({
-                            immediate: true,
-                        });
-                    }
+                    await actorCtx.saveState({
+                        immediate: true,
+                    });
                 };
                 try {
                     if (onSleep) {
@@ -5529,7 +5460,7 @@ export function buildNativeFactory(
 
     return runtime.createActorFactory(
         callbacks,
-        buildActorConfig(definition, registryConfig, runtime.kind),
+        buildActorConfig(definition, registryConfig),
     );
 }
 
@@ -5549,10 +5480,7 @@ export async function buildRegistryWithRuntime(
 
     // Custom inspector tab `source` paths are resolved with node:path while
     // building actor configs below, so the Node modules must be loaded first.
-    // Native (napi) runtime only; wasm has no filesystem.
-    if (runtime.kind === "napi") {
-        importNodeDependencies();
-    }
+    importNodeDependencies();
 
     const registry = runtime.createRegistry();
 
@@ -5572,8 +5500,5 @@ export async function buildNativeRegistry(config: RegistryConfig): Promise<{
     registry: RegistryHandle;
 }> {
     const { runtime } = await loadNapiRuntime();
-    return buildRegistryWithRuntime(
-        normalizeRuntimeConfigForKind(config, "native"),
-        runtime,
-    );
+    return buildRegistryWithRuntime(config, runtime);
 }

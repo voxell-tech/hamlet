@@ -1682,7 +1682,7 @@ interface BaseActorConfig<
      * state. On native SQLite the hook's `c.db` writes and any save it starts itself
      * join that commit too, and a failed start drops them. Two limits apply:
      *
-     * - On remote SQLite (wasm runtimes), `c.db` writes, and state the hook writes
+     * - On remote SQLite, `c.db` writes, and state the hook writes
      *   itself in a transaction (for example `c.db.transaction` with
      *   `experimental.includeState`), are committed at once, without the fork record.
      *   A `c.saveState` call is not such a write: the startup save carries its

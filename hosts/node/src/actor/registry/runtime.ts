@@ -354,8 +354,6 @@ export type RuntimeWebSocketEvent =
       };
 
 export interface CoreRuntime {
-    readonly kind: "napi" | "wasm";
-
     createRegistry(): RegistryHandle;
     registerActor(
         registry: RegistryHandle,
@@ -419,10 +417,6 @@ export interface CoreRuntime {
     actorQueueHibernationRemoval(ctx: ActorContextHandle, connId: string): void;
     actorTakePendingHibernationChanges(ctx: ActorContextHandle): string[];
     actorDirtyHibernatableConns(ctx: ActorContextHandle): ConnHandle[];
-    actorSaveState(
-        ctx: ActorContextHandle,
-        payload: RuntimeStateDeltaPayload,
-    ): Promise<void>;
     actorSaveStateAndWorkflowBatch(
         ctx: ActorContextHandle,
         writes: RuntimeWorkflowKvWrite[],

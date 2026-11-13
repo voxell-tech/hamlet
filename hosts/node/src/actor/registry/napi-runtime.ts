@@ -205,8 +205,6 @@ function toNapiQueueMessage(message: NapiQueueMessage): RuntimeQueueMessage {
 }
 
 export class NapiCoreRuntime implements CoreRuntime {
-    readonly kind = "napi";
-
     #bindings: NativeBindings;
     #sqlOpened = new WeakSet<NativeActorContext>();
     #invocationContext: AsyncLocalStorage<NativeActorContext>;
@@ -412,15 +410,6 @@ export class NapiCoreRuntime implements CoreRuntime {
         return asNativeActorContext(
             ctx,
         ).dirtyHibernatableConns() as unknown as ConnHandle[];
-    }
-
-    async actorSaveState(
-        ctx: ActorContextHandle,
-        payload: RuntimeStateDeltaPayload,
-    ): Promise<void> {
-        await asNativeActorContext(ctx).saveState(
-            toNapiStateDeltaPayload(payload),
-        );
     }
 
     async actorSaveStateAndWorkflowBatch(

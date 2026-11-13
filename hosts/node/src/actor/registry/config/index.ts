@@ -37,8 +37,7 @@ export const ActorsSchema = z.record(
 );
 export type RegistryActors = z.infer<typeof ActorsSchema>;
 
-export const RuntimeKindSchema = z.enum(["auto", "native", "wasm"]);
-export type RuntimeKind = z.infer<typeof RuntimeKindSchema>;
+export const RuntimeKindSchema = z.enum(["auto", "native"]);
 export const SqliteBackendSchema = z.enum(["local", "remote"]);
 export type SqliteBackend = z.infer<typeof SqliteBackendSchema>;
 
@@ -102,7 +101,7 @@ export const RegistryConfigSchema = z
                 ctx.addIssue({
                     code: "custom",
                     message:
-                        "HAMLET_ACTOR_RUNTIME must be one of auto, native, or wasm",
+                        "HAMLET_ACTOR_RUNTIME must be one of auto or native",
                 });
                 return "auto";
             }
@@ -295,25 +294,6 @@ export const RegistryConfigSchema = z
     })
     .transform((config, ctx) => {
         const isDevEnv = isDev();
-        const sqliteBackend =
-            config.sqlite?.backend ?? config.test?.sqliteBackend;
-
-        if (config.runtime === "wasm" && sqliteBackend === "local") {
-            ctx.addIssue({
-                code: "custom",
-                message:
-                    "WebAssembly runtime cannot use local SQLite. Use remote SQLite instead.",
-                path:
-                    config.sqlite?.backend === "local"
-                        ? ["sqlite"]
-                        : ["test", "sqliteBackend"],
-            });
-        }
-
-        const sqlite =
-            config.runtime === "wasm" && config.sqlite === undefined
-                ? { backend: "remote" as const }
-                : config.sqlite;
 
         // Parse endpoint string (env var fallback is applied via transform above)
         const parsedEndpoint = config.endpoint
@@ -403,7 +383,6 @@ export const RegistryConfigSchema = z
         // If endpoint is set or starting the engine, we'll use the engine driver.
         return {
             ...config,
-            sqlite,
             endpoint,
             engineSpawn,
             startServices,
@@ -545,7 +524,7 @@ export const DocEnvoyConfigSchema = z
 export const DocSqliteConfigSchema = z
     .object({
         backend: SqliteBackendSchema.optional().describe(
-            "SQLite backend to use. Native defaults to local. Wasm defaults to remote and cannot use local.",
+            "SQLite backend to use. Default: local.",
         ),
     })
     .optional()
