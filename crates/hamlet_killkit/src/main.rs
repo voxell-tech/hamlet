@@ -11,8 +11,10 @@
 //!
 //! `--demo` defaults to `examples/demo` beside the kit's own binary,
 //! where `cargo build -p hamlet_host --example demo` puts it. Each
-//! run's folder is under the system's temporary folder; `--keep`
-//! keeps it, and a failed run always does.
+//! kit process makes a new folder of its own under
+//! `hamlet-killkit` in the system's temporary folder, with one
+//! folder per run inside it. A passed run's folder is removed unless
+//! `--keep` is given; a failed run's folder is always kept.
 
 mod scenario;
 
@@ -66,14 +68,15 @@ fn run() -> Result<bool> {
          hamlet_host --example demo`",
         options.demo.display()
     );
-    let base = std::env::temp_dir().join("hamlet-killkit");
+    let parent = std::env::temp_dir().join("hamlet-killkit");
+    private_dir(&parent)?;
+    let base = fresh_dir(
+        &parent,
+        &format!("{}-{}", options.scenario.name, std::process::id()),
+    )?;
     let mut passed = 0;
     for n in 1..=options.runs {
-        let dir = base.join(format!(
-            "{}-{}-{n}",
-            options.scenario.name,
-            std::process::id()
-        ));
+        let dir = base.join(format!("run-{n}"));
         let line =
             match run_once(options.scenario, &options.demo, &dir) {
                 Ok(report) => {
@@ -102,6 +105,9 @@ fn run() -> Result<bool> {
         "{}: {passed} of {} runs passed",
         options.scenario.name, options.runs
     )?;
+    // Kept runs stay inside the kit's folder, which then is not
+    // empty and stays too.
+    let _ = std::fs::remove_dir(&base);
     Ok(passed == options.runs)
 }
 
@@ -343,6 +349,30 @@ fn private_dir(path: &Path) -> Result<()> {
         .with_context(|| format!("create {}", path.display()))
 }
 
+/// Makes a new folder in `parent` whose name starts with `stem`,
+/// readable by this user alone. It never returns a folder that
+/// existed before, so no other kit process shares it.
+fn fresh_dir(parent: &Path, stem: &str) -> Result<PathBuf> {
+    let mut builder = std::fs::DirBuilder::new();
+    #[cfg(unix)]
+    std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+    for n in 0.. {
+        let dir = parent.join(format!("{stem}-{n}"));
+        match builder.create(&dir) {
+            Ok(()) => return Ok(dir),
+            Err(error)
+                if error.kind()
+                    == std::io::ErrorKind::AlreadyExists => {}
+            Err(error) => {
+                return Err(error).with_context(|| {
+                    format!("create {}", dir.display())
+                });
+            }
+        }
+    }
+    unreachable!("the folder names never run out")
+}
+
 fn read_probe(file: &Path, sql: &str) -> Result<i64> {
     let conn = Connection::open_with_flags(
         file,
@@ -510,5 +540,28 @@ mod tests {
                 .unwrap()
                 .unwrap();
         assert_eq!(options.runs, 2);
+    }
+
+    #[test]
+    fn a_kit_folder_is_never_one_that_exists() {
+        let parent = std::env::temp_dir().join(format!(
+            "hamlet-killkit-test-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&parent);
+        private_dir(&parent).unwrap();
+        std::fs::create_dir(parent.join("kit-0")).unwrap();
+        std::fs::write(parent.join("kit-0").join("other"), "")
+            .unwrap();
+
+        let first = fresh_dir(&parent, "kit").unwrap();
+        let second = fresh_dir(&parent, "kit").unwrap();
+        assert_ne!(first, parent.join("kit-0"));
+        assert_ne!(first, second);
+        for dir in [&first, &second] {
+            assert!(dir.is_dir());
+            assert_eq!(std::fs::read_dir(dir).unwrap().count(), 0);
+        }
+        std::fs::remove_dir_all(&parent).unwrap();
     }
 }

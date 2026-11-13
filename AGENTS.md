@@ -119,8 +119,9 @@ file, so open a file with `sqlite3 -readonly` only after the host stops.
 
 `cargo xtask killkit <scenario> --runs <n>` builds the demo, kills it
 with SIGKILL at a scenario's step, restarts it twice and prints one line
-per run; `--list` names the scenarios. Each run gets its own folder under
-the system's temporary folder, which the kit removes when the run passes.
+per run; `--list` names the scenarios. Each kit process makes a new
+folder of its own under the system's temporary folder, with a folder per
+run inside it, and removes a run's folder when the run passes.
 The kit stops the host at a step through `HAMLET_FAULT`, which works only
 in a build with `hamlet_host`'s `faults` feature; the crate's own tests
 and examples turn it on. `cargo xtask idle <command>` starts a command
