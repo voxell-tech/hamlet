@@ -6,14 +6,15 @@
 //! start until a clean stop, and holds the deadline that stop left:
 //! the earliest of the actor's schedule rows, its run wake deadline
 //! and the last alarm its core pushed, read once the core has
-//! stopped. A running actor's alarms live in its core alone, and the
-//! host keeps no timer for it. A stopped actor with a deadline has
-//! one timer, which starts it from its own file. Boot reads the files
-//! of the host's own kinds, begins the start of each actor a kill
-//! left marked running or whose deadline has come, without waiting
-//! for it, and arms a timer for each other stored deadline. A host
-//! locks the folder by its name, so hosts of different names, each
-//! with kinds of its own, share one folder.
+//! stopped. It also keeps the input a create gave the actor, which
+//! each start gives its core. A running actor's alarms live in its
+//! core alone, and the host keeps no timer for it. A stopped actor
+//! with a deadline has one timer, which starts it from its own file.
+//! Boot reads the files of the host's own kinds, begins the start of
+//! each actor a kill left marked running or whose deadline has come,
+//! without waiting for it, and arms a timer for each other stored
+//! deadline. A host locks the folder by its name, so hosts of
+//! different names, each with kinds of its own, share one folder.
 //!
 //! A destroy is stored in the row before the actor's files are
 //! removed, so the next start of the actor, a boot's included,
@@ -54,12 +55,14 @@ use tokio::task::AbortHandle;
 
 pub use self::access::{HostRef, Values};
 pub use self::call::Caller;
+use self::create::DuplicateKey;
 use crate::directory::{Address, Directory, Place};
 use crate::event::HostEvent;
 use crate::plain_sqlite::{self, PlainSqlite};
 
 mod access;
 mod call;
+mod create;
 
 /// The one session a local file has. The transaction code compares
 /// sessions to detect a lost connection, which a local file cannot
@@ -97,7 +100,7 @@ const ACTOR_TABLE: &str = "CREATE TABLE IF NOT EXISTS _hamlet_actor \
 ///
 /// | From | Event | To |
 /// |---|---|---|
-/// | absent | `get_or_start` or a call, the host not shut | `Starting` |
+/// | absent | `get_or_start`, a create or a call, the host not shut | `Starting` |
 /// | absent | boot reads its file, the host not shut | `Reading` |
 /// | `Reading` | boot found a run a kill cut off, or a deadline that has come | `Starting` |
 /// | `Reading` | boot found a deadline to come | `Stopped` |
@@ -109,7 +112,7 @@ const ACTOR_TABLE: &str = "CREATE TABLE IF NOT EXISTS _hamlet_actor \
 /// | `Starting` | its generation asks to sleep or to be destroyed, or reports a crash | `Starting`, with the request kept; a destroy wins over a sleep |
 /// | `Starting` | the start ended well | `Running`, or `Stopping`, or `Destroying` with its file marked, for a kept request |
 /// | `Starting` | the start failed or panicked, or missed its deadline | absent, the failure told to its waiters |
-/// | `Starting` | a start that may not make the actor found none | absent, its waiters told nothing |
+/// | `Starting` | a start that may not make the actor found none, or a create's found one | absent, its waiters told nothing |
 /// | `Running` | its generation asks to sleep or reports a crash, or `Host::stop(Sleep)` | `Stopping` |
 /// | `Running` | its generation asks to be destroyed, or `Host::stop(Destroy)` | `Destroying`, its file marked |
 /// | `Stopping` | its generation asks to be destroyed, or `Host::stop(Destroy)` | `Destroying`, its file marked |
@@ -125,7 +128,10 @@ const ACTOR_TABLE: &str = "CREATE TABLE IF NOT EXISTS _hamlet_actor \
 /// start that waited for a start that failed fails with it, rather
 /// than start again; one that waited for a start that found no actor
 /// reads the state again, so a `get_or_start` behind a call makes the
-/// actor the call could not. `Host::stop` waits for a `Reading` or
+/// actor the call could not. A create fails at once with
+/// `actor.duplicate_key` for a `Stopped`, `Running` or `Stopping`
+/// actor, and waits for a `Reading` or `Starting` one as a start
+/// does. `Host::stop` waits for a `Reading` or
 /// `Starting` actor and then stops it, and waits for a stop under
 /// way; a sleep leaves a `Stopped` actor as it is. `Host::shutdown`
 /// sleeps each actor as `Host::stop` does.
@@ -1108,9 +1114,11 @@ impl HostInner {
     /// also when it shuts down during the wait: such a host starts
     /// no actor again, so a wait could only delay the failure.
     /// Makes the actor only as `open` lets it: only `get_or_start`
-    /// asks for [`Open::OrCreate`]. A call, a timer and boot start an
-    /// actor from the file it has, and fail with `actor.not_found`
-    /// for a key that has none, making no file.
+    /// and a create make one. A call, a timer and boot start an actor
+    /// from the file it has, and fail with `actor.not_found` for a
+    /// key that has none, making no file. For [`Open::New`], fails
+    /// at once with `actor.duplicate_key` for an actor that is
+    /// `Stopped`, `Running` or `Stopping`, and leaves it as it is.
     async fn ensure_started(
         self: &Arc<Self>,
         actor_id: &str,
@@ -1128,7 +1136,20 @@ impl HostInner {
                 if actors.shut {
                     return Err(host_shut_down());
                 }
-                match actors.lives.get(actor_id) {
+                let life = actors.lives.get(actor_id);
+                if matches!(open, Open::New(_))
+                    && matches!(
+                        life,
+                        Some(
+                            Life::Stopped { .. }
+                                | Life::Running(_)
+                                | Life::Stopping { .. }
+                        )
+                    )
+                {
+                    return Err(Found::Exists.to_error(actor_id));
+                }
+                match life {
                     Some(Life::Running(generation)) => {
                         return Ok(generation.clone());
                     }
@@ -1478,6 +1499,10 @@ enum Open {
     /// Starts the actor the file holds, made first if there is none:
     /// `get_or_start`'s start.
     OrCreate,
+    /// Makes the actor, with this input kept in its row, and fails
+    /// with [`Found::Exists`] for one the file holds: a create's
+    /// start.
+    New(Vec<u8>),
 }
 
 impl Open {
@@ -1494,6 +1519,8 @@ impl Open {
 enum Found {
     /// No file, or a file with no actor's row: no actor to start.
     Nothing,
+    /// The actor's row, for a start that was to make the actor.
+    Exists,
 }
 
 impl std::fmt::Display for Found {
@@ -1503,6 +1530,7 @@ impl std::fmt::Display for Found {
     ) -> std::fmt::Result {
         match self {
             Self::Nothing => f.write_str("the file holds no actor"),
+            Self::Exists => f.write_str("the file holds an actor"),
         }
     }
 }
@@ -1519,6 +1547,9 @@ impl Found {
             }
             .build()
             .context(format!("the actor {actor_id} does not exist")),
+            Self::Exists => DuplicateKey
+                .build()
+                .context(format!("the actor {actor_id} exists")),
         }
     }
 }
@@ -1527,7 +1558,8 @@ impl Found {
 /// generation to its `_hamlet_actor` row, marks it running, and
 /// serves it. Returns the file and what the start read from the
 /// row. Fails with [`Found::Nothing`] for
-/// [`Open::Existing`] and no file or a file with no actor's row. A
+/// [`Open::Existing`] and no file or a file with no actor's row,
+/// and with [`Found::Exists`] for [`Open::New`] and an actor's row. A
 /// file that holds a destroy a kill cut off is removed first, as the
 /// destroy would have: the start then makes the actor anew if `open`
 /// makes it, and finds nothing if not.
@@ -1573,7 +1605,10 @@ struct Bumped {
 /// missing and `open` makes it, and marks it running. Returns what
 /// the start reads from the row, or `None` for a file that holds a
 /// destroy. Fails with [`Found::Nothing`] for a missing row
-/// and [`Open::Existing`], and changes nothing then.
+/// and [`Open::Existing`], and with [`Found::Exists`] for a row and
+/// [`Open::New`], and changes nothing then. The row is the actor: of
+/// two creates of one key, the one whose transaction writes it first
+/// makes the actor.
 fn bump_generation(
     conn: &mut Connection,
     kind: &str,
@@ -1589,15 +1624,22 @@ fn bump_generation(
             |row| row.get(0),
         )
         .optional()?;
-    match destroyed {
-        Some(true) => return Ok(None),
-        None if !open.makes() => return Err(Found::Nothing.into()),
-        Some(false) | None => {}
+    match (destroyed, open) {
+        (Some(true), _) => return Ok(None),
+        (None, Open::Existing) => return Err(Found::Nothing.into()),
+        (Some(false), Open::New(_)) => {
+            return Err(Found::Exists.into());
+        }
+        _ => {}
     }
+    let input = match open {
+        Open::New(input) => Some(input),
+        Open::Existing | Open::OrCreate => None,
+    };
     let first = tx.execute(
         "INSERT OR IGNORE INTO _hamlet_actor (id, kind, key, \
-         generation) VALUES (0, ?, ?, 0)",
-        (kind, key),
+         generation, input) VALUES (0, ?, ?, 0, ?)",
+        (kind, key, input),
     )? == 1;
     let (generation, input) = tx.query_row(
         "UPDATE _hamlet_actor SET generation = generation + 1, \
@@ -1619,8 +1661,8 @@ fn bump_generation(
 /// its core, and makes it `Running`, or begins the stop its
 /// generation asked for meanwhile. Returns the generation it started.
 /// A start that fails, or misses its deadline, closes the file and
-/// tells its waiters why. One that finds no actor tells them nothing,
-/// so each reads the state again.
+/// tells its waiters why. One that finds no actor, or a create's that
+/// finds one, tells them nothing, so each reads the state again.
 async fn start_actor(
     owned: Owned,
     id: u64,
