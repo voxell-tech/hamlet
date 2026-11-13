@@ -31,9 +31,15 @@
     },
     "devDependencies": {
         "@biomejs/biome": "2.5.15",
+        "@opentelemetry/sdk-trace-node": "2.12.1",
         "@standard-schema/spec": "1.1.0",
         "@types/invariant": "2.2.37",
         "@types/node": "24.19.2",
         "typescript": "7.0.2"
+    },
+    "overrides": {
+        "@opentelemetry/sdk-trace-node": {
+            "@opentelemetry/api": "$@opentelemetry/api"
+        }
     }
 }
