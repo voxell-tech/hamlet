@@ -860,8 +860,14 @@ impl HostInner {
             return Ok(None);
         };
         // The map first: a receiver that is starting for the first
-        // time has no file yet.
-        let known = self.actors.lock().lives.contains_key(&actor_id);
+        // time has no file yet. A shut host fails at once rather than
+        // wait, holding the host and its folder's lock, for a
+        // receiver's stop.
+        let known = {
+            let actors = self.actors.lock();
+            anyhow::ensure!(!actors.shut, "the host has shut down");
+            actors.lives.contains_key(&actor_id)
+        };
         if !known && !actor_path(&self.dir, &actor_id).exists() {
             return Ok(None);
         }
