@@ -34,8 +34,9 @@ once the server runs on actors.
 _Avoid_: persona, template, house
 
 **Hire**:
-A scholar working in a hamlet, on a branch of its own and in a lodge, for a
-purpose a chief may leave out. Hires form a tree under the mayor.
+A scholar working in a hamlet, on a branch of its own and in its own
+filesystem, for a purpose a chief may leave out. Hires form a tree under
+the mayor.
 _Avoid_: member, employee, citizen
 
 **Blank agent**:
@@ -104,11 +105,13 @@ _Avoid_: release (for a scholar)
 **Pin**:
 Holding a hire at one version of its scholar, so it does not take in `main`.
 
-**Lodge**:
-The checkout of a hire's branch where its tools work, without
-`CHARACTER.md`, plus an `inbox/` that is never committed. The Hand's is
-`hand/`.
-_Avoid_: house, workspace, home
+**Agent's filesystem**:
+An agent's own folder, where its file tools work: `memory/`, `skills/` and
+`inbox/`, beside the agent's database at `actors/agent/<id>.fs/` in the
+realm folder, `<id>` being the agent's number. The Hand's is
+`actors/agent/1.fs/`. Only the agent writes it, through its file tools and
+its own commands, and no path or link leads a file tool out of it.
+_Avoid_: lodge, house, workspace, home
 
 **Dream**:
 A task in which a hire brings what it learned home to its scholar's `main`,
