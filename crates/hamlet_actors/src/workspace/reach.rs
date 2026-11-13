@@ -6,12 +6,17 @@
 
 use std::io;
 use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 
+use hamlet_actor_core::{BindParam, ColumnValue, SqliteTransaction};
 use hamlet_os::fs::path::{normalize, text};
 use hamlet_sandbox::{Policy, base_env, host_env, is_within};
 use serde::{Deserialize, Serialize};
 
-use super::{AgentNumber, ConversationId, MACHINE};
+use super::{
+    AgentNumber, ConversationId, MACHINE, ReachVersion, SetReach,
+    encode,
+};
 
 /// Commands that reach the network, by the words they name, in lower
 /// case.
@@ -36,6 +41,50 @@ const NETWORK_WORDS: &[&str] = &[
     "nc",
     "brew install",
 ];
+
+/// Each agent's reach in force: one row per agent, never deleted, so
+/// an older version that arrives late is ignored.
+pub(super) const SCHEMA: &str = "CREATE TABLE IF NOT EXISTS reach (
+	agent INTEGER PRIMARY KEY,
+	version INTEGER NOT NULL,
+	body BLOB NOT NULL,
+	applied_at INTEGER NOT NULL) STRICT";
+
+/// Keeps `set` when it is newer than the agent's reach in force, in
+/// `tx`. Returns the version in force after it.
+pub(super) async fn apply(
+    tx: &SqliteTransaction,
+    set: &SetReach,
+) -> anyhow::Result<ReachVersion> {
+    let agent = BindParam::Integer(i64::try_from(set.agent.0)?);
+    let now = SystemTime::now().duration_since(UNIX_EPOCH)?;
+    tx.execute(
+        "INSERT INTO reach (agent, version, body, applied_at) \
+         VALUES (?1, ?2, ?3, ?4) ON CONFLICT (agent) DO UPDATE SET \
+         version = excluded.version, body = excluded.body, \
+         applied_at = excluded.applied_at WHERE excluded.version > \
+         reach.version",
+        Some(vec![
+            agent.clone(),
+            BindParam::Integer(i64::try_from(set.version.0)?),
+            BindParam::Blob(encode(&set.reach)?),
+            BindParam::Integer(i64::try_from(now.as_millis())?),
+        ]),
+    )
+    .await?;
+    let read = tx
+        .execute(
+            "SELECT version FROM reach WHERE agent = ?1",
+            Some(vec![agent]),
+        )
+        .await?;
+    match read.rows.first().and_then(|row| row.first()) {
+        Some(ColumnValue::Integer(version)) => {
+            Ok(ReachVersion(u64::try_from(*version)?))
+        }
+        _ => anyhow::bail!("agent {} has no reach row", set.agent.0),
+    }
+}
 
 /// The realm folder, `HAMLET_HOME`, as an absolute normalized path.
 #[derive(Clone, Debug, PartialEq, Eq)]

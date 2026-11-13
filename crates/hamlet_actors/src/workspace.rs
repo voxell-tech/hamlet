@@ -7,12 +7,149 @@ pub mod reach;
 use std::path::PathBuf;
 use std::time::Duration;
 
+use anyhow::Result;
+use hamlet_actor::{Actor, Ctx, Registry};
+use hamlet_actor_core::{
+    ActorConfig, ActorFactory, SqliteTransaction,
+};
+use hamlet_host::send::{self, Message};
 use serde::{Deserialize, Serialize};
 
-use self::reach::Op;
+use self::reach::{Op, Reach};
+
+pub const KIND: &str = "workspace";
 
 /// The workspace's key.
 pub const MACHINE: &str = "local";
+
+/// The only kind whose sends set a reach (W2).
+const REALM: &str = "realm";
+
+/// The workspace's kind, receiving sends.
+pub fn factory() -> ActorFactory {
+    let mut registry = Registry::new();
+    registry.register_actor_with::<Workspace>(
+        KIND,
+        ActorConfig {
+            has_database: true,
+            ..ActorConfig::default()
+        },
+    );
+    let layer = registry
+        .into_factories()
+        .remove(KIND)
+        .expect("the registry holds the kind it registered");
+    send::receiving(layer, receive)
+}
+
+struct Workspace;
+
+#[async_trait::async_trait]
+impl Actor for Workspace {
+    type Input = ();
+    type Actions = ();
+    type Events = ();
+    type ConnParams = ();
+    type Action = ();
+
+    async fn create(ctx: &Ctx<Self>) -> Result<Self> {
+        ctx.sql().exec(reach::SCHEMA.to_owned()).await?;
+        Ok(Self)
+    }
+}
+
+/// Applies a send in its receive transaction. A send the workspace
+/// does not take is answered with a [`SendRefusal`] and changes
+/// nothing, so it is not tried again.
+async fn receive(
+    tx: SqliteTransaction,
+    message: Message,
+) -> Result<Vec<u8>> {
+    let refusal = match message.name.as_str() {
+        SetReach::NAME if message.from.kind == REALM => {
+            let set: SetReach =
+                ciborium::from_reader(message.payload.as_slice())?;
+            let in_force = reach::apply(&tx, &set).await?;
+            let applied = ReachApplied {
+                agent: set.agent,
+                sent: set.version,
+                in_force,
+            };
+            send::send(
+                &tx,
+                &message.from,
+                ReachApplied::NAME,
+                &encode(&applied)?,
+                &message.follow(),
+            )
+            .await?;
+            return Ok(Vec::new());
+        }
+        SetReach::NAME => SendRefusal::WrongSender {
+            kind: message.from.kind.clone(),
+        },
+        name => SendRefusal::Unknown {
+            name: name.to_owned(),
+        },
+    };
+    tracing::warn!(send = message.id(), %refusal, "workspace refused a send");
+    encode(&refusal)
+}
+
+fn encode(value: &impl Serialize) -> Result<Vec<u8>> {
+    let mut bytes = Vec::new();
+    ciborium::into_writer(value, &mut bytes)?;
+    Ok(bytes)
+}
+
+/// A send the workspace takes no part of.
+#[derive(Debug, Serialize, Deserialize, thiserror::Error)]
+pub enum SendRefusal {
+    #[error("a send of kind `{kind}` may not set a reach")]
+    WrongSender { kind: String },
+    #[error("the workspace takes no send `{name}`")]
+    Unknown { name: String },
+}
+
+/// The realm's version of one agent's reach, from 1.
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Serialize,
+    Deserialize,
+)]
+pub struct ReachVersion(pub u64);
+
+/// Sets an agent's reach, when `version` is newer than the one in
+/// force. Sent by the realm.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SetReach {
+    pub agent: AgentNumber,
+    pub version: ReachVersion,
+    pub reach: Reach,
+}
+
+impl SetReach {
+    pub const NAME: &str = "set_reach";
+}
+
+/// The workspace's answer to a [`SetReach`]: the version it was sent
+/// and the version in force after it. Sent to the realm.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReachApplied {
+    pub agent: AgentNumber,
+    pub sent: ReachVersion,
+    pub in_force: ReachVersion,
+}
+
+impl ReachApplied {
+    pub const NAME: &str = "reach_applied";
+}
 
 /// The number in an agent actor's file name,
 /// `actors/agent/<n>.sqlite`.
