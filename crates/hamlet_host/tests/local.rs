@@ -1392,6 +1392,59 @@ async fn a_start_that_never_finishes_fails_at_its_deadline() {
     host.shutdown().await.unwrap();
 }
 
+/// No call waits on a host that is shutting down, which starts no
+/// actor again: a call that waits for its actor's stop when the
+/// shutdown begins fails then, and one that comes later fails at
+/// once, each with `actor.stopping`, while the stop waits for a nap.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_call_fails_at_once_once_its_host_shuts_down() {
+    let dir = Scratch::new("host-shut-call");
+    let host = Host::open(&dir, with_nappers()).unwrap();
+    let b = host.get_or_start("slow", "b").await.unwrap();
+    let get = |host: &Host| {
+        let host = host.clone();
+        let b = b.clone();
+        tokio::spawn(async move {
+            act(&host, &b, "get", Vec::new()).await
+        })
+    };
+    let nap = tokio::spawn({
+        let host = host.clone();
+        let b = b.clone();
+        async move { act(&host, &b, "nap", Vec::new()).await }
+    });
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    let stop = tokio::spawn({
+        let host = host.clone();
+        let b = b.clone();
+        async move { host.stop(&b, ShutdownKind::Sleep).await }
+    });
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    let waiting = get(&host);
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert!(
+        !waiting.is_finished(),
+        "the call did not wait for the stop"
+    );
+
+    let shutdown = tokio::spawn({
+        let host = host.clone();
+        async move { host.shutdown().await }
+    });
+    let short = Duration::from_millis(300);
+    for call in [waiting, get(&host)] {
+        let error = tokio::time::timeout(short, call)
+            .await
+            .expect("a call waited on a host that is shutting down")
+            .unwrap()
+            .expect_err("a call to a host that is shutting down");
+        assert!(is_actor_error(&error, "stopping"), "{error:#}");
+    }
+    nap.await.unwrap().unwrap();
+    stop.await.unwrap().unwrap();
+    shutdown.await.unwrap().unwrap();
+}
+
 /// A shutdown does not wait out a stuck start's deadline: it ends the
 /// start after a short grace.
 #[tokio::test(flavor = "multi_thread")]

@@ -929,7 +929,9 @@ impl Host {
     /// Starts the actor unless it runs, and returns the generation
     /// that runs it. Waits for a start or a stop under way first, and
     /// fails with a start it waited for. Fails at once for an actor
-    /// that is being destroyed, and in a host that has shut down.
+    /// that is being destroyed, and in a host that has shut down,
+    /// also when it shuts down during the wait: such a host starts
+    /// no actor again, so a wait could only delay the failure.
     /// Makes the actor's file only if `create`, which only
     /// `get_or_start` and a call ask for: boot starts an actor from
     /// the file it has, and never makes an empty one.
@@ -942,9 +944,14 @@ impl Host {
             Wait(Waiters),
             Start(Owned, u64),
         }
+        // Holds a time once the host has shut down.
+        let mut shut = self.inner().starts_end.subscribe();
         loop {
             let next = {
                 let mut actors = self.inner().actors.lock();
+                if actors.shut {
+                    return Err(host_shut_down());
+                }
                 match actors.lives.get(actor_id) {
                     Some(Life::Running(generation)) => {
                         return Ok(generation.clone());
@@ -974,7 +981,12 @@ impl Host {
             };
             match next {
                 Next::Wait(mut waiters) => {
-                    let _ = waiters.changed().await;
+                    tokio::select! {
+                        _ = waiters.changed() => {}
+                        _ = shut.wait_for(Option::is_some) => {
+                            return Err(host_shut_down());
+                        }
+                    }
                     if let Some(failed) = &*waiters.borrow() {
                         return Err(failed.to_error());
                     }
