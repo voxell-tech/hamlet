@@ -48,34 +48,29 @@ pub async fn run(host: &Host, words: &[String]) -> Result<()> {
         }
         _ => {}
     }
-    let actor_id = host.get_or_start("counter", key).await?;
-    let reply = match command {
+    // Read before the counter is made, so that a line the demo
+    // refuses makes none.
+    let (args, times) = match command {
         "increment" => {
-            let mut reply = Vec::new();
-            for _ in 0..number(words.get(2)).unwrap_or(1) {
-                reply = act(host, &actor_id, "increment", Vec::new())
-                    .await?;
-            }
-            reply
+            (Vec::new(), number(words.get(2)).unwrap_or(1))
         }
-        "get" | "sleep" | "destroy" => {
-            act(host, &actor_id, command, Vec::new()).await?
-        }
-        "block" => {
-            let ms = number(words.get(2))?;
-            act(host, &actor_id, "block", ms.to_le_bytes().to_vec())
-                .await?
-        }
+        "get" | "sleep" | "destroy" => (Vec::new(), 1),
+        "block" => (number(words.get(2))?.to_le_bytes().to_vec(), 1),
         "schedule" => {
             let mut args =
                 number(words.get(2))?.to_le_bytes().to_vec();
             if let Some(action) = words.get(3) {
                 args.extend_from_slice(action.as_bytes());
             }
-            act(host, &actor_id, "schedule", args).await?
+            (args, 1)
         }
         other => bail!("unknown command `{other}`"),
     };
+    let actor_id = host.get_or_start("counter", key).await?;
+    let mut reply = Vec::new();
+    for _ in 0..times {
+        reply = act(host, &actor_id, command, args.clone()).await?;
+    }
     print_reply("", &actor_id, reply)
 }
 
