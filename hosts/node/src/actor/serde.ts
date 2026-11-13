@@ -1,7 +1,6 @@
 // This file was changed for Hamlet. See NOTICE in this package.
 import * as cbor from "cbor-x";
 import invariant from "invariant";
-import type { VersionedDataHandler } from "vbare";
 import type { z } from "zod/v4";
 import type { Encoding, JsonCompatValue } from "./common/encoding.ts";
 import {
@@ -70,6 +69,12 @@ export function wsBinaryTypeForEncoding(
     } else {
         assertUnreachable(encoding);
     }
+}
+
+/** Serializer of one BARE type that embeds the schema version in its bytes. */
+export interface VersionedDataHandler<TBare> {
+    serializeWithEmbeddedVersion(data: TBare, version: number): Uint8Array;
+    deserializeWithEmbeddedVersion(bytes: Uint8Array): TBare;
 }
 
 export function serializeWithEncoding<TBare, TJson, T = TBare>(

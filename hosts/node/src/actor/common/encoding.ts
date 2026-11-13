@@ -1,7 +1,6 @@
 // This file was changed for Hamlet. See NOTICE in this package.
-import type { VersionedDataHandler } from "vbare";
 import { z } from "zod/v4";
-import { serializeWithEncoding } from "../serde.ts";
+import { serializeWithEncoding, type VersionedDataHandler } from "../serde.ts";
 import { assertUnreachable } from "./utils.ts";
 
 /** Data that can be deserialized. */
