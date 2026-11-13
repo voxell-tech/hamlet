@@ -3,27 +3,15 @@
 //! or a scholar dream.
 
 use anyhow::Result;
-use bevy_ecs::system::In;
 use hamlet_store::ids::Actor;
 
-use super::{Answer, Line};
 use crate::core::Core;
 use crate::knowledge::library;
 use crate::society::library::{self as shelf, Event, EventKind};
 use crate::society::refusal::Refusal;
 
-/// Runs a command on the library's shelves or a dream.
-pub(super) fn run(In(line): In<Line>, mut core: Core) -> Answer {
-    let words = line.words();
-    match line.name.as_str() {
-        "unshelve" => core.unshelve(&words),
-        // "dream".
-        _ => core.dream_command(line.here.as_ref(), &words),
-    }
-}
-
 impl Core<'_, '_> {
-    fn unshelve(
+    pub(super) fn unshelve(
         &mut self,
         words: &[&str],
     ) -> Result<Result<String, Refusal>> {

@@ -3,11 +3,9 @@
 //! path purged from all of it.
 
 use anyhow::Result;
-use bevy_ecs::system::In;
 use hamlet_git::{Author, CommitId, MAIN, Repository};
 use hamlet_store::ids::{Actor, HamletId, ScholarId};
 
-use super::{Answer, Line};
 use crate::core::Core;
 use crate::jobs::Fork;
 use crate::knowledge::folder::Folder;
@@ -17,20 +15,6 @@ use crate::society::{authority, city, hires, names};
 
 /// The most commits `/versions` lists.
 const MOST_SHOWN: usize = 12;
-
-/// Runs a command on a scholar's versions.
-pub(super) fn run(In(line): In<Line>, mut core: Core) -> Answer {
-    let words = line.words();
-    match line.name.as_str() {
-        "tag" => core.tag(&words),
-        "versions" => core.list_versions(&words),
-        "pin" => core.pin(line.here.as_ref(), &words),
-        "revert" => core.revert(&words),
-        "fork" => core.fork(&words),
-        // "purge".
-        _ => core.purge(&words),
-    }
-}
 
 impl Core<'_, '_> {
     /// The living scholar `text` addresses, which this chief keeps,
@@ -59,7 +43,7 @@ impl Core<'_, '_> {
         Actor::Chief(self.realm.chief()).to_string()
     }
 
-    fn tag(
+    pub(super) fn tag(
         &mut self,
         words: &[&str],
     ) -> Result<Result<String, Refusal>> {
@@ -107,7 +91,7 @@ impl Core<'_, '_> {
 
     /// Lists the versions of a scholar and the latest commits of its
     /// `main`.
-    fn list_versions(
+    pub(super) fn list_versions(
         &mut self,
         words: &[&str],
     ) -> Result<Result<String, Refusal>> {
@@ -153,7 +137,7 @@ impl Core<'_, '_> {
         Ok(Ok(lines.join("\n")))
     }
 
-    fn pin(
+    pub(super) fn pin(
         &mut self,
         here: Option<&HamletId>,
         words: &[&str],
@@ -209,7 +193,7 @@ impl Core<'_, '_> {
         }))
     }
 
-    fn revert(
+    pub(super) fn revert(
         &mut self,
         words: &[&str],
     ) -> Result<Result<String, Refusal>> {
@@ -259,7 +243,7 @@ impl Core<'_, '_> {
         }))
     }
 
-    fn fork(
+    pub(super) fn fork(
         &mut self,
         words: &[&str],
     ) -> Result<Result<String, Refusal>> {
@@ -306,7 +290,7 @@ impl Core<'_, '_> {
 
     /// Takes the path out of every commit, every branch and every
     /// lodge of the scholar's hires.
-    fn purge(
+    pub(super) fn purge(
         &mut self,
         words: &[&str],
     ) -> Result<Result<String, Refusal>> {

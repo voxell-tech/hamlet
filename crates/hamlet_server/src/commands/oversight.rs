@@ -3,56 +3,28 @@
 //! a grant back, instructing another agent and asking a reflection.
 
 use anyhow::Result;
-use bevy_ecs::system::In;
 use diesel::prelude::*;
 use hamlet_protocol::client::{Choice, Permission};
 use hamlet_store::ids::{Actor, AgentId, HamletId};
 use hamlet_store::schema::permission_grant;
 
-use super::{Answer, Line};
+use super::Line;
 use crate::core::Core;
 use crate::oversight::{self, gate};
 use crate::society::addresses::{self, Reach};
 use crate::society::refusal::Refusal;
 use crate::talk::{chats, reflections};
 
-/// Runs an oversight command.
-pub(super) fn run(In(line): In<Line>, mut core: Core) -> Answer {
-    let (agent, here, rest) =
-        (line.agent, line.here.as_ref(), &*line.rest);
-    let choice = match line.name.as_str() {
-        "allow" => Some(Choice::Allow),
-        "always" => Some(Choice::Always),
-        "deny" => Some(Choice::Deny),
-        "go" => Some(Choice::Go),
-        "withdraw" => Some(Choice::Withdraw),
-        "reply" => Some(Choice::Reply),
-        "dismiss" => Some(Choice::Dismiss),
-        _ => None,
-    };
-    if let Some(choice) = choice {
-        return core.answer_line(agent, &choice, rest);
-    }
-    match line.name.as_str() {
-        "queue" => core.queue(),
-        "grants" => core.grants(),
-        "revoke" => core.revoke(here, rest),
-        "to" => core.instruct(here, rest),
-        "reflect" => core.reflect(agent),
-        // "worker".
-        _ => core.chiefs_worker(here, rest),
-    }
-}
-
 impl Core<'_, '_> {
     /// Answers a wait with `choice`: the one `#<id>` names, else the
-    /// oldest of `agent`'s, else the oldest of all.
-    fn answer_line(
+    /// oldest of the agent `line` was said to, else the oldest of
+    /// all.
+    pub(super) fn answer_line(
         &mut self,
-        agent: AgentId,
+        line: &Line,
         choice: &Choice,
-        rest: &str,
     ) -> Result<Result<String, Refusal>> {
+        let (agent, rest) = (line.agent, line.rest.as_str());
         let (named, text) = match rest.strip_prefix('#') {
             Some(after) => {
                 let (id, text) = after
@@ -86,7 +58,9 @@ impl Core<'_, '_> {
         self.answer_wait(&id, choice, text, None)
     }
 
-    fn queue(&mut self) -> Result<Result<String, Refusal>> {
+    pub(super) fn queue(
+        &mut self,
+    ) -> Result<Result<String, Refusal>> {
         let db = self.realm.store().connection();
         let mut lines = Vec::new();
         for wait in oversight::open(db)? {
@@ -115,7 +89,9 @@ impl Core<'_, '_> {
         }))
     }
 
-    fn grants(&mut self) -> Result<Result<String, Refusal>> {
+    pub(super) fn grants(
+        &mut self,
+    ) -> Result<Result<String, Refusal>> {
         let db = self.realm.store().connection();
         let held = permission_grant::table
             .filter(permission_grant::revoked_at.is_null())
@@ -139,7 +115,7 @@ impl Core<'_, '_> {
         }))
     }
 
-    fn revoke(
+    pub(super) fn revoke(
         &mut self,
         here: Option<&HamletId>,
         rest: &str,
@@ -199,7 +175,7 @@ impl Core<'_, '_> {
     }
 
     /// Instructs the agent `rest` begins with, from any chat.
-    fn instruct(
+    pub(super) fn instruct(
         &mut self,
         here: Option<&HamletId>,
         rest: &str,
@@ -240,7 +216,7 @@ impl Core<'_, '_> {
         Ok(Ok(format!("Told {name}.")))
     }
 
-    fn reflect(
+    pub(super) fn reflect(
         &mut self,
         agent: AgentId,
     ) -> Result<Result<String, Refusal>> {
@@ -258,7 +234,7 @@ impl Core<'_, '_> {
 
     /// Starts a worker on `brief` in `here`, or outside every hamlet,
     /// whose answer shows in its own transcript.
-    fn chiefs_worker(
+    pub(super) fn chiefs_worker(
         &mut self,
         here: Option<&HamletId>,
         brief: &str,
