@@ -109,6 +109,7 @@ messages and watch failures can answer with `fault` (see
 | `read` | Fetch one document or list; `read` or failure `reply` |
 | `move-worktrees` | Copy worktrees to the workspace chosen in Settings |
 | `terminal` | Open, type into, resize, watch, rename or close a terminal |
+| `web-ide` | The address of a web IDE on a hamlet's folder, started if none runs; `reply` of kind `address`, or `error` |
 | `web-window`, `web` | A window that draws Web panels came to the front, or answers a server `web`; no `id`; no answer |
 
 Limits a client must respect on `say`: at most 20 images, each within

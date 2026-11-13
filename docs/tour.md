@@ -139,6 +139,7 @@ and serves the realm again.
 | `clients/` | Connections, request handlers, the state and its changes, transcripts, documents and the chief's `/` commands |
 | `attachments/` | Images and files on a chief's line, and the inbox (C33, S29, H30) |
 | `tools/` | What agents' tools do: built-in, custom and the society's catalogue |
+| `web_ide.rs` | One OpenVSCode Server per hamlet folder for the Files panel, started by `web-ide` under the sandbox |
 | `terminals/` | Shells on pseudo-terminals and each agent's commands terminal |
 | `providers/` | The model catalogue, provider requests and sign-ins |
 
