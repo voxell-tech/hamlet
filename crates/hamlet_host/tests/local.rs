@@ -1,7 +1,7 @@
 //! The local host: start by key, calls and their deadlines, stop,
-//! shutdown, the folder lock, the deadline a stop leaves, the commit
-//! hook, how one actor's start or stop leaves the others alone, and
-//! the deadline of a start.
+//! shutdown, the folder lock, the deadline a stop leaves, boot,
+//! destroy, how one actor's start or stop leaves the others alone,
+//! and the deadline of a start.
 
 use std::collections::HashMap;
 use std::future::Future;
@@ -9,7 +9,7 @@ use std::mem::ManuallyDrop;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::Duration;
 
 use act::{DEADLINE, act};
@@ -18,7 +18,7 @@ use hamlet_actor_core::{
     ColumnValue, ShutdownKind,
 };
 use hamlet_actor_error::ActorError;
-use hamlet_host::{Address, Cause, Host, HostOptions};
+use hamlet_host::{Address, Cause, Host, HostEvent, HostOptions};
 use hamlet_testing::Scratch;
 use parking_lot::Mutex;
 use rusqlite::{Connection, OpenFlags};
@@ -318,23 +318,6 @@ async fn boot_starts_an_actor_whose_alarm_came_due_while_down() {
     assert!(host.boot().await.unwrap().is_empty());
 }
 
-#[tokio::test(flavor = "multi_thread")]
-async fn a_committed_transaction_tells_the_host_and_a_rollback_does_not()
- {
-    let dir = Scratch::new("host-commit");
-    let host = Host::open(&dir, factories()).unwrap();
-    let id = host.get_or_start("counter", "a").await.unwrap();
-    let mut commits = host.commits();
-    while commits.try_recv().is_ok() {}
-
-    assert_eq!(call(&host, &id, "discard").await, 0);
-    assert!(commits.try_recv().is_err());
-    assert_eq!(call(&host, &id, "increment").await, 1);
-    assert_eq!(commits.try_recv().unwrap(), id);
-    assert!(commits.try_recv().is_err());
-    host.shutdown().await.unwrap();
-}
-
 /// The grace period an actor gets to finish its work is 15 seconds.
 /// One with no work left stops well inside it.
 #[tokio::test(flavor = "multi_thread")]
@@ -595,6 +578,331 @@ async fn a_slow_stop_does_not_stall_other_actors() {
     nap.await.unwrap().unwrap();
     stop.await.unwrap().unwrap();
     host.shutdown().await.unwrap();
+}
+
+/// Where a [`blocker`]'s event loop blocks: it waits on the receiver
+/// until the test drops the sender.
+type Gate = Arc<Mutex<std::sync::mpsc::Receiver<()>>>;
+
+/// A statement that runs for seconds: about 7 on a machine where
+/// SQLite counts 14 million rows a second.
+const LONG_STATEMENT: &str = "WITH RECURSIVE c(x) AS (SELECT 1 \
+                              UNION ALL SELECT x + 1 FROM c WHERE x \
+                              < 100000000) SELECT COUNT(*) FROM c";
+
+/// The kind `blocker`, whose event loop blocks in synchronous code at
+/// its action `block`, until `gate` closes, as an actor stuck in a
+/// blocking call does. Its action `scan` runs [`LONG_STATEMENT`] from
+/// the event loop. Each sends on `blocked` first. Its grace at a stop
+/// is 200 ms, so its core soon gives the event loop up and waits for
+/// it to end. Every action answers a count of 0.
+fn blocker(
+    gate: &Gate,
+    blocked: tokio::sync::mpsc::UnboundedSender<()>,
+) -> ActorFactory {
+    let config = ActorConfig {
+        name: Some("blocker".to_owned()),
+        has_database: true,
+        sleep_grace_period: Duration::from_millis(200),
+        ..ActorConfig::default()
+    };
+    let gate = gate.clone();
+    ActorFactory::new(config, move |start: ActorStart| {
+        let gate = gate.clone();
+        let blocked = blocked.clone();
+        Box::pin(async move {
+            let ActorStart {
+                ctx, mut events, ..
+            } = start;
+            while let Some(event) = events.recv().await {
+                match event {
+                    ActorEvent::Action { name, reply, .. } => {
+                        match name.as_str() {
+                            "block" => {
+                                let _ = blocked.send(());
+                                let _ = gate.lock().recv();
+                            }
+                            "scan" => {
+                                let _ = blocked.send(());
+                                let _ = ctx
+                                    .sql()
+                                    .exec(LONG_STATEMENT.to_owned())
+                                    .await;
+                            }
+                            _ => {}
+                        }
+                        reply.send(Ok(0i64.to_le_bytes().to_vec()));
+                    }
+                    other => counter::answer(other),
+                }
+            }
+            Ok(())
+        })
+    })
+}
+
+/// The stop deadline the tests of a blocked actor give their host.
+const STOP_DEADLINE: Duration = Duration::from_secs(2);
+
+/// The counters and a [`blocker`] that waits on `gate`, run by a host
+/// with [`STOP_DEADLINE`].
+fn blocked_host(
+    dir: &Path,
+    gate: &Gate,
+    blocked: &tokio::sync::mpsc::UnboundedSender<()>,
+) -> Host {
+    let mut kinds = factories();
+    kinds
+        .insert("blocker".to_owned(), blocker(gate, blocked.clone()));
+    let options = HostOptions {
+        stop_deadline: STOP_DEADLINE,
+        ..HostOptions::default()
+    };
+    Host::open_with(dir, kinds, options).unwrap()
+}
+
+/// Calls the action `action`, `block` or `scan`, of the [`blocker`]
+/// `actor_id`, and returns once its event loop blocks.
+async fn block(
+    host: &Host,
+    actor_id: &str,
+    action: &'static str,
+    blocks: &mut tokio::sync::mpsc::UnboundedReceiver<()>,
+) {
+    tokio::spawn({
+        let host = host.clone();
+        let actor_id = actor_id.to_owned();
+        async move { act(&host, &actor_id, action, Vec::new()).await }
+    });
+    blocks.recv().await.unwrap();
+}
+
+/// Whether `took`, the time a stop of a blocked actor took, is the
+/// stop deadline and at most the grace of its file's close past it.
+fn at_the_deadline(took: Duration) -> bool {
+    took >= STOP_DEADLINE
+        && took < STOP_DEADLINE + Duration::from_secs(2)
+}
+
+/// A stop has a deadline. A shutdown with an actor whose event loop
+/// blocks in synchronous code returns at the deadline, and names that
+/// actor, and only it, as not stopped. The other actors stop cleanly.
+/// The folder and the actor's file are free once the shutdown has
+/// returned, while the actor's code still blocks: a new host opens
+/// the folder, and its boot starts the actor again from its file,
+/// which kept its running mark.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_shutdown_returns_at_the_stop_deadline_of_a_blocked_actor()
+{
+    let dir = Scratch::new("host-stop-blocked");
+    // Dropped last, also when an assertion fails: the runtime's drop
+    // waits for the blocked thread.
+    let (release, gate) = std::sync::mpsc::channel::<()>();
+    let gate: Gate = Arc::new(Mutex::new(gate));
+    let (blocked, mut blocks) =
+        tokio::sync::mpsc::unbounded_channel();
+    let host = blocked_host(&dir, &gate, &blocked);
+    let counter = host.get_or_start("counter", "a").await.unwrap();
+    call(&host, &counter, "increment").await;
+    let stuck = host.get_or_start("blocker", "b").await.unwrap();
+    block(&host, &stuck, "block", &mut blocks).await;
+
+    let begun = std::time::Instant::now();
+    let shutdown = tokio::time::timeout(
+        Duration::from_secs(20),
+        host.shutdown(),
+    )
+    .await;
+    let took = begun.elapsed();
+    let error = format!(
+        "{:#}",
+        shutdown
+            .unwrap_or_else(|_| panic!(
+                "the shutdown waited {took:?}"
+            ))
+            .unwrap_err()
+    );
+    assert!(at_the_deadline(took), "{took:?}");
+    assert!(error.contains(&stuck), "{error}");
+    assert!(!error.contains(&counter), "{error}");
+
+    let host = blocked_host(&dir, &gate, &blocked);
+    assert_eq!(
+        host.boot().await.unwrap(),
+        std::slice::from_ref(&stuck)
+    );
+    assert_eq!(call(&host, &stuck, "get").await, 0);
+    assert_eq!(call(&host, &counter, "get").await, 1);
+    host.shutdown().await.unwrap();
+    drop(release);
+}
+
+/// A stop has its deadline also while a statement of the actor still
+/// runs on its file's thread, and keeps the stop from closing the
+/// file. The shutdown returns once the deadline and the close's grace
+/// have passed, and names the actor. The file stays open until the
+/// statement ends, and keeps its running mark: the next boot starts
+/// the actor again.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_shutdown_returns_while_a_statement_holds_the_file() {
+    let dir = Scratch::new("host-stop-statement");
+    let (release, gate) = std::sync::mpsc::channel::<()>();
+    let gate: Gate = Arc::new(Mutex::new(gate));
+    let (blocked, mut blocks) =
+        tokio::sync::mpsc::unbounded_channel();
+    let host = blocked_host(&dir, &gate, &blocked);
+    let stuck = host.get_or_start("blocker", "b").await.unwrap();
+    block(&host, &stuck, "scan", &mut blocks).await;
+
+    let begun = std::time::Instant::now();
+    let error = format!("{:#}", host.shutdown().await.unwrap_err());
+    let took = begun.elapsed();
+    assert!(at_the_deadline(took), "{took:?}");
+    assert!(error.contains(&stuck), "{error}");
+    assert!(
+        probe(&dir, "blocker", "b").is_err(),
+        "the statement ended before the shutdown returned"
+    );
+
+    wait_for_the_file(&dir, "blocker", "b").await;
+    let host = blocked_host(&dir, &gate, &blocked);
+    assert_eq!(
+        host.boot().await.unwrap(),
+        std::slice::from_ref(&stuck)
+    );
+    assert_eq!(call(&host, &stuck, "get").await, 0);
+    host.shutdown().await.unwrap();
+    drop(release);
+}
+
+/// A stop under way that misses its deadline fails each caller that
+/// waited for it, a call and a second stop, with
+/// `actor.shutdown_timeout`. From then on the actor is not running, a
+/// call to it and a create of its key fail at once, and a shutdown
+/// names it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_stop_past_its_deadline_fails_its_waiters_and_later_calls()
+{
+    let dir = Scratch::new("host-stop-waiters");
+    let (release, gate) = std::sync::mpsc::channel::<()>();
+    let gate: Gate = Arc::new(Mutex::new(gate));
+    let (blocked, mut blocks) =
+        tokio::sync::mpsc::unbounded_channel();
+    let host = blocked_host(&dir, &gate, &blocked);
+    let stuck = host.get_or_start("blocker", "b").await.unwrap();
+    block(&host, &stuck, "block", &mut blocks).await;
+
+    let begun = std::time::Instant::now();
+    let stop = |host: &Host| {
+        let host = host.clone();
+        let stuck = stuck.clone();
+        tokio::spawn(async move {
+            host.stop(&stuck, ShutdownKind::Sleep).await
+        })
+    };
+    let first = stop(&host);
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    let waiting_call = tokio::spawn({
+        let host = host.clone();
+        let stuck = stuck.clone();
+        async move { act(&host, &stuck, "get", Vec::new()).await }
+    });
+    let second = stop(&host);
+    for (who, ended) in [
+        ("the stop", first.await.unwrap()),
+        ("the waiting call", waiting_call.await.unwrap().map(drop)),
+        ("the second stop", second.await.unwrap()),
+    ] {
+        let error = ended.expect_err(who);
+        assert!(
+            is_actor_error(&error, "shutdown_timeout"),
+            "{error:#}"
+        );
+    }
+    let took = begun.elapsed();
+    assert!(at_the_deadline(took), "{took:?}");
+
+    assert!(!host.is_running(&stuck));
+    let error = tokio::time::timeout(
+        PROMPT,
+        act(&host, &stuck, "get", Vec::new()),
+    )
+    .await
+    .expect("a call to the stuck actor waited")
+    .unwrap_err();
+    assert!(is_actor_error(&error, "shutdown_timeout"), "{error:#}");
+    let error = tokio::time::timeout(
+        PROMPT,
+        host.create("blocker", "b", Vec::new()),
+    )
+    .await
+    .expect("a create of the stuck actor's key waited")
+    .unwrap_err();
+    assert!(is_actor_error(&error, "shutdown_timeout"), "{error:#}");
+    let error = format!("{:#}", host.shutdown().await.unwrap_err());
+    assert!(error.contains(&stuck), "{error}");
+    drop(release);
+}
+
+/// Waits until no connection holds the actor's file, for at most two
+/// minutes: a statement still running on its thread keeps it open.
+async fn wait_for_the_file(dir: &Path, kind: &str, key: &str) {
+    let begun = std::time::Instant::now();
+    while probe(dir, kind, key).is_err() {
+        assert!(begun.elapsed() < Duration::from_secs(120));
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+}
+
+/// A destroy whose stop misses its deadline fails as a sleep's does,
+/// and its mark stays in the file it gave up: the next boot finishes
+/// the destroy, removes the actor's three files and starts nothing.
+/// The [`blocker`]'s action `action`, `block` or `scan`, holds its
+/// event loop or its file's thread past the deadline.
+async fn a_destroy_past_its_deadline_is_finished_at_the_next_boot(
+    action: &'static str,
+) {
+    let dir = Scratch::new("host-destroy-missed");
+    let (release, gate) = std::sync::mpsc::channel::<()>();
+    let gate: Gate = Arc::new(Mutex::new(gate));
+    let (blocked, mut blocks) =
+        tokio::sync::mpsc::unbounded_channel();
+    let host = blocked_host(&dir, &gate, &blocked);
+    let stuck = host.get_or_start("blocker", "b").await.unwrap();
+    block(&host, &stuck, action, &mut blocks).await;
+
+    let begun = std::time::Instant::now();
+    let error = host
+        .stop(&stuck, ShutdownKind::Destroy)
+        .await
+        .expect_err("a destroy past its deadline");
+    let took = begun.elapsed();
+    assert!(is_actor_error(&error, "shutdown_timeout"), "{error:#}");
+    assert!(at_the_deadline(took), "{took:?}");
+    let error = format!("{:#}", host.shutdown().await.unwrap_err());
+    assert!(error.contains(&stuck), "{error}");
+    wait_for_the_file(&dir, "blocker", "b").await;
+
+    let host = blocked_host(&dir, &gate, &blocked);
+    assert!(host.boot().await.unwrap().is_empty());
+    assert!(!host.is_running(&stuck));
+    assert!(!any_file_of(&dir, "blocker", "b"));
+    host.shutdown().await.unwrap();
+    drop(release);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_destroy_of_a_blocked_actor_past_its_deadline_is_finished_at_the_next_boot()
+ {
+    a_destroy_past_its_deadline_is_finished_at_the_next_boot("block")
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_destroy_past_its_deadline_during_a_statement_is_finished_at_the_next_boot()
+ {
+    a_destroy_past_its_deadline_is_finished_at_the_next_boot("scan")
+        .await;
 }
 
 /// Starts of one key that race make one actor, with one generation.
@@ -1009,7 +1317,12 @@ async fn a_shutdown_closes_the_others_while_one_is_slow_and_reports_it()
     let text = format!("{error:#}");
     assert!(text.contains("brittle/b"), "{text}");
     assert!(!text.contains("counter/"), "{text}");
-    nap.await.unwrap().unwrap();
+    // A call in flight fails once its host begins to shut down.
+    let error = nap
+        .await
+        .unwrap()
+        .expect_err("a call in flight as its host shuts down");
+    assert!(is_actor_error(&error, "stopping"), "{error:#}");
     for id in ["brittle/b", "counter/a", "counter/c"] {
         assert!(!host.is_running(id), "{id} still runs");
     }
@@ -1127,7 +1440,12 @@ async fn a_second_host_opens_the_folder_at_once_after_a_shutdown() {
     tokio::time::sleep(Duration::from_millis(200)).await;
 
     host.shutdown().await.unwrap();
-    nap.await.unwrap().unwrap();
+    // A call in flight fails once its host begins to shut down.
+    let error = nap
+        .await
+        .unwrap()
+        .expect_err("a call in flight as its host shuts down");
+    assert!(is_actor_error(&error, "stopping"), "{error:#}");
     drop(host);
 
     let again = Host::open(&dir, with_nappers())
@@ -1173,6 +1491,11 @@ async fn the_folder_is_free_after_every_shutdown() {
         (0..16).map(|key| format!("counter/{key}")).collect();
     let mut refused = Vec::new();
     let mut host = Host::open(&dir, factories()).unwrap();
+    for key in 0..16 {
+        host.get_or_start("counter", &key.to_string())
+            .await
+            .unwrap();
+    }
     for round in 0..ROUNDS {
         for id in &keys {
             act(&host, id, "get", Vec::new()).await.unwrap();
@@ -1457,7 +1780,12 @@ async fn a_call_fails_at_once_once_its_host_shuts_down() {
             .expect_err("a call to a host that is shutting down");
         assert!(is_actor_error(&error, "stopping"), "{error:#}");
     }
-    nap.await.unwrap().unwrap();
+    // A call in flight fails once its host begins to shut down.
+    let error = nap
+        .await
+        .unwrap()
+        .expect_err("a call in flight as its host shuts down");
+    assert!(is_actor_error(&error, "stopping"), "{error:#}");
     stop.await.unwrap().unwrap();
     shutdown.await.unwrap().unwrap();
 }
@@ -1486,6 +1814,334 @@ async fn a_shutdown_returns_while_a_start_is_stuck() {
     assert!(is_actor_error(&start, "not_ready"), "{start:#}");
     assert!(!host.is_running("stuck/a"));
     wait_for_the_drop(&dropped).await;
+}
+
+/// The kind `scanner`, whose start runs [`LONG_STATEMENT`] before its
+/// actor is ready, so the statement holds the file's thread past a
+/// short start deadline.
+fn scanner() -> HashMap<String, ActorFactory> {
+    let config = ActorConfig {
+        name: Some("scanner".to_owned()),
+        has_database: true,
+        ..ActorConfig::default()
+    };
+    HashMap::from([(
+        "scanner".to_owned(),
+        ActorFactory::new_with_manual_startup_ready(
+            config,
+            |start: ActorStart| {
+                Box::pin(async move {
+                    let ActorStart {
+                        ctx,
+                        mut events,
+                        startup_ready,
+                        ..
+                    } = start;
+                    ctx.sql().exec(LONG_STATEMENT.to_owned()).await?;
+                    if let Some(ready) = startup_ready {
+                        let _ = ready.send(Ok(()));
+                    }
+                    while let Some(event) = events.recv().await {
+                        counter::answer(event);
+                    }
+                    Ok(())
+                })
+            },
+        ),
+    )])
+}
+
+/// A start that misses its deadline while a statement of its actor
+/// still runs on the file's thread fails at the deadline, and at most
+/// a second later for the file's close, without waiting for the
+/// statement. The file stays open until the statement ends, and then
+/// closes with its running mark.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_start_past_its_deadline_does_not_wait_for_a_statement() {
+    let dir = Scratch::new("host-start-statement");
+    let host = Host::open_with(
+        &dir,
+        scanner(),
+        HostOptions {
+            start_deadline: START_DEADLINE,
+            ..HostOptions::default()
+        },
+    )
+    .unwrap();
+    let begun = std::time::Instant::now();
+    let error = tokio::time::timeout(
+        Duration::from_secs(30),
+        host.get_or_start("scanner", "a"),
+    )
+    .await
+    .expect("the start waited for the statement past 30 s")
+    .expect_err("a start past its deadline must fail");
+    let took = begun.elapsed();
+    assert!(is_actor_error(&error, "not_ready"), "{error:#}");
+    assert!(
+        took >= START_DEADLINE
+            && took < START_DEADLINE + Duration::from_secs(2),
+        "{took:?}"
+    );
+    assert!(
+        probe(&dir, "scanner", "a").is_err(),
+        "the statement ended before the start returned"
+    );
+    host.shutdown().await.unwrap();
+
+    wait_for_the_file(&dir, "scanner", "a").await;
+    let running: i64 =
+        Connection::open(dir.join("actors/scanner/a.sqlite"))
+            .unwrap()
+            .query_row(
+                "SELECT running FROM _hamlet_actor",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+    assert_eq!(running, 1);
+}
+
+/// What the first start of a [`sleeper`] asks for before it is ready.
+#[derive(Clone, Copy)]
+enum Ask {
+    Sleep,
+    Crash,
+    Destroy,
+}
+
+/// The idle time after which a [`sleeper`] sleeps, in the tests of
+/// a call during its start.
+const IDLE: Duration = Duration::from_millis(300);
+
+/// The kind `sleeper`, which sleeps after `idle`. Its first start
+/// asks for `ask` through its context, sends on `asked`, and waits
+/// for `gate` before it is ready. `starts` counts its starts, and its
+/// one action answers the number of the start that answers it, from
+/// 1.
+fn sleeper(
+    ask: Ask,
+    idle: Duration,
+    starts: &Arc<AtomicUsize>,
+    asked: tokio::sync::mpsc::UnboundedSender<()>,
+    gate: &Arc<tokio::sync::Notify>,
+) -> HashMap<String, ActorFactory> {
+    let config = ActorConfig {
+        name: Some("sleeper".to_owned()),
+        has_database: true,
+        sleep_timeout: idle,
+        ..ActorConfig::default()
+    };
+    let (starts, gate) = (starts.clone(), gate.clone());
+    HashMap::from([(
+        "sleeper".to_owned(),
+        ActorFactory::new_with_manual_startup_ready(
+            config,
+            move |start: ActorStart| {
+                let number =
+                    starts.fetch_add(1, Ordering::SeqCst) + 1;
+                let (asked, gate) = (asked.clone(), gate.clone());
+                Box::pin(async move {
+                    let ActorStart {
+                        ctx,
+                        mut events,
+                        startup_ready,
+                        ..
+                    } = start;
+                    if number == 1 {
+                        match ask {
+                            Ask::Sleep => ctx.sleep(),
+                            Ask::Crash => {
+                                ctx.stop_with_error("crash")
+                            }
+                            Ask::Destroy => ctx.destroy(),
+                        }?;
+                        let _ = asked.send(());
+                        gate.notified().await;
+                    }
+                    if let Some(ready) = startup_ready {
+                        let _ = ready.send(Ok(()));
+                    }
+                    let number = i64::try_from(number)?;
+                    while let Some(event) = events.recv().await {
+                        match event {
+                            ActorEvent::Action { reply, .. } => {
+                                reply.send(Ok(number
+                                    .to_le_bytes()
+                                    .to_vec()));
+                            }
+                            other => counter::answer(other),
+                        }
+                    }
+                    Ok(())
+                })
+            },
+        ),
+    )])
+}
+
+/// Starts the [`sleeper`] `sleeper/a` of `host`, whose first start
+/// asks for what `asks` reports, and runs `then` while that start
+/// waits for `gate`. Returns once the start has ended, with `then`.
+async fn during_a_start<T: Send + 'static>(
+    host: &Host,
+    asks: &mut tokio::sync::mpsc::UnboundedReceiver<()>,
+    gate: &tokio::sync::Notify,
+    then: impl Future<Output = T> + Send + 'static,
+) -> tokio::task::JoinHandle<T> {
+    let start = tokio::spawn({
+        let host = host.clone();
+        async move { host.get_or_start("sleeper", "a").await }
+    });
+    asks.recv().await.unwrap();
+    let then = tokio::spawn(then);
+    // The ask reaches the host on a task of the core's own, and
+    // `then` waits for the start.
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    gate.notify_one();
+    start.await.unwrap().unwrap();
+    then
+}
+
+/// Calls `sleeper/a` of `host` during its first start, as
+/// [`during_a_start`] says.
+async fn call_during_a_start(
+    host: &Host,
+    asks: &mut tokio::sync::mpsc::UnboundedReceiver<()>,
+    gate: &tokio::sync::Notify,
+) -> tokio::task::JoinHandle<anyhow::Result<Vec<u8>>> {
+    let call = {
+        let host = host.clone();
+        async move {
+            host.call(
+                &Address::new("sleeper", "a"),
+                "get",
+                Vec::new(),
+                Duration::from_secs(10),
+                Cause::root("test"),
+            )
+            .await
+        }
+    };
+    during_a_start(host, asks, gate, call).await
+}
+
+/// A call that comes during a start cancels a sleep that the starting
+/// generation asked for: that generation answers the call, and no
+/// second start runs. The generation can still sleep afterwards: it
+/// does once it is idle.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_call_during_a_start_cancels_the_sleep_it_asked_for() {
+    let dir = Scratch::new("host-start-sleep");
+    let starts = Arc::new(AtomicUsize::new(0));
+    let gate = Arc::new(tokio::sync::Notify::new());
+    let (asked, mut asks) = tokio::sync::mpsc::unbounded_channel();
+    let host = Host::open(
+        &dir,
+        sleeper(Ask::Sleep, IDLE, &starts, asked, &gate),
+    )
+    .unwrap();
+    let call = call_during_a_start(&host, &mut asks, &gate).await;
+    let reply = call.await.unwrap().unwrap();
+    assert_eq!(counter::count(reply).unwrap(), 1);
+    assert!(host.is_running("sleeper/a"));
+
+    let idle = std::time::Instant::now();
+    while host.is_running("sleeper/a") {
+        assert!(
+            idle.elapsed() < Duration::from_secs(10),
+            "the generation did not sleep once idle"
+        );
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert_eq!(starts.load(Ordering::SeqCst), 1);
+    host.shutdown().await.unwrap();
+}
+
+/// A call that comes during a start leaves a crash, or a destroy,
+/// that the starting generation reported in place: a crash stops it,
+/// and a second start answers the call; a destroy removes it, and the
+/// call fails with `actor.destroying`.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_call_during_a_start_keeps_a_crash_or_a_destroy() {
+    for ask in [Ask::Crash, Ask::Destroy] {
+        let dir = Scratch::new("host-start-crash");
+        let starts = Arc::new(AtomicUsize::new(0));
+        let gate = Arc::new(tokio::sync::Notify::new());
+        let (asked, mut asks) =
+            tokio::sync::mpsc::unbounded_channel();
+        let host = Host::open(
+            &dir,
+            sleeper(ask, IDLE, &starts, asked, &gate),
+        )
+        .unwrap();
+        let call = call_during_a_start(&host, &mut asks, &gate).await;
+        let called = call.await.unwrap();
+        match ask {
+            Ask::Crash => {
+                assert_eq!(
+                    counter::count(called.unwrap()).unwrap(),
+                    2
+                );
+                assert_eq!(starts.load(Ordering::SeqCst), 2);
+            }
+            Ask::Destroy => {
+                let error =
+                    called.expect_err("a call to a destroyed actor");
+                assert!(
+                    is_actor_error(&error, "destroying"),
+                    "{error:#}"
+                );
+                host.stop("sleeper/a", ShutdownKind::Destroy)
+                    .await
+                    .unwrap();
+                assert!(!any_file_of(&dir, "sleeper", "a"));
+                assert_eq!(starts.load(Ordering::SeqCst), 1);
+            }
+            Ask::Sleep => unreachable!(),
+        }
+        host.shutdown().await.unwrap();
+    }
+}
+
+/// A create that comes during a start of its key leaves a sleep that
+/// the starting generation asked for in place: it fails with
+/// `actor.duplicate_key` and wakes nothing, so the generation sleeps
+/// at once rather than after its idle time, an hour here.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_create_during_a_start_leaves_the_sleep_it_asked_for() {
+    let dir = Scratch::new("host-start-create");
+    let starts = Arc::new(AtomicUsize::new(0));
+    let gate = Arc::new(tokio::sync::Notify::new());
+    let (asked, mut asks) = tokio::sync::mpsc::unbounded_channel();
+    let idle = Duration::from_secs(3600);
+    let host = Host::open(
+        &dir,
+        sleeper(Ask::Sleep, idle, &starts, asked, &gate),
+    )
+    .unwrap();
+    let create = {
+        let host = host.clone();
+        async move { host.create("sleeper", "a", Vec::new()).await }
+    };
+    let create =
+        during_a_start(&host, &mut asks, &gate, create).await;
+    let error = create
+        .await
+        .unwrap()
+        .expect_err("a create of a key a start made");
+    assert!(is_actor_error(&error, "duplicate_key"), "{error:#}");
+
+    let begun = std::time::Instant::now();
+    while host.is_running("sleeper/a") {
+        assert!(
+            begun.elapsed() < Duration::from_secs(10),
+            "the create kept the generation from its sleep"
+        );
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert_eq!(starts.load(Ordering::SeqCst), 1);
+    host.shutdown().await.unwrap();
 }
 
 /// Boot begins the starts of the actors a kill left running and
@@ -1717,4 +2373,338 @@ async fn hosts_of_different_names_share_a_folder() {
     assert_eq!(call(&node, &x, "increment").await, 1);
     main.shutdown().await.unwrap();
     node.shutdown().await.unwrap();
+}
+
+/// E1. One actor file that boot cannot read does not fail the boot.
+/// Boot logs it once, raises an event that names its actor, and
+/// boots the rest: a counter whose one-shot came due while the host
+/// was down starts and runs it.
+#[tokio::test(flavor = "multi_thread")]
+async fn boot_goes_past_a_file_it_cannot_read() {
+    use tracing_subscriber::util::SubscriberInitExt;
+
+    let dir = Scratch::new("host-boot-unreadable");
+    let host = Host::open(&dir, factories()).unwrap();
+    let id = host.get_or_start("counter", "a").await.unwrap();
+    call_with(&host, &id, "schedule", 100u64.to_le_bytes().to_vec())
+        .await;
+    host.shutdown().await.unwrap();
+    drop(host);
+    std::fs::write(
+        dir.join("actors/counter/bad.sqlite"),
+        b"not a database, only bytes".repeat(64),
+    )
+    .unwrap();
+    tokio::time::sleep(Duration::from_millis(200)).await;
+
+    let host = Host::open(&dir, factories()).unwrap();
+    let mut events = host.events();
+    let logs = Logs::default();
+    let logging = tracing_subscriber::fmt()
+        .with_max_level(tracing_subscriber::filter::LevelFilter::WARN)
+        .with_ansi(false)
+        .with_writer({
+            let logs = logs.clone();
+            move || logs.clone()
+        })
+        .finish()
+        .set_default();
+    let began = host.boot().await;
+    drop(logging);
+    assert_eq!(began.unwrap(), std::slice::from_ref(&id));
+    let logged = String::from_utf8(logs.0.lock().clone()).unwrap();
+    assert_eq!(logged.matches("bad.sqlite").count(), 1, "{logged}");
+    let event = events.try_recv().expect("no event for the file");
+    assert!(
+        matches!(
+            &event,
+            HostEvent::UnreadableFile { actor, .. }
+                if *actor == Address::new("counter", "bad")
+        ),
+        "{event:?}"
+    );
+    assert!(events.try_recv().is_err(), "a second event");
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(call(&host, &id, "get").await, 1);
+    host.shutdown().await.unwrap();
+}
+
+/// A file that a destroy removed after boot listed the files is not
+/// one boot cannot read: boot passes over it and raises no event.
+/// Each round makes `KEYS` counters that stopped cleanly, then boots
+/// a host while it destroys every one of them.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn boot_passes_over_a_file_a_destroy_removed_after_its_list() {
+    const KEYS: usize = 32;
+    const ROUNDS: usize = 20;
+    let dir = Scratch::new("host-boot-destroy-race");
+    let keys: Vec<String> =
+        (0..KEYS).map(|n| format!("k{n}")).collect();
+    for round in 0..ROUNDS {
+        let host = Host::open(&dir, factories()).unwrap();
+        for key in &keys {
+            host.get_or_start("counter", key).await.unwrap();
+        }
+        host.shutdown().await.unwrap();
+        drop(host);
+
+        let host = Host::open(&dir, factories()).unwrap();
+        let mut events = host.events();
+        let boot = tokio::spawn({
+            let host = host.clone();
+            async move { host.boot().await }
+        });
+        let destroys: Vec<_> = keys
+            .iter()
+            .map(|key| {
+                let host = host.clone();
+                let id = format!("counter/{key}");
+                tokio::spawn(async move {
+                    host.stop(&id, ShutdownKind::Destroy).await
+                })
+            })
+            .collect();
+        for destroy in destroys {
+            destroy.await.unwrap().unwrap();
+        }
+        assert!(boot.await.unwrap().unwrap().is_empty());
+        if let Ok(event) = events.try_recv() {
+            panic!("round {round}: boot raised {event:?}");
+        }
+        for key in &keys {
+            assert!(!any_file_of(&dir, "counter", key), "{key}");
+        }
+        host.shutdown().await.unwrap();
+    }
+}
+
+/// A start that begins while boot reads the same actor's file waits
+/// for the read, and never fails on the file's lock. Each round
+/// boots a host over `KEYS` counters that stopped cleanly, so boot
+/// reads every file and starts none, and starts every counter while
+/// boot runs, and creates it: each create fails only as a duplicate.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_start_during_boots_read_of_its_file_waits_for_the_read() {
+    const KEYS: usize = 8;
+    const ROUNDS: usize = 100;
+    let dir = Scratch::new("host-boot-read-race");
+    let keys: Vec<String> =
+        (0..KEYS).map(|n| format!("k{n}")).collect();
+    let host = Host::open(&dir, factories()).unwrap();
+    for key in &keys {
+        host.get_or_start("counter", key).await.unwrap();
+    }
+    host.shutdown().await.unwrap();
+    drop(host);
+
+    for round in 0..ROUNDS {
+        let host = Host::open(&dir, factories()).unwrap();
+        let boot = tokio::spawn({
+            let host = host.clone();
+            async move { host.boot().await }
+        });
+        let spawn = |key: &String, create: bool| {
+            let host = host.clone();
+            let key = key.clone();
+            tokio::spawn(async move {
+                if create {
+                    host.create("counter", &key, Vec::new()).await
+                } else {
+                    host.get_or_start("counter", &key).await
+                }
+            })
+        };
+        let starts: Vec<_> =
+            keys.iter().map(|key| spawn(key, false)).collect();
+        let creates: Vec<_> =
+            keys.iter().map(|key| spawn(key, true)).collect();
+        for start in starts {
+            if let Err(error) = start.await.unwrap() {
+                panic!("round {round}: a start failed: {error:#}");
+            }
+        }
+        for create in creates {
+            let error = create.await.unwrap().expect_err("a create");
+            assert!(
+                is_actor_error(&error, "duplicate_key"),
+                "round {round}: {error:#}"
+            );
+        }
+        assert!(boot.await.unwrap().unwrap().is_empty());
+        host.shutdown().await.unwrap();
+    }
+}
+
+/// Hosts of different names cannot both hold one kind: a host given a
+/// kind that another host holds fails to open, and names that kind's
+/// lock. The kind is free once its host has shut down.
+#[tokio::test(flavor = "multi_thread")]
+async fn hosts_of_different_names_cannot_share_a_kind() {
+    let dir = Scratch::new("host-shared-kind");
+    let named = |name: &str| HostOptions {
+        name: name.to_owned(),
+        ..HostOptions::default()
+    };
+    let main =
+        Host::open_with(&dir, factories(), named("main")).unwrap();
+    let Err(error) =
+        Host::open_with(&dir, factories(), named("node"))
+    else {
+        panic!("a second host of the kind counter opened the folder");
+    };
+    let lock = dir.join("actors").join("counter").join(".lock");
+    assert!(
+        error.to_string().contains(&lock.display().to_string()),
+        "{error:#}"
+    );
+    main.shutdown().await.unwrap();
+    let node =
+        Host::open_with(&dir, factories(), named("node")).unwrap();
+    node.shutdown().await.unwrap();
+}
+
+/// Whether any of the actor's three files is on disk: its file, its
+/// write-ahead file and its shared-memory file.
+fn any_file_of(dir: &Path, kind: &str, key: &str) -> bool {
+    ["", "-wal", "-shm"].iter().any(|suffix| {
+        dir.join("actors")
+            .join(kind)
+            .join(format!("{key}.sqlite{suffix}"))
+            .exists()
+    })
+}
+
+/// A destroy removes the actor's data whether it runs, sleeps with
+/// no deadline, or sleeps waiting for a timer, whose timer then never
+/// starts it. A destroy repeated afterwards ends the same way, and a
+/// new start of each key reads nothing of the old one.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_destroy_removes_a_running_a_sleeping_and_a_waiting_actor()
+{
+    let dir = Scratch::new("host-destroy-states");
+    let host = Host::open(&dir, factories()).unwrap();
+    for key in ["running", "sleeping", "waiting"] {
+        let id = host.get_or_start("counter", key).await.unwrap();
+        call(&host, &id, "increment").await;
+    }
+    call_with(
+        &host,
+        "counter/waiting",
+        "schedule",
+        300u64.to_le_bytes().to_vec(),
+    )
+    .await;
+    for key in ["sleeping", "waiting"] {
+        host.stop(&format!("counter/{key}"), ShutdownKind::Sleep)
+            .await
+            .unwrap();
+    }
+
+    for key in ["running", "sleeping", "waiting"] {
+        let id = format!("counter/{key}");
+        host.stop(&id, ShutdownKind::Destroy).await.unwrap();
+        assert!(!host.is_running(&id), "{key}");
+        assert!(!any_file_of(&dir, "counter", key), "{key}");
+        host.stop(&id, ShutdownKind::Destroy).await.unwrap();
+    }
+    tokio::time::sleep(Duration::from_millis(600)).await;
+    assert!(!host.is_running("counter/waiting"));
+    assert!(!any_file_of(&dir, "counter", "waiting"));
+    host.shutdown().await.unwrap();
+    drop(host);
+
+    let host = Host::open(&dir, factories()).unwrap();
+    assert!(host.boot().await.unwrap().is_empty());
+    for key in ["running", "sleeping", "waiting"] {
+        host.get_or_start("counter", key).await.unwrap();
+        assert_eq!(
+            call(&host, &format!("counter/{key}"), "get").await,
+            0
+        );
+    }
+    host.shutdown().await.unwrap();
+}
+
+/// A destroy reaches only a valid id of one of the host's own kinds,
+/// in a host that has not shut down: it removes no other file.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_destroy_refuses_an_id_that_is_not_its_hosts() {
+    let dir = Scratch::new("host-destroy-refused");
+    std::fs::create_dir_all(dir.join("actors/other")).unwrap();
+    std::fs::write(dir.join("actors/other/x.sqlite"), b"kept")
+        .unwrap();
+    std::fs::write(dir.join("kept.sqlite"), b"kept").unwrap();
+    let host = Host::open(&dir, factories()).unwrap();
+    for id in
+        ["other/x", "counter/../../kept", "counter", "counter/.x"]
+    {
+        assert!(
+            host.stop(id, ShutdownKind::Destroy).await.is_err(),
+            "{id}"
+        );
+    }
+    let id = host.get_or_start("counter", "a").await.unwrap();
+    host.stop(&id, ShutdownKind::Sleep).await.unwrap();
+    host.shutdown().await.unwrap();
+    assert!(host.stop(&id, ShutdownKind::Destroy).await.is_err());
+    assert!(dir.join("actors/other/x.sqlite").exists());
+    assert!(dir.join("kept.sqlite").exists());
+    assert!(dir.join("actors/counter/a.sqlite").exists());
+}
+
+/// A destroy of an actor whose generation left a transaction open
+/// does not wait for that transaction: the stop rolls it back, and
+/// the destroy removes the actor's files.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_destroy_ends_a_transaction_its_generation_left_open() {
+    let dir = Scratch::new("host-destroy-leaked");
+    let contexts = Contexts::default();
+    let host = Host::open(&dir, keeper(&contexts)).unwrap();
+    let id = host.get_or_start("keeper", "t").await.unwrap();
+    let ctx = contexts.lock()[0].clone();
+    ctx.sql().exec("BEGIN").await.unwrap();
+    ctx.sql()
+        .exec("INSERT INTO marks VALUES ('leaked')")
+        .await
+        .unwrap();
+    tokio::time::timeout(
+        Duration::from_secs(30),
+        host.stop(&id, ShutdownKind::Destroy),
+    )
+    .await
+    .expect("the destroy waited for the open transaction")
+    .unwrap();
+    assert!(!any_file_of(&dir, "keeper", "t"));
+    host.shutdown().await.unwrap();
+}
+
+/// A file that holds a destroy, as a kill leaves one, is removed at
+/// the actor's next start: `get_or_start` makes the actor anew, and a
+/// start that makes no file fails as for a missing one.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_start_finishes_the_destroy_its_file_holds() {
+    let dir = Scratch::new("host-destroy-stored");
+    let host = Host::open(&dir, factories()).unwrap();
+    for key in ["made", "kept-out"] {
+        let id = host.get_or_start("counter", key).await.unwrap();
+        call(&host, &id, "increment").await;
+        host.stop(&id, ShutdownKind::Sleep).await.unwrap();
+        Connection::open(
+            dir.join(format!("actors/counter/{key}.sqlite")),
+        )
+        .unwrap()
+        .execute("UPDATE _hamlet_actor SET destroying = 1", [])
+        .unwrap();
+    }
+
+    host.get_or_start("counter", "made").await.unwrap();
+    assert_eq!(call(&host, "counter/made", "get").await, 0);
+    let kept_out = Address::new("counter", "kept-out");
+    let error = host
+        .set_aside_timers(&kept_out)
+        .await
+        .expect_err("a start of a destroyed actor's file");
+    assert!(is_actor_error(&error, "not_found"), "{error:#}");
+    assert!(!any_file_of(&dir, "counter", "kept-out"));
+    host.shutdown().await.unwrap();
 }

@@ -23,8 +23,12 @@ type Last = Box<dyn FnOnce(&Connection) -> Answer + Send>;
 
 type Answer = Box<dyn FnOnce() + Send>;
 
+/// Work of the host's own that waits for no transaction to be open.
+type Idle = Box<dyn FnOnce(&Connection) -> Result<()> + Send>;
+
 enum Command {
     Sql(Request),
+    WhenIdle(Idle),
     Close(Last),
 }
 
@@ -96,6 +100,19 @@ impl PlainSqlite {
             .await
     }
 
+    /// Runs `work` on the connection as soon as no transaction is
+    /// open: at once when none is, else once the open one ends, or at
+    /// the close, after the rollback. A statement sent after `work`
+    /// runs after it, unless it belongs to a transaction open when
+    /// `work` was sent. An error of `work` is logged. Fails once the
+    /// file is closed.
+    pub fn when_idle(
+        &self,
+        work: impl FnOnce(&Connection) -> Result<()> + Send + 'static,
+    ) -> Result<()> {
+        self.send(Command::WhenIdle(Box::new(work)))
+    }
+
     /// Closes the connection, which releases the file's lock, and
     /// returns once it is closed.
     pub async fn close(&self) {
@@ -107,9 +124,10 @@ impl PlainSqlite {
     /// `last` returned once the file is closed. It runs as soon as
     /// the statements queued before it have, without waiting for an
     /// open transaction: one still open belongs to a generation that
-    /// has ended, so it is rolled back first. Nothing runs between
-    /// that rollback, `last` and the close, and any statement sent
-    /// after them fails with "sqlite file is closed".
+    /// has ended, so it is rolled back first. Only the work that
+    /// [`Self::when_idle`] holds runs between that rollback, `last`
+    /// and the close, and any statement sent after them fails with
+    /// "sqlite file is closed".
     pub async fn close_with<T: Send + 'static>(
         &self,
         last: impl FnOnce(&Connection) -> Result<T> + Send + 'static,
@@ -145,9 +163,13 @@ async fn received<T>(rx: oneshot::Receiver<Result<T>>) -> Result<T> {
 }
 
 fn serve(conn: Connection, rx: &mpsc::Receiver<Command>) {
+    // The work `when_idle` holds until no transaction is open, in the
+    // order it came.
+    let mut idle: Vec<Idle> = Vec::new();
     while let Ok(command) = rx.recv() {
         match command {
             Command::Sql(request) => request.answer(&conn),
+            Command::WhenIdle(work) => idle.push(work),
             Command::Close(last) => {
                 if !conn.is_autocommit()
                     && let Err(error) = conn.execute_batch("ROLLBACK")
@@ -157,6 +179,7 @@ fn serve(conn: Connection, rx: &mpsc::Receiver<Command>) {
                         "sqlite file did not roll back"
                     );
                 }
+                run_idle(&conn, &mut idle);
                 let answer = last(&conn);
                 if let Err((_, error)) = conn.close() {
                     tracing::error!(
@@ -167,6 +190,20 @@ fn serve(conn: Connection, rx: &mpsc::Receiver<Command>) {
                 answer();
                 return;
             }
+        }
+        if conn.is_autocommit() {
+            run_idle(&conn, &mut idle);
+        }
+    }
+}
+
+fn run_idle(conn: &Connection, idle: &mut Vec<Idle>) {
+    for work in idle.drain(..) {
+        if let Err(error) = work(conn) {
+            tracing::error!(
+                ?error,
+                "the host's write to a file failed"
+            );
         }
     }
 }
@@ -209,6 +246,63 @@ mod tests {
             .query_row("SELECT who FROM t", [], |row| row.get(0))
             .unwrap();
         assert_eq!(who, "host");
+    }
+
+    /// How many rows of `t` hold `who`.
+    async fn rows_of(file: &PlainSqlite, who: &str) -> i64 {
+        let result = file
+            .exec(format!(
+                "SELECT COUNT(*) FROM t WHERE who = '{who}'"
+            ))
+            .await
+            .unwrap();
+        match result.rows[0][0] {
+            hamlet_actor_core::ColumnValue::Integer(rows) => rows,
+            ref other => panic!("a count of {other:?}"),
+        }
+    }
+
+    /// Idle work waits for the open transaction to commit, and runs
+    /// before the statements sent after the commit. At the close, it
+    /// runs after the rollback of a transaction left open.
+    #[tokio::test]
+    async fn idle_work_waits_for_the_open_transaction() {
+        let dir = Scratch::new("plain-sqlite-idle");
+        let path = dir.join("a.sqlite");
+        let conn = open(&path, true).unwrap();
+        conn.execute_batch("CREATE TABLE t (who TEXT NOT NULL)")
+            .unwrap();
+        let file = PlainSqlite::serve(conn).unwrap();
+        let insert = |who: &'static str| {
+            move |conn: &Connection| {
+                conn.execute("INSERT INTO t VALUES (?)", [who])?;
+                Ok(())
+            }
+        };
+
+        file.exec("BEGIN".to_owned()).await.unwrap();
+        file.when_idle(insert("host")).unwrap();
+        file.exec("INSERT INTO t VALUES ('actor')".to_owned())
+            .await
+            .unwrap();
+        assert_eq!(rows_of(&file, "host").await, 0);
+        file.exec("ROLLBACK".to_owned()).await.unwrap();
+        assert_eq!(rows_of(&file, "actor").await, 0);
+        assert_eq!(rows_of(&file, "host").await, 1);
+
+        file.exec("BEGIN".to_owned()).await.unwrap();
+        file.exec("INSERT INTO t VALUES ('leaked')".to_owned())
+            .await
+            .unwrap();
+        file.when_idle(insert("closing")).unwrap();
+        file.close().await;
+        assert!(file.when_idle(insert("closed")).is_err());
+
+        let conn = open(&path, false).unwrap();
+        let file = PlainSqlite::serve(conn).unwrap();
+        assert_eq!(rows_of(&file, "leaked").await, 0);
+        assert_eq!(rows_of(&file, "closing").await, 1);
+        file.close().await;
     }
 
     /// The close checkpoints the write-ahead log, which takes a while

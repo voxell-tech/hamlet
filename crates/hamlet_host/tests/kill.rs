@@ -14,7 +14,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use act::act;
 use hamlet_actor_core::ActorFactory;
-use hamlet_host::{Address, Host, HostEvent, Letter};
+use hamlet_host::{Address, Host, HostEvent};
 use hamlet_testing::Scratch;
 
 #[path = "../examples/demo/act.rs"]
@@ -31,8 +31,10 @@ fn factories() -> HashMap<String, ActorFactory> {
 const CHILD_HOME: &str = "HAMLET_HOST_TEST_HOME";
 
 /// How far ahead, in milliseconds, the child schedules its one-shot.
-/// Unset, the child boots the folder instead.
 const CHILD_SCHEDULE_MS: &str = "HAMLET_HOST_TEST_SCHEDULE_MS";
+
+/// Set, the child destroys `counter/a`.
+const CHILD_DESTROY: &str = "HAMLET_HOST_TEST_DESTROY";
 
 /// How far ahead the child schedules a one-shot that must not come
 /// due before a kill, a restart and a clean stop.
@@ -42,10 +44,20 @@ const LATE_MS: u64 = 4000;
 /// kill.
 const SOON_MS: u64 = 800;
 
-/// Runs as the child. With a schedule, schedules a one-shot
-/// `increment` on `counter/a`, prints `acked` once the action
-/// replied, and passes the fault point `schedule-acked`; without one,
-/// boots the folder. Then waits to be killed.
+/// What a child host does before it waits to be killed.
+#[derive(Clone, Copy)]
+enum Child {
+    /// Boots the folder.
+    Boot,
+    /// Schedules a one-shot `increment` on `counter/a` that many ms
+    /// ahead, prints `acked` once the action replied, and passes the
+    /// fault point `schedule-acked`.
+    Schedule(u64),
+    /// Increments `counter/a` twice, then destroys it.
+    Destroy,
+}
+
+/// Runs as the child, as [`Child`] says, then waits to be killed.
 #[test]
 fn child_host() {
     let Some(home) = std::env::var_os(CHILD_HOME) else {
@@ -57,7 +69,12 @@ fn child_host() {
     let runtime = tokio::runtime::Runtime::new().unwrap();
     runtime.block_on(async {
         let host = Host::open(Path::new(&home), factories()).unwrap();
-        if let Some(ms) = schedule_ms {
+        if std::env::var_os(CHILD_DESTROY).is_some() {
+            let id = host.get_or_start("counter", "a").await.unwrap();
+            for action in ["increment", "increment", "destroy"] {
+                act(&host, &id, action, Vec::new()).await.unwrap();
+            }
+        } else if let Some(ms) = schedule_ms {
             let id = host.get_or_start("counter", "a").await.unwrap();
             act(&host, &id, "schedule", ms.to_le_bytes().to_vec())
                 .await
@@ -71,14 +88,12 @@ fn child_host() {
     });
 }
 
-/// Runs a child host on `home` until it stops at the fault point
-/// `fault`, and kills it there. With `schedule_ms`, the child
-/// schedules a one-shot that far ahead, and the result is when its
-/// acknowledgement was read. Without, the child boots the folder,
-/// and prints nothing: its boot may be what stops at the point.
+/// Runs a child host on `home` that does `what` until it stops at
+/// the fault point `fault`, and kills it there. For a schedule, the
+/// result is when its acknowledgement was read.
 fn kill_child_at(
     home: &Path,
-    schedule_ms: Option<u64>,
+    what: Child,
     fault: &str,
 ) -> Option<Instant> {
     let faults = home.join("faults");
@@ -89,14 +104,21 @@ fn kill_child_at(
         .env(CHILD_HOME, home)
         .env("HAMLET_FAULT", fault)
         .env("HAMLET_FAULT_DIR", &faults)
-        .stdout(Stdio::null());
-    if let Some(ms) = schedule_ms {
-        command
-            .env(CHILD_SCHEDULE_MS, ms.to_string())
-            .stdout(Stdio::piped());
+        .stdout(Stdio::piped());
+    match what {
+        Child::Boot => {}
+        Child::Schedule(ms) => {
+            command.env(CHILD_SCHEDULE_MS, ms.to_string());
+        }
+        Child::Destroy => {
+            command.env(CHILD_DESTROY, "1");
+        }
     }
     let mut child = command.spawn().unwrap();
-    let acked = child.stdout.take().and_then(|stdout| {
+    // Read on a thread of its own, so a child that stops before it
+    // prints keeps no test waiting.
+    let stdout = child.stdout.take().unwrap();
+    let acked = std::thread::spawn(move || {
         BufReader::new(stdout)
             .lines()
             .map_while(Result::ok)
@@ -110,11 +132,13 @@ fn kill_child_at(
     }
     child.kill().unwrap();
     child.wait().unwrap();
-    assert_eq!(
-        acked.is_some(),
-        schedule_ms.is_some(),
-        "the child never acknowledged the schedule"
-    );
+    let acked = acked.join().unwrap();
+    if let Child::Schedule(_) = what {
+        assert!(
+            acked.is_some(),
+            "the child never acknowledged the schedule"
+        );
+    }
     acked
 }
 
@@ -131,7 +155,11 @@ struct Due {
 fn kill_after_the_ack(home: &Path) -> Due {
     let schedule = Duration::from_millis(LATE_MS);
     let earliest = Instant::now() + schedule;
-    let acked = kill_child_at(home, Some(LATE_MS), "schedule-acked");
+    let acked = kill_child_at(
+        home,
+        Child::Schedule(LATE_MS),
+        "schedule-acked",
+    );
     Due {
         earliest,
         latest: acked.unwrap() + schedule,
@@ -292,7 +320,7 @@ async fn a_stop_before_the_schedule_is_due_stores_its_deadline() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_kill_while_a_one_shot_runs_runs_it_once() {
     let home = Scratch::new("kill-one-shot");
-    kill_child_at(&home, Some(SOON_MS), "tx-open");
+    kill_child_at(&home, Child::Schedule(SOON_MS), "tx-open");
     assert_eq!(
         stored(&home, "a").count,
         0,
@@ -345,7 +373,7 @@ async fn a_kill_on_the_boot_that_fires_a_due_alarm_runs_it_once() {
     let stopped = marks(&home);
     assert!(stopped.wake_at.is_some(), "the stop left no deadline");
     tokio::time::sleep(Duration::from_millis(900)).await;
-    kill_child_at(&home, None, "timer-fired");
+    kill_child_at(&home, Child::Boot, "timer-fired");
     assert_eq!(
         (stored(&home, "a"), marks(&home)),
         (
@@ -389,7 +417,7 @@ async fn a_kill_on_the_boot_that_fires_a_due_alarm_runs_it_once() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_kill_after_the_timer_handler_commits_runs_it_once() {
     let home = Scratch::new("kill-committed");
-    kill_child_at(&home, Some(SOON_MS), "tx-committed");
+    kill_child_at(&home, Child::Schedule(SOON_MS), "tx-committed");
     assert_eq!(
         stored(&home, "a"),
         Stored {
@@ -419,6 +447,44 @@ async fn a_kill_after_the_timer_handler_commits_runs_it_once() {
     );
 }
 
+/// Where a kill cuts a destroy off once its actor asked for it: as
+/// its stop marks the run ended, once the destroy is stored in the
+/// actor's file, and before each of its three files is removed.
+const DESTROY_CUTS: [&str; 5] = [
+    "run-ended",
+    "destroy-marked",
+    "destroy-remove:1",
+    "destroy-remove:2",
+    "destroy-remove:3",
+];
+
+/// A destroy that a kill cut off is finished at the next boot: the
+/// actor does not come back, its three files are gone, and a new
+/// start of its key reads 0.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_destroy_a_kill_cut_off_is_finished_at_the_next_boot() {
+    for cut in DESTROY_CUTS {
+        let home = Scratch::new("kill-destroy");
+        kill_child_at(&home, Child::Destroy, cut);
+        let file = home.join("actors/counter/a.sqlite");
+        assert!(
+            file.exists(),
+            "{cut}: the kill came after the removal"
+        );
+
+        let host = Host::open(&home, factories()).unwrap();
+        assert!(host.boot().await.unwrap().is_empty(), "{cut}");
+        for suffix in ["", "-wal", "-shm"] {
+            let mut path = file.clone().into_os_string();
+            path.push(suffix);
+            assert!(!Path::new(&path).exists(), "{cut}: {path:?}");
+        }
+        let id = host.get_or_start("counter", "a").await.unwrap();
+        assert_eq!(count(&host, &id).await, 0, "{cut}");
+        host.shutdown().await.unwrap();
+    }
+}
+
 /// What the aborting child does: `arm`, `boot` or `rearm`. Unset, the
 /// aborting child does nothing.
 const ABORT_STEP: &str = "HAMLET_HOST_TEST_ABORT_STEP";
@@ -442,7 +508,7 @@ const REARM_DUE_MS: i64 = 500;
 ///   `counter/a`'s `abort` 100 ms ahead and waits.
 /// - `boot` boots and stays up `STAY`. Then it prints each timer
 ///   `counter/a` set aside, as `timer <action> <tries> <error|->`,
-///   whether the host's events are one dead letter for each, and
+///   whether the host's events are one set-aside event for each, and
 ///   `survived` once it has shut the host down.
 /// - `rearm` puts each timer `counter/a` set aside back,
 ///   `REARM_DUE_MS` ahead, prints `rearmed <true|false>`, and waits.
@@ -482,15 +548,13 @@ fn aborting_child() {
                 tokio::time::sleep(STAY).await;
                 let timers =
                     host.set_aside_timers(&at).await.unwrap();
-                let letters: Vec<HostEvent> = timers
+                let set_aside: Vec<HostEvent> = timers
                     .iter()
-                    .map(|timer| HostEvent::DeadLetter {
-                        holder: at.clone(),
-                        letter: Letter::Timer {
-                            event_id: timer.event_id.clone(),
-                            action: timer.action.clone(),
-                            due_at: timer.due_at,
-                        },
+                    .map(|timer| HostEvent::TimerSetAside {
+                        actor: at.clone(),
+                        event_id: timer.event_id.clone(),
+                        action: timer.action.clone(),
+                        due_at: timer.due_at,
                         tries: timer.tries,
                         error: timer.last_error.clone(),
                     })
@@ -510,8 +574,8 @@ fn aborting_child() {
                 }
                 writeln!(
                     out,
-                    "dead letters match: {}",
-                    raised == letters
+                    "set-aside events match: {}",
+                    raised == set_aside
                 )
                 .unwrap();
                 host.shutdown().await.unwrap();
@@ -584,8 +648,13 @@ fn run_aborting_child(home: &Path, step: &str) -> Ended {
         }
         std::thread::sleep(Duration::from_millis(10));
     };
-    let known =
-        ["armed", "timer ", "dead letters ", "survived", "rearmed "];
+    let known = [
+        "armed",
+        "timer ",
+        "set-aside events ",
+        "survived",
+        "rearmed ",
+    ];
     let lines = out
         .join()
         .unwrap()
@@ -618,7 +687,11 @@ fn a_one_shot_that_kills_its_host_is_set_aside_at_the_fifth_boot() {
     assert!(booted.status.success(), "boot 5: {booted:?}");
     assert_eq!(
         booted.lines,
-        ["timer abort 5 -", "dead letters match: true", "survived"]
+        [
+            "timer abort 5 -",
+            "set-aside events match: true",
+            "survived"
+        ]
     );
     assert_eq!(
         stored(&home, "a"),

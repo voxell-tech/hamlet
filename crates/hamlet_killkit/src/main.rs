@@ -30,7 +30,7 @@ use anyhow::{Context, Result, anyhow, bail, ensure};
 use rand::Rng;
 use rusqlite::{Connection, OpenFlags};
 
-use crate::scenario::{Is, Kill, SCENARIOS, Scenario};
+use crate::scenario::{Is, Kill, Probe, Read, SCENARIOS, Scenario};
 
 /// How long the kit waits for a reply, a fault point or a restart.
 const PATIENCE: Duration = Duration::from_secs(30);
@@ -311,14 +311,14 @@ fn run_once(
             .saturating_duration_since(Instant::now()),
     );
     let mut restarts = Vec::new();
-    for n in 1..=2 {
+    for (n, lines) in (1..).zip(scenario.restart) {
         let mut host = Host::start(
             demo,
             &home,
             None,
             &dir.join(format!("restart-{n}.log")),
         )?;
-        for line in scenario.restart {
+        for line in lines {
             host.send(line)?;
         }
         let mut restart = Restart::new();
@@ -333,7 +333,7 @@ fn run_once(
             restart.insert(name, count);
         }
         for probe in scenario.probes {
-            let value = read_probe(&home.join(probe.file), probe.sql)
+            let value = read_probe(&home, probe)
                 .with_context(|| format!("probe {}", probe.name))?;
             restart.insert(probe.name.to_owned(), value);
         }
@@ -382,13 +382,27 @@ fn fresh_dir(parent: &Path, stem: &str) -> Result<PathBuf> {
     unreachable!("the folder names never run out")
 }
 
-fn read_probe(file: &Path, sql: &str) -> Result<i64> {
-    let conn = Connection::open_with_flags(
-        file,
-        OpenFlags::SQLITE_OPEN_READ_ONLY,
-    )
-    .with_context(|| format!("open {}", file.display()))?;
-    Ok(conn.query_row(sql, [], |row| row.get(0))?)
+fn read_probe(home: &Path, probe: &Probe) -> Result<i64> {
+    let file = home.join(probe.file);
+    match probe.read {
+        Read::Sql(sql) => {
+            let conn = Connection::open_with_flags(
+                &file,
+                OpenFlags::SQLITE_OPEN_READ_ONLY,
+            )
+            .with_context(|| format!("open {}", file.display()))?;
+            Ok(conn.query_row(sql, [], |row| row.get(0))?)
+        }
+        Read::Files => {
+            let mut found = 0;
+            for suffix in ["", "-wal", "-shm"] {
+                let mut path = file.clone().into_os_string();
+                path.push(suffix);
+                found += i64::from(Path::new(&path).try_exists()?);
+            }
+            Ok(found)
+        }
+    }
 }
 
 /// Reads `counter/<key> <count>`.

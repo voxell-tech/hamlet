@@ -1,7 +1,8 @@
 //! Timers: what a one-shot schedule does when its handler panics,
 //! and when its actor sleeps or is destroyed as it comes due, a
-//! one-shot that never finishes set aside after five tries, and a
-//! stored deadline at either end of the clock's range.
+//! one-shot that never finishes set aside after five tries, a
+//! stored deadline at either end of the clock's range, and a start
+//! for a deadline that fails.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -20,7 +21,8 @@ use hamlet_actor_core::sqlite::SqliteDb;
 use hamlet_actor_core::{
     ActorEvent, ActorFactory, ActorStart, ColumnValue, ShutdownKind,
 };
-use hamlet_host::{Address, Host, HostEvent, Letter};
+use hamlet_actor_error::ActorError;
+use hamlet_host::{Address, Caller, Host, HostEvent, HostOptions};
 use hamlet_testing::Scratch;
 use serde::{Deserialize, Serialize};
 use tokio::time::{Instant, sleep};
@@ -222,7 +224,7 @@ impl<const NAPS: bool> Actor for Fuse<NAPS> {
     type Input = ();
     type Actions = (Arm, Fire, Runs);
     type Events = ();
-    type ConnParams = ();
+    type ConnParams = Option<Caller>;
     type Action = ();
 
     async fn create(ctx: &Ctx<Self>) -> Result<Self> {
@@ -545,7 +547,7 @@ async fn a_one_shot_that_drops_its_reply_is_set_aside_after_five_runs()
         "it started again after the sixth generation"
     );
     assert!(!host.is_running(&id));
-    let letter = events.try_recv().expect("no dead letter");
+    let set_aside = events.try_recv().expect("no set-aside event");
     assert!(events.try_recv().is_err(), "a second event");
     host.shutdown().await.unwrap();
     drop(host);
@@ -571,14 +573,12 @@ async fn a_one_shot_that_drops_its_reply_is_set_aside_after_five_runs()
         "{timer:?}"
     );
     assert_eq!(
-        letter,
-        HostEvent::DeadLetter {
-            holder: at.clone(),
-            letter: Letter::Timer {
-                event_id: timer.event_id.clone(),
-                action: timer.action.clone(),
-                due_at: timer.due_at,
-            },
+        set_aside,
+        HostEvent::TimerSetAside {
+            actor: at.clone(),
+            event_id: timer.event_id.clone(),
+            action: timer.action.clone(),
+            due_at: timer.due_at,
             tries: 5,
             error: Some("actor.dropped_reply".to_owned()),
         }
@@ -700,7 +700,7 @@ async fn a_loop_that_panics_before_its_one_shot_sets_it_aside_after_five_starts(
         "it started again after the seventh generation"
     );
     assert!(!host.is_running(&id));
-    let letter = events.try_recv().expect("no dead letter");
+    let set_aside = events.try_recv().expect("no set-aside event");
     assert!(events.try_recv().is_err(), "a second event");
     host.shutdown().await.unwrap();
     drop(host);
@@ -731,14 +731,12 @@ async fn a_loop_that_panics_before_its_one_shot_sets_it_aside_after_five_starts(
         "{timer:?}"
     );
     assert_eq!(
-        letter,
-        HostEvent::DeadLetter {
-            holder: at.clone(),
-            letter: Letter::Timer {
-                event_id: timer.event_id.clone(),
-                action: timer.action.clone(),
-                due_at: timer.due_at,
-            },
+        set_aside,
+        HostEvent::TimerSetAside {
+            actor: at.clone(),
+            event_id: timer.event_id.clone(),
+            action: timer.action.clone(),
+            due_at: timer.due_at,
             tries: 5,
             error: timer.last_error.clone(),
         }
@@ -869,13 +867,18 @@ async fn an_alarm_due_during_a_destroy_does_not_revive_it() {
 }
 
 /// A timer starts only an actor whose file is still there: a timer
-/// never makes a file.
+/// never makes a file. Its start finds no actor and is not tried
+/// again, and the key is then free for a create.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_timer_does_not_make_a_file_that_is_gone() {
     let dir = Scratch::new("timer-file-gone");
-    let host = Host::open(
+    let host = Host::open_with(
         &dir,
         counter::factories(counter::Sleep::WhenIdle),
+        HostOptions {
+            start_retry: Duration::from_millis(100),
+            ..HostOptions::default()
+        },
     )
     .unwrap();
     let id = host.get_or_start("counter", "a").await.unwrap();
@@ -885,9 +888,23 @@ async fn a_timer_does_not_make_a_file_that_is_gone() {
     host.stop(&id, ShutdownKind::Sleep).await.unwrap();
     let file = dir.join(format!("actors/{id}.sqlite"));
     std::fs::remove_file(&file).unwrap();
-    sleep(Duration::from_millis(700)).await;
-    assert!(!host.is_running(&id));
-    assert!(!file.exists(), "the timer made the file again");
+    // The key holds an actor asleep until its timer's start finds
+    // none.
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        assert!(!file.exists(), "the timer made the file again");
+        let Err(error) =
+            host.create("counter", "a", Vec::new()).await
+        else {
+            break;
+        };
+        let code = ActorError::extract(&error);
+        assert_eq!(code.code(), "duplicate_key", "{error:#}");
+        assert!(Instant::now() < deadline, "the key stayed taken");
+        sleep(Duration::from_millis(20)).await;
+    }
+    let reply = act(&host, &id, "get", Vec::new()).await.unwrap();
+    assert_eq!(counter::count(reply).unwrap(), 0);
     host.shutdown().await.unwrap();
 }
 
@@ -947,5 +964,82 @@ async fn a_deadline_at_the_highest_time_waits() {
     assert!(!host.is_running(&id));
     let reply = act(&host, &id, "get", Vec::new()).await.unwrap();
     assert_eq!(counter::count(reply).unwrap(), 0);
+    host.shutdown().await.unwrap();
+}
+
+/// The demo counter, whose start fails while `failures` is above
+/// zero, taking one from it each time. Counts its generations in
+/// `starts`.
+fn counters_that_fail_to_start(
+    starts: &Starts,
+    failures: &Starts,
+) -> HashMap<String, ActorFactory> {
+    let config = ActorConfig {
+        name: Some("counter".to_owned()),
+        has_database: true,
+        ..ActorConfig::default()
+    };
+    let (starts, failures) = (starts.clone(), failures.clone());
+    HashMap::from([(
+        "counter".to_owned(),
+        ActorFactory::new_with_manual_startup_ready(
+            config,
+            move |mut start: ActorStart| {
+                starts.fetch_add(1, Ordering::SeqCst);
+                let fails = failures
+                    .try_update(
+                        Ordering::SeqCst,
+                        Ordering::SeqCst,
+                        |n| n.checked_sub(1),
+                    )
+                    .is_ok();
+                let ready = start.startup_ready.take();
+                Box::pin(async move {
+                    // Its ready signal dropped, the start fails.
+                    anyhow::ensure!(!fails, "the start fails");
+                    if let Some(ready) = ready {
+                        let _ = ready.send(Ok(()));
+                    }
+                    counter::run(start).await
+                })
+            },
+        ),
+    )])
+}
+
+/// A start that a timer began for its actor's deadline, and that
+/// failed, does not lose the deadline: after the host's start retry,
+/// a timer starts the actor again, as many times as it takes. The
+/// one-shot that was due runs then.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_timer_whose_start_failed_is_armed_again() {
+    let dir = Scratch::new("timer-start-retry");
+    let starts = Starts::default();
+    let failures = Starts::default();
+    let host = Host::open_with(
+        &dir,
+        counters_that_fail_to_start(&starts, &failures),
+        HostOptions {
+            start_retry: Duration::from_millis(300),
+            ..HostOptions::default()
+        },
+    )
+    .unwrap();
+    let id = host.get_or_start("counter", "a").await.unwrap();
+    act(&host, &id, "schedule", schedule_args(300, "increment"))
+        .await
+        .unwrap();
+    failures.store(2, Ordering::SeqCst);
+    host.stop(&id, ShutdownKind::Sleep).await.unwrap();
+
+    assert_eq!(starts_after(&starts, 4, Duration::ZERO).await, 4);
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !host.is_running(&id) {
+        assert!(Instant::now() < deadline, "the fourth start failed");
+        sleep(Duration::from_millis(10)).await;
+    }
+    let reply = act(&host, &id, "get", Vec::new()).await.unwrap();
+    assert_eq!(counter::count(reply).unwrap(), 1);
+    assert_eq!(starts.load(Ordering::SeqCst), 4);
     host.shutdown().await.unwrap();
 }

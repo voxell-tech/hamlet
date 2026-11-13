@@ -163,9 +163,7 @@ Hamlet, such as `hamlet_host`, stays under the workspace licence.
 
 The core reaches its host through the `ActorHost` trait in
 `hamlet_actor_core/src/host.rs`: an actor that asks to sleep or to stop,
-the alarm it pushes, and the SQL to serve. `transaction_committed` tells
-the host that one of an actor's transactions committed.
-`host::RunningActor` starts one actor on a host, calls its actions
+the alarm it pushes, and the SQL to serve. `host::RunningActor` starts one actor on a host, calls its actions
 through `host/dispatch.rs` within the caller's deadline or the actor's
 action timeout, whichever is shorter, and stops it. `host/http.rs` keeps
 the helpers of an actor's HTTP routes that need no engine; nothing calls
@@ -174,33 +172,66 @@ them yet.
 `hamlet_host/src/local.rs` is a host on that trait. `Host::open` locks
 the realm folder with `<name>.lock`, `host.lock` for the default name,
 and refuses a second host of that name; hosts of different names, each
-with kinds of its own, share the folder.
+with kinds of its own, share the folder. Each host also locks
+`actors/<kind>/.lock` for each of its kinds, so no two hosts hold one
+kind.
 `get_or_start` finds an actor by kind and key and starts it on the file
-`actors/<kind>/<key>.sqlite`. `call` calls an action of the actor at an
-`Address`, starting it first, within the caller's deadline, and logs the
-call's `Cause`, the task it belongs to. `directory.rs` maps each actor
+`actors/<kind>/<key>.sqlite`, making it if it has none.
+`local/create.rs` holds `create`, the other way to make an actor: it
+makes the actor with an input, kept in the file's `_hamlet_actor` row
+and given to each start, and fails with `actor.duplicate_key` for a key
+that holds an actor. A create whose own start fails removes the actor it
+made, so the key is free again. A create of a key whose destroy is unfinished
+never opens the old data. Nothing else
+makes an actor. `local/call.rs` holds the calls: `call` calls an action
+of the actor at an `Address`, starting it from its file first, within
+the caller's deadline, and logs the call's `Cause`, the task it belongs
+to. A call to a key with no actor fails with `actor.not_found` and
+makes no file. Each call carries its `Caller` as its connection's
+parameters: none
+for `call`, a client for `call_for_client`, and the calling actor's
+address for `Host::call_from(&ctx, ...)`, which takes it from the
+actor's context. One check, `admit`, runs before every call reaches the
+directory and refuses an actor's call to itself. A call fails at once
+when its host begins to shut down. `Host::open` refuses a kind that
+cannot read the stamp: the authoring layer gives each factory the
+decode its connection preflight runs. `local/access.rs` gives an actor,
+through `HostRef::of(ctx)`, the realm folder and the values the program
+gave with `HostOptions::with_value`. `directory.rs` maps each actor
 kind to where its actors run, here always this host; a call to a kind it
 does not hold fails at once. `shutdown` stops every actor at once, waits
 until each file is closed, lets the folder go, and leaves the host
-starting none. Each actor
+starting none. A stop has a deadline, 45 seconds by default: an actor
+that does not stop by then, its code blocked, is given up and reported
+as not stopped, its file keeps its running mark for the next boot, and
+the host starts it no more. Each actor
 that is not stopped with no deadline is one `Life` in the host's map:
 stopped with a deadline, starting, running, stopping or being destroyed.
 A start or a stop runs on a task of its own and waits only on its own
 actor, and each start gives the core a handle that reaches that
-generation's file alone. `plain_sqlite.rs` keeps each file on a thread
+generation's file alone. A start that waits for another start of its
+actor, a call's included, cancels a sleep the starting generation asked
+for, so that generation answers it. `plain_sqlite.rs` keeps each file on a thread
 of its own and opens it with `rusqlite` in exclusive locking mode, in
 write-ahead mode with `synchronous=NORMAL`. `hamlet_sqlite` runs the
 actor's SQL on that connection. The runtime's tables are named
 `_actor_*`, and the host's one row per file is `_hamlet_actor`, with the
-actor's generation, a mark that it is running, and the deadline its last
-clean stop left: the earliest of its schedule rows, its run wake
-deadline and the last alarm its core pushed, read once the core has
-stopped. The host keeps no timer for a running actor. A stopped actor
+actor's generation, a mark that it is running, a mark that it is
+destroyed, and the deadline its last clean stop left: the earliest of
+its schedule rows, its run wake deadline and the last alarm its core
+pushed, read once the core has stopped, and the input a create gave
+it, which each start gives the core. A destroy writes its mark
+before it removes the actor's file, write-ahead file and shared-memory
+file, and a boot or a start that finds the mark finishes the destroy. The host keeps no timer for a running actor. A stopped actor
 with a deadline has one, which starts it from the file it has and never
-makes a file. `boot` reads the files of the host's own kinds, but for
+makes a file. When a start for a deadline fails, a timer's or boot's, a
+timer starts the actor again after 30 seconds, as often as it fails.
+`boot` reads the files of the host's own kinds, but for
 the actors it holds already, begins the start of each actor a kill left
 marked running or whose deadline has come, without waiting for it, and
-arms a timer for each other stored deadline. `examples/demo.rs` drives
+arms a timer for each other stored deadline. While boot reads an actor's
+file, a start of that actor waits, and a file boot cannot read is
+reported on `Host::events` and passed over. `examples/demo.rs` drives
 the host from the command line, with the counter actor in
 `examples/demo/counter.rs`. `tests/local.rs` tests the host,
 `tests/timer.rs` tests one-shots that come due as their actor sleeps or
@@ -349,7 +380,10 @@ built-in ones.
 | Window state or editor saves | `hamlet_app/src/remember.rs`, `window.rs`, `saving.rs`; `hamlet_desktop/src/editor.rs` |
 | Desks and their switcher in the top bar | `hamlet_app/src/desk.rs`, `desk/switcher.rs`, `desk/switcher/motion.rs` |
 | An actor's lifecycle, schedules, state or SQL | `hamlet_actor_core/src/actor/`; [the actor runtime](#the-actor-runtime) |
-| Where actors' files are, calls, deadlines and timers, shutdown, the folder lock | `hamlet_host/src/local.rs`, `plain_sqlite.rs` |
+| Where actors' files are, deadlines and timers, shutdown, the folder lock | `hamlet_host/src/local.rs`, `plain_sqlite.rs` |
+| Calls between actors, and who made a call | `hamlet_host/src/local/call.rs` |
+| Making an actor with an input | `hamlet_host/src/local/create.rs` |
+| What an actor reaches of its host: the realm folder, the program's values | `hamlet_host/src/local/access.rs` |
 | Where each actor kind runs | `hamlet_host/src/directory.rs` |
 | A kill scenario | `hamlet_killkit/src/scenario.rs`, and a fault point with `hamlet_host::fault::point` |
 
