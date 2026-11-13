@@ -285,3 +285,36 @@ async fn an_action_with_no_reply_times_out() {
     // A stop would wait out the grace period for the unanswered
     // action, so the test ends with the actor still running.
 }
+
+/// Each new alarm replaces the actor's armed timer, so storing many
+/// alarms leaves one sleeping task, not one per alarm.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_new_alarm_replaces_the_armed_timer() {
+    let dir = Scratch::new("host-one-timer");
+    let host = Host::open(&dir, factories()).unwrap();
+    let id = host.get_or_start("counter", "a").await.unwrap();
+    let schedule = |ms: u64| {
+        call_with(&host, &id, "schedule", ms.to_le_bytes().to_vec())
+    };
+    let alive = || {
+        tokio::runtime::Handle::current()
+            .metrics()
+            .num_alive_tasks()
+    };
+
+    // Each alarm is earlier than the last, so each is stored and
+    // armed.
+    schedule(600_000).await;
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    let before = alive();
+    for n in 1..=20 {
+        schedule(600_000 - n * 1000).await;
+    }
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    let after = alive();
+    assert!(
+        after <= before + 2,
+        "{before} tasks alive after one alarm, {after} after 21"
+    );
+    host.stop_all().await.unwrap();
+}

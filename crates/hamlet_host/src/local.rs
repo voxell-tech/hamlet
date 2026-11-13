@@ -30,6 +30,7 @@ use parking_lot::Mutex;
 use rusqlite::types::Value;
 use rusqlite::{Connection, OptionalExtension};
 use tokio::sync::{Mutex as AsyncMutex, broadcast, oneshot, watch};
+use tokio::task::AbortHandle;
 
 use crate::plain_sqlite::{self, PlainSqlite};
 
@@ -59,6 +60,8 @@ struct HostInner {
     files: Mutex<HashMap<String, PlainSqlite>>,
     /// Each actor's next alarm, as last stored in its file.
     alarms: Mutex<HashMap<String, i64>>,
+    /// Each actor's one armed alarm timer.
+    timers: Mutex<HashMap<String, AbortHandle>>,
     session: watch::Sender<u64>,
     commits: broadcast::Sender<String>,
 }
@@ -104,6 +107,7 @@ impl Host {
             running: AsyncMutex::new(HashMap::new()),
             files: Mutex::new(HashMap::new()),
             alarms: Mutex::new(HashMap::new()),
+            timers: Mutex::new(HashMap::new()),
             session: watch::Sender::new(LOCAL_SESSION),
             commits: broadcast::channel(64).0,
         })))
@@ -125,11 +129,7 @@ impl Host {
                     .lock()
                     .insert(actor_id.clone(), wake_at);
                 if due.is_none() {
-                    arm_alarm(
-                        Arc::downgrade(&self.0),
-                        actor_id.clone(),
-                        wake_at,
-                    );
+                    arm_alarm(&self.0, actor_id.clone(), wake_at);
                 }
             }
             let start = match due {
@@ -335,25 +335,52 @@ fn stored_actor(path: &Path) -> Result<Option<StoredActor>> {
 
 /// When the alarm is due and still stored, wakes the actor. A running
 /// actor's own timer fires the alarm; this only starts a stopped one.
-fn arm_alarm(host: Weak<HostInner>, actor_id: String, wake_at: i64) {
-    tokio::spawn(async move {
-        let delay = u64::try_from(wake_at - now_ms()).unwrap_or(0);
-        tokio::time::sleep(std::time::Duration::from_millis(delay))
+/// The timer replaces the actor's earlier one, unless that one is
+/// already due.
+fn arm_alarm(host: &Arc<HostInner>, actor_id: String, wake_at: i64) {
+    let weak = Arc::downgrade(host);
+    // Held until the new timer is in the map, so the timer cannot
+    // look for itself there first.
+    let mut timers = host.timers.lock();
+    let timer = tokio::spawn({
+        let actor_id = actor_id.clone();
+        async move {
+            let delay =
+                u64::try_from(wake_at - now_ms()).unwrap_or(0);
+            tokio::time::sleep(std::time::Duration::from_millis(
+                delay,
+            ))
             .await;
-        let Some(host) = host.upgrade() else { return };
-        if host.alarms.lock().get(&actor_id) != Some(&wake_at) {
-            return;
-        }
-        if let Err(error) =
-            Host(host).fire_alarm(&actor_id, wake_at).await
-        {
-            tracing::error!(
-                ?error,
-                actor_id,
-                "host alarm failed to start actor"
-            );
+            let Some(host) = weak.upgrade() else { return };
+            // A due timer leaves the map, so an alarm its own start
+            // sets does not abort it while it fires.
+            {
+                let mut timers = host.timers.lock();
+                if timers.get(&actor_id).is_some_and(|timer| {
+                    timer.id() == tokio::task::id()
+                }) {
+                    timers.remove(&actor_id);
+                }
+            }
+            if host.alarms.lock().get(&actor_id) != Some(&wake_at) {
+                return;
+            }
+            if let Err(error) =
+                Host(host).fire_alarm(&actor_id, wake_at).await
+            {
+                tracing::error!(
+                    ?error,
+                    actor_id,
+                    "host alarm failed to start actor"
+                );
+            }
         }
     });
+    if let Some(earlier) =
+        timers.insert(actor_id, timer.abort_handle())
+    {
+        earlier.abort();
+    }
 }
 
 /// The id of the actor of `kind` and `key`, which names its file.
@@ -607,8 +634,10 @@ impl ActorHost for LocalHandle {
                 );
                 return;
             }
-            if let Some(wake_at) = alarm_ts {
-                arm_alarm(host, actor_id, wake_at);
+            if let (Some(wake_at), Some(host)) =
+                (alarm_ts, host.upgrade())
+            {
+                arm_alarm(&host, actor_id, wake_at);
             }
             if let Some(ack_tx) = ack_tx {
                 let _ = ack_tx.send(());
