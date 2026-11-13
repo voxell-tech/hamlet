@@ -2,17 +2,17 @@
 //! its input, which the actor's kind reads once. A create of a key
 //! that holds an actor fails with `actor.duplicate_key` and changes
 //! nothing, and one whose destroy is unfinished brings none of the
-//! old data back.
+//! old data back. An actor makes another as the program does.
 
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use anyhow::Context as _;
 use hamlet_actor::{
     Action, Actor, ActorConfig, ColumnValue, Ctx, Handler, Registry,
 };
-use hamlet_actor_core::ShutdownKind;
+use hamlet_actor_core::{ActorContext, ShutdownKind};
 use hamlet_host::{Address, Caller, Host, HostOptions, HostRef};
 use hamlet_testing::Scratch;
 use serde::de::DeserializeOwned;
@@ -183,16 +183,106 @@ impl Handler<Fire> for Made {
     }
 }
 
-/// A host of the kind `made` on `dir`.
+/// Makes other actors, as itself.
+struct Maker;
+
+/// Makes the actor of `kind` and `key`: by a create with `input`, by
+/// a get-or-start without one. Answers the failure's `group.code`.
+#[derive(Serialize, Deserialize)]
+struct Make {
+    kind: String,
+    key: String,
+    input: Option<Vec<u8>>,
+}
+
+impl Action for Make {
+    type Output = Option<String>;
+    const NAME: &'static str = "make";
+}
+
+/// In a host that holds it, each maker makes itself in its `create`,
+/// by a create and by a get-or-start, and keeps here how each went
+/// and how long it took.
+#[derive(Default)]
+struct MakeSelf(Mutex<Vec<(Option<String>, Duration)>>);
+
+/// The contexts of the makers a host that holds it started, in order.
+#[derive(Default)]
+struct Contexts(Mutex<Vec<ActorContext>>);
+
+/// Makes the actor of `kind` and `key` from the actor of `ctx`, as
+/// [`Make`] says.
+async fn make(
+    ctx: &ActorContext,
+    kind: &str,
+    key: &str,
+    input: Option<Vec<u8>>,
+) -> Option<String> {
+    let made = match input {
+        Some(input) => Host::create_from(ctx, kind, key, input).await,
+        None => Host::get_or_start_from(ctx, kind, key).await,
+    };
+    made.err().map(|error| code(&error))
+}
+
+#[async_trait::async_trait]
+impl Actor for Maker {
+    type Input = ();
+    type Actions = (Make,);
+    type Events = ();
+    type ConnParams = Option<Caller>;
+    type Action = ();
+
+    async fn create(ctx: &Ctx<Self>) -> anyhow::Result<Self> {
+        let host = HostRef::of(ctx.inner())?;
+        if let Some(contexts) = host.value::<Contexts>() {
+            contexts.0.lock().unwrap().push(ctx.inner().clone());
+        }
+        if let Some(made) = host.value::<MakeSelf>() {
+            let (kind, key) = ctx
+                .inner()
+                .actor_id()
+                .split_once('/')
+                .context("the actor id has no kind")?;
+            for input in [Some(cbor("self")), None] {
+                let begun = Instant::now();
+                let outcome =
+                    make(ctx.inner(), kind, key, input).await;
+                made.0
+                    .lock()
+                    .unwrap()
+                    .push((outcome, begun.elapsed()));
+            }
+        }
+        Ok(Self)
+    }
+}
+
+impl Handler<Make> for Maker {
+    async fn handle(
+        self: Arc<Self>,
+        ctx: Ctx<Self>,
+        make_it: Make,
+    ) -> anyhow::Result<Option<String>> {
+        Ok(make(
+            ctx.inner(),
+            &make_it.kind,
+            &make_it.key,
+            make_it.input,
+        )
+        .await)
+    }
+}
+
+/// A host of the kinds `made` and `maker` on `dir`.
 fn open(dir: &Scratch, options: HostOptions) -> Host {
     let mut registry = Registry::new();
-    registry.register_actor_with::<Made>(
-        "made",
-        ActorConfig {
-            has_database: true,
-            ..ActorConfig::default()
-        },
-    );
+    let config = ActorConfig {
+        has_database: true,
+        ..ActorConfig::default()
+    };
+    registry.register_actor_with::<Made>("made", config.clone());
+    registry.register_actor_with::<Maker>("maker", config);
     Host::open_with(dir, registry.into_factories(), options).unwrap()
 }
 
@@ -457,4 +547,123 @@ async fn a_create_finishes_a_destroy_a_kill_cut_off() {
     host.shutdown().await.unwrap();
     assert_eq!(notes, ["new"]);
     assert_eq!(made.created.load(Ordering::SeqCst), 2);
+}
+
+/// Has the maker `maker/<from>` make the actor of `kind` and `key`,
+/// as [`Make`] says.
+async fn ask(
+    host: &Host,
+    from: &str,
+    kind: &str,
+    key: &str,
+    input: Option<Vec<u8>>,
+) -> Option<String> {
+    let make = Make {
+        kind: kind.to_owned(),
+        key: key.to_owned(),
+        input,
+    };
+    support::call(host, &Address::new("maker", from), &make)
+        .await
+        .unwrap()
+}
+
+/// An actor makes another as the program does: a create gives the
+/// input, which the made actor reads once, a second create of the key
+/// fails with `actor.duplicate_key` and changes nothing, and a
+/// get-or-start makes a fresh key and changes nothing of one that
+/// holds an actor.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_actor_makes_another_as_the_program_does() {
+    let dir = Scratch::new("create-from");
+    let made = Arc::new(Counts::default());
+    let host =
+        open(&dir, HostOptions::default().with_value(made.clone()));
+    host.get_or_start("maker", "m").await.unwrap();
+    let created =
+        ask(&host, "m", "made", "b", Some(cbor("from m"))).await;
+    let again =
+        ask(&host, "m", "made", "b", Some(cbor("again"))).await;
+    let fetched = ask(&host, "m", "made", "b", None).await;
+    let fresh = ask(&host, "m", "maker", "n", None).await;
+    let notes = call(&host, "b", &Notes).await.unwrap();
+    let input = call(&host, "b", &Input).await.unwrap();
+    let n_runs = host.is_running("maker/n");
+    host.shutdown().await.unwrap();
+    assert_eq!(created, None);
+    assert_eq!(again.as_deref(), Some("actor.duplicate_key"));
+    assert_eq!((fetched, fresh), (None, None));
+    assert_eq!(notes, ["from m"]);
+    assert_eq!(input, "from m");
+    assert!(n_runs, "the get-or-start made maker/n");
+    assert_eq!(made.created.load(Ordering::SeqCst), 1);
+}
+
+/// An actor that makes itself, here from its `create`, where a wait
+/// for its own start would last until the start's deadline, fails at
+/// once with `actor.invalid_operation`, by a create and by a
+/// get-or-start, and its start goes on.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_actor_that_makes_itself_fails_at_once() {
+    let dir = Scratch::new("create-self");
+    let outcomes = Arc::new(MakeSelf::default());
+    let host = open(
+        &dir,
+        HostOptions::default().with_value(outcomes.clone()),
+    );
+    let started = tokio::time::timeout(
+        Duration::from_secs(5),
+        host.get_or_start("maker", "s"),
+    )
+    .await;
+    host.shutdown().await.unwrap();
+    started.expect("the start waited for itself").unwrap();
+    let outcomes = outcomes.0.lock().unwrap();
+    assert_eq!(outcomes.len(), 2, "{outcomes:?}");
+    for (error, took) in outcomes.iter() {
+        assert_eq!(
+            error.as_deref(),
+            Some("actor.invalid_operation"),
+            "{outcomes:?}"
+        );
+        assert!(*took < Duration::from_secs(1), "{outcomes:?}");
+    }
+}
+
+/// The context of a generation that has ended makes nothing, by a
+/// create or a get-or-start. The running generation's makes as the
+/// actor.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_ended_generation_makes_nothing() {
+    let dir = Scratch::new("create-ended");
+    let made = Arc::new(Counts::default());
+    let contexts = Arc::new(Contexts::default());
+    let host = open(
+        &dir,
+        HostOptions::default()
+            .with_value(made.clone())
+            .with_value(contexts.clone()),
+    );
+    host.get_or_start("maker", "m").await.unwrap();
+    host.stop("maker/m", ShutdownKind::Sleep).await.unwrap();
+    host.get_or_start("maker", "m").await.unwrap();
+    let contexts = contexts.0.lock().unwrap().clone();
+    let mut outcomes = Vec::new();
+    for (n, ctx) in contexts.iter().enumerate() {
+        let key = format!("k{n}");
+        outcomes.push((
+            make(ctx, "made", &key, Some(cbor("x"))).await,
+            make(ctx, "maker", &key, None).await,
+        ));
+    }
+    let ended_made = dir.join("actors/maker/k0.sqlite").exists();
+    host.shutdown().await.unwrap();
+    let stopping = Some("actor.stopping".to_owned());
+    assert_eq!(
+        outcomes,
+        [(stopping.clone(), stopping), (None, None)],
+        "{outcomes:?}"
+    );
+    assert!(!ended_made, "the ended generation made maker/k0");
+    assert_eq!(made.created.load(Ordering::SeqCst), 1);
 }

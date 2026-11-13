@@ -1087,11 +1087,7 @@ impl Host {
         kind: &str,
         key: &str,
     ) -> Result<String> {
-        let actor_id = self.inner().located(kind, key)?;
-        self.inner()
-            .ensure_started(&actor_id, &Open::OrCreate)
-            .await?;
-        Ok(actor_id)
+        self.inner().start_by_key(kind, key, Open::OrCreate).await
     }
 }
 
