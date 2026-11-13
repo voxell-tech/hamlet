@@ -1,11 +1,15 @@
-//! The harness's runtimes: started, taken on or refused at their
-//! hello, started again after a failure (S22, S24), and the requests
-//! in flight to each.
+//! The harness's runtimes, one entity each: started, taken on or
+//! refused at their hello, started again after a failure (S22, S24),
+//! and the requests in flight to each.
 
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
-use anyhow::Result;
+use anyhow::{Context, Result};
+use bevy_ecs::component::Component;
+use bevy_ecs::entity::Entity;
+use bevy_ecs::resource::Resource;
+use bevy_ecs::system::{Commands, Query, ResMut, SystemParam};
 use diesel::prelude::*;
 use hamlet_protocol::Version;
 use hamlet_protocol::runtime::{
@@ -22,20 +26,23 @@ use crate::layout::Layout;
 use crate::realm::Realm;
 
 pub(crate) fn plugin(app: &mut bevy_app::App) {
-    app.add_deadline(restart_due, restart);
+    app.add_deadline(restart_due, start);
 }
 
 /// The soonest a failed runtime starts again.
-fn restart_due(
-    runtimes: bevy_ecs::system::Res<Runtimes>,
-) -> Option<Instant> {
-    runtimes.next_start()
+fn restart_due(runtimes: Query<&Runtime>) -> Option<Instant> {
+    runtimes
+        .iter()
+        .filter(|r| r.phase == Phase::Down)
+        .filter_map(|r| r.again_at)
+        .min()
 }
 
-/// Starts the failed runtimes whose wait is over.
-fn restart(
-    mut realm: bevy_ecs::system::ResMut<Realm>,
-    mut runtimes: bevy_ecs::system::ResMut<Runtimes>,
+/// Starts the runtimes the realm keeps that are not running, once a
+/// failed one's wait is over.
+pub(crate) fn start(
+    mut realm: ResMut<Realm>,
+    mut runtimes: Runtimes,
 ) -> Result<()> {
     let layout = realm.layout().clone();
     runtimes.start(realm.store().connection(), &layout)
@@ -69,6 +76,9 @@ pub(crate) enum Phase {
     Refused(String),
 }
 
+/// A runtime of the harness, an entity from its first start.
+#[derive(Component)]
+#[require(InFlight)]
 pub(crate) struct Runtime {
     pub id: String,
     pub phase: Phase,
@@ -78,6 +88,13 @@ pub(crate) struct Runtime {
     ready_at: Option<Instant>,
     again_at: Option<Instant>,
 }
+
+/// The requests in flight to a runtime, by id, until their replies.
+/// A component of the runtime, not entities of their own: the input
+/// that sends one sees it at once, where a spawned entity would wait
+/// for the input's end.
+#[derive(Component, Default)]
+pub(crate) struct InFlight(HashMap<String, Pending>);
 
 /// What a request to a runtime was for, until its reply.
 #[derive(Clone, Debug, PartialEq)]
@@ -89,16 +106,26 @@ pub(crate) enum Pending {
     Configure(ConversationId, String),
 }
 
-#[derive(bevy_ecs::resource::Resource)]
-pub(crate) struct Runtimes {
+/// How the runtimes are started, and the lines sent to them.
+#[derive(Resource)]
+pub(crate) struct Harness {
     pi: Pi,
-    pub list: Vec<Runtime>,
     next: u64,
-    pending: HashMap<String, (usize, Pending)>,
     lines: UnboundedSender<Received>,
     /// The lines sent since the last delivery, by runtime and id:
     /// they go out once the input that sent them is kept.
-    outbox: Vec<(usize, String, String)>,
+    outbox: Vec<(Entity, String, String)>,
+}
+
+impl Harness {
+    pub fn new(pi: Pi, lines: UnboundedSender<Received>) -> Self {
+        Self {
+            pi,
+            next: 0,
+            lines,
+            outbox: Vec::new(),
+        }
+    }
 }
 
 /// The runtime new conversations of `harness` go to, made once.
@@ -122,23 +149,50 @@ pub(crate) fn of_harness(
     Ok(id)
 }
 
-impl Runtimes {
-    pub fn new(pi: Pi, lines: UnboundedSender<Received>) -> Self {
-        Self {
-            pi,
-            list: Vec::new(),
-            next: 0,
-            pending: HashMap::new(),
-            lines,
-            outbox: Vec::new(),
-        }
+/// The runtimes as the handlers reach them.
+#[derive(SystemParam)]
+pub(crate) struct Runtimes<'w, 's> {
+    harness: ResMut<'w, Harness>,
+    list: Query<
+        'w,
+        's,
+        (Entity, &'static mut Runtime, &'static mut InFlight),
+    >,
+    commands: Commands<'w, 's>,
+}
+
+impl Runtimes<'_, '_> {
+    /// Every runtime.
+    pub fn all(&self) -> Vec<Entity> {
+        self.list.iter().map(|(entity, ..)| entity).collect()
     }
 
-    pub fn index_of(&self, id: &str) -> Option<usize> {
-        self.list.iter().position(|runtime| runtime.id == id)
+    /// The runtime kept as `id`.
+    pub fn find(&self, id: &str) -> Option<Entity> {
+        self.list
+            .iter()
+            .find(|(_, runtime, _)| runtime.id == id)
+            .map(|(entity, ..)| entity)
     }
 
-    /// Starts every runtime the realm keeps that is not running yet.
+    /// The id `runtime` is kept as.
+    pub fn id(&self, runtime: Entity) -> Result<String> {
+        Ok(self.get(runtime)?.id.clone())
+    }
+
+    /// Whether `runtime` was taken on and has not failed since.
+    pub fn is_ready(&self, runtime: Entity) -> bool {
+        self.get(runtime).is_ok_and(|r| r.phase == Phase::Ready)
+    }
+
+    fn get(&self, runtime: Entity) -> Result<&Runtime> {
+        let (_, found, _) =
+            self.list.get(runtime).context("the runtime is gone")?;
+        Ok(found)
+    }
+
+    /// Starts every runtime the realm keeps that is not running yet;
+    /// one started for the first time becomes an entity.
     pub fn start(
         &mut self,
         db: &mut Db,
@@ -149,82 +203,67 @@ impl Runtimes {
             .select((runtime::id, runtime::begun))
             .load::<(String, bool)>(db)?;
         for (id, begun) in kept {
-            let index = match self.index_of(&id) {
-                Some(index) => index,
-                None => {
-                    self.list.push(Runtime {
-                        id,
-                        phase: Phase::Down,
-                        process: None,
-                        generation: 0,
-                        failures: 0,
-                        ready_at: None,
-                        again_at: None,
-                    });
-                    self.list.len() - 1
-                }
+            let Some(entity) = self.find(&id) else {
+                let entity = self.commands.spawn_empty().id();
+                let mut runtime = Runtime {
+                    id,
+                    phase: Phase::Down,
+                    process: None,
+                    generation: 0,
+                    failures: 0,
+                    ready_at: None,
+                    again_at: None,
+                };
+                launch(
+                    &self.harness,
+                    &mut runtime,
+                    entity,
+                    layout,
+                    !begun,
+                )?;
+                self.commands.entity(entity).insert(runtime);
+                continue;
             };
-            if self.list[index].phase == Phase::Down
-                && self.list[index]
+            let (_, mut runtime, _) = self.list.get_mut(entity)?;
+            if runtime.phase == Phase::Down
+                && runtime
                     .again_at
                     .is_none_or(|at| at <= Instant::now())
             {
-                self.launch(index, layout, !begun)?;
+                launch(
+                    &self.harness,
+                    &mut runtime,
+                    entity,
+                    layout,
+                    !begun,
+                )?;
             }
         }
         Ok(())
     }
 
-    fn launch(
-        &mut self,
-        index: usize,
-        layout: &Layout,
-        fresh: bool,
-    ) -> Result<()> {
-        let runtime = &mut self.list[index];
-        runtime.generation += 1;
-        let folder = layout.harnesses().join(&runtime.id);
-        std::fs::create_dir_all(&folder)?;
-        let store = Pi::store(&folder);
-        let process = Process::start(
-            &Launch {
-                pi: &self.pi,
-                id: &runtime.id,
-                store: &store,
-                fresh,
-            },
-            index,
-            runtime.generation,
-            self.lines.clone(),
-        )?;
-        runtime.process = Some(process);
-        runtime.phase = Phase::Starting;
-        Ok(())
-    }
-
-    /// How many times runtime `index` was started, which tells its
+    /// How many times `runtime` was started, which tells its
     /// processes apart.
-    pub fn generation(&self, index: usize) -> Option<u64> {
-        self.list.get(index).map(|runtime| runtime.generation)
+    pub fn generation(&self, runtime: Entity) -> Option<u64> {
+        self.get(runtime).ok().map(|runtime| runtime.generation)
     }
 
     /// Whether `received` came from the process running now.
     pub fn is_current(&self, received: &Received) -> bool {
-        self.list
-            .get(received.runtime)
-            .is_some_and(|r| r.generation == received.generation)
+        self.generation(received.runtime) == Some(received.generation)
     }
 
-    /// Checks the hello of runtime `index` against what it began
-    /// with, keeping its versions the first time. Returns the words
-    /// of its refusal.
+    /// Checks the hello of `runtime` against what it began with,
+    /// keeping its versions the first time. Returns the words of its
+    /// refusal.
     pub fn hello(
         &mut self,
         db: &mut Db,
-        index: usize,
+        runtime: Entity,
         hello: &Hello,
     ) -> Result<Option<String>> {
-        let id = self.list[index].id.clone();
+        let (_, mut found, _) = self.list.get_mut(runtime)?;
+        let id = found.id.clone();
         let (begun, adapter, version) = runtime::table
             .find(&id)
             .select((
@@ -274,8 +313,7 @@ impl Runtimes {
         };
         match &refusal {
             Some(words) => {
-                self.list[index].phase =
-                    Phase::Refused(words.clone());
+                found.phase = Phase::Refused(words.clone());
             }
             None => {
                 if !begun {
@@ -287,32 +325,35 @@ impl Runtimes {
                         ))
                         .execute(db)?;
                 }
-                let runtime = &mut self.list[index];
-                runtime.phase = Phase::Ready;
-                runtime.ready_at = Some(Instant::now());
+                found.phase = Phase::Ready;
+                found.ready_at = Some(Instant::now());
             }
         }
         Ok(refusal)
     }
 
-    /// The adapter and harness versions runtime `index` began with.
+    /// The adapter and harness versions `runtime` began with.
     pub fn versions(
         &self,
         db: &mut Db,
-        index: usize,
+        runtime: Entity,
     ) -> Result<(String, String)> {
         let (adapter, version) = runtime::table
-            .find(&self.list[index].id)
+            .find(&self.get(runtime)?.id)
             .select((runtime::adapter, runtime::version))
             .first::<(Option<String>, Option<String>)>(db)?;
         Ok((adapter.unwrap_or_default(), version.unwrap_or_default()))
     }
 
-    /// Runtime `index` stopped: its requests in flight are dropped,
-    /// and it starts again after a wait that grows with each failure.
-    pub fn failed(&mut self, index: usize) {
-        self.pending.retain(|_, (at, _)| *at != index);
-        let runtime = &mut self.list[index];
+    /// `runtime` stopped: its requests in flight are dropped, and it
+    /// starts again after a wait that grows with each failure.
+    pub fn failed(&mut self, runtime: Entity) {
+        let Ok((_, mut runtime, mut in_flight)) =
+            self.list.get_mut(runtime)
+        else {
+            return;
+        };
+        in_flight.0.clear();
         runtime.process = None;
         if matches!(runtime.phase, Phase::Refused(_)) {
             return;
@@ -330,35 +371,31 @@ impl Runtimes {
         runtime.again_at = Some(Instant::now() + wait);
     }
 
-    /// The soonest a failed runtime starts again.
-    pub fn next_start(&self) -> Option<Instant> {
-        self.list
-            .iter()
-            .filter(|r| r.phase == Phase::Down)
-            .filter_map(|r| r.again_at)
-            .min()
-    }
-
     /// Sends the message `make` builds from the version and a new id,
     /// once the input is kept; returns the id.
     pub fn send(
         &mut self,
-        index: usize,
+        runtime: Entity,
         make: impl FnOnce(Version, String) -> ServerMessage,
     ) -> String {
-        self.next += 1;
-        let id = format!("s{}", self.next);
+        self.harness.next += 1;
+        let id = format!("s{}", self.harness.next);
         let message = make(VERSION, id.clone());
         let line = serde_json::to_string(&message)
             .expect("a server message is JSON");
-        self.outbox.push((index, id.clone(), line));
+        self.harness.outbox.push((runtime, id.clone(), line));
         id
     }
 
     /// Writes each runtime the lines sent to it.
     pub fn deliver(&mut self) {
-        for (index, _, line) in std::mem::take(&mut self.outbox) {
-            if let Some(process) = self.list[index].process.as_mut() {
+        for (runtime, _, line) in
+            std::mem::take(&mut self.harness.outbox)
+        {
+            if let Ok((_, mut runtime, _)) =
+                self.list.get_mut(runtime)
+                && let Some(process) = runtime.process.as_mut()
+            {
                 process.write(line);
             }
         }
@@ -367,58 +404,98 @@ impl Runtimes {
     /// Drops the lines of an input that failed, and the requests
     /// among them, which nothing will answer.
     pub fn discard(&mut self) {
-        for (_, id, _) in std::mem::take(&mut self.outbox) {
-            self.pending.remove(&id);
+        for (runtime, id, _) in
+            std::mem::take(&mut self.harness.outbox)
+        {
+            if let Ok((.., mut in_flight)) =
+                self.list.get_mut(runtime)
+            {
+                in_flight.0.remove(&id);
+            }
         }
     }
 
-    /// Tells `runtime` that the wait of its call `key` was answered.
-    pub fn answered(&mut self, runtime: &str, key: &str) {
-        let Some(index) = self.index_of(runtime) else {
+    /// Tells the runtime kept as `id` that the wait of its call `key`
+    /// was answered.
+    pub fn answered(&mut self, id: &str, key: &str) {
+        let Some(runtime) = self.find(id) else {
             return;
         };
         let key = key.to_owned();
-        self.send(index, |v, id| {
+        self.send(runtime, |v, id| {
             ServerMessage::Answered(
                 hamlet_protocol::runtime::Answered { id, key, v },
             )
         });
     }
 
-    /// Sends a request whose reply is awaited as `pending`.
+    /// Sends `runtime` a request whose reply is awaited as `pending`.
     pub fn request(
         &mut self,
-        index: usize,
+        runtime: Entity,
         pending: Pending,
         make: impl FnOnce(Version, String) -> ServerMessage,
     ) -> String {
-        let id = self.send(index, make);
-        self.pending.insert(id.clone(), (index, pending));
+        let id = self.send(runtime, make);
+        if let Ok((.., mut in_flight)) = self.list.get_mut(runtime) {
+            in_flight.0.insert(id.clone(), pending);
+        }
         id
     }
 
-    /// The request `re` answers.
-    pub fn reply(&mut self, re: &str) -> Option<(usize, Pending)> {
-        self.pending.remove(re)
+    /// The request `re` answers, and the runtime it went to.
+    pub fn reply(&mut self, re: &str) -> Option<(Entity, Pending)> {
+        self.list.iter_mut().find_map(|(entity, _, mut in_flight)| {
+            in_flight.0.remove(re).map(|pending| (entity, pending))
+        })
     }
 
     pub fn is_in_flight(
         &self,
-        index: usize,
+        runtime: Entity,
         pending: &Pending,
     ) -> bool {
-        self.pending
-            .values()
-            .any(|(at, kept)| *at == index && kept == pending)
+        self.list.get(runtime).is_ok_and(|(.., in_flight)| {
+            in_flight.0.values().any(|kept| kept == pending)
+        })
     }
 
-    /// Stops every runtime, giving each `grace` to finish.
-    pub async fn stop(&mut self, grace: Duration) {
-        for runtime in &mut self.list {
-            if let Some(process) = runtime.process.take() {
-                process.stop(grace).await;
-            }
-            runtime.phase = Phase::Down;
-        }
+    /// Takes every runtime's process, to stop, leaving each down.
+    pub fn take_processes(&mut self) -> Vec<Process> {
+        self.list
+            .iter_mut()
+            .filter_map(|(_, mut runtime, _)| {
+                runtime.phase = Phase::Down;
+                runtime.process.take()
+            })
+            .collect()
     }
+}
+
+/// Starts `runtime`'s process, whose lines come tagged with `entity`.
+fn launch(
+    harness: &Harness,
+    runtime: &mut Runtime,
+    entity: Entity,
+    layout: &Layout,
+    fresh: bool,
+) -> Result<()> {
+    runtime.generation += 1;
+    let folder = layout.harnesses().join(&runtime.id);
+    std::fs::create_dir_all(&folder)?;
+    let store = Pi::store(&folder);
+    let process = Process::start(
+        &Launch {
+            pi: &harness.pi,
+            id: &runtime.id,
+            store: &store,
+            fresh,
+        },
+        entity,
+        runtime.generation,
+        harness.lines.clone(),
+    )?;
+    runtime.process = Some(process);
+    runtime.phase = Phase::Starting;
+    Ok(())
 }

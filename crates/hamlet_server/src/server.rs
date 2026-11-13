@@ -49,7 +49,7 @@ use crate::society::agents;
 use crate::talk::follow::follow;
 use crate::talk::leases::Authority;
 use crate::talk::process::{Pi, Received};
-use crate::talk::runtimes::{self, Runtimes};
+use crate::talk::runtimes::{self, Harness};
 use crate::talk::sync::{Fitted, Fitting};
 use crate::talk::{Env, heard, inputs};
 use crate::work::added;
@@ -237,10 +237,10 @@ impl Server {
             .cloned()
             .map(Transport::new)
             .transpose()?;
-        let db = realm.store().connection();
-        runtimes::of_harness(db, agents::HARNESS)?;
-        let mut runtimes = Runtimes::new(pi, lines_to);
-        runtimes.start(db, &layout)?;
+        runtimes::of_harness(
+            realm.store().connection(),
+            agents::HARNESS,
+        )?;
         let clients = Clients::new(events_to, closing, clock::now())?;
         app.set_error_handler(record)
             .add_plugins((
@@ -255,7 +255,7 @@ impl Server {
             ))
             .insert_resource(realm)
             .insert_resource(env)
-            .insert_resource(runtimes)
+            .insert_resource(Harness::new(pi, lines_to))
             .insert_resource(credentials)
             .insert_resource(clients)
             .insert_resource(Lives(Default::default()))
@@ -270,7 +270,7 @@ impl Server {
             .insert_resource(Later::new(finished_to))
             .insert_resource(Looks::default())
             .insert_resource(providers)
-            .insert_resource(Authority::default())
+            .insert_resource(Authority::<Entity>::default())
             .insert_resource(Workspace(workspace))
             .insert_resource(Lodged(Default::default()))
             .insert_resource(Unpushed(Default::default()))
@@ -290,6 +290,11 @@ impl Server {
                 listener: None,
             },
         };
+        server
+            .app
+            .world_mut()
+            .run_system_cached(runtimes::start)
+            .map_err(|error| anyhow::anyhow!("{error}"))??;
         let mut core = server.core()?;
         core.retool()?;
         core.start_providers()?;
@@ -401,8 +406,7 @@ impl Server {
         hamlet_store::unwind(
             self.core()?.realm.store().connection(),
         )?;
-        discard(self.app.world_mut());
-        Ok(())
+        discard(self.app.world_mut())
     }
 
     /// Runs [`Apply`]: what follows the input's changes. Gives the
@@ -463,14 +467,14 @@ impl Server {
                     core.unpushed.insert(receiver);
                 }
                 // A runtime that started again since asks again.
-                if core.runtimes.generation(again.index)
+                if core.runtimes.generation(again.from)
                     != Some(again.generation)
                 {
                     return Ok(());
                 }
                 heard::hear(
                     self.app.world_mut(),
-                    again.index,
+                    again.from,
                     again.message,
                 )
             }
@@ -541,10 +545,10 @@ impl Server {
         if !core.runtimes.is_current(&received) {
             return Ok(());
         }
-        let index = received.runtime;
+        let from = received.runtime;
         let Some(line) = received.line else {
-            core.runtimes.failed(index);
-            core.leases.gone(index);
+            core.runtimes.failed(from);
+            core.leases.gone(from);
             return Ok(());
         };
         let message =
@@ -564,7 +568,7 @@ impl Server {
         let re = heard::awaited(&message);
         let world = self.app.world_mut();
         let heard = catch_unwind(AssertUnwindSafe(|| {
-            heard::hear(world, index, message)
+            heard::hear(world, from, message)
         }));
         let failure = match heard {
             Ok(Ok(())) => None,
@@ -584,7 +588,7 @@ impl Server {
                 let message = core.credentials.scrub_text(&format!(
                     "The server failed: {failure}"
                 ));
-                core.runtimes.send(index, |v, id| {
+                core.runtimes.send(from, |v, id| {
                     ServerMessage::Error(ProtocolError {
                         code: ErrorCode::Failed,
                         id,
@@ -608,6 +612,8 @@ impl Server {
             let mut core = self.core()?;
             core.providers.close_all();
             core.send_providers()?;
+            // No input follows to deliver them.
+            core.runtimes.deliver();
         }
         let deadline = Instant::now() + grace;
         while self.core()?.leases.is_holding()
@@ -629,7 +635,11 @@ impl Server {
         for run in runs {
             world.despawn(run);
         }
-        world.resource_mut::<Runtimes>().stop(grace).await;
+        let processes = self.core()?.runtimes.take_processes();
+        for process in processes {
+            process.stop(grace).await;
+        }
+        let world = self.app.world_mut();
         world.resource::<Leftovers>().end(|_| true);
         drop(world.remove_resource::<Runner>());
         Ok(())

@@ -32,10 +32,10 @@ pub(crate) enum Finished {
     },
 }
 
-/// A runtime's request to run again: the runtime's index, the process
-/// that asked, and the message.
+/// A runtime's request to run again: the runtime, the process that
+/// asked, and the message.
 pub(crate) struct Again {
-    pub index: usize,
+    pub from: bevy_ecs::entity::Entity,
     pub generation: u64,
     pub message: RuntimeMessage,
 }

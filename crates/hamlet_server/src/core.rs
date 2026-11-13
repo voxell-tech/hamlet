@@ -127,7 +127,8 @@ pub(crate) struct Core<'w, 's> {
     /// The clients' connections, one entity each.
     pub connections: Connections<'w, 's>,
     pub env: ResMut<'w, Env>,
-    pub runtimes: ResMut<'w, Runtimes>,
+    /// The harness's runtimes, one entity each.
+    pub runtimes: Runtimes<'w, 's>,
     pub credentials: ResMut<'w, Credentials>,
     pub clients: ResMut<'w, Clients>,
     pub live: ResMut<'w, Lives>,
@@ -382,10 +383,10 @@ impl Core<'_, '_> {
         });
     }
 
-    /// Sends runtime `index` what it is owed.
+    /// Sends `runtime` what it is owed.
     pub(crate) fn flush_one(
         &mut self,
-        index: usize,
+        runtime: Entity,
         again: bool,
     ) -> Result<()> {
         let images = self.realm.layout().images();
@@ -397,7 +398,7 @@ impl Core<'_, '_> {
             fitting: &mut self.fitting,
             images: &images,
         };
-        sync::flush(&mut owed, index, again)
+        sync::flush(&mut owed, runtime, again)
     }
 
     /// Answers the credential requests the leases let through.
@@ -408,10 +409,10 @@ impl Core<'_, '_> {
             .provider()
             .unwrap_or_default()
             .to_owned();
-        for (index, mut answer) in
+        for (runtime, mut answer) in
             self.leases.flush(&mut self.credentials, &serving)
         {
-            self.runtimes.send(index, |v, id| {
+            self.runtimes.send(runtime, |v, id| {
                 answer.v = v;
                 answer.id = id;
                 ServerMessage::CredentialResult(answer)

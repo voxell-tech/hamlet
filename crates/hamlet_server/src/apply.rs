@@ -152,12 +152,14 @@ pub(crate) fn plugin(app: &mut App) {
 /// Drops what a failed input left to follow it: its transaction was
 /// rolled back, so nothing it changed is so, and nothing it asked
 /// for runs.
-pub(crate) fn discard(world: &mut World) {
+pub(crate) fn discard(world: &mut World) -> anyhow::Result<()> {
     *world.resource_mut::<Changed>() = Changed::default();
     world.resource_mut::<Messages<Wake>>().clear();
     world.resource_mut::<Messages<InputEnded>>().clear();
     world.resource_mut::<Clients>().discard();
-    world.resource_mut::<Runtimes>().discard();
+    world.run_system_cached(|mut runtimes: Runtimes| {
+        runtimes.discard();
+    })?;
     let starting = world
         .query_filtered::<Entity, With<Starting>>()
         .iter(world)
@@ -165,6 +167,7 @@ pub(crate) fn discard(world: &mut World) {
     for run in starting {
         world.despawn(run);
     }
+    Ok(())
 }
 
 fn committed(changed: Res<Changed>) -> bool {
@@ -292,11 +295,12 @@ fn stop_cancelled(
 fn flush(
     mut realm: ResMut<Realm>,
     env: Res<Env>,
-    mut runtimes: ResMut<Runtimes>,
+    mut runtimes: Runtimes,
     providers: Res<Providers>,
     mut fitting: ResMut<Fitting>,
 ) -> Result {
     let images = realm.layout().images();
+    let all = runtimes.all();
     let mut owed = sync::Owed {
         db: realm.store().connection(),
         env: &env,
@@ -305,8 +309,8 @@ fn flush(
         fitting: &mut fitting,
         images: &images,
     };
-    for index in 0..owed.runtimes.list.len() {
-        sync::flush(&mut owed, index, false)?;
+    for runtime in all {
+        sync::flush(&mut owed, runtime, false)?;
     }
     Ok(())
 }
@@ -327,17 +331,14 @@ fn reply(
 }
 
 /// Tells each runtime of the held calls whose waits were answered.
-fn wake(
-    mut wakes: MessageReader<Wake>,
-    mut runtimes: ResMut<Runtimes>,
-) {
+fn wake(mut wakes: MessageReader<Wake>, mut runtimes: Runtimes) {
     for wake in wakes.read() {
         runtimes.answered(&wake.runtime, &wake.key);
     }
 }
 
 /// Writes each runtime the lines queued for it.
-fn send(mut runtimes: ResMut<Runtimes>) {
+fn send(mut runtimes: Runtimes) {
     runtimes.deliver();
 }
 

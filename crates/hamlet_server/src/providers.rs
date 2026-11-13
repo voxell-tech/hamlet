@@ -7,6 +7,7 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
+use bevy_ecs::entity::Entity;
 use diesel::prelude::*;
 use hamlet_protocol::client::{
     Check, EditCatalogueSet, ImageInput, LinkState, Listed,
@@ -32,7 +33,6 @@ use crate::layout::Layout;
 use crate::settings::Settings;
 use crate::society::agents::Effort;
 use crate::society::refusal::Refusal;
-use crate::talk::runtimes::Phase;
 
 /// The price in dollars per million tokens of a model nothing prices.
 const RATE: f64 = 1.0;
@@ -372,24 +372,27 @@ impl Core<'_, '_> {
             db,
             crate::society::agents::HARNESS,
         )?;
-        let Some(index) = self.runtimes.index_of(&id) else {
+        let Some(to) = self.runtimes.find(&id) else {
             return Ok(());
         };
-        if self.runtimes.list[index].phase != Phase::Ready {
+        if !self.runtimes.is_ready(to) {
             return Ok(());
         }
         // A request keeps its own id, which its result answers.
         for request in std::mem::take(&mut self.providers.outgoing) {
-            self.leases.grant(index, &request.id, &request.provider);
-            self.runtimes.send(index, |_, _| {
+            self.leases.grant(to, &request.id, &request.provider);
+            self.runtimes.send(to, |_, _| {
                 runtime::ServerMessage::ProviderRequest(request)
             });
         }
         for control in std::mem::take(&mut self.providers.controls) {
-            let indices = (0..self.runtimes.list.len())
+            let open = self
+                .runtimes
+                .all()
+                .into_iter()
                 .filter(|at| self.leases.is_open(*at, &control.scope))
                 .collect::<Vec<_>>();
-            for at in indices {
+            for at in open {
                 if control.cancel {
                     self.leases.finish(at, &control.scope);
                 }
@@ -637,13 +640,13 @@ impl Core<'_, '_> {
         Ok(true)
     }
 
-    /// A step of a sign-in the runtime of `index` runs.
+    /// A step of a sign-in the runtime `from` runs.
     pub(crate) fn provider_event(
         &mut self,
-        index: usize,
+        from: Entity,
         event: ProviderEvent,
     ) -> Result<()> {
-        if !self.leases.is_open(index, &event.scope) {
+        if !self.leases.is_open(from, &event.scope) {
             return Ok(());
         }
         let Some(pending) = self.providers.pending.get(&event.scope)
@@ -670,15 +673,15 @@ impl Core<'_, '_> {
         self.answer(client, login_step(&id, &login, step))
     }
 
-    /// The end of a provider request, from the runtime of `index` or
-    /// its timeout.
+    /// The end of a provider request, from the runtime `from` or its
+    /// timeout.
     pub(crate) fn provider_result(
         &mut self,
-        index: Option<usize>,
+        from: Option<Entity>,
         result: ProviderResult,
     ) -> Result<()> {
-        if let Some(index) = index {
-            self.leases.finish(index, &result.re);
+        if let Some(from) = from {
+            self.leases.finish(from, &result.re);
         }
         let Some(pending) = self.providers.pending.remove(&result.re)
         else {

@@ -1,8 +1,10 @@
 //! In-memory authority and provider leases for credential refresh.
 
 use std::collections::{HashMap, VecDeque};
+use std::hash::Hash;
 
 use anyhow::{Result, bail, ensure};
+use bevy_ecs::entity::Entity;
 use hamlet_protocol::runtime::{
     self, CredentialRequest, CredentialRequestAction as Action,
     CredentialResult,
@@ -10,17 +12,29 @@ use hamlet_protocol::runtime::{
 
 use crate::credentials::{Credentials, pack, unpack};
 
-#[derive(bevy_ecs::resource::Resource, Default)]
-pub(crate) struct Authority {
-    scopes: HashMap<(usize, String), (String, bool)>,
+/// The scopes each runtime, by `R`, may read or rotate a provider's
+/// credential in, and the leases held while one rotates.
+#[derive(bevy_ecs::resource::Resource)]
+pub(crate) struct Authority<R = Entity> {
+    scopes: HashMap<(R, String), (String, bool)>,
     /// The lease held on each provider's credential, by provider.
-    held: HashMap<String, Lease>,
-    waiting: VecDeque<(usize, CredentialRequest)>,
+    held: HashMap<String, Lease<R>>,
+    waiting: VecDeque<(R, CredentialRequest)>,
+}
+
+impl<R> Default for Authority<R> {
+    fn default() -> Self {
+        Self {
+            scopes: HashMap::new(),
+            held: HashMap::new(),
+            waiting: VecDeque::new(),
+        }
+    }
 }
 
 /// A runtime's hold on a provider's credential while it rotates it.
-struct Lease {
-    runtime: usize,
+struct Lease<R> {
+    runtime: R,
     scope: String,
     /// The lease's id, which the runtime commits or releases by.
     id: String,
@@ -29,24 +43,19 @@ struct Lease {
     revision: u64,
 }
 
-impl Authority {
-    pub fn grant(
-        &mut self,
-        runtime: usize,
-        scope: &str,
-        provider: &str,
-    ) {
+impl<R: Copy + Eq + Hash> Authority<R> {
+    pub fn grant(&mut self, runtime: R, scope: &str, provider: &str) {
         self.scopes
             .insert((runtime, scope.into()), (provider.into(), true));
     }
 
-    pub fn is_open(&self, runtime: usize, scope: &str) -> bool {
+    pub fn is_open(&self, runtime: R, scope: &str) -> bool {
         self.scopes
             .get(&(runtime, scope.into()))
             .is_some_and(|(_, open)| *open)
     }
 
-    pub fn finish(&mut self, runtime: usize, scope: &str) {
+    pub fn finish(&mut self, runtime: R, scope: &str) {
         if let Some((_, open)) =
             self.scopes.get_mut(&(runtime, scope.into()))
         {
@@ -59,7 +68,7 @@ impl Authority {
         !self.held.is_empty()
     }
 
-    pub fn gone(&mut self, runtime: usize) {
+    pub fn gone(&mut self, runtime: R) {
         self.scopes.retain(|(at, _), _| *at != runtime);
         self.held.retain(|_, lease| lease.runtime != runtime);
         self.waiting.retain(|(at, _)| *at != runtime);
@@ -67,7 +76,7 @@ impl Authority {
 
     pub fn request(
         &mut self,
-        runtime: usize,
+        runtime: R,
         request: CredentialRequest,
     ) {
         self.waiting.push_back((runtime, request));
@@ -77,7 +86,7 @@ impl Authority {
         &mut self,
         credentials: &mut Credentials,
         serving: &str,
-    ) -> Vec<(usize, CredentialResult)> {
+    ) -> Vec<(R, CredentialResult)> {
         let mut answers = Vec::new();
         // A commit behind a waiting acquire must release its lease
         // first.
@@ -132,7 +141,7 @@ impl Authority {
         &mut self,
         credentials: &mut Credentials,
         serving: &str,
-        at: usize,
+        at: R,
         request: &CredentialRequest,
         answer: &mut CredentialResult,
     ) -> Result<bool> {

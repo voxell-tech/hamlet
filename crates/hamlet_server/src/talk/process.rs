@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
 use anyhow::{Context, Result, ensure};
+use bevy_ecs::entity::Entity;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
 use tokio::sync::mpsc::{self, UnboundedSender};
@@ -76,7 +77,7 @@ impl Pi {
 
 /// A line from a runtime, or `None` once its output closed.
 pub(crate) struct Received {
-    pub runtime: usize,
+    pub runtime: Entity,
     pub generation: u64,
     pub line: Option<String>,
 }
@@ -103,7 +104,7 @@ impl Process {
     /// `runtime` and `generation`.
     pub fn start(
         launch: &Launch<'_>,
-        runtime: usize,
+        runtime: Entity,
         generation: u64,
         sender: UnboundedSender<Received>,
     ) -> Result<Self> {

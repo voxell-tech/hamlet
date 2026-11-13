@@ -87,7 +87,7 @@ impl CallId {
 /// request.
 #[derive(Clone, Debug)]
 pub(crate) struct Reply {
-    pub index: usize,
+    pub to: Entity,
     pub generation: u64,
     pub re: String,
 }
@@ -346,7 +346,7 @@ impl Core<'_, '_> {
         key: &str,
         answer: Answer,
     ) {
-        if self.runtimes.generation(reply.index)
+        if self.runtimes.generation(reply.to)
             != Some(reply.generation)
         {
             return;
@@ -354,7 +354,7 @@ impl Core<'_, '_> {
         let re = reply.re.clone();
         let key = key.to_owned();
         let images_folder = self.realm.layout().images();
-        self.runtimes.send(reply.index, |v, id| match answer {
+        self.runtimes.send(reply.to, |v, id| match answer {
             Answer::Allowed => {
                 ServerMessage::Allowed(runtime::Allowed { id, re, v })
             }
@@ -401,14 +401,14 @@ impl Core<'_, '_> {
     /// request; the reply to give when the call cannot go on.
     fn admit<'a>(
         &mut self,
-        index: usize,
+        from: Entity,
         conversation: &str,
         key: &str,
         input: Option<&'a str>,
         tool: &'a str,
         arguments: &'a BTreeMap<String, Value>,
     ) -> Result<std::result::Result<Call<'a>, Answer>> {
-        let runtime = self.runtimes.list[index].id.clone();
+        let runtime = self.runtimes.id(from)?;
         let db = self.realm.store().connection();
         let Some(kept) =
             conversations::by_handle(db, &runtime, conversation)?
@@ -442,10 +442,10 @@ impl Core<'_, '_> {
         }))
     }
 
-    fn reply_of(&self, index: usize, re: &str) -> Reply {
+    fn reply_of(&self, from: Entity, re: &str) -> Reply {
         Reply {
-            index,
-            generation: self.runtimes.generation(index).unwrap_or(0),
+            to: from,
+            generation: self.runtimes.generation(from).unwrap_or(0),
             re: re.into(),
         }
     }
@@ -453,13 +453,13 @@ impl Core<'_, '_> {
     /// Whether the call `asked` may run, before it is kept as begun.
     pub(crate) fn allow_call(
         &mut self,
-        index: usize,
+        from: Entity,
         asked: runtime::Allow,
     ) -> Result<()> {
         let again = RuntimeMessage::Allow(asked.clone());
-        let reply = self.reply_of(index, &asked.id);
+        let reply = self.reply_of(from, &asked.id);
         let call = match self.admit(
-            index,
+            from,
             &asked.conversation,
             &asked.key,
             asked.input.as_deref(),
@@ -504,7 +504,7 @@ impl Core<'_, '_> {
                     Answer::Waiting(words.into())
                 }
                 Decision::Look(look) => {
-                    self.look(&call, look, index, again);
+                    self.look(&call, look, from, again);
                     return Ok(());
                 }
             }
@@ -519,13 +519,13 @@ impl Core<'_, '_> {
         &mut self,
         call: &Call<'_>,
         look: Box<Look>,
-        index: usize,
+        from: Entity,
         again: RuntimeMessage,
     ) {
         let secrets = self.credentials.secrets();
         let again = Again {
-            index,
-            generation: self.runtimes.generation(index).unwrap_or(0),
+            from,
+            generation: self.runtimes.generation(from).unwrap_or(0),
             message: again,
         };
         let id = call.call.clone();
@@ -542,13 +542,13 @@ impl Core<'_, '_> {
     /// else as the gate decides now.
     pub(crate) fn operation(
         &mut self,
-        index: usize,
+        from: Entity,
         asked: runtime::Operation,
     ) -> Result<()> {
         let again = RuntimeMessage::Operation(asked.clone());
-        let reply = self.reply_of(index, &asked.id);
+        let reply = self.reply_of(from, &asked.id);
         let call = match self.admit(
-            index,
+            from,
             &asked.conversation,
             &asked.key,
             asked.input.as_deref(),
@@ -624,7 +624,7 @@ impl Core<'_, '_> {
         } else {
             match self.decide(&call)? {
                 Decision::Look(look) => {
-                    self.look(&call, look, index, again);
+                    self.look(&call, look, from, again);
                     return Ok(());
                 }
                 Decision::Block(words) => {
@@ -658,7 +658,7 @@ impl Core<'_, '_> {
                                 return Ok(());
                             }
                             society::Step::Look(look) => {
-                                self.look(&call, look, index, again);
+                                self.look(&call, look, from, again);
                                 return Ok(());
                             }
                         }

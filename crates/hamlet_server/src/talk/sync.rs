@@ -7,6 +7,7 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use anyhow::{Context, Result};
+use bevy_ecs::entity::Entity;
 use hamlet_protocol::runtime::{
     self, ModelRef, Picture, ServerMessage,
 };
@@ -16,7 +17,7 @@ use tokio::sync::mpsc::UnboundedSender;
 
 use super::conversations::{self, Conversation};
 use super::inputs::{self, Input};
-use super::runtimes::{Pending, Phase, Runtimes};
+use super::runtimes::{Pending, Runtimes};
 use super::{Env, models};
 use crate::diagnostic::{self, Secrets, tell};
 use crate::images::{self, Limits};
@@ -119,22 +120,22 @@ impl Fitting {
 }
 
 /// What a flush reaches.
-pub(crate) struct Owed<'a> {
+pub(crate) struct Owed<'a, 'w, 's> {
     pub db: &'a mut Db,
     pub env: &'a Env,
-    pub runtimes: &'a mut Runtimes,
+    pub runtimes: &'a mut Runtimes<'w, 's>,
     pub providers: &'a Providers,
     pub fitting: &'a mut Fitting,
     /// The folder the images are kept in.
     pub images: &'a Path,
 }
 
-/// Sends runtime `index` what it is owed. With `again`, inputs it
+/// Sends the runtime `to` what it is owed. With `again`, inputs it
 /// admitted whose end was not heard are sent again, so it answers
 /// them again.
 pub(crate) fn flush(
-    owed: &mut Owed<'_>,
-    index: usize,
+    owed: &mut Owed<'_, '_, '_>,
+    to: Entity,
     again: bool,
 ) -> Result<()> {
     let Owed {
@@ -145,21 +146,21 @@ pub(crate) fn flush(
         fitting,
         images,
     } = owed;
-    if runtimes.list[index].phase != Phase::Ready {
+    if !runtimes.is_ready(to) {
         return Ok(());
     }
-    let id = runtimes.list[index].id.clone();
+    let id = runtimes.id(to)?;
     for owed in conversations::of_runtime(db, &id)? {
         let Some(handle) = owed.handle.clone() else {
-            make(db, env, runtimes, index, &owed)?;
+            make(db, env, runtimes, to, &owed)?;
             continue;
         };
         // No later input reaches the runtime until the cancel is
         // acknowledged.
         if owed.cancelling {
             let pending = Pending::Cancel(owed.id);
-            if !runtimes.is_in_flight(index, &pending) {
-                runtimes.request(index, pending, |v, id| {
+            if !runtimes.is_in_flight(to, &pending) {
+                runtimes.request(to, pending, |v, id| {
                     ServerMessage::Cancel(runtime::Cancel {
                         conversation: handle,
                         id,
@@ -176,8 +177,8 @@ pub(crate) fn flush(
         {
             let told = owed.tools.clone().unwrap_or_default();
             let pending = Pending::Configure(owed.id, told);
-            if !runtimes.is_in_flight(index, &pending) {
-                runtimes.request(index, pending, |v, id| {
+            if !runtimes.is_in_flight(to, &pending) {
+                runtimes.request(to, pending, |v, id| {
                     ServerMessage::Configure(runtime::Configure {
                         conversation: handle,
                         id,
@@ -191,7 +192,7 @@ pub(crate) fn flush(
         for input in inputs::owed(db, owed.id, again)? {
             let pending =
                 Pending::Submit(owed.id, input.request.clone());
-            if runtimes.is_in_flight(index, &pending) {
+            if runtimes.is_in_flight(to, &pending) {
                 continue;
             }
             let mark = input.mark()?.wire();
@@ -209,7 +210,7 @@ pub(crate) fn flush(
                     None => break,
                 }
             };
-            runtimes.request(index, pending, |v, id| {
+            runtimes.request(to, pending, |v, id| {
                 if write {
                     ServerMessage::Write(runtime::Write {
                         boundary: input.boundary.then_some(true),
@@ -243,12 +244,12 @@ pub(crate) fn flush(
 fn make(
     db: &mut Db,
     env: &Env,
-    runtimes: &mut Runtimes,
-    index: usize,
+    runtimes: &mut Runtimes<'_, '_>,
+    to: Entity,
     owed: &Conversation,
 ) -> Result<()> {
     let pending = Pending::Create(owed.id);
-    if runtimes.is_in_flight(index, &pending) {
+    if runtimes.is_in_flight(to, &pending) {
         return Ok(());
     }
     let key = owed.id.to_string();
@@ -259,7 +260,7 @@ fn make(
                 return Ok(());
             };
             let at = at.clone();
-            runtimes.request(index, pending, |v, id| {
+            runtimes.request(to, pending, |v, id| {
                 ServerMessage::Fork(runtime::Fork {
                     at,
                     conversation: handle,
@@ -289,7 +290,7 @@ fn make(
             let agent = u64::try_from(owed.agent.0)
                 .context("an agent's id is positive")?;
             let kind = owed.kind.wire();
-            runtimes.request(index, pending, |v, id| {
+            runtimes.request(to, pending, |v, id| {
                 ServerMessage::Create(runtime::Create {
                     agent,
                     kind,
