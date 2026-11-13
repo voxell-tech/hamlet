@@ -1,10 +1,10 @@
 // This file was changed for Hamlet. See NOTICE in this package.
-import type { WorkflowHistory } from "@/common/bare/transport/v1";
+import type { WorkflowHistory } from "./bare/transport/v1.ts";
 import {
     decodeWorkflowHistory,
     encodeWorkflowHistory,
-} from "@/common/bare/transport/v1";
-import { bufferToArrayBuffer, toUint8Array } from "@/utils";
+} from "./bare/transport/v1.ts";
+import { bufferToArrayBuffer, toUint8Array } from "../utils.ts";
 
 declare const workflowHistoryBare: unique symbol;
 

@@ -1,10 +1,10 @@
 // This file was changed for Hamlet. See NOTICE in this package.
-import { VirtualWebSocket } from "@/virtual-websocket/mod";
+import { VirtualWebSocket } from "../virtual-websocket/mod.ts";
 import {
     flattenActionHandlers,
     flattenActionInputSchemas,
     flattenActionTraceSamplers,
-} from "@/actor/actions";
+} from "../actor/actions.ts";
 import {
     ACTOR_CONTEXT_INTERNAL_SYMBOL,
     type ActorCron,
@@ -25,8 +25,8 @@ import {
     RAW_STATE_SYMBOL,
     type ScheduledEventInfo,
     type WorkflowInspectorConfig,
-} from "@/actor/config";
-import type { AnyActorDefinition } from "@/actor/definition";
+} from "../actor/config.ts";
+import type { AnyActorDefinition } from "../actor/definition.ts";
 import {
     actorStopping,
     decodeBridgeActorError,
@@ -38,60 +38,60 @@ import {
     ActorError,
     type ActorErrorLike,
     toActorError,
-} from "@/actor/errors";
-import { makePrefixedKey, removePrefixFromKey } from "@/actor/keys";
+} from "../actor/errors.ts";
+import { makePrefixedKey, removePrefixFromKey } from "../actor/keys.ts";
 import {
     getEventCanSubscribe,
     getQueueCanPublish,
     hasSchemaConfigKey,
-} from "@/actor/schema";
-import type { ActionSampleRates } from "@/actor/tracing";
-import { HEADER_CONN_PARAMS } from "@/common/actor-router-consts";
-import type { ActorInvocationTraceContext } from "@/common/actor-telemetry-context";
+} from "../actor/schema.ts";
+import type { ActionSampleRates } from "../actor/tracing.ts";
+import { HEADER_CONN_PARAMS } from "../common/actor-router-consts.ts";
+import type { ActorInvocationTraceContext } from "../common/actor-telemetry-context.ts";
 import type {
     AnyDatabaseProvider,
     SqliteProfilingOptions,
-} from "@/common/database/config";
+} from "../common/database/config.ts";
 import {
     bindNativeStateTransactionContext,
     db as defaultDb,
     registerNativeStateTransactionOpener,
-} from "@/common/database/mod";
-import { wrapJsNativeDatabase } from "@/common/database/native-database";
-import { assertJsonCompatValue, type JsonCompatValue } from "@/common/encoding";
-import { isResponseLike } from "@/common/fetch-like";
+} from "../common/database/mod.ts";
+import { wrapJsNativeDatabase } from "../common/database/native-database.ts";
+import { assertJsonCompatValue, type JsonCompatValue } from "../common/encoding.ts";
+import { isResponseLike } from "../common/fetch-like.ts";
 import {
     decodeWorkflowHistoryTransport,
     type WorkflowHistoryBytes,
-} from "@/common/inspector-transport";
-import { deconstructError, stringifyError } from "@/common/utils";
+} from "../common/inspector-transport.ts";
+import { deconstructError, stringifyError } from "../common/utils.ts";
 import type {
     SocketCloseEvent,
     SocketEvent,
     SocketMessageEvent,
     UniversalWebSocket,
-} from "@/common/websocket-interface";
+} from "../common/websocket-interface.ts";
 import type {
     RegistryConfig,
     RuntimeKind,
     SqliteBackend,
-} from "@/registry/config";
-import { decodeCborCompat, encodeCborCompat } from "@/serde";
-import { getEnvUniversal, toUint8Array, VERSION } from "@/utils";
+} from "./config/index.ts";
+import { decodeCborCompat, encodeCborCompat } from "../serde.ts";
+import { getEnvUniversal, toUint8Array, VERSION } from "../utils.ts";
 import {
     getNodeFsSync,
     getNodePath,
     importNodeDependencies,
-} from "@/utils/node";
-import { logger } from "./log";
-import { loadNapiRuntime } from "./napi-runtime";
+} from "../utils/node.ts";
+import { logger } from "./log.ts";
+import { loadNapiRuntime } from "./napi-runtime.ts";
 import {
     buildNativeHttpRequest,
     cancelNativeHttpRequestBody,
     convertNativeHttpResponse,
     type NativeHttpRequestBodyStream,
     type NativeHttpResponseBodyStream,
-} from "./native-http";
+} from "./native-http.ts";
 import {
     type NativeValidationConfig,
     validateActionArgs,
@@ -99,8 +99,8 @@ import {
     validateEventArgs,
     validateQueueBody,
     validateQueueComplete,
-} from "./native-validation";
-import { RunHandlerCoordinator } from "./run-handler-coordinator";
+} from "./native-validation.ts";
+import { RunHandlerCoordinator } from "./run-handler-coordinator.ts";
 import type {
     ActorContextHandle,
     ActorFactoryHandle,
@@ -121,13 +121,13 @@ import type {
     RuntimeServeConfig,
     RuntimeStateDeltaPayload,
     WebSocketHandle,
-} from "./runtime";
-import { servicesBinaryUnavailable } from "./runtime";
-import { loadWasmRuntime } from "./wasm-runtime";
+} from "./runtime.ts";
+import { servicesBinaryUnavailable } from "./runtime.ts";
+import { loadWasmRuntime } from "./wasm-runtime.ts";
 import {
     createWriteThroughProxy,
     unwrapWriteThroughProxy,
-} from "./write-through-proxy";
+} from "./write-through-proxy.ts";
 
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();

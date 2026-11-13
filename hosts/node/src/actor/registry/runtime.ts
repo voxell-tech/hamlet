@@ -1,16 +1,16 @@
 // This file was changed for Hamlet. See NOTICE in this package.
-import type { WorkflowSpan } from "@/actor/config";
+import type { WorkflowSpan } from "../actor/config.ts";
 import type {
     ActorInvocationSpanContext,
     ActorInvocationTraceContext,
-} from "@/common/actor-telemetry-context";
+} from "../common/actor-telemetry-context.ts";
 import type {
     SqliteNativeMetrics,
     SqliteProfilingOptions,
-} from "@/common/database/config";
-import { stringifyError } from "@/common/utils";
-import type { RegistryConfig } from "./config";
-import { logger } from "./log";
+} from "../common/database/config.ts";
+import { stringifyError } from "../common/utils.ts";
+import type { RegistryConfig } from "./config/index.ts";
+import { logger } from "./log.ts";
 
 declare const handleBrand: unique symbol;
 

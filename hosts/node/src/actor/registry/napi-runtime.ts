@@ -9,14 +9,14 @@ import type {
     HttpResponseBodyStream as NativeHttpResponseBodyStream,
     WebSocket as NativeWebSocket,
 } from "@hamlet/actor-node";
-import type { WorkflowSpan } from "@/actor/config";
-import { encodeErrorForBridge } from "@/actor/errors";
-import type { ActorInvocationTraceContext } from "@/common/actor-telemetry-context";
+import type { WorkflowSpan } from "../actor/config.ts";
+import { encodeErrorForBridge } from "../actor/errors.ts";
+import type { ActorInvocationTraceContext } from "../common/actor-telemetry-context.ts";
 import {
     readActiveTraceHeaders,
     runWithActorInvocationSpan,
-} from "@/common/otel-context";
-import { logger } from "./log";
+} from "../common/otel-context.ts";
+import { logger } from "./log.ts";
 import type {
     ActorContextHandle,
     ActorFactoryHandle,
@@ -61,8 +61,8 @@ import type {
     RuntimeWorkflowKvWrite,
     SqliteTransactionHandle,
     WebSocketHandle,
-} from "./runtime";
-import { normalizeRuntimeSqlExecuteResult } from "./runtime";
+} from "./runtime.ts";
+import { normalizeRuntimeSqlExecuteResult } from "./runtime.ts";
 
 type NativeBindings = typeof import("@hamlet/actor-node");
 type NapiSqlDatabase = ReturnType<NativeActorContext["sql"]>;

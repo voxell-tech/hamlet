@@ -6,8 +6,8 @@ import {
     type RunInspectorConfig,
     type RunInspectorFactoryResult,
     type RunInspectorKind,
-} from "@/actor/config";
-import { ActorError } from "@/actor/errors";
+} from "../actor/config.ts";
+import { ActorError } from "../actor/errors.ts";
 
 type RunHandler = ((...args: any[]) => any) | { run: (...args: any[]) => any };
 

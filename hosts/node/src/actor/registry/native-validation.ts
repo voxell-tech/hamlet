@@ -1,5 +1,5 @@
 // This file was changed for Hamlet. See NOTICE in this package.
-import { ActorError } from "@/actor/errors";
+import { ActorError } from "../actor/errors.ts";
 import {
     type EventSchemaConfig,
     isEventSchemaDefinition,
@@ -8,7 +8,7 @@ import {
     type PrimitiveSchema,
     type QueueSchemaConfig,
     validateSchemaSync,
-} from "@/actor/schema";
+} from "../actor/schema.ts";
 
 const CONN_PARAMS_KEY = "__conn_params__";
 

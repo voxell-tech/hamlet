@@ -1,16 +1,16 @@
 // This file was changed for Hamlet. See NOTICE in this package.
 import { z } from "zod";
-import { getRunMetadata } from "@/actor/config";
-import type { AnyActorDefinition } from "@/actor/definition";
+import { getRunMetadata } from "../../actor/config.ts";
+import type { AnyActorDefinition } from "../../actor/definition.ts";
 import {
     buildEngineEndpoint,
     ENGINE_HOST,
     ENGINE_PORT,
     isLocalEngineEndpoint,
-} from "@/common/engine";
-import { type Logger, LogLevelSchema } from "@/common/log";
-import { VERSION } from "@/utils";
-import { tryParseEndpoint } from "@/utils/endpoint-parser";
+} from "../../common/engine.ts";
+import { type Logger, LogLevelSchema } from "../../common/log.ts";
+import { VERSION } from "../../utils.ts";
+import { tryParseEndpoint } from "../../utils/endpoint-parser.ts";
 import {
     getActorEndpoint,
     getActorEngine,
@@ -23,13 +23,13 @@ import {
     getActorRunServices,
     getActorToken,
     isDev,
-} from "@/utils/env-vars";
-import { EnvoyConfigSchema } from "./envoy";
+} from "../../utils/env-vars.ts";
+import { EnvoyConfigSchema } from "./envoy.ts";
 import {
     ConfigurePoolSchema,
     DEFAULT_SERVERLESS_MAX_START_PAYLOAD_BYTES,
     ServerlessConfigSchema,
-} from "./serverless";
+} from "./serverless.ts";
 
 export const ActorsSchema = z.record(
     z.string(),

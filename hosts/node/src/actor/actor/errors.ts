@@ -1,5 +1,5 @@
 // This file was changed for Hamlet. See NOTICE in this package.
-import type { DeconstructedError } from "@/common/utils";
+import type { DeconstructedError } from "../common/utils.ts";
 
 export const INTERNAL_ERROR_CODE = "internal_error";
 export const INTERNAL_ERROR_DESCRIPTION = "An internal error occurred";

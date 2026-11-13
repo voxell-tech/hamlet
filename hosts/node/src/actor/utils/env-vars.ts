@@ -4,7 +4,7 @@
 // IMPORTANT: When adding or modifying environment variables here, also update the
 // documentation at: website/src/content/docs/general/environment-variables.mdx
 
-import { getEnvUniversal } from "@/utils";
+import { getEnvUniversal } from "../utils.ts";
 
 // Engine configuration
 export const getActorEngine = (): string | undefined =>

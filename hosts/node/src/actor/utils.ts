@@ -1,9 +1,9 @@
 // This file was changed for Hamlet. See NOTICE in this package.
 import type { Context as HonoContext, Handler as HonoHandler } from "hono";
-import { stringifyError } from "@/common/utils";
+import { stringifyError } from "./common/utils.ts";
 import pkgJson from "./package.json" with { type: "json" };
-import { getLogger } from "./common/log";
-import { assertUnreachable } from "./common/utils";
+import { getLogger } from "./common/log.ts";
+import { assertUnreachable } from "./common/utils.ts";
 
 /** @experimental */
 export { stringifyError };
@@ -12,7 +12,7 @@ export { stringifyError };
 export { assertUnreachable };
 
 /** @experimental */
-export { jsonParseCompat, jsonStringifyCompat } from "./common/encoding";
+export { jsonParseCompat, jsonStringifyCompat } from "./common/encoding.ts";
 
 /**
  * Joins multiple abort signals into one.

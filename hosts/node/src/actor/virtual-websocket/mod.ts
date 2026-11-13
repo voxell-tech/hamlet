@@ -4,9 +4,9 @@ export type {
     SocketMessageEvent,
     SocketCloseEvent,
     UniversalWebSocket,
-} from "./interface";
+} from "./interface.ts";
 
 export {
     VirtualWebSocket,
     type VirtualWebSocketOptions,
-} from "./virtual-websocket";
+} from "./virtual-websocket.ts";

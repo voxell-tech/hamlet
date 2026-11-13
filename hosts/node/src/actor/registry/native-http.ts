@@ -1,9 +1,9 @@
 // This file was changed for Hamlet. See NOTICE in this package.
-import type { ResponseLike } from "@/common/fetch-like";
-import { HEADER_ORIGINAL_REQUEST_URL } from "@/common/actor-router-consts";
-import { stringifyError } from "@/common/utils";
-import { logger } from "./log";
-import type { RuntimeBytes, RuntimeHttpResponse } from "./runtime";
+import type { ResponseLike } from "../common/fetch-like.ts";
+import { HEADER_ORIGINAL_REQUEST_URL } from "../common/actor-router-consts.ts";
+import { stringifyError } from "../common/utils.ts";
+import { logger } from "./log.ts";
+import type { RuntimeBytes, RuntimeHttpResponse } from "./runtime.ts";
 
 const HTTP_BODY_CHUNK_SIZE = 64 * 1024;
 

@@ -1,6 +1,6 @@
 // This file was changed for Hamlet. See NOTICE in this package.
-import type { PrimitiveSchema } from "./schema";
-import type { ActionSampleRates } from "./tracing";
+import type { PrimitiveSchema } from "./schema.ts";
+import type { ActionSampleRates } from "./tracing.ts";
 
 export type RuntimeActionHandler = (...args: any[]) => any;
 

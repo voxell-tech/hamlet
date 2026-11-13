@@ -1,12 +1,12 @@
 // This file was changed for Hamlet. See NOTICE in this package.
-import type { WorkflowSpan } from "@/actor/config";
-import { decodeBridgeActorError, ActorError } from "@/actor/errors";
-import type { ActorInvocationTraceContext } from "@/common/actor-telemetry-context";
+import type { WorkflowSpan } from "../actor/config.ts";
+import { decodeBridgeActorError, ActorError } from "../actor/errors.ts";
+import type { ActorInvocationTraceContext } from "../common/actor-telemetry-context.ts";
 import type {
     WasmRuntimeBindings,
     WasmRuntimeConfig,
     WasmRuntimeInitInput,
-} from "./config";
+} from "./config/index.ts";
 import type {
     ActorContextHandle,
     ActorFactoryHandle,
@@ -53,8 +53,8 @@ import type {
     RuntimeWorkflowKvWrite,
     SqliteTransactionHandle,
     WebSocketHandle,
-} from "./runtime";
-import { normalizeRuntimeSqlExecuteResult } from "./runtime";
+} from "./runtime.ts";
+import { normalizeRuntimeSqlExecuteResult } from "./runtime.ts";
 
 type WasmBindings = WasmRuntimeBindings;
 export type WasmInitInput = WasmRuntimeInitInput;

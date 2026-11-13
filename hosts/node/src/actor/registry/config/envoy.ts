@@ -4,7 +4,7 @@ import {
     getActorEnvoyVersion,
     getActorPool,
     getActorTotalSlots,
-} from "@/utils/env-vars";
+} from "../../utils/env-vars.ts";
 
 export const EnvoyConfigSchema = z.object({
     poolName: z.string().default(() => getActorPool() ?? "default"),

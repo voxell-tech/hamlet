@@ -1,5 +1,5 @@
 // This file was changed for Hamlet. See NOTICE in this package.
-import { decodeBridgeActorError } from "@/actor/errors";
+import { decodeBridgeActorError } from "../../actor/errors.ts";
 import type {
     SqliteBatchStatement,
     SqliteBindings,
@@ -7,7 +7,7 @@ import type {
     SqliteExecuteResult,
     SqliteNativeMetrics,
     SqliteTransactionDatabase,
-} from "./config";
+} from "./config.ts";
 
 type NativeBindNoValues = {
     intValue?: never;

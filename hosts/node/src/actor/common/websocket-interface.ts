@@ -5,4 +5,4 @@ export type {
     SocketEvent,
     SocketMessageEvent,
     UniversalWebSocket,
-} from "@/virtual-websocket/mod";
+} from "../virtual-websocket/mod.ts";

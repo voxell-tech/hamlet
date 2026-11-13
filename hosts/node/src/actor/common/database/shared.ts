@@ -1,5 +1,5 @@
 // This file was changed for Hamlet. See NOTICE in this package.
-import type { SqliteBindings } from "./config";
+import type { SqliteBindings } from "./config.ts";
 
 /** Migrations may legitimately do substantially more work than request transactions. */
 export const MIGRATION_TRANSACTION_TIMEOUT_MS = 5 * 60_000;

@@ -1,5 +1,5 @@
 // This file was changed for Hamlet. See NOTICE in this package.
-import { getLogger } from "@/common/log";
+import { getLogger } from "../log.ts";
 import type {
     DatabaseProvider,
     NativeDatabaseProvider,
@@ -8,7 +8,7 @@ import type {
     SqliteProfilingOptions,
     SqliteTransactionDatabase,
     SqliteTransactionOptions,
-} from "./config";
+} from "./config.ts";
 import {
     isManualTransactionControl,
     isSqliteBindingObject,
@@ -16,9 +16,9 @@ import {
     toSqliteBindings,
     validateTransactionName,
     validateTransactionTimeout,
-} from "./shared";
+} from "./shared.ts";
 
-export type { RawAccess } from "./config";
+export type { RawAccess } from "./config.ts";
 
 export interface DatabaseFactoryConfig {
     onMigrate?: (db: RawAccess) => Promise<void> | void;

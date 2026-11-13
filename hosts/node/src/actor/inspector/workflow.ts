@@ -1,8 +1,8 @@
 // This file was changed for Hamlet. See NOTICE in this package.
-import type { JsonCompatValue } from "@/common/encoding";
-import type { WorkflowHistoryBytes } from "@/common/inspector-transport";
-import { encodeCborCompat } from "@/serde";
-import { bufferToArrayBuffer } from "@/utils";
+import type { JsonCompatValue } from "../common/encoding.ts";
+import type { WorkflowHistoryBytes } from "../common/inspector-transport.ts";
+import { encodeCborCompat } from "../serde.ts";
+import { bufferToArrayBuffer } from "../utils.ts";
 
 export type {
     WorkflowBranchStatus,
@@ -24,17 +24,17 @@ export type {
     WorkflowSleepEntry,
     WorkflowStepEntry,
     WorkflowVersionCheckEntry,
-} from "@/common/bare/transport/v1";
+} from "../common/bare/transport/v1.ts";
 export {
     WorkflowBranchStatusType,
     WorkflowEntryStatus,
     WorkflowSleepState,
-} from "@/common/bare/transport/v1";
-export type { WorkflowHistoryBytes } from "@/common/inspector-transport";
+} from "../common/bare/transport/v1.ts";
+export type { WorkflowHistoryBytes } from "../common/inspector-transport.ts";
 export {
     decodeWorkflowHistoryTransport,
     encodeWorkflowHistoryTransport,
-} from "@/common/inspector-transport";
+} from "../common/inspector-transport.ts";
 
 /** @experimental State exposed by a durable workflow run handler to the Inspector. */
 export type WorkflowState =

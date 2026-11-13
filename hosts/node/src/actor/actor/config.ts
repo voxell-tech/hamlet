@@ -3,19 +3,19 @@ import { z } from "zod/v4";
 import type {
     AnyDatabaseProvider,
     InferDatabaseClient,
-} from "@/common/database/config";
-import type { UniversalWebSocket } from "@/common/websocket-interface";
-import type { WorkflowState } from "@/inspector/workflow";
-import { flattenActionHandlers } from "./actions";
-import type { BaseActorDefinition } from "./definition";
+} from "../common/database/config.ts";
+import type { UniversalWebSocket } from "../common/websocket-interface.ts";
+import type { WorkflowState } from "../inspector/workflow.ts";
+import { flattenActionHandlers } from "./actions.ts";
+import type { BaseActorDefinition } from "./definition.ts";
 import type {
     EventSchemaConfig,
     InferQueueCompleteMap,
     InferSchemaMap,
     PrimitiveSchema,
     QueueSchemaConfig,
-} from "./schema";
-import type { ActionSampleRates, ActorTracingOptions } from "./tracing";
+} from "./schema.ts";
+import type { ActionSampleRates, ActorTracingOptions } from "./tracing.ts";
 
 export const DEFAULT_SLEEP_GRACE_PERIOD = 15_000;
 

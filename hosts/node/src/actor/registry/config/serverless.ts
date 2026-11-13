@@ -1,6 +1,6 @@
 // This file was changed for Hamlet. See NOTICE in this package.
 import { z } from "zod/v4";
-import { getActorPublicEndpoint, getActorPublicToken } from "@/utils/env-vars";
+import { getActorPublicEndpoint, getActorPublicToken } from "../../utils/env-vars.ts";
 
 export const DEFAULT_SERVERLESS_MAX_START_PAYLOAD_BYTES = 16 * 1024 * 1024;
 

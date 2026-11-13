@@ -1,6 +1,6 @@
 // This file was changed for Hamlet. See NOTICE in this package.
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import { unsupportedFeature } from "./errors";
+import { unsupportedFeature } from "./errors.ts";
 
 export type SchemaHookResult = boolean | Promise<boolean>;
 

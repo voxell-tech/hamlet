@@ -1,8 +1,8 @@
 // This file was changed for Hamlet. See NOTICE in this package.
 import type { Next } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
-import * as errors from "@/actor/errors";
-import { getLogErrorStack } from "@/utils/env-vars";
+import * as errors from "../actor/errors.ts";
+import { getLogErrorStack } from "../utils/env-vars.ts";
 
 export function assertUnreachable(x: never): never {
     throw new Error(`Unreachable case: ${x}`);

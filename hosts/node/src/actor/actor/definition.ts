@@ -1,20 +1,20 @@
 // This file was changed for Hamlet. See NOTICE in this package.
-import type { AnyDatabaseProvider } from "@/common/database/config";
-import type { RegistryConfig } from "@/registry/config";
+import type { AnyDatabaseProvider } from "../common/database/config.ts";
+import type { RegistryConfig } from "../registry/config/index.ts";
 import {
     flattenActionHandlers,
     flattenActionInputSchemas,
     flattenActionTraceSamplers,
-} from "./actions";
+} from "./actions.ts";
 import {
     type Actions,
     type ActorConfig,
     type ActorConfigInput,
     ActorConfigSchema,
     getRunInspectorKind,
-} from "./config";
-import { loggerWithoutContext } from "./log";
-import type { EventSchemaConfig, QueueSchemaConfig } from "./schema";
+} from "./config.ts";
+import { loggerWithoutContext } from "./log.ts";
+import type { EventSchemaConfig, QueueSchemaConfig } from "./schema.ts";
 
 const warnedDeprecatedOptionKeys = new Set<string>();
 

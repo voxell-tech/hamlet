@@ -4,7 +4,7 @@ import type {
     SocketEvent,
     SocketMessageEvent,
     UniversalWebSocket,
-} from "./interface";
+} from "./interface.ts";
 
 export interface VirtualWebSocketOptions {
     /** Get the current ready state */
