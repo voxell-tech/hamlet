@@ -16,7 +16,7 @@ use crate::diagnostic::{Secrets, tell};
 use crate::jobs::Job;
 use crate::knowledge;
 use crate::society::refusal::Refusal;
-use crate::society::{agents, hamlets, hires, merges};
+use crate::society::{agents, hamlets, hires};
 use crate::work::hamlet_of;
 
 impl Core<'_, '_> {
@@ -120,34 +120,8 @@ impl Core<'_, '_> {
             return;
         }
         for job in done {
-            let found = match job {
-                Job::Lodge { hire } | Job::TakeIn { hire } => {
-                    vec![*hire]
-                }
-                Job::Merge { merge } | Job::Split { merge } => {
-                    let db = self.realm.store().connection();
-                    match merges::get(db, *merge) {
-                        Ok(found) => vec![found.kept, found.absorbed],
-                        Err(_) => Vec::new(),
-                    }
-                }
-                Job::DreamEnd { dream, .. } => {
-                    let db = self.realm.store().connection();
-                    crate::society::dreams::get(db, *dream)
-                        .ok()
-                        .and_then(|found| found.hire)
-                        .into_iter()
-                        .collect()
-                }
-                Job::Shelve { offer } => {
-                    let db = self.realm.store().connection();
-                    crate::society::library::get(db, *offer)
-                        .map(|found| vec![found.agent])
-                        .unwrap_or_default()
-                }
-                _ => Vec::new(),
-            };
-            self.unpushed.extend(found);
+            let lodges = job.lodges(self.realm.store().connection());
+            self.unpushed.extend(lodges);
         }
     }
 
