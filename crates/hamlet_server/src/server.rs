@@ -716,6 +716,13 @@ pub(crate) async fn until(
     mut done: impl FnMut(&mut Core<'_, '_>) -> Result<bool>,
 ) -> Result<()> {
     let deadline = Instant::now() + Duration::from_secs(20);
+    // What the test changed itself is kept as an input's end keeps
+    // it, and followed.
+    server.core.apply(server.app.world_mut());
+    hamlet_store::commit(server.core()?.realm.store().connection())?;
+    if let Some(failure) = server.apply().into_iter().next() {
+        anyhow::bail!("following the test's changes: {failure}");
+    }
     while !done(&mut server.core()?)? {
         anyhow::ensure!(
             Instant::now() < deadline,
