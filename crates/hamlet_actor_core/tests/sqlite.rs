@@ -260,8 +260,6 @@ impl ActorHost for TestEnvoy {
             }
         })
     }
-
-    fn transaction_committed(&self, _actor_id: &str) {}
 }
 
 fn test_envoy_handle_with_shared() -> (

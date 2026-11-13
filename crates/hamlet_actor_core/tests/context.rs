@@ -350,8 +350,6 @@ mod moved_tests {
             })
         }
 
-        fn transaction_committed(&self, _actor_id: &str) {}
-
         fn hibernatable_connection_is_live(
             &self,
             actor_id: &str,

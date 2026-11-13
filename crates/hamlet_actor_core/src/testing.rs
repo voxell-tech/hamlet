@@ -378,8 +378,6 @@ impl ActorHost for TestHost {
             .collect();
         self.request(|reply| Request::Batch { statements, reply })
     }
-
-    fn transaction_committed(&self, _actor_id: &str) {}
 }
 
 /// Serves one in-memory database, with the internal schema, on a

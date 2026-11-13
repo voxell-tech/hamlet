@@ -20,7 +20,7 @@ use hamlet_actor_core::sqlite::SqliteDb;
 use hamlet_actor_core::{
     ActorEvent, ActorFactory, ActorStart, ColumnValue, ShutdownKind,
 };
-use hamlet_host::{Address, Host, HostEvent, Letter};
+use hamlet_host::{Address, Host, HostEvent};
 use hamlet_testing::Scratch;
 use serde::{Deserialize, Serialize};
 use tokio::time::{Instant, sleep};
@@ -545,7 +545,7 @@ async fn a_one_shot_that_drops_its_reply_is_set_aside_after_five_runs()
         "it started again after the sixth generation"
     );
     assert!(!host.is_running(&id));
-    let letter = events.try_recv().expect("no dead letter");
+    let set_aside = events.try_recv().expect("no set-aside event");
     assert!(events.try_recv().is_err(), "a second event");
     host.shutdown().await.unwrap();
     drop(host);
@@ -571,14 +571,12 @@ async fn a_one_shot_that_drops_its_reply_is_set_aside_after_five_runs()
         "{timer:?}"
     );
     assert_eq!(
-        letter,
-        HostEvent::DeadLetter {
-            holder: at.clone(),
-            letter: Letter::Timer {
-                event_id: timer.event_id.clone(),
-                action: timer.action.clone(),
-                due_at: timer.due_at,
-            },
+        set_aside,
+        HostEvent::TimerSetAside {
+            actor: at.clone(),
+            event_id: timer.event_id.clone(),
+            action: timer.action.clone(),
+            due_at: timer.due_at,
             tries: 5,
             error: Some("actor.dropped_reply".to_owned()),
         }
@@ -700,7 +698,7 @@ async fn a_loop_that_panics_before_its_one_shot_sets_it_aside_after_five_starts(
         "it started again after the seventh generation"
     );
     assert!(!host.is_running(&id));
-    let letter = events.try_recv().expect("no dead letter");
+    let set_aside = events.try_recv().expect("no set-aside event");
     assert!(events.try_recv().is_err(), "a second event");
     host.shutdown().await.unwrap();
     drop(host);
@@ -731,14 +729,12 @@ async fn a_loop_that_panics_before_its_one_shot_sets_it_aside_after_five_starts(
         "{timer:?}"
     );
     assert_eq!(
-        letter,
-        HostEvent::DeadLetter {
-            holder: at.clone(),
-            letter: Letter::Timer {
-                event_id: timer.event_id.clone(),
-                action: timer.action.clone(),
-                due_at: timer.due_at,
-            },
+        set_aside,
+        HostEvent::TimerSetAside {
+            actor: at.clone(),
+            event_id: timer.event_id.clone(),
+            action: timer.action.clone(),
+            due_at: timer.due_at,
             tries: 5,
             error: timer.last_error.clone(),
         }

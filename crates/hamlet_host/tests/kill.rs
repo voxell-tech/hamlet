@@ -14,7 +14,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use act::act;
 use hamlet_actor_core::ActorFactory;
-use hamlet_host::{Address, Host, HostEvent, Letter};
+use hamlet_host::{Address, Host, HostEvent};
 use hamlet_testing::Scratch;
 
 #[path = "../examples/demo/act.rs"]
@@ -442,7 +442,7 @@ const REARM_DUE_MS: i64 = 500;
 ///   `counter/a`'s `abort` 100 ms ahead and waits.
 /// - `boot` boots and stays up `STAY`. Then it prints each timer
 ///   `counter/a` set aside, as `timer <action> <tries> <error|->`,
-///   whether the host's events are one dead letter for each, and
+///   whether the host's events are one set-aside event for each, and
 ///   `survived` once it has shut the host down.
 /// - `rearm` puts each timer `counter/a` set aside back,
 ///   `REARM_DUE_MS` ahead, prints `rearmed <true|false>`, and waits.
@@ -482,15 +482,13 @@ fn aborting_child() {
                 tokio::time::sleep(STAY).await;
                 let timers =
                     host.set_aside_timers(&at).await.unwrap();
-                let letters: Vec<HostEvent> = timers
+                let set_aside: Vec<HostEvent> = timers
                     .iter()
-                    .map(|timer| HostEvent::DeadLetter {
-                        holder: at.clone(),
-                        letter: Letter::Timer {
-                            event_id: timer.event_id.clone(),
-                            action: timer.action.clone(),
-                            due_at: timer.due_at,
-                        },
+                    .map(|timer| HostEvent::TimerSetAside {
+                        actor: at.clone(),
+                        event_id: timer.event_id.clone(),
+                        action: timer.action.clone(),
+                        due_at: timer.due_at,
                         tries: timer.tries,
                         error: timer.last_error.clone(),
                     })
@@ -510,8 +508,8 @@ fn aborting_child() {
                 }
                 writeln!(
                     out,
-                    "dead letters match: {}",
-                    raised == letters
+                    "set-aside events match: {}",
+                    raised == set_aside
                 )
                 .unwrap();
                 host.shutdown().await.unwrap();
@@ -585,7 +583,7 @@ fn run_aborting_child(home: &Path, step: &str) -> Ended {
         std::thread::sleep(Duration::from_millis(10));
     };
     let known =
-        ["armed", "timer ", "dead letters ", "survived", "rearmed "];
+        ["armed", "timer ", "set-aside events ", "survived", "rearmed "];
     let lines = out
         .join()
         .unwrap()
@@ -618,7 +616,7 @@ fn a_one_shot_that_kills_its_host_is_set_aside_at_the_fifth_boot() {
     assert!(booted.status.success(), "boot 5: {booted:?}");
     assert_eq!(
         booted.lines,
-        ["timer abort 5 -", "dead letters match: true", "survived"]
+        ["timer abort 5 -", "set-aside events match: true", "survived"]
     );
     assert_eq!(
         stored(&home, "a"),

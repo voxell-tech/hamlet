@@ -163,9 +163,7 @@ Hamlet, such as `hamlet_host`, stays under the workspace licence.
 
 The core reaches its host through the `ActorHost` trait in
 `hamlet_actor_core/src/host.rs`: an actor that asks to sleep or to stop,
-the alarm it pushes, and the SQL to serve. `transaction_committed` tells
-the host that one of an actor's transactions committed.
-`host::RunningActor` starts one actor on a host, calls its actions
+the alarm it pushes, and the SQL to serve. `host::RunningActor` starts one actor on a host, calls its actions
 through `host/dispatch.rs` within the caller's deadline or the actor's
 action timeout, whichever is shorter, and stops it. `host/http.rs` keeps
 the helpers of an actor's HTTP routes that need no engine; nothing calls

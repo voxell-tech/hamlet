@@ -318,23 +318,6 @@ async fn boot_starts_an_actor_whose_alarm_came_due_while_down() {
     assert!(host.boot().await.unwrap().is_empty());
 }
 
-#[tokio::test(flavor = "multi_thread")]
-async fn a_committed_transaction_tells_the_host_and_a_rollback_does_not()
- {
-    let dir = Scratch::new("host-commit");
-    let host = Host::open(&dir, factories()).unwrap();
-    let id = host.get_or_start("counter", "a").await.unwrap();
-    let mut commits = host.commits();
-    while commits.try_recv().is_ok() {}
-
-    assert_eq!(call(&host, &id, "discard").await, 0);
-    assert!(commits.try_recv().is_err());
-    assert_eq!(call(&host, &id, "increment").await, 1);
-    assert_eq!(commits.try_recv().unwrap(), id);
-    assert!(commits.try_recv().is_err());
-    host.shutdown().await.unwrap();
-}
-
 /// The grace period an actor gets to finish its work is 15 seconds.
 /// One with no work left stops well inside it.
 #[tokio::test(flavor = "multi_thread")]
