@@ -1580,6 +1580,12 @@ impl ActorContext {
         self.configure_schedule_envoy(envoy_handle, generation);
     }
 
+    /// The host that runs this actor, from before `create` on. A host
+    /// downcasts it to its own type to reach what it holds.
+    pub fn host(&self) -> Option<EnvoyHandle> {
+        self.sleep_envoy_handle()
+    }
+
     pub(crate) async fn connect_conn<F>(
         &self,
         params: Vec<u8>,
