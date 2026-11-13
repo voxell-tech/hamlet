@@ -156,6 +156,13 @@ thread_local! {
 /// reply among them answers `actor.dropped_reply`, also while a panic
 /// of the loop that held the channel unwinds: the panic was not
 /// theirs.
+///
+/// The drain goes on until the channel reports it is disconnected, as
+/// tokio's `close` asks. Until then a send that began before the
+/// close has yet to land, and the channel reads empty, so the drain
+/// yields to let it land. Stopping at empty would leave its event to
+/// drop after the drain, as panicked, or to wait in the channel
+/// unanswered.
 impl Drop for ActorEvents {
     fn drop(&mut self) {
         /// Clears [`UNREACHED`] however the drain ends.
@@ -168,8 +175,14 @@ impl Drop for ActorEvents {
         self.inner.close();
         UNREACHED.set(true);
         let _reached = Reached;
-        while let Ok(event) = self.inner.try_recv() {
-            drop(event);
+        loop {
+            match self.inner.try_recv() {
+                Ok(event) => drop(event),
+                Err(mpsc::error::TryRecvError::Empty) => {
+                    std::thread::yield_now();
+                }
+                Err(mpsc::error::TryRecvError::Disconnected) => break,
+            }
         }
     }
 }
