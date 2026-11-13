@@ -172,7 +172,9 @@ them yet.
 `hamlet_host/src/local.rs` is a host on that trait. `Host::open` locks
 the realm folder with `<name>.lock`, `host.lock` for the default name,
 and refuses a second host of that name; hosts of different names, each
-with kinds of its own, share the folder.
+with kinds of its own, share the folder. Each host also locks
+`actors/<kind>/.lock` for each of its kinds, so no two hosts hold one
+kind.
 `get_or_start` finds an actor by kind and key and starts it on the file
 `actors/<kind>/<key>.sqlite`. `call` calls an action of the actor at an
 `Address`, starting it first, within the caller's deadline, and logs the
@@ -198,7 +200,9 @@ with a deadline has one, which starts it from the file it has and never
 makes a file. `boot` reads the files of the host's own kinds, but for
 the actors it holds already, begins the start of each actor a kill left
 marked running or whose deadline has come, without waiting for it, and
-arms a timer for each other stored deadline. `examples/demo.rs` drives
+arms a timer for each other stored deadline. While boot reads an actor's
+file, a start of that actor waits, and a file boot cannot read is
+reported on `Host::events` and passed over. `examples/demo.rs` drives
 the host from the command line, with the counter actor in
 `examples/demo/counter.rs`. `tests/local.rs` tests the host,
 `tests/timer.rs` tests one-shots that come due as their actor sleeps or
