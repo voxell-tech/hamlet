@@ -188,7 +188,7 @@ pub(crate) struct Core<'w, 's> {
     pub unpushed: ResMut<'w, Unpushed>,
     pub moving: ResMut<'w, Moving>,
     /// Where tasks send what they finish with.
-    pub later: Res<'w, Later>,
+    pub later: ResMut<'w, Later>,
     /// What looks off the loop found for the calls that wait on
     /// them.
     pub looks: ResMut<'w, Looks>,

@@ -27,6 +27,7 @@ use crate::calls::{Runs, Starting, place};
 use crate::clients::{Clients, Connections, check};
 use crate::core::{Catalogue, Core};
 use crate::credentials::Credentials;
+use crate::later::Later;
 use crate::providers::Providers;
 use crate::realm::Realm;
 use crate::society::agents;
@@ -51,7 +52,7 @@ pub(crate) enum Step {
     /// The jobs the kept changes left are run.
     Jobs,
     StopCancelled,
-    /// The tool runs the input asked for start.
+    /// The tool runs and the tasks the input asked for start.
     Start,
     Flush,
     Publish,
@@ -137,7 +138,8 @@ pub(crate) fn plugin(app: &mut App) {
                 stop_cancelled
                     .in_set(Step::StopCancelled)
                     .run_if(committed),
-                crate::calls::start.in_set(Step::Start),
+                (crate::calls::start, crate::later::start)
+                    .in_set(Step::Start),
                 (flush.run_if(owed), wake)
                     .chain()
                     .in_set(Step::Flush),
@@ -157,6 +159,7 @@ pub(crate) fn discard(world: &mut World) -> anyhow::Result<()> {
     world.resource_mut::<Messages<Wake>>().clear();
     world.resource_mut::<Messages<InputEnded>>().clear();
     world.resource_mut::<Clients>().discard();
+    world.resource_mut::<Later>().discard();
     world.run_system_cached(|mut runtimes: Runtimes| {
         runtimes.discard();
     })?;

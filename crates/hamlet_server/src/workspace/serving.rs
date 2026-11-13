@@ -234,8 +234,7 @@ impl Core<'_, '_> {
         self.changed.republish = true;
         let secrets = self.credentials.secrets();
         let id = id.clone();
-        let later = self.later.clone();
-        later.spawn_many(move |report| async move {
+        self.later.spawn_many(move |report| async move {
             let mut failed = None;
             for (done, lodging) in moves.into_iter().enumerate() {
                 let done = i64::try_from(done).unwrap_or(of);
