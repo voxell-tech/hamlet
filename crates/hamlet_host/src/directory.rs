@@ -52,6 +52,14 @@ impl Directory {
         )
     }
 
+    /// The kinds whose actors run in this host.
+    pub(crate) fn local_kinds(&self) -> impl Iterator<Item = &str> {
+        self.0.iter().map(|(kind, place)| {
+            let Place::Local(_) = place;
+            kind.as_str()
+        })
+    }
+
     /// Where the actors of `kind` run. Fails with
     /// `actor.not_registered` for a kind the directory does not hold.
     pub(crate) fn place(&self, kind: &str) -> Result<&Place> {

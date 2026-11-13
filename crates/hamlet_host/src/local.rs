@@ -8,9 +8,9 @@
 //! and the last alarm its core pushed, read once the core has
 //! stopped. A running actor's alarms live in its core alone, and the
 //! host keeps no timer for it. A stopped actor with a deadline has
-//! one timer, which starts it from its own file. Boot starts again
-//! each actor a kill left marked running, and arms a timer for each
-//! other stored deadline.
+//! one timer, which starts it from its own file. Boot reads the files
+//! of the host's own kinds, starts again each actor a kill left
+//! marked running, and arms a timer for each other stored deadline.
 //!
 //! Each actor's place in its lifecycle is one [`Life`] in the host's
 //! map. One actor's start or stop waits only on that actor's work. A
@@ -669,7 +669,8 @@ impl Host {
         &self.0.0
     }
 
-    /// Reads every actor file's row. Starts again each actor whose
+    /// Reads the row of each file of this host's kinds, but for the
+    /// actors the host holds already. Starts again each actor whose
     /// run a kill cut off, all at once, and arms a timer for each
     /// other actor whose last stop left a deadline. A due timer
     /// starts its actor at once, and boot waits for it. Returns the
@@ -1011,29 +1012,63 @@ impl Host {
         }
     }
 
-    /// Each actor file's row that holds a deadline or a run a kill
-    /// cut off. The files are closed again; starting an actor opens
-    /// its file anew.
+    /// The row of each file of this host's kinds that holds a
+    /// deadline or a run a kill cut off, but for the actors the host
+    /// holds: a running one holds its file locked, and a stopped one
+    /// has its timer. Another kind's folder is never read, since
+    /// another host may run it. The files are closed again; starting
+    /// an actor opens its file anew.
     fn stored_actors(&self) -> Result<Vec<StoredActor>> {
+        let host = self.inner();
         let mut stored = Vec::new();
-        let actors = self.inner().dir.join("actors");
-        for kind in std::fs::read_dir(&actors)? {
-            let kind = kind?;
-            if !kind.file_type()?.is_dir() {
-                continue;
-            }
-            for file in std::fs::read_dir(kind.path())? {
-                let path = file?.path();
-                if path.extension().is_none_or(|ext| ext != "sqlite")
+        for kind in host.directory.local_kinds() {
+            let folder = host.dir.join("actors").join(kind);
+            let files = match std::fs::read_dir(&folder) {
+                Ok(files) => files,
+                Err(error)
+                    if error.kind()
+                        == std::io::ErrorKind::NotFound =>
                 {
                     continue;
                 }
-                if let Some(actor) = stored_actor(&path)
-                    .with_context(|| {
-                        format!("read {}", path.display())
-                    })?
-                {
-                    stored.push(actor);
+                Err(error) => {
+                    return Err(error).with_context(|| {
+                        format!("read {}", folder.display())
+                    });
+                }
+            };
+            for file in files {
+                let path = file?.path();
+                let key = path
+                    .file_stem()
+                    .and_then(|key| key.to_str())
+                    .filter(|_| {
+                        path.extension()
+                            .is_some_and(|ext| ext == "sqlite")
+                    });
+                // Not an actor's file.
+                let Some(Ok(actor_id)) =
+                    key.map(|key| actor_id(kind, key))
+                else {
+                    continue;
+                };
+                let held = || {
+                    host.actors.lock().lives.contains_key(&actor_id)
+                };
+                if held() {
+                    continue;
+                }
+                match stored_actor(&path, &actor_id) {
+                    Ok(Some(actor)) => stored.push(actor),
+                    Ok(None) => {}
+                    // A start that began since holds it.
+                    Err(_) if held() => {}
+                    Err(error) => {
+                        return Err(error.context(format!(
+                            "read {}",
+                            path.display()
+                        )));
+                    }
                 }
             }
         }
@@ -1051,39 +1086,30 @@ struct StoredActor {
     cut_off: bool,
 }
 
-/// The `_hamlet_actor` row of one actor file, if it holds a deadline
-/// or a run a kill cut off.
-fn stored_actor(path: &Path) -> Result<Option<StoredActor>> {
+/// The `_hamlet_actor` row of the file of the actor `actor_id`, if it
+/// holds a deadline or a run a kill cut off.
+fn stored_actor(
+    path: &Path,
+    actor_id: &str,
+) -> Result<Option<StoredActor>> {
     let conn = plain_sqlite::open(path, false)?;
     if !has_table(&conn, "_hamlet_actor")? {
         return Ok(None);
     }
-    let stored: Option<(String, String, Option<i64>, bool)> = conn
+    let stored: Option<(Option<i64>, bool)> = conn
         .query_row(
-            "SELECT kind, key, wake_at, running FROM _hamlet_actor",
+            "SELECT wake_at, running FROM _hamlet_actor",
             [],
-            |row| {
-                Ok((
-                    row.get(0)?,
-                    row.get(1)?,
-                    row.get(2)?,
-                    row.get(3)?,
-                ))
-            },
+            |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .optional()?;
-    match stored {
-        Some((kind, key, wake_at, cut_off))
-            if wake_at.is_some() || cut_off =>
-        {
-            Ok(Some(StoredActor {
-                actor_id: actor_id(&kind, &key)?,
-                wake_at,
-                cut_off,
-            }))
-        }
-        _ => Ok(None),
-    }
+    Ok(stored
+        .filter(|(wake_at, cut_off)| wake_at.is_some() || *cut_off)
+        .map(|(wake_at, cut_off)| StoredActor {
+            actor_id: actor_id.to_owned(),
+            wake_at,
+            cut_off,
+        }))
 }
 
 /// Whether the file has the table `name`. A table the core makes

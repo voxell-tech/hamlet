@@ -1525,3 +1525,80 @@ async fn boot_waits_one_deadline_for_many_stuck_starts() {
     assert!(started.is_empty(), "{started:?}");
     host.shutdown().await.unwrap();
 }
+
+/// H1. Boot leaves alone the file of an actor its host runs, which
+/// the actor holds locked.
+#[tokio::test(flavor = "multi_thread")]
+async fn boot_succeeds_while_an_actor_of_its_host_runs() {
+    let dir = Scratch::new("host-boot-running");
+    let host = Host::open(&dir, factories()).unwrap();
+    let id = host.get_or_start("counter", "a").await.unwrap();
+    assert!(host.boot().await.unwrap().is_empty());
+    assert_eq!(call(&host, &id, "increment").await, 1);
+    host.shutdown().await.unwrap();
+}
+
+/// What is logged on the thread that made it, at WARN or above.
+#[derive(Clone, Default)]
+struct Logs(Arc<Mutex<Vec<u8>>>);
+
+impl std::io::Write for Logs {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.0.lock().extend_from_slice(buf);
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+/// L1. Boot reads only the files of its own kinds. Another kind's
+/// file, which another process holds locked with a run a kill cut
+/// off, neither fails nor slows it, nor is logged, and nothing of
+/// that kind starts.
+#[tokio::test(flavor = "multi_thread")]
+async fn boot_reads_only_the_files_of_its_kinds() {
+    use tracing_subscriber::util::SubscriberInitExt;
+
+    let dir = Scratch::new("host-boot-kinds");
+    std::fs::create_dir_all(dir.join("actors/other")).unwrap();
+    let held =
+        Connection::open(dir.join("actors/other/x.sqlite")).unwrap();
+    held.pragma_update(None, "locking_mode", "EXCLUSIVE")
+        .unwrap();
+    held.execute_batch(
+        "CREATE TABLE _hamlet_actor (id INTEGER PRIMARY KEY, kind \
+         TEXT NOT NULL, key TEXT NOT NULL, generation INTEGER NOT \
+         NULL, wake_at INTEGER, running INTEGER NOT NULL); INSERT \
+         INTO _hamlet_actor VALUES (0, 'other', 'x', 1, NULL, 1)",
+    )
+    .unwrap();
+    // The write took the file's exclusive lock, which `held` keeps.
+    assert!(probe(&dir, "other", "x").is_err());
+
+    let host = Host::open(&dir, factories()).unwrap();
+    let logs = Logs::default();
+    let logging = tracing_subscriber::fmt()
+        .with_max_level(tracing_subscriber::filter::LevelFilter::WARN)
+        .with_ansi(false)
+        .with_writer({
+            let logs = logs.clone();
+            move || logs.clone()
+        })
+        .finish()
+        .set_default();
+    let began =
+        tokio::time::timeout(Duration::from_secs(1), host.boot())
+            .await
+            .expect("another kind's file slowed boot")
+            .unwrap();
+    drop(logging);
+    assert!(began.is_empty(), "{began:?}");
+    let logged = String::from_utf8(logs.0.lock().clone()).unwrap();
+    assert!(logged.is_empty(), "{logged}");
+    host.shutdown().await.unwrap();
+    drop(host);
+    drop(held);
+    assert_eq!(probe(&dir, "other", "x").unwrap(), 1);
+}
