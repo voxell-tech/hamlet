@@ -243,6 +243,10 @@ fn prepare(data: &Path, extensions: &Path) -> std::io::Result<()> {
     let machine = data.join("Machine");
     std::fs::create_dir_all(&machine)?;
     std::fs::write(machine.join("settings.json"), SETTINGS)?;
+    // Begun anew, so an extension no longer given is gone.
+    if extensions.exists() {
+        std::fs::remove_dir_all(extensions)?;
+    }
     std::fs::create_dir_all(extensions)?;
     if let Some(from) = std::env::var_os(EXTENSIONS) {
         copy_all(Path::new(&from), extensions)?;

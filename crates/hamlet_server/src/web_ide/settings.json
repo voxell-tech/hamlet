@@ -38,6 +38,5 @@
   "typescript.disableAutomaticTypeAcquisition": true,
   "npm.autoDetect": "off",
   "task.autoDetect": "off",
-  "json.schemaDownload.enable": false,
-  "remote.extensionKind": { "tomoki1207.pdf": ["workspace"] }
+  "json.schemaDownload.enable": false
 }
