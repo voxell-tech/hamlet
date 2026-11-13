@@ -295,6 +295,7 @@ fn arguments(
         "--telemetry-level".into(),
         "off".into(),
         "--accept-server-license-terms".into(),
+        "--disable-workspace-trust".into(),
     ]
 }
 
