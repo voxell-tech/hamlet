@@ -150,7 +150,7 @@ no C compiler and without bundled SQLite), `deny` (`cargo deny check`), `test`
 with `-D warnings` and every feature, except that `hamlet_actor_core` is
 documented on its own at its default features, because its
 `native-runtime` and `wasm-runtime` features exclude each other) and
-`node` (pi's checks). `deny` needs cargo-deny:
+`node` (pi's checks, then the Node host's). `deny` needs cargo-deny:
 `cargo install --locked cargo-deny`. `deny.toml` holds the allowed
 licences and the ignored advisories, each with its reason. With `CI`
 set, as on GitHub, the steps pass `--locked` to cargo. `cargo xtask fmt`
