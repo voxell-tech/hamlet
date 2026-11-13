@@ -16,6 +16,7 @@ use std::thread;
 
 use anyhow::{Result, anyhow};
 use hamlet_actor_wire::persist::versioned::RunWakeAt;
+use hamlet_sqlite::Request;
 use parking_lot::Mutex;
 use tokio::sync::{oneshot, watch};
 
@@ -232,7 +233,7 @@ pub enum HostCall {
 /// of its own, and a record of every alarm, sleep and stop.
 pub struct TestHost {
     endpoint: String,
-    sql: std_mpsc::Sender<SqlCommand>,
+    sql: std_mpsc::Sender<Request>,
     session: watch::Sender<u64>,
     calls: Mutex<Vec<HostCall>>,
     /// Whether a request yields until its reply instead of parking.
@@ -256,10 +257,10 @@ impl TestHost {
 
     fn request<T: Send + 'static>(
         &self,
-        command: impl FnOnce(oneshot::Sender<Result<T>>) -> SqlCommand,
+        request: impl FnOnce(oneshot::Sender<Result<T>>) -> Request,
     ) -> RuntimeBoxFuture<Result<T>> {
         let (reply, rx) = oneshot::channel();
-        let sent = self.sql.send(command(reply));
+        let sent = self.sql.send(request(reply));
         let busy_wait = self.busy_wait;
         Box::pin(async move {
             sent.map_err(|_| anyhow!("test sqlite thread stopped"))?;
@@ -335,7 +336,7 @@ impl ActorHost for TestHost {
         _actor_id: String,
         sql: String,
     ) -> RuntimeBoxFuture<Result<QueryResult>> {
-        self.request(|reply| SqlCommand::Exec(sql, reply))
+        self.request(|reply| Request::Exec { sql, reply })
     }
 
     fn sqlite_execute(
@@ -344,7 +345,7 @@ impl ActorHost for TestHost {
         sql: String,
         params: Option<Vec<BindParam>>,
     ) -> RuntimeBoxFuture<Result<ExecuteResult>> {
-        self.request(|reply| SqlCommand::Execute(sql, params, reply))
+        self.request(|reply| Request::Execute { sql, params, reply })
     }
 
     fn sqlite_execute_batch(
@@ -352,31 +353,22 @@ impl ActorHost for TestHost {
         _actor_id: String,
         statements: Vec<SqliteBatchStatement>,
     ) -> RuntimeBoxFuture<Result<Vec<ExecuteResult>>> {
-        self.request(|reply| SqlCommand::Batch(statements, reply))
+        let statements = statements
+            .into_iter()
+            .map(|statement| (statement.sql, statement.params))
+            .collect();
+        self.request(|reply| Request::Batch { statements, reply })
     }
 
     fn transaction_committed(&self, _actor_id: &str) {}
-}
-
-enum SqlCommand {
-    Exec(String, oneshot::Sender<Result<QueryResult>>),
-    Execute(
-        String,
-        Option<Vec<BindParam>>,
-        oneshot::Sender<Result<ExecuteResult>>,
-    ),
-    Batch(
-        Vec<SqliteBatchStatement>,
-        oneshot::Sender<Result<Vec<ExecuteResult>>>,
-    ),
 }
 
 /// Serves one in-memory database, with the internal schema, on a
 /// thread of its own until the host is dropped.
 fn spawn_sqlite(
     gate: Option<TestSqliteWriteGate>,
-) -> std_mpsc::Sender<SqlCommand> {
-    let (tx, rx) = std_mpsc::channel::<SqlCommand>();
+) -> std_mpsc::Sender<Request> {
+    let (tx, rx) = std_mpsc::channel::<Request>();
     thread::Builder::new()
         .name("test-sqlite".into())
         .spawn(move || {
@@ -384,36 +376,21 @@ fn spawn_sqlite(
                 .expect("test sqlite connection should open");
             initialize_test_schema(&conn)
                 .expect("test sqlite schema should initialize");
-            while let Ok(command) = rx.recv() {
-                match command {
-                    SqlCommand::Exec(sql, reply) => {
-                        let _ = reply
-                            .send(hamlet_sqlite::exec(&conn, &sql));
-                    }
-                    SqlCommand::Execute(sql, params, reply) => {
-                        if let Some(gate) = &gate {
-                            gate.pass(std::iter::once(&sql));
+            while let Ok(request) = rx.recv() {
+                if let Some(gate) = &gate {
+                    match &request {
+                        Request::Exec { .. } => {}
+                        Request::Execute { sql, .. } => {
+                            gate.pass(std::iter::once(sql));
                         }
-                        let _ = reply.send(hamlet_sqlite::execute(
-                            &conn,
-                            &sql,
-                            params.as_deref(),
-                        ));
-                    }
-                    SqlCommand::Batch(statements, reply) => {
-                        if let Some(gate) = &gate {
+                        Request::Batch { statements, .. } => {
                             gate.pass(
-                                statements.iter().map(|s| &s.sql),
+                                statements.iter().map(|(sql, _)| sql),
                             );
                         }
-                        let _ = reply.send(hamlet_sqlite::batch(
-                            &conn,
-                            statements.iter().map(|s| {
-                                (s.sql.as_str(), s.params.as_deref())
-                            }),
-                        ));
                     }
                 }
+                request.answer(&conn);
             }
         })
         .expect("test sqlite thread should start");

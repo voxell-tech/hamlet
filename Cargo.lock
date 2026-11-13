@@ -4935,6 +4935,7 @@ dependencies = [
  "anyhow",
  "hamlet_actor_wire",
  "rusqlite",
+ "tokio",
 ]
 
 [[package]]

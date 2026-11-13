@@ -1,6 +1,7 @@
 //! Runs the actor runtime's three SQL requests, `exec`, `execute` and
 //! a batch, on a rusqlite connection, and reads their rows into the
-//! runtime's types.
+//! runtime's types. [`Request`] carries one of them, with the sender
+//! for its reply, to the thread that holds the connection.
 
 use anyhow::Result;
 use hamlet_actor_wire::sqlite_types::{
@@ -9,6 +10,52 @@ use hamlet_actor_wire::sqlite_types::{
 use rusqlite::fallible_iterator::FallibleIterator;
 use rusqlite::types::{Value, ValueRef};
 use rusqlite::{Batch, Connection, Statement};
+use tokio::sync::oneshot;
+
+/// One SQL request, with the sender for its reply.
+pub enum Request {
+    Exec {
+        sql: String,
+        reply: oneshot::Sender<Result<QueryResult>>,
+    },
+    Execute {
+        sql: String,
+        params: Option<Vec<BindParam>>,
+        reply: oneshot::Sender<Result<ExecuteResult>>,
+    },
+    /// Statements as `(sql, params)`, run by [`batch`].
+    Batch {
+        statements: Vec<(String, Option<Vec<BindParam>>)>,
+        reply: oneshot::Sender<Result<Vec<ExecuteResult>>>,
+    },
+}
+
+impl Request {
+    /// Runs the request on `conn` and sends its result. A requester
+    /// that stopped waiting gets nothing.
+    pub fn answer(self, conn: &Connection) {
+        match self {
+            Self::Exec { sql, reply } => {
+                let _ = reply.send(exec(conn, &sql));
+            }
+            Self::Execute { sql, params, reply } => {
+                let _ = reply.send(execute(
+                    conn,
+                    &sql,
+                    params.as_deref(),
+                ));
+            }
+            Self::Batch { statements, reply } => {
+                let _ = reply.send(batch(
+                    conn,
+                    statements.iter().map(|(sql, params)| {
+                        (sql.as_str(), params.as_deref())
+                    }),
+                ));
+            }
+        }
+    }
+}
 
 /// Runs each statement of `sql` and returns the rows of the last one
 /// that has columns.

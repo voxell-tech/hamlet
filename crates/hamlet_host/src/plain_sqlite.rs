@@ -12,21 +12,13 @@ use anyhow::{Context, Result, anyhow, ensure};
 use hamlet_actor_core::{
     BindParam, ExecuteResult, QueryResult, SqliteBatchStatement,
 };
+use hamlet_sqlite::Request;
 use rusqlite::types::Value;
 use rusqlite::{Connection, params_from_iter};
 use tokio::sync::oneshot;
 
 enum Command {
-    Exec(String, oneshot::Sender<Result<QueryResult>>),
-    Execute(
-        String,
-        Option<Vec<BindParam>>,
-        oneshot::Sender<Result<ExecuteResult>>,
-    ),
-    Batch(
-        Vec<SqliteBatchStatement>,
-        oneshot::Sender<Result<Vec<ExecuteResult>>>,
-    ),
+    Sql(Request),
     /// A write of the host's own, held while the actor has a
     /// transaction open so it never joins the actor's transaction.
     HostWrite(HostWrite),
@@ -72,7 +64,7 @@ impl PlainSqlite {
     }
 
     pub async fn exec(&self, sql: String) -> Result<QueryResult> {
-        self.request(|reply| Command::Exec(sql, reply)).await
+        self.request(|reply| Request::Exec { sql, reply }).await
     }
 
     pub async fn execute(
@@ -80,7 +72,7 @@ impl PlainSqlite {
         sql: String,
         params: Option<Vec<BindParam>>,
     ) -> Result<ExecuteResult> {
-        self.request(|reply| Command::Execute(sql, params, reply))
+        self.request(|reply| Request::Execute { sql, params, reply })
             .await
     }
 
@@ -88,7 +80,11 @@ impl PlainSqlite {
         &self,
         statements: Vec<SqliteBatchStatement>,
     ) -> Result<Vec<ExecuteResult>> {
-        self.request(|reply| Command::Batch(statements, reply))
+        let statements = statements
+            .into_iter()
+            .map(|statement| (statement.sql, statement.params))
+            .collect();
+        self.request(|reply| Request::Batch { statements, reply })
             .await
     }
 
@@ -122,10 +118,10 @@ impl PlainSqlite {
 
     async fn request<T>(
         &self,
-        command: impl FnOnce(oneshot::Sender<Result<T>>) -> Command,
+        request: impl FnOnce(oneshot::Sender<Result<T>>) -> Request,
     ) -> Result<T> {
         let (reply, rx) = oneshot::channel();
-        self.send(command(reply))?;
+        self.send(Command::Sql(request(reply)))?;
         received(rx).await
     }
 
@@ -144,24 +140,7 @@ fn serve(conn: Connection, rx: &mpsc::Receiver<Command>) {
     let mut held = Vec::new();
     while let Ok(command) = rx.recv() {
         match command {
-            Command::Exec(sql, reply) => {
-                let _ = reply.send(hamlet_sqlite::exec(&conn, &sql));
-            }
-            Command::Execute(sql, params, reply) => {
-                let _ = reply.send(hamlet_sqlite::execute(
-                    &conn,
-                    &sql,
-                    params.as_deref(),
-                ));
-            }
-            Command::Batch(statements, reply) => {
-                let _ = reply.send(hamlet_sqlite::batch(
-                    &conn,
-                    statements.iter().map(|s| {
-                        (s.sql.as_str(), s.params.as_deref())
-                    }),
-                ));
-            }
+            Command::Sql(request) => request.answer(&conn),
             Command::HostWrite(write) => held.push(write),
             Command::Close(reply) => {
                 run_held(&conn, &mut held);
