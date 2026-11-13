@@ -107,6 +107,7 @@ async fn an_actor_reaches_the_realm_folder_of_its_host() {
         },
     );
     let host = Host::open(&dir, registry.into_factories()).unwrap();
+    host.get_or_start("here", "one").await.unwrap();
     let reply = host
         .call(
             &Address::new("here", "one"),
@@ -197,6 +198,7 @@ async fn an_actor_reads_its_hosts_values_in_create_and_in_a_handler()
         HostOptions::default().with_value(tally.clone()),
     )
     .unwrap();
+    host.get_or_start("reader", "a").await.unwrap();
     let read = call(&host, &Address::new("reader", "a"), &Read).await;
     host.shutdown().await.unwrap();
     assert_eq!(read.unwrap(), (true, false));
@@ -253,6 +255,7 @@ fn keepers() -> std::collections::HashMap<String, ActorFactory> {
 async fn an_actor_that_keeps_its_host_ref_does_not_keep_the_host() {
     let dir = Scratch::new("access-keeper");
     let host = Host::open(&dir, keepers()).unwrap();
+    host.get_or_start("keeper", "a").await.unwrap();
     call(&host, &Address::new("keeper", "a"), &Ping)
         .await
         .unwrap();

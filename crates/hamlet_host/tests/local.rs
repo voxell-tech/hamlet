@@ -1166,6 +1166,11 @@ async fn the_folder_is_free_after_every_shutdown() {
         (0..16).map(|key| format!("counter/{key}")).collect();
     let mut refused = Vec::new();
     let mut host = Host::open(&dir, factories()).unwrap();
+    for key in 0..16 {
+        host.get_or_start("counter", &key.to_string())
+            .await
+            .unwrap();
+    }
     for round in 0..ROUNDS {
         for id in &keys {
             act(&host, id, "get", Vec::new()).await.unwrap();
@@ -1897,6 +1902,7 @@ async fn a_destroy_removes_a_running_a_sleeping_and_a_waiting_actor()
     let host = Host::open(&dir, factories()).unwrap();
     assert!(host.boot().await.unwrap().is_empty());
     for key in ["running", "sleeping", "waiting"] {
+        host.get_or_start("counter", key).await.unwrap();
         assert_eq!(
             call(&host, &format!("counter/{key}"), "get").await,
             0
@@ -1977,6 +1983,7 @@ async fn a_start_finishes_the_destroy_its_file_holds() {
         .unwrap();
     }
 
+    host.get_or_start("counter", "made").await.unwrap();
     assert_eq!(call(&host, "counter/made", "get").await, 0);
     let kept_out = Address::new("counter", "kept-out");
     assert!(host.set_aside_timers(&kept_out).await.is_err());
