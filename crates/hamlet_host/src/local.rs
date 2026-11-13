@@ -50,7 +50,7 @@ use tracing::Instrument;
 
 use crate::cause::Cause;
 use crate::directory::{Address, Directory, Place};
-use crate::event::{HostEvent, Letter};
+use crate::event::HostEvent;
 use crate::plain_sqlite::{self, PlainSqlite};
 
 /// The one session a local file has. The transaction code compares
@@ -1548,7 +1548,7 @@ impl ActorHost for LocalHandle {
             action = timer.action,
             tries = timer.tries,
             error = timer.last_error,
-            "dead letter: the host set a timer aside"
+            "the host set a timer aside"
         );
         let Some(host) = self.host.upgrade() else {
             return;
@@ -1556,13 +1556,11 @@ impl ActorHost for LocalHandle {
         let Some((kind, key)) = actor_id.split_once('/') else {
             return;
         };
-        let _ = host.events.send(HostEvent::DeadLetter {
-            holder: Address::new(kind, key),
-            letter: Letter::Timer {
-                event_id: timer.event_id.clone(),
-                action: timer.action.clone(),
-                due_at: timer.due_at,
-            },
+        let _ = host.events.send(HostEvent::TimerSetAside {
+            actor: Address::new(kind, key),
+            event_id: timer.event_id.clone(),
+            action: timer.action.clone(),
+            due_at: timer.due_at,
             tries: timer.tries,
             error: timer.last_error.clone(),
         });

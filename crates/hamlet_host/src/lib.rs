@@ -11,5 +11,5 @@ mod plain_sqlite;
 
 pub use cause::Cause;
 pub use directory::Address;
-pub use event::{HostEvent, Letter};
+pub use event::HostEvent;
 pub use local::{Host, HostOptions};
