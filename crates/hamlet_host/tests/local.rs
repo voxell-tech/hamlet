@@ -1308,7 +1308,12 @@ async fn a_shutdown_closes_the_others_while_one_is_slow_and_reports_it()
     let text = format!("{error:#}");
     assert!(text.contains("brittle/b"), "{text}");
     assert!(!text.contains("counter/"), "{text}");
-    nap.await.unwrap().unwrap();
+    // A call in flight fails once its host begins to shut down.
+    let error = nap
+        .await
+        .unwrap()
+        .expect_err("a call in flight as its host shuts down");
+    assert!(is_actor_error(&error, "stopping"), "{error:#}");
     for id in ["brittle/b", "counter/a", "counter/c"] {
         assert!(!host.is_running(id), "{id} still runs");
     }
@@ -1426,7 +1431,12 @@ async fn a_second_host_opens_the_folder_at_once_after_a_shutdown() {
     tokio::time::sleep(Duration::from_millis(200)).await;
 
     host.shutdown().await.unwrap();
-    nap.await.unwrap().unwrap();
+    // A call in flight fails once its host begins to shut down.
+    let error = nap
+        .await
+        .unwrap()
+        .expect_err("a call in flight as its host shuts down");
+    assert!(is_actor_error(&error, "stopping"), "{error:#}");
     drop(host);
 
     let again = Host::open(&dir, with_nappers())
@@ -1472,6 +1482,11 @@ async fn the_folder_is_free_after_every_shutdown() {
         (0..16).map(|key| format!("counter/{key}")).collect();
     let mut refused = Vec::new();
     let mut host = Host::open(&dir, factories()).unwrap();
+    for key in 0..16 {
+        host.get_or_start("counter", &key.to_string())
+            .await
+            .unwrap();
+    }
     for round in 0..ROUNDS {
         for id in &keys {
             act(&host, id, "get", Vec::new()).await.unwrap();
@@ -1756,7 +1771,12 @@ async fn a_call_fails_at_once_once_its_host_shuts_down() {
             .expect_err("a call to a host that is shutting down");
         assert!(is_actor_error(&error, "stopping"), "{error:#}");
     }
-    nap.await.unwrap().unwrap();
+    // A call in flight fails once its host begins to shut down.
+    let error = nap
+        .await
+        .unwrap()
+        .expect_err("a call in flight as its host shuts down");
+    assert!(is_actor_error(&error, "stopping"), "{error:#}");
     stop.await.unwrap().unwrap();
     shutdown.await.unwrap().unwrap();
 }
@@ -2514,6 +2534,7 @@ async fn a_destroy_removes_a_running_a_sleeping_and_a_waiting_actor()
     let host = Host::open(&dir, factories()).unwrap();
     assert!(host.boot().await.unwrap().is_empty());
     for key in ["running", "sleeping", "waiting"] {
+        host.get_or_start("counter", key).await.unwrap();
         assert_eq!(
             call(&host, &format!("counter/{key}"), "get").await,
             0
@@ -2594,9 +2615,14 @@ async fn a_start_finishes_the_destroy_its_file_holds() {
         .unwrap();
     }
 
+    host.get_or_start("counter", "made").await.unwrap();
     assert_eq!(call(&host, "counter/made", "get").await, 0);
     let kept_out = Address::new("counter", "kept-out");
-    assert!(host.set_aside_timers(&kept_out).await.is_err());
+    let error = host
+        .set_aside_timers(&kept_out)
+        .await
+        .expect_err("a start of a destroyed actor's file");
+    assert!(is_actor_error(&error, "not_found"), "{error:#}");
     assert!(!any_file_of(&dir, "counter", "kept-out"));
     host.shutdown().await.unwrap();
 }

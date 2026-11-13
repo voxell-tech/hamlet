@@ -19,8 +19,9 @@
 //!                               of stdin until it ends or SIGTERM
 //! ```
 //!
-//! Each command prints `counter/<key> <count>`, the count the actor
-//! replied with. Booting prints `boot counter/<key> <count>` for each
+//! A command on a counter makes it first if it has none. Each command
+//! prints `counter/<key> <count>`, the count the actor replied with.
+//! Booting prints `boot counter/<key> <count>` for each
 //! actor it started, once its start ends. `timers` prints `timer
 //! <kind>/<key> <event_id> <action> due=<ms> tries=<n> error=<code>`
 //! for each timer, and `rearm` prints `rearm <kind>/<key> <event_id>
@@ -139,7 +140,7 @@ async fn run(host: &Host, words: &[String]) -> Result<()> {
         }
         _ => {}
     }
-    let actor_id = format!("counter/{key}");
+    let actor_id = host.get_or_start("counter", key).await?;
     let reply = match command {
         "increment" => {
             let mut reply = Vec::new();

@@ -21,7 +21,7 @@ use hamlet_actor_core::sqlite::SqliteDb;
 use hamlet_actor_core::{
     ActorEvent, ActorFactory, ActorStart, ColumnValue, ShutdownKind,
 };
-use hamlet_host::{Address, Host, HostEvent, HostOptions};
+use hamlet_host::{Address, Caller, Host, HostEvent, HostOptions};
 use hamlet_testing::Scratch;
 use serde::{Deserialize, Serialize};
 use tokio::time::{Instant, sleep};
@@ -223,7 +223,7 @@ impl<const NAPS: bool> Actor for Fuse<NAPS> {
     type Input = ();
     type Actions = (Arm, Fire, Runs);
     type Events = ();
-    type ConnParams = ();
+    type ConnParams = Option<Caller>;
     type Action = ();
 
     async fn create(ctx: &Ctx<Self>) -> Result<Self> {

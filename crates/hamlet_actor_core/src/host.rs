@@ -8,6 +8,7 @@ pub(crate) mod dispatch;
 pub(crate) mod http;
 mod running;
 
+use std::any::Any;
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -34,8 +35,9 @@ pub type HostHandle = Arc<dyn ActorHost>;
 ///
 /// The methods with a default serve what a local host does not have:
 /// HTTP request counting, hibernating WebSockets and the key-value
-/// store from before SQLite.
-pub trait ActorHost: Send + Sync + 'static {
+/// store from before SQLite. `Any` lets a host downcast the handle
+/// an actor's context holds back to its own type.
+pub trait ActorHost: Any + Send + Sync + 'static {
     fn endpoint(&self) -> &str;
 
     fn token(&self) -> Option<&str> {
