@@ -46,6 +46,7 @@ use tracing::Instrument;
 use crate::cause::Cause;
 use crate::directory::{Address, Directory, Place};
 use crate::plain_sqlite::{self, PlainSqlite};
+use crate::send::{self, Outbox};
 
 /// The one session a local file has. The transaction code compares
 /// sessions to detect a lost connection, which a local file cannot
@@ -164,13 +165,13 @@ impl Life {
 
 /// One start of an actor, from its start transaction until its stop
 /// closed the file.
-struct Generation {
+pub(crate) struct Generation {
     /// No other generation of this host has this id. The file counts
     /// its own generations for the core, and a key destroyed and
     /// made again counts from 1 again, so the host never compares
     /// that count.
     id: u64,
-    actor: RunningActor,
+    pub(crate) actor: RunningActor,
     file: PlainSqlite,
     /// The last alarm the core pushed in this generation, `None`
     /// until it pushes one, as the core's own record starts.
@@ -316,7 +317,7 @@ impl Stop {
     }
 }
 
-struct HostInner {
+pub(crate) struct HostInner {
     dir: PathBuf,
     /// Held open for the host's life: its lock keeps a second host
     /// out of the folder.
@@ -478,6 +479,9 @@ struct LocalHandle {
     generation: u64,
     file: PlainSqlite,
     alarm: Arc<Mutex<Option<i64>>>,
+    /// The generation's sends, delivered once their transaction
+    /// commits.
+    outbox: Arc<Outbox>,
 }
 
 impl Host {
@@ -539,7 +543,11 @@ impl Host {
             // cut off starts again, and its core pushes its alarms
             // anew.
             if stored.cut_off {
-                match self.ensure_started(&actor_id, false).await {
+                match self
+                    .inner()
+                    .ensure_started(&actor_id, false)
+                    .await
+                {
                     Ok(_) => started.push(actor_id),
                     Err(error) => tracing::error!(
                         ?error,
@@ -584,7 +592,7 @@ impl Host {
         key: &str,
     ) -> Result<String> {
         let actor_id = self.located(kind, key)?;
-        self.ensure_started(&actor_id, true).await?;
+        self.inner().ensure_started(&actor_id, true).await?;
         Ok(actor_id)
     }
 
@@ -615,7 +623,7 @@ impl Host {
             let begun = Instant::now();
             let generation = tokio::time::timeout(
                 deadline,
-                self.ensure_started(&actor_id, true),
+                self.inner().ensure_started(&actor_id, true),
             )
             .await
             .map_err(|_| ActionTimedOut.build())??;
@@ -726,16 +734,18 @@ impl Host {
         }
         Ok(())
     }
+}
 
+impl HostInner {
     /// Starts the actor unless it runs, and returns the generation
     /// that runs it. Waits for a start or a stop under way first.
     /// Fails at once for an actor that is being destroyed, and in a
     /// host that has shut down. Makes the actor's file only if
     /// `create`, which only `get_or_start` and a call ask for: boot
-    /// starts an actor from the file it has, and never makes an empty
-    /// one.
+    /// and a send's delivery start an actor from the file it has, and
+    /// never make an empty one.
     async fn ensure_started(
-        &self,
+        self: &Arc<Self>,
         actor_id: &str,
         create: bool,
     ) -> Result<Arc<Generation>> {
@@ -745,7 +755,7 @@ impl Host {
         }
         loop {
             let next = {
-                let mut actors = self.inner().actors.lock();
+                let mut actors = self.actors.lock();
                 match actors.lives.get(actor_id) {
                     Some(Life::Running(generation)) => {
                         return Ok(generation.clone());
@@ -762,8 +772,8 @@ impl Host {
                         | Life::Stopping { done: waiters, .. },
                     ) => Next::Wait(waiters.clone()),
                     Some(Life::Stopped { .. }) | None => {
-                        let (owned, generation, replaced) = actors
-                            .begin_start(self.inner(), actor_id)?;
+                        let (owned, generation, replaced) =
+                            actors.begin_start(self, actor_id)?;
                         if let Some(Life::Stopped { timer, .. }) =
                             replaced
                         {
@@ -787,6 +797,37 @@ impl Host {
         }
     }
 
+    /// The running generation of the receiver of a send to `to`,
+    /// started from its file. `None` if `to` has no address: its kind
+    /// is not in the directory, its key is not a valid one, or it is
+    /// neither in the map nor in the folder. A send never makes its
+    /// receiver.
+    pub(crate) async fn receiver(
+        self: &Arc<Self>,
+        to: &Address,
+    ) -> Result<Option<Arc<Generation>>> {
+        if self.directory.place(&to.kind).is_err() {
+            return Ok(None);
+        }
+        let Ok(actor_id) = actor_id(&to.kind, &to.key) else {
+            return Ok(None);
+        };
+        // The map first: a receiver that is starting for the first
+        // time has no file yet.
+        let known = self.actors.lock().lives.contains_key(&actor_id);
+        if !known && !actor_path(&self.dir, &actor_id).exists() {
+            return Ok(None);
+        }
+        self.ensure_started(&actor_id, false).await.map(Some)
+    }
+
+    /// Whether the host has shut down, or its last [`Host`] dropped.
+    pub(crate) fn is_shut(&self) -> bool {
+        self.actors.lock().shut
+    }
+}
+
+impl Host {
     /// Each actor file's row that holds a deadline or a run a kill
     /// cut off. The files are closed again; starting an actor opens
     /// its file anew.
@@ -1040,7 +1081,7 @@ fn bump_generation(
         [],
         |row| row.get(0),
     )?;
-    tx.execute_batch(crate::send::SCHEMA)?;
+    tx.execute_batch(send::SCHEMA)?;
     tx.commit()?;
     Ok((generation, first))
 }
@@ -1069,6 +1110,11 @@ async fn start_actor(
     })
     .await??;
     let alarm = Arc::new(Mutex::new(None));
+    let outbox = Outbox::new(
+        Arc::downgrade(&host),
+        Address::new(kind, key),
+        file.clone(),
+    );
     let started = RunningActor::start(StartRequest {
         actor_id: actor_id.clone(),
         name: kind.to_owned(),
@@ -1081,6 +1127,7 @@ async fn start_actor(
             generation: id,
             file: file.clone(),
             alarm: alarm.clone(),
+            outbox,
         }),
         new_storage: first,
         input: None,
@@ -1236,6 +1283,9 @@ impl ActorHost for LocalHandle {
         sql: String,
         params: Option<Vec<BindParam>>,
     ) -> RuntimeBoxFuture<Result<ExecuteResult>> {
+        if sql == send::OUTBOX_INSERT {
+            self.outbox.mark();
+        }
         let file = self.file.clone();
         Box::pin(async move { file.execute(sql, params).await })
     }
@@ -1253,11 +1303,12 @@ impl ActorHost for LocalHandle {
         if let Some(host) = self.host.upgrade() {
             let _ = host.commits.send(actor_id.to_owned());
         }
+        self.outbox.committed();
     }
 }
 
 /// Milliseconds since the Unix epoch, the clock alarms use.
-fn now_ms() -> i64 {
+pub(crate) fn now_ms() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX))
@@ -1358,6 +1409,11 @@ mod tests {
                 generation: generation.id,
                 file: generation.file.clone(),
                 alarm: generation.alarm.clone(),
+                outbox: Outbox::new(
+                    Arc::downgrade(host.inner()),
+                    Address::new("counter", "a"),
+                    generation.file.clone(),
+                ),
             }
         };
         host.stop(&id, ShutdownKind::Sleep).await.unwrap();

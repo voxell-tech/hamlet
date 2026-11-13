@@ -23,8 +23,13 @@ type Last = Box<dyn FnOnce(&Connection) -> Answer + Send>;
 
 type Answer = Box<dyn FnOnce() + Send>;
 
+/// Work of the host's own on the file, held until no transaction is
+/// open, so it never joins one and reads only what is committed.
+type Held = Box<dyn FnOnce(&Connection) + Send>;
+
 enum Command {
     Sql(Request),
+    Held(Held),
     Close(Last),
 }
 
@@ -96,6 +101,20 @@ impl PlainSqlite {
             .await
     }
 
+    /// Runs `work` on the connection once no transaction is open, and
+    /// returns what it returned. Work held at the close runs after
+    /// its rollback, before the close's own last work.
+    pub async fn between_transactions<T: Send + 'static>(
+        &self,
+        work: impl FnOnce(&Connection) -> Result<T> + Send + 'static,
+    ) -> Result<T> {
+        let (reply, rx) = oneshot::channel();
+        self.send(Command::Held(Box::new(move |conn| {
+            let _ = reply.send(work(conn));
+        })))?;
+        received(rx).await
+    }
+
     /// Closes the connection, which releases the file's lock, and
     /// returns once it is closed.
     pub async fn close(&self) {
@@ -145,9 +164,11 @@ async fn received<T>(rx: oneshot::Receiver<Result<T>>) -> Result<T> {
 }
 
 fn serve(conn: Connection, rx: &mpsc::Receiver<Command>) {
+    let mut held = Vec::new();
     while let Ok(command) = rx.recv() {
         match command {
             Command::Sql(request) => request.answer(&conn),
+            Command::Held(work) => held.push(work),
             Command::Close(last) => {
                 if !conn.is_autocommit()
                     && let Err(error) = conn.execute_batch("ROLLBACK")
@@ -157,6 +178,7 @@ fn serve(conn: Connection, rx: &mpsc::Receiver<Command>) {
                         "sqlite file did not roll back"
                     );
                 }
+                run_held(&conn, &mut held);
                 let answer = last(&conn);
                 if let Err((_, error)) = conn.close() {
                     tracing::error!(
@@ -167,6 +189,17 @@ fn serve(conn: Connection, rx: &mpsc::Receiver<Command>) {
                 answer();
                 return;
             }
+        }
+        run_held(&conn, &mut held);
+    }
+}
+
+/// Runs the held work, in the order it came, if no transaction is
+/// open.
+fn run_held(conn: &Connection, held: &mut Vec<Held>) {
+    if conn.is_autocommit() {
+        for work in held.drain(..) {
+            work(conn);
         }
     }
 }

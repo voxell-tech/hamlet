@@ -15,10 +15,20 @@
 //!   schedule's.
 //! - `sleep` and `destroy` ask the host to sleep or destroy the
 //!   actor, and reply with the count.
+//! - `send` takes a little-endian `i64` `n`, then the receiver's id,
+//!   `<kind>/<key>`. In one transaction it writes a `ledger` row and
+//!   sends `n` to the receiver, which adds it to its count.
+//! - `outbox` replies with the number of this counter's sends that
+//!   their receivers have not confirmed.
+//! - `hamlet.receive` is the host's delivery of a send. Its receive
+//!   transaction adds the send's `n` to the count and writes a
+//!   `received` row. It replies with the host's answer, not a count.
 //!
 //! `increment` passes the fault point `tx-open` inside its
 //! transaction, and `tx-committed` after it commits and before it
-//! replies.
+//! replies. `send` passes `send-tx-open` inside its transaction,
+//! after the send, and a receive passes `receive-tx-open` inside its
+//! receive transaction.
 //!
 //! Each action runs on a task of its own, as the authoring layer
 //! runs them, so an action that outlives its caller's deadline does
@@ -29,14 +39,16 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
-use anyhow::{Result, anyhow};
+use anyhow::{Context, Result, anyhow, bail};
 use hamlet_actor_core::actor::schedule::{
     ScheduledFireInfo, end_one_shot,
 };
 use hamlet_actor_core::{
     ActorConfig, ActorContext, ActorEvent, ActorFactory, ActorStart,
-    BindParam, ColumnValue,
+    BindParam, ColumnValue, SqliteTransaction,
 };
+use hamlet_host::send::{self, Message};
+use hamlet_host::{Address, Cause};
 
 /// Whether counters sleep once idle.
 #[derive(Clone, Copy)]
@@ -68,19 +80,46 @@ pub fn count(reply: Vec<u8>) -> Result<i64> {
     Ok(i64::from_le_bytes(bytes))
 }
 
+/// Makes the counter's tables: its count, the sends it made and the
+/// sends it received.
+pub async fn make_tables(ctx: &ActorContext) -> Result<()> {
+    ctx.sql()
+        .exec(
+            "CREATE TABLE IF NOT EXISTS counter (id INTEGER PRIMARY \
+             KEY, value INTEGER NOT NULL); CREATE TABLE IF NOT \
+             EXISTS ledger (id INTEGER PRIMARY KEY, to_id TEXT NOT \
+             NULL, seq INTEGER NOT NULL, n INTEGER NOT NULL); \
+             CREATE TABLE IF NOT EXISTS received (id INTEGER \
+             PRIMARY KEY, from_id TEXT NOT NULL, seq INTEGER NOT \
+             NULL, n INTEGER NOT NULL, failed_runs INTEGER NOT NULL)"
+                .to_owned(),
+        )
+        .await?;
+    Ok(())
+}
+
 async fn run(start: ActorStart) -> Result<()> {
     let ActorStart {
         ctx, mut events, ..
     } = start;
-    ctx.sql()
-        .exec(
-            "CREATE TABLE IF NOT EXISTS counter (id INTEGER PRIMARY \
-             KEY, value INTEGER NOT NULL)"
-                .to_owned(),
-        )
-        .await?;
+    make_tables(&ctx).await?;
     while let Some(event) = events.recv().await {
         match event {
+            ActorEvent::Action {
+                name,
+                args,
+                scheduled_fire,
+                reply,
+                ..
+            } if name == send::RECEIVE => {
+                let ctx = ctx.clone();
+                tokio::spawn(async move {
+                    reply.send(
+                        receive(&ctx, &args, scheduled_fire.as_ref())
+                            .await,
+                    );
+                });
+            }
             ActorEvent::Action {
                 name,
                 args,
@@ -169,8 +208,124 @@ async fn action(
             .await?;
             Ok(count)
         }
+        "send" => {
+            let (n, to) = args
+                .split_first_chunk()
+                .ok_or_else(|| anyhow!("send takes an i64"))?;
+            send_n(
+                ctx,
+                i64::from_le_bytes(*n),
+                std::str::from_utf8(to)?,
+            )
+            .await
+        }
+        "outbox" => {
+            let result = ctx
+                .sql()
+                .execute(
+                    "SELECT COUNT(*) FROM _hamlet_outbox".to_owned(),
+                    None,
+                )
+                .await?;
+            Ok(
+                match result.rows.first().and_then(|row| row.first())
+                {
+                    Some(ColumnValue::Integer(pending)) => *pending,
+                    _ => 0,
+                },
+            )
+        }
         other => Err(anyhow!("unknown action `{other}`")),
     }
+}
+
+/// Sends `n` to the actor `to`, `<kind>/<key>`, with a `ledger` row
+/// in the same transaction.
+async fn send_n(ctx: &ActorContext, n: i64, to: &str) -> Result<i64> {
+    let (kind, key) = to
+        .split_once('/')
+        .with_context(|| format!("`{to}` is not <kind>/<key>"))?;
+    let tx = ctx.sql().begin_transaction(None).await?;
+    let seq = send::send(
+        &tx,
+        &Address::new(kind, key),
+        "add",
+        &n.to_le_bytes(),
+        &Cause::root("demo"),
+    )
+    .await?;
+    tx.execute(
+        "INSERT INTO ledger (to_id, seq, n) VALUES (?, ?, ?)",
+        Some(vec![
+            BindParam::Text(to.to_owned()),
+            BindParam::Integer(i64::try_from(seq)?),
+            BindParam::Integer(n),
+        ]),
+    )
+    .await?;
+    hamlet_host::fault::point("send-tx-open");
+    tx.commit().await?;
+    read_count(ctx).await
+}
+
+/// The counter's `hamlet.receive`: receives the send in `envelope`
+/// and replies with the host's answer. A one-shot of this counter's
+/// own cannot be a delivery, so one that names this action is
+/// refused.
+async fn receive(
+    ctx: &ActorContext,
+    envelope: &[u8],
+    fire: Option<&ScheduledFireInfo>,
+) -> Result<Vec<u8>> {
+    if fire.is_some() {
+        bail!(
+            "`{}` is the host's delivery, not a timer",
+            send::RECEIVE
+        );
+    }
+    let delivery =
+        send::receive(ctx, envelope, |tx, message| async move {
+            add_received(&tx, &message).await
+        })
+        .await?;
+    delivery.into_reply()
+}
+
+/// Adds the received send's `n` to the count and writes its
+/// `received` row, in its receive transaction. Its outcome is `n`.
+pub async fn add_received(
+    tx: &SqliteTransaction,
+    message: &Message,
+) -> Result<Vec<u8>> {
+    let n = i64::from_le_bytes(
+        message
+            .payload
+            .as_slice()
+            .try_into()
+            .context("a send to a counter carries an i64")?,
+    );
+    tx.execute(
+        "INSERT INTO counter (id, value) VALUES (0, ?1) ON CONFLICT \
+         (id) DO UPDATE SET value = value + ?1",
+        Some(vec![BindParam::Integer(n)]),
+    )
+    .await?;
+    tx.execute(
+        "INSERT INTO received (from_id, seq, n, failed_runs) VALUES \
+         (?, ?, ?, ?)",
+        Some(vec![
+            BindParam::Text(format!(
+                "{}/{}",
+                message.from.kind, message.from.key
+            )),
+            BindParam::Integer(i64::try_from(message.seq)?),
+            BindParam::Integer(n),
+            BindParam::Integer(i64::from(message.failed_runs)),
+        ]),
+    )
+    .await?;
+    hamlet_host::fault::point("receive-tx-open");
+    Ok(n.to_le_bytes().to_vec())
 }
 
 async fn add_one(

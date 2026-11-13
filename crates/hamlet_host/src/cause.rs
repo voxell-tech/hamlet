@@ -13,9 +13,18 @@ impl Cause {
     /// The cause of a message that no actor's message caused, such as
     /// a client's call: its task alone.
     pub fn root(task: impl Into<String>) -> Self {
+        Self::new(task, None)
+    }
+
+    /// The cause of a message in `task`, caused by the message of id
+    /// `cause`.
+    pub(crate) fn new(
+        task: impl Into<String>,
+        cause: Option<String>,
+    ) -> Self {
         Self {
             task: task.into(),
-            cause: None,
+            cause,
         }
     }
 
