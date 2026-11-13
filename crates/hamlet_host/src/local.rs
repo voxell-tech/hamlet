@@ -881,7 +881,8 @@ fn arm(
     let host = Arc::downgrade(host);
     let actor_id = actor_id.to_owned();
     tokio::spawn(async move {
-        let delay = u64::try_from(wake_at - now_ms()).unwrap_or(0);
+        let delay = u64::try_from(wake_at.saturating_sub(now_ms()))
+            .unwrap_or(0);
         tokio::time::sleep(Duration::from_millis(delay)).await;
         let Some(host) = host.upgrade() else {
             return false;

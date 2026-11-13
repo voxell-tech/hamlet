@@ -1,5 +1,6 @@
 //! Timers: what a one-shot schedule does when its handler panics,
-//! and when its actor sleeps or is destroyed as it comes due.
+//! and when its actor sleeps or is destroyed as it comes due, and a
+//! stored deadline at either end of the clock's range.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -379,5 +380,59 @@ async fn a_timer_does_not_make_a_file_that_is_gone() {
     sleep(Duration::from_millis(700)).await;
     assert!(!host.is_running(&id));
     assert!(!file.exists(), "the timer made the file again");
+    host.shutdown().await.unwrap();
+}
+
+/// Stores `wake_at` as the deadline of a stopped counter, as its last
+/// stop would, and boots a host on the folder. Returns the host, the
+/// counter's id and what boot started. Fails if boot does not return
+/// within five seconds.
+async fn boot_with_deadline(
+    dir: &Path,
+    wake_at: i64,
+) -> (Host, String, Vec<String>) {
+    let factories = || counter::factories(counter::Sleep::WhenIdle);
+    let host = Host::open(dir, factories()).unwrap();
+    let id = host.get_or_start("counter", "a").await.unwrap();
+    host.shutdown().await.unwrap();
+    drop(host);
+    rusqlite::Connection::open(
+        dir.join(format!("actors/{id}.sqlite")),
+    )
+    .unwrap()
+    .execute("UPDATE _hamlet_actor SET wake_at = ?", [wake_at])
+    .unwrap();
+    let host = Host::open(dir, factories()).unwrap();
+    let started =
+        tokio::time::timeout(Duration::from_secs(5), host.boot())
+            .await
+            .expect("boot waits for good on a due deadline")
+            .unwrap();
+    (host, id, started)
+}
+
+/// A deadline at the lowest time is past, so boot starts its actor at
+/// once.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_deadline_at_the_lowest_time_starts_the_actor_at_once() {
+    let dir = Scratch::new("timer-deadline-min");
+    let (host, id, started) =
+        boot_with_deadline(&dir, i64::MIN).await;
+    assert_eq!(started, vec![id.clone()]);
+    assert!(host.is_running(&id));
+    host.shutdown().await.unwrap();
+}
+
+/// A deadline at the highest time never comes due: boot starts
+/// nothing, and a call still starts the actor.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_deadline_at_the_highest_time_waits() {
+    let dir = Scratch::new("timer-deadline-max");
+    let (host, id, started) =
+        boot_with_deadline(&dir, i64::MAX).await;
+    assert!(started.is_empty());
+    assert!(!host.is_running(&id));
+    let reply = act(&host, &id, "get", Vec::new()).await.unwrap();
+    assert_eq!(counter::count(reply).unwrap(), 0);
     host.shutdown().await.unwrap();
 }
