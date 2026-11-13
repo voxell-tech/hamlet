@@ -1755,3 +1755,48 @@ async fn boot_goes_past_a_file_it_cannot_read() {
     assert_eq!(call(&host, &id, "get").await, 1);
     host.shutdown().await.unwrap();
 }
+
+/// A start that begins while boot reads the same actor's file waits
+/// for the read, and never fails on the file's lock. Each round
+/// boots a host over `KEYS` counters that stopped cleanly, so boot
+/// reads every file and starts none, and starts every counter while
+/// boot runs.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_start_during_boots_read_of_its_file_waits_for_the_read() {
+    const KEYS: usize = 8;
+    const ROUNDS: usize = 100;
+    let dir = Scratch::new("host-boot-read-race");
+    let keys: Vec<String> =
+        (0..KEYS).map(|n| format!("k{n}")).collect();
+    let host = Host::open(&dir, factories()).unwrap();
+    for key in &keys {
+        host.get_or_start("counter", key).await.unwrap();
+    }
+    host.shutdown().await.unwrap();
+    drop(host);
+
+    for round in 0..ROUNDS {
+        let host = Host::open(&dir, factories()).unwrap();
+        let boot = tokio::spawn({
+            let host = host.clone();
+            async move { host.boot().await }
+        });
+        let starts: Vec<_> = keys
+            .iter()
+            .map(|key| {
+                let host = host.clone();
+                let key = key.clone();
+                tokio::spawn(async move {
+                    host.get_or_start("counter", &key).await
+                })
+            })
+            .collect();
+        for start in starts {
+            if let Err(error) = start.await.unwrap() {
+                panic!("round {round}: a start failed: {error:#}");
+            }
+        }
+        assert!(boot.await.unwrap().unwrap().is_empty());
+        host.shutdown().await.unwrap();
+    }
+}

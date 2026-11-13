@@ -87,8 +87,11 @@ const ACTOR_TABLE: &str = "CREATE TABLE IF NOT EXISTS _hamlet_actor \
 ///
 /// | From | Event | To |
 /// |---|---|---|
-/// | absent | `get_or_start` or a call, or boot for a run a kill cut off or a deadline that has come, the host not shut | `Starting` |
-/// | absent | boot finds a deadline to come in its file, the host not shut | `Stopped` |
+/// | absent | `get_or_start` or a call, the host not shut | `Starting` |
+/// | absent | boot reads its file, the host not shut | `Reading` |
+/// | `Reading` | boot found a run a kill cut off, or a deadline that has come | `Starting` |
+/// | `Reading` | boot found a deadline to come | `Stopped` |
+/// | `Reading` | boot found neither, or could not read the file | absent |
 /// | `Stopped` | `get_or_start` or a call, the host not shut | `Starting`, its timer aborted |
 /// | `Stopped` | its timer fires with the deadline the state holds | `Starting`, from the file it has |
 /// | `Stopped` | `Host::shutdown`, or the last `Host` dropped | absent, its timer aborted |
@@ -105,13 +108,18 @@ const ACTOR_TABLE: &str = "CREATE TABLE IF NOT EXISTS _hamlet_actor \
 /// | any | a request from a generation the state does not hold | unchanged |
 ///
 /// Callers wait without a transition of their own. A start, a call's
-/// included, waits for a `Starting` or `Stopping` actor and then
-/// starts it, and fails at once for a `Destroying` one. A start that
-/// waited for a start that failed fails with it, rather than start
-/// again. `Host::stop` waits for a `Starting` actor and then stops
-/// it, waits for a stop under way, and leaves a `Stopped` actor as it
-/// is. `Host::shutdown` stops each actor as `Host::stop` does.
+/// included, waits for a `Reading`, `Starting` or `Stopping` actor
+/// and then starts it, and fails at once for a `Destroying` one. A
+/// start that waited for a start that failed fails with it, rather
+/// than start again. `Host::stop` waits for a `Reading` or `Starting`
+/// actor and then stops it, waits for a stop under way, and leaves a
+/// `Stopped` actor as it is. `Host::shutdown` stops each actor as
+/// `Host::stop` does.
 enum Life {
+    /// Boot reads its file, to learn whether to start it.
+    Reading {
+        done: Waiters,
+    },
     /// Stopped, with the deadline its last stop left. `timer` starts
     /// it then, if the state still holds that deadline.
     Stopped {
@@ -139,9 +147,9 @@ enum Life {
     },
 }
 
-/// What the waiters of a `Starting`, `Stopping` or `Destroying` state
-/// await: the channel closes when the work that owns the state ends,
-/// and holds how a start failed.
+/// What the waiters of a `Reading`, `Starting`, `Stopping` or
+/// `Destroying` state await: the channel closes when the work that
+/// owns the state ends, and holds how a start failed.
 type Waiters = watch::Receiver<Option<StartFailed>>;
 
 /// How a start failed, for each of its waiters to return.
@@ -172,7 +180,9 @@ impl Life {
     /// its start until its stop closed the file.
     fn loaded(&self) -> Option<&Arc<Generation>> {
         match self {
-            Self::Stopped { .. } | Self::Starting { .. } => None,
+            Self::Reading { .. }
+            | Self::Stopped { .. }
+            | Self::Starting { .. } => None,
             Self::Running(generation)
             | Self::Stopping { generation, .. }
             | Self::Destroying { generation, .. } => Some(generation),
@@ -194,7 +204,8 @@ impl Life {
     fn waiters(&self) -> Option<&Waiters> {
         match self {
             Self::Stopped { .. } | Self::Running(_) => None,
-            Self::Starting { ready: waiters, .. }
+            Self::Reading { done: waiters }
+            | Self::Starting { ready: waiters, .. }
             | Self::Stopping { done: waiters, .. }
             | Self::Destroying { done: waiters, .. } => Some(waiters),
         }
@@ -216,7 +227,7 @@ struct Generation {
     alarm: Arc<Mutex<Option<i64>>>,
 }
 
-/// The work that owns an actor's `Starting`, `Stopping` or
+/// The work that owns an actor's `Reading`, `Starting`, `Stopping` or
 /// `Destroying` state. When it is dropped, however its work ended, it
 /// removes the state from the map if the state is still its own, and
 /// then wakes the state's waiters.
@@ -561,7 +572,8 @@ impl HostInner {
                 };
                 None
             }
-            Life::Stopped { .. }
+            Life::Reading { .. }
+            | Life::Stopped { .. }
             | Life::Stopping { .. }
             | Life::Destroying { .. } => None,
         }
@@ -685,7 +697,8 @@ impl Host {
     /// start it began, without waiting for the starts: a call to one
     /// of them waits for its start. A start that fails is logged and
     /// left for the next boot, and a file that cannot be read is
-    /// reported and passed over. Fails at once in a host that has
+    /// reported and passed over. A start of an actor whose file boot
+    /// reads waits for the read. Fails at once in a host that has
     /// shut down, which may no longer hold the folder: it reads no
     /// file.
     pub async fn boot(&self) -> Result<Vec<String>> {
@@ -694,18 +707,49 @@ impl Host {
             return Err(host_shut_down());
         }
         let mut began = Vec::new();
-        for stored in self.stored_actors()? {
-            let StoredActor {
-                actor_id,
-                wake_at,
-                cut_off,
-            } = stored;
-            let (owned, generation) = {
+        for (actor_id, actor, path) in self.actor_files()? {
+            // While boot reads the file, a start of the actor waits.
+            let reading = {
                 let mut actors = host.actors.lock();
-                // It started since its file was read.
+                if actors.shut {
+                    return Err(host_shut_down());
+                }
+                // A running actor holds its file, and a stopped one
+                // has its timer.
                 if actors.lives.contains_key(&actor_id) {
                     continue;
                 }
+                let reading = Owned::new(host, &actor_id);
+                actors.lives.insert(
+                    actor_id.clone(),
+                    Life::Reading {
+                        done: reading.waiters.clone(),
+                    },
+                );
+                reading
+            };
+            let stored = match stored_actor(&path) {
+                Ok(Some(stored)) => stored,
+                Ok(None) => continue,
+                Err(error) => {
+                    let error = format!("{error:#}");
+                    tracing::warn!(
+                        path = %path.display(),
+                        error,
+                        "boot could not read an actor's file and goes \
+                         on without it"
+                    );
+                    let _ =
+                        host.events.send(HostEvent::UnreadableFile {
+                            actor,
+                            error,
+                        });
+                    continue;
+                }
+            };
+            let StoredActor { wake_at, cut_off } = stored;
+            let (owned, generation) = {
+                let mut actors = host.actors.lock();
                 match wake_at {
                     // Whatever deadline an earlier stop left, a run a
                     // kill cut off starts again, and its core pushes
@@ -729,6 +773,7 @@ impl Host {
                     actors.begin_start(host, &actor_id)?;
                 (owned, generation)
             };
+            drop(reading);
             began.push(actor_id.clone());
             tokio::spawn(async move {
                 let started = if cut_off {
@@ -873,23 +918,24 @@ impl Host {
             {
                 return tokio::spawn(stop.run()).await?;
             }
-            let (mut waiters, starting) =
+            let (mut waiters, ask_again) =
                 match host.actors.lock().lives.get(actor_id) {
                     None | Some(Life::Stopped { .. }) => {
                         return Ok(());
                     }
                     // It started since: ask again.
                     Some(Life::Running(_)) => continue,
-                    Some(Life::Starting { ready, .. }) => {
-                        (ready.clone(), true)
-                    }
+                    Some(
+                        Life::Reading { done: waiters }
+                        | Life::Starting { ready: waiters, .. },
+                    ) => (waiters.clone(), true),
                     Some(
                         Life::Stopping { done, .. }
                         | Life::Destroying { done, .. },
                     ) => (done.clone(), false),
                 };
             let _ = waiters.changed().await;
-            if !starting {
+            if !ask_again {
                 return Ok(());
             }
         }
@@ -983,7 +1029,8 @@ impl Host {
                             )));
                     }
                     Some(
-                        Life::Starting { ready: waiters, .. }
+                        Life::Reading { done: waiters }
+                        | Life::Starting { ready: waiters, .. }
                         | Life::Stopping { done: waiters, .. },
                     ) => Next::Wait(waiters.clone()),
                     Some(Life::Stopped { .. }) | None => {
@@ -1020,17 +1067,12 @@ impl Host {
         }
     }
 
-    /// The row of each file of this host's kinds that holds a
-    /// deadline or a run a kill cut off, but for the actors the host
-    /// holds: a running one holds its file locked, and a stopped one
-    /// has its timer. Another kind's folder is never read, since
-    /// another host may run it. A file that cannot be read is logged
-    /// and reported as [`HostEvent::UnreadableFile`], and the others
-    /// are read all the same. The files are closed again; starting
-    /// an actor opens its file anew.
-    fn stored_actors(&self) -> Result<Vec<StoredActor>> {
+    /// The id, the address and the path of each actor file of this
+    /// host's kinds. Another kind's folder is never read, since
+    /// another host may run it.
+    fn actor_files(&self) -> Result<Vec<(String, Address, PathBuf)>> {
         let host = self.inner();
-        let mut stored = Vec::new();
+        let mut found = Vec::new();
         for kind in host.directory.local_kinds() {
             let folder = host.dir.join("actors").join(kind);
             let files = match std::fs::read_dir(&folder) {
@@ -1062,42 +1104,15 @@ impl Host {
                 else {
                     continue;
                 };
-                let held = || {
-                    host.actors.lock().lives.contains_key(&actor_id)
-                };
-                if held() {
-                    continue;
-                }
-                match stored_actor(&path, &actor_id) {
-                    Ok(Some(actor)) => stored.push(actor),
-                    Ok(None) => {}
-                    // A start that began since holds it.
-                    Err(_) if held() => {}
-                    Err(error) => {
-                        let error = format!("{error:#}");
-                        tracing::warn!(
-                            path = %path.display(),
-                            error,
-                            "boot could not read an actor's file and \
-                             goes on without it"
-                        );
-                        let _ = host.events.send(
-                            HostEvent::UnreadableFile {
-                                actor: Address::new(kind, key),
-                                error,
-                            },
-                        );
-                    }
-                }
+                found.push((actor_id, Address::new(kind, key), path));
             }
         }
-        Ok(stored)
+        Ok(found)
     }
 }
 
 /// The part of one actor file's `_hamlet_actor` row that boot reads.
 struct StoredActor {
-    actor_id: String,
     /// The deadline the actor's last clean stop left.
     wake_at: Option<i64>,
     /// The actor was running when the host died: no clean stop
@@ -1105,12 +1120,10 @@ struct StoredActor {
     cut_off: bool,
 }
 
-/// The `_hamlet_actor` row of the file of the actor `actor_id`, if it
-/// holds a deadline or a run a kill cut off.
-fn stored_actor(
-    path: &Path,
-    actor_id: &str,
-) -> Result<Option<StoredActor>> {
+/// The `_hamlet_actor` row of the actor file at `path`, if it holds a
+/// deadline or a run a kill cut off. The file is closed again;
+/// starting the actor opens it anew.
+fn stored_actor(path: &Path) -> Result<Option<StoredActor>> {
     let conn = plain_sqlite::open(path, false)?;
     if !has_table(&conn, "_hamlet_actor")? {
         return Ok(None);
@@ -1124,11 +1137,7 @@ fn stored_actor(
         .optional()?;
     Ok(stored
         .filter(|(wake_at, cut_off)| wake_at.is_some() || *cut_off)
-        .map(|(wake_at, cut_off)| StoredActor {
-            actor_id: actor_id.to_owned(),
-            wake_at,
-            cut_off,
-        }))
+        .map(|(wake_at, cut_off)| StoredActor { wake_at, cut_off }))
 }
 
 /// Whether the file has the table `name`. A table the core makes
