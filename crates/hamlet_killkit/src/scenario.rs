@@ -1,7 +1,7 @@
 //! The scenario table. A scenario is data: the lines the demo host
-//! runs, the fault point it stops at, how long it stays down, the
-//! lines each restart runs, and what each restart must show. A new
-//! scenario is a new row.
+//! runs, when it is killed, how long it stays down, the lines each
+//! restart runs, and what each restart must show. A new scenario is a
+//! new row.
 
 /// One way to kill the demo host and what must hold after it.
 pub struct Scenario {
@@ -10,14 +10,13 @@ pub struct Scenario {
     /// Lines `demo serve` runs before the kill. Each waits for its
     /// reply, which acknowledges it.
     pub setup: &'static [&'static str],
-    /// The line that reaches the fault point.
+    /// The line the kill follows.
     pub trigger: &'static str,
-    /// Whether the trigger replies before the host stops, so the
-    /// kill comes after its acknowledgement.
+    /// Whether the trigger replies before the kill, so the kill
+    /// comes after its acknowledgement.
     pub trigger_replies: bool,
-    /// `HAMLET_FAULT`: the point the host stops at, as
-    /// `<point>[:<pass>]`.
-    pub fault: &'static str,
+    /// When the kit kills the host.
+    pub kill: Kill,
     /// How long after the trigger was sent the first restart starts.
     pub down_ms: u64,
     /// Lines each restart's `demo serve` runs after it boots.
@@ -26,6 +25,17 @@ pub struct Scenario {
     pub probes: &'static [Probe],
     /// The values the first and the second restart must show.
     pub expect: [&'static [Expect]; 2],
+}
+
+/// When the kit kills the host, once the trigger was sent and, for a
+/// trigger that replies, its reply came.
+pub enum Kill {
+    /// At a fault point, given as `HAMLET_FAULT` is:
+    /// `<point>[:<pass>]`. The host stops there and is killed.
+    Fault(&'static str),
+    /// At a time drawn at random from `min_ms` to `max_ms`, both
+    /// included. The run's line records the time drawn.
+    After { min_ms: u64, max_ms: u64 },
 }
 
 /// A value read with SQL from one actor file, under the realm folder.
@@ -129,7 +139,7 @@ pub const SCENARIOS: &[Scenario] = &[
         setup: &["increment a 3"],
         trigger: "increment a",
         trigger_replies: false,
-        fault: "tx-open:4",
+        kill: Kill::Fault("tx-open:4"),
         down_ms: 0,
         restart: &["get a"],
         probes: &[A_VALUE],
@@ -137,14 +147,17 @@ pub const SCENARIOS: &[Scenario] = &[
     },
     Scenario {
         name: "schedule-before-due",
-        about: "kill after a one-shot's schedule is acknowledged \
-                and before the host stores its alarm, and restart \
+        about: "kill at a random time after a one-shot's schedule \
+                is acknowledged and before it is due, and restart \
                 after it is due; it fires exactly once, at the \
                 first start",
         setup: &["increment a 2"],
         trigger: "schedule a 1500",
         trigger_replies: true,
-        fault: "alarm-store",
+        kill: Kill::After {
+            min_ms: 200,
+            max_ms: 1000,
+        },
         down_ms: 2000,
         restart: &["get a"],
         probes: &[A_VALUE, A_SCHEDULES],

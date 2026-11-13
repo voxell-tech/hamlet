@@ -4,6 +4,8 @@
 //! demo increment <key> [times]  add one per time, each in a transaction
 //! demo get <key>                print the count
 //! demo schedule <key> <ms>      arm a one-shot increment <ms> ahead
+//! demo sleep <key>              ask the actor to sleep
+//! demo destroy <key>            ask the actor to destroy itself
 //! demo boot <ms>                boot, wait <ms>, print what booting started
 //! demo serve [<n>]              boot, start <n> counters that never
 //!                               sleep, then run one command per line
@@ -64,7 +66,8 @@ async fn main() -> Result<()> {
             run(&host, &args).await
         }
         None => Err(anyhow!(
-            "usage: demo increment|get|schedule|boot|serve ..."
+            "usage: demo \
+             increment|get|schedule|sleep|destroy|boot|serve ..."
         )),
     };
     host.stop_all().await?;
@@ -88,7 +91,9 @@ async fn run(host: &Host, words: &[String]) -> Result<()> {
             }
             reply
         }
-        "get" => host.action(&actor_id, "get", Vec::new()).await?,
+        "get" | "sleep" | "destroy" => {
+            host.action(&actor_id, command, Vec::new()).await?
+        }
         "schedule" => {
             let ms = number(words.get(2))?;
             host.action(

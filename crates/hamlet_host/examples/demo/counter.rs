@@ -14,6 +14,12 @@
 //!
 //! `increment` passes the fault point `tx-open` inside its
 //! transaction.
+//!
+//! Each action runs on a task of its own, as the authoring layer
+//! runs them, so an action that outlives its caller's deadline does
+//! not hold up the next one. Unlike the authoring layer, an action is
+//! not dropped when its generation starts to stop: a transaction
+//! dropped while open would hold the actor's SQL until it times out.
 
 use std::collections::HashMap;
 use std::time::Duration;
@@ -70,10 +76,15 @@ async fn run(start: ActorStart) -> Result<()> {
             ActorEvent::Action {
                 name, args, reply, ..
             } => {
-                let count = action(&ctx, &name, args).await;
-                reply.send(
-                    count.map(|count| count.to_le_bytes().to_vec()),
-                );
+                let ctx = ctx.clone();
+                tokio::spawn(async move {
+                    let count = action(&ctx, &name, args).await;
+                    reply.send(
+                        count.map(|count| {
+                            count.to_le_bytes().to_vec()
+                        }),
+                    );
+                });
             }
             // The count is in SQL, so the actor keeps no other state.
             ActorEvent::SerializeState { reply, .. } => {
