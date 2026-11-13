@@ -378,7 +378,7 @@ impl Core<'_, '_> {
         let db = self.realm.store().connection();
         for (id, at) in files.kept() {
             let idle = at.elapsed().is_ok_and(|age| age >= GRACE);
-            if idle && !crate::images::used(db, id.as_str())? {
+            if idle && !crate::images::sweep::used(db, id.as_str())? {
                 let _ = std::fs::remove_file(files.path(&id));
             }
         }

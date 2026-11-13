@@ -15,7 +15,8 @@ use super::{
     Arguments, Dialect, Outcome, Sight, diagnostic, diff,
     number_words,
 };
-use crate::images::{self, Format};
+use crate::images::Format;
+use crate::images::fitting::keep_fitted;
 
 /// The failure of a file call, in pi's words.
 #[derive(Debug, thiserror::Error)]
@@ -350,13 +351,9 @@ async fn seen(
             format.mime()
         ));
     };
-    let made = images::keep_fitted(
-        sight.folder.clone(),
-        bytes,
-        format,
-        limits,
-    )
-    .await;
+    let made =
+        keep_fitted(sight.folder.clone(), bytes, format, limits)
+            .await;
     let (id, fitted) = match made {
         Ok(Ok(made)) => made,
         Ok(Err(unusable)) => {

@@ -27,7 +27,7 @@ use crate::commands::Deeds;
 use crate::credentials::Credentials;
 use crate::diagnostic::{Secrets, tell};
 use crate::files::FileUpload;
-use crate::images::ImageUpload;
+use crate::images::sent::ImageUpload;
 use crate::knowledge::runner::{Runner, Writing, run_due};
 use crate::later::Later;
 use crate::providers::Providers;

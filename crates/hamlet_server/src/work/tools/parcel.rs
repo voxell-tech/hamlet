@@ -9,7 +9,7 @@ use hamlet_protocol::client::{AttachedFile, ImageId, ImageInput};
 use hamlet_sandbox::{FileError, FileKind};
 
 use super::environment::Reach;
-use crate::images::Images;
+use crate::images::kept::Images;
 use crate::inbox::Inbox;
 use crate::society::refusal::Refusal;
 

@@ -20,7 +20,8 @@ use super::inputs::{self, Input};
 use super::runtimes::{Pending, Runtimes};
 use super::{Env, models};
 use crate::diagnostic::{self, Secrets, tell};
-use crate::images::{self, Limits};
+use crate::images::Limits;
+use crate::images::fitting::pictures;
 use crate::providers::Providers;
 
 /// The images of one input, fitted to its model.
@@ -97,7 +98,7 @@ impl Fitting {
             // An image that panics the decoder is left out like one
             // that fails, so its input is not held for good.
             let pictures = std::panic::catch_unwind(|| {
-                images::pictures(&folder, &ids, limits)
+                pictures(&folder, &ids, limits)
             })
             .unwrap_or_else(|panic| {
                 tell(
