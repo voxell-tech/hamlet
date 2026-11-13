@@ -1,0 +1,17 @@
+[package]
+name = "hamlet_actors"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+description = "Hamlet's actors on the actor host: the workspace"
+
+[dependencies]
+hamlet_os.workspace = true
+hamlet_sandbox.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true
