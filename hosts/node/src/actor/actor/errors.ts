@@ -157,12 +157,6 @@ export class ActorError extends Error {
         return isActorErrorLike(error);
     }
 
-    public static isActorError(
-        error: unknown,
-    ): error is ActorError | DeconstructedError {
-        return isActorErrorLike(error);
-    }
-
     constructor(
         group: string,
         code: string,
@@ -188,8 +182,6 @@ export class ActorError extends Error {
         return this.message;
     }
 }
-
-export { ActorError as ActorError };
 
 export class UserError extends ActorError {
     constructor(message: string, options?: UserErrorOptions) {
