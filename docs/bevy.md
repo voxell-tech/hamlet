@@ -178,6 +178,31 @@ A command about an agent or a hamlet goes through `chat::decree`, which
 gives it to that hamlet whoever the chat is with. `chat::send` is for what
 the chief typed and for what is about the open chat or the whole realm.
 
+## The server
+
+`hamlet_server` uses `bevy_ecs` and `bevy_app` alone, with no frame
+([ADR 0015](adr/0015-the-server-runs-as-a-bevy-app-with-no-frame.md)).
+What differs from the window:
+
+- **The runner runs inputs, not frames.** `server.rs` sleeps until an
+  input comes and runs it; the `Apply` schedule (`apply.rs`) runs once
+  after it. There is no `Main` schedule, so nothing runs that an input or
+  a timer did not ask for, and messages are turned over by `Apply`'s last
+  step instead of by a frame.
+- **A handler is a one-shot system.** `world.run_system_cached_with`
+  runs the system for a runtime message or a client request; a command's
+  system is registered with its usage (`AddCommands`), and a timer's with
+  when it is due (`AddDeadline`).
+- **The database is the truth.** An entity stands only for what lives in
+  the process: a connection, an upload, a tool run. A decision inside a
+  transaction reads the database, never an entity.
+- **A system that fails fails its input.** The world's error handler
+  records the failure for the runner, which logs it and rolls the input
+  back; it never panics.
+- **`Core` gathers the realm's live state** as one `SystemParam`, which
+  older handlers take whole. A new system takes only the resources and
+  queries it reads.
+
 ## Failing
 
 A value from the disk, the network, a model or the keyboard is never
