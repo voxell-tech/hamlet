@@ -8,11 +8,13 @@ use hamlet_protocol::client::Choice;
 use hamlet_store::ids::{Actor, TaskId, WaitId};
 use hamlet_store::schema::{objection, wait};
 
+use super::society::args::{Called, Object};
 use super::{Answer, Call, held, said};
 use crate::core::Core;
 use crate::oversight::{self, Raise, Ruling, WaitKind};
 use crate::talk::marks::Mark;
 use crate::talk::{inputs, tasks};
+use crate::work::catalogue::Society;
 use crate::work::tools::Outcome;
 
 /// The words of a call held while the chief considers an objection.
@@ -161,13 +163,14 @@ impl Core<'_, '_> {
                 },
             );
         }
-        let reason = call
-            .arguments
-            .get("reason")
-            .and_then(serde_json::Value::as_str)
-            .unwrap_or_default()
-            .trim()
-            .to_owned();
+        let reason =
+            match Called::read(Society::Object, call.arguments) {
+                Ok(Called::Object(Object { reason })) => reason,
+                Ok(_) => String::new(),
+                Err(refusal) => {
+                    return Ok(Ok(said(refusal.to_string(), true)));
+                }
+            };
         if reason.is_empty() {
             return Ok(Ok(said("Say why you object.", true)));
         }

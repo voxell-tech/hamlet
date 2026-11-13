@@ -6,7 +6,8 @@ use diesel::prelude::*;
 use hamlet_store::ids::{Actor, AgentId};
 use hamlet_store::schema::worker;
 
-use super::{Call, Step, list, said, task_chief, text};
+use super::args::{Ask, RequestRoad, StartWorker, Tell};
+use super::{Call, Step, said, task_chief};
 use crate::calls::looks::Look;
 use crate::calls::place;
 use crate::core::Core;
@@ -25,26 +26,28 @@ impl Core<'_, '_> {
     pub(in crate::calls) fn tell(
         &mut self,
         call: &Call<'_>,
+        args: Tell,
     ) -> Result<Step> {
         self.send(
             call,
             MessageKind::Letter,
-            "to",
-            &text(call, "text"),
-            &list(call, "paths"),
+            &args.to,
+            &args.text,
+            &args.paths,
         )
     }
 
     pub(in crate::calls) fn ask(
         &mut self,
         call: &Call<'_>,
+        args: Ask,
     ) -> Result<Step> {
         self.send(
             call,
             MessageKind::Question,
-            "to",
-            &text(call, "question"),
-            &list(call, "paths"),
+            &args.to,
+            &args.question,
+            &args.paths,
         )
     }
 
@@ -52,10 +55,11 @@ impl Core<'_, '_> {
     pub(in crate::calls) fn request_road(
         &mut self,
         call: &Call<'_>,
+        args: RequestRoad,
     ) -> Result<Step> {
         let sender = call.conversation.agent;
         let here = self.hamlet_of(sender)?;
-        let to = match self.named(call, "to", here.as_ref())? {
+        let to = match self.named(&args.to, here.as_ref())? {
             Ok(to) => to,
             Err(refusal) => return Ok(Step::of(Err(refusal))),
         };
@@ -68,10 +72,8 @@ impl Core<'_, '_> {
             None => return Ok(Step::of(Err(Refusal::RoadEnds))),
         };
         let name = self.name(to)?;
-        let words = format!(
-            "I ask for a road to {name}: {}",
-            text(call, "reason")
-        );
+        let words =
+            format!("I ask for a road to {name}: {}", args.reason);
         self.deliver(
             call,
             MessageKind::Letter,
@@ -83,12 +85,12 @@ impl Core<'_, '_> {
     }
 
     /// Sends a letter or a question, with the files under `paths`,
-    /// to the agent the argument `key` names.
+    /// to the agent at `address`.
     fn send(
         &mut self,
         call: &Call<'_>,
         kind: MessageKind,
-        key: &str,
+        address: &str,
         words: &str,
         paths: &[String],
     ) -> Result<Step> {
@@ -100,12 +102,11 @@ impl Core<'_, '_> {
             return self.sent(&found);
         }
         let here = self.hamlet_of(sender)?;
-        let receiver = match self.named(call, key, here.as_ref())? {
+        let receiver = match self.named(address, here.as_ref())? {
             Ok(receiver) => receiver,
             Err(refusal) => return Ok(Step::of(Err(refusal))),
         };
-        let address = text(call, key);
-        self.deliver(call, kind, receiver, &address, words, paths)
+        self.deliver(call, kind, receiver, address, words, paths)
     }
 
     fn deliver(
@@ -265,6 +266,7 @@ impl Core<'_, '_> {
     pub(in crate::calls) fn start_worker(
         &mut self,
         call: &Call<'_>,
+        args: StartWorker,
     ) -> Result<Step> {
         let starter = call.conversation.agent;
         let (runtime, key) =
@@ -279,8 +281,11 @@ impl Core<'_, '_> {
         if let Some(id) = started {
             return self.worked(id);
         }
-        let brief = text(call, "task");
-        let tools = list(call, "tools");
+        let StartWorker {
+            task: brief,
+            tools,
+            wait: waits,
+        } = args;
         if tools.iter().any(|tool| Society::named(tool).is_some()) {
             return Ok(Step::of(Err(Refusal::WorkerTools)));
         }
@@ -301,11 +306,6 @@ impl Core<'_, '_> {
                 tool: missing.clone(),
             })));
         }
-        let waits = call
-            .arguments
-            .get("wait")
-            .and_then(serde_json::Value::as_bool)
-            .unwrap_or(false);
         let task = self.task_of(call)?;
         let author = self.name(starter)?;
         let db = self.realm.store().connection();

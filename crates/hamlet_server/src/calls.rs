@@ -34,6 +34,7 @@ use tokio::task::AbortHandle;
 use self::held::State;
 use self::looks::Look;
 use self::objections::OBJECTING;
+use self::society::args::{Ask, Called, Tell};
 pub(crate) use self::society::library::LIBRARIAN;
 pub(crate) use self::society::welcome;
 use crate::core::Core;
@@ -249,7 +250,7 @@ pub(crate) fn specs() -> Vec<ToolSpec> {
         }),
         ToolSpecReplay::Safe,
     )];
-    specs.extend(society::specs());
+    specs.extend(society::args::specs());
     specs
 }
 
@@ -951,7 +952,15 @@ impl Core<'_, '_> {
             args,
         } = &classified
         {
-            let paths = society::list(call, "paths");
+            // Arguments that do not fit are refused once the call
+            // runs.
+            let paths = match Called::read(*tool, call.arguments) {
+                Ok(
+                    Called::Tell(Tell { paths, .. })
+                    | Called::Ask(Ask { paths, .. }),
+                ) => paths,
+                _ => Vec::new(),
+            };
             if !paths.is_empty() {
                 let (name, args) =
                     (tool.name().to_owned(), args.clone());

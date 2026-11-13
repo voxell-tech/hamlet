@@ -5,7 +5,8 @@
 use anyhow::Result;
 use hamlet_store::ids::Actor;
 
-use super::{Call, Step, said, text};
+use super::args::{AskLibrarian, SubmitSkill};
+use super::{Call, Step, said};
 use crate::core::Core;
 use crate::knowledge::folder::Folder;
 use crate::knowledge::{self, library};
@@ -56,6 +57,7 @@ impl Core<'_, '_> {
     pub(in crate::calls) fn ask_librarian(
         &mut self,
         call: &Call<'_>,
+        args: AskLibrarian,
     ) -> Result<Step> {
         let owner = asked(&call.call.runtime, &call.call.key);
         let db = self.realm.store().connection();
@@ -76,7 +78,7 @@ impl Core<'_, '_> {
             }
             None => {}
         }
-        let question = text(call, "question");
+        let question = args.question;
         if question.is_empty() {
             return Ok(Step::of(Err(Refusal::Usage {
                 words: "Say what you need a skill for.".into(),
@@ -112,6 +114,7 @@ impl Core<'_, '_> {
     pub(in crate::calls) fn submit_skill(
         &mut self,
         call: &Call<'_>,
+        args: SubmitSkill,
     ) -> Result<Step> {
         let db = self.realm.store().connection();
         if let Some(found) =
@@ -124,8 +127,10 @@ impl Core<'_, '_> {
                 }
             });
         }
-        let name = text(call, "skill");
-        let reason = text(call, "reason");
+        let SubmitSkill {
+            skill: name,
+            reason,
+        } = args;
         let plain = !name.is_empty()
             && name.bytes().all(|b| {
                 b.is_ascii_alphanumeric() || b == b'-' || b == b'_'

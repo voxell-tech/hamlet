@@ -8,7 +8,9 @@ use hamlet_git::{
 };
 use hamlet_store::ids::{Actor, ScholarId};
 
-use super::{Call, text};
+use super::Call;
+use super::args::{EditScholar, ReadScholar, Revert, Tag};
+use crate::change::{Done, done};
 use crate::core::Core;
 use crate::knowledge::CHARACTER;
 use crate::society::city::{self, CHARACTER_MOST};
@@ -19,13 +21,14 @@ use crate::society::{addresses, authority, names};
 const MOST_READ: usize = 50 * 1024;
 
 impl Core<'_, '_> {
-    /// The living scholar `call`'s argument `scholar` names, which
-    /// the caller may keep.
+    /// The living scholar at `address`, which `call`'s agent may
+    /// keep.
     fn kept_scholar(
         &mut self,
         call: &Call<'_>,
+        address: &str,
     ) -> Result<Result<ScholarId, Refusal>> {
-        let address = text(call, "scholar");
+        let address = address.to_owned();
         let id = match addresses::parse_scholar(&address) {
             Ok(id) => id,
             Err(refusal) => return Ok(Err(refusal)),
@@ -70,22 +73,16 @@ impl Core<'_, '_> {
     pub(super) fn read_scholar(
         &mut self,
         call: &Call<'_>,
-    ) -> Result<Result<String, Refusal>> {
-        let scholar = match self.kept_scholar(call)? {
-            Ok(scholar) => scholar,
-            Err(refusal) => return Ok(Err(refusal)),
-        };
-        let name = text(call, "scholar");
+        args: ReadScholar,
+    ) -> Done<String> {
+        let ReadScholar {
+            scholar: name,
+            path,
+            version,
+        } = args;
+        let scholar = done!(self.kept_scholar(call, &name));
         let repo = self.repository(scholar)?;
-        let at = match Self::version_of(
-            &repo,
-            &name,
-            &text(call, "version"),
-        )? {
-            Ok(at) => at,
-            Err(refusal) => return Ok(Err(refusal)),
-        };
-        let path = text(call, "path");
+        let at = done!(Self::version_of(&repo, &name, &version));
         if path.is_empty() {
             let files = repo
                 .entries(at)?
@@ -119,18 +116,15 @@ impl Core<'_, '_> {
     pub(super) fn edit_scholar(
         &mut self,
         call: &Call<'_>,
-    ) -> Result<Result<String, Refusal>> {
-        let scholar = match self.kept_scholar(call)? {
-            Ok(scholar) => scholar,
-            Err(refusal) => return Ok(Err(refusal)),
-        };
-        let path = text(call, "path");
-        let content = call
-            .arguments
-            .get("content")
-            .and_then(serde_json::Value::as_str)
-            .unwrap_or_default()
-            .to_owned();
+        args: EditScholar,
+    ) -> Done<String> {
+        let EditScholar {
+            scholar: name,
+            path,
+            content,
+            message,
+        } = args;
+        let scholar = done!(self.kept_scholar(call, &name));
         if path.is_empty()
             || path.starts_with('/')
             || path.split('/').any(|part| part == "..")
@@ -150,7 +144,6 @@ impl Core<'_, '_> {
                 bytes: content.into_bytes(),
             }
         };
-        let message = text(call, "message");
         self.begin(call)?;
         self.commit_main(
             Actor::Agent(call.conversation.agent),
@@ -162,19 +155,20 @@ impl Core<'_, '_> {
                 &message
             },
         )?;
-        Ok(Ok(format!("Wrote {path} of {}.", text(call, "scholar"))))
+        Ok(Ok(format!("Wrote {path} of {name}.")))
     }
 
     pub(super) fn tag_scholar(
         &mut self,
         call: &Call<'_>,
-    ) -> Result<Result<String, Refusal>> {
-        let scholar = match self.kept_scholar(call)? {
-            Ok(scholar) => scholar,
-            Err(refusal) => return Ok(Err(refusal)),
-        };
-        let name = text(call, "scholar");
-        let tag = text(call, "tag");
+        args: Tag,
+    ) -> Done<String> {
+        let Tag {
+            scholar: name,
+            tag,
+            note,
+        } = args;
+        let scholar = done!(self.kept_scholar(call, &name));
         let repo = self.repository(scholar)?;
         if let Err(refusal) = names::check_version(&tag) {
             return Ok(Err(refusal));
@@ -195,7 +189,7 @@ impl Core<'_, '_> {
         repo.tag(
             &tag,
             at,
-            &text(call, "note"),
+            &note,
             Author {
                 name: &by,
                 at: crate::clock::now(),
@@ -207,24 +201,18 @@ impl Core<'_, '_> {
     pub(super) fn revert_scholar(
         &mut self,
         call: &Call<'_>,
-    ) -> Result<Result<String, Refusal>> {
-        let scholar = match self.kept_scholar(call)? {
-            Ok(scholar) => scholar,
-            Err(refusal) => return Ok(Err(refusal)),
-        };
-        let name = text(call, "scholar");
+        args: Revert,
+    ) -> Done<String> {
+        let Revert {
+            scholar: name,
+            commit,
+            reason,
+        } = args;
+        let scholar = done!(self.kept_scholar(call, &name));
         let repo = self.repository(scholar)?;
-        let commit = match Self::version_of(
-            &repo,
-            &name,
-            &text(call, "commit"),
-        )? {
-            Ok(commit) => commit,
-            Err(refusal) => return Ok(Err(refusal)),
-        };
+        let commit = done!(Self::version_of(&repo, &name, &commit));
         let by = Actor::Agent(call.conversation.agent);
         let author = by.to_string();
-        let reason = text(call, "reason");
         self.begin(call)?;
         let writing = self.writing.clone();
         let held = writing.hold();

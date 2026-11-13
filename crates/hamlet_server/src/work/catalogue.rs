@@ -100,6 +100,11 @@ pub(crate) struct Facts {
     /// What its agent is doing while it runs, when it says more than
     /// that a tool runs.
     pub doing: Option<Doing>,
+    /// Whether a call cut off by a crash may run again when asked
+    /// again. Its change is kept with its answer, or what it began
+    /// is found by its call; a write of a scholar's repository is
+    /// kept by no transaction, so it is answered as cut off instead.
+    pub replays: bool,
 }
 
 const fn facts(
@@ -113,12 +118,19 @@ const fn facts(
         offered,
         reserve: Reserve::Free,
         doing: None,
+        replays: true,
     }
 }
 
 impl Facts {
     const fn reserved(mut self, reserve: Reserve) -> Self {
         self.reserve = reserve;
+        self
+    }
+
+    /// It writes a scholar's repository, which no transaction keeps.
+    const fn once(mut self) -> Self {
+        self.replays = false;
         self
     }
 
@@ -170,9 +182,12 @@ pub(crate) const FACTS: [Facts; 28] = {
         facts(S::ReadRecord, "read_record", Hand),
         facts(S::ReadScholar, "read_scholar", Hand),
         facts(S::EditScholar, "edit_scholar", Hand)
-            .reserved(Reserve::Hand),
-        facts(S::Tag, "tag", Hand).reserved(Reserve::Hand),
-        facts(S::Revert, "revert", Hand).reserved(Reserve::Hand),
+            .reserved(Reserve::Hand)
+            .once(),
+        facts(S::Tag, "tag", Hand).reserved(Reserve::Hand).once(),
+        facts(S::Revert, "revert", Hand)
+            .reserved(Reserve::Hand)
+            .once(),
     ]
 };
 
