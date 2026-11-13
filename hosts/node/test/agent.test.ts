@@ -1,8 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { type TestContext, test } from "node:test";
+import { test } from "node:test";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import type { Storage } from "@earendil-works/pi-durable";
 import type { AgentDatabase } from "../src/agent/database.ts";
@@ -11,15 +8,10 @@ import {
     type Letter,
     openAgent,
     type StoredResult,
+    scratchFile,
     stored,
     type TellArguments,
 } from "./testing.ts";
-
-function scratchFile(t: TestContext): string {
-    const folder = mkdtempSync(join(tmpdir(), "hamlet-agent-"));
-    t.after(() => rmSync(folder, { recursive: true, force: true }));
-    return join(folder, "agent.sqlite");
-}
 
 /** One assistant message that calls `tell` once per letter, then "done". */
 function tellThenDone(letters: Record<string, TellArguments>) {

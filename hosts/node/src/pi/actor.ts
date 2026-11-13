@@ -154,6 +154,7 @@ const piOptionKeys = [
     "credentials",
     "documents",
     "onAnswer",
+    "databaseLayer",
 ] as const satisfies readonly (keyof PiOptions)[];
 
 /**

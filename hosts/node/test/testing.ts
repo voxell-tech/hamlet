@@ -1,4 +1,8 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
+import type { TestContext } from "node:test";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { createModels, fauxProvider } from "@earendil-works/pi-ai";
 import {
@@ -21,6 +25,13 @@ import {
 import { actorSqlite } from "../src/pi/actor-sqlite.ts";
 
 export const context = BACKGROUND_CONTEXT;
+
+/** A path for an agent's file in a folder removed after the test. */
+export function scratchFile(t: TestContext): string {
+    const folder = mkdtempSync(join(tmpdir(), "hamlet-agent-"));
+    t.after(() => rmSync(folder, { recursive: true, force: true }));
+    return join(folder, "agent.sqlite");
+}
 
 /** A letter the `tell` tool sends, named by the call that sends it. */
 export type Letter = {

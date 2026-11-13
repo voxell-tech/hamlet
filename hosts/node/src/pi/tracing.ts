@@ -113,11 +113,12 @@ interface OtelAdapter {
 /** A parent for new spans: the root, or a span extracted from a stored carrier. */
 class OtelTelemetry implements TelemetryContext {
     readonly propagation: TelemetryPropagation;
+    readonly adapter: OtelAdapter;
+    readonly parent: OtelContext;
 
-    constructor(
-        readonly adapter: OtelAdapter,
-        readonly parent: OtelContext,
-    ) {
+    constructor(adapter: OtelAdapter, parent: OtelContext) {
+        this.adapter = adapter;
+        this.parent = parent;
         this.propagation = adapter.propagation;
     }
 
@@ -184,16 +185,20 @@ class OtelTelemetry implements TelemetryContext {
 class OtelSpan extends OtelTelemetry implements TelemetrySpan {
     #settled = false;
     #status: SpanStatus | undefined;
+    readonly native: Span | undefined;
+    readonly isModelSpan: boolean;
 
     constructor(
         adapter: OtelAdapter,
-        readonly native: Span | undefined,
-        readonly isModelSpan = false,
+        native: Span | undefined,
+        isModelSpan = false,
     ) {
         super(
             adapter,
             native ? trace.setSpan(ROOT_CONTEXT, native) : ROOT_CONTEXT,
         );
+        this.native = native;
+        this.isModelSpan = isModelSpan;
     }
 
     protected override get settled(): boolean {

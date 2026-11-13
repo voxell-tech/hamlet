@@ -1,6 +1,11 @@
 // This file was changed for Hamlet. See NOTICE in this package.
-import type { Context } from "@earendil-works/chord/context";
-import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
+import {
+    BACKGROUND_CONTEXT,
+    type Context,
+    type ContextKey,
+    createContextKey,
+    withContextValue,
+} from "@earendil-works/chord/context";
 import type { Models, ModelThinkingLevel } from "@earendil-works/pi-ai";
 import {
     AgentDoc,
@@ -13,7 +18,10 @@ import {
     type ModelRef,
     type Wake,
 } from "@earendil-works/pi-durable";
-import { SqliteStorage } from "@earendil-works/pi-durable/storage/sqlite";
+import {
+    type SqliteDatabase,
+    SqliteStorage,
+} from "@earendil-works/pi-durable/storage/sqlite";
 import { type ActorContext, UserError } from "../actor/actor/mod.ts";
 import type { DatabaseProvider, RawAccess } from "../actor/db/mod.ts";
 import { actorSqlite } from "./actor-sqlite.ts";
@@ -52,6 +60,31 @@ export type PiContext = ActorContext<
     any
 >;
 
+/**
+ * The key under which each Pi Durable hook and tool of a `pi()` actor finds
+ * the actor's context. It holds the generation's context, which lives as long
+ * as the harness, as background work's does.
+ */
+const PI_ACTOR: ContextKey<PiContext> = createContextKey("pi() actor");
+
+/** The context of the `pi()` actor a Pi Durable hook or tool runs in. */
+export function piActor(context: Context): PiContext {
+    const actor = context.value(PI_ACTOR);
+    if (actor === undefined) {
+        throw new Error("this context does not come from a pi() actor");
+    }
+    return actor;
+}
+
+/**
+ * What `databaseLayer` builds: the database Pi Durable's storage opens, and
+ * what follows each harness opened on it.
+ */
+export interface PiDatabaseLayer {
+    readonly database: SqliteDatabase;
+    follow(harness: Harness): void;
+}
+
 /** Whether Pi Durable is open in this actor generation, or why it closed. */
 export type PiStatus = "open" | "sleeping" | "destroyed";
 
@@ -80,6 +113,13 @@ export interface PiOptions extends PiModelOptions {
     onReport?: HarnessOptions["onReport"];
     /** The starting thinking level of every new conversation. */
     thinkingLevel?: ModelThinkingLevel;
+    /**
+     * Builds the database Pi Durable's storage opens over the actor's own, such
+     * as a layer that writes rows in Pi's commits. Called with the actor's
+     * context each time the harness opens. Without it, the storage opens the
+     * actor's database as it is.
+     */
+    databaseLayer?: (c: PiContext, database: SqliteDatabase) => PiDatabaseLayer;
     /** App documents that clients may read by `kind` with `harness.snapshot`. */
     documents?: readonly ConversationDocToken<any>[];
     /**
@@ -200,7 +240,10 @@ export async function withHarness<T>(
     const harness = await ensureHarness(c, options);
     const release = countCall(runtime);
     try {
-        const context = withCallerSpan(c.actorId, BACKGROUND_CONTEXT);
+        const context = withCallerSpan(
+            c.actorId,
+            withContextValue(PI_ACTOR, runtime.actor ?? c, BACKGROUND_CONTEXT),
+        );
         return await run(harness, context, (wait) => {
             release();
             return wait();
@@ -296,14 +339,14 @@ async function openHarness(
     options: PiOptions,
     open: { resume: boolean } = { resume: true },
 ): Promise<OpenHarness> {
-    const storage = await SqliteStorage.open(
-        actorSqlite(c.db, (body) =>
-            // An older runtime has no such call, so it traces Pi's storage.
-            c.run?.runOutsideWorkflowSpan
-                ? c.run.runOutsideWorkflowSpan(body)
-                : body(),
-        ),
+    const database = actorSqlite(c.db, (body) =>
+        // An older runtime has no such call, so it traces Pi's storage.
+        c.run?.runOutsideWorkflowSpan
+            ? c.run.runOutsideWorkflowSpan(body)
+            : body(),
     );
+    const layer = options.databaseLayer?.(c, database);
+    const storage = await SqliteStorage.open(layer?.database ?? database);
     const now = options.now ?? Date.now;
     const { registry, settings } = options.onAnswer
         ? withAnswerHook(options, c, options.onAnswer, (error) => {
@@ -344,8 +387,9 @@ async function openHarness(
                 options.onReport?.(report);
             },
         },
-        BACKGROUND_CONTEXT,
+        withContextValue(PI_ACTOR, c, BACKGROUND_CONTEXT),
     );
+    layer?.follow(harness);
     wake.attach(harness);
     reportBlockedTasks(c, await harness.inspect(BACKGROUND_CONTEXT));
     if (open.resume) harness.resume();

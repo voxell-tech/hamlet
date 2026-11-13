@@ -23,7 +23,12 @@ export type {
     PiProviderCredential,
 } from "./credentials.ts";
 export type { PiModelOptions, PiProviderConfig } from "./models.ts";
-export type { PiDatabaseProvider, PiOptions } from "./runtime.ts";
+export {
+    type PiDatabaseLayer,
+    type PiDatabaseProvider,
+    type PiOptions,
+    piActor,
+} from "./runtime.ts";
 export type {
     PiDocFrame,
     PiTaskGraphFrame,
