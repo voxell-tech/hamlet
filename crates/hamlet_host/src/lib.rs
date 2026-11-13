@@ -13,4 +13,4 @@ pub mod send;
 pub use cause::Cause;
 pub use directory::Address;
 pub use event::{HostEvent, Letter};
-pub use local::Host;
+pub use local::{Host, HostOptions};

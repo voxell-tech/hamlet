@@ -14,8 +14,9 @@
 //!
 //! Each actor's place in its lifecycle is one [`Life`] in the host's
 //! map. One actor's start or stop waits only on that actor's work. A
-//! shutdown stops every actor at once, and the host starts none after
-//! it, nor after its last [`Host`] is dropped.
+//! start has a deadline. A shutdown stops every actor at once, ends
+//! the starts under way after a short grace, and the host starts
+//! none after it, nor after its last [`Host`] is dropped.
 
 use std::collections::HashMap;
 use std::fs::{File, TryLockError};
@@ -37,10 +38,11 @@ use hamlet_actor_core::{
     ActorFactory, ActorKeySegment, ActorLifecycle, RuntimeBoxFuture,
     ShutdownKind,
 };
+use hamlet_actor_error::ActorError;
 use parking_lot::Mutex;
 use rusqlite::{Connection, OptionalExtension};
 use tokio::sync::{broadcast, oneshot, watch};
-use tokio::task::{AbortHandle, JoinHandle};
+use tokio::task::{AbortHandle, JoinHandle, JoinSet};
 use tracing::Instrument;
 
 use crate::cause::Cause;
@@ -53,6 +55,10 @@ use crate::send::{self, Outbox};
 /// sessions to detect a lost connection, which a local file cannot
 /// have.
 const LOCAL_SESSION: u64 = 1;
+
+/// How long a shutdown lets the starts under way go on before it
+/// ends them.
+const START_GRACE_AT_SHUTDOWN: Duration = Duration::from_secs(1);
 
 /// The host's row in each actor file. Its version ladder is Hamlet's,
 /// apart from the core's `_actor_` tables.
@@ -86,7 +92,7 @@ const ACTOR_TABLE: &str = "CREATE TABLE IF NOT EXISTS _hamlet_actor \
 /// | `Stopped` | `Host::shutdown`, or the last `Host` dropped | absent, its timer aborted |
 /// | `Starting` | its generation asks to sleep or to be destroyed, or reports a crash | `Starting`, with the request kept; a destroy wins over a sleep |
 /// | `Starting` | the start ended well | `Running`, or `Stopping` or `Destroying` for a kept request |
-/// | `Starting` | the start failed or panicked | absent |
+/// | `Starting` | the start failed or panicked, or missed its deadline | absent, the failure told to its waiters |
 /// | `Running` | its generation asks to sleep or reports a crash, or `Host::stop(Sleep)` | `Stopping` |
 /// | `Running` | its generation asks to be destroyed, or `Host::stop(Destroy)` | `Destroying` |
 /// | `Stopping` | its generation asks to be destroyed, or `Host::stop(Destroy)` | `Destroying` |
@@ -98,10 +104,11 @@ const ACTOR_TABLE: &str = "CREATE TABLE IF NOT EXISTS _hamlet_actor \
 ///
 /// Callers wait without a transition of their own. A start, a call's
 /// included, waits for a `Starting` or `Stopping` actor and then
-/// starts it, and fails at once for a `Destroying` one. `Host::stop`
-/// waits for a `Starting` actor and then stops it, waits for a stop
-/// under way, and leaves a `Stopped` actor as it is. `Host::shutdown`
-/// stops each actor as `Host::stop` does.
+/// starts it, and fails at once for a `Destroying` one. A start that
+/// waited for a start that failed fails with it, rather than start
+/// again. `Host::stop` waits for a `Starting` actor and then stops
+/// it, waits for a stop under way, and leaves a `Stopped` actor as it
+/// is. `Host::shutdown` stops each actor as `Host::stop` does.
 enum Life {
     /// Stopped, with the deadline its last stop left. `timer` starts
     /// it then, if the state still holds that deadline.
@@ -115,19 +122,47 @@ enum Life {
     Starting {
         generation: u64,
         request: Option<ShutdownKind>,
-        ready: watch::Receiver<()>,
+        ready: Waiters,
     },
     Running(Arc<Generation>),
     /// A sleep, or a crash, of this generation is under way.
     Stopping {
         generation: Arc<Generation>,
-        done: watch::Receiver<()>,
+        done: Waiters,
     },
     /// This generation stops, then its file is removed.
     Destroying {
         generation: Arc<Generation>,
-        done: watch::Receiver<()>,
+        done: Waiters,
     },
+}
+
+/// What the waiters of a `Starting`, `Stopping` or `Destroying` state
+/// await: the channel closes when the work that owns the state ends,
+/// and holds how a start failed.
+type Waiters = watch::Receiver<Option<StartFailed>>;
+
+/// How a start failed, for each of its waiters to return.
+#[derive(Clone)]
+struct StartFailed {
+    error: ActorError,
+    /// The failure with its causes, as the start returned it.
+    detail: String,
+}
+
+impl StartFailed {
+    fn new(error: &anyhow::Error) -> Self {
+        Self {
+            error: ActorError::extract(error),
+            detail: format!("{error:#}"),
+        }
+    }
+
+    /// The failure, with the start's code.
+    fn to_error(&self) -> anyhow::Error {
+        anyhow::Error::from(self.error.clone())
+            .context(self.detail.clone())
+    }
 }
 
 impl Life {
@@ -154,7 +189,7 @@ impl Life {
 
     /// What a waiter on this state awaits: the receiver closes when
     /// the work that owns the state ends.
-    fn waiters(&self) -> Option<&watch::Receiver<()>> {
+    fn waiters(&self) -> Option<&Waiters> {
         match self {
             Self::Stopped { .. } | Self::Running(_) => None,
             Self::Starting { ready: waiters, .. }
@@ -177,6 +212,8 @@ pub(crate) struct Generation {
     /// The last alarm the core pushed in this generation, `None`
     /// until it pushes one, as the core's own record starts.
     alarm: Arc<Mutex<Option<i64>>>,
+    /// The generation's outbox, which its start delivers.
+    outbox: Arc<Outbox>,
 }
 
 /// The work that owns an actor's `Starting`, `Stopping` or
@@ -187,19 +224,25 @@ struct Owned {
     host: Arc<HostInner>,
     actor_id: String,
     /// Wakes the waiters when it drops, after [`Drop::drop`].
-    _wake: watch::Sender<()>,
-    waiters: watch::Receiver<()>,
+    wake: watch::Sender<Option<StartFailed>>,
+    waiters: Waiters,
 }
 
 impl Owned {
     fn new(host: &Arc<HostInner>, actor_id: &str) -> Self {
-        let (wake, waiters) = watch::channel(());
+        let (wake, waiters) = watch::channel(None);
         Self {
             host: host.clone(),
             actor_id: actor_id.to_owned(),
-            _wake: wake,
+            wake,
             waiters,
         }
+    }
+
+    /// Tells the waiters that the start this owns failed with
+    /// `error`.
+    fn fail(&self, error: &anyhow::Error) {
+        self.wake.send_replace(Some(StartFailed::new(error)));
     }
 
     fn owns(&self, life: &Life) -> bool {
@@ -328,6 +371,26 @@ pub(crate) struct HostInner {
     session: watch::Sender<u64>,
     commits: broadcast::Sender<String>,
     events: broadcast::Sender<HostEvent>,
+    options: HostOptions,
+    /// When the starts under way end, set once the host shuts down.
+    starts_end: watch::Sender<Option<tokio::time::Instant>>,
+}
+
+/// How a [`Host`] runs its actors.
+#[derive(Clone, Debug)]
+pub struct HostOptions {
+    /// How long a start may take, from opening the actor's file
+    /// until its core is ready. A start that takes longer fails with
+    /// `actor.not_ready`. 60 seconds by default.
+    pub start_deadline: Duration,
+}
+
+impl Default for HostOptions {
+    fn default() -> Self {
+        Self {
+            start_deadline: Duration::from_secs(60),
+        }
+    }
 }
 
 /// The host's actors, and whether it has shut down.
@@ -387,6 +450,58 @@ impl Actors {
 }
 
 impl HostInner {
+    /// Shuts the host, as [`Actors::shut_down`] does, and ends the
+    /// starts under way after [`START_GRACE_AT_SHUTDOWN`].
+    fn shut_down(&self) {
+        self.actors.lock().shut_down();
+        self.starts_end.send_if_modified(|end| {
+            if end.is_some() {
+                return false;
+            }
+            *end = Some(
+                tokio::time::Instant::now() + START_GRACE_AT_SHUTDOWN,
+            );
+            true
+        });
+    }
+
+    /// Awaits `start` until it ends, its start deadline passes, or
+    /// the host shuts down and its grace for starts passes. Fails
+    /// with `actor.not_ready` at either of the last two.
+    async fn within_start_deadline<T>(
+        &self,
+        actor_id: &str,
+        start: impl Future<Output = Result<T>>,
+    ) -> Result<T> {
+        let deadline =
+            tokio::time::Instant::now() + self.options.start_deadline;
+        let mut end = self.starts_end.subscribe();
+        let mut start = std::pin::pin!(start);
+        loop {
+            let shut = *end.borrow_and_update();
+            let until =
+                shut.map_or(deadline, |shut| shut.min(deadline));
+            tokio::select! {
+                started = &mut start => return started,
+                () = tokio::time::sleep_until(until) => {
+                    let why = match shut {
+                        Some(shut) if shut < deadline => {
+                            "the host shut down".to_owned()
+                        }
+                        _ => format!(
+                            "it took over {:?}",
+                            self.options.start_deadline
+                        ),
+                    };
+                    return Err(ActorLifecycle::NotReady.build().context(
+                        format!("the start of {actor_id} ended: {why}"),
+                    ));
+                }
+                Ok(()) = end.changed() => {}
+            }
+        }
+    }
+
     /// Asks the actor to stop: the generation of id `generation` when
     /// the actor asks, whichever generation runs when the host asks.
     /// Makes the transition, and returns the stop to run if one
@@ -466,7 +581,7 @@ struct Handle(Arc<HostInner>);
 
 impl Drop for Handle {
     fn drop(&mut self) {
-        self.0.actors.lock().shut_down();
+        self.0.shut_down();
     }
 }
 
@@ -488,11 +603,20 @@ struct LocalHandle {
 
 impl Host {
     /// Takes the folder's lock and opens it, with each kind of
-    /// `factories` running in this host. Fails when another host
-    /// holds the lock.
+    /// `factories` running in this host, with the default
+    /// [`HostOptions`]. Fails when another host holds the lock.
     pub fn open(
         dir: &Path,
         factories: HashMap<String, ActorFactory>,
+    ) -> Result<Self> {
+        Self::open_with(dir, factories, HostOptions::default())
+    }
+
+    /// Opens the folder as [`Host::open`] does, with `options`.
+    pub fn open_with(
+        dir: &Path,
+        factories: HashMap<String, ActorFactory>,
+        options: HostOptions,
     ) -> Result<Self> {
         std::fs::create_dir_all(dir.join("actors"))?;
         let lock_path = dir.join("host.lock");
@@ -523,6 +647,8 @@ impl Host {
             session: watch::Sender::new(LOCAL_SESSION),
             commits: broadcast::channel(64).0,
             events: broadcast::channel(64).0,
+            options,
+            starts_end: watch::Sender::new(None),
         })))))
     }
 
@@ -532,13 +658,14 @@ impl Host {
     }
 
     /// Reads every actor file's row. Starts again each actor whose
-    /// run a kill cut off, and arms a timer for each other actor
-    /// whose last stop left a deadline. A due timer starts its actor
-    /// at once, and boot waits for it. Returns the started actors. An
-    /// actor that fails to start is logged and left for the next
-    /// boot.
+    /// run a kill cut off, all at once, and arms a timer for each
+    /// other actor whose last stop left a deadline. A due timer
+    /// starts its actor at once, and boot waits for it. Returns the
+    /// started actors. An actor that fails to start is logged and
+    /// left for the next boot.
     pub async fn boot(&self) -> Result<Vec<String>> {
         let mut started = Vec::new();
+        let mut cut_off = JoinSet::new();
         let mut due = Vec::new();
         for stored in self.stored_actors()? {
             let actor_id = stored.actor_id;
@@ -546,18 +673,12 @@ impl Host {
             // cut off starts again, and its core pushes its alarms
             // anew.
             if stored.cut_off {
-                match self
-                    .inner()
-                    .ensure_started(&actor_id, false)
-                    .await
-                {
-                    Ok(_) => started.push(actor_id),
-                    Err(error) => tracing::error!(
-                        ?error,
-                        actor_id,
-                        "host failed to start an actor at boot"
-                    ),
-                }
+                let host = self.inner().clone();
+                cut_off.spawn(async move {
+                    let result =
+                        host.ensure_started(&actor_id, false).await;
+                    (actor_id, result)
+                });
                 continue;
             }
             let Some(wake_at) = stored.wake_at else {
@@ -577,6 +698,16 @@ impl Host {
             );
             if wake_at <= now_ms() {
                 due.push((actor_id, timer));
+            }
+        }
+        while let Some(joined) = cut_off.join_next().await {
+            match joined? {
+                (actor_id, Ok(_)) => started.push(actor_id),
+                (actor_id, Err(error)) => tracing::error!(
+                    ?error,
+                    actor_id,
+                    "host failed to start an actor at boot"
+                ),
             }
         }
         for (actor_id, timer) in due {
@@ -745,16 +876,22 @@ impl Host {
     /// Stops every actor at once, and shuts the host: from then on it
     /// starts no actor, for a call, a boot or a timer. Cancels the
     /// timers of stopped actors; their deadlines stay in their files
-    /// for the next boot. Waits for every stop, and for a start or a
-    /// stop under way, so it returns once every actor's file is
-    /// closed. A stop that fails ends no other: the error names each
-    /// actor whose stop failed.
+    /// for the next boot. A start under way that has not ended after
+    /// a grace of one second fails. Waits for every stop, and for a
+    /// start or a stop under way, so it returns once every actor's
+    /// file is closed. A stop that fails ends no other: the error
+    /// names each actor whose stop failed.
     pub async fn shutdown(&self) -> Result<()> {
-        let ids: Vec<String> = {
-            let mut actors = self.inner().actors.lock();
-            actors.shut_down();
-            actors.lives.keys().cloned().collect()
-        };
+        self.inner().shut_down();
+        // No state is added once the host is shut.
+        let ids: Vec<String> = self
+            .inner()
+            .actors
+            .lock()
+            .lives
+            .keys()
+            .cloned()
+            .collect();
         let stops: Vec<_> = ids
             .into_iter()
             .map(|actor_id| {
@@ -785,19 +922,20 @@ impl Host {
 
 impl HostInner {
     /// Starts the actor unless it runs, and returns the generation
-    /// that runs it. Waits for a start or a stop under way first.
-    /// Fails at once for an actor that is being destroyed, and in a
-    /// host that has shut down. Makes the actor's file only if
-    /// `create`, which only `get_or_start` and a call ask for: boot
-    /// and a send's delivery start an actor from the file it has, and
-    /// never make an empty one.
+    /// that runs it. Waits for a start or a stop under way first, and
+    /// fails with a start it waited for. Fails at once for an actor
+    /// that is being destroyed, and in a host that has shut down.
+    /// Makes the actor's file only if `create`, which only
+    /// `get_or_start` and a call ask for: boot and a send's delivery
+    /// start an actor from the file it has, and never make an empty
+    /// one.
     async fn ensure_started(
         self: &Arc<Self>,
         actor_id: &str,
         create: bool,
     ) -> Result<Arc<Generation>> {
         enum Next {
-            Wait(watch::Receiver<()>),
+            Wait(Waiters),
             Start(Owned, u64),
         }
         loop {
@@ -833,6 +971,9 @@ impl HostInner {
             match next {
                 Next::Wait(mut waiters) => {
                     let _ = waiters.changed().await;
+                    if let Some(failed) = &*waiters.borrow() {
+                        return Err(failed.to_error());
+                    }
                 }
                 Next::Start(owned, generation) => {
                     return tokio::spawn(start_actor(
@@ -1144,10 +1285,12 @@ fn bump_generation(
 }
 
 /// Starts the actor that `owned` holds as `Starting`, as the
-/// generation of id `id`: opens its file, made first if `create`, off
-/// the async runtime, starts its core, and makes it `Running`, or
-/// begins the stop its generation asked for meanwhile. Returns the
-/// generation it started.
+/// generation of id `id`, within the host's start deadline: opens its
+/// file, made first if `create`, off the async runtime, starts its
+/// core, and makes it `Running`, or begins the stop its generation
+/// asked for meanwhile. Returns the generation it started. A start
+/// that fails, or misses its deadline, closes the file and tells its
+/// waiters why.
 async fn start_actor(
     owned: Owned,
     id: u64,
@@ -1155,57 +1298,28 @@ async fn start_actor(
 ) -> Result<Arc<Generation>> {
     let host = owned.host.clone();
     let actor_id = owned.actor_id.clone();
-    let (kind, key) = actor_id
-        .split_once('/')
-        .ok_or_else(|| anyhow!("actor id {actor_id} has no kind"))?;
-    let Place::Local(factory) = host.directory.place(kind)?;
-    let factory = factory.clone();
-    let (file, number, first) = tokio::task::spawn_blocking({
-        let dir = host.dir.clone();
-        let (kind, key) = (kind.to_owned(), key.to_owned());
-        move || open_actor_file(&dir, &kind, &key, create)
-    })
-    .await??;
-    let alarm = Arc::new(Mutex::new(None));
-    let outbox = Outbox::new(
-        Arc::downgrade(&host),
-        Address::new(kind, key),
-        file.clone(),
-    );
-    let started = RunningActor::start(StartRequest {
-        actor_id: actor_id.clone(),
-        name: kind.to_owned(),
-        key: vec![ActorKeySegment::String(key.to_owned())],
-        generation: number,
-        factory,
-        handle: Arc::new(LocalHandle {
-            host: Arc::downgrade(&host),
-            actor_id: actor_id.clone(),
-            generation: id,
-            file: file.clone(),
-            alarm: alarm.clone(),
-            outbox: outbox.clone(),
-        }),
-        new_storage: first,
-        input: None,
-    })
-    .await;
-    let actor = match started {
-        Ok(actor) => actor,
+    let opened = Mutex::new(None);
+    let started = host
+        .within_start_deadline(
+            &actor_id,
+            start_generation(&host, &actor_id, id, create, &opened),
+        )
+        .await;
+    let generation = match started {
+        Ok(generation) => generation,
         // A failed start keeps its running mark, so the next boot
         // tries it again rather than leave an alarm it may not have
-        // stored.
+        // stored. The core ends a start whose future was dropped at
+        // the deadline, and the close fences what it does meanwhile.
         Err(error) => {
-            file.close().await;
+            let file = opened.lock().take();
+            if let Some(file) = file {
+                file.close().await;
+            }
+            owned.fail(&error);
             return Err(error);
         }
     };
-    let generation = Arc::new(Generation {
-        id,
-        actor,
-        file,
-        alarm,
-    });
     let stop = {
         let mut actors = host.actors.lock();
         let Some(Life::Starting { request, .. }) =
@@ -1243,9 +1357,63 @@ async fn start_actor(
     match stop {
         Some(stop) => stop.spawn_logged(),
         // Delivers the sends the file holds from before this start.
-        None => outbox.start(),
+        None => generation.outbox.start(),
     }
     Ok(generation)
+}
+
+/// Opens the actor's file and starts its core, as the generation of
+/// id `id`. Puts the file in `opened` once it is open.
+async fn start_generation(
+    host: &Arc<HostInner>,
+    actor_id: &str,
+    id: u64,
+    create: bool,
+    opened: &Mutex<Option<PlainSqlite>>,
+) -> Result<Arc<Generation>> {
+    let (kind, key) = actor_id
+        .split_once('/')
+        .ok_or_else(|| anyhow!("actor id {actor_id} has no kind"))?;
+    let Place::Local(factory) = host.directory.place(kind)?;
+    let factory = factory.clone();
+    let (file, number, first) = tokio::task::spawn_blocking({
+        let dir = host.dir.clone();
+        let (kind, key) = (kind.to_owned(), key.to_owned());
+        move || open_actor_file(&dir, &kind, &key, create)
+    })
+    .await??;
+    *opened.lock() = Some(file.clone());
+    let alarm = Arc::new(Mutex::new(None));
+    let outbox = Outbox::new(
+        Arc::downgrade(host),
+        Address::new(kind, key),
+        file.clone(),
+    );
+    let actor = RunningActor::start(StartRequest {
+        actor_id: actor_id.to_owned(),
+        name: kind.to_owned(),
+        key: vec![ActorKeySegment::String(key.to_owned())],
+        generation: number,
+        factory,
+        handle: Arc::new(LocalHandle {
+            host: Arc::downgrade(host),
+            actor_id: actor_id.to_owned(),
+            generation: id,
+            file: file.clone(),
+            alarm: alarm.clone(),
+            outbox: outbox.clone(),
+        }),
+        new_storage: first,
+        input: None,
+    })
+    .await?;
+    Ok(Arc::new(Generation {
+        id,
+        actor,
+        file,
+        alarm,
+        outbox,
+    }))
 }
 
 impl LocalHandle {
