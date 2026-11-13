@@ -121,13 +121,15 @@ export function writeWorkflowLocation(
     }
 }
 
-export enum WorkflowEntryStatus {
-    PENDING = "PENDING",
-    RUNNING = "RUNNING",
-    COMPLETED = "COMPLETED",
-    FAILED = "FAILED",
-    EXHAUSTED = "EXHAUSTED",
-}
+export const WorkflowEntryStatus = {
+    PENDING: "PENDING",
+    RUNNING: "RUNNING",
+    COMPLETED: "COMPLETED",
+    FAILED: "FAILED",
+    EXHAUSTED: "EXHAUSTED",
+} as const;
+export type WorkflowEntryStatus =
+    (typeof WorkflowEntryStatus)[keyof typeof WorkflowEntryStatus];
 
 export function readWorkflowEntryStatus(
     bc: bare.ByteCursor,
@@ -180,11 +182,13 @@ export function writeWorkflowEntryStatus(
     }
 }
 
-export enum WorkflowSleepState {
-    PENDING = "PENDING",
-    COMPLETED = "COMPLETED",
-    INTERRUPTED = "INTERRUPTED",
-}
+export const WorkflowSleepState = {
+    PENDING: "PENDING",
+    COMPLETED: "COMPLETED",
+    INTERRUPTED: "INTERRUPTED",
+} as const;
+export type WorkflowSleepState =
+    (typeof WorkflowSleepState)[keyof typeof WorkflowSleepState];
 
 export function readWorkflowSleepState(
     bc: bare.ByteCursor,
@@ -225,13 +229,15 @@ export function writeWorkflowSleepState(
     }
 }
 
-export enum WorkflowBranchStatusType {
-    PENDING = "PENDING",
-    RUNNING = "RUNNING",
-    COMPLETED = "COMPLETED",
-    FAILED = "FAILED",
-    CANCELLED = "CANCELLED",
-}
+export const WorkflowBranchStatusType = {
+    PENDING: "PENDING",
+    RUNNING: "RUNNING",
+    COMPLETED: "COMPLETED",
+    FAILED: "FAILED",
+    CANCELLED: "CANCELLED",
+} as const;
+export type WorkflowBranchStatusType =
+    (typeof WorkflowBranchStatusType)[keyof typeof WorkflowBranchStatusType];
 
 export function readWorkflowBranchStatusType(
     bc: bare.ByteCursor,
