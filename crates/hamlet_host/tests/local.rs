@@ -778,7 +778,8 @@ async fn a_shutdown_returns_while_a_statement_holds_the_file() {
 /// A stop under way that misses its deadline fails each caller that
 /// waited for it, a call and a second stop, with
 /// `actor.shutdown_timeout`. From then on the actor is not running, a
-/// call to it fails at once, and a shutdown names it.
+/// call to it and a create of its key fail at once, and a shutdown
+/// names it.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_stop_past_its_deadline_fails_its_waiters_and_later_calls()
 {
@@ -828,6 +829,14 @@ async fn a_stop_past_its_deadline_fails_its_waiters_and_later_calls()
     )
     .await
     .expect("a call to the stuck actor waited")
+    .unwrap_err();
+    assert!(is_actor_error(&error, "shutdown_timeout"), "{error:#}");
+    let error = tokio::time::timeout(
+        PROMPT,
+        host.create("blocker", "b", Vec::new()),
+    )
+    .await
+    .expect("a create of the stuck actor's key waited")
     .unwrap_err();
     assert!(is_actor_error(&error, "shutdown_timeout"), "{error:#}");
     let error = format!("{:#}", host.shutdown().await.unwrap_err());
@@ -1901,13 +1910,18 @@ enum Ask {
     Destroy,
 }
 
-/// The kind `sleeper`, which sleeps after 300 ms idle. Its first
-/// start asks for `ask` through its context, sends on `asked`, and
-/// waits for `gate` before it is ready. `starts` counts its starts,
-/// and its one action answers the number of the start that answers
-/// it, from 1.
+/// The idle time after which a [`sleeper`] sleeps, in the tests of
+/// a call during its start.
+const IDLE: Duration = Duration::from_millis(300);
+
+/// The kind `sleeper`, which sleeps after `idle`. Its first start
+/// asks for `ask` through its context, sends on `asked`, and waits
+/// for `gate` before it is ready. `starts` counts its starts, and its
+/// one action answers the number of the start that answers it, from
+/// 1.
 fn sleeper(
     ask: Ask,
+    idle: Duration,
     starts: &Arc<AtomicUsize>,
     asked: tokio::sync::mpsc::UnboundedSender<()>,
     gate: &Arc<tokio::sync::Notify>,
@@ -1915,7 +1929,7 @@ fn sleeper(
     let config = ActorConfig {
         name: Some("sleeper".to_owned()),
         has_database: true,
-        sleep_timeout: Duration::from_millis(300),
+        sleep_timeout: idle,
         ..ActorConfig::default()
     };
     let (starts, gate) = (starts.clone(), gate.clone());
@@ -1967,19 +1981,36 @@ fn sleeper(
 }
 
 /// Starts the [`sleeper`] `sleeper/a` of `host`, whose first start
-/// asks for what `asks` reports, and calls it while that start waits
-/// for `gate`. Returns once the start has ended, with the call.
-async fn call_during_a_start(
+/// asks for what `asks` reports, and runs `then` while that start
+/// waits for `gate`. Returns once the start has ended, with `then`.
+async fn during_a_start<T: Send + 'static>(
     host: &Host,
     asks: &mut tokio::sync::mpsc::UnboundedReceiver<()>,
     gate: &tokio::sync::Notify,
-) -> tokio::task::JoinHandle<anyhow::Result<Vec<u8>>> {
+    then: impl Future<Output = T> + Send + 'static,
+) -> tokio::task::JoinHandle<T> {
     let start = tokio::spawn({
         let host = host.clone();
         async move { host.get_or_start("sleeper", "a").await }
     });
     asks.recv().await.unwrap();
-    let call = tokio::spawn({
+    let then = tokio::spawn(then);
+    // The ask reaches the host on a task of the core's own, and
+    // `then` waits for the start.
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    gate.notify_one();
+    start.await.unwrap().unwrap();
+    then
+}
+
+/// Calls `sleeper/a` of `host` during its first start, as
+/// [`during_a_start`] says.
+async fn call_during_a_start(
+    host: &Host,
+    asks: &mut tokio::sync::mpsc::UnboundedReceiver<()>,
+    gate: &tokio::sync::Notify,
+) -> tokio::task::JoinHandle<anyhow::Result<Vec<u8>>> {
+    let call = {
         let host = host.clone();
         async move {
             host.call(
@@ -1991,13 +2022,8 @@ async fn call_during_a_start(
             )
             .await
         }
-    });
-    // The ask reaches the host on a task of the core's own, and the
-    // call waits for the start.
-    tokio::time::sleep(Duration::from_millis(200)).await;
-    gate.notify_one();
-    start.await.unwrap().unwrap();
-    call
+    };
+    during_a_start(host, asks, gate, call).await
 }
 
 /// A call that comes during a start cancels a sleep that the starting
@@ -2010,9 +2036,11 @@ async fn a_call_during_a_start_cancels_the_sleep_it_asked_for() {
     let starts = Arc::new(AtomicUsize::new(0));
     let gate = Arc::new(tokio::sync::Notify::new());
     let (asked, mut asks) = tokio::sync::mpsc::unbounded_channel();
-    let host =
-        Host::open(&dir, sleeper(Ask::Sleep, &starts, asked, &gate))
-            .unwrap();
+    let host = Host::open(
+        &dir,
+        sleeper(Ask::Sleep, IDLE, &starts, asked, &gate),
+    )
+    .unwrap();
     let call = call_during_a_start(&host, &mut asks, &gate).await;
     let reply = call.await.unwrap().unwrap();
     assert_eq!(counter::count(reply).unwrap(), 1);
@@ -2042,9 +2070,11 @@ async fn a_call_during_a_start_keeps_a_crash_or_a_destroy() {
         let gate = Arc::new(tokio::sync::Notify::new());
         let (asked, mut asks) =
             tokio::sync::mpsc::unbounded_channel();
-        let host =
-            Host::open(&dir, sleeper(ask, &starts, asked, &gate))
-                .unwrap();
+        let host = Host::open(
+            &dir,
+            sleeper(ask, IDLE, &starts, asked, &gate),
+        )
+        .unwrap();
         let call = call_during_a_start(&host, &mut asks, &gate).await;
         let called = call.await.unwrap();
         match ask {
@@ -2072,6 +2102,46 @@ async fn a_call_during_a_start_keeps_a_crash_or_a_destroy() {
         }
         host.shutdown().await.unwrap();
     }
+}
+
+/// A create that comes during a start of its key leaves a sleep that
+/// the starting generation asked for in place: it fails with
+/// `actor.duplicate_key` and wakes nothing, so the generation sleeps
+/// at once rather than after its idle time, an hour here.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_create_during_a_start_leaves_the_sleep_it_asked_for() {
+    let dir = Scratch::new("host-start-create");
+    let starts = Arc::new(AtomicUsize::new(0));
+    let gate = Arc::new(tokio::sync::Notify::new());
+    let (asked, mut asks) = tokio::sync::mpsc::unbounded_channel();
+    let idle = Duration::from_secs(3600);
+    let host = Host::open(
+        &dir,
+        sleeper(Ask::Sleep, idle, &starts, asked, &gate),
+    )
+    .unwrap();
+    let create = {
+        let host = host.clone();
+        async move { host.create("sleeper", "a", Vec::new()).await }
+    };
+    let create =
+        during_a_start(&host, &mut asks, &gate, create).await;
+    let error = create
+        .await
+        .unwrap()
+        .expect_err("a create of a key a start made");
+    assert!(is_actor_error(&error, "duplicate_key"), "{error:#}");
+
+    let begun = std::time::Instant::now();
+    while host.is_running("sleeper/a") {
+        assert!(
+            begun.elapsed() < Duration::from_secs(10),
+            "the create kept the generation from its sleep"
+        );
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert_eq!(starts.load(Ordering::SeqCst), 1);
+    host.shutdown().await.unwrap();
 }
 
 /// Boot begins the starts of the actors a kill left running and
@@ -2412,7 +2482,7 @@ async fn boot_passes_over_a_file_a_destroy_removed_after_its_list() {
 /// for the read, and never fails on the file's lock. Each round
 /// boots a host over `KEYS` counters that stopped cleanly, so boot
 /// reads every file and starts none, and starts every counter while
-/// boot runs.
+/// boot runs, and creates it: each create fails only as a duplicate.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_start_during_boots_read_of_its_file_waits_for_the_read() {
     const KEYS: usize = 8;
@@ -2433,20 +2503,32 @@ async fn a_start_during_boots_read_of_its_file_waits_for_the_read() {
             let host = host.clone();
             async move { host.boot().await }
         });
-        let starts: Vec<_> = keys
-            .iter()
-            .map(|key| {
-                let host = host.clone();
-                let key = key.clone();
-                tokio::spawn(async move {
+        let spawn = |key: &String, create: bool| {
+            let host = host.clone();
+            let key = key.clone();
+            tokio::spawn(async move {
+                if create {
+                    host.create("counter", &key, Vec::new()).await
+                } else {
                     host.get_or_start("counter", &key).await
-                })
+                }
             })
-            .collect();
+        };
+        let starts: Vec<_> =
+            keys.iter().map(|key| spawn(key, false)).collect();
+        let creates: Vec<_> =
+            keys.iter().map(|key| spawn(key, true)).collect();
         for start in starts {
             if let Err(error) = start.await.unwrap() {
                 panic!("round {round}: a start failed: {error:#}");
             }
+        }
+        for create in creates {
+            let error = create.await.unwrap().expect_err("a create");
+            assert!(
+                is_actor_error(&error, "duplicate_key"),
+                "round {round}: {error:#}"
+            );
         }
         assert!(boot.await.unwrap().unwrap().is_empty());
         host.shutdown().await.unwrap();

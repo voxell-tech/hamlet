@@ -21,6 +21,7 @@ use hamlet_actor_core::sqlite::SqliteDb;
 use hamlet_actor_core::{
     ActorEvent, ActorFactory, ActorStart, ColumnValue, ShutdownKind,
 };
+use hamlet_actor_error::ActorError;
 use hamlet_host::{Address, Caller, Host, HostEvent, HostOptions};
 use hamlet_testing::Scratch;
 use serde::{Deserialize, Serialize};
@@ -866,13 +867,18 @@ async fn an_alarm_due_during_a_destroy_does_not_revive_it() {
 }
 
 /// A timer starts only an actor whose file is still there: a timer
-/// never makes a file.
+/// never makes a file. Its start finds no actor and is not tried
+/// again, and the key is then free for a create.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_timer_does_not_make_a_file_that_is_gone() {
     let dir = Scratch::new("timer-file-gone");
-    let host = Host::open(
+    let host = Host::open_with(
         &dir,
         counter::factories(counter::Sleep::WhenIdle),
+        HostOptions {
+            start_retry: Duration::from_millis(100),
+            ..HostOptions::default()
+        },
     )
     .unwrap();
     let id = host.get_or_start("counter", "a").await.unwrap();
@@ -882,9 +888,23 @@ async fn a_timer_does_not_make_a_file_that_is_gone() {
     host.stop(&id, ShutdownKind::Sleep).await.unwrap();
     let file = dir.join(format!("actors/{id}.sqlite"));
     std::fs::remove_file(&file).unwrap();
-    sleep(Duration::from_millis(700)).await;
-    assert!(!host.is_running(&id));
-    assert!(!file.exists(), "the timer made the file again");
+    // The key holds an actor asleep until its timer's start finds
+    // none.
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        assert!(!file.exists(), "the timer made the file again");
+        let Err(error) =
+            host.create("counter", "a", Vec::new()).await
+        else {
+            break;
+        };
+        let code = ActorError::extract(&error);
+        assert_eq!(code.code(), "duplicate_key", "{error:#}");
+        assert!(Instant::now() < deadline, "the key stayed taken");
+        sleep(Duration::from_millis(20)).await;
+    }
+    let reply = act(&host, &id, "get", Vec::new()).await.unwrap();
+    assert_eq!(counter::count(reply).unwrap(), 0);
     host.shutdown().await.unwrap();
 }
 

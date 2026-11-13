@@ -24,9 +24,11 @@ impl Host {
     /// for a start under way, and for boot's read of the actor's
     /// file. Fails at once with `actor.destroying` for an actor that
     /// is being destroyed; once the destroy ends, a create makes the
-    /// actor anew. A destroy that a kill cut off is finished first.
-    /// So none of the old actor's data comes back. Fails at once with
-    /// `actor.not_registered` for a kind the directory does not hold.
+    /// actor anew. Fails at once with `actor.shutdown_timeout` for an
+    /// actor whose stop missed its deadline. A destroy that a kill
+    /// cut off is finished first. So none of the old actor's data
+    /// comes back. Fails at once with `actor.not_registered` for a
+    /// kind the directory does not hold.
     ///
     /// The actor is made once its file holds its row, before its
     /// first start ends. A create whose start fails returns that
