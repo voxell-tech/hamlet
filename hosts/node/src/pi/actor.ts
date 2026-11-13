@@ -152,7 +152,6 @@ const piOptionKeys = [
     "providers",
     "apiKeys",
     "credentials",
-    "sandbox",
     "documents",
     "onAnswer",
 ] as const satisfies readonly (keyof PiOptions)[];
@@ -234,7 +233,7 @@ export function pi<
             "pi()",
             actorConfig,
             { slot: PI_RUNTIME, create: createPiRuntime },
-            (c, stop) => closeHarness(c, piOptions, stop),
+            (c, stop) => closeHarness(c, stop),
             {
                 onSleep: withPi(actorConfig.onSleep, false),
                 onDestroy: withPi(actorConfig.onDestroy, false),

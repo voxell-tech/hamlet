@@ -6,8 +6,8 @@
 export const DEFAULT_SLEEP_GRACE_PERIOD_MS = 15 * 60_000;
 
 /**
- * Time kept back from the grace period for closing Pi and suspending the
- * sandbox after a drain, so both finish before the runtime's grace deadline.
+ * Time kept back from the grace period for closing Pi after a drain, so it
+ * finishes before the runtime's grace deadline.
  */
 const MAX_CLOSE_RESERVE_MS = 30_000;
 

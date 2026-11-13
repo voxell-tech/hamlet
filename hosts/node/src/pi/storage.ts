@@ -16,18 +16,6 @@ export const migratePiTables = migrations({
     migrations: [
         {
             version: 1,
-            // Actors of the earlier session-based pi() already have this table, with the same columns.
-            sql: `
-				CREATE TABLE IF NOT EXISTS pi_sandbox (
-					singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
-					provider TEXT NOT NULL,
-					sandbox_id TEXT NOT NULL,
-					created_at INTEGER NOT NULL
-				) STRICT;
-			`,
-        },
-        {
-            version: 2,
             sql: `
 				CREATE TABLE pi_durable_watch (
 					conn_id TEXT NOT NULL,
@@ -38,8 +26,8 @@ export const migratePiTables = migrations({
 			`,
         },
         {
-            version: 3,
-            // Files of agents without a sandbox. Agents from 0.5.1 created this table on first use.
+            version: 2,
+            // Files of the database env. Agents from 0.5.1 created this table on first use.
             sql: `
 				CREATE TABLE IF NOT EXISTS pi_file (
 					path TEXT PRIMARY KEY,
@@ -49,7 +37,7 @@ export const migratePiTables = migrations({
 			`,
         },
         {
-            version: 4,
+            version: 3,
             // Pi Durable's tables of agents from 0.5.1 and earlier have no prefix. Renaming them keeps their data.
             up: async (db) => {
                 for (const table of PI_DURABLE_TABLES) {
@@ -124,36 +112,4 @@ export async function loadWatches(db: PiDatabase): Promise<StoredWatch[]> {
         // Only `saveWatch` writes this column, from a `StoredWatch`.
         spec: JSON.parse(row.spec_json) as StoredWatch["spec"],
     }));
-}
-
-/** The sandbox an actor created, stored so the actor reconnects to it on wake. */
-export interface StoredSandbox {
-    provider: string;
-    id: string;
-}
-
-export async function loadPiSandbox(
-    db: PiDatabase,
-): Promise<StoredSandbox | undefined> {
-    const rows = await db.execute<{ provider: string; sandbox_id: string }>(
-        `SELECT provider, sandbox_id FROM pi_sandbox WHERE singleton = 1`,
-    );
-    const row = rows[0];
-    return row && { provider: row.provider, id: row.sandbox_id };
-}
-
-export async function savePiSandbox(
-    db: PiDatabase,
-    sandbox: StoredSandbox,
-): Promise<void> {
-    await db.execute(
-        `INSERT INTO pi_sandbox (singleton, provider, sandbox_id, created_at) VALUES (1, ?, ?, ?)
-		 ON CONFLICT (singleton) DO UPDATE SET
-			provider = excluded.provider,
-			sandbox_id = excluded.sandbox_id,
-			created_at = excluded.created_at`,
-        sandbox.provider,
-        sandbox.id,
-        Date.now(),
-    );
 }

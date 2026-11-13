@@ -16,16 +16,14 @@
     ],
     "type": "module",
     "dependencies": {
-        "@earendil-works/pi-coding-agent": "~1.5.0",
-        "@opentelemetry/api": "^1.1.0",
-        "@hamlet/sandbox-adapter": "workspace:*"
+        "@earendil-works/pi-coding-agent": "1.5.2",
+        "@opentelemetry/api": "1.10.0"
     },
     "peerDependencies": {
-        "@earendil-works/chord": "~1.5.0",
-        "@earendil-works/pi-ai": "~1.5.0",
-        "@earendil-works/pi-durable": "~1.5.0",
-        "@earendil-works/pi-telemetry": "~1.5.0",
-        "@hamlet/actor": ">=2.3.28 <2.4.0 || ^3.0.0"
+        "@earendil-works/chord": "1.5.2",
+        "@earendil-works/pi-ai": "1.5.2",
+        "@earendil-works/pi-durable": "1.5.2",
+        "@earendil-works/pi-telemetry": "1.5.2"
     },
     "engines": {
         "node": ">=22.19.0"

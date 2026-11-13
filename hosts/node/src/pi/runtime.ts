@@ -13,10 +13,7 @@ import {
     type ModelRef,
     type Wake,
 } from "@earendil-works/pi-durable";
-import type { ExecutionEnv } from "@earendil-works/pi-durable/env";
 import { SqliteStorage } from "@earendil-works/pi-durable/storage/sqlite";
-import type { Sandbox, SandboxProvider } from "@hamlet/sandbox-adapter";
-import { sandboxEnv } from "@hamlet/sandbox-adapter/pi";
 import { type ActorContext, UserError } from "../actor/actor/mod.ts";
 import type { DatabaseProvider, RawAccess } from "../actor/db/mod.ts";
 import { actorSqlite } from "./actor-sqlite.ts";
@@ -33,7 +30,6 @@ import {
     emptyCredentialStore,
     type PiModelOptions,
 } from "./models.ts";
-import { loadPiSandbox, savePiSandbox } from "./storage.ts";
 import { createPiTelemetry, withCallerSpan } from "./tracing.ts";
 import {
     type ConnectionWatches,
@@ -64,13 +60,6 @@ export type PiStop =
     | { reason: "sleep"; drainUntil: number }
     | { reason: "destroy" };
 
-/** The sandbox Pi's tools run in for this actor generation. */
-export interface ConnectedSandbox {
-    provider: SandboxProvider;
-    id: string;
-    sandbox: Sandbox;
-}
-
 /**
  * Options accepted by `pi()` on top of ordinary actor config. The Pi
  * Durable options keep the names and types of `HarnessOptions`.
@@ -82,8 +71,8 @@ export interface PiOptions extends PiModelOptions {
     models?: Models;
     settings?: HarnessSettings;
     /**
-     * Builds a conversation's environment. Without it, the actor builds one from
-     * `sandbox`, or stores files in its own database when there is no sandbox.
+     * Builds a conversation's environment. Without it, the actor stores files
+     * in its own database.
      */
     env?: HarnessOptions["env"];
     conversationCreated?: HarnessOptions["conversationCreated"];
@@ -91,12 +80,6 @@ export interface PiOptions extends PiModelOptions {
     onReport?: HarnessOptions["onReport"];
     /** The starting thinking level of every new conversation. */
     thinkingLevel?: ModelThinkingLevel;
-    /**
-     * Runs the tools of Pi's `CodingTools` extension in a sandbox. Used only
-     * when `env` is omitted. Without a sandbox, files live in the actor's
-     * database and there is no shell.
-     */
-    sandbox?: SandboxProvider;
     /** App documents that clients may read by `kind` with `harness.snapshot`. */
     documents?: readonly ConversationDocToken<any>[];
     /**
@@ -124,13 +107,12 @@ interface OpenHarness {
 export interface PiRuntime {
     /** The open harness, or the open in progress. */
     harness?: Promise<OpenHarness>;
-    sandbox?: Promise<ConnectedSandbox>;
     /** Pi Durable is open until the actor starts to sleep or is destroyed. */
     status: PiStatus;
     /**
-     * The `onWake` context. Background work (keep-awake, scheduled wakes, the
-     * sandbox, reopening) uses it, because an action's context is cancelled
-     * with the action.
+     * The `onWake` context. Background work (keep-awake, scheduled wakes,
+     * reopening) uses it, because an action's context is cancelled with the
+     * action.
      */
     actor?: PiContext;
     /** Open Pi watches of connections, for this generation. */
@@ -342,13 +324,11 @@ async function openHarness(
             settings,
             env:
                 options.env ??
-                (options.sandbox
-                    ? sandboxEnvBuilder(c, runtime, options.sandbox)
-                    : (target) =>
-                          databaseEnv(c.db, {
-                              id: `pi-files:${c.actorId}`,
-                              cwd: target.cwd,
-                          })),
+                ((target) =>
+                    databaseEnv(c.db, {
+                        id: `pi-files:${c.actorId}`,
+                        cwd: target.cwd,
+                    })),
             conversationCreated: startingAgent(options),
             now: options.now,
             onWake: wake.onWake,
@@ -492,36 +472,6 @@ function startingAgent(
                 agent.thinkingLevel === undefined ? thinkingLevel : undefined,
         });
         await created?.(tx, conversation);
-    };
-}
-
-/**
- * Builds the sandbox env without connecting, so a model request or a custom
- * tool call never creates a sandbox. The sandbox connects on the first file
- * or shell operation. A provider that does not report its working directory
- * connects first, because the env needs that directory.
- */
-function sandboxEnvBuilder(
-    c: PiContext,
-    runtime: PiRuntime,
-    provider: SandboxProvider,
-): NonNullable<HarnessOptions["env"]> {
-    const connect = async () => {
-        runtime.sandbox ??= connectSandbox(c, provider).catch(
-            (error: unknown) => {
-                runtime.sandbox = undefined;
-                throw error;
-            },
-        );
-        return (await runtime.sandbox).sandbox;
-    };
-    return async (target): Promise<ExecutionEnv> => {
-        const root = provider.cwd ?? (await connect()).cwd;
-        return sandboxEnv(connect, {
-            id: `${provider.name}:${c.actorId}`,
-            root,
-            cwd: target.cwd,
-        });
     };
 }
 
@@ -715,12 +665,10 @@ async function drain(
 /**
  * Closes Pi Durable for this actor generation. On sleep it drains first. On
  * destroy it stops running work at once. Records of interrupted work stay
- * running, and the next open resumes them. Then suspends the sandbox on
- * sleep, or destroys it on destroy.
+ * running, and the next open resumes them.
  */
 export async function closeHarness(
     c: PiContext,
-    options: PiOptions,
     stop: PiStop,
 ): Promise<void> {
     const runtime = piRuntime(c);
@@ -740,13 +688,6 @@ export async function closeHarness(
     if (open) {
         await closeOpenHarness(open, runtime.watches).catch((error: unknown) =>
             errors.push(error),
-        );
-    }
-
-    const provider = options.sandbox;
-    if (provider) {
-        await closeSandbox(c, provider, runtime.sandbox, stop).catch(
-            (error: unknown) => errors.push(error),
         );
     }
 
@@ -778,66 +719,4 @@ export function withUnavailablePi<T>(
         configurable: true,
     });
     return body();
-}
-
-/**
- * Connects to the actor's sandbox, creating one when none is stored or the
- * provider reports the stored one no longer exists. A new sandbox id is saved
- * as soon as `create` returns, so a failure later in the start reuses it. Any
- * other connect failure is thrown, so a temporary outage never replaces a
- * sandbox.
- */
-export async function connectSandbox(
-    c: PiContext,
-    provider: SandboxProvider,
-): Promise<ConnectedSandbox> {
-    const existing = await loadPiSandbox(c.db);
-    if (existing && existing.provider !== provider.name) {
-        throw new Error(
-            `pi sandbox was created by provider ${existing.provider}, but the actor now uses ${provider.name}`,
-        );
-    }
-    if (existing) {
-        const sandbox = await provider.connect(c, existing.id);
-        if (sandbox) return { provider, id: existing.id, sandbox };
-        c.log.warn({
-            msg: "pi sandbox no longer exists, creating a new one; files from the previous sandbox are lost",
-            provider: provider.name,
-            sandboxId: existing.id,
-        });
-    }
-    const id = await provider.create(c);
-    await savePiSandbox(c.db, { provider: provider.name, id });
-    const sandbox = await provider.connect(c, id);
-    if (!sandbox) {
-        throw new Error(
-            `pi sandbox ${provider.name}/${id} was not found right after it was created`,
-        );
-    }
-    return { provider, id, sandbox };
-}
-
-/**
- * Suspends the sandbox this generation connected when the actor sleeps. On
- * destroy it destroys the actor's sandbox, also one stored by an earlier
- * generation that this one never connected.
- */
-export async function closeSandbox(
-    c: PiContext,
-    provider: SandboxProvider,
-    connection: Promise<ConnectedSandbox> | undefined,
-    stop: PiStop,
-): Promise<void> {
-    const connected = await connection?.catch(() => undefined);
-    if (stop.reason === "sleep") {
-        if (connected && provider.suspend)
-            await provider.suspend(c, connected.id);
-        return;
-    }
-    if (!provider.destroy) return;
-    const stored = connected ? undefined : await loadPiSandbox(c.db);
-    const id =
-        connected?.id ??
-        (stored?.provider === provider.name ? stored.id : undefined);
-    if (id !== undefined) await provider.destroy(c, id);
 }

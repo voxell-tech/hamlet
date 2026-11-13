@@ -82,7 +82,7 @@ export function databaseEnv(
             err(
                 new ExecutionError(
                     "shell_unavailable",
-                    "There is no shell: files are stored in the actor's database. Give pi() a sandbox to run commands.",
+                    "There is no shell: files are stored in the actor's database. Give pi() an env with a shell to run commands.",
                 ),
             ),
 
