@@ -8,3 +8,6 @@ file.
 The files were changed for Hamlet: renamed, reformatted and edited by
 hand. Each changed file says so on its first line, or on the line after
 a script's shebang line, or, in package.json, in its "//" member.
+
+src/agent_filesystem.rs was written for Hamlet and holds no code from
+that project. It says so on its first lines.

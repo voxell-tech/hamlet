@@ -1,0 +1,298 @@
+// This file was changed for Hamlet. See NOTICE in this package.
+import type { Harness } from "@earendil-works/pi-durable";
+import {
+    type ActionContext,
+    type ActorDefinition,
+    actor,
+    type EventSchemaConfig,
+    event,
+    type QueueSchemaConfig,
+    type Type,
+} from "../actor/actor/mod.ts";
+import { db } from "../actor/db/mod.ts";
+import { createPiActions, type PiActions } from "./actions.ts";
+import {
+    assertNoReservedNames,
+    sharedActorConfig,
+    splitConfig,
+    wrapActions,
+} from "./actor-config.ts";
+import type {
+    PiActorDefinition,
+    UserActions,
+    UserActorConfig,
+} from "./actor-types.ts";
+import {
+    closeHarness,
+    createPiRuntime,
+    openOnWake,
+    PI_RUNTIME,
+    type PiContext,
+    type PiOptions,
+    piRuntime,
+    piStopping,
+    withPiAccess,
+    withUnavailablePi,
+} from "./runtime.ts";
+import { migratePiTables } from "./storage.ts";
+import {
+    type PiDocFrame,
+    type PiTaskGraphFrame,
+    type PiViewFrame,
+    unwatchConnection,
+} from "./watches.ts";
+
+/** Watch frames, sent only to the connection that asked. See `PiWatchEvents`. */
+export type PiEvents = {
+    "pi.view": Type<PiViewFrame>;
+    "pi.taskGraph": Type<PiTaskGraphFrame>;
+    "pi.doc": Type<PiDocFrame>;
+};
+
+const piEvents: PiEvents = {
+    "pi.view": event<PiViewFrame>(),
+    "pi.taskGraph": event<PiTaskGraphFrame>(),
+    "pi.doc": event<PiDocFrame>(),
+};
+
+/**
+ * `c.pi`: the actor's Pi Durable harness, in the app's own actions and hooks.
+ * Reading it throws when Pi Durable cannot open, such as after a rollback to
+ * an older schema. In `onSleep` and `onDestroy` it is set only when Pi Durable
+ * is already open in this actor generation.
+ */
+export interface PiAccess {
+    readonly pi: Harness;
+}
+
+/**
+ * The `c` of an actor's actions, for typing a helper function:
+ * `function helper(c: PiActionContext<typeof agent>)`. Keeps the actor's types,
+ * such as `c.conn.state`, and adds `c.pi`.
+ */
+export type PiActionContext<TActor> =
+    TActor extends ActorDefinition<
+        infer TState,
+        infer TConnParams,
+        infer TConnState,
+        infer TVars,
+        infer TInput,
+        infer TDatabase,
+        infer TEvents,
+        infer TQueues,
+        any
+    >
+        ? ActionContext<
+              TState,
+              TConnParams,
+              TConnState,
+              TVars,
+              TInput,
+              TDatabase,
+              TEvents,
+              TQueues
+          > &
+              PiAccess
+        : never;
+
+/** The app's own actions, which get `c.pi`. Nested objects become dotted action names. */
+export type PiUserActions<
+    TState,
+    TConnParams,
+    TConnState,
+    TVars,
+    TInput,
+    TEvents extends EventSchemaConfig,
+    TQueues extends QueueSchemaConfig,
+> = UserActions<
+    TState,
+    TConnParams,
+    TConnState,
+    TVars,
+    TInput,
+    TEvents,
+    TQueues,
+    PiAccess
+>;
+
+/** Ordinary actor config plus the Pi Durable options. The app's actions and lifecycle hooks get `c.pi`. */
+export type PiActorConfigInput<
+    TState = undefined,
+    TConnParams = undefined,
+    TConnState = undefined,
+    TVars = undefined,
+    TInput = undefined,
+    TEvents extends EventSchemaConfig = Record<never, never>,
+    TQueues extends QueueSchemaConfig = Record<never, never>,
+    TUserActions extends Record<string, unknown> = Record<never, never>,
+> = UserActorConfig<
+    TState,
+    TConnParams,
+    TConnState,
+    TVars,
+    TInput,
+    TEvents,
+    TQueues,
+    TUserActions,
+    PiOptions,
+    PiAccess
+>;
+
+const piOptionKeys = [
+    "registry",
+    "models",
+    "settings",
+    "env",
+    "conversationCreated",
+    "now",
+    "onReport",
+    "model",
+    "thinkingLevel",
+    "scopedModels",
+    "providers",
+    "apiKeys",
+    "credentials",
+    "documents",
+    "onAnswer",
+] as const satisfies readonly (keyof PiOptions)[];
+
+/**
+ * Defines an actor that owns one Pi Durable harness.
+ *
+ * Pi Durable stores conversations, tasks, and documents in the actor's SQLite
+ * database. Runs survive sleep, upgrades, and crashes, and resume when the
+ * actor wakes. The actions match Pi Durable's API one to one. The app's own
+ * actions and lifecycle hooks get the harness as `c.pi`.
+ */
+export function pi<
+    TState,
+    TConnParams,
+    TConnState,
+    TVars,
+    TInput,
+    TEvents extends EventSchemaConfig = Record<never, never>,
+    TQueues extends QueueSchemaConfig = Record<never, never>,
+    TUserActions extends Record<string, unknown> = Record<never, never>,
+>(
+    config: PiActorConfigInput<
+        TState,
+        TConnParams,
+        TConnState,
+        TVars,
+        TInput,
+        TEvents,
+        TQueues,
+        TUserActions
+    >,
+): PiActorDefinition<
+    TState,
+    TConnParams,
+    TConnState,
+    TVars,
+    TInput,
+    TEvents,
+    TQueues,
+    TUserActions,
+    PiEvents,
+    PiActions
+> {
+    const { actorConfig, options: piOptions } = splitConfig<PiOptions>(
+        config,
+        piOptionKeys,
+    );
+    if (!piOptions.registry) {
+        throw new Error(
+            "pi() needs a registry; pass createRegistry() from @earendil-works/pi-durable",
+        );
+    }
+    if (actorConfig.db !== undefined) {
+        throw new Error("pi() owns the actor database; remove the db option");
+    }
+    const actions = createPiActions(piOptions);
+    assertNoReservedNames("pi()", actorConfig, {
+        action: actions,
+        event: piEvents,
+    });
+
+    const withPi = <TArgs extends unknown[]>(
+        hook: ((c: PiContext, ...args: TArgs) => unknown) | undefined,
+        opensHarness = true,
+    ) =>
+        hook &&
+        ((c: PiContext, ...args: TArgs) =>
+            withPiAccess(c, piOptions, () => hook(c, ...args), {
+                opensHarness,
+            }));
+    const userOnWake = actorConfig.onWake;
+    const userOnDisconnect = withPi(actorConfig.onDisconnect);
+
+    // The config is built from untyped parts, so `actor()` cannot check it
+    // against the generics. The declared return type is the public contract.
+    return actor({
+        ...sharedActorConfig(
+            "pi()",
+            actorConfig,
+            { slot: PI_RUNTIME, create: createPiRuntime },
+            (c, stop) => closeHarness(c, stop),
+            {
+                onSleep: withPi(actorConfig.onSleep, false),
+                onDestroy: withPi(actorConfig.onDestroy, false),
+            },
+        ),
+        db: db({ onMigrate: migratePiTables }),
+        events: { ...(actorConfig.events ?? {}), ...piEvents },
+        actions: {
+            ...wrapActions(actorConfig.actions ?? {}, (c: PiContext, action) =>
+                withPiAccess(c, piOptions, action),
+            ),
+            ...actions,
+        },
+        // Opening on wake resumes interrupted work, after the app's own onWake.
+        onWake: async (c: PiContext) => {
+            let harness: Harness;
+            try {
+                harness = await openOnWake(c, piOptions);
+            } catch (error) {
+                // The actor stays up so actions can report the cause, such as a
+                // schema newer than the code. Using c.pi throws it.
+                c.log.error({
+                    msg: "pi durable could not open on wake; actions will retry",
+                    error,
+                });
+                return withUnavailablePi(c, error, () => userOnWake?.(c));
+            }
+            Object.defineProperty(c, "pi", {
+                value: harness,
+                configurable: true,
+            });
+            try {
+                await userOnWake?.(c);
+            } finally {
+                harness.resume();
+            }
+        },
+        onConnect: withPi(actorConfig.onConnect),
+        onDisconnect: async (c: PiContext, conn: { id: string }) => {
+            // Shutdown runs onDisconnect in the same window as onSleep and
+            // onDestroy, in no set order, and those close Pi Durable. So a
+            // disconnect during shutdown never uses Pi, and its watches end when
+            // the harness closes.
+            if (c.abortSignal.aborted || piRuntime(c).status !== "open") {
+                await withUnavailablePi(c, piStopping(), () =>
+                    actorConfig.onDisconnect?.(c, conn),
+                );
+                return;
+            }
+            try {
+                await userOnDisconnect?.(c, conn);
+            } finally {
+                const runtime = piRuntime(c);
+                await unwatchConnection(
+                    runtime.actor ?? c,
+                    runtime.watches,
+                    conn.id,
+                );
+            }
+        },
+    } as any);
+}

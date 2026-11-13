@@ -1,0 +1,749 @@
+// This file was changed for Hamlet. See NOTICE in this package.
+import {
+    BACKGROUND_CONTEXT,
+    type Context,
+    type ContextKey,
+    createContextKey,
+    withContextValue,
+} from "@earendil-works/chord/context";
+import type { Models, ModelThinkingLevel } from "@earendil-works/pi-ai";
+import {
+    AgentDoc,
+    type ConversationDocToken,
+    configure,
+    Harness,
+    type HarnessInspection,
+    type HarnessOptions,
+    type HarnessSettings,
+    type ModelRef,
+    type Wake,
+} from "@earendil-works/pi-durable";
+import { SqliteStorage } from "@earendil-works/pi-durable/storage/sqlite";
+import { type ActorContext, UserError } from "../actor/actor/mod.ts";
+import type { DatabaseProvider, RawAccess } from "../actor/db/mod.ts";
+import { actorSqlite } from "./actor-sqlite.ts";
+import {
+    ANSWER_EXTENSION,
+    type PiOnAnswer,
+    withAnswerHook,
+} from "./answers.ts";
+import { SourceCredentialStore } from "./credentials.ts";
+import { databaseEnv } from "./database-env.ts";
+import { toClientError } from "./errors.ts";
+import {
+    createActorModelRuntime,
+    emptyCredentialStore,
+    type PiModelOptions,
+} from "./models.ts";
+import { createPiTelemetry, withCallerSpan } from "./tracing.ts";
+import {
+    type ConnectionWatches,
+    createConnectionWatches,
+    reattachWatches,
+    stopAllWatches,
+} from "./watches.ts";
+
+export type PiDatabaseProvider = DatabaseProvider<RawAccess>;
+
+/** The actor context shape every Pi helper works against. */
+export type PiContext = ActorContext<
+    any,
+    any,
+    any,
+    any,
+    any,
+    PiDatabaseProvider,
+    any,
+    any
+>;
+
+/**
+ * The key under which each Pi Durable hook and tool of a `pi()` actor finds
+ * the actor's context. It holds the generation's context, which lives as long
+ * as the harness, as background work's does.
+ */
+const PI_ACTOR: ContextKey<PiContext> = createContextKey("pi() actor");
+
+/** The context of the `pi()` actor a Pi Durable hook or tool runs in. */
+export function piActor(context: Context): PiContext {
+    const actor = context.value(PI_ACTOR);
+    if (actor === undefined) {
+        throw new Error("this context does not come from a pi() actor");
+    }
+    return actor;
+}
+
+/** Whether Pi Durable is open in this actor generation, or why it closed. */
+export type PiStatus = "open" | "sleeping" | "destroyed";
+
+/** How an actor generation stops. A sleep drains until `drainUntil`; a destroy stops at once. */
+export type PiStop =
+    | { reason: "sleep"; drainUntil: number }
+    | { reason: "destroy" };
+
+/**
+ * Options accepted by `pi()` on top of ordinary actor config. The Pi
+ * Durable options keep the names and types of `HarnessOptions`.
+ */
+export interface PiOptions extends PiModelOptions {
+    /** Pi Durable's extension registry: tools, hooks, sections, tasks, and documents. */
+    registry: HarnessOptions["registry"];
+    /** pi-ai model access. Without it, the actor builds it from `model`, `providers`, `apiKeys`, and `credentials`. */
+    models?: Models;
+    settings?: HarnessSettings;
+    /**
+     * Builds a conversation's environment. Without it, the actor stores files
+     * in its own database.
+     */
+    env?: HarnessOptions["env"];
+    conversationCreated?: HarnessOptions["conversationCreated"];
+    now?: HarnessOptions["now"];
+    onReport?: HarnessOptions["onReport"];
+    /** The starting thinking level of every new conversation. */
+    thinkingLevel?: ModelThinkingLevel;
+    /** App documents that clients may read by `kind` with `harness.snapshot`. */
+    documents?: readonly ConversationDocToken<any>[];
+    /**
+     * Called with the actor's context for every final answer, such as to text
+     * it to the user. A run that resumes after a crash can call it again for
+     * the same answer if it didn't return. A throw goes to `onReport` and
+     * leaves the run as it is.
+     */
+    onAnswer?: PiOnAnswer;
+}
+
+/** The internal action a scheduled wake calls. */
+const WAKE_ACTION = "pi.wake";
+
+interface OpenHarness {
+    harness: Harness;
+    /** Calls `listener` whenever Pi's wake value changes. Returns a function that stops it. */
+    onWakeChange: (listener: () => void) => () => void;
+    /** Resumes Pi's due sleeps, for the scheduled `pi.wake`. */
+    resumeDue: () => void;
+    stopWake: () => void;
+}
+
+/** Per-actor-generation state, stored on `c.vars` under `PI_RUNTIME`. */
+export interface PiRuntime {
+    /** The open harness, or the open in progress. */
+    harness?: Promise<OpenHarness> | undefined;
+    /** Pi Durable is open until the actor starts to sleep or is destroyed. */
+    status: PiStatus;
+    /**
+     * The `onWake` context. Background work (keep-awake, scheduled wakes,
+     * reopening) uses it, because an action's context is cancelled with the
+     * action.
+     */
+    actor?: PiContext;
+    /** Open Pi watches of connections, for this generation. */
+    watches: ConnectionWatches;
+    /**
+     * Calls that are using the harness and are not waiting on a run. A sleep
+     * drains them, so it never closes the harness under a call it admitted.
+     */
+    calls: number;
+    /** Called when a counted call ends. A drain sets it. */
+    callEnded?: (() => void) | undefined;
+}
+
+export const PI_RUNTIME: unique symbol = Symbol.for("@hamlet/pi/runtime");
+
+export function createPiRuntime(): PiRuntime {
+    return { status: "open", watches: createConnectionWatches(), calls: 0 };
+}
+
+export function piRuntime(c: PiContext): PiRuntime {
+    const runtime = (
+        c.vars as Record<symbol, PiRuntime | undefined> | undefined
+    )?.[PI_RUNTIME];
+    if (!runtime) {
+        throw new Error(
+            "pi() runtime state is missing from actor vars; this actor was not created with pi()",
+        );
+    }
+    return runtime;
+}
+
+/**
+ * Opens the harness on wake without resuming interrupted work, so the app's
+ * `onWake` runs first. The caller calls `harness.resume()` after it. The wake
+ * context becomes the context of all background work.
+ */
+export async function openOnWake(
+    c: PiContext,
+    options: PiOptions,
+): Promise<Harness> {
+    piRuntime(c).actor = c;
+    return ensureHarness(c, options, { resume: false });
+}
+
+/** Returns the actor's Pi Durable harness, opening it from SQLite on first use. */
+async function ensureHarness(
+    c: PiContext,
+    options: PiOptions,
+    open: { resume: boolean } = { resume: true },
+): Promise<Harness> {
+    const runtime = piRuntime(c);
+    // Callers check the status first, so a closed generation never reopens Pi Durable.
+    if (runtime.status !== "open") {
+        throw new Error(
+            `pi durable cannot open after it closed (${runtime.status})`,
+        );
+    }
+    runtime.harness ??= openHarness(
+        runtime.actor ?? c,
+        runtime,
+        options,
+        open,
+    ).catch((error: unknown) => {
+        runtime.harness = undefined;
+        throw toClientError(error);
+    });
+    return (await runtime.harness).harness;
+}
+
+/**
+ * Runs an action against the harness. A failed call that left Pi Durable
+ * unusable reopens it before the error reaches the client, so the next call
+ * works. Calls use `BACKGROUND_CONTEXT`, so a wait such as `prompt` lasts
+ * until the run settles or the action times out, including while a stopping
+ * actor drains the run. The runtime's action signal also fires when the actor
+ * starts to stop, so it cannot cancel a wait.
+ */
+export async function withHarness<T>(
+    c: PiContext,
+    options: PiOptions,
+    run: (harness: Harness, context: Context, waiting: Waiting) => Promise<T>,
+): Promise<T> {
+    const runtime = piRuntime(c);
+    if (runtime.status !== "open") throw piClosed(runtime.status);
+    const harness = await ensureHarness(c, options);
+    const release = countCall(runtime);
+    try {
+        const context = withCallerSpan(
+            c.actorId,
+            withContextValue(PI_ACTOR, runtime.actor ?? c, BACKGROUND_CONTEXT),
+        );
+        return await run(harness, context, (wait) => {
+            release();
+            return wait();
+        });
+    } catch (error) {
+        await recoverHarness(runtime.actor ?? c, runtime, options);
+        throw toClientError(error);
+    } finally {
+        release();
+    }
+}
+
+/**
+ * Runs a wait on a run, such as `submission.wait`, without holding a sleep.
+ * While the run is busy, the run itself holds the sleep.
+ */
+export type Waiting = <W>(wait: () => Promise<W>) => Promise<W>;
+
+/** Counts a call until the returned function runs. Calling it again does nothing. */
+function countCall(runtime: PiRuntime): () => void {
+    runtime.calls += 1;
+    let counted = true;
+    return () => {
+        if (!counted) return;
+        counted = false;
+        runtime.calls -= 1;
+        runtime.callEnded?.();
+    };
+}
+
+/**
+ * Runs one of the app's own actions or hooks with the harness on `c.pi`. A
+ * failure that left Pi Durable unusable reopens it. The error reaches the
+ * client as from a built-in action. Code that never reads `c.pi` runs even
+ * when Pi Durable is closed or cannot open; reading `c.pi` throws the cause.
+ * Shutdown hooks pass `opensHarness: false`, so they use a harness that is
+ * already open and never open and resume one only to close it.
+ */
+export async function withPiAccess<T>(
+    c: PiContext,
+    options: PiOptions,
+    body: () => T | Promise<T>,
+    { opensHarness = true }: { opensHarness?: boolean } = {},
+): Promise<T> {
+    const runtime = piRuntime(c);
+    // Hooks such as onDisconnect still run after Pi Durable closed; only using c.pi fails.
+    if (runtime.status !== "open") {
+        return withUnavailablePi(c, piClosed(runtime.status), body);
+    }
+    if (!opensHarness && !runtime.harness) {
+        return withUnavailablePi(c, harnessNotOpen(), body);
+    }
+    let harness: Harness;
+    try {
+        harness = await ensureHarness(c, options);
+    } catch (error) {
+        c.log.warn({
+            msg: "pi durable could not open; reading c.pi throws this error",
+            error,
+        });
+        return withUnavailablePi(c, error, body);
+    }
+    Object.defineProperty(c, "pi", { value: harness, configurable: true });
+    const release = countCall(runtime);
+    try {
+        return await body();
+    } catch (error) {
+        await recoverHarness(runtime.actor ?? c, runtime, options);
+        throw toClientError(error);
+    } finally {
+        release();
+    }
+}
+
+function harnessNotOpen() {
+    return new UserError(
+        "Pi Durable is not open in this actor generation, so this shutdown hook cannot use c.pi.",
+    );
+}
+
+/** What a call gets once Pi Durable is closed for this generation. */
+function piClosed(status: Exclude<PiStatus, "open">) {
+    return new UserError(
+        status === "sleeping"
+            ? "Pi Durable is closed because the actor is going to sleep."
+            : "Pi Durable is closed because the actor was destroyed.",
+    );
+}
+
+async function openHarness(
+    c: PiContext,
+    runtime: PiRuntime,
+    options: PiOptions,
+    open: { resume: boolean } = { resume: true },
+): Promise<OpenHarness> {
+    const storage = await SqliteStorage.open(
+        actorSqlite(c.db, (body) =>
+            // An older runtime has no such call, so it traces Pi's storage.
+            c.run?.runOutsideWorkflowSpan
+                ? c.run.runOutsideWorkflowSpan(body)
+                : body(),
+        ),
+    );
+    const now = options.now ?? Date.now;
+    const { registry, settings } = options.onAnswer
+        ? withAnswerHook(options, c, options.onAnswer, (error) => {
+              c.log.error({ msg: "pi onAnswer failed", error: String(error) });
+              options.onReport?.({
+                  kind: "extension_error",
+                  extension: ANSWER_EXTENSION,
+                  error,
+              });
+          })
+        : options;
+    const wake = wakeActor(c, now);
+    const harness = await Harness.open(
+        storage,
+        {
+            models: options.models ?? (await createModels(c, options)),
+            registry,
+            ...(settings === undefined ? {} : { settings }),
+            env:
+                options.env ??
+                ((target) =>
+                    databaseEnv(c.db, {
+                        id: `pi-files:${c.actorId}`,
+                        cwd: target.cwd,
+                    })),
+            ...startingAgent(options),
+            ...(options.now === undefined ? {} : { now: options.now }),
+            onWake: wake.onWake,
+            telemetry: createPiTelemetry(c.actorId),
+            onReport: (report) => {
+                // A failed storage call closes the Session. Background work reports it
+                // here, with no action to catch it.
+                if (report.kind === "storage_failed") {
+                    queueMicrotask(
+                        () => void recoverHarness(c, runtime, options),
+                    );
+                }
+                options.onReport?.(report);
+            },
+        },
+        withContextValue(PI_ACTOR, c, BACKGROUND_CONTEXT),
+    );
+    wake.attach(harness);
+    reportBlockedTasks(c, await harness.inspect(BACKGROUND_CONTEXT));
+    if (open.resume) harness.resume();
+    await reattachWatches(
+        c,
+        runtime.watches,
+        harness,
+        documentsByKind(options),
+    );
+    return {
+        harness,
+        onWakeChange: wake.subscribe,
+        resumeDue: wake.resumeDue,
+        stopWake: wake.stop,
+    };
+}
+
+/** App documents by `kind`, for clients that name a document. */
+export function documentsByKind(
+    options: PiOptions,
+): ReadonlyMap<string, ConversationDocToken<any>> {
+    return new Map(
+        (options.documents ?? []).map((doc) => [doc.definition.kind, doc]),
+    );
+}
+
+/** Pi Durable refuses every call once a commit failed after storage admitted it. */
+function isUsable(harness: Harness): boolean {
+    try {
+        harness.subscribeClose(() => {})();
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+/** Closes and reopens a harness that Pi Durable refuses to use. The reopened harness resumes from storage. */
+async function recoverHarness(
+    c: PiContext,
+    runtime: PiRuntime,
+    options: PiOptions,
+): Promise<void> {
+    const current = runtime.harness;
+    if (!current || runtime.status !== "open") return;
+    let open: OpenHarness;
+    try {
+        open = await current;
+    } catch {
+        return;
+    }
+    if (
+        runtime.harness !== current ||
+        runtime.status !== "open" ||
+        isUsable(open.harness)
+    )
+        return;
+
+    c.log.warn({
+        msg: "pi durable stopped after a failed commit, reopening it from storage",
+    });
+    const reopened = (async () => {
+        await closeOpenHarness(open, runtime.watches);
+        return openHarness(c, runtime, options);
+    })().catch((error: unknown) => {
+        if (runtime.harness === reopened) runtime.harness = undefined;
+        c.log.error({
+            msg: "pi durable could not reopen after a failed commit",
+            error,
+        });
+        throw toClientError(error);
+    });
+    runtime.harness = reopened;
+    await reopened.catch(() => {});
+}
+
+async function closeOpenHarness(
+    open: OpenHarness,
+    watches: ConnectionWatches,
+): Promise<void> {
+    open.stopWake();
+    await stopAllWatches(watches);
+    await open.harness.close(BACKGROUND_CONTEXT);
+}
+
+async function createModels(c: PiContext, options: PiOptions): Promise<Models> {
+    const credentials = options.credentials
+        ? new SourceCredentialStore(options.credentials(c))
+        : emptyCredentialStore;
+    return createActorModelRuntime(options, credentials);
+}
+
+/** Parses `provider/modelId`. */
+export function parseModelRef(name: string): ModelRef {
+    const slash = name.indexOf("/");
+    if (slash <= 0 || slash === name.length - 1) {
+        throw new Error(
+            `pi() model must be provider/modelId, received ${name}`,
+        );
+    }
+    return { provider: name.slice(0, slash), modelId: name.slice(slash + 1) };
+}
+
+/**
+ * `model` and `thinkingLevel` start every new conversation: root, created, and
+ * forked. A fork already has its parent's agent, so it keeps it. The app's own
+ * `conversationCreated` runs after this. Returns the `conversationCreated`
+ * option, or none when there is nothing to run.
+ */
+function startingAgent(
+    options: PiOptions,
+): Pick<HarnessOptions, "conversationCreated"> {
+    const model =
+        options.model === undefined ? undefined : parseModelRef(options.model);
+    const thinkingLevel = options.thinkingLevel;
+    const created = options.conversationCreated;
+    if (model === undefined && thinkingLevel === undefined) {
+        return created === undefined ? {} : { conversationCreated: created };
+    }
+    return {
+        conversationCreated: async (tx, conversation) => {
+            const agent = await tx.doc(AgentDoc, conversation.id);
+            await configure(tx, conversation.id, {
+                ...(agent.model === undefined && model !== undefined
+                    ? { model }
+                    : {}),
+                ...(agent.thinkingLevel === undefined &&
+                thinkingLevel !== undefined
+                    ? { thinkingLevel }
+                    : {}),
+            });
+            await created?.(tx, conversation);
+        },
+    };
+}
+
+function reportBlockedTasks(c: PiContext, inspection: HarnessInspection): void {
+    for (const task of inspection.tasks) {
+        if (task.state.kind !== "blocked") continue;
+        c.log.warn({
+            msg: "pi durable task is blocked and does not keep the actor awake; inspect it with harness.inspect",
+            taskId: task.record.id,
+            kind: task.record.kind,
+            reason: task.state.reason,
+            error: task.state.error,
+        });
+    }
+}
+
+/**
+ * Keeps the actor awake while Pi Durable can run work, and schedules a wake
+ * for its earliest sleeping task, such as a retry backoff. Pi calls `onWake`
+ * after open and whenever the value changes. With `onWake`, Pi keeps no timer
+ * for sleeps, so the scheduled `pi.wake` action resumes them. While other work
+ * is active the actor cannot sleep, so an in-process timer resumes them.
+ *
+ * Pi runs a sleep only once its time has passed, and reports a wake only when
+ * the value changes. So a wake that fires early, even by a millisecond,
+ * re-reads the value and schedules again.
+ */
+function wakeActor(
+    c: PiContext,
+    now: () => number,
+): {
+    onWake: (wake: Wake) => void;
+    attach: (harness: Harness) => void;
+    subscribe: (listener: () => void) => () => void;
+    resumeDue: () => void;
+    stop: () => void;
+} {
+    const listeners = new Set<() => void>();
+    let harness: Harness | undefined;
+    let latest: Wake = { active: false };
+    let release: (() => void) | undefined;
+    let scheduledAt: number | undefined;
+    let scheduling = false;
+    let timer:
+        | { at: number; handle: ReturnType<typeof setTimeout> }
+        | undefined;
+    let scheduleFailedAt: number | undefined;
+    let stopped = false;
+
+    const stayAwake = () => {
+        if (release) return;
+        const { promise, resolve } = Promise.withResolvers<void>();
+        release = resolve;
+        void c.keepAwake(promise);
+    };
+    const letGo = () => {
+        release?.();
+        release = undefined;
+    };
+    const clearTimer = () => {
+        if (timer) clearTimeout(timer.handle);
+        timer = undefined;
+        scheduleFailedAt = undefined;
+    };
+    const armTimer = (at: number) => {
+        if (timer?.at === at) return;
+        clearTimer();
+        // setTimeout fires at once past 2^31 - 1 ms, so a far sleep re-arms from here.
+        const delay = Math.min(Math.max(0, at - now()), 2 ** 31 - 1);
+        timer = { at, handle: setTimeout(resumeDue, delay) };
+    };
+    const apply = () => {
+        if (stopped) return;
+        const { active, at } = latest;
+        if (timer?.at !== at) clearTimer();
+        if (active) {
+            stayAwake();
+            if (at !== undefined) armTimer(at);
+            return;
+        }
+        if (at === undefined || at === scheduledAt) return letGo();
+        // The actor may sleep only once its wake is written.
+        stayAwake();
+        if (scheduling || scheduleFailedAt === at) return;
+        scheduling = true;
+        c.schedule
+            .at(at, WAKE_ACTION)
+            .then(
+                () => {
+                    scheduledAt = at;
+                },
+                (error: unknown) => {
+                    c.log.warn({
+                        msg: "pi durable could not schedule its wake, so the actor stays awake until it",
+                        error,
+                    });
+                    armTimer(at);
+                    scheduleFailedAt = at;
+                },
+            )
+            .finally(() => {
+                scheduling = false;
+                apply();
+            });
+    };
+    const resumeDue = () => {
+        if (stopped || !harness) return;
+        harness.resume();
+        clearTimer();
+        scheduledAt = undefined;
+        latest = harness.wake();
+        apply();
+    };
+    const stop = () => {
+        stopped = true;
+        clearTimer();
+        letGo();
+    };
+    // Keep-awake only blocks idle sleep. Once shutdown starts it would only delay it.
+    c.abortSignal.addEventListener("abort", stop, { once: true });
+    return {
+        onWake: (wake) => {
+            latest = wake;
+            apply();
+            for (const listener of listeners) listener();
+        },
+        attach: (opened) => {
+            harness = opened;
+        },
+        subscribe: (listener) => {
+            listeners.add(listener);
+            return () => listeners.delete(listener);
+        },
+        resumeDue,
+        stop: () => {
+            c.abortSignal.removeEventListener("abort", stop);
+            stop();
+        },
+    };
+}
+
+/**
+ * Waits until no run is active and no admitted call is using the harness, or
+ * until `drainUntil` passes. Idle sleep has no live work, so it waits only for
+ * a call that arrived as the sleep started. The deadline ends before
+ * the runtime's, so closing still fits in the grace period. Pi's records are
+ * already stored, and the next wake resumes the work.
+ */
+async function drain(
+    c: PiContext,
+    runtime: PiRuntime,
+    open: OpenHarness,
+    drainUntil: number,
+): Promise<void> {
+    let changed = () => {};
+    let timedOut = false;
+    const commits = open.harness.observeCommits({
+        advance: () => changed(),
+        end: () => {},
+    });
+    // Pi can settle its wake value after the last commit, so its change counts too.
+    const unsubscribeWake = open.onWakeChange(() => changed());
+    runtime.callEnded = () => changed();
+    const timer = setTimeout(
+        () => {
+            timedOut = true;
+            changed();
+        },
+        Math.max(0, drainUntil - Date.now()),
+    );
+    try {
+        while (!timedOut) {
+            // Armed before the check, so a commit during the check is not missed.
+            const next = new Promise<void>((resolve) => {
+                changed = resolve;
+            });
+            if (runtime.calls === 0 && !open.harness.wake().active) return;
+            await next;
+        }
+        c.log.warn({
+            msg: "pi durable run still active at the end of the grace period; it resumes on wake",
+        });
+    } finally {
+        clearTimeout(timer);
+        commits.detach();
+        unsubscribeWake();
+        runtime.callEnded = undefined;
+    }
+}
+
+/**
+ * Closes Pi Durable for this actor generation. On sleep it drains first. On
+ * destroy it stops running work at once. Records of interrupted work stay
+ * running, and the next open resumes them.
+ */
+export async function closeHarness(c: PiContext, stop: PiStop): Promise<void> {
+    const runtime = piRuntime(c);
+    const errors: unknown[] = [];
+    let open: OpenHarness | undefined;
+    try {
+        open = await runtime.harness;
+    } catch {}
+    // Destroy has no next generation to resume in, so it stops running work at once.
+    if (open && stop.reason === "sleep") {
+        await drain(c, runtime, open, stop.drainUntil).catch((error: unknown) =>
+            errors.push(error),
+        );
+    }
+    runtime.status = stop.reason === "sleep" ? "sleeping" : "destroyed";
+    runtime.harness = undefined;
+    if (open) {
+        await closeOpenHarness(open, runtime.watches).catch((error: unknown) =>
+            errors.push(error),
+        );
+    }
+
+    if (errors.length === 1) throw errors[0];
+    if (errors.length > 1)
+        throw new AggregateError(errors, "pi durable shutdown failed");
+}
+
+/** Resumes Pi's due sleeps when the scheduled `pi.wake` fires. Call it once the harness is open. */
+export async function resumeDueSleeps(c: PiContext): Promise<void> {
+    (await piRuntime(c).harness)?.resumeDue();
+}
+
+/** What a shutdown hook gets from `c.pi` once the actor has started to stop. */
+export function piStopping() {
+    return new UserError("Pi Durable is closed because the actor is stopping.");
+}
+
+/** Runs `body` with a `c.pi` that throws `error` when read. */
+export function withUnavailablePi<T>(
+    c: PiContext,
+    error: unknown,
+    body: () => T | Promise<T>,
+): T | Promise<T> {
+    Object.defineProperty(c, "pi", {
+        get: () => {
+            throw error;
+        },
+        configurable: true,
+    });
+    return body();
+}

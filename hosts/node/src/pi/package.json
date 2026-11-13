@@ -1,0 +1,34 @@
+{
+    "//": "This file was changed for Hamlet. See NOTICE in this package.",
+    "name": "@hamlet/pi",
+    "version": "0.1.0",
+    "description": "Run the Pi coding agent as a durable actor",
+    "license": "Apache-2.0",
+    "keywords": [
+        "pi",
+        "coding-agent",
+        "agent",
+        "ai",
+        "hamlet",
+        "hamlet_actor",
+        "actors",
+        "durable"
+    ],
+    "type": "module",
+    "dependencies": {
+        "@earendil-works/pi-coding-agent": "1.5.2",
+        "@opentelemetry/api": "1.9.1"
+    },
+    "devDependencies": {
+        "@opentelemetry/sdk-trace-node": "2.12.1"
+    },
+    "peerDependencies": {
+        "@earendil-works/chord": "1.5.2",
+        "@earendil-works/pi-ai": "1.5.2",
+        "@earendil-works/pi-durable": "1.5.2",
+        "@earendil-works/pi-telemetry": "1.5.2"
+    },
+    "engines": {
+        "node": ">=22.19.0"
+    }
+}

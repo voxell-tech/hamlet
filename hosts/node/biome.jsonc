@@ -26,6 +26,19 @@
                     }
                 }
             }
+        },
+        {
+            // The pi wrapper is ported code too: its own repository turns
+            // noExplicitAny off, and its explicit any are the generic
+            // arguments of the actor context and definition it builds on.
+            "includes": ["src/pi/**"],
+            "linter": {
+                "rules": {
+                    "suspicious": {
+                        "noExplicitAny": "off"
+                    }
+                }
+            }
         }
     ],
     "assist": {

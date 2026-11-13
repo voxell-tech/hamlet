@@ -332,6 +332,7 @@ const {
     WorkflowSpan,
     WorkflowStepSpan,
     NapiActorFactory,
+    AgentFolder,
     CancellationToken,
     CancellationListener,
     ConnHandle,
@@ -357,6 +358,7 @@ module.exports.OutboundCall = OutboundCall;
 module.exports.WorkflowSpan = WorkflowSpan;
 module.exports.WorkflowStepSpan = WorkflowStepSpan;
 module.exports.NapiActorFactory = NapiActorFactory;
+module.exports.AgentFolder = AgentFolder;
 module.exports.CancellationToken = CancellationToken;
 module.exports.CancellationListener = CancellationListener;
 module.exports.ConnHandle = ConnHandle;

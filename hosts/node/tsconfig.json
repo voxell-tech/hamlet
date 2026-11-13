@@ -7,6 +7,9 @@
         "noUncheckedIndexedAccess": true,
         "exactOptionalPropertyTypes": true,
         "verbatimModuleSyntax": true,
+        // Node loads the host's TypeScript by stripping its types, which
+        // refuses syntax that compiles to code.
+        "erasableSyntaxOnly": true,
         "allowImportingTsExtensions": true,
         "rewriteRelativeImportExtensions": true,
         "skipLibCheck": true,
