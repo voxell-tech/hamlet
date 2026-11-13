@@ -5,13 +5,14 @@ use anyhow::Result;
 use diesel::prelude::*;
 use hamlet_git::{Author, Change as GitChange, MAIN, Repository};
 use hamlet_protocol::client::{
-    self as protocol, Edit, EditLimits, Keeper, Read, ReadResult,
-    RequestId, ServerMessage,
+    self as protocol, Edit, EditLimits, EditSettingsSet, Keeper,
+    Read, ReadResult, RequestId, ServerMessage,
 };
 use hamlet_store::ids::{Actor, AgentId, ScholarId};
 use hamlet_store::schema::document;
 
 use super::check::reply;
+use crate::change::{Done, done, refuse};
 use crate::core::Core;
 use crate::jobs::{self, Job};
 use crate::knowledge::folder::Folder;
@@ -52,116 +53,28 @@ impl Core<'_, '_> {
         self.answer(client, reply(&id, answer))
     }
 
-    fn edited(
-        &mut self,
-        edit: Edit,
-    ) -> Result<Result<String, Refusal>> {
-        let chief = self.realm.chief();
-        let at = crate::clock::now();
+    /// Makes the chief's edit of one document.
+    fn edited(&mut self, edit: Edit) -> Done<String> {
         match edit {
-            Edit::Charter { text, .. } => {
-                let db = self.realm.store().connection();
-                match text.filter(|t| !t.trim().is_empty()) {
-                    Some(text) => {
-                        diesel::replace_into(document::table)
-                            .values((
-                                document::kind.eq("charter"),
-                                document::value.eq(&text),
-                                document::at.eq(at),
-                                document::chief.eq(chief),
-                            ))
-                            .execute(db)?;
-                    }
-                    None => {
-                        diesel::delete(
-                            document::table.find("charter"),
-                        )
-                        .execute(db)?;
-                    }
-                }
-                self.publish();
-                Ok(Ok("The charter is saved.".into()))
-            }
+            Edit::Charter { text, .. } => self.edit_charter(text),
             Edit::Character { scholar, text, .. } => {
                 let scholar = ScholarId(i64::try_from(scholar.0)?);
-                if text.chars().count() > CHARACTER_MOST {
-                    return Ok(Err(Refusal::LongCharacter));
-                }
-                if let Err(refusal) = self.keeps(scholar)? {
-                    return Ok(Err(refusal));
-                }
-                self.commit_main(
-                    Actor::Chief(chief),
-                    scholar,
-                    &[GitChange::Write {
-                        path: CHARACTER.into(),
-                        bytes: text.into_bytes(),
-                    }],
-                    "Edited the character",
-                )?;
-                Ok(Ok("The character is saved.".into()))
+                self.edit_character(scholar, text)
             }
             Edit::Memory { of, path, text, .. } => {
                 let path = match memory_path(&path) {
                     Ok(path) => path,
-                    Err(refusal) => return Ok(Err(refusal)),
+                    Err(refusal) => refuse!(refusal),
                 };
                 match of {
                     Keeper::Scholar(scholar) => {
                         let scholar =
                             ScholarId(i64::try_from(scholar.0)?);
-                        if let Err(refusal) = self.keeps(scholar)? {
-                            return Ok(Err(refusal));
-                        }
-                        let change = if text.is_empty() {
-                            GitChange::Remove { path }
-                        } else {
-                            GitChange::Write {
-                                path,
-                                bytes: text.into_bytes(),
-                            }
-                        };
-                        self.commit_main(
-                            Actor::Chief(chief),
-                            scholar,
-                            &[change],
-                            "Edited the memory",
-                        )?;
-                        Ok(Ok("The memory is saved.".into()))
+                        self.edit_scholar_memory(scholar, path, text)
                     }
                     Keeper::Agent(agent) => {
                         let agent = AgentId(i64::try_from(agent.0)?);
-                        if let Err(refusal) = self.reaches(agent)? {
-                            return Ok(Err(refusal));
-                        }
-                        let layout = self.realm.layout().clone();
-                        let lodging = knowledge::lodging(
-                            self.realm.store().connection(),
-                            &layout,
-                            agent,
-                        )?;
-                        let writing = self.writing.clone();
-                        let held = writing.hold();
-                        let folder = Folder::make(&lodging.path)?;
-                        if text.is_empty() {
-                            folder.remove(&path)?;
-                        } else {
-                            folder.write(
-                                &path,
-                                text.as_bytes(),
-                                false,
-                            )?;
-                        }
-                        drop(held);
-                        self.unpushed.insert(agent);
-                        self.change(Actor::Chief(chief), |cx, _| {
-                            jobs::add(
-                                cx,
-                                &Job::Commit { hire: agent },
-                            )?;
-                            Ok(())
-                        })?;
-                        Ok(Ok("The memory is saved.".into()))
+                        self.edit_lodge_memory(agent, &path, &text)
                     }
                 }
             }
@@ -185,122 +98,226 @@ impl Core<'_, '_> {
                                 set.value.clone(),
                             );
                         }
-                        None => {
-                            current[&set.key] = set.value.clone();
-                        }
+                        None => current[&set.key] = set.value.clone(),
                     }
                     Ok(current)
                 }),
-            Edit::Settings { set, .. } => {
-                let db = self.realm.store().connection();
-                let mut settings = crate::settings::stored(db)?;
-                if let Some(model) = set.model {
-                    settings.model = model;
-                    settings.picked = true;
-                }
-                if let Some(every) = set.reflect_every {
-                    let Ok(every) = u64::try_from(every) else {
-                        return Ok(Err(Refusal::Usage {
-                            words: "Reflect after zero or more \
-                                    turns."
-                                .into(),
-                        }));
-                    };
-                    settings.reflect_every = every;
-                }
-                if let Some(net) = set.allow_net {
-                    settings.allow_net = net;
-                }
-                if let Some(effort) = set.effort {
-                    settings.effort = effort.map(Effort::of);
-                }
-                if let Some(newcomers) = set.newcomers {
-                    settings.newcomers = newcomers;
-                }
-                if let Some(character) = set.character {
-                    if character.trim().is_empty() {
-                        return Ok(Err(Refusal::Usage {
-                            words: "A blank scholar needs a \
-                                    character to start from."
-                                .into(),
-                        }));
-                    }
-                    if character.chars().count() > CHARACTER_MOST {
-                        return Ok(Err(Refusal::LongCharacter));
-                    }
-                    settings.character = character;
-                }
-                let mut removed = Vec::new();
-                if let Some(endpoints) = set.endpoints {
-                    let endpoints = endpoints
-                        .into_iter()
-                        .map(|e| crate::settings::Endpoint {
-                            name: e.name.trim().to_owned(),
-                            base_url: e.base_url.trim().to_owned(),
-                        })
-                        .collect::<Vec<_>>();
-                    if let Some(words) = endpoint_fault(&endpoints) {
-                        return Ok(Err(Refusal::Usage { words }));
-                    }
-                    removed = settings
-                        .endpoints
-                        .iter()
-                        .filter(|old| {
-                            !endpoints
-                                .iter()
-                                .any(|e| e.name == old.name)
-                        })
-                        .map(|old| old.name.clone())
-                        .collect();
-                    settings.endpoints = endpoints;
-                }
-                let db = self.realm.store().connection();
-                crate::settings::keep(
-                    db,
-                    &settings,
-                    at,
-                    Some(chief),
-                )?;
-                for name in removed {
-                    self.credentials.save_model(&name, None)?;
-                }
-                if let Some(chosen) = set.workspace {
-                    let chosen = match chosen {
-                        Some(workspace) => {
-                            let address = crate::settings::Endpoint {
-                                name: "workspace".into(),
-                                base_url: workspace
-                                    .url
-                                    .trim()
-                                    .to_owned(),
-                            };
-                            if let Some(words) = endpoint_fault(
-                                std::slice::from_ref(&address),
-                            ) {
-                                return Ok(Err(Refusal::Usage {
-                                    words,
-                                }));
-                            }
-                            Some(crate::credentials::WorkspaceAddress {
-                                url: address.base_url,
-                                token: workspace.token,
-                            })
-                        }
-                        None => None,
-                    };
-                    self.credentials.choose_workspace(chosen)?;
-                }
-                self.env.settings =
-                    self.env.overrides.apply(settings);
-                self.publish();
-                Ok(Ok("The settings are saved.".into()))
-            }
+            Edit::Settings { set, .. } => self.edit_settings(set),
             Edit::Catalogue { model, set, .. } => {
                 let answer = self.edit_catalogue(&model, set)?;
                 self.publish();
                 Ok(answer)
             }
         }
+    }
+
+    /// Keeps the realm's charter, or none when `text` is blank.
+    fn edit_charter(&mut self, text: Option<String>) -> Done<String> {
+        let chief = self.realm.chief();
+        let db = self.realm.store().connection();
+        match text.filter(|t| !t.trim().is_empty()) {
+            Some(text) => {
+                diesel::replace_into(document::table)
+                    .values((
+                        document::kind.eq("charter"),
+                        document::value.eq(&text),
+                        document::at.eq(crate::clock::now()),
+                        document::chief.eq(chief),
+                    ))
+                    .execute(db)?;
+            }
+            None => {
+                diesel::delete(document::table.find("charter"))
+                    .execute(db)?;
+            }
+        }
+        self.publish();
+        Ok(Ok("The charter is saved.".into()))
+    }
+
+    /// Commits `text` as the character of `scholar`.
+    fn edit_character(
+        &mut self,
+        scholar: ScholarId,
+        text: String,
+    ) -> Done<String> {
+        if text.chars().count() > CHARACTER_MOST {
+            refuse!(Refusal::LongCharacter);
+        }
+        done!(self.keeps(scholar));
+        let by = Actor::Chief(self.realm.chief());
+        self.commit_main(
+            by,
+            scholar,
+            &[GitChange::Write {
+                path: CHARACTER.into(),
+                bytes: text.into_bytes(),
+            }],
+            "Edited the character",
+        )?;
+        Ok(Ok("The character is saved.".into()))
+    }
+
+    /// Commits a memory file of `scholar`'s `main`; empty removes it.
+    fn edit_scholar_memory(
+        &mut self,
+        scholar: ScholarId,
+        path: String,
+        text: String,
+    ) -> Done<String> {
+        done!(self.keeps(scholar));
+        let change = if text.is_empty() {
+            GitChange::Remove { path }
+        } else {
+            GitChange::Write {
+                path,
+                bytes: text.into_bytes(),
+            }
+        };
+        let by = Actor::Chief(self.realm.chief());
+        self.commit_main(
+            by,
+            scholar,
+            &[change],
+            "Edited the memory",
+        )?;
+        Ok(Ok("The memory is saved.".into()))
+    }
+
+    /// Writes a memory file of `agent`'s lodge, empty removing it,
+    /// and has the lodge committed.
+    fn edit_lodge_memory(
+        &mut self,
+        agent: AgentId,
+        path: &str,
+        text: &str,
+    ) -> Done<String> {
+        done!(self.reaches(agent));
+        let layout = self.realm.layout().clone();
+        let lodging = knowledge::lodging(
+            self.realm.store().connection(),
+            &layout,
+            agent,
+        )?;
+        {
+            let writing = self.writing.clone();
+            let _held = writing.hold();
+            let folder = Folder::make(&lodging.path)?;
+            if text.is_empty() {
+                folder.remove(path)?;
+            } else {
+                folder.write(path, text.as_bytes(), false)?;
+            }
+        }
+        self.unpushed.insert(agent);
+        let by = Actor::Chief(self.realm.chief());
+        self.change(by, |cx, _| {
+            jobs::add(cx, &Job::Commit { hire: agent })?;
+            Ok(())
+        })?;
+        Ok(Ok("The memory is saved.".into()))
+    }
+
+    /// Keeps the settings `set` changes, and the workspace it
+    /// chooses.
+    fn edit_settings(
+        &mut self,
+        set: EditSettingsSet,
+    ) -> Done<String> {
+        let db = self.realm.store().connection();
+        let mut settings = crate::settings::stored(db)?;
+        if let Some(model) = set.model {
+            settings.model = model;
+            settings.picked = true;
+        }
+        if let Some(every) = set.reflect_every {
+            let Ok(every) = u64::try_from(every) else {
+                refuse!(Refusal::Usage {
+                    words: "Reflect after zero or more turns.".into(),
+                });
+            };
+            settings.reflect_every = every;
+        }
+        if let Some(net) = set.allow_net {
+            settings.allow_net = net;
+        }
+        if let Some(effort) = set.effort {
+            settings.effort = effort.map(Effort::of);
+        }
+        if let Some(newcomers) = set.newcomers {
+            settings.newcomers = newcomers;
+        }
+        if let Some(character) = set.character {
+            if character.trim().is_empty() {
+                refuse!(Refusal::Usage {
+                    words: "A blank scholar needs a character to \
+                            start from."
+                        .into(),
+                });
+            }
+            if character.chars().count() > CHARACTER_MOST {
+                refuse!(Refusal::LongCharacter);
+            }
+            settings.character = character;
+        }
+        let mut removed = Vec::new();
+        if let Some(endpoints) = set.endpoints {
+            let endpoints = endpoints
+                .into_iter()
+                .map(|e| crate::settings::Endpoint {
+                    name: e.name.trim().to_owned(),
+                    base_url: e.base_url.trim().to_owned(),
+                })
+                .collect::<Vec<_>>();
+            if let Some(words) = endpoint_fault(&endpoints) {
+                refuse!(Refusal::Usage { words });
+            }
+            removed = settings
+                .endpoints
+                .iter()
+                .filter(|old| {
+                    !endpoints.iter().any(|e| e.name == old.name)
+                })
+                .map(|old| old.name.clone())
+                .collect();
+            settings.endpoints = endpoints;
+        }
+        let chosen = match set.workspace {
+            None => None,
+            Some(None) => Some(None),
+            Some(Some(workspace)) => {
+                let address = crate::settings::Endpoint {
+                    name: "workspace".into(),
+                    base_url: workspace.url.trim().to_owned(),
+                };
+                if let Some(words) =
+                    endpoint_fault(std::slice::from_ref(&address))
+                {
+                    refuse!(Refusal::Usage { words });
+                }
+                Some(Some(crate::credentials::WorkspaceAddress {
+                    url: address.base_url,
+                    token: workspace.token,
+                }))
+            }
+        };
+        let chief = self.realm.chief();
+        let db = self.realm.store().connection();
+        crate::settings::keep(
+            db,
+            &settings,
+            crate::clock::now(),
+            Some(chief),
+        )?;
+        for name in removed {
+            self.credentials.save_model(&name, None)?;
+        }
+        if let Some(chosen) = chosen {
+            self.credentials.choose_workspace(chosen)?;
+        }
+        self.env.settings = self.env.overrides.apply(settings);
+        self.publish();
+        Ok(Ok("The settings are saved.".into()))
     }
 
     /// Replaces the limits of `hamlet`, or the realm's, with what
