@@ -65,7 +65,10 @@ bevy = { version = "0.20", default-features = false }
 # Its Bevy 0.20 port is not released yet: held to a commit of its main.
 bevy_hanabi = { git = "https://github.com/djeedai/bevy_hanabi", rev = "d277555d4a2350da6787245d15c56c62c739594d", default-features = false, features = ["3d"] }
 
-# Used only by the ported actor crates, at the versions they were ported with.
+# Used by the actor runtime's crates: the ported ones, at the versions
+# they were ported with, and hamlet_host, hamlet_sqlite and
+# hamlet_killkit, which share parking_lot, rusqlite, tracing and
+# tracing-subscriber with them.
 async-trait = "0.1"
 bytes = "1.6.0"
 chrono-tz = "0.10.4"
