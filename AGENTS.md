@@ -177,6 +177,15 @@ npm run check   # TypeScript and Biome
 npm test
 ```
 
+`hosts/node/` is the Node package of the Node host, with the TypeScript
+actor layer in `src/actor/`. Install it with `npm ci --prefix hosts/node`
+and the same Node version. Its TypeScript and Biome check must be clean
+before a commit too. `cargo xtask node` runs it after pi's; by hand:
+
+```sh
+npm run check --prefix hosts/node
+```
+
 The acceptance suite in `crates/hamlet_acceptance` starts real server
 processes on scratch realms and drives them through the client protocol, so plain
 `cargo test` compiles none of it. It needs the built CLI and server,
