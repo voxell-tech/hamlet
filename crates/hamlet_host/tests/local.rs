@@ -1986,7 +1986,11 @@ async fn a_start_finishes_the_destroy_its_file_holds() {
     host.get_or_start("counter", "made").await.unwrap();
     assert_eq!(call(&host, "counter/made", "get").await, 0);
     let kept_out = Address::new("counter", "kept-out");
-    assert!(host.set_aside_timers(&kept_out).await.is_err());
+    let error = host
+        .set_aside_timers(&kept_out)
+        .await
+        .expect_err("a start of a destroyed actor's file");
+    assert!(is_actor_error(&error, "not_found"), "{error:#}");
     assert!(!any_file_of(&dir, "counter", "kept-out"));
     host.shutdown().await.unwrap();
 }

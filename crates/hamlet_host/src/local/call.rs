@@ -33,10 +33,12 @@ pub enum Caller {
 
 impl Host {
     /// Calls the action `name` of the actor at `to`, with no caller,
-    /// started first if it is not running, as `get_or_start` starts
-    /// it. The call ends within `deadline`, its start included, and
-    /// the action within the shorter of what is left and the kind's
-    /// action timeout: past either, it fails with
+    /// started from its file first if it is not running. A call never
+    /// makes an actor: for a key with no actor it fails with
+    /// `actor.not_found` and leaves no file, and only `get_or_start`
+    /// makes one. The call ends within `deadline`, its start
+    /// included, and the action within the shorter of what is left
+    /// and the kind's action timeout: past either, it fails with
     /// `actor.action_timed_out`. Fails at once with
     /// `actor.not_registered` for a kind the directory does not hold,
     /// and with `actor.destroying` for an actor that is being
@@ -155,7 +157,7 @@ impl HostInner {
             let begun = Instant::now();
             let generation = tokio::time::timeout(
                 deadline,
-                self.ensure_started(&actor_id, true),
+                self.ensure_started(&actor_id, false),
             )
             .await
             .map_err(|_| ActionTimedOut.build())??;

@@ -176,10 +176,12 @@ with kinds of its own, share the folder. Each host also locks
 `actors/<kind>/.lock` for each of its kinds, so no two hosts hold one
 kind.
 `get_or_start` finds an actor by kind and key and starts it on the file
-`actors/<kind>/<key>.sqlite`. `local/call.rs` holds the calls: `call`
-calls an action of the actor at an `Address`, starting it first, within
+`actors/<kind>/<key>.sqlite`, making it if it has none; nothing else
+makes an actor. `local/call.rs` holds the calls: `call` calls an action
+of the actor at an `Address`, starting it from its file first, within
 the caller's deadline, and logs the call's `Cause`, the task it belongs
-to. Each call carries its `Caller` as its connection's parameters: none
+to. A call to a key with no actor fails with `actor.not_found` and
+makes no file. Each call carries its `Caller` as its connection's parameters: none
 for `call`, a client for `call_for_client`, and the calling actor's
 address for `Host::call_from(&ctx, ...)`, which takes it from the
 actor's context. One check, `admit`, runs before every call reaches the

@@ -1,6 +1,7 @@
 //! What an actor reaches of its host: the realm folder, the values
 //! the program that opened the host gave it, and the other actors,
-//! which it calls with its address stamped on the call.
+//! which it calls with its address stamped on the call. A call never
+//! makes the actor it calls.
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -1039,4 +1040,115 @@ async fn a_kind_that_cannot_read_who_calls_it_is_refused_at_open() {
     );
     assert!(!text.contains("`callee`"), "{text}");
     assert!(!dir.join("actors").exists());
+}
+
+/// Whether any of the actor's files is in the folder: its file, its
+/// write-ahead file or its shared-memory file.
+fn has_files(dir: &Scratch, at: &Address) -> bool {
+    ["", "-wal", "-shm"].iter().any(|suffix| {
+        dir.join("actors")
+            .join(&at.kind)
+            .join(format!("{}.sqlite{suffix}", at.key))
+            .exists()
+    })
+}
+
+/// N1: the embedder's call and an actor's call to an actor that was
+/// to be made the same way fail.
+async fn calls_to(
+    host: &Host,
+    from: &Address,
+    to: &Address,
+) -> [Outcome; 2] {
+    let who = Who { claimed: None };
+    let args = hamlet_actor::action::encode_positional(&who).unwrap();
+    let embedder = Outcome::of(host.call(
+        to,
+        Who::NAME,
+        args,
+        Duration::from_secs(10),
+        Cause::root("test"),
+    ))
+    .await;
+    let actor =
+        ask(host, from, to, &who, Duration::from_secs(10)).await;
+    [embedder, actor]
+}
+
+/// N1: a call, the embedder's or an actor's, to a key that was never
+/// made fails with `actor.not_found` and makes no file.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_call_to_a_key_never_made_fails_and_leaves_no_file() {
+    let dir = Scratch::new("call-never-made");
+    let host = open_callers(&dir, Arc::default());
+    let a = Address::new("asker", "a");
+    make(&host, &[&a]).await;
+    let never = Address::new("callee", "never");
+    let outcomes = calls_to(&host, &a, &never).await;
+    host.shutdown().await.unwrap();
+    for outcome in &outcomes {
+        assert_eq!(
+            outcome.error.as_deref(),
+            Some("actor.not_found"),
+            "{outcomes:?}"
+        );
+    }
+    assert!(!has_files(&dir, &never));
+}
+
+/// N1: a call that comes after its callee was destroyed fails with
+/// `actor.not_found` and does not bring it back: no file is left.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_call_after_a_destroy_fails_and_leaves_no_file() {
+    let dir = Scratch::new("call-destroyed");
+    let host = open_callers(&dir, Arc::default());
+    let a = Address::new("asker", "a");
+    let callee = Address::new("callee", "x");
+    make(&host, &[&a, &callee]).await;
+    host.stop("callee/x", ShutdownKind::Destroy).await.unwrap();
+    let outcomes = calls_to(&host, &a, &callee).await;
+    host.shutdown().await.unwrap();
+    for outcome in &outcomes {
+        assert_eq!(
+            outcome.error.as_deref(),
+            Some("actor.not_found"),
+            "{outcomes:?}"
+        );
+    }
+    assert!(!has_files(&dir, &callee));
+}
+
+/// N3: a start that finds no actor does not hand that to the starts
+/// that wait for it. A `get_or_start` of a fresh key, begun as a call
+/// to it starts, makes it, whatever the call finds.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_get_or_start_that_waits_for_a_calls_start_makes_the_actor()
+{
+    let dir = Scratch::new("call-then-make");
+    let host = open_callers(&dir, Arc::default());
+    for round in 0..100 {
+        let key = format!("k{round}");
+        let to = Address::new("callee", &key);
+        let args = hamlet_actor::action::encode_positional(&Who {
+            claimed: None,
+        })
+        .unwrap();
+        let (called, made) = tokio::join!(
+            host.call(
+                &to,
+                Who::NAME,
+                args,
+                Duration::from_secs(10),
+                Cause::root("test"),
+            ),
+            host.get_or_start("callee", &key),
+        );
+        if let Err(error) = &called {
+            assert_eq!(code(error), "actor.not_found", "{error:#}");
+        }
+        made.unwrap_or_else(|error| {
+            panic!("round {round}: {error:#}")
+        });
+    }
+    host.shutdown().await.unwrap();
 }
