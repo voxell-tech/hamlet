@@ -685,6 +685,7 @@ impl Host {
         options: HostOptions,
     ) -> Result<Self> {
         plain(&options.name, "host name")?;
+        call::check_kinds(&factories)?;
         std::fs::create_dir_all(dir.join("actors"))?;
         let directory = Directory::local(factories);
         let mut locks = vec![FolderLock::take(

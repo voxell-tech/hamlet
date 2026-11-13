@@ -2,13 +2,14 @@
 //! client, and from another actor. The host stamps each call with its
 //! caller, and the callee reads the stamp from its call's connection.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use hamlet_actor_core::error::ActorRuntime;
 use hamlet_actor_core::host::ActionTimedOut;
-use hamlet_actor_core::{ActorContext, ActorLifecycle};
+use hamlet_actor_core::{ActorContext, ActorFactory, ActorLifecycle};
 use serde::{Deserialize, Serialize};
 use tracing::Instrument;
 
@@ -200,4 +201,30 @@ fn stamp(caller: Option<&Caller>) -> Result<Vec<u8>> {
     ciborium::into_writer(&caller, &mut params)
         .context("encode the caller's stamp")?;
     Ok(params)
+}
+
+/// Fails for a kind that cannot read the stamp of an actor's call or
+/// a client's, naming it. A kind decodes its calls' connection
+/// parameters as it declared them, and one that cannot decode a stamp
+/// would refuse every call that carries one.
+pub(super) fn check_kinds(
+    factories: &HashMap<String, ActorFactory>,
+) -> Result<()> {
+    let stamps =
+        [Caller::Client, Caller::Actor(Address::new("k", "k"))]
+            .iter()
+            .map(|caller| stamp(Some(caller)))
+            .collect::<Result<Vec<_>>>()?;
+    for (kind, factory) in factories {
+        for stamp in &stamps {
+            factory.check_conn_params(stamp).with_context(|| {
+                format!(
+                    "the kind `{kind}` cannot read who calls it: \
+                     declare `type ConnParams = \
+                     Option<hamlet_host::Caller>`"
+                )
+            })?;
+        }
+    }
+    Ok(())
 }

@@ -72,7 +72,7 @@ impl Actor for Here {
     type Input = String;
     type Actions = (Home,);
     type Events = ();
-    type ConnParams = ();
+    type ConnParams = Option<Caller>;
     type Action = ();
 
     async fn create(ctx: &Ctx<Self>) -> anyhow::Result<Self> {
@@ -152,7 +152,7 @@ impl Actor for Reader {
     type Input = ();
     type Actions = (Read,);
     type Events = ();
-    type ConnParams = ();
+    type ConnParams = Option<Caller>;
     type Action = ();
 
     async fn create(ctx: &Ctx<Self>) -> anyhow::Result<Self> {
@@ -221,7 +221,7 @@ impl Actor for Keeper {
     type Input = ();
     type Actions = (Ping,);
     type Events = ();
-    type ConnParams = ();
+    type ConnParams = Option<Caller>;
     type Action = ();
 
     async fn create(ctx: &Ctx<Self>) -> anyhow::Result<Self> {
@@ -984,4 +984,56 @@ async fn an_actors_call_to_an_unknown_kind_fails_at_once() {
         "{outcome:?}"
     );
     assert!(outcome.ms < 1_000, "{outcome:?}");
+}
+
+/// Declares connection parameters that cannot hold a call's stamp.
+struct Unstamped;
+
+#[async_trait::async_trait]
+impl Actor for Unstamped {
+    type Input = ();
+    type Actions = (Ping,);
+    type Events = ();
+    type ConnParams = ();
+    type Action = ();
+
+    async fn create(_: &Ctx<Self>) -> anyhow::Result<Self> {
+        Ok(Self)
+    }
+}
+
+impl Handler<Ping> for Unstamped {
+    async fn handle(
+        self: Arc<Self>,
+        _: Ctx<Self>,
+        _: Ping,
+    ) -> anyhow::Result<()> {
+        Ok(())
+    }
+}
+
+/// C8: a kind whose connection parameters cannot hold the stamp of
+/// an actor's call or a client's would refuse every such call. The
+/// host refuses it when it opens, naming it and what to declare, and
+/// leaves the folder as it was.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_kind_that_cannot_read_who_calls_it_is_refused_at_open() {
+    let dir = Scratch::new("call-unstamped");
+    let mut registry = Registry::new();
+    kind::<Callee>(&mut registry, "callee");
+    kind::<Unstamped>(&mut registry, "unstamped");
+    let error =
+        Host::open(&dir, registry.into_factories()).err().expect(
+            "the host opened with a kind that cannot read its caller",
+        );
+    let text = format!("{error:#}");
+    assert!(text.contains("`unstamped`"), "{text}");
+    assert!(
+        text.contains(
+            "type ConnParams = Option<hamlet_host::Caller>"
+        ),
+        "{text}"
+    );
+    assert!(!text.contains("`callee`"), "{text}");
+    assert!(!dir.join("actors").exists());
 }
