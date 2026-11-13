@@ -11,6 +11,8 @@ pub mod engine;
 #[cfg(all(feature = "web", any(target_os = "macos", windows)))]
 mod fetch;
 #[cfg(all(feature = "web", any(target_os = "macos", windows)))]
+mod files;
+#[cfg(all(feature = "web", any(target_os = "macos", windows)))]
 mod keys;
 #[cfg(all(feature = "web", any(target_os = "macos", windows)))]
 mod page;
@@ -26,12 +28,21 @@ use bevy::ecs::resource::Resource;
 /// and so on.
 pub const PANEL: &str = "web";
 
+/// The id of the Files panel, whose page is a hamlet's web IDE. Its
+/// address holds a token of that IDE's run, so the view does not keep
+/// it.
+pub const FILES: &str = "files";
+
 pub fn plugin(app: &mut App) {
     app.init_resource::<Addresses>()
         .init_resource::<AgentTabs>();
     #[cfg(all(feature = "web", any(target_os = "macos", windows)))]
     {
-        app.add_plugins((panel::plugin, fetch::plugin));
+        app.add_plugins((
+            panel::plugin,
+            fetch::plugin,
+            files::plugin,
+        ));
         // The engine panics on start without its framework, so it is
         // started only when both it and the helper are there.
         if engine::located().is_some() && page::helper().exists() {

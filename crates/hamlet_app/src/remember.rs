@@ -516,7 +516,12 @@ pub fn keep(
         terminal_pins: pins.0.clone(),
         collapsed_rails: rails.0.clone(),
         update_channel: channel.0,
-        web_addresses: addresses.0.clone(),
+        web_addresses: addresses
+            .0
+            .iter()
+            .filter(|(panel, _)| *panel != web::FILES)
+            .map(|(panel, address)| (panel.clone(), address.clone()))
+            .collect(),
         web_agents: agents.0.clone(),
     };
     if written.as_ref() == Some(&view) {

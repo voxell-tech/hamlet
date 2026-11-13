@@ -30,7 +30,7 @@ use bevy_fynix::dock::{DockTab, DockTree};
 use hamlet_client::ViewFolder;
 
 use super::agents::{AgentNames, Waits};
-use super::panel::{PanelId, Surface, is_panel, tab_name};
+use super::panel::{PanelId, Surface, has_page, is_panel, tab_name};
 use super::{Addresses, AgentTabs, bridge, engine};
 use crate::dock::on_a_desk;
 
@@ -167,8 +167,8 @@ pub(super) fn navigate(
     }
 }
 
-/// The Web panels the dock holds, with whether each is the tab in
-/// front of its area.
+/// The panels with pages the dock holds, with whether each is the
+/// tab in front of its area.
 fn docked(tree: &DockTree) -> Vec<(PanelId, bool)> {
     let Some(root) = tree.root else {
         return Vec::new();
@@ -178,7 +178,7 @@ fn docked(tree: &DockTree) -> Vec<(PanelId, bool)> {
         .flat_map(|(leaf, area)| {
             let front = tree.active(leaf);
             area.tabs()
-                .filter(|(window, _)| is_panel(window))
+                .filter(|(window, _)| has_page(window))
                 .map(move |(window, tab)| {
                     (PanelId(window.to_owned()), front == Some(tab))
                 })
