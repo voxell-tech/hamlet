@@ -109,8 +109,9 @@ const ACTOR_TABLE: &str = "CREATE TABLE IF NOT EXISTS _hamlet_actor \
 /// | `Stopped` | its timer fires with the deadline the state holds | `Starting`, from the file it has |
 /// | `Stopped` | `Host::shutdown`, or the last `Host` dropped | absent, its timer aborted |
 /// | absent, `Stopped` | `Host::stop(Destroy)`, the host not shut | `Destroying`, with no generation, its timer aborted |
-/// | `Starting` | its generation asks to sleep or to be destroyed, or reports a crash | `Starting`, with the request kept; a destroy wins over a sleep |
-/// | `Starting` | the start ended well | `Running`, or `Stopping`, or `Destroying` with its file marked, for a kept request |
+/// | `Starting` | its generation asks to sleep or to be destroyed, or reports a crash | `Starting`, with the request kept; a destroy wins over a crash, and a crash over a sleep |
+/// | `Starting` | a start of the actor, a call's included, waits for it | `Starting`, woken |
+/// | `Starting` | the start ended well | `Running`, also for a kept sleep if woken; else `Stopping`, or `Destroying` with its file marked, for a kept request |
 /// | `Starting` | the start failed or panicked, or missed its deadline | absent, the failure told to its waiters |
 /// | `Running` | its generation asks to sleep or reports a crash, or `Host::stop(Sleep)` | `Stopping` |
 /// | `Running` | its generation asks to be destroyed, or `Host::stop(Destroy)` | `Destroying`, its file marked |
@@ -123,16 +124,17 @@ const ACTOR_TABLE: &str = "CREATE TABLE IF NOT EXISTS _hamlet_actor \
 /// | `Stuck` | any request | unchanged |
 /// | any | a request from a generation the state does not hold | unchanged |
 ///
-/// Callers wait without a transition of their own. A start, a call's
-/// included, waits for a `Reading`, `Starting` or `Stopping` actor
-/// and then starts it, and fails at once for a `Destroying` or
-/// `Stuck` one. A start that waited for a start that failed, or for a
-/// stop that missed its deadline, fails with it, rather than start
-/// again. `Host::stop` waits for a `Reading` or `Starting` actor and
-/// then stops it, and waits for a stop under way, failing with it if
-/// it missed its deadline; a sleep leaves a `Stopped` actor as it is,
-/// and any stop of a `Stuck` one fails at once. `Host::shutdown`
-/// sleeps each actor as `Host::stop` does.
+/// Callers wait on a state they do not own. A start, a call's
+/// included, waits for a `Reading`, `Starting` or `Stopping` actor,
+/// marking a `Starting` one woken, and then starts it, and fails at
+/// once for a `Destroying` or `Stuck` one. A start that waited for a
+/// start that failed, or for a stop that missed its deadline, fails
+/// with it, rather than start again. `Host::stop` waits for a
+/// `Reading` or `Starting` actor and then stops it, and waits for a
+/// stop under way, failing with it if it missed its deadline; a sleep
+/// leaves a `Stopped` actor as it is, and any stop of a `Stuck` one
+/// fails at once. `Host::shutdown` sleeps each actor as `Host::stop`
+/// does.
 enum Life {
     /// Boot reads its file, to learn whether to start it.
     Reading {
@@ -146,10 +148,13 @@ enum Life {
     },
     /// Opening the file and starting the core. `generation` is the id
     /// of the generation it starts; `request` is a stop that
-    /// generation asked for before its start ended.
+    /// generation asked for before its start ended. `woken` is set
+    /// once a start of the actor waits for this one: the generation
+    /// then answers it, rather than sleep as it asked.
     Starting {
         generation: u64,
-        request: Option<ShutdownKind>,
+        request: Option<Request>,
+        woken: bool,
         ready: Waiters,
     },
     Running(Arc<Generation>),
@@ -171,6 +176,35 @@ enum Life {
     /// more, so nothing of it runs beside that code; the next boot
     /// starts it, or finishes its destroy.
     Stuck,
+}
+
+/// A stop asked for an actor, by the host or by its generation.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum Request {
+    Sleep,
+    /// A crash its generation reported. It stops the actor as a sleep
+    /// does, and no start of the actor cancels it.
+    Crash,
+    Destroy,
+}
+
+impl Request {
+    /// How the actor stops for this request.
+    fn reason(self) -> ShutdownKind {
+        match self {
+            Self::Sleep | Self::Crash => ShutdownKind::Sleep,
+            Self::Destroy => ShutdownKind::Destroy,
+        }
+    }
+}
+
+impl From<ShutdownKind> for Request {
+    fn from(reason: ShutdownKind) -> Self {
+        match reason {
+            ShutdownKind::Sleep => Self::Sleep,
+            ShutdownKind::Destroy => Self::Destroy,
+        }
+    }
 }
 
 /// What the waiters of a `Reading`, `Starting`, `Stopping` or
@@ -597,6 +631,7 @@ impl Actors {
             Life::Starting {
                 generation: self.generations,
                 request: None,
+                woken: false,
                 ready: owned.waiters.clone(),
             },
         );
@@ -679,8 +714,9 @@ impl HostInner {
         self: &Arc<Self>,
         actor_id: &str,
         generation: Option<u64>,
-        reason: ShutdownKind,
+        request: Request,
     ) -> Option<Stop> {
+        let reason = request.reason();
         let mut actors = self.actors.lock();
         let actors = &mut *actors;
         let Some(life) = actors
@@ -715,11 +751,11 @@ impl HostInner {
             return None;
         }
         match life {
-            Life::Starting { request, .. } => {
-                if generation.is_some()
-                    && !matches!(request, Some(ShutdownKind::Destroy))
-                {
-                    *request = Some(reason);
+            Life::Starting { request: kept, .. } => {
+                // The strongest request wins: a destroy over a crash,
+                // a crash over a sleep.
+                if generation.is_some() {
+                    *kept = (*kept).max(Some(request));
                 }
                 None
             }
@@ -1157,7 +1193,8 @@ impl Host {
         self.located(kind, key)?;
         let host = self.inner();
         loop {
-            if let Some(stop) = host.ask_stop(actor_id, None, reason)
+            if let Some(stop) =
+                host.ask_stop(actor_id, None, reason.into())
             {
                 return tokio::spawn(stop.run()).await?;
             }
@@ -1281,7 +1318,7 @@ impl Host {
                 if actors.shut {
                     return Err(host_shut_down());
                 }
-                match actors.lives.get(actor_id) {
+                match actors.lives.get_mut(actor_id) {
                     Some(Life::Running(generation)) => {
                         return Ok(generation.clone());
                     }
@@ -1298,9 +1335,12 @@ impl Host {
                             &self.inner().options,
                         ));
                     }
+                    Some(Life::Starting { woken, ready, .. }) => {
+                        *woken = true;
+                        Next::Wait(ready.clone())
+                    }
                     Some(
                         Life::Reading { done: waiters }
-                        | Life::Starting { ready: waiters, .. }
                         | Life::Stopping { done: waiters, .. },
                     ) => Next::Wait(waiters.clone()),
                     Some(Life::Stopped { .. }) | None => {
@@ -1734,22 +1774,28 @@ async fn start_actor(
     };
     let stop = {
         let mut actors = host.actors.lock();
-        let Some(Life::Starting { request, .. }) =
+        let Some(Life::Starting { request, woken, .. }) =
             actors.lives.get(&actor_id)
         else {
             unreachable!(
                 "only its start moves an actor out of Starting"
             )
         };
-        match *request {
-            None => {
+        match (*request, *woken) {
+            // A start that waits for this one cancels the sleep its
+            // generation asked for, so the generation answers it.
+            (None, _) | (Some(Request::Sleep), true) => {
+                if request.is_some() {
+                    generation.actor.cancel_sleep();
+                }
                 actors.lives.insert(
                     actor_id,
                     Life::Running(generation.clone()),
                 );
                 None
             }
-            Some(reason) => {
+            (Some(request), _) => {
+                let reason = request.reason();
                 let owned = Owned::new(&host, &actor_id);
                 actors.lives.insert(
                     actor_id,
@@ -1828,12 +1874,12 @@ async fn start_generation(
 impl LocalHandle {
     /// This generation asks to stop. A request from a generation that
     /// has ended does nothing.
-    fn ask_stop(&self, reason: ShutdownKind) {
+    fn ask_stop(&self, request: Request) {
         if let Some(stop) = self.host.upgrade().and_then(|host| {
             host.ask_stop(
                 &self.actor_id,
                 Some(self.generation),
-                reason,
+                request,
             )
         }) {
             stop.spawn_logged();
@@ -1872,9 +1918,12 @@ impl ActorHost for LocalHandle {
         &self,
         _actor_id: String,
         _generation: Option<u32>,
-        _error: Option<String>,
+        error: Option<String>,
     ) {
-        self.ask_stop(ShutdownKind::Sleep);
+        self.ask_stop(match error {
+            Some(_) => Request::Crash,
+            None => Request::Sleep,
+        });
     }
 
     fn stop_actor(
@@ -1882,7 +1931,7 @@ impl ActorHost for LocalHandle {
         _actor_id: String,
         _generation: Option<u32>,
     ) {
-        self.ask_stop(ShutdownKind::Destroy);
+        self.ask_stop(Request::Destroy);
     }
 
     /// Keeps the alarm as this generation's last, and acknowledges it

@@ -161,6 +161,12 @@ impl RunningActor {
         &self.ctx
     }
 
+    /// Takes back a sleep the actor asked for that its host did not
+    /// carry out, so the actor asks again when it next would sleep.
+    pub fn cancel_sleep(&self) {
+        self.ctx.clear_sleep_requested();
+    }
+
     /// Calls an action: a connection for the call, the action through
     /// the actor task within `deadline` or the kind's action timeout,
     /// whichever is shorter, then the connection closes.

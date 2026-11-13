@@ -9,7 +9,7 @@ use std::mem::ManuallyDrop;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::Duration;
 
 use act::{DEADLINE, act};
@@ -1871,6 +1871,187 @@ async fn a_start_past_its_deadline_does_not_wait_for_a_statement() {
             )
             .unwrap();
     assert_eq!(running, 1);
+}
+
+/// What the first start of a [`sleeper`] asks for before it is ready.
+#[derive(Clone, Copy)]
+enum Ask {
+    Sleep,
+    Crash,
+    Destroy,
+}
+
+/// The kind `sleeper`, which sleeps after 300 ms idle. Its first
+/// start asks for `ask` through its context, sends on `asked`, and
+/// waits for `gate` before it is ready. `starts` counts its starts,
+/// and its one action answers the number of the start that answers
+/// it, from 1.
+fn sleeper(
+    ask: Ask,
+    starts: &Arc<AtomicUsize>,
+    asked: tokio::sync::mpsc::UnboundedSender<()>,
+    gate: &Arc<tokio::sync::Notify>,
+) -> HashMap<String, ActorFactory> {
+    let config = ActorConfig {
+        name: Some("sleeper".to_owned()),
+        has_database: true,
+        sleep_timeout: Duration::from_millis(300),
+        ..ActorConfig::default()
+    };
+    let (starts, gate) = (starts.clone(), gate.clone());
+    HashMap::from([(
+        "sleeper".to_owned(),
+        ActorFactory::new_with_manual_startup_ready(
+            config,
+            move |start: ActorStart| {
+                let number =
+                    starts.fetch_add(1, Ordering::SeqCst) + 1;
+                let (asked, gate) = (asked.clone(), gate.clone());
+                Box::pin(async move {
+                    let ActorStart {
+                        ctx,
+                        mut events,
+                        startup_ready,
+                        ..
+                    } = start;
+                    if number == 1 {
+                        match ask {
+                            Ask::Sleep => ctx.sleep(),
+                            Ask::Crash => {
+                                ctx.stop_with_error("crash")
+                            }
+                            Ask::Destroy => ctx.destroy(),
+                        }?;
+                        let _ = asked.send(());
+                        gate.notified().await;
+                    }
+                    if let Some(ready) = startup_ready {
+                        let _ = ready.send(Ok(()));
+                    }
+                    let number = i64::try_from(number)?;
+                    while let Some(event) = events.recv().await {
+                        match event {
+                            ActorEvent::Action { reply, .. } => {
+                                reply.send(Ok(number
+                                    .to_le_bytes()
+                                    .to_vec()));
+                            }
+                            other => counter::answer(other),
+                        }
+                    }
+                    Ok(())
+                })
+            },
+        ),
+    )])
+}
+
+/// Starts the [`sleeper`] `sleeper/a` of `host`, whose first start
+/// asks for what `asks` reports, and calls it while that start waits
+/// for `gate`. Returns once the start has ended, with the call.
+async fn call_during_a_start(
+    host: &Host,
+    asks: &mut tokio::sync::mpsc::UnboundedReceiver<()>,
+    gate: &tokio::sync::Notify,
+) -> tokio::task::JoinHandle<anyhow::Result<Vec<u8>>> {
+    let start = tokio::spawn({
+        let host = host.clone();
+        async move { host.get_or_start("sleeper", "a").await }
+    });
+    asks.recv().await.unwrap();
+    let call = tokio::spawn({
+        let host = host.clone();
+        async move {
+            host.call(
+                &Address::new("sleeper", "a"),
+                "get",
+                Vec::new(),
+                Duration::from_secs(10),
+                Cause::root("test"),
+            )
+            .await
+        }
+    });
+    // The ask reaches the host on a task of the core's own, and the
+    // call waits for the start.
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    gate.notify_one();
+    start.await.unwrap().unwrap();
+    call
+}
+
+/// A call that comes during a start cancels a sleep that the starting
+/// generation asked for: that generation answers the call, and no
+/// second start runs. The generation can still sleep afterwards: it
+/// does once it is idle.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_call_during_a_start_cancels_the_sleep_it_asked_for() {
+    let dir = Scratch::new("host-start-sleep");
+    let starts = Arc::new(AtomicUsize::new(0));
+    let gate = Arc::new(tokio::sync::Notify::new());
+    let (asked, mut asks) = tokio::sync::mpsc::unbounded_channel();
+    let host =
+        Host::open(&dir, sleeper(Ask::Sleep, &starts, asked, &gate))
+            .unwrap();
+    let call = call_during_a_start(&host, &mut asks, &gate).await;
+    let reply = call.await.unwrap().unwrap();
+    assert_eq!(counter::count(reply).unwrap(), 1);
+    assert!(host.is_running("sleeper/a"));
+
+    let idle = std::time::Instant::now();
+    while host.is_running("sleeper/a") {
+        assert!(
+            idle.elapsed() < Duration::from_secs(10),
+            "the generation did not sleep once idle"
+        );
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert_eq!(starts.load(Ordering::SeqCst), 1);
+    host.shutdown().await.unwrap();
+}
+
+/// A call that comes during a start leaves a crash, or a destroy,
+/// that the starting generation reported in place: a crash stops it,
+/// and a second start answers the call; a destroy removes it, and the
+/// call fails with `actor.destroying`.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_call_during_a_start_keeps_a_crash_or_a_destroy() {
+    for ask in [Ask::Crash, Ask::Destroy] {
+        let dir = Scratch::new("host-start-crash");
+        let starts = Arc::new(AtomicUsize::new(0));
+        let gate = Arc::new(tokio::sync::Notify::new());
+        let (asked, mut asks) =
+            tokio::sync::mpsc::unbounded_channel();
+        let host =
+            Host::open(&dir, sleeper(ask, &starts, asked, &gate))
+                .unwrap();
+        let call = call_during_a_start(&host, &mut asks, &gate).await;
+        let called = call.await.unwrap();
+        match ask {
+            Ask::Crash => {
+                assert_eq!(
+                    counter::count(called.unwrap()).unwrap(),
+                    2
+                );
+                assert_eq!(starts.load(Ordering::SeqCst), 2);
+            }
+            Ask::Destroy => {
+                let error =
+                    called.expect_err("a call to a destroyed actor");
+                assert!(
+                    is_actor_error(&error, "destroying"),
+                    "{error:#}"
+                );
+                host.stop("sleeper/a", ShutdownKind::Destroy)
+                    .await
+                    .unwrap();
+                assert!(!any_file_of(&dir, "sleeper", "a"));
+                assert_eq!(starts.load(Ordering::SeqCst), 1);
+            }
+            Ask::Sleep => unreachable!(),
+        }
+        host.shutdown().await.unwrap();
+    }
 }
 
 /// Boot begins the starts of the actors a kill left running and

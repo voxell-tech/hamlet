@@ -190,7 +190,9 @@ that is not stopped with no deadline is one `Life` in the host's map:
 stopped with a deadline, starting, running, stopping or being destroyed.
 A start or a stop runs on a task of its own and waits only on its own
 actor, and each start gives the core a handle that reaches that
-generation's file alone. `plain_sqlite.rs` keeps each file on a thread
+generation's file alone. A start that waits for another start of its
+actor, a call's included, cancels a sleep the starting generation asked
+for, so that generation answers it. `plain_sqlite.rs` keeps each file on a thread
 of its own and opens it with `rusqlite` in exclusive locking mode, in
 write-ahead mode with `synchronous=NORMAL`. `hamlet_sqlite` runs the
 actor's SQL on that connection. The runtime's tables are named
