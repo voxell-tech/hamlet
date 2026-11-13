@@ -1,5 +1,6 @@
 // This file was changed for Hamlet. See NOTICE in this package.
-import type { ActorKey } from "@/mod";
+/** An actor key: its parts in order. The dropped client defined it. */
+type ActorKey = string[];
 
 export const EMPTY_KEY = "/";
 export const KEY_SEPARATOR = "/";
