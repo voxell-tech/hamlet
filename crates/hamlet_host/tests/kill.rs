@@ -10,10 +10,13 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
+use act::act;
 use hamlet_actor_core::ActorFactory;
 use hamlet_host::Host;
 use hamlet_testing::Scratch;
 
+#[path = "../examples/demo/act.rs"]
+mod act;
 #[path = "../examples/demo/counter.rs"]
 mod counter;
 
@@ -54,7 +57,7 @@ fn child_host() {
         let host = Host::open(Path::new(&home), factories()).unwrap();
         if let Some(ms) = schedule_ms {
             let id = host.get_or_start("counter", "a").await.unwrap();
-            host.action(&id, "schedule", ms.to_le_bytes().to_vec())
+            act(&host, &id, "schedule", ms.to_le_bytes().to_vec())
                 .await
                 .unwrap();
             writeln!(std::io::stdout(), "acked").unwrap();
@@ -140,8 +143,7 @@ fn sleep_until(instant: Instant) {
 }
 
 async fn count(host: &Host, actor_id: &str) -> i64 {
-    let reply =
-        host.action(actor_id, "get", Vec::new()).await.unwrap();
+    let reply = act(host, actor_id, "get", Vec::new()).await.unwrap();
     counter::count(reply).unwrap()
 }
 
@@ -230,7 +232,7 @@ fn marks(home: &Path) -> Marks {
 async fn restart(home: &Path) -> (Vec<String>, Stored) {
     let host = Host::open(home, factories()).unwrap();
     let started = host.boot().await.unwrap();
-    host.stop_all().await.unwrap();
+    host.shutdown().await.unwrap();
     drop(host);
     (started, stored(home))
 }
@@ -244,14 +246,14 @@ async fn a_schedule_acknowledged_before_a_kill_fires_once() {
     let host = Host::open(&home, factories()).unwrap();
     assert_eq!(host.boot().await.unwrap(), vec!["counter/a"]);
     wait_for_count(&host, "counter/a", 1).await;
-    host.stop_all().await.unwrap();
+    host.shutdown().await.unwrap();
     drop(host);
 
     let host = Host::open(&home, factories()).unwrap();
     assert!(host.boot().await.unwrap().is_empty());
     let id = host.get_or_start("counter", "a").await.unwrap();
     assert_eq!(count(&host, &id).await, 1);
-    host.stop_all().await.unwrap();
+    host.shutdown().await.unwrap();
 }
 
 /// The first start after the kill comes before the one-shot is due
@@ -264,7 +266,7 @@ async fn a_stop_before_the_schedule_is_due_stores_its_deadline() {
 
     let host = Host::open(&home, factories()).unwrap();
     host.boot().await.unwrap();
-    host.stop_all().await.unwrap();
+    host.shutdown().await.unwrap();
     drop(host);
     assert!(
         Instant::now() < due.earliest,
@@ -275,7 +277,7 @@ async fn a_stop_before_the_schedule_is_due_stores_its_deadline() {
     let host = Host::open(&home, factories()).unwrap();
     assert_eq!(host.boot().await.unwrap(), vec!["counter/a"]);
     wait_for_count(&host, "counter/a", 1).await;
-    host.stop_all().await.unwrap();
+    host.shutdown().await.unwrap();
 }
 
 /// The scheduled increment is killed inside its transaction, so the
@@ -321,11 +323,11 @@ async fn a_kill_on_the_boot_that_fires_a_due_alarm_runs_it_once() {
     {
         let host = Host::open(&home, factories()).unwrap();
         let id = host.get_or_start("counter", "a").await.unwrap();
-        host.action(&id, "increment", Vec::new()).await.unwrap();
-        host.action(&id, "schedule", 500u64.to_le_bytes().to_vec())
+        act(&host, &id, "increment", Vec::new()).await.unwrap();
+        act(&host, &id, "schedule", 500u64.to_le_bytes().to_vec())
             .await
             .unwrap();
-        host.stop_all().await.unwrap();
+        host.shutdown().await.unwrap();
     }
     assert_eq!(
         stored(&home),

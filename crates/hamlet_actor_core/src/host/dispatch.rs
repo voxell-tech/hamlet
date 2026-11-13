@@ -21,9 +21,10 @@ use crate::telemetry::IncomingInvocationContext;
 use crate::websocket::WebSocket;
 use crate::{ActorContext, time};
 
+/// An action, or a call, did not end within its time.
 #[derive(ActorError)]
 #[error("actor", "action_timed_out", "Action timed out")]
-struct ActionTimedOut;
+pub struct ActionTimedOut;
 
 #[expect(
     clippy::result_large_err,

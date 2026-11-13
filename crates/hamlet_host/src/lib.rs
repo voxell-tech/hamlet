@@ -2,8 +2,12 @@
 //! file under the realm folder, on the host trait of
 //! `hamlet_actor_core`.
 
+mod cause;
+mod directory;
 pub mod fault;
 mod local;
 mod plain_sqlite;
 
+pub use cause::Cause;
+pub use directory::Address;
 pub use local::Host;

@@ -157,12 +157,13 @@ impl RunningActor {
     }
 
     /// Calls an action: a connection for the call, the action through
-    /// the actor task within the kind's action timeout, then the
-    /// connection closes.
+    /// the actor task within `deadline` or the kind's action timeout,
+    /// whichever is shorter, then the connection closes.
     pub async fn action(
         &self,
         name: &str,
         args: Vec<u8>,
+        deadline: Duration,
     ) -> Result<Vec<u8>> {
         let conn = self
             .ctx
@@ -172,7 +173,7 @@ impl RunningActor {
             .await?;
         let request_connection = DisconnectOnDrop::new(conn.clone());
         let result = with_action_dispatch_timeout(
-            self.action_timeout,
+            deadline.min(self.action_timeout),
             dispatch_action_through_task(
                 &self.dispatch,
                 conn.clone(),

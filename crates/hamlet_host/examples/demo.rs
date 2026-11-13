@@ -18,6 +18,8 @@
 //! replied with. Booting prints `boot counter/<key> <count>` for each
 //! actor it started. Warnings and errors go to standard error.
 
+#[path = "demo/act.rs"]
+mod act;
 #[path = "demo/counter.rs"]
 mod counter;
 
@@ -25,6 +27,7 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::time::Duration;
 
+use act::act;
 use anyhow::{Context, Result, anyhow, bail};
 use hamlet_host::Host;
 use tokio::sync::mpsc;
@@ -72,7 +75,7 @@ async fn main() -> Result<()> {
              increment|get|schedule|sleep|destroy|boot|serve ..."
         )),
     };
-    host.stop_all().await?;
+    host.shutdown().await?;
     result
 }
 
@@ -82,19 +85,18 @@ async fn run(host: &Host, words: &[String]) -> Result<()> {
         [command, key, ..] => (command.as_str(), key.as_str()),
         _ => bail!("a command takes an actor key"),
     };
-    let actor_id = host.get_or_start("counter", key).await?;
+    let actor_id = format!("counter/{key}");
     let reply = match command {
         "increment" => {
             let mut reply = Vec::new();
             for _ in 0..number(words.get(2)).unwrap_or(1) {
-                reply = host
-                    .action(&actor_id, "increment", Vec::new())
+                reply = act(host, &actor_id, "increment", Vec::new())
                     .await?;
             }
             reply
         }
         "get" | "sleep" | "destroy" => {
-            host.action(&actor_id, command, Vec::new()).await?
+            act(host, &actor_id, command, Vec::new()).await?
         }
         "schedule" => {
             let mut args =
@@ -102,7 +104,7 @@ async fn run(host: &Host, words: &[String]) -> Result<()> {
             if let Some(action) = words.get(3) {
                 args.extend_from_slice(action.as_bytes());
             }
-            host.action(&actor_id, "schedule", args).await?
+            act(host, &actor_id, "schedule", args).await?
         }
         other => bail!("unknown command `{other}`"),
     };
@@ -170,7 +172,7 @@ async fn print_count(
     prefix: &str,
     actor_id: &str,
 ) -> Result<()> {
-    let reply = host.action(actor_id, "get", Vec::new()).await?;
+    let reply = act(host, actor_id, "get", Vec::new()).await?;
     print_reply(prefix, actor_id, reply)
 }
 

@@ -6,6 +6,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
+use act::act;
 use anyhow::Result;
 use async_trait::async_trait;
 use hamlet_actor::{
@@ -17,6 +18,8 @@ use hamlet_testing::Scratch;
 use serde::{Deserialize, Serialize};
 use tokio::time::{Instant, sleep};
 
+#[path = "../examples/demo/act.rs"]
+mod act;
 #[path = "../examples/demo/counter.rs"]
 mod counter;
 
@@ -63,7 +66,7 @@ async fn wait_for_runs(
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
         let reply =
-            host.action(actor_id, action, Vec::new()).await.unwrap();
+            act(host, actor_id, action, Vec::new()).await.unwrap();
         if runs(reply) == want {
             return;
         }
@@ -87,7 +90,7 @@ async fn a_panicking_handler_runs_once(
     let (get, runs) = read_runs;
     let host = Host::open(dir, factories()).unwrap();
     let id = host.get_or_start(kind, "a").await.unwrap();
-    host.action(&id, schedule, args).await.unwrap();
+    act(&host, &id, schedule, args).await.unwrap();
     wait_for_runs(&host, &id, get, runs, 1).await;
     // The stop waits for the scheduled dispatch to finish.
     host.stop(&id, ShutdownKind::Sleep).await.unwrap();
@@ -108,7 +111,7 @@ async fn a_panicking_handler_runs_once(
     // Long enough for a start to run an overdue one-shot.
     sleep(Duration::from_millis(500)).await;
     wait_for_runs(&host, &id, get, runs, 1).await;
-    host.stop_all().await.unwrap();
+    host.shutdown().await.unwrap();
 }
 
 /// The raw event API: the demo counter's `panic` action adds one and
@@ -272,7 +275,8 @@ async fn stop_each_near_its_due_time(
         let key = format!("{prefix}{}", step + 30);
         let id = host.get_or_start("counter", &key).await.unwrap();
         let scheduled = std::time::Instant::now();
-        host.action(
+        act(
+            host,
             &id,
             "schedule",
             SWEEP_DUE_MS.to_le_bytes().to_vec(),
@@ -308,7 +312,7 @@ async fn a_sleep_near_the_due_time_keeps_the_timer() {
             .await;
     // Every deadline is past by now; its actor wakes at once.
     sleep(Duration::from_secs(1)).await;
-    host.stop_all().await.unwrap();
+    host.shutdown().await.unwrap();
     drop(host);
 
     let stranded: Vec<(&String, Stored)> = ids
@@ -348,7 +352,7 @@ async fn an_alarm_due_during_a_destroy_does_not_revive_it() {
         .filter(|id| host.is_running(id) || file(id).exists())
         .collect();
     assert!(revived.is_empty(), "destroyed actors back: {revived:?}");
-    host.stop_all().await.unwrap();
+    host.shutdown().await.unwrap();
     drop(host);
     let left: Vec<&String> =
         ids.iter().filter(|id| file(id).exists()).collect();
@@ -366,7 +370,7 @@ async fn a_timer_does_not_make_a_file_that_is_gone() {
     )
     .unwrap();
     let id = host.get_or_start("counter", "a").await.unwrap();
-    host.action(&id, "schedule", 300u64.to_le_bytes().to_vec())
+    act(&host, &id, "schedule", 300u64.to_le_bytes().to_vec())
         .await
         .unwrap();
     host.stop(&id, ShutdownKind::Sleep).await.unwrap();
@@ -375,5 +379,5 @@ async fn a_timer_does_not_make_a_file_that_is_gone() {
     sleep(Duration::from_millis(700)).await;
     assert!(!host.is_running(&id));
     assert!(!file.exists(), "the timer made the file again");
-    host.stop_all().await.unwrap();
+    host.shutdown().await.unwrap();
 }
