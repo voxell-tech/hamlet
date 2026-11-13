@@ -914,7 +914,7 @@ async fn boot_with_deadline(
     let started =
         tokio::time::timeout(Duration::from_secs(5), host.boot())
             .await
-            .expect("boot waits for good on a due deadline")
+            .expect("boot does not return on a due deadline")
             .unwrap();
     (host, id, started)
 }
