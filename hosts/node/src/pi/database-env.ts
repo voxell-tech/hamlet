@@ -29,7 +29,7 @@ const SCAN_CHUNK_BYTES = 64 * 1024;
  */
 export function databaseEnv(
     db: PiDatabase,
-    options: { id: string; cwd?: string },
+    options: { id: string; cwd?: string | undefined },
 ): ExecutionEnv {
     const env: ExecutionEnv = {
         id: options.id,

@@ -152,7 +152,9 @@ class OtelTelemetry implements TelemetryContext {
                                       : options.attributes,
                               ),
                           },
-                          links: options.links?.flatMap(linksOf),
+                          ...(options.links === undefined
+                              ? {}
+                              : { links: options.links.flatMap(linksOf) }),
                       },
                       // Never the active context, so a background phase does not nest under an unrelated action.
                       parent,
@@ -236,9 +238,10 @@ class OtelSpan extends OtelTelemetry implements TelemetrySpan {
         this.#record((native) => {
             if (status?.status !== "error") return;
             native.setAttribute("error.type", status.error?.name ?? "_OTHER");
+            const message = this.adapter.statusMessage?.(status);
             native.setStatus({
                 code: SpanStatusCode.ERROR,
-                message: this.adapter.statusMessage?.(status),
+                ...(message === undefined ? {} : { message }),
             });
         });
         this.#record((native) => native.end());
@@ -291,9 +294,9 @@ function extractParent(carrier: TelemetryCarrier | undefined): OtelContext {
         spanId: match[2] as string,
         traceFlags: Number.parseInt(match[3] as string, 16),
         isRemote: true,
-        traceState: carrier?.tracestate
-            ? createTraceState(carrier.tracestate)
-            : undefined,
+        ...(carrier?.tracestate
+            ? { traceState: createTraceState(carrier.tracestate) }
+            : {}),
     }));
     return parent && isSpanContextValid(parent)
         ? trace.setSpanContext(ROOT_CONTEXT, parent)
@@ -313,7 +316,9 @@ export function createPiTelemetry(
         // Read per span, so an SDK started after the actor opened still gets its spans.
         tracer: () => options.tracer ?? trace.getTracer(TRACER_NAME),
         attributes: { "hamlet.actor.id": actorId },
-        statusMessage: options.statusMessage,
+        ...(options.statusMessage === undefined
+            ? {}
+            : { statusMessage: options.statusMessage }),
         propagation: {
             inject: injectCarrier,
             extract: (carrier) =>
@@ -371,7 +376,10 @@ export async function traceRun<T extends { status: string; reason?: string }>(
     const fail = (errorType: string, message?: string) =>
         guarded(() => {
             span?.setAttribute("error.type", errorType);
-            span?.setStatus({ code: SpanStatusCode.ERROR, message });
+            span?.setStatus({
+                code: SpanStatusCode.ERROR,
+                ...(message === undefined ? {} : { message }),
+            });
         });
     try {
         const result = await (span

@@ -57,17 +57,16 @@ export function withAnswerHook(
         },
         subscribe: (listener) => options.registry.subscribe(listener),
     };
+    if (options.settings === undefined) return { registry };
     // Without a default selection, every installed extension is selected, this one included.
-    const settings =
-        options.settings &&
-        new Proxy(options.settings, {
-            get(target, property, receiver) {
-                if (property !== "extensions") {
-                    return Reflect.get(target, property, receiver);
-                }
-                return target.extensions && [...target.extensions, extension];
-            },
-        });
+    const settings = new Proxy(options.settings, {
+        get(target, property, receiver) {
+            if (property !== "extensions") {
+                return Reflect.get(target, property, receiver);
+            }
+            return target.extensions && [...target.extensions, extension];
+        },
+    });
     return { registry, settings };
 }
 

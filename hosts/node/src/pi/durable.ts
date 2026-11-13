@@ -1,5 +1,8 @@
 // This file was changed for Hamlet. See NOTICE in this package.
-import type { EventSchemaConfig, QueueSchemaConfig } from "../actor/actor/mod.ts";
+import type {
+    EventSchemaConfig,
+    QueueSchemaConfig,
+} from "../actor/actor/mod.ts";
 import type { PiActions, PiPromptOptions, PiPromptResult } from "./actions.ts";
 import {
     type PiAccess,

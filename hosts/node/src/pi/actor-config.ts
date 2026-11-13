@@ -52,8 +52,8 @@ export function sharedActorConfig(
     runtime: { slot: symbol; create: () => object },
     close: (c: PiContext, stop: PiStop) => Promise<void>,
     userHooks: {
-        onSleep?: (c: PiContext) => unknown;
-        onDestroy?: (c: PiContext) => unknown;
+        onSleep: ((c: PiContext) => unknown) | undefined;
+        onDestroy: ((c: PiContext) => unknown) | undefined;
     },
 ) {
     // The runtime slot rides on the app's vars, so `createVars` replaces `vars`.

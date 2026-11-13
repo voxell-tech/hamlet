@@ -108,8 +108,12 @@ async function submitInput(
         {
             type: "input",
             content,
-            requestId: options?.requestId,
-            whenBusy: options?.whenBusy,
+            ...(options?.requestId === undefined
+                ? {}
+                : { requestId: options.requestId }),
+            ...(options?.whenBusy === undefined
+                ? {}
+                : { whenBusy: options.whenBusy }),
         },
         context,
     );
@@ -135,8 +139,11 @@ export function createPiActions(options: PiOptions) {
             waiting: Waiting,
         ) => Promise<T>,
     ) => withHarness(c, options, body);
-    const agentChange = (change: PiAgentChange | undefined) =>
-        change === undefined ? undefined : resolveAgentChange(options, change);
+    /** The `agent` option of a client's change, or none when it sent none. */
+    const agentOption = (change: PiAgentChange | undefined) =>
+        change === undefined
+            ? {}
+            : { agent: resolveAgentChange(options, change) };
 
     /**
      * Starts a watch for the calling connection. Frames go to that connection
@@ -193,9 +200,10 @@ export function createPiActions(options: PiOptions) {
             root: (c: PiContext, rootOptions?: { agent?: PiAgentChange }) =>
                 run(c, async (harness, context) => ({
                     id: (
-                        await harness.root(context, {
-                            agent: agentChange(rootOptions?.agent),
-                        })
+                        await harness.root(
+                            context,
+                            agentOption(rootOptions?.agent),
+                        )
                     ).id,
                 })),
             conversation: (c: PiContext, id: ConversationId) =>
@@ -211,7 +219,7 @@ export function createPiActions(options: PiOptions) {
                         await harness.createConversation(
                             {
                                 ownership: create.ownership,
-                                agent: agentChange(create.agent),
+                                ...agentOption(create.agent),
                             },
                             context,
                         )
@@ -436,7 +444,7 @@ export function createPiActions(options: PiOptions) {
                         at,
                         {
                             ownership: fork.ownership,
-                            agent: agentChange(fork.agent),
+                            ...agentOption(fork.agent),
                         },
                         context,
                     );
@@ -659,21 +667,37 @@ function resolveAgentChange(
     const { extensions, tools, ...rest } = change;
     return {
         ...rest,
-        extensions:
-            extensions === undefined || extensions === null
-                ? extensions
-                : isNameList(extensions)
-                  ? extensions.map(extension)
-                  : {
-                        add: extensions.add?.map(extension),
-                        remove: extensions.remove?.map(extension),
-                    },
-        tools:
-            tools === undefined || tools === null
-                ? tools
-                : isNameList(tools)
-                  ? tools.map(tool)
-                  : { remove: tools.remove.map(tool) },
+        ...(extensions === undefined
+            ? {}
+            : {
+                  extensions:
+                      extensions === null
+                          ? null
+                          : isNameList(extensions)
+                            ? extensions.map(extension)
+                            : {
+                                  ...(extensions.add === undefined
+                                      ? {}
+                                      : { add: extensions.add.map(extension) }),
+                                  ...(extensions.remove === undefined
+                                      ? {}
+                                      : {
+                                            remove: extensions.remove.map(
+                                                extension,
+                                            ),
+                                        }),
+                              },
+              }),
+        ...(tools === undefined
+            ? {}
+            : {
+                  tools:
+                      tools === null
+                          ? null
+                          : isNameList(tools)
+                            ? tools.map(tool)
+                            : { remove: tools.remove.map(tool) },
+              }),
     };
 }
 

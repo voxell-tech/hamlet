@@ -106,7 +106,7 @@ interface OpenHarness {
 /** Per-actor-generation state, stored on `c.vars` under `PI_RUNTIME`. */
 export interface PiRuntime {
     /** The open harness, or the open in progress. */
-    harness?: Promise<OpenHarness>;
+    harness?: Promise<OpenHarness> | undefined;
     /** Pi Durable is open until the actor starts to sleep or is destroyed. */
     status: PiStatus;
     /**
@@ -123,7 +123,7 @@ export interface PiRuntime {
      */
     calls: number;
     /** Called when a counted call ends. A drain sets it. */
-    callEnded?: () => void;
+    callEnded?: (() => void) | undefined;
 }
 
 export const PI_RUNTIME: unique symbol = Symbol.for("@hamlet/pi/runtime");
@@ -321,7 +321,7 @@ async function openHarness(
         {
             models: options.models ?? (await createModels(c, options)),
             registry,
-            settings,
+            ...(settings === undefined ? {} : { settings }),
             env:
                 options.env ??
                 ((target) =>
@@ -329,8 +329,8 @@ async function openHarness(
                         id: `pi-files:${c.actorId}`,
                         cwd: target.cwd,
                     })),
-            conversationCreated: startingAgent(options),
-            now: options.now,
+            ...startingAgent(options),
+            ...(options.now === undefined ? {} : { now: options.now }),
             onWake: wake.onWake,
             telemetry: createPiTelemetry(c.actorId),
             onReport: (report) => {
@@ -434,10 +434,7 @@ async function createModels(c: PiContext, options: PiOptions): Promise<Models> {
     const credentials = options.credentials
         ? new SourceCredentialStore(options.credentials(c))
         : emptyCredentialStore;
-    return createActorModelRuntime(
-        { providers: options.providers, apiKeys: options.apiKeys },
-        credentials,
-    );
+    return createActorModelRuntime(options, credentials);
 }
 
 /** Parses `provider/modelId`. */
@@ -454,24 +451,33 @@ export function parseModelRef(name: string): ModelRef {
 /**
  * `model` and `thinkingLevel` start every new conversation: root, created, and
  * forked. A fork already has its parent's agent, so it keeps it. The app's own
- * `conversationCreated` runs after this.
+ * `conversationCreated` runs after this. Returns the `conversationCreated`
+ * option, or none when there is nothing to run.
  */
 function startingAgent(
     options: PiOptions,
-): HarnessOptions["conversationCreated"] {
+): Pick<HarnessOptions, "conversationCreated"> {
     const model =
         options.model === undefined ? undefined : parseModelRef(options.model);
     const thinkingLevel = options.thinkingLevel;
     const created = options.conversationCreated;
-    if (model === undefined && thinkingLevel === undefined) return created;
-    return async (tx, conversation) => {
-        const agent = await tx.doc(AgentDoc, conversation.id);
-        await configure(tx, conversation.id, {
-            model: agent.model === undefined ? model : undefined,
-            thinkingLevel:
-                agent.thinkingLevel === undefined ? thinkingLevel : undefined,
-        });
-        await created?.(tx, conversation);
+    if (model === undefined && thinkingLevel === undefined) {
+        return created === undefined ? {} : { conversationCreated: created };
+    }
+    return {
+        conversationCreated: async (tx, conversation) => {
+            const agent = await tx.doc(AgentDoc, conversation.id);
+            await configure(tx, conversation.id, {
+                ...(agent.model === undefined && model !== undefined
+                    ? { model }
+                    : {}),
+                ...(agent.thinkingLevel === undefined &&
+                thinkingLevel !== undefined
+                    ? { thinkingLevel }
+                    : {}),
+            });
+            await created?.(tx, conversation);
+        },
     };
 }
 
@@ -667,10 +673,7 @@ async function drain(
  * destroy it stops running work at once. Records of interrupted work stay
  * running, and the next open resumes them.
  */
-export async function closeHarness(
-    c: PiContext,
-    stop: PiStop,
-): Promise<void> {
+export async function closeHarness(c: PiContext, stop: PiStop): Promise<void> {
     const runtime = piRuntime(c);
     const errors: unknown[] = [];
     let open: OpenHarness | undefined;
