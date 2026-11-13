@@ -35,7 +35,8 @@ Usage: cargo xtask <task> [args]
   harness          the server's tests that start pi, built with \
      fault points
   doc              the documentation, with warnings as errors
-  node             pi's TypeScript, Biome and tests
+  node             pi's TypeScript, Biome and tests, and the Node \
+     host's TypeScript and Biome
   fmt              format Rust, with the latest nightly, and pi
   workspace-image  build the remote workspace image; args go to \
      docker build
@@ -48,7 +49,8 @@ Usage: cargo xtask <task> [args]
 
 Every task but help and uninstall first fetches the vendored fynix
 when it is missing. Tasks that build, run or check pi install its
-packages when they are missing or stale. The installed server finds
+packages when they are missing or stale, and node installs the Node
+host's too. The installed server finds
 pi in this checkout, so keep it where it was installed from, and run
 `cargo xtask install` again after pulling.
 
@@ -57,6 +59,12 @@ set, the steps pass --locked to cargo.";
 
 /// This crate's manifest, outside the main workspace.
 const XTASK: &str = "xtask/Cargo.toml";
+
+/// The pi harness's Node package.
+const PI: &str = "harnesses/pi";
+
+/// The Node host's package, which holds the TypeScript actor layer.
+const NODE_HOST: &str = "hosts/node";
 
 /// The toolchain that formats Rust: `rustfmt.toml` uses unstable
 /// options, so stable cannot.
@@ -256,7 +264,7 @@ fn run(task: &str, rest: &[String]) -> Result<(), Failure> {
                 "--manifest-path",
                 XTASK,
             ]))?;
-            status(&mut npm(&["run", "format"]))
+            status(&mut npm(PI, &["run", "format"]))
         }
         "workspace-image" => workspace_image(rest),
         "killkit" => {
@@ -424,8 +432,10 @@ fn doc() -> Result<(), Failure> {
 
 fn node(root: &Path) -> Result<(), Failure> {
     prepare(root)?;
-    status(&mut npm(&["run", "check"]))?;
-    status(&mut npm(&["test"]))
+    status(&mut npm(PI, &["run", "check"]))?;
+    status(&mut npm(PI, &["test"]))?;
+    install(root, NODE_HOST)?;
+    status(&mut npm(NODE_HOST, &["run", "check"]))
 }
 
 /// Builds the remote workspace image, tagged with the short commit
@@ -465,17 +475,23 @@ fn fynix(root: &Path) -> Result<(), Failure> {
 
 /// Installs pi's packages when they are missing or stale.
 fn prepare(root: &Path) -> Result<(), Failure> {
-    let pi = root.join("harnesses/pi");
+    install(root, PI)
+}
+
+/// Installs the packages of the Node package in `package` when they
+/// are missing or stale.
+fn install(root: &Path, package: &str) -> Result<(), Failure> {
+    let folder = root.join(package);
     // npm ci rewrites this file, so it is newer than the lockfile it
     // installed from.
     let installed =
-        modified(&pi.join("node_modules/.package-lock.json"));
+        modified(&folder.join("node_modules/.package-lock.json"));
     let wanted = ["package.json", "package-lock.json"]
         .iter()
-        .filter_map(|file| modified(&pi.join(file)))
+        .filter_map(|file| modified(&folder.join(file)))
         .max();
     if installed.is_none() || installed < wanted {
-        status(&mut npm(&["ci"]))?;
+        status(&mut npm(package, &["ci"]))?;
     }
     Ok(())
 }
@@ -503,9 +519,10 @@ fn locked(subcommand: &str, args: &[&str]) -> Command {
     command
 }
 
-fn npm(args: &[&str]) -> Command {
+/// npm running `args` on the Node package in `package`.
+fn npm(package: &str, args: &[&str]) -> Command {
     let mut command = Command::new("npm");
-    command.args(args).args(["--prefix", "harnesses/pi"]);
+    command.args(args).args(["--prefix", package]);
     command
 }
 
