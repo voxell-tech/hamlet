@@ -1,8 +1,10 @@
 //! The kill kit. For each run it starts the demo host of
 //! `hamlet_host` on a fresh realm folder, kills it with SIGKILL at
-//! the scenario's fault point or at a random time, restarts it twice,
-//! and prints one line with the state before the kill and after each
-//! restart. It exits non-zero when any run fails its scenario.
+//! the scenario's fault point or at a random time, or waits for it to
+//! abort, restarts it twice, or until it stays up and once more, and
+//! prints one line with the state before the kill and after each
+//! clean restart. It exits non-zero when any run fails its scenario.
+//! The host runs with core dumps off, so an abort stores none.
 //!
 //! ```text
 //! hamlet_killkit <scenario> [--runs <n>] [--demo <path>] [--keep]
@@ -22,7 +24,9 @@ use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Child, ChildStdin, Command, ExitCode, Stdio};
+use std::process::{
+    Child, ChildStdin, Command, ExitCode, ExitStatus, Stdio,
+};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
@@ -30,7 +34,7 @@ use anyhow::{Context, Result, anyhow, bail, ensure};
 use rand::Rng;
 use rusqlite::{Connection, OpenFlags};
 
-use crate::scenario::{Is, Kill, SCENARIOS, Scenario};
+use crate::scenario::{Is, Kill, Restarts, SCENARIOS, Scenario};
 
 /// How long the kit waits for a reply, a fault point or a restart.
 const PATIENCE: Duration = Duration::from_secs(30);
@@ -180,9 +184,10 @@ struct Report {
     restarts: Vec<Restart>,
 }
 
-/// One restart's values, by name: each actor's last reply, the
+/// One clean restart's values, by name: each actor's last reply, the
 /// count of each actor its boot started, as `boot <actor>`, what
-/// each drain left, as `outbox <actor>`, and each probe.
+/// each drain left, as `outbox <actor>`, the aborts so far, as
+/// `aborts`, when the scenario counts them, and each probe.
 type Restart = BTreeMap<String, i64>;
 
 impl Report {
@@ -267,8 +272,8 @@ fn values(values: &BTreeMap<String, i64>) -> String {
         .join(" ")
 }
 
-/// Runs the scenario once in `dir`: the host until the kill, then two
-/// restarts, each read once it exited.
+/// Runs the scenario once in `dir`: the host until the kill, then the
+/// restarts, each clean one read once it exited.
 fn run_once(
     scenario: &Scenario,
     demo: &Path,
@@ -281,7 +286,7 @@ fn run_once(
 
     let fault = match scenario.kill {
         Kill::Fault(point) => Some((point, faults.as_path())),
-        Kill::After { .. } => None,
+        Kill::After { .. } | Kill::Exit => None,
     };
     let mut host =
         Host::start(demo, &home, fault, &dir.join("host.log"))?;
@@ -304,14 +309,19 @@ fn run_once(
                 rand::thread_rng().gen_range(min_ms..=max_ms),
             ))?
         }
+        Kill::Exit => host.aborted()?,
     };
 
     std::thread::sleep(
         (sent + Duration::from_millis(scenario.down_ms))
             .saturating_duration_since(Instant::now()),
     );
+    let mut aborts = i64::from(matches!(scenario.kill, Kill::Exit));
     let mut restarts = Vec::new();
-    for n in 1..=2 {
+    for n in 1.. {
+        if restarts.len() == 2 {
+            break;
+        }
         let mut host = Host::start(
             demo,
             &home,
@@ -319,10 +329,28 @@ fn run_once(
             &dir.join(format!("restart-{n}.log")),
         )?;
         for line in scenario.restart {
-            host.send(line)?;
+            // A host that aborted has closed its stdin; its exit
+            // status tells the run what happened.
+            if host.send(line).is_err() {
+                break;
+            }
         }
+        let (status, lines) = host.finish()?;
         let mut restart = Restart::new();
-        for line in host.finish()? {
+        if let Restarts::UntilClean { max } = scenario.restarts {
+            if restarts.is_empty() && by_signal(status) {
+                aborts += 1;
+                ensure!(
+                    n < max,
+                    "no restart of {max} stayed up; the last ended \
+                     with {status}"
+                );
+                continue;
+            }
+            restart.insert("aborts".to_owned(), aborts);
+        }
+        ensure!(status.success(), "restart {n} exited with {status}");
+        for line in lines {
             let (name, count) = parse_reply(&line)?;
             restart.insert(name, count);
         }
@@ -385,6 +413,20 @@ fn read_probe(file: &Path, sql: &str) -> Result<i64> {
     Ok(conn.query_row(sql, [], |row| row.get(0))?)
 }
 
+/// Whether the process ended by a signal, as an abort ends it.
+fn by_signal(status: ExitStatus) -> bool {
+    #[cfg(unix)]
+    {
+        std::os::unix::process::ExitStatusExt::signal(&status)
+            .is_some()
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = status;
+        false
+    }
+}
+
 /// Reads `<name> <count>`: `counter/<key> 5`, or with a prefix,
 /// `boot counter/<key> 5`. A command's error is a failure.
 fn parse_reply(line: &str) -> Result<(String, i64)> {
@@ -404,13 +446,24 @@ struct Host {
 
 impl Host {
     /// Starts `demo serve` on `home`, stopping at `fault` when given,
-    /// with its standard error in `log`.
+    /// with its standard error in `log`. On Unix a shell sets the
+    /// core size limit to 0 and then becomes the host, so the host's
+    /// pid is the child's and an abort stores no core.
     fn start(
         demo: &Path,
         home: &Path,
         fault: Option<(&str, &Path)>,
         log: &Path,
     ) -> Result<Self> {
+        #[cfg(unix)]
+        let mut command = {
+            let mut command = Command::new("sh");
+            command
+                .args(["-c", "ulimit -c 0 && exec \"$0\" \"$@\""])
+                .arg(demo);
+            command
+        };
+        #[cfg(not(unix))]
         let mut command = Command::new(demo);
         command
             .arg("serve")
@@ -490,6 +543,29 @@ impl Host {
         Ok(format!("at {point} (pid {pid})"))
     }
 
+    /// Waits for the host to end by a signal, as an abort ends it.
+    /// Returns the status and the pid.
+    fn aborted(mut self) -> Result<String> {
+        let deadline = Instant::now() + PATIENCE;
+        let pid = self.child.id();
+        loop {
+            if let Some(status) = self.child.try_wait()? {
+                ensure!(
+                    by_signal(status),
+                    "the host ended with {status}, not by a signal"
+                );
+                return Ok(format!(
+                    "by itself, {status} (pid {pid})"
+                ));
+            }
+            ensure!(
+                Instant::now() < deadline,
+                "the host never ended"
+            );
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+
     /// Kills the host with SIGKILL once `wait` has passed. Returns
     /// the time and the pid.
     fn kill_after(mut self, wait: Duration) -> Result<String> {
@@ -507,9 +583,9 @@ impl Host {
         ))
     }
 
-    /// Ends stdin, so the host stops, and returns every line it
-    /// printed once it exited cleanly.
-    fn finish(mut self) -> Result<Vec<String>> {
+    /// Ends stdin, so the host stops, and returns how it exited and
+    /// every line it printed.
+    fn finish(mut self) -> Result<(ExitStatus, Vec<String>)> {
         self.stdin = None;
         let deadline = Instant::now() + PATIENCE;
         let mut lines = Vec::new();
@@ -524,9 +600,7 @@ impl Host {
                 }
             }
         }
-        let status = self.child.wait()?;
-        ensure!(status.success(), "the host exited with {status}");
-        Ok(lines)
+        Ok((self.child.wait()?, lines))
     }
 }
 

@@ -21,6 +21,8 @@ pub struct Scenario {
     pub down_ms: u64,
     /// Lines each restart's `demo serve` runs after it boots.
     pub restart: &'static [&'static str],
+    /// How many restarts there are.
+    pub restarts: Restarts,
     /// Values read from the actor files once each restart exited.
     pub probes: &'static [Probe],
     /// The values the first and the second restart must show, each
@@ -37,6 +39,22 @@ pub enum Kill {
     /// At a time drawn at random from `min_ms` to `max_ms`, both
     /// included. The run's line records the time drawn.
     After { min_ms: u64, max_ms: u64 },
+    /// The host ends by itself, by a signal, as an abort ends it. The
+    /// kit only waits, and counts it as an abort.
+    Exit,
+}
+
+/// How many times the kit restarts the host after the kill.
+pub enum Restarts {
+    /// Twice. Each restart must exit cleanly.
+    Two,
+    /// Until a restart exits cleanly, at most `max` times, then once
+    /// more. A restart that ends by a signal is counted as an abort,
+    /// and one that exits with an error code fails the run. The
+    /// first clean restart is checked as the first, the one after it
+    /// as the second, and each shows the aborts so far, the kill's
+    /// own included, as `aborts`.
+    UntilClean { max: u32 },
 }
 
 /// A value read with SQL from one actor file, under the realm folder.
@@ -50,7 +68,8 @@ pub struct Probe {
 /// A value a restart must show: an actor's last reply, as
 /// `counter/<key>`; the count of an actor its boot started, as
 /// `boot counter/<key>`; the sends a drain left unconfirmed, as
-/// `outbox counter/<key>`; or a probe, by its name.
+/// `outbox counter/<key>`; the aborts, as `aborts`; or a probe, by
+/// its name.
 pub struct Expect {
     pub value: &'static str,
     pub is: Is,
@@ -134,6 +153,21 @@ const B_REPEATS: Probe = Probe {
     name: "b.repeats",
     file: B_FILE,
     sql: "SELECT COUNT(*) FROM repeats",
+};
+
+/// The sends counter `b` set aside.
+const B_DEAD_LETTERS: Probe = Probe {
+    name: "b.dead_letters",
+    file: B_FILE,
+    sql: "SELECT COUNT(*) FROM _hamlet_dead_letters",
+};
+
+/// The failed runs of the sends counter `b` set aside, summed.
+const B_DEAD_RUNS: Probe = Probe {
+    name: "b.dead_runs",
+    file: B_FILE,
+    sql: "SELECT COALESCE(SUM(attempts), 0) FROM \
+          _hamlet_dead_letters",
 };
 
 /// What every restart of a send scenario runs: wait until `a`'s
@@ -237,6 +271,53 @@ const SEND_PROBES: &[Probe] = &[
     B_REPEATS,
 ];
 
+/// The poison send was set aside by `b` after the five aborts its
+/// handler caused, and the host stayed up: `a` holds its `ledger`
+/// row and an empty outbox, `b` applied nothing, moved past the
+/// send, and holds one dead letter of five failed runs.
+const POISON_SET_ASIDE: &[Expect] = &[
+    Expect {
+        value: "aborts",
+        is: Is::Exactly(5),
+    },
+    Expect {
+        value: "outbox counter/a",
+        is: Is::Exactly(0),
+    },
+    Expect {
+        value: "a.outbox",
+        is: Is::Exactly(0),
+    },
+    Expect {
+        value: "a.ledger",
+        is: Is::Exactly(1),
+    },
+    Expect {
+        value: "counter/b",
+        is: Is::Acked("counter/b", 0),
+    },
+    Expect {
+        value: "b.value",
+        is: Is::Acked("counter/b", 0),
+    },
+    Expect {
+        value: "b.received",
+        is: Is::Exactly(0),
+    },
+    Expect {
+        value: "b.handled",
+        is: Is::Exactly(1),
+    },
+    Expect {
+        value: "b.dead_letters",
+        is: Is::Exactly(1),
+    },
+    Expect {
+        value: "b.dead_runs",
+        is: Is::Exactly(5),
+    },
+];
+
 const COUNTER_TRANSACTION: &[Expect] = &[
     Expect {
         value: "counter/a",
@@ -299,6 +380,7 @@ pub const SCENARIOS: &[Scenario] = &[
         kill: Kill::Fault("tx-open:4"),
         down_ms: 0,
         restart: &["get a"],
+        restarts: Restarts::Two,
         probes: &[A_VALUE],
         expect: [&[COUNTER_TRANSACTION], &[COUNTER_TRANSACTION]],
     },
@@ -317,6 +399,7 @@ pub const SCENARIOS: &[Scenario] = &[
         },
         down_ms: 2000,
         restart: &["get a"],
+        restarts: Restarts::Two,
         probes: &[A_VALUE, A_SCHEDULES],
         expect: [&[SCHEDULE_FIRED_AT_BOOT], &[SCHEDULE_FIRED_ONCE]],
     },
@@ -331,6 +414,7 @@ pub const SCENARIOS: &[Scenario] = &[
         kill: Kill::Fault("send-committed"),
         down_ms: 0,
         restart: SEND_RESTART,
+        restarts: Restarts::Two,
         probes: SEND_PROBES,
         expect: [&[SENT_ONCE, NO_REPEAT], &[SENT_ONCE, NO_REPEAT]],
     },
@@ -345,6 +429,7 @@ pub const SCENARIOS: &[Scenario] = &[
         kill: Kill::Fault("send-tx-open"),
         down_ms: 0,
         restart: SEND_RESTART,
+        restarts: Restarts::Two,
         probes: SEND_PROBES,
         expect: [&[NOT_SENT, NO_REPEAT], &[NOT_SENT, NO_REPEAT]],
     },
@@ -358,6 +443,7 @@ pub const SCENARIOS: &[Scenario] = &[
         kill: Kill::Fault("receive-tx-open"),
         down_ms: 0,
         restart: SEND_RESTART,
+        restarts: Restarts::Two,
         probes: SEND_PROBES,
         expect: [
             &[SENT_ONCE, ONE_CUT_RUN, NO_REPEAT],
@@ -375,7 +461,31 @@ pub const SCENARIOS: &[Scenario] = &[
         kill: Kill::Fault("send-acked"),
         down_ms: 0,
         restart: SEND_RESTART,
+        restarts: Restarts::Two,
         probes: SEND_PROBES,
         expect: [&[SENT_ONCE, ONE_REPEAT], &[SENT_ONCE, ONE_REPEAT]],
+    },
+    Scenario {
+        name: "poison",
+        about: "a send whose handler aborts the host at every run; \
+                the host is restarted until it stays up, after five \
+                aborts, with the send set aside by its receiver",
+        setup: &["get b"],
+        trigger: "poison a b",
+        trigger_replies: false,
+        kill: Kill::Exit,
+        down_ms: 0,
+        restart: SEND_RESTART,
+        restarts: Restarts::UntilClean { max: 8 },
+        probes: &[
+            A_LEDGER,
+            A_OUTBOX,
+            B_VALUE,
+            B_RECEIVED,
+            B_HANDLED,
+            B_DEAD_LETTERS,
+            B_DEAD_RUNS,
+        ],
+        expect: [&[POISON_SET_ASIDE], &[POISON_SET_ASIDE]],
     },
 ];
