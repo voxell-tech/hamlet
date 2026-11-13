@@ -537,8 +537,6 @@ pub(crate) mod moved_tests {
                 anyhow::bail!("channel host has no sqlite")
             })
         }
-
-        fn transaction_committed(&self, _actor_id: &str) {}
     }
 
     fn test_envoy_handle()

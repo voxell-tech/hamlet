@@ -370,7 +370,6 @@ struct HostInner {
     directory: Directory,
     actors: Mutex<Actors>,
     session: watch::Sender<u64>,
-    commits: broadcast::Sender<String>,
     events: broadcast::Sender<HostEvent>,
     options: HostOptions,
     /// When the starts under way end, set once the host shuts down.
@@ -668,7 +667,6 @@ impl Host {
                 generations: 0,
             }),
             session: watch::Sender::new(LOCAL_SESSION),
-            commits: broadcast::channel(64).0,
             events: broadcast::channel(64).0,
             options,
             starts_end: watch::Sender::new(None),
@@ -814,11 +812,6 @@ impl Host {
             .lives
             .get(actor_id)
             .is_some_and(|life| life.loaded().is_some())
-    }
-
-    /// Follows the actors whose transactions commit, by id.
-    pub fn commits(&self) -> broadcast::Receiver<String> {
-        self.inner().commits.subscribe()
     }
 
     /// Follows what happens to the host's actors from now on. A
@@ -1546,12 +1539,6 @@ impl ActorHost for LocalHandle {
     ) -> RuntimeBoxFuture<Result<Vec<ExecuteResult>>> {
         let file = self.file.clone();
         Box::pin(async move { file.execute_batch(statements).await })
-    }
-
-    fn transaction_committed(&self, actor_id: &str) {
-        if let Some(host) = self.host.upgrade() {
-            let _ = host.commits.send(actor_id.to_owned());
-        }
     }
 
     fn timer_set_aside(&self, actor_id: &str, timer: &SetAsideTimer) {

@@ -4,7 +4,6 @@
 //!
 //! - `increment` adds one in a transaction. Fired by a one-shot
 //!   schedule, the same transaction ends the one-shot.
-//! - `discard` adds one in a transaction and rolls it back.
 //! - `get` reads the count.
 //! - `panic` adds one in a transaction that does not end its
 //!   one-shot, then panics.
@@ -142,15 +141,14 @@ async fn action(
     fire: Option<&ScheduledFireInfo>,
 ) -> Result<i64> {
     match name {
-        "increment" => add_one(ctx, true, fire).await,
-        "discard" => add_one(ctx, false, fire).await,
+        "increment" => add_one(ctx, fire).await,
         "panic" => {
-            add_one(ctx, true, None).await?;
+            add_one(ctx, None).await?;
             panic!("the counter's `panic` action panics");
         }
-        "drop" => add_one(ctx, true, None).await,
+        "drop" => add_one(ctx, None).await,
         "abort" => {
-            add_one(ctx, true, None).await?;
+            add_one(ctx, None).await?;
             std::process::abort();
         }
         "get" => read_count(ctx).await,
@@ -185,7 +183,6 @@ async fn action(
 
 async fn add_one(
     ctx: &ActorContext,
-    commit: bool,
     fire: Option<&ScheduledFireInfo>,
 ) -> Result<i64> {
     let tx = ctx.sql().begin_transaction(None).await?;
@@ -199,12 +196,8 @@ async fn add_one(
     )
     .await?;
     hamlet_host::fault::point("tx-open");
-    if commit {
-        tx.commit().await?;
-        hamlet_host::fault::point("tx-committed");
-    } else {
-        tx.rollback().await?;
-    }
+    tx.commit().await?;
+    hamlet_host::fault::point("tx-committed");
     read_count(ctx).await
 }
 

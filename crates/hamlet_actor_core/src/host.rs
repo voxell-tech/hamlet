@@ -96,15 +96,6 @@ pub trait ActorHost: Send + Sync + 'static {
         statements: Vec<SqliteBatchStatement>,
     ) -> RuntimeBoxFuture<Result<Vec<ExecuteResult>>>;
 
-    /// A transaction on the actor's database committed: a
-    /// transaction's commit, which state transactions use, or a
-    /// batch. A statement that commits on its own, and a `COMMIT`
-    /// sent as a statement, do not call it. After a transaction it
-    /// runs once the transaction released its gate; after a batch it
-    /// runs while the batch still holds the gate. It must return at
-    /// once.
-    fn transaction_committed(&self, actor_id: &str);
-
     /// The core set aside the actor's one-shot `timer` after its last
     /// try (see [`MAX_ONE_SHOT_TRIES`]): the actor is not woken for
     /// it again. Called once per timer, after the move committed,
