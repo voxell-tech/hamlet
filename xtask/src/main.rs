@@ -37,7 +37,7 @@ Usage: cargo xtask <task> [args]
      fault points
   doc              the documentation, with warnings as errors
   node             pi's TypeScript, Biome and tests, and the Node \
-     host's TypeScript and Biome
+     host's TypeScript, Biome and tests
   fmt              format Rust, with the latest nightly, and pi
   workspace-image  build the remote workspace image; args go to \
      docker build
@@ -462,7 +462,8 @@ fn node(root: &Path) -> Result<(), Failure> {
     status(&mut npm(PI, &["run", "check"]))?;
     status(&mut npm(PI, &["test"]))?;
     install(root, NODE_HOST)?;
-    status(&mut npm(NODE_HOST, &["run", "check"]))
+    status(&mut npm(NODE_HOST, &["run", "check"]))?;
+    status(&mut npm(NODE_HOST, &["test"]))
 }
 
 /// Builds the remote workspace image, tagged with the short commit
