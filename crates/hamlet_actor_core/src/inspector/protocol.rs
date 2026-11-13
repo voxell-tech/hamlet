@@ -79,3 +79,48 @@ pub(crate) fn encode_server_payload(
         version,
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn error_message() -> ServerMessage {
+        ServerMessage::Error(wire::Error {
+            message: "test error".to_owned().into(),
+        })
+    }
+
+    #[test]
+    fn negotiated_frames_use_the_out_of_band_version() {
+        let encoded =
+            encode_server_payload(&error_message(), PROTOCOL_VERSION)
+                .unwrap();
+        let decoded =
+            <versioned::ToClient as Versioned>::deserialize(
+                &encoded,
+                PROTOCOL_VERSION,
+            )
+            .unwrap();
+        assert!(matches!(decoded.body, ServerMessage::Error(_)));
+        assert!(
+            <versioned::ToClient as Versioned>::deserialize_with_embedded_version(
+                &encoded
+            )
+            .is_err(),
+            "negotiated frames must not repeat the version in every packet"
+        );
+    }
+
+    #[test]
+    fn legacy_frames_remain_embedded_v5() {
+        let encoded =
+            encode_server_message_embedded(&error_message(), 5)
+                .unwrap();
+        let decoded =
+            <versioned::ToClient as Versioned>::deserialize_with_embedded_version(
+                &encoded,
+            )
+            .unwrap();
+        assert!(matches!(decoded.body, ServerMessage::Error(_)));
+    }
+}
