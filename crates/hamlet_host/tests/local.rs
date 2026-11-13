@@ -1800,3 +1800,31 @@ async fn a_start_during_boots_read_of_its_file_waits_for_the_read() {
         host.shutdown().await.unwrap();
     }
 }
+
+/// Hosts of different names cannot both hold one kind: a host given a
+/// kind that another host holds fails to open, and names that kind's
+/// lock. The kind is free once its host has shut down.
+#[tokio::test(flavor = "multi_thread")]
+async fn hosts_of_different_names_cannot_share_a_kind() {
+    let dir = Scratch::new("host-shared-kind");
+    let named = |name: &str| HostOptions {
+        name: name.to_owned(),
+        ..HostOptions::default()
+    };
+    let main =
+        Host::open_with(&dir, factories(), named("main")).unwrap();
+    let Err(error) =
+        Host::open_with(&dir, factories(), named("node"))
+    else {
+        panic!("a second host of the kind counter opened the folder");
+    };
+    let lock = dir.join("actors").join("counter").join(".lock");
+    assert!(
+        error.to_string().contains(&lock.display().to_string()),
+        "{error:#}"
+    );
+    main.shutdown().await.unwrap();
+    let node =
+        Host::open_with(&dir, factories(), named("node")).unwrap();
+    node.shutdown().await.unwrap();
+}

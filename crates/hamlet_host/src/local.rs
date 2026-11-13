@@ -373,11 +373,13 @@ impl Stop {
 
 struct HostInner {
     dir: PathBuf,
-    /// Held while the host may open actor files: it keeps a second
-    /// host out of the folder. [`Host::shutdown`] lets it go once
-    /// every file is closed, since a task of the host may still hold
-    /// the rest for a moment. Otherwise it goes with the host.
-    lock: Mutex<Option<FolderLock>>,
+    /// Held while the host may open actor files: its name's lock,
+    /// which keeps a second host of that name out of the folder, and
+    /// each of its kinds' locks, which keep another host from
+    /// holding that kind. [`Host::shutdown`] lets them go once every
+    /// file is closed, since a task of the host may still hold the
+    /// rest for a moment. Otherwise they go with the host.
+    locks: Mutex<Vec<FolderLock>>,
     directory: Directory,
     actors: Mutex<Actors>,
     session: watch::Sender<u64>,
@@ -387,10 +389,31 @@ struct HostInner {
     starts_end: watch::Sender<Option<tokio::time::Instant>>,
 }
 
-/// The lock of the host's `<name>.lock`. Its drop unlocks the file
-/// before it closes it: a child process forked meanwhile shares the
+/// A lock the host holds on one file: `<name>.lock` in the folder, or
+/// `.lock` in a kind's folder. Its drop unlocks the file before it
+/// closes it: a child process forked meanwhile shares the
 /// open file, and would keep the lock until it runs its program.
 struct FolderLock(File);
+
+impl FolderLock {
+    /// Locks the file at `path`, made if it is missing. Fails when
+    /// another host holds it.
+    fn take(path: &Path) -> Result<Self> {
+        let file = File::create(path)
+            .with_context(|| format!("open {}", path.display()))?;
+        match file.try_lock() {
+            Ok(()) => Ok(Self(file)),
+            Err(TryLockError::WouldBlock) => {
+                bail!(
+                    "another host holds the lock {}",
+                    path.display()
+                )
+            }
+            Err(TryLockError::Error(error)) => Err(error)
+                .with_context(|| format!("lock {}", path.display())),
+        }
+    }
+}
 
 impl Drop for FolderLock {
     fn drop(&mut self) {
@@ -408,8 +431,10 @@ pub struct HostOptions {
     /// The host's name, a plain file name: `host` by default. The
     /// host locks the folder with `<name>.lock`, so hosts of
     /// different names open one folder at once, and a second host of
-    /// one name is refused. Hosts that share a folder must run kinds
-    /// of their own.
+    /// one name is refused. Hosts that share a folder run kinds of
+    /// their own: each host locks `actors/<kind>/.lock` for each of
+    /// its kinds, and a host given a kind another host holds is
+    /// refused.
     pub name: String,
 }
 
@@ -637,7 +662,8 @@ impl Host {
     /// Takes the folder's lock and opens it, with each kind of
     /// `factories` running in this host, with the default
     /// [`HostOptions`]. Fails when another host of the same name
-    /// holds the lock.
+    /// holds the folder's lock, or another host holds one of the
+    /// kinds.
     pub fn open(
         dir: &Path,
         factories: HashMap<String, ActorFactory>,
@@ -653,26 +679,23 @@ impl Host {
     ) -> Result<Self> {
         plain(&options.name, "host name")?;
         std::fs::create_dir_all(dir.join("actors"))?;
-        let lock_path = dir.join(format!("{}.lock", options.name));
-        let lock = File::create(&lock_path).with_context(|| {
-            format!("open {}", lock_path.display())
-        })?;
-        match lock.try_lock() {
-            Ok(()) => {}
-            Err(TryLockError::WouldBlock) => bail!(
-                "another host holds the lock {}",
-                lock_path.display()
-            ),
-            Err(TryLockError::Error(error)) => {
-                return Err(error).with_context(|| {
-                    format!("lock {}", lock_path.display())
-                });
-            }
+        let directory = Directory::local(factories);
+        let mut locks = vec![FolderLock::take(
+            &dir.join(format!("{}.lock", options.name)),
+        )?];
+        for kind in directory.local_kinds() {
+            let folder = dir.join("actors").join(kind);
+            std::fs::create_dir_all(&folder).with_context(|| {
+                format!("make {}", folder.display())
+            })?;
+            // A key never starts with a dot, so no actor's file is
+            // named so.
+            locks.push(FolderLock::take(&folder.join(".lock"))?);
         }
         Ok(Self(Arc::new(Handle(Arc::new(HostInner {
             dir: dir.to_owned(),
-            lock: Mutex::new(Some(FolderLock(lock))),
-            directory: Directory::local(factories),
+            locks: Mutex::new(locks),
+            directory,
             actors: Mutex::new(Actors {
                 lives: HashMap::new(),
                 shut: false,
@@ -984,7 +1007,7 @@ impl Host {
         }
         // The host opens no file again. A file only a stop that
         // panicked still holds keeps its own lock.
-        drop(self.inner().lock.lock().take());
+        drop(std::mem::take(&mut *self.inner().locks.lock()));
         if !failed.is_empty() {
             bail!("the host failed to stop {}", failed.join("; "));
         }
