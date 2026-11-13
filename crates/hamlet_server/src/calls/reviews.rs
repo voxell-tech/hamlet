@@ -27,7 +27,7 @@ pub(crate) fn hold_key(task: TaskId) -> String {
     format!("task:{task}")
 }
 
-impl Core {
+impl Core<'_> {
     /// Before a model call of `conversation` in the turn of
     /// `submission`: the lead's review of a chief's instruction,
     /// begun once, and the hold while a chief considers an objection

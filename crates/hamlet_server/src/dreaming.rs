@@ -34,7 +34,7 @@ pub(crate) enum Dreamer {
     Scholar(ScholarId),
 }
 
-impl Core {
+impl Core<'_> {
     /// Starts a dream when one is due.
     pub(crate) async fn dream_tick(&mut self) -> Result<()> {
         let dreams = &self.env.settings.dreams;
@@ -218,9 +218,7 @@ impl Core {
             })
             .await?;
         let writing = self.writing.clone();
-        let held = writing
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let held = writing.hold();
         let db = self.realm.store().connection();
         let ready =
             dreaming::prepare(db, &layout, id, crate::clock::now())?;

@@ -94,6 +94,7 @@ pub(crate) enum Answer {
 }
 
 /// The tool runs in progress.
+#[derive(bevy_ecs::resource::Resource)]
 pub(crate) struct Calls {
     running: HashMap<CallId, Running>,
     ran: mpsc::UnboundedSender<Ran>,
@@ -318,10 +319,10 @@ enum Decision {
     Wait(&'static str),
 }
 
-impl Core {
+impl Core<'_> {
     /// Answers `reply` about the call `key`, unless its runtime
     /// started again since it asked.
-    async fn tell_call(
+    fn tell_call(
         &mut self,
         reply: &Reply,
         key: &str,
@@ -335,55 +336,47 @@ impl Core {
         let re = reply.re.clone();
         let key = key.to_owned();
         let images_folder = self.realm.layout().images();
-        self.runtimes
-            .send(reply.index, |v, id| match answer {
-                Answer::Allowed => {
-                    ServerMessage::Allowed(runtime::Allowed {
-                        id,
-                        re,
-                        v,
-                    })
-                }
-                Answer::Waiting(words) => {
-                    ServerMessage::Waiting(runtime::Waiting {
-                        id,
-                        key,
-                        re,
-                        v,
-                        words,
-                    })
-                }
-                Answer::Refusal(words) => {
-                    ServerMessage::Refusal(runtime::Refusal {
-                        id,
-                        re,
-                        v,
-                        words,
-                    })
-                }
-                Answer::Result(outcome) => {
-                    let images = kept_pictures(
-                        images_folder.clone(),
-                        &outcome.images,
-                    );
-                    ServerMessage::Result(runtime::Result {
-                        details: outcome
-                            .details
-                            .map(|d| d.into_iter().collect()),
-                        images,
-                        diagnostics: (!outcome
-                            .diagnostics
-                            .is_empty())
+        self.runtimes.send(reply.index, |v, id| match answer {
+            Answer::Allowed => {
+                ServerMessage::Allowed(runtime::Allowed { id, re, v })
+            }
+            Answer::Waiting(words) => {
+                ServerMessage::Waiting(runtime::Waiting {
+                    id,
+                    key,
+                    re,
+                    v,
+                    words,
+                })
+            }
+            Answer::Refusal(words) => {
+                ServerMessage::Refusal(runtime::Refusal {
+                    id,
+                    re,
+                    v,
+                    words,
+                })
+            }
+            Answer::Result(outcome) => {
+                let images = kept_pictures(
+                    images_folder.clone(),
+                    &outcome.images,
+                );
+                ServerMessage::Result(runtime::Result {
+                    details: outcome
+                        .details
+                        .map(|d| d.into_iter().collect()),
+                    images,
+                    diagnostics: (!outcome.diagnostics.is_empty())
                         .then_some(outcome.diagnostics),
-                        error: outcome.error,
-                        id,
-                        re,
-                        text: outcome.text,
-                        v,
-                    })
-                }
-            })
-            .await;
+                    error: outcome.error,
+                    id,
+                    re,
+                    text: outcome.text,
+                    v,
+                })
+            }
+        });
     }
 
     /// The call a runtime asked, with its key reserved for its
@@ -455,7 +448,7 @@ impl Core {
         )? {
             Ok(call) => call,
             Err(answer) => {
-                self.tell_call(&reply, &asked.key, answer).await;
+                self.tell_call(&reply, &asked.key, answer);
                 return Ok(());
             }
         };
@@ -464,8 +457,7 @@ impl Core {
                 &reply,
                 &asked.key,
                 Answer::Refusal(held::WITHDRAWN.into()),
-            )
-            .await;
+            );
             return Ok(());
         }
         if self.objecting(&call)? {
@@ -473,8 +465,7 @@ impl Core {
                 &reply,
                 &asked.key,
                 Answer::Waiting(OBJECTING.into()),
-            )
-            .await;
+            );
             return Ok(());
         }
         let answer = if !offers(&call.conversation, call.tool)?
@@ -491,7 +482,7 @@ impl Core {
                 }
             }
         };
-        self.tell_call(&reply, &asked.key, answer).await;
+        self.tell_call(&reply, &asked.key, answer);
         Ok(())
     }
 
@@ -513,7 +504,7 @@ impl Core {
         )? {
             Ok(call) => call,
             Err(answer) => {
-                self.tell_call(&reply, &asked.key, answer).await;
+                self.tell_call(&reply, &asked.key, answer);
                 return Ok(());
             }
         };
@@ -541,7 +532,7 @@ impl Core {
             Marked::Unmarked => None,
         };
         if let Some(answer) = answer {
-            self.tell_call(&reply, &asked.key, answer).await;
+            self.tell_call(&reply, &asked.key, answer);
             return Ok(());
         }
         let outcome = if !offers(&call.conversation, tool)? {
@@ -555,7 +546,7 @@ impl Core {
             match ruled {
                 Ok(outcome) => Some(outcome),
                 Err(answer) => {
-                    self.tell_call(&reply, &asked.key, answer).await;
+                    self.tell_call(&reply, &asked.key, answer);
                     return Ok(());
                 }
             }
@@ -566,8 +557,7 @@ impl Core {
                 &reply,
                 &asked.key,
                 Answer::Waiting(OBJECTING.into()),
-            )
-            .await;
+            );
             return Ok(());
         } else {
             match self.decide(&call).await? {
@@ -576,8 +566,7 @@ impl Core {
                         &reply,
                         &asked.key,
                         Answer::Refusal(words),
-                    )
-                    .await;
+                    );
                     return Ok(());
                 }
                 Decision::Wait(words) => {
@@ -585,8 +574,7 @@ impl Core {
                         &reply,
                         &asked.key,
                         Answer::Waiting(words.into()),
-                    )
-                    .await;
+                    );
                     return Ok(());
                 }
                 Decision::Run { net } => {
@@ -602,8 +590,7 @@ impl Core {
                                     &reply,
                                     &asked.key,
                                     Answer::Waiting(words),
-                                )
-                                .await;
+                                );
                                 return Ok(());
                             }
                         }
@@ -632,8 +619,7 @@ impl Core {
                 &reply,
                 &asked.key,
                 Answer::Result(outcome),
-            )
-            .await;
+            );
         }
         Ok(())
     }
@@ -734,7 +720,7 @@ impl Core {
                 ToolSession::local(
                     place,
                     net,
-                    self.sandbox,
+                    self.sandbox.0,
                     self.shells.clone(),
                     self.leftovers.of(agent.0),
                 ),
@@ -802,8 +788,7 @@ impl Core {
                 &reply,
                 &ran.call.key,
                 Answer::Result(ran.outcome.clone()),
-            )
-            .await;
+            );
         }
         Ok(())
     }

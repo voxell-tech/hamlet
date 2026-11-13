@@ -312,7 +312,7 @@ impl Drop for ScriptFile {
 }
 
 /// The shells a workspace offers.
-#[derive(Clone, Debug)]
+#[derive(bevy_ecs::resource::Resource, Clone, Debug)]
 pub(crate) struct Shells(Vec<Shell>);
 
 impl Shells {

@@ -164,6 +164,23 @@ impl Store {
     }
 }
 
+/// Rolls back every transaction and savepoint `db` has open, as a
+/// panic inside one leaves them. An error means the connection
+/// cannot say or cannot roll back, and must be opened again.
+pub fn unwind(db: &mut Db) -> Result<()> {
+    loop {
+        let open =
+            AnsiTransactionManager::transaction_manager_status_mut(
+                db,
+            )
+            .transaction_depth()?;
+        if open.is_none() {
+            return Ok(());
+        }
+        AnsiTransactionManager::rollback_transaction(db)?;
+    }
+}
+
 /// A transaction on the store, rolled back when dropped uncommitted.
 pub struct Tx<'a> {
     db: &'a mut Db,

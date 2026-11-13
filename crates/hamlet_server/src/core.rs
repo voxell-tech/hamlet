@@ -1,27 +1,25 @@
-//! The loop that owns the realm's writes: it takes in what runtimes
-//! say and what clients ask, makes each change in one transaction,
-//! and wakes what the change needs: the jobs runner and the runtimes.
+//! The realm's live state as one view of the world: the resources
+//! the handlers of the server's inputs reach. Each change is made in
+//! one transaction, and wakes what it needs after: the jobs runner,
+//! the runtimes and the clients.
 
 use std::collections::{BTreeMap, HashMap};
 use std::panic::AssertUnwindSafe;
 
-use anyhow::{Context as _, Result};
+use anyhow::Result;
+use bevy_ecs::system::{Res, ResMut, SystemParam};
 use futures::FutureExt;
 use hamlet_protocol::client as protocol;
 use hamlet_protocol::runtime::{
     self, AdmittedStatus, ErrorCode, ProtocolError, RuntimeMessage,
     ServerMessage, SettledStatus, ToolSpec,
 };
-use hamlet_sandbox::{AllLeftovers, Sandbox};
 use hamlet_store::ids::{Actor, AgentId, ConversationId};
-use tokio::net::TcpListener;
-use tokio::sync::{mpsc, watch};
 
-use crate::calls::{self, Calls, Ran};
+use crate::calls::Calls;
 use crate::change::{Change, Done, Touched};
 use crate::clients::Clients;
 use crate::clients::check::reply;
-use crate::clients::connection::Event;
 use crate::clients::fold::Fold;
 use crate::clock;
 use crate::credentials::Credentials;
@@ -37,60 +35,118 @@ use crate::talk::activity::Activity;
 use crate::talk::follow::{Followed, follow};
 use crate::talk::inputs::{self, Status};
 use crate::talk::leases::Authority;
-use crate::talk::process::{Pi, Received};
-use crate::talk::runtimes::{self, Pending, Runtimes};
+use crate::talk::process::Received;
+use crate::talk::runtimes::{Pending, Runtimes};
+use crate::talk::sync::Fitting;
 use crate::talk::turns::Admission;
 use crate::talk::{
     Env, conversations, items, prompt, sync, turns, verdicts,
 };
-use crate::work::added::{self, Manifest};
+use crate::work::added::Manifest;
 use crate::work::catalogue::SOCIETY;
-use crate::work::tools::{self, Shells};
+use crate::work::tools::Shells;
 use crate::workspace::Transport;
 use crate::workspace::lodges::Synced;
 
-pub(crate) struct Core {
-    pub realm: Realm,
-    pub env: Env,
-    pub runtimes: Runtimes,
-    pub credentials: Credentials,
-    pub clients: Clients,
+/// A resource that holds one value of a type made elsewhere, reached
+/// through it.
+macro_rules! holder {
+    ($(#[$meta:meta])* $name:ident($inner:ty)) => {
+        $(#[$meta])*
+        #[derive(bevy_ecs::resource::Resource)]
+        pub(crate) struct $name(pub $inner);
+
+        impl std::ops::Deref for $name {
+            type Target = $inner;
+
+            fn deref(&self) -> &$inner {
+                &self.0
+            }
+        }
+
+        impl std::ops::DerefMut for $name {
+            fn deref_mut(&mut self) -> &mut $inner {
+                &mut self.0
+            }
+        }
+    };
+}
+
+holder! {
     /// What each conversation in memory shows: its transcript and
     /// what its agent is doing.
-    pub live: BTreeMap<ConversationId, Live>,
-    pub sandbox: Sandbox,
-    /// This machine's shells, which the agents' commands run in.
-    pub shells: Shells,
+    Lives(BTreeMap<ConversationId, Live>)
+}
+holder! {
+    /// How the agents' commands are confined on this machine.
+    Confined(hamlet_sandbox::Sandbox)
+}
+holder! {
     /// What the agents' commands leave running, by agent.
-    pub leftovers: AllLeftovers,
+    Leftovers(hamlet_sandbox::AllLeftovers)
+}
+holder! {
     /// The tools added by hand (C17).
-    pub added: Vec<Manifest>,
+    Added(Vec<Manifest>)
+}
+holder! {
     /// Why the tools added by hand that did not load did not.
-    pub faults: Vec<String>,
+    ToolFaults(Vec<String>)
+}
+holder! {
     /// Every tool a model may be offered.
-    pub catalogue: Vec<ToolSpec>,
-    pub calls: Calls,
-    /// The model catalogue and what waits on the providers.
-    pub providers: Providers,
-    /// Which runtime may read or rotate which provider's credential.
-    pub leases: Authority,
-    /// The images being sent.
-    pub images: Uploads,
-    /// The files being sent.
-    pub files: FileUploads,
+    Catalogue(Vec<ToolSpec>)
+}
+holder! {
     /// The remote workspace the agents' tools run in, chosen before
     /// the server started; none for this machine.
-    pub workspace: Option<Transport>,
-    /// Each lodge as both copies held it when last in step, by
-    /// agent; a lodge not here is pushed before its next remote
-    /// call.
-    pub synced: HashMap<AgentId, Synced>,
+    Workspace(Option<Transport>)
+}
+holder! {
+    /// Each lodge as both copies held it when last in step, by agent;
+    /// a lodge not here is pushed before its next remote call.
+    Lodged(HashMap<AgentId, Synced>)
+}
+holder! {
     /// How moving the lodges to the chosen workspace goes.
-    pub moving: Option<protocol::SettingsViewWorkspaceMove>,
-    runner: Runner,
+    Moving(Option<protocol::SettingsViewWorkspaceMove>)
+}
+
+/// Every resource of the realm's live state, as the handlers reach
+/// it.
+#[derive(SystemParam)]
+pub(crate) struct Core<'w> {
+    pub realm: ResMut<'w, Realm>,
+    pub env: ResMut<'w, Env>,
+    pub runtimes: ResMut<'w, Runtimes>,
+    pub credentials: ResMut<'w, Credentials>,
+    pub clients: ResMut<'w, Clients>,
+    pub live: ResMut<'w, Lives>,
+    pub sandbox: Res<'w, Confined>,
+    /// This machine's shells, which the agents' commands run in.
+    pub shells: Res<'w, Shells>,
+    pub leftovers: Res<'w, Leftovers>,
+    pub added: Res<'w, Added>,
+    pub faults: Res<'w, ToolFaults>,
+    pub catalogue: ResMut<'w, Catalogue>,
+    pub calls: ResMut<'w, Calls>,
+    /// The images of inputs being fitted to their models.
+    pub fitting: ResMut<'w, Fitting>,
+    /// The model catalogue and what waits on the providers.
+    pub providers: ResMut<'w, Providers>,
+    /// Which runtime may read or rotate which provider's credential.
+    pub leases: ResMut<'w, Authority>,
+    /// The images being sent.
+    pub images: ResMut<'w, Uploads>,
+    /// The files being sent.
+    pub files: ResMut<'w, FileUploads>,
+    pub workspace: ResMut<'w, Workspace>,
+    pub synced: ResMut<'w, Lodged>,
+    pub moving: ResMut<'w, Moving>,
+    pub runner: Res<'w, Runner>,
     /// Held while anything writes the realm's repositories and
     /// lodges.
-    pub writing: Writing,
+    pub writing: Res<'w, Writing>,
 }
 
 /// A conversation's transcript and activity, as kept and as running.
@@ -100,194 +156,7 @@ pub(crate) struct Live {
     pub activity: Activity,
 }
 
-/// What the loop is woken by.
-pub(crate) struct Inbox {
-    lines: mpsc::UnboundedReceiver<Received>,
-    worked: mpsc::UnboundedReceiver<Vec<crate::jobs::Job>>,
-    events: mpsc::Receiver<Event>,
-    ran: mpsc::UnboundedReceiver<Ran>,
-    listener: Option<TcpListener>,
-}
-
-impl Inbox {
-    /// Takes clients' connections from `listener` too.
-    pub fn listen(&mut self, listener: TcpListener) {
-        self.listener = Some(listener);
-    }
-}
-
-impl Core {
-    /// Takes `realm` on: its jobs runner and its harness's runtime,
-    /// and follows the turns that ended before the last stop but
-    /// were not followed.
-    pub async fn start(
-        mut realm: Realm,
-        env: Env,
-        pi: Pi,
-        sandbox: Sandbox,
-        closing: watch::Receiver<bool>,
-    ) -> Result<(Self, Inbox)> {
-        let credentials = Credentials::open(realm.layout().root())?;
-        let (lines_to, lines) = mpsc::unbounded_channel();
-        let (worked_to, worked) = mpsc::unbounded_channel();
-        let (events_to, events) = mpsc::channel(128);
-        let (ran_to, ran) = mpsc::unbounded_channel();
-        let writing = Writing::default();
-        let runner = Runner::start(
-            realm.layout(),
-            worked_to,
-            writing.clone(),
-        )?;
-        let layout = realm.layout().clone();
-        crate::knowledge::library::open(&layout, clock::now())?;
-        // Agents read it, so it is there even with nothing in it.
-        for folder in [layout.tools(), layout.images()] {
-            std::fs::create_dir_all(&folder).with_context(|| {
-                format!("making {}", folder.display())
-            })?;
-        }
-        let shells = Shells::local();
-        let (added, faults) = added::load(layout.root());
-        for fault in &faults {
-            tell(
-                Secrets::Fixed,
-                format!("a tool added by hand did not load: {fault}"),
-            );
-        }
-        let mut catalogue = tools::specs(&shells);
-        catalogue.extend(calls::specs());
-        catalogue.extend(
-            added.iter().map(|manifest| manifest.spec.clone()),
-        );
-        let providers = Providers::open(&layout, env.overrides.faux)?;
-        let workspace = credentials
-            .workspace()
-            .cloned()
-            .map(Transport::new)
-            .transpose()?;
-        let db = realm.store().connection();
-        runtimes::of_harness(db, agents::HARNESS)?;
-        let mut runtimes = Runtimes::new(pi, lines_to);
-        runtimes.start(db, &layout)?;
-        let clients = Clients::new(events_to, closing, clock::now())?;
-        let mut core = Self {
-            realm,
-            env,
-            runtimes,
-            credentials,
-            clients,
-            live: BTreeMap::new(),
-            sandbox,
-            shells,
-            leftovers: AllLeftovers::default(),
-            added,
-            faults,
-            catalogue,
-            calls: Calls::new(ran_to),
-            providers,
-            leases: Authority::default(),
-            images: Uploads::default(),
-            files: FileUploads::default(),
-            workspace,
-            synced: HashMap::new(),
-            moving: None,
-            runner,
-            writing,
-        };
-        core.retool()?;
-        core.start_providers()?;
-        let unfollowed =
-            inputs::unfollowed(core.realm.store().connection())?;
-        for input in unfollowed {
-            // No runtime waits on anything from before the stop.
-            core.change(Actor::Realm, |cx, env| {
-                follow(cx, env, input.conversation, &input.request)
-            })
-            .await?;
-        }
-        Ok((
-            core,
-            Inbox {
-                lines,
-                worked,
-                events,
-                ran,
-                listener: None,
-            },
-        ))
-    }
-
-    /// Takes in what woke the loop next, or nothing after `wait`.
-    /// Returns whether anything came.
-    pub async fn step(
-        &mut self,
-        inbox: &mut Inbox,
-        wait: std::time::Duration,
-    ) -> Result<bool> {
-        let restart = self
-            .runtimes
-            .next_start()
-            .map(tokio::time::Instant::from_std);
-        let expiry = self
-            .providers
-            .next_expiry()
-            .map(tokio::time::Instant::from_std);
-        let listener = inbox.listener.as_ref();
-        tokio::select! {
-            Some(received) = inbox.lines.recv() => {
-                self.received(received).await?;
-                Ok(true)
-            }
-            Some(done) = inbox.worked.recv() => {
-                self.push_lodges(&done).await;
-                self.publish().await?;
-                Ok(true)
-            }
-            Some(event) = inbox.events.recv() => {
-                self.connection(event).await?;
-                Ok(true)
-            }
-            Some(ran) = inbox.ran.recv() => {
-                self.ran(ran).await?;
-                Ok(true)
-            }
-            Ok((stream, _)) = async {
-                match listener {
-                    Some(listener) => listener.accept().await,
-                    None => std::future::pending().await,
-                }
-            } => {
-                self.clients.accept(stream);
-                Ok(true)
-            }
-            () = async {
-                match restart {
-                    Some(at) => tokio::time::sleep_until(at).await,
-                    None => std::future::pending().await,
-                }
-            } => {
-                let layout = self.realm.layout().clone();
-                self.runtimes.start(self.realm.store().connection(), &layout)?;
-                Ok(true)
-            }
-            () = async {
-                match expiry {
-                    Some(at) => tokio::time::sleep_until(at).await,
-                    None => std::future::pending().await,
-                }
-            } => {
-                self.expire_providers().await?;
-                Ok(true)
-            }
-            () = tokio::time::sleep(wait) => {
-                self.dream_tick().await?;
-                self.sweep_images()?;
-                self.sweep_files()?;
-                Ok(false)
-            }
-        }
-    }
-
+impl Core<'_> {
     /// Makes a change by `actor` in one transaction, then wakes what
     /// it needs.
     pub async fn change<T>(
@@ -345,18 +214,18 @@ impl Core {
             self.retool()?;
         }
         self.stop_cancelled()?;
-        self.flush(false).await?;
+        self.flush(false)?;
         self.publish().await
     }
 
     /// Narrows the tools of every living agent's conversations to its
     /// role now; a runtime is told before the next input.
-    fn retool(&mut self) -> Result<()> {
+    pub(crate) fn retool(&mut self) -> Result<()> {
         let names = self.catalogue_names();
         let db = self.realm.store().connection();
         for agent in agents::living(db)? {
             for kept in conversations::of_agent(db, agent)? {
-                let tools = calls::place::tools(
+                let tools = crate::calls::place::tools(
                     db, agent, kept.kind, &names, &SOCIETY,
                 )?;
                 if kept.tools()?.as_ref() != Some(&tools) {
@@ -401,9 +270,9 @@ impl Core {
     }
 
     /// Wakes the calls a follow says waited, once its change is kept.
-    async fn woken(&mut self, followed: Followed) {
+    fn woken(&mut self, followed: Followed) {
         for (runtime, key) in followed.wake {
-            self.wake_call(&runtime, &key).await;
+            self.wake_call(&runtime, &key);
         }
     }
 
@@ -484,7 +353,7 @@ impl Core {
 
     /// Follows the end of input `request` of `conversation`, wakes
     /// what its follow freed and answers the replies owed for it.
-    async fn input_ended(
+    pub(crate) async fn input_ended(
         &mut self,
         conversation: ConversationId,
         request: &str,
@@ -495,7 +364,7 @@ impl Core {
                 follow(cx, env, conversation, request)
             })
             .await?;
-        self.woken(followed).await;
+        self.woken(followed);
         self.settle_owed(conversation, request)
     }
 
@@ -531,24 +400,31 @@ impl Core {
     }
 
     /// Sends every ready runtime what it is owed.
-    pub(crate) async fn flush(&mut self, again: bool) -> Result<()> {
-        let images = self.realm.layout().images();
+    pub(crate) fn flush(&mut self, again: bool) -> Result<()> {
         for index in 0..self.runtimes.list.len() {
-            sync::flush(
-                self.realm.store().connection(),
-                &self.env,
-                &mut self.runtimes,
-                &self.providers,
-                &images,
-                index,
-                again,
-            )
-            .await?;
+            self.flush_one(index, again)?;
         }
         Ok(())
     }
 
-    async fn received(&mut self, received: Received) -> Result<()> {
+    /// Sends runtime `index` what it is owed.
+    fn flush_one(&mut self, index: usize, again: bool) -> Result<()> {
+        let images = self.realm.layout().images();
+        let mut owed = sync::Owed {
+            db: self.realm.store().connection(),
+            env: &self.env,
+            runtimes: &mut self.runtimes,
+            providers: &self.providers,
+            fitting: &mut self.fitting,
+            images: &images,
+        };
+        sync::flush(&mut owed, index, again)
+    }
+
+    pub(crate) async fn received(
+        &mut self,
+        received: Received,
+    ) -> Result<()> {
         if !self.runtimes.is_current(&received) {
             return Ok(());
         }
@@ -573,6 +449,9 @@ impl Core {
                     Err(panic) => Some(diagnostic::panicked(&*panic)),
                 };
                 if let Some(failure) = failure {
+                    hamlet_store::unwind(
+                        self.realm.store().connection(),
+                    )?;
                     tell(
                         Secrets::Of(&self.credentials),
                         format!("a runtime's line failed: {failure}"),
@@ -581,20 +460,19 @@ impl Core {
                         let message = self.credentials.scrub_text(
                             &format!("The server failed: {failure}"),
                         );
-                        self.runtimes
-                            .send(index, |v, id| {
-                                ServerMessage::Error(ProtocolError {
-                                    code: ErrorCode::Failed,
-                                    id,
-                                    message,
-                                    re: Some(re),
-                                    v,
-                                })
+                        self.runtimes.send(index, |v, id| {
+                            ServerMessage::Error(ProtocolError {
+                                code: ErrorCode::Failed,
+                                id,
+                                message,
+                                re: Some(re),
+                                v,
                             })
-                            .await;
+                        });
                     }
                 }
-                self.answer_credentials().await
+                self.answer_credentials();
+                Ok(())
             }
             Err(error) => {
                 tell(
@@ -609,7 +487,7 @@ impl Core {
     }
 
     /// Answers the credential requests the leases let through.
-    async fn answer_credentials(&mut self) -> Result<()> {
+    fn answer_credentials(&mut self) {
         let serving = self
             .env
             .settings
@@ -619,15 +497,12 @@ impl Core {
         for (index, mut answer) in
             self.leases.flush(&mut self.credentials, &serving)
         {
-            self.runtimes
-                .send(index, |v, id| {
-                    answer.v = v;
-                    answer.id = id;
-                    ServerMessage::CredentialResult(answer)
-                })
-                .await;
+            self.runtimes.send(index, |v, id| {
+                answer.v = v;
+                answer.id = id;
+                ServerMessage::CredentialResult(answer)
+            });
         }
-        Ok(())
     }
 
     async fn heard(
@@ -648,46 +523,28 @@ impl Core {
                 match refusal {
                     Some(words) => {
                         tell(Secrets::Fixed, &words);
-                        self.runtimes
-                            .send(index, |v, id| {
-                                ServerMessage::Refused(
-                                    runtime::Refused {
-                                        id,
-                                        re,
-                                        v,
-                                        words,
-                                    },
-                                )
+                        self.runtimes.send(index, |v, id| {
+                            ServerMessage::Refused(runtime::Refused {
+                                id,
+                                re,
+                                v,
+                                words,
                             })
-                            .await;
+                        });
                     }
                     None => {
-                        let tools = self.catalogue.clone();
-                        self.runtimes
-                            .send(index, |v, id| {
-                                ServerMessage::Welcome(
-                                    runtime::Welcome {
-                                        id,
-                                        re,
-                                        tools,
-                                        v,
-                                        windows: BTreeMap::new(),
-                                    },
-                                )
+                        let tools = self.catalogue.0.clone();
+                        self.runtimes.send(index, |v, id| {
+                            ServerMessage::Welcome(runtime::Welcome {
+                                id,
+                                re,
+                                tools,
+                                v,
+                                windows: BTreeMap::new(),
                             })
-                            .await;
-                        let images = self.realm.layout().images();
-                        sync::flush(
-                            self.realm.store().connection(),
-                            &self.env,
-                            &mut self.runtimes,
-                            &self.providers,
-                            &images,
-                            index,
-                            true,
-                        )
-                        .await?;
-                        self.send_providers().await?;
+                        });
+                        self.flush_one(index, true)?;
+                        self.send_providers()?;
                     }
                 }
             }
@@ -706,7 +563,7 @@ impl Core {
                         &version,
                     )?;
                 }
-                self.flush(false).await?;
+                self.flush(false)?;
             }
             RuntimeMessage::Admitted(admitted) => {
                 if let Some((
@@ -738,7 +595,7 @@ impl Core {
                             .await?;
                     }
                 }
-                self.flush(false).await?;
+                self.flush(false)?;
             }
             RuntimeMessage::Settled(settled) => {
                 let db = self.realm.store().connection();
@@ -828,7 +685,7 @@ impl Core {
                         false,
                     )?;
                 }
-                self.flush(false).await?;
+                self.flush(false)?;
             }
             RuntimeMessage::Configured(configured) => {
                 if let Some((
@@ -842,7 +699,7 @@ impl Core {
                         &told,
                     )?;
                 }
-                self.flush(false).await?;
+                self.flush(false)?;
             }
             RuntimeMessage::Prompt(asked) => {
                 let db = self.realm.store().connection();
@@ -859,30 +716,26 @@ impl Core {
                     )
                     .await?
                 {
-                    self.runtimes
-                        .send(index, |v, id| {
-                            ServerMessage::Waiting(runtime::Waiting {
-                                id,
-                                key,
-                                re,
-                                v,
-                                words,
-                            })
+                    self.runtimes.send(index, |v, id| {
+                        ServerMessage::Waiting(runtime::Waiting {
+                            id,
+                            key,
+                            re,
+                            v,
+                            words,
                         })
-                        .await;
+                    });
                     return Ok(());
                 }
                 let sections = self.prompt(&conversation)?;
-                self.runtimes
-                    .send(index, |v, id| {
-                        ServerMessage::Sections(runtime::Sections {
-                            id,
-                            re,
-                            sections,
-                            v,
-                        })
+                self.runtimes.send(index, |v, id| {
+                    ServerMessage::Sections(runtime::Sections {
+                        id,
+                        re,
+                        sections,
+                        v,
                     })
-                    .await;
+                });
             }
             RuntimeMessage::Attempt(asked) => {
                 let admission = turns::allow(
@@ -924,19 +777,17 @@ impl Core {
                             .flatten()
                             .map(crate::credentials::pack)
                             .transpose()?;
-                        self.runtimes
-                            .send(index, |v, id| {
-                                ServerMessage::Allowance(
-                                    runtime::Allowance {
-                                        credential,
-                                        id,
-                                        re,
-                                        selection,
-                                        v,
-                                    },
-                                )
-                            })
-                            .await;
+                        self.runtimes.send(index, |v, id| {
+                            ServerMessage::Allowance(
+                                runtime::Allowance {
+                                    credential,
+                                    id,
+                                    re,
+                                    selection,
+                                    v,
+                                },
+                            )
+                        });
                     }
                     Admission::Stopped(words) => {
                         let notice = Some(
@@ -946,19 +797,15 @@ impl Core {
                             }
                             .wire(),
                         );
-                        self.runtimes
-                            .send(index, |v, id| {
-                                ServerMessage::Stopped(
-                                    runtime::Stopped {
-                                        id,
-                                        notice,
-                                        re,
-                                        v,
-                                        words,
-                                    },
-                                )
+                        self.runtimes.send(index, |v, id| {
+                            ServerMessage::Stopped(runtime::Stopped {
+                                id,
+                                notice,
+                                re,
+                                v,
+                                words,
                             })
-                            .await;
+                        });
                     }
                 }
             }
@@ -976,15 +823,13 @@ impl Core {
                     self.publish().await?;
                 }
                 let re = report.id;
-                self.runtimes
-                    .send(index, |v, id| {
-                        ServerMessage::Charged(runtime::Charged {
-                            id,
-                            re,
-                            v,
-                        })
+                self.runtimes.send(index, |v, id| {
+                    ServerMessage::Charged(runtime::Charged {
+                        id,
+                        re,
+                        v,
                     })
-                    .await;
+                });
             }
             RuntimeMessage::Allow(asked) => {
                 self.allow_call(index, asked).await?;
@@ -1005,33 +850,29 @@ impl Core {
                     })
                     .await?;
                 let re = answer.id;
-                self.runtimes
-                    .send(index, |v, id| {
-                        ServerMessage::Verdict(runtime::Verdict {
-                            compact: ruled.compact.then_some(true),
-                            id,
-                            notice: ruled.notice,
-                            re,
-                            v,
-                            words: ruled.words,
-                        })
+                self.runtimes.send(index, |v, id| {
+                    ServerMessage::Verdict(runtime::Verdict {
+                        compact: ruled.compact.then_some(true),
+                        id,
+                        notice: ruled.notice,
+                        re,
+                        v,
+                        words: ruled.words,
                     })
-                    .await;
+                });
             }
             RuntimeMessage::Scrub(asked) => {
                 let mut value = asked.value;
                 self.credentials.scrub(&mut value);
                 let re = asked.id;
-                self.runtimes
-                    .send(index, |v, id| {
-                        ServerMessage::Scrubbed(runtime::Scrubbed {
-                            id,
-                            re,
-                            v,
-                            value,
-                        })
+                self.runtimes.send(index, |v, id| {
+                    ServerMessage::Scrubbed(runtime::Scrubbed {
+                        id,
+                        re,
+                        v,
+                        value,
                     })
-                    .await;
+                });
             }
             RuntimeMessage::Error(error) => {
                 tell(
@@ -1053,39 +894,6 @@ impl Core {
         }
         Ok(())
     }
-
-    /// Readies the realm to stop: every sign-in ends, and a
-    /// credential rotation begun may finish within `grace`, so no
-    /// refreshed token is lost.
-    pub async fn close(
-        &mut self,
-        inbox: &mut Inbox,
-        grace: std::time::Duration,
-    ) -> Result<()> {
-        inbox.listener = None;
-        self.providers.close_all();
-        self.send_providers().await?;
-        let deadline = std::time::Instant::now() + grace;
-        while self.leases.is_holding()
-            && std::time::Instant::now() < deadline
-        {
-            self.step(inbox, std::time::Duration::from_millis(100))
-                .await?;
-        }
-        Ok(())
-    }
-
-    /// Stops the runtimes, giving each `grace` to finish.
-    pub async fn stop(
-        mut self,
-        grace: std::time::Duration,
-    ) -> Result<()> {
-        self.calls.stop_all();
-        self.runtimes.stop(grace).await;
-        self.leftovers.end(|_| true);
-        drop(self.runner);
-        Ok(())
-    }
 }
 
 /// The id of `message` when the runtime waits for its answer.
@@ -1102,255 +910,4 @@ fn awaited(message: &RuntimeMessage) -> Option<String> {
         _ => return None,
     };
     Some(id.clone())
-}
-
-/// What a test reads to wait on a condition of the realm.
-#[cfg(all(test, feature = "harness"))]
-pub(crate) async fn until(
-    core: &mut Core,
-    inbox: &mut Inbox,
-    what: &str,
-    mut done: impl FnMut(&mut Core) -> Result<bool>,
-) -> Result<()> {
-    let deadline = std::time::Instant::now()
-        + std::time::Duration::from_secs(20);
-    while !done(core)? {
-        anyhow::ensure!(
-            std::time::Instant::now() < deadline,
-            "timed out waiting for {what}"
-        );
-        core.step(inbox, std::time::Duration::from_millis(100))
-            .await?;
-    }
-    Ok(())
-}
-
-#[cfg(all(test, feature = "harness"))]
-mod tests {
-    use hamlet_testing::Scratch;
-
-    use super::*;
-    use crate::settings::{Overrides, Settings};
-    use crate::society::hand;
-    use crate::talk::chats;
-
-    /// A realm on `dir` served with the faux `script`, and a chief's
-    /// line `text` to the Hand, answered.
-    async fn told(
-        dir: &Scratch,
-        script: &str,
-        text: &str,
-    ) -> (Core, Inbox, chats::Said) {
-        let (mut core, mut inbox, said) =
-            say(dir, script, text).await;
-        ended(&mut core, &mut inbox, &said).await;
-        (core, inbox, said)
-    }
-
-    async fn ended(
-        core: &mut Core,
-        inbox: &mut Inbox,
-        said: &chats::Said,
-    ) {
-        until(core, inbox, "the Hand's answer", |core| {
-            let db = core.realm.store().connection();
-            let input =
-                inputs::find(db, said.conversation, &said.request)?;
-            Ok(input.is_some_and(|i| i.is_ended() && i.followed))
-        })
-        .await
-        .unwrap();
-    }
-
-    /// A realm on `dir` served with the faux `script`, and a chief's
-    /// line `text` to the Hand, kept.
-    async fn say(
-        dir: &Scratch,
-        script: &str,
-        text: &str,
-    ) -> (Core, Inbox, chats::Said) {
-        let faux = dir.join("faux.json");
-        std::fs::write(&faux, script).unwrap();
-        let realm =
-            Realm::open(&dir.join("realm"), "chief", clock::now())
-                .unwrap();
-        let chief_id = realm.chief();
-        let env = Env {
-            settings: Settings::default(),
-            overrides: Overrides {
-                faux: true,
-                ..Overrides::default()
-            },
-        };
-        let sandbox =
-            Sandbox::open(hamlet_sandbox::Isolation::Sandboxed)
-                .unwrap();
-        let (_closing, closed) = watch::channel(false);
-        let (mut core, inbox) = Core::start(
-            realm,
-            env,
-            Pi::from_env(Some(faux)).unwrap(),
-            sandbox,
-            closed,
-        )
-        .await
-        .unwrap();
-        let hand = hand::id(core.realm.store().connection()).unwrap();
-        let said = core
-            .change(Actor::Chief(chief_id), |cx, env| {
-                chats::say(cx, env, hand, chief_id, "r1", text)
-            })
-            .await
-            .unwrap();
-        (core, inbox, said)
-    }
-
-    #[tokio::test]
-    async fn a_scholars_dream_writes_its_main_through_its_tools() {
-        let dir = Scratch::new("server-core-dream");
-        let script = r#"{
-            "responses": ["Hello."],
-            "kinds": {"dream": [
-                {"calls": [{"name": "write", "arguments": {"path": "memory/shared.md", "content": "---\ndescription: What every hire knows.\n---\nBe brief."}}]},
-                "Kept one shared note."
-            ]}
-        }"#;
-        let (mut core, mut inbox, _) = told(&dir, script, "Hi").await;
-        let chief = core.realm.chief();
-        let ada = core
-            .attempt(Actor::Chief(chief), |cx, _| {
-                crate::society::city::make(
-                    cx, "ada", chief, "Careful.", None,
-                )
-            })
-            .await
-            .unwrap()
-            .unwrap();
-        until(&mut core, &mut inbox, "the scholar planted", |core| {
-            let db = core.realm.store().connection();
-            Ok(crate::society::city::get(db, ada)?.planted)
-        })
-        .await
-        .unwrap();
-        let address = format!("scholar#{}", ada.0);
-        let began =
-            core.dream_command(None, &[&address]).await.unwrap();
-        assert!(began.is_ok(), "{began:?}");
-        until(&mut core, &mut inbox, "the dream's end", |core| {
-            let db = core.realm.store().connection();
-            Ok(crate::society::dreams::last_of_scholar(db, ada)?
-                .is_some_and(|dream| dream.ended.is_some()))
-        })
-        .await
-        .unwrap();
-        let repo = hamlet_git::Repository::open(
-            &core.realm.layout().repository(ada),
-        )
-        .unwrap();
-        let main = repo.tip(hamlet_git::MAIN).unwrap().unwrap();
-        assert!(
-            repo.read(main, "memory/shared.md").unwrap().is_some(),
-            "the dream's note is on main"
-        );
-        core.stop(std::time::Duration::from_secs(5)).await.unwrap();
-    }
-
-    #[tokio::test]
-    async fn a_networked_command_waits_for_the_chief_and_runs_once_allowed()
-     {
-        let dir = Scratch::new("server-core-gate");
-        let script = r#"{"responses": [
-            {"calls": [{"name": "bash", "arguments": {"command": "echo curl reached"}}]},
-            "Done."
-        ]}"#;
-        let (mut core, mut inbox, said) =
-            say(&dir, script, "Fetch it").await;
-        until(&mut core, &mut inbox, "the approval", |core| {
-            let db = core.realm.store().connection();
-            Ok(!crate::oversight::open(db)?.is_empty())
-        })
-        .await
-        .unwrap();
-        let db = core.realm.store().connection();
-        let wait = crate::oversight::open(db).unwrap().remove(0);
-        assert_eq!(
-            wait.danger,
-            Some(crate::oversight::Danger::Network)
-        );
-        let answered = core
-            .answer_wait(
-                &wait.id.to_string(),
-                &protocol::Choice::Allow,
-                None,
-                None,
-            )
-            .await
-            .unwrap();
-        assert!(answered.is_ok(), "{answered:?}");
-        ended(&mut core, &mut inbox, &said).await;
-        let db = core.realm.store().connection();
-        let page =
-            items::page(db, said.conversation, None, 20).unwrap();
-        assert!(
-            page.iter().any(|(_, item)| {
-                item.tool.as_deref() == Some("bash")
-                    && item.text.contains("curl reached")
-            }),
-            "{page:#?}"
-        );
-        assert!(crate::oversight::open(db).unwrap().is_empty());
-        core.stop(std::time::Duration::from_secs(5)).await.unwrap();
-    }
-
-    #[tokio::test]
-    async fn the_hand_writes_its_lodge_and_reads_it_back_with_a_command()
-     {
-        let dir = Scratch::new("server-core-tools");
-        let script = r#"{"responses": [
-            {"calls": [{"name": "write", "arguments": {"path": "notes/seen.md", "content": "seen it"}}]},
-            {"calls": [{"name": "bash", "arguments": {"command": "cat notes/seen.md"}}]},
-            "Done."
-        ]}"#;
-        let (mut core, _inbox, said) =
-            told(&dir, script, "Note it").await;
-        let lodge = core.realm.layout().hand();
-        assert_eq!(
-            std::fs::read_to_string(lodge.join("notes/seen.md"))
-                .unwrap(),
-            "seen it"
-        );
-        let db = core.realm.store().connection();
-        let page =
-            items::page(db, said.conversation, None, 20).unwrap();
-        assert!(
-            page.iter().any(|(_, item)| {
-                item.tool.as_deref() == Some("bash")
-                    && item.text.contains("seen it")
-            }),
-            "{page:#?}"
-        );
-        core.stop(std::time::Duration::from_secs(5)).await.unwrap();
-    }
-
-    #[tokio::test]
-    async fn the_hand_answers_a_chief_through_pi() {
-        let dir = Scratch::new("server-core");
-        let (mut core, _inbox, said) =
-            told(&dir, r#"{"responses": ["Hello, chief."]}"#, "Hi")
-                .await;
-        let db = core.realm.store().connection();
-        let page =
-            items::page(db, said.conversation, None, 20).unwrap();
-        assert!(
-            page.iter()
-                .any(|(_, item)| item.text.contains("Hello, chief.")),
-            "{page:#?}"
-        );
-        let task = crate::talk::tasks::get(db, said.task).unwrap();
-        assert!(
-            task.done_at.is_some(),
-            "the instruction is answered"
-        );
-        core.stop(std::time::Duration::from_secs(5)).await.unwrap();
-    }
 }

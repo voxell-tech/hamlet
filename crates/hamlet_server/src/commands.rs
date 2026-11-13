@@ -395,7 +395,7 @@ fn usage(name: &str) -> Refusal {
     }
 }
 
-impl Core {
+impl Core<'_> {
     /// Runs the command `line`, said to `agent`, whose hamlet it
     /// means.
     pub(crate) async fn command(

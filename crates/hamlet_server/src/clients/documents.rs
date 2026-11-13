@@ -41,7 +41,7 @@ fn memory_path(path: &str) -> Result<String, Refusal> {
     }
 }
 
-impl Core {
+impl Core<'_> {
     pub(crate) async fn edit(
         &mut self,
         client: u64,
@@ -143,9 +143,7 @@ impl Core {
                             agent,
                         )?;
                         let writing = self.writing.clone();
-                        let held = writing.lock().unwrap_or_else(
-                            std::sync::PoisonError::into_inner,
-                        );
+                        let held = writing.hold();
                         let folder = Folder::make(&lodging.path)?;
                         if text.is_empty() {
                             folder.remove(&path)?;
@@ -399,9 +397,7 @@ impl Core {
         let path = self.realm.layout().repository(scholar);
         let author = by.to_string();
         let writing = self.writing.clone();
-        let held = writing
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let held = writing.hold();
         let repo = Repository::open(&path)?;
         repo.commit(
             MAIN,

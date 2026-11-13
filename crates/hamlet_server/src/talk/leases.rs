@@ -10,7 +10,7 @@ use hamlet_protocol::runtime::{
 
 use crate::credentials::{Credentials, pack, unpack};
 
-#[derive(Default)]
+#[derive(bevy_ecs::resource::Resource, Default)]
 pub(crate) struct Authority {
     scopes: HashMap<(usize, String), (String, bool)>,
     /// The lease held on each provider's credential, by provider.

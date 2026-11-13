@@ -14,7 +14,7 @@ use crate::society::addresses::{self, Reach};
 use crate::society::refusal::Refusal;
 use crate::talk::{chats, reflections};
 
-impl Core {
+impl Core<'_> {
     /// Runs the command `name` with `rest` when it is one of these,
     /// said to `agent` in `here`.
     pub(super) async fn oversight_command(

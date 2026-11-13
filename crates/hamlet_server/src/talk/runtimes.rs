@@ -67,6 +67,7 @@ pub(crate) enum Pending {
     Configure(ConversationId, String),
 }
 
+#[derive(bevy_ecs::resource::Resource)]
 pub(crate) struct Runtimes {
     pi: Pi,
     pub list: Vec<Runtime>,
@@ -314,7 +315,7 @@ impl Runtimes {
 
     /// Sends the message `make` builds from the version and a new id,
     /// returning the id.
-    pub async fn send(
+    pub fn send(
         &mut self,
         index: usize,
         make: impl FnOnce(Version, String) -> ServerMessage,
@@ -325,19 +326,19 @@ impl Runtimes {
         let line = serde_json::to_string(&message)
             .expect("a server message is JSON");
         if let Some(process) = self.list[index].process.as_mut() {
-            process.write(&line).await;
+            process.write(line);
         }
         id
     }
 
     /// Sends a request whose reply is awaited as `pending`.
-    pub async fn request(
+    pub fn request(
         &mut self,
         index: usize,
         pending: Pending,
         make: impl FnOnce(Version, String) -> ServerMessage,
     ) -> String {
-        let id = self.send(index, make).await;
+        let id = self.send(index, make);
         self.pending.insert(id.clone(), (index, pending));
         id
     }

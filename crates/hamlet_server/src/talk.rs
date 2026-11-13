@@ -27,7 +27,7 @@ use crate::settings::{Overrides, Settings};
 
 /// What conversations read besides the database: the settings as this
 /// process runs them.
-#[derive(Clone, Debug)]
+#[derive(bevy_ecs::resource::Resource, Clone, Debug)]
 pub(crate) struct Env {
     pub settings: Settings,
     pub overrides: Overrides,

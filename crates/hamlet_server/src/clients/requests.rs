@@ -28,7 +28,7 @@ use crate::talk::{chats, items};
 /// The most transcript entries one page holds.
 const PAGE: usize = 100;
 
-impl Core {
+impl Core<'_> {
     /// Takes in what a connection did.
     pub(crate) async fn connection(
         &mut self,
@@ -56,7 +56,7 @@ impl Core {
                 self.providers.disconnect(client);
                 self.images.disconnect(client);
                 self.files.disconnect(client);
-                self.send_providers().await
+                self.send_providers()
             }
         }
     }
@@ -152,6 +152,9 @@ impl Core {
                         (words.clone(), words)
                     }
                 };
+                hamlet_store::unwind(
+                    self.realm.store().connection(),
+                )?;
                 crate::diagnostic::tell(
                     crate::diagnostic::Secrets::Of(&self.credentials),
                     format!("a request failed: {logged}"),
@@ -853,6 +856,7 @@ impl Core {
                 moving: self.moving.clone(),
                 running: self
                     .workspace
+                    .0
                     .as_ref()
                     .map(|running| running.url().to_owned()),
                 url: self

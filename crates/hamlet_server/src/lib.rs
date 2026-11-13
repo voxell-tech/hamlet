@@ -23,6 +23,7 @@ mod oversight;
 mod providers;
 mod realm;
 pub mod serve;
+mod server;
 mod settings;
 mod society;
 mod spend;

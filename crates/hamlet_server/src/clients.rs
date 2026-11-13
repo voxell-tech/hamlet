@@ -41,6 +41,7 @@ pub(crate) struct Owed {
     pub request: String,
 }
 
+#[derive(bevy_ecs::resource::Resource)]
 pub(crate) struct Clients {
     pub check: Protocol,
     pub list: BTreeMap<u64, Client>,

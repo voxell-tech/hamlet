@@ -119,7 +119,7 @@ impl Files {
 
 /// The files being sent, and when the realm last swept for those
 /// nothing uses.
-#[derive(Default)]
+#[derive(bevy_ecs::resource::Resource, Default)]
 pub(crate) struct FileUploads {
     sending: HashMap<String, Sending>,
     swept: Option<Instant>,
@@ -161,7 +161,7 @@ fn hex(hash: &[u8]) -> FileId {
         .expect("a SHA-256 is 64 lowercase hexadecimal digits")
 }
 
-impl Core {
+impl Core<'_> {
     /// Begins a file of `size` bytes; the reply names the upload its
     /// parts are sent under. A file with no bytes is kept at once.
     pub(crate) fn put_file(

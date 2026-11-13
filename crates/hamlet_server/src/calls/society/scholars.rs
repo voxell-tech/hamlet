@@ -2,8 +2,6 @@
 //! at a version, a file of `main` written, a version named, a commit
 //! undone. A change waits for a chief before it gets here.
 
-use std::sync::PoisonError;
-
 use anyhow::Result;
 use hamlet_git::{
     Author, Change as GitChange, CommitId, MAIN, Repository,
@@ -20,7 +18,7 @@ use crate::society::{addresses, authority, names};
 /// The most of a file `read_scholar` gives.
 const MOST_READ: usize = 50 * 1024;
 
-impl Core {
+impl Core<'_> {
     /// The living scholar `call`'s argument `scholar` names, which
     /// the caller may keep.
     fn kept_scholar(
@@ -194,8 +192,7 @@ impl Core {
         let by = Actor::Agent(call.conversation.agent).to_string();
         self.begin(call)?;
         let writing = self.writing.clone();
-        let _held =
-            writing.lock().unwrap_or_else(PoisonError::into_inner);
+        let _held = writing.hold();
         repo.tag(
             &tag,
             at,
@@ -231,8 +228,7 @@ impl Core {
         let reason = text(call, "reason");
         self.begin(call)?;
         let writing = self.writing.clone();
-        let held =
-            writing.lock().unwrap_or_else(PoisonError::into_inner);
+        let held = writing.hold();
         let merged = repo.revert(
             MAIN,
             commit,

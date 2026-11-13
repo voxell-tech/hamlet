@@ -44,7 +44,7 @@ pub(crate) struct Inbox {
     saved: Vec<Saved>,
 }
 
-impl Core {
+impl Core<'_> {
     /// The folder `dir` of `agent`'s lodge, where files are to be
     /// saved: under `inbox/`.
     pub(crate) fn open_inbox(

@@ -2,8 +2,6 @@
 //! there, its lodge kept in step, and every lodge moved there at a
 //! chief's word.
 
-use std::sync::PoisonError;
-
 use anyhow::Result;
 use hamlet_protocol::client::{
     RequestId, SettingsViewWorkspaceMove,
@@ -21,7 +19,7 @@ use crate::society::refusal::Refusal;
 use crate::society::{agents, hamlets, hires, merges};
 use crate::work::hamlet_of;
 
-impl Core {
+impl Core<'_> {
     /// The session of `agent`'s tools in the remote workspace, when
     /// the realm works in one; its commands reach the network with
     /// `net`.
@@ -95,8 +93,7 @@ impl Core {
         };
         let (pulled, synced) = lodges::pull(&session, base).await?;
         let writing = self.writing.clone();
-        let held =
-            writing.lock().unwrap_or_else(PoisonError::into_inner);
+        let held = writing.hold();
         pulled.apply(&lodging.path)?;
         drop(held);
         self.synced.insert(agent, synced);
@@ -198,7 +195,7 @@ impl Core {
         let of = i64::try_from(lodged.len())?;
         let mut failed = None;
         for (done, agent) in lodged.into_iter().enumerate() {
-            self.moving = Some(SettingsViewWorkspaceMove {
+            self.moving.0 = Some(SettingsViewWorkspaceMove {
                 done: i64::try_from(done)?,
                 of,
                 state: SettingsViewWorkspaceMoveState::Moving,
@@ -213,7 +210,7 @@ impl Core {
                 break;
             }
         }
-        self.workspace = previous;
+        self.workspace.0 = previous;
         self.synced.clear();
         let (state, text) = match &failed {
             None => (
@@ -227,7 +224,7 @@ impl Core {
                 format!("Moving the lodges failed: {error}"),
             ),
         };
-        self.moving = Some(SettingsViewWorkspaceMove {
+        self.moving.0 = Some(SettingsViewWorkspaceMove {
             done: of,
             of,
             state,

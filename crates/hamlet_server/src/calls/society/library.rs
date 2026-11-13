@@ -34,7 +34,7 @@ pub(crate) fn judging(id: i64) -> String {
     format!("offer:{id}")
 }
 
-impl Core {
+impl Core<'_> {
     /// What the librarian is told before its task: its role and the
     /// shelves.
     fn librarian(&mut self) -> Result<String> {

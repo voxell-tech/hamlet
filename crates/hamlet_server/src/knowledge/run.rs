@@ -16,7 +16,8 @@ use crate::society::{city, hires, library as shelf};
 const MOST_WAIT: i64 = 300_000;
 
 /// Runs every job due at `now`, once each, returning those done. A
-/// job that fails runs again later, waiting longer each time.
+/// job that fails, panics or cannot be read runs again later,
+/// waiting longer each time, and the jobs after it still run.
 pub(crate) fn due(
     db: &mut Db,
     layout: &Layout,
@@ -25,10 +26,29 @@ pub(crate) fn due(
     let jobs = hamlet_store::job::due(db, now)?;
     let mut done = Vec::new();
     for kept in jobs {
-        let job = serde_json::from_str::<Job>(&kept.payload)
-            .with_context(|| format!("reading job {}", kept.id))?;
-        match run(db, layout, &job, now) {
-            Ok(()) => {
+        let ran = serde_json::from_str::<Job>(&kept.payload)
+            .with_context(|| format!("reading job {}", kept.id))
+            .and_then(|job| {
+                let ran = std::panic::catch_unwind(
+                    std::panic::AssertUnwindSafe(|| {
+                        run(db, layout, &job, now)
+                    }),
+                );
+                match ran {
+                    Ok(ran) => ran.map(|()| job),
+                    Err(panic) => {
+                        // What the job left open goes, or the pass
+                        // ends and the runner opens the store again.
+                        hamlet_store::unwind(db)?;
+                        bail!(
+                            "{}",
+                            crate::diagnostic::panicked(&*panic)
+                        )
+                    }
+                }
+            });
+        match ran {
+            Ok(job) => {
                 hamlet_store::job::finish(db, kept.id, now)?;
                 done.push(job);
             }

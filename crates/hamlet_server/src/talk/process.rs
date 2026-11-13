@@ -7,8 +7,8 @@ use std::process::Stdio;
 
 use anyhow::{Context, Result, ensure};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::process::{Child, ChildStdin, Command};
-use tokio::sync::mpsc::UnboundedSender;
+use tokio::process::{Child, Command};
+use tokio::sync::mpsc::{self, UnboundedSender};
 
 /// How the pi harness's runtimes are started.
 #[derive(Clone, Debug)]
@@ -93,7 +93,9 @@ pub(crate) struct Launch<'a> {
 /// A started runtime process.
 pub(crate) struct Process {
     child: Child,
-    stdin: Option<ChildStdin>,
+    /// The lines for its standard input, which a task of its own
+    /// writes in order; none once closed.
+    lines: Option<UnboundedSender<String>>,
 }
 
 impl Process {
@@ -145,8 +147,20 @@ impl Process {
                     pi.node.display()
                 )
             })?;
-        let stdin = child.stdin.take();
+        let mut stdin =
+            child.stdin.take().context("runtime input")?;
         let stdout = child.stdout.take().context("runtime output")?;
+        let (lines, mut writing) =
+            mpsc::unbounded_channel::<String>();
+        // A runtime that is gone is noticed when its output closes.
+        tokio::spawn(async move {
+            while let Some(mut line) = writing.recv().await {
+                line.push('\n');
+                if stdin.write_all(line.as_bytes()).await.is_err() {
+                    return;
+                }
+            }
+        });
         tokio::spawn(async move {
             let mut lines = BufReader::new(stdout).lines();
             while let Ok(Some(line)) = lines.next_line().await {
@@ -165,19 +179,18 @@ impl Process {
                 line: None,
             });
         });
-        Ok(Self { child, stdin })
+        Ok(Self {
+            child,
+            lines: Some(lines),
+        })
     }
 
-    /// Writes one line; a runtime that is gone is noticed when its
-    /// output closes.
-    pub async fn write(&mut self, line: &str) {
-        let Some(stdin) = self.stdin.as_mut() else {
-            return;
-        };
-        let mut bytes = line.as_bytes().to_vec();
-        bytes.push(b'\n');
-        if stdin.write_all(&bytes).await.is_err() {
-            self.stdin = None;
+    /// Queues one line, which is written after the lines before it.
+    pub fn write(&mut self, line: String) {
+        if let Some(lines) = &self.lines
+            && lines.send(line).is_err()
+        {
+            self.lines = None;
         }
     }
 
@@ -187,7 +200,8 @@ impl Process {
         mut self,
         grace: std::time::Duration,
     ) -> String {
-        self.stdin = None;
+        // Its input closes once the lines queued are written.
+        self.lines = None;
         let status = match tokio::time::timeout(
             grace,
             self.child.wait(),

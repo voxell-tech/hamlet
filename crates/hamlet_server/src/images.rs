@@ -372,29 +372,26 @@ impl Images {
     }
 }
 
-/// The images `ids` as a model is given them, made to fit `limits`
-/// on a thread of their own. An image that cannot be is left out.
-pub(crate) async fn pictures(
-    folder: PathBuf,
-    ids: Vec<ImageId>,
+/// The images `ids` in `folder` as a model is given them, made to
+/// fit `limits`. An image that cannot be is left out.
+pub(crate) fn pictures(
+    folder: &Path,
+    ids: &[ImageId],
     limits: Limits,
-) -> Result<Vec<Picture>> {
-    Ok(tokio::task::spawn_blocking(move || {
-        let images = Images::new(folder);
-        ids.iter()
-            .filter_map(|id| match images.picture(id, limits) {
-                Ok(picture) => Some(picture),
-                Err(error) => {
-                    tell(
-                        Secrets::Fixed,
-                        format!("an image was left out: {error:#}"),
-                    );
-                    None
-                }
-            })
-            .collect::<Vec<_>>()
-    })
-    .await?)
+) -> Vec<Picture> {
+    let images = Images::new(folder.to_owned());
+    ids.iter()
+        .filter_map(|id| match images.picture(id, limits) {
+            Ok(picture) => Some(picture),
+            Err(error) => {
+                tell(
+                    Secrets::Fixed,
+                    format!("an image was left out: {error:#}"),
+                );
+                None
+            }
+        })
+        .collect()
 }
 
 /// `bytes` made to fit `limits` and kept in `folder`, on a thread of
@@ -558,7 +555,7 @@ const MOST_UPLOADS: usize = 32;
 
 /// The images being sent, and when the realm last swept for those
 /// nothing uses.
-#[derive(Default)]
+#[derive(bevy_ecs::resource::Resource, Default)]
 pub(crate) struct Uploads {
     sending: HashMap<String, Sending>,
     swept: Option<Instant>,
@@ -583,7 +580,7 @@ fn usage(words: &str) -> Refusal {
     }
 }
 
-impl Core {
+impl Core<'_> {
     /// Begins an image of `size` bytes; the reply names the upload
     /// its parts are sent under.
     pub(crate) fn put_image(

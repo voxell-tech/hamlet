@@ -389,7 +389,7 @@ pub(super) fn list(call: &Call<'_>, key: &str) -> Vec<String> {
         .collect()
 }
 
-impl Core {
+impl Core<'_> {
     /// Carries out the society call `call`, which the gate let run.
     pub(super) async fn society(
         &mut self,

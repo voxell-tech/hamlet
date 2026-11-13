@@ -1,20 +1,23 @@
 //! The server from start to stop: the claim (S2), the harness, the
 //! published address, then the ordered close (S3).
 
+use std::cell::RefCell;
 use std::ffi::OsString;
 use std::path::PathBuf;
+use std::rc::Rc;
 use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
+use bevy_app::{App, AppExit};
 use hamlet_sandbox::{Isolation, Sandbox};
 use serde_json::json;
 use tokio::net::TcpListener;
 use tokio::sync::watch;
 
 use crate::clients::connection::GRACE;
-use crate::core::Core;
 use crate::credentials::write_whole;
 use crate::realm::Realm;
+use crate::server::{Fatal, Server};
 use crate::settings::{self, Overrides};
 use crate::talk::Env;
 use crate::talk::process::Pi;
@@ -111,14 +114,45 @@ fn chief_name() -> String {
         .unwrap_or_else(|| "chief".into())
 }
 
-/// Serves until SIGTERM or Ctrl-C, closing every client before
+/// Serves until SIGTERM or Ctrl-C, as a Bevy app whose runner is the
+/// serve loop: it sleeps until an input comes, never on a frame.
+pub fn run(options: Options) -> Result<()> {
+    let failed = Rc::new(RefCell::new(None));
+    let mut app = App::empty();
+    let failure = Rc::clone(&failed);
+    app.set_runner(move |app| {
+        let served = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .map_err(anyhow::Error::from)
+            .and_then(|runtime| {
+                runtime.block_on(serve(app, options))
+            });
+        match served {
+            Ok(()) => AppExit::Success,
+            Err(error) => {
+                *failure.borrow_mut() = Some(error);
+                AppExit::error()
+            }
+        }
+    });
+    match app.run() {
+        AppExit::Success => Ok(()),
+        AppExit::Error(_) => Err(failed
+            .borrow_mut()
+            .take()
+            .unwrap_or_else(|| anyhow::anyhow!("the server failed"))),
+    }
+}
+
+/// Serves `app` until SIGTERM or Ctrl-C, closing every client before
 /// letting the realm go.
 #[expect(
     clippy::print_stderr,
     reason = "the banner is the server's output for whoever started \
               it"
 )]
-pub async fn serve(options: Options) -> Result<()> {
+async fn serve(app: App, options: Options) -> Result<()> {
     let mut signals = Signals::new()?;
     hamlet_os::process::reap_with_server()?;
     let sandbox = Sandbox::open(options.isolation)?;
@@ -137,15 +171,17 @@ pub async fn serve(options: Options) -> Result<()> {
     };
     let pi = Pi::from_env(options.faux.clone())?;
     let (shutdown, closing) = watch::channel(false);
-    let (mut core, mut inbox) =
-        Core::start(realm, env, pi, sandbox, closing).await?;
+    let mut server =
+        Server::start(app, realm, env, pi, sandbox, closing).await?;
     let listener = TcpListener::bind((
         std::net::Ipv4Addr::LOCALHOST,
         options.port,
     ))
     .await?;
     let url = format!("ws://{}", listener.local_addr()?);
-    inbox.listen(listener);
+    server.listen(listener);
+    let core = server.core()?;
+    let root = core.realm.layout().root().to_owned();
     let published = core.realm.layout().server();
     let started = chrono::Utc::now()
         .to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
@@ -159,37 +195,37 @@ pub async fn serve(options: Options) -> Result<()> {
     let published = Published(published);
     eprintln!(
         "hamlet_server: holding {}; serving at {url}; Ctrl-C stops",
-        hamlet_os::fs::path::text(core.realm.layout().root())
+        hamlet_os::fs::path::text(&root)
     );
     let served = async {
         loop {
-            core.step(&mut inbox, Duration::from_secs(60)).await?;
+            server.step(Duration::from_secs(60)).await?;
         }
         #[expect(
             unreachable_code,
-            reason = "the loop ends with an error or a signal"
+            reason = "the loop ends with a fatal error or a signal"
         )]
-        Ok::<_, anyhow::Error>(())
+        Ok::<_, Fatal>(())
     };
     let result = tokio::select! {
-        result = served => result,
+        result = served => result.map_err(|fatal| fatal.0),
         () = signals.next() => Ok(()),
     };
     shutdown.send_replace(true);
-    let tasks = &mut core.clients.tasks;
+    let mut tasks = std::mem::take(&mut server.core()?.clients.tasks);
     let drained =
         async { while tasks.join_next().await.is_some() {} };
     tokio::select! {
         () = signals.next() => std::process::exit(130),
         _ = tokio::time::timeout(GRACE, drained) => {}
     }
-    core.clients.tasks.abort_all();
-    let closed = core.close(&mut inbox, ROTATING);
+    tasks.abort_all();
+    let closed = server.close(ROTATING);
     tokio::select! {
         () = signals.next() => std::process::exit(130),
         closed = closed => closed?,
     }
-    let stopped = core.stop(STOPPING);
+    let stopped = server.stop(STOPPING);
     tokio::select! {
         () = signals.next() => std::process::exit(130),
         stopped = stopped => stopped?,

@@ -40,6 +40,7 @@ const LOCAL_RATE: f64 = 0.1;
 /// The provider of the faux models a faux realm runs.
 pub(crate) const FAUX: &str = "faux";
 
+#[derive(bevy_ecs::resource::Resource)]
 pub(crate) struct Providers {
     file: PathBuf,
     /// Each endpoint's models as its provider lists them.
@@ -249,7 +250,7 @@ impl Providers {
     }
 }
 
-impl Core {
+impl Core<'_> {
     /// Asks the providers what they offer, and each endpoint for its
     /// models.
     pub(crate) fn start_providers(&mut self) -> Result<()> {
@@ -348,7 +349,7 @@ impl Core {
 
     /// Sends what waits for the providers to the default harness's
     /// runtime once it is ready.
-    pub(crate) async fn send_providers(&mut self) -> Result<()> {
+    pub(crate) fn send_providers(&mut self) -> Result<()> {
         let db = self.realm.store().connection();
         let id = crate::talk::runtimes::of_harness(
             db,
@@ -363,11 +364,9 @@ impl Core {
         // A request keeps its own id, which its result answers.
         for request in std::mem::take(&mut self.providers.outgoing) {
             self.leases.grant(index, &request.id, &request.provider);
-            self.runtimes
-                .send(index, |_, _| {
-                    runtime::ServerMessage::ProviderRequest(request)
-                })
-                .await;
+            self.runtimes.send(index, |_, _| {
+                runtime::ServerMessage::ProviderRequest(request)
+            });
         }
         for control in std::mem::take(&mut self.providers.controls) {
             let indices = (0..self.runtimes.list.len())
@@ -378,13 +377,9 @@ impl Core {
                     self.leases.finish(at, &control.scope);
                 }
                 let control = control.clone();
-                self.runtimes
-                    .send(at, |_, _| {
-                        runtime::ServerMessage::ProviderControl(
-                            control,
-                        )
-                    })
-                    .await;
+                self.runtimes.send(at, |_, _| {
+                    runtime::ServerMessage::ProviderControl(control)
+                });
             }
         }
         Ok(())
@@ -621,7 +616,7 @@ impl Core {
         for answer in answers {
             self.answer(client, answer)?;
         }
-        self.send_providers().await?;
+        self.send_providers()?;
         Ok(true)
     }
 

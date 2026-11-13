@@ -2,8 +2,6 @@
 //! scholar, taking one off the library's shelves, and having a hire
 //! or a scholar dream.
 
-use std::sync::PoisonError;
-
 use anyhow::Result;
 use hamlet_store::ids::{Actor, HamletId};
 
@@ -12,7 +10,7 @@ use crate::knowledge::library;
 use crate::society::library::{self as shelf, Event, EventKind};
 use crate::society::refusal::Refusal;
 
-impl Core {
+impl Core<'_> {
     /// Runs the command `name` with `words` when it is one of these.
     pub(super) async fn shelves_command(
         &mut self,
@@ -45,8 +43,7 @@ impl Core {
             format!("Took {skill} off the shelves: {reason}")
         };
         let writing = self.writing.clone();
-        let held =
-            writing.lock().unwrap_or_else(PoisonError::into_inner);
+        let held = writing.hold();
         let unshelved =
             library::unshelve(&layout, skill, &message, &by, at)?;
         drop(held);

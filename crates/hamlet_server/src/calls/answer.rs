@@ -100,7 +100,7 @@ fn withdraw(
     Ok(())
 }
 
-impl Core {
+impl Core<'_> {
     /// A chief's `choice` on the wait `id`, in the words a reply
     /// gives.
     pub(crate) async fn answer_wait(
@@ -265,7 +265,7 @@ impl Core {
             return Ok(Err(Refusal::NoWait));
         }
         for (call, _, _) in ruled {
-            self.wake_call(&call.runtime, &call.key).await;
+            self.wake_call(&call.runtime, &call.key);
         }
         if wait.kind == WaitKind::Objection {
             if let (Some(task), Some(conversation)) =
@@ -277,10 +277,9 @@ impl Core {
                 self.wake_call(
                     &runtime,
                     &super::reviews::hold_key(task),
-                )
-                .await;
+                );
             }
-            self.flush(false).await?;
+            self.flush(false)?;
         }
         Ok(Ok(format!(
             "Answered /{ruling}: {}",
@@ -290,23 +289,13 @@ impl Core {
 
     /// Tells the runtime of a held call that its wait was answered,
     /// so asking again may get further.
-    pub(crate) async fn wake_call(
-        &mut self,
-        runtime: &str,
-        key: &str,
-    ) {
+    pub(crate) fn wake_call(&mut self, runtime: &str, key: &str) {
         let Some(index) = self.runtimes.index_of(runtime) else {
             return;
         };
         let key = key.to_owned();
-        self.runtimes
-            .send(index, |v, id| {
-                ServerMessage::Answered(runtime::Answered {
-                    id,
-                    key,
-                    v,
-                })
-            })
-            .await;
+        self.runtimes.send(index, |v, id| {
+            ServerMessage::Answered(runtime::Answered { id, key, v })
+        });
     }
 }

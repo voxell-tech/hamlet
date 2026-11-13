@@ -1,12 +1,8 @@
 //! `hamlet_server`: serves a claimed realm over the client protocol.
 
 use anyhow::Result;
-use hamlet_server::serve::{Options, serve};
+use hamlet_server::serve::{Options, run};
 
 fn main() -> Result<()> {
-    let options = Options::parse(std::env::args_os().skip(1))?;
-    tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()?
-        .block_on(serve(options))
+    run(Options::parse(std::env::args_os().skip(1))?)
 }

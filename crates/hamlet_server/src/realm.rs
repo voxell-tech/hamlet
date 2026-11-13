@@ -3,8 +3,10 @@
 
 use std::io::Write;
 use std::path::Path;
+use std::sync::{Mutex, PoisonError};
 
 use anyhow::{Context, Result, ensure};
+use bevy_ecs::resource::Resource;
 use hamlet_store::Store;
 use hamlet_store::ids::{Actor, ChiefId};
 
@@ -16,11 +18,14 @@ use crate::society::{chiefs, hand};
 /// The Hand's character in a new realm.
 const HAND: &str = include_str!("../assets/hand.md");
 
+#[derive(Resource)]
 pub(crate) struct Realm {
     layout: Layout,
     // Declared before the claim, so a dropped realm closes its
-    // database before it lets the folder go.
-    store: Store,
+    // database before it lets the folder go. Only one thread holds
+    // a connection at once; the mutex is never locked, only reached
+    // through `&mut`.
+    store: Mutex<Store>,
     chief: ChiefId,
     _claim: Claim,
 }
@@ -62,7 +67,7 @@ impl Realm {
         let chief = chiefs::ensure(store.connection(), chief, at)?;
         Ok(Self {
             layout,
-            store,
+            store: Mutex::new(store),
             chief,
             _claim: claim,
         })
@@ -73,7 +78,7 @@ impl Realm {
     }
 
     pub fn store(&mut self) -> &mut Store {
-        &mut self.store
+        self.store.get_mut().unwrap_or_else(PoisonError::into_inner)
     }
 
     /// The chief this server runs as (C7).

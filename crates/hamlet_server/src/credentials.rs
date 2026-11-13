@@ -36,6 +36,7 @@ pub(crate) struct WorkspaceAddress {
 }
 
 /// The realm's credential file and its in-memory secret history.
+#[derive(bevy_ecs::resource::Resource)]
 pub struct Credentials {
     file: PathBuf,
     stored: Stored,
