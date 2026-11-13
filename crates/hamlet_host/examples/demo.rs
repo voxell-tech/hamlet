@@ -10,6 +10,9 @@
 //! demo destroy <key>            ask the actor to destroy itself
 //! demo send <from> <to> [n]     counter <from> sends <n>, or 5, to
 //!                               counter <to>
+//! demo poison <from> <to>       counter <from> sends counter <to> a
+//!                               message whose handler aborts the
+//!                               process
 //! demo drain <key>              wait until the counter's sends are
 //!                               all confirmed, for up to 10 s
 //! demo timers <kind>/<key>      print the actor's set-aside timers
@@ -92,8 +95,8 @@ async fn main() -> Result<()> {
         }
         None => Err(anyhow!(
             "usage: demo \
-             increment|get|schedule|sleep|destroy|send|drain|timers|\
-             rearm|boot|serve ..."
+             increment|get|schedule|sleep|destroy|send|poison|drain|\
+             timers|rearm|boot|serve ..."
         )),
     };
     host.shutdown().await?;
@@ -171,6 +174,17 @@ async fn run(host: &Host, words: &[String]) -> Result<()> {
                 format!("counter/{to}").as_bytes(),
             );
             act(host, &actor_id, "send", args).await?
+        }
+        "poison" => {
+            let to =
+                words.get(2).context("poison takes a receiver")?;
+            act(
+                host,
+                &actor_id,
+                "poison",
+                format!("counter/{to}").into_bytes(),
+            )
+            .await?
         }
         "drain" => {
             let begun = Instant::now();

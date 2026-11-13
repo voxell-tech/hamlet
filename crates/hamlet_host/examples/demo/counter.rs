@@ -22,13 +22,15 @@
 //! - `send` takes a little-endian `i64` `n`, then the receiver's id,
 //!   `<kind>/<key>`. In one transaction it writes a `ledger` row and
 //!   sends `n` to the receiver, which adds it to its count.
+//! - `poison` takes the receiver's id and sends it, as `send` does
+//!   with `n` 0, a message whose handler aborts the process.
 //! - `outbox` replies with the number of this counter's sends that
 //!   their receivers have not confirmed.
 //! - `hamlet.receive` is the host's delivery of a send. Its receive
 //!   transaction adds the send's `n` to the count and writes a
-//!   `received` row. A delivery the host answers as a repeat writes a
-//!   `repeats` row instead. It replies with the host's answer, not a
-//!   count.
+//!   `received` row, or aborts the process for a `poison` message. A
+//!   delivery the host answers as a repeat writes a `repeats` row
+//!   instead. It replies with the host's answer, not a count.
 //!
 //! `increment` passes the fault point `tx-open` inside its
 //! transaction, and `tx-committed` after it commits and before it
@@ -228,10 +230,15 @@ async fn action(
                 .ok_or_else(|| anyhow!("send takes an i64"))?;
             send_n(
                 ctx,
+                "add",
                 i64::from_le_bytes(*n),
                 std::str::from_utf8(to)?,
             )
             .await
+        }
+        "poison" => {
+            send_n(ctx, "poison", 0, std::str::from_utf8(&args)?)
+                .await
         }
         "outbox" => {
             let result = ctx
@@ -253,9 +260,14 @@ async fn action(
     }
 }
 
-/// Sends `n` to the actor `to`, `<kind>/<key>`, with a `ledger` row
-/// in the same transaction.
-async fn send_n(ctx: &ActorContext, n: i64, to: &str) -> Result<i64> {
+/// Sends the message `name` with `n` to the actor `to`,
+/// `<kind>/<key>`, with a `ledger` row in the same transaction.
+async fn send_n(
+    ctx: &ActorContext,
+    name: &str,
+    n: i64,
+    to: &str,
+) -> Result<i64> {
     let (kind, key) = to
         .split_once('/')
         .with_context(|| format!("`{to}` is not <kind>/<key>"))?;
@@ -263,7 +275,7 @@ async fn send_n(ctx: &ActorContext, n: i64, to: &str) -> Result<i64> {
     let seq = send::send(
         &tx,
         &Address::new(kind, key),
-        "add",
+        name,
         &n.to_le_bytes(),
         &Cause::root("demo"),
     )
@@ -299,6 +311,9 @@ async fn receive(
     }
     let delivery =
         send::receive(ctx, envelope, |tx, message| async move {
+            if message.name == "poison" {
+                std::process::abort();
+            }
             add_received(&tx, &message).await
         })
         .await?;
