@@ -286,6 +286,25 @@ async fn an_action_with_no_reply_times_out() {
     // action, so the test ends with the actor still running.
 }
 
+/// The host's caller is Hamlet's own code, so an action's error
+/// reaches it with the actor's message and its causes.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_action_error_keeps_the_actors_message() {
+    let dir = Scratch::new("host-action-error");
+    let host = Host::open(&dir, factories()).unwrap();
+    let id = host.get_or_start("counter", "a").await.unwrap();
+
+    for (action, args, cause) in [
+        ("nope", Vec::new(), "unknown action `nope`"),
+        ("schedule", vec![1], "schedule takes a u64"),
+    ] {
+        let error = host.action(&id, action, args).await.unwrap_err();
+        let text = format!("{error:#}");
+        assert!(text.contains(cause), "{action}: {text}");
+    }
+    host.stop_all().await.unwrap();
+}
+
 /// Each new alarm replaces the actor's armed timer, so storing many
 /// alarms leaves one sleeping task, not one per alarm.
 #[tokio::test(flavor = "multi_thread")]

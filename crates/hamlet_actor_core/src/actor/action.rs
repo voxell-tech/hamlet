@@ -20,7 +20,7 @@ pub struct ActionDispatchError {
 
 impl ActionDispatchError {
     pub(crate) fn from_anyhow(error: anyhow::Error) -> Self {
-        let original_message = error.to_string();
+        let original_message = format!("{error:#}");
         let error = ActorError::extract(&error);
         let message =
             if is_internal_error(error.group(), error.code()) {
@@ -63,6 +63,9 @@ impl ActionDispatchError {
         )
     }
 
+    /// Hands the error back to the host's own caller with its
+    /// message and metadata unmasked. A reply to a client masks them
+    /// with `client_message` and `client_metadata`.
     pub(crate) fn into_anyhow(self) -> anyhow::Error {
         let ActionDispatchError {
             group,
@@ -71,13 +74,9 @@ impl ActionDispatchError {
             metadata,
             actor,
         } = self;
-        let message =
-            client_error_message(&group, &code, &message).to_owned();
-        let meta =
-            client_error_metadata(&group, &code, metadata.as_ref())
-                .and_then(|value| {
-                    serde_json::value::to_raw_value(value).ok()
-                });
+        let meta = metadata.as_ref().and_then(|value| {
+            serde_json::value::to_raw_value(value).ok()
+        });
         anyhow::Error::new(ActorError {
             kind: ActorErrorKind::Dynamic {
                 group,
