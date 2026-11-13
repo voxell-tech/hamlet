@@ -271,20 +271,6 @@ function normalizeNativeMetrics(
         stateUpdateNs: numberField("stateUpdateNs", "state_update_ns"),
         totalNs: numberField("totalNs", "total_ns"),
         commitCount: numberField("commitCount", "commit_count"),
-        pageCacheEntries: numberField("pageCacheEntries", "page_cache_entries"),
-        pageCacheWeightedSize: numberField(
-            "pageCacheWeightedSize",
-            "page_cache_weighted_size",
-        ),
-        pageCacheCapacityPages: numberField(
-            "pageCacheCapacityPages",
-            "page_cache_capacity_pages",
-        ),
-        writeBufferDirtyPages: numberField(
-            "writeBufferDirtyPages",
-            "write_buffer_dirty_pages",
-        ),
-        dbSizePages: numberField("dbSizePages", "db_size_pages"),
     };
 }
 

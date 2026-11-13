@@ -217,11 +217,6 @@ export interface JsSqliteVfsMetrics {
     stateUpdateNs: number;
     totalNs: number;
     commitCount: number;
-    pageCacheEntries: number;
-    pageCacheWeightedSize: number;
-    pageCacheCapacityPages: number;
-    writeBufferDirtyPages: number;
-    dbSizePages: number;
 }
 export interface JsHttpResponse {
     status?: number;
