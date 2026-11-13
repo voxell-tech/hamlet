@@ -22,15 +22,15 @@ use crate::settings::{self, Overrides};
 use crate::talk::Env;
 use crate::talk::process::Pi;
 
-/// How long a closing realm waits for its runtimes to stop.
+/// The time a closing realm waits for its runtimes to stop.
 const STOPPING: Duration = Duration::from_secs(30);
-/// How long a closing realm waits for a credential rotation begun.
+/// The time a closing realm waits for a credential rotation begun.
 const ROTATING: Duration = Duration::from_secs(15);
 
 const USAGE: &str = "usage: hamlet_server [--home <dir>] [--port \
                      <n>] [--faux <file>] [--insecure]";
 
-/// How the server is started.
+/// The options the server is started with.
 pub struct Options {
     pub home: PathBuf,
     pub port: u16,
@@ -115,7 +115,7 @@ fn chief_name() -> String {
 }
 
 /// Serves until SIGTERM or Ctrl-C, as a Bevy app whose runner is the
-/// serve loop: it sleeps until an input comes, never on a frame.
+/// serve loop, which sleeps until an input comes.
 pub fn run(options: Options) -> Result<()> {
     let failed = Rc::new(RefCell::new(None));
     let mut app = App::empty();
@@ -241,10 +241,10 @@ pub(crate) struct Signals {
     terminate: tokio::signal::unix::Signal,
     #[cfg(windows)]
     interrupt: tokio::signal::windows::CtrlC,
-    /// What `hamlet dev` sends the server it keeps in a process
-    /// group of its own.
+    /// The signal `hamlet dev` sends the server it keeps in a
+    /// process group of its own.
     #[cfg(windows)]
-    brk: tokio::signal::windows::CtrlBreak,
+    ctrl_break: tokio::signal::windows::CtrlBreak,
 }
 
 impl Signals {
@@ -261,7 +261,7 @@ impl Signals {
         {
             Ok(Self {
                 interrupt: tokio::signal::windows::ctrl_c()?,
-                brk: tokio::signal::windows::ctrl_break()?,
+                ctrl_break: tokio::signal::windows::ctrl_break()?,
             })
         }
     }
@@ -278,7 +278,7 @@ impl Signals {
         {
             tokio::select! {
                 _ = self.interrupt.recv() => {}
-                _ = self.brk.recv() => {}
+                _ = self.ctrl_break.recv() => {}
             }
         }
     }

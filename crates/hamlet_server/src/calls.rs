@@ -1,4 +1,4 @@
-//! What a runtime asks while a turn runs: whether a tool call may run
+//! A runtime's asks while a turn runs: whether a tool call may run
 //! (C7, H11), and the call carried out once under its key (S19). A
 //! chief's answer to what waits lets held calls go on.
 
@@ -9,7 +9,7 @@ pub(crate) mod looks;
 mod objections;
 pub(crate) mod place;
 pub(crate) mod reviews;
-mod society;
+pub(crate) mod society;
 
 use std::collections::BTreeMap;
 use std::future::Future;
@@ -35,8 +35,6 @@ use tokio::task::AbortHandle;
 use self::held::State;
 use self::looks::Look;
 use self::objections::OBJECTING;
-pub(crate) use self::society::library::LIBRARIAN;
-pub(crate) use self::society::welcome;
 use crate::core::Core;
 use crate::images::Limits;
 use crate::images::fitting::kept_pictures;
@@ -48,7 +46,7 @@ use crate::talk::conversations::{Conversation, Kind};
 use crate::talk::marks::Mark;
 use crate::talk::{asking, conversations, inputs, models};
 use crate::work::catalogue::Society;
-use crate::work::tools::{Outcome, Sight, ToolSession};
+use crate::work::tools::{Network, Outcome, Sight, ToolSession};
 use crate::workspace::serving::Lodging;
 
 /// The words of a call that waits for a chief.
@@ -66,6 +64,13 @@ const STOPPED: &str = "The chief stopped this turn.";
 const NO_CHIEF: &str =
     "No chief oversees this turn; go on with what you know.";
 
+/// The channel of ended tool runs and the looks made off the loop.
+pub(crate) fn plugin(app: &mut bevy_app::App) {
+    let ran = crate::server::arriving::<Ran>(app);
+    app.insert_resource(Calls { ran })
+        .init_resource::<looks::Looks>();
+}
+
 /// A tool call, by its runtime and key.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct CallId {
@@ -82,13 +87,13 @@ impl CallId {
     }
 }
 
-/// Where a call is answered: the runtime process that asked, and its
-/// request.
+/// The address of a call's answer: the runtime process that asked,
+/// and its request.
 #[derive(Clone, Debug)]
 pub(crate) struct Reply {
     pub to: Entity,
     pub generation: u64,
-    pub re: String,
+    pub request: String,
 }
 
 /// A tool run that ended.
@@ -97,18 +102,18 @@ pub(crate) struct Ran {
     outcome: Outcome,
 }
 
-/// What carrying out a call comes to now.
+/// The result of carrying out a call now.
 enum Carried {
     /// Its outcome, to keep and answer.
     Done(Outcome),
-    /// What its runtime is told while it cannot finish yet.
+    /// The answer its runtime gets while it cannot finish yet.
     Answer(Answer),
     /// It goes on off the loop, a look or a run, and is answered once
     /// that is done.
     Later,
 }
 
-/// What a runtime is answered about a call.
+/// A runtime's answer about a call.
 pub(crate) enum Answer {
     Allowed,
     Waiting(String),
@@ -116,7 +121,7 @@ pub(crate) enum Answer {
     Result(Outcome),
 }
 
-/// Where the tool runs that end are sent, as inputs.
+/// The sender of ended tool runs, as inputs.
 #[derive(bevy_ecs::resource::Resource)]
 pub(crate) struct Calls {
     ran: mpsc::UnboundedSender<Ran>,
@@ -158,7 +163,7 @@ pub(crate) fn start(
     }
 }
 
-/// What a run that ended still owes.
+/// The replies and request an ended run still owes.
 struct Ended {
     replies: Vec<Reply>,
     request: Request,
@@ -177,14 +182,6 @@ fn stopped(world: DeferredWorld, context: HookContext) {
 /// Every tool run in progress.
 pub(crate) type Runs<'w, 's> =
     Query<'w, 's, (Entity, &'static mut Running)>;
-
-/// Where the tool runs that end are sent, and what looks off the loop
-/// found for the calls.
-pub(crate) fn plugin(app: &mut bevy_app::App) {
-    let ran = crate::server::arriving::<Ran>(app);
-    app.insert_resource(Calls { ran })
-        .init_resource::<looks::Looks>();
-}
 
 impl Calls {
     /// The run of `work` for `call`, to spawn; it starts once its
@@ -286,8 +283,10 @@ pub(crate) fn spec(
     }
 }
 
-/// Whether `conversation` offers `tool`.
-fn offers(conversation: &Conversation, tool: &str) -> Result<bool> {
+fn is_offered(
+    conversation: &Conversation,
+    tool: &str,
+) -> Result<bool> {
     Ok(match conversation.tools()? {
         None => true,
         Some(ConfigureTools::Only { only }) => {
@@ -308,13 +307,21 @@ fn unavailable(tool: &str) -> Outcome {
 }
 
 /// A result in words.
-pub(crate) fn said(text: impl Into<String>, error: bool) -> Outcome {
+pub(crate) fn said(text: impl Into<String>) -> Outcome {
     Outcome {
         text: text.into(),
-        error,
+        error: false,
         details: None,
         diagnostics: Vec::new(),
         images: Vec::new(),
+    }
+}
+
+/// An error in words.
+pub(crate) fn refused(text: impl Into<String>) -> Outcome {
+    Outcome {
+        error: true,
+        ..said(text)
     }
 }
 
@@ -328,7 +335,7 @@ struct Call<'a> {
     /// The society tool `tool` names, read once here.
     society: Option<Society>,
     arguments: &'a BTreeMap<String, Value>,
-    /// What its marker keeps it as.
+    /// Its request as its marker keeps it.
     request: Request,
 }
 
@@ -340,7 +347,7 @@ impl Call<'_> {
     }
 }
 
-/// What the gate decided of a call.
+/// The gate's decision on a call.
 enum Decision {
     Run {
         net: bool,
@@ -365,18 +372,22 @@ impl Core<'_, '_> {
         {
             return;
         }
-        let re = reply.re.clone();
+        let request = reply.request.clone();
         let key = key.to_owned();
         let images_folder = self.realm.layout().images();
         self.runtimes.send(reply.to, |v, id| match answer {
             Answer::Allowed => {
-                ServerMessage::Allowed(runtime::Allowed { id, re, v })
+                ServerMessage::Allowed(runtime::Allowed {
+                    id,
+                    re: request,
+                    v,
+                })
             }
             Answer::Waiting(words) => {
                 ServerMessage::Waiting(runtime::Waiting {
                     id,
                     key,
-                    re,
+                    re: request,
                     v,
                     words,
                 })
@@ -384,7 +395,7 @@ impl Core<'_, '_> {
             Answer::Refusal(words) => {
                 ServerMessage::Refusal(runtime::Refusal {
                     id,
-                    re,
+                    re: request,
                     v,
                     words,
                 })
@@ -403,7 +414,7 @@ impl Core<'_, '_> {
                         .then_some(outcome.diagnostics),
                     error: outcome.error,
                     id,
-                    re,
+                    re: request,
                     text: outcome.text,
                     v,
                 })
@@ -456,15 +467,16 @@ impl Core<'_, '_> {
         }))
     }
 
-    fn reply_of(&self, from: Entity, re: &str) -> Reply {
+    fn reply_of(&self, from: Entity, request: &str) -> Reply {
         Reply {
             to: from,
             generation: self.runtimes.generation(from).unwrap_or(0),
-            re: re.into(),
+            request: request.into(),
         }
     }
 
-    /// Whether the call `asked` may run, before it is kept as begun.
+    /// Answers a runtime whether the call `asked` may run, before it
+    /// is kept as begun.
     pub(crate) fn allow_call(
         &mut self,
         from: Entity,
@@ -487,7 +499,7 @@ impl Core<'_, '_> {
             }
         };
         if call.society != Some(Society::Object)
-            && self.withdrawn(&call)?
+            && self.is_withdrawn(&call)?
         {
             self.tell_call(
                 &reply,
@@ -496,7 +508,7 @@ impl Core<'_, '_> {
             );
             return Ok(());
         }
-        if self.objecting(&call)? {
+        if self.is_objecting(&call)? {
             self.tell_call(
                 &reply,
                 &asked.key,
@@ -504,7 +516,7 @@ impl Core<'_, '_> {
             );
             return Ok(());
         }
-        let answer = if !offers(&call.conversation, call.tool)?
+        let answer = if !is_offered(&call.conversation, call.tool)?
             || matches!(
                 call.society,
                 Some(Society::AskChief | Society::Object)
@@ -613,7 +625,7 @@ impl Core<'_, '_> {
         Ok(())
     }
 
-    /// What `call` was answered with when it was asked before: its
+    /// The answer kept for `call` from when it was asked before: its
     /// outcome, or that a restart cut it off; none when it is new.
     fn kept_answer(
         &mut self,
@@ -658,7 +670,7 @@ impl Core<'_, '_> {
         again: RuntimeMessage,
     ) -> Result<Carried> {
         let tool = call.tool;
-        if !offers(&call.conversation, tool)? {
+        if !is_offered(&call.conversation, tool)? {
             return Ok(Carried::Done(unavailable(tool)));
         }
         if let Some(chief @ (Society::AskChief | Society::Object)) =
@@ -674,10 +686,10 @@ impl Core<'_, '_> {
                 Err(answer) => Carried::Answer(answer),
             });
         }
-        if self.withdrawn(call)? {
-            return Ok(Carried::Done(said(held::WITHDRAWN, true)));
+        if self.is_withdrawn(call)? {
+            return Ok(Carried::Done(refused(held::WITHDRAWN)));
         }
-        if self.objecting(call)? {
+        if self.is_objecting(call)? {
             return Ok(Carried::Answer(Answer::Waiting(
                 OBJECTING.into(),
             )));
@@ -712,7 +724,7 @@ impl Core<'_, '_> {
                         call,
                         reply.clone(),
                         request,
-                        net,
+                        Network::of(net),
                     )? {
                         Some(outcome) => Carried::Done(outcome),
                         None => Carried::Later,
@@ -730,16 +742,16 @@ impl Core<'_, '_> {
         call: &Call<'_>,
         reply: Reply,
         request: Request,
-        net: bool,
+        net: Network,
     ) -> Result<Option<Outcome>> {
-        let once = self.runs_once(call.tool);
+        let once = self.is_once_only(call.tool);
         let layout = self.realm.layout().clone();
         let db = self.realm.store().connection();
         let agent = call.conversation.agent;
         let at =
             place::of_conversation(db, &layout, &call.conversation)?;
         if let Some(refusal) = character_refusal(&at.place, call) {
-            return Ok(Some(said(refusal, true)));
+            return Ok(Some(refused(refusal)));
         }
         if once {
             marker::begin(
@@ -774,7 +786,7 @@ impl Core<'_, '_> {
                 if let Some(lodging) = &lodging
                     && let Err(error) = lodging.in_step().await
                 {
-                    return said(
+                    return refused(
                         hamlet_sandbox::scrub::scrub_text(
                             &secrets,
                             &format!(
@@ -782,7 +794,6 @@ impl Core<'_, '_> {
                                  take the lodge in: {error:#}"
                             ),
                         ),
-                        true,
                     );
                 }
                 let mut outcome =
@@ -811,23 +822,24 @@ impl Core<'_, '_> {
         Ok(None)
     }
 
-    /// Where the tools of `call`'s agent run: in the remote workspace
-    /// the realm works in, with what keeps its lodge's remote copy in
-    /// step, else on this machine. A dream works on this machine's
-    /// checkout of its scholar, so it runs here.
+    /// The session the tools of `call`'s agent run in: the remote
+    /// workspace the realm works in, with the lodge's remote copy
+    /// kept in step, else this machine.
     fn tools_of(
         &mut self,
         call: &Call<'_>,
         place: crate::work::tools::Place,
-        net: bool,
+        network: Network,
     ) -> Result<(ToolSession, Option<Lodging>)> {
         let agent = call.conversation.agent;
         let remote = match call.conversation.kind {
+            // A dream works on this machine's checkout of its
+            // scholar.
             Kind::Dream => None,
             _ => self.remote.session(
                 self.realm.store().connection(),
                 agent,
-                net,
+                network,
             )?,
         };
         Ok(match remote {
@@ -842,7 +854,7 @@ impl Core<'_, '_> {
             None => (
                 ToolSession::local(
                     place,
-                    net,
+                    network,
                     self.tools.sandbox.0,
                     self.tools.shells.clone(),
                     self.tools.leftovers.of(agent.0),
@@ -872,9 +884,9 @@ impl Core<'_, '_> {
         })
     }
 
-    /// Whether `tool` may not run twice: what writes, runs or is
-    /// added by hand.
-    fn runs_once(&self, tool: &str) -> bool {
+    /// Tells whether `tool` may not run twice: what writes, runs or
+    /// is added by hand.
+    fn is_once_only(&self, tool: &str) -> bool {
         self.tools
             .catalogue
             .iter()
@@ -955,12 +967,11 @@ impl Core<'_, '_> {
                 ruling: Ruling::Reply,
                 text,
                 ..
-            }) => return Ok(Ok(said(text, false))),
+            }) => return Ok(Ok(said(text))),
             Some(State::Ruled { .. }) => {
                 return Ok(Ok(said(
                     "The chief did not answer; go on with what you \
                      know.",
-                    false,
                 )));
             }
             Some(State::Held(_)) => {
@@ -971,15 +982,15 @@ impl Core<'_, '_> {
             }
             Some(State::Open | State::Allowed { .. }) | None => {}
         }
-        if !self.chief_oversees(call)? {
-            return Ok(Ok(said(NO_CHIEF, false)));
+        if !self.is_overseen(call)? {
+            return Ok(Ok(said(NO_CHIEF)));
         }
         let questions = match asking::read(&serde_json::to_string(
             call.arguments,
         )?) {
             Ok(questions) => questions,
             Err(unasked) => {
-                return Ok(Ok(said(unasked.to_string(), true)));
+                return Ok(Ok(refused(unasked.to_string())));
             }
         };
         let mut questions = serde_json::to_value(questions)?;
@@ -1001,13 +1012,10 @@ impl Core<'_, '_> {
             } else {
                 format!("{most} times")
             };
-            return Ok(Ok(said(
-                format!(
-                    "You have asked the chief {times} this turn; go \
-                     on with what you know."
-                ),
-                false,
-            )));
+            return Ok(Ok(said(format!(
+                "You have asked the chief {times} this turn; go on \
+                 with what you know."
+            ))));
         }
         asked.questions += 1;
         let (runtime, key) =
@@ -1038,9 +1046,9 @@ impl Core<'_, '_> {
         Ok(Err(Answer::Waiting(WAITING.into())))
     }
 
-    /// Whether a chief oversees the turn that makes `call`: a chief's
-    /// line, or a retry or reflection in a chief's chat.
-    fn chief_oversees(&mut self, call: &Call<'_>) -> Result<bool> {
+    /// Tells whether a chief oversees the turn that makes `call`: a
+    /// chief's line, or a retry or reflection in a chief's chat.
+    fn is_overseen(&mut self, call: &Call<'_>) -> Result<bool> {
         let Some(submission) = call.input else {
             return Ok(false);
         };

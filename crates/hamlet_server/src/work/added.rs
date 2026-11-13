@@ -24,7 +24,7 @@ use crate::core::{Catalogue, Tooling};
 use crate::diagnostic::{Secrets, tell};
 use crate::realm::Realm;
 use crate::talk::runtimes::Runtimes;
-use crate::work::tools::{Outcome, diagnostic};
+use crate::work::tools::{Network, Outcome, diagnostic};
 
 /// A loaded manifest and the program its tool runs.
 pub(crate) struct Manifest {
@@ -201,7 +201,7 @@ struct Written {
     sandbox: Reach,
 }
 
-/// What a tool's commands may reach beyond its own folder.
+/// The reach of a tool's commands beyond its own folder.
 #[derive(Deserialize, Default)]
 #[serde(default)]
 struct Reach {
@@ -320,7 +320,7 @@ fn parse(
 pub(crate) async fn run(
     sandbox: &Sandbox,
     root: &Path,
-    net: bool,
+    network: Network,
     leftovers: &Leftovers,
     secrets: &[String],
     name: &str,
@@ -345,7 +345,7 @@ pub(crate) async fn run(
             format!("Validation failed for tool {name}"),
         );
     }
-    manifest.policy.net &= net;
+    manifest.policy.net &= network.is_open();
     let wall = manifest.policy.limits.wall_secs;
     let env = match Env::private(
         &text(&manifest.dir),

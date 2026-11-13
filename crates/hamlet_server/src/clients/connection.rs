@@ -27,7 +27,7 @@ use crate::credentials::Credentials;
 const LARGEST: usize = 1_048_576;
 pub(crate) const GRACE: Duration = Duration::from_secs(1);
 
-/// What a connection did, for the serve loop.
+/// A connection's event, for the serve loop.
 pub(crate) enum Event {
     Message(u64, String),
     Late(u64),
@@ -58,7 +58,7 @@ pub(crate) struct Connection {
 #[relationship(relationship_target = Uploading)]
 pub(crate) struct UploadOf(pub Entity);
 
-/// What a connection is sending in parts.
+/// The uploads a connection is sending in parts.
 #[derive(Component)]
 #[relationship_target(relationship = UploadOf, linked_spawn)]
 pub(crate) struct Uploading(Vec<Entity>);
@@ -148,7 +148,7 @@ async fn connection(
     let _ = events.send(Event::Gone(id)).await;
 }
 
-/// What woke a connection's task.
+/// The cause that woke a connection's task.
 enum Woke {
     Out(Out),
     Late,

@@ -9,7 +9,7 @@ use hamlet_testing::Scratch;
 use hamlet_testing::links::symlink;
 use serde_json::{Value, json};
 
-use super::{Outcome, Place, Shells, ToolSession};
+use super::{Network, Outcome, Place, Shells, ToolSession};
 
 /// A lodge of its own in `scratch`, with no folder.
 fn lodge(scratch: &Scratch) -> Place {
@@ -25,7 +25,7 @@ fn lodge(scratch: &Scratch) -> Place {
 
 async fn call(
     place: &Place,
-    net: bool,
+    network: Network,
     tool: &str,
     args: Value,
 ) -> Outcome {
@@ -35,7 +35,7 @@ async fn call(
     };
     ToolSession::local(
         place.clone(),
-        net,
+        network,
         Sandbox::testing(),
         Shells::local(),
         AllLeftovers::default().of(1),
@@ -72,8 +72,8 @@ async fn hand_tools_keep_declared_limits_environment_and_private_scratch()
     )
     .unwrap();
     let (a, b) = tokio::join!(
-        call(&place, false, "check", json!({})),
-        call(&place, false, "check", json!({}))
+        call(&place, Network::Closed, "check", json!({})),
+        call(&place, Network::Closed, "check", json!({}))
     );
     assert!(!a.error && !b.error, "{a:?} {b:?}");
     let prefix = "declared\nkept:\n2\n[REDACTED]\n";
@@ -87,7 +87,8 @@ async fn hand_tools_keep_declared_limits_environment_and_private_scratch()
         manifest("sleep 3; echo should-not-run").to_string(),
     )
     .unwrap();
-    let timed = call(&place, false, "check", json!({})).await;
+    let timed =
+        call(&place, Network::Closed, "check", json!({})).await;
     assert!(timed.error);
     assert_eq!(timed.text, "\n[timed out after 1s]");
 }
@@ -113,7 +114,8 @@ async fn a_hand_tool_gets_its_argv_as_written_and_its_arguments_on_stdin()
     )
     .unwrap();
     let said =
-        call(&place, false, "echo", json!({"say": "it's"})).await;
+        call(&place, Network::Closed, "echo", json!({"say": "it's"}))
+            .await;
     assert!(!said.error, "{said:?}");
     assert_eq!(
         said.text,
@@ -134,18 +136,22 @@ async fn a_command_writes_only_in_its_house_and_reaches_the_network_only_with_le
 
     let own = call(
         &place,
-        false,
+        Network::Closed,
         "bash",
         json!({"command": "echo kept > note.txt; pwd -P"}),
     )
     .await;
     let outside = format!("echo x > {}/x", elsewhere.display());
-    let away =
-        call(&place, false, "bash", json!({"command": outside}))
-            .await;
+    let away = call(
+        &place,
+        Network::Closed,
+        "bash",
+        json!({"command": outside}),
+    )
+    .await;
     let refused = call(
         &place,
-        false,
+        Network::Closed,
         "bash",
         json!({"command": "touch /usr/hamlet-outside"}),
     )
@@ -177,8 +183,9 @@ async fn a_command_writes_only_in_its_house_and_reaches_the_network_only_with_le
     let reach = json!({
         "command": format!("echo > /dev/tcp/127.0.0.1/{port} && echo reached"),
     });
-    let closed = call(&place, false, "bash", reach.clone()).await;
-    let open = call(&place, true, "bash", reach).await;
+    let closed =
+        call(&place, Network::Closed, "bash", reach.clone()).await;
+    let open = call(&place, Network::Open, "bash", reach).await;
     assert!(closed.error);
     assert!(!closed.text.contains("reached"));
     assert_eq!(open.text, "reached\n");
@@ -192,9 +199,13 @@ async fn a_command_runs_with_a_shared_folder_not_made_yet() {
     let scratch = Scratch::new("tools-unmade-shared");
     let mut place = lodge(&scratch);
     place.shared.push(scratch.join("tools"));
-    let ran =
-        call(&place, false, "bash", json!({"command": "echo ran"}))
-            .await;
+    let ran = call(
+        &place,
+        Network::Closed,
+        "bash",
+        json!({"command": "echo ran"}),
+    )
+    .await;
     assert_eq!((ran.error, ran.text.as_str()), (false, "ran\n"));
 }
 
@@ -214,7 +225,7 @@ async fn a_timeout_stops_the_command_and_all_it_started() {
 
     let stopped = call(
         &place,
-        false,
+        Network::Closed,
         "bash",
         json!({"command": TICKING, "timeout": 1}),
     )
@@ -237,8 +248,13 @@ async fn a_dropped_call_stops_the_command_and_all_it_started() {
     let running = tokio::spawn({
         let place = place.clone();
         async move {
-            call(&place, false, "bash", json!({"command": TICKING}))
-                .await
+            call(
+                &place,
+                Network::Closed,
+                "bash",
+                json!({"command": TICKING}),
+            )
+            .await
         }
     });
     let tick = place.lodge.join("tick.txt");
@@ -274,9 +290,13 @@ async fn keeps_a_credential_out_of_kept_and_spilled_output_even_split_across_chu
     let command = "seq 1 3000; printf 'key sk-test-'; sleep 0.2; \
                    printf 'secret-42\\n'";
 
-    let ran =
-        call(&place, false, "bash", json!({"command": command}))
-            .await;
+    let ran = call(
+        &place,
+        Network::Closed,
+        "bash",
+        json!({"command": command}),
+    )
+    .await;
 
     assert!(!ran.error);
     assert!(ran.text.starts_with("1002\n"));
@@ -291,7 +311,7 @@ async fn keeps_a_credential_out_of_kept_and_spilled_output_even_split_across_chu
     assert!(full.ends_with("3000\nkey [REDACTED]\n"));
     let read = call(
         &place,
-        false,
+        Network::Closed,
         "read",
         json!({"path": spilled, "offset": 3000}),
     )
@@ -306,7 +326,8 @@ async fn reads_a_long_file_in_parts_saying_where_to_go_on() {
     let lines = (1..=2500).map(|n| n.to_string()).collect::<Vec<_>>();
     fs::write(place.lodge.join("long.txt"), lines.join("\n"))
         .unwrap();
-    let read = |args: Value| call(&place, false, "read", args);
+    let read =
+        |args: Value| call(&place, Network::Closed, "read", args);
 
     let head = read(json!({"path": "long.txt"})).await;
     let some =
@@ -343,7 +364,7 @@ async fn writes_and_edits_nothing_out_of_reach() {
     let write = |path: String| {
         call(
             &place,
-            false,
+            Network::Closed,
             "write",
             json!({"path": path, "content": "x"}),
         )
@@ -369,7 +390,8 @@ async fn writes_and_edits_nothing_out_of_reach() {
 
     let notes = place.lodge.join("NOTES.md");
     fs::write(&notes, "# Notes\n").unwrap();
-    let edit = |args: Value| call(&place, false, "edit", args);
+    let edit =
+        |args: Value| call(&place, Network::Closed, "edit", args);
     let edited = edit(json!({
         "path": "NOTES.md",
         "edits": [{"oldText": "# Notes", "newText": "# Notes\nTea."}],

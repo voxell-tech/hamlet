@@ -32,16 +32,16 @@ pub(crate) fn sweep(mut realm: ResMut<Realm>) -> Result<()> {
     let db = realm.store().connection();
     for (id, at) in images.kept() {
         let idle = at.elapsed().is_ok_and(|age| age >= GRACE);
-        if idle && !held.contains(&id) && !used(db, id.as_str())? {
+        if idle && !held.contains(&id) && !is_used(db, id.as_str())? {
             images.remove(&id)?;
         }
     }
     Ok(())
 }
 
-/// Whether a kept input, a transcript item or a tool's result names
-/// the image or file `image`.
-pub(crate) fn used(db: &mut Db, image: &str) -> Result<bool> {
+/// The check that a kept input, a transcript item or a tool's result
+/// names the image or file `image`.
+pub(crate) fn is_used(db: &mut Db, image: &str) -> Result<bool> {
     let named = format!("%{image}%");
     Ok(diesel::select(exists(
         input::table.filter(input::mark.like(&named)),

@@ -28,8 +28,8 @@ pub(crate) struct Sent {
     pub skipped: usize,
 }
 
-/// Where `Sent`'s files go: the folder `inbox` saves in, and the
-/// folder of kept images.
+/// The destination of `Sent`'s files: the folder `inbox` saves in,
+/// and the folder of kept images.
 pub(crate) struct To<'a> {
     pub inbox: &'a mut Inbox,
     pub images: PathBuf,

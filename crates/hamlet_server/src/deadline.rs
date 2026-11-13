@@ -10,10 +10,10 @@ use bevy_ecs::resource::Resource;
 use bevy_ecs::system::{IntoSystem, SystemId};
 use bevy_ecs::world::World;
 
-/// What a timer runs when it is due.
+/// The system a timer runs when it is due.
 pub(crate) type Fire = SystemId<(), Result<()>>;
 
-/// When a timer is next due.
+/// A timer's next due time.
 enum When {
     /// As a system of its area says; none when nothing waits.
     Asked(SystemId<(), Option<Instant>>),
@@ -73,7 +73,7 @@ impl AddDeadline for App {
     }
 }
 
-/// When each timer is due, as the world says now.
+/// Each timer's due time, as the world says now.
 fn whens(world: &mut World) -> Result<Vec<(Option<Instant>, Fire)>> {
     let timers = world
         .get_resource::<Deadlines>()

@@ -20,7 +20,7 @@ use sha2::{Digest, Sha256};
 use super::Session;
 use crate::knowledge::folder::Folder;
 
-/// Where an agent's lodge is in its workspace.
+/// The path of an agent's lodge in its workspace.
 pub(crate) const LODGE: &str = "/lodge";
 
 /// A regular file as one side has it.
@@ -179,8 +179,8 @@ pub(crate) async fn push(
     Ok(synced)
 }
 
-/// What a pull brings home: each path's new bytes and whether it
-/// runs, or nothing for a path gone.
+/// A pull's result: each path's new bytes and whether it runs, or
+/// nothing for a path gone.
 pub(crate) struct Pulled(Vec<(String, Option<(Vec<u8>, bool)>)>);
 
 impl Pulled {
@@ -199,7 +199,7 @@ impl Pulled {
     }
 }
 
-/// What the remote copy changed since `base`, which the server's
+/// The changes of the remote copy since `base`, which the server's
 /// lodge takes in, and what both hold alike after.
 pub(crate) async fn pull(
     session: &Session,

@@ -1,4 +1,4 @@
-//! What each ready runtime is owed of its conversations, sent in
+//! The conversations' state each ready runtime is owed, sent in
 //! order: made or forked, cancelled, told its tools, then each kept
 //! input. The images of an input are fitted to its model on a thread
 //! of their own before it is sent.
@@ -16,13 +16,22 @@ use hamlet_store::ids::ConversationId;
 use tokio::sync::mpsc::UnboundedSender;
 
 use super::conversations::{self, Conversation};
-use super::inputs::{self, Input};
+use super::inputs::{self, Input, Resend};
 use super::runtimes::{Pending, Runtimes};
 use super::{Env, models};
 use crate::diagnostic::{self, Secrets, tell};
 use crate::images::Limits;
 use crate::images::fitting::pictures;
 use crate::providers::Providers;
+
+/// The fitting of images, whose results come back as inputs.
+pub(crate) fn plugin(app: &mut bevy_app::App) {
+    let done = crate::server::arriving::<Fitted>(app);
+    app.insert_resource(Fitting {
+        inputs: HashMap::new(),
+        done,
+    });
+}
 
 /// The images of one input, fitted to its model.
 pub(crate) struct Fitted {
@@ -37,15 +46,6 @@ pub(crate) struct Fitted {
 pub(crate) struct Fitting {
     inputs: HashMap<(ConversationId, String), Option<Vec<Picture>>>,
     done: UnboundedSender<Fitted>,
-}
-
-/// The fitting of images, whose results come back as inputs.
-pub(crate) fn plugin(app: &mut bevy_app::App) {
-    let done = crate::server::arriving::<Fitted>(app);
-    app.insert_resource(Fitting {
-        inputs: HashMap::new(),
-        done,
-    });
 }
 
 impl Fitting {
@@ -121,7 +121,7 @@ impl Fitting {
     }
 }
 
-/// What a flush reaches.
+/// The state a flush reaches.
 pub(crate) struct Owed<'a, 'w, 's> {
     pub db: &'a mut Db,
     pub env: &'a Env,
@@ -132,13 +132,12 @@ pub(crate) struct Owed<'a, 'w, 's> {
     pub images: &'a Path,
 }
 
-/// Sends the runtime `to` what it is owed. With `again`, inputs it
-/// admitted whose end was not heard are sent again, so it answers
-/// them again.
+/// Sends the runtime `to` what it is owed, and the inputs `resend`
+/// names.
 pub(crate) fn flush(
     owed: &mut Owed<'_, '_, '_>,
     to: Entity,
-    again: bool,
+    resend: Resend,
 ) -> Result<()> {
     let Owed {
         db,
@@ -191,7 +190,7 @@ pub(crate) fn flush(
             }
             continue;
         }
-        for input in inputs::owed(db, owed.id, again)? {
+        for input in inputs::owed(db, owed.id, resend)? {
             let pending =
                 Pending::Submit(owed.id, input.request.clone());
             if runtimes.is_in_flight(to, &pending) {

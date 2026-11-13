@@ -4,7 +4,7 @@
 
 use hamlet_store::ids::{Actor, HamletId};
 
-use super::{Answer, BLANK, Command, Line, is_scholar};
+use super::{Answer, BLANK, Command, Line, ScholarReach, is_scholar};
 use crate::core::Core;
 use crate::society::addresses::{self, Reach};
 use crate::society::agents::{self, AgentKind, Effort, EndHow};
@@ -145,13 +145,13 @@ pub(super) const SOCIETY: &[Command] = &[
         name: "road",
         usage: "/road <address> <address> [reason]",
         does: "Lay a road between two hires",
-        run: |core, line| road(core, line, true),
+        run: |core, line| road(core, line, Roadwork::Lay),
     },
     Command {
         name: "unroad",
         usage: "/unroad <address> <address> [reason]",
         does: "Take up a road",
-        run: |core, line| road(core, line, false),
+        run: |core, line| road(core, line, Roadwork::TakeUp),
     },
     Command {
         name: "folder",
@@ -240,7 +240,7 @@ pub(super) const SOCIETY: &[Command] = &[
     },
 ];
 
-/// What a command does to a hamlet or a hire that may end.
+/// The fate a command gives a hamlet or a hire that may end.
 #[derive(Clone, Copy, PartialEq)]
 enum Fate {
     /// It ends, or the hamlet is removed.
@@ -251,7 +251,7 @@ enum Fate {
     Erase,
 }
 
-/// What a command does to a scholar's place in the city.
+/// The place a command gives a scholar in the city.
 #[derive(Clone, Copy)]
 enum Housing {
     Remove,
@@ -261,12 +261,19 @@ enum Housing {
     TurnAway,
 }
 
+/// A command's work on a road.
+#[derive(Clone, Copy)]
+enum Roadwork {
+    Lay,
+    TakeUp,
+}
+
 /// The chief as the actor of a command.
 fn by(core: &Core<'_, '_>) -> Actor {
     Actor::Chief(core.realm.chief())
 }
 
-/// How `line`'s command is written, as its refusal.
+/// The usage of `line`'s command, as its refusal.
 fn usage(core: &Core<'_, '_>, line: &Line) -> Answer {
     Ok(Err(core.deeds.usage(&line.name)))
 }
@@ -760,7 +767,11 @@ fn allowance(core: &mut Core<'_, '_>, line: &Line) -> Answer {
 }
 
 /// Lays a road between two hires, or takes it up.
-fn road(core: &mut Core<'_, '_>, line: &Line, lay: bool) -> Answer {
+fn road(
+    core: &mut Core<'_, '_>,
+    line: &Line,
+    work: Roadwork,
+) -> Answer {
     let words = line.words();
     let (Some(a), Some(b)) = (words.first(), words.get(1)) else {
         return usage(core, line);
@@ -772,16 +783,19 @@ fn road(core: &mut Core<'_, '_>, line: &Line, lay: bool) -> Answer {
         found!(core.leads(end));
     }
     let reason = line.tail(2);
-    if lay {
-        let done = core.attempt(by(core), |cx, _| {
-            roads::lay(cx, a, b, &reason, None)
-        })?;
-        Ok(done.map(|_| "The road is laid.".into()))
-    } else {
-        let done = core.attempt(by(core), |cx, _| {
-            roads::take_up(cx, a, b, &reason)
-        })?;
-        Ok(done.map(|()| "The road is taken up.".into()))
+    match work {
+        Roadwork::Lay => {
+            let done = core.attempt(by(core), |cx, _| {
+                roads::lay(cx, a, b, &reason, None)
+            })?;
+            Ok(done.map(|_| "The road is laid.".into()))
+        }
+        Roadwork::TakeUp => {
+            let done = core.attempt(by(core), |cx, _| {
+                roads::take_up(cx, a, b, &reason)
+            })?;
+            Ok(done.map(|()| "The road is taken up.".into()))
+        }
     }
 }
 
@@ -900,7 +914,7 @@ fn name_scholar(core: &mut Core<'_, '_>, line: &Line) -> Answer {
     let Some(text) = line.words().first().copied() else {
         return usage(core, line);
     };
-    let scholar = found!(core.scholar_at(text, false));
+    let scholar = found!(core.scholar_at(text, ScholarReach::Living));
     let by = by(core);
     let db = core.realm.store().connection();
     if !authority::may_keep(db, by, scholar)? {
@@ -922,12 +936,12 @@ fn name_scholar(core: &mut Core<'_, '_>, line: &Line) -> Answer {
 fn kept_scholar(
     core: &mut Core<'_, '_>,
     line: &Line,
-    archived: bool,
+    reach: ScholarReach,
 ) -> crate::change::Done<(hamlet_store::ids::ScholarId, String)> {
     let Some(text) = line.words().first().copied() else {
         return Ok(Err(core.deeds.usage(&line.name)));
     };
-    let scholar = found!(core.scholar_at(text, archived));
+    let scholar = found!(core.scholar_at(text, reach));
     let by = by(core);
     let db = core.realm.store().connection();
     let shown = addresses::scholar_name_of(db, scholar)?;
@@ -942,9 +956,13 @@ fn scholar_fate(
     line: &Line,
     housing: Housing,
 ) -> Answer {
-    let archived =
-        matches!(housing, Housing::Restore | Housing::Erase);
-    let (scholar, text) = found!(kept_scholar(core, line, archived));
+    let reach =
+        if matches!(housing, Housing::Restore | Housing::Erase) {
+            ScholarReach::Kept
+        } else {
+            ScholarReach::Living
+        };
+    let (scholar, text) = found!(kept_scholar(core, line, reach));
     let reason = line.tail(1);
     let done = core.attempt(by(core), |cx, _| match housing {
         Housing::Remove => city::archive(cx, scholar, &reason),
@@ -967,7 +985,8 @@ fn scholar_fate(
 }
 
 fn move_house(core: &mut Core<'_, '_>, line: &Line) -> Answer {
-    let (scholar, text) = found!(kept_scholar(core, line, false));
+    let (scholar, text) =
+        found!(kept_scholar(core, line, ScholarReach::Living));
     let words = line.words();
     let number =
         |at: usize| words.get(at).map(|w| w.parse::<f64>().ok());

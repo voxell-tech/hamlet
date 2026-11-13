@@ -28,9 +28,9 @@ pub(crate) struct Runner {
 }
 
 /// The longest the runner waits for the database while it holds
-/// [`Writing`]. The loop may hold the database's write lock while it
-/// waits for `Writing`, so the runner gives up soon instead, letting
-/// `Writing` go, and its job runs again later.
+/// [`Writing`]. The loop may hold the write lock while it waits for
+/// `Writing`, so the runner gives up soon and its job runs again
+/// later.
 const BUSY: Duration = Duration::from_millis(250);
 
 /// Held while a job runs, so that the loop and the runner never write

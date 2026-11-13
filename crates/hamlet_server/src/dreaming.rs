@@ -1,5 +1,5 @@
-//! When agents dream: one dream at a time, while dreams are on and in
-//! the chief's hours, or when a chief asks with `/dream`. A hire
+//! The dreams of agents: one dream at a time, while dreams are on and
+//! in the chief's hours, or when a chief asks with `/dream`. A hire
 //! dreams once it learned something its scholar lacks, an ended hire
 //! once more, and a scholar at most once a day to tidy its `main`.
 
@@ -25,17 +25,9 @@ use crate::talk::{models, runtimes};
 const HIRE_REST: i64 = 6 * 3_600_000;
 /// The least time between two dreams of one scholar.
 const SCHOLAR_REST: i64 = 24 * 3_600_000;
-/// How long after its end a hire may still dream once more.
+/// The time after its end a hire may still dream once more.
 const ENDING_WINDOW: i64 = 24 * 3_600_000;
-
-/// What dreams.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub(crate) enum Dreamer {
-    Hire { hire: AgentId, ending: bool },
-    Scholar(ScholarId),
-}
-
-/// How often the server looks for a dream that is due.
+/// The time between the server's looks for a due dream.
 const DREAM_CHECK: std::time::Duration =
     std::time::Duration::from_secs(60);
 
@@ -45,6 +37,13 @@ pub(crate) fn plugin(app: &mut bevy_app::App) {
 
 fn dream_tick(mut core: Core) -> Result<()> {
     core.dream_tick()
+}
+
+/// A hire or a scholar that dreams.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum Dreamer {
+    Hire { hire: AgentId, ending: bool },
+    Scholar(ScholarId),
 }
 
 impl Core<'_, '_> {
@@ -102,20 +101,22 @@ impl Core<'_, '_> {
                 continue;
             }
             let hire = hires::get(db, agent)?;
-            let Ok(repo) =
+            let Ok(repository) =
                 Repository::open(&layout.repository(hire.scholar))
             else {
                 continue;
             };
             let (Some(tip), Some(main)) = (
-                repo.tip(&knowledge::branch(agent))?,
-                repo.tip(MAIN)?,
+                repository.tip(&knowledge::branch(agent))?,
+                repository.tip(MAIN)?,
             ) else {
                 continue;
             };
             let dreamt = last.and_then(|d| d.branch_commit)
                 == Some(tip.to_string());
-            if !dreamt && repo.merge_base(tip, main)? != Some(tip) {
+            if !dreamt
+                && repository.merge_base(tip, main)? != Some(tip)
+            {
                 return Ok(Some(Dreamer::Hire {
                     hire: agent,
                     ending,

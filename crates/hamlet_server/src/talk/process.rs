@@ -11,7 +11,7 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
 use tokio::sync::mpsc::{self, UnboundedSender};
 
-/// How the pi harness's runtimes are started.
+/// The pi harness: the Node and entry that start its runtimes.
 #[derive(Clone, Debug)]
 pub struct Pi {
     pub node: PathBuf,
@@ -82,7 +82,7 @@ pub(crate) struct Received {
     pub line: Option<String>,
 }
 
-/// How a runtime process is started.
+/// The arguments that start a runtime process.
 pub(crate) struct Launch<'a> {
     pub pi: &'a Pi,
     pub id: &'a str,

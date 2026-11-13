@@ -51,16 +51,16 @@ use crate::talk::runtimes::{self, Harness};
 use crate::talk::sync::Fitted;
 use crate::talk::{Env, heard, inputs};
 use crate::work::added;
-use crate::work::tools::Shells;
+use crate::work::tools::shell::Shells;
 use crate::workspace::Transport;
 
-/// What wakes the server.
+/// An input that wakes the server.
 pub(crate) enum Input {
     /// A line from a runtime, or the end of its output.
     Line(Received),
     /// A pass of the jobs runner that did jobs.
     Worked(Vec<Job>),
-    /// What a client's connection did.
+    /// An event of a client's connection.
     Connection(Event),
     /// A client connected.
     Accepted(TcpStream),
@@ -78,7 +78,7 @@ pub(crate) enum Input {
     Timer(Fire),
 }
 
-/// How long the changes to the tools added by hand settle before they
+/// The time the changes to the tools added by hand settle before they
 /// load again.
 const SETTLE: Duration = Duration::from_millis(200);
 
@@ -178,8 +178,9 @@ impl Inbox {
 #[error("{0:#}")]
 pub(crate) struct Fatal(pub anyhow::Error);
 
-/// Whether `error` means the realm cannot be served safely: built as
-/// [`Fatal`], or a database SQLite calls corrupt or not a database.
+/// The check that `error` means the realm cannot be served safely:
+/// built as [`Fatal`], or a database SQLite calls corrupt or not a
+/// database.
 fn is_fatal(error: &anyhow::Error) -> bool {
     // SQLite's own words for SQLITE_CORRUPT and SQLITE_NOTADB, which
     // are all diesel keeps of the code.
@@ -609,7 +610,7 @@ impl Server {
                     return Ok(());
                 }
             };
-        let re = heard::awaited(&message);
+        let reply_address = heard::awaited(&message);
         let world = self.app.world_mut();
         let heard = catch_unwind(AssertUnwindSafe(|| {
             heard::hear(world, from, message)
@@ -628,7 +629,7 @@ impl Server {
                 Secrets::Of(&core.credentials),
                 format!("a runtime's line failed: {failure}"),
             );
-            if let Some(re) = re {
+            if let Some(reply_address) = reply_address {
                 let message =
                     core.credentials.scrub_text(&failed(failure));
                 core.runtimes.send(from, |v, id| {
@@ -636,7 +637,7 @@ impl Server {
                         code: ErrorCode::Failed,
                         id,
                         message,
-                        re: Some(re),
+                        re: Some(reply_address),
                         v,
                     })
                 });
@@ -728,7 +729,7 @@ fn fitted_one(In(fitted): In<Fitted>, mut core: Core) -> Result<()> {
     Ok(())
 }
 
-/// What a test reads to wait on a condition of the realm.
+/// A test's wait on a condition of the realm.
 #[cfg(all(test, feature = "harness"))]
 pub(crate) async fn until(
     server: &mut Server,

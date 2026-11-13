@@ -9,7 +9,7 @@ use hamlet_store::ids::{Actor, TaskId, WaitId};
 use hamlet_store::schema::{objection, wait};
 
 use super::society::args::{Called, Object};
-use super::{Answer, Call, held, said};
+use super::{Answer, Call, held, refused, said};
 use crate::core::Core;
 use crate::oversight::{self, Raise, Ruling, WaitKind};
 use crate::talk::marks::Mark;
@@ -64,9 +64,9 @@ impl Core<'_, '_> {
         })
     }
 
-    /// Whether a chief withdrew the instruction of `call`'s turn, so
-    /// none of its calls runs any more.
-    pub(super) fn withdrawn(
+    /// Tells whether a chief withdrew the instruction of `call`'s
+    /// turn, so none of its calls runs any more.
+    pub(super) fn is_withdrawn(
         &mut self,
         call: &Call<'_>,
     ) -> Result<bool> {
@@ -81,9 +81,10 @@ impl Core<'_, '_> {
             }))
     }
 
-    /// Whether a chief considers an objection to the instruction of
-    /// `call`'s turn, holding the call on it until the chief rules.
-    pub(super) fn objecting(
+    /// Tells whether a chief considers an objection to the
+    /// instruction of `call`'s turn, holding the call on it until the
+    /// chief rules.
+    pub(super) fn is_objecting(
         &mut self,
         call: &Call<'_>,
     ) -> Result<bool> {
@@ -121,10 +122,9 @@ impl Core<'_, '_> {
         call: &Call<'_>,
     ) -> Result<std::result::Result<Outcome, Answer>> {
         let Some(task) = self.instruction(call)? else {
-            return Ok(Ok(said(
+            return Ok(Ok(refused(
                 "Only a chief's instruction can be objected to, in \
                  the turn that works on it.",
-                true,
             )));
         };
         let db = self.realm.store().connection();
@@ -145,20 +145,14 @@ impl Core<'_, '_> {
             return Ok(
                 match found.ruling.as_deref().and_then(Ruling::named)
                 {
-                    Some(Ruling::Go) => Ok(said(
-                        format!(
-                            "The chief rules: go on with the \
-                             instruction.{said_too}"
-                        ),
-                        false,
-                    )),
-                    Some(_) => Ok(said(
-                        format!(
-                            "The chief withdrew the instruction. \
-                             Stop working on it.{said_too}"
-                        ),
-                        false,
-                    )),
+                    Some(Ruling::Go) => Ok(said(format!(
+                        "The chief rules: go on with the \
+                         instruction.{said_too}"
+                    ))),
+                    Some(_) => Ok(said(format!(
+                        "The chief withdrew the instruction. Stop \
+                         working on it.{said_too}"
+                    ))),
                     None => Err(Answer::Waiting(OBJECTING.into())),
                 },
             );
@@ -168,11 +162,11 @@ impl Core<'_, '_> {
                 Ok(Called::Object(Object { reason })) => reason,
                 Ok(_) => String::new(),
                 Err(refusal) => {
-                    return Ok(Ok(said(refusal.to_string(), true)));
+                    return Ok(Ok(refused(refusal.to_string())));
                 }
             };
         if reason.is_empty() {
-            return Ok(Ok(said("Say why you object.", true)));
+            return Ok(Ok(refused("Say why you object.")));
         }
         let instruction =
             tasks::get(db, task)?.text.unwrap_or_default();

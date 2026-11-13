@@ -1,4 +1,4 @@
-//! What one conversation's agent is doing and saying, folded from
+//! The doing and saying of one conversation's agent, folded from
 //! what its runtime tells as it happens.
 
 use std::collections::{BTreeMap, HashSet};
@@ -8,7 +8,7 @@ use hamlet_protocol::runtime::{self, Block};
 use serde_json::Value;
 
 use crate::work::catalogue::Society;
-use crate::work::tools::Dialect;
+use crate::work::tools::shell::Dialect;
 
 /// The most bytes of what an agent says that are shown.
 const SAID: usize = 600;
@@ -234,7 +234,7 @@ impl Activity {
     }
 }
 
-/// What a call of `name` with `arguments` has its agent doing.
+/// The doing of an agent making a call of `name` with `arguments`.
 fn doing_of(
     name: &str,
     arguments: &BTreeMap<String, Value>,

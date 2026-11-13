@@ -237,7 +237,7 @@ fn agent_view(
             && crate::talk::errands::is_waited_on(
                 db,
                 id,
-                crate::calls::LIBRARIAN,
+                crate::calls::society::library::LIBRARIAN,
             )?,
         conversations: peers(db, id)?,
         effort: found.effort.map(Effort::wire),

@@ -123,10 +123,8 @@ fn tool_path(env: &impl Reach, path: &str) -> String {
 }
 
 /// pi's `read`: a text file's lines, at most 2000 or 50KB from
-/// `offset`, with remarks on what was left out. Where a line is too
-/// long it tells how to read the rest in the language of `shell`.
-/// An image file is given as an image when `sight` says the model
-/// takes them (C34).
+/// `offset`, with remarks on what was left out. An image file is
+/// given as an image when `sight` says the model takes them (C34).
 pub(super) async fn read(
     env: &mut impl Reach,
     arguments: &Map<String, Value>,
@@ -215,6 +213,8 @@ async fn read_text(
     let shown_start = start + 1.0;
     let mut out = Outcome::text(head);
     if truncation.first_line_exceeds_limit {
+        // The remark tells how to read the rest of the line in the
+        // language of `shell`.
         let line = if start.fract() == 0.0 {
             selected[0]
         } else {
@@ -637,8 +637,8 @@ fn fuzzy(text: &str) -> String {
         .collect()
 }
 
-/// Where `old` is in `content`, exactly or else as [`fuzzy`] text,
-/// and how long the match is.
+/// The position and length of `old` in `content`, exactly or else as
+/// [`fuzzy`] text, and whether the match was fuzzy.
 fn find(content: &str, old: &str) -> Option<(usize, usize, bool)> {
     if let Some(at) = content.find(old) {
         return Some((at, old.len(), false));

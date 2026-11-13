@@ -1,4 +1,4 @@
-//! What a runtime says: one system for each kind of message. The
+//! A runtime's messages: one system for each kind. The
 //! runner takes a runtime's line apart into its message and runs the
 //! message's system once, with the runtime it came from
 //! ([`hear`]). A tool call's request awaits the workspace, so it goes
@@ -16,7 +16,7 @@ use hamlet_protocol::runtime::{
 };
 use hamlet_store::ids::Actor;
 
-use super::inputs::{self, Status};
+use super::inputs::{self, Resend, Status};
 use super::leases::Authority;
 use super::runtimes::{Pending, Runtimes};
 use super::turns::{self, Admission};
@@ -79,7 +79,8 @@ pub(crate) fn hear(
     }
 }
 
-/// Whether a tool call may run, before it is kept as begun.
+/// The permission check of a tool call, made before it is kept as
+/// begun.
 fn allow(
     In((from, asked)): Heard<runtime::Allow>,
     mut core: Core,
@@ -160,7 +161,7 @@ fn hello(
                     windows: BTreeMap::new(),
                 })
             });
-            core.flush_one(from, true)?;
+            core.flush_one(from, Resend::Unended)?;
             core.send_providers()?;
         }
     }
@@ -276,7 +277,7 @@ fn kept(
     Ok(())
 }
 
-/// What a turn is doing now, for its watchers and the realm's state.
+/// A turn's current doing, for its watchers and the realm's state.
 fn live(
     In((from, running)): Heard<runtime::Live>,
     mut core: Core,
@@ -380,8 +381,8 @@ fn prompt(
     Ok(())
 }
 
-/// Whether a model call may go on, and with which model and
-/// credential.
+/// The ruling on a model call: it goes on or stops, and with which
+/// model and credential.
 fn attempt(
     In((from, asked)): Heard<runtime::Attempt>,
     mut core: Core,
@@ -452,7 +453,7 @@ fn attempt(
     Ok(())
 }
 
-/// What a model call used, charged once.
+/// A model call's usage, charged once.
 fn usage(
     In((from, report)): Heard<runtime::UsageReport>,
     mut core: Core,

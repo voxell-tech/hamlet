@@ -23,7 +23,7 @@ const MAX_REPLY: usize = 6 * 1024 * 1024;
 const UNKNOWN: &str = "The workspace result is unknown. Inspect its \
                        files before repeating the operation.";
 
-/// What a request may reach in the workspace.
+/// The reach of a request in the workspace.
 #[derive(Clone, Copy, Debug, Default)]
 pub(crate) struct Policy {
     /// The hamlet's shared `/project`.
@@ -107,7 +107,8 @@ impl Transport {
 }
 
 /// A failed workspace request.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
+#[error("{message}")]
 pub(crate) struct Failure {
     pub code: Code,
     pub message: String,
@@ -124,17 +125,6 @@ impl Failure {
         }
     }
 }
-
-impl std::fmt::Display for Failure {
-    fn fmt(
-        &self,
-        f: &mut std::fmt::Formatter<'_>,
-    ) -> std::fmt::Result {
-        f.write_str(&self.message)
-    }
-}
-
-impl std::error::Error for Failure {}
 
 impl From<Failure> for hamlet_sandbox::FileError {
     fn from(failure: Failure) -> Self {

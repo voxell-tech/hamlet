@@ -41,7 +41,7 @@ pub(crate) enum Society {
     Revert,
 }
 
-/// Who is offered a society tool.
+/// The agents offered a society tool.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Offered {
     /// Every agent but a worker.
@@ -58,7 +58,7 @@ pub(crate) enum Offered {
     Hand,
 }
 
-/// Which acts of the tool a chief keeps for itself (H22).
+/// The acts of the tool a chief keeps for itself (H22).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Reserve {
     /// None.
@@ -69,7 +69,7 @@ pub(crate) enum Reserve {
     Limit(Limit),
 }
 
-/// What a hamlet's limits may keep for its chief.
+/// An act a hamlet's limits may keep for its chief.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Limit {
     Hire,
@@ -79,8 +79,8 @@ pub(crate) enum Limit {
 }
 
 impl Limit {
-    /// Whether `reserved` keeps it.
-    pub fn kept(self, reserved: &Reserved) -> bool {
+    /// True when `reserved` keeps it.
+    pub fn is_kept(self, reserved: &Reserved) -> bool {
         match self {
             Self::Hire => reserved.hire,
             Self::Roads => reserved.roads,
@@ -90,19 +90,19 @@ impl Limit {
     }
 }
 
-/// What is known of a society tool.
+/// The facts of a society tool.
 pub(crate) struct Facts {
     pub tool: Society,
     /// The name a model calls it by.
     pub name: &'static str,
     pub offered: Offered,
     pub reserve: Reserve,
-    /// What its agent is doing while it runs, when it says more than
+    /// Its agent's doing while it runs, when that says more than
     /// that a tool runs.
     pub doing: Option<Doing>,
-    /// Whether a call cut off by a crash may run again when asked
-    /// again. Its change is kept with its answer, or what it began
-    /// is found by its call; a write of a scholar's repository is
+    /// True when a call cut off by a crash may run again when asked
+    /// again: its change is kept with its answer, or what it began
+    /// is found by its call. A write of a scholar's repository is
     /// kept by no transaction, so it is answered as cut off instead.
     pub replays: bool,
 }
@@ -200,7 +200,7 @@ impl Society {
             .map(|f| f.tool)
     }
 
-    /// What is known of it.
+    /// Its [`Facts`].
     pub fn facts(self) -> &'static Facts {
         FACTS
             .iter()

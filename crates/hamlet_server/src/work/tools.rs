@@ -6,9 +6,9 @@ mod diff;
 mod environment;
 mod files;
 mod find;
-mod parcel;
+pub(crate) mod parcel;
 mod search;
-mod shell;
+pub(crate) mod shell;
 mod truncate;
 mod walk;
 
@@ -31,8 +31,8 @@ use hamlet_sandbox::{
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 
-pub(crate) use self::parcel::{Sent, To};
-pub(crate) use self::shell::{Dialect, Shells};
+use self::parcel::{Sent, To};
+use self::shell::{Dialect, Shells};
 use crate::change::Done;
 use crate::images::Limits;
 use crate::society::refusal::Refusal;
@@ -54,13 +54,13 @@ pub struct Place {
     pub folder: Option<PathBuf>,
     /// The realm's folder, which the tools never read.
     pub realm: PathBuf,
-    /// What they read and never write: the library, the tools added
-    /// by hand, and a worker's starter's lodge.
+    /// The folders they read and never write: the library, the tools
+    /// added by hand, and a worker's starter's lodge.
     pub shared: Vec<PathBuf>,
 }
 
-/// What a tool call ended with: the text pi's own tool would give,
-/// and its remarks apart.
+/// A tool call's result: the text pi's own tool would give, and its
+/// remarks apart.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Outcome {
     /// The output pi's own tool would give.
@@ -317,8 +317,7 @@ fn object(value: Value) -> BTreeMap<String, Value> {
 pub(crate) enum ToolSession {
     Local {
         place: Place,
-        /// Whether commands reach the network.
-        net: bool,
+        network: Network,
         sandbox: Sandbox,
         shells: Shells,
         leftovers: Leftovers,
@@ -332,17 +331,34 @@ pub(crate) enum ToolSession {
     },
 }
 
+/// A tool session's reach of the network.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Network {
+    Open,
+    Closed,
+}
+
+impl Network {
+    pub fn of(open: bool) -> Self {
+        if open { Self::Open } else { Self::Closed }
+    }
+
+    pub fn is_open(self) -> bool {
+        self == Self::Open
+    }
+}
+
 impl ToolSession {
     pub fn local(
         place: Place,
-        net: bool,
+        network: Network,
         sandbox: Sandbox,
         shells: Shells,
         leftovers: Leftovers,
     ) -> Self {
         Self::Local {
             place,
-            net,
+            network,
             sandbox,
             shells,
             leftovers,
@@ -389,7 +405,7 @@ impl ToolSession {
                 let Ok(mut env) = environment::Local::open(
                     *sandbox,
                     place,
-                    false,
+                    Network::Closed,
                     leftovers.clone(),
                 )
                 .await
@@ -407,8 +423,7 @@ impl ToolSession {
     }
 
     /// The files under `paths` as the agent may read them, without
-    /// following links, saved into `to` when it is given. A remote
-    /// workspace gives at most `MAX_FILE` bytes of a file at once.
+    /// following links, saved into `to` when it is given.
     pub(crate) async fn parcel(
         &self,
         paths: &[String],
@@ -424,7 +439,7 @@ impl ToolSession {
                 let mut env = match environment::Local::open(
                     *sandbox,
                     place,
-                    false,
+                    Network::Closed,
                     leftovers.clone(),
                 )
                 .await
@@ -449,6 +464,8 @@ impl ToolSession {
             Self::Remote { session, .. } => {
                 let mut env =
                     environment::Remote::new(session.clone());
+                // A remote workspace gives at most `MAX_FILE` bytes
+                // of a file at once.
                 parcel::run(
                     &mut env,
                     paths,
@@ -460,11 +477,11 @@ impl ToolSession {
         }
     }
 
-    /// Whether an edit of `path` stays in the agent's own lodge,
-    /// where the sandbox keeps it. A remote lodge is never taken as
-    /// one.
+    /// True when an edit of `path` stays in the agent's own lodge,
+    /// where the sandbox keeps it.
     pub fn is_lodge_edit(&self, path: &str) -> bool {
         let Self::Local { place, .. } = self else {
+            // A remote lodge is never taken as one.
             return false;
         };
         let lodge = text(&place.lodge);
@@ -493,17 +510,21 @@ impl ToolSession {
         let mut outcome = match self {
             Self::Local {
                 place,
-                net,
+                network,
                 sandbox,
                 shells,
                 leftovers,
                 sight,
             } if is_built_in(shells, tool) => {
-                let net = *net && shells.named(tool).is_some();
+                // Only a shell's commands reach the network.
+                let network = match shells.named(tool) {
+                    Some(_) => *network,
+                    None => Network::Closed,
+                };
                 match environment::Local::open(
                     *sandbox,
                     place,
-                    net,
+                    network,
                     leftovers.clone(),
                 )
                 .await
@@ -523,7 +544,7 @@ impl ToolSession {
             }
             Self::Local {
                 place,
-                net,
+                network,
                 sandbox,
                 leftovers,
                 ..
@@ -531,7 +552,7 @@ impl ToolSession {
                 crate::work::added::run(
                     sandbox,
                     &place.realm,
-                    *net,
+                    *network,
                     leftovers,
                     secrets,
                     tool,
@@ -629,7 +650,7 @@ fn scrub(secrets: &[String], outcome: &mut Outcome) {
 pub(crate) fn environment(
     sandbox: &Sandbox,
     place: &Place,
-    net: bool,
+    network: Network,
 ) -> Result<Env, SetupError> {
     let mut policy = match &place.folder {
         None => {
@@ -653,7 +674,7 @@ pub(crate) fn environment(
             ..Policy::default()
         },
     };
-    policy.net = net;
+    policy.net = network.is_open();
     let cwd = place.folder.as_ref().unwrap_or(&place.lodge);
     Env::new(&text(cwd), policy, *sandbox)
 }

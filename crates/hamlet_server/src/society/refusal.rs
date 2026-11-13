@@ -1,5 +1,5 @@
-//! Why the society refuses a change, in words a chief or an agent
-//! reads.
+//! The reasons the society refuses a change, in words a chief or an
+//! agent reads.
 
 use serde::{Deserialize, Serialize};
 

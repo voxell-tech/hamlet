@@ -216,7 +216,7 @@ mod tests {
     fn an_image_is_kept_once_under_the_hash_of_its_bytes() {
         let dir = hamlet_testing::Scratch::new("server-images");
         let images = Images::new(dir.join("images"));
-        let bytes = super::super::fitting::tests::png(8, 8);
+        let bytes = crate::testing::png(8, 8);
         let (id, format) = images.keep(&bytes).unwrap().unwrap();
         assert_eq!(images.keep(&bytes).unwrap().unwrap().0, id);
         let stored = images.find(&id).unwrap().unwrap();

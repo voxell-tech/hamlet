@@ -1,9 +1,9 @@
-//! What follows an input once its transaction is kept: the inputs it
-//! ended followed, the tools narrowed to each agent's role, the jobs
-//! it left run, the stopped turns' tool runs ended and the asked ones
-//! started, the runtimes sent what they are owed, and the clients
-//! sent the state and then their replies. Each step is worked out
-//! again from the database, so one that fails is made good by the
+//! The steps that follow an input once its transaction is kept: the
+//! inputs it ended followed, the tools narrowed to each agent's role,
+//! the jobs it left run, the stopped turns' tool runs ended and the
+//! asked ones started, the runtimes sent what they are owed, and the
+//! clients sent the state and then their replies. Each step is worked
+//! out again from the database, so one that fails is made good by the
 //! next input. An input that fails leaves nothing to follow.
 
 use bevy_app::App;
@@ -35,73 +35,10 @@ use crate::realm::Realm;
 use crate::society::agents;
 use crate::society::refusal::Refusal;
 use crate::talk::follow::follow;
+use crate::talk::inputs::Resend;
 use crate::talk::runtimes::Runtimes;
 use crate::talk::sync::{self, Fitting};
 use crate::talk::{Env, conversations};
-
-/// The schedule the runner runs after each input.
-#[derive(ScheduleLabel, Clone, Debug, PartialEq, Eq, Hash)]
-pub(crate) struct Apply;
-
-/// The steps of [`Apply`], in their order.
-#[derive(SystemSet, Clone, Debug, PartialEq, Eq, Hash)]
-pub(crate) enum Step {
-    /// The inputs that ended are followed.
-    Follow,
-    Retool,
-    /// What the steps before changed is kept.
-    Keep,
-    /// The jobs the kept changes left are run.
-    Jobs,
-    StopCancelled,
-    /// The tool runs and the tasks the input asked for start.
-    Start,
-    Flush,
-    Publish,
-    Reply,
-    /// The runtimes are sent what the input queued for them.
-    Send,
-    /// The lodges the input owes the remote workspace are pushed.
-    Push,
-}
-
-/// A call held on a wait whose wait was answered: its runtime is
-/// told after the input's changes are sent, so asking again may get
-/// further.
-#[derive(Message)]
-pub(crate) struct Wake {
-    pub runtime: String,
-    pub key: String,
-}
-
-/// A runtime's input ended: its follow, which may end a worker or
-/// carry an answer back, and the replies owed for it come once what
-/// said so is kept. Written as a message by the input, it is
-/// triggered for the observers by [`Apply`].
-#[derive(Message, Event, Clone)]
-pub(crate) struct InputEnded {
-    pub conversation: ConversationId,
-    pub request: String,
-}
-
-/// What the input's changes leave for [`Apply`].
-#[derive(Resource, Default)]
-pub(crate) struct Changed {
-    /// A change was made, kept with the input.
-    pub committed: bool,
-    /// An agent or a hamlet changed, so its tools may have.
-    pub reshaped: bool,
-    /// Jobs were kept for the runner.
-    pub jobs: bool,
-    /// A runtime answered a request, so what waited on it may go.
-    pub answered: bool,
-    /// What the clients see changed with no change kept, such as how
-    /// moving the lodges goes.
-    pub republish: bool,
-    /// The fault point a crash test stops at once the input is kept,
-    /// such as a society call's change kept with its answer.
-    pub fault: Option<&'static str>,
-}
 
 pub(crate) fn plugin(app: &mut App) {
     let mut apply = Schedule::new(Apply);
@@ -153,6 +90,70 @@ pub(crate) fn plugin(app: &mut App) {
         );
 }
 
+/// The schedule the runner runs after each input.
+#[derive(ScheduleLabel, Clone, Debug, PartialEq, Eq, Hash)]
+pub(crate) struct Apply;
+
+/// The steps of [`Apply`], in their order.
+#[derive(SystemSet, Clone, Debug, PartialEq, Eq, Hash)]
+pub(crate) enum Step {
+    /// The inputs that ended are followed.
+    Follow,
+    Retool,
+    /// The changes of the steps before are kept.
+    Keep,
+    /// The jobs the kept changes left are run.
+    Jobs,
+    StopCancelled,
+    /// The tool runs and the tasks the input asked for start.
+    Start,
+    Flush,
+    Publish,
+    Reply,
+    /// The runtimes are sent what the input queued for them.
+    Send,
+    /// The lodges the input owes the remote workspace are pushed.
+    Push,
+}
+
+/// A call held on a wait whose wait was answered: its runtime is
+/// told after the input's changes are sent, so asking again may get
+/// further.
+#[derive(Message)]
+pub(crate) struct Wake {
+    pub runtime: String,
+    pub key: String,
+}
+
+/// A runtime's input ended: its follow, which may end a worker or
+/// carry an answer back, and the replies owed for it come once what
+/// said so is kept. Written as a message by the input, it is
+/// triggered for the observers by [`Apply`].
+#[derive(Message, Event, Clone)]
+pub(crate) struct InputEnded {
+    pub conversation: ConversationId,
+    pub request: String,
+}
+
+/// The input's changes, left for [`Apply`].
+#[derive(Resource, Default)]
+pub(crate) struct Changed {
+    /// A change was made, kept with the input.
+    pub committed: bool,
+    /// An agent or a hamlet changed, so its tools may have.
+    pub reshaped: bool,
+    /// Jobs were kept for the runner.
+    pub jobs: bool,
+    /// A runtime answered a request, so what waited on it may go.
+    pub answered: bool,
+    /// The clients' view changed with no change kept, such as the
+    /// progress of moving the lodges.
+    pub republish: bool,
+    /// The fault point a crash test stops at once the input is kept,
+    /// such as a society call's change kept with its answer.
+    pub fault: Option<&'static str>,
+}
+
 /// Drops what a failed input left to follow it: its transaction was
 /// rolled back, so nothing it changed is so, and nothing it asked
 /// for runs.
@@ -183,7 +184,7 @@ fn jobs_kept(changed: Res<Changed>) -> bool {
     changed.jobs
 }
 
-/// Whether what the clients see may have changed.
+/// Run condition for a change the clients may see.
 fn shown(changed: Res<Changed>) -> bool {
     changed.committed || changed.republish
 }
@@ -192,7 +193,7 @@ fn reshaped(changed: Res<Changed>) -> bool {
     changed.reshaped
 }
 
-/// Whether a runtime may be owed something new.
+/// Run condition for something new a runtime may be owed.
 fn owed(changed: Res<Changed>) -> bool {
     changed.committed || changed.answered
 }
@@ -332,7 +333,7 @@ fn flush(
         images: &images,
     };
     for runtime in all {
-        sync::flush(&mut owed, runtime, false)?;
+        sync::flush(&mut owed, runtime, Resend::Nothing)?;
     }
     Ok(())
 }
@@ -375,8 +376,8 @@ fn push(
     Ok(())
 }
 
-/// The input is followed up: the next starts afresh. No frame turns
-/// the messages over here, so the last step does.
+/// Clears the followed input's state so the next starts afresh, and
+/// turns the messages over, which no frame does here.
 fn forget(
     mut changed: ResMut<Changed>,
     mut wakes: ResMut<Messages<Wake>>,

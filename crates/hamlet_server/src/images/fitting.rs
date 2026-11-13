@@ -145,12 +145,11 @@ pub(crate) fn fit(
     image.apply_orientation(orientation);
     let (upright_width, upright_height) =
         (image.width(), image.height());
-    let scale = f64::min(
+    let mut scale = f64::min(
         f64::from(limits.width) / f64::from(upright_width),
         f64::from(limits.height) / f64::from(upright_height),
     )
     .min(1.0);
-    let mut scale = scale;
     let mut quality = QUALITY;
     loop {
         let side = |side: u32| {
@@ -216,29 +215,9 @@ fn encode(
 }
 
 #[cfg(test)]
-pub(super) mod tests {
+mod tests {
     use super::*;
-
-    pub(in crate::images) fn png(width: u32, height: u32) -> Vec<u8> {
-        let mut out = Vec::new();
-        let pixels =
-            image::RgbImage::from_fn(width, height, |x, y| {
-                image::Rgb([
-                    (x * 7 % 256) as u8,
-                    (y * 13 % 256) as u8,
-                    90,
-                ])
-            });
-        PngEncoder::new(&mut out)
-            .write_image(
-                pixels.as_raw(),
-                width,
-                height,
-                ExtendedColorType::Rgb8,
-            )
-            .unwrap();
-        out
-    }
+    use crate::testing::png;
 
     const LIMITS: Limits = Limits {
         width: 100,

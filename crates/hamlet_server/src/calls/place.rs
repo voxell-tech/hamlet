@@ -1,5 +1,5 @@
-//! Where an agent's tools work and which it is offered (H35): the
-//! Hand in its lodge, a hire in its lodge and its hamlet's folder, a
+//! An agent's workplace and the tools it is offered (H35): the Hand
+//! in its lodge, a hire in its lodge and its hamlet's folder, a
 //! worker in its scratch folder and where its starter works.
 
 use std::path::PathBuf;
@@ -18,18 +18,19 @@ use crate::talk::conversations::Kind;
 use crate::work::catalogue::{Offered, Society};
 use crate::work::tools::Place;
 
-/// Where an agent's tools work, and how its calls are overseen.
+/// The place an agent's tools work in, and how its calls are
+/// overseen.
 #[derive(Clone, Debug)]
 pub(crate) struct Workplace {
     pub caller: Caller,
     pub place: Place,
     /// The hamlet whose limits and mode its calls are under.
     pub hamlet: Option<HamletId>,
-    /// Whether edits in the folder and commands ask a chief (C21).
+    /// Set when edits in the folder and commands ask a chief (C21).
     pub manual: bool,
 }
 
-/// Where `agent`'s tools work.
+/// The workplace of `agent`.
 pub(crate) fn of(
     db: &mut Db,
     layout: &Layout,
@@ -100,15 +101,15 @@ pub(crate) fn of(
     })
 }
 
-/// Where the tools of `conversation` work: its agent's place, but a
-/// dream writes the checkout of its scholar's `main` in place of a
-/// folder, and asks nothing.
+/// The workplace of `conversation`: its agent's.
 pub(crate) fn of_conversation(
     db: &mut Db,
     layout: &Layout,
     conversation: &crate::talk::conversations::Conversation,
 ) -> Result<Workplace> {
     let mut at = of(db, layout, conversation.agent)?;
+    // A dream writes the checkout of its scholar's `main` in place of
+    // a folder, and asks nothing.
     if conversation.kind == Kind::Dream
         && let Some(dream) = crate::society::dreams::of_conversation(
             db,
@@ -135,8 +136,7 @@ fn folder(
 }
 
 /// The tools a conversation of `agent` of `kind` offers, out of
-/// `names`, the whole catalogue. An errand and a dream offer what
-/// their own instructions need, which is the built-in tools.
+/// `names`, the whole catalogue.
 pub(crate) fn tools(
     db: &mut Db,
     agent: AgentId,
@@ -193,6 +193,7 @@ pub(crate) fn tools(
     match kind {
         // An errand answers in words alone.
         Kind::Errand => only.clear(),
+        // A dream offers the built-in tools alone.
         Kind::Dream => {
             only.retain(|name| Society::named(name).is_none());
         }

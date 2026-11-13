@@ -74,7 +74,7 @@ impl Core<'_, '_> {
         let begun =
             review::table.find(task).count().get_result::<i64>(db)?
                 > 0;
-        if begun || !self.reviews(lead, &hire.hamlet)? {
+        if begun || !self.is_reviewing(lead, &hire.hamlet)? {
             return Ok(None);
         }
         let db = self.realm.store().connection();
@@ -128,10 +128,10 @@ impl Core<'_, '_> {
         Ok(None)
     }
 
-    /// Whether `lead` reviews instructions to its hires in `hamlet`:
-    /// always, never, or when its model is served from another
-    /// machine.
-    fn reviews(
+    /// Tells whether `lead` reviews instructions to its hires in
+    /// `hamlet`: always, never, or when its model is served from
+    /// another machine.
+    fn is_reviewing(
         &mut self,
         lead: AgentId,
         hamlet: &hamlet_store::ids::HamletId,

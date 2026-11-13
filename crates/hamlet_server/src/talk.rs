@@ -26,7 +26,7 @@ pub(crate) mod verdicts;
 
 use crate::settings::{Overrides, Settings};
 
-/// What conversations read besides the database: the settings as this
+/// The settings conversations read besides the database, as this
 /// process runs them.
 #[derive(bevy_ecs::resource::Resource, Clone, Debug)]
 pub(crate) struct Env {

@@ -110,8 +110,8 @@ struct Ruled {
     net: bool,
 }
 
-/// What `ruling` does to `wait` of its own kind: a newcomer let in,
-/// an objection ruled on and its instruction withdrawn.
+/// The effect of `ruling` on `wait` of its own kind: a newcomer let
+/// in, an objection ruled on and its instruction withdrawn.
 fn rule_wait(
     cx: &mut Change<'_>,
     wait: &Wait,
@@ -161,7 +161,7 @@ fn grant_always(
     Ok(())
 }
 
-/// What `ruling` does to each call `wait` held: its network kept
+/// The effect of `ruling` on each call `wait` held: its network kept
 /// when it may run, its session trusted after an `/always`, and its
 /// turn told once of a denial.
 fn rule_calls(

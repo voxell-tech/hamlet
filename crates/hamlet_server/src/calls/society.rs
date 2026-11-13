@@ -20,7 +20,7 @@ use self::args::{
     SetAllowance, SetModel, SetTools,
 };
 use super::looks::Look;
-use super::{Call, said};
+use super::{Call, refused, said};
 use crate::change::{Change, Done, done, refuse};
 use crate::core::Core;
 use crate::society::addresses::{self, Reach};
@@ -34,7 +34,7 @@ use crate::talk::Env;
 use crate::work::catalogue::Society;
 use crate::work::tools::Outcome;
 
-/// What a society call comes to.
+/// The result of a society call.
 pub(super) enum Step {
     Done(Outcome),
     /// It waits for another agent, in these words.
@@ -46,10 +46,8 @@ pub(super) enum Step {
 impl Step {
     fn of(result: Result<String, Refusal>) -> Self {
         match result {
-            Ok(words) => Self::Done(said(words, false)),
-            Err(refusal) => {
-                Self::Done(said(refusal.to_string(), true))
-            }
+            Ok(words) => Self::Done(said(words)),
+            Err(refusal) => Self::Done(refused(refusal.to_string())),
         }
     }
 }
@@ -384,7 +382,7 @@ impl Core<'_, '_> {
                         cx.db,
                         identity,
                         request,
-                        &said(words.clone(), false),
+                        &said(words.clone()),
                         cx.at,
                     )?;
                 }
@@ -610,9 +608,9 @@ impl Core<'_, '_> {
     }
 }
 
-/// What a new scholar `name` comes to, in words for the agent that
-/// made it: in the city, or at the harbor, with the Hand asked to
-/// judge it when the realm leaves newcomers to the Hand.
+/// The words for the agent that made a scholar: it lives in the
+/// city, or waits at the harbor, with the Hand asked to judge it when
+/// the realm leaves newcomers to the Hand.
 fn arrived(
     cx: &mut Change<'_>,
     env: &Env,
@@ -635,7 +633,7 @@ fn arrived(
     ))
 }
 
-/// What `agent` may spend, for `read_budget`: what its hamlet or the
+/// The budget of `agent`, for `read_budget`: what its hamlet or the
 /// realm spent this period, what it spent, and its allowance.
 fn budget(
     db: &mut hamlet_store::Db,

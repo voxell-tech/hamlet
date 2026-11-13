@@ -1,5 +1,6 @@
-//! What a chief edits and reads: the charter, characters, memory,
-//! limits, settings, papers, the prompt and a chat's sessions.
+//! The documents a chief edits and reads: the charter, characters,
+//! memory, limits, settings, papers, the prompt and a chat's
+//! sessions.
 
 use anyhow::Result;
 use diesel::prelude::*;
@@ -84,24 +85,32 @@ impl Core<'_, '_> {
                 let value = serde_json::Value::Object(
                     whole.into_iter().collect(),
                 );
-                self.set_limits(hamlet, |_| Ok(value))
+                self.set_limits(LimitsOwner::of(hamlet), |_| {
+                    Ok(value)
+                })
             }
             Edit::Limits(EditLimits::Set { hamlet, set, .. }) => self
-                .set_limits(hamlet, |mut current| {
-                    let section = current
-                        .get_mut(&set.section)
-                        .and_then(serde_json::Value::as_object_mut);
-                    match section {
-                        Some(section) => {
-                            section.insert(
-                                set.key.clone(),
-                                set.value.clone(),
+                .set_limits(
+                    LimitsOwner::of(hamlet),
+                    |mut current| {
+                        let section =
+                            current.get_mut(&set.section).and_then(
+                                serde_json::Value::as_object_mut,
                             );
+                        match section {
+                            Some(section) => {
+                                section.insert(
+                                    set.key.clone(),
+                                    set.value.clone(),
+                                );
+                            }
+                            None => {
+                                current[&set.key] = set.value.clone();
+                            }
                         }
-                        None => current[&set.key] = set.value.clone(),
-                    }
-                    Ok(current)
-                }),
+                        Ok(current)
+                    },
+                ),
             Edit::Settings { set, .. } => self.edit_settings(set),
             Edit::Catalogue { model, set, .. } => {
                 let answer = self.edit_catalogue(&model, set)?;
@@ -314,17 +323,17 @@ impl Core<'_, '_> {
         Ok(Ok("The settings are saved.".into()))
     }
 
-    /// Replaces the limits of `hamlet`, or the realm's, with what
-    /// `edit` makes of their client form.
+    /// Replaces the limits of `owner` with what `edit` makes of their
+    /// client form.
     fn set_limits(
         &mut self,
-        hamlet: Option<String>,
+        owner: LimitsOwner,
         edit: impl FnOnce(serde_json::Value) -> Result<serde_json::Value>,
     ) -> Done<String> {
         let chief = self.realm.chief();
         let db = self.realm.store().connection();
-        match hamlet {
-            Some(hamlet) => {
+        match owner {
+            LimitsOwner::Hamlet(hamlet) => {
                 let id = super::state::hamlet_id(&hamlet);
                 if hamlets::find(db, &id)?.is_none() {
                     return Ok(Err(Refusal::NoHamlet { id: hamlet }));
@@ -353,7 +362,7 @@ impl Core<'_, '_> {
                     format!("The limits of `{hamlet}` are saved.")
                 }))
             }
-            None => {
+            LimitsOwner::Realm => {
                 let current =
                     super::state::realm_limits(&limits::realm(db)?);
                 let edited = edit(serde_json::to_value(current)?)?;
@@ -540,7 +549,7 @@ impl Core<'_, '_> {
         self.answer(client, message)
     }
 
-    /// What `of` knows: a scholar's `main`, or an agent's lodge.
+    /// The papers of `of`: a scholar's `main`, or an agent's lodge.
     fn papers(&mut self, of: Keeper) -> Done<protocol::Papers> {
         let layout = self.realm.layout().clone();
         let db = self.realm.store().connection();
@@ -571,7 +580,7 @@ impl Core<'_, '_> {
                 .unwrap_or_default(),
             None => String::new(),
         };
-        let mut files: Vec<(String, Vec<u8>)> = Vec::new();
+        let mut files = Vec::<(String, Vec<u8>)>::new();
         let mut learned = Vec::new();
         match &lodge {
             Some(path) => {
@@ -708,6 +717,20 @@ impl Core<'_, '_> {
     }
 }
 
+/// Whose limits an edit sets.
+enum LimitsOwner {
+    Hamlet(String),
+    Realm,
+}
+
+impl LimitsOwner {
+    /// The owner of the limits `hamlet` names, or the realm's when
+    /// none.
+    fn of(hamlet: Option<String>) -> Self {
+        hamlet.map_or(Self::Realm, Self::Hamlet)
+    }
+}
+
 fn edit_id(edit: &Edit) -> &RequestId {
     match edit {
         Edit::Charter { id, .. }
@@ -721,8 +744,8 @@ fn edit_id(edit: &Edit) -> &RequestId {
     }
 }
 
-/// What is wrong with `endpoints`, in words; none when they hold. A
-/// key goes in a sign-in, never in an address.
+/// The fault of `endpoints`, in words; none when they hold. A key
+/// goes in a sign-in, never in an address.
 fn endpoint_fault(
     endpoints: &[crate::settings::Endpoint],
 ) -> Option<String> {

@@ -27,6 +27,7 @@ use crate::realm::Realm;
 use crate::society::refusal::Refusal;
 use crate::society::{agents, hamlets, hires};
 use crate::work::hamlet_of;
+use crate::work::tools::Network;
 
 /// A lodge's remote copy: what both copies held alike when last in
 /// step, or nothing before its first push. The tasks that push to it
@@ -34,7 +35,7 @@ use crate::work::hamlet_of;
 #[derive(Clone, Default)]
 pub(crate) struct RemoteCopy(Arc<tokio::sync::Mutex<Option<Synced>>>);
 
-/// What a task needs to keep one lodge's remote copy in step.
+/// The parts a task needs to keep one lodge's remote copy in step.
 #[derive(Clone)]
 pub(crate) struct Lodging {
     session: Session,
@@ -95,7 +96,7 @@ fn session_in(
     db: &mut Db,
     transport: &Transport,
     agent: AgentId,
-    net: bool,
+    network: Network,
 ) -> Result<Session> {
     let hamlet = hamlet_of(db, agent)?;
     let project = match &hamlet {
@@ -107,7 +108,7 @@ fn session_in(
         &workspace_of(hamlet.as_ref()),
         Policy {
             project,
-            network: net,
+            network: network.is_open(),
             read_only: false,
         },
     )
@@ -115,22 +116,21 @@ fn session_in(
 
 impl Remote<'_> {
     /// The session of `agent`'s tools in the remote workspace, when
-    /// the realm works in one; its commands reach the network with
-    /// `net`.
+    /// the realm works in one.
     pub(crate) fn session(
         &self,
         db: &mut Db,
         agent: AgentId,
-        net: bool,
+        network: Network,
     ) -> Result<Option<Session>> {
         let Some(transport) = &**self.workspace else {
             return Ok(None);
         };
-        Ok(Some(session_in(db, transport, agent, net)?))
+        Ok(Some(session_in(db, transport, agent, network)?))
     }
 
-    /// What keeps `agent`'s lodge's remote copy in step, when the
-    /// realm works in a remote workspace and the agent has a lodge.
+    /// The keeper of `agent`'s lodge's remote copy, when the realm
+    /// works in a remote workspace and the agent has a lodge.
     pub(crate) fn lodging(
         &mut self,
         realm: &mut Realm,
@@ -142,7 +142,9 @@ impl Remote<'_> {
         let Ok(found) = knowledge::lodging(db, &layout, agent) else {
             return Ok(None);
         };
-        let Some(session) = self.session(db, agent, false)? else {
+        let Some(session) =
+            self.session(db, agent, Network::Closed)?
+        else {
             return Ok(None);
         };
         Ok(Some(Lodging {
@@ -231,7 +233,12 @@ impl Core<'_, '_> {
                 continue;
             };
             moves.push(Lodging {
-                session: session_in(db, &transport, agent, false)?,
+                session: session_in(
+                    db,
+                    &transport,
+                    agent,
+                    Network::Closed,
+                )?,
                 path: found.path,
                 // Nothing is in step with another workspace yet.
                 copy: RemoteCopy::default(),
@@ -239,7 +246,7 @@ impl Core<'_, '_> {
             });
         }
         let of = i64::try_from(moves.len())?;
-        self.remote.moving.0 = Some(progress(0, of, None));
+        self.remote.moving.0 = Some(progress(0, of, Stage::Copying));
         self.changed.republish = true;
         let secrets = self.credentials.secrets();
         let id = id.clone();
@@ -248,7 +255,7 @@ impl Core<'_, '_> {
             for (done, lodging) in moves.into_iter().enumerate() {
                 let done = i64::try_from(done).unwrap_or(of);
                 report.send(Finished::Moving {
-                    progress: progress(done, of, None),
+                    progress: progress(done, of, Stage::Copying),
                     answer: None,
                 });
                 if let Err(error) = lodging.push().await {
@@ -259,7 +266,11 @@ impl Core<'_, '_> {
                     break;
                 }
             }
-            let last = progress(of, of, Some(failed.as_deref()));
+            let stage = match &failed {
+                None => Stage::Moved,
+                Some(error) => Stage::Failed(error),
+            };
+            let last = progress(of, of, stage);
             let answer = match failed {
                 None => Ok(last.text.clone()),
                 Some(error) => Err(Refusal::MoveFailed { error }),
@@ -273,25 +284,32 @@ impl Core<'_, '_> {
     }
 }
 
-/// How moving the lodges goes: `done` of `of` copied, and, once over,
-/// whether it failed and why.
+/// The stage of moving the lodges.
+enum Stage<'a> {
+    Copying,
+    Moved,
+    Failed(&'a str),
+}
+
+/// The progress of moving the lodges: `done` of `of` copied, at
+/// `stage`.
 fn progress(
     done: i64,
     of: i64,
-    over: Option<Option<&str>>,
+    stage: Stage<'_>,
 ) -> SettingsViewWorkspaceMove {
-    let (state, text) = match over {
-        None => (
+    let (state, text) = match stage {
+        Stage::Copying => (
             SettingsViewWorkspaceMoveState::Moving,
             "Copying the lodges.".to_owned(),
         ),
-        Some(None) => (
+        Stage::Moved => (
             SettingsViewWorkspaceMoveState::Moved,
             "Every lodge is in the chosen workspace; the realm \
              works there from its next start."
                 .to_owned(),
         ),
-        Some(Some(error)) => (
+        Stage::Failed(error) => (
             SettingsViewWorkspaceMoveState::Failed,
             format!("Moving the lodges failed: {error}"),
         ),

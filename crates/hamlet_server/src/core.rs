@@ -32,14 +32,28 @@ use crate::later::Later;
 use crate::providers::Providers;
 use crate::realm::Realm;
 use crate::talk::activity::Activity;
+use crate::talk::inputs::Resend;
 use crate::talk::leases::Authority;
 use crate::talk::runtimes::Runtimes;
 use crate::talk::sync::Fitting;
 use crate::talk::{Env, conversations, prompt, sync};
 use crate::work::added::Manifest;
-use crate::work::tools::Shells;
+use crate::work::tools::shell::Shells;
 use crate::workspace::Transport;
 use crate::workspace::serving::RemoteCopy;
+
+/// The live state no other area keeps, empty at the start; the tools
+/// added by hand are loaded into it once the server starts.
+pub(crate) fn plugin(app: &mut bevy_app::App) {
+    app.init_resource::<Lives>()
+        .init_resource::<Leftovers>()
+        .init_resource::<Added>()
+        .init_resource::<ToolFaults>()
+        .init_resource::<Catalogue>()
+        .init_resource::<Lodged>()
+        .init_resource::<Unpushed>()
+        .init_resource::<Moving>();
+}
 
 /// A resource that holds one value of a type made elsewhere, reached
 /// through it.
@@ -66,17 +80,17 @@ macro_rules! holder {
 }
 
 holder! {
-    /// What each conversation in memory shows: its transcript and
-    /// what its agent is doing.
+    /// Each conversation in memory with its transcript and its
+    /// agent's activity.
     #[derive(Default)]
     Lives(BTreeMap<ConversationId, Live>)
 }
 holder! {
-    /// How the agents' commands are confined on this machine.
+    /// The sandbox confining the agents' commands on this machine.
     Confined(hamlet_sandbox::Sandbox)
 }
 holder! {
-    /// What the agents' commands leave running, by agent.
+    /// The leftovers of the agents' commands, by agent.
     #[derive(Default)]
     Leftovers(hamlet_sandbox::AllLeftovers)
 }
@@ -87,7 +101,7 @@ holder! {
     Added(Vec<Manifest>)
 }
 holder! {
-    /// Why the tools added by hand that did not load did not.
+    /// The reasons the tools added by hand failed to load.
     #[derive(Default)]
     ToolFaults(Vec<String>)
 }
@@ -133,22 +147,9 @@ holder! {
     Unpushed(BTreeSet<AgentId>)
 }
 holder! {
-    /// How moving the lodges to the chosen workspace goes.
+    /// The progress of moving the lodges to the chosen workspace.
     #[derive(Default)]
     Moving(Option<protocol::SettingsViewWorkspaceMove>)
-}
-
-/// The live state no other area keeps, empty at the start; the tools
-/// added by hand are loaded into it once the server starts.
-pub(crate) fn plugin(app: &mut bevy_app::App) {
-    app.init_resource::<Lives>()
-        .init_resource::<Leftovers>()
-        .init_resource::<Added>()
-        .init_resource::<ToolFaults>()
-        .init_resource::<Catalogue>()
-        .init_resource::<Lodged>()
-        .init_resource::<Unpushed>()
-        .init_resource::<Moving>();
 }
 
 /// The tools a model may be offered, and what runs the built-in ones
@@ -203,7 +204,7 @@ pub(crate) struct Core<'w, 's> {
     pub clients: ResMut<'w, Clients>,
     pub live: ResMut<'w, Lives>,
     pub tools: Tooling<'w>,
-    /// What the input's changes leave for the runner to follow up.
+    /// The changes the input left for the runner to follow up.
     pub changed: ResMut<'w, Changed>,
     /// The held calls to wake once the input's changes are sent.
     pub wakes: MessageWriter<'w, Wake>,
@@ -211,7 +212,7 @@ pub(crate) struct Core<'w, 's> {
     pub ended: MessageWriter<'w, InputEnded>,
     /// The chief's commands.
     pub deeds: Res<'w, Deeds>,
-    /// What the input spawns and despawns, applied after it.
+    /// The input's spawns and despawns, applied after it.
     pub commands: Commands<'w, 's>,
     pub uploads: Uploads<'w, 's>,
     pub calls: ResMut<'w, Calls>,
@@ -221,13 +222,13 @@ pub(crate) struct Core<'w, 's> {
     pub fitting: ResMut<'w, Fitting>,
     /// The model catalogue and what waits on the providers.
     pub providers: ResMut<'w, Providers>,
-    /// Which runtime may read or rotate which provider's credential.
+    /// The runtimes' leases on the providers' credentials.
     pub leases: ResMut<'w, Authority>,
     pub remote: Remote<'w>,
-    /// Where tasks send what they finish with.
+    /// The tasks off the loop and their results.
     pub later: ResMut<'w, Later>,
-    /// What looks off the loop found for the calls that wait on
-    /// them.
+    /// The findings of looks off the loop, for the calls that wait
+    /// on them.
     pub looks: ResMut<'w, Looks>,
     /// Held while anything writes the realm's repositories and
     /// lodges.
@@ -326,7 +327,7 @@ impl Core<'_, '_> {
         Ok(sections)
     }
 
-    /// How the agents' commands are confined, as a client is told.
+    /// The confinement of the agents' commands, as a client is told.
     pub(crate) fn confinement(&self) -> protocol::Confinement {
         let sandbox = &self.tools.sandbox;
         if self.remote.workspace.is_some() {
@@ -418,7 +419,7 @@ impl Core<'_, '_> {
     pub(crate) fn flush_one(
         &mut self,
         runtime: Entity,
-        again: bool,
+        resend: Resend,
     ) -> Result<()> {
         let images = self.realm.layout().images();
         let mut owed = sync::Owed {
@@ -429,7 +430,7 @@ impl Core<'_, '_> {
             fitting: &mut self.fitting,
             images: &images,
         };
-        sync::flush(&mut owed, runtime, again)
+        sync::flush(&mut owed, runtime, resend)
     }
 
     /// Answers the credential requests the leases let through.

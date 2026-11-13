@@ -83,9 +83,15 @@ struct Pending {
     provider: String,
     action: ProviderRequestAction,
     login: Option<String>,
-    /// Whether it answers a read of the catalogue.
-    read: bool,
+    settles: Settles,
     expires: Option<Instant>,
+}
+
+/// The answer a request's client gets at its end.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Settles {
+    Reply,
+    Catalogue,
 }
 
 /// A sign-in in progress, owned by the connection that began it.
@@ -175,7 +181,7 @@ impl Providers {
             .collect()
     }
 
-    /// What `model` of `provider` is listed as; nothing when it is
+    /// The listing of `model` of `provider`; the empty one when it is
     /// not listed.
     fn listed(&self, provider: &str, model: &str) -> Listing {
         self.lists
@@ -277,7 +283,7 @@ impl Core<'_, '_> {
             ProviderRequestAction::Describe,
             None,
             None,
-            false,
+            Settles::Reply,
         )?;
         if !self.providers.faux {
             let endpoints = self.env.settings.endpoints.clone();
@@ -288,7 +294,7 @@ impl Core<'_, '_> {
                     ProviderRequestAction::Refresh,
                     None,
                     None,
-                    false,
+                    Settles::Reply,
                 )?;
             }
         }
@@ -302,7 +308,7 @@ impl Core<'_, '_> {
         action: ProviderRequestAction,
         model: Option<String>,
         login: Option<String>,
-        read: bool,
+        settles: Settles,
     ) -> Result<String> {
         let settings = &self.env.settings;
         let serving = settings.provider().unwrap_or_default();
@@ -334,7 +340,7 @@ impl Core<'_, '_> {
                 provider: provider.into(),
                 action: action.clone(),
                 login,
-                read,
+                settles,
                 expires,
             },
         );
@@ -414,7 +420,7 @@ impl Core<'_, '_> {
     }
 
     /// Tries the chosen model or the connection, for a client's
-    /// check; the faux model needs no trying.
+    /// check.
     pub(crate) fn check(
         &mut self,
         client: u64,
@@ -428,6 +434,7 @@ impl Core<'_, '_> {
                 (id, None, ProviderRequestAction::Refresh)
             }
         };
+        // The faux model needs no trying.
         if self.providers.faux {
             let words = "Every agent runs the faux model here.";
             self.model_link(LinkState::Connected, None, Some(words))?;
@@ -452,7 +459,7 @@ impl Core<'_, '_> {
             action,
             Some(model),
             None,
-            false,
+            Settles::Reply,
         )?;
         self.send_providers()
     }
@@ -483,7 +490,7 @@ impl Core<'_, '_> {
                 ProviderRequestAction::Refresh,
                 None,
                 None,
-                true,
+                Settles::Catalogue,
             )?;
         }
         self.send_providers()
@@ -552,7 +559,7 @@ impl Core<'_, '_> {
             ProviderRequestAction::Login,
             None,
             Some(key.clone()),
-            false,
+            Settles::Reply,
         )?;
         let request = self
             .providers
@@ -751,10 +758,7 @@ impl Core<'_, '_> {
             .get(&pending.provider)
             .map_or(0, Vec::len);
         let words = match &result.error {
-            Some(error) => plainly(
-                error,
-                pending.action == ProviderRequestAction::Hello,
-            ),
+            Some(error) => plainly(error, &pending.action),
             None => result.text.clone().unwrap_or_else(|| {
                 format!("Connected, {count} model(s)")
             }),
@@ -778,7 +782,7 @@ impl Core<'_, '_> {
             )?;
         }
         if let Some((client, id)) = &pending.from {
-            if pending.read {
+            if pending.settles == Settles::Catalogue {
                 let more = self
                     .providers
                     .pending
@@ -1109,7 +1113,7 @@ fn login_step(
     })
 }
 
-/// What the catalogue keeps of a model.
+/// A model's entry in the catalogue.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct Card {
     context: Option<i64>,
@@ -1128,15 +1132,15 @@ struct Card {
         skip_serializing_if = "Option::is_none"
     )]
     images: Option<Option<ImageInput>>,
-    /// Whether a chief said what it takes of images, which a listing
-    /// leaves alone.
+    /// Set when a chief said what it takes of images, which a
+    /// listing leaves alone.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     images_yours: bool,
     name: String,
     note: String,
     price: Option<ListedPrice>,
     priced: ListedPriced,
-    /// What its provider calls it.
+    /// Its provider's name for it.
     #[serde(default)]
     title: String,
 }
@@ -1245,7 +1249,7 @@ fn keep_catalogue(db: &mut Db, cards: &Catalogue) -> Result<()> {
     Ok(())
 }
 
-/// Whether `base_url` is served on this machine.
+/// Tells whether `base_url` is served on this machine.
 pub(crate) fn is_local(base_url: Option<&str>) -> bool {
     base_url
         .and_then(|s| url::Url::parse(s).ok())
@@ -1260,7 +1264,7 @@ pub(crate) fn is_local(base_url: Option<&str>) -> bool {
 }
 
 /// A provider's error in words a chief can act on.
-fn plainly(error: &str, hello: bool) -> String {
+fn plainly(error: &str, action: &ProviderRequestAction) -> String {
     let lower = error.to_lowercase();
     if [
         "http 401",
@@ -1295,7 +1299,7 @@ fn plainly(error: &str, hello: bool) -> String {
             .into();
     }
     let detail = error.chars().take(160).collect::<String>();
-    if hello {
+    if *action == ProviderRequestAction::Hello {
         return format!(
             "That model did not answer a hello. Pick another one. \
              ({detail})"

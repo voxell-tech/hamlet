@@ -20,6 +20,7 @@ use crate::oversight::gate::{self, Asked, Standing, Verdict};
 use crate::oversight::{self, Raise, Ruling, WaitKind};
 use crate::work::catalogue::Society;
 use crate::work::cut::change_between;
+use crate::work::tools::Network;
 
 /// A call as the gate rules on it, or the decision made before the
 /// gate is asked: a look to wait for, or a block.
@@ -106,9 +107,9 @@ impl Core<'_, '_> {
         Ok(Decision::Block(words))
     }
 
-    /// What `call` is, as the gate rules on it: a send with what its
-    /// files come to, an edit with what it replaces. `Err` is the
-    /// decision while they are looked at, or once they cannot be.
+    /// `call` as the gate rules on it: a send with what its files
+    /// come to, an edit with what it replaces. `Err` is the decision
+    /// while they are looked at, or once they cannot be.
     fn classify(
         &mut self,
         call: &Call<'_>,
@@ -160,8 +161,11 @@ impl Core<'_, '_> {
         }
         let Some(measured) = self.looks.measured(&call.call).cloned()
         else {
-            let (session, lodging) =
-                self.tools_of(call, at.place.clone(), false)?;
+            let (session, lodging) = self.tools_of(
+                call,
+                at.place.clone(),
+                Network::Closed,
+            )?;
             return Ok(Err(Decision::Look(Box::new(
                 Look::Measure {
                     session,
@@ -197,8 +201,11 @@ impl Core<'_, '_> {
         let Some(previewed) =
             self.looks.previewed(&call.call).cloned()
         else {
-            let (session, lodging) =
-                self.tools_of(call, at.place.clone(), false)?;
+            let (session, lodging) = self.tools_of(
+                call,
+                at.place.clone(),
+                Network::Closed,
+            )?;
             return Ok(Err(Decision::Look(Box::new(
                 Look::Preview {
                     session,
@@ -234,7 +241,7 @@ impl Core<'_, '_> {
     ) -> Result<Decision> {
         let agent = call.conversation.agent;
         let (session, _) =
-            self.tools_of(call, at.place.clone(), false)?;
+            self.tools_of(call, at.place.clone(), Network::Closed)?;
         let (change, lodge_edit) = match &classified {
             gate::Call::Edit {
                 write,

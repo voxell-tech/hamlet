@@ -33,6 +33,10 @@ const MOST_UPLOADS: usize = 32;
 /// The name of a file being taken in, until it is whole.
 const INCOMING: &str = ".incoming-";
 
+pub(crate) fn plugin(app: &mut bevy_app::App) {
+    app.add_every(SWEEP_EVERY, sweep);
+}
+
 /// The realm's folder of files.
 pub(crate) struct Files {
     folder: PathBuf,
@@ -148,10 +152,6 @@ fn dropped(world: DeferredWorld, context: HookContext) {
     }
 }
 
-pub(crate) fn plugin(app: &mut bevy_app::App) {
-    app.add_every(SWEEP_EVERY, sweep);
-}
-
 /// Takes away the files nothing uses any more, at most once an hour:
 /// those no kept input or transcript item names, untouched for a day,
 /// which includes uploads never sent with a line.
@@ -161,7 +161,7 @@ fn sweep(mut realm: ResMut<Realm>) -> Result<()> {
     let db = realm.store().connection();
     for (id, at) in files.kept() {
         let idle = at.elapsed().is_ok_and(|age| age >= GRACE);
-        if idle && !crate::images::sweep::used(db, id.as_str())? {
+        if idle && !crate::images::sweep::is_used(db, id.as_str())? {
             let _ = std::fs::remove_file(files.path(&id));
         }
     }

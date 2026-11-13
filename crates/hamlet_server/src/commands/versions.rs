@@ -5,6 +5,7 @@
 use hamlet_git::{Author, CommitId, MAIN, Repository};
 use hamlet_store::ids::{Actor, HamletId, ScholarId};
 
+use super::ScholarReach;
 use crate::change::Done;
 use crate::core::Core;
 use crate::jobs::Fork;
@@ -24,7 +25,7 @@ impl Core<'_, '_> {
         text: &str,
     ) -> Done<(ScholarId, Repository)> {
         let chief = self.realm.chief();
-        let id = match self.scholar_at(text, false)? {
+        let id = match self.scholar_at(text, ScholarReach::Living)? {
             Ok(id) => id,
             Err(refusal) => return Ok(Err(refusal)),
         };

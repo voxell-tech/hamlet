@@ -28,6 +28,10 @@ use self::connection::{Connection, Event};
 use crate::credentials::Credentials;
 use crate::diagnostic::{Secrets, tell};
 
+pub(crate) fn plugin(app: &mut bevy_app::App) {
+    app.add_observer(requests::left);
+}
+
 /// A conversation a client watches.
 #[derive(Clone, Debug)]
 pub(crate) struct Watch {
@@ -43,10 +47,6 @@ pub(crate) struct Owed {
     pub id: RequestId,
     pub conversation: ConversationId,
     pub request: String,
-}
-
-pub(crate) fn plugin(app: &mut bevy_app::App) {
-    app.add_observer(requests::left);
 }
 
 /// Every connection, as the systems that send to them reach them.
@@ -68,8 +68,7 @@ pub(crate) fn broadcast(
 #[derive(bevy_ecs::resource::Resource)]
 pub(crate) struct Clients {
     pub check: Protocol,
-    /// The entity of each connection, by its id, as its hooks keep
-    /// it.
+    /// The entity of each connection, by its id.
     pub entities: HashMap<u64, Entity>,
     next: u64,
     events: mpsc::Sender<Event>,
@@ -81,7 +80,8 @@ pub(crate) struct Clients {
     pub sent: Option<protocol::State>,
     pub epoch: i64,
     pub revision: i64,
-    /// What goes to the clients once the input that made it is done.
+    /// The messages for the clients, sent once the input that made
+    /// them is done.
     outbox: Vec<Outgoing>,
 }
 

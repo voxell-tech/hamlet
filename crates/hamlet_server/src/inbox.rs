@@ -1,6 +1,6 @@
-//! Where files sent to an agent are saved: the `inbox/` of its lodge
-//! (C33, H30). An agent that works in a remote workspace finds them
-//! there once its lodge is next pushed, before its next call.
+//! The `inbox/` of an agent's lodge, where files sent to it are
+//! saved (C33, H30). An agent that works in a remote workspace finds
+//! them there once its lodge is next pushed, before its next call.
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;

@@ -1,6 +1,5 @@
-//! What each client message asks, answered by the loop: the hello,
-//! a chief's lines and commands, watching conversations, and a chat's
-//! deeds.
+//! The loop's answers to client messages: the hello, a chief's lines
+//! and commands, watching conversations, and a chat's deeds.
 
 use std::collections::BTreeMap;
 
@@ -298,8 +297,8 @@ impl Core<'_, '_> {
         }
     }
 
-    /// Whether `agent` runs a model, as it does once the chief set
-    /// one up.
+    /// The check that `agent` runs a model, as it does once the chief
+    /// set one up.
     pub(crate) fn has_model(
         &mut self,
         agent: AgentId,

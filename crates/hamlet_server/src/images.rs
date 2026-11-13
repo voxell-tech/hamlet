@@ -24,6 +24,10 @@ pub(crate) const SEEN: &str = "inbox/images";
 /// The time between the realm's sweeps for images nothing uses.
 const SWEEP_EVERY: Duration = Duration::from_secs(60 * 60);
 
+pub(crate) fn plugin(app: &mut bevy_app::App) {
+    app.add_every(SWEEP_EVERY, sweep::sweep);
+}
+
 /// An image's format.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Format {
@@ -78,7 +82,7 @@ impl Format {
         if at(0, &PNG) {
             let header = bytes.len() >= 16
                 && at(12, b"IHDR")
-                && be32(bytes, 8) == 13;
+                && big_endian_u32(bytes, 8) == 13;
             return header.then_some(Self::Png);
         }
         if at(0, b"GIF87a") || at(0, b"GIF89a") {
@@ -91,13 +95,14 @@ impl Format {
     }
 }
 
-fn be32(bytes: &[u8], offset: usize) -> usize {
+fn big_endian_u32(bytes: &[u8], offset: usize) -> usize {
     bytes.get(offset..offset + 4).map_or(0, |b| {
         u32::from_be_bytes([b[0], b[1], b[2], b[3]]) as usize
     })
 }
 
-/// Why bytes are not an image the realm can keep or give a model.
+/// The reason bytes are not an image the realm can keep or give a
+/// model.
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
 pub(crate) enum Unusable {
     #[error("an image is a PNG, JPEG, WebP or GIF")]
@@ -136,10 +141,6 @@ impl Limits {
                 .min(ImageInput::PER_LINE),
         }
     }
-}
-
-pub(crate) fn plugin(app: &mut bevy_app::App) {
-    app.add_every(SWEEP_EVERY, sweep::sweep);
 }
 
 /// `words` with its first letter in capitals.

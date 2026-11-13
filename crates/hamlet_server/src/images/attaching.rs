@@ -18,13 +18,9 @@ use crate::workspace::lodges::LODGE;
 
 impl Core<'_, '_> {
     /// The images `images` and the files `files` of the line `text`
-    /// to `agent`, each at its place in the words and in the order
-    /// the model is given them, with the captions that tell where
-    /// they are saved (C33). The images are the model's too, if it
-    /// takes them (S30), and are saved in the agent's own folder of
-    /// images; the files are saved in its inbox. The remote
-    /// workspace holds both once the agent's lodge is next pushed,
-    /// when it works there.
+    /// to `agent`, each at its place in the words, with the captions
+    /// that tell where they are saved (C33). The images go to the
+    /// model too, if it takes them (S30).
     pub(crate) fn attach(
         &mut self,
         agent: AgentId,

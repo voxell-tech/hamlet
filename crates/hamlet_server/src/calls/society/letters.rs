@@ -7,7 +7,7 @@ use hamlet_store::ids::{Actor, AgentId};
 use hamlet_store::schema::worker;
 
 use super::args::{Ask, RequestRoad, StartWorker, Tell};
-use super::{Call, Step, said, task_chief};
+use super::{Call, Step, refused, said, task_chief};
 use crate::calls::looks::Look;
 use crate::calls::place;
 use crate::core::Core;
@@ -21,6 +21,7 @@ use crate::talk::conversations::Kind;
 use crate::talk::letters::{self, Message, MessageKind, Send};
 use crate::talk::tasks::{self, Origin};
 use crate::work::catalogue::Society;
+use crate::work::tools::Network;
 
 impl Core<'_, '_> {
     pub(in crate::calls) fn tell(
@@ -214,7 +215,7 @@ impl Core<'_, '_> {
             addresses::address_of(db, call.conversation.agent)?
                 .replace('#', "-");
         let (session, lodging) =
-            self.tools_of(call, at.place, false)?;
+            self.tools_of(call, at.place, Network::Closed)?;
         let inbox = self
             .open_inbox(receiver, &format!("{INBOX}/from-{from}"))?;
         Ok(Look::Copy {
@@ -227,22 +228,21 @@ impl Core<'_, '_> {
         })
     }
 
-    /// What a message kept for a call answers it: a letter is sent; a
-    /// question waits for its answer.
+    /// The answer a message kept for a call gives it: a letter is
+    /// sent; a question waits for its answer.
     fn sent(&mut self, found: &Message) -> Result<Step> {
         let name = self.name(found.receiver)?;
         Ok(match (found.kind, &found.answer, &found.failure) {
             (MessageKind::Letter, _, _) => {
-                Step::Done(said(format!("Sent to {name}."), false))
+                Step::Done(said(format!("Sent to {name}.")))
             }
-            (MessageKind::Question, Some(answer), _) => Step::Done(
-                said(format!("{name} answers: {answer}"), false),
-            ),
+            (MessageKind::Question, Some(answer), _) => {
+                Step::Done(said(format!("{name} answers: {answer}")))
+            }
             (MessageKind::Question, None, Some(failure)) => {
-                Step::Done(said(
-                    format!("{name} could not answer: {failure}"),
-                    true,
-                ))
+                Step::Done(refused(format!(
+                    "{name} could not answer: {failure}"
+                )))
             }
             (MessageKind::Question, None, None) => {
                 Step::Wait(format!("Waiting for {name}'s answer."))
@@ -324,29 +324,25 @@ impl Core<'_, '_> {
         }
     }
 
-    /// What a worker started by a call answers it.
+    /// The answer a worker started by a call gives it.
     fn worked(&mut self, id: AgentId) -> Result<Step> {
         let db = self.realm.store().connection();
         let found = workers::get(db, id)?;
         let ended = agents::get(db, id)?;
         let name = addresses::address_of(db, id)?;
         if !found.waits {
-            return Ok(Step::Done(said(
-                format!(
-                    "Started {name}; its answer comes to you as a \
-                     reply."
-                ),
-                false,
-            )));
+            return Ok(Step::Done(said(format!(
+                "Started {name}; its answer comes to you as a reply."
+            ))));
         }
         Ok(match (ended.ended_how, found.answer) {
-            (Some(EndHow::Answered), Some(answer)) => Step::Done(
-                said(format!("{name} answers: {answer}"), false),
-            ),
-            (Some(how), _) => Step::Done(said(
-                format!("{name} ended: {}.", how.words()),
-                true,
-            )),
+            (Some(EndHow::Answered), Some(answer)) => {
+                Step::Done(said(format!("{name} answers: {answer}")))
+            }
+            (Some(how), _) => Step::Done(refused(format!(
+                "{name} ended: {}.",
+                how.words()
+            ))),
             (None, _) => {
                 Step::Wait(format!("Waiting for {name}'s answer."))
             }

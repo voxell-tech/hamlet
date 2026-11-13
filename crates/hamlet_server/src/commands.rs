@@ -25,6 +25,19 @@ use crate::society::hires::{self, Hiring};
 use crate::society::refusal::Refusal;
 use crate::society::{authority, city, hamlets};
 
+/// The word that stands in place of a scholar for a blank agent.
+const BLANK: &str = "blank";
+
+type Run = fn(&mut Core<'_, '_>, &Line) -> Answer;
+
+pub(crate) fn plugin(app: &mut App) {
+    app.add_commands(SESSIONS)
+        .add_commands(OVERSIGHT)
+        .add_commands(VERSIONS)
+        .add_commands(SHELVES)
+        .add_commands(society::SOCIETY);
+}
+
 /// A command a chief can type: its name, how it is written, what it
 /// does, and the function that does it.
 pub(crate) struct Command {
@@ -34,14 +47,16 @@ pub(crate) struct Command {
     run: Run,
 }
 
-/// What runs a command, as its own system.
-type Run = fn(&mut Core<'_, '_>, &Line) -> Answer;
+/// The scholars an address may name.
+#[derive(Clone, Copy, PartialEq)]
+enum ScholarReach {
+    Living,
+    /// The archived too.
+    Kept,
+}
 
-/// The word `/create-hamlet` and `/hire` take in place of a scholar
-/// for a blank agent, which is not a scholar of the city.
-const BLANK: &str = "blank";
-
-/// Whether `word` is a scholar's address, with or without a version.
+/// The check that `word` is a scholar's address, with or without a
+/// version.
 fn is_scholar(word: &str) -> bool {
     word.starts_with("scholar#")
 }
@@ -249,7 +264,7 @@ pub(crate) struct Line {
 }
 
 impl Line {
-    /// What follows the name, word by word.
+    /// The words that follow the name.
     pub fn words(&self) -> Vec<&str> {
         self.rest.split_whitespace().collect()
     }
@@ -260,7 +275,7 @@ impl Line {
     }
 }
 
-/// What a command answers: words for the chief, or a refusal.
+/// A command's answer: words for the chief, or a refusal.
 pub(crate) type Answer = Done<String>;
 
 /// Every command, as the deeds a client lists in this order, with the
@@ -291,7 +306,7 @@ impl Deeds {
             .collect()
     }
 
-    /// How command `name` is written, as a refusal.
+    /// The usage of command `name`, as a refusal.
     pub fn usage(&self, name: &str) -> Refusal {
         let usage = self
             .0
@@ -346,14 +361,6 @@ impl AddCommands for App {
         }
         self
     }
-}
-
-pub(crate) fn plugin(app: &mut App) {
-    app.add_commands(SESSIONS)
-        .add_commands(OVERSIGHT)
-        .add_commands(VERSIONS)
-        .add_commands(SHELVES)
-        .add_commands(society::SOCIETY);
 }
 
 /// A line to an agent that begins with `/`: a command (H24, H26),
@@ -508,7 +515,7 @@ impl Core<'_, '_> {
             None => (text, None),
         };
         Ok(self
-            .scholar_at(address, false)?
+            .scholar_at(address, ScholarReach::Living)?
             .map(|scholar| (scholar, version)))
     }
 
@@ -554,12 +561,11 @@ impl Core<'_, '_> {
         addresses::resolve(db, &address, here, reach)
     }
 
-    /// The scholar `text` addresses, among the living, or the
-    /// archived too when `archived`.
-    pub(crate) fn scholar_at(
+    /// The scholar `text` addresses, among those `reach` allows.
+    fn scholar_at(
         &mut self,
         text: &str,
-        archived: bool,
+        reach: ScholarReach,
     ) -> Done<ScholarId> {
         let id = match addresses::parse_scholar(text) {
             Ok(id) => id,
@@ -568,7 +574,7 @@ impl Core<'_, '_> {
         let db = self.realm.store().connection();
         let found = city::find(db, id)?.filter(|found| {
             found.kind == city::ScholarKind::Scholar
-                && (archived || found.is_living())
+                && (reach == ScholarReach::Kept || found.is_living())
         });
         Ok(match found {
             Some(found) => Ok(found.id),

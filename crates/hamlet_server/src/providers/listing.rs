@@ -1,8 +1,7 @@
-//! What the server reads of a model as its provider lists it. pi
-//! passes each provider's listing on whole, and the server keeps it
-//! so; this is the one place its fields are read, each on its own: a
-//! field that is missing or does not fit is left out, and the rest
-//! are still read.
+//! A model as its provider lists it, read by the server. pi passes
+//! each listing on whole and the server keeps it so; its fields are
+//! read here, each on its own, so a field that is missing or does not
+//! fit is left out and the rest are still read.
 
 use std::collections::BTreeMap;
 
@@ -17,7 +16,7 @@ use serde_json::Value;
 pub(super) struct Listing {
     #[serde(deserialize_with = "fitting")]
     pub id: String,
-    /// What its provider calls it.
+    /// Its provider's name for it.
     #[serde(deserialize_with = "fitting")]
     pub name: String,
     /// The provider that serves it, when not the one asked.
@@ -37,23 +36,23 @@ pub(super) struct Listing {
     pub listed_price: Option<ListedPrice>,
     #[serde(deserialize_with = "fitting")]
     cost: Cost,
-    /// Whether it can be asked to think.
+    /// Set when it can be asked to think.
     #[serde(deserialize_with = "fitting")]
     pub reasoning: bool,
-    /// What each effort is called for it; a null effort it lacks.
+    /// Each effort's name for it; null for an effort it lacks.
     #[serde(deserialize_with = "fitting")]
     pub thinking_level_map: Option<BTreeMap<String, Value>>,
     /// The API it is called through.
     #[serde(deserialize_with = "fitting")]
     pub api: Option<String>,
-    /// What it takes in: text, images.
+    /// The kinds of input it takes: text, images.
     #[serde(deserialize_with = "fitting")]
     input: Vec<String>,
     #[serde(deserialize_with = "fitting")]
     input_limits: InputLimits,
 }
 
-/// What a call of it costs, per million tokens.
+/// A call's cost, per million tokens.
 #[derive(Deserialize, Default)]
 #[serde(default, rename_all = "camelCase")]
 struct Cost {
@@ -95,7 +94,7 @@ struct Resize {
 }
 
 impl Listing {
-    /// What the server reads of `model`; nothing when it is not an
+    /// The listing read from `model`; the empty one when it is not an
     /// object.
     pub fn of(model: &Value) -> Self {
         Self::deserialize(model).unwrap_or_default()

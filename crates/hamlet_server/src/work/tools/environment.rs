@@ -134,17 +134,17 @@ pub(super) struct Local {
 
 impl Local {
     /// The environment of the tools at `place`, made off the async
-    /// runtime, whose commands reach the network only with `net` and
-    /// leave what they started to `leftovers`.
+    /// runtime, whose commands leave what they started to
+    /// `leftovers`.
     pub async fn open(
         sandbox: Sandbox,
         place: &super::Place,
-        net: bool,
+        network: super::Network,
         leftovers: Leftovers,
     ) -> Result<Self, Unopened> {
         let at = place.clone();
         let env = tokio::task::spawn_blocking(move || {
-            super::environment(&sandbox, &at, net)
+            super::environment(&sandbox, &at, network)
         })
         .await??;
         Ok(Self {

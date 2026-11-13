@@ -90,7 +90,7 @@ impl Dialect {
         Self::ALL.into_iter().find(|dialect| dialect.tool() == name)
     }
 
-    /// How the language is named at the start of a sentence.
+    /// The language's name at the start of a sentence.
     fn title(self) -> &'static str {
         match self {
             Self::Bash => "Bash",
@@ -141,7 +141,7 @@ impl Dialect {
     }
 }
 
-/// Which PowerShell a Windows machine has.
+/// A PowerShell a Windows machine has.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[cfg_attr(
     not(any(windows, test)),
@@ -155,7 +155,7 @@ pub(crate) enum Edition {
 }
 
 impl Edition {
-    /// What the tool's description says of it.
+    /// The tool's description of it.
     fn description(self) -> &'static str {
         match self {
             Self::Seven => " It runs PowerShell 7 (pwsh).",
@@ -172,7 +172,7 @@ impl Edition {
 pub(crate) struct Shell {
     dialect: Dialect,
     program: String,
-    /// Which PowerShell `program` is.
+    /// The PowerShell `program` is.
     edition: Option<Edition>,
 }
 
@@ -585,7 +585,7 @@ mod tests {
     async fn call(shell: &Shell, command: &str) -> Outcome {
         use hamlet_sandbox::{AllLeftovers, Sandbox};
 
-        use crate::work::tools::ToolSession;
+        use crate::work::tools::{Network, ToolSession};
 
         let scratch = hamlet_testing::Scratch::new("shell-call");
         let lodge = scratch.join("lodges/home/0");
@@ -603,7 +603,7 @@ mod tests {
         };
         ToolSession::local(
             place,
-            false,
+            Network::Closed,
             Sandbox::testing(),
             Shells(vec![shell.clone()]),
             AllLeftovers::default().of(1),

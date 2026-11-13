@@ -6,7 +6,7 @@ use anyhow::Result;
 use hamlet_store::ids::Actor;
 
 use super::args::{AskLibrarian, SubmitSkill};
-use super::{Call, Step, said};
+use super::{Call, Step, refused, said};
 use crate::change::Done;
 use crate::core::Core;
 use crate::knowledge::folder::Folder;
@@ -37,7 +37,7 @@ pub(crate) fn judging(id: i64) -> String {
 }
 
 impl Core<'_, '_> {
-    /// What the librarian is told before its task: its role and the
+    /// The librarian's instructions before its task: its role and the
     /// shelves.
     fn librarian(&mut self) -> Result<String> {
         let layout = self.realm.layout().clone();
@@ -64,18 +64,14 @@ impl Core<'_, '_> {
         let db = self.realm.store().connection();
         match errands::ended(db, LIBRARIAN, &owner)? {
             Some(Ended::Answered(answer)) => {
-                return Ok(Step::Done(said(
-                    format!("The librarian says: {answer}"),
-                    false,
-                )));
+                return Ok(Step::Done(said(format!(
+                    "The librarian says: {answer}"
+                ))));
             }
             Some(Ended::Failed(failure)) => {
-                return Ok(Step::Done(said(
-                    format!(
-                        "The librarian could not answer: {failure}"
-                    ),
-                    true,
-                )));
+                return Ok(Step::Done(refused(format!(
+                    "The librarian could not answer: {failure}"
+                ))));
             }
             None => {}
         }
@@ -120,7 +116,7 @@ impl Core<'_, '_> {
             shelf::offer_of(db, &call.call.runtime, &call.call.key)?
         {
             return Ok(match found.words {
-                Some(words) => Step::Done(said(words, false)),
+                Some(words) => Step::Done(said(words)),
                 None => {
                     Step::Wait("The librarian is judging it.".into())
                 }

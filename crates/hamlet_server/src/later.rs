@@ -18,16 +18,23 @@ use tokio::sync::mpsc::UnboundedSender;
 use crate::calls::CallId;
 use crate::calls::looks::Found;
 
-/// What a task finished with.
+/// The channel tasks send their results through, as inputs.
+pub(crate) fn plugin(app: &mut bevy_app::App) {
+    let done = crate::server::arriving::<Finished>(app);
+    app.insert_resource(Later::new(done));
+}
+
+/// A task's result.
 pub(crate) enum Finished {
     /// A message for a client, such as an image it asked to read.
     Reply { client: u64, message: ServerMessage },
-    /// How moving the lodges goes, and the answer once it is over.
+    /// The progress of moving the lodges, and the answer once it is
+    /// over.
     Moving {
         progress: SettingsViewWorkspaceMove,
         answer: Option<(u64, ServerMessage)>,
     },
-    /// What a look for a call found. The runtime's request for the
+    /// A look's finding for a call. The runtime's request for the
     /// call runs again, `again`, and finds it.
     Looked {
         call: CallId,
@@ -114,12 +121,6 @@ impl Later {
     pub fn discard(&mut self) {
         self.queued().clear();
     }
-}
-
-/// Where tasks send what they finish with, as inputs.
-pub(crate) fn plugin(app: &mut bevy_app::App) {
-    let done = crate::server::arriving::<Finished>(app);
-    app.insert_resource(Later::new(done));
 }
 
 /// Starts the tasks the kept input asked for.

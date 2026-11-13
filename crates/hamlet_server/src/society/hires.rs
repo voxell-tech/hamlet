@@ -172,7 +172,7 @@ pub(crate) fn get(db: &mut Db, id: AgentId) -> Result<Hire> {
     find(db, id)?.with_context(|| format!("no hire {id}"))
 }
 
-/// How many letters of a first message a purpose keeps.
+/// The most letters of a first message a purpose keeps.
 const PURPOSE_KEPT: usize = 200;
 
 /// Gives `agent`, a hire hired without saying what for, the first
@@ -242,7 +242,7 @@ pub(crate) fn count_living(
         .get_result(db)?)
 }
 
-/// Whether `id` holds its hamlet's office.
+/// True when `id` holds its hamlet's office.
 pub(crate) fn is_mayor(db: &mut Db, id: AgentId) -> Result<bool> {
     let hire = get(db, id)?;
     Ok(tree::mayor(db, &hire.hamlet)? == id)

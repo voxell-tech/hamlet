@@ -49,7 +49,7 @@ pub(crate) fn start(
     runtimes.start(realm.store().connection(), &layout)
 }
 
-/// What every runtime must promise.
+/// The capabilities every runtime must promise.
 const NEEDED: [Capability; 6] = [
     Capability::Operations,
     Capability::Attempts,
@@ -62,10 +62,10 @@ const NEEDED: [Capability; 6] = [
 /// The first wait before a failed runtime starts again; it doubles.
 const FIRST_WAIT: Duration = Duration::from_millis(250);
 const MOST_WAIT: Duration = Duration::from_secs(30);
-/// How long a runtime runs before its failures are forgotten.
+/// The time a runtime runs before its failures are forgotten.
 const SETTLED: Duration = Duration::from_secs(60);
 
-/// Where a runtime is in its life.
+/// A runtime's stage in its life.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum Phase {
     /// Started, its hello not heard yet.
@@ -97,7 +97,7 @@ pub(crate) struct Runtime {
 #[derive(Component, Default)]
 pub(crate) struct InFlight(HashMap<String, Pending>);
 
-/// What a request to a runtime was for, until its reply.
+/// The purpose of a request to a runtime, kept until its reply.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum Pending {
     Create(ConversationId),
@@ -107,7 +107,7 @@ pub(crate) enum Pending {
     Configure(ConversationId, String),
 }
 
-/// How the runtimes are started, and the lines sent to them.
+/// The runtimes' launch settings and the lines sent to them.
 #[derive(Resource)]
 pub(crate) struct Harness {
     pi: Pi,
@@ -181,7 +181,7 @@ impl Runtimes<'_, '_> {
         Ok(self.get(runtime)?.id.clone())
     }
 
-    /// Whether `runtime` was taken on and has not failed since.
+    /// The readiness of `runtime`: taken on and not failed since.
     pub fn is_ready(&self, runtime: Entity) -> bool {
         self.get(runtime).is_ok_and(|r| r.phase == Phase::Ready)
     }
@@ -243,13 +243,14 @@ impl Runtimes<'_, '_> {
         Ok(())
     }
 
-    /// How many times `runtime` was started, which tells its
+    /// The count of times `runtime` was started, which tells its
     /// processes apart.
     pub fn generation(&self, runtime: Entity) -> Option<u64> {
         self.get(runtime).ok().map(|runtime| runtime.generation)
     }
 
-    /// Whether `received` came from the process running now.
+    /// The currency of `received`: it came from the process running
+    /// now.
     pub fn is_current(&self, received: &Received) -> bool {
         self.generation(received.runtime) == Some(received.generation)
     }
@@ -444,10 +445,17 @@ impl Runtimes<'_, '_> {
         id
     }
 
-    /// The request `re` answers, and the runtime it went to.
-    pub fn reply(&mut self, re: &str) -> Option<(Entity, Pending)> {
+    /// The request that `request_id` answers, and the runtime it went
+    /// to.
+    pub fn reply(
+        &mut self,
+        request_id: &str,
+    ) -> Option<(Entity, Pending)> {
         self.list.iter_mut().find_map(|(entity, _, mut in_flight)| {
-            in_flight.0.remove(re).map(|pending| (entity, pending))
+            in_flight
+                .0
+                .remove(request_id)
+                .map(|pending| (entity, pending))
         })
     }
 

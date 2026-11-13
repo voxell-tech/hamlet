@@ -169,13 +169,21 @@ pub(crate) fn by_submission(
         .optional()?)
 }
 
-/// What `conversation` is owed, in order: its kept inputs, and when
-/// `again` also those admitted whose end was not heard, so their
-/// runtime answers again.
+/// The inputs a runtime is sent again.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Resend {
+    Nothing,
+    /// Those it admitted whose end was not heard, so it answers them
+    /// again.
+    Unended,
+}
+
+/// The inputs `conversation` is owed, in order: its kept ones, and
+/// those `resend` names.
 pub(crate) fn owed(
     db: &mut Db,
     conversation: ConversationId,
-    again: bool,
+    resend: Resend,
 ) -> Result<Vec<Input>> {
     let rows = input::table
         .filter(input::conversation.eq(conversation))
@@ -187,7 +195,9 @@ pub(crate) fn owed(
         .into_iter()
         .filter(|row| match row.state {
             State::Kept => true,
-            State::Admitted => again && !row.is_ended(),
+            State::Admitted => {
+                resend == Resend::Unended && !row.is_ended()
+            }
             State::Dropped => false,
         })
         .collect())

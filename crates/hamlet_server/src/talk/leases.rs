@@ -63,7 +63,7 @@ impl<R: Copy + Eq + Hash> Authority<R> {
         }
     }
 
-    /// Whether a runtime holds a lease, rotating a credential.
+    /// The state of a runtime holding a lease, rotating a credential.
     pub fn is_holding(&self) -> bool {
         !self.held.is_empty()
     }

@@ -255,7 +255,7 @@ fn lodge(db: &mut Db, layout: &Layout, agent: AgentId) -> Result<()> {
     check_out(&repo, tip, &folder)
 }
 
-/// What a branch takes in: its pin, or `main`.
+/// The commit a branch takes in: its pin's, or `main`'s.
 fn target(repo: &Repository, pin: Option<&str>) -> Result<CommitId> {
     match pin {
         Some(version) => repo

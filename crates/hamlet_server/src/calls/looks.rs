@@ -1,9 +1,10 @@
-//! What a call's request waits on that the loop must not: the files a
-//! `tell` or an `ask` sends, measured for the gate and then copied
-//! into the receiver's inbox (H30), and what a file an edit writes
-//! holds now, for the chief to see the change. Each look runs on a
-//! task. What it finds is kept here, and the runtime's request runs
-//! again and finds it; the runtime waits for its answer meanwhile.
+//! The looks a call's request waits on, which the loop must not do:
+//! the files a `tell` or an `ask` sends, measured for the gate and
+//! then copied into the receiver's inbox (H30), and the file an edit
+//! writes as it is now, for the chief to see the change. Each look
+//! runs on a task and its finding is kept here; the runtime's request
+//! runs again and finds it, and the runtime waits for its answer
+//! meanwhile.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -15,17 +16,18 @@ use hamlet_store::ids::AgentId;
 use super::CallId;
 use crate::inbox::Inbox;
 use crate::society::refusal::Refusal;
-use crate::work::tools::{To, ToolSession};
+use crate::work::tools::ToolSession;
+use crate::work::tools::parcel::To;
 use crate::workspace::serving::Lodging;
 
 /// The files a parcel holds and their bytes, as measured.
 pub(crate) type Measure = (usize, u64);
 
-/// What a copied parcel answers: the captions that say where each
-/// file landed, and the images among them.
+/// A copied parcel's captions, which say where each file landed, and
+/// the images among them.
 pub(crate) type Copy = (String, Vec<ImageId>);
 
-/// What the looks found, by call, until the call is settled.
+/// The findings of the looks, by call, until the call is settled.
 #[derive(Resource, Default)]
 pub(crate) struct Looks {
     measured: HashMap<CallId, Result<Measure, Refusal>>,
@@ -86,7 +88,7 @@ impl Looks {
     }
 }
 
-/// What to look at, and through which session.
+/// A thing to look at, with the session to look through.
 pub(crate) enum Look {
     /// The files under `paths` a parcel would send.
     Measure {
@@ -94,7 +96,7 @@ pub(crate) enum Look {
         lodging: Option<Lodging>,
         paths: Vec<String>,
     },
-    /// What the file at `path` holds now.
+    /// The file at `path`, as it is now.
     Preview {
         session: ToolSession,
         lodging: Option<Lodging>,
@@ -112,7 +114,7 @@ pub(crate) enum Look {
     },
 }
 
-/// What a look found.
+/// A look's finding.
 pub(crate) enum Found {
     Measured(Result<Measure, Refusal>),
     Previewed(Result<Option<String>, String>),

@@ -15,7 +15,7 @@ use serde_json::Value;
 use super::Danger;
 use crate::society::limits::Reserved;
 use crate::work::catalogue::{Reserve, Society};
-use crate::work::tools::Dialect;
+use crate::work::tools::shell::Dialect;
 
 /// A tool call, classified by its reach.
 #[derive(Clone, Debug, PartialEq)]
@@ -187,7 +187,7 @@ fn cut(text: &str) -> String {
     format!("{}\n[{} more characters]", &text[..end], count - SHOWN)
 }
 
-/// Who makes a call, as the gate weighs it.
+/// The maker of a call, as the gate weighs it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Caller {
     Hand,
@@ -206,8 +206,8 @@ pub(crate) struct Standing {
     pub asks_commands: bool,
 }
 
-/// What a call may do: run, with or without the network; wait for a
-/// chief; or not run.
+/// The outcome of a call: run, with or without the network; wait for
+/// a chief; or not run.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum Verdict {
     Run { net: bool },
@@ -273,7 +273,9 @@ fn is_reserved(
     };
     match (caller, tool.facts().reserve) {
         (Caller::Hand, Reserve::Hand) => true,
-        (Caller::Hire, Reserve::Limit(limit)) => limit.kept(reserved),
+        (Caller::Hire, Reserve::Limit(limit)) => {
+            limit.is_kept(reserved)
+        }
         _ => false,
     }
 }
@@ -325,7 +327,7 @@ fn is_networked(dialect: Dialect, command: &str) -> bool {
         .any(|needle| has_mention(&lower, needle))
 }
 
-/// Whether `command` names `needle`: a word as a whole word, other
+/// True when `command` names `needle`: a word as a whole word, other
 /// text anywhere.
 fn has_mention(command: &str, needle: &str) -> bool {
     let word =
@@ -353,7 +355,7 @@ pub(crate) struct Refused {
     pub reason: String,
 }
 
-/// What a refusal covers: a reach of every call, or one exact
+/// The scope of a refusal: a reach of every call, or one exact
 /// request.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -373,7 +375,7 @@ impl Covers {
 }
 
 impl Asked {
-    /// What `conversation` was asked in its turn of `input`.
+    /// The [`Asked`] of `conversation` in its turn of `input`.
     pub fn of(
         db: &mut Db,
         conversation: ConversationId,
@@ -486,7 +488,7 @@ pub(crate) struct Session {
     pub session: i64,
 }
 
-/// Whether the chief trusts the edits and the commands of `session`.
+/// The chief's trust in the edits and in the commands of `session`.
 pub(crate) fn trusted(
     db: &mut Db,
     session: Session,
@@ -556,7 +558,7 @@ pub(crate) fn permission(name: &str) -> Option<Permission> {
         .find(|permission| word(permission) == name)
 }
 
-/// Whether `agent` holds `permission` by a grant.
+/// True when `agent` holds `permission` by a grant.
 pub(crate) fn has_grant(
     db: &mut Db,
     agent: AgentId,

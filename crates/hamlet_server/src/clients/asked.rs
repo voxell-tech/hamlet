@@ -1,8 +1,8 @@
-//! What a client asks: one system for each kind of request. The
-//! runner takes a welcomed client's message apart and runs the
-//! request's system once, with the client it came from ([`ask`]).
-//! What awaits the disk or the workspace runs on a task, whose result
-//! comes back as an input of its own.
+//! A client's requests: one system for each kind. The runner takes a
+//! welcomed client's message apart and runs the request's system
+//! once, with the client it came from ([`ask`]). Whatever awaits the
+//! disk or the workspace runs on a task, whose result comes back as
+//! an input of its own.
 
 use anyhow::{Result, anyhow};
 use bevy_ecs::system::{In, IntoSystem, ResMut};
