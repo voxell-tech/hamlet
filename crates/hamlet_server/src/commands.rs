@@ -407,17 +407,17 @@ impl Line {
 /// What a command answers: words for the chief, or a refusal.
 pub(crate) type Answer = Result<Result<String, Refusal>>;
 
-/// Every command, in the order a client lists them, with the system
-/// that runs it. A command is added with its usage and the system in
-/// one call, so the list and what runs cannot drift.
+/// Every command, as the deeds a client lists in this order, with the
+/// system that runs it. A command is added with its usage and its
+/// system in one call, so the list and what runs cannot drift.
 #[derive(Resource, Default)]
-pub(crate) struct Commands(
+pub(crate) struct Deeds(
     Vec<(&'static Command, SystemId<In<Line>, Answer>)>,
 );
 
-impl Commands {
+impl Deeds {
     /// The commands a client may offer.
-    pub fn deeds(&self) -> Vec<protocol::Deed> {
+    pub fn listed(&self) -> Vec<protocol::Deed> {
         self.0
             .iter()
             .map(|(command, _)| protocol::Deed {
@@ -476,7 +476,7 @@ impl AddCommands for App {
     ) -> &mut Self {
         let world = self.world_mut();
         let system = world.register_system(system);
-        let mut commands = world.get_resource_or_init::<Commands>();
+        let mut commands = world.get_resource_or_init::<Deeds>();
         for command in table {
             assert!(
                 commands.system(command.name).is_none(),
@@ -511,8 +511,7 @@ pub(crate) fn said(
         None => return Ok(()),
         Some(Err(refusal)) => Err(refusal),
         Some(Ok(line)) => {
-            let found =
-                world.resource::<Commands>().system(&line.name);
+            let found = world.resource::<Deeds>().system(&line.name);
             match found {
                 Some(system) => world
                     .run_system_with(system, line)
@@ -681,7 +680,7 @@ impl Core<'_, '_> {
                     .map_or((rest.as_str(), ""), |(n, p)| (n, p));
                 let shown = shown.trim().to_owned();
                 if shown.is_empty() {
-                    return Ok(Err(self.commands.usage(name)));
+                    return Ok(Err(self.deeds.usage(name)));
                 }
                 let purpose = match purpose.trim() {
                     "" => format!("Mayor of {shown}."),
@@ -711,7 +710,7 @@ impl Core<'_, '_> {
             }
             "name-hamlet" => {
                 let Some(id) = words.first() else {
-                    return Ok(Err(self.commands.usage(name)));
+                    return Ok(Err(self.deeds.usage(name)));
                 };
                 let id = HamletId((*id).to_owned());
                 if let Err(refusal) = self.chief_of(&id)? {
@@ -734,7 +733,7 @@ impl Core<'_, '_> {
                     words.get(1).and_then(|w| w.parse::<f64>().ok()),
                     words.get(2).and_then(|w| w.parse::<f64>().ok()),
                 ) else {
-                    return Ok(Err(self.commands.usage(name)));
+                    return Ok(Err(self.deeds.usage(name)));
                 };
                 let id = HamletId((*id).to_owned());
                 if let Err(refusal) = self.chief_of(&id)? {
@@ -751,7 +750,7 @@ impl Core<'_, '_> {
             }
             "remove-hamlet" | "restore-hamlet" | "erase-hamlet" => {
                 let Some(id) = words.first() else {
-                    return Ok(Err(self.commands.usage(name)));
+                    return Ok(Err(self.deeds.usage(name)));
                 };
                 let id = HamletId((*id).to_owned());
                 if let Err(refusal) = self.chief_of(&id)? {
@@ -794,7 +793,7 @@ impl Core<'_, '_> {
                 let Some(tier) =
                     words.first().and_then(|w| w.parse::<i64>().ok())
                 else {
-                    return Ok(Err(self.commands.usage(name)));
+                    return Ok(Err(self.deeds.usage(name)));
                 };
                 if let Err(refusal) = self.chief_of(&id)? {
                     return Ok(Err(refusal));
@@ -814,7 +813,7 @@ impl Core<'_, '_> {
                     return Ok(Err(self.no_hamlet()));
                 };
                 let Some(text) = words.first() else {
-                    return Ok(Err(self.commands.usage(name)));
+                    return Ok(Err(self.deeds.usage(name)));
                 };
                 if let Err(refusal) = self.chief_of(&id)? {
                     return Ok(Err(refusal));
@@ -838,7 +837,7 @@ impl Core<'_, '_> {
             "hire" => self.hire_command(here.as_ref(), &words),
             "end" | "restore" | "erase" => {
                 let Some(text) = words.first() else {
-                    return Ok(Err(self.commands.usage(name)));
+                    return Ok(Err(self.deeds.usage(name)));
                 };
                 let reach = if name == "end" {
                     Reach::Living
@@ -894,7 +893,7 @@ impl Core<'_, '_> {
                 let (Some(absorbed), Some(&"into"), Some(kept)) =
                     (words.first(), words.get(1), words.get(2))
                 else {
-                    return Ok(Err(self.commands.usage(name)));
+                    return Ok(Err(self.deeds.usage(name)));
                 };
                 let absorbed = match self.resolve(
                     absorbed,
@@ -939,7 +938,7 @@ impl Core<'_, '_> {
                 let (Some(text), Some(model)) =
                     (words.first(), words.get(1))
                 else {
-                    return Ok(Err(self.commands.usage(name)));
+                    return Ok(Err(self.deeds.usage(name)));
                 };
                 let hire = match self.resolve(
                     text,
@@ -968,7 +967,7 @@ impl Core<'_, '_> {
                 let (Some(text), Some(value)) =
                     (words.first(), words.get(1))
                 else {
-                    return Ok(Err(self.commands.usage(name)));
+                    return Ok(Err(self.deeds.usage(name)));
                 };
                 let agent = match self.resolve(
                     text,
@@ -987,7 +986,7 @@ impl Core<'_, '_> {
                         "off" => false,
                         _ => {
                             return Ok(Err(self
-                                .commands
+                                .deeds
                                 .usage(name)));
                         }
                     };
@@ -1007,7 +1006,7 @@ impl Core<'_, '_> {
                         Some(effort) => Some(effort),
                         None => {
                             return Ok(Err(self
-                                .commands
+                                .deeds
                                 .usage(name)));
                         }
                     },
@@ -1027,7 +1026,7 @@ impl Core<'_, '_> {
             }
             "nickname" => {
                 let Some(text) = words.first() else {
-                    return Ok(Err(self.commands.usage(name)));
+                    return Ok(Err(self.deeds.usage(name)));
                 };
                 let agent = match self.resolve(
                     text,
@@ -1081,7 +1080,7 @@ impl Core<'_, '_> {
             }
             "tools" => {
                 let Some(text) = words.first() else {
-                    return Ok(Err(self.commands.usage(name)));
+                    return Ok(Err(self.deeds.usage(name)));
                 };
                 let hire = match self.resolve(
                     text,
@@ -1127,7 +1126,7 @@ impl Core<'_, '_> {
                 let (Some(text), Some(amount)) =
                     (words.first(), words.get(1))
                 else {
-                    return Ok(Err(self.commands.usage(name)));
+                    return Ok(Err(self.deeds.usage(name)));
                 };
                 let hire = match self.resolve(
                     text,
@@ -1151,7 +1150,7 @@ impl Core<'_, '_> {
                         }
                         _ => {
                             return Ok(Err(self
-                                .commands
+                                .deeds
                                 .usage(name)));
                         }
                     },
@@ -1173,7 +1172,7 @@ impl Core<'_, '_> {
                 let (Some(a), Some(b)) =
                     (words.first(), words.get(1))
                 else {
-                    return Ok(Err(self.commands.usage(name)));
+                    return Ok(Err(self.deeds.usage(name)));
                 };
                 let a = match self.resolve(
                     a,
@@ -1220,7 +1219,7 @@ impl Core<'_, '_> {
                     let folder = match words.first() {
                         None => {
                             return Ok(Err(self
-                                .commands
+                                .deeds
                                 .usage(name)));
                         }
                         Some(&"none") => None,
@@ -1252,7 +1251,7 @@ impl Core<'_, '_> {
                         Some(&"auto") => Mode::Auto,
                         _ => {
                             return Ok(Err(self
-                                .commands
+                                .deeds
                                 .usage(name)));
                         }
                     };
@@ -1319,7 +1318,7 @@ impl Core<'_, '_> {
             }
             "scholar" => {
                 let Some(&"new") = words.first() else {
-                    return Ok(Err(self.commands.usage(name)));
+                    return Ok(Err(self.deeds.usage(name)));
                 };
                 // The name runs to the first colon, the character
                 // follows it.
@@ -1347,7 +1346,7 @@ impl Core<'_, '_> {
             }
             "name-scholar" => {
                 let Some(text) = words.first() else {
-                    return Ok(Err(self.commands.usage(name)));
+                    return Ok(Err(self.deeds.usage(name)));
                 };
                 let scholar = match self.scholar_at(text, false)? {
                     Ok(found) => found,
@@ -1380,7 +1379,7 @@ impl Core<'_, '_> {
             | "erase-scholar" | "move-house" | "welcome"
             | "turn-away" => {
                 let Some(text) = words.first() else {
-                    return Ok(Err(self.commands.usage(name)));
+                    return Ok(Err(self.deeds.usage(name)));
                 };
                 let archived = matches!(
                     name,
@@ -1409,12 +1408,12 @@ impl Core<'_, '_> {
                     let (Some(Some(x)), Some(Some(z)), turn) =
                         (number(1), number(2), number(3))
                     else {
-                        return Ok(Err(self.commands.usage(name)));
+                        return Ok(Err(self.deeds.usage(name)));
                     };
                     let Some(turn) = turn.map_or(Some(None), |t| {
                         t.map(|degrees| Some(degrees.to_radians()))
                     }) else {
-                        return Ok(Err(self.commands.usage(name)));
+                        return Ok(Err(self.deeds.usage(name)));
                     };
                     let done = self.attempt(by, |cx, _| {
                         city::place(cx, scholar, x, z, turn)
@@ -1473,7 +1472,7 @@ impl Core<'_, '_> {
     ) -> Result<Result<String, Refusal>> {
         let chief = self.realm.chief();
         let Some(scholar) = words.first() else {
-            return Ok(Err(self.commands.usage("hire")));
+            return Ok(Err(self.deeds.usage("hire")));
         };
         let mut rest = &words[1..];
         let mut hamlet = here.cloned();

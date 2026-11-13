@@ -28,7 +28,7 @@ impl Core<'_, '_> {
         words: &[&str],
     ) -> Result<Result<String, Refusal>> {
         let [skill, reason @ ..] = words else {
-            return Ok(Err(self.commands.usage("unshelve")));
+            return Ok(Err(self.deeds.usage("unshelve")));
         };
         let reason = reason.join(" ");
         let chief = self.realm.chief();

@@ -10,7 +10,10 @@ pub(crate) mod fold;
 pub(crate) mod requests;
 pub(crate) mod state;
 
+use std::collections::HashMap;
+
 use anyhow::Result;
+use bevy_ecs::entity::Entity;
 use bevy_ecs::system::Query;
 use hamlet_protocol::client::{
     self as protocol, ChatRef, RequestId, ServerMessage, Update,
@@ -65,6 +68,9 @@ pub(crate) fn broadcast(
 #[derive(bevy_ecs::resource::Resource)]
 pub(crate) struct Clients {
     pub check: Protocol,
+    /// The entity of each connection, by its id, as its hooks keep
+    /// it.
+    pub entities: HashMap<u64, Entity>,
     next: u64,
     events: mpsc::Sender<Event>,
     closing: watch::Receiver<bool>,
@@ -94,6 +100,7 @@ impl Clients {
     ) -> Result<Self> {
         Ok(Self {
             check: Protocol::new()?,
+            entities: HashMap::new(),
             next: 0,
             events,
             closing,
@@ -185,6 +192,7 @@ impl Clients {
 
     /// `client` went: what it watched and the replies owed to it go.
     pub fn forget(&mut self, client: u64) {
+        self.entities.remove(&client);
         self.watches.retain(|w| w.client != client);
         self.owed.retain(|o| o.client != client);
     }

@@ -13,7 +13,6 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context as _, Result};
 use bevy_app::App;
-use bevy_ecs::entity::Entity;
 use bevy_ecs::error::{BevyError, ErrorContext};
 use bevy_ecs::system::SystemState;
 use futures::FutureExt;
@@ -29,7 +28,7 @@ use tokio::sync::{mpsc, watch};
 use crate::apply::Apply;
 use crate::calls::{self, Calls, Ran};
 use crate::clients::check::fault;
-use crate::clients::connection::{Connection, Event};
+use crate::clients::connection::Event;
 use crate::clients::{Clients, asked};
 use crate::clock;
 use crate::core::{
@@ -39,8 +38,6 @@ use crate::core::{
 use crate::credentials::Credentials;
 use crate::deadline::{self, Fire};
 use crate::diagnostic::{self, Secrets, tell};
-use crate::files::FileUploads;
-use crate::images::Uploads;
 use crate::jobs::Job;
 use crate::knowledge::runner::{Runner, Writing};
 use crate::providers::Providers;
@@ -262,8 +259,6 @@ impl Server {
             .insert_resource(Fitting::new(fitted_to))
             .insert_resource(providers)
             .insert_resource(Authority::default())
-            .insert_resource(Uploads::default())
-            .insert_resource(FileUploads::default())
             .insert_resource(Workspace(workspace))
             .insert_resource(Lodged(Default::default()))
             .insert_resource(Unpushed(Default::default()))
@@ -345,6 +340,8 @@ impl Server {
     pub async fn run(&mut self, input: Input) -> Result<(), Fatal> {
         let ran =
             AssertUnwindSafe(self.handle(input)).catch_unwind().await;
+        // What the input spawned and despawned takes effect now.
+        self.core.apply(self.app.world_mut());
         let mut failures = recorded();
         match ran {
             Ok(Ok(())) => {}
@@ -426,15 +423,16 @@ impl Server {
                 return Ok(());
             }
             Event::Gone(client) => {
-                // Its observers and hooks take what the client held.
-                let world = self.app.world_mut();
-                let gone = world
-                    .query::<(Entity, &Connection)>()
-                    .iter(world)
-                    .find(|(_, found)| found.id == client)
-                    .map(|(entity, _)| entity);
+                // Its hooks and observers take what the client held,
+                // and its uploads go with it.
+                let gone = self
+                    .core()?
+                    .clients
+                    .entities
+                    .get(&client)
+                    .copied();
                 if let Some(gone) = gone {
-                    world.despawn(gone);
+                    self.app.world_mut().despawn(gone);
                 }
                 return Ok(());
             }

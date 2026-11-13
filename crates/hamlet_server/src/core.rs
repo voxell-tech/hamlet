@@ -6,7 +6,8 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use anyhow::Result;
-use bevy_ecs::system::{Res, ResMut, SystemParam};
+use bevy_ecs::entity::Entity;
+use bevy_ecs::system::{Commands, Query, Res, ResMut, SystemParam};
 use hamlet_protocol::client as protocol;
 use hamlet_protocol::runtime::{self, ServerMessage, ToolSpec};
 use hamlet_store::ids::{Actor, AgentId, ConversationId};
@@ -15,14 +16,15 @@ use crate::apply::Changed;
 use crate::calls::Calls;
 use crate::change::{Change, Done, Touched};
 use crate::clients::check::reply;
+use crate::clients::connection::UploadOf;
 use crate::clients::fold::Fold;
 use crate::clients::{Clients, Connections};
 use crate::clock;
-use crate::commands::Commands;
+use crate::commands::Deeds;
 use crate::credentials::Credentials;
 use crate::diagnostic::{Secrets, tell};
-use crate::files::FileUploads;
-use crate::images::Uploads;
+use crate::files::FileUpload;
+use crate::images::ImageUpload;
 use crate::knowledge::runner::{Runner, Writing, run_due};
 use crate::providers::Providers;
 use crate::realm::Realm;
@@ -136,7 +138,21 @@ pub(crate) struct Core<'w, 's> {
     /// What the input's changes leave for the runner to follow up.
     pub changed: ResMut<'w, Changed>,
     /// The chief's commands.
-    pub commands: Res<'w, Commands>,
+    pub deeds: Res<'w, Deeds>,
+    /// What the input spawns and despawns, applied after it.
+    pub commands: Commands<'w, 's>,
+    /// The images being sent, one entity each.
+    pub image_uploads: Query<
+        'w,
+        's,
+        (Entity, &'static UploadOf, &'static mut ImageUpload),
+    >,
+    /// The files being sent, one entity each.
+    pub file_uploads: Query<
+        'w,
+        's,
+        (Entity, &'static UploadOf, &'static mut FileUpload),
+    >,
     pub calls: ResMut<'w, Calls>,
     /// The images of inputs being fitted to their models.
     pub fitting: ResMut<'w, Fitting>,
@@ -144,10 +160,6 @@ pub(crate) struct Core<'w, 's> {
     pub providers: ResMut<'w, Providers>,
     /// Which runtime may read or rotate which provider's credential.
     pub leases: ResMut<'w, Authority>,
-    /// The images being sent.
-    pub images: ResMut<'w, Uploads>,
-    /// The files being sent.
-    pub files: ResMut<'w, FileUploads>,
     pub workspace: ResMut<'w, Workspace>,
     pub synced: ResMut<'w, Lodged>,
     pub unpushed: ResMut<'w, Unpushed>,

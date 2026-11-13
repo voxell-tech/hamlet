@@ -7,6 +7,7 @@ use std::time::Duration;
 
 use anyhow::Result;
 use bevy_ecs::component::Component;
+use bevy_ecs::entity::Entity;
 use bevy_ecs::lifecycle::HookContext;
 use bevy_ecs::world::DeferredWorld;
 use futures::{SinkExt, StreamExt};
@@ -42,13 +43,38 @@ pub(crate) enum Out {
 /// despawned when the connection goes, which takes what the client
 /// held with it.
 #[derive(Component)]
-#[component(on_remove = forget)]
+#[component(on_add = known, on_remove = forget)]
 pub(crate) struct Connection {
     /// The id the inputs of this connection carry.
     pub(crate) id: u64,
     pub(crate) send: mpsc::Sender<Out>,
     pub(crate) welcomed: bool,
     pub(crate) refused: bool,
+}
+
+/// Something a connection is sending in parts, such as an image or a
+/// file: an entity of its own, which goes when the connection goes.
+#[derive(Component)]
+#[relationship(relationship_target = Uploading)]
+pub(crate) struct UploadOf(pub Entity);
+
+/// What a connection is sending in parts.
+#[derive(Component)]
+#[relationship_target(relationship = UploadOf, linked_spawn)]
+pub(crate) struct Uploading(Vec<Entity>);
+
+/// A connection came: its id finds its entity.
+fn known(mut world: DeferredWorld, context: HookContext) {
+    let Some(id) = world
+        .get::<Connection>(context.entity)
+        .map(|connection| connection.id)
+    else {
+        return;
+    };
+    world
+        .resource_mut::<super::Clients>()
+        .entities
+        .insert(id, context.entity);
 }
 
 /// A connection that went: what it watched and the replies owed to

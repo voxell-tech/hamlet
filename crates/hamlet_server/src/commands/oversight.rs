@@ -148,10 +148,10 @@ impl Core<'_, '_> {
         let (Some(address), Some(permission)) =
             (words.next(), words.next())
         else {
-            return Ok(Err(self.commands.usage("revoke")));
+            return Ok(Err(self.deeds.usage("revoke")));
         };
         let Some(permission) = gate::permission(permission) else {
-            return Ok(Err(self.commands.usage("revoke")));
+            return Ok(Err(self.deeds.usage("revoke")));
         };
         let address = match addresses::parse(address) {
             Ok(address) => address,
@@ -207,11 +207,11 @@ impl Core<'_, '_> {
         let Some((address, text)) =
             rest.split_once(char::is_whitespace)
         else {
-            return Ok(Err(self.commands.usage("to")));
+            return Ok(Err(self.deeds.usage("to")));
         };
         let text = text.trim();
         if text.is_empty() {
-            return Ok(Err(self.commands.usage("to")));
+            return Ok(Err(self.deeds.usage("to")));
         }
         let address = match addresses::parse(address) {
             Ok(address) => address,
@@ -264,7 +264,7 @@ impl Core<'_, '_> {
         brief: &str,
     ) -> Result<Result<String, Refusal>> {
         if brief.is_empty() {
-            return Ok(Err(self.commands.usage("worker")));
+            return Ok(Err(self.deeds.usage("worker")));
         }
         let chief = self.realm.chief();
         let db = self.realm.store().connection();

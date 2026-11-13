@@ -1,13 +1,14 @@
 //! The images the realm keeps, each once under the hash of its bytes,
 //! and the making of one to fit a model (S29, S30).
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
 use anyhow::{Context, Result};
 use base64::Engine as _;
+use bevy_ecs::component::Component;
 use diesel::dsl::exists;
 use diesel::prelude::*;
 use hamlet_protocol::client::{
@@ -30,6 +31,7 @@ use sha2::{Digest, Sha256};
 
 use crate::attached::{Attached, Caption, is_place};
 use crate::clients::check::reply;
+use crate::clients::connection::UploadOf;
 use crate::core::Core;
 use crate::deadline::AddDeadline;
 use crate::diagnostic::{Secrets, tell};
@@ -554,10 +556,14 @@ fn encode(
 /// The most images one connection sends at once.
 const MOST_UPLOADS: usize = 32;
 
-/// The images being sent.
-#[derive(bevy_ecs::resource::Resource, Default)]
-pub(crate) struct Uploads {
-    sending: HashMap<String, Sending>,
+/// An image being sent in parts, by the connection it is
+/// [`UploadOf`]; it goes when the connection goes.
+#[derive(Component)]
+pub(crate) struct ImageUpload {
+    /// The name its parts are sent under.
+    upload: String,
+    size: u64,
+    bytes: Vec<u8>,
 }
 
 pub(crate) fn plugin(app: &mut bevy_app::App) {
@@ -567,19 +573,6 @@ pub(crate) fn plugin(app: &mut bevy_app::App) {
 /// Takes away the images nothing uses.
 fn sweep(mut core: Core) -> Result<()> {
     core.sweep_images()
-}
-
-struct Sending {
-    client: u64,
-    size: u64,
-    bytes: Vec<u8>,
-}
-
-impl Uploads {
-    /// Drops what the connection `client` was sending.
-    pub fn disconnect(&mut self, client: u64) {
-        self.sending.retain(|_, sending| sending.client != client);
-    }
 }
 
 fn usage(words: &str) -> Refusal {
@@ -597,11 +590,18 @@ impl Core<'_, '_> {
         put: PutImage,
     ) -> ServerMessage {
         let PutImage { id, size } = put;
+        let Some(connection) =
+            self.clients.entities.get(&client).copied()
+        else {
+            return reply(
+                &id,
+                Err(usage("This connection is closing.")),
+            );
+        };
         let sending = self
-            .images
-            .sending
-            .values()
-            .filter(|sending| sending.client == client)
+            .image_uploads
+            .iter()
+            .filter(|(_, of, _)| of.0 == connection)
             .count();
         let refusal = if size == 0 {
             Some(usage("An image has bytes."))
@@ -616,14 +616,14 @@ impl Core<'_, '_> {
             return reply(&id, Err(refusal));
         }
         let upload = uuid::Uuid::new_v4().simple().to_string();
-        self.images.sending.insert(
-            upload.clone(),
-            Sending {
-                client,
+        self.commands.spawn((
+            ImageUpload {
+                upload: upload.clone(),
                 size,
                 bytes: Vec::new(),
             },
-        );
+            UploadOf(connection),
+        ));
         let mut answer = reply(
             &id,
             Ok::<_, Refusal>("Ready for the image.".into()),
@@ -641,11 +641,12 @@ impl Core<'_, '_> {
         part: PutImagePart,
     ) -> Result<ServerMessage> {
         let refuse = |words: &str| reply(&part.id, Err(usage(words)));
-        let Some(sending) = self
-            .images
-            .sending
-            .get_mut(&part.upload)
-            .filter(|sending| sending.client == client)
+        let connection = self.clients.entities.get(&client).copied();
+        let Some((entity, _, mut sending)) =
+            self.image_uploads.iter_mut().find(|(_, of, sending)| {
+                Some(of.0) == connection
+                    && sending.upload == part.upload
+            })
         else {
             return Ok(refuse(
                 "No image of yours is being sent under that upload.",
@@ -672,13 +673,10 @@ impl Core<'_, '_> {
                 Ok::<_, Refusal>("Received the image part.".into()),
             ));
         }
-        let whole = self
-            .images
-            .sending
-            .remove(&part.upload)
-            .expect("the upload was found above");
+        let whole = std::mem::take(&mut sending.bytes);
+        self.commands.entity(entity).despawn();
         let folder = Images::new(self.realm.layout().images());
-        Ok(match folder.keep(&whole.bytes)? {
+        Ok(match folder.keep(&whole)? {
             Ok((image, _)) => {
                 let mut answer = reply(
                     &part.id,

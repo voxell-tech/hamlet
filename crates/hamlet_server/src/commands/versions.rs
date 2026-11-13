@@ -64,7 +64,7 @@ impl Core<'_, '_> {
         words: &[&str],
     ) -> Result<Result<String, Refusal>> {
         let [scholar, version, note @ ..] = words else {
-            return Ok(Err(self.commands.usage("tag")));
+            return Ok(Err(self.deeds.usage("tag")));
         };
         let (scholar, at) = scholar
             .split_once('@')
@@ -112,7 +112,7 @@ impl Core<'_, '_> {
         words: &[&str],
     ) -> Result<Result<String, Refusal>> {
         let [scholar] = words else {
-            return Ok(Err(self.commands.usage("versions")));
+            return Ok(Err(self.deeds.usage("versions")));
         };
         let (_, repo) = match self.chiefs_scholar(scholar)? {
             Ok(found) => found,
@@ -159,7 +159,7 @@ impl Core<'_, '_> {
         words: &[&str],
     ) -> Result<Result<String, Refusal>> {
         let [address, version, reason @ ..] = words else {
-            return Ok(Err(self.commands.usage("pin")));
+            return Ok(Err(self.deeds.usage("pin")));
         };
         let parsed = match addresses::parse(address) {
             Ok(parsed) => parsed,
@@ -214,7 +214,7 @@ impl Core<'_, '_> {
         words: &[&str],
     ) -> Result<Result<String, Refusal>> {
         let [scholar, which, reason @ ..] = words else {
-            return Ok(Err(self.commands.usage("revert")));
+            return Ok(Err(self.deeds.usage("revert")));
         };
         let (id, repo) = match self.chiefs_scholar(scholar)? {
             Ok(found) => found,
@@ -264,7 +264,7 @@ impl Core<'_, '_> {
         words: &[&str],
     ) -> Result<Result<String, Refusal>> {
         let [from, name @ ..] = words else {
-            return Ok(Err(self.commands.usage("fork")));
+            return Ok(Err(self.deeds.usage("fork")));
         };
         let (scholar, at) = from
             .split_once('@')
@@ -311,7 +311,7 @@ impl Core<'_, '_> {
         words: &[&str],
     ) -> Result<Result<String, Refusal>> {
         let [scholar, path] = words else {
-            return Ok(Err(self.commands.usage("purge")));
+            return Ok(Err(self.deeds.usage("purge")));
         };
         let path = path.trim_matches('/');
         if path.is_empty()

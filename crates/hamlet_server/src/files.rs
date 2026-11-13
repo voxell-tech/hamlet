@@ -1,7 +1,6 @@
 //! The files the realm keeps for the lines chiefs send, each once
 //! under the hash of its bytes (S29), and how they are taken in.
 
-use std::collections::HashMap;
 use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
@@ -9,12 +8,16 @@ use std::time::{Duration, SystemTime};
 
 use anyhow::{Context, Result};
 use base64::Engine as _;
+use bevy_ecs::component::Component;
+use bevy_ecs::lifecycle::HookContext;
+use bevy_ecs::world::DeferredWorld;
 use hamlet_protocol::client::{
     AttachedFile, FileId, PutFile, PutFilePart, ServerMessage,
 };
 use sha2::{Digest, Sha256};
 
 use crate::clients::check::reply;
+use crate::clients::connection::UploadOf;
 use crate::core::Core;
 use crate::deadline::AddDeadline;
 use crate::society::refusal::Refusal;
@@ -118,10 +121,29 @@ impl Files {
     }
 }
 
-/// The files being sent.
-#[derive(bevy_ecs::resource::Resource, Default)]
-pub(crate) struct FileUploads {
-    sending: HashMap<String, Sending>,
+/// A file being sent in parts, by the connection it is [`UploadOf`],
+/// into a file of its own under the files' folder. It goes when the
+/// connection goes, and what it received of the file with it.
+#[derive(Component)]
+#[component(on_remove = dropped)]
+pub(crate) struct FileUpload {
+    /// The name its parts are sent under.
+    upload: String,
+    size: u64,
+    received: u64,
+    hasher: Sha256,
+    /// The file it is written to, until it is whole.
+    file: Option<File>,
+    path: PathBuf,
+}
+
+/// An upload went before its file was whole: what it received goes.
+fn dropped(world: DeferredWorld, context: HookContext) {
+    if let Some(upload) = world.get::<FileUpload>(context.entity)
+        && upload.file.is_some()
+    {
+        let _ = std::fs::remove_file(&upload.path);
+    }
 }
 
 pub(crate) fn plugin(app: &mut bevy_app::App) {
@@ -131,28 +153,6 @@ pub(crate) fn plugin(app: &mut bevy_app::App) {
 /// Takes away the files nothing uses.
 fn sweep(mut core: Core) -> Result<()> {
     core.sweep_files()
-}
-
-struct Sending {
-    client: u64,
-    size: u64,
-    received: u64,
-    hasher: Sha256,
-    file: File,
-    path: PathBuf,
-}
-
-impl FileUploads {
-    /// Drops what the connection `client` was sending.
-    pub fn disconnect(&mut self, client: u64) {
-        self.sending.retain(|_, sending| {
-            let keep = sending.client != client;
-            if !keep {
-                let _ = std::fs::remove_file(&sending.path);
-            }
-            keep
-        });
-    }
 }
 
 fn usage(words: &str) -> Refusal {
@@ -178,11 +178,18 @@ impl Core<'_, '_> {
         put: PutFile,
     ) -> Result<ServerMessage> {
         let PutFile { id, size } = put;
+        let Some(connection) =
+            self.clients.entities.get(&client).copied()
+        else {
+            return Ok(reply(
+                &id,
+                Err(usage("This connection is closing.")),
+            ));
+        };
         let sending = self
-            .files
-            .sending
-            .values()
-            .filter(|sending| sending.client == client)
+            .file_uploads
+            .iter()
+            .filter(|(_, of, _)| of.0 == connection)
             .count();
         let refusal = if size > AttachedFile::MOST_FILE {
             Some(usage("A file is at most 256 MiB."))
@@ -202,16 +209,16 @@ impl Core<'_, '_> {
         let path = folder.join(format!("{INCOMING}{upload}"));
         let file = File::create(&path)
             .with_context(|| format!("making {}", path.display()))?;
-        let sending = Sending {
-            client,
+        let mut sending = FileUpload {
+            upload: upload.clone(),
             size,
             received: 0,
             hasher: Sha256::new(),
-            file,
+            file: Some(file),
             path,
         };
         if size == 0 {
-            let kept = self.finish_file(sending)?;
+            let kept = self.finish_file(&mut sending)?;
             let mut answer =
                 reply(&id, Ok::<_, Refusal>("Kept the file.".into()));
             if let ServerMessage::Reply(answer) = &mut answer {
@@ -219,7 +226,7 @@ impl Core<'_, '_> {
             }
             return Ok(answer);
         }
-        self.files.sending.insert(upload.clone(), sending);
+        self.commands.spawn((sending, UploadOf(connection)));
         let mut answer = reply(
             &id,
             Ok::<_, Refusal>("Ready for the file.".into()),
@@ -237,11 +244,12 @@ impl Core<'_, '_> {
         part: PutFilePart,
     ) -> Result<ServerMessage> {
         let refuse = |words: &str| reply(&part.id, Err(usage(words)));
-        let Some(sending) = self
-            .files
-            .sending
-            .get_mut(&part.upload)
-            .filter(|sending| sending.client == client)
+        let connection = self.clients.entities.get(&client).copied();
+        let Some((entity, _, mut sending)) =
+            self.file_uploads.iter_mut().find(|(_, of, sending)| {
+                Some(of.0) == connection
+                    && sending.upload == part.upload
+            })
         else {
             return Ok(refuse(
                 "No file of yours is being sent under that upload.",
@@ -261,7 +269,11 @@ impl Core<'_, '_> {
         if sending.received + bytes.len() as u64 > sending.size {
             return Ok(refuse("The file is longer than declared."));
         }
-        sending.file.write_all(&bytes)?;
+        sending
+            .file
+            .as_mut()
+            .context("the upload's file was closed")?
+            .write_all(&bytes)?;
         sending.hasher.update(&bytes);
         sending.received += bytes.len() as u64;
         if sending.received < sending.size {
@@ -270,12 +282,16 @@ impl Core<'_, '_> {
                 Ok::<_, Refusal>("Received the file part.".into()),
             ));
         }
-        let whole = self
-            .files
-            .sending
-            .remove(&part.upload)
-            .expect("the upload was found above");
-        let kept = self.finish_file(whole)?;
+        let mut whole = FileUpload {
+            upload: String::new(),
+            size: sending.size,
+            received: sending.received,
+            hasher: std::mem::take(&mut sending.hasher),
+            file: sending.file.take(),
+            path: sending.path.clone(),
+        };
+        self.commands.entity(entity).despawn();
+        let kept = self.finish_file(&mut whole)?;
         let mut answer = reply(
             &part.id,
             Ok::<_, Refusal>("Kept the file.".into()),
@@ -287,13 +303,18 @@ impl Core<'_, '_> {
     }
 
     /// Puts a whole file in its place under the hash of its bytes.
-    fn finish_file(&self, sending: Sending) -> Result<FileId> {
-        let Sending {
-            hasher, file, path, ..
-        } = sending;
+    fn finish_file(
+        &self,
+        sending: &mut FileUpload,
+    ) -> Result<FileId> {
+        let file = sending
+            .file
+            .take()
+            .context("the upload's file was closed")?;
         file.sync_all()?;
         drop(file);
-        let id = hex(&hasher.finalize());
+        let path = sending.path.clone();
+        let id = hex(&std::mem::take(&mut sending.hasher).finalize());
         let files = Files::new(self.realm.layout().files());
         if files.size(&id).is_some() {
             std::fs::remove_file(&path)?;

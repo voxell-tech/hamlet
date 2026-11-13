@@ -29,8 +29,8 @@ use crate::talk::{chats, items};
 /// The most transcript entries one page holds.
 const PAGE: usize = 100;
 
-/// A connection went: the sign-ins and uploads its client began end
-/// with it.
+/// A connection went: the sign-ins its client began end with it. Its
+/// uploads go with its entity.
 pub(crate) fn left(
     gone: On<Remove<Connection>>,
     mut core: Core,
@@ -40,8 +40,6 @@ pub(crate) fn left(
         return Ok(());
     };
     core.providers.disconnect(client);
-    core.images.disconnect(client);
-    core.files.disconnect(client);
     core.send_providers()?;
     Ok(())
 }
@@ -632,7 +630,7 @@ impl Core<'_, '_> {
             confinement,
             activity: &activity,
             providers,
-            deeds: self.commands.deeds(),
+            deeds: self.deeds.listed(),
             settings_view,
             waits,
             library,
