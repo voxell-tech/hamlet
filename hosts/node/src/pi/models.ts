@@ -3,10 +3,10 @@ import {
     type CreateModelRuntimeOptions,
     ModelRuntime,
 } from "@earendil-works/pi-coding-agent";
-import { UserError } from "@hamlet/actor";
-import type { PiCredentialSource } from "./credentials.js";
-import type { PiContext } from "./runtime.js";
-import { traceModelRequests } from "./tracing.js";
+import { UserError } from "../actor/actor/mod.ts";
+import type { PiCredentialSource } from "./credentials.ts";
+import type { PiContext } from "./runtime.ts";
+import { traceModelRequests } from "./tracing.ts";
 
 /** Pi's credential store interface. `read`, `list`, `modify`, and `delete`, keyed by provider id. */
 export type PiCredentialStore = NonNullable<

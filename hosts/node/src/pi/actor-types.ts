@@ -11,8 +11,8 @@ import type {
     QueueSchemaConfig,
     SleepContext,
     WakeContext,
-} from "@hamlet/actor";
-import type { PiDatabaseProvider } from "./runtime.js";
+} from "../actor/actor/mod.ts";
+import type { PiDatabaseProvider } from "./runtime.ts";
 
 /** `Omit` that keeps each member of a union, so `state` and `createState` stay alternatives. */
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown

@@ -1,8 +1,8 @@
 // This file was changed for Hamlet. See NOTICE in this package.
 import type { ConversationId } from "@earendil-works/pi-durable";
-import type { RawAccess } from "@hamlet/actor/db";
-import { migrations } from "@hamlet/actor/unstable/migrations";
-import { PI_DURABLE_TABLES } from "./actor-sqlite.js";
+import type { RawAccess } from "../actor/db/mod.ts";
+import { migrations } from "../actor/unstable/migrations.ts";
+import { PI_DURABLE_TABLES } from "./actor-sqlite.ts";
 
 export type PiDatabase = Pick<RawAccess, "execute">;
 

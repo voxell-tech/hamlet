@@ -10,14 +10,14 @@ import type {
     TaskGraph,
     WatchHandle,
 } from "@earendil-works/pi-durable";
-import type { PiContext } from "./runtime.js";
+import type { PiContext } from "./runtime.ts";
 import {
     deleteConnectionWatches,
     deleteWatch,
     loadWatches,
     saveWatch,
     type WatchSpec,
-} from "./storage.js";
+} from "./storage.ts";
 
 /**
  * `seq` 0 carries the view; later frames carry Chord operations. `value.entries`

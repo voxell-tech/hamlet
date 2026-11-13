@@ -1,5 +1,5 @@
 // This file was changed for Hamlet. See NOTICE in this package.
-import type { Context } from "@earendil-works/chord";
+import type { Context } from "@earendil-works/chord/context";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { Models, ModelThinkingLevel } from "@earendil-works/pi-ai";
 import {
@@ -17,30 +17,30 @@ import type { ExecutionEnv } from "@earendil-works/pi-durable/env";
 import { SqliteStorage } from "@earendil-works/pi-durable/storage/sqlite";
 import type { Sandbox, SandboxProvider } from "@hamlet/sandbox-adapter";
 import { sandboxEnv } from "@hamlet/sandbox-adapter/pi";
-import { type ActorContext, UserError } from "@hamlet/actor";
-import type { DatabaseProvider, RawAccess } from "@hamlet/actor/db";
-import { actorSqlite } from "./actor-sqlite.js";
+import { type ActorContext, UserError } from "../actor/actor/mod.ts";
+import type { DatabaseProvider, RawAccess } from "../actor/db/mod.ts";
+import { actorSqlite } from "./actor-sqlite.ts";
 import {
     ANSWER_EXTENSION,
     type PiOnAnswer,
     withAnswerHook,
-} from "./answers.js";
-import { SourceCredentialStore } from "./credentials.js";
-import { databaseEnv } from "./database-env.js";
-import { toClientError } from "./errors.js";
+} from "./answers.ts";
+import { SourceCredentialStore } from "./credentials.ts";
+import { databaseEnv } from "./database-env.ts";
+import { toClientError } from "./errors.ts";
 import {
     createActorModelRuntime,
     emptyCredentialStore,
     type PiModelOptions,
-} from "./models.js";
-import { loadPiSandbox, savePiSandbox } from "./storage.js";
-import { createPiTelemetry, withCallerSpan } from "./tracing.js";
+} from "./models.ts";
+import { loadPiSandbox, savePiSandbox } from "./storage.ts";
+import { createPiTelemetry, withCallerSpan } from "./tracing.ts";
 import {
     type ConnectionWatches,
     createConnectionWatches,
     reattachWatches,
     stopAllWatches,
-} from "./watches.js";
+} from "./watches.ts";
 
 export type PiDatabaseProvider = DatabaseProvider<RawAccess>;
 

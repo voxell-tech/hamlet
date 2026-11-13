@@ -1,16 +1,16 @@
 // This file was changed for Hamlet. See NOTICE in this package.
-import type { EventSchemaConfig, QueueSchemaConfig } from "@hamlet/actor";
-import type { PiActions, PiPromptOptions, PiPromptResult } from "./actions.js";
+import type { EventSchemaConfig, QueueSchemaConfig } from "../actor/actor/mod.ts";
+import type { PiActions, PiPromptOptions, PiPromptResult } from "./actions.ts";
 import {
     type PiAccess,
     type PiActorConfigInput,
     type PiEvents,
     type PiUserActions,
     pi,
-} from "./actor.js";
-import type { PiOptions } from "./runtime.js";
+} from "./actor.ts";
+import type { PiOptions } from "./runtime.ts";
 
-export * from "./index.js";
+export * from "./index.ts";
 
 /** @deprecated Use `pi()` from `@hamlet/pi`. `piDurable()` is the same actor under its old name. */
 export const piDurable = pi;

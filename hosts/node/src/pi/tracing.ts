@@ -1,5 +1,5 @@
 // This file was changed for Hamlet. See NOTICE in this package.
-import type { Context } from "@earendil-works/chord";
+import type { Context } from "@earendil-works/chord/context";
 import { withTelemetry } from "@earendil-works/chord/context";
 import type {
     Api,

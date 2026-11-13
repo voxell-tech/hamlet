@@ -8,20 +8,20 @@ import {
     event,
     type QueueSchemaConfig,
     type Type,
-} from "@hamlet/actor";
-import { db } from "@hamlet/actor/db";
-import { createPiActions, type PiActions } from "./actions.js";
+} from "../actor/actor/mod.ts";
+import { db } from "../actor/db/mod.ts";
+import { createPiActions, type PiActions } from "./actions.ts";
 import {
     assertNoReservedNames,
     sharedActorConfig,
     splitConfig,
     wrapActions,
-} from "./actor-config.js";
+} from "./actor-config.ts";
 import type {
     PiActorDefinition,
     UserActions,
     UserActorConfig,
-} from "./actor-types.js";
+} from "./actor-types.ts";
 import {
     closeHarness,
     createPiRuntime,
@@ -33,14 +33,14 @@ import {
     piStopping,
     withPiAccess,
     withUnavailablePi,
-} from "./runtime.js";
-import { migratePiTables } from "./storage.js";
+} from "./runtime.ts";
+import { migratePiTables } from "./storage.ts";
 import {
     type PiDocFrame,
     type PiTaskGraphFrame,
     type PiViewFrame,
     unwatchConnection,
-} from "./watches.js";
+} from "./watches.ts";
 
 /** Watch frames, sent only to the connection that asked. See `PiWatchEvents`. */
 export type PiEvents = {

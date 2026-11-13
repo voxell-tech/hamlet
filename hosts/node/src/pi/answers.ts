@@ -10,7 +10,7 @@ import {
     type RegistryReader,
     type RegistrySnapshot,
 } from "@earendil-works/pi-durable";
-import type { PiContext } from "./runtime.js";
+import type { PiContext } from "./runtime.ts";
 
 /** A final answer, as `onAnswer` receives it. */
 export interface PiAnswer {

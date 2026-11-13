@@ -7,7 +7,7 @@ export type {
     PiPromptOptions,
     PiPromptResult,
     PiSubmitResult,
-} from "./actions.js";
+} from "./actions.ts";
 export {
     type PiAccess,
     type PiActionContext,
@@ -15,18 +15,18 @@ export {
     type PiEvents,
     type PiUserActions,
     pi,
-} from "./actor.js";
-export type { PiAnswer, PiOnAnswer } from "./answers.js";
+} from "./actor.ts";
+export type { PiAnswer, PiOnAnswer } from "./answers.ts";
 export type {
     PiCredentialInfo,
     PiCredentialSource,
     PiProviderCredential,
-} from "./credentials.js";
-export type { PiModelOptions, PiProviderConfig } from "./models.js";
-export type { PiDatabaseProvider, PiOptions } from "./runtime.js";
+} from "./credentials.ts";
+export type { PiModelOptions, PiProviderConfig } from "./models.ts";
+export type { PiDatabaseProvider, PiOptions } from "./runtime.ts";
 export type {
     PiDocFrame,
     PiTaskGraphFrame,
     PiViewFrame,
     PiWatchEvents,
-} from "./watches.js";
+} from "./watches.ts";

@@ -1,5 +1,5 @@
 // This file was changed for Hamlet. See NOTICE in this package.
-import type { Context } from "@earendil-works/chord";
+import type { Context } from "@earendil-works/chord/context";
 import type {
     Agent,
     AgentChange,
@@ -20,9 +20,9 @@ import type {
     TaskId,
     UserInput,
 } from "@earendil-works/pi-durable";
-import { UserError } from "@hamlet/actor";
-import { assertModelAllowed } from "./models.js";
-import type { PiContext } from "./runtime.js";
+import { UserError } from "../actor/actor/mod.ts";
+import { assertModelAllowed } from "./models.ts";
+import type { PiContext } from "./runtime.ts";
 import {
     documentsByKind,
     type PiOptions,
@@ -30,10 +30,10 @@ import {
     resumeDueSleeps,
     type Waiting,
     withHarness,
-} from "./runtime.js";
-import type { WatchSpec } from "./storage.js";
-import { traceRun } from "./tracing.js";
-import { unwatch, watch } from "./watches.js";
+} from "./runtime.ts";
+import type { WatchSpec } from "./storage.ts";
+import { traceRun } from "./tracing.ts";
+import { unwatch, watch } from "./watches.ts";
 
 /** `AgentChange` as it crosses the wire: extensions and tools by name. */
 export type PiAgentChange = Omit<AgentChange, "extensions" | "tools"> & {

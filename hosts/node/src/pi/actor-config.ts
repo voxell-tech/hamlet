@@ -1,6 +1,6 @@
 // This file was changed for Hamlet. See NOTICE in this package.
-import { DEFAULT_SLEEP_GRACE_PERIOD_MS, drainDeadline } from "./drain.js";
-import type { PiContext, PiStop } from "./runtime.js";
+import { DEFAULT_SLEEP_GRACE_PERIOD_MS, drainDeadline } from "./drain.ts";
+import type { PiContext, PiStop } from "./runtime.ts";
 
 /** Ten minutes. Pi waits such as `waitForIdle`, `prompt`, and `submission.wait` outlive the runtime's one-minute default. */
 const DEFAULT_ACTION_TIMEOUT_MS = 10 * 60_000;

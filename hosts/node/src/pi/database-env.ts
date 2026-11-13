@@ -1,6 +1,6 @@
 // This file was changed for Hamlet. See NOTICE in this package.
 import { posix } from "node:path";
-import type { Context } from "@earendil-works/chord";
+import type { Context } from "@earendil-works/chord/context";
 import {
     type BinaryReader,
     type ExecutionEnv,
@@ -13,7 +13,7 @@ import {
     type Result,
     toError,
 } from "@earendil-works/pi-durable/env";
-import type { PiDatabase } from "./storage.js";
+import type { PiDatabase } from "./storage.ts";
 
 const DEFAULT_CWD = "/workspace";
 

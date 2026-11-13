@@ -1,6 +1,6 @@
 // This file was changed for Hamlet. See NOTICE in this package.
 import { ConversationBusy } from "@earendil-works/pi-durable";
-import { UserError } from "@hamlet/actor";
+import { UserError } from "../actor/actor/mod.ts";
 
 /** Pi Durable has no typed errors for these, so their messages are the only signal. */
 const NEWER_SCHEMA =

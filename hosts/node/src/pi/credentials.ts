@@ -1,5 +1,5 @@
 // This file was changed for Hamlet. See NOTICE in this package.
-import type { PiCredential, PiCredentialStore } from "./models.js";
+import type { PiCredential, PiCredentialStore } from "./models.ts";
 
 /**
  * A provider credential an application supplies. A subscription login never
