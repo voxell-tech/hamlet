@@ -1,5 +1,5 @@
 // This file was changed for Hamlet. See NOTICE in this package.
-type ActorKey = string[];
+export type ActorKey = string[];
 
 export const EMPTY_KEY = "/";
 export const KEY_SEPARATOR = "/";
