@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 use tracing::Instrument;
 
 use super::access::running;
-use super::{Host, HostInner, host_shut_down};
+use super::{Host, HostInner, Open, host_shut_down};
 use crate::cause::Cause;
 use crate::directory::Address;
 
@@ -157,7 +157,7 @@ impl HostInner {
             let begun = Instant::now();
             let generation = tokio::time::timeout(
                 deadline,
-                self.ensure_started(&actor_id, false),
+                self.ensure_started(&actor_id, &Open::Existing),
             )
             .await
             .map_err(|_| ActionTimedOut.build())??;

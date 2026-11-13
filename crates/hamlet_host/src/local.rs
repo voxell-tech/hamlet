@@ -892,7 +892,8 @@ impl Host {
             began.push(actor_id.clone());
             tokio::spawn(async move {
                 let started = if cut_off {
-                    start_actor(owned, generation, false).await
+                    start_actor(owned, generation, Open::Existing)
+                        .await
                 } else {
                     start_when_due(owned, generation).await
                 };
@@ -916,7 +917,9 @@ impl Host {
         key: &str,
     ) -> Result<String> {
         let actor_id = self.inner().located(kind, key)?;
-        self.inner().ensure_started(&actor_id, true).await?;
+        self.inner()
+            .ensure_started(&actor_id, &Open::OrCreate)
+            .await?;
         Ok(actor_id)
     }
 }
@@ -957,8 +960,10 @@ impl Host {
         at: &Address,
     ) -> Result<Vec<SetAsideTimer>> {
         let actor_id = self.inner().located(&at.kind, &at.key)?;
-        let generation =
-            self.inner().ensure_started(&actor_id, false).await?;
+        let generation = self
+            .inner()
+            .ensure_started(&actor_id, &Open::Existing)
+            .await?;
         generation.actor.context().set_aside_timers().await
     }
 
@@ -974,8 +979,10 @@ impl Host {
         due_at: i64,
     ) -> Result<bool> {
         let actor_id = self.inner().located(&at.kind, &at.key)?;
-        let generation =
-            self.inner().ensure_started(&actor_id, false).await?;
+        let generation = self
+            .inner()
+            .ensure_started(&actor_id, &Open::Existing)
+            .await?;
         generation
             .actor
             .context()
@@ -1099,14 +1106,14 @@ impl HostInner {
     /// that is being destroyed, and in a host that has shut down,
     /// also when it shuts down during the wait: such a host starts
     /// no actor again, so a wait could only delay the failure.
-    /// Makes the actor only if `create`, which only `get_or_start`
-    /// asks for: a call, a timer and boot start an actor from the
-    /// file it has, and fail with `actor.not_found` for a key that
-    /// has none, making no file.
+    /// Makes the actor only as `open` lets it: only `get_or_start`
+    /// asks for [`Open::OrCreate`]. A call, a timer and boot start an
+    /// actor from the file it has, and fail with `actor.not_found`
+    /// for a key that has none, making no file.
     async fn ensure_started(
         self: &Arc<Self>,
         actor_id: &str,
-        create: bool,
+        open: &Open,
     ) -> Result<Arc<Generation>> {
         enum Next {
             Wait(Waiters),
@@ -1162,7 +1169,9 @@ impl HostInner {
                 }
                 Next::Start(owned, generation) => {
                     return tokio::spawn(start_actor(
-                        owned, generation, create,
+                        owned,
+                        generation,
+                        open.clone(),
                     ))
                     .await?;
                 }
@@ -1385,7 +1394,7 @@ async fn start_when_due(
     id: u64,
 ) -> Result<Arc<Generation>> {
     crate::fault::point("timer-fired");
-    start_actor(owned, id, false).await
+    start_actor(owned, id, Open::Existing).await
 }
 
 /// The id of the actor of `kind` and `key`, which names its file.
@@ -1458,6 +1467,25 @@ fn destroy_file(path: &Path) -> Result<()> {
     Ok(())
 }
 
+/// What a start may do with the actor's file.
+#[derive(Clone, Debug)]
+enum Open {
+    /// Starts the actor the file holds, and fails with
+    /// [`Found::Nothing`] for none: a call's start, a timer's and
+    /// boot's.
+    Existing,
+    /// Starts the actor the file holds, made first if there is none:
+    /// `get_or_start`'s start.
+    OrCreate,
+}
+
+impl Open {
+    /// Whether the start may make the actor's file and its row.
+    fn makes(&self) -> bool {
+        !matches!(self, Self::Existing)
+    }
+}
+
 /// What a start found in the actor's file that ends it. Its waiters
 /// do not share it: each reads the map again and starts the actor as
 /// it asked, since another start may make what this one did not.
@@ -1494,31 +1522,31 @@ impl Found {
     }
 }
 
-/// Opens the actor's file, made first if `create`, adds a generation
-/// to its `_hamlet_actor` row, marks it running, and serves it.
-/// Returns the file, the new generation, and whether this is the
-/// actor's first start. Fails with [`Found::Nothing`], unless
-/// `create`, for no file or a file with no actor's row. A file that
-/// holds a destroy a kill cut off is removed first, as the destroy
-/// would have: the start then makes the actor anew if `create`, and
-/// finds nothing if not.
+/// Opens the actor's file, made first if `open` makes it, adds a
+/// generation to its `_hamlet_actor` row, marks it running, and
+/// serves it. Returns the file, the new generation, and whether this
+/// is the actor's first start. Fails with [`Found::Nothing`] for
+/// [`Open::Existing`] and no file or a file with no actor's row. A
+/// file that holds a destroy a kill cut off is removed first, as the
+/// destroy would have: the start then makes the actor anew if `open`
+/// makes it, and finds nothing if not.
 fn open_actor_file(
     dir: &Path,
     kind: &str,
     key: &str,
-    create: bool,
+    open: &Open,
 ) -> Result<(PlainSqlite, u32, bool)> {
-    if create {
+    if open.makes() {
         std::fs::create_dir_all(dir.join("actors").join(kind))?;
     }
     let path = actor_path(dir, &format!("{kind}/{key}"));
     // Runs twice at most: the second open finds no file to destroy.
     loop {
-        if !create && !path.try_exists()? {
+        if !open.makes() && !path.try_exists()? {
             return Err(Found::Nothing.into());
         }
-        let mut conn = plain_sqlite::open(&path, create)?;
-        let bumped = bump_generation(&mut conn, kind, key, create)
+        let mut conn = plain_sqlite::open(&path, open.makes())?;
+        let bumped = bump_generation(&mut conn, kind, key, open)
             .with_context(|| format!("start {}", path.display()))?;
         if let Some((generation, first)) = bumped {
             return Ok((
@@ -1533,15 +1561,15 @@ fn open_actor_file(
 }
 
 /// Adds a generation to the file's `_hamlet_actor` row, made first if
-/// missing and `create`, and marks it running. Returns the generation
-/// and whether the row is new, or `None` for a file that holds a
-/// destroy. Fails with [`Found::Nothing`] for a missing row, unless
-/// `create`, and changes nothing then.
+/// missing and `open` makes it, and marks it running. Returns the
+/// generation and whether the row is new, or `None` for a file that
+/// holds a destroy. Fails with [`Found::Nothing`] for a missing row
+/// and [`Open::Existing`], and changes nothing then.
 fn bump_generation(
     conn: &mut Connection,
     kind: &str,
     key: &str,
-    create: bool,
+    open: &Open,
 ) -> Result<Option<(u32, bool)>> {
     let tx = conn.transaction()?;
     tx.execute_batch(ACTOR_TABLE)?;
@@ -1554,7 +1582,7 @@ fn bump_generation(
         .optional()?;
     match destroyed {
         Some(true) => return Ok(None),
-        None if !create => return Err(Found::Nothing.into()),
+        None if !open.makes() => return Err(Found::Nothing.into()),
         Some(false) | None => {}
     }
     let first = tx.execute(
@@ -1574,16 +1602,16 @@ fn bump_generation(
 
 /// Starts the actor that `owned` holds as `Starting`, as the
 /// generation of id `id`, within the host's start deadline: opens its
-/// file, made first if `create`, off the async runtime, starts its
-/// core, and makes it `Running`, or begins the stop its generation
-/// asked for meanwhile. Returns the generation it started. A start
-/// that fails, or misses its deadline, closes the file and tells its
-/// waiters why. One that finds no actor tells them nothing, so each
-/// reads the state again.
+/// file, made first if `open` makes it, off the async runtime, starts
+/// its core, and makes it `Running`, or begins the stop its
+/// generation asked for meanwhile. Returns the generation it started.
+/// A start that fails, or misses its deadline, closes the file and
+/// tells its waiters why. One that finds no actor tells them nothing,
+/// so each reads the state again.
 async fn start_actor(
     owned: Owned,
     id: u64,
-    create: bool,
+    open: Open,
 ) -> Result<Arc<Generation>> {
     let host = owned.host.clone();
     let actor_id = owned.actor_id.clone();
@@ -1591,7 +1619,7 @@ async fn start_actor(
     let started = host
         .within_start_deadline(
             &actor_id,
-            start_generation(&host, &actor_id, id, create, &opened),
+            start_generation(&host, &actor_id, id, open, &opened),
         )
         .await;
     let generation = match started {
@@ -1659,7 +1687,7 @@ async fn start_generation(
     host: &Arc<HostInner>,
     actor_id: &str,
     id: u64,
-    create: bool,
+    open: Open,
     opened: &Mutex<Option<PlainSqlite>>,
 ) -> Result<Arc<Generation>> {
     let (kind, key) = actor_id
@@ -1670,7 +1698,7 @@ async fn start_generation(
     let (file, number, first) = tokio::task::spawn_blocking({
         let dir = host.dir.clone();
         let (kind, key) = (kind.to_owned(), key.to_owned());
-        move || open_actor_file(&dir, &kind, &key, create)
+        move || open_actor_file(&dir, &kind, &key, &open)
     })
     .await??;
     *opened.lock() = Some(file.clone());
@@ -1887,7 +1915,8 @@ mod tests {
         let mut bare =
             plain_sqlite::open(&dir.join("bare.sqlite"), true)
                 .unwrap();
-        bump_generation(&mut bare, "bare", "a", true).unwrap();
+        bump_generation(&mut bare, "bare", "a", &Open::OrCreate)
+            .unwrap();
         assert_eq!(mark_stopped(&bare, None).unwrap(), None);
         assert_eq!(mark_stopped(&bare, Some(5)).unwrap(), Some(5));
 
