@@ -27,8 +27,9 @@ Usage: cargo xtask <task> [args]
   format           check that Rust is formatted (fmt formats it)
   clippy           clippy with warnings as errors, on the workspace \
      and on xtask
-  cross            clippy with warnings as errors on hamlet_os for \
-     Windows, which needs no C compiler
+  cross            clippy with warnings as errors on hamlet_os and \
+     the native module for Node for Windows, which needs no C \
+     compiler
   deny             cargo deny check: licences and advisories
   test             build every target, then cargo test
   acceptance       the acceptance suite, on the plain CLI and server
@@ -117,7 +118,7 @@ impl Step {
         match self {
             Self::Format => format(),
             Self::Clippy => clippy(),
-            Self::Cross => cross(),
+            Self::Cross => cross(root),
             Self::Deny => deny(),
             Self::Test => test(),
             Self::Acceptance => acceptance(root),
@@ -161,6 +162,8 @@ enum Failure {
     Exit { command: String, status: ExitStatus },
     #[error("idle: {0}")]
     Idle(String),
+    #[error("cross: cannot write a placeholder libnode.dll: {0}")]
+    Libnode(io::Error),
 }
 
 /// The binaries a chief runs, with the packages that hold them.
@@ -319,8 +322,11 @@ fn clippy() -> Result<(), Failure> {
 }
 
 /// Only `hamlet_os` and the test helpers it uses: the server's
-/// dependencies compile C, which needs mingw-w64.
-fn cross() -> Result<(), Failure> {
+/// dependencies compile C, which needs mingw-w64. Then the native
+/// module for Node, which links nothing in a check: SQLite is named
+/// from the system instead of compiled, and napi-build, which wants
+/// Node's `libnode.dll` for a GNU target, gets an empty one.
+fn cross(root: &Path) -> Result<(), Failure> {
     status(&mut locked(
         "clippy",
         &[
@@ -335,7 +341,28 @@ fn cross() -> Result<(), Failure> {
             "-D",
             "warnings",
         ],
-    ))
+    ))?;
+    let libnode = root.join("target/cross-libnode");
+    fs::create_dir_all(&libnode)
+        .and_then(|()| fs::write(libnode.join("libnode.dll"), []))
+        .map_err(Failure::Libnode)?;
+    status(
+        locked(
+            "clippy",
+            &[
+                "-p",
+                "hamlet_actor_node",
+                "--all-targets",
+                "--target",
+                WINDOWS,
+                "--",
+                "-D",
+                "warnings",
+            ],
+        )
+        .env("LIBSQLITE3_SYS_USE_PKG_CONFIG", "1")
+        .env("LIBNODE_PATH", &libnode),
+    )
 }
 
 fn deny() -> Result<(), Failure> {
