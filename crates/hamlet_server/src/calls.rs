@@ -96,6 +96,17 @@ pub(crate) struct Ran {
     outcome: Outcome,
 }
 
+/// What carrying out a call comes to now.
+enum Carried {
+    /// Its outcome, to keep and answer.
+    Done(Outcome),
+    /// What its runtime is told while it cannot finish yet.
+    Answer(Answer),
+    /// It goes on off the loop, a look or a run, and is answered once
+    /// that is done.
+    Later,
+}
+
 /// What a runtime is answered about a call.
 pub(crate) enum Answer {
     Allowed,
@@ -568,126 +579,142 @@ impl Core<'_, '_> {
             running.replies.push(reply);
             return Ok(());
         }
-        let db = self.realm.store().connection();
-        let tool = call.tool;
-        let answer = match marker::read::<Outcome>(
-            db,
-            call.call.identity(),
-            &call.request,
-        )? {
-            Marked::Begun => Some(Answer::Result(Outcome::thrown(
-                "tool_interrupted",
-                format!(
-                    "Tool {tool} was interrupted by a restart and \
-                     may have partially run"
-                ),
-            ))),
-            Marked::Outcome(outcome) => Some(Answer::Result(outcome)),
-            Marked::Conflict => {
-                Some(Answer::Refusal(CONFLICT.into()))
-            }
-            Marked::Unmarked => None,
-        };
-        if let Some(answer) = answer {
+        if let Some(answer) = self.kept_answer(&call)? {
             self.tell_call(&reply, &asked.key, answer);
             return Ok(());
         }
-        let outcome = if !offers(&call.conversation, tool)? {
-            Some(unavailable(tool))
-        } else if let Some(
-            chief @ (Society::AskChief | Society::Object),
-        ) = call.society
-        {
-            let ruled = if chief == Society::Object {
-                self.object(&call)?
-            } else {
-                self.ask_chief(&call)?
-            };
-            match ruled {
-                Ok(outcome) => Some(outcome),
-                Err(answer) => {
-                    self.tell_call(&reply, &asked.key, answer);
-                    return Ok(());
-                }
+        match self.carry_out(&call, &reply, from, again)? {
+            Carried::Done(outcome) => {
+                let db = self.realm.store().connection();
+                marker::settle(
+                    db,
+                    call.call.identity(),
+                    &call.request,
+                    &outcome,
+                    crate::clock::now(),
+                )?;
+                self.looks.forget(&call.call);
+                self.tell_call(
+                    &reply,
+                    &asked.key,
+                    Answer::Result(outcome),
+                );
             }
-        } else if self.withdrawn(&call)? {
-            Some(said(held::WITHDRAWN, true))
-        } else if self.objecting(&call)? {
-            self.tell_call(
-                &reply,
-                &asked.key,
-                Answer::Waiting(OBJECTING.into()),
-            );
-            return Ok(());
-        } else {
-            match self.decide(&call)? {
-                Decision::Look(look) => {
-                    self.look(&call, look, from, again);
-                    return Ok(());
-                }
-                Decision::Block(words) => {
-                    self.tell_call(
-                        &reply,
-                        &asked.key,
-                        Answer::Refusal(words),
-                    );
-                    return Ok(());
-                }
-                Decision::Wait(words) => {
-                    self.tell_call(
-                        &reply,
-                        &asked.key,
-                        Answer::Waiting(words.into()),
-                    );
-                    return Ok(());
-                }
-                Decision::Run { net } => {
-                    if let Some(society) = call.society {
-                        match self.society(&call, society)? {
-                            society::Step::Done(outcome) => {
-                                Some(outcome)
-                            }
-                            society::Step::Wait(words) => {
-                                self.tell_call(
-                                    &reply,
-                                    &asked.key,
-                                    Answer::Waiting(words),
-                                );
-                                return Ok(());
-                            }
-                            society::Step::Look(look) => {
-                                self.look(&call, look, from, again);
-                                return Ok(());
-                            }
-                        }
-                    } else {
-                        self.run_tool(
-                            &call,
-                            reply.clone(),
-                            call.request.clone(),
-                            net,
-                        )?
-                    }
-                }
+            Carried::Answer(answer) => {
+                self.tell_call(&reply, &asked.key, answer);
             }
-        };
-        if let Some(outcome) = outcome {
-            let db = self.realm.store().connection();
-            marker::settle(
+            Carried::Later => {}
+        }
+        Ok(())
+    }
+
+    /// What `call` was answered with when it was asked before: its
+    /// outcome, or that a restart cut it off; none when it is new.
+    fn kept_answer(
+        &mut self,
+        call: &Call<'_>,
+    ) -> Result<Option<Answer>> {
+        let db = self.realm.store().connection();
+        let tool = call.tool;
+        Ok(
+            match marker::read::<Outcome>(
                 db,
                 call.call.identity(),
                 &call.request,
-                &outcome,
-                crate::clock::now(),
-            )?;
-            self.looks.forget(&call.call);
-            self.tell_call(
-                &reply,
-                &asked.key,
-                Answer::Result(outcome),
-            );
+            )? {
+                Marked::Begun => {
+                    Some(Answer::Result(Outcome::thrown(
+                        "tool_interrupted",
+                        format!(
+                            "Tool {tool} was interrupted by a \
+                             restart and may have partially run"
+                        ),
+                    )))
+                }
+                Marked::Outcome(outcome) => {
+                    Some(Answer::Result(outcome))
+                }
+                Marked::Conflict => {
+                    Some(Answer::Refusal(CONFLICT.into()))
+                }
+                Marked::Unmarked => None,
+            },
+        )
+    }
+
+    /// Carries out the new call `call` as far as it goes now:
+    /// answered by a chief or the gate, run, or looked at off the
+    /// loop first.
+    fn carry_out(
+        &mut self,
+        call: &Call<'_>,
+        reply: &Reply,
+        from: Entity,
+        again: RuntimeMessage,
+    ) -> Result<Carried> {
+        let tool = call.tool;
+        if !offers(&call.conversation, tool)? {
+            return Ok(Carried::Done(unavailable(tool)));
         }
-        Ok(())
+        if let Some(chief @ (Society::AskChief | Society::Object)) =
+            call.society
+        {
+            let ruled = if chief == Society::Object {
+                self.object(call)?
+            } else {
+                self.ask_chief(call)?
+            };
+            return Ok(match ruled {
+                Ok(outcome) => Carried::Done(outcome),
+                Err(answer) => Carried::Answer(answer),
+            });
+        }
+        if self.withdrawn(call)? {
+            return Ok(Carried::Done(said(held::WITHDRAWN, true)));
+        }
+        if self.objecting(call)? {
+            return Ok(Carried::Answer(Answer::Waiting(
+                OBJECTING.into(),
+            )));
+        }
+        Ok(match self.decide(call)? {
+            Decision::Look(look) => {
+                self.look(call, look, from, again);
+                Carried::Later
+            }
+            Decision::Block(words) => {
+                Carried::Answer(Answer::Refusal(words))
+            }
+            Decision::Wait(words) => {
+                Carried::Answer(Answer::Waiting(words.into()))
+            }
+            Decision::Run { net } => match call.society {
+                Some(society) => match self.society(call, society)? {
+                    society::Step::Done(outcome) => {
+                        Carried::Done(outcome)
+                    }
+                    society::Step::Wait(words) => {
+                        Carried::Answer(Answer::Waiting(words))
+                    }
+                    society::Step::Look(look) => {
+                        self.look(call, look, from, again);
+                        Carried::Later
+                    }
+                },
+                None => {
+                    let request = call.request.clone();
+                    match self.run_tool(
+                        call,
+                        reply.clone(),
+                        request,
+                        net,
+                    )? {
+                        Some(outcome) => Carried::Done(outcome),
+                        None => Carried::Later,
+                    }
+                }
+            },
+        })
     }
 
     /// Runs the built-in or added tool of `call` with the network
