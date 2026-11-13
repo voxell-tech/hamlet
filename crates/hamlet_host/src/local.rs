@@ -1,15 +1,16 @@
 //! Runs actors in this process. Each actor is one plain SQLite file
 //! at `actors/<kind>/<key>.sqlite` under the realm folder. The host
-//! finds an actor by kind and key, starts it, stops it, and keeps its
-//! next alarm in the file's `_hamlet_actor` row, so an actor whose
-//! alarm is due starts when the host boots.
+//! finds an actor by kind and key, starts it, and stops it.
 //!
-//! The stored alarm trails the actor's own schedule: the core goes on
-//! once the alarm is queued, so an action can reply before the host
-//! stored it. The row also marks an actor running from its start
-//! until a clean stop, and boot starts again each actor a kill left
-//! marked. That start takes the next alarm from the actor's own
-//! schedule and stores it again.
+//! The file's `_hamlet_actor` row marks the actor running from its
+//! start until a clean stop, and holds the deadline that stop left:
+//! the earliest of the actor's schedule rows, its run wake deadline
+//! and the last alarm its core pushed, read once the core has
+//! stopped. A running actor's alarms live in its core alone, and the
+//! host keeps no timer for it. A stopped actor with a deadline has
+//! one timer, which starts it from its own file. Boot starts again
+//! each actor a kill left marked running, and arms a timer for each
+//! other stored deadline.
 //!
 //! Each actor's place in its lifecycle is one [`Life`] in the host's
 //! map. One actor's start or stop waits only on that actor's work.
@@ -20,6 +21,9 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Weak};
 
 use anyhow::{Context, Result, anyhow, bail};
+use hamlet_actor_core::actor::schedule::{
+    RUN_WAKE_AT_META_KEY, decode_run_wake_at,
+};
 use hamlet_actor_core::host::{
     ActorHost, RunningActor, StartRequest,
 };
@@ -30,10 +34,9 @@ use hamlet_actor_core::{
     ActorFactory, ActorKeySegment, RuntimeBoxFuture, ShutdownKind,
 };
 use parking_lot::Mutex;
-use rusqlite::types::Value;
 use rusqlite::{Connection, OptionalExtension};
 use tokio::sync::{broadcast, oneshot, watch};
-use tokio::task::AbortHandle;
+use tokio::task::{AbortHandle, JoinHandle};
 
 use crate::plain_sqlite::{self, PlainSqlite};
 
@@ -54,7 +57,7 @@ const ACTOR_TABLE: &str = "CREATE TABLE IF NOT EXISTS _hamlet_actor \
 	running INTEGER NOT NULL DEFAULT 0)";
 
 /// Where one actor is in its lifecycle. The map holds no entry for an
-/// actor that is stopped: none of its files is open.
+/// actor that is stopped with no deadline: none of its files is open.
 ///
 /// Every transition takes the map's lock, checks the state, writes
 /// the next one and releases the lock. The lock is never held across
@@ -67,7 +70,10 @@ const ACTOR_TABLE: &str = "CREATE TABLE IF NOT EXISTS _hamlet_actor \
 ///
 /// | From | Event | To |
 /// |---|---|---|
-/// | absent | a start: `get_or_start`, an alarm, boot | `Starting` |
+/// | absent | `get_or_start`, or boot for a run a kill cut off | `Starting` |
+/// | absent | boot finds a deadline in its file | `Stopped` |
+/// | `Stopped` | `get_or_start` | `Starting`, its timer aborted |
+/// | `Stopped` | its timer fires with the deadline the state holds | `Starting`, from the file it has |
 /// | `Starting` | the start transaction ran | `Starting`, with its generation |
 /// | `Starting` | its generation asks to sleep or to be destroyed, or reports a crash | `Starting`, with the request kept; a destroy wins over a sleep |
 /// | `Starting` | the start ended well | `Running`, or `Stopping` or `Destroying` for a kept request |
@@ -77,16 +83,23 @@ const ACTOR_TABLE: &str = "CREATE TABLE IF NOT EXISTS _hamlet_actor \
 /// | `Stopping` | its generation asks to be destroyed, or `Host::stop(Destroy)` | `Destroying` |
 /// | `Stopping` | its generation asks to sleep or reports a crash, or `Host::stop(Sleep)` | unchanged |
 /// | `Destroying` | any request | unchanged |
-/// | `Stopping`, `Destroying` | the stop ended, however it ended | absent |
+/// | `Stopping` | the stop ended with a deadline | `Stopped`, its timer armed |
+/// | `Stopping`, `Destroying` | the stop ended otherwise, however it ended | absent |
 /// | any | a request from a generation the state does not hold | unchanged |
 ///
 /// Callers wait without a transition of their own. A start waits for
 /// a `Starting` or `Stopping` actor and then starts it, and fails at
 /// once for a `Destroying` one. An action waits for a `Starting`
 /// actor and fails for one that is not `Running`. `Host::stop` waits
-/// for a `Starting` actor and then stops it, and waits for a stop
-/// under way.
+/// for a `Starting` actor and then stops it, waits for a stop under
+/// way, and leaves a `Stopped` actor as it is.
 enum Life {
+    /// Stopped, with the deadline its last stop left. `timer` starts
+    /// it then, if the state still holds that deadline.
+    Stopped {
+        wake_at: i64,
+        timer: AbortHandle,
+    },
     /// Opening the file and starting the core. `generation` is set
     /// once the start transaction has raised it; `request` is a stop
     /// that generation asked for before its start ended.
@@ -113,7 +126,7 @@ impl Life {
     /// its start until its stop closed the file.
     fn loaded(&self) -> Option<&Arc<Generation>> {
         match self {
-            Self::Starting { .. } => None,
+            Self::Stopped { .. } | Self::Starting { .. } => None,
             Self::Running(generation)
             | Self::Stopping { generation, .. }
             | Self::Destroying { generation, .. } => Some(generation),
@@ -136,7 +149,7 @@ impl Life {
     /// the work that owns the state ends.
     fn waiters(&self) -> Option<&watch::Receiver<()>> {
         match self {
-            Self::Running(_) => None,
+            Self::Stopped { .. } | Self::Running(_) => None,
             Self::Starting { ready: waiters, .. }
             | Self::Stopping { done: waiters, .. }
             | Self::Destroying { done: waiters, .. } => Some(waiters),
@@ -150,6 +163,9 @@ struct Generation {
     number: u32,
     actor: RunningActor,
     file: PlainSqlite,
+    /// The last alarm the core pushed in this generation, `None`
+    /// until it pushes one, as the core's own record starts.
+    alarm: Arc<Mutex<Option<i64>>>,
 }
 
 /// The work that owns an actor's `Starting`, `Stopping` or
@@ -180,6 +196,15 @@ impl Owned {
             waiters.same_channel(&self.waiters)
         })
     }
+
+    /// The `Starting` state of the start this guard owns.
+    fn starting(&self) -> Life {
+        Life::Starting {
+            generation: None,
+            request: None,
+            ready: self.waiters.clone(),
+        }
+    }
 }
 
 impl Drop for Owned {
@@ -205,9 +230,11 @@ struct Stop {
 }
 
 impl Stop {
-    /// Stops the generation and closes its file, and removes the file
-    /// if the actor is destroyed by then. A sleep leaves the map once
-    /// the file is closed, a destroy when `owned` drops at the end.
+    /// Stops the generation, marks it stopped in its file with the
+    /// deadline it leaves, and closes the file, then removes the file
+    /// if the actor is destroyed by then. A sleep becomes `Stopped`,
+    /// or leaves the map, once the file is closed; a destroy leaves
+    /// the map when `owned` drops at the end.
     async fn run(self) -> Result<()> {
         let Self {
             owned,
@@ -215,42 +242,58 @@ impl Stop {
             reason,
         } = self;
         generation.actor.stop(reason).await;
-        // Queued behind every alarm the actor stored, so the mark
-        // goes only once they are in the file.
-        let cleared = generation.file.host_write(
-            "run-ended",
-            "UPDATE _hamlet_actor SET running = 0",
-            Vec::new(),
-        );
-        generation.file.close().await;
-        if let Err(error) = async { cleared?.wait().await }.await {
-            tracing::error!(
-                ?error,
-                actor_id = owned.actor_id,
-                "host failed to clear the running mark"
-            );
-        }
+        // The core has stopped and its alarm pushes are acknowledged,
+        // so the generation's last alarm and its file are final.
+        let alarm = *generation.alarm.lock();
+        let wake_at = generation
+            .file
+            .close_with(move |conn| mark_stopped(conn, alarm))
+            .await
+            .inspect_err(|error| {
+                tracing::error!(
+                    ?error,
+                    actor_id = owned.actor_id,
+                    "host failed to mark the actor stopped"
+                );
+            })
+            .ok()
+            .flatten();
         let host = &owned.host;
-        // One lock decides and, for a sleep, leaves the map, so a
+        // One lock decides and, for a sleep, leaves `Stopping`, so a
         // destroy asked later finds the actor stopped rather than
-        // turning a stop that is past its file removal.
-        let (destroyed, removed) = {
+        // turning a stop that is past its file removal, and a timer
+        // is armed only for an actor that is not destroyed.
+        let (destroyed, replaced) = {
             let mut actors = host.actors.lock();
             let destroying = actors
                 .get(&owned.actor_id)
                 .filter(|life| owned.owns(life))
                 .map(|life| matches!(life, Life::Destroying { .. }));
-            match destroying {
-                Some(true) => (true, None),
-                Some(false) => {
+            match (destroying, wake_at) {
+                (Some(true), _) => (true, None),
+                (Some(false), Some(wake_at)) => (
+                    false,
+                    actors.insert(
+                        owned.actor_id.clone(),
+                        Life::Stopped {
+                            wake_at,
+                            timer: arm(
+                                host,
+                                &owned.actor_id,
+                                wake_at,
+                            )
+                            .abort_handle(),
+                        },
+                    ),
+                ),
+                (Some(false), None) => {
                     (false, actors.remove(&owned.actor_id))
                 }
-                None => (false, None),
+                (None, _) => (false, None),
             }
         };
-        drop(removed);
+        drop(replaced);
         if destroyed {
-            host.alarms.lock().remove(&owned.actor_id);
             let path = actor_path(&host.dir, &owned.actor_id);
             std::fs::remove_file(&path).with_context(|| {
                 format!("remove {}", path.display())
@@ -281,12 +324,8 @@ struct HostInner {
     /// out of the folder.
     _lock: File,
     factories: HashMap<String, Arc<ActorFactory>>,
-    /// Each actor that is not stopped, by id.
+    /// Each actor that is not stopped with no deadline, by id.
     actors: Mutex<HashMap<String, Life>>,
-    /// Each actor's next alarm, as last stored in its file.
-    alarms: Mutex<HashMap<String, i64>>,
-    /// Each actor's one armed alarm timer.
-    timers: Mutex<HashMap<String, AbortHandle>>,
     session: watch::Sender<u64>,
     commits: broadcast::Sender<String>,
 }
@@ -336,7 +375,9 @@ impl HostInner {
                 };
                 None
             }
-            Life::Stopping { .. } | Life::Destroying { .. } => None,
+            Life::Stopped { .. }
+            | Life::Stopping { .. }
+            | Life::Destroying { .. } => None,
         }
     }
 }
@@ -362,13 +403,14 @@ pub struct Host(Arc<HostInner>);
 
 /// The core's handle on the host for one generation of one actor. It
 /// reaches only that generation: its SQL goes to the generation's own
-/// file, and its requests act only while the map holds that
-/// generation.
+/// file, its alarms to the generation's own record, and its stop
+/// requests act only while the map holds that generation.
 struct LocalHandle {
     host: Weak<HostInner>,
     actor_id: String,
     generation: u32,
     file: PlainSqlite,
+    alarm: Arc<Mutex<Option<i64>>>,
 }
 
 impl Host {
@@ -403,48 +445,58 @@ impl Host {
                 .map(|(kind, factory)| (kind, Arc::new(factory)))
                 .collect(),
             actors: Mutex::new(HashMap::new()),
-            alarms: Mutex::new(HashMap::new()),
-            timers: Mutex::new(HashMap::new()),
             session: watch::Sender::new(LOCAL_SESSION),
             commits: broadcast::channel(64).0,
         })))
     }
 
-    /// Reads every actor file's row. Starts each actor whose alarm
-    /// is due or whose run a kill cut off, and arms a timer for each
-    /// later alarm. Returns the started actors. An actor that fails
-    /// to start is logged and left for the next boot.
+    /// Reads every actor file's row. Starts again each actor whose
+    /// run a kill cut off, and arms a timer for each other actor
+    /// whose last stop left a deadline. A due timer starts its actor
+    /// at once, and boot waits for it. Returns the started actors. An
+    /// actor that fails to start is logged and left for the next
+    /// boot.
     pub async fn boot(&self) -> Result<Vec<String>> {
         let mut started = Vec::new();
+        let mut due = Vec::new();
         for stored in self.stored_actors()? {
             let actor_id = stored.actor_id;
-            let due =
-                stored.wake_at.filter(|&wake_at| wake_at <= now_ms());
-            if let Some(wake_at) = stored.wake_at {
-                self.0
-                    .alarms
-                    .lock()
-                    .insert(actor_id.clone(), wake_at);
-                if due.is_none() {
-                    arm_alarm(&self.0, actor_id.clone(), wake_at);
+            // Whatever deadline an earlier stop left, a run a kill
+            // cut off starts again, and its core pushes its alarms
+            // anew.
+            if stored.cut_off {
+                match self.ensure_started(&actor_id, false).await {
+                    Ok(()) => started.push(actor_id),
+                    Err(error) => tracing::error!(
+                        ?error,
+                        actor_id,
+                        "host failed to start an actor at boot"
+                    ),
                 }
+                continue;
             }
-            let start = match due {
-                Some(wake_at) => {
-                    self.fire_alarm(&actor_id, wake_at).await
-                }
-                None if stored.cut_off => {
-                    self.ensure_started(&actor_id).await
-                }
-                None => continue,
+            let Some(wake_at) = stored.wake_at else {
+                continue;
             };
-            match start {
-                Ok(()) => started.push(actor_id),
-                Err(error) => tracing::error!(
-                    ?error,
-                    actor_id,
-                    "host failed to start an actor at boot"
-                ),
+            let mut actors = self.0.actors.lock();
+            if actors.contains_key(&actor_id) {
+                continue;
+            }
+            let timer = arm(&self.0, &actor_id, wake_at);
+            actors.insert(
+                actor_id.clone(),
+                Life::Stopped {
+                    wake_at,
+                    timer: timer.abort_handle(),
+                },
+            );
+            if wake_at <= now_ms() {
+                due.push((actor_id, timer));
+            }
+        }
+        for (actor_id, timer) in due {
+            if timer.await.unwrap_or(false) {
+                started.push(actor_id);
             }
         }
         Ok(started)
@@ -458,7 +510,7 @@ impl Host {
         key: &str,
     ) -> Result<String> {
         let actor_id = actor_id(kind, key)?;
-        self.ensure_started(&actor_id).await?;
+        self.ensure_started(&actor_id, true).await?;
         Ok(actor_id)
     }
 
@@ -500,7 +552,9 @@ impl Host {
 
     /// Stops the actor and closes its file, or removes it for a
     /// destroy. A start under way is waited for, then stopped. A stop
-    /// under way is waited for, and a destroy makes it a destroy.
+    /// under way is waited for, and a destroy makes it a destroy. A
+    /// stopped actor is left as it is, its file and its timer with
+    /// it.
     pub async fn stop(
         &self,
         actor_id: &str,
@@ -514,7 +568,9 @@ impl Host {
             }
             let (mut waiters, starting) =
                 match self.0.actors.lock().get(actor_id) {
-                    None => return Ok(()),
+                    None | Some(Life::Stopped { .. }) => {
+                        return Ok(());
+                    }
                     // It started since: ask again.
                     Some(Life::Running(_)) => continue,
                     Some(Life::Starting { ready, .. }) => {
@@ -542,8 +598,14 @@ impl Host {
     }
 
     /// Starts the actor unless it runs. Waits for a start or a stop
-    /// under way first.
-    async fn ensure_started(&self, actor_id: &str) -> Result<()> {
+    /// under way first. Makes the actor's file only if `create`,
+    /// which only `get_or_start` asks for: boot starts an actor from
+    /// the file it has, and never makes an empty one.
+    async fn ensure_started(
+        &self,
+        actor_id: &str,
+        create: bool,
+    ) -> Result<()> {
         enum Next {
             Wait(watch::Receiver<()>),
             Start(Owned),
@@ -560,16 +622,16 @@ impl Host {
                         Life::Starting { ready: waiters, .. }
                         | Life::Stopping { done: waiters, .. },
                     ) => Next::Wait(waiters.clone()),
-                    None => {
+                    Some(Life::Stopped { .. }) | None => {
                         let owned = Owned::new(&self.0, actor_id);
-                        actors.insert(
-                            actor_id.to_owned(),
-                            Life::Starting {
-                                generation: None,
-                                request: None,
-                                ready: owned.waiters.clone(),
-                            },
-                        );
+                        if let Some(Life::Stopped { timer, .. }) =
+                            actors.insert(
+                                actor_id.to_owned(),
+                                owned.starting(),
+                            )
+                        {
+                            timer.abort();
+                        }
                         Next::Start(owned)
                     }
                 }
@@ -579,52 +641,16 @@ impl Host {
                     let _ = waiters.changed().await;
                 }
                 Next::Start(owned) => {
-                    return tokio::spawn(start_actor(owned)).await?;
+                    return tokio::spawn(start_actor(owned, create))
+                        .await?;
                 }
             }
         }
     }
 
-    /// Wakes the actor for its alarm. The alarm is one-shot, so
-    /// firing consumes it once the start, which drains overdue
-    /// schedules, has returned; an alarm the start set in its place
-    /// is kept.
-    async fn fire_alarm(
-        &self,
-        actor_id: &str,
-        wake_at: i64,
-    ) -> Result<()> {
-        self.ensure_started(actor_id).await?;
-        {
-            let mut alarms = self.0.alarms.lock();
-            if alarms.get(actor_id) != Some(&wake_at) {
-                return Ok(());
-            }
-            alarms.remove(actor_id);
-        }
-        let file = self
-            .0
-            .actors
-            .lock()
-            .get(actor_id)
-            .and_then(Life::loaded)
-            .map(|generation| generation.file.clone());
-        let Some(file) = file else {
-            return Ok(());
-        };
-        file.host_write(
-            "alarm-fired",
-            "UPDATE _hamlet_actor SET wake_at = NULL WHERE wake_at \
-             = ?",
-            vec![Value::Integer(wake_at)],
-        )?
-        .wait()
-        .await
-    }
-
-    /// Each actor file's row that holds an alarm or a run a kill cut
-    /// off. The files are closed again; starting an actor opens its
-    /// file anew.
+    /// Each actor file's row that holds a deadline or a run a kill
+    /// cut off. The files are closed again; starting an actor opens
+    /// its file anew.
     fn stored_actors(&self) -> Result<Vec<StoredActor>> {
         let mut stored = Vec::new();
         let actors = self.0.dir.join("actors");
@@ -655,23 +681,18 @@ impl Host {
 /// The part of one actor file's `_hamlet_actor` row that boot reads.
 struct StoredActor {
     actor_id: String,
+    /// The deadline the actor's last clean stop left.
     wake_at: Option<i64>,
     /// The actor was running when the host died: no clean stop
     /// cleared its mark.
     cut_off: bool,
 }
 
-/// The `_hamlet_actor` row of one actor file, if it holds an alarm
+/// The `_hamlet_actor` row of one actor file, if it holds a deadline
 /// or a run a kill cut off.
 fn stored_actor(path: &Path) -> Result<Option<StoredActor>> {
-    let conn = plain_sqlite::open(path)?;
-    let has_row: bool = conn.query_row(
-        "SELECT EXISTS (SELECT 1 FROM sqlite_schema WHERE name = \
-         '_hamlet_actor')",
-        [],
-        |row| row.get(0),
-    )?;
-    if !has_row {
+    let conn = plain_sqlite::open(path, false)?;
+    if !has_table(&conn, "_hamlet_actor")? {
         return Ok(None);
     }
     let stored: Option<(String, String, Option<i64>, bool)> = conn
@@ -702,58 +723,118 @@ fn stored_actor(path: &Path) -> Result<Option<StoredActor>> {
     }
 }
 
-/// When the alarm is due and still stored, wakes the actor. A running
-/// actor's own timer fires the alarm; this only starts a stopped one.
-/// The timer replaces the actor's earlier one, unless that one is
-/// already due. An alarm that is no longer stored arms nothing: each
-/// store arms from a task of its own, so arms can come out of order.
-fn arm_alarm(host: &Arc<HostInner>, actor_id: String, wake_at: i64) {
-    let weak = Arc::downgrade(host);
-    // Held until the new timer is in the map, so the timer cannot
-    // look for itself there first.
-    let mut timers = host.timers.lock();
-    if host.alarms.lock().get(&actor_id) != Some(&wake_at) {
-        return;
-    }
-    let timer = tokio::spawn({
-        let actor_id = actor_id.clone();
-        async move {
-            let delay =
-                u64::try_from(wake_at - now_ms()).unwrap_or(0);
-            tokio::time::sleep(std::time::Duration::from_millis(
-                delay,
-            ))
+/// Whether the file has the table `name`. A table the core makes
+/// lazily is missing from a file whose actor never needed it.
+fn has_table(
+    conn: &Connection,
+    name: &str,
+) -> rusqlite::Result<bool> {
+    conn.query_row(
+        "SELECT EXISTS (SELECT 1 FROM sqlite_schema WHERE type = \
+         'table' AND name = ?)",
+        [name],
+        |row| row.get(0),
+    )
+}
+
+/// Marks a stopped actor's file stopped, with the deadline that must
+/// wake it, and returns that deadline: the earliest of its schedule
+/// rows, claimed or not, its run wake deadline, and `alarm`, the last
+/// alarm its generation pushed. A missing table holds no deadline.
+fn mark_stopped(
+    conn: &Connection,
+    alarm: Option<i64>,
+) -> Result<Option<i64>> {
+    let scheduled: Option<i64> =
+        if has_table(conn, "_actor_schedule_events")? {
+            conn.query_row(
+                "SELECT MIN(trigger_at) FROM _actor_schedule_events",
+                [],
+                |row| row.get(0),
+            )?
+        } else {
+            None
+        };
+    let run_wake_at = if has_table(conn, "_actor_meta")? {
+        conn.query_row(
+            "SELECT value FROM _actor_meta WHERE key = ?",
+            [RUN_WAKE_AT_META_KEY],
+            |row| row.get::<_, Vec<u8>>(0),
+        )
+        .optional()?
+        .map(|payload| decode_run_wake_at(&payload))
+        .transpose()?
+        .flatten()
+    } else {
+        None
+    };
+    let wake_at =
+        [scheduled, run_wake_at, alarm].into_iter().flatten().min();
+    crate::fault::point("run-ended");
+    conn.execute(
+        "UPDATE _hamlet_actor SET running = 0, wake_at = ?",
+        [wake_at],
+    )?;
+    Ok(wake_at)
+}
+
+/// The timer of a stopped actor. At `wake_at` it starts the actor, if
+/// the actor is still `Stopped` with that deadline. Its output says
+/// whether it started the actor.
+fn arm(
+    host: &Arc<HostInner>,
+    actor_id: &str,
+    wake_at: i64,
+) -> JoinHandle<bool> {
+    let host = Arc::downgrade(host);
+    let actor_id = actor_id.to_owned();
+    tokio::spawn(async move {
+        let delay = u64::try_from(wake_at - now_ms()).unwrap_or(0);
+        tokio::time::sleep(std::time::Duration::from_millis(delay))
             .await;
-            let Some(host) = weak.upgrade() else { return };
-            // A due timer leaves the map, so an alarm its own start
-            // sets does not abort it while it fires.
-            {
-                let mut timers = host.timers.lock();
-                if timers.get(&actor_id).is_some_and(|timer| {
-                    timer.id() == tokio::task::id()
-                }) {
-                    timers.remove(&actor_id);
-                }
-            }
-            if host.alarms.lock().get(&actor_id) != Some(&wake_at) {
-                return;
-            }
-            if let Err(error) =
-                Host(host).fire_alarm(&actor_id, wake_at).await
-            {
+        let Some(host) = host.upgrade() else {
+            return false;
+        };
+        wake(&host, &actor_id, wake_at)
+            .await
+            .inspect_err(|error| {
                 tracing::error!(
                     ?error,
                     actor_id,
-                    "host alarm failed to start actor"
+                    "host timer failed to start actor"
                 );
-            }
+            })
+            .unwrap_or(false)
+    })
+}
+
+/// Starts the actor for its deadline `wake_at`, from the file it has,
+/// if it is still `Stopped` with that deadline. A timer never makes a
+/// file, and never starts an actor in any other state. Returns
+/// whether it started the actor.
+async fn wake(
+    host: &Arc<HostInner>,
+    actor_id: &str,
+    wake_at: i64,
+) -> Result<bool> {
+    let owned = {
+        let mut actors = host.actors.lock();
+        if !matches!(
+            actors.get(actor_id),
+            Some(Life::Stopped { wake_at: stopped, .. })
+                if *stopped == wake_at
+        ) {
+            return Ok(false);
         }
-    });
-    if let Some(earlier) =
-        timers.insert(actor_id, timer.abort_handle())
-    {
-        earlier.abort();
-    }
+        let owned = Owned::new(host, actor_id);
+        // Replaces the state that holds this timer's own handle;
+        // dropping a handle does not abort its task.
+        actors.insert(actor_id.to_owned(), owned.starting());
+        owned
+    };
+    crate::fault::point("timer-fired");
+    start_actor(owned, false).await?;
+    Ok(true)
 }
 
 /// The id of the actor of `kind` and `key`, which names its file.
@@ -782,17 +863,21 @@ fn actor_path(dir: &Path, actor_id: &str) -> PathBuf {
     dir.join("actors").join(format!("{actor_id}.sqlite"))
 }
 
-/// Opens the actor's file, adds a generation to its `_hamlet_actor`
-/// row, marks it running, and serves it. Returns the file, the new
-/// generation, and whether this is the actor's first start.
+/// Opens the actor's file, made first if `create`, adds a generation
+/// to its `_hamlet_actor` row, marks it running, and serves it.
+/// Returns the file, the new generation, and whether this is the
+/// actor's first start.
 fn open_actor_file(
     dir: &Path,
     kind: &str,
     key: &str,
+    create: bool,
 ) -> Result<(PlainSqlite, u32, bool)> {
-    std::fs::create_dir_all(dir.join("actors").join(kind))?;
+    if create {
+        std::fs::create_dir_all(dir.join("actors").join(kind))?;
+    }
     let path = actor_path(dir, &format!("{kind}/{key}"));
-    let mut conn = plain_sqlite::open(&path)?;
+    let mut conn = plain_sqlite::open(&path, create)?;
     let (generation, first) =
         bump_generation(&mut conn, kind, key)
             .with_context(|| format!("start {}", path.display()))?;
@@ -821,10 +906,11 @@ fn bump_generation(
     Ok((generation, first))
 }
 
-/// Starts the actor that `owned` holds as `Starting`: opens its file
-/// off the async runtime, starts its core, and makes it `Running`, or
-/// begins the stop its generation asked for meanwhile.
-async fn start_actor(owned: Owned) -> Result<()> {
+/// Starts the actor that `owned` holds as `Starting`: opens its file,
+/// made first if `create`, off the async runtime, starts its core,
+/// and makes it `Running`, or begins the stop its generation asked
+/// for meanwhile.
+async fn start_actor(owned: Owned, create: bool) -> Result<()> {
     let host = owned.host.clone();
     let actor_id = owned.actor_id.clone();
     let (kind, key) = actor_id
@@ -837,7 +923,7 @@ async fn start_actor(owned: Owned) -> Result<()> {
     let (file, number, first) = tokio::task::spawn_blocking({
         let dir = host.dir.clone();
         let (kind, key) = (kind.to_owned(), key.to_owned());
-        move || open_actor_file(&dir, &kind, &key)
+        move || open_actor_file(&dir, &kind, &key, create)
     })
     .await??;
     if let Some(Life::Starting { generation, .. }) =
@@ -845,6 +931,7 @@ async fn start_actor(owned: Owned) -> Result<()> {
     {
         *generation = Some(number);
     }
+    let alarm = Arc::new(Mutex::new(None));
     let started = RunningActor::start(StartRequest {
         actor_id: actor_id.clone(),
         name: kind.to_owned(),
@@ -856,6 +943,7 @@ async fn start_actor(owned: Owned) -> Result<()> {
             actor_id: actor_id.clone(),
             generation: number,
             file: file.clone(),
+            alarm: alarm.clone(),
         }),
         new_storage: first,
         input: None,
@@ -875,6 +963,7 @@ async fn start_actor(owned: Owned) -> Result<()> {
         number,
         actor,
         file,
+        alarm,
     });
     let stop = {
         let mut actors = host.actors.lock();
@@ -976,9 +1065,12 @@ impl ActorHost for LocalHandle {
         self.ask_stop(ShutdownKind::Destroy);
     }
 
-    /// Writes the alarm to the actor's file once the actor has no
-    /// transaction open, then acknowledges it. An alarm from a
-    /// generation that has ended is acknowledged and not stored.
+    /// Keeps the alarm as this generation's last, and acknowledges it
+    /// at once. The host writes no running actor's alarm to its file:
+    /// the alarm lives in the core, the stop reads this record into
+    /// the deadline it stores, and a kill leaves the actor marked
+    /// running, so its next start pushes its alarms again. An ended
+    /// generation's alarm reaches only its own record.
     fn set_alarm_with_ack(
         &self,
         _actor_id: String,
@@ -986,55 +1078,10 @@ impl ActorHost for LocalHandle {
         _generation: Option<u32>,
         ack_tx: Option<oneshot::Sender<()>>,
     ) {
-        let Some(host) = self.host.upgrade() else {
-            return;
-        };
-        let actor_id = self.actor_id.clone();
-        {
-            let actors = host.actors.lock();
-            if !actors.get(&actor_id).is_some_and(|life| {
-                life.is_generation(self.generation)
-            }) {
-                drop(actors);
-                if let Some(ack_tx) = ack_tx {
-                    let _ = ack_tx.send(());
-                }
-                return;
-            }
-            match alarm_ts {
-                Some(wake_at) => host
-                    .alarms
-                    .lock()
-                    .insert(actor_id.clone(), wake_at),
-                None => host.alarms.lock().remove(&actor_id),
-            };
+        *self.alarm.lock() = alarm_ts;
+        if let Some(ack_tx) = ack_tx {
+            let _ = ack_tx.send(());
         }
-        // Queued here, so the file stores alarms in the order the
-        // core set them, and before a stop closes it.
-        let stored = self.file.host_write(
-            "alarm-store",
-            "UPDATE _hamlet_actor SET wake_at = ?",
-            vec![alarm_ts.map_or(Value::Null, Value::Integer)],
-        );
-        let host = Arc::downgrade(&host);
-        tokio::spawn(async move {
-            if let Err(error) = async { stored?.wait().await }.await {
-                tracing::error!(
-                    ?error,
-                    actor_id,
-                    "host failed to store alarm"
-                );
-                return;
-            }
-            if let (Some(wake_at), Some(host)) =
-                (alarm_ts, host.upgrade())
-            {
-                arm_alarm(&host, actor_id, wake_at);
-            }
-            if let Some(ack_tx) = ack_tx {
-                let _ = ack_tx.send(());
-            }
-        });
     }
 
     fn sqlite_exec(
@@ -1086,64 +1133,77 @@ mod counter;
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
-
+    use hamlet_actor_core::{ActorConfig, ActorEvent, ActorStart};
     use hamlet_testing::Scratch;
-    use tokio::time::{Instant, sleep};
 
     use super::*;
 
-    /// Each store arms its alarm from a task of its own, so an
-    /// earlier alarm's arm can come after a newer one's. It must not
-    /// replace the newer timer.
+    /// The kind `waker`, whose run handler sets the run wake deadline
+    /// `wake_at` and then answers each event with nothing.
+    fn waker(wake_at: i64) -> HashMap<String, ActorFactory> {
+        let config = ActorConfig {
+            name: Some("waker".to_owned()),
+            has_database: true,
+            ..ActorConfig::default()
+        };
+        HashMap::from([(
+            "waker".to_owned(),
+            ActorFactory::new(config, move |start: ActorStart| {
+                Box::pin(async move {
+                    let ActorStart {
+                        ctx, mut events, ..
+                    } = start;
+                    ctx.set_run_wake_at(Some(wake_at)).await?;
+                    while let Some(event) = events.recv().await {
+                        match event {
+                            ActorEvent::SerializeState {
+                                reply,
+                                ..
+                            } => reply.send(Ok(Vec::new())),
+                            ActorEvent::RunGracefulCleanup {
+                                reply,
+                                ..
+                            } => reply.send(Ok(())),
+                            _ => {}
+                        }
+                    }
+                    Ok(())
+                })
+            }),
+        )])
+    }
+
+    /// The deadline a stop stores comes from the file as well as from
+    /// the generation's last alarm: none from a file whose core made
+    /// no tables, and the run wake deadline with no alarm pushed.
     #[tokio::test(flavor = "multi_thread")]
-    async fn a_late_arm_of_a_replaced_alarm_keeps_the_newer_timer() {
-        let dir = Scratch::new("host-late-arm");
-        let host = Host::open(
-            &dir,
-            counter::factories(counter::Sleep::WhenIdle),
-        )
-        .unwrap();
-        let id = host.get_or_start("counter", "a").await.unwrap();
-        host.action(&id, "schedule", 300u64.to_le_bytes().to_vec())
-            .await
-            .unwrap();
-        let deadline = Instant::now() + Duration::from_secs(5);
-        while !host.0.timers.lock().contains_key(&id) {
-            assert!(
-                Instant::now() < deadline,
-                "the alarm was not armed"
-            );
-            sleep(Duration::from_millis(10)).await;
-        }
+    async fn a_stop_reads_its_deadline_from_the_file() {
+        let dir = Scratch::new("host-stop-deadline");
+        let mut bare =
+            plain_sqlite::open(&dir.join("bare.sqlite"), true)
+                .unwrap();
+        bump_generation(&mut bare, "bare", "a").unwrap();
+        assert_eq!(mark_stopped(&bare, None).unwrap(), None);
+        assert_eq!(mark_stopped(&bare, Some(5)).unwrap(), Some(5));
+
+        let wake_at = now_ms() + 600_000;
+        let host = Host::open(&dir, waker(wake_at)).unwrap();
+        let id = host.get_or_start("waker", "a").await.unwrap();
         host.stop(&id, ShutdownKind::Sleep).await.unwrap();
-
-        // The arm of an alarm the 300 ms one replaced, arriving last.
-        arm_alarm(&host.0, id.clone(), now_ms() + 600_000);
-
-        let deadline = Instant::now() + Duration::from_secs(5);
-        loop {
-            if host.is_running(&id) {
-                let reply = host
-                    .action(&id, "get", Vec::new())
-                    .await
-                    .unwrap();
-                if counter::count(reply).unwrap() == 1 {
-                    break;
-                }
-            }
-            assert!(
-                Instant::now() < deadline,
-                "the actor never woke"
-            );
-            sleep(Duration::from_millis(20)).await;
-        }
-        host.stop_all().await.unwrap();
+        assert!(matches!(
+            host.0.actors.lock().get(&id),
+            Some(Life::Stopped { wake_at: stopped, .. })
+                if *stopped == wake_at
+        ));
+        drop(host);
+        let file = plain_sqlite::open(&actor_path(&dir, &id), false)
+            .unwrap();
+        assert_eq!(mark_stopped(&file, None).unwrap(), Some(wake_at));
     }
 
     /// The core of an ended generation keeps its handle. Through it,
     /// that generation can neither stop nor destroy the actor's next
-    /// generation, store an alarm for it, nor reach its file.
+    /// generation, give it an alarm, nor reach its file.
     #[tokio::test(flavor = "multi_thread")]
     async fn an_ended_generations_handle_reaches_nothing() {
         let dir = Scratch::new("host-ended-handle");
@@ -1161,6 +1221,7 @@ mod tests {
                 actor_id: id.clone(),
                 generation: generation.number,
                 file: generation.file.clone(),
+                alarm: generation.alarm.clone(),
             }
         };
         host.stop(&id, ShutdownKind::Sleep).await.unwrap();
@@ -1193,9 +1254,10 @@ mod tests {
 
         assert!(matches!(
             host.0.actors.lock().get(&id),
-            Some(Life::Running(generation)) if generation.number == 2
+            Some(Life::Running(generation))
+                if generation.number == 2
+                    && generation.alarm.lock().is_none()
         ));
-        assert!(!host.0.alarms.lock().contains_key(&id));
         let reply =
             host.action(&id, "get", Vec::new()).await.unwrap();
         assert_eq!(counter::count(reply).unwrap(), 1);

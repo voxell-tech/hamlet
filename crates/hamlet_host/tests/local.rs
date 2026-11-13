@@ -1,5 +1,5 @@
-//! The local host: start by key, stop, the folder lock, alarms armed
-//! at start, the commit hook, and how one actor's start or stop
+//! The local host: start by key, stop, the folder lock, the deadline
+//! a stop leaves, the commit hook, and how one actor's start or stop
 //! leaves the others alone.
 
 use std::collections::HashMap;
@@ -103,7 +103,9 @@ type Contexts = Arc<Mutex<Vec<ActorContext>>>;
 /// The kind `keeper`, which hands each generation's context to the
 /// test, as a task the generation left behind would hold it. Its one
 /// action replies with the number of rows in its table `marks`, as a
-/// counter replies with its count.
+/// counter replies with its count. Its start ends once the table is
+/// made, so the context is there when the start returns: the core
+/// calls a factory on a task of its own.
 fn keeper(contexts: &Contexts) -> HashMap<String, ActorFactory> {
     let config = ActorConfig {
         name: Some("keeper".to_owned()),
@@ -113,48 +115,58 @@ fn keeper(contexts: &Contexts) -> HashMap<String, ActorFactory> {
     let contexts = contexts.clone();
     HashMap::from([(
         "keeper".to_owned(),
-        ActorFactory::new(config, move |start: ActorStart| {
-            contexts.lock().push(start.ctx.clone());
-            Box::pin(async move {
-                let ActorStart {
-                    ctx, mut events, ..
-                } = start;
-                ctx.sql()
-                    .exec(
-                        "CREATE TABLE IF NOT EXISTS marks (who TEXT)"
-                            .to_owned(),
-                    )
-                    .await?;
-                while let Some(event) = events.recv().await {
-                    match event {
-                        ActorEvent::Action { reply, .. } => {
-                            let rows = ctx
-                                .sql()
-                                .execute(
-                                    "SELECT COUNT(*) FROM marks"
-                                        .to_owned(),
-                                    None,
-                                )
-                                .await
-                                .map(|result| result.rows);
-                            reply.send(rows.map(|rows| {
-                                match rows
-                                    .first()
-                                    .and_then(|row| row.first())
-                                {
-                                    Some(ColumnValue::Integer(n)) => {
-                                        n.to_le_bytes().to_vec()
-                                    }
-                                    _ => Vec::new(),
-                                }
-                            }));
-                        }
-                        other => answer(other),
+        ActorFactory::new_with_manual_startup_ready(
+            config,
+            move |start: ActorStart| {
+                contexts.lock().push(start.ctx.clone());
+                Box::pin(async move {
+                    let ActorStart {
+                        ctx,
+                        mut events,
+                        startup_ready,
+                        ..
+                    } = start;
+                    ctx.sql()
+                        .exec(
+                            "CREATE TABLE IF NOT EXISTS marks (who \
+                             TEXT)"
+                                .to_owned(),
+                        )
+                        .await?;
+                    if let Some(ready) = startup_ready {
+                        let _ = ready.send(Ok(()));
                     }
-                }
-                Ok(())
-            })
-        }),
+                    while let Some(event) = events.recv().await {
+                        match event {
+                            ActorEvent::Action { reply, .. } => {
+                                let rows = ctx
+                                    .sql()
+                                    .execute(
+                                        "SELECT COUNT(*) FROM marks"
+                                            .to_owned(),
+                                        None,
+                                    )
+                                    .await
+                                    .map(|result| result.rows);
+                                reply.send(rows.map(|rows| {
+                                    match rows
+                                        .first()
+                                        .and_then(|row| row.first())
+                                    {
+                                        Some(
+                                            ColumnValue::Integer(n),
+                                        ) => n.to_le_bytes().to_vec(),
+                                        _ => Vec::new(),
+                                    }
+                                }));
+                            }
+                            other => answer(other),
+                        }
+                    }
+                    Ok(())
+                })
+            },
+        ),
     )])
 }
 
@@ -421,10 +433,10 @@ async fn an_action_error_keeps_the_actors_message() {
     host.stop_all().await.unwrap();
 }
 
-/// Each new alarm replaces the actor's armed timer, so storing many
-/// alarms leaves one sleeping task, not one per alarm.
+/// A running actor's alarms live in its core, and the host keeps no
+/// timer or task for them, so many alarms leave no task behind.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_new_alarm_replaces_the_armed_timer() {
+async fn many_alarms_of_a_running_actor_leave_no_task_behind() {
     let dir = Scratch::new("host-one-timer");
     let host = Host::open(&dir, factories()).unwrap();
     let id = host.get_or_start("counter", "a").await.unwrap();
@@ -437,16 +449,13 @@ async fn a_new_alarm_replaces_the_armed_timer() {
             .num_alive_tasks()
     };
 
-    // Each alarm is earlier than the last, so each is stored and
-    // armed.
-    // Read before the first alarm is armed, the count is at most one
-    // lower, which only loosens the check.
+    // Each alarm is earlier than the last, so the core pushes each.
     schedule(600_000).await;
     let before = alive();
     for n in 1..=20 {
         schedule(600_000 - n * 1000).await;
     }
-    // The stores' own tasks end soon after; the timers do not.
+    // Tasks of the actions themselves end soon after.
     let deadline =
         tokio::time::Instant::now() + Duration::from_secs(5);
     let mut after = alive();
@@ -734,4 +743,53 @@ async fn a_destroy_during_a_sleep_stop_removes_the_file() {
     nap.await.unwrap().unwrap();
     assert!(!host.is_running(&b));
     assert!(!dir.join("actors/slow/b.sqlite").exists());
+}
+
+/// A transaction its generation left open when the actor stops,
+/// begun with a plain `BEGIN` that no transaction of the core holds:
+/// the stop rolls it back and still marks the actor stopped, with the
+/// deadline of the schedule its generation committed.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_stop_ends_a_transaction_its_generation_left_open() {
+    let dir = Scratch::new("host-stop-leaked");
+    let contexts = Contexts::default();
+    let host = Host::open(&dir, keeper(&contexts)).unwrap();
+    let id = host.get_or_start("keeper", "t").await.unwrap();
+    let ctx = contexts.lock()[0].clone();
+    let event = ctx
+        .after(Duration::from_secs(600), "count", &[])
+        .await
+        .unwrap();
+    ctx.sql().exec("BEGIN").await.unwrap();
+    ctx.sql()
+        .exec("INSERT INTO marks VALUES ('leaked')")
+        .await
+        .unwrap();
+    host.stop(&id, ShutdownKind::Sleep).await.unwrap();
+    drop(host);
+
+    let conn = Connection::open_with_flags(
+        dir.join("actors/keeper/t.sqlite"),
+        OpenFlags::SQLITE_OPEN_READ_ONLY,
+    )
+    .unwrap();
+    let (running, wake_at): (i64, Option<i64>) = conn
+        .query_row(
+            "SELECT running, wake_at FROM _hamlet_actor",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+    let due: i64 = conn
+        .query_row(
+            "SELECT trigger_at FROM _actor_schedule_events WHERE \
+             event_id = ?",
+            [&event],
+            |row| row.get(0),
+        )
+        .unwrap();
+    let marks: i64 = conn
+        .query_row("SELECT COUNT(*) FROM marks", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!((running, wake_at, marks), (0, Some(due), 0));
 }

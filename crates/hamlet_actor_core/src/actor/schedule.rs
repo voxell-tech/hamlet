@@ -19,6 +19,9 @@ use uuid::Uuid;
 
 use crate::actor::context::ActorContext;
 use crate::actor::internal_storage::queries::*;
+pub use crate::actor::internal_storage::{
+    RUN_WAKE_AT_META_KEY, decode_run_wake_at,
+};
 use crate::actor::internal_storage::{
     optional_owned_text_param, read_trace_context,
     trace_context_params,

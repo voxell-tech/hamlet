@@ -1,4 +1,5 @@
-//! Timers: what a one-shot schedule does when its handler panics.
+//! Timers: what a one-shot schedule does when its handler panics,
+//! and when its actor sleeps or is destroyed as it comes due.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -90,6 +91,8 @@ async fn a_panicking_handler_runs_once(
     wait_for_runs(&host, &id, get, runs, 1).await;
     // The stop waits for the scheduled dispatch to finish.
     host.stop(&id, ShutdownKind::Sleep).await.unwrap();
+    sleep(Duration::from_millis(300)).await;
+    assert!(!host.is_running(&id), "woken again after its stop");
     drop(host);
     assert_eq!(
         stored(dir, &id, table),
@@ -250,4 +253,127 @@ async fn a_one_shot_whose_trait_handler_panics_runs_once() {
         "runs",
     )
     .await;
+}
+
+/// The due time of each one-shot in a sweep.
+const SWEEP_DUE_MS: u64 = 100;
+
+/// Starts one counter per step, `<prefix><n>`. Each schedules a
+/// one-shot `increment` and is stopped for `reason` at its own moment
+/// near the one-shot's due time, in steps of 100 µs from 3 ms before
+/// to 3 ms after. Returns the actors' ids.
+async fn stop_each_near_its_due_time(
+    host: &Host,
+    prefix: &str,
+    reason: ShutdownKind,
+) -> Vec<String> {
+    let mut ids = Vec::new();
+    for step in -30i64..=30 {
+        let key = format!("{prefix}{}", step + 30);
+        let id = host.get_or_start("counter", &key).await.unwrap();
+        let scheduled = std::time::Instant::now();
+        host.action(
+            &id,
+            "schedule",
+            SWEEP_DUE_MS.to_le_bytes().to_vec(),
+        )
+        .await
+        .unwrap();
+        let micros = SWEEP_DUE_MS as i64 * 1000 + step * 100;
+        let at = scheduled
+            + Duration::from_micros(u64::try_from(micros).unwrap());
+        // Spins, so the stop lands within microseconds of `at`.
+        tokio::task::block_in_place(|| {
+            while std::time::Instant::now() < at {
+                std::hint::spin_loop();
+            }
+        });
+        host.stop(&id, reason).await.unwrap();
+        ids.push(id);
+    }
+    ids
+}
+
+/// A1. Each counter sleeps near the time its one-shot comes due,
+/// before, while or after it runs. However the stop and the one-shot
+/// fall, the one-shot runs once: a stop that comes first leaves a
+/// deadline that wakes the actor for it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_sleep_near_the_due_time_keeps_the_timer() {
+    let dir = Scratch::new("timer-sleep-sweep");
+    let factories = || counter::factories(counter::Sleep::WhenIdle);
+    let host = Host::open(&dir, factories()).unwrap();
+    let ids =
+        stop_each_near_its_due_time(&host, "s", ShutdownKind::Sleep)
+            .await;
+    // Every deadline is past by now; its actor wakes at once.
+    sleep(Duration::from_secs(1)).await;
+    host.stop_all().await.unwrap();
+    drop(host);
+
+    let stranded: Vec<(&String, Stored)> = ids
+        .iter()
+        .map(|id| (id, stored(&dir, id, "counter")))
+        .filter(|(_, stored)| {
+            *stored
+                != Stored {
+                    runs: 1,
+                    schedules: 0,
+                }
+        })
+        .collect();
+    assert!(
+        stranded.is_empty(),
+        "one-shots not run once: {stranded:?}"
+    );
+}
+
+/// A2. Each counter is destroyed near the time its one-shot comes
+/// due. No timer brings a destroyed actor back.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_alarm_due_during_a_destroy_does_not_revive_it() {
+    let dir = Scratch::new("timer-destroy-sweep");
+    let factories = || counter::factories(counter::Sleep::WhenIdle);
+    let host = Host::open(&dir, factories()).unwrap();
+    let ids = stop_each_near_its_due_time(
+        &host,
+        "d",
+        ShutdownKind::Destroy,
+    )
+    .await;
+    sleep(Duration::from_secs(1)).await;
+    let file = |id: &String| dir.join(format!("actors/{id}.sqlite"));
+    let revived: Vec<&String> = ids
+        .iter()
+        .filter(|id| host.is_running(id) || file(id).exists())
+        .collect();
+    assert!(revived.is_empty(), "destroyed actors back: {revived:?}");
+    host.stop_all().await.unwrap();
+    drop(host);
+    let left: Vec<&String> =
+        ids.iter().filter(|id| file(id).exists()).collect();
+    assert!(left.is_empty(), "destroyed actors' files: {left:?}");
+}
+
+/// A timer starts only an actor whose file is still there: a timer
+/// never makes a file.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_timer_does_not_make_a_file_that_is_gone() {
+    let dir = Scratch::new("timer-file-gone");
+    let host = Host::open(
+        &dir,
+        counter::factories(counter::Sleep::WhenIdle),
+    )
+    .unwrap();
+    let id = host.get_or_start("counter", "a").await.unwrap();
+    host.action(&id, "schedule", 300u64.to_le_bytes().to_vec())
+        .await
+        .unwrap();
+    host.stop(&id, ShutdownKind::Sleep).await.unwrap();
+    let file = dir.join(format!("actors/{id}.sqlite"));
+    std::fs::remove_file(&file).unwrap();
+    sleep(Duration::from_millis(700)).await;
+    assert!(!host.is_running(&id));
+    assert!(!file.exists(), "the timer made the file again");
+    host.stop_all().await.unwrap();
 }

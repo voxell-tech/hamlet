@@ -38,8 +38,9 @@ const LATE_MS: u64 = 4000;
 const SOON_MS: u64 = 800;
 
 /// Runs as the child. With a schedule, schedules a one-shot
-/// `increment` on `counter/a` and prints `acked` once the action
-/// replied; without one, boots the folder. Then waits to be killed.
+/// `increment` on `counter/a`, prints `acked` once the action
+/// replied, and passes the fault point `schedule-acked`; without one,
+/// boots the folder. Then waits to be killed.
 #[test]
 fn child_host() {
     let Some(home) = std::env::var_os(CHILD_HOME) else {
@@ -57,6 +58,7 @@ fn child_host() {
                 .await
                 .unwrap();
             writeln!(std::io::stdout(), "acked").unwrap();
+            hamlet_host::fault::point("schedule-acked");
         } else {
             host.boot().await.unwrap();
         }
@@ -119,12 +121,12 @@ struct Due {
 }
 
 /// Runs a child host that schedules a one-shot and is killed once
-/// the schedule is acknowledged and its alarm write is stopped at
-/// the fault point `alarm-store`.
-fn kill_after_the_ack_before_the_alarm_is_stored(home: &Path) -> Due {
+/// the schedule is acknowledged, while the actor runs: the host
+/// stores no running actor's alarm.
+fn kill_after_the_ack(home: &Path) -> Due {
     let schedule = Duration::from_millis(LATE_MS);
     let earliest = Instant::now() + schedule;
-    let acked = kill_child_at(home, Some(LATE_MS), "alarm-store");
+    let acked = kill_child_at(home, Some(LATE_MS), "schedule-acked");
     Due {
         earliest,
         latest: acked.unwrap() + schedule,
@@ -184,6 +186,44 @@ fn stored(home: &Path) -> Stored {
     }
 }
 
+/// The host's marks in `counter/a`'s file, read with no host open:
+/// whether a run is under way, the deadline the last clean stop left,
+/// and the schedule rows a generation claimed.
+#[derive(Debug, PartialEq)]
+struct Marks {
+    running: i64,
+    wake_at: Option<i64>,
+    claimed: i64,
+}
+
+fn marks(home: &Path) -> Marks {
+    let conn = rusqlite::Connection::open_with_flags(
+        home.join("actors/counter/a.sqlite"),
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+    )
+    .unwrap();
+    let (running, wake_at) = conn
+        .query_row(
+            "SELECT running, wake_at FROM _hamlet_actor",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+    let claimed = conn
+        .query_row(
+            "SELECT COUNT(*) FROM _actor_schedule_events WHERE \
+             claimed_generation IS NOT NULL",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    Marks {
+        running,
+        wake_at,
+        claimed,
+    }
+}
+
 /// Opens `home` in a new host and boots it, then stops every actor,
 /// which waits for the scheduled work the boot started. Returns what
 /// the boot started and what the file holds after the stop.
@@ -196,10 +236,9 @@ async fn restart(home: &Path) -> (Vec<String>, Stored) {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_schedule_acknowledged_before_its_alarm_was_stored_fires_once_after_a_kill()
- {
+async fn a_schedule_acknowledged_before_a_kill_fires_once() {
     let home = Scratch::new("kill-due");
-    let due = kill_after_the_ack_before_the_alarm_is_stored(&home);
+    let due = kill_after_the_ack(&home);
     sleep_until(due.latest + Duration::from_millis(200));
 
     let host = Host::open(&home, factories()).unwrap();
@@ -216,12 +255,12 @@ async fn a_schedule_acknowledged_before_its_alarm_was_stored_fires_once_after_a_
 }
 
 /// The first start after the kill comes before the one-shot is due
-/// and stops cleanly, so only an alarm that start stored again can
-/// wake the actor at the second.
+/// and stops cleanly, so only the deadline that stop stored can wake
+/// the actor at the second.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_start_before_the_schedule_is_due_stores_its_alarm_again() {
+async fn a_stop_before_the_schedule_is_due_stores_its_deadline() {
     let home = Scratch::new("kill-early");
-    let due = kill_after_the_ack_before_the_alarm_is_stored(&home);
+    let due = kill_after_the_ack(&home);
 
     let host = Host::open(&home, factories()).unwrap();
     host.boot().await.unwrap();
@@ -274,11 +313,11 @@ async fn a_kill_while_a_one_shot_runs_runs_it_once() {
 }
 
 /// The one-shot comes due while the actor is stopped, and the boot
-/// that fires its alarm is killed while it consumes the alarm. The
-/// next boot runs the one-shot, once.
+/// whose timer starts the actor for it is killed before the start.
+/// The next boot runs the one-shot, once.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_kill_on_the_boot_that_fires_a_due_alarm_runs_it_once() {
-    let home = Scratch::new("kill-alarm-fired");
+    let home = Scratch::new("kill-timer-fired");
     {
         let host = Host::open(&home, factories()).unwrap();
         let id = host.get_or_start("counter", "a").await.unwrap();
@@ -295,8 +334,25 @@ async fn a_kill_on_the_boot_that_fires_a_due_alarm_runs_it_once() {
             schedules: 1
         }
     );
+    let stopped = marks(&home);
+    assert!(stopped.wake_at.is_some(), "the stop left no deadline");
     tokio::time::sleep(Duration::from_millis(900)).await;
-    kill_child_at(&home, None, "alarm-fired");
+    kill_child_at(&home, None, "timer-fired");
+    assert_eq!(
+        (stored(&home), marks(&home)),
+        (
+            Stored {
+                count: 1,
+                schedules: 1
+            },
+            Marks {
+                running: 0,
+                claimed: 0,
+                ..stopped
+            }
+        ),
+        "the kill came after the start"
+    );
 
     let (started, after) = restart(&home).await;
     assert_eq!(started, vec!["counter/a"]);
