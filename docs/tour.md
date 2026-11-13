@@ -176,9 +176,19 @@ with kinds of its own, share the folder. Each host also locks
 `actors/<kind>/.lock` for each of its kinds, so no two hosts hold one
 kind.
 `get_or_start` finds an actor by kind and key and starts it on the file
-`actors/<kind>/<key>.sqlite`. `call` calls an action of the actor at an
-`Address`, starting it first, within the caller's deadline, and logs the
-call's `Cause`, the task it belongs to. `directory.rs` maps each actor
+`actors/<kind>/<key>.sqlite`. `local/call.rs` holds the calls: `call`
+calls an action of the actor at an `Address`, starting it first, within
+the caller's deadline, and logs the call's `Cause`, the task it belongs
+to. Each call carries its `Caller` as its connection's parameters: none
+for `call`, a client for `call_for_client`, and the calling actor's
+address for `Host::call_from(&ctx, ...)`, which takes it from the
+actor's context. One check, `admit`, runs before every call reaches the
+directory and refuses an actor's call to itself. A call fails at once
+when its host begins to shut down. `Host::open` refuses a kind that
+cannot read the stamp: the authoring layer gives each factory the
+decode its connection preflight runs. `local/access.rs` gives an actor,
+through `HostRef::of(ctx)`, the realm folder and the values the program
+gave with `HostOptions::with_value`. `directory.rs` maps each actor
 kind to where its actors run, here always this host; a call to a kind it
 does not hold fails at once. `shutdown` stops every actor at once, waits
 until each file is closed, lets the folder go, and leaves the host
@@ -351,7 +361,9 @@ built-in ones.
 | Window state or editor saves | `hamlet_app/src/remember.rs`, `window.rs`, `saving.rs`; `hamlet_desktop/src/editor.rs` |
 | Desks and their switcher in the top bar | `hamlet_app/src/desk.rs`, `desk/switcher.rs`, `desk/switcher/motion.rs` |
 | An actor's lifecycle, schedules, state or SQL | `hamlet_actor_core/src/actor/`; [the actor runtime](#the-actor-runtime) |
-| Where actors' files are, calls, deadlines and timers, shutdown, the folder lock | `hamlet_host/src/local.rs`, `plain_sqlite.rs` |
+| Where actors' files are, deadlines and timers, shutdown, the folder lock | `hamlet_host/src/local.rs`, `plain_sqlite.rs` |
+| Calls between actors, and who made a call | `hamlet_host/src/local/call.rs` |
+| What an actor reaches of its host: the realm folder, the program's values | `hamlet_host/src/local/access.rs` |
 | Where each actor kind runs | `hamlet_host/src/directory.rs` |
 | A kill scenario | `hamlet_killkit/src/scenario.rs`, and a fault point with `hamlet_host::fault::point` |
 
