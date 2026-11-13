@@ -141,9 +141,10 @@ fetches it itself. Nothing inside it changes. `cargo xtask check` runs
 every check a commit needs, as nine steps in this order, each of which
 `cargo xtask <step>` runs alone and CI calls by name: `format`
 (rustfmt's check on the workspace and on xtask), `clippy` (with
-`-D warnings` on both), `cross` (clippy on `hamlet_os` for
+`-D warnings` on both), `cross` (clippy on `hamlet_os` and on the
+native module for Node, `hamlet_actor_node`, for
 `x86_64-pc-windows-gnu`, the target `rust-toolchain.toml` installs, with
-no C compiler), `deny` (`cargo deny check`), `test`
+no C compiler and without bundled SQLite), `deny` (`cargo deny check`), `test`
 (`cargo build --all-targets`, then `cargo test`, doc tests included),
 `acceptance` and `harness` (the two suites below), `doc` (`cargo doc`
 with `-D warnings` and every feature, except that `hamlet_actor_core` is
