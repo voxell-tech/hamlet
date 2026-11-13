@@ -8,6 +8,8 @@
 //!                               increment, <ms> ahead
 //! demo sleep <key>              ask the actor to sleep
 //! demo destroy <key>            ask the actor to destroy itself
+//! demo block <key> <ms>         block the actor's event loop <ms> in
+//!                               synchronous code
 //! demo timers <kind>/<key>      print the actor's set-aside timers
 //! demo rearm <kind>/<key> <event_id>
 //!                               put a set-aside timer back, due now
@@ -22,7 +24,9 @@
 //! actor it started, once its start ends. `timers` prints `timer
 //! <kind>/<key> <event_id> <action> due=<ms> tries=<n> error=<code>`
 //! for each timer, and `rearm` prints `rearm <kind>/<key> <event_id>
-//! <true|false>`. Warnings and errors go to standard error.
+//! <true|false>`. Warnings and errors go to standard error. The
+//! demo exits once its host has shut down, also when an actor it
+//! could not stop still blocks a thread.
 
 #[path = "demo/act.rs"]
 mod act;
@@ -39,7 +43,20 @@ use hamlet_host::{Address, Host};
 use tokio::sync::mpsc;
 
 #[tokio::main]
-async fn main() -> Result<()> {
+async fn main() {
+    let code = match demo().await {
+        Ok(()) => 0,
+        Err(error) => {
+            let _ = writeln!(std::io::stderr(), "Error: {error:?}");
+            1
+        }
+    };
+    // A runtime's drop waits for its threads, and an actor whose stop
+    // missed its deadline may block one for good.
+    std::process::exit(code);
+}
+
+async fn demo() -> Result<()> {
     tracing_subscriber::fmt()
         .with_max_level(tracing::Level::WARN)
         .with_writer(std::io::stderr)
@@ -75,8 +92,8 @@ async fn main() -> Result<()> {
         }
         None => Err(anyhow!(
             "usage: demo \
-             increment|get|schedule|sleep|destroy|timers|rearm|boot|\
-             serve ..."
+             increment|get|schedule|sleep|destroy|block|timers|rearm|\
+             boot|serve ..."
         )),
     };
     host.shutdown().await?;
@@ -135,6 +152,11 @@ async fn run(host: &Host, words: &[String]) -> Result<()> {
         "get" | "sleep" | "destroy" => {
             act(host, &actor_id, command, Vec::new()).await?
         }
+        "block" => {
+            let ms = number(words.get(2))?;
+            act(host, &actor_id, "block", ms.to_le_bytes().to_vec())
+                .await?
+        }
         "schedule" => {
             let mut args =
                 number(words.get(2))?.to_le_bytes().to_vec();
@@ -149,7 +171,8 @@ async fn run(host: &Host, words: &[String]) -> Result<()> {
 }
 
 /// Boots, starts `loaded` counters, then runs each line of stdin as
-/// a command until stdin ends or the process gets SIGTERM or Ctrl-C.
+/// a command until stdin ends or the process gets SIGTERM or Ctrl-C,
+/// also while a command runs.
 async fn serve(host: &Host, loaded: u64) -> Result<()> {
     print_began(host, host.boot().await?).await?;
     if loaded > 0 {
@@ -170,10 +193,12 @@ async fn serve(host: &Host, loaded: u64) -> Result<()> {
             }
         }
     });
+    // One for the whole loop, so no signal falls between two.
+    let mut stop = std::pin::pin!(stop_signal());
     loop {
         let line = tokio::select! {
             line = lines.recv() => line,
-            () = stop_signal() => None,
+            () = &mut stop => None,
         };
         let Some(line) = line else { return Ok(()) };
         let words: Vec<String> =
@@ -181,7 +206,11 @@ async fn serve(host: &Host, loaded: u64) -> Result<()> {
         if words.is_empty() {
             continue;
         }
-        if let Err(error) = run(host, &words).await {
+        let ran = tokio::select! {
+            ran = run(host, &words) => ran,
+            () = &mut stop => return Ok(()),
+        };
+        if let Err(error) = ran {
             writeln!(std::io::stdout(), "error: {error:#}")?;
         }
     }

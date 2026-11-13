@@ -18,16 +18,21 @@
 //!   schedule's.
 //! - `sleep` and `destroy` ask the host to sleep or destroy the
 //!   actor, and reply with the count.
+//! - `block` takes a little-endian `u64` of milliseconds and blocks
+//!   the actor's event loop itself that long, in synchronous code, as
+//!   an actor stuck in a blocking call does, then replies with the
+//!   count. A stop of the actor waits for it.
 //!
 //! `increment` passes the fault point `tx-open` inside its
 //! transaction, and `tx-committed` after it commits and before it
 //! replies.
 //!
-//! Each action runs on a task of its own, as the authoring layer
-//! runs them, so an action that outlives its caller's deadline does
-//! not hold up the next one. Unlike the authoring layer, an action is
-//! not dropped when its generation starts to stop: a transaction
-//! dropped while open would hold the actor's SQL until it times out.
+//! Each action but `block` runs on a task of its own, as the
+//! authoring layer runs them, so an action that outlives its
+//! caller's deadline does not hold up the next one. Unlike the
+//! authoring layer, an action is not dropped when its generation
+//! starts to stop: a transaction dropped while open would hold the
+//! actor's SQL until it times out.
 
 use std::collections::HashMap;
 use std::time::Duration;
@@ -92,6 +97,15 @@ pub async fn run(start: ActorStart) -> Result<()> {
                 reply,
                 ..
             } => {
+                if name == "block" {
+                    let count = block(&ctx, &args).await;
+                    reply.send(
+                        count.map(|count| {
+                            count.to_le_bytes().to_vec()
+                        }),
+                    );
+                    continue;
+                }
                 let ctx = ctx.clone();
                 tokio::spawn(async move {
                     let count = action(
@@ -179,6 +193,19 @@ async fn action(
         }
         other => Err(anyhow!("unknown action `{other}`")),
     }
+}
+
+/// Blocks the calling thread, in synchronous code, for the
+/// little-endian `u64` of milliseconds `args` starts with, then reads
+/// the count.
+async fn block(ctx: &ActorContext, args: &[u8]) -> Result<i64> {
+    let ms = args
+        .first_chunk()
+        .ok_or_else(|| anyhow!("block takes a u64"))?;
+    std::thread::sleep(Duration::from_millis(u64::from_le_bytes(
+        *ms,
+    )));
+    read_count(ctx).await
 }
 
 async fn add_one(
