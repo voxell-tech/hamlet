@@ -1843,3 +1843,143 @@ async fn hosts_of_different_names_cannot_share_a_kind() {
         Host::open_with(&dir, factories(), named("node")).unwrap();
     node.shutdown().await.unwrap();
 }
+
+/// Whether any of the actor's three files is on disk: its file, its
+/// write-ahead file and its shared-memory file.
+fn any_file_of(dir: &Path, kind: &str, key: &str) -> bool {
+    ["", "-wal", "-shm"].iter().any(|suffix| {
+        dir.join("actors")
+            .join(kind)
+            .join(format!("{key}.sqlite{suffix}"))
+            .exists()
+    })
+}
+
+/// A destroy removes the actor's data whether it runs, sleeps with
+/// no deadline, or sleeps waiting for a timer, whose timer then never
+/// starts it. A destroy repeated afterwards ends the same way, and a
+/// new start of each key reads nothing of the old one.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_destroy_removes_a_running_a_sleeping_and_a_waiting_actor()
+{
+    let dir = Scratch::new("host-destroy-states");
+    let host = Host::open(&dir, factories()).unwrap();
+    for key in ["running", "sleeping", "waiting"] {
+        let id = host.get_or_start("counter", key).await.unwrap();
+        call(&host, &id, "increment").await;
+    }
+    call_with(
+        &host,
+        "counter/waiting",
+        "schedule",
+        300u64.to_le_bytes().to_vec(),
+    )
+    .await;
+    for key in ["sleeping", "waiting"] {
+        host.stop(&format!("counter/{key}"), ShutdownKind::Sleep)
+            .await
+            .unwrap();
+    }
+
+    for key in ["running", "sleeping", "waiting"] {
+        let id = format!("counter/{key}");
+        host.stop(&id, ShutdownKind::Destroy).await.unwrap();
+        assert!(!host.is_running(&id), "{key}");
+        assert!(!any_file_of(&dir, "counter", key), "{key}");
+        host.stop(&id, ShutdownKind::Destroy).await.unwrap();
+    }
+    tokio::time::sleep(Duration::from_millis(600)).await;
+    assert!(!host.is_running("counter/waiting"));
+    assert!(!any_file_of(&dir, "counter", "waiting"));
+    host.shutdown().await.unwrap();
+    drop(host);
+
+    let host = Host::open(&dir, factories()).unwrap();
+    assert!(host.boot().await.unwrap().is_empty());
+    for key in ["running", "sleeping", "waiting"] {
+        assert_eq!(
+            call(&host, &format!("counter/{key}"), "get").await,
+            0
+        );
+    }
+    host.shutdown().await.unwrap();
+}
+
+/// A destroy reaches only a valid id of one of the host's own kinds,
+/// in a host that has not shut down: it removes no other file.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_destroy_refuses_an_id_that_is_not_its_hosts() {
+    let dir = Scratch::new("host-destroy-refused");
+    std::fs::create_dir_all(dir.join("actors/other")).unwrap();
+    std::fs::write(dir.join("actors/other/x.sqlite"), b"kept")
+        .unwrap();
+    std::fs::write(dir.join("kept.sqlite"), b"kept").unwrap();
+    let host = Host::open(&dir, factories()).unwrap();
+    for id in
+        ["other/x", "counter/../../kept", "counter", "counter/.x"]
+    {
+        assert!(
+            host.stop(id, ShutdownKind::Destroy).await.is_err(),
+            "{id}"
+        );
+    }
+    let id = host.get_or_start("counter", "a").await.unwrap();
+    host.stop(&id, ShutdownKind::Sleep).await.unwrap();
+    host.shutdown().await.unwrap();
+    assert!(host.stop(&id, ShutdownKind::Destroy).await.is_err());
+    assert!(dir.join("actors/other/x.sqlite").exists());
+    assert!(dir.join("kept.sqlite").exists());
+    assert!(dir.join("actors/counter/a.sqlite").exists());
+}
+
+/// A destroy of an actor whose generation left a transaction open
+/// does not wait for that transaction: the stop rolls it back, and
+/// the destroy removes the actor's files.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_destroy_ends_a_transaction_its_generation_left_open() {
+    let dir = Scratch::new("host-destroy-leaked");
+    let contexts = Contexts::default();
+    let host = Host::open(&dir, keeper(&contexts)).unwrap();
+    let id = host.get_or_start("keeper", "t").await.unwrap();
+    let ctx = contexts.lock()[0].clone();
+    ctx.sql().exec("BEGIN").await.unwrap();
+    ctx.sql()
+        .exec("INSERT INTO marks VALUES ('leaked')")
+        .await
+        .unwrap();
+    tokio::time::timeout(
+        Duration::from_secs(30),
+        host.stop(&id, ShutdownKind::Destroy),
+    )
+    .await
+    .expect("the destroy waited for the open transaction")
+    .unwrap();
+    assert!(!any_file_of(&dir, "keeper", "t"));
+    host.shutdown().await.unwrap();
+}
+
+/// A file that holds a destroy, as a kill leaves one, is removed at
+/// the actor's next start: `get_or_start` makes the actor anew, and a
+/// start that makes no file fails as for a missing one.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_start_finishes_the_destroy_its_file_holds() {
+    let dir = Scratch::new("host-destroy-stored");
+    let host = Host::open(&dir, factories()).unwrap();
+    for key in ["made", "kept-out"] {
+        let id = host.get_or_start("counter", key).await.unwrap();
+        call(&host, &id, "increment").await;
+        host.stop(&id, ShutdownKind::Sleep).await.unwrap();
+        Connection::open(
+            dir.join(format!("actors/counter/{key}.sqlite")),
+        )
+        .unwrap()
+        .execute("UPDATE _hamlet_actor SET destroying = 1", [])
+        .unwrap();
+    }
+
+    assert_eq!(call(&host, "counter/made", "get").await, 0);
+    let kept_out = Address::new("counter", "kept-out");
+    assert!(host.set_aside_timers(&kept_out).await.is_err());
+    assert!(!any_file_of(&dir, "counter", "kept-out"));
+    host.shutdown().await.unwrap();
+}

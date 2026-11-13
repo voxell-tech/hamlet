@@ -19,8 +19,9 @@ pub struct Scenario {
     pub kill: Kill,
     /// How long after the trigger was sent the first restart starts.
     pub down_ms: u64,
-    /// Lines each restart's `demo serve` runs after it boots.
-    pub restart: &'static [&'static str],
+    /// Lines the first and the second restart's `demo serve` run
+    /// after it boots.
+    pub restart: [&'static [&'static str]; 2],
     /// Values read from the actor files once each restart exited.
     pub probes: &'static [Probe],
     /// The values the first and the second restart must show.
@@ -38,12 +39,20 @@ pub enum Kill {
     After { min_ms: u64, max_ms: u64 },
 }
 
-/// A value read with SQL from one actor file, under the realm folder.
+/// A value read from one actor file, under the realm folder.
 pub struct Probe {
     pub name: &'static str,
     pub file: &'static str,
+    pub read: Read,
+}
+
+/// How a probe reads its value.
+pub enum Read {
     /// A query that returns one integer.
-    pub sql: &'static str,
+    Sql(&'static str),
+    /// How many of the file, its write-ahead file and its
+    /// shared-memory file exist.
+    Files,
 }
 
 /// A value a restart must show: an actor's last reply, as
@@ -69,15 +78,24 @@ pub enum Is {
 const A_VALUE: Probe = Probe {
     name: "a.value",
     file: "actors/counter/a.sqlite",
-    sql: "SELECT COALESCE((SELECT value FROM counter WHERE id = 0), \
-          0)",
+    read: Read::Sql(
+        "SELECT COALESCE((SELECT value FROM counter WHERE id = 0), \
+         0)",
+    ),
 };
 
 /// The schedules counter `a` holds, read from its file.
 const A_SCHEDULES: Probe = Probe {
     name: "a.schedules",
     file: "actors/counter/a.sqlite",
-    sql: "SELECT COUNT(*) FROM _actor_schedule_events",
+    read: Read::Sql("SELECT COUNT(*) FROM _actor_schedule_events"),
+};
+
+/// How many of counter `a`'s files exist.
+const A_FILES: Probe = Probe {
+    name: "a.files",
+    file: "actors/counter/a.sqlite",
+    read: Read::Files,
 };
 
 const COUNTER_TRANSACTION: &[Expect] = &[
@@ -130,6 +148,31 @@ const SCHEDULE_FIRED_ONCE: &[Expect] = &[
     },
 ];
 
+/// The boot finished the destroy: it started nothing, and removed the
+/// actor's three files.
+const DESTROY_FINISHED: &[Expect] = &[
+    Expect {
+        value: "boot counter/a",
+        is: Is::Absent,
+    },
+    Expect {
+        value: "a.files",
+        is: Is::Exactly(0),
+    },
+];
+
+/// A new start of the key reads none of the destroyed actor's data.
+const KEY_MADE_ANEW: &[Expect] = &[
+    Expect {
+        value: "boot counter/a",
+        is: Is::Absent,
+    },
+    Expect {
+        value: "counter/a",
+        is: Is::Exactly(0),
+    },
+];
+
 pub const SCENARIOS: &[Scenario] = &[
     Scenario {
         name: "counter-transaction",
@@ -141,7 +184,7 @@ pub const SCENARIOS: &[Scenario] = &[
         trigger_replies: false,
         kill: Kill::Fault("tx-open:4"),
         down_ms: 0,
-        restart: &["get a"],
+        restart: [&["get a"], &["get a"]],
         probes: &[A_VALUE],
         expect: [COUNTER_TRANSACTION, COUNTER_TRANSACTION],
     },
@@ -159,8 +202,24 @@ pub const SCENARIOS: &[Scenario] = &[
             max_ms: 1000,
         },
         down_ms: 2000,
-        restart: &["get a"],
+        restart: [&["get a"], &["get a"]],
         probes: &[A_VALUE, A_SCHEDULES],
         expect: [SCHEDULE_FIRED_AT_BOOT, SCHEDULE_FIRED_ONCE],
+    },
+    Scenario {
+        name: "destroy-cut",
+        about: "kill after a destroy is acknowledged, as its stop \
+                marks the run ended and before the actor's files \
+                are removed; the first restart finishes the destroy \
+                and starts nothing, and a new start of the key at \
+                the second reads 0",
+        setup: &["increment a 3"],
+        trigger: "destroy a",
+        trigger_replies: true,
+        kill: Kill::Fault("run-ended"),
+        down_ms: 0,
+        restart: [&[], &["get a"]],
+        probes: &[A_FILES],
+        expect: [DESTROY_FINISHED, KEY_MADE_ANEW],
     },
 ];
