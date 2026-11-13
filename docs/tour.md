@@ -183,8 +183,12 @@ command line, with the counter actor in `examples/demo/counter.rs`.
 at a fault point and boots the folder again.
 
 The core's own tests are in `hamlet_actor_core/tests/`. Each file there
-is compiled into the library by a `#[path]` line in the module it tests,
-except `integration.rs`, which is a test target of its own. They run on
+is compiled into the library by a `#[path]` line, most of them in the
+module they test. `lib.rs` pulls in two whose module is gone:
+`envoy_callbacks.rs` tests `hamlet_actor_wire`'s endpoint parser, and
+`registry_http.rs` tests `host/dispatch.rs` and the request buffering in
+`actor/messages.rs`. `metrics.rs` pulls in `metrics_helpers.rs`, and
+`integration.rs` is a test target of its own. They run on
 `TestHost` in `src/testing.rs`, a host that serves one in-memory
 database through `hamlet_sqlite`.
 
