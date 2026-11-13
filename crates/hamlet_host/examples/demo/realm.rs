@@ -18,14 +18,14 @@ use std::time::Duration;
 use anyhow::{Context, Result, bail};
 use hamlet_actor::{Action, Actor, Ctx, Handler, Registry};
 use hamlet_actor_core::{ActorConfig, ActorFactory};
-use hamlet_actors::workspace::reach::{
+use hamlet_actors::workspace;
+use hamlet_host::{Address, Caller, Cause, Host};
+use hamlet_messages::workspace::reach::{
     Footing, Mode, Project, Reach, SecretsVersion, Trust,
 };
-use hamlet_actors::workspace::{
-    self, AgentNumber, ConversationId, ReachAnswer, ReachVersion,
-    SetReach,
+use hamlet_messages::workspace::{
+    AgentNumber, ConversationId, ReachAnswer, ReachVersion, SetReach,
 };
-use hamlet_host::{Address, Caller, Cause, Host};
 
 /// The realm's key.
 const KEY: &str = "local";

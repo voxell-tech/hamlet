@@ -14,12 +14,12 @@ ciborium.workspace = true
 hamlet_actor.workspace = true
 hamlet_actor_core.workspace = true
 hamlet_host.workspace = true
+hamlet_messages.workspace = true
 hamlet_os.workspace = true
 hamlet_sandbox.workspace = true
-serde.workspace = true
-thiserror.workspace = true
 
 [dev-dependencies]
+serde.workspace = true
 hamlet_testing.workspace = true
 rusqlite.workspace = true
 tokio.workspace = true

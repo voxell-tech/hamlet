@@ -9,13 +9,17 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use hamlet_actor_core::{BindParam, ColumnValue, SqliteTransaction};
+use hamlet_messages::workspace::reach::{
+    Access, Footing, Mode, Need, Reach, Refusal, SecretsVersion,
+    Trust,
+};
+use hamlet_messages::workspace::{
+    AgentNumber, ConversationId, ReachVersion, SetReach,
+};
 use hamlet_os::fs::path::{normalize, text};
 use hamlet_sandbox::{Policy, base_env, host_env, is_within};
-use serde::{Deserialize, Serialize};
 
-use super::{
-    AgentNumber, ConversationId, MACHINE, ReachVersion, SetReach,
-};
+use super::MACHINE;
 
 /// Commands that reach the network, by the words they name, in lower
 /// case.
@@ -140,72 +144,6 @@ impl RealmFolder {
     }
 }
 
-/// What one agent's tool calls may touch on this machine, and when
-/// they wait for a chief.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum Reach {
-    Agent(Footing),
-    /// `starter` is `None` for a chief's worker (H42).
-    Worker {
-        starter: Option<AgentNumber>,
-        footing: Footing,
-    },
-    /// The agent ended. Its row stays, so an older reach that arrives
-    /// late cannot bring it back.
-    Ended,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Footing {
-    /// The hamlet's folder (C20). `None` for the Hand, a hire of a
-    /// hamlet with no folder, and their workers.
-    pub project: Option<Project>,
-    /// The network for every agent, or a lasting grant (C19).
-    pub network: bool,
-    /// Trust for the rest of a conversation (H11).
-    pub trust: Vec<Trust>,
-    /// The version of the realm's secrets in force for this agent.
-    /// No call passes while the workspace holds an older list (C32).
-    pub secrets: SecretsVersion,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Project {
-    pub folder: PathBuf,
-    pub mode: Mode,
-}
-
-/// A hamlet's mode on its folder (C21).
-#[derive(
-    Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize,
-)]
-pub enum Mode {
-    Manual,
-    Auto,
-}
-
-/// What a chief allowed for the rest of one conversation.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Trust {
-    pub conversation: ConversationId,
-    pub edits: bool,
-    pub commands: bool,
-}
-
-/// The realm's version of its list of secrets.
-#[derive(
-    Clone,
-    Copy,
-    Debug,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Serialize,
-    Deserialize,
-)]
-pub struct SecretsVersion(pub u64);
-
 /// A call as the gate weighs it. Paths arrive absolute.
 #[derive(Clone, Copy, Debug)]
 pub enum Op<'a> {
@@ -221,48 +159,6 @@ pub enum Op<'a> {
     Read {
         path: &'a Path,
     },
-}
-
-/// What a call waits for a chief to allow (H11).
-#[derive(
-    Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize,
-)]
-pub enum Need {
-    Network,
-    Command,
-    Edit,
-}
-
-#[derive(
-    Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize,
-)]
-pub enum Access {
-    Read,
-    Change,
-}
-
-/// A call the gate does not let run.
-#[derive(
-    Clone,
-    Debug,
-    PartialEq,
-    Eq,
-    Serialize,
-    Deserialize,
-    thiserror::Error,
-)]
-pub enum Refusal {
-    #[error("{} is out of this agent's reach to {}", path.display(), match access {
-        Access::Read => "read",
-        Access::Change => "change",
-    })]
-    OutsideReach { path: PathBuf, access: Access },
-    /// Only the agent itself changes its filesystem, and only a
-    /// worker reads its starter's through the workspace.
-    #[error("{} is in an agent's filesystem", path.display())]
-    AgentFilesystem { path: PathBuf },
-    #[error("this agent has no reach on this machine")]
-    NoReach,
 }
 
 /// The gate's verdict on a call.
@@ -346,9 +242,10 @@ fn needs(
             if (network || is_networked(script)) && !footing.network {
                 needs.push(Need::Network);
             }
-            if footing.is_manual()
-                && !footing
-                    .trusts(conversation, |trust| trust.commands)
+            if is_manual(footing)
+                && !trusts(footing, conversation, |trust| {
+                    trust.commands
+                })
             {
                 needs.push(Need::Command);
             }
@@ -372,8 +269,9 @@ fn needs(
                 });
             Ok(
                 if in_manual_project
-                    && !footing
-                        .trusts(conversation, |trust| trust.edits)
+                    && !trusts(footing, conversation, |trust| {
+                        trust.edits
+                    })
                 {
                     vec![Need::Edit]
                 } else {
@@ -454,34 +352,24 @@ pub fn placement(
     Some(Placement { policy, cwd })
 }
 
-impl Reach {
-    /// The footing of a reach that has not ended.
-    fn footing(&self) -> Option<&Footing> {
-        match self {
-            Self::Agent(footing) | Self::Worker { footing, .. } => {
-                Some(footing)
-            }
-            Self::Ended => None,
-        }
-    }
+/// Whether the footing's project is in manual mode.
+fn is_manual(footing: &Footing) -> bool {
+    footing
+        .project
+        .as_ref()
+        .is_some_and(|project| project.mode == Mode::Manual)
 }
 
-impl Footing {
-    fn is_manual(&self) -> bool {
-        self.project
-            .as_ref()
-            .is_some_and(|project| project.mode == Mode::Manual)
-    }
-
-    fn trusts(
-        &self,
-        conversation: &ConversationId,
-        allows: impl Fn(&Trust) -> bool,
-    ) -> bool {
-        self.trust.iter().any(|trust| {
-            trust.conversation == *conversation && allows(trust)
-        })
-    }
+/// Whether the footing trusts `conversation` for what `allows`
+/// picks.
+fn trusts(
+    footing: &Footing,
+    conversation: &ConversationId,
+    allows: impl Fn(&Trust) -> bool,
+) -> bool {
+    footing.trust.iter().any(|trust| {
+        trust.conversation == *conversation && allows(trust)
+    })
 }
 
 /// Whether `script` names a word that reaches the network: a word as
@@ -517,6 +405,8 @@ fn is_readable(path: &Path, policy: &Policy) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use hamlet_messages::workspace::reach::Project;
+
     use super::*;
 
     const AGENT: AgentNumber = AgentNumber(7);

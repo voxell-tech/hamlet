@@ -8,14 +8,14 @@ use std::time::Duration;
 use anyhow::Context;
 use hamlet_actor::{Action, Actor, Ctx, Handler, Registry};
 use hamlet_actor_core::{ActorConfig, ActorFactory};
-use hamlet_actors::workspace::reach::{
+use hamlet_actors::workspace;
+use hamlet_host::{Address, Caller, Cause, Host, HostOptions};
+use hamlet_messages::workspace::reach::{
     Footing, Mode, Project, Reach, SecretsVersion,
 };
-use hamlet_actors::workspace::{
-    self, AgentNumber, ReachAnswer, ReachRefusal, ReachVersion,
-    SetReach,
+use hamlet_messages::workspace::{
+    AgentNumber, ReachAnswer, ReachRefusal, ReachVersion, SetReach,
 };
-use hamlet_host::{Address, Caller, Cause, Host, HostOptions};
 use hamlet_sandbox::Sandbox;
 use hamlet_testing::Scratch;
 use rusqlite::{Connection, OpenFlags};
