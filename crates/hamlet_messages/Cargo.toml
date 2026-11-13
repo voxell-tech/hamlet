@@ -1,0 +1,20 @@
+[package]
+name = "hamlet_messages"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+description = "The calls Hamlet's actors make to each other, and their answers"
+
+[dependencies]
+hamlet_actor.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+ciborium.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true
