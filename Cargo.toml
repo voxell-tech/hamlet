@@ -5,8 +5,6 @@ members = ["crates/*"]
 exclude = [
     "vendor",
     "xtask",
-    # Ported crates, kept out until each builds in the workspace.
-    "crates/hamlet_actor_node",
 ]
 # The root holds no package, so `cargo build`, `cargo test` and
 # `cargo clippy` there cover every crate and the checks in AGENTS.md
@@ -94,6 +92,8 @@ subtle = "2"
 syn = { version = "2.0", features = ["full", "extra-traits"] }
 tokio-util = "0.7"
 tracing = "0.1.40"
+tracing-logfmt = { version = "0.3", features = ["ansi_logs"] }
+tracing-stackdriver = { version = "0.10.0", default-features = false }
 tracing-subscriber = { version = "0.3", default-features = false, features = ["ansi", "fmt", "json", "env-filter"] }
 vbare = "0.2.0"
 vbare-compiler = "0.2.0"
