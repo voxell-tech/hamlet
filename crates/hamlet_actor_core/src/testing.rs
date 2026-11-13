@@ -11,6 +11,7 @@
 //! The core's tests are compiled into the library, so they cannot
 //! link `hamlet_host`, which builds on a second copy of this crate.
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, mpsc as std_mpsc};
 use std::thread;
 
@@ -66,10 +67,7 @@ impl ActorContextHarness {
     /// A harness whose database stalls the statements `gate` matches.
     pub(crate) fn with_write_gate(gate: TestSqliteWriteGate) -> Self {
         Self {
-            host: Arc::new(TestHost::new(
-                "http://127.0.0.1:1".to_owned(),
-                Some(gate),
-            )),
+            host: TestHost::with_write_gate(gate),
         }
     }
 
@@ -244,6 +242,8 @@ pub struct TestHost {
     /// Whether a request yields until its reply instead of parking.
     /// See [`ActorContextHarness::busy_waiting`].
     busy_wait: bool,
+    /// Set by [`TestHost::close`]: every later request fails.
+    closed: AtomicBool,
 }
 
 impl TestHost {
@@ -257,6 +257,7 @@ impl TestHost {
             session: watch::channel(1).0,
             calls: Mutex::new(Vec::new()),
             busy_wait: false,
+            closed: AtomicBool::new(false),
         }
     }
 
@@ -265,10 +266,16 @@ impl TestHost {
         request: impl FnOnce(oneshot::Sender<Result<T>>) -> Request,
     ) -> RuntimeBoxFuture<Result<T>> {
         let (reply, rx) = oneshot::channel();
-        let sent = self.sql.send(request(reply));
+        let sent = if self.closed.load(Ordering::SeqCst) {
+            Err(anyhow!("test sqlite is closed"))
+        } else {
+            self.sql
+                .send(request(reply))
+                .map_err(|_| anyhow!("test sqlite thread stopped"))
+        };
         let busy_wait = self.busy_wait;
         Box::pin(async move {
-            sent.map_err(|_| anyhow!("test sqlite thread stopped"))?;
+            sent?;
             if busy_wait {
                 return busy_wait_reply(rx).await;
             }
@@ -469,6 +476,23 @@ impl TestHost {
     /// A host of its own, for a test that hands it to a context.
     pub(crate) fn new_for_tests() -> Arc<Self> {
         Arc::new(Self::new("http://127.0.0.1:1".to_owned(), None))
+    }
+
+    /// Like [`TestHost::new_for_tests`], but the database stalls the
+    /// statements `gate` matches.
+    pub(crate) fn with_write_gate(
+        gate: TestSqliteWriteGate,
+    ) -> Arc<Self> {
+        Arc::new(Self::new(
+            "http://127.0.0.1:1".to_owned(),
+            Some(gate),
+        ))
+    }
+
+    /// Closes the database to the actor, as a host closes an actor's
+    /// file: every request from now on fails.
+    pub(crate) fn close(&self) {
+        self.closed.store(true, Ordering::SeqCst);
     }
 
     /// The calls not yet taken, oldest first.
