@@ -28,7 +28,7 @@ use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::{AnyView, View, with_cx};
 
 use super::fetch::{self, Fetch, State};
-use super::{Addresses, PANEL, page};
+use super::{Addresses, FILES, PANEL, page};
 use crate::dock::{PanelAppExt, flush_panel};
 
 /// The name of a Web panel's tab, before its page has a title.
@@ -87,13 +87,19 @@ pub(super) fn tab_name(title: &str, agent: Option<&str>) -> String {
     format!("{named}: {cut}")
 }
 
+/// Whether the dock window `id` shows a page: a Web panel or the
+/// Files panel.
+pub(super) fn has_page(id: &str) -> bool {
+    is_panel(id) || id == FILES
+}
+
 /// Whether the dock window `id` is a Web panel.
 pub(super) fn is_panel(id: &str) -> bool {
     id == PANEL || crate::dock::number(PANEL, id).is_some()
 }
 
 fn contents(panel: &PanelId) -> impl View + use<> {
-    column((bar(panel), body(panel)))
+    column((bar(panel), body(panel, |_| BLANK.to_owned())))
         .fills_width()
         .fills_height()
         .gap(0.0)
@@ -203,13 +209,22 @@ enum Body {
     Missing(State),
     /// The engine did not start, for the reason given.
     Failed(String),
-    /// No address yet.
-    Blank,
+    /// No address yet, and the words that say what to do.
+    Blank(String),
     Page,
 }
 
-/// The page, or the words of a panel that has none.
-fn body(panel: &PanelId) -> impl View + use<> {
+/// What a Web panel with no address says.
+const BLANK: &str = "Type an address above: a site, or localhost \
+                     and a port for one an agent serves on this \
+                     machine.";
+
+/// The page, or the words of a panel that has none: `blank`'s while
+/// it has no address.
+pub(super) fn body(
+    panel: &PanelId,
+    blank: fn(&World) -> String,
+) -> impl View + use<> {
     let shown = panel.clone();
     let panel = panel.clone();
     keyed(
@@ -227,7 +242,7 @@ fn body(panel: &PanelId) -> impl View + use<> {
             {
                 Body::Page
             } else {
-                Body::Blank
+                Body::Blank(blank(world))
             }
         })
         .when(every_frame()),
@@ -237,11 +252,7 @@ fn body(panel: &PanelId) -> impl View + use<> {
                 "The web engine did not start: {error}. A Web panel \
                  needs CEF where CEF_PATH points."
             )),
-            Body::Blank => words(
-                "Type an address above: a site, or localhost and a \
-                 port for one an agent serves on this machine."
-                    .to_owned(),
-            ),
+            Body::Blank(said) => words(said.clone()),
             Body::Page => frame()
                 .grow(1.0)
                 .fills_width()
