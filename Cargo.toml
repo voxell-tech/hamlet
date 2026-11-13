@@ -45,6 +45,7 @@ hamlet_actor_wire = { version = "0.1.0", path = "crates/hamlet_actor_wire" }
 # The actor runtime, Hamlet's own code under the workspace licence.
 hamlet_actors = { version = "0.1.0", path = "crates/hamlet_actors" }
 hamlet_host = { version = "0.1.0", path = "crates/hamlet_host" }
+hamlet_messages = { version = "0.1.0", path = "crates/hamlet_messages" }
 hamlet_sqlite = { version = "0.1.0", path = "crates/hamlet_sqlite" }
 
 # fynix
