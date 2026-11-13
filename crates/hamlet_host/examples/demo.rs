@@ -174,10 +174,7 @@ fn print_reply(
     actor_id: &str,
     reply: Vec<u8>,
 ) -> Result<()> {
-    let count =
-        i64::from_le_bytes(reply.try_into().map_err(|_| {
-            anyhow!("the counter replied with no count")
-        })?);
+    let count = counter::count(reply)?;
     writeln!(std::io::stdout(), "{prefix}{actor_id} {count}")?;
     Ok(())
 }

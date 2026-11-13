@@ -1,6 +1,5 @@
 //! Points where a kill test stops the host, so it can be killed
-//! there. They do nothing unless the `faults` feature is on, which
-//! the crate's own tests and examples turn on.
+//! there. They do nothing unless the `faults` feature is on.
 
 /// Stops the calling thread for good at `point` when `HAMLET_FAULT`
 /// names it, once per `HAMLET_FAULT_DIR`. `HAMLET_FAULT` is `<point>`

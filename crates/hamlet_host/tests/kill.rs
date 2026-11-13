@@ -101,7 +101,7 @@ fn sleep_until(instant: Instant) {
 async fn count(host: &Host, actor_id: &str) -> i64 {
     let reply =
         host.action(actor_id, "get", Vec::new()).await.unwrap();
-    i64::from_le_bytes(reply.try_into().unwrap())
+    counter::count(reply).unwrap()
 }
 
 /// Waits for the actor's count to reach `want`: a start runs an

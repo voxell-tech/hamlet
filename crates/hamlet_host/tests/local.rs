@@ -28,7 +28,7 @@ async fn call_with(
     args: Vec<u8>,
 ) -> i64 {
     let reply = host.action(actor_id, action, args).await.unwrap();
-    i64::from_le_bytes(reply.try_into().unwrap())
+    counter::count(reply).unwrap()
 }
 
 /// Opens the actor's file as another process would, without waiting

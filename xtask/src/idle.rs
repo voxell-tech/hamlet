@@ -15,7 +15,7 @@ use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::time::Duration;
 
-/// What the probe read over one window.
+/// The probe's reading over one window.
 #[derive(Debug)]
 pub struct Reading {
     pub rss_kib: u64,

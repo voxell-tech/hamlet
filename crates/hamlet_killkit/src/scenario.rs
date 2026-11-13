@@ -24,7 +24,7 @@ pub struct Scenario {
     pub restart: &'static [&'static str],
     /// Values read from the actor files once each restart exited.
     pub probes: &'static [Probe],
-    /// What the first and the second restart must show.
+    /// The values the first and the second restart must show.
     pub expect: [&'static [Expect]; 2],
 }
 

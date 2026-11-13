@@ -162,7 +162,7 @@ fn options(
     }))
 }
 
-/// What one run saw.
+/// One run's record.
 struct Report {
     /// The fault point and the pid the kill stopped.
     killed: String,
@@ -171,7 +171,7 @@ struct Report {
     restarts: Vec<Restart>,
 }
 
-/// What one restart showed, by name: each actor's last reply, the
+/// One restart's values, by name: each actor's last reply, the
 /// count of each actor its boot started, as `boot <actor>`, and each
 /// probe.
 type Restart = BTreeMap<String, i64>;

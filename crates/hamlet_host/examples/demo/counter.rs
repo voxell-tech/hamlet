@@ -1,6 +1,6 @@
-//! The counter actor the demo and the host's tests run. Its count is
-//! a row of its own SQL table, `counter`. Every action replies with
-//! the count as a little-endian `i64`.
+//! A counter actor. Its count is a row of its own SQL table,
+//! `counter`. Every action replies with the count as a little-endian
+//! `i64`.
 //!
 //! - `increment` adds one in a transaction.
 //! - `discard` adds one in a transaction and rolls it back.
@@ -44,6 +44,14 @@ pub fn factories(sleep: Sleep) -> HashMap<String, ActorFactory> {
         "counter".to_owned(),
         ActorFactory::new(config, |start| Box::pin(run(start))),
     )])
+}
+
+/// The count an action replied with.
+pub fn count(reply: Vec<u8>) -> Result<i64> {
+    let bytes = reply
+        .try_into()
+        .map_err(|_| anyhow!("the counter replied with no count"))?;
+    Ok(i64::from_le_bytes(bytes))
 }
 
 async fn run(start: ActorStart) -> Result<()> {

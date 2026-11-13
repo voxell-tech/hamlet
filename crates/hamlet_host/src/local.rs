@@ -67,7 +67,7 @@ struct HostInner {
 #[derive(Clone)]
 pub struct Host(Arc<HostInner>);
 
-/// What the core calls to reach the host.
+/// The core's handle on the host.
 struct LocalHandle(Weak<HostInner>);
 
 impl Host {
@@ -283,7 +283,7 @@ impl Host {
     }
 }
 
-/// What boot needs from one actor file's `_hamlet_actor` row.
+/// The part of one actor file's `_hamlet_actor` row that boot reads.
 struct StoredActor {
     actor_id: String,
     wake_at: Option<i64>,
@@ -496,13 +496,11 @@ async fn stop_actor(
 }
 
 impl LocalHandle {
-    fn host(&self) -> Option<Arc<HostInner>> {
-        self.0.upgrade()
-    }
-
     fn sqlite_file(&self, actor_id: &str) -> Result<PlainSqlite> {
-        let host =
-            self.host().ok_or_else(|| anyhow!("host is gone"))?;
+        let host = self
+            .0
+            .upgrade()
+            .ok_or_else(|| anyhow!("host is gone"))?;
         let file = host.files.lock().get(actor_id).cloned();
         file.ok_or_else(|| {
             anyhow!("sqlite file for {actor_id} is not open")
@@ -510,7 +508,7 @@ impl LocalHandle {
     }
 
     fn spawn_stop(&self, actor_id: String, reason: ShutdownKind) {
-        let Some(host) = self.host() else { return };
+        let Some(host) = self.0.upgrade() else { return };
         tokio::spawn(async move {
             if let Err(error) =
                 stop_actor(&host, &actor_id, reason).await
@@ -545,7 +543,7 @@ impl ActorHost for LocalHandle {
     /// The session never changes, so a transaction never sees its
     /// connection lost.
     fn subscribe_connection_session(&self) -> watch::Receiver<u64> {
-        match self.host() {
+        match self.0.upgrade() {
             Some(host) => host.session.subscribe(),
             None => watch::channel(0).1,
         }
@@ -573,7 +571,7 @@ impl ActorHost for LocalHandle {
         _generation: Option<u32>,
         ack_tx: Option<oneshot::Sender<()>>,
     ) {
-        let Some(host) = self.host() else { return };
+        let Some(host) = self.0.upgrade() else { return };
         let file = match self.sqlite_file(&actor_id) {
             Ok(file) => file,
             Err(error) => {
@@ -600,11 +598,7 @@ impl ActorHost for LocalHandle {
         );
         let host = Arc::downgrade(&host);
         tokio::spawn(async move {
-            let stored = match stored {
-                Ok(stored) => stored.wait().await,
-                Err(error) => Err(error),
-            };
-            if let Err(error) = stored {
+            if let Err(error) = async { stored?.wait().await }.await {
                 tracing::error!(
                     ?error,
                     actor_id,
@@ -650,14 +644,14 @@ impl ActorHost for LocalHandle {
     }
 
     fn transaction_committed(&self, actor_id: &str) {
-        if let Some(host) = self.host() {
+        if let Some(host) = self.0.upgrade() {
             let _ = host.commits.send(actor_id.to_owned());
         }
     }
 }
 
 /// Milliseconds since the Unix epoch, the clock alarms use.
-pub fn now_ms() -> i64 {
+fn now_ms() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX))

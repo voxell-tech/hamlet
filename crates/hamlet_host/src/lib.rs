@@ -6,4 +6,4 @@ pub mod fault;
 mod local;
 mod plain_sqlite;
 
-pub use local::{Host, now_ms};
+pub use local::Host;

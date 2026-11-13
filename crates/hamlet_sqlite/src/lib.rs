@@ -1,7 +1,6 @@
 //! Runs the actor runtime's three SQL requests, `exec`, `execute` and
 //! a batch, on a rusqlite connection, and reads their rows into the
-//! runtime's types. `hamlet_host` serves each actor's file with it,
-//! and the actor core's tests serve their in-memory database.
+//! runtime's types.
 
 use anyhow::Result;
 use hamlet_actor_wire::sqlite_types::{
@@ -75,8 +74,7 @@ pub fn batch<'a>(
     Ok(results)
 }
 
-/// The value rusqlite binds for a parameter.
-pub fn value(param: &BindParam) -> Value {
+fn value(param: &BindParam) -> Value {
     match param {
         BindParam::Null => Value::Null,
         BindParam::Integer(v) => Value::Integer(*v),

@@ -5,7 +5,7 @@
 //! the host runs the actor.
 
 use std::path::Path;
-use std::sync::mpsc as std_mpsc;
+use std::sync::mpsc;
 use std::thread;
 
 use anyhow::{Context, Result, anyhow, ensure};
@@ -35,11 +35,10 @@ enum Command {
 
 #[derive(Clone)]
 pub struct PlainSqlite {
-    tx: std_mpsc::Sender<Command>,
+    tx: mpsc::Sender<Command>,
 }
 
-/// Opens the actor's file in exclusive locking mode and write-ahead
-/// mode with normal sync. The exclusive lock is taken at the first
+/// Opens an actor's file. The exclusive lock is taken at the first
 /// access, so the caller writes before it serves the file.
 pub fn open(path: &Path) -> Result<Connection> {
     let conn = Connection::open(path)
@@ -65,7 +64,7 @@ pub fn open(path: &Path) -> Result<Connection> {
 impl PlainSqlite {
     /// Serves `conn` on a thread of its own until [`Self::close`].
     pub fn serve(conn: Connection) -> Result<Self> {
-        let (tx, rx) = std_mpsc::channel::<Command>();
+        let (tx, rx) = mpsc::channel::<Command>();
         thread::Builder::new()
             .name("plain-sqlite".into())
             .spawn(move || serve(conn, &rx))?;
@@ -73,9 +72,7 @@ impl PlainSqlite {
     }
 
     pub async fn exec(&self, sql: String) -> Result<QueryResult> {
-        let (reply, rx) = oneshot::channel();
-        self.send(Command::Exec(sql, reply))?;
-        rx.await.map_err(|_| anyhow!("sqlite thread stopped"))?
+        self.request(|reply| Command::Exec(sql, reply)).await
     }
 
     pub async fn execute(
@@ -83,24 +80,21 @@ impl PlainSqlite {
         sql: String,
         params: Option<Vec<BindParam>>,
     ) -> Result<ExecuteResult> {
-        let (reply, rx) = oneshot::channel();
-        self.send(Command::Execute(sql, params, reply))?;
-        rx.await.map_err(|_| anyhow!("sqlite thread stopped"))?
+        self.request(|reply| Command::Execute(sql, params, reply))
+            .await
     }
 
     pub async fn execute_batch(
         &self,
         statements: Vec<SqliteBatchStatement>,
     ) -> Result<Vec<ExecuteResult>> {
-        let (reply, rx) = oneshot::channel();
-        self.send(Command::Batch(statements, reply))?;
-        rx.await.map_err(|_| anyhow!("sqlite thread stopped"))?
+        self.request(|reply| Command::Batch(statements, reply))
+            .await
     }
 
     /// Queues a write of the host's own, which runs once the actor
     /// has no transaction open. Writes run in the order they are
-    /// queued, each after the fault point `point`. The receiver gets
-    /// the write's result.
+    /// queued, each after the fault point `point`.
     pub fn host_write(
         &self,
         point: &'static str,
@@ -126,6 +120,15 @@ impl PlainSqlite {
         }
     }
 
+    async fn request<T>(
+        &self,
+        command: impl FnOnce(oneshot::Sender<Result<T>>) -> Command,
+    ) -> Result<T> {
+        let (reply, rx) = oneshot::channel();
+        self.send(command(reply))?;
+        received(rx).await
+    }
+
     fn send(&self, command: Command) -> Result<()> {
         self.tx
             .send(command)
@@ -133,7 +136,11 @@ impl PlainSqlite {
     }
 }
 
-fn serve(conn: Connection, rx: &std_mpsc::Receiver<Command>) {
+async fn received<T>(rx: oneshot::Receiver<Result<T>>) -> Result<T> {
+    rx.await.map_err(|_| anyhow!("sqlite thread stopped"))?
+}
+
+fn serve(conn: Connection, rx: &mpsc::Receiver<Command>) {
     let mut held = Vec::new();
     while let Ok(command) = rx.recv() {
         match command {
@@ -184,7 +191,7 @@ pub struct HostWriteResult(oneshot::Receiver<Result<()>>);
 
 impl HostWriteResult {
     pub async fn wait(self) -> Result<()> {
-        self.0.await.map_err(|_| anyhow!("sqlite thread stopped"))?
+        received(self.0).await
     }
 }
 
