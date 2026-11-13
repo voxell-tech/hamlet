@@ -177,3 +177,41 @@ async fn a_committed_transaction_tells_the_host_and_a_rollback_does_not()
     assert!(commits.try_recv().is_err());
     host.stop_all().await.unwrap();
 }
+
+/// The grace period an actor gets to finish its work is 15 seconds.
+/// One with no work left stops well inside it.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_actor_that_asks_to_sleep_or_be_destroyed_stops_at_once() {
+    let dir = Scratch::new("host-ask");
+    let host = Host::open(&dir, factories()).unwrap();
+    for n in 0..10 {
+        for action in ["sleep", "destroy"] {
+            let key = format!("{action}-{n}");
+            let id =
+                host.get_or_start("counter", &key).await.unwrap();
+            host.action(&id, action, Vec::new()).await.unwrap();
+            // A stop holds the running list until the file is closed,
+            // or removed for a destroy.
+            let stopped =
+                tokio::time::timeout(Duration::from_secs(2), async {
+                    while host.is_running(&id).await {
+                        tokio::time::sleep(Duration::from_millis(5))
+                            .await;
+                    }
+                })
+                .await;
+            assert!(
+                stopped.is_ok(),
+                "{id} did not stop within 2s of asking to {action}"
+            );
+        }
+        assert_eq!(
+            probe(&dir, "counter", &format!("sleep-{n}")).unwrap(),
+            1
+        );
+        assert!(
+            !dir.join(format!("actors/counter/destroy-{n}.sqlite"))
+                .exists()
+        );
+    }
+}

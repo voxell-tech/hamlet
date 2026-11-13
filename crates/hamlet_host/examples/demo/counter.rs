@@ -9,6 +9,8 @@
 //!   a one-shot `increment` that far ahead. It replies with the count
 //!   it read before, so its reply waits for no write after the
 //!   schedule's.
+//! - `sleep` and `destroy` ask the host to sleep or destroy the
+//!   actor, and reply with the count.
 //!
 //! `increment` passes the fault point `tx-open` inside its
 //! transaction.
@@ -92,6 +94,14 @@ async fn action(
         "increment" => add_one(ctx, true).await,
         "discard" => add_one(ctx, false).await,
         "get" => read_count(ctx).await,
+        "sleep" => {
+            ctx.sleep()?;
+            read_count(ctx).await
+        }
+        "destroy" => {
+            ctx.destroy()?;
+            read_count(ctx).await
+        }
         "schedule" => {
             let ms = u64::from_le_bytes(
                 args.try_into()

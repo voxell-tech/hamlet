@@ -459,8 +459,9 @@ async fn stop_actor(
     actor_id: &str,
     reason: ShutdownKind,
 ) -> Result<()> {
-    // The running list stays locked until the file is closed, so a
-    // start of the same actor waits for the lock on its file to go.
+    // The running list stays locked until the file is closed, or
+    // removed for a destroy, so a start of the same actor waits for
+    // the lock on its file to go.
     let mut running = host.running.lock().await;
     let Some(actor) = running.remove(actor_id) else {
         return Ok(());
@@ -484,13 +485,13 @@ async fn stop_actor(
             );
         }
     }
-    drop(running);
     if matches!(reason, ShutdownKind::Destroy) {
         host.alarms.lock().remove(actor_id);
         let path = actor_path(&host.dir, actor_id);
         std::fs::remove_file(&path)
             .with_context(|| format!("remove {}", path.display()))?;
     }
+    drop(running);
     Ok(())
 }
 
