@@ -19,7 +19,7 @@ use std::time::Duration;
 use anyhow::{Result, anyhow};
 use hamlet_actor_core::{
     ActorConfig, ActorContext, ActorEvent, ActorFactory, ActorStart,
-    BindParam, ColumnValue, SerializeStateReason,
+    BindParam, ColumnValue,
 };
 
 /// Whether counters sleep once idle.
@@ -65,15 +65,14 @@ async fn run(start: ActorStart) -> Result<()> {
                     count.map(|count| count.to_le_bytes().to_vec()),
                 );
             }
-            ActorEvent::SerializeState {
-                reason: SerializeStateReason::Save,
-                reply,
-            } => reply.send(Ok(Vec::new())),
-            ActorEvent::RunGracefulCleanup { reply, .. } => {
-                reply.send(Ok(()));
-                break;
+            // The count is in SQL, so the actor keeps no other state.
+            ActorEvent::SerializeState { reply, .. } => {
+                reply.send(Ok(Vec::new()));
             }
-            ActorEvent::ConnectionPreflight { reply, .. }
+            // The loop ends when the core closes the channel, after
+            // the stop's last event.
+            ActorEvent::RunGracefulCleanup { reply, .. }
+            | ActorEvent::ConnectionPreflight { reply, .. }
             | ActorEvent::ConnectionOpen { reply, .. }
             | ActorEvent::DisconnectConn { reply, .. } => {
                 reply.send(Ok(()));
