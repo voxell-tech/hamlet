@@ -580,6 +580,265 @@ async fn a_slow_stop_does_not_stall_other_actors() {
     host.shutdown().await.unwrap();
 }
 
+/// Where a [`blocker`]'s event loop blocks: it waits on the receiver
+/// until the test drops the sender.
+type Gate = Arc<Mutex<std::sync::mpsc::Receiver<()>>>;
+
+/// A statement that runs for seconds: about 7 on a machine where
+/// SQLite counts 14 million rows a second.
+const LONG_STATEMENT: &str = "WITH RECURSIVE c(x) AS (SELECT 1 \
+                              UNION ALL SELECT x + 1 FROM c WHERE x \
+                              < 100000000) SELECT COUNT(*) FROM c";
+
+/// The kind `blocker`, whose event loop blocks in synchronous code at
+/// its action `block`, until `gate` closes, as an actor stuck in a
+/// blocking call does. Its action `scan` runs [`LONG_STATEMENT`] from
+/// the event loop. Each sends on `blocked` first. Its grace at a stop
+/// is 200 ms, so its core soon gives the event loop up and waits for
+/// it to end. Every action answers a count of 0.
+fn blocker(
+    gate: &Gate,
+    blocked: tokio::sync::mpsc::UnboundedSender<()>,
+) -> ActorFactory {
+    let config = ActorConfig {
+        name: Some("blocker".to_owned()),
+        has_database: true,
+        sleep_grace_period: Duration::from_millis(200),
+        ..ActorConfig::default()
+    };
+    let gate = gate.clone();
+    ActorFactory::new(config, move |start: ActorStart| {
+        let gate = gate.clone();
+        let blocked = blocked.clone();
+        Box::pin(async move {
+            let ActorStart {
+                ctx, mut events, ..
+            } = start;
+            while let Some(event) = events.recv().await {
+                match event {
+                    ActorEvent::Action { name, reply, .. } => {
+                        match name.as_str() {
+                            "block" => {
+                                let _ = blocked.send(());
+                                let _ = gate.lock().recv();
+                            }
+                            "scan" => {
+                                let _ = blocked.send(());
+                                let _ = ctx
+                                    .sql()
+                                    .exec(LONG_STATEMENT.to_owned())
+                                    .await;
+                            }
+                            _ => {}
+                        }
+                        reply.send(Ok(0i64.to_le_bytes().to_vec()));
+                    }
+                    other => counter::answer(other),
+                }
+            }
+            Ok(())
+        })
+    })
+}
+
+/// The stop deadline the tests of a blocked actor give their host.
+const STOP_DEADLINE: Duration = Duration::from_secs(2);
+
+/// The counters and a [`blocker`] that waits on `gate`, run by a host
+/// with [`STOP_DEADLINE`].
+fn blocked_host(
+    dir: &Path,
+    gate: &Gate,
+    blocked: &tokio::sync::mpsc::UnboundedSender<()>,
+) -> Host {
+    let mut kinds = factories();
+    kinds
+        .insert("blocker".to_owned(), blocker(gate, blocked.clone()));
+    let options = HostOptions {
+        stop_deadline: STOP_DEADLINE,
+        ..HostOptions::default()
+    };
+    Host::open_with(dir, kinds, options).unwrap()
+}
+
+/// Calls the action `action`, `block` or `scan`, of the [`blocker`]
+/// `actor_id`, and returns once its event loop blocks.
+async fn block(
+    host: &Host,
+    actor_id: &str,
+    action: &'static str,
+    blocks: &mut tokio::sync::mpsc::UnboundedReceiver<()>,
+) {
+    tokio::spawn({
+        let host = host.clone();
+        let actor_id = actor_id.to_owned();
+        async move { act(&host, &actor_id, action, Vec::new()).await }
+    });
+    blocks.recv().await.unwrap();
+}
+
+/// Whether `took`, the time a stop of a blocked actor took, is the
+/// stop deadline and at most the grace of its file's close past it.
+fn at_the_deadline(took: Duration) -> bool {
+    took >= STOP_DEADLINE
+        && took < STOP_DEADLINE + Duration::from_secs(2)
+}
+
+/// A stop has a deadline. A shutdown with an actor whose event loop
+/// blocks in synchronous code returns at the deadline, and names that
+/// actor, and only it, as not stopped. The other actors stop cleanly.
+/// The folder and the actor's file are free once the shutdown has
+/// returned, while the actor's code still blocks: a new host opens
+/// the folder, and its boot starts the actor again from its file,
+/// which kept its running mark.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_shutdown_returns_at_the_stop_deadline_of_a_blocked_actor()
+{
+    let dir = Scratch::new("host-stop-blocked");
+    // Dropped last, also when an assertion fails: the runtime's drop
+    // waits for the blocked thread.
+    let (release, gate) = std::sync::mpsc::channel::<()>();
+    let gate: Gate = Arc::new(Mutex::new(gate));
+    let (blocked, mut blocks) =
+        tokio::sync::mpsc::unbounded_channel();
+    let host = blocked_host(&dir, &gate, &blocked);
+    let counter = host.get_or_start("counter", "a").await.unwrap();
+    call(&host, &counter, "increment").await;
+    let stuck = host.get_or_start("blocker", "b").await.unwrap();
+    block(&host, &stuck, "block", &mut blocks).await;
+
+    let begun = std::time::Instant::now();
+    let shutdown = tokio::time::timeout(
+        Duration::from_secs(20),
+        host.shutdown(),
+    )
+    .await;
+    let took = begun.elapsed();
+    let error = format!(
+        "{:#}",
+        shutdown
+            .unwrap_or_else(|_| panic!(
+                "the shutdown waited {took:?}"
+            ))
+            .unwrap_err()
+    );
+    assert!(at_the_deadline(took), "{took:?}");
+    assert!(error.contains(&stuck), "{error}");
+    assert!(!error.contains(&counter), "{error}");
+
+    let host = blocked_host(&dir, &gate, &blocked);
+    assert_eq!(
+        host.boot().await.unwrap(),
+        std::slice::from_ref(&stuck)
+    );
+    assert_eq!(call(&host, &stuck, "get").await, 0);
+    assert_eq!(call(&host, &counter, "get").await, 1);
+    host.shutdown().await.unwrap();
+    drop(release);
+}
+
+/// A stop has its deadline also while a statement of the actor still
+/// runs on its file's thread, and keeps the stop from closing the
+/// file. The shutdown returns once the deadline and the close's grace
+/// have passed, and names the actor. The file stays open until the
+/// statement ends, and keeps its running mark: the next boot starts
+/// the actor again.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_shutdown_returns_while_a_statement_holds_the_file() {
+    let dir = Scratch::new("host-stop-statement");
+    let (release, gate) = std::sync::mpsc::channel::<()>();
+    let gate: Gate = Arc::new(Mutex::new(gate));
+    let (blocked, mut blocks) =
+        tokio::sync::mpsc::unbounded_channel();
+    let host = blocked_host(&dir, &gate, &blocked);
+    let stuck = host.get_or_start("blocker", "b").await.unwrap();
+    block(&host, &stuck, "scan", &mut blocks).await;
+
+    let begun = std::time::Instant::now();
+    let error = format!("{:#}", host.shutdown().await.unwrap_err());
+    let took = begun.elapsed();
+    assert!(at_the_deadline(took), "{took:?}");
+    assert!(error.contains(&stuck), "{error}");
+    assert!(
+        probe(&dir, "blocker", "b").is_err(),
+        "the statement ended before the shutdown returned"
+    );
+
+    let freed = std::time::Instant::now();
+    while probe(&dir, "blocker", "b").is_err() {
+        assert!(freed.elapsed() < Duration::from_secs(120));
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    let host = blocked_host(&dir, &gate, &blocked);
+    assert_eq!(
+        host.boot().await.unwrap(),
+        std::slice::from_ref(&stuck)
+    );
+    assert_eq!(call(&host, &stuck, "get").await, 0);
+    host.shutdown().await.unwrap();
+    drop(release);
+}
+
+/// A stop under way that misses its deadline fails each caller that
+/// waited for it, a call and a second stop, with
+/// `actor.shutdown_timeout`. From then on the actor is not running, a
+/// call to it fails at once, and a shutdown names it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_stop_past_its_deadline_fails_its_waiters_and_later_calls()
+{
+    let dir = Scratch::new("host-stop-waiters");
+    let (release, gate) = std::sync::mpsc::channel::<()>();
+    let gate: Gate = Arc::new(Mutex::new(gate));
+    let (blocked, mut blocks) =
+        tokio::sync::mpsc::unbounded_channel();
+    let host = blocked_host(&dir, &gate, &blocked);
+    let stuck = host.get_or_start("blocker", "b").await.unwrap();
+    block(&host, &stuck, "block", &mut blocks).await;
+
+    let begun = std::time::Instant::now();
+    let stop = |host: &Host| {
+        let host = host.clone();
+        let stuck = stuck.clone();
+        tokio::spawn(async move {
+            host.stop(&stuck, ShutdownKind::Sleep).await
+        })
+    };
+    let first = stop(&host);
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    let waiting_call = tokio::spawn({
+        let host = host.clone();
+        let stuck = stuck.clone();
+        async move { act(&host, &stuck, "get", Vec::new()).await }
+    });
+    let second = stop(&host);
+    for (who, ended) in [
+        ("the stop", first.await.unwrap()),
+        ("the waiting call", waiting_call.await.unwrap().map(drop)),
+        ("the second stop", second.await.unwrap()),
+    ] {
+        let error = ended.expect_err(who);
+        assert!(
+            is_actor_error(&error, "shutdown_timeout"),
+            "{error:#}"
+        );
+    }
+    let took = begun.elapsed();
+    assert!(at_the_deadline(took), "{took:?}");
+
+    assert!(!host.is_running(&stuck));
+    let error = tokio::time::timeout(
+        PROMPT,
+        act(&host, &stuck, "get", Vec::new()),
+    )
+    .await
+    .expect("a call to the stuck actor waited")
+    .unwrap_err();
+    assert!(is_actor_error(&error, "shutdown_timeout"), "{error:#}");
+    let error = format!("{:#}", host.shutdown().await.unwrap_err());
+    assert!(error.contains(&stuck), "{error}");
+    drop(release);
+}
+
 /// Starts of one key that race make one actor, with one generation.
 #[tokio::test(flavor = "multi_thread")]
 async fn two_starts_of_one_key_make_one_actor() {
