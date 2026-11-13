@@ -992,7 +992,12 @@ async fn a_shutdown_closes_the_others_while_one_is_slow_and_reports_it()
     let text = format!("{error:#}");
     assert!(text.contains("brittle/b"), "{text}");
     assert!(!text.contains("counter/"), "{text}");
-    nap.await.unwrap().unwrap();
+    // A call in flight fails once its host begins to shut down.
+    let error = nap
+        .await
+        .unwrap()
+        .expect_err("a call in flight as its host shuts down");
+    assert!(is_actor_error(&error, "stopping"), "{error:#}");
     for id in ["brittle/b", "counter/a", "counter/c"] {
         assert!(!host.is_running(id), "{id} still runs");
     }
@@ -1110,7 +1115,12 @@ async fn a_second_host_opens_the_folder_at_once_after_a_shutdown() {
     tokio::time::sleep(Duration::from_millis(200)).await;
 
     host.shutdown().await.unwrap();
-    nap.await.unwrap().unwrap();
+    // A call in flight fails once its host begins to shut down.
+    let error = nap
+        .await
+        .unwrap()
+        .expect_err("a call in flight as its host shuts down");
+    assert!(is_actor_error(&error, "stopping"), "{error:#}");
     drop(host);
 
     let again = Host::open(&dir, with_nappers())
@@ -1440,7 +1450,12 @@ async fn a_call_fails_at_once_once_its_host_shuts_down() {
             .expect_err("a call to a host that is shutting down");
         assert!(is_actor_error(&error, "stopping"), "{error:#}");
     }
-    nap.await.unwrap().unwrap();
+    // A call in flight fails once its host begins to shut down.
+    let error = nap
+        .await
+        .unwrap()
+        .expect_err("a call in flight as its host shuts down");
+    assert!(is_actor_error(&error, "stopping"), "{error:#}");
     stop.await.unwrap().unwrap();
     shutdown.await.unwrap().unwrap();
 }

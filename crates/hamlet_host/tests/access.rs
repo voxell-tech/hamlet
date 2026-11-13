@@ -1,16 +1,22 @@
-//! What an actor reaches of its host: the realm folder and the values
-//! the program that opened the host gave it.
+//! What an actor reaches of its host: the realm folder, the values
+//! the program that opened the host gave it, and the other actors,
+//! which it calls with its address stamped on the call.
 
-use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::time::Duration;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use anyhow::Context as _;
 use hamlet_actor::{
     Action, Actor, ActorConfig, Ctx, Handler, Registry,
 };
-use hamlet_actor_core::ActorFactory;
-use hamlet_host::{Address, Cause, Host, HostOptions, HostRef};
+use hamlet_actor_core::{
+    ActorContext, ActorEvent, ActorFactory, ActorStart, ShutdownKind,
+};
+use hamlet_actor_error::ActorError;
+use hamlet_host::{
+    Address, Caller, Cause, Host, HostOptions, HostRef,
+};
 use hamlet_testing::Scratch;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -266,4 +272,716 @@ async fn an_actor_that_keeps_its_host_ref_does_not_keep_the_host() {
         }
     };
     host.shutdown().await.unwrap();
+}
+
+/// The error's `group.code`.
+fn code(error: &anyhow::Error) -> String {
+    let error = ActorError::extract(error);
+    format!("{}.{}", error.group(), error.code())
+}
+
+/// Answers who called it, and holds when asked to.
+struct Callee;
+
+/// Answers the caller the host stamped on this call. `claimed` names
+/// an actor, as the arguments of a caller that would pass for another
+/// would.
+#[derive(Serialize, Deserialize)]
+struct Who {
+    claimed: Option<Caller>,
+}
+
+impl Action for Who {
+    type Output = Option<Caller>;
+    const NAME: &'static str = "who";
+}
+
+/// Holds for `ms` milliseconds, then answers.
+#[derive(Serialize, Deserialize)]
+struct Hold {
+    ms: u64,
+}
+
+impl Action for Hold {
+    type Output = ();
+    const NAME: &'static str = "hold";
+}
+
+#[async_trait::async_trait]
+impl Actor for Callee {
+    type Input = ();
+    type Actions = (Who, Hold);
+    type Events = ();
+    type ConnParams = Option<Caller>;
+    type Action = ();
+
+    async fn create(_: &Ctx<Self>) -> anyhow::Result<Self> {
+        Ok(Self)
+    }
+}
+
+impl Handler<Who> for Callee {
+    async fn handle(
+        self: Arc<Self>,
+        ctx: Ctx<Self>,
+        _: Who,
+    ) -> anyhow::Result<Option<Caller>> {
+        ctx.conn().context("the call has no connection")?.params()
+    }
+}
+
+impl Handler<Hold> for Callee {
+    async fn handle(
+        self: Arc<Self>,
+        _: Ctx<Self>,
+        Hold { ms }: Hold,
+    ) -> anyhow::Result<()> {
+        tokio::time::sleep(Duration::from_millis(ms)).await;
+        Ok(())
+    }
+}
+
+/// How a call went: its reply, or its error's `group.code`, and how
+/// long it took.
+#[derive(Debug, Serialize, Deserialize)]
+struct Outcome {
+    reply: Option<Vec<u8>>,
+    error: Option<String>,
+    ms: u64,
+}
+
+impl Outcome {
+    async fn of(
+        call: impl Future<Output = anyhow::Result<Vec<u8>>>,
+    ) -> Self {
+        let begun = Instant::now();
+        let result = call.await;
+        let ms = u64::try_from(begun.elapsed().as_millis()).unwrap();
+        match result {
+            Ok(reply) => Self {
+                reply: Some(reply),
+                error: None,
+                ms,
+            },
+            Err(error) => Self {
+                reply: None,
+                error: Some(code(&error)),
+                ms,
+            },
+        }
+    }
+
+    /// The reply, decoded as `T`.
+    fn reply<T: DeserializeOwned>(&self) -> T {
+        let reply = self
+            .reply
+            .as_ref()
+            .unwrap_or_else(|| panic!("the call failed: {self:?}"));
+        ciborium::from_reader(reply.as_slice()).unwrap()
+    }
+}
+
+/// The contexts of the [`Asker`]s a host started, in order, when the
+/// host holds this value.
+#[derive(Default)]
+struct Contexts(Mutex<Vec<ActorContext>>);
+
+/// Calls another actor from its own handler.
+struct Asker;
+
+/// Calls the action `name` of the actor at `to` with `args`, within
+/// `deadline_ms`, and answers how that went.
+#[derive(Serialize, Deserialize)]
+struct Ask {
+    to: Address,
+    name: String,
+    args: Vec<u8>,
+    deadline_ms: u64,
+}
+
+impl Action for Ask {
+    type Output = Outcome;
+    const NAME: &'static str = "ask";
+}
+
+#[async_trait::async_trait]
+impl Actor for Asker {
+    type Input = ();
+    type Actions = (Ask, Ping);
+    type Events = ();
+    type ConnParams = Option<Caller>;
+    type Action = ();
+
+    async fn create(ctx: &Ctx<Self>) -> anyhow::Result<Self> {
+        if let Some(contexts) =
+            HostRef::of(ctx.inner())?.value::<Contexts>()
+        {
+            contexts.0.lock().unwrap().push(ctx.inner().clone());
+        }
+        Ok(Self)
+    }
+}
+
+impl Handler<Ask> for Asker {
+    async fn handle(
+        self: Arc<Self>,
+        ctx: Ctx<Self>,
+        ask: Ask,
+    ) -> anyhow::Result<Outcome> {
+        Ok(Outcome::of(Host::call_from(
+            ctx.inner(),
+            &ask.to,
+            &ask.name,
+            ask.args,
+            Duration::from_millis(ask.deadline_ms),
+            Cause::root("test"),
+        ))
+        .await)
+    }
+}
+
+impl Handler<Ping> for Asker {
+    async fn handle(
+        self: Arc<Self>,
+        _: Ctx<Self>,
+        _: Ping,
+    ) -> anyhow::Result<()> {
+        Ok(())
+    }
+}
+
+/// The kind `raw`, on the core's API. Its action `params` answers
+/// with its call's connection parameters, as they came; `hold` holds
+/// for a minute. Its stop waits three seconds.
+fn raw() -> ActorFactory {
+    ActorFactory::new(
+        ActorConfig {
+            has_database: true,
+            ..ActorConfig::default()
+        },
+        |start: ActorStart| {
+            Box::pin(async move {
+                let mut events = start.events;
+                while let Some(event) = events.recv().await {
+                    match event {
+                        ActorEvent::Action {
+                            name,
+                            conn,
+                            reply,
+                            ..
+                        } => {
+                            tokio::spawn(async move {
+                                if name == "hold" {
+                                    tokio::time::sleep(
+                                        Duration::from_secs(60),
+                                    )
+                                    .await;
+                                }
+                                reply.send(Ok(conn
+                                    .map(|conn| conn.params())
+                                    .unwrap_or_default()));
+                            });
+                        }
+                        ActorEvent::RunGracefulCleanup {
+                            reply,
+                            ..
+                        } => {
+                            tokio::spawn(async move {
+                                tokio::time::sleep(
+                                    Duration::from_secs(3),
+                                )
+                                .await;
+                                reply.send(Ok(()));
+                            });
+                        }
+                        ActorEvent::SerializeState {
+                            reply, ..
+                        } => {
+                            reply.send(Ok(Vec::new()));
+                        }
+                        ActorEvent::ConnectionPreflight {
+                            reply,
+                            ..
+                        }
+                        | ActorEvent::ConnectionOpen {
+                            reply, ..
+                        }
+                        | ActorEvent::DisconnectConn {
+                            reply, ..
+                        } => {
+                            reply.send(Ok(()));
+                        }
+                        _ => {}
+                    }
+                }
+                Ok(())
+            })
+        },
+    )
+}
+
+/// The kinds `asker`, `callee` and `raw`, in a host that holds
+/// `contexts`.
+fn open_callers(dir: &Scratch, contexts: Arc<Contexts>) -> Host {
+    let mut registry = Registry::new();
+    kind::<Asker>(&mut registry, "asker");
+    kind::<Callee>(&mut registry, "callee");
+    let mut factories = registry.into_factories();
+    factories.insert("raw".to_owned(), raw());
+    Host::open_with(
+        dir,
+        factories,
+        HostOptions::default().with_value(contexts),
+    )
+    .unwrap()
+}
+
+/// Has the actor at `from` call `action` of the actor at `to`, within
+/// `deadline`, and answers how that went.
+async fn ask<M: Action>(
+    host: &Host,
+    from: &Address,
+    to: &Address,
+    action: &M,
+    deadline: Duration,
+) -> Outcome {
+    call(
+        host,
+        from,
+        &Ask {
+            to: to.clone(),
+            name: M::NAME.to_owned(),
+            args: hamlet_actor::action::encode_positional(action)
+                .unwrap(),
+            deadline_ms: u64::try_from(deadline.as_millis()).unwrap(),
+        },
+    )
+    .await
+    .unwrap()
+}
+
+/// Makes each actor of `at`.
+async fn make(host: &Host, at: &[&Address]) {
+    for at in at {
+        host.get_or_start(&at.kind, &at.key).await.unwrap();
+    }
+}
+
+/// C1: the callee reads the caller the host stamped, whatever the
+/// call's arguments say: each of two actors as itself, the embedder's
+/// call as none and a client's as a client.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_callee_reads_who_called_whatever_the_arguments_say() {
+    let dir = Scratch::new("call-who");
+    let host = open_callers(&dir, Arc::default());
+    let callee = Address::new("callee", "x");
+    let (a, b) =
+        (Address::new("asker", "a"), Address::new("asker", "b"));
+    make(&host, &[&callee, &a, &b]).await;
+    let who = Who {
+        claimed: Some(Caller::Actor(Address::new("asker", "z"))),
+    };
+    for from in [&a, &b] {
+        let outcome =
+            ask(&host, from, &callee, &who, Duration::from_secs(10))
+                .await;
+        assert_eq!(
+            outcome.reply::<Option<Caller>>(),
+            Some(Caller::Actor(from.clone())),
+        );
+    }
+    let args = hamlet_actor::action::encode_positional(&who).unwrap();
+    let embedder = Outcome::of(host.call(
+        &callee,
+        Who::NAME,
+        args.clone(),
+        Duration::from_secs(10),
+        Cause::root("test"),
+    ))
+    .await;
+    let client = Outcome::of(host.call_for_client(
+        &callee,
+        Who::NAME,
+        args,
+        Duration::from_secs(10),
+        Cause::root("test"),
+    ))
+    .await;
+    host.shutdown().await.unwrap();
+    assert_eq!(embedder.reply::<Option<Caller>>(), None);
+    assert_eq!(
+        client.reply::<Option<Caller>>(),
+        Some(Caller::Client)
+    );
+}
+
+/// C9: the stamp's bytes, which other hosts and other languages read:
+/// none is CBOR null, a client the text `client`, and an actor a map
+/// from `actor` to its address.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_stamp_has_fixed_bytes() {
+    let dir = Scratch::new("call-stamp");
+    let host = open_callers(&dir, Arc::default());
+    let raw = Address::new("raw", "x");
+    let a = Address::new("asker", "a");
+    make(&host, &[&raw, &a]).await;
+    let params = |caller: Option<Caller>| {
+        let host = host.clone();
+        let raw = raw.clone();
+        async move {
+            let deadline = Duration::from_secs(10);
+            let cause = Cause::root("test");
+            match caller {
+                None => {
+                    host.call(
+                        &raw,
+                        "params",
+                        Vec::new(),
+                        deadline,
+                        cause,
+                    )
+                    .await
+                }
+                Some(_) => {
+                    host.call_for_client(
+                        &raw,
+                        "params",
+                        Vec::new(),
+                        deadline,
+                        cause,
+                    )
+                    .await
+                }
+            }
+            .unwrap()
+        }
+    };
+    let none = params(None).await;
+    let client = params(Some(Caller::Client)).await;
+    let actor = call(
+        &host,
+        &a,
+        &Ask {
+            to: raw.clone(),
+            name: "params".to_owned(),
+            args: Vec::new(),
+            deadline_ms: 10_000,
+        },
+    )
+    .await
+    .unwrap()
+    .reply
+    .unwrap();
+    host.shutdown().await.unwrap();
+    assert_eq!(none, [0xf6]);
+    assert_eq!(client, b"\x66client");
+    assert_eq!(
+        actor,
+        b"\xa1\x65actor\xa2\x64kind\x65asker\x63key\x61a".to_vec()
+    );
+}
+
+/// C2: an actor's call starts a callee that sleeps.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_actors_call_starts_a_sleeping_callee() {
+    let dir = Scratch::new("call-sleeping");
+    let host = open_callers(&dir, Arc::default());
+    let callee = Address::new("callee", "x");
+    let a = Address::new("asker", "a");
+    make(&host, &[&callee, &a]).await;
+    host.stop("callee/x", ShutdownKind::Sleep).await.unwrap();
+    assert!(!host.is_running("callee/x"));
+    let outcome = ask(
+        &host,
+        &a,
+        &callee,
+        &Who { claimed: None },
+        Duration::from_secs(10),
+    )
+    .await;
+    host.shutdown().await.unwrap();
+    assert_eq!(
+        outcome.reply::<Option<Caller>>(),
+        Some(Caller::Actor(a))
+    );
+}
+
+/// C3: an actor's call fails at its deadline, neither before it nor
+/// long after.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_actors_call_fails_at_its_deadline() {
+    let dir = Scratch::new("call-deadline");
+    let host = open_callers(&dir, Arc::default());
+    let callee = Address::new("callee", "x");
+    let a = Address::new("asker", "a");
+    make(&host, &[&callee, &a]).await;
+    let outcome = ask(
+        &host,
+        &a,
+        &callee,
+        &Hold { ms: 5_000 },
+        Duration::from_millis(300),
+    )
+    .await;
+    host.shutdown().await.unwrap();
+    assert_eq!(
+        outcome.error.as_deref(),
+        Some("actor.action_timed_out"),
+        "{outcome:?}"
+    );
+    assert!((300..2_000).contains(&outcome.ms), "{outcome:?}");
+}
+
+/// C3: when the host begins to shut down, a call whose action runs
+/// fails at once with `actor.stopping`, the embedder's and an
+/// actor's, though the callee's stop takes seconds. Each call is
+/// awaited on a task of its own, outside any handler.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_call_fails_at_once_when_its_host_begins_to_shut_down() {
+    let dir = Scratch::new("call-shutdown");
+    let contexts = Arc::new(Contexts::default());
+    let host = open_callers(&dir, contexts.clone());
+    let raw = Address::new("raw", "x");
+    make(&host, &[&raw, &Address::new("asker", "a")]).await;
+    let ctx = contexts.0.lock().unwrap()[0].clone();
+    let hold = |from: Option<ActorContext>| {
+        let host = host.clone();
+        let raw = raw.clone();
+        tokio::spawn(async move {
+            let deadline = Duration::from_secs(60);
+            let cause = Cause::root("test");
+            let result = match from {
+                None => {
+                    host.call(
+                        &raw,
+                        "hold",
+                        Vec::new(),
+                        deadline,
+                        cause,
+                    )
+                    .await
+                }
+                Some(ctx) => {
+                    Host::call_from(
+                        &ctx,
+                        &raw,
+                        "hold",
+                        Vec::new(),
+                        deadline,
+                        cause,
+                    )
+                    .await
+                }
+            };
+            (result.map_err(|error| code(&error)), Instant::now())
+        })
+    };
+    let calls = [hold(None), hold(Some(ctx))];
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let begun = Instant::now();
+    let shutdown = tokio::spawn({
+        let host = host.clone();
+        async move { host.shutdown().await }
+    });
+    for call in calls {
+        let (result, at) = call.await.unwrap();
+        assert_eq!(result, Err("actor.stopping".to_owned()));
+        let after = at.duration_since(begun);
+        assert!(after < Duration::from_millis(300), "{after:?}");
+    }
+    shutdown.await.unwrap().unwrap();
+}
+
+/// C4: while one handler of an actor waits on its call, another
+/// handler of that actor answers.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_handler_that_calls_does_not_hold_up_its_actor() {
+    let dir = Scratch::new("call-concurrent");
+    let host = open_callers(&dir, Arc::default());
+    let callee = Address::new("callee", "x");
+    let a = Address::new("asker", "a");
+    make(&host, &[&callee, &a]).await;
+    let waiting = tokio::spawn({
+        let host = host.clone();
+        let (a, callee) = (a.clone(), callee.clone());
+        async move {
+            ask(
+                &host,
+                &a,
+                &callee,
+                &Hold { ms: 5_000 },
+                Duration::from_secs(10),
+            )
+            .await
+        }
+    });
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    let ping = Outcome::of(async {
+        call(&host, &a, &Ping).await.map(|()| Vec::new())
+    })
+    .await;
+    assert!(!waiting.is_finished());
+    waiting.abort();
+    host.shutdown().await.unwrap();
+    assert_eq!(ping.error, None, "{ping:?}");
+    assert!(ping.ms < 1_000, "{ping:?}");
+}
+
+/// Calls itself from its `create`, and keeps how that went in its
+/// host's [`Outcomes`].
+struct SelfCaller;
+
+/// How the calls of the [`SelfCaller`]s went, in order.
+#[derive(Default)]
+struct Outcomes(Mutex<Vec<Outcome>>);
+
+#[async_trait::async_trait]
+impl Actor for SelfCaller {
+    type Input = ();
+    type Actions = (Ping,);
+    type Events = ();
+    type ConnParams = Option<Caller>;
+    type Action = ();
+
+    async fn create(ctx: &Ctx<Self>) -> anyhow::Result<Self> {
+        let (kind, key) = ctx
+            .inner()
+            .actor_id()
+            .split_once('/')
+            .context("the actor id has no kind")?;
+        let outcome = Outcome::of(Host::call_from(
+            ctx.inner(),
+            &Address::new(kind, key),
+            Ping::NAME,
+            hamlet_actor::action::encode_positional(&Ping)?,
+            Duration::from_secs(30),
+            Cause::root("test"),
+        ))
+        .await;
+        HostRef::of(ctx.inner())?
+            .value::<Outcomes>()
+            .context("the host holds no outcomes")?
+            .0
+            .lock()
+            .unwrap()
+            .push(outcome);
+        Ok(Self)
+    }
+}
+
+impl Handler<Ping> for SelfCaller {
+    async fn handle(
+        self: Arc<Self>,
+        _: Ctx<Self>,
+        _: Ping,
+    ) -> anyhow::Result<()> {
+        Ok(())
+    }
+}
+
+/// C5: an actor that calls itself, here from its `create`, where a
+/// wait for itself would last until the call's deadline, fails at
+/// once with `actor.invalid_operation`, and its start goes on.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_actor_that_calls_itself_fails_at_once() {
+    let dir = Scratch::new("call-self");
+    let outcomes = Arc::new(Outcomes::default());
+    let mut registry = Registry::new();
+    kind::<SelfCaller>(&mut registry, "self");
+    let host = Host::open_with(
+        &dir,
+        registry.into_factories(),
+        HostOptions::default().with_value(outcomes.clone()),
+    )
+    .unwrap();
+    let started = tokio::time::timeout(
+        Duration::from_secs(5),
+        host.get_or_start("self", "a"),
+    )
+    .await;
+    let ping = call(&host, &Address::new("self", "a"), &Ping).await;
+    host.shutdown().await.unwrap();
+    started.expect("the start waited for its own call").unwrap();
+    ping.unwrap();
+    let outcomes = outcomes.0.lock().unwrap();
+    assert_eq!(
+        outcomes[0].error.as_deref(),
+        Some("actor.invalid_operation"),
+        "{outcomes:?}"
+    );
+    assert!(outcomes[0].ms < 1_000, "{outcomes:?}");
+}
+
+/// C6: the context of a generation that has ended calls nothing, also
+/// once its key is made again. The running generation's calls as the
+/// actor.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_ended_generation_calls_nothing() {
+    let dir = Scratch::new("call-ended");
+    let contexts = Arc::new(Contexts::default());
+    let host = open_callers(&dir, contexts.clone());
+    let callee = Address::new("callee", "x");
+    let a = Address::new("asker", "a");
+    make(&host, &[&callee, &a]).await;
+    host.stop("asker/a", ShutdownKind::Sleep).await.unwrap();
+    make(&host, &[&a]).await;
+    host.stop("asker/a", ShutdownKind::Destroy).await.unwrap();
+    make(&host, &[&a]).await;
+    let contexts = contexts.0.lock().unwrap().clone();
+    let mut outcomes = Vec::new();
+    for ctx in &contexts {
+        let args = hamlet_actor::action::encode_positional(&Who {
+            claimed: None,
+        })
+        .unwrap();
+        outcomes.push(
+            Outcome::of(Host::call_from(
+                ctx,
+                &callee,
+                Who::NAME,
+                args,
+                Duration::from_secs(10),
+                Cause::root("test"),
+            ))
+            .await,
+        );
+    }
+    host.shutdown().await.unwrap();
+    assert_eq!(outcomes.len(), 3);
+    for ended in &outcomes[..2] {
+        assert_eq!(
+            ended.error.as_deref(),
+            Some("actor.stopping"),
+            "{outcomes:?}"
+        );
+        assert!(ended.ms < 1_000, "{outcomes:?}");
+    }
+    assert_eq!(
+        outcomes[2].reply::<Option<Caller>>(),
+        Some(Caller::Actor(a))
+    );
+}
+
+/// An actor's call to a kind the host does not hold fails at once.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_actors_call_to_an_unknown_kind_fails_at_once() {
+    let dir = Scratch::new("call-unknown");
+    let host = open_callers(&dir, Arc::default());
+    let a = Address::new("asker", "a");
+    make(&host, &[&a]).await;
+    let outcome = ask(
+        &host,
+        &a,
+        &Address::new("nobody", "x"),
+        &Ping,
+        Duration::from_secs(30),
+    )
+    .await;
+    host.shutdown().await.unwrap();
+    assert_eq!(
+        outcome.error.as_deref(),
+        Some("actor.not_registered"),
+        "{outcome:?}"
+    );
+    assert!(outcome.ms < 1_000, "{outcome:?}");
 }
