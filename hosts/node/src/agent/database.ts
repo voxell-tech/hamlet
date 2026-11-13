@@ -18,14 +18,8 @@ export interface ToolCall {
 }
 
 /**
- * Hamlet's database layer under pi-durable's `SqliteStorage`.
- *
- * A tool that sends does not write its rows: it buffers them for its call.
- * When pi-durable stores that call's result, the layer writes the rows with
- * the same transaction handle, right after the result's INSERT, so the
- * result and its rows commit together or not at all. An error result
- * carries no rows: the model hears that the call failed, and a row would
- * send what it may send again.
+ * Hamlet's database layer under pi-durable's `SqliteStorage`: it writes the
+ * rows a tool buffered in the transaction that stores the tool's result.
  */
 export interface AgentDatabase<Row> {
     /** The database pi-durable's `SqliteStorage` opens. */
@@ -34,13 +28,7 @@ export interface AgentDatabase<Row> {
     buffer(call: ToolCall, rows: readonly Row[]): void;
     /** How many rows wait for their tool's result. */
     readonly buffered: number;
-    /**
-     * Drops every buffered row once `session` has ended, however it ended.
-     * A batch pi-durable refuses fails its Session, and neither it nor a
-     * later batch is stored. A result the Session did not store by its end
-     * never will be, and a new Session that runs the call again buffers its
-     * rows again.
-     */
+    /** Drops every buffered row once `session` has ended. */
     follow(session: { readonly closed: Promise<SessionEnd> }): void;
 }
 
@@ -66,17 +54,14 @@ const WRITES_ENTRIES = /^\s*(INSERT|REPLACE)\b[^(]*\b\w*entries\b/i;
 const ENTRIES_INSERT =
     /^INSERT INTO entries \(([^)]*)\) (?:(SELECT .* FROM json_each\(\?\) AS item WHERE true)|VALUES (?:\(\?(?:, \?)*\)(?:, )?)+)\s*$/s;
 
-/**
- * The tool results an INSERT into the entries table stores. It throws on an
- * INSERT it cannot read: a result stored without its rows would pass
- * unseen.
- */
+/** The tool results an INSERT into the entries table stores. */
 function storedResults(sql: string, params: SqliteValue[]): StoredResult[] {
     const insert = ENTRIES_INSERT.exec(sql);
     const columns = insert?.[1]?.split(",").map((column) => column.trim());
     const conversation = columns?.indexOf("conversation_id") ?? -1;
     const record = columns?.indexOf("record") ?? -1;
     if (columns === undefined || conversation < 0 || record < 0) {
+        // A result stored without its rows must not pass unseen.
         throw new Error(`cannot read pi-durable's entries INSERT: ${sql}`);
     }
     let rows: unknown[][];
@@ -159,6 +144,7 @@ export function agentDatabase<Row>(
             if (rows === undefined) {
                 continue;
             }
+            // The model hears that the call failed and may send again.
             if (!result.isError) {
                 for (const row of rows) {
                     await write(tx, row);
@@ -218,6 +204,8 @@ export function agentDatabase<Row>(
             return count;
         },
         follow: (session) => {
+            // A result not stored by then never will be: a refused batch
+            // fails the Session, and a new one reruns the call.
             void session.closed.then(() => pending.clear());
         },
     };

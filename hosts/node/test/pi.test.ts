@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { fauxAssistantMessage, fauxText } from "@earendil-works/pi-ai";
 import type { RawAccess } from "../src/actor/common/database/mod.ts";
-import { context, openAgent } from "./agent-fixture.ts";
+import { context, openAgent } from "./testing.ts";
 
 /** Every row of pi-durable's entries and submissions tables. */
 async function transcript(database: RawAccess) {

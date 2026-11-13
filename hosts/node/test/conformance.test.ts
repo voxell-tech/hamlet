@@ -15,8 +15,7 @@ import {
 } from "@earendil-works/pi-durable/testing";
 import { agentDatabase } from "../src/agent/database.ts";
 import { actorSqlite } from "../src/pi/actor-sqlite.ts";
-import { context, writeLetter } from "./agent-fixture.ts";
-import { plainDatabase } from "./plain-database.ts";
+import { context, plainDatabase, writeLetter } from "./testing.ts";
 
 /** pi-durable 1.5.2's storage conformance suite has 32 cases. */
 const CASES = 32;

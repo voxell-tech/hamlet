@@ -4,7 +4,7 @@
 import { writeSync } from "node:fs";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import type { SqliteDatabase } from "@earendil-works/pi-durable/storage/sqlite";
-import { context, openAgent } from "./agent-fixture.ts";
+import { context, openAgent } from "./testing.ts";
 
 const [file, point] = process.argv.slice(2);
 if (file === undefined || point === undefined) {

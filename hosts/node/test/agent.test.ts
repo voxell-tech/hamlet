@@ -13,7 +13,7 @@ import {
     type StoredResult,
     stored,
     type TellArguments,
-} from "./agent-fixture.ts";
+} from "./testing.ts";
 
 function scratchFile(t: TestContext): string {
     const folder = mkdtempSync(join(tmpdir(), "hamlet-agent-"));

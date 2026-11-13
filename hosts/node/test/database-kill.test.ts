@@ -4,8 +4,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { stored } from "./agent-fixture.ts";
-import { plainDatabase } from "./plain-database.ts";
+import { plainDatabase, stored } from "./testing.ts";
 
 const RUNS = 20;
 
