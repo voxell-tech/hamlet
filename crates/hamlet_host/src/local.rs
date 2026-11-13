@@ -1131,7 +1131,7 @@ async fn start_actor(
             generation: id,
             file: file.clone(),
             alarm: alarm.clone(),
-            outbox,
+            outbox: outbox.clone(),
         }),
         new_storage: first,
         input: None,
@@ -1187,8 +1187,10 @@ async fn start_actor(
     // Wakes the start's waiters, which find the actor in its new
     // state.
     drop(owned);
-    if let Some(stop) = stop {
-        stop.spawn_logged();
+    match stop {
+        Some(stop) => stop.spawn_logged(),
+        // Delivers the sends the file holds from before this start.
+        None => outbox.start(),
     }
     Ok(generation)
 }

@@ -36,6 +36,8 @@ const PATIENCE: Duration = Duration::from_secs(20);
 /// from `receive` as a row of its table `answers`.
 #[derive(Clone, Copy)]
 enum Arm {
+    /// Receives the envelope once.
+    Once,
     /// Receives the envelope twice, one after the other.
     Twice,
     /// Receives the envelope eight times at once.
@@ -47,6 +49,14 @@ enum Arm {
     Slow,
     /// The handler fails.
     Fail,
+}
+
+/// The counters, a receiver kind for each [`Arm`], and the kind
+/// `flaky`, which receives as `flaky` does.
+fn kinds_with(flaky: Arm) -> HashMap<String, ActorFactory> {
+    let mut kinds = kinds();
+    kinds.insert("flaky".to_owned(), receiver("flaky", flaky));
+    kinds
 }
 
 /// The counters and a receiver kind for each [`Arm`].
@@ -110,6 +120,7 @@ async fn receive(
     envelope: Vec<u8>,
 ) -> anyhow::Result<Vec<u8>> {
     let answers = match arm {
+        Arm::Once => vec![receive_once(ctx.clone(), envelope).await?],
         Arm::Twice => vec![
             receive_once(ctx.clone(), envelope.clone()).await?,
             receive_once(ctx.clone(), envelope).await?,
@@ -559,4 +570,54 @@ async fn a_receiver_made_again_is_delivered_once() {
         one(&dir, "counter/b", "SELECT value FROM counter"),
         7
     );
+}
+
+/// A sender whose sends were not all confirmed when its host shut
+/// down wakes at the next boot, from the deadline its stop left, and
+/// delivers them.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_send_left_at_a_shutdown_is_delivered_after_boot() {
+    let dir = Scratch::new("send-boot");
+    let host = Host::open(&dir, kinds_with(Arm::Fail)).unwrap();
+    host.get_or_start("flaky", "b").await.unwrap();
+    send_n(&host, "a", "flaky/b", 8).await;
+    host.shutdown().await.unwrap();
+    drop(host);
+
+    let host = Host::open(&dir, kinds_with(Arm::Once)).unwrap();
+    let started = host.boot().await.unwrap();
+    assert!(started.contains(&"counter/a".to_owned()), "{started:?}");
+    drained(&host, "a").await;
+    host.shutdown().await.unwrap();
+
+    // The failing receiver may have run it before the shutdown, or
+    // not: its failed runs are not this test's.
+    let received: Vec<_> = received(&dir, "flaky/b")
+        .into_iter()
+        .map(|(seq, n, _)| (seq, n))
+        .collect();
+    assert_eq!(received, [(1, 8)]);
+}
+
+/// A sender that stops while its delivery waits for the receiver
+/// loses no send and repeats none: its stop leaves a deadline, its
+/// timer starts it again, and its start delivers the send, which the
+/// receiver applied once.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_sender_stopped_during_a_delivery_wakes_and_delivers_once()
+{
+    let dir = Scratch::new("send-stop-mid");
+    let host = Host::open(&dir, kinds()).unwrap();
+    host.get_or_start("slow", "b").await.unwrap();
+    send_n(&host, "a", "slow/b", 9).await;
+    host.stop("counter/a", ShutdownKind::Sleep).await.unwrap();
+    let begun = tokio::time::Instant::now();
+    while !host.is_running("counter/a") {
+        assert!(begun.elapsed() < PATIENCE, "counter/a never woke");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    drained(&host, "a").await;
+    host.shutdown().await.unwrap();
+
+    assert_eq!(received(&dir, "slow/b"), vec![(1, 9, 0)]);
 }
