@@ -4694,6 +4694,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "hamlet_actors"
+version = "0.1.0"
+dependencies = [
+ "hamlet_os",
+ "hamlet_sandbox",
+ "serde",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "hamlet_app"
 version = "0.1.0"
 dependencies = [
