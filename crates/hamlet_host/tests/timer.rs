@@ -1,7 +1,8 @@
 //! Timers: what a one-shot schedule does when its handler panics,
 //! and when its actor sleeps or is destroyed as it comes due, a
-//! one-shot that never finishes set aside after five tries, and a
-//! stored deadline at either end of the clock's range.
+//! one-shot that never finishes set aside after five tries, a
+//! stored deadline at either end of the clock's range, and a start
+//! for a deadline that fails.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -20,7 +21,7 @@ use hamlet_actor_core::sqlite::SqliteDb;
 use hamlet_actor_core::{
     ActorEvent, ActorFactory, ActorStart, ColumnValue, ShutdownKind,
 };
-use hamlet_host::{Address, Host, HostEvent};
+use hamlet_host::{Address, Host, HostEvent, HostOptions};
 use hamlet_testing::Scratch;
 use serde::{Deserialize, Serialize};
 use tokio::time::{Instant, sleep};
@@ -943,5 +944,82 @@ async fn a_deadline_at_the_highest_time_waits() {
     assert!(!host.is_running(&id));
     let reply = act(&host, &id, "get", Vec::new()).await.unwrap();
     assert_eq!(counter::count(reply).unwrap(), 0);
+    host.shutdown().await.unwrap();
+}
+
+/// The demo counter, whose start fails while `failures` is above
+/// zero, taking one from it each time. Counts its generations in
+/// `starts`.
+fn counters_that_fail_to_start(
+    starts: &Starts,
+    failures: &Starts,
+) -> HashMap<String, ActorFactory> {
+    let config = ActorConfig {
+        name: Some("counter".to_owned()),
+        has_database: true,
+        ..ActorConfig::default()
+    };
+    let (starts, failures) = (starts.clone(), failures.clone());
+    HashMap::from([(
+        "counter".to_owned(),
+        ActorFactory::new_with_manual_startup_ready(
+            config,
+            move |mut start: ActorStart| {
+                starts.fetch_add(1, Ordering::SeqCst);
+                let fails = failures
+                    .try_update(
+                        Ordering::SeqCst,
+                        Ordering::SeqCst,
+                        |n| n.checked_sub(1),
+                    )
+                    .is_ok();
+                let ready = start.startup_ready.take();
+                Box::pin(async move {
+                    // Its ready signal dropped, the start fails.
+                    anyhow::ensure!(!fails, "the start fails");
+                    if let Some(ready) = ready {
+                        let _ = ready.send(Ok(()));
+                    }
+                    counter::run(start).await
+                })
+            },
+        ),
+    )])
+}
+
+/// A start that a timer began for its actor's deadline, and that
+/// failed, does not lose the deadline: after the host's start retry,
+/// a timer starts the actor again, as many times as it takes. The
+/// one-shot that was due runs then.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_timer_whose_start_failed_is_armed_again() {
+    let dir = Scratch::new("timer-start-retry");
+    let starts = Starts::default();
+    let failures = Starts::default();
+    let host = Host::open_with(
+        &dir,
+        counters_that_fail_to_start(&starts, &failures),
+        HostOptions {
+            start_retry: Duration::from_millis(300),
+            ..HostOptions::default()
+        },
+    )
+    .unwrap();
+    let id = host.get_or_start("counter", "a").await.unwrap();
+    act(&host, &id, "schedule", schedule_args(300, "increment"))
+        .await
+        .unwrap();
+    failures.store(2, Ordering::SeqCst);
+    host.stop(&id, ShutdownKind::Sleep).await.unwrap();
+
+    assert_eq!(starts_after(&starts, 4, Duration::ZERO).await, 4);
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !host.is_running(&id) {
+        assert!(Instant::now() < deadline, "the fourth start failed");
+        sleep(Duration::from_millis(10)).await;
+    }
+    let reply = act(&host, &id, "get", Vec::new()).await.unwrap();
+    assert_eq!(counter::count(reply).unwrap(), 1);
+    assert_eq!(starts.load(Ordering::SeqCst), 4);
     host.shutdown().await.unwrap();
 }

@@ -204,7 +204,9 @@ pushed, read once the core has stopped. A destroy writes its mark
 before it removes the actor's file, write-ahead file and shared-memory
 file, and a boot or a start that finds the mark finishes the destroy. The host keeps no timer for a running actor. A stopped actor
 with a deadline has one, which starts it from the file it has and never
-makes a file. `boot` reads the files of the host's own kinds, but for
+makes a file. When a start for a deadline fails, a timer's or boot's, a
+timer starts the actor again after 30 seconds, as often as it fails.
+`boot` reads the files of the host's own kinds, but for
 the actors it holds already, begins the start of each actor a kill left
 marked running or whose deadline has come, without waiting for it, and
 arms a timer for each other stored deadline. While boot reads an actor's
