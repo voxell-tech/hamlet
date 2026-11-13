@@ -1,6 +1,6 @@
-//! Why a message is sent: every message carries its task.
+//! Why a call is made: every call carries its task.
 
-/// The task a message belongs to. A call carries it to the host's
+/// The task a call belongs to. The call carries it to the host's
 /// log.
 #[derive(Clone, Debug)]
 pub struct Cause {
@@ -8,8 +8,8 @@ pub struct Cause {
 }
 
 impl Cause {
-    /// The cause of a message that no actor's message caused, such as
-    /// a client's call: its task alone.
+    /// The cause of a call that no actor's call caused, such as a
+    /// client's call: its task alone.
     pub fn root(task: impl Into<String>) -> Self {
         Self { task: task.into() }
     }
