@@ -116,6 +116,12 @@ impl Later {
     }
 }
 
+/// Where tasks send what they finish with, as inputs.
+pub(crate) fn plugin(app: &mut bevy_app::App) {
+    let done = crate::server::arriving::<Finished>(app);
+    app.insert_resource(Later::new(done));
+}
+
 /// Starts the tasks the kept input asked for.
 pub(crate) fn start(mut later: ResMut<Later>) {
     later.start();

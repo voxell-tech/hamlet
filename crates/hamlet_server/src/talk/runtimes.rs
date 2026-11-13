@@ -26,7 +26,8 @@ use crate::layout::Layout;
 use crate::realm::Realm;
 
 pub(crate) fn plugin(app: &mut bevy_app::App) {
-    app.add_deadline(restart_due, start);
+    app.init_resource::<super::leases::Authority>()
+        .add_deadline(restart_due, start);
 }
 
 /// The soonest a failed runtime starts again.

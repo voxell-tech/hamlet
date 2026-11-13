@@ -178,11 +178,15 @@ fn stopped(world: DeferredWorld, context: HookContext) {
 pub(crate) type Runs<'w, 's> =
     Query<'w, 's, (Entity, &'static mut Running)>;
 
-impl Calls {
-    pub fn new(ran: mpsc::UnboundedSender<Ran>) -> Self {
-        Self { ran }
-    }
+/// Where the tool runs that end are sent, and what looks off the loop
+/// found for the calls.
+pub(crate) fn plugin(app: &mut bevy_app::App) {
+    let ran = crate::server::arriving::<Ran>(app);
+    app.insert_resource(Calls { ran })
+        .init_resource::<looks::Looks>();
+}
 
+impl Calls {
     /// The run of `work` for `call`, to spawn; it starts once its
     /// input is kept.
     fn run(

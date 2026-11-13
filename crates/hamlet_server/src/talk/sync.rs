@@ -39,15 +39,16 @@ pub(crate) struct Fitting {
     done: UnboundedSender<Fitted>,
 }
 
-impl Fitting {
-    /// Fitted images arrive on `done`.
-    pub fn new(done: UnboundedSender<Fitted>) -> Self {
-        Self {
-            inputs: HashMap::new(),
-            done,
-        }
-    }
+/// The fitting of images, whose results come back as inputs.
+pub(crate) fn plugin(app: &mut bevy_app::App) {
+    let done = crate::server::arriving::<Fitted>(app);
+    app.insert_resource(Fitting {
+        inputs: HashMap::new(),
+        done,
+    });
+}
 
+impl Fitting {
     /// Keeps `fitted` for the next flush to send.
     pub fn fitted(&mut self, fitted: Fitted) {
         let key = (fitted.conversation, fitted.request);

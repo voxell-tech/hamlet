@@ -70,6 +70,7 @@ macro_rules! holder {
 holder! {
     /// What each conversation in memory shows: its transcript and
     /// what its agent is doing.
+    #[derive(Default)]
     Lives(BTreeMap<ConversationId, Live>)
 }
 holder! {
@@ -78,19 +79,23 @@ holder! {
 }
 holder! {
     /// What the agents' commands leave running, by agent.
+    #[derive(Default)]
     Leftovers(hamlet_sandbox::AllLeftovers)
 }
 holder! {
     /// The tools added by hand (C17), loaded again whenever their
     /// folder changes.
+    #[derive(Default)]
     Added(Vec<Manifest>)
 }
 holder! {
     /// Why the tools added by hand that did not load did not.
+    #[derive(Default)]
     ToolFaults(Vec<String>)
 }
 holder! {
     /// Every tool a model may be offered.
+    #[derive(Default)]
     Catalogue(Vec<ToolSpec>)
 }
 
@@ -120,16 +125,32 @@ holder! {
 holder! {
     /// Each lodge as both copies held it when last in step, by agent;
     /// a lodge not here is pushed before its next remote call.
+    #[derive(Default)]
     Lodged(HashMap<AgentId, RemoteCopy>)
 }
 holder! {
     /// The lodges whose remote copy is owed a push, which the runner
     /// makes before the next input.
+    #[derive(Default)]
     Unpushed(BTreeSet<AgentId>)
 }
 holder! {
     /// How moving the lodges to the chosen workspace goes.
+    #[derive(Default)]
     Moving(Option<protocol::SettingsViewWorkspaceMove>)
+}
+
+/// The live state no other area keeps, empty at the start; the tools
+/// added by hand are loaded into it once the server starts.
+pub(crate) fn plugin(app: &mut bevy_app::App) {
+    app.init_resource::<Lives>()
+        .init_resource::<Leftovers>()
+        .init_resource::<Added>()
+        .init_resource::<ToolFaults>()
+        .init_resource::<Catalogue>()
+        .init_resource::<Lodged>()
+        .init_resource::<Unpushed>()
+        .init_resource::<Moving>();
 }
 
 /// Every resource of the realm's live state, as the handlers reach

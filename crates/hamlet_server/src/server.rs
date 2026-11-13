@@ -9,6 +9,7 @@
 
 use std::cell::RefCell;
 use std::panic::{AssertUnwindSafe, catch_unwind};
+use std::sync::{Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context as _, Result};
@@ -16,42 +17,38 @@ use bevy_app::App;
 use bevy_ecs::entity::Entity;
 use bevy_ecs::error::{BevyError, ErrorContext};
 use bevy_ecs::query::With;
+use bevy_ecs::resource::Resource;
 use bevy_ecs::system::{In, IntoSystem, SystemState};
 use bevy_ecs::world::World;
 use hamlet_protocol::runtime::{
     ErrorCode, ProtocolError, RuntimeMessage, ServerMessage,
 };
-use hamlet_sandbox::{AllLeftovers, Sandbox};
+use hamlet_sandbox::Sandbox;
 use hamlet_store::ids::Actor;
 use notify::RecommendedWatcher;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{mpsc, watch};
 
 use crate::apply::{Apply, Changed, discard};
-use crate::calls::looks::Looks;
-use crate::calls::{Calls, Ran, Running};
+use crate::calls::{Ran, Running};
 use crate::clients::check::fault;
 use crate::clients::connection::Event;
 use crate::clients::{Clients, asked};
 use crate::clock;
-use crate::core::{
-    Added, Catalogue, Confined, Core, Leftovers, Lives, Lodged,
-    Moving, ToolFaults, Unpushed, Workspace,
-};
+use crate::core::{Confined, Core, Leftovers, Workspace};
 use crate::credentials::Credentials;
 use crate::deadline::{self, Fire};
 use crate::diagnostic::{self, Secrets, tell};
 use crate::jobs::Job;
 use crate::knowledge::runner::{Runner, Writing};
-use crate::later::{Finished, Later};
+use crate::later::Finished;
 use crate::providers::Providers;
 use crate::realm::Realm;
 use crate::society::agents;
 use crate::talk::follow::follow;
-use crate::talk::leases::Authority;
 use crate::talk::process::{Pi, Received};
 use crate::talk::runtimes::{self, Harness};
-use crate::talk::sync::{Fitted, Fitting};
+use crate::talk::sync::Fitted;
 use crate::talk::{Env, heard, inputs};
 use crate::work::added;
 use crate::work::tools::Shells;
@@ -84,6 +81,36 @@ pub(crate) enum Input {
 /// How long the changes to the tools added by hand settle before they
 /// load again.
 const SETTLE: Duration = Duration::from_millis(200);
+
+/// The receiving end of a channel an area's plugin made for its
+/// inputs, until the runner's inbox takes it.
+#[derive(Resource)]
+pub(crate) struct Arriving<T: Send + 'static>(
+    Mutex<mpsc::UnboundedReceiver<T>>,
+);
+
+/// A channel for inputs of `T`: its sending end, and the receiving
+/// end for the runner's inbox, kept in the world until it takes it.
+pub(crate) fn arriving<T: Send + 'static>(
+    app: &mut App,
+) -> mpsc::UnboundedSender<T> {
+    let (to, from) = mpsc::unbounded_channel();
+    app.insert_resource(Arriving(Mutex::new(from)));
+    to
+}
+
+/// The receiving end of the inputs of `T`, taken from the world.
+fn take<T: Send + 'static>(
+    world: &mut World,
+) -> Result<mpsc::UnboundedReceiver<T>> {
+    let arriving = world
+        .remove_resource::<Arriving<T>>()
+        .context("a channel of inputs no plugin made")?;
+    Ok(arriving
+        .0
+        .into_inner()
+        .unwrap_or_else(PoisonError::into_inner))
+}
 
 /// The channels inputs arrive on.
 pub(crate) struct Inbox {
@@ -220,9 +247,6 @@ impl Server {
         let (lines_to, lines) = mpsc::unbounded_channel();
         let (worked_to, worked) = mpsc::unbounded_channel();
         let (events_to, events) = mpsc::channel(128);
-        let (ran_to, ran) = mpsc::unbounded_channel();
-        let (fitted_to, fitted) = mpsc::unbounded_channel();
-        let (finished_to, finished) = mpsc::unbounded_channel();
         let writing = Writing::default();
         let runner = Runner::start(
             realm.layout(),
@@ -260,9 +284,25 @@ impl Server {
             agents::HARNESS,
         )?;
         let clients = Clients::new(events_to, closing, clock::now())?;
+        // What the areas start from, which only the start knows.
         app.set_error_handler(record)
+            .insert_resource(realm)
+            .insert_resource(env)
+            .insert_resource(Harness::new(pi, lines_to))
+            .insert_resource(credentials)
+            .insert_resource(clients)
+            .insert_resource(Confined(sandbox))
+            .insert_resource(Shells::local())
+            .insert_resource(providers)
+            .insert_resource(Workspace(workspace))
+            .insert_resource(runner)
+            .insert_resource(writing)
             .add_plugins((
+                crate::core::plugin,
                 crate::apply::plugin,
+                crate::later::plugin,
+                crate::calls::plugin,
+                crate::talk::sync::plugin,
                 crate::clients::plugin,
                 crate::commands::plugin,
                 runtimes::plugin,
@@ -270,45 +310,22 @@ impl Server {
                 crate::dreaming::plugin,
                 crate::images::plugin,
                 crate::files::plugin,
-            ))
-            .insert_resource(realm)
-            .insert_resource(env)
-            .insert_resource(Harness::new(pi, lines_to))
-            .insert_resource(credentials)
-            .insert_resource(clients)
-            .insert_resource(Lives(Default::default()))
-            .insert_resource(Confined(sandbox))
-            .insert_resource(Shells::local())
-            .insert_resource(Leftovers(AllLeftovers::default()))
-            // Loaded by [`added::reload`] below.
-            .insert_resource(Added(Vec::new()))
-            .insert_resource(ToolFaults(Vec::new()))
-            .insert_resource(Catalogue(Vec::new()))
-            .insert_resource(Calls::new(ran_to))
-            .insert_resource(Fitting::new(fitted_to))
-            .insert_resource(Later::new(finished_to))
-            .insert_resource(Looks::default())
-            .insert_resource(providers)
-            .insert_resource(Authority::<Entity>::default())
-            .insert_resource(Workspace(workspace))
-            .insert_resource(Lodged(Default::default()))
-            .insert_resource(Unpushed(Default::default()))
-            .insert_resource(Moving(None))
-            .insert_resource(runner)
-            .insert_resource(writing);
+            ));
+        let world = app.world_mut();
+        let inbox = Inbox {
+            lines,
+            worked,
+            events,
+            ran: take(world)?,
+            fitted: take(world)?,
+            finished: take(world)?,
+            tools,
+            listener: None,
+        };
         let mut server = Self {
             core: SystemState::new(app.world_mut()),
             app,
-            inbox: Inbox {
-                lines,
-                worked,
-                events,
-                ran,
-                fitted,
-                finished,
-                tools,
-                listener: None,
-            },
+            inbox,
             watching,
         };
         let world = server.app.world_mut();
