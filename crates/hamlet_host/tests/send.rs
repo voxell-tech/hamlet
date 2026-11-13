@@ -8,6 +8,7 @@
 
 use std::collections::HashMap;
 use std::path::Path;
+use std::sync::Arc;
 use std::time::Duration;
 
 use act::{DEADLINE, act};
@@ -648,4 +649,56 @@ async fn a_call_to_a_hamlet_action_is_refused() {
     assert!(!dir.join("actors/counter/b.sqlite").exists());
     assert!(!host.is_running("counter/b"));
     host.shutdown().await.unwrap();
+}
+
+/// An actor of the authoring layer's trait API whose one action is
+/// named `hamlet.receive`, as only the host may name one.
+struct Forger;
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct Forge;
+
+impl hamlet_actor::Action for Forge {
+    type Output = ();
+    const NAME: &'static str = send::RECEIVE;
+}
+
+#[async_trait::async_trait]
+impl hamlet_actor::Actor for Forger {
+    type Input = ();
+    type Actions = (Forge,);
+    type Events = ();
+    type ConnParams = ();
+    type Action = ();
+
+    async fn create(
+        _: &hamlet_actor::Ctx<Self>,
+    ) -> anyhow::Result<Self> {
+        Ok(Self)
+    }
+}
+
+impl hamlet_actor::Handler<Forge> for Forger {
+    async fn handle(
+        self: Arc<Self>,
+        _: hamlet_actor::Ctx<Self>,
+        _: Forge,
+    ) -> anyhow::Result<()> {
+        Ok(())
+    }
+}
+
+/// R5: the authoring layer refuses, at registration, an actor that
+/// names an action under `hamlet.`.
+#[test]
+fn registering_a_hamlet_action_fails() {
+    let registered = std::panic::catch_unwind(|| {
+        hamlet_actor::Registry::new()
+            .register_actor::<Forger>("forger");
+    });
+    let panic = registered.expect_err("the registration must fail");
+    let message = panic
+        .downcast_ref::<String>()
+        .expect("the panic carries a message");
+    assert!(message.contains("`hamlet.receive`"), "{message}");
 }

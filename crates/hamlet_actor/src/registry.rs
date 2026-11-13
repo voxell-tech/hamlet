@@ -12,6 +12,7 @@ use hamlet_actor_core::{
 };
 use hamlet_actor_error::ActorError;
 
+use crate::action::ActionSet;
 use crate::actor::Actor;
 use crate::start::{Start, run_actor, wrap_start};
 
@@ -84,6 +85,17 @@ impl Registry {
         F: Fn(Start<A>) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = Result<()>> + Send + 'static,
     {
+        // The `hamlet.` prefix is the host's: it delivers sends
+        // through `hamlet.receive`, and no author may name an action
+        // under it.
+        for action in <A::Actions as ActionSet<A>>::entries() {
+            assert!(
+                !action.name.starts_with("hamlet."),
+                "actor `{name}` names the action `{}`, but the \
+                 `hamlet.` prefix is the host's",
+                action.name
+            );
+        }
         self.inner.insert(
             name.to_owned(),
             build_factory::<A, F, Fut>(config, entry),
