@@ -185,15 +185,17 @@ command line, with the counter actor in `examples/demo/counter.rs`.
 `tests/local.rs` tests the host, and `tests/kill.rs` kills a child host
 at a fault point and boots the folder again.
 
-The core's own tests are in `hamlet_actor_core/tests/`. Each file there
-is compiled into the library by a `#[path]` line, most of them in the
-module they test. `lib.rs` pulls in two whose module is gone:
-`envoy_callbacks.rs` tests `hamlet_actor_wire`'s endpoint parser, and
-`registry_http.rs` tests `host/dispatch.rs`, `host/http.rs` and the
-request buffering in `actor/messages.rs`. `metrics.rs` pulls in `metrics_helpers.rs`, and
-`integration.rs` is a test target of its own. They run on
-`TestHost` in `src/testing.rs`, a host that serves one in-memory
-database through `hamlet_sqlite`.
+The core's own tests are in `hamlet_actor_core/tests/`. Each file there,
+apart from the `integration` target's three, is compiled into the
+library by a `#[path]` line, most of them in the module they test.
+`lib.rs` pulls in two whose module is gone: `envoy_callbacks.rs` tests
+`hamlet_actor_wire`'s endpoint parser, and `registry_http.rs` tests
+`host/dispatch.rs`, `host/http.rs` and the request buffering in
+`actor/messages.rs`. `metrics.rs` pulls in `metrics_helpers.rs`.
+`integration.rs` is a test target of its own, which pulls in
+`integration/metrics.rs` and `integration/tokio_runtime_metrics.rs`.
+Most of the library's tests run on `TestHost` in `src/testing.rs`, a
+host that serves one in-memory database through `hamlet_sqlite`.
 
 `cargo xtask killkit` runs `hamlet_killkit`. Its scenarios are rows of
 `src/scenario.rs`: the commands that set up, the fault point to kill at,
