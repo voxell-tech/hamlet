@@ -52,7 +52,7 @@ pub fn execute(
 }
 
 /// Runs the statements, each `(sql, params)`, as one transaction,
-/// rolled back when one fails.
+/// rolled back when one fails or the commit fails.
 pub fn batch<'a>(
     conn: &Connection,
     statements: impl IntoIterator<
@@ -60,18 +60,19 @@ pub fn batch<'a>(
     >,
 ) -> Result<Vec<ExecuteResult>> {
     conn.execute_batch("BEGIN IMMEDIATE")?;
-    let mut results = Vec::new();
-    for (sql, params) in statements {
-        match execute(conn, sql, params) {
-            Ok(result) => results.push(result),
-            Err(error) => {
-                let _ = conn.execute_batch("ROLLBACK");
-                return Err(error);
-            }
-        }
+    let run = || {
+        let results = statements
+            .into_iter()
+            .map(|(sql, params)| execute(conn, sql, params))
+            .collect::<Result<Vec<_>>>()?;
+        conn.execute_batch("COMMIT")?;
+        Ok(results)
+    };
+    let results = run();
+    if results.is_err() && !conn.is_autocommit() {
+        let _ = conn.execute_batch("ROLLBACK");
     }
-    conn.execute_batch("COMMIT")?;
-    Ok(results)
+    results
 }
 
 fn value(param: &BindParam) -> Value {
@@ -114,5 +115,42 @@ fn column(value: ValueRef<'_>) -> ColumnValue {
             ColumnValue::Text(String::from_utf8_lossy(v).into_owned())
         }
         ValueRef::Blob(v) => ColumnValue::Blob(v.to_vec()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A batch whose `COMMIT` fails, here on a deferred foreign key,
+    /// leaves no transaction open, so later writes commit.
+    #[test]
+    fn a_failed_commit_rolls_the_batch_back() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "PRAGMA foreign_keys = ON;
+             CREATE TABLE parent (id INTEGER PRIMARY KEY);
+             CREATE TABLE child (parent INTEGER REFERENCES parent \
+             (id)
+                 DEFERRABLE INITIALLY DEFERRED);",
+        )
+        .unwrap();
+
+        let failed =
+            batch(&conn, [("INSERT INTO child VALUES (1)", None)]);
+        assert!(failed.is_err());
+        assert!(
+            conn.is_autocommit(),
+            "the batch left a transaction open"
+        );
+
+        execute(&conn, "INSERT INTO parent VALUES (1)", None)
+            .unwrap();
+        let rows =
+            exec(&conn, "SELECT count(*) FROM parent").unwrap().rows;
+        assert_eq!(rows, vec![vec![ColumnValue::Integer(1)]]);
+        let children =
+            exec(&conn, "SELECT count(*) FROM child").unwrap().rows;
+        assert_eq!(children, vec![vec![ColumnValue::Integer(0)]]);
     }
 }
