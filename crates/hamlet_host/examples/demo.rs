@@ -19,6 +19,8 @@
 //! demo serve [<n>]              boot, start <n> counters that never
 //!                               sleep, then run one command per line
 //!                               of stdin until it ends or SIGTERM
+//! demo realm ...                the stub realm's commands, in
+//!                               demo/realm.rs
 //! ```
 //!
 //! Each command prints `counter/<key> <count>`, the count the actor
@@ -35,6 +37,8 @@
 mod act;
 #[path = "demo/counter.rs"]
 mod counter;
+#[path = "demo/realm.rs"]
+mod realm;
 
 use std::io::Write;
 use std::path::PathBuf;
@@ -42,6 +46,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use act::act;
 use anyhow::{Context, Result, anyhow, bail};
+use hamlet_actors::workspace;
 use hamlet_host::{Address, Host};
 use tokio::sync::mpsc;
 use tokio::time::Instant;
@@ -74,20 +79,24 @@ async fn main() -> Result<()> {
     } else {
         counter::Sleep::WhenIdle
     };
-    let host = Host::open(&home, counter::factories(sleep))?;
+    let mut kinds = counter::factories(sleep);
+    kinds.insert(workspace::KIND.to_owned(), workspace::factory());
+    kinds.insert(realm::KIND.to_owned(), realm::factory(realm::KIND));
+    let host = Host::open(&home, kinds)?;
     let result = match command {
         Some("serve") => serve(&host, loaded.unwrap_or(0)).await,
         Some("boot") => {
             let ms = number(args.get(1))?;
-            let started = host.boot().await?;
+            let started = boot(&host).await?;
             tokio::time::sleep(Duration::from_millis(ms)).await;
-            for actor_id in started {
-                print_count(&host, "boot ", &actor_id).await?;
+            for actor_id in started.iter().filter(|id| is_counter(id))
+            {
+                print_count(&host, "boot ", actor_id).await?;
             }
             Ok(())
         }
         Some(_) => {
-            host.boot().await?;
+            boot(&host).await?;
             run(&host, &args).await
         }
         None => Err(anyhow!(
@@ -108,6 +117,7 @@ async fn run(host: &Host, words: &[String]) -> Result<()> {
     };
     let mut out = std::io::stdout();
     match command {
+        "realm" => return realm::run(host, &words[1..]).await,
         "timers" => {
             let at = address(key)?;
             for timer in host.set_aside_timers(&at).await? {
@@ -194,8 +204,10 @@ async fn run(host: &Host, words: &[String]) -> Result<()> {
 /// Boots, starts `loaded` counters, then runs each line of stdin as
 /// a command until stdin ends or the process gets SIGTERM or Ctrl-C.
 async fn serve(host: &Host, loaded: u64) -> Result<()> {
-    for actor_id in host.boot().await? {
-        print_count(host, "boot ", &actor_id).await?;
+    for actor_id in
+        boot(host).await?.iter().filter(|id| is_counter(id))
+    {
+        print_count(host, "boot ", actor_id).await?;
     }
     if loaded > 0 {
         for n in 1..=loaded {
@@ -265,6 +277,20 @@ fn print_reply(
     let count = counter::count(reply)?;
     writeln!(std::io::stdout(), "{prefix}{actor_id} {count}")?;
     Ok(())
+}
+
+/// Boots, then makes the workspace: a send never makes its receiver,
+/// so it exists before the realm sends it anything. Boot reads every
+/// actor's file, which a running actor holds.
+async fn boot(host: &Host) -> Result<Vec<String>> {
+    let started = host.boot().await?;
+    host.get_or_start(workspace::KIND, workspace::MACHINE)
+        .await?;
+    Ok(started)
+}
+
+fn is_counter(actor_id: &str) -> bool {
+    actor_id.starts_with("counter/")
 }
 
 /// The address a `<kind>/<key>` word names.
