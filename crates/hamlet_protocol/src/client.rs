@@ -20,6 +20,7 @@ mod settings;
 mod state;
 mod waits;
 mod web;
+mod web_ide;
 
 pub use chat::*;
 pub use documents::*;
@@ -31,6 +32,7 @@ pub use settings::*;
 pub use state::*;
 pub use waits::*;
 pub use web::*;
+pub use web_ide::*;
 
 impl ClientMessage {
     /// The id of this request, if it has one.
@@ -79,7 +81,8 @@ impl ClientMessage {
                 | Read::Papers { id, .. }
                 | Read::Charter { id },
             )
-            | Self::MoveLodges(MoveLodges { id }) => Some(id),
+            | Self::MoveLodges(MoveLodges { id })
+            | Self::WebIde(WebIde { id, .. }) => Some(id),
         }
     }
 }
@@ -154,6 +157,8 @@ pub enum ClientMessage {
     Read(Read),
     #[serde(rename = "move-lodges")]
     MoveLodges(MoveLodges),
+    #[serde(rename = "web-ide")]
+    WebIde(WebIde),
     #[serde(rename = "web-window")]
     WebWindow(WebWindow),
     #[serde(rename = "web")]
@@ -239,6 +244,9 @@ pub enum ReplyKind {
     Error,
     #[serde(rename = "rewound")]
     Rewound,
+    /// The address a web IDE can be reached at, as its text.
+    #[serde(rename = "address")]
+    Address,
 }
 
 #[derive(

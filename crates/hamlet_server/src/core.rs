@@ -91,6 +91,8 @@ pub(crate) struct Core {
     /// Held while anything writes the realm's repositories and
     /// lodges.
     pub writing: Writing,
+    /// The web IDE servers on the hamlets' folders.
+    pub web_ides: crate::web_ide::WebIdes,
 }
 
 /// A conversation's transcript and activity, as kept and as running.
@@ -194,6 +196,7 @@ impl Core {
             moving: None,
             runner,
             writing,
+            web_ides: crate::web_ide::WebIdes::default(),
         };
         core.retool()?;
         core.start_providers()?;

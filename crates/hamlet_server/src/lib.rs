@@ -31,5 +31,6 @@ mod talk;
 mod testing;
 mod text;
 mod web;
+mod web_ide;
 mod work;
 mod workspace;

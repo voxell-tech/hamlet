@@ -11,7 +11,7 @@ use hamlet_protocol::client::{
     self as protocol, ChatRef, ChatRefKind, ClientMessage, RequestId,
     ServerMessage, Transcript,
 };
-use hamlet_store::ids::{Actor, AgentId, ConversationId};
+use hamlet_store::ids::{Actor, AgentId, ConversationId, HamletId};
 
 use super::check::{fault, reply};
 use super::connection::{self, Event};
@@ -455,6 +455,31 @@ impl Core {
             }
             ClientMessage::MoveLodges(asked) => {
                 self.move_lodges(client, &asked.id).await
+            }
+            ClientMessage::WebIde(asked) => {
+                let hamlet = HamletId(asked.hamlet.clone());
+                let (kind, text) =
+                    match crate::web_ide::address(self, &hamlet)
+                        .await?
+                    {
+                        Ok(address) => {
+                            (protocol::ReplyKind::Address, address)
+                        }
+                        Err(words) => {
+                            (protocol::ReplyKind::Error, words)
+                        }
+                    };
+                let answer = ServerMessage::Reply(protocol::Reply {
+                    file: None,
+                    files: Vec::new(),
+                    image: None,
+                    images: Vec::new(),
+                    kind,
+                    text,
+                    to: asked.id.clone(),
+                    upload: None,
+                });
+                self.answer(client, answer)
             }
             ClientMessage::WebWindow(_) => {
                 self.clients.web.fronted(client);
