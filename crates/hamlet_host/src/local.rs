@@ -360,12 +360,11 @@ impl Stop {
 
 struct HostInner {
     dir: PathBuf,
-    /// Held open while the host may open actor files: its lock keeps
-    /// a second host out of the folder. [`Host::shutdown`] lets it
-    /// go once every file is closed, since a task of the host may
-    /// still hold the rest for a moment. Otherwise it goes with the
-    /// host.
-    lock: Mutex<Option<File>>,
+    /// Held while the host may open actor files: it keeps a second
+    /// host out of the folder. [`Host::shutdown`] lets it go once
+    /// every file is closed, since a task of the host may still hold
+    /// the rest for a moment. Otherwise it goes with the host.
+    lock: Mutex<Option<FolderLock>>,
     directory: Directory,
     actors: Mutex<Actors>,
     session: watch::Sender<u64>,
@@ -374,6 +373,17 @@ struct HostInner {
     options: HostOptions,
     /// When the starts under way end, set once the host shuts down.
     starts_end: watch::Sender<Option<tokio::time::Instant>>,
+}
+
+/// The lock of `host.lock`. Its drop unlocks the file before it
+/// closes it: a child process forked meanwhile shares the open file,
+/// and would keep the lock until it runs its program.
+struct FolderLock(File);
+
+impl Drop for FolderLock {
+    fn drop(&mut self) {
+        let _ = self.0.unlock();
+    }
 }
 
 /// How a [`Host`] runs its actors.
@@ -639,7 +649,7 @@ impl Host {
         }
         Ok(Self(Arc::new(Handle(Arc::new(HostInner {
             dir: dir.to_owned(),
-            lock: Mutex::new(Some(lock)),
+            lock: Mutex::new(Some(FolderLock(lock))),
             directory: Directory::local(factories),
             actors: Mutex::new(Actors {
                 lives: HashMap::new(),

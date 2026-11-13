@@ -1150,11 +1150,25 @@ async fn a_second_host_opens_the_folder_at_once_after_a_shutdown() {
 /// Once a shutdown returns and the last `Host` is dropped, a second
 /// host opens the folder, every time. Here each round's counters ask
 /// to sleep as the shutdown begins, so their own stops end beside
-/// it, each at its own moment.
+/// it, each at its own moment, and the process starts child
+/// processes all along, as a host that runs commands does.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn the_folder_is_free_after_every_shutdown() {
     const ROUNDS: u64 = 400;
     let dir = Scratch::new("host-shutdown-reopen-loop");
+    let forking = Arc::new(AtomicBool::new(true));
+    let forker = std::thread::spawn({
+        let forking = forking.clone();
+        move || {
+            while forking.load(Ordering::Relaxed) {
+                if Command::new("true").status().is_err() {
+                    // No such program here: no child to start.
+                    return;
+                }
+                std::thread::sleep(Duration::from_millis(2));
+            }
+        }
+    });
     let keys: Vec<String> =
         (0..16).map(|key| format!("counter/{key}")).collect();
     let mut refused = Vec::new();
@@ -1201,6 +1215,8 @@ async fn the_folder_is_free_after_every_shutdown() {
         };
     }
     host.shutdown().await.unwrap();
+    forking.store(false, Ordering::Relaxed);
+    forker.join().unwrap();
     assert!(
         refused.is_empty(),
         "the folder was still locked right after the shutdowns of \
