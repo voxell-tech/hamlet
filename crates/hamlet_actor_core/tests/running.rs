@@ -21,7 +21,8 @@ use crate::{
 /// timeout decides.
 const NO_DEADLINE: Duration = Duration::MAX;
 
-/// An actor whose `input` action replies with its start input, and
+/// An actor whose `input` action replies with its start input, whose
+/// `params` action replies with its call's connection parameters, and
 /// whose `connections` action replies with the inspector's count of
 /// connection changes.
 fn factory() -> Arc<ActorFactory> {
@@ -39,11 +40,16 @@ fn factory() -> Arc<ActorFactory> {
             } = start;
             while let Some(event) = events.recv().await {
                 match event {
-                    ActorEvent::Action { name, reply, .. } => {
+                    ActorEvent::Action {
+                        name, conn, reply, ..
+                    } => {
                         let output = match name.as_str() {
                             "input" => {
                                 input.clone().unwrap_or_default()
                             }
+                            "params" => conn
+                                .map(|conn| conn.params())
+                                .unwrap_or_default(),
                             _ => ctx
                                 .inspector_snapshot()
                                 .connections_revision
@@ -138,10 +144,30 @@ async fn the_first_start_hands_the_actor_its_input() {
     let actor = start(Some(b"hello".to_vec())).await;
     assert_eq!(
         actor
-            .action("input", Vec::new(), NO_DEADLINE)
+            .action(Vec::new(), "input", Vec::new(), NO_DEADLINE)
             .await
             .unwrap(),
         b"hello"
+    );
+    actor.stop(ShutdownKind::Sleep).await;
+}
+
+/// The parameters a call gives are its connection's: the action reads
+/// them on the connection the call opened.
+#[tokio::test]
+async fn an_action_reads_the_parameters_its_call_gave() {
+    let actor = start(None).await;
+    assert_eq!(
+        actor
+            .action(
+                b"who".to_vec(),
+                "params",
+                Vec::new(),
+                NO_DEADLINE
+            )
+            .await
+            .unwrap(),
+        b"who"
     );
     actor.stop(ShutdownKind::Sleep).await;
 }
@@ -150,7 +176,7 @@ async fn the_first_start_hands_the_actor_its_input() {
 async fn a_started_actor_has_an_inspector() {
     let actor = start(None).await;
     let reply = actor
-        .action("connections", Vec::new(), NO_DEADLINE)
+        .action(Vec::new(), "connections", Vec::new(), NO_DEADLINE)
         .await
         .unwrap();
     let revision = u64::from_le_bytes(reply.try_into().unwrap());
@@ -164,7 +190,7 @@ async fn a_dropped_action_call_closes_its_connection() {
         start_with(mute_factory(Duration::from_secs(60)), None).await;
     tokio::time::timeout(
         Duration::from_millis(100),
-        actor.action("wait", Vec::new(), NO_DEADLINE),
+        actor.action(Vec::new(), "wait", Vec::new(), NO_DEADLINE),
     )
     .await
     .expect_err("the action should still be waiting");
@@ -183,7 +209,7 @@ async fn an_action_that_times_out_closes_its_connection() {
         start_with(mute_factory(Duration::from_millis(100)), None)
             .await;
     let error = actor
-        .action("wait", Vec::new(), NO_DEADLINE)
+        .action(Vec::new(), "wait", Vec::new(), NO_DEADLINE)
         .await
         .unwrap_err();
     assert_eq!(
@@ -200,7 +226,12 @@ async fn a_deadline_shorter_than_the_action_timeout_ends_the_action()
         start_with(mute_factory(Duration::from_secs(60)), None).await;
     let begun = tokio::time::Instant::now();
     let error = actor
-        .action("wait", Vec::new(), Duration::from_millis(100))
+        .action(
+            Vec::new(),
+            "wait",
+            Vec::new(),
+            Duration::from_millis(100),
+        )
         .await
         .unwrap_err();
     assert_eq!(

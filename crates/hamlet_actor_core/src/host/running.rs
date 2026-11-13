@@ -161,18 +161,20 @@ impl RunningActor {
         &self.ctx
     }
 
-    /// Calls an action: a connection for the call, the action through
-    /// the actor task within `deadline` or the kind's action timeout,
-    /// whichever is shorter, then the connection closes.
+    /// Calls an action: a connection for the call, opened with
+    /// `params` as its parameters, the action through the actor task
+    /// within `deadline` or the kind's action timeout, whichever is
+    /// shorter, then the connection closes.
     pub async fn action(
         &self,
+        params: Vec<u8>,
         name: &str,
         args: Vec<u8>,
         deadline: Duration,
     ) -> Result<Vec<u8>> {
         let conn = self
             .ctx
-            .connect_conn_with_request(Vec::new(), None, async {
+            .connect_conn_with_request(params, None, async {
                 Ok::<Vec<u8>, anyhow::Error>(Vec::new())
             })
             .await?;

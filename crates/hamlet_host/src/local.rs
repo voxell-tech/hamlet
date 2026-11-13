@@ -867,7 +867,10 @@ impl Host {
             .await
             .map_err(|_| ActionTimedOut.build())??;
             let left = deadline.saturating_sub(begun.elapsed());
-            generation.actor.action(name, args, left).await
+            generation
+                .actor
+                .action(Vec::new(), name, args, left)
+                .await
         }
         .instrument(span)
         .await
