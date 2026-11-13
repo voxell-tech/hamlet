@@ -179,7 +179,8 @@ the realm folder with `host.lock` and refuses a second host.
 call's `Cause`, the task it belongs to. `directory.rs` maps each actor
 kind to where its actors run, here always this host; a call to a kind it
 does not hold fails at once. `shutdown` stops every actor at once, waits
-until each file is closed, and leaves the host starting none. Each actor
+until each file is closed, lets the folder go, and leaves the host
+starting none. Each actor
 that is not stopped with no deadline is one `Life` in the host's map:
 stopped with a deadline, starting, running, stopping or being destroyed.
 A start or a stop runs on a task of its own and waits only on its own

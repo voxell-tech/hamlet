@@ -363,9 +363,11 @@ impl Stop {
 
 pub(crate) struct HostInner {
     dir: PathBuf,
-    /// Held open for the host's life: its lock keeps a second host
-    /// out of the folder.
-    _lock: File,
+    /// Held while the host may open actor files: it keeps a second
+    /// host out of the folder. [`Host::shutdown`] lets it go once
+    /// every file is closed, since a task of the host may still hold
+    /// the rest for a moment. Otherwise it goes with the host.
+    lock: Mutex<Option<FolderLock>>,
     directory: Directory,
     actors: Mutex<Actors>,
     session: watch::Sender<u64>,
@@ -374,6 +376,17 @@ pub(crate) struct HostInner {
     options: HostOptions,
     /// When the starts under way end, set once the host shuts down.
     starts_end: watch::Sender<Option<tokio::time::Instant>>,
+}
+
+/// The lock of `host.lock`. Its drop unlocks the file before it
+/// closes it: a child process forked meanwhile shares the open file,
+/// and would keep the lock until it runs its program.
+struct FolderLock(File);
+
+impl Drop for FolderLock {
+    fn drop(&mut self) {
+        let _ = self.0.unlock();
+    }
 }
 
 /// How a [`Host`] runs its actors.
@@ -418,9 +431,7 @@ impl Actors {
         actor_id: &str,
     ) -> Result<(Owned, u64, Option<Life>)> {
         if self.shut {
-            return Err(ActorLifecycle::Stopping
-                .build()
-                .context("the host has shut down"));
+            return Err(host_shut_down());
         }
         let owned = Owned::new(host, actor_id);
         self.generations += 1;
@@ -552,6 +563,13 @@ impl HostInner {
     }
 }
 
+/// What a host that has shut down answers a start.
+fn host_shut_down() -> anyhow::Error {
+    ActorLifecycle::Stopping
+        .build()
+        .context("the host has shut down")
+}
+
 /// The state of `generation` while `owned` stops it for `reason`.
 fn stopping(
     owned: &Owned,
@@ -637,7 +655,7 @@ impl Host {
         }
         Ok(Self(Arc::new(Handle(Arc::new(HostInner {
             dir: dir.to_owned(),
-            _lock: lock,
+            lock: Mutex::new(Some(FolderLock(lock))),
             directory: Directory::local(factories),
             actors: Mutex::new(Actors {
                 lives: HashMap::new(),
@@ -662,8 +680,12 @@ impl Host {
     /// other actor whose last stop left a deadline. A due timer
     /// starts its actor at once, and boot waits for it. Returns the
     /// started actors. An actor that fails to start is logged and
-    /// left for the next boot.
+    /// left for the next boot. Fails at once in a host that has shut
+    /// down, which may no longer hold the folder: it reads no file.
     pub async fn boot(&self) -> Result<Vec<String>> {
+        if self.inner().actors.lock().shut {
+            return Err(host_shut_down());
+        }
         let mut started = Vec::new();
         let mut cut_off = JoinSet::new();
         let mut due = Vec::new();
@@ -879,7 +901,8 @@ impl Host {
     /// for the next boot. A start under way that has not ended after
     /// a grace of one second fails. Waits for every stop, and for a
     /// start or a stop under way, so it returns once every actor's
-    /// file is closed. A stop that fails ends no other: the error
+    /// file is closed, and then lets the folder go: a new host may
+    /// open it at once. A stop that fails ends no other: the error
     /// names each actor whose stop failed.
     pub async fn shutdown(&self) -> Result<()> {
         self.inner().shut_down();
@@ -913,6 +936,9 @@ impl Host {
                 failed.push(format!("{actor_id}: {error:#}"));
             }
         }
+        // The host opens no file again. A file only a stop that
+        // panicked still holds keeps its own lock.
+        drop(self.inner().lock.lock().take());
         if !failed.is_empty() {
             bail!("the host failed to stop {}", failed.join("; "));
         }
@@ -924,7 +950,9 @@ impl HostInner {
     /// Starts the actor unless it runs, and returns the generation
     /// that runs it. Waits for a start or a stop under way first, and
     /// fails with a start it waited for. Fails at once for an actor
-    /// that is being destroyed, and in a host that has shut down.
+    /// that is being destroyed, and in a host that has shut down,
+    /// also when it shuts down during the wait: such a host starts
+    /// no actor again, so a wait could only delay the failure.
     /// Makes the actor's file only if `create`, which only
     /// `get_or_start` and a call ask for: boot and a send's delivery
     /// start an actor from the file it has, and never make an empty
@@ -938,9 +966,14 @@ impl HostInner {
             Wait(Waiters),
             Start(Owned, u64),
         }
+        // Holds a time once the host has shut down.
+        let mut shut = self.starts_end.subscribe();
         loop {
             let next = {
                 let mut actors = self.actors.lock();
+                if actors.shut {
+                    return Err(host_shut_down());
+                }
                 match actors.lives.get(actor_id) {
                     Some(Life::Running(generation)) => {
                         return Ok(generation.clone());
@@ -970,7 +1003,12 @@ impl HostInner {
             };
             match next {
                 Next::Wait(mut waiters) => {
-                    let _ = waiters.changed().await;
+                    tokio::select! {
+                        _ = waiters.changed() => {}
+                        _ = shut.wait_for(Option::is_some) => {
+                            return Err(host_shut_down());
+                        }
+                    }
                     if let Some(failed) = &*waiters.borrow() {
                         return Err(failed.to_error());
                     }
@@ -1006,7 +1044,9 @@ impl HostInner {
         // receiver's stop.
         let known = {
             let actors = self.actors.lock();
-            anyhow::ensure!(!actors.shut, "the host has shut down");
+            if actors.shut {
+                return Err(host_shut_down());
+            }
             actors.lives.contains_key(&actor_id)
         };
         if !known && !actor_path(&self.dir, &actor_id).exists() {
