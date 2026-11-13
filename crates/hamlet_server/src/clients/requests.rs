@@ -668,8 +668,9 @@ impl Core<'_, '_> {
                 .unwrap_or(0),
             unset: !settings.picked,
             workspace: protocol::SettingsViewWorkspace {
-                moving: self.moving.clone(),
+                moving: self.remote.moving.clone(),
                 running: self
+                    .remote
                     .workspace
                     .0
                     .as_ref()

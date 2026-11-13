@@ -286,7 +286,7 @@ impl Core<'_, '_> {
                 checkout.display()
             ),
         };
-        let names = self.catalogue.names();
+        let names = self.tools.catalogue.names();
         self.change(Actor::Realm, |cx, env| {
             let harness = agents::get(cx.db, agent)?.harness;
             let runtime = runtimes::of_harness(cx.db, &harness)?;

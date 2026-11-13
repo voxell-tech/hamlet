@@ -11,17 +11,19 @@ use hamlet_protocol::client::{
     RequestId, SettingsViewWorkspaceMove,
     SettingsViewWorkspaceMoveState,
 };
+use hamlet_store::Db;
 use hamlet_store::ids::AgentId;
 
 use super::lodges::{self, Synced};
 use super::{Policy, Session, Transport, workspace_of};
 use crate::clients::check::reply;
-use crate::core::Core;
+use crate::core::{Core, Remote};
 use crate::diagnostic::{Secrets, tell};
 use crate::jobs::Job;
 use crate::knowledge;
 use crate::knowledge::runner::Writing;
 use crate::later::Finished;
+use crate::realm::Realm;
 use crate::society::refusal::Refusal;
 use crate::society::{agents, hamlets, hires};
 use crate::work::hamlet_of;
@@ -87,90 +89,97 @@ impl Lodging {
     }
 }
 
-impl Core<'_, '_> {
+/// The session of `agent`'s tools in the workspace `transport`
+/// reaches.
+fn session_in(
+    db: &mut Db,
+    transport: &Transport,
+    agent: AgentId,
+    net: bool,
+) -> Result<Session> {
+    let hamlet = hamlet_of(db, agent)?;
+    let project = match &hamlet {
+        Some(id) => hamlets::get(db, id)?.folder.is_some(),
+        None => false,
+    };
+    transport.session(
+        agent,
+        &workspace_of(hamlet.as_ref()),
+        Policy {
+            project,
+            network: net,
+            read_only: false,
+        },
+    )
+}
+
+impl Remote<'_> {
     /// The session of `agent`'s tools in the remote workspace, when
     /// the realm works in one; its commands reach the network with
     /// `net`.
-    pub(crate) fn remote_session(
-        &mut self,
+    pub(crate) fn session(
+        &self,
+        db: &mut Db,
         agent: AgentId,
         net: bool,
     ) -> Result<Option<Session>> {
-        let Some(transport) = self.workspace.clone() else {
+        let Some(transport) = &**self.workspace else {
             return Ok(None);
         };
-        Ok(Some(self.session_in(&transport, agent, net)?))
-    }
-
-    /// The session of `agent`'s tools in the workspace `transport`
-    /// reaches.
-    fn session_in(
-        &mut self,
-        transport: &Transport,
-        agent: AgentId,
-        net: bool,
-    ) -> Result<Session> {
-        let db = self.realm.store().connection();
-        let hamlet = hamlet_of(db, agent)?;
-        let project = match &hamlet {
-            Some(id) => hamlets::get(db, id)?.folder.is_some(),
-            None => false,
-        };
-        transport.session(
-            agent,
-            &workspace_of(hamlet.as_ref()),
-            Policy {
-                project,
-                network: net,
-                read_only: false,
-            },
-        )
+        Ok(Some(session_in(db, transport, agent, net)?))
     }
 
     /// What keeps `agent`'s lodge's remote copy in step, when the
     /// realm works in a remote workspace and the agent has a lodge.
     pub(crate) fn lodging(
         &mut self,
+        realm: &mut Realm,
+        writing: &Writing,
         agent: AgentId,
     ) -> Result<Option<Lodging>> {
-        let layout = self.realm.layout().clone();
-        let db = self.realm.store().connection();
+        let layout = realm.layout().clone();
+        let db = realm.store().connection();
         let Ok(found) = knowledge::lodging(db, &layout, agent) else {
             return Ok(None);
         };
-        let Some(session) = self.remote_session(agent, false)? else {
+        let Some(session) = self.session(db, agent, false)? else {
             return Ok(None);
         };
         Ok(Some(Lodging {
             session,
             path: found.path,
-            copy: self.synced.entry(agent).or_default().clone(),
-            writing: self.writing.clone(),
+            copy: self.lodged.entry(agent).or_default().clone(),
+            writing: writing.clone(),
         }))
     }
 
     /// Owes the remote workspace a push of the lodges the jobs `done`
     /// changed, when the realm works in one.
-    pub(crate) fn owe_pushes(&mut self, done: &[Job]) {
+    pub(crate) fn owe_pushes(&mut self, db: &mut Db, done: &[Job]) {
         if self.workspace.is_none() {
             return;
         }
         for job in done {
-            let lodges = job.lodges(self.realm.store().connection());
-            self.unpushed.extend(lodges);
+            self.unpushed.extend(job.lodges(db));
         }
     }
 
     /// Starts pushing each lodge owed a push, on a task of its own; a
-    /// push that fails is logged, and the next push sends what it
-    /// would have.
-    pub(crate) fn push_owed(&mut self) -> Result<()> {
-        let secrets = self.credentials.secrets();
+    /// push that fails is logged with `secrets` left out, and the
+    /// next push sends what it would have.
+    pub(crate) fn push_owed(
+        &mut self,
+        realm: &mut Realm,
+        writing: &Writing,
+        secrets: &[String],
+    ) -> Result<()> {
         for agent in std::mem::take(&mut self.unpushed.0) {
-            let Some(lodging) = self.lodging(agent)? else {
+            let Some(lodging) =
+                self.lodging(realm, writing, agent)?
+            else {
                 continue;
             };
-            let secrets = secrets.clone();
+            let secrets = secrets.to_vec();
             tokio::spawn(async move {
                 if let Err(error) = lodging.push().await {
                     tell(
@@ -185,7 +194,9 @@ impl Core<'_, '_> {
         }
         Ok(())
     }
+}
 
+impl Core<'_, '_> {
     /// Starts copying every lodge to the workspace chosen in the
     /// settings, replacing what is there, on a task of its own, which
     /// reports how it goes and answers `id` once done. The realm goes
@@ -222,7 +233,7 @@ impl Core<'_, '_> {
                 continue;
             };
             moves.push(Lodging {
-                session: self.session_in(&transport, agent, false)?,
+                session: session_in(db, &transport, agent, false)?,
                 path: found.path,
                 // Nothing is in step with another workspace yet.
                 copy: RemoteCopy::default(),
@@ -230,7 +241,7 @@ impl Core<'_, '_> {
             });
         }
         let of = i64::try_from(moves.len())?;
-        self.moving.0 = Some(progress(0, of, None));
+        self.remote.moving.0 = Some(progress(0, of, None));
         self.changed.republish = true;
         let secrets = self.credentials.secrets();
         let id = id.clone();

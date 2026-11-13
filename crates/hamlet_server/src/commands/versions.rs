@@ -327,7 +327,7 @@ impl Core<'_, '_> {
         drop(held);
         let db = self.realm.store().connection();
         for hire in hires::living_of(db, id)? {
-            self.unpushed.insert(hire.agent);
+            self.remote.unpushed.insert(hire.agent);
         }
         let by = Actor::Chief(self.realm.chief());
         self.main_moved(by, id)?;

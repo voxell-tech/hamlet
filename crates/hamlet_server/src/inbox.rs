@@ -61,9 +61,9 @@ impl Core<'_, '_> {
         )?
         .place
         .lodge;
-        let remote = self.workspace.is_some();
+        let remote = self.remote.workspace.is_some();
         if remote {
-            self.unpushed.insert(agent);
+            self.remote.unpushed.insert(agent);
         }
         Ok(Inbox {
             lodge,

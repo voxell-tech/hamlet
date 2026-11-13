@@ -12,10 +12,8 @@ pub(crate) mod sweep;
 
 use std::time::Duration;
 
-use anyhow::Result;
 use hamlet_protocol::client::ImageInput;
 
-use crate::core::Core;
 use crate::deadline::AddDeadline;
 use crate::society::refusal::Refusal;
 
@@ -142,12 +140,7 @@ impl Limits {
 }
 
 pub(crate) fn plugin(app: &mut bevy_app::App) {
-    app.add_every(SWEEP_EVERY, sweep);
-}
-
-/// Takes away the images nothing uses.
-fn sweep(mut core: Core) -> Result<()> {
-    core.sweep_images()
+    app.add_every(SWEEP_EVERY, sweep::sweep);
 }
 
 fn usage(words: &str) -> Refusal {

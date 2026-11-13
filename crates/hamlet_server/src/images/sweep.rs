@@ -6,6 +6,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use anyhow::Result;
+use bevy_ecs::system::ResMut;
 use diesel::dsl::exists;
 use diesel::prelude::*;
 use hamlet_protocol::client::ImageId;
@@ -14,31 +15,28 @@ use hamlet_store::schema::{input, item, marker};
 
 use super::SEEN;
 use super::kept::Images;
-use crate::core::Core;
 use crate::layout::Layout;
+use crate::realm::Realm;
 
 /// The time an image nothing uses is kept.
 const GRACE: Duration = Duration::from_secs(24 * 60 * 60);
 
-impl Core<'_, '_> {
-    /// Takes away the images nothing uses any more: those no kept
-    /// input, transcript item or tool result names and no agent's
-    /// folder holds, untouched for a day, which includes uploads
-    /// never sent with a line.
-    pub(crate) fn sweep_images(&mut self) -> Result<()> {
-        let layout = self.realm.layout().clone();
-        let images = Images::new(layout.images());
-        let held = held_by_agents(&layout);
-        let db = self.realm.store().connection();
-        for (id, at) in images.kept() {
-            let idle = at.elapsed().is_ok_and(|age| age >= GRACE);
-            if idle && !held.contains(&id) && !used(db, id.as_str())?
-            {
-                images.remove(&id)?;
-            }
+/// Takes away the images nothing uses any more: those no kept input,
+/// transcript item or tool result names and no agent's folder holds,
+/// untouched for a day, which includes uploads never sent with a
+/// line.
+pub(crate) fn sweep(mut realm: ResMut<Realm>) -> Result<()> {
+    let layout = realm.layout().clone();
+    let images = Images::new(layout.images());
+    let held = held_by_agents(&layout);
+    let db = realm.store().connection();
+    for (id, at) in images.kept() {
+        let idle = at.elapsed().is_ok_and(|age| age >= GRACE);
+        if idle && !held.contains(&id) && !used(db, id.as_str())? {
+            images.remove(&id)?;
         }
-        Ok(())
     }
+    Ok(())
 }
 
 /// Whether a kept input, a transcript item or a tool's result names

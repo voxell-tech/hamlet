@@ -48,7 +48,8 @@ impl Core<'_, '_> {
             );
         };
         let sending = self
-            .image_uploads
+            .uploads
+            .images
             .iter()
             .filter(|(_, of, _)| of.0 == connection)
             .count();
@@ -92,10 +93,12 @@ impl Core<'_, '_> {
         let refuse = |words: &str| reply(&part.id, Err(usage(words)));
         let connection = self.clients.entities.get(&client).copied();
         let Some((entity, _, mut sending)) =
-            self.image_uploads.iter_mut().find(|(_, of, sending)| {
-                Some(of.0) == connection
-                    && sending.upload == part.upload
-            })
+            self.uploads.images.iter_mut().find(
+                |(_, of, sending)| {
+                    Some(of.0) == connection
+                        && sending.upload == part.upload
+                },
+            )
         else {
             return Ok(refuse(
                 "No image of yours is being sent under that upload.",

@@ -25,10 +25,9 @@ use crate::clients::{Clients, Connections};
 use crate::clock;
 use crate::commands::Deeds;
 use crate::credentials::Credentials;
-use crate::diagnostic::{Secrets, tell};
 use crate::files::FileUpload;
 use crate::images::sent::ImageUpload;
-use crate::knowledge::runner::{Runner, Writing, run_due};
+use crate::knowledge::runner::Writing;
 use crate::later::Later;
 use crate::providers::Providers;
 use crate::realm::Realm;
@@ -153,6 +152,44 @@ pub(crate) fn plugin(app: &mut bevy_app::App) {
         .init_resource::<Moving>();
 }
 
+/// The tools a model may be offered, and what runs the built-in ones
+/// on this machine.
+#[derive(SystemParam)]
+pub(crate) struct Tooling<'w> {
+    pub sandbox: Res<'w, Confined>,
+    /// This machine's shells, which the agents' commands run in.
+    pub shells: Res<'w, Shells>,
+    pub leftovers: Res<'w, Leftovers>,
+    pub added: ResMut<'w, Added>,
+    pub faults: ResMut<'w, ToolFaults>,
+    pub catalogue: ResMut<'w, Catalogue>,
+}
+
+/// The remote workspace the agents' tools run in, and how its copies
+/// of the lodges stand.
+#[derive(SystemParam)]
+pub(crate) struct Remote<'w> {
+    pub workspace: Res<'w, Workspace>,
+    pub lodged: ResMut<'w, Lodged>,
+    pub unpushed: ResMut<'w, Unpushed>,
+    pub moving: ResMut<'w, Moving>,
+}
+
+/// The images and files being sent, one entity each.
+#[derive(SystemParam)]
+pub(crate) struct Uploads<'w, 's> {
+    pub images: Query<
+        'w,
+        's,
+        (Entity, &'static UploadOf, &'static mut ImageUpload),
+    >,
+    pub files: Query<
+        'w,
+        's,
+        (Entity, &'static UploadOf, &'static mut FileUpload),
+    >,
+}
+
 /// Every resource of the realm's live state, as the handlers reach
 /// it.
 #[derive(SystemParam)]
@@ -166,13 +203,7 @@ pub(crate) struct Core<'w, 's> {
     pub credentials: ResMut<'w, Credentials>,
     pub clients: ResMut<'w, Clients>,
     pub live: ResMut<'w, Lives>,
-    pub sandbox: Res<'w, Confined>,
-    /// This machine's shells, which the agents' commands run in.
-    pub shells: Res<'w, Shells>,
-    pub leftovers: Res<'w, Leftovers>,
-    pub added: ResMut<'w, Added>,
-    pub faults: ResMut<'w, ToolFaults>,
-    pub catalogue: ResMut<'w, Catalogue>,
+    pub tools: Tooling<'w>,
     /// What the input's changes leave for the runner to follow up.
     pub changed: ResMut<'w, Changed>,
     /// The held calls to wake once the input's changes are sent.
@@ -183,18 +214,7 @@ pub(crate) struct Core<'w, 's> {
     pub deeds: Res<'w, Deeds>,
     /// What the input spawns and despawns, applied after it.
     pub commands: Commands<'w, 's>,
-    /// The images being sent, one entity each.
-    pub image_uploads: Query<
-        'w,
-        's,
-        (Entity, &'static UploadOf, &'static mut ImageUpload),
-    >,
-    /// The files being sent, one entity each.
-    pub file_uploads: Query<
-        'w,
-        's,
-        (Entity, &'static UploadOf, &'static mut FileUpload),
-    >,
+    pub uploads: Uploads<'w, 's>,
     pub calls: ResMut<'w, Calls>,
     /// The tool runs in progress, one entity each.
     pub runs: Runs<'w, 's>,
@@ -204,16 +224,12 @@ pub(crate) struct Core<'w, 's> {
     pub providers: ResMut<'w, Providers>,
     /// Which runtime may read or rotate which provider's credential.
     pub leases: ResMut<'w, Authority>,
-    pub workspace: ResMut<'w, Workspace>,
-    pub synced: ResMut<'w, Lodged>,
-    pub unpushed: ResMut<'w, Unpushed>,
-    pub moving: ResMut<'w, Moving>,
+    pub remote: Remote<'w>,
     /// Where tasks send what they finish with.
     pub later: ResMut<'w, Later>,
     /// What looks off the loop found for the calls that wait on
     /// them.
     pub looks: ResMut<'w, Looks>,
-    pub runner: Res<'w, Runner>,
     /// Held while anything writes the realm's repositories and
     /// lodges.
     pub writing: Res<'w, Writing>,
@@ -280,31 +296,12 @@ impl Core<'_, '_> {
         self.changed.republish = true;
     }
 
-    /// Runs the jobs the kept changes left, and wakes the runner for
-    /// what they leave in turn. Their effects come before anything
-    /// that reads them; one that fails is run again by the runner.
-    pub(crate) fn run_jobs(&mut self) {
-        crate::fault::point("jobs");
-        let layout = self.realm.layout().clone();
-        let db = self.realm.store().connection();
-        match run_due(db, &layout, &self.writing) {
-            Ok(done) => self.owe_pushes(&done),
-            Err(error) => {
-                tell(
-                    Secrets::Fixed,
-                    format!("running jobs: {error:#}"),
-                );
-            }
-        }
-        self.runner.wake();
-    }
-
     /// Narrows the tools of every living agent's conversations to its
     /// role now; a runtime is told before the next input.
     pub(crate) fn retool(&mut self) -> Result<()> {
         crate::apply::retool_all(
             self.realm.store().connection(),
-            &self.catalogue,
+            &self.tools.catalogue,
         )
     }
 
@@ -320,7 +317,7 @@ impl Core<'_, '_> {
             layout: &layout,
             settings: &self.env.settings,
             confinement: &confinement,
-            faults: &self.faults,
+            faults: &self.tools.faults,
         };
         let db = self.realm.store().connection();
         let mut sections = prompt::sections(db, &cx, conversation)?;
@@ -332,13 +329,14 @@ impl Core<'_, '_> {
 
     /// How the agents' commands are confined, as a client is told.
     pub(crate) fn confinement(&self) -> protocol::Confinement {
-        if self.workspace.is_some() {
+        let sandbox = &self.tools.sandbox;
+        if self.remote.workspace.is_some() {
             protocol::Confinement::Remote
-        } else if self.sandbox.is_insecure() {
+        } else if sandbox.is_insecure() {
             protocol::Confinement::Insecure
         } else {
             protocol::Confinement::Sandbox {
-                name: self.sandbox.name().into(),
+                name: sandbox.name().into(),
             }
         }
     }

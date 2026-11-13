@@ -824,20 +824,28 @@ impl Core<'_, '_> {
         let agent = call.conversation.agent;
         let remote = match call.conversation.kind {
             Kind::Dream => None,
-            _ => self.remote_session(agent, net)?,
+            _ => self.remote.session(
+                self.realm.store().connection(),
+                agent,
+                net,
+            )?,
         };
         Ok(match remote {
             Some(session) => (
                 ToolSession::remote(place, session),
-                self.lodging(agent)?,
+                self.remote.lodging(
+                    &mut self.realm,
+                    &self.writing,
+                    agent,
+                )?,
             ),
             None => (
                 ToolSession::local(
                     place,
                     net,
-                    self.sandbox.0,
-                    self.shells.clone(),
-                    self.leftovers.of(agent.0),
+                    self.tools.sandbox.0,
+                    self.tools.shells.clone(),
+                    self.tools.leftovers.of(agent.0),
                 ),
                 None,
             ),
@@ -867,7 +875,8 @@ impl Core<'_, '_> {
     /// Whether `tool` may not run twice: what writes, runs or is
     /// added by hand.
     fn runs_once(&self, tool: &str) -> bool {
-        self.catalogue
+        self.tools
+            .catalogue
             .iter()
             .find(|spec| spec.name == tool)
             .is_none_or(|spec| spec.replay == ToolSpecReplay::Unsafe)

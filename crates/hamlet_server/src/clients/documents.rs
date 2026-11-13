@@ -209,7 +209,7 @@ impl Core<'_, '_> {
                 folder.write(path, text.as_bytes(), false)?;
             }
         }
-        self.unpushed.insert(agent);
+        self.remote.unpushed.insert(agent);
         let by = Actor::Chief(self.realm.chief());
         self.change(by, |cx, _| {
             jobs::add(cx, &Job::Commit { hire: agent })?;

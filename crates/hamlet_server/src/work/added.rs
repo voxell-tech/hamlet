@@ -5,6 +5,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use bevy_ecs::system::{Res, ResMut};
 use hamlet_os::fs::path::{resolve, text};
 use hamlet_protocol::runtime::{
     DiagnosticSeverity, ServerMessage, ToolSpec, ToolSpecReplay,
@@ -18,8 +19,11 @@ use serde::Deserialize;
 use serde_json::{Map, Value, json};
 use tokio::sync::mpsc::UnboundedSender;
 
-use crate::core::{Catalogue, Core};
+use crate::apply::Changed;
+use crate::core::{Catalogue, Tooling};
 use crate::diagnostic::{Secrets, tell};
+use crate::realm::Realm;
+use crate::talk::runtimes::Runtimes;
 use crate::work::tools::{Outcome, diagnostic};
 
 /// A loaded manifest and the program its tool runs.
@@ -83,28 +87,33 @@ pub(crate) fn watch(
 /// Loads the tools added by hand again: the catalogue follows them,
 /// each ready runtime is told it, and the conversations' tools are
 /// narrowed to it once the input is kept.
-pub(crate) fn reload(mut core: Core) -> anyhow::Result<()> {
-    let (added, faults) = load(core.realm.layout().root());
-    for fault in faults.iter().filter(|f| !core.faults.contains(f)) {
+pub(crate) fn reload(
+    realm: Res<Realm>,
+    mut tools: Tooling,
+    mut runtimes: Runtimes,
+    mut changed: ResMut<Changed>,
+) -> anyhow::Result<()> {
+    let (added, faults) = load(realm.layout().root());
+    for fault in faults.iter().filter(|f| !tools.faults.contains(f)) {
         tell(
             Secrets::Fixed,
             format!("a tool added by hand did not load: {fault}"),
         );
     }
-    let catalogue = Catalogue::of(&core.shells, &added);
-    core.added.0 = added;
-    core.faults.0 = faults;
+    let catalogue = Catalogue::of(&tools.shells, &added);
+    tools.added.0 = added;
+    tools.faults.0 = faults;
     // The prompt names the tools that did not load.
-    core.publish();
-    if catalogue == core.catalogue.0 {
+    changed.republish = true;
+    if catalogue == tools.catalogue.0 {
         return Ok(());
     }
-    core.catalogue.0 = catalogue;
-    core.changed.reshaped = true;
-    for runtime in core.runtimes.all() {
-        if core.runtimes.is_ready(runtime) {
-            let tools = core.catalogue.0.clone();
-            core.runtimes.send(runtime, |v, id| {
+    tools.catalogue.0 = catalogue;
+    changed.reshaped = true;
+    for runtime in runtimes.all() {
+        if runtimes.is_ready(runtime) {
+            let tools = tools.catalogue.0.clone();
+            runtimes.send(runtime, |v, id| {
                 ServerMessage::Tools(Tools { id, tools, v })
             });
         }

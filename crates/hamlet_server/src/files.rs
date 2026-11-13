@@ -10,6 +10,7 @@ use anyhow::{Context, Result};
 use base64::Engine as _;
 use bevy_ecs::component::Component;
 use bevy_ecs::lifecycle::HookContext;
+use bevy_ecs::system::ResMut;
 use bevy_ecs::world::DeferredWorld;
 use hamlet_protocol::client::{
     AttachedFile, FileId, PutFile, PutFilePart, ServerMessage,
@@ -20,6 +21,7 @@ use crate::clients::check::reply;
 use crate::clients::connection::UploadOf;
 use crate::core::Core;
 use crate::deadline::AddDeadline;
+use crate::realm::Realm;
 use crate::society::refusal::Refusal;
 
 /// The time a file nothing uses is kept, and the time between the
@@ -150,9 +152,20 @@ pub(crate) fn plugin(app: &mut bevy_app::App) {
     app.add_every(SWEEP_EVERY, sweep);
 }
 
-/// Takes away the files nothing uses.
-fn sweep(mut core: Core) -> Result<()> {
-    core.sweep_files()
+/// Takes away the files nothing uses any more, at most once an hour:
+/// those no kept input or transcript item names, untouched for a day,
+/// which includes uploads never sent with a line.
+fn sweep(mut realm: ResMut<Realm>) -> Result<()> {
+    let files = Files::new(realm.layout().files());
+    files.clear_incoming();
+    let db = realm.store().connection();
+    for (id, at) in files.kept() {
+        let idle = at.elapsed().is_ok_and(|age| age >= GRACE);
+        if idle && !crate::images::sweep::used(db, id.as_str())? {
+            let _ = std::fs::remove_file(files.path(&id));
+        }
+    }
+    Ok(())
 }
 
 fn usage(words: &str) -> Refusal {
@@ -187,7 +200,8 @@ impl Core<'_, '_> {
             ));
         };
         let sending = self
-            .file_uploads
+            .uploads
+            .files
             .iter()
             .filter(|(_, of, _)| of.0 == connection)
             .count();
@@ -246,7 +260,7 @@ impl Core<'_, '_> {
         let refuse = |words: &str| reply(&part.id, Err(usage(words)));
         let connection = self.clients.entities.get(&client).copied();
         let Some((entity, _, mut sending)) =
-            self.file_uploads.iter_mut().find(|(_, of, sending)| {
+            self.uploads.files.iter_mut().find(|(_, of, sending)| {
                 Some(of.0) == connection
                     && sending.upload == part.upload
             })
@@ -367,21 +381,5 @@ impl Core<'_, '_> {
         for file in files {
             kept.touch(&file.id);
         }
-    }
-
-    /// Takes away the files nothing uses any more, at most once an
-    /// hour: those no kept input or transcript item names, untouched
-    /// for a day, which includes uploads never sent with a line.
-    pub(crate) fn sweep_files(&mut self) -> Result<()> {
-        let files = Files::new(self.realm.layout().files());
-        files.clear_incoming();
-        let db = self.realm.store().connection();
-        for (id, at) in files.kept() {
-            let idle = at.elapsed().is_ok_and(|age| age >= GRACE);
-            if idle && !crate::images::sweep::used(db, id.as_str())? {
-                let _ = std::fs::remove_file(files.path(&id));
-            }
-        }
-        Ok(())
     }
 }

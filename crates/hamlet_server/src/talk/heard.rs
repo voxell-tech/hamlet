@@ -150,7 +150,7 @@ fn hello(
             });
         }
         None => {
-            let tools = core.catalogue.0.clone();
+            let tools = core.tools.catalogue.0.clone();
             core.runtimes.send(from, |v, id| {
                 ServerMessage::Welcome(runtime::Welcome {
                     id,

@@ -289,7 +289,7 @@ impl Core<'_, '_> {
         if tools.iter().any(|tool| Society::named(tool).is_some()) {
             return Ok(Step::of(Err(Refusal::WorkerTools)));
         }
-        let names = self.catalogue.names();
+        let names = self.tools.catalogue.names();
         let db = self.realm.store().connection();
         let offered = place::tools(db, starter, Kind::Chat, &names)?;
         let hamlet_protocol::runtime::ConfigureTools::Only { only } =

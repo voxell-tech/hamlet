@@ -111,6 +111,7 @@ impl Core<'_, '_> {
         at: &Workplace,
     ) -> Result<Result<gate::Call, Decision>> {
         let added = self
+            .tools
             .added
             .iter()
             .find(|manifest| manifest.spec.name == call.tool)

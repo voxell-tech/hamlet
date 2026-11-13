@@ -18,7 +18,7 @@ use bevy_ecs::entity::Entity;
 use bevy_ecs::error::{BevyError, ErrorContext};
 use bevy_ecs::query::With;
 use bevy_ecs::resource::Resource;
-use bevy_ecs::system::{In, IntoSystem, SystemState};
+use bevy_ecs::system::{In, IntoSystem, ResMut, SystemState};
 use bevy_ecs::world::World;
 use hamlet_protocol::runtime::{
     ErrorCode, ProtocolError, RuntimeMessage, ServerMessage,
@@ -35,7 +35,7 @@ use crate::clients::check::fault;
 use crate::clients::connection::Event;
 use crate::clients::{Clients, asked};
 use crate::clock;
-use crate::core::{Confined, Core, Leftovers, Workspace};
+use crate::core::{Confined, Core, Leftovers, Remote, Workspace};
 use crate::credentials::Credentials;
 use crate::deadline::{self, Fire};
 use crate::diagnostic::{self, Secrets, tell};
@@ -499,7 +499,7 @@ impl Server {
                 core.answer(client, message)
             }
             Finished::Moving { progress, answer } => {
-                core.moving.0 = Some(progress);
+                core.remote.moving.0 = Some(progress);
                 core.changed.republish = true;
                 if let Some((client, message)) = answer {
                     core.answer(client, message)?;
@@ -509,7 +509,7 @@ impl Server {
             Finished::Looked { call, found, again } => {
                 if let Some(receiver) = core.looks.found(call, found)
                 {
-                    core.unpushed.insert(receiver);
+                    core.remote.unpushed.insert(receiver);
                 }
                 // A runtime that started again since asks again.
                 if core.runtimes.generation(again.from)
@@ -707,9 +707,14 @@ where
 
 /// A pass of the jobs runner did jobs: the lodges they changed are
 /// owed a push, and the clients see what they did.
-fn worked(In(done): In<Vec<Job>>, mut core: Core) -> Result<()> {
-    core.owe_pushes(&done);
-    core.changed.republish = true;
+fn worked(
+    In(done): In<Vec<Job>>,
+    mut realm: ResMut<Realm>,
+    mut remote: Remote,
+    mut changed: ResMut<Changed>,
+) -> Result<()> {
+    remote.owe_pushes(realm.store().connection(), &done);
+    changed.republish = true;
     Ok(())
 }
 

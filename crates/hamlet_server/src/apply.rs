@@ -25,8 +25,10 @@ use hamlet_store::ids::{Actor, ConversationId};
 
 use crate::calls::{Runs, Starting, place};
 use crate::clients::{Clients, Connections, check};
-use crate::core::{Catalogue, Core};
+use crate::core::{Catalogue, Core, Remote};
 use crate::credentials::Credentials;
+use crate::diagnostic::{Secrets, tell};
+use crate::knowledge::runner::{Runner, Writing, run_due};
 use crate::later::Later;
 use crate::providers::Providers;
 use crate::realm::Realm;
@@ -274,8 +276,25 @@ fn keep(mut realm: ResMut<Realm>) -> Result {
     Ok(())
 }
 
-fn jobs(mut core: Core) {
-    core.run_jobs();
+/// Runs the jobs the kept changes left, and wakes the runner for what
+/// they leave in turn. Their effects come before anything that reads
+/// them; one that fails is run again by the runner.
+fn jobs(
+    mut realm: ResMut<Realm>,
+    writing: Res<Writing>,
+    runner: Res<Runner>,
+    mut remote: Remote,
+) {
+    crate::fault::point("jobs");
+    let layout = realm.layout().clone();
+    let db = realm.store().connection();
+    match run_due(db, &layout, &writing) {
+        Ok(done) => remote.owe_pushes(db, &done),
+        Err(error) => {
+            tell(Secrets::Fixed, format!("running jobs: {error:#}"));
+        }
+    }
+    runner.wake();
 }
 
 /// Stops the tool runs of every conversation being stopped: their
@@ -346,8 +365,13 @@ fn send(mut runtimes: Runtimes) {
 }
 
 /// Starts pushing the lodges the input owes the remote workspace.
-fn push(mut core: Core) -> Result {
-    core.push_owed()?;
+fn push(
+    mut realm: ResMut<Realm>,
+    writing: Res<Writing>,
+    credentials: Res<Credentials>,
+    mut remote: Remote,
+) -> Result {
+    remote.push_owed(&mut realm, &writing, &credentials.secrets())?;
     Ok(())
 }
 
