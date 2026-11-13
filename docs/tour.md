@@ -173,7 +173,11 @@ need no engine; nothing calls them yet.
 `hamlet_host/src/local.rs` is a host on that trait. `Host::open` locks
 the realm folder with `host.lock` and refuses a second host.
 `get_or_start` finds an actor by kind and key and starts it on the file
-`actors/<kind>/<key>.sqlite`. `plain_sqlite.rs` keeps each file on a
+`actors/<kind>/<key>.sqlite`. Each actor that is not stopped is one
+`Life` in the host's map: starting, running, stopping or being
+destroyed. A start or a stop runs on a task of its own and waits only
+on its own actor, and each start gives the core a handle that reaches
+that generation's file alone. `plain_sqlite.rs` keeps each file on a
 thread of its own and opens it with `rusqlite` in exclusive locking mode,
 in write-ahead mode with `synchronous=NORMAL`. `hamlet_sqlite` runs the
 actor's SQL on that connection. The runtime's tables are
