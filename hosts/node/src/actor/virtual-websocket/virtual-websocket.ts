@@ -139,10 +139,12 @@ export class VirtualWebSocket implements UniversalWebSocket {
         type: string,
         listener: (ev: any) => void | Promise<void>,
     ): void {
-        if (!this.#listeners.has(type)) {
-            this.#listeners.set(type, []);
+        let listeners = this.#listeners.get(type);
+        if (!listeners) {
+            listeners = [];
+            this.#listeners.set(type, listeners);
         }
-        this.#listeners.get(type)!.push(listener);
+        listeners.push(listener);
     }
 
     removeEventListener(

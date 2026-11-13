@@ -1154,16 +1154,16 @@ export type DefineRunHandlerOptions<THistory = unknown> =
         );
 
 interface RunFunctionConfig {
-    name?: string;
-    icon?: string;
+    name?: string | undefined;
+    icon?: string | undefined;
     inspector?: RunInspectorConfig;
     inspectorFactory?: (actor: unknown) => RunInspectorConfig | undefined;
     /** Release any per-actor inspector state held for this actor id. */
     disposeInspector?: (actorId: string) => void;
-    inspectorKind?: RunInspectorKind;
-    createInspector?: (
-        context: RunInspectorFactoryContext,
-    ) => RunInspectorFactoryResult;
+    inspectorKind?: RunInspectorKind | undefined;
+    createInspector?:
+        | ((context: RunInspectorFactoryContext) => RunInspectorFactoryResult)
+        | undefined;
 }
 
 type RunFunctionWithConfig = ((...args: any[]) => any) & {

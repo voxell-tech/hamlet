@@ -109,7 +109,10 @@ export function getBaseLogger(): Logger {
     if (!baseLogger) {
         configureDefaultLogger();
     }
-    return baseLogger!;
+    if (!baseLogger) {
+        throw new Error("base logger is not configured");
+    }
+    return baseLogger;
 }
 
 /**

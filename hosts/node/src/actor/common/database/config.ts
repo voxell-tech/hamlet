@@ -245,7 +245,7 @@ export interface RawDatabaseClient {
 /**
  * Drizzle database client interface (will be extended by drizzle-orm types)
  */
-export type DrizzleDatabaseClient = {};
+export type DrizzleDatabaseClient = object;
 
 type ExecuteFunction = <
     TRow extends Record<string, unknown> = Record<string, unknown>,
