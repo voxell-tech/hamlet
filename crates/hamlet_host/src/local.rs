@@ -48,10 +48,13 @@ use tokio::sync::{broadcast, oneshot, watch};
 use tokio::task::{AbortHandle, JoinHandle};
 use tracing::Instrument;
 
+pub use self::access::{HostRef, Values};
 use crate::cause::Cause;
 use crate::directory::{Address, Directory, Place};
 use crate::event::{HostEvent, Letter};
 use crate::plain_sqlite::{self, PlainSqlite};
+
+mod access;
 
 /// The one session a local file has. The transaction code compares
 /// sessions to detect a lost connection, which a local file cannot
@@ -402,6 +405,9 @@ pub struct HostOptions {
     /// one name is refused. Hosts that share a folder must run kinds
     /// of their own.
     pub name: String,
+    /// What the host gives its actors, by type: none by default. See
+    /// [`HostOptions::with_value`].
+    pub values: Values,
 }
 
 impl Default for HostOptions {
@@ -409,6 +415,7 @@ impl Default for HostOptions {
         Self {
             start_deadline: Duration::from_secs(60),
             name: "host".to_owned(),
+            values: Values::default(),
         }
     }
 }
