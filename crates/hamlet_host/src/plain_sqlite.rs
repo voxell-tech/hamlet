@@ -10,12 +10,10 @@ use std::thread;
 
 use anyhow::{Context, Result, anyhow, ensure};
 use hamlet_actor_core::{
-    BindParam, ColumnValue, ExecuteResult, QueryResult,
-    SqliteBatchStatement,
+    BindParam, ExecuteResult, QueryResult, SqliteBatchStatement,
 };
-use rusqlite::fallible_iterator::FallibleIterator;
-use rusqlite::types::{Value, ValueRef};
-use rusqlite::{Batch, Connection, params_from_iter};
+use rusqlite::types::Value;
+use rusqlite::{Connection, params_from_iter};
 use tokio::sync::oneshot;
 
 enum Command {
@@ -140,17 +138,22 @@ fn serve(conn: Connection, rx: &std_mpsc::Receiver<Command>) {
     while let Ok(command) = rx.recv() {
         match command {
             Command::Exec(sql, reply) => {
-                let _ = reply.send(exec(&conn, &sql));
+                let _ = reply.send(hamlet_sqlite::exec(&conn, &sql));
             }
             Command::Execute(sql, params, reply) => {
-                let _ = reply.send(execute(
+                let _ = reply.send(hamlet_sqlite::execute(
                     &conn,
                     &sql,
                     params.as_deref(),
                 ));
             }
             Command::Batch(statements, reply) => {
-                let _ = reply.send(batch(&conn, statements));
+                let _ = reply.send(hamlet_sqlite::batch(
+                    &conn,
+                    statements.iter().map(|s| {
+                        (s.sql.as_str(), s.params.as_deref())
+                    }),
+                ));
             }
             Command::HostWrite(write) => held.push(write),
             Command::Close(reply) => {
@@ -206,119 +209,9 @@ fn run_held(conn: &Connection, held: &mut Vec<HostWrite>) {
     }
 }
 
-fn exec(conn: &Connection, sql: &str) -> Result<QueryResult> {
-    let mut result = QueryResult {
-        columns: Vec::new(),
-        rows: Vec::new(),
-    };
-    let mut batch = Batch::new(conn, sql);
-    while let Some(mut stmt) = batch.next()? {
-        let columns: Vec<String> = stmt
-            .column_names()
-            .iter()
-            .map(ToString::to_string)
-            .collect();
-        let width = columns.len();
-        let mut rows = Vec::new();
-        let mut cursor = stmt.raw_query();
-        while let Some(row) = cursor.next()? {
-            rows.push(read_row(row, width)?);
-        }
-        if width > 0 || !rows.is_empty() {
-            result = QueryResult { columns, rows };
-        }
-    }
-    Ok(result)
-}
-
-fn execute(
-    conn: &Connection,
-    sql: &str,
-    params: Option<&[BindParam]>,
-) -> Result<ExecuteResult> {
-    let mut stmt = conn.prepare(sql)?;
-    for (index, param) in
-        params.unwrap_or_default().iter().enumerate()
-    {
-        stmt.raw_bind_parameter(index + 1, to_value(param))?;
-    }
-    let columns: Vec<String> = stmt
-        .column_names()
-        .iter()
-        .map(ToString::to_string)
-        .collect();
-    let width = columns.len();
-    let readonly = stmt.readonly();
-    let mut rows = Vec::new();
-    let mut cursor = stmt.raw_query();
-    while let Some(row) = cursor.next()? {
-        rows.push(read_row(row, width)?);
-    }
-    drop(cursor);
-    Ok(ExecuteResult {
-        columns,
-        rows,
-        changes: if readonly { 0 } else { conn.changes() as i64 },
-        last_insert_row_id: (!readonly)
-            .then(|| conn.last_insert_rowid()),
-    })
-}
-
-/// Runs the statements as one transaction.
-fn batch(
-    conn: &Connection,
-    statements: Vec<SqliteBatchStatement>,
-) -> Result<Vec<ExecuteResult>> {
-    conn.execute_batch("BEGIN IMMEDIATE")?;
-    let mut results = Vec::with_capacity(statements.len());
-    for statement in statements {
-        match execute(
-            conn,
-            &statement.sql,
-            statement.params.as_deref(),
-        ) {
-            Ok(result) => results.push(result),
-            Err(error) => {
-                let _ = conn.execute_batch("ROLLBACK");
-                return Err(error);
-            }
-        }
-    }
-    conn.execute_batch("COMMIT")?;
-    Ok(results)
-}
-
-fn read_row(
-    row: &rusqlite::Row<'_>,
-    width: usize,
-) -> Result<Vec<ColumnValue>> {
-    (0..width)
-        .map(|index| {
-            Ok(match row.get_ref(index)? {
-                ValueRef::Null => ColumnValue::Null,
-                ValueRef::Integer(v) => ColumnValue::Integer(v),
-                ValueRef::Real(v) => ColumnValue::Float(v),
-                ValueRef::Text(v) => ColumnValue::Text(
-                    String::from_utf8_lossy(v).into_owned(),
-                ),
-                ValueRef::Blob(v) => ColumnValue::Blob(v.to_vec()),
-            })
-        })
-        .collect()
-}
-
-fn to_value(param: &BindParam) -> Value {
-    match param {
-        BindParam::Null => Value::Null,
-        BindParam::Integer(v) => Value::Integer(*v),
-        BindParam::Float(v) => Value::Real(*v),
-        BindParam::Text(v) => Value::Text(v.clone()),
-        BindParam::Blob(v) => Value::Blob(v.clone()),
-    }
-}
-
 #[cfg(test)]
 mod tests {
+    use hamlet_actor_core::ColumnValue;
     use hamlet_testing::Scratch;
 
     use super::*;

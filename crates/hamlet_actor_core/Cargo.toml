@@ -55,6 +55,7 @@ vbare = { workspace = true, features = ["serde"] }
 # The examples run on the local host, which builds on this crate.
 hamlet_host.workspace = true
 # The tests' host serves SQL from an in-memory database.
+hamlet_sqlite.workspace = true
 rusqlite.workspace = true
 tokio = { workspace = true, features = ["test-util"] }
 

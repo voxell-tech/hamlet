@@ -79,6 +79,7 @@ it, and it is not edited here.
 | `hamlet_actor_wire` | The actor runtime's shared types and versioned wire formats, generated from the schemas in `schemas/` |
 | `hamlet_actor_error`, `hamlet_actor_error_macros` | The runtime's structured errors and the derive that declares them |
 | `hamlet_host` | Runs actors in this process, each in one plain SQLite file; the `demo` example and its counter actor; fault points behind the `faults` feature |
+| `hamlet_sqlite` | The actor runtime's SQL requests run on a rusqlite connection, for `hamlet_host` and for the core's tests |
 | `hamlet_killkit` | Kills the demo host at a scenario's step and checks what survived, as `cargo xtask killkit` |
 
 The workspace's `bevy` entry turns on no feature: `hamlet_app` turns on
@@ -171,7 +172,8 @@ the realm folder with `host.lock` and refuses a second host.
 `get_or_start` finds an actor by kind and key and starts it on the file
 `actors/<kind>/<key>.sqlite`. `plain_sqlite.rs` keeps each file on a
 thread of its own and opens it with `rusqlite` in exclusive locking mode,
-in write-ahead mode with `synchronous=NORMAL`. The runtime's tables are
+in write-ahead mode with `synchronous=NORMAL`. `hamlet_sqlite` runs the
+actor's SQL on that connection. The runtime's tables are
 named `_actor_*`, and the host's one row per file is `_hamlet_actor`,
 with the actor's generation, its next alarm and a mark that it is
 running. `boot` arms each stored alarm and starts each actor whose alarm
@@ -184,7 +186,7 @@ The core's own tests are in `hamlet_actor_core/tests/`. Each file there
 is compiled into the library by a `#[path]` line in the module it tests,
 except `integration.rs`, which is a test target of its own. They run on
 `TestHost` in `src/testing.rs`, a host that serves one in-memory
-database.
+database through `hamlet_sqlite`.
 
 `cargo xtask killkit` runs `hamlet_killkit`. Its scenarios are rows of
 `src/scenario.rs`: the commands that set up, the fault point to kill at,

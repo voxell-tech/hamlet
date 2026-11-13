@@ -17,8 +17,6 @@ use std::thread;
 use anyhow::{Result, anyhow};
 use hamlet_actor_wire::persist::versioned::RunWakeAt;
 use parking_lot::Mutex;
-use rusqlite::fallible_iterator::FallibleIterator;
-use rusqlite::types::{Value, ValueRef};
 use tokio::sync::{oneshot, watch};
 
 use crate::ActorConfig;
@@ -389,13 +387,14 @@ fn spawn_sqlite(
             while let Ok(command) = rx.recv() {
                 match command {
                     SqlCommand::Exec(sql, reply) => {
-                        let _ = reply.send(exec_sqlite(&conn, &sql));
+                        let _ = reply
+                            .send(hamlet_sqlite::exec(&conn, &sql));
                     }
                     SqlCommand::Execute(sql, params, reply) => {
                         if let Some(gate) = &gate {
                             gate.pass(std::iter::once(&sql));
                         }
-                        let _ = reply.send(execute_sqlite(
+                        let _ = reply.send(hamlet_sqlite::execute(
                             &conn,
                             &sql,
                             params.as_deref(),
@@ -407,8 +406,11 @@ fn spawn_sqlite(
                                 statements.iter().map(|s| &s.sql),
                             );
                         }
-                        let _ = reply.send(execute_sqlite_batch(
-                            &conn, statements,
+                        let _ = reply.send(hamlet_sqlite::batch(
+                            &conn,
+                            statements.iter().map(|s| {
+                                (s.sql.as_str(), s.params.as_deref())
+                            }),
                         ));
                     }
                 }
@@ -416,116 +418,6 @@ fn spawn_sqlite(
         })
         .expect("test sqlite thread should start");
     tx
-}
-
-fn execute_sqlite_batch(
-    conn: &rusqlite::Connection,
-    statements: Vec<SqliteBatchStatement>,
-) -> Result<Vec<ExecuteResult>> {
-    conn.execute_batch("BEGIN")?;
-    let mut results = Vec::with_capacity(statements.len());
-    for statement in statements {
-        match execute_sqlite(
-            conn,
-            &statement.sql,
-            statement.params.as_deref(),
-        ) {
-            Ok(result) => results.push(result),
-            Err(error) => {
-                let _ = conn.execute_batch("ROLLBACK");
-                return Err(error);
-            }
-        }
-    }
-    conn.execute_batch("COMMIT")?;
-    Ok(results)
-}
-
-/// Runs each statement of `sql` and returns the rows of the last one
-/// that has columns.
-fn exec_sqlite(
-    conn: &rusqlite::Connection,
-    sql: &str,
-) -> Result<QueryResult> {
-    let mut result = QueryResult {
-        columns: Vec::new(),
-        rows: Vec::new(),
-    };
-    let mut batch = rusqlite::Batch::new(conn, sql);
-    while let Some(mut statement) = batch.next()? {
-        let (columns, rows) = read_rows(&mut statement)?;
-        if !columns.is_empty() {
-            result = QueryResult { columns, rows };
-        }
-    }
-    Ok(result)
-}
-
-fn execute_sqlite(
-    conn: &rusqlite::Connection,
-    sql: &str,
-    params: Option<&[BindParam]>,
-) -> Result<ExecuteResult> {
-    let mut statement = conn.prepare(sql)?;
-    for (index, param) in
-        params.unwrap_or_default().iter().enumerate()
-    {
-        statement.raw_bind_parameter(
-            index + 1,
-            sqlite_param_value(param),
-        )?;
-    }
-    let (columns, rows) = read_rows(&mut statement)?;
-    Ok(ExecuteResult {
-        columns,
-        rows,
-        changes: conn.changes() as i64,
-        last_insert_row_id: Some(conn.last_insert_rowid()),
-    })
-}
-
-fn read_rows(
-    statement: &mut rusqlite::Statement<'_>,
-) -> Result<(Vec<String>, Vec<Vec<ColumnValue>>)> {
-    let columns: Vec<String> = statement
-        .column_names()
-        .into_iter()
-        .map(ToOwned::to_owned)
-        .collect();
-    let mut rows = Vec::new();
-    let mut cursor = statement.raw_query();
-    while let Some(row) = cursor.next()? {
-        rows.push(
-            (0..columns.len())
-                .map(|index| {
-                    Ok(sqlite_column_value(row.get_ref(index)?))
-                })
-                .collect::<Result<Vec<_>>>()?,
-        );
-    }
-    Ok((columns, rows))
-}
-
-fn sqlite_param_value(param: &BindParam) -> Value {
-    match param {
-        BindParam::Null => Value::Null,
-        BindParam::Integer(value) => Value::Integer(*value),
-        BindParam::Float(value) => Value::Real(*value),
-        BindParam::Text(value) => Value::Text(value.clone()),
-        BindParam::Blob(value) => Value::Blob(value.clone()),
-    }
-}
-
-fn sqlite_column_value(value: ValueRef<'_>) -> ColumnValue {
-    match value {
-        ValueRef::Null => ColumnValue::Null,
-        ValueRef::Integer(value) => ColumnValue::Integer(value),
-        ValueRef::Real(value) => ColumnValue::Float(value),
-        ValueRef::Text(value) => ColumnValue::Text(
-            String::from_utf8_lossy(value).into_owned(),
-        ),
-        ValueRef::Blob(value) => ColumnValue::Blob(value.to_vec()),
-    }
 }
 
 /// The actor's last pushed alarm, read as the internal storage read
