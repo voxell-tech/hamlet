@@ -761,18 +761,24 @@ impl Core<'_, '_> {
                 format!("Connected, {count} model(s)")
             }),
         };
-        self.model_link(
-            if result.error.is_some() {
-                LinkState::Failed
-            } else {
-                LinkState::Connected
-            },
-            (pending.action == ProviderRequestAction::Refresh
-                && result.error.is_none())
-            .then(|| i64::try_from(count))
-            .transpose()?,
-            Some(&words),
-        )?;
+        // A request no chief made, such as the refresh at start, does
+        // not settle a check under way; the check's own result does.
+        let checking =
+            self.env.settings.link.state == LinkState::Testing;
+        if pending.from.is_some() || !checking {
+            self.model_link(
+                if result.error.is_some() {
+                    LinkState::Failed
+                } else {
+                    LinkState::Connected
+                },
+                (pending.action == ProviderRequestAction::Refresh
+                    && result.error.is_none())
+                .then(|| i64::try_from(count))
+                .transpose()?,
+                Some(&words),
+            )?;
+        }
         if let Some((client, id)) = &pending.from {
             if pending.read {
                 let more = self
