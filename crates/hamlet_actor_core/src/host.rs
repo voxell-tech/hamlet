@@ -5,6 +5,7 @@
 //! module below mirrors the path the core imports from.
 
 pub(crate) mod dispatch;
+pub(crate) mod http;
 mod running;
 
 use std::sync::Arc;

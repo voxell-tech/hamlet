@@ -13,6 +13,11 @@ mod moved_tests {
         with_action_dispatch_timeout, with_framework_action_timeout,
         workflow_dispatch_result,
     };
+    use crate::host::http::{
+        HttpResponseEncoding, authorization_bearer_token,
+        authorization_bearer_token_map, is_actor_request_path,
+        normalize_actor_request_path, request_encoding,
+    };
 
     #[test]
     fn workflow_dispatch_result_marks_handled_workflow_as_enabled() {
@@ -72,6 +77,30 @@ mod moved_tests {
         assert_eq!(request.into_body(), b"prefix");
     }
 
+    #[test]
+    fn authorization_bearer_token_accepts_case_insensitive_scheme_and_whitespace()
+     {
+        let mut headers = http::HeaderMap::new();
+        headers.insert(
+            http::header::AUTHORIZATION,
+            "bearer   test-token".parse().unwrap(),
+        );
+
+        assert_eq!(
+            authorization_bearer_token(&headers),
+            Some("test-token")
+        );
+
+        let map = HashMap::from([(
+            http::header::AUTHORIZATION.as_str().to_owned(),
+            "BEARER\ttest-token".to_owned(),
+        )]);
+        assert_eq!(
+            authorization_bearer_token_map(&map),
+            Some("test-token")
+        );
+    }
+
     #[tokio::test]
     async fn action_dispatch_timeout_returns_structured_error() {
         let error = with_action_dispatch_timeout(
@@ -105,5 +134,54 @@ mod moved_tests {
         assert_eq!(error.group(), "actor");
         assert_eq!(error.code(), "action_timed_out");
         assert_eq!(error.message(), "Action timed out");
+    }
+
+    #[test]
+    fn request_encoding_reads_cbor_header() {
+        let mut headers = http::HeaderMap::new();
+        headers.insert(
+            "x-hamlet-actor-encoding",
+            "cbor".parse().unwrap(),
+        );
+
+        assert_eq!(
+            request_encoding(&headers),
+            HttpResponseEncoding::Cbor
+        );
+    }
+
+    #[test]
+    fn normalize_actor_request_path_preserves_raw_root_paths() {
+        assert!(is_actor_request_path("/request"));
+        assert!(is_actor_request_path("/request/"));
+        assert!(is_actor_request_path("/request/users/1"));
+        assert!(is_actor_request_path("/request?foo=bar"));
+        assert_eq!(normalize_actor_request_path("/request"), "/");
+        assert_eq!(normalize_actor_request_path("/request/"), "/");
+        assert_eq!(
+            normalize_actor_request_path("/request/users/1"),
+            "/users/1",
+        );
+        assert_eq!(
+            normalize_actor_request_path("/request?foo=bar"),
+            "?foo=bar"
+        );
+    }
+
+    #[test]
+    fn normalize_actor_request_path_does_not_mark_framework_routes_as_raw()
+     {
+        assert!(!is_actor_request_path("/"));
+        assert!(!is_actor_request_path("/action/ping"));
+        assert!(!is_actor_request_path("/requestfoo"));
+        assert_eq!(normalize_actor_request_path("/"), "/");
+        assert_eq!(
+            normalize_actor_request_path("/action/ping"),
+            "/action/ping"
+        );
+        assert_eq!(
+            normalize_actor_request_path("/requestfoo"),
+            "/requestfoo"
+        );
     }
 }
