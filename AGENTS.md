@@ -103,6 +103,30 @@ theme in `HAMLET_VIEW`, else the OS's config folder for Hamlet. Closing the
 window ends only its process; agents keep working on the server. Stop
 `hamlet dev` with Ctrl-C when done.
 
+The server does not use the actor runtime. The runtime's host,
+`hamlet_host`, has a demo that runs counter actors, each in one SQLite
+file under `actors/counter/` in `HAMLET_HOME`. Run it only with
+`HAMLET_HOME` set to a scratch folder:
+
+```sh
+HAMLET_HOME=/tmp/actors-try cargo run -p hamlet_host --example demo -- increment a
+```
+
+`demo serve [<n>]` keeps the host running, starts `n` counters that never
+sleep, and takes one command per line on stdin until stdin ends or the
+process gets SIGTERM. A running host holds `host.lock` and each actor's
+file, so open a file with `sqlite3 -readonly` only after the host stops.
+
+`cargo xtask killkit <scenario> --runs <n>` builds the demo, kills it
+with SIGKILL at a scenario's step, restarts it twice and prints one line
+per run; `--list` names the scenarios. Each run gets its own folder under
+the system's temporary folder, which the kit removes when the run passes.
+The kit stops the host at a step through `HAMLET_FAULT`, which works only
+in a build with `hamlet_host`'s `faults` feature; the crate's own tests
+and examples turn it on. `cargo xtask idle <command>` starts a command
+and reports the memory and wakeups per second of its process tree while
+it is idle, on Linux only.
+
 ## Checks
 
 All four must be clean before a commit. `rust-toolchain.toml` names the
@@ -121,7 +145,10 @@ every check a commit needs, as nine steps in this order, each of which
 no C compiler), `deny` (`cargo deny check`), `test`
 (`cargo build --all-targets`, then `cargo test`, doc tests included),
 `acceptance` and `harness` (the two suites below), `doc` (`cargo doc`
-with `-D warnings`) and `node` (pi's checks). `deny` needs cargo-deny:
+with `-D warnings` and every feature, except that `hamlet_actor_core` is
+documented on its own at its default features, because its
+`native-runtime` and `wasm-runtime` features exclude each other) and
+`node` (pi's checks). `deny` needs cargo-deny:
 `cargo install --locked cargo-deny`. `deny.toml` holds the allowed
 licences and the ignored advisories, each with its reason. With `CI`
 set, as on GitHub, the steps pass `--locked` to cargo. `cargo xtask fmt`

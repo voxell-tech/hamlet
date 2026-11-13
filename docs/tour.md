@@ -42,7 +42,10 @@ is nine steps, `format`, `clippy`, `cross`, `deny`, `test`, `acceptance`,
 `.github/workflows/rust.yml` runs them by name, and spells out only what
 no task covers: the mingw clippy of the server and CLI, and the macOS and
 Windows jobs. `deny.toml` at the root configures cargo deny,
-which `deny` runs.
+which `deny` runs. `doc` documents `hamlet_actor_core` apart from the
+rest, at its default features, because its two runtime features exclude
+each other. `killkit` and `idle` are the tools of the actor runtime,
+described below.
 
 `vendor/fynix` is the submodule that supplies `bevy_fynix`, the panels'
 view layer, with the rich field the chat is typed in; the workspace excludes
@@ -70,6 +73,13 @@ it, and it is not edited here.
 | `hamlet_testing` | Fixtures shared by tests: scratch folders, protocol values, recorded sessions' server messages, faux scripts, the loopback OpenAI endpoint, and a server process on a scratch realm folder with a raw connection to it (`send`, `until`, `answers`) |
 | `hamlet_workspace` | The Linux remote-workspace worker |
 | `hamlet_workspace_wire` | The workspace protocol for both sides: one type per operation with its reply, error codes, limits, the walk order and the shared fixture |
+| `hamlet_actor_core` | The actor runtime: an actor's lifecycle, sleep and wake, schedules and alarms, queues, connections, state, SQL and its transactions, the inspector and metrics; `host::ActorHost`, what it needs from a host, and `host::RunningActor`, one started actor |
+| `hamlet_actor` | Writing an actor in Rust: actions, events, queues and connections on top of the core |
+| `hamlet_actor_client` | A Rust client that calls actors |
+| `hamlet_actor_wire` | The actor runtime's shared types and versioned wire formats, generated from the schemas in `schemas/` |
+| `hamlet_actor_error`, `hamlet_actor_error_macros` | The runtime's structured errors and the derive that declares them |
+| `hamlet_host` | Runs actors in this process, each in one plain SQLite file; the `demo` example and its counter actor; fault points behind the `faults` feature |
+| `hamlet_killkit` | Kills the demo host at a scenario's step and checks what survived, as `cargo xtask killkit` |
 
 The workspace's `bevy` entry turns on no feature: `hamlet_app` turns on
 the product's set, and every other crate names only the ones its own
@@ -140,6 +150,48 @@ history and starts a branch or a repository from another's commit. `purge.rs`
 rewrites a repository without a path. It reads and writes no folder of a lodge
 itself: the server lists a lodge's files with their blob ids and `plan` says
 which writes make the lodge hold a commit.
+
+## The actor runtime
+
+The server does not use the actor runtime. Six crates hold it, all named
+`hamlet_actor*`. Their code is ported from another project, so each is
+licensed `Apache-2.0` alone, with a `LICENSE` and a `NOTICE` that names
+the origin, and each file changed from the origin says so on its first
+line. The rest of the workspace is `MIT OR Apache-2.0`. Code written for
+Hamlet, such as `hamlet_host`, stays under the workspace licence.
+
+The core reaches its host through the `ActorHost` trait in
+`hamlet_actor_core/src/host.rs`: an actor that asks to sleep or to stop,
+the next alarm to store, and the SQL to serve. `transaction_committed`
+tells the host that one of an actor's transactions committed.
+`host::RunningActor` starts one actor on a host and stops it.
+
+`hamlet_host/src/local.rs` is a host on that trait. `Host::open` locks
+the realm folder with `host.lock` and refuses a second host.
+`get_or_start` finds an actor by kind and key and starts it on the file
+`actors/<kind>/<key>.sqlite`. `plain_sqlite.rs` keeps each file on a
+thread of its own and opens it with `rusqlite` in exclusive locking mode,
+in write-ahead mode with `synchronous=NORMAL`. The runtime's tables are
+named `_actor_*`, and the host's one row per file is `_hamlet_actor`,
+with the actor's generation, its next alarm and a mark that it is
+running. `boot` arms each stored alarm and starts each actor whose alarm
+is due, and each actor a kill left marked running. `examples/demo.rs` drives the host from the
+command line, with the counter actor in `examples/demo/counter.rs`.
+`tests/local.rs` tests the host, and `tests/kill.rs` kills a child host
+at a fault point and boots the folder again.
+
+The core's own tests are in `hamlet_actor_core/tests/`. Each file there
+is compiled into the library by a `#[path]` line in the module it tests,
+except `integration.rs`, which is a test target of its own. They run on
+`TestHost` in `src/testing.rs`, a host that serves one in-memory
+database.
+
+`cargo xtask killkit` runs `hamlet_killkit`. Its scenarios are rows of
+`src/scenario.rs`: the commands that set up, the fault point to kill at,
+the commands after each restart, and what each restart must show.
+`cargo xtask idle` is `xtask/src/idle.rs`. It reads `/proc` for the
+resident memory of a process tree and the growth of each thread's
+`voluntary_ctxt_switches`.
 
 ## The server
 
@@ -263,6 +315,9 @@ built-in ones.
 | Helpers several modules' tests share | `testing.rs` in `hamlet_server`, `hamlet_app` and `hamlet_realm`; fixtures crates share in `hamlet_testing` |
 | Window state or editor saves | `hamlet_app/src/remember.rs`, `window.rs`, `saving.rs`; `hamlet_desktop/src/editor.rs` |
 | Desks and their switcher in the top bar | `hamlet_app/src/desk.rs`, `desk/switcher.rs`, `desk/switcher/motion.rs` |
+| An actor's lifecycle, schedules, state or SQL | `hamlet_actor_core/src/actor/`; [the actor runtime](#the-actor-runtime) |
+| Where actors' files are, alarms at boot, the folder lock | `hamlet_host/src/local.rs`, `plain_sqlite.rs` |
+| A kill scenario | `hamlet_killkit/src/scenario.rs`, and a fault point with `hamlet_host::fault::point` |
 
 `hamlet_realm/src/hamlet.rs` bridges received entities to the generator's
 plots and roads. `Hire` marks an agent that is a hire; `HamletId` is a

@@ -28,8 +28,10 @@ _Avoid_: assistant, root agent, admin agent
 Who an agent is when it is not at work: a git repository holding a
 character, memory and skills. Its `main` is what it knows. Many hires can
 be of one scholar. A scholar is its id, `scholar#<id>`; its name is a label
-that a chief changes and that may repeat.
-_Avoid_: persona, profile, template, house
+that a chief changes and that may repeat. The actor runtime's actor for a
+scholar is `profile`, and profile replaces the word scholar everywhere
+once the server runs on actors.
+_Avoid_: persona, template, house
 
 **Hire**:
 A scholar working in a hamlet, on a branch of its own and in a lodge, for a
