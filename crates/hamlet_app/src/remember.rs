@@ -460,7 +460,12 @@ pub fn keep(
         model_side: side.clone(),
         appearance: appearance.0.clone(),
         zoom: *zoom,
-        web_addresses: addresses.0.clone(),
+        web_addresses: addresses
+            .0
+            .iter()
+            .filter(|(panel, _)| *panel != web::FILES)
+            .map(|(panel, address)| (panel.clone(), address.clone()))
+            .collect(),
         web_agents: agents.0.clone(),
     };
     if written.as_ref() == Some(&view) {
