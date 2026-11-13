@@ -117,6 +117,10 @@ enum ToEnvoyMessage {
 }
 
 enum RemoteSqliteRequest {
+    Exec {
+        request: SqliteExecuteRequest,
+        response_tx: oneshot::Sender<Result<QueryResult>>,
+    },
     Execute {
         request: SqliteExecuteRequest,
         response_tx: oneshot::Sender<Result<ExecuteResult>>,
@@ -224,9 +228,12 @@ impl ActorHost for TestEnvoy {
     fn sqlite_exec(
         &self,
         _actor_id: String,
-        _sql: String,
+        sql: String,
     ) -> RuntimeBoxFuture<Result<QueryResult>> {
-        unreachable!("sqlite tests run statements through execute")
+        self.request(|response_tx| RemoteSqliteRequest::Exec {
+            request: SqliteExecuteRequest { sql },
+            response_tx,
+        })
     }
 
     fn sqlite_execute(
@@ -482,6 +489,31 @@ async fn lost_response_outside_a_transaction_is_indeterminate() {
         .send(lost())
         .expect("execute requester dropped response");
     let error = execute.await.unwrap().unwrap_err();
+    assert_eq!(
+        ActorError::extract(&error).code(),
+        "remote_indeterminate_result"
+    );
+
+    let exec = tokio::spawn({
+        let db = db.clone();
+        async move { db.exec("UPDATE t SET v = 3").await }
+    });
+    let RemoteSqliteRequest::Exec {
+        request,
+        response_tx,
+    } = receive_message(&mut envoy_rx).await
+    else {
+        panic!("expected remote sqlite exec request");
+    };
+    assert_eq!(request.sql, "UPDATE t SET v = 3");
+    response_tx
+        .send(Err(anyhow::anyhow!(
+            RemoteSqliteIndeterminateResultError {
+                operation: "exec"
+            }
+        )))
+        .expect("exec requester dropped response");
+    let error = exec.await.unwrap().unwrap_err();
     assert_eq!(
         ActorError::extract(&error).code(),
         "remote_indeterminate_result"
