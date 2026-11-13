@@ -282,12 +282,12 @@ fn follow(
     let cell = land.set.land.cell;
     let renew = land.is_changed() || job.is_none();
     let mut made = Vec::new();
-    for level in 0..LEVELS {
+    for (level, old) in pages.corners.into_iter().enumerate() {
         let texel = texel(cell, level);
         let step = texel * STEP;
         let corner = (eye.translation().xz() / step).round() * step
             - SIDE as f32 * 0.5 * texel;
-        if renew || pages.corners[level] != Some(corner) {
+        if renew || old != Some(corner) {
             pages.corners[level] = Some(corner);
             made.push((
                 level as u32,
