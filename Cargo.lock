@@ -4840,6 +4840,7 @@ dependencies = [
  "hamlet_actor",
  "hamlet_actor_core",
  "hamlet_actor_error",
+ "hamlet_actors",
  "hamlet_host",
  "hamlet_sqlite",
  "hamlet_testing",
