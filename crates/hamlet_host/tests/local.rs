@@ -764,11 +764,7 @@ async fn a_shutdown_returns_while_a_statement_holds_the_file() {
         "the statement ended before the shutdown returned"
     );
 
-    let freed = std::time::Instant::now();
-    while probe(&dir, "blocker", "b").is_err() {
-        assert!(freed.elapsed() < Duration::from_secs(120));
-        tokio::time::sleep(Duration::from_millis(100)).await;
-    }
+    wait_for_the_file(&dir, "blocker", "b").await;
     let host = blocked_host(&dir, &gate, &blocked);
     assert_eq!(
         host.boot().await.unwrap(),
@@ -837,6 +833,67 @@ async fn a_stop_past_its_deadline_fails_its_waiters_and_later_calls()
     let error = format!("{:#}", host.shutdown().await.unwrap_err());
     assert!(error.contains(&stuck), "{error}");
     drop(release);
+}
+
+/// Waits until no connection holds the actor's file, for at most two
+/// minutes: a statement still running on its thread keeps it open.
+async fn wait_for_the_file(dir: &Path, kind: &str, key: &str) {
+    let begun = std::time::Instant::now();
+    while probe(dir, kind, key).is_err() {
+        assert!(begun.elapsed() < Duration::from_secs(120));
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+}
+
+/// A destroy whose stop misses its deadline fails as a sleep's does,
+/// and its mark stays in the file it gave up: the next boot finishes
+/// the destroy, removes the actor's three files and starts nothing.
+/// The [`blocker`]'s action `action`, `block` or `scan`, holds its
+/// event loop or its file's thread past the deadline.
+async fn a_destroy_past_its_deadline_is_finished_at_the_next_boot(
+    action: &'static str,
+) {
+    let dir = Scratch::new("host-destroy-missed");
+    let (release, gate) = std::sync::mpsc::channel::<()>();
+    let gate: Gate = Arc::new(Mutex::new(gate));
+    let (blocked, mut blocks) =
+        tokio::sync::mpsc::unbounded_channel();
+    let host = blocked_host(&dir, &gate, &blocked);
+    let stuck = host.get_or_start("blocker", "b").await.unwrap();
+    block(&host, &stuck, action, &mut blocks).await;
+
+    let begun = std::time::Instant::now();
+    let error = host
+        .stop(&stuck, ShutdownKind::Destroy)
+        .await
+        .expect_err("a destroy past its deadline");
+    let took = begun.elapsed();
+    assert!(is_actor_error(&error, "shutdown_timeout"), "{error:#}");
+    assert!(at_the_deadline(took), "{took:?}");
+    let error = format!("{:#}", host.shutdown().await.unwrap_err());
+    assert!(error.contains(&stuck), "{error}");
+    wait_for_the_file(&dir, "blocker", "b").await;
+
+    let host = blocked_host(&dir, &gate, &blocked);
+    assert!(host.boot().await.unwrap().is_empty());
+    assert!(!host.is_running(&stuck));
+    assert!(!any_file_of(&dir, "blocker", "b"));
+    host.shutdown().await.unwrap();
+    drop(release);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_destroy_of_a_blocked_actor_past_its_deadline_is_finished_at_the_next_boot()
+ {
+    a_destroy_past_its_deadline_is_finished_at_the_next_boot("block")
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_destroy_past_its_deadline_during_a_statement_is_finished_at_the_next_boot()
+ {
+    a_destroy_past_its_deadline_is_finished_at_the_next_boot("scan")
+        .await;
 }
 
 /// Starts of one key that race make one actor, with one generation.
@@ -1728,6 +1785,92 @@ async fn a_shutdown_returns_while_a_start_is_stuck() {
     assert!(is_actor_error(&start, "not_ready"), "{start:#}");
     assert!(!host.is_running("stuck/a"));
     wait_for_the_drop(&dropped).await;
+}
+
+/// The kind `scanner`, whose start runs [`LONG_STATEMENT`] before its
+/// actor is ready, so the statement holds the file's thread past a
+/// short start deadline.
+fn scanner() -> HashMap<String, ActorFactory> {
+    let config = ActorConfig {
+        name: Some("scanner".to_owned()),
+        has_database: true,
+        ..ActorConfig::default()
+    };
+    HashMap::from([(
+        "scanner".to_owned(),
+        ActorFactory::new_with_manual_startup_ready(
+            config,
+            |start: ActorStart| {
+                Box::pin(async move {
+                    let ActorStart {
+                        ctx,
+                        mut events,
+                        startup_ready,
+                        ..
+                    } = start;
+                    ctx.sql().exec(LONG_STATEMENT.to_owned()).await?;
+                    if let Some(ready) = startup_ready {
+                        let _ = ready.send(Ok(()));
+                    }
+                    while let Some(event) = events.recv().await {
+                        counter::answer(event);
+                    }
+                    Ok(())
+                })
+            },
+        ),
+    )])
+}
+
+/// A start that misses its deadline while a statement of its actor
+/// still runs on the file's thread fails at the deadline, and at most
+/// a second later for the file's close, without waiting for the
+/// statement. The file stays open until the statement ends, and then
+/// closes with its running mark.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_start_past_its_deadline_does_not_wait_for_a_statement() {
+    let dir = Scratch::new("host-start-statement");
+    let host = Host::open_with(
+        &dir,
+        scanner(),
+        HostOptions {
+            start_deadline: START_DEADLINE,
+            ..HostOptions::default()
+        },
+    )
+    .unwrap();
+    let begun = std::time::Instant::now();
+    let error = tokio::time::timeout(
+        Duration::from_secs(30),
+        host.get_or_start("scanner", "a"),
+    )
+    .await
+    .expect("the start waited for the statement past 30 s")
+    .expect_err("a start past its deadline must fail");
+    let took = begun.elapsed();
+    assert!(is_actor_error(&error, "not_ready"), "{error:#}");
+    assert!(
+        took >= START_DEADLINE
+            && took < START_DEADLINE + Duration::from_secs(2),
+        "{took:?}"
+    );
+    assert!(
+        probe(&dir, "scanner", "a").is_err(),
+        "the statement ended before the start returned"
+    );
+    host.shutdown().await.unwrap();
+
+    wait_for_the_file(&dir, "scanner", "a").await;
+    let running: i64 =
+        Connection::open(dir.join("actors/scanner/a.sqlite"))
+            .unwrap()
+            .query_row(
+                "SELECT running FROM _hamlet_actor",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+    assert_eq!(running, 1);
 }
 
 /// Boot begins the starts of the actors a kill left running and

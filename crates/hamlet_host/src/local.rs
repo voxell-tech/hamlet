@@ -69,9 +69,9 @@ const LOCAL_SESSION: u64 = 1;
 /// ends them.
 const START_GRACE_AT_SHUTDOWN: Duration = Duration::from_secs(1);
 
-/// How long a stop that missed its deadline waits for the actor's
-/// file to close. A file whose thread still runs a statement closes
-/// only once the statement ends.
+/// How long a stop that missed its deadline, or a start that failed,
+/// waits for the actor's file to close. A file whose thread still
+/// runs a statement closes only once the statement ends.
 const CLOSE_GRACE: Duration = Duration::from_secs(1);
 
 /// The host's row in each actor file. Its version ladder is Hamlet's,
@@ -303,11 +303,7 @@ impl Generation {
                 stop.await
             }
             Err(_) => {
-                let _ = tokio::time::timeout(
-                    CLOSE_GRACE,
-                    self.file.close(),
-                )
-                .await;
+                close_within_grace(&self.file).await;
                 return None;
             }
         };
@@ -1702,8 +1698,8 @@ fn bump_generation(
 /// file, made first if `create`, off the async runtime, starts its
 /// core, and makes it `Running`, or begins the stop its generation
 /// asked for meanwhile. Returns the generation it started. A start
-/// that fails, or misses its deadline, closes the file and tells its
-/// waiters why.
+/// that fails, or misses its deadline, closes the file, waiting
+/// [`CLOSE_GRACE`] at most, and tells its waiters why.
 async fn start_actor(
     owned: Owned,
     id: u64,
@@ -1724,10 +1720,13 @@ async fn start_actor(
         // tries it again rather than leave an alarm it may not have
         // stored. The core ends a start whose future was dropped at
         // the deadline, and the close fences what it does meanwhile.
+        // A file whose thread still runs a statement stays locked
+        // until the statement ends: a start of the actor meanwhile
+        // waits for the lock, and fails if it outlasts that wait.
         Err(error) => {
             let file = opened.lock().take();
             if let Some(file) = file {
-                file.close().await;
+                close_within_grace(&file).await;
             }
             owned.fail(&error);
             return Err(error);
@@ -1771,6 +1770,12 @@ async fn start_actor(
         stop.spawn_logged();
     }
     Ok(generation)
+}
+
+/// Closes `file`, waiting [`CLOSE_GRACE`] at most. A file whose
+/// thread still runs a statement closes once the statement ends.
+async fn close_within_grace(file: &PlainSqlite) {
+    let _ = tokio::time::timeout(CLOSE_GRACE, file.close()).await;
 }
 
 /// Opens the actor's file and starts its core, as the generation of
