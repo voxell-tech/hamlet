@@ -23,12 +23,13 @@ use hamlet_protocol::runtime::{
 };
 use hamlet_sandbox::{AllLeftovers, Sandbox};
 use hamlet_store::ids::Actor;
+use notify::RecommendedWatcher;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{mpsc, watch};
 
 use crate::apply::{Apply, Changed, discard};
 use crate::calls::looks::Looks;
-use crate::calls::{self, Calls, Ran, Running};
+use crate::calls::{Calls, Ran, Running};
 use crate::clients::check::fault;
 use crate::clients::connection::Event;
 use crate::clients::{Clients, asked};
@@ -53,7 +54,7 @@ use crate::talk::runtimes::{self, Harness};
 use crate::talk::sync::{Fitted, Fitting};
 use crate::talk::{Env, heard, inputs};
 use crate::work::added;
-use crate::work::tools::{self, Shells};
+use crate::work::tools::Shells;
 use crate::workspace::Transport;
 
 /// What wakes the server.
@@ -72,11 +73,17 @@ pub(crate) enum Input {
     Fitted(Fitted),
     /// A task finished, with what it awaited off the loop.
     Finished(Box<Finished>),
+    /// The folder of the tools added by hand changed.
+    Tools,
     /// A timer's deadline came.
     Due,
     /// A timer that was due runs.
     Timer(Fire),
 }
+
+/// How long the changes to the tools added by hand settle before they
+/// load again.
+const SETTLE: Duration = Duration::from_millis(200);
 
 /// The channels inputs arrive on.
 pub(crate) struct Inbox {
@@ -86,6 +93,7 @@ pub(crate) struct Inbox {
     ran: mpsc::UnboundedReceiver<Ran>,
     fitted: mpsc::UnboundedReceiver<Fitted>,
     finished: mpsc::UnboundedReceiver<Finished>,
+    tools: mpsc::UnboundedReceiver<()>,
     listener: Option<TcpListener>,
 }
 
@@ -118,6 +126,13 @@ impl Inbox {
             }
             Some(finished) = self.finished.recv() => {
                 Some(Input::Finished(Box::new(finished)))
+            }
+            Some(()) = self.tools.recv() => {
+                // A save is many changes: once they settle, one load
+                // takes them all.
+                tokio::time::sleep(SETTLE).await;
+                while self.tools.try_recv().is_ok() {}
+                Some(Input::Tools)
             }
             Ok((stream, _)) = async {
                 match listener {
@@ -183,6 +198,10 @@ pub(crate) struct Server {
     pub app: App,
     core: SystemState<Core<'static, 'static>>,
     inbox: Inbox,
+    /// The watch on the folder of the tools added by hand, which
+    /// lasts as long as this; none when it could not begin.
+    #[expect(dead_code, reason = "held, so the watch goes on")]
+    watching: Option<RecommendedWatcher>,
 }
 
 impl Server {
@@ -218,19 +237,18 @@ impl Server {
                 format!("making {}", folder.display())
             })?;
         }
-        let shells = Shells::local();
-        let (added, faults) = added::load(layout.root());
-        for fault in &faults {
-            tell(
-                Secrets::Fixed,
-                format!("a tool added by hand did not load: {fault}"),
-            );
-        }
-        let mut catalogue = tools::specs(&shells);
-        catalogue.extend(calls::specs());
-        catalogue.extend(
-            added.iter().map(|manifest| manifest.spec.clone()),
-        );
+        let (tools_to, tools) = mpsc::unbounded_channel();
+        let watching = added::watch(&layout.tools(), tools_to)
+            .inspect_err(|error| {
+                tell(
+                    Secrets::Fixed,
+                    format!(
+                        "the tools added by hand load only at \
+                         start: {error}"
+                    ),
+                );
+            })
+            .ok();
         let providers = Providers::open(&layout, env.overrides.faux)?;
         let workspace = credentials
             .workspace()
@@ -260,11 +278,12 @@ impl Server {
             .insert_resource(clients)
             .insert_resource(Lives(Default::default()))
             .insert_resource(Confined(sandbox))
-            .insert_resource(shells)
+            .insert_resource(Shells::local())
             .insert_resource(Leftovers(AllLeftovers::default()))
-            .insert_resource(Added(added))
-            .insert_resource(ToolFaults(faults))
-            .insert_resource(Catalogue(catalogue))
+            // Loaded by [`added::reload`] below.
+            .insert_resource(Added(Vec::new()))
+            .insert_resource(ToolFaults(Vec::new()))
+            .insert_resource(Catalogue(Vec::new()))
             .insert_resource(Calls::new(ran_to))
             .insert_resource(Fitting::new(fitted_to))
             .insert_resource(Later::new(finished_to))
@@ -287,14 +306,20 @@ impl Server {
                 ran,
                 fitted,
                 finished,
+                tools,
                 listener: None,
             },
+            watching,
         };
-        server
-            .app
-            .world_mut()
-            .run_system_cached(runtimes::start)
-            .map_err(|error| anyhow::anyhow!("{error}"))??;
+        let world = server.app.world_mut();
+        for start in [
+            world.register_system_cached(runtimes::start),
+            world.register_system_cached(added::reload),
+        ] {
+            world
+                .run_system(start)
+                .map_err(|error| anyhow::anyhow!("{error}"))??;
+        }
         let mut core = server.core()?;
         core.retool()?;
         core.start_providers()?;
@@ -441,6 +466,9 @@ impl Server {
             Input::Ran(ran) => once(world, ran_one, ran),
             Input::Fitted(fitted) => once(world, fitted_one, fitted),
             Input::Finished(finished) => self.finished(*finished),
+            Input::Tools => world
+                .run_system_cached(added::reload)
+                .map_err(|error| anyhow::anyhow!("{error}"))?,
             // The inbox gives a deadline as the timers it is.
             Input::Due => Ok(()),
         }

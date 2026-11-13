@@ -4587,6 +4587,7 @@ dependencies = [
  "image",
  "interprocess",
  "jsonschema",
+ "notify",
  "regex",
  "reqwest",
  "ring",

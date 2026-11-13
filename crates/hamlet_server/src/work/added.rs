@@ -7,13 +7,18 @@ use std::time::Duration;
 
 use hamlet_os::fs::path::{resolve, text};
 use hamlet_protocol::runtime::{
-    DiagnosticSeverity, ToolSpec, ToolSpecReplay,
+    DiagnosticSeverity, ServerMessage, ToolSpec, ToolSpecReplay,
+    Tools,
 };
 use hamlet_sandbox::{
     Env, ExecError, Launch, Leftovers, LimitError, Policy, Sandbox,
 };
+use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use serde_json::{Map, Value, json};
+use tokio::sync::mpsc::UnboundedSender;
 
+use crate::core::{Catalogue, Core};
+use crate::diagnostic::{Secrets, tell};
 use crate::work::tools::{Outcome, diagnostic};
 
 /// A loaded manifest and the program its tool runs.
@@ -62,6 +67,56 @@ enum Unloaded {
     Reserved(String),
     #[error("name '{0}' is taken by another tool")]
     Taken(String),
+}
+
+/// Watches the folder of the tools added by hand, sending on
+/// `changed` whenever anything in it changes, so they load again
+/// while the server runs. The watch ends when the watcher drops.
+pub(crate) fn watch(
+    folder: &Path,
+    changed: UnboundedSender<()>,
+) -> notify::Result<RecommendedWatcher> {
+    let mut watcher = notify::recommended_watcher(
+        move |event: notify::Result<notify::Event>| {
+            if event.is_ok_and(|event| !event.kind.is_access()) {
+                let _ = changed.send(());
+            }
+        },
+    )?;
+    watcher.watch(folder, RecursiveMode::Recursive)?;
+    Ok(watcher)
+}
+
+/// Loads the tools added by hand again: the catalogue follows them,
+/// each ready runtime is told it, and the conversations' tools are
+/// narrowed to it once the input is kept.
+pub(crate) fn reload(mut core: Core) -> anyhow::Result<()> {
+    let (added, faults) = load(core.realm.layout().root());
+    for fault in faults.iter().filter(|f| !core.faults.contains(f)) {
+        tell(
+            Secrets::Fixed,
+            format!("a tool added by hand did not load: {fault}"),
+        );
+    }
+    let catalogue = Catalogue::of(&core.shells, &added);
+    core.added.0 = added;
+    core.faults.0 = faults;
+    // The prompt names the tools that did not load.
+    core.publish();
+    if catalogue == core.catalogue.0 {
+        return Ok(());
+    }
+    core.catalogue.0 = catalogue;
+    core.changed.reshaped = true;
+    for runtime in core.runtimes.all() {
+        if core.runtimes.is_ready(runtime) {
+            let tools = core.catalogue.0.clone();
+            core.runtimes.send(runtime, |v, id| {
+                ServerMessage::Tools(Tools { id, tools, v })
+            });
+        }
+    }
+    Ok(())
 }
 
 /// The tools that load, in folder order, and diagnostics for those

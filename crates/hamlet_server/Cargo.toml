@@ -39,6 +39,7 @@ futures.workspace = true
 image.workspace = true
 interprocess.workspace = true
 jsonschema = { version = "0.33", default-features = false }
+notify.workspace = true
 regex.workspace = true
 reqwest.workspace = true
 ring.workspace = true

@@ -81,7 +81,8 @@ holder! {
     Leftovers(hamlet_sandbox::AllLeftovers)
 }
 holder! {
-    /// The tools added by hand (C17).
+    /// The tools added by hand (C17), loaded again whenever their
+    /// folder changes.
     Added(Vec<Manifest>)
 }
 holder! {
@@ -94,6 +95,18 @@ holder! {
 }
 
 impl Catalogue {
+    /// Every tool a model may be offered: the built-in ones this
+    /// machine's `shells` run, the server's own, and the `added`
+    /// ones.
+    pub fn of(shells: &Shells, added: &[Manifest]) -> Vec<ToolSpec> {
+        let mut catalogue = crate::work::tools::specs(shells);
+        catalogue.extend(crate::calls::specs());
+        catalogue.extend(
+            added.iter().map(|manifest| manifest.spec.clone()),
+        );
+        catalogue
+    }
+
     /// The names of every tool in it.
     pub fn names(&self) -> Vec<String> {
         self.iter().map(|spec| spec.name.clone()).collect()
@@ -136,8 +149,8 @@ pub(crate) struct Core<'w, 's> {
     /// This machine's shells, which the agents' commands run in.
     pub shells: Res<'w, Shells>,
     pub leftovers: Res<'w, Leftovers>,
-    pub added: Res<'w, Added>,
-    pub faults: Res<'w, ToolFaults>,
+    pub added: ResMut<'w, Added>,
+    pub faults: ResMut<'w, ToolFaults>,
     pub catalogue: ResMut<'w, Catalogue>,
     /// What the input's changes leave for the runner to follow up.
     pub changed: ResMut<'w, Changed>,
