@@ -8,6 +8,10 @@
 //!                               increment, <ms> ahead
 //! demo sleep <key>              ask the actor to sleep
 //! demo destroy <key>            ask the actor to destroy itself
+//! demo send <from> <to> [n]     counter <from> sends <n>, or 5, to
+//!                               counter <to>
+//! demo drain <key>              wait until the counter's sends are
+//!                               all confirmed, for up to 10 s
 //! demo timers <kind>/<key>      print the actor's set-aside timers
 //! demo rearm <kind>/<key> <event_id>
 //!                               put a set-aside timer back, due now
@@ -22,7 +26,10 @@
 //! actor it started. `timers` prints `timer <kind>/<key> <event_id>
 //! <action> due=<ms> tries=<n> error=<code>` for each timer, and
 //! `rearm` prints `rearm <kind>/<key> <event_id> <true|false>`.
-//! Warnings and errors go to standard error.
+//! `drain` prints `outbox counter/<key> <n>`, the sends still
+//! unconfirmed when it stopped waiting. Warnings and errors go to
+//! standard error, and so does `repeat <kind>/<key> <seq>` for each
+//! delivery a receiver answers as a repeat.
 
 #[path = "demo/act.rs"]
 mod act;
@@ -37,11 +44,18 @@ use act::act;
 use anyhow::{Context, Result, anyhow, bail};
 use hamlet_host::{Address, Host};
 use tokio::sync::mpsc;
+use tokio::time::Instant;
+use tracing_subscriber::EnvFilter;
+
+/// How long `drain` waits for a counter's sends to be confirmed.
+const DRAIN_PATIENCE: Duration = Duration::from_secs(10);
 
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::WARN)
+        .with_env_filter(EnvFilter::new(
+            "warn,hamlet_host::send=info",
+        ))
         .with_writer(std::io::stderr)
         .init();
     let home = std::env::var_os("HAMLET_HOME")
@@ -78,8 +92,8 @@ async fn main() -> Result<()> {
         }
         None => Err(anyhow!(
             "usage: demo \
-             increment|get|schedule|sleep|destroy|timers|rearm|boot|\
-             serve ..."
+             increment|get|schedule|sleep|destroy|send|drain|timers|\
+             rearm|boot|serve ..."
         )),
     };
     host.shutdown().await?;
@@ -145,6 +159,32 @@ async fn run(host: &Host, words: &[String]) -> Result<()> {
                 args.extend_from_slice(action.as_bytes());
             }
             act(host, &actor_id, "schedule", args).await?
+        }
+        "send" => {
+            let to = words.get(2).context("send takes a receiver")?;
+            let n = match words.get(3) {
+                Some(_) => i64::try_from(number(words.get(3))?)?,
+                None => 5,
+            };
+            let mut args = n.to_le_bytes().to_vec();
+            args.extend_from_slice(
+                format!("counter/{to}").as_bytes(),
+            );
+            act(host, &actor_id, "send", args).await?
+        }
+        "drain" => {
+            let begun = Instant::now();
+            loop {
+                let reply =
+                    act(host, &actor_id, "outbox", Vec::new())
+                        .await?;
+                let pending = counter::count(reply)?;
+                if pending == 0 || begun.elapsed() >= DRAIN_PATIENCE {
+                    writeln!(out, "outbox {actor_id} {pending}")?;
+                    return Ok(());
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
         }
         other => bail!("unknown command `{other}`"),
     };

@@ -22,7 +22,9 @@
 //!   their receivers have not confirmed.
 //! - `hamlet.receive` is the host's delivery of a send. Its receive
 //!   transaction adds the send's `n` to the count and writes a
-//!   `received` row. It replies with the host's answer, not a count.
+//!   `received` row. A delivery the host answers as a repeat writes a
+//!   `repeats` row instead. It replies with the host's answer, not a
+//!   count.
 //!
 //! `increment` passes the fault point `tx-open` inside its
 //! transaction, and `tx-committed` after it commits and before it
@@ -47,7 +49,7 @@ use hamlet_actor_core::{
     ActorConfig, ActorContext, ActorEvent, ActorFactory, ActorStart,
     BindParam, ColumnValue, SqliteTransaction,
 };
-use hamlet_host::send::{self, Message};
+use hamlet_host::send::{self, Delivery, Message};
 use hamlet_host::{Address, Cause};
 
 /// Whether counters sleep once idle.
@@ -80,8 +82,8 @@ pub fn count(reply: Vec<u8>) -> Result<i64> {
     Ok(i64::from_le_bytes(bytes))
 }
 
-/// Makes the counter's tables: its count, the sends it made and the
-/// sends it received.
+/// Makes the counter's tables: its count, the sends it made, the
+/// sends it received and the deliveries it was answered a repeat for.
 pub async fn make_tables(ctx: &ActorContext) -> Result<()> {
     ctx.sql()
         .exec(
@@ -91,7 +93,9 @@ pub async fn make_tables(ctx: &ActorContext) -> Result<()> {
              NULL, seq INTEGER NOT NULL, n INTEGER NOT NULL); \
              CREATE TABLE IF NOT EXISTS received (id INTEGER \
              PRIMARY KEY, from_id TEXT NOT NULL, seq INTEGER NOT \
-             NULL, n INTEGER NOT NULL, failed_runs INTEGER NOT NULL)"
+             NULL, n INTEGER NOT NULL, failed_runs INTEGER NOT \
+             NULL); CREATE TABLE IF NOT EXISTS repeats (id INTEGER \
+             PRIMARY KEY)"
                 .to_owned(),
         )
         .await?;
@@ -269,9 +273,9 @@ async fn send_n(ctx: &ActorContext, n: i64, to: &str) -> Result<i64> {
 }
 
 /// The counter's `hamlet.receive`: receives the send in `envelope`
-/// and replies with the host's answer. A one-shot of this counter's
-/// own cannot be a delivery, so one that names this action is
-/// refused.
+/// and replies with the host's answer, after a `repeats` row when
+/// the answer is a repeat. A one-shot of this counter's own cannot
+/// be a delivery, so one that names this action is refused.
 async fn receive(
     ctx: &ActorContext,
     envelope: &[u8],
@@ -288,6 +292,14 @@ async fn receive(
             add_received(&tx, &message).await
         })
         .await?;
+    if matches!(delivery, Delivery::Repeat { .. }) {
+        ctx.sql()
+            .execute(
+                "INSERT INTO repeats DEFAULT VALUES".to_owned(),
+                None,
+            )
+            .await?;
+    }
     delivery.into_reply()
 }
 
