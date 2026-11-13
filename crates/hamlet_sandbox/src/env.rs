@@ -247,6 +247,13 @@ impl Env {
         })
     }
 
+    /// `argv` confined to the policy, with no limits but the
+    /// sandbox's: a server there runs for as long as it is wanted.
+    pub fn confine(&self, argv: &[String]) -> crate::Confined {
+        self.sandbox
+            .command(&self.policy, argv, &self.cwd, &self.tmp)
+    }
+
     pub fn cwd(&self) -> &str {
         &self.cwd
     }
