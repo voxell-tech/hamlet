@@ -1,0 +1,12 @@
+This package contains code from the pi wrapper of Rivet's agents
+repository (https://github.com/rivet-dev/agents), the package
+@rivet-dev/pi 0.5.6 in packages/pi, taken at commit
+88392beec41fafe0673b3f797bae92a2c1313754 (tag v0.5.6) and licensed
+under the Apache License, Version 2.0, which is in LICENSE beside this
+file.
+
+   Copyright 2026 Sandbox Agent Contributors
+
+The files were changed for Hamlet: renamed, reformatted and edited by
+hand. Each changed file says so on its first line, or, in package.json,
+in its "//" member.
