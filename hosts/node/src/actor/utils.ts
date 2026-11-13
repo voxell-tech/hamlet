@@ -142,6 +142,9 @@ export type GetUpgradeWebSocket = () => UpgradeWebSocket;
  * @experimental
  */
 export function getEnvUniversal(key: string): string | undefined {
+    const { Deno } = globalThis as typeof globalThis & {
+        Deno?: { env: { get(key: string): string | undefined } };
+    };
     if (typeof Deno !== "undefined") {
         return Deno.env.get(key);
     } else if (typeof process !== "undefined") {
