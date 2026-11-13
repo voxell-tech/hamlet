@@ -206,8 +206,8 @@ struct Stop {
 
 impl Stop {
     /// Stops the generation and closes its file, and removes the file
-    /// if the actor is destroyed by then. The actor leaves the map
-    /// when `owned` drops at the end.
+    /// if the actor is destroyed by then. A sleep leaves the map once
+    /// the file is closed, a destroy when `owned` drops at the end.
     async fn run(self) -> Result<()> {
         let Self {
             owned,
@@ -231,13 +231,24 @@ impl Stop {
             );
         }
         let host = &owned.host;
-        let destroyed =
-            host.actors.lock().get(&owned.actor_id).is_some_and(
-                |life| {
-                    matches!(life, Life::Destroying { .. })
-                        && owned.owns(life)
-                },
-            );
+        // One lock decides and, for a sleep, leaves the map, so a
+        // destroy asked later finds the actor stopped rather than
+        // turning a stop that is past its file removal.
+        let (destroyed, removed) = {
+            let mut actors = host.actors.lock();
+            let destroying = actors
+                .get(&owned.actor_id)
+                .filter(|life| owned.owns(life))
+                .map(|life| matches!(life, Life::Destroying { .. }));
+            match destroying {
+                Some(true) => (true, None),
+                Some(false) => {
+                    (false, actors.remove(&owned.actor_id))
+                }
+                None => (false, None),
+            }
+        };
+        drop(removed);
         if destroyed {
             host.alarms.lock().remove(&owned.actor_id);
             let path = actor_path(&host.dir, &owned.actor_id);

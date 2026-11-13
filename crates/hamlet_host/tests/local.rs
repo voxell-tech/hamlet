@@ -102,7 +102,8 @@ type Contexts = Arc<Mutex<Vec<ActorContext>>>;
 
 /// The kind `keeper`, which hands each generation's context to the
 /// test, as a task the generation left behind would hold it. Its one
-/// action replies with the number of rows in its table `marks`.
+/// action replies with the number of rows in its table `marks`, as a
+/// counter replies with its count.
 fn keeper(contexts: &Contexts) -> HashMap<String, ActorFactory> {
     let config = ActorConfig {
         name: Some("keeper".to_owned()),
@@ -376,28 +377,7 @@ async fn an_action_with_no_reply_times_out() {
                         ActorEvent::Action { reply, .. } => {
                             unanswered.push(reply);
                         }
-                        ActorEvent::SerializeState {
-                            reply, ..
-                        } => {
-                            reply.send(Ok(Vec::new()));
-                        }
-                        ActorEvent::RunGracefulCleanup {
-                            reply,
-                            ..
-                        }
-                        | ActorEvent::ConnectionPreflight {
-                            reply,
-                            ..
-                        }
-                        | ActorEvent::ConnectionOpen {
-                            reply, ..
-                        }
-                        | ActorEvent::DisconnectConn {
-                            reply, ..
-                        } => {
-                            reply.send(Ok(()));
-                        }
-                        _ => {}
+                        other => answer(other),
                     }
                 }
                 Ok(())
@@ -665,13 +645,6 @@ async fn a_start_during_its_actors_stop_waits_and_starts_it_fresh() {
     assert_eq!(probe(&dir, "slow", "b").unwrap(), 2);
 }
 
-/// What a `keeper` replied: the rows in its table `marks`.
-async fn marks(host: &Host, actor_id: &str) -> i64 {
-    let reply =
-        host.action(actor_id, "count", Vec::new()).await.unwrap();
-    i64::from_le_bytes(reply.try_into().unwrap())
-}
-
 /// A task an ended generation left behind holds that generation's
 /// context. Its statements must not reach the actor's next
 /// generation.
@@ -704,7 +677,7 @@ async fn an_ended_generation_cannot_write_to_the_next() {
         )
         .await;
     assert!(alone.is_err(), "the ended generation's insert ran");
-    assert_eq!(marks(&host, &id).await, 0);
+    assert_eq!(call(&host, &id, "count").await, 0);
     host.stop_all().await.unwrap();
 }
 
@@ -731,6 +704,34 @@ async fn an_ended_generations_crash_does_not_stop_the_next() {
     assert!(leaked.rollback().await.is_err(), "it never expired");
     tokio::time::sleep(Duration::from_millis(300)).await;
     assert!(host.is_running(&id));
-    assert_eq!(marks(&host, &id).await, 0);
+    assert_eq!(call(&host, &id, "count").await, 0);
     host.stop_all().await.unwrap();
+}
+
+/// A destroy asked while the actor's sleep stop waits for an action
+/// makes that stop a destroy: the file is gone once both return.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_destroy_during_a_sleep_stop_removes_the_file() {
+    let dir = Scratch::new("host-destroy-in-stop");
+    let host = Host::open(&dir, with_slow()).unwrap();
+    let b = host.get_or_start("slow", "b").await.unwrap();
+    let nap = tokio::spawn({
+        let host = host.clone();
+        let b = b.clone();
+        async move { host.action(&b, "nap", Vec::new()).await }
+    });
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    let sleep = tokio::spawn({
+        let host = host.clone();
+        let b = b.clone();
+        async move { host.stop(&b, ShutdownKind::Sleep).await }
+    });
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert!(!sleep.is_finished(), "b stopped before its nap ended");
+
+    host.stop(&b, ShutdownKind::Destroy).await.unwrap();
+    sleep.await.unwrap().unwrap();
+    nap.await.unwrap().unwrap();
+    assert!(!host.is_running(&b));
+    assert!(!dir.join("actors/slow/b.sqlite").exists());
 }
