@@ -20,6 +20,9 @@
 //!   ended without success (R3). Each life of a sender key has its
 //!   own position, so a key destroyed and made again is delivered
 //!   once (R15).
+//! - **The authoring layer.** A kind written on its trait API
+//!   receives through [`receiving`], which answers [`RECEIVE`] for it
+//!   with a handler of the kind's sends.
 
 use std::collections::HashMap;
 use std::future::Future;
@@ -28,11 +31,13 @@ use std::time::Duration;
 
 use anyhow::{Context, Result, anyhow};
 use hamlet_actor_core::{
-    ActorContext, BindParam, ColumnValue, SqliteDb, SqliteTransaction,
+    ActorContext, ActorEvent, ActorFactory, ActorStart, BindParam,
+    ColumnValue, SqliteDb, SqliteTransaction,
 };
 use parking_lot::Mutex;
 use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
+use tokio::sync::mpsc;
 use tokio::task::JoinSet;
 use tokio::time::Instant;
 
@@ -278,6 +283,12 @@ impl Message {
 /// is given as the first of the pair. Changes nothing, and returns no
 /// row, for a send that is not the next.
 ///
+/// First contact is also how a receiver destroyed and made again
+/// takes its first send. A send that the old life handled, and whose
+/// answer never reached its sender before the destroy, is taken and
+/// applied again by the new life: the destroy removed the only state
+/// it changed (design 5.7, R15).
+///
 /// A claim does not run the handler: the receive transaction reads
 /// the count again, with [`RUNS`], as of its run.
 const CLAIM: &str =
@@ -452,6 +463,125 @@ where
         }
         Err(error) => Ok(run.failed(error).await),
     }
+}
+
+/// Wraps `factory`, a kind of the authoring layer's
+/// `hamlet_actor::Registry`, so that the kind receives sends: the
+/// wrapper answers [`RECEIVE`] itself, each delivery on a task of its
+/// own, with [`receive`] and `handler`, and passes every other event
+/// to the layer. `handler` is the kind's `apply`: it matches
+/// [`Message::name`] and runs in the receive transaction it is given,
+/// where its change commits with the send's record.
+///
+/// The handler sees only SQL, through that transaction: neither the
+/// layer's actor nor its context. A statement on the context outside
+/// the transaction would wait behind it. The state a send changes
+/// lives in SQL, and an in-memory copy of it in the actor is not
+/// told.
+///
+/// `factory` must signal its startup itself and must not stream
+/// request bodies, as every factory of `Registry` does; a factory
+/// that never signals, as the raw event API's, fails its first start.
+pub fn receiving<H, Fut>(
+    factory: ActorFactory,
+    handler: H,
+) -> ActorFactory
+where
+    H: Fn(SqliteTransaction, Message) -> Fut + Send + Sync + 'static,
+    Fut: Future<Output = Result<Vec<u8>>> + Send + 'static,
+{
+    let config = factory.config().clone();
+    let layer = Arc::new(factory);
+    let handler = Arc::new(handler);
+    ActorFactory::new_with_manual_startup_ready(
+        config,
+        move |start| {
+            Box::pin(run_receiving(
+                layer.clone(),
+                handler.clone(),
+                start,
+            ))
+        },
+    )
+}
+
+/// One generation of a kind [`receiving`] wraps: the layer's run,
+/// and the events it is passed, until either ends.
+async fn run_receiving<H, Fut>(
+    layer: Arc<ActorFactory>,
+    handler: Arc<H>,
+    start: ActorStart,
+) -> Result<()>
+where
+    H: Fn(SqliteTransaction, Message) -> Fut + Send + Sync + 'static,
+    Fut: Future<Output = Result<Vec<u8>>> + Send + 'static,
+{
+    let ActorStart {
+        ctx,
+        input,
+        is_new,
+        snapshot,
+        hibernated,
+        fork,
+        mut events,
+        startup_ready,
+    } = start;
+    let (to_layer, layer_events) = mpsc::unbounded_channel();
+    let run = layer.start(ActorStart {
+        ctx: ctx.clone(),
+        input,
+        is_new,
+        snapshot,
+        hibernated,
+        fork,
+        events: layer_events.into(),
+        startup_ready,
+    });
+    // Ends when the core closes its channel, which closes the
+    // layer's, or when the layer has stopped reading: the events the
+    // core still holds are then dropped with `events`, as unreached.
+    let pass = async move {
+        loop {
+            let event = tokio::select! {
+                biased;
+                () = to_layer.closed() => return,
+                event = events.recv() => event,
+            };
+            match event {
+                None => return,
+                Some(ActorEvent::Action {
+                    name,
+                    args,
+                    scheduled_fire,
+                    reply,
+                    ..
+                }) if name == RECEIVE => {
+                    let (ctx, handler) =
+                        (ctx.clone(), handler.clone());
+                    tokio::spawn(async move {
+                        let answer = if scheduled_fire.is_some() {
+                            Err(anyhow!(
+                                "`{RECEIVE}` is the host's \
+                                 delivery, not a timer"
+                            ))
+                        } else {
+                            receive(&ctx, &args, |tx, message| {
+                                handler(tx, message)
+                            })
+                            .await
+                            .and_then(Delivery::into_reply)
+                        };
+                        reply.send(answer);
+                    });
+                }
+                // Lost only if the layer stops between the check
+                // above and this send.
+                Some(event) => drop(to_layer.send(event)),
+            }
+        }
+    };
+    let (ran, ()) = tokio::join!(run, pass);
+    ran
 }
 
 /// The send a receive names, in its sender's life.

@@ -4,7 +4,8 @@
 //! a key destroyed and made again. The receive path's rules: R2, a
 //! race of deliveries of one send applies it once; R3, a slow handler
 //! is applied once and counts nothing; R15, a new life of a key is
-//! delivered once.
+//! delivered once. A kind of the authoring layer's trait API receives
+//! through `send::receiving` (G3).
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -15,9 +16,9 @@ use act::{DEADLINE, act};
 use anyhow::anyhow;
 use hamlet_actor_core::{
     ActorConfig, ActorContext, ActorEvent, ActorFactory, ActorStart,
-    BindParam, ShutdownKind,
+    BindParam, ColumnValue, ShutdownKind, SqliteTransaction,
 };
-use hamlet_host::send::{self, Delivery};
+use hamlet_host::send::{self, Delivery, Message};
 use hamlet_host::{Address, Cause, Host};
 use hamlet_testing::Scratch;
 use rusqlite::{Connection, OpenFlags};
@@ -72,7 +73,123 @@ fn kinds() -> HashMap<String, ActorFactory> {
     ] {
         kinds.insert(name.to_owned(), receiver(name, arm));
     }
+    kinds.insert("book".to_owned(), book(0));
+    kinds.insert("picky".to_owned(), book(2));
     kinds
+}
+
+/// The factory the authoring layer's registry makes for `A`.
+fn layer_kind<A: hamlet_actor::Actor>(name: &str) -> ActorFactory {
+    let mut registry = hamlet_actor::Registry::new();
+    registry.register_actor::<A>(name);
+    registry
+        .into_factories()
+        .remove(name)
+        .expect("the registry holds the kind it registered")
+}
+
+/// A [`Book`] that receives sends through `send::receiving`. Its
+/// handler fails a send's runs until `failing_runs` of them have
+/// failed, then writes an `entries` row.
+fn book(failing_runs: u32) -> ActorFactory {
+    send::receiving(layer_kind::<Book>("book"), move |tx, message| {
+        enter(tx, message, failing_runs)
+    })
+}
+
+async fn enter(
+    tx: SqliteTransaction,
+    message: Message,
+    failing_runs: u32,
+) -> anyhow::Result<Vec<u8>> {
+    anyhow::ensure!(
+        message.failed_runs >= failing_runs,
+        "run {} of this send fails",
+        message.failed_runs + 1
+    );
+    let n =
+        i64::from_le_bytes(message.payload.as_slice().try_into()?);
+    tx.execute(
+        "INSERT INTO entries (seq, n, failed_runs) VALUES (?, ?, ?)",
+        Some(vec![
+            BindParam::Integer(i64::try_from(message.seq)?),
+            BindParam::Integer(n),
+            BindParam::Integer(i64::from(message.failed_runs)),
+        ]),
+    )
+    .await?;
+    Ok(n.to_le_bytes().to_vec())
+}
+
+/// An actor of the authoring layer's trait API whose state is the
+/// table `entries`, one row per send its handler applied.
+struct Book;
+
+/// The number of `entries` rows.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct Entries;
+
+impl hamlet_actor::Action for Entries {
+    type Output = i64;
+    const NAME: &'static str = "entries";
+}
+
+#[async_trait::async_trait]
+impl hamlet_actor::Actor for Book {
+    type Input = ();
+    type Actions = (Entries,);
+    type Events = ();
+    type ConnParams = ();
+    type Action = ();
+
+    async fn create(
+        ctx: &hamlet_actor::Ctx<Self>,
+    ) -> anyhow::Result<Self> {
+        ctx.sql()
+            .exec(
+                "CREATE TABLE IF NOT EXISTS entries (seq INTEGER \
+                 NOT NULL, n INTEGER NOT NULL, failed_runs INTEGER \
+                 NOT NULL)"
+                    .to_owned(),
+            )
+            .await?;
+        Ok(Self)
+    }
+}
+
+impl hamlet_actor::Handler<Entries> for Book {
+    async fn handle(
+        self: Arc<Self>,
+        ctx: hamlet_actor::Ctx<Self>,
+        _: Entries,
+    ) -> anyhow::Result<i64> {
+        let read = ctx
+            .sql()
+            .execute("SELECT COUNT(*) FROM entries".to_owned(), None)
+            .await?;
+        match read.rows.first().and_then(|row| row.first()) {
+            Some(ColumnValue::Integer(entries)) => Ok(*entries),
+            _ => Err(anyhow!("no count of entries")),
+        }
+    }
+}
+
+/// A trait-API actor whose `create` fails.
+struct Broken;
+
+#[async_trait::async_trait]
+impl hamlet_actor::Actor for Broken {
+    type Input = ();
+    type Actions = ();
+    type Events = ();
+    type ConnParams = ();
+    type Action = ();
+
+    async fn create(
+        _: &hamlet_actor::Ctx<Self>,
+    ) -> anyhow::Result<Self> {
+        Err(anyhow!("this actor cannot be made"))
+    }
 }
 
 fn receiver(name: &str, arm: Arm) -> ActorFactory {
@@ -701,4 +818,142 @@ fn registering_a_hamlet_action_fails() {
         .downcast_ref::<String>()
         .expect("the panic carries a message");
     assert!(message.contains("`hamlet.receive`"), "{message}");
+}
+
+/// `(seq, n, failed_runs)` of each `entries` row of a [`Book`].
+fn entries(dir: &Path, actor_id: &str) -> Vec<(i64, i64, i64)> {
+    column::<String>(
+        dir,
+        actor_id,
+        "SELECT seq || ' ' || n || ' ' || failed_runs FROM entries \
+         ORDER BY rowid",
+    )
+    .iter()
+    .map(|row| {
+        let parts: Vec<i64> = row
+            .split(' ')
+            .map(|part| part.parse().unwrap())
+            .collect();
+        (parts[0], parts[1], parts[2])
+    })
+    .collect()
+}
+
+/// G3: a kind of the trait API applies a send once through
+/// `send::receiving`, and its own actions still reach the layer.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_trait_actor_applies_a_send_once() {
+    let dir = Scratch::new("send-trait");
+    let host = Host::open(&dir, kinds()).unwrap();
+    host.get_or_start("book", "b").await.unwrap();
+    send_n(&host, "a", "book/b", 5).await;
+    drained(&host, "a").await;
+    let reply = host
+        .call(
+            &Address::new("book", "b"),
+            <Entries as hamlet_actor::Action>::NAME,
+            hamlet_actor::action::encode_positional(&Entries)
+                .unwrap(),
+            DEADLINE,
+            Cause::root("test"),
+        )
+        .await
+        .unwrap();
+    let count: i64 = ciborium::from_reader(reply.as_slice()).unwrap();
+    assert_eq!(count, 1);
+    host.shutdown().await.unwrap();
+
+    assert_eq!(entries(&dir, "book/b"), [(1, 5, 0)]);
+}
+
+/// G3: a delivery of a send a trait-API kind applied, made again
+/// because its sender never confirmed it, is answered without
+/// running the handler again. The sender's file is set back to how a
+/// kill before the confirmation leaves it.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_trait_actor_answers_a_repeat_without_applying_it() {
+    let dir = Scratch::new("send-trait-repeat");
+    let host = Host::open(&dir, kinds()).unwrap();
+    host.get_or_start("book", "b").await.unwrap();
+    send_n(&host, "a", "book/b", 5).await;
+    drained(&host, "a").await;
+    host.shutdown().await.unwrap();
+    drop(host);
+
+    let sender =
+        Connection::open(dir.join("actors/counter/a.sqlite"))
+            .unwrap();
+    sender
+        .execute_batch(
+            "INSERT INTO _hamlet_outbox (to_kind, to_key, seq, \
+             name, payload, task, cause, created_at) VALUES \
+             ('book', 'b', 1, 'add', x'0500000000000000', 'demo', \
+             NULL, 0); UPDATE _hamlet_peers SET acked_out = 0",
+        )
+        .unwrap();
+    drop(sender);
+
+    let host = Host::open(&dir, kinds()).unwrap();
+    drained(&host, "a").await;
+    host.shutdown().await.unwrap();
+
+    // The send left the outbox again, confirmed rather than set
+    // aside, and the handler did not run a second time.
+    assert_eq!(
+        one(&dir, "counter/a", "SELECT acked_out FROM _hamlet_peers"),
+        1
+    );
+    assert_eq!(entries(&dir, "book/b"), [(1, 5, 0)]);
+    assert_eq!(
+        one(&dir, "book/b", "SELECT COUNT(*) FROM _hamlet_handled"),
+        1
+    );
+    assert_eq!(
+        one(
+            &dir,
+            "counter/a",
+            "SELECT COUNT(*) FROM _hamlet_dead_letters"
+        ),
+        0
+    );
+}
+
+/// G3: a trait-API kind's handler that fails is counted and tried
+/// again; the run that applies sees the runs that failed.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_trait_actors_failed_runs_are_counted_and_tried_again() {
+    let dir = Scratch::new("send-trait-fail");
+    let host = Host::open(&dir, kinds()).unwrap();
+    host.get_or_start("picky", "b").await.unwrap();
+    send_n(&host, "a", "picky/b", 5).await;
+    drained(&host, "a").await;
+    host.shutdown().await.unwrap();
+
+    assert_eq!(entries(&dir, "picky/b"), [(1, 5, 2)]);
+}
+
+/// G3: the layer of a wrapped kind that fails to start ends the
+/// wrapper's run too, so the start fails rather than hang.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_trait_actor_whose_create_fails_fails_its_start() {
+    let dir = Scratch::new("send-trait-broken");
+    let host = Host::open(
+        &dir,
+        HashMap::from([(
+            "broken".to_owned(),
+            send::receiving(
+                layer_kind::<Broken>("broken"),
+                |_, _| async { Ok(Vec::new()) },
+            ),
+        )]),
+    )
+    .unwrap();
+    let started = tokio::time::timeout(
+        PATIENCE,
+        host.get_or_start("broken", "b"),
+    )
+    .await
+    .expect("a failed create ends the start");
+    assert!(started.is_err());
+    host.shutdown().await.unwrap();
 }
