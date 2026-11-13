@@ -13,6 +13,7 @@ use hamlet_store::ids::{
 };
 use serde_json::{Value, json};
 
+use super::looks::Look;
 use super::{Call, said, spec};
 use crate::change::{Change, Done};
 use crate::core::Core;
@@ -32,6 +33,8 @@ pub(super) enum Step {
     Done(Outcome),
     /// It waits for another agent, in these words.
     Wait(String),
+    /// It goes on once it has looked at this, off the loop.
+    Look(Box<Look>),
 }
 
 impl Step {
@@ -392,7 +395,7 @@ pub(super) fn list(call: &Call<'_>, key: &str) -> Vec<String> {
 
 impl Core<'_, '_> {
     /// Carries out the society call `call`, which the gate let run.
-    pub(super) async fn society(
+    pub(super) fn society(
         &mut self,
         call: &Call<'_>,
         tool: Society,
@@ -401,11 +404,9 @@ impl Core<'_, '_> {
         let here = self.hamlet_of(agent)?;
         let reason = text(call, "reason");
         let result = match tool {
-            Society::Tell => return self.tell(call).await,
-            Society::Ask => return self.ask(call).await,
-            Society::RequestRoad => {
-                return self.request_road(call).await;
-            }
+            Society::Tell => return self.tell(call),
+            Society::Ask => return self.ask(call),
+            Society::RequestRoad => return self.request_road(call),
             Society::StartWorker => return self.start_worker(call),
             Society::SubmitSkill => return self.submit_skill(call),
             Society::AskLibrarian => return self.ask_librarian(call),

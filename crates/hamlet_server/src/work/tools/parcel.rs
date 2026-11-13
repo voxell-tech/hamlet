@@ -76,9 +76,7 @@ pub(super) async fn run(
                 return Ok(Err(unreadable(&piece.name, &error)));
             }
         };
-        if let Err(refusal) =
-            to.inbox.put(&piece.name, &bytes).await?
-        {
+        if let Err(refusal) = to.inbox.put(&piece.name, &bytes)? {
             return Ok(Err(refusal));
         }
         if ImageInput::is_image_file(Path::new(&piece.name))

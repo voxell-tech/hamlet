@@ -4,6 +4,7 @@
 
 mod answer;
 mod held;
+pub(crate) mod looks;
 mod objections;
 pub(crate) mod place;
 pub(crate) mod reviews;
@@ -19,7 +20,8 @@ use bevy_ecs::lifecycle::HookContext;
 use bevy_ecs::system::Query;
 use bevy_ecs::world::DeferredWorld;
 use hamlet_protocol::runtime::{
-    self, ConfigureTools, ServerMessage, ToolSpec, ToolSpecReplay,
+    self, ConfigureTools, RuntimeMessage, ServerMessage, ToolSpec,
+    ToolSpecReplay,
 };
 use hamlet_store::ids::{Actor, AgentId, ConversationId};
 use hamlet_store::marker::{self, Identity, Marked, Request};
@@ -28,12 +30,14 @@ use tokio::sync::mpsc;
 use tokio::task::AbortHandle;
 
 use self::held::State;
+use self::looks::Look;
 use self::objections::OBJECTING;
 pub(crate) use self::society::library::LIBRARIAN;
 pub(crate) use self::society::welcome;
 use crate::core::Core;
 use crate::images::{Limits, kept_pictures};
 use crate::knowledge::CHARACTER;
+use crate::later::{Again, Finished};
 use crate::oversight::gate::{
     self, Asked, Session, Standing, Verdict,
 };
@@ -44,6 +48,7 @@ use crate::talk::{asking, conversations, inputs, models};
 use crate::work::catalogue::Society;
 use crate::work::cut::change_between;
 use crate::work::tools::{Outcome, Sight, ToolSession};
+use crate::workspace::serving::Lodging;
 
 /// The words of a call that waits for a chief.
 const WAITING: &str = "This call waits for a chief's answer.";
@@ -114,9 +119,6 @@ pub(crate) struct Running {
     replies: Vec<Reply>,
     pub conversation: ConversationId,
     request: Request,
-    /// The agent whose remote lodge the call may write, to pull once
-    /// it ends.
-    pull: Option<AgentId>,
     abort: AbortHandle,
 }
 
@@ -124,7 +126,6 @@ pub(crate) struct Running {
 struct Ended {
     replies: Vec<Reply>,
     request: Request,
-    pull: Option<AgentId>,
 }
 
 /// A run's entity went: its task, if still running, stops.
@@ -150,7 +151,6 @@ impl Calls {
         conversation: ConversationId,
         reply: Reply,
         request: Request,
-        pull: Option<AgentId>,
         work: impl Future<Output = Outcome> + Send + 'static,
     ) -> Running {
         let ran = self.ran.clone();
@@ -164,7 +164,6 @@ impl Calls {
             replies: vec![reply],
             conversation,
             request,
-            pull,
             abort: task.abort_handle(),
         }
     }
@@ -297,11 +296,14 @@ impl Call<'_> {
 }
 
 /// What the gate decided of a call.
-#[derive(Debug)]
 enum Decision {
-    Run { net: bool },
+    Run {
+        net: bool,
+    },
     Block(String),
     Wait(&'static str),
+    /// It decides once it has looked at this, off the loop.
+    Look(Box<Look>),
 }
 
 impl Core<'_, '_> {
@@ -418,11 +420,12 @@ impl Core<'_, '_> {
     }
 
     /// Whether the call `asked` may run, before it is kept as begun.
-    pub(crate) async fn allow_call(
+    pub(crate) fn allow_call(
         &mut self,
         index: usize,
         asked: runtime::Allow,
     ) -> Result<()> {
+        let again = RuntimeMessage::Allow(asked.clone());
         let reply = self.reply_of(index, &asked.id);
         let call = match self.admit(
             index,
@@ -463,11 +466,15 @@ impl Core<'_, '_> {
             ) {
             Answer::Allowed
         } else {
-            match self.decide(&call).await? {
+            match self.decide(&call)? {
                 Decision::Run { .. } => Answer::Allowed,
                 Decision::Block(words) => Answer::Refusal(words),
                 Decision::Wait(words) => {
                     Answer::Waiting(words.into())
+                }
+                Decision::Look(look) => {
+                    self.look(&call, look, index, again);
+                    return Ok(());
                 }
             }
         };
@@ -475,13 +482,39 @@ impl Core<'_, '_> {
         Ok(())
     }
 
+    /// Looks at what `call` waits on, on a task; once found, the
+    /// runtime's request `again` runs again and finds it.
+    fn look(
+        &mut self,
+        call: &Call<'_>,
+        look: Box<Look>,
+        index: usize,
+        again: RuntimeMessage,
+    ) {
+        let secrets = self.credentials.secrets();
+        let again = Again {
+            index,
+            generation: self.runtimes.generation(index).unwrap_or(0),
+            message: again,
+        };
+        let id = call.call.clone();
+        self.later.spawn(async move {
+            Finished::Looked {
+                call: id,
+                found: look.run(secrets).await,
+                again,
+            }
+        });
+    }
+
     /// Carries out the call `asked`: its kept result when it ran,
     /// else as the gate decides now.
-    pub(crate) async fn operation(
+    pub(crate) fn operation(
         &mut self,
         index: usize,
         asked: runtime::Operation,
     ) -> Result<()> {
+        let again = RuntimeMessage::Operation(asked.clone());
         let reply = self.reply_of(index, &asked.id);
         let call = match self.admit(
             index,
@@ -558,7 +591,11 @@ impl Core<'_, '_> {
             );
             return Ok(());
         } else {
-            match self.decide(&call).await? {
+            match self.decide(&call)? {
+                Decision::Look(look) => {
+                    self.look(&call, look, index, again);
+                    return Ok(());
+                }
                 Decision::Block(words) => {
                     self.tell_call(
                         &reply,
@@ -577,7 +614,7 @@ impl Core<'_, '_> {
                 }
                 Decision::Run { net } => {
                     if let Some(society) = call.society {
-                        match self.society(&call, society).await? {
+                        match self.society(&call, society)? {
                             society::Step::Done(outcome) => {
                                 crate::fault::point("carried");
                                 Some(outcome)
@@ -590,6 +627,10 @@ impl Core<'_, '_> {
                                 );
                                 return Ok(());
                             }
+                            society::Step::Look(look) => {
+                                self.look(&call, look, index, again);
+                                return Ok(());
+                            }
                         }
                     } else {
                         self.run_tool(
@@ -597,8 +638,7 @@ impl Core<'_, '_> {
                             reply.clone(),
                             call.request.clone(),
                             net,
-                        )
-                        .await?
+                        )?
                     }
                 }
             }
@@ -612,6 +652,7 @@ impl Core<'_, '_> {
                 &outcome,
                 crate::clock::now(),
             )?;
+            self.looks.forget(&call.call);
             self.tell_call(
                 &reply,
                 &asked.key,
@@ -624,7 +665,7 @@ impl Core<'_, '_> {
     /// Runs the built-in or added tool of `call` with the network
     /// `net`, after marking it begun when it may not run again. Gives
     /// the outcome of a call refused before it runs.
-    async fn run_tool(
+    fn run_tool(
         &mut self,
         call: &Call<'_>,
         reply: Reply,
@@ -654,11 +695,8 @@ impl Core<'_, '_> {
                 .and_then(|change| {
                     serde_json::from_str::<Value>(&change).ok()
                 });
-        let (session, pull) =
-            match self.tools_of(call, at.place, net).await? {
-                Ok(found) => found,
-                Err(words) => return Ok(Some(said(words, true))),
-            };
+        let (session, lodging) =
+            self.tools_of(call, at.place, net)?;
         let session = session.seeing(self.sight_of(agent)?);
         let secrets = self.credentials.secrets();
         let arguments =
@@ -669,10 +707,37 @@ impl Core<'_, '_> {
             call.conversation.id,
             reply,
             request,
-            (pull && once).then_some(agent),
             async move {
+                // A remote lodge is in step before the call runs
+                // there, and comes home after one that may write it,
+                // before the agent's next call reads it.
+                if let Some(lodging) = &lodging
+                    && let Err(error) = lodging.in_step().await
+                {
+                    return said(
+                        hamlet_sandbox::scrub::scrub_text(
+                            &secrets,
+                            &format!(
+                                "The remote workspace could not \
+                                 take the lodge in: {error:#}"
+                            ),
+                        ),
+                        true,
+                    );
+                }
                 let mut outcome =
                     session.run(&secrets, &name, &arguments).await;
+                if once
+                    && let Some(lodging) = &lodging
+                    && let Err(error) = lodging.pull().await
+                {
+                    crate::diagnostic::tell(
+                        crate::diagnostic::Secrets::Listed(&secrets),
+                        format!(
+                            "could not bring a lodge home: {error:#}"
+                        ),
+                    );
+                }
                 if let Some(change) = change {
                     outcome
                         .details
@@ -687,33 +752,25 @@ impl Core<'_, '_> {
     }
 
     /// Where the tools of `call`'s agent run: in the remote workspace
-    /// the realm works in, whose lodge is pulled home after a call
-    /// that may write it, else on this machine. A dream works on this
-    /// machine's checkout of its scholar, so it runs here. Gives the
-    /// words of a lodge the workspace could not take in.
-    async fn tools_of(
+    /// the realm works in, with what keeps its lodge's remote copy in
+    /// step, else on this machine. A dream works on this machine's
+    /// checkout of its scholar, so it runs here.
+    fn tools_of(
         &mut self,
         call: &Call<'_>,
         place: crate::work::tools::Place,
         net: bool,
-    ) -> Result<Result<(ToolSession, bool), String>> {
+    ) -> Result<(ToolSession, Option<Lodging>)> {
         let agent = call.conversation.agent;
         let remote = match call.conversation.kind {
             Kind::Dream => None,
             _ => self.remote_session(agent, net)?,
         };
-        Ok(Ok(match remote {
-            Some(session) => {
-                if let Err(error) = self.lodge_in_step(agent).await {
-                    return Ok(Err(self.credentials.scrub_text(
-                        &format!(
-                            "The remote workspace could not take \
-                             the lodge in: {error:#}"
-                        ),
-                    )));
-                }
-                (ToolSession::remote(place, session), true)
-            }
+        Ok(match remote {
+            Some(session) => (
+                ToolSession::remote(place, session),
+                self.lodging(agent)?,
+            ),
             None => (
                 ToolSession::local(
                     place,
@@ -722,9 +779,9 @@ impl Core<'_, '_> {
                     self.shells.clone(),
                     self.leftovers.of(agent.0),
                 ),
-                false,
+                None,
             ),
-        }))
+        })
     }
 
     /// The images the model `agent` runs now takes.
@@ -758,7 +815,7 @@ impl Core<'_, '_> {
 
     /// Keeps the outcome of a tool run that ended and answers each
     /// runtime that asked.
-    pub(crate) async fn ran(&mut self, ran: Ran) -> Result<()> {
+    pub(crate) fn ran(&mut self, ran: Ran) -> Result<()> {
         let Some((entity, mut found)) = self
             .runs
             .iter_mut()
@@ -769,7 +826,6 @@ impl Core<'_, '_> {
         let running = Ended {
             replies: std::mem::take(&mut found.replies),
             request: found.request.clone(),
-            pull: found.pull,
         };
         self.commands.entity(entity).despawn();
         crate::fault::point("ran");
@@ -781,15 +837,7 @@ impl Core<'_, '_> {
             &ran.outcome,
             crate::clock::now(),
         )?;
-        // The lodge comes home before the agent's next call reads it.
-        if let Some(agent) = running.pull
-            && let Err(error) = self.pull_lodge(agent).await
-        {
-            crate::diagnostic::tell(
-                crate::diagnostic::Secrets::Of(&self.credentials),
-                format!("could not bring a lodge home: {error:#}"),
-            );
-        }
+        self.looks.forget(&ran.call);
         for reply in running.replies {
             self.tell_call(
                 &reply,
@@ -802,7 +850,7 @@ impl Core<'_, '_> {
 
     /// The gate's decision of `call`: the one kept, else one made now
     /// and kept, raising a wait when it asks a chief.
-    async fn decide(&mut self, call: &Call<'_>) -> Result<Decision> {
+    fn decide(&mut self, call: &Call<'_>) -> Result<Decision> {
         let layout = self.realm.layout().clone();
         let db = self.realm.store().connection();
         if let Some(kept) =
@@ -868,22 +916,6 @@ impl Core<'_, '_> {
             .map(crate::work::added::Manifest::has_net);
         let mut classified =
             gate::call_of(call.tool, &call.args(), added);
-        let session =
-            match self.tools_of(call, at.place.clone(), false).await?
-            {
-                Ok((session, _)) => session,
-                Err(words) => {
-                    let db = self.realm.store().connection();
-                    held::block(
-                        db,
-                        &call.call.runtime,
-                        &call.call.key,
-                        &words,
-                        None,
-                    )?;
-                    return Ok(Decision::Block(words));
-                }
-            };
         if let gate::Call::Society {
             tool: tool @ (Society::Tell | Society::Ask),
             args,
@@ -893,13 +925,26 @@ impl Core<'_, '_> {
             if !paths.is_empty() {
                 let (name, args) =
                     (tool.name().to_owned(), args.clone());
-                match session.parcel(&paths, None).await? {
-                    Ok(sent) => {
+                let Some(measured) =
+                    self.looks.measured(&call.call).cloned()
+                else {
+                    let (session, lodging) =
+                        self.tools_of(call, at.place.clone(), false)?;
+                    return Ok(Decision::Look(Box::new(
+                        Look::Measure {
+                            session,
+                            lodging,
+                            paths,
+                        },
+                    )));
+                };
+                match measured {
+                    Ok((files, bytes)) => {
                         classified = gate::Call::Parcel {
                             name,
                             args,
-                            files: sent.files,
-                            bytes: sent.bytes,
+                            files,
+                            bytes,
                         };
                     }
                     Err(refusal) => {
@@ -925,14 +970,24 @@ impl Core<'_, '_> {
             ..
         } = &mut classified
         {
-            match session.preview(path).await {
+            let Some(previewed) =
+                self.looks.previewed(&call.call).cloned()
+            else {
+                let (session, lodging) =
+                    self.tools_of(call, at.place.clone(), false)?;
+                return Ok(Decision::Look(Box::new(Look::Preview {
+                    session,
+                    lodging,
+                    path: path.clone(),
+                })));
+            };
+            match previewed {
                 Ok(Some(before)) => {
                     *old = before;
                     *created = false;
                 }
                 Ok(None) => {}
-                Err(unread) => {
-                    let words = unread.to_string();
+                Err(words) => {
                     let db = self.realm.store().connection();
                     held::block(
                         db,
@@ -945,6 +1000,8 @@ impl Core<'_, '_> {
                 }
             }
         }
+        let (session, _) =
+            self.tools_of(call, at.place.clone(), false)?;
         let (change, lodge_edit) = match &classified {
             gate::Call::Edit {
                 write,

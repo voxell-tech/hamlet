@@ -30,14 +30,15 @@ use image::{
 use sha2::{Digest, Sha256};
 
 use crate::attached::{Attached, Caption, is_place};
-use crate::clients::check::reply;
+use crate::clients::check::{fault, reply};
 use crate::clients::connection::UploadOf;
 use crate::core::Core;
 use crate::deadline::AddDeadline;
 use crate::diagnostic::{Secrets, tell};
 use crate::files::Files;
-use crate::inbox::{INBOX, write_remote};
+use crate::inbox::INBOX;
 use crate::knowledge::folder::Folder;
+use crate::later::Finished;
 use crate::layout::Layout;
 use crate::society::refusal::Refusal;
 use crate::talk::models;
@@ -699,8 +700,9 @@ impl Core<'_, '_> {
     /// they are saved (C33). The images are the model's too, if it
     /// takes them (S30), and are saved in the agent's own folder of
     /// images; the files are saved in its inbox. The remote
-    /// workspace holds both when the agent works there.
-    pub(crate) async fn attach(
+    /// workspace holds both once the agent's lodge is next pushed,
+    /// when it works there.
+    pub(crate) fn attach(
         &mut self,
         agent: AgentId,
         text: &str,
@@ -728,11 +730,10 @@ impl Core<'_, '_> {
         images.sort_by_key(|image| image.at.unwrap_or(u64::MAX));
         let mut files = files.to_vec();
         files.sort_by_key(|file| file.at.unwrap_or(u64::MAX));
-        let mut attached =
-            match self.attach_images(agent, &images).await? {
-                Ok(attached) => attached,
-                Err(refusal) => return Ok(Err(refusal)),
-            };
+        let mut attached = match self.attach_images(agent, &images)? {
+            Ok(attached) => attached,
+            Err(refusal) => return Ok(Err(refusal)),
+        };
         if files.is_empty() {
             return Ok(Ok(attached));
         }
@@ -746,7 +747,7 @@ impl Core<'_, '_> {
                 ))));
             };
             if let Err(refusal) =
-                inbox.put_at(&file.name, &bytes, file.at).await?
+                inbox.put_at(&file.name, &bytes, file.at)?
             {
                 return Ok(Err(refusal));
             }
@@ -761,7 +762,7 @@ impl Core<'_, '_> {
     /// The images `images` of a line to `agent`, if its model takes
     /// them (S30), with the captions that tell where they are saved:
     /// in the agent's own folder of images.
-    async fn attach_images(
+    fn attach_images(
         &mut self,
         agent: AgentId,
         images: &[AttachedImage],
@@ -796,7 +797,10 @@ impl Core<'_, '_> {
         )?
         .place
         .lodge;
-        let remote = self.remote_session(agent, false)?;
+        let remote = self.workspace.is_some();
+        if remote {
+            self.unpushed.insert(agent);
+        }
         let kept = Images::new(layout.images());
         let mut attached = Attached::default();
         for (index, image) in images.iter().enumerate() {
@@ -806,23 +810,10 @@ impl Core<'_, '_> {
                 }));
             };
             let name = kept.hand_over(&lodge, &image.id, &stored)?;
-            let saved = match &remote {
-                None => {
-                    lodge.join(SEEN).join(&name).display().to_string()
-                }
-                Some(session) => {
-                    let path = format!("{LODGE}/{SEEN}/{name}");
-                    if let Err(failure) =
-                        write_remote(session, &path, &stored.bytes)
-                            .await
-                    {
-                        return Ok(Err(usage(&format!(
-                            "The workspace could not take the \
-                             image: {failure}"
-                        ))));
-                    }
-                    path
-                }
+            let saved = if remote {
+                format!("{LODGE}/{SEEN}/{name}")
+            } else {
+                lodge.join(SEEN).join(&name).display().to_string()
             };
             attached.captions.push(Caption {
                 at: image.at,
@@ -846,40 +837,55 @@ impl Core<'_, '_> {
         }
     }
 
-    /// The image `image` as `size` says, for the client that asked,
-    /// made on a thread of its own.
-    pub(crate) async fn read_image(
+    /// Sends `client` the image `image` as `size` says, answering
+    /// `id`, made on a thread of its own.
+    pub(crate) fn read_image(
         &mut self,
+        client: u64,
         id: &RequestId,
         image: &ImageId,
         size: ImageSize,
-    ) -> Result<ServerMessage> {
+    ) {
         let folder = self.realm.layout().images();
-        let wanted = image.clone();
-        let found = tokio::task::spawn_blocking(move || {
-            let images = Images::new(folder);
-            match size {
-                ImageSize::Original => images.find(&wanted),
-                ImageSize::Thumbnail => images.thumbnail(&wanted),
-            }
-        })
-        .await??;
-        Ok(match found {
-            Some(stored) => ServerMessage::Read(ReadResult::Image {
-                image: ImageBytes {
-                    data: base64::engine::general_purpose::STANDARD
-                        .encode(&stored.bytes),
-                    mime: stored.format.mime().into(),
-                },
-                to: id.clone(),
-            }),
-            None => reply(
-                id,
-                Err(Refusal::NoImage {
-                    image: image.to_string(),
-                }),
-            ),
-        })
+        let (id, image) = (id.clone(), image.clone());
+        self.later.spawn(async move {
+            let wanted = image.clone();
+            let found = tokio::task::spawn_blocking(move || {
+                let images = Images::new(folder);
+                match size {
+                    ImageSize::Original => images.find(&wanted),
+                    ImageSize::Thumbnail => images.thumbnail(&wanted),
+                }
+            })
+            .await;
+            let message = match found {
+                Ok(Ok(Some(stored))) => {
+                    ServerMessage::Read(ReadResult::Image {
+                        image: ImageBytes {
+                            data: base64::engine::general_purpose::STANDARD
+                                .encode(&stored.bytes),
+                            mime: stored.format.mime().into(),
+                        },
+                        to: id.clone(),
+                    })
+                }
+                Ok(Ok(None)) => reply(
+                    &id,
+                    Err(Refusal::NoImage {
+                        image: image.to_string(),
+                    }),
+                ),
+                Ok(Err(error)) => fault(
+                    Some(&id),
+                    format!("The server failed: {error}"),
+                ),
+                Err(panic) => fault(
+                    Some(&id),
+                    format!("The server failed: {panic}"),
+                ),
+            };
+            Finished::Reply { client, message }
+        });
     }
 
     /// Takes away the images nothing uses any more, at most once an

@@ -16,9 +16,8 @@ use bevy_app::App;
 use bevy_ecs::entity::Entity;
 use bevy_ecs::error::{BevyError, ErrorContext};
 use bevy_ecs::query::With;
-use bevy_ecs::system::SystemState;
-use futures::FutureExt;
-use hamlet_protocol::client::ClientMessage;
+use bevy_ecs::system::{In, IntoSystem, SystemState};
+use bevy_ecs::world::World;
 use hamlet_protocol::runtime::{
     ErrorCode, ProtocolError, RuntimeMessage, ServerMessage,
 };
@@ -28,6 +27,7 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{mpsc, watch};
 
 use crate::apply::Apply;
+use crate::calls::looks::Looks;
 use crate::calls::{self, Calls, Ran, Running};
 use crate::clients::check::fault;
 use crate::clients::connection::Event;
@@ -42,6 +42,7 @@ use crate::deadline::{self, Fire};
 use crate::diagnostic::{self, Secrets, tell};
 use crate::jobs::Job;
 use crate::knowledge::runner::{Runner, Writing};
+use crate::later::{Finished, Later};
 use crate::providers::Providers;
 use crate::realm::Realm;
 use crate::society::agents;
@@ -69,6 +70,8 @@ pub(crate) enum Input {
     Ran(Ran),
     /// The images of an input were fitted to its model.
     Fitted(Fitted),
+    /// A task finished, with what it awaited off the loop.
+    Finished(Box<Finished>),
     /// A timer's deadline came.
     Due,
     /// A timer that was due runs.
@@ -82,6 +85,7 @@ pub(crate) struct Inbox {
     events: mpsc::Receiver<Event>,
     ran: mpsc::UnboundedReceiver<Ran>,
     fitted: mpsc::UnboundedReceiver<Fitted>,
+    finished: mpsc::UnboundedReceiver<Finished>,
     listener: Option<TcpListener>,
 }
 
@@ -111,6 +115,9 @@ impl Inbox {
             Some(ran) = self.ran.recv() => Some(Input::Ran(ran)),
             Some(fitted) = self.fitted.recv() => {
                 Some(Input::Fitted(fitted))
+            }
+            Some(finished) = self.finished.recv() => {
+                Some(Input::Finished(Box::new(finished)))
             }
             Ok((stream, _)) = async {
                 match listener {
@@ -196,6 +203,7 @@ impl Server {
         let (events_to, events) = mpsc::channel(128);
         let (ran_to, ran) = mpsc::unbounded_channel();
         let (fitted_to, fitted) = mpsc::unbounded_channel();
+        let (finished_to, finished) = mpsc::unbounded_channel();
         let writing = Writing::default();
         let runner = Runner::start(
             realm.layout(),
@@ -259,6 +267,8 @@ impl Server {
             .insert_resource(Catalogue(catalogue))
             .insert_resource(Calls::new(ran_to))
             .insert_resource(Fitting::new(fitted_to))
+            .insert_resource(Later::new(finished_to))
+            .insert_resource(Looks::default())
             .insert_resource(providers)
             .insert_resource(Authority::default())
             .insert_resource(Workspace(workspace))
@@ -276,6 +286,7 @@ impl Server {
                 events,
                 ran,
                 fitted,
+                finished,
                 listener: None,
             },
         };
@@ -324,24 +335,25 @@ impl Server {
                 // Each timer is an input of its own: one that fails
                 // fails alone.
                 for fire in fires {
-                    self.run(Input::Timer(fire)).await?;
+                    self.run(Input::Timer(fire))?;
                 }
                 Ok(true)
             }
             Some(input) => {
-                self.run(input).await?;
+                self.run(input)?;
                 Ok(true)
             }
             None => Ok(false),
         }
     }
 
-    /// Runs `input`. One that fails or panics leaves its transaction
-    /// rolled back and is logged; the server goes on unless the
-    /// realm cannot be served.
-    pub async fn run(&mut self, input: Input) -> Result<(), Fatal> {
+    /// Runs `input`, then what follows it. One that fails or panics
+    /// leaves its transaction rolled back and is logged; the server
+    /// goes on unless the realm cannot be served. Nothing here
+    /// awaits: what awaits runs on a task, whose result is an input.
+    pub fn run(&mut self, input: Input) -> Result<(), Fatal> {
         let ran =
-            AssertUnwindSafe(self.handle(input)).catch_unwind().await;
+            catch_unwind(AssertUnwindSafe(|| self.handle(input)));
         // What the input spawned and despawned takes effect now.
         self.core.apply(self.app.world_mut());
         let mut failures = recorded();
@@ -366,10 +378,7 @@ impl Server {
         // What the input kept is followed up whether or not it went
         // on to fail.
         failures.extend(self.apply());
-        let mut core = self.core().map_err(Fatal)?;
-        // What the input's changes owe the remote workspace is pushed
-        // before the next input.
-        core.push_owed().await;
+        let core = self.core().map_err(Fatal)?;
         for failure in failures {
             tell(
                 Secrets::Of(&core.credentials),
@@ -393,24 +402,60 @@ impl Server {
         failures
     }
 
-    async fn handle(&mut self, input: Input) -> Result<()> {
+    fn handle(&mut self, input: Input) -> Result<()> {
+        let world = self.app.world_mut();
         match input {
-            Input::Line(received) => self.line(received).await,
-            Input::Connection(event) => self.connection(event).await,
+            Input::Line(received) => self.line(received),
+            Input::Connection(event) => self.connection(event),
             Input::Accepted(stream) => {
                 // A connection is an entity until it goes.
                 let connection = self.core()?.clients.accept(stream);
                 self.app.world_mut().spawn(connection);
                 Ok(())
             }
-            Input::Timer(fire) => self
-                .app
-                .world_mut()
+            Input::Timer(fire) => world
                 .run_system(fire)
                 .map_err(|error| anyhow::anyhow!("{error}"))?,
-            input => {
-                let mut core = self.core()?;
-                Self::dispatch(&mut core, input).await
+            Input::Worked(done) => once(world, worked, done),
+            Input::Ran(ran) => once(world, ran_one, ran),
+            Input::Fitted(fitted) => once(world, fitted_one, fitted),
+            Input::Finished(finished) => self.finished(*finished),
+            // The inbox gives a deadline as the timers it is.
+            Input::Due => Ok(()),
+        }
+    }
+
+    /// Takes in what a task finished with.
+    fn finished(&mut self, finished: Finished) -> Result<()> {
+        let mut core = self.core()?;
+        match finished {
+            Finished::Reply { client, message } => {
+                core.answer(client, message)
+            }
+            Finished::Moving { progress, answer } => {
+                core.moving.0 = Some(progress);
+                core.changed.republish = true;
+                if let Some((client, message)) = answer {
+                    core.answer(client, message)?;
+                }
+                Ok(())
+            }
+            Finished::Looked { call, found, again } => {
+                if let Some(receiver) = core.looks.found(call, found)
+                {
+                    core.unpushed.insert(receiver);
+                }
+                // A runtime that started again since asks again.
+                if core.runtimes.generation(again.index)
+                    != Some(again.generation)
+                {
+                    return Ok(());
+                }
+                heard::hear(
+                    self.app.world_mut(),
+                    again.index,
+                    again.message,
+                )
             }
         }
     }
@@ -418,7 +463,7 @@ impl Server {
     /// Takes in what a connection did. A request is run by the system
     /// for it; one whose handling fails leaves its transaction rolled
     /// back, and the client is told.
-    async fn connection(&mut self, event: Event) -> Result<()> {
+    fn connection(&mut self, event: Event) -> Result<()> {
         let (client, text) = match event {
             Event::Late(client) => {
                 self.core()?.late(client);
@@ -445,9 +490,10 @@ impl Server {
             return Ok(());
         };
         let id = message.id().cloned();
-        let asked = AssertUnwindSafe(self.request(client, message))
-            .catch_unwind()
-            .await;
+        let world = self.app.world_mut();
+        let asked = catch_unwind(AssertUnwindSafe(|| {
+            asked::ask(world, client, message)
+        }));
         let (shown, logged) = match asked {
             Ok(Ok(())) => return Ok(()),
             Ok(Err(error)) => {
@@ -470,31 +516,10 @@ impl Server {
         )
     }
 
-    /// Runs the system for `message` from `client`; a request that
-    /// awaits files or the workspace is carried out here.
-    async fn request(
-        &mut self,
-        client: u64,
-        message: ClientMessage,
-    ) -> Result<()> {
-        match asked::ask(self.app.world_mut(), client, message)? {
-            Some(ClientMessage::Say(say)) => {
-                self.core()?.say(client, say).await
-            }
-            Some(ClientMessage::Read(read)) => {
-                self.core()?.read(client, read).await
-            }
-            Some(ClientMessage::MoveLodges(asked)) => {
-                self.core()?.move_lodges(client, &asked.id).await
-            }
-            Some(_) | None => Ok(()),
-        }
-    }
-
     /// Takes in a runtime's line: its message is run by the system
     /// for it. A message whose handling fails leaves its transaction
     /// rolled back, and a runtime that waits is told; it goes on.
-    async fn line(&mut self, received: Received) -> Result<()> {
+    fn line(&mut self, received: Received) -> Result<()> {
         let mut core = self.core()?;
         if !core.runtimes.is_current(&received) {
             return Ok(());
@@ -520,9 +545,10 @@ impl Server {
                 }
             };
         let re = heard::awaited(&message);
-        let heard = AssertUnwindSafe(self.hear(index, message))
-            .catch_unwind()
-            .await;
+        let world = self.app.world_mut();
+        let heard = catch_unwind(AssertUnwindSafe(|| {
+            heard::hear(world, index, message)
+        }));
         let failure = match heard {
             Ok(Ok(())) => None,
             Ok(Err(error)) => Some(format!("{error:#}")),
@@ -552,47 +578,6 @@ impl Server {
         }
         core.answer_credentials();
         Ok(())
-    }
-
-    /// Runs the system for `message` from runtime `index`; a tool
-    /// call's request awaits the workspace and is carried out here.
-    async fn hear(
-        &mut self,
-        index: usize,
-        message: RuntimeMessage,
-    ) -> Result<()> {
-        match heard::hear(self.app.world_mut(), index, message)? {
-            Some(RuntimeMessage::Allow(asked)) => {
-                self.core()?.allow_call(index, asked).await
-            }
-            Some(RuntimeMessage::Operation(asked)) => {
-                self.core()?.operation(index, asked).await
-            }
-            Some(_) | None => Ok(()),
-        }
-    }
-
-    async fn dispatch(
-        core: &mut Core<'_, '_>,
-        input: Input,
-    ) -> Result<()> {
-        match input {
-            // The runner takes these in itself.
-            Input::Line(_)
-            | Input::Connection(_)
-            | Input::Accepted(_)
-            | Input::Due
-            | Input::Timer(_) => Ok(()),
-            Input::Worked(done) => {
-                core.owe_pushes(&done);
-                core.publish()
-            }
-            Input::Ran(ran) => core.ran(ran).await,
-            Input::Fitted(fitted) => {
-                core.fitting.fitted(fitted);
-                core.flush(false)
-            }
-        }
     }
 
     /// Readies the realm to stop: every sign-in ends, and a
@@ -630,6 +615,40 @@ impl Server {
         drop(world.remove_resource::<Runner>());
         Ok(())
     }
+}
+
+/// Runs `system` once with `input`, as a cached one-shot system.
+fn once<I, M>(
+    world: &mut World,
+    system: impl IntoSystem<In<I>, Result<()>, M> + 'static,
+    input: I,
+) -> Result<()>
+where
+    I: Send + 'static,
+{
+    world
+        .run_system_cached_with(system, input)
+        .map_err(|error| anyhow::anyhow!("{error}"))?
+}
+
+/// A pass of the jobs runner did jobs: the lodges they changed are
+/// owed a push, and the clients see what they did.
+fn worked(In(done): In<Vec<Job>>, mut core: Core) -> Result<()> {
+    core.owe_pushes(&done);
+    core.changed.republish = true;
+    Ok(())
+}
+
+/// A tool run ended.
+fn ran_one(In(ran): In<Ran>, mut core: Core) -> Result<()> {
+    core.ran(ran)
+}
+
+/// The images of an input were fitted: it may go to its runtime.
+fn fitted_one(In(fitted): In<Fitted>, mut core: Core) -> Result<()> {
+    core.fitting.fitted(fitted);
+    core.changed.answered = true;
+    Ok(())
 }
 
 /// What a test reads to wait on a condition of the realm.

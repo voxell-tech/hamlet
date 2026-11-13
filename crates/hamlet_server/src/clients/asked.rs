@@ -1,8 +1,8 @@
 //! What a client asks: one system for each kind of request. The
 //! runner takes a welcomed client's message apart and runs the
-//! request's system once, with the client it came from ([`ask`]). A
-//! line to an agent, a read and a move of the lodges await files or
-//! the workspace, so they go back to the runner.
+//! request's system once, with the client it came from ([`ask`]).
+//! What awaits the disk or the workspace runs on a task, whose result
+//! comes back as an input of its own.
 
 use anyhow::{Result, anyhow};
 use bevy_ecs::system::{In, IntoSystem, ResMut};
@@ -19,17 +19,16 @@ use crate::society::refusal::Refusal;
 /// A request of the client with an id, as a system's input.
 type Asked<M> = In<(u64, M)>;
 
-/// Runs the system for `message` from `client`. Gives back the
-/// requests that await, which the caller carries out.
+/// Runs the system for `message` from `client`.
 pub(crate) fn ask(
     world: &mut World,
     client: u64,
     message: ClientMessage,
-) -> Result<Option<ClientMessage>> {
+) -> Result<()> {
     crate::fault::panic_at("request");
     let Some(message) = world_run(world, models, (client, message))?
     else {
-        return Ok(None);
+        return Ok(());
     };
     match message {
         ClientMessage::Hello(_) => once(world, hello, (client, ())),
@@ -59,13 +58,36 @@ pub(crate) fn ask(
             once(world, put_file_part, (client, m))
         }
         ClientMessage::Rewind(m) => once(world, rewind, (client, m)),
+        ClientMessage::Say(m) => once(world, say, (client, m)),
+        ClientMessage::Read(m) => once(world, read, (client, m)),
+        ClientMessage::MoveLodges(m) => {
+            once(world, move_lodges, (client, m))
+        }
         // The providers answered these.
         ClientMessage::Login(_) | ClientMessage::Check(_) => Ok(()),
-        awaits @ (ClientMessage::Say(_)
-        | ClientMessage::Read(_)
-        | ClientMessage::MoveLodges(_)) => return Ok(Some(awaits)),
     }
-    .map(|()| None)
+}
+
+/// A chief's line to an agent.
+fn say(
+    In((client, say)): Asked<protocol::Say>,
+    mut core: Core,
+) -> Result<()> {
+    core.say(client, say)
+}
+
+fn read(
+    In((client, read)): Asked<protocol::Read>,
+    mut core: Core,
+) -> Result<()> {
+    core.read(client, read)
+}
+
+fn move_lodges(
+    In((client, asked)): Asked<protocol::MoveLodges>,
+    mut core: Core,
+) -> Result<()> {
+    core.move_lodges(client, &asked.id)
 }
 
 /// Runs `system` once with `input`, as a cached one-shot system.

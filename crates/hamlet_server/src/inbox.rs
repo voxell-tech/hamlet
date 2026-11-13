@@ -1,5 +1,6 @@
-//! Where files sent to an agent are saved: the `inbox/` of its lodge,
-//! and of its remote workspace when it works there (C33, H30).
+//! Where files sent to an agent are saved: the `inbox/` of its lodge
+//! (C33, H30). An agent that works in a remote workspace finds them
+//! there once its lodge is next pushed, before its next call.
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -8,14 +9,12 @@ use anyhow::Result;
 use hamlet_os::fs::TreePath;
 use hamlet_protocol::client::AttachedFile;
 use hamlet_store::ids::AgentId;
-use hamlet_workspace_wire::{Bytes, MAX_FILE, Write};
 
 use crate::attached::Caption;
 use crate::core::Core;
 use crate::knowledge::folder::Folder;
 use crate::society::refusal::Refusal;
 use crate::workspace::lodges::LODGE;
-use crate::workspace::{Failure, Session};
 
 /// The folder of a lodge that holds what was sent to its agent.
 pub(crate) const INBOX: &str = "inbox";
@@ -35,7 +34,9 @@ struct Saved {
 /// Files being saved in `dir`, a folder of a lodge, for one send.
 pub(crate) struct Inbox {
     lodge: PathBuf,
-    remote: Option<Session>,
+    /// The agent works in a remote workspace, where its lodge is at
+    /// `/lodge`.
+    remote: bool,
     dir: String,
     /// The name each top-level name was saved under, which differs
     /// from it when something of that name was there already.
@@ -46,7 +47,7 @@ pub(crate) struct Inbox {
 
 impl Core<'_, '_> {
     /// The folder `dir` of `agent`'s lodge, where files are to be
-    /// saved: under `inbox/`.
+    /// saved: under `inbox/`. Its remote copy is owed a push.
     pub(crate) fn open_inbox(
         &mut self,
         agent: AgentId,
@@ -60,9 +61,13 @@ impl Core<'_, '_> {
         )?
         .place
         .lodge;
+        let remote = self.workspace.is_some();
+        if remote {
+            self.unpushed.insert(agent);
+        }
         Ok(Inbox {
             lodge,
-            remote: self.remote_session(agent, false)?,
+            remote,
             dir: dir.to_owned(),
             chosen: HashMap::new(),
             written: HashSet::new(),
@@ -83,45 +88,19 @@ fn usage(words: String) -> Refusal {
     Refusal::Usage { words }
 }
 
-/// Writes `bytes` at `path` of the remote workspace, in pieces of at
-/// most `MAX_FILE` bytes, which is all one request carries.
-pub(crate) async fn write_remote(
-    session: &Session,
-    path: &str,
-    bytes: &[u8],
-) -> std::result::Result<(), Failure> {
-    let pieces = if bytes.is_empty() {
-        vec![bytes]
-    } else {
-        bytes.chunks(MAX_FILE).collect()
-    };
-    for (piece, bytes) in pieces.into_iter().enumerate() {
-        session
-            .call(Write {
-                path: path.to_owned(),
-                data: Bytes(bytes.to_vec()),
-                append: piece > 0,
-                parents: true,
-                no_follow: true,
-            })
-            .await?;
-    }
-    Ok(())
-}
-
 impl Inbox {
     /// Saves `bytes` as `name`, a path from the folder it was sent
     /// in, which is kept under a name nothing there has.
-    pub(crate) async fn put(
+    pub(crate) fn put(
         &mut self,
         name: &str,
         bytes: &[u8],
     ) -> Result<std::result::Result<(), Refusal>> {
-        self.put_at(name, bytes, None).await
+        self.put_at(name, bytes, None)
     }
 
     /// [`Self::put`] for a file that sits at `at` in a line's words.
-    pub(crate) async fn put_at(
+    pub(crate) fn put_at(
         &mut self,
         name: &str,
         bytes: &[u8],
@@ -188,17 +167,6 @@ impl Inbox {
         }
         let local = format!("{}/{path}", self.dir);
         lodge.write(&local, bytes, false)?;
-        if let Some(session) = &self.remote {
-            let remote = format!("{LODGE}/{local}");
-            if let Err(failure) =
-                write_remote(session, &remote, bytes).await
-            {
-                return Ok(Err(usage(format!(
-                    "The workspace could not take the file: \
-                     {failure}"
-                ))));
-            }
-        }
         if let Some(saved) =
             self.saved.iter_mut().find(|saved| saved.name == top_name)
         {
@@ -226,16 +194,14 @@ impl Inbox {
             .iter()
             .enumerate()
             .map(|(index, saved)| {
-                let at = match &self.remote {
-                    None => self
-                        .lodge
+                let at = if self.remote {
+                    format!("{LODGE}/{}/{}", self.dir, saved.name)
+                } else {
+                    self.lodge
                         .join(&self.dir)
                         .join(&saved.name)
                         .display()
-                        .to_string(),
-                    Some(_) => {
-                        format!("{LODGE}/{}/{}", self.dir, saved.name)
-                    }
+                        .to_string()
                 };
                 let size = AttachedFile::size_words(saved.bytes);
                 let n = index + 1;

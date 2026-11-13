@@ -31,14 +31,17 @@ use crate::realm::Realm;
 /// A message of the runtime at an index, as a system's input.
 type Heard<M> = In<(usize, M)>;
 
-/// Runs the system for `message` from runtime `index`. Gives `None`
-/// for the requests about a tool call, which the caller carries out.
+/// Runs the system for `message` from runtime `index`.
 pub(crate) fn hear(
     world: &mut World,
     index: usize,
     message: RuntimeMessage,
-) -> Result<Option<RuntimeMessage>> {
+) -> Result<()> {
     match message {
+        RuntimeMessage::Allow(m) => once(world, allow, (index, m)),
+        RuntimeMessage::Operation(m) => {
+            once(world, operation, (index, m))
+        }
         RuntimeMessage::Hello(m) => once(world, hello, (index, m)),
         RuntimeMessage::Created(m) => {
             once(world, created, (index, m))
@@ -77,10 +80,23 @@ pub(crate) fn hear(
         RuntimeMessage::Page(_) | RuntimeMessage::Statuses(_) => {
             Ok(())
         }
-        asks @ (RuntimeMessage::Allow(_)
-        | RuntimeMessage::Operation(_)) => return Ok(Some(asks)),
     }
-    .map(|()| None)
+}
+
+/// Whether a tool call may run, before it is kept as begun.
+fn allow(
+    In((index, asked)): Heard<runtime::Allow>,
+    mut core: Core,
+) -> Result<()> {
+    core.allow_call(index, asked)
+}
+
+/// A tool call carried out, once under its key.
+fn operation(
+    In((index, asked)): Heard<runtime::Operation>,
+    mut core: Core,
+) -> Result<()> {
+    core.operation(index, asked)
 }
 
 /// Runs `system` once with `input`, as a cached one-shot system.

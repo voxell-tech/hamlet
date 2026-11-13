@@ -151,7 +151,7 @@ impl Core<'_, '_> {
     /// A chief's line to an agent, with the images and files it
     /// carries, kept for the agent; its reply is owed once the agent
     /// is done with it.
-    pub(crate) async fn say(
+    pub(crate) fn say(
         &mut self,
         client: u64,
         say: protocol::Say,
@@ -169,10 +169,12 @@ impl Core<'_, '_> {
                 reply(&say.id, Err(Refusal::NoModelSetUp)),
             );
         }
-        let attached = match self
-            .attach(agent, &say.text, &say.images, &say.files)
-            .await?
-        {
+        let attached = match self.attach(
+            agent,
+            &say.text,
+            &say.images,
+            &say.files,
+        )? {
             Ok(attached) => attached,
             Err(refusal) => {
                 return self

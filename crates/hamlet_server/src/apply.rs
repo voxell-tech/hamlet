@@ -38,6 +38,8 @@ pub(crate) enum Step {
     Flush,
     Publish,
     Reply,
+    /// The lodges the input owes the remote workspace are pushed.
+    Push,
 }
 
 /// A call held on a wait whose wait was answered: its runtime is
@@ -58,6 +60,9 @@ pub(crate) struct Changed {
     pub reshaped: bool,
     /// A runtime answered a request, so what waited on it may go.
     pub answered: bool,
+    /// What the clients see changed with no change kept, such as how
+    /// moving the lodges goes.
+    pub republish: bool,
 }
 
 pub(crate) fn plugin(app: &mut App) {
@@ -75,6 +80,7 @@ pub(crate) fn plugin(app: &mut App) {
                 Step::Flush,
                 Step::Publish,
                 Step::Reply,
+                Step::Push,
             )
                 .chain(),
         )
@@ -88,14 +94,26 @@ pub(crate) fn plugin(app: &mut App) {
                 (flush.run_if(owed), wake)
                     .chain()
                     .in_set(Step::Flush),
-                publish.in_set(Step::Publish).run_if(committed),
-                (reply, forget).chain().in_set(Step::Reply),
+                publish.in_set(Step::Publish).run_if(shown),
+                reply.in_set(Step::Reply),
+                (push, forget).chain().in_set(Step::Push),
             ),
         );
 }
 
 fn committed(changed: Res<Changed>) -> bool {
     changed.committed
+}
+
+/// Whether what the clients see may have changed.
+fn shown(changed: Res<Changed>) -> bool {
+    changed.committed || changed.republish
+}
+
+/// Starts pushing the lodges the input owes the remote workspace.
+fn push(mut core: Core) -> Result {
+    core.push_owed()?;
+    Ok(())
 }
 
 fn reshaped(changed: Res<Changed>) -> bool {

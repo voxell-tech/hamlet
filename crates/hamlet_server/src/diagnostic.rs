@@ -11,6 +11,8 @@ use crate::credentials::Credentials;
 pub(crate) enum Secrets<'a> {
     /// Any these credentials know.
     Of(&'a Credentials),
+    /// These, as a task off the loop holds them.
+    Listed(&'a [String]),
     /// None: the words are a fixed text.
     Fixed,
 }
@@ -21,8 +23,12 @@ pub(crate) enum Secrets<'a> {
 #[expect(clippy::print_stderr, reason = "stderr is the server's log")]
 pub(crate) fn tell(secrets: Secrets<'_>, words: impl Display) {
     let mut line = Value::String(format!("hamlet_server: {words}"));
-    if let Secrets::Of(credentials) = secrets {
-        credentials.scrub(&mut line);
+    match secrets {
+        Secrets::Of(credentials) => credentials.scrub(&mut line),
+        Secrets::Listed(secrets) => {
+            hamlet_sandbox::scrub::scrub_value(secrets, &mut line);
+        }
+        Secrets::Fixed => {}
     }
     eprintln!("{line}");
 }

@@ -14,6 +14,7 @@ use hamlet_protocol::runtime::{self, ServerMessage, ToolSpec};
 use hamlet_store::ids::{Actor, AgentId, ConversationId};
 
 use crate::apply::{Changed, Wake};
+use crate::calls::looks::Looks;
 use crate::calls::{Calls, Runs};
 use crate::change::{Change, Done, Touched};
 use crate::clients::check::reply;
@@ -27,6 +28,7 @@ use crate::diagnostic::{Secrets, tell};
 use crate::files::FileUpload;
 use crate::images::ImageUpload;
 use crate::knowledge::runner::{Runner, Writing, run_due};
+use crate::later::Later;
 use crate::providers::Providers;
 use crate::realm::Realm;
 use crate::society::refusal::Refusal;
@@ -39,7 +41,7 @@ use crate::talk::{Env, conversations, prompt, sync};
 use crate::work::added::Manifest;
 use crate::work::tools::Shells;
 use crate::workspace::Transport;
-use crate::workspace::lodges::Synced;
+use crate::workspace::serving::RemoteCopy;
 
 /// A resource that holds one value of a type made elsewhere, reached
 /// through it.
@@ -105,7 +107,7 @@ holder! {
 holder! {
     /// Each lodge as both copies held it when last in step, by agent;
     /// a lodge not here is pushed before its next remote call.
-    Lodged(HashMap<AgentId, Synced>)
+    Lodged(HashMap<AgentId, RemoteCopy>)
 }
 holder! {
     /// The lodges whose remote copy is owed a push, which the runner
@@ -169,6 +171,11 @@ pub(crate) struct Core<'w, 's> {
     pub synced: ResMut<'w, Lodged>,
     pub unpushed: ResMut<'w, Unpushed>,
     pub moving: ResMut<'w, Moving>,
+    /// Where tasks send what they finish with.
+    pub later: Res<'w, Later>,
+    /// What looks off the loop found for the calls that wait on
+    /// them.
+    pub looks: ResMut<'w, Looks>,
     pub runner: Res<'w, Runner>,
     /// Held while anything writes the realm's repositories and
     /// lodges.

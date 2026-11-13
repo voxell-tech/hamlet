@@ -452,7 +452,7 @@ impl Core<'_, '_> {
         Ok(Ok(()))
     }
 
-    pub(crate) async fn read(
+    pub(crate) fn read(
         &mut self,
         client: u64,
         read: Read,
@@ -460,8 +460,14 @@ impl Core<'_, '_> {
         let chief = self.realm.chief();
         let message = match read {
             Read::Image { id, image, size } => {
-                self.read_image(&id, &image, size.unwrap_or_default())
-                    .await?
+                // Read off the loop; the image is its own input.
+                self.read_image(
+                    client,
+                    &id,
+                    &image,
+                    size.unwrap_or_default(),
+                );
+                return Ok(());
             }
             Read::Charter { id } => {
                 let db = self.realm.store().connection();

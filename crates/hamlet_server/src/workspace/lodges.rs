@@ -78,10 +78,36 @@ fn local(
         .collect()
 }
 
+/// Writes `bytes` at `path` of the remote workspace, in pieces of at
+/// most `MAX_FILE` bytes, which is all one request carries.
+async fn write_pieces(
+    session: &Session,
+    path: &str,
+    bytes: &[u8],
+) -> Result<()> {
+    let pieces = if bytes.is_empty() {
+        vec![bytes]
+    } else {
+        bytes.chunks(MAX_FILE).collect()
+    };
+    for (piece, bytes) in pieces.into_iter().enumerate() {
+        session
+            .call(Write {
+                path: path.to_owned(),
+                data: hamlet_workspace_wire::Bytes(bytes.to_vec()),
+                append: piece > 0,
+                parents: true,
+                no_follow: true,
+            })
+            .await?;
+    }
+    Ok(())
+}
+
 /// Sends the remote copy what the server's lodge at `lodge` changed
 /// since `base`, or all of it, replacing what is there, with no
 /// `base`; gives what both hold alike after. A file past what one
-/// request carries stays as it is there.
+/// request carries goes in pieces.
 pub(crate) async fn push(
     session: &Session,
     lodge: &Path,
@@ -92,9 +118,6 @@ pub(crate) async fn push(
     let ours = local(&folder)?;
     let mut synced = base.cloned().unwrap_or_default();
     for (path, (bytes, executable)) in &ours {
-        if bytes.len() > MAX_FILE {
-            continue;
-        }
         let file = File {
             sha256: sha256(bytes),
             executable: *executable,
@@ -111,21 +134,11 @@ pub(crate) async fn push(
                     session.call(SetMode { path: at, mode }).await?;
                 }
             }
-            Some(_) => {
-                session
-                    .call(Write {
-                        path: at.clone(),
-                        data: hamlet_workspace_wire::Bytes(
-                            bytes.clone(),
-                        ),
-                        append: false,
-                        parents: true,
-                        no_follow: true,
-                    })
-                    .await?;
+            held if held.is_some() || bytes.len() > MAX_FILE => {
+                write_pieces(session, &at, bytes).await?;
                 session.call(SetMode { path: at, mode }).await?;
             }
-            None => {
+            _ => {
                 session
                     .call(TreeWrite {
                         path: at,

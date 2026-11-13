@@ -4,7 +4,7 @@
 //! token; virtual paths never reach the host.
 
 pub(crate) mod lodges;
-mod serving;
+pub(crate) mod serving;
 
 use std::path::PathBuf;
 use std::time::Duration;

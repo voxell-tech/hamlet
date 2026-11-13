@@ -3,11 +3,11 @@
 
 use anyhow::Result;
 use diesel::prelude::*;
-use hamlet_protocol::client::ImageId;
 use hamlet_store::ids::{Actor, AgentId};
 use hamlet_store::schema::worker;
 
 use super::{Call, Step, list, said, task_chief, text};
+use crate::calls::looks::Look;
 use crate::calls::place;
 use crate::core::Core;
 use crate::inbox::INBOX;
@@ -20,10 +20,9 @@ use crate::talk::conversations::Kind;
 use crate::talk::letters::{self, Message, MessageKind, Send};
 use crate::talk::tasks::{self, Origin};
 use crate::work::catalogue::Society;
-use crate::work::tools::To;
 
 impl Core<'_, '_> {
-    pub(in crate::calls) async fn tell(
+    pub(in crate::calls) fn tell(
         &mut self,
         call: &Call<'_>,
     ) -> Result<Step> {
@@ -34,10 +33,9 @@ impl Core<'_, '_> {
             &text(call, "text"),
             &list(call, "paths"),
         )
-        .await
     }
 
-    pub(in crate::calls) async fn ask(
+    pub(in crate::calls) fn ask(
         &mut self,
         call: &Call<'_>,
     ) -> Result<Step> {
@@ -48,11 +46,10 @@ impl Core<'_, '_> {
             &text(call, "question"),
             &list(call, "paths"),
         )
-        .await
     }
 
     /// Asks the caller's lead for a road, as a letter to it.
-    pub(in crate::calls) async fn request_road(
+    pub(in crate::calls) fn request_road(
         &mut self,
         call: &Call<'_>,
     ) -> Result<Step> {
@@ -83,12 +80,11 @@ impl Core<'_, '_> {
             &words,
             &[],
         )
-        .await
     }
 
     /// Sends a letter or a question, with the files under `paths`,
     /// to the agent the argument `key` names.
-    async fn send(
+    fn send(
         &mut self,
         call: &Call<'_>,
         kind: MessageKind,
@@ -110,10 +106,9 @@ impl Core<'_, '_> {
         };
         let address = text(call, key);
         self.deliver(call, kind, receiver, &address, words, paths)
-            .await
     }
 
-    async fn deliver(
+    fn deliver(
         &mut self,
         call: &Call<'_>,
         kind: MessageKind,
@@ -156,7 +151,14 @@ impl Core<'_, '_> {
         let mut words = words.to_owned();
         let mut images = Vec::new();
         if !paths.is_empty() {
-            match self.parcel(call, receiver, paths).await? {
+            // The files are copied off the loop first; this runs
+            // again once they are.
+            let Some(copied) = self.looks.copied(&call.call).cloned()
+            else {
+                let look = self.parcel(call, receiver, paths)?;
+                return Ok(Step::Look(Box::new(look)));
+            };
+            match copied {
                 Ok((captions, kept)) => {
                     words.push_str("\n\n");
                     words.push_str(&captions);
@@ -206,15 +208,15 @@ impl Core<'_, '_> {
         }
     }
 
-    /// Copies the files under `paths`, as the caller may read them,
-    /// into `receiver`'s inbox, and gives the captions that say where
-    /// each landed and the images among them.
-    async fn parcel(
+    /// The look that copies the files under `paths`, as the caller
+    /// may read them, into `receiver`'s inbox, with the captions that
+    /// say where each landed and the images among them.
+    fn parcel(
         &mut self,
         call: &Call<'_>,
         receiver: AgentId,
         paths: &[String],
-    ) -> Result<Result<(String, Vec<ImageId>), Refusal>> {
+    ) -> Result<Look> {
         let layout = self.realm.layout().clone();
         let db = self.realm.store().connection();
         let at =
@@ -222,36 +224,18 @@ impl Core<'_, '_> {
         let from =
             addresses::address_of(db, call.conversation.agent)?
                 .replace('#', "-");
-        let session = match self
-            .tools_of(call, at.place, false)
-            .await?
-        {
-            Ok((session, _)) => session,
-            Err(words) => return Ok(Err(Refusal::Usage { words })),
-        };
-        let mut inbox = self
+        let (session, lodging) =
+            self.tools_of(call, at.place, false)?;
+        let inbox = self
             .open_inbox(receiver, &format!("{INBOX}/from-{from}"))?;
-        let sent = session
-            .parcel(
-                paths,
-                Some(To {
-                    inbox: &mut inbox,
-                    images: layout.images(),
-                }),
-            )
-            .await?;
-        let sent = match sent {
-            Ok(sent) => sent,
-            Err(refusal) => return Ok(Err(refusal)),
-        };
-        let mut captions = inbox.captions("of this message");
-        if sent.skipped > 0 {
-            captions.push_str(&format!(
-                "\n[{} links inside the folders were left out]",
-                sent.skipped
-            ));
-        }
-        Ok(Ok((captions, sent.images)))
+        Ok(Look::Copy {
+            session,
+            lodging,
+            paths: paths.to_vec(),
+            inbox: Box::new(inbox),
+            images: layout.images(),
+            receiver,
+        })
     }
 
     /// What a message kept for a call answers it: a letter is sent; a
