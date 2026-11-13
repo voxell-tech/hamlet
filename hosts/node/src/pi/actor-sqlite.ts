@@ -5,7 +5,7 @@ import {
     type SqliteExecutor,
     type SqliteValue,
 } from "@earendil-works/pi-durable/storage/sqlite";
-import type { RawAccess } from "@hamlet/actor/db";
+import type { RawAccess } from "../actor/common/database/mod.ts";
 
 /**
  * Pi Durable's tables: the ones its migrations create, and `durable_schema`,
