@@ -95,6 +95,7 @@ const ACTOR_TABLE: &str = "CREATE TABLE IF NOT EXISTS _hamlet_actor \
 /// | `Stopped` | `get_or_start` or a call, the host not shut | `Starting`, its timer aborted |
 /// | `Stopped` | its timer fires with the deadline the state holds | `Starting`, from the file it has |
 /// | `Stopped` | `Host::shutdown`, or the last `Host` dropped | absent, its timer aborted |
+/// | absent, `Stopped` | `Host::stop(Destroy)`, the host not shut | `Destroying`, with no generation, its timer aborted |
 /// | `Starting` | its generation asks to sleep or to be destroyed, or reports a crash | `Starting`, with the request kept; a destroy wins over a sleep |
 /// | `Starting` | the start ended well | `Running`, or `Stopping` or `Destroying` for a kept request |
 /// | `Starting` | the start failed or panicked, or missed its deadline | absent, the failure told to its waiters |
@@ -104,7 +105,7 @@ const ACTOR_TABLE: &str = "CREATE TABLE IF NOT EXISTS _hamlet_actor \
 /// | `Stopping` | its generation asks to sleep or reports a crash, or `Host::stop(Sleep)` | unchanged |
 /// | `Destroying` | any request | unchanged |
 /// | `Stopping` | the stop ended with a deadline, the host not shut | `Stopped`, its timer armed |
-/// | `Stopping`, `Destroying` | the stop ended otherwise, however it ended | absent |
+/// | `Stopping`, `Destroying` | the stop or the removal ended otherwise, however it ended | absent |
 /// | any | a request from a generation the state does not hold | unchanged |
 ///
 /// Callers wait without a transition of their own. A start, a call's
@@ -112,9 +113,9 @@ const ACTOR_TABLE: &str = "CREATE TABLE IF NOT EXISTS _hamlet_actor \
 /// and then starts it, and fails at once for a `Destroying` one. A
 /// start that waited for a start that failed fails with it, rather
 /// than start again. `Host::stop` waits for a `Reading` or `Starting`
-/// actor and then stops it, waits for a stop under way, and leaves a
-/// `Stopped` actor as it is. `Host::shutdown` stops each actor as
-/// `Host::stop` does.
+/// actor and then stops it, and waits for a stop under way; a sleep
+/// leaves a `Stopped` actor as it is. `Host::shutdown` sleeps each
+/// actor as `Host::stop` does.
 enum Life {
     /// Boot reads its file, to learn whether to start it.
     Reading {
@@ -140,9 +141,10 @@ enum Life {
         generation: Arc<Generation>,
         done: Waiters,
     },
-    /// This generation stops, then its file is removed.
+    /// This generation, if any, stops, then the actor's files are
+    /// removed.
     Destroying {
-        generation: Arc<Generation>,
+        generation: Option<Arc<Generation>>,
         done: Waiters,
     },
 }
@@ -184,8 +186,10 @@ impl Life {
             | Self::Stopped { .. }
             | Self::Starting { .. } => None,
             Self::Running(generation)
-            | Self::Stopping { generation, .. }
-            | Self::Destroying { generation, .. } => Some(generation),
+            | Self::Stopping { generation, .. } => Some(generation),
+            Self::Destroying { generation, .. } => {
+                generation.as_ref()
+            }
         }
     }
 
@@ -282,33 +286,40 @@ impl Drop for Owned {
 /// A stop that a transition began, to run on a task of its own.
 struct Stop {
     owned: Owned,
-    generation: Arc<Generation>,
+    /// `None` for a destroy of an actor no generation holds.
+    generation: Option<Arc<Generation>>,
     reason: ShutdownKind,
 }
 
 impl Stop {
-    /// Stops the generation, marks it stopped in its file with the
-    /// deadline it leaves, and closes the file, then removes the file
-    /// if the actor is destroyed by then. A sleep becomes `Stopped`,
-    /// or leaves the map, once the file is closed; a destroy leaves
-    /// the map when `owned` drops at the end. A sleep whose file
-    /// could not be marked stopped fails, its file closed all the
-    /// same: the file keeps its running mark, so the next boot starts
-    /// it again.
+    /// Stops the generation, if any, marks it stopped in its file
+    /// with the deadline it leaves, and closes the file, then removes
+    /// the actor's files if it is destroyed by then. A sleep becomes
+    /// `Stopped`, or leaves the map, once the file is closed; a
+    /// destroy leaves the map when `owned` drops at the end. A sleep
+    /// whose file could not be marked stopped fails, its file closed
+    /// all the same: the file keeps its running mark, so the next
+    /// boot starts it again.
     async fn run(self) -> Result<()> {
         let Self {
             owned,
             generation,
             reason,
         } = self;
-        generation.actor.stop(reason).await;
-        // The core has stopped and its alarm pushes are acknowledged,
-        // so the generation's last alarm and its file are final.
-        let alarm = *generation.alarm.lock();
-        let marked = generation
-            .file
-            .close_with(move |conn| mark_stopped(conn, alarm))
-            .await;
+        let marked = match &generation {
+            Some(generation) => {
+                generation.actor.stop(reason).await;
+                // The core has stopped and its alarm pushes are
+                // acknowledged, so the generation's last alarm and
+                // its file are final.
+                let alarm = *generation.alarm.lock();
+                generation
+                    .file
+                    .close_with(move |conn| mark_stopped(conn, alarm))
+                    .await
+            }
+            None => Ok(None),
+        };
         let wake_at = marked.as_ref().ok().copied().flatten();
         let host = &owned.host;
         // One lock decides and, for a sleep, leaves `Stopping`, so a
@@ -348,9 +359,10 @@ impl Stop {
         drop(replaced);
         if destroyed {
             let path = actor_path(&host.dir, &owned.actor_id);
-            return std::fs::remove_file(&path).with_context(|| {
-                format!("remove {}", path.display())
-            });
+            return tokio::task::spawn_blocking(move || {
+                destroy_file(&path)
+            })
+            .await?;
         }
         marked.map(|_| ()).context("mark the actor stopped")
     }
@@ -557,7 +569,8 @@ impl HostInner {
     /// Asks the actor to stop: the generation of id `generation` when
     /// the actor asks, whichever generation runs when the host asks.
     /// Makes the transition, and returns the stop to run if one
-    /// begins.
+    /// begins. A destroy the host asks for an actor that is stopped
+    /// or absent begins too, unless the host has shut down.
     fn ask_stop(
         self: &Arc<Self>,
         actor_id: &str,
@@ -565,7 +578,35 @@ impl HostInner {
         reason: ShutdownKind,
     ) -> Option<Stop> {
         let mut actors = self.actors.lock();
-        let life = actors.lives.get_mut(actor_id)?;
+        let actors = &mut *actors;
+        let Some(life) = actors
+            .lives
+            .get_mut(actor_id)
+            .filter(|life| !matches!(life, Life::Stopped { .. }))
+        else {
+            if generation.is_some()
+                || !matches!(reason, ShutdownKind::Destroy)
+                || actors.shut
+            {
+                return None;
+            }
+            let owned = Owned::new(self, actor_id);
+            let replaced = actors.lives.insert(
+                actor_id.to_owned(),
+                Life::Destroying {
+                    generation: None,
+                    done: owned.waiters.clone(),
+                },
+            );
+            if let Some(Life::Stopped { timer, .. }) = replaced {
+                timer.abort();
+            }
+            return Some(Stop {
+                owned,
+                generation: None,
+                reason,
+            });
+        };
         if generation.is_some_and(|id| !life.is_generation(id)) {
             return None;
         }
@@ -584,7 +625,7 @@ impl HostInner {
                 *life = stopping(&owned, generation.clone(), reason);
                 Some(Stop {
                     owned,
-                    generation,
+                    generation: Some(generation),
                     reason,
                 })
             }
@@ -592,7 +633,7 @@ impl HostInner {
                 if matches!(reason, ShutdownKind::Destroy) =>
             {
                 *life = Life::Destroying {
-                    generation: generation.clone(),
+                    generation: Some(generation.clone()),
                     done: done.clone(),
                 };
                 None
@@ -621,9 +662,10 @@ fn stopping(
     let done = owned.waiters.clone();
     match reason {
         ShutdownKind::Sleep => Life::Stopping { generation, done },
-        ShutdownKind::Destroy => {
-            Life::Destroying { generation, done }
-        }
+        ShutdownKind::Destroy => Life::Destroying {
+            generation: Some(generation),
+            done,
+        },
     }
 }
 
@@ -925,27 +967,45 @@ impl Host {
             .await
     }
 
-    /// Stops the actor and closes its file, or removes it for a
-    /// destroy. A start under way is waited for, then stopped. A stop
-    /// under way is waited for, and a destroy makes it a destroy. A
-    /// stopped actor is left as it is, its file and its timer with
-    /// it.
+    /// Stops the actor and closes its file, or for a destroy removes
+    /// its files: its file, its write-ahead file and its
+    /// shared-memory file. A start under way is waited for, then
+    /// stopped. A stop under way is waited for, and a destroy makes
+    /// it a destroy. A sleep leaves a stopped actor as it is, its
+    /// file and its timer with it; a destroy removes its files and
+    /// cancels its timer, and one repeated after it ended ends the
+    /// same way. Fails for an id of no kind of this host, before
+    /// anything reaches the folder, and a destroy of a stopped actor
+    /// fails in a host that has shut down, which may no longer hold
+    /// the folder.
     pub async fn stop(
         &self,
         actor_id: &str,
         reason: ShutdownKind,
     ) -> Result<()> {
+        let (kind, key) =
+            actor_id.split_once('/').with_context(|| {
+                format!("`{actor_id}` is not kind/key")
+            })?;
+        self.located(kind, key)?;
         let host = self.inner();
         loop {
             if let Some(stop) = host.ask_stop(actor_id, None, reason)
             {
                 return tokio::spawn(stop.run()).await?;
             }
-            let (mut waiters, ask_again) =
-                match host.actors.lock().lives.get(actor_id) {
-                    None | Some(Life::Stopped { .. }) => {
-                        return Ok(());
-                    }
+            let (mut waiters, ask_again) = {
+                let actors = host.actors.lock();
+                match actors.lives.get(actor_id) {
+                    None | Some(Life::Stopped { .. }) => match reason
+                    {
+                        ShutdownKind::Sleep => return Ok(()),
+                        ShutdownKind::Destroy if actors.shut => {
+                            return Err(host_shut_down());
+                        }
+                        // It stopped since: ask again.
+                        ShutdownKind::Destroy => continue,
+                    },
                     // It started since: ask again.
                     Some(Life::Running(_)) => continue,
                     Some(
@@ -956,7 +1016,8 @@ impl Host {
                         Life::Stopping { done, .. }
                         | Life::Destroying { done, .. },
                     ) => (done.clone(), false),
-                };
+                }
+            };
             let _ = waiters.changed().await;
             if !ask_again {
                 return Ok(());
@@ -1313,6 +1374,29 @@ fn actor_path(dir: &Path, actor_id: &str) -> PathBuf {
     dir.join("actors").join(format!("{actor_id}.sqlite"))
 }
 
+/// Removes the actor's files at `path`: its write-ahead file and its
+/// shared-memory file, then the file itself, so that no write-ahead
+/// file outlives its file and joins one made later at that path. A
+/// file already missing is passed over, so a destroy repeated ends
+/// the same way.
+fn destroy_file(path: &Path) -> Result<()> {
+    for suffix in ["-wal", "-shm", ""] {
+        let mut file = path.as_os_str().to_owned();
+        file.push(suffix);
+        match std::fs::remove_file(&file) {
+            Err(error)
+                if error.kind() != std::io::ErrorKind::NotFound =>
+            {
+                return Err(error).with_context(|| {
+                    format!("remove {}", Path::new(&file).display())
+                });
+            }
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
 /// Opens the actor's file, made first if `create`, adds a generation
 /// to its `_hamlet_actor` row, marks it running, and serves it.
 /// Returns the file, the new generation, and whether this is the
@@ -1417,7 +1501,7 @@ async fn start_actor(
                 );
                 Some(Stop {
                     owned,
-                    generation: generation.clone(),
+                    generation: Some(generation.clone()),
                     reason,
                 })
             }
