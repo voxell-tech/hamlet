@@ -80,7 +80,8 @@ const ACTOR_TABLE: &str = "CREATE TABLE IF NOT EXISTS _hamlet_actor \
 	generation INTEGER NOT NULL,
 	wake_at INTEGER,
 	running INTEGER NOT NULL DEFAULT 0,
-	destroying INTEGER NOT NULL DEFAULT 0)";
+	destroying INTEGER NOT NULL DEFAULT 0,
+	input BLOB)";
 
 /// Where one actor is in its lifecycle. The map holds no entry for an
 /// actor that is stopped with no deadline: none of its files is open.
@@ -1524,8 +1525,8 @@ impl Found {
 
 /// Opens the actor's file, made first if `open` makes it, adds a
 /// generation to its `_hamlet_actor` row, marks it running, and
-/// serves it. Returns the file, the new generation, and whether this
-/// is the actor's first start. Fails with [`Found::Nothing`] for
+/// serves it. Returns the file and what the start read from the
+/// row. Fails with [`Found::Nothing`] for
 /// [`Open::Existing`] and no file or a file with no actor's row. A
 /// file that holds a destroy a kill cut off is removed first, as the
 /// destroy would have: the start then makes the actor anew if `open`
@@ -1535,7 +1536,7 @@ fn open_actor_file(
     kind: &str,
     key: &str,
     open: &Open,
-) -> Result<(PlainSqlite, u32, bool)> {
+) -> Result<(PlainSqlite, Bumped)> {
     if open.makes() {
         std::fs::create_dir_all(dir.join("actors").join(kind))?;
     }
@@ -1548,29 +1549,37 @@ fn open_actor_file(
         let mut conn = plain_sqlite::open(&path, open.makes())?;
         let bumped = bump_generation(&mut conn, kind, key, open)
             .with_context(|| format!("start {}", path.display()))?;
-        if let Some((generation, first)) = bumped {
-            return Ok((
-                PlainSqlite::serve(conn)?,
-                generation,
-                first,
-            ));
+        if let Some(bumped) = bumped {
+            return Ok((PlainSqlite::serve(conn)?, bumped));
         }
         conn.close().map_err(|(_, error)| error)?;
         destroy_file(&path)?;
     }
 }
 
+/// What a start reads from the actor's `_hamlet_actor` row.
+struct Bumped {
+    /// The generation the start added.
+    generation: u32,
+    /// Whether the start made the row: the actor's first start.
+    first: bool,
+    /// The input the actor was made with. Every start gives it to
+    /// the core, which reads it only while the actor has no state:
+    /// so a first start that fails leaves it for the next.
+    input: Option<Vec<u8>>,
+}
+
 /// Adds a generation to the file's `_hamlet_actor` row, made first if
-/// missing and `open` makes it, and marks it running. Returns the
-/// generation and whether the row is new, or `None` for a file that
-/// holds a destroy. Fails with [`Found::Nothing`] for a missing row
+/// missing and `open` makes it, and marks it running. Returns what
+/// the start reads from the row, or `None` for a file that holds a
+/// destroy. Fails with [`Found::Nothing`] for a missing row
 /// and [`Open::Existing`], and changes nothing then.
 fn bump_generation(
     conn: &mut Connection,
     kind: &str,
     key: &str,
     open: &Open,
-) -> Result<Option<(u32, bool)>> {
+) -> Result<Option<Bumped>> {
     let tx = conn.transaction()?;
     tx.execute_batch(ACTOR_TABLE)?;
     let destroyed: Option<bool> = tx
@@ -1590,14 +1599,18 @@ fn bump_generation(
          generation) VALUES (0, ?, ?, 0)",
         (kind, key),
     )? == 1;
-    let generation = tx.query_row(
+    let (generation, input) = tx.query_row(
         "UPDATE _hamlet_actor SET generation = generation + 1, \
-         running = 1 RETURNING generation",
+         running = 1 RETURNING generation, input",
         [],
-        |row| row.get(0),
+        |row| Ok((row.get(0)?, row.get(1)?)),
     )?;
     tx.commit()?;
-    Ok(Some((generation, first)))
+    Ok(Some(Bumped {
+        generation,
+        first,
+        input,
+    }))
 }
 
 /// Starts the actor that `owned` holds as `Starting`, as the
@@ -1695,7 +1708,7 @@ async fn start_generation(
         .ok_or_else(|| anyhow!("actor id {actor_id} has no kind"))?;
     let Place::Local(factory) = host.directory.place(kind)?;
     let factory = factory.clone();
-    let (file, number, first) = tokio::task::spawn_blocking({
+    let (file, bumped) = tokio::task::spawn_blocking({
         let dir = host.dir.clone();
         let (kind, key) = (kind.to_owned(), key.to_owned());
         move || open_actor_file(&dir, &kind, &key, &open)
@@ -1707,7 +1720,7 @@ async fn start_generation(
         actor_id: actor_id.to_owned(),
         name: kind.to_owned(),
         key: vec![ActorKeySegment::String(key.to_owned())],
-        generation: number,
+        generation: bumped.generation,
         factory,
         handle: Arc::new(LocalHandle {
             host: Arc::downgrade(host),
@@ -1716,8 +1729,8 @@ async fn start_generation(
             file: file.clone(),
             alarm: alarm.clone(),
         }),
-        new_storage: first,
-        input: None,
+        new_storage: bumped.first,
+        input: bumped.input,
     })
     .await?;
     Ok(Arc::new(Generation {
