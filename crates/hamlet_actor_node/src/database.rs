@@ -132,15 +132,13 @@ impl JsNativeDatabase {
             state_update_ns: metrics.state_update_ns as f64,
             total_ns: metrics.total_ns as f64,
             commit_count: metrics.commit_count as f64,
-            page_cache_entries: metrics.page_cache_entries as f64,
-            page_cache_weighted_size: metrics.page_cache_weighted_size
-                as f64,
-            page_cache_capacity_pages: metrics
-                .page_cache_capacity_pages
-                as f64,
-            write_buffer_dirty_pages: metrics.write_buffer_dirty_pages
-                as f64,
-            db_size_pages: metrics.db_size_pages as f64,
+            // The local host's plain SQLite file has no VFS page
+            // cache or write buffer to report.
+            page_cache_entries: 0.0,
+            page_cache_weighted_size: 0.0,
+            page_cache_capacity_pages: 0.0,
+            write_buffer_dirty_pages: 0.0,
+            db_size_pages: 0.0,
         })
     }
 

@@ -4,7 +4,6 @@ name = "hamlet_actor_node"
 publish = false
 version.workspace = true
 edition.workspace = true
-authors.workspace = true
 license = "Apache-2.0"
 autotests = false
 
@@ -14,7 +13,6 @@ crate-type = ["cdylib"]
 [dependencies]
 napi = { version = "2", default-features = false, features = ["napi6", "async", "serde-json", "dyn-symbols"] }
 napi-derive = "2"
-sqlite-embedded = { workspace = true, features = ["transport"] }
 tokio.workspace = true
 tokio-util.workspace = true
 anyhow.workspace = true
@@ -27,8 +25,11 @@ tracing-subscriber.workspace = true
 parking_lot.workspace = true
 scc.workspace = true
 hamlet_actor_error.workspace = true
-hamlet_actor_core = { workspace = true, features = ["sqlite"] }
+hamlet_actor_core.workspace = true
+hamlet_host.workspace = true
 
 [build-dependencies]
 napi-build = "2"
 
+[lints]
+workspace = true
