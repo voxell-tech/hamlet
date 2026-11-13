@@ -10,11 +10,13 @@ pub(crate) mod fold;
 pub(crate) mod requests;
 pub(crate) mod state;
 
-use std::collections::HashMap;
-
 use anyhow::Result;
+use bevy_ecs::change_detection::Mut;
+use bevy_ecs::component::Component;
 use bevy_ecs::entity::Entity;
-use bevy_ecs::system::Query;
+use bevy_ecs::message::{Message, Messages};
+use bevy_ecs::resource::Resource;
+use bevy_ecs::system::{Commands, Query, ResMut, SystemParam};
 use hamlet_protocol::client::{
     self as protocol, ChatRef, RequestId, ServerMessage, Update,
 };
@@ -29,162 +31,178 @@ use crate::credentials::Credentials;
 use crate::diagnostic::{Secrets, tell};
 
 pub(crate) fn plugin(app: &mut bevy_app::App) {
-    app.add_observer(requests::left);
+    app.add_message::<Outgoing>().add_observer(requests::left);
 }
 
-/// A conversation a client watches.
-#[derive(Clone, Debug)]
+/// A conversation a client watches, as one of its chats: an entity
+/// of its own, which goes with the client's connection.
+#[derive(Component)]
 pub(crate) struct Watch {
-    pub client: u64,
     pub chat: ChatRef,
     pub conversation: ConversationId,
 }
 
-/// A reply owed to a client once an input of a conversation ends.
-#[derive(Clone, Debug)]
+/// The connection whose client watches.
+#[derive(Component)]
+#[relationship(relationship_target = Watches)]
+pub(crate) struct WatchOf(pub Entity);
+
+/// The conversations a connection's client watches.
+#[derive(Component)]
+#[relationship_target(relationship = WatchOf, linked_spawn)]
+pub(crate) struct Watches(Vec<Entity>);
+
+/// A reply owed to a client once an input of a conversation ends: an
+/// entity of its own, which goes with the client's connection.
+#[derive(Component)]
 pub(crate) struct Owed {
-    pub client: u64,
     pub id: RequestId,
     pub conversation: ConversationId,
     pub request: String,
 }
 
-/// Every connection, as the systems that send to them reach them.
-pub(crate) type Connections<'w, 's> =
-    Query<'w, 's, &'static mut Connection>;
+/// The connection a reply is owed to.
+#[derive(Component)]
+#[relationship(relationship_target = OwedReplies)]
+pub(crate) struct OwedTo(pub Entity);
 
-/// Sends `message` to every welcomed client of `connections` now.
-pub(crate) fn broadcast(
-    connections: &mut Connections,
-    credentials: &Credentials,
-    message: &ServerMessage,
-) -> Result<()> {
-    for mut client in connections.iter_mut().filter(|c| c.welcomed) {
-        connection::send(&mut client, credentials, message.clone())?;
-    }
-    Ok(())
+/// The replies owed to a connection's client.
+#[derive(Component)]
+#[relationship_target(relationship = OwedTo, linked_spawn)]
+pub(crate) struct OwedReplies(Vec<Entity>);
+
+/// A client watching a conversation, and the chat it watches it as.
+pub(crate) struct Watcher {
+    pub watch: Entity,
+    pub client: u64,
+    pub chat: ChatRef,
 }
 
-#[derive(bevy_ecs::resource::Resource)]
-pub(crate) struct Clients {
-    pub check: Protocol,
-    /// The entity of each connection, by its id.
-    pub entities: HashMap<u64, Entity>,
-    next: u64,
-    events: mpsc::Sender<Event>,
-    closing: watch::Receiver<bool>,
-    pub tasks: JoinSet<()>,
-    pub watches: Vec<Watch>,
-    pub owed: Vec<Owed>,
-    /// The state the clients were sent last.
-    pub sent: Option<protocol::State>,
-    pub epoch: i64,
-    pub revision: i64,
-    /// The messages for the clients, sent once the input that made
-    /// them is done.
-    outbox: Vec<Outgoing>,
-}
-
-/// Something for a client, queued.
-enum Outgoing {
+/// Something for a client, sent once the input that made it has
+/// published the state it leaves.
+#[derive(Message)]
+pub(crate) enum Outgoing {
     Message(u64, Box<ServerMessage>),
     /// A refusal's words and its closing code.
     Refusal(u64, String, u16),
 }
 
-impl Clients {
-    pub fn new(
-        events: mpsc::Sender<Event>,
-        closing: watch::Receiver<bool>,
-        epoch: i64,
-    ) -> Result<Self> {
-        Ok(Self {
-            check: Protocol::new()?,
-            entities: HashMap::new(),
-            next: 0,
-            events,
-            closing,
-            tasks: JoinSet::new(),
-            watches: Vec::new(),
-            owed: Vec::new(),
-            sent: None,
-            epoch,
-            revision: 0,
-            outbox: Vec::new(),
-        })
+/// Drops the messages of an input that failed, whose changes they
+/// told of; its refusals of a client still go.
+pub(crate) fn discard(outgoing: &mut Messages<Outgoing>) {
+    let refusals = outgoing
+        .drain()
+        .filter(|message| matches!(message, Outgoing::Refusal(..)))
+        .collect::<Vec<_>>();
+    outgoing.write_batch(refusals);
+}
+
+/// The connections as the handlers reach them, with what each client
+/// watches, the replies owed to it and the messages for it.
+#[derive(SystemParam)]
+pub(crate) struct Connections<'w, 's> {
+    list: Query<'w, 's, (Entity, &'static mut Connection)>,
+    watches:
+        Query<'w, 's, (Entity, &'static WatchOf, &'static mut Watch)>,
+    owed: Query<'w, 's, (Entity, &'static OwedTo, &'static Owed)>,
+    outgoing: ResMut<'w, Messages<Outgoing>>,
+    commands: Commands<'w, 's>,
+}
+
+impl Connections<'_, '_> {
+    /// The entity of `client`'s connection, while it is there.
+    pub fn entity(&self, client: u64) -> Option<Entity> {
+        self.list
+            .iter()
+            .find(|(_, found)| found.id == client)
+            .map(|(entity, _)| entity)
     }
 
-    /// Starts carrying `stream`; gives the connection to spawn.
-    pub fn accept(&mut self, stream: TcpStream) -> Connection {
-        self.next += 1;
-        connection::accept(
-            stream,
-            self.next,
-            self.events.clone(),
-            self.closing.clone(),
-            &mut self.tasks,
-        )
+    /// The connection of `client`, while it is there.
+    pub fn get_mut(
+        &mut self,
+        client: u64,
+    ) -> Option<Mut<'_, Connection>> {
+        self.list
+            .iter_mut()
+            .find(|(_, found)| found.id == client)
+            .map(|(_, found)| found)
     }
 
-    /// Queues `message` for `client`, to go out once the input that
-    /// made it has published the state it leaves.
+    /// The client whose connection is `entity`.
+    pub fn client(&self, entity: Entity) -> Option<u64> {
+        self.list.get(entity).ok().map(|(_, found)| found.id)
+    }
+
+    /// The presence of a client that said hello.
+    pub fn is_any_welcomed(&self) -> bool {
+        self.list.iter().any(|(_, found)| found.welcomed)
+    }
+
+    /// Queues `message` for `client`.
     pub fn send(&mut self, client: u64, message: ServerMessage) {
-        self.outbox
-            .push(Outgoing::Message(client, Box::new(message)));
+        self.outgoing
+            .write(Outgoing::Message(client, Box::new(message)));
     }
 
     /// Queues a refusal of `client` in `text`, closing it with
     /// `code`.
     pub fn refuse(&mut self, client: u64, text: &str, code: u16) {
-        self.outbox.push(Outgoing::Refusal(
+        self.outgoing.write(Outgoing::Refusal(
             client,
             text.into(),
             code,
         ));
     }
 
-    /// Drops the messages of an input that failed, whose changes they
-    /// told of; its refusals of a client still go.
-    pub fn discard(&mut self) {
-        self.outbox.retain(|outgoing| {
-            matches!(outgoing, Outgoing::Refusal(..))
-        });
+    /// Sends `message` to every welcomed client now.
+    pub fn broadcast(
+        &mut self,
+        credentials: &Credentials,
+        message: &ServerMessage,
+    ) -> Result<()> {
+        for (_, mut found) in &mut self.list {
+            if found.welcomed {
+                connection::send(
+                    &mut found,
+                    credentials,
+                    message.clone(),
+                )?;
+            }
+        }
+        Ok(())
     }
 
-    /// Sends what is queued, in order, to `connections`, with every
-    /// credential taken out. A message that cannot be sent is logged
-    /// and dropped.
-    pub fn deliver(
-        &mut self,
-        connections: &mut Connections,
-        credentials: &Credentials,
-    ) {
-        for outgoing in std::mem::take(&mut self.outbox) {
+    /// Sends what is queued, in order, with every credential taken
+    /// out. A message that cannot be sent is logged and dropped.
+    pub fn deliver(&mut self, credentials: &Credentials) {
+        let queued = self.outgoing.drain().collect::<Vec<_>>();
+        for outgoing in queued {
             let (client, sent) = match outgoing {
-                Outgoing::Message(client, message) => (client, {
-                    let mut found = connections
-                        .iter_mut()
-                        .find(|found| found.id == client);
-                    match found.as_deref_mut() {
-                        Some(found) => connection::send(
-                            found,
-                            credentials,
-                            *message,
-                        ),
-                        None => Ok(()),
-                    }
-                }),
-                Outgoing::Refusal(client, text, code) => (client, {
-                    let mut found = connections
-                        .iter_mut()
-                        .find(|found| found.id == client);
-                    match found.as_deref_mut() {
-                        Some(found) => {
-                            connection::refuse(found, &text, code)
-                        }
-                        None => Ok(()),
-                    }
-                }),
+                Outgoing::Message(client, message) => (
+                    client,
+                    self.get_mut(client).map_or(
+                        Ok(()),
+                        |mut found| {
+                            connection::send(
+                                &mut found,
+                                credentials,
+                                *message,
+                            )
+                        },
+                    ),
+                ),
+                Outgoing::Refusal(client, text, code) => (
+                    client,
+                    self.get_mut(client).map_or(
+                        Ok(()),
+                        |mut found| {
+                            connection::refuse(
+                                &mut found, &text, code,
+                            )
+                        },
+                    ),
+                ),
             };
             if let Err(error) = sent {
                 tell(
@@ -198,23 +216,152 @@ impl Clients {
         }
     }
 
-    /// `client` went: what it watched and the replies owed to it go.
-    pub fn forget(&mut self, client: u64) {
-        self.entities.remove(&client);
-        self.watches.retain(|w| w.client != client);
-        self.owed.retain(|o| o.client != client);
+    /// Watches `conversation` as `chat` for `client`, in place of
+    /// what it watched as that chat.
+    pub fn watch(
+        &mut self,
+        client: u64,
+        chat: ChatRef,
+        conversation: ConversationId,
+    ) {
+        let Some(connection) = self.entity(client) else {
+            return;
+        };
+        if let Some((.., mut kept)) =
+            self.watches.iter_mut().find(|(_, of, kept)| {
+                of.0 == connection && kept.chat == chat
+            })
+        {
+            kept.conversation = conversation;
+            return;
+        }
+        self.commands.spawn((
+            WatchOf(connection),
+            Watch { chat, conversation },
+        ));
     }
 
-    /// The clients watching `conversation`, with what each watches.
+    /// Stops `client` watching `chat`.
+    pub fn unwatch(&mut self, client: u64, chat: &ChatRef) {
+        let Some(connection) = self.entity(client) else {
+            return;
+        };
+        for (watch, of, kept) in &self.watches {
+            if of.0 == connection && kept.chat == *chat {
+                self.commands.entity(watch).despawn();
+            }
+        }
+    }
+
+    /// The clients watching `conversation`.
     pub fn watching(
         &self,
         conversation: ConversationId,
-    ) -> Vec<Watch> {
+    ) -> Vec<Watcher> {
+        self.watchers(|watch| watch.conversation == conversation)
+    }
+
+    /// The clients whose watch `keep` keeps.
+    pub fn watchers(
+        &self,
+        keep: impl Fn(&Watch) -> bool,
+    ) -> Vec<Watcher> {
         self.watches
             .iter()
-            .filter(|w| w.conversation == conversation)
-            .cloned()
+            .filter(|(.., kept)| keep(kept))
+            .filter_map(|(watch, of, kept)| {
+                Some(Watcher {
+                    watch,
+                    client: self.client(of.0)?,
+                    chat: kept.chat.clone(),
+                })
+            })
             .collect()
+    }
+
+    /// Points `watch` at `conversation`.
+    pub fn rewatch(
+        &mut self,
+        watch: Entity,
+        conversation: ConversationId,
+    ) {
+        if let Ok((.., mut kept)) = self.watches.get_mut(watch) {
+            kept.conversation = conversation;
+        }
+    }
+
+    /// Owes `client` the reply `owed`.
+    pub fn owe(&mut self, client: u64, owed: Owed) {
+        if let Some(connection) = self.entity(client) {
+            self.commands.spawn((OwedTo(connection), owed));
+        }
+    }
+
+    /// Takes the replies owed once `request` of `conversation` ended,
+    /// with the clients they are owed to.
+    pub fn settle(
+        &mut self,
+        conversation: ConversationId,
+        request: &str,
+    ) -> Vec<(u64, RequestId)> {
+        let mut settled = Vec::new();
+        for (entity, to, owed) in &self.owed {
+            if owed.conversation == conversation
+                && owed.request == request
+            {
+                self.commands.entity(entity).despawn();
+                if let Some(client) = self.client(to.0) {
+                    settled.push((client, owed.id.clone()));
+                }
+            }
+        }
+        settled
+    }
+}
+
+/// What the clients share: the protocol's check, the tasks carrying
+/// their connections and the state they were sent last.
+#[derive(Resource)]
+pub(crate) struct Clients {
+    pub check: Protocol,
+    next: u64,
+    events: mpsc::Sender<Event>,
+    closing: watch::Receiver<bool>,
+    pub tasks: JoinSet<()>,
+    /// The state the clients were sent last.
+    pub sent: Option<protocol::State>,
+    pub epoch: i64,
+    pub revision: i64,
+}
+
+impl Clients {
+    pub fn new(
+        events: mpsc::Sender<Event>,
+        closing: watch::Receiver<bool>,
+        epoch: i64,
+    ) -> Result<Self> {
+        Ok(Self {
+            check: Protocol::new()?,
+            next: 0,
+            events,
+            closing,
+            tasks: JoinSet::new(),
+            sent: None,
+            epoch,
+            revision: 0,
+        })
+    }
+
+    /// Starts carrying `stream`; gives the connection to spawn.
+    pub fn accept(&mut self, stream: TcpStream) -> Connection {
+        self.next += 1;
+        connection::accept(
+            stream,
+            self.next,
+            self.events.clone(),
+            self.closing.clone(),
+            &mut self.tasks,
+        )
     }
 }
 

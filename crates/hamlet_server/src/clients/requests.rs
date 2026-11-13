@@ -35,8 +35,7 @@ pub(crate) fn left(
     gone: On<Remove<Connection>>,
     mut core: Core,
 ) -> bevy_ecs::error::Result {
-    let Ok(client) = core.connections.get(gone.entity).map(|c| c.id)
-    else {
+    let Some(client) = core.connections.client(gone.entity) else {
         return Ok(());
     };
     core.providers.disconnect(client);
@@ -51,7 +50,7 @@ impl Core<'_, '_> {
             .connection(client)
             .is_some_and(|found| !found.welcomed)
         {
-            self.clients.refuse(
+            self.connections.refuse(
                 client,
                 "No hello came in time.",
                 1008,
@@ -64,7 +63,7 @@ impl Core<'_, '_> {
         &mut self,
         client: u64,
     ) -> Option<Mut<'_, Connection>> {
-        self.connections.iter_mut().find(|found| found.id == client)
+        self.connections.get_mut(client)
     }
 
     /// The request `text` of `client`, checked; none when it was
@@ -87,7 +86,7 @@ impl Core<'_, '_> {
                 let message = ServerMessage::Fault(failed);
                 self.answer(client, message)?;
                 if !welcomed {
-                    self.clients.refuse(
+                    self.connections.refuse(
                         client,
                         "The first message is a hello.",
                         1008,
@@ -100,7 +99,7 @@ impl Core<'_, '_> {
             ClientMessage::Hello(hello) if !welcomed => {
                 if !self.credentials.is_connection_token(&hello.token)
                 {
-                    self.clients.refuse(
+                    self.connections.refuse(
                         client,
                         "That token is not this server's.",
                         4001,
@@ -115,7 +114,7 @@ impl Core<'_, '_> {
                          {ours}.",
                         hello.v
                     );
-                    self.clients.refuse(client, &words, 4002);
+                    self.connections.refuse(client, &words, 4002);
                     return Ok(None);
                 }
                 if let Some(mut found) = self.connection(client) {
@@ -127,7 +126,7 @@ impl Core<'_, '_> {
                 Ok(None)
             }
             _ if !welcomed => {
-                self.clients.refuse(
+                self.connections.refuse(
                     client,
                     "The first message is a hello.",
                     1008,
@@ -144,7 +143,7 @@ impl Core<'_, '_> {
         client: u64,
         message: ServerMessage,
     ) -> Result<()> {
-        self.clients.send(client, message);
+        self.connections.send(client, message);
         Ok(())
     }
 
@@ -188,12 +187,14 @@ impl Core<'_, '_> {
         let said = self.change(Actor::Chief(chief), |cx, env| {
             chats::say_with(cx, env, agent, chief, &request, &line)
         })?;
-        self.clients.owed.push(Owed {
+        self.connections.owe(
             client,
-            id: say.id,
-            conversation: said.conversation,
-            request: said.request,
-        });
+            Owed {
+                id: say.id,
+                conversation: said.conversation,
+                request: said.request,
+            },
+        );
         Ok(())
     }
 
@@ -495,36 +496,24 @@ impl Core<'_, '_> {
     /// Sends the watchers of `agent`'s chats the session they now
     /// stand for.
     pub(crate) fn rewatch(&mut self, agent: AgentId) -> Result<()> {
-        let watches = self
-            .clients
-            .watches
-            .iter()
-            .filter(|w| {
-                w.chat.with.0
-                    == u64::try_from(agent.0).unwrap_or_default()
-                    && w.chat.from.is_none()
-                    && w.chat.past.is_none()
-            })
-            .cloned()
-            .collect::<Vec<_>>();
-        for watch in watches {
+        let with = u64::try_from(agent.0).unwrap_or_default();
+        let watchers = self.connections.watchers(|w| {
+            w.chat.with.0 == with
+                && w.chat.from.is_none()
+                && w.chat.past.is_none()
+        });
+        for watcher in watchers {
             if let Ok(conversation) =
-                self.watch_target(&watch.chat)?
+                self.watch_target(&watcher.chat)?
             {
-                for kept in &mut self.clients.watches {
-                    if kept.client == watch.client
-                        && kept.chat == watch.chat
-                    {
-                        kept.conversation = conversation;
-                    }
-                }
+                self.connections.rewatch(watcher.watch, conversation);
                 let transcript = self.transcript(
                     conversation,
-                    &watch.chat,
+                    &watcher.chat,
                     None,
                     None,
                 )?;
-                self.answer(watch.client, transcript)?;
+                self.answer(watcher.client, transcript)?;
             }
         }
         Ok(())
@@ -533,7 +522,7 @@ impl Core<'_, '_> {
     /// Sends every welcomed client what changed since the state it
     /// was sent last.
     pub(crate) fn send_state(&mut self) -> Result<()> {
-        if !self.connections.iter().any(|c| c.welcomed) {
+        if !self.connections.is_any_welcomed() {
             self.clients.sent = None;
             return Ok(());
         }
@@ -563,11 +552,7 @@ impl Core<'_, '_> {
             }
         };
         self.clients.sent = Some(state);
-        super::broadcast(
-            &mut self.connections,
-            &self.credentials,
-            &message,
-        )
+        self.connections.broadcast(&self.credentials, &message)
     }
 
     /// The state as it is now.

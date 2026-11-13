@@ -541,12 +541,7 @@ impl Server {
             Event::Gone(client) => {
                 // Its hooks and observers take what the client held,
                 // and its uploads go with it.
-                let gone = self
-                    .core()?
-                    .clients
-                    .entities
-                    .get(&client)
-                    .copied();
+                let gone = self.core()?.connections.entity(client);
                 if let Some(gone) = gone {
                     self.app.world_mut().despawn(gone);
                 }

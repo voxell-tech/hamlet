@@ -5,14 +5,14 @@
 //! an input of its own.
 
 use anyhow::{Result, anyhow};
-use bevy_ecs::system::{In, IntoSystem, ResMut};
+use bevy_ecs::system::{In, IntoSystem};
 use bevy_ecs::world::World;
 use hamlet_protocol::client::{
     self as protocol, ClientMessage, ServerMessage,
 };
 
+use super::Connections;
 use super::check::{fault, reply};
-use super::{Clients, Watch};
 use crate::core::Core;
 use crate::society::refusal::Refusal;
 
@@ -145,9 +145,9 @@ where
 
 fn hello(
     In((client, ())): Asked<()>,
-    mut clients: ResMut<Clients>,
+    mut connections: Connections,
 ) -> Result<()> {
-    clients.send(
+    connections.send(
         client,
         fault(None, "This connection said hello already."),
     );
@@ -172,24 +172,15 @@ fn open(
         open.before.as_deref(),
         Some(&open.id),
     )?;
-    core.clients
-        .watches
-        .retain(|w| !(w.client == client && w.chat == open.chat));
-    core.clients.watches.push(Watch {
-        client,
-        chat: open.chat,
-        conversation,
-    });
+    core.connections.watch(client, open.chat, conversation);
     core.answer(client, transcript)
 }
 
 fn close(
     In((client, close)): Asked<protocol::Close>,
-    mut clients: ResMut<Clients>,
+    mut connections: Connections,
 ) -> Result<()> {
-    clients
-        .watches
-        .retain(|w| !(w.client == client && w.chat == close.chat));
+    connections.unwatch(client, &close.chat);
     Ok(())
 }
 

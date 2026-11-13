@@ -24,7 +24,7 @@ use hamlet_store::Db;
 use hamlet_store::ids::{Actor, ConversationId};
 
 use crate::calls::{Runs, Starting, place};
-use crate::clients::{Clients, Connections, check};
+use crate::clients::{Connections, Outgoing, check};
 use crate::core::{Catalogue, Core, Remote};
 use crate::credentials::Credentials;
 use crate::diagnostic::{Secrets, tell};
@@ -161,7 +161,9 @@ pub(crate) fn discard(world: &mut World) -> anyhow::Result<()> {
     *world.resource_mut::<Changed>() = Changed::default();
     world.resource_mut::<Messages<Wake>>().clear();
     world.resource_mut::<Messages<InputEnded>>().clear();
-    world.resource_mut::<Clients>().discard();
+    crate::clients::discard(
+        &mut world.resource_mut::<Messages<Outgoing>>(),
+    );
     world.resource_mut::<Later>().discard();
     world.run_system_cached(|mut runtimes: Runtimes| {
         runtimes.discard();
@@ -221,22 +223,13 @@ fn follow_input(ended: On<InputEnded>, mut core: Core) -> Result {
 }
 
 /// Answers the replies owed for an input that ended.
-fn settle_owed(ended: On<InputEnded>, mut clients: ResMut<Clients>) {
-    let owed = clients.owed.extract_if(.., |owed| {
-        owed.conversation == ended.conversation
-            && owed.request == ended.request
-    });
-    let answers = owed
-        .map(|owed| {
-            let answer = check::reply(
-                &owed.id,
-                Ok::<_, Refusal>(String::new()),
-            );
-            (owed.client, answer)
-        })
-        .collect::<Vec<_>>();
-    for (client, answer) in answers {
-        clients.send(client, answer);
+fn settle_owed(ended: On<InputEnded>, mut connections: Connections) {
+    for (client, id) in
+        connections.settle(ended.conversation, &ended.request)
+    {
+        let answer =
+            check::reply(&id, Ok::<_, Refusal>(String::new()));
+        connections.send(client, answer);
     }
 }
 
@@ -346,11 +339,10 @@ fn publish(mut core: Core) -> Result {
 /// Sends the clients what the input queued for them, after the state
 /// it left.
 fn reply(
-    mut clients: ResMut<Clients>,
     mut connections: Connections,
     credentials: Res<Credentials>,
 ) {
-    clients.deliver(&mut connections, &credentials);
+    connections.deliver(&credentials);
 }
 
 /// Tells each runtime of the held calls whose waits were answered.

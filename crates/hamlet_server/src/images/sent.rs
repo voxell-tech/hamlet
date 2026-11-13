@@ -39,9 +39,7 @@ impl Core<'_, '_> {
         put: PutImage,
     ) -> ServerMessage {
         let PutImage { id, size } = put;
-        let Some(connection) =
-            self.clients.entities.get(&client).copied()
-        else {
+        let Some(connection) = self.connections.entity(client) else {
             return reply(&id, Err(Refusal::ConnectionClosing));
         };
         let sending = self
@@ -88,7 +86,7 @@ impl Core<'_, '_> {
         part: PutImagePart,
     ) -> Result<ServerMessage> {
         let refuse = |refusal: Refusal| reply(&part.id, Err(refusal));
-        let connection = self.clients.entities.get(&client).copied();
+        let connection = self.connections.entity(client);
         let Some((entity, _, mut sending)) =
             self.uploads.images.iter_mut().find(
                 |(_, of, sending)| {

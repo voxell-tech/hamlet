@@ -271,7 +271,7 @@ fn kept(
         live.fold.entry(&kept.item)?;
         live.activity.kept(&kept.item);
     }
-    if !core.clients.watching(conversation.id).is_empty() {
+    if !core.connections.watching(conversation.id).is_empty() {
         core.stream(conversation.id)?;
     }
     Ok(())

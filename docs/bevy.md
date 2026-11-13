@@ -197,13 +197,13 @@ What differs from the window:
 - **An input is one transaction.** `Core::change` and `attempt` make
   their changes in the input's transaction, which the runner commits at
   its end. What an input sets off goes out only after: queue a runtime's
-  line with `Runtimes::send`, a client's message with `Clients::send`,
+  line with `Runtimes::send`, a client's message with `Connections::send`,
   and write what follows as a message `Apply` reads, as `InputEnded` is.
   A tool run is spawned with its work in `Starting`, which `Apply`
   starts.
 - **The database is the truth.** An entity stands only for what lives in
-  the process: a connection, an upload, a tool run, a runtime and the
-  lines sent to it. A decision inside a transaction reads the database,
+  the process: a connection with what its client watches and is owed,
+  an upload, a tool run, a runtime and the lines sent to it. A decision inside a transaction reads the database,
   never an entity. An entity spawned by an input appears only once its
   commands apply, so what the same input must read back is a component
   of an entity that is there already, or a resource.

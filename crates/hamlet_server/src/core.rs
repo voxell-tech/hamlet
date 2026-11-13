@@ -21,7 +21,7 @@ use crate::calls::{Calls, Runs};
 use crate::change::{Change, Done, Touched};
 use crate::clients::connection::UploadOf;
 use crate::clients::fold::Fold;
-use crate::clients::{Clients, Connections};
+use crate::clients::{Clients, Connections, Watcher};
 use crate::clock;
 use crate::commands::Deeds;
 use crate::credentials::Credentials;
@@ -347,7 +347,7 @@ impl Core<'_, '_> {
         &mut self,
         conversation: ConversationId,
     ) -> Result<()> {
-        let watching = self.clients.watching(conversation);
+        let watching = self.connections.watching(conversation);
         let Some(live) = self.live.get_mut(&conversation) else {
             return Ok(());
         };
@@ -361,7 +361,7 @@ impl Core<'_, '_> {
     /// Sends `operations` to each of `watching`.
     fn send_turn(
         &mut self,
-        watching: Vec<crate::clients::Watch>,
+        watching: Vec<Watcher>,
         operations: Vec<protocol::TranscriptOperation>,
     ) -> Result<()> {
         for watch in watching {
@@ -377,7 +377,7 @@ impl Core<'_, '_> {
                     number,
                     operations: operations.clone(),
                 });
-            self.clients.send(watch.client, turn);
+            self.connections.send(watch.client, turn);
         }
         Ok(())
     }
@@ -388,7 +388,7 @@ impl Core<'_, '_> {
         &mut self,
         conversation: ConversationId,
     ) -> Result<()> {
-        let watching = self.clients.watching(conversation);
+        let watching = self.connections.watching(conversation);
         if watching.is_empty() {
             return Ok(());
         }
