@@ -45,7 +45,7 @@ use hamlet_actor_error::ActorError;
 use parking_lot::Mutex;
 use rusqlite::{Connection, OptionalExtension};
 use tokio::sync::{broadcast, oneshot, watch};
-use tokio::task::{AbortHandle, JoinHandle};
+use tokio::task::AbortHandle;
 use tracing::Instrument;
 
 use crate::cause::Cause;
@@ -324,8 +324,7 @@ impl Stop {
                                 host,
                                 &owned.actor_id,
                                 wake_at,
-                            )
-                            .abort_handle(),
+                            ),
                         },
                     ),
                 ),
@@ -719,10 +718,7 @@ impl Host {
                         let timer = arm(host, &actor_id, wake_at);
                         actors.lives.insert(
                             actor_id,
-                            Life::Stopped {
-                                wake_at,
-                                timer: timer.abort_handle(),
-                            },
+                            Life::Stopped { wake_at, timer },
                         );
                         continue;
                     }
@@ -1185,13 +1181,13 @@ fn mark_stopped(
 }
 
 /// The timer of a stopped actor. At `wake_at` it starts the actor, if
-/// the actor is still `Stopped` with that deadline. Its output says
-/// whether it started the actor.
+/// the actor is still `Stopped` with that deadline. Returns the
+/// handle that aborts it.
 fn arm(
     host: &Arc<HostInner>,
     actor_id: &str,
     wake_at: i64,
-) -> JoinHandle<bool> {
+) -> AbortHandle {
     let host = Arc::downgrade(host);
     let actor_id = actor_id.to_owned();
     tokio::spawn(async move {
@@ -1199,30 +1195,27 @@ fn arm(
             .unwrap_or(0);
         tokio::time::sleep(Duration::from_millis(delay)).await;
         let Some(host) = host.upgrade() else {
-            return false;
+            return;
         };
-        wake(&host, &actor_id, wake_at)
-            .await
-            .inspect_err(|error| {
-                tracing::error!(
-                    ?error,
-                    actor_id,
-                    "host timer failed to start actor"
-                );
-            })
-            .unwrap_or(false)
+        if let Err(error) = wake(&host, &actor_id, wake_at).await {
+            tracing::error!(
+                ?error,
+                actor_id,
+                "host timer failed to start actor"
+            );
+        }
     })
+    .abort_handle()
 }
 
 /// Starts the actor for its deadline `wake_at`, from the file it has,
 /// if it is still `Stopped` with that deadline. A timer never makes a
-/// file, and never starts an actor in any other state. Returns
-/// whether it started the actor.
+/// file, and never starts an actor in any other state.
 async fn wake(
     host: &Arc<HostInner>,
     actor_id: &str,
     wake_at: i64,
-) -> Result<bool> {
+) -> Result<()> {
     let (owned, generation) = {
         let mut actors = host.actors.lock();
         if !matches!(
@@ -1230,7 +1223,7 @@ async fn wake(
             Some(Life::Stopped { wake_at: stopped, .. })
                 if *stopped == wake_at
         ) {
-            return Ok(false);
+            return Ok(());
         }
         // Replaces the state that holds this timer's own handle;
         // dropping a handle does not abort its task.
@@ -1238,7 +1231,7 @@ async fn wake(
             actors.begin_start(host, actor_id)?;
         (owned, generation)
     };
-    start_when_due(owned, generation).await.map(|_| true)
+    start_when_due(owned, generation).await.map(|_| ())
 }
 
 /// Starts, from the file it has, the actor that `owned` holds as
