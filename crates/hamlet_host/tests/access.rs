@@ -688,10 +688,10 @@ async fn a_calls_log_line_names_its_caller_target_and_action() {
     );
 }
 
-/// An address inside an action's arguments has the bytes it had
-/// before `Address` was checked when built.
+/// An address inside an action's arguments has fixed bytes, which
+/// other hosts and other languages read.
 #[test]
-fn an_address_in_an_actions_arguments_has_the_bytes_it_had() {
+fn an_address_in_an_actions_arguments_has_fixed_bytes() {
     let args = hamlet_actor::action::encode_positional(&Ask {
         to: at("raw", "x"),
         name: "params".to_owned(),

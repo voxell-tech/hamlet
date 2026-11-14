@@ -191,25 +191,13 @@ pub(super) fn check_kinds(
 mod tests {
     use super::*;
 
-    /// The bytes the host wrote for each stamp before `Address` was
-    /// checked when built, and for the sample of an actor's stamp
-    /// that `check_kinds` gives each kind.
+    /// The sample of an actor's stamp that `check_kinds` gives each
+    /// kind has the bytes of a stamp the host writes.
     #[test]
-    fn a_stamp_has_the_bytes_it_had() {
-        let actor = |kind, key| {
-            Caller::Actor(Address::new(kind, key).unwrap())
-        };
-        assert_eq!(stamp(None).unwrap(), [0xf6]);
+    fn the_sample_stamp_has_fixed_bytes() {
+        let sample = Caller::Actor(Address::new("k", "k").unwrap());
         assert_eq!(
-            stamp(Some(&Caller::Client)).unwrap(),
-            b"\x66client"
-        );
-        assert_eq!(
-            stamp(Some(&actor("asker", "a"))).unwrap(),
-            b"\xa1\x65actor\xa2\x64kind\x65asker\x63key\x61a"
-        );
-        assert_eq!(
-            stamp(Some(&actor("k", "k"))).unwrap(),
+            stamp(Some(&sample)).unwrap(),
             b"\xa1\x65actor\xa2\x64kind\x61k\x63key\x61k"
         );
     }

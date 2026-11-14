@@ -7,8 +7,7 @@ use serde::{Deserialize, Serialize};
 
 /// An actor's address: its kind, which the host's directory maps to
 /// where the kind's actors run, and its key within the kind. Both are
-/// plain names, so an `Address` that exists is valid, and two never
-/// name one file, also on a disk that ignores case. Its text is
+/// plain names, so an `Address` that exists is valid. Its text is
 /// `kind/key`.
 ///
 /// Serde writes the map `{kind, key}`, and reads it through
@@ -66,9 +65,7 @@ impl TryFrom<Unchecked> for Address {
     }
 }
 
-/// A name that is not plain: a kind or a key given to
-/// [`Address::new`], or a kind or the host's name given to
-/// `Host::open`.
+/// A kind, a key or a host's name that is not plain.
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 #[error(
     "`{name}` is not a valid {what}: use lower-case letters, \
@@ -229,10 +226,9 @@ mod tests {
         assert_eq!(Caller::Client.to_string(), "client");
     }
 
-    /// The bytes captured from the base before `Address` was checked
-    /// when built.
+    /// The bytes other hosts and other languages read.
     #[test]
-    fn an_address_has_the_bytes_it_had() {
+    fn an_address_has_fixed_bytes() {
         let at = Address::new("raw", "x").unwrap();
         assert_eq!(
             cbor(&at),
