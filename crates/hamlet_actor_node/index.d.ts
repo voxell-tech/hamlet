@@ -232,8 +232,8 @@ export interface JsHttpResponse {
 /**
  * Takes this process's ends of the link to the Rust host that
  * started it. From then on the process is killed when the Rust host
- * is gone or the link's input ends. Fails when no Rust host started
- * this process, or when it has taken the ends already.
+ * is gone or the link's input ends. Fails when this process was not
+ * started bound, or has taken the ends already.
  */
 export declare function takeLink(): void;
 export interface JsQueueNextOptions {

@@ -406,8 +406,8 @@ pub(crate) struct Ends {
 
 /// Takes this process's ends of the link to the Rust host that
 /// started it. From then on the process is killed when the Rust host
-/// is gone or the link's input ends. Fails when no [`Supervisor`]
-/// started this process, or when it has taken the ends already.
+/// is gone or the link's input ends. Fails when this process was not
+/// started with [`Tree::spawn_bound`], or has taken the ends already.
 pub fn take_link() -> io::Result<()> {
     let process::Ends { input, output } = process::Ends::take()?;
     let (frames, received) = mpsc::unbounded_channel();

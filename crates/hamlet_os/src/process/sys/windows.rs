@@ -9,7 +9,7 @@
 )]
 
 use std::fs::File;
-use std::io::{self, Write as _};
+use std::io::{self, PipeWriter, Write as _};
 use std::iter;
 use std::os::windows::io::{
     AsHandle as _, AsRawHandle as _, BorrowedHandle,
@@ -44,9 +44,7 @@ use windows_sys::Win32::System::Threading::{
     THREAD_SUSPEND_RESUME, TerminateProcess, WaitForSingleObject,
 };
 
-use crate::process::{
-    Command, Ends, Limits, Pipes, Preamble, no_ends,
-};
+use crate::process::{Command, Ends, Limits, Preamble, no_ends};
 
 /// A command's job and the leader it was started with.
 pub(crate) struct Group {
@@ -236,19 +234,10 @@ pub(crate) fn spawn(
 }
 
 pub(crate) fn spawn_bound(
-    command: Command<'_>,
-) -> io::Result<(Group, Pipes)> {
-    let (preamble, mut told) = io::pipe()?;
-    let (child_input, input) = io::pipe()?;
-    let (output, child_output) = io::pipe()?;
-    let (errors, child_errors) = io::pipe()?;
-    let mut spawn = command.program();
-    // The child's C runtime fills its descriptors 0 to 2 from these
-    // once, at its start.
-    spawn
-        .stdin(preamble)
-        .stdout(child_errors.try_clone()?)
-        .stderr(child_errors);
+    spawn: tokio::process::Command,
+    mut told: PipeWriter,
+    ends: Ends,
+) -> io::Result<Group> {
     let leader = Suspended::start(
         spawn,
         &limits_of(
@@ -258,21 +247,14 @@ pub(crate) fn spawn_bound(
     )?;
     told.write_all(
         &Preamble {
-            input: leader.give(child_input.into())?,
-            output: leader.give(child_output.into())?,
+            input: leader.give(ends.input.into())?,
+            output: leader.give(ends.output.into())?,
             owner: leader.0.leader_id.into(),
         }
         .encode(),
     )?;
     drop(told);
-    Ok((
-        leader.resume()?,
-        Pipes {
-            input,
-            output,
-            errors,
-        },
-    ))
+    leader.resume()
 }
 
 struct Suspended(Group);

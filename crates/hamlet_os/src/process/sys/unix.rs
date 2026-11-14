@@ -7,7 +7,7 @@
 #[cfg(target_os = "linux")]
 use std::convert::Infallible;
 use std::fs::File;
-use std::io::{self, Write};
+use std::io::{self, PipeWriter, Write};
 use std::os::fd::{
     AsFd, AsRawFd, BorrowedFd, FromRawFd, OwnedFd, RawFd,
 };
@@ -24,9 +24,7 @@ use rustix::process::{
 use tokio::process::{Child, ChildStderr, ChildStdout};
 use tokio::signal::unix::{SignalKind, signal};
 
-use crate::process::{
-    Command, Ends, Limits, Pipes, Preamble, no_ends,
-};
+use crate::process::{Command, Ends, Limits, Preamble, no_ends};
 
 /// A process group and the leader it was started with. The leader is
 /// reaped only as the group is dropped, and an id stays taken while
@@ -146,15 +144,13 @@ pub(crate) fn spawn(
 }
 
 pub(crate) fn spawn_bound(
-    command: Command<'_>,
-) -> io::Result<(Group, Pipes)> {
-    let (preamble, mut told) = io::pipe()?;
-    let (child_input, input) = io::pipe()?;
-    let (output, child_output) = io::pipe()?;
-    let (errors, child_errors) = io::pipe()?;
+    mut spawn: tokio::process::Command,
+    mut told: PipeWriter,
+    ends: Ends,
+) -> io::Result<Group> {
     let ends = [
-        above_standard(child_input.into())?,
-        above_standard(child_output.into())?,
+        above_standard(ends.input.into())?,
+        above_standard(ends.output.into())?,
     ];
     told.write_all(
         &Preamble {
@@ -165,24 +161,12 @@ pub(crate) fn spawn_bound(
         .encode(),
     )?;
     drop(told);
-    let mut spawn = command.program();
-    spawn
-        .stdin(preamble)
-        .stdout(child_errors.try_clone()?)
-        .stderr(child_errors);
     keep_open(&mut spawn, ends.each_ref().map(AsRawFd::as_raw_fd));
     #[cfg(target_os = "linux")]
-    let group = start_from_a_lasting_thread(spawn)?;
+    let group = start_from_a_lasting_thread(spawn);
     #[cfg(not(target_os = "linux"))]
-    let group = start(spawn)?;
-    Ok((
-        group,
-        Pipes {
-            input,
-            output,
-            errors,
-        },
-    ))
+    let group = start(spawn);
+    group
 }
 
 fn start(mut spawn: tokio::process::Command) -> io::Result<Group> {
@@ -210,8 +194,7 @@ fn start_from_a_lasting_thread(
     mut spawn: tokio::process::Command,
 ) -> io::Result<Group> {
     end_with_forking_thread(&mut spawn);
-    let runtime = tokio::runtime::Handle::try_current()
-        .map_err(io::Error::other)?;
+    let runtime = tokio::runtime::Handle::current();
     let (send_group, group) = mpsc::sync_channel(1);
     let (hold, held) = mpsc::channel::<Infallible>();
     std::thread::Builder::new()

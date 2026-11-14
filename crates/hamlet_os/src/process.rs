@@ -90,8 +90,33 @@ impl Tree {
         command: Command<'_>,
     ) -> io::Result<(Self, Pipes)> {
         has_program(&command)?;
-        let (group, pipes) = sys::spawn_bound(command)?;
-        Ok((Self(Some(group)), pipes))
+        let (preamble, told) = io::pipe()?;
+        let (child_input, input) = io::pipe()?;
+        let (output, child_output) = io::pipe()?;
+        let (errors, child_errors) = io::pipe()?;
+        let mut spawn = command.program();
+        // On Windows the child's C runtime fills its descriptors 0 to
+        // 2 from these once, at its start.
+        spawn
+            .stdin(preamble)
+            .stdout(child_errors.try_clone()?)
+            .stderr(child_errors);
+        let group = sys::spawn_bound(
+            spawn,
+            told,
+            Ends {
+                input: child_input,
+                output: child_output,
+            },
+        )?;
+        Ok((
+            Self(Some(group)),
+            Pipes {
+                input,
+                output,
+                errors,
+            },
+        ))
     }
 
     /// Kills every process of the tree now.
