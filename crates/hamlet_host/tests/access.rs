@@ -20,6 +20,7 @@ use hamlet_actor_core::{
 };
 use hamlet_host::{Address, Caller, Host, HostOptions, HostRef};
 use hamlet_testing::Scratch;
+use kind::kind;
 use logs::Logs;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -34,19 +35,10 @@ mod call;
 mod code;
 #[path = "support/files.rs"]
 mod files;
+#[path = "support/kind.rs"]
+mod kind;
 #[path = "support/logs.rs"]
 mod logs;
-
-/// The kind `kind`, an actor of the trait API `A`, with a database.
-fn kind<A: Actor>(registry: &mut Registry, kind: &str) {
-    registry.register_actor_with::<A>(
-        kind,
-        ActorConfig {
-            has_database: true,
-            ..ActorConfig::default()
-        },
-    );
-}
 
 /// Keeps the realm folder its host gave it in `create`.
 struct Here {
