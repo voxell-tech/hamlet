@@ -17,7 +17,7 @@ use tracing::Instrument;
 use super::access::{Origin, Stamp};
 use super::{Host, HostInner, Open, actor_id, host_shut_down};
 use crate::address::{Address, Caller};
-use crate::directory::Place;
+use crate::directory::{Place, not_registered};
 use crate::event::HostEvent;
 use crate::route::{CallerKind, Operation};
 
@@ -126,10 +126,7 @@ impl HostInner {
                     .await
                 }
                 (Place::Linked(_), Origin::Peer) => {
-                    todo!(
-                        "U5, the host unit: a peer's call of its \
-                         own kind"
-                    )
+                    Err(not_registered(to.kind()))
                 }
             }
         };

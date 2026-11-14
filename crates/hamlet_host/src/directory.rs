@@ -3,11 +3,11 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use anyhow::Result;
+use anyhow::{Result, bail};
 use hamlet_actor_core::ActorFactory;
 use hamlet_actor_core::error::ActorRuntime;
 
-use crate::Address;
+use crate::address::{Address, Named, plain};
 use crate::link::Port;
 
 /// Where the actors of one kind run.
@@ -31,15 +31,23 @@ impl Directory {
         factories: HashMap<String, ActorFactory>,
         linked: Option<Port>,
     ) -> Result<Self> {
-        let places = factories
+        let mut places = factories
             .into_iter()
             .map(|(kind, factory)| {
                 (kind, Place::Local(Arc::new(factory)))
             })
-            .collect();
+            .collect::<HashMap<_, _>>();
         if let Some(port) = linked {
-            let _ = port;
-            todo!("U5, the host unit: the other host's kinds")
+            for kind in &port.theirs().kinds {
+                plain(kind, Named::Kind)?;
+                let place = Place::Linked(port.clone());
+                if places.insert(kind.clone(), place).is_some() {
+                    bail!(
+                        "the kind `{kind}` runs in both hosts of \
+                         the link"
+                    );
+                }
+            }
         }
         Ok(Self(places))
     }
@@ -55,12 +63,7 @@ impl Directory {
     /// Where the actors of `kind` run. Fails with
     /// `actor.not_registered` for a kind the directory does not hold.
     pub(crate) fn place(&self, kind: &str) -> Result<&Place> {
-        self.0.get(kind).ok_or_else(|| {
-            ActorRuntime::NotRegistered {
-                actor_name: kind.to_owned(),
-            }
-            .build()
-        })
+        self.0.get(kind).ok_or_else(|| not_registered(kind))
     }
 
     /// The factory of the kind of `at`, for an operation that only
@@ -77,12 +80,31 @@ impl Directory {
         match self.place(at.kind())? {
             Place::Local(factory) => Ok(factory),
             Place::Linked(_) => {
-                let _ = operation;
-                todo!(
-                    "U5, the host unit: only a call and a create \
-                     cross"
-                )
+                Err(runs_in_the_other_host(operation, at.kind()))
             }
         }
     }
+}
+
+pub(crate) fn not_registered(kind: &str) -> anyhow::Error {
+    ActorRuntime::NotRegistered {
+        actor_name: kind.to_owned(),
+    }
+    .build()
+}
+
+/// `actor.invalid_operation` for `operation` of an actor of `kind`,
+/// which the other host of the link runs.
+pub(crate) fn runs_in_the_other_host(
+    operation: &str,
+    kind: &str,
+) -> anyhow::Error {
+    ActorRuntime::InvalidOperation {
+        operation: operation.to_owned(),
+        reason: format!(
+            "the kind `{kind}` runs in the other host, and only a \
+             call and a create cross the link"
+        ),
+    }
+    .build()
 }

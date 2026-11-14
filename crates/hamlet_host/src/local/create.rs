@@ -6,7 +6,9 @@ use hamlet_actor_error::ActorError;
 use super::access::{Origin, Stamp};
 use super::{Host, HostInner, Open};
 use crate::address::Address;
-use crate::directory::Place;
+use crate::directory::{
+    Place, not_registered, runs_in_the_other_host,
+};
 use crate::route::Operation;
 
 /// A create of a key that holds an actor.
@@ -103,12 +105,11 @@ impl HostInner {
                 Place::Linked(_),
                 Origin::Here,
                 Open::OrCreate | Open::Existing,
-            ) => todo!("U5, the host unit: only a create crosses"),
+            ) => {
+                Err(runs_in_the_other_host("get_or_start", at.kind()))
+            }
             (Place::Linked(_), Origin::Peer, _) => {
-                todo!(
-                    "U5, the host unit: a peer's start of its own \
-                     kind"
-                )
+                Err(not_registered(at.kind()))
             }
         }
     }
