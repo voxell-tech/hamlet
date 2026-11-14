@@ -62,6 +62,12 @@ pub struct Family {
     found: fn(&str, &Value, &[Union], &mut Found),
 }
 
+impl Union {
+    fn fails_with(&self, message: &str) -> bool {
+        message.ends_with(&format!("untagged enum {}", self.name))
+    }
+}
+
 pub fn union<U>(families: Vec<Family>) -> Union {
     Union {
         name: short_name::<U>(),
@@ -129,27 +135,21 @@ pub fn found<T: DeserializeOwned>(
     texts(value, &mut Vec::new(), &mut paths);
     let mut read_as_a_family = Vec::new();
     for path in paths {
-        let mut probe = value.clone();
-        let Value::Text(text) = std::mem::replace(
-            at(&mut probe, &path),
-            Value::Text(UNKNOWN.into()),
-        ) else {
+        let Value::Text(text) = read_at(value, &path) else {
             unreachable!("a path leads to a text");
         };
-        match T::deserialize(TaggedReader(&probe)) {
+        match probed::<T>(value, &path) {
             Err(Probed {
                 cases: Some(cases), ..
-            }) => found.cases.push((cases, text)),
+            }) => found.cases.push((cases, text.clone())),
             Err(Probed {
                 cases: None,
                 message,
             }) if message.contains("untagged enum") => {
-                let Some(union) = unions.iter().find(|union| {
-                    message.ends_with(&format!(
-                        "untagged enum {}",
-                        union.name
-                    ))
-                }) else {
+                let Some(union) = unions
+                    .iter()
+                    .find(|union| union.fails_with(&message))
+                else {
                     found.problems.push(format!(
                         "{name}: the union of \"{message}\" is \
                          missing from unions()"
@@ -157,7 +157,7 @@ pub fn found<T: DeserializeOwned>(
                     continue;
                 };
                 let Some(position) =
-                    outermost_family_map(value, &path, union)
+                    family_map::<T>(value, &path, union)
                 else {
                     found.problems.push(format!(
                         "{name}: no family of {} has a type around \
@@ -178,7 +178,9 @@ pub fn found<T: DeserializeOwned>(
     }
 }
 
-fn outermost_family_map(
+/// The map around `path` whose own `type`, put out of reach, is what
+/// `union` fails to read.
+fn family_map<T: DeserializeOwned>(
     value: &Value,
     path: &[usize],
     union: &Union,
@@ -186,13 +188,33 @@ fn outermost_family_map(
     (0..path.len())
         .map(|end| path[..end].to_vec())
         .find(|position| {
-            tag(read_at(value, position)).is_some_and(|tag| {
-                union
-                    .families
-                    .iter()
-                    .any(|family| family.cases.contains(&tag))
-            })
+            let Value::Map(entries) = read_at(value, position) else {
+                return false;
+            };
+            let Some(index) = entries
+                .iter()
+                .position(|(key, _)| key.as_text() == Some("type"))
+            else {
+                return false;
+            };
+            let tag = [position.as_slice(), &[index]].concat();
+            match probed::<T>(value, &tag) {
+                Err(Probed {
+                    cases: None,
+                    message,
+                }) => union.fails_with(&message),
+                _ => false,
+            }
         })
+}
+
+fn probed<T: DeserializeOwned>(
+    value: &Value,
+    path: &[usize],
+) -> Result<T, Probed> {
+    let mut probe = value.clone();
+    *at(&mut probe, path) = Value::Text(UNKNOWN.into());
+    T::deserialize(TaggedReader(&probe))
 }
 
 fn in_union(
@@ -402,4 +424,65 @@ impl IntoDeserializer<'_, Probed> for TaggedReader<'_> {
     fn into_deserializer(self) -> Self {
         self
     }
+}
+
+/// A family's case can hold a map whose `type` is one of the family's
+/// cases, and a map outside the union can hold the union under a
+/// `type` that is one too. Only the map whose own `type` the union
+/// fails to read is the family's.
+#[test]
+#[expect(dead_code, reason = "the test only reads these types")]
+fn a_union_is_read_at_the_map_whose_type_it_fails_on() {
+    #[derive(serde::Deserialize)]
+    #[serde(tag = "type", rename_all = "snake_case")]
+    enum Outside {
+        Wrap { refused: Option<Union> },
+    }
+    #[derive(serde::Deserialize)]
+    #[serde(untagged)]
+    enum Union {
+        Family(Family),
+    }
+    #[derive(serde::Deserialize)]
+    #[serde(tag = "type", rename_all = "snake_case")]
+    enum Family {
+        Wrap { inner: Inner },
+    }
+    #[derive(serde::Deserialize)]
+    #[serde(tag = "type", rename_all = "snake_case")]
+    enum Inner {
+        Wrap,
+    }
+    let wrap = |entries: Vec<(&str, Value)>| {
+        let mut map = vec![(
+            Value::Text("type".into()),
+            Value::Text("wrap".into()),
+        )];
+        map.extend(
+            entries
+                .into_iter()
+                .map(|(key, item)| (Value::Text(key.into()), item)),
+        );
+        Value::Map(map)
+    };
+    let value =
+        wrap(vec![("refused", wrap(vec![("inner", wrap(vec![]))]))]);
+    let unions = [union::<Union>(vec![family::<Family>()])];
+    let mut found = Found::default();
+
+    self::found::<Outside>("wrap", &value, &unions, &mut found);
+
+    assert_eq!(found.problems, Vec::<String>::new());
+    assert_eq!(
+        found
+            .in_unions
+            .iter()
+            .map(|place| (
+                place.union.as_str(),
+                place.family.as_str(),
+                place.case.as_str()
+            ))
+            .collect::<Vec<_>>(),
+        [("Union", "Family", "wrap")]
+    );
 }
