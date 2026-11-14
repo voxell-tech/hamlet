@@ -177,7 +177,11 @@ with kinds of its own, share the folder. Each host also locks
 kind.
 
 `get_or_start` finds an actor by kind and key and starts it on the file
-`actors/<kind>/<key>.sqlite`, making it if it has none.
+`actors/<kind>/<key>.sqlite`, making it if it has none. A kind, a key and
+a host's name take only lower-case letters, digits, `-`, `_` and `.`, and
+do not start with `.`, so no two of them name one file on a disk that
+ignores case. Every entry point refuses another, as `Host::open` refuses
+such a kind.
 `local/create.rs` holds `create`, the other way to make an actor: it
 makes the actor with an input, kept in the file's `_hamlet_actor` row
 and given to each start, and fails with `actor.duplicate_key` for a key
@@ -273,7 +277,8 @@ five tries runs nothing for it: it moves the row to
 `_actor_schedule_set_aside`, and the host reports the timer on
 `Host::events` as `HostEvent::TimerSetAside`. `Host::set_aside_timers` lists an
 actor's set-aside timers, and `Host::rearm_timer` puts one back with its
-tries counted from none.
+tries counted from none. A set-aside timer leaves only that way, by a
+re-arm that succeeds, or with its actor's file at a destroy.
 
 `examples/demo.rs` drives
 the host from the command line, under a host name and with counter kinds
