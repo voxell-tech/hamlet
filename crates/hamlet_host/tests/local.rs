@@ -2854,7 +2854,13 @@ async fn a_start_finishes_the_destroy_its_file_holds() {
 async fn a_command_line_the_demo_refuses_makes_no_actor() {
     let dir = Scratch::new("host-demo-refused");
     let host = Host::open(&dir, factories()).unwrap();
-    for line in ["bogus k", "block k soon", "schedule k soon"] {
+    for line in [
+        "bogus k",
+        "block k soon",
+        "schedule k soon",
+        "increment k soon",
+        "increment k 0",
+    ] {
         let words = line
             .split_whitespace()
             .map(str::to_owned)

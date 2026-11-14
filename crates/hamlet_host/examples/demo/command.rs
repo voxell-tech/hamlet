@@ -76,7 +76,11 @@ pub async fn run(
     // refuses makes none.
     let (args, times) = match command {
         "increment" => {
-            (Vec::new(), number(words.get(2)).unwrap_or(1))
+            let times = words
+                .get(2)
+                .map_or(Ok(1), |word| number(Some(word)))?;
+            ensure!(times > 0, "`increment` counts from 1");
+            (Vec::new(), times)
         }
         "get" | "sleep" | "destroy" => (Vec::new(), 1),
         "block" => (number(words.get(2))?.to_le_bytes().to_vec(), 1),
