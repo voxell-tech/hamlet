@@ -3,6 +3,8 @@
 use hamlet_actor::Action;
 use serde::{Deserialize, Serialize};
 
+use crate::Message;
+use crate::address::{Realm, Workspace};
 use crate::workspace::files::EditDiff;
 use crate::workspace::reach::{Need, SecretsVersion};
 use crate::workspace::{
@@ -17,6 +19,11 @@ pub struct Secrets;
 impl Action for Secrets {
     type Output = SecretList;
     const NAME: &'static str = "secrets";
+}
+
+impl Message for Secrets {
+    type To = Realm;
+    type From = Workspace;
 }
 
 /// The realm's secrets of one version: the values the workspace takes
@@ -67,4 +74,9 @@ pub struct NeedsChief {
 impl Action for NeedsChief {
     type Output = ();
     const NAME: &'static str = "needs_chief";
+}
+
+impl Message for NeedsChief {
+    type To = Realm;
+    type From = Workspace;
 }

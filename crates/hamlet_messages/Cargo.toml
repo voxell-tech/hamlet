@@ -8,10 +8,14 @@ publish.workspace = true
 description = "The calls Hamlet's actors make to each other, and their answers"
 
 [dependencies]
+anyhow.workspace = true
 base64.workspace = true
 hamlet_actor.workspace = true
+hamlet_actor_error.workspace = true
+hamlet_address.workspace = true
 serde.workspace = true
 thiserror.workspace = true
+tracing.workspace = true
 
 [dev-dependencies]
 ciborium.workspace = true

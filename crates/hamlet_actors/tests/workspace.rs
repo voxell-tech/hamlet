@@ -9,18 +9,19 @@ use std::time::Duration;
 use anyhow::Context;
 use hamlet_actor::{Action, Actor, Ctx, Handler, Registry};
 use hamlet_actor_core::{ActorConfig, ActorFactory};
+use hamlet_actor_error::ActorError;
 use hamlet_actors::workspace;
 use hamlet_host::{Address, Caller, Host, HostOptions, HostRef};
+use hamlet_messages::address::{self, Party};
 use hamlet_messages::agent::{Finished, Outcome};
 use hamlet_messages::realm::{NeedsChief, SecretList, Secrets};
 use hamlet_messages::workspace::reach::{
-    Footing, Mode, Project, Reach, SecretsVersion,
+    Footing, Mode, Project, Reach, Refusal, SecretsVersion,
 };
 use hamlet_messages::workspace::{
-    AgentNumber, CallId, CallRefusal, CallerRefusal, CommandEnd,
-    CommandId, CommandStatus, ConversationId, Exit, Program,
-    ReachAnswer, ReachVersion, RealmRefusal, RealmTask, Run,
-    RunAnswer, SetReach,
+    AgentNumber, CallId, CallRefusal, CommandEnd, CommandId,
+    CommandStatus, ConversationId, Exit, InForce, Program,
+    ReachVersion, RealmTask, Run, RunAnswer, SetReach,
 };
 use hamlet_sandbox::Sandbox;
 use hamlet_testing::Scratch;
@@ -54,7 +55,11 @@ const AGENT: AgentNumber = AgentNumber(7);
 const SECRET: &str = "s3cr3t-value";
 
 /// The kinds that call the workspace in these tests, each a [`Peer`].
-const PEERS: [&str; 3] = ["realm", "agent", "other"];
+const PEERS: [&str; 3] =
+    [address::Realm::KIND, address::Agent::KIND, "other"];
+
+/// The error of a call from a caller its message does not admit.
+const WRONG_CALLER: &str = "message.wrong_caller";
 
 #[derive(Default)]
 struct Peers {
@@ -191,22 +196,22 @@ fn peer(kind: &str) -> ActorFactory {
 }
 
 fn workspace_address() -> Address {
-    Address::new(workspace::KIND, workspace::MACHINE).unwrap()
+    address::Workspace.address().unwrap()
 }
 
 fn realm() -> Address {
-    Address::new(workspace::REALM, workspace::REALM_KEY).unwrap()
+    address::Realm.address().unwrap()
 }
 
 fn agent(number: AgentNumber) -> Address {
-    Address::new(workspace::AGENT, number.0.to_string()).unwrap()
+    address::Agent(number).address().unwrap()
 }
 
 /// A host on `dir` with the workspace and the callers' kinds, given
 /// `options`.
 fn open(dir: &Path, options: HostOptions) -> anyhow::Result<Host> {
     let mut kinds = HashMap::from([(
-        workspace::KIND.to_owned(),
+        address::Workspace::KIND.to_owned(),
         workspace::factory(),
     )]);
     for kind in PEERS {
@@ -287,12 +292,30 @@ fn decoded<T: serde::de::DeserializeOwned>(reply: &[u8]) -> T {
     ciborium::from_reader(reply).unwrap()
 }
 
+/// The `group.code` of the error a call failed with.
+fn error_code(reply: anyhow::Result<Vec<u8>>) -> String {
+    let error = ActorError::extract(&reply.unwrap_err());
+    format!("{}.{}", error.group(), error.code())
+}
+
+/// The `group.code` of the error the workspace failed `asked` with,
+/// called as the actor at `from`.
+async fn error_of<A: Action>(
+    host: &Host,
+    from: &Address,
+    asked: &A,
+) -> String {
+    let args =
+        hamlet_actor::action::encode_positional(asked).unwrap();
+    error_code(call_as(host, from, A::NAME, args).await)
+}
+
 /// Calls the workspace with a [`SetReach`] of agent 7, as the realm.
 async fn realm_sets(
     host: &Host,
     version: u64,
     reach: Reach,
-) -> ReachAnswer {
+) -> InForce {
     let reply = call_as(
         host,
         &realm(),
@@ -376,7 +399,7 @@ async fn an_older_reach_version_is_ignored() {
     assert_eq!(
         answers,
         vec![
-            ReachAnswer::InForce {
+            InForce {
                 version: ReachVersion(3)
             };
             3
@@ -386,26 +409,25 @@ async fn an_older_reach_version_is_ignored() {
 }
 
 /// an agent, another kind, a client and a call with no caller
-/// are each refused, leave no row, and change no reach. Their
-/// version 5 would outrank the realm's version 1 had any of them
-/// applied.
+/// each fail as a wrong caller, leave no row, and change no reach.
+/// Their version 5 would outrank the realm's version 1 had any of
+/// them applied.
 #[tokio::test(flavor = "multi_thread")]
 async fn only_the_realm_sets_a_reach() {
     let dir = Scratch::new("workspace-reach-not-realm");
     host(&dir).await.shutdown().await.unwrap();
     let before = rows_in_file(&dir);
     let host = host(&dir).await;
-    let mut answers = Vec::new();
-    for kind in ["agent", "other"] {
+    let mut errors = Vec::new();
+    for kind in [address::Agent::KIND, "other"] {
         let reply = call_as(
             &host,
             &Address::new(kind, "caller").unwrap(),
             SetReach::NAME,
             set_reach(5, reach(Some("/"))),
         )
-        .await
-        .unwrap();
-        answers.push(decoded::<ReachAnswer>(&reply));
+        .await;
+        errors.push(error_code(reply));
     }
     let to = workspace_address();
     let client = host.call_for_client(
@@ -414,32 +436,24 @@ async fn only_the_realm_sets_a_reach() {
         set_reach(5, reach(Some("/"))),
         Duration::from_secs(10),
     );
-    answers.push(decoded(&client.await.unwrap()));
+    errors.push(error_code(client.await));
     let none = host.call(
         &to,
         SetReach::NAME,
         set_reach(5, reach(Some("/"))),
         Duration::from_secs(10),
     );
-    answers.push(decoded(&none.await.unwrap()));
+    errors.push(error_code(none.await));
     host.shutdown().await.unwrap();
     let after_refusals = rows_in_file(&dir);
     let host = self::host(&dir).await;
     let realm = realm_sets(&host, 1, reach(None)).await;
     host.shutdown().await.unwrap();
 
-    assert_eq!(
-        answers,
-        vec![
-            ReachAnswer::Refused {
-                why: RealmRefusal::NotTheRealm
-            };
-            4
-        ]
-    );
+    assert_eq!(errors, [WRONG_CALLER; 4]);
     assert_eq!(
         realm,
-        ReachAnswer::InForce {
+        InForce {
             version: ReachVersion(1)
         }
     );
@@ -463,7 +477,6 @@ async fn the_workspace_does_not_start_without_a_sandbox() {
 /// A [`Run`] of `script` by agent 7, as its call `call`.
 fn run(call: &str, script: &str) -> Run {
     Run {
-        agent: AGENT,
         call: CallId(call.to_owned()),
         conversation: ConversationId("c1".to_owned()),
         realm_task: None,
@@ -497,17 +510,13 @@ async fn runs_as(
     decoded(&reply)
 }
 
-/// Asks the workspace, as agent `from`, how agent 7's `command`
-/// stands.
+/// Asks the workspace, as agent `from`, how its `command` stands.
 async fn status_as(
     host: &Host,
     from: AgentNumber,
     command: CommandId,
 ) -> RunAnswer {
-    let status = CommandStatus {
-        agent: from,
-        command,
-    };
+    let status = CommandStatus { command };
     let reply = call_as(
         host,
         &agent(from),
@@ -825,8 +834,9 @@ async fn a_repeat_answers_from_the_row_and_runs_nothing() {
     );
 }
 
-/// an agent's call naming another agent is refused and runs
-/// nothing; a status asked for another agent's command finds none.
+/// A call runs for the agent the host stamped as its caller: agent
+/// 8, which has no reach, runs nothing; a status asked for another
+/// agent's command finds none.
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn the_agent_is_the_stamped_caller() {
@@ -836,7 +846,8 @@ async fn the_agent_is_the_stamped_caller() {
     let host = host_with(&dir, peers.clone()).await;
     realm_sets(&host, 1, reach(None)).await;
     let other = AgentNumber(8);
-    let named = runs_as(&host, other, &run("c1", "touch ran")).await;
+    let by_other =
+        runs_as(&host, other, &run("c1", "touch ran")).await;
     let command =
         running(&agent_runs(&host, &run("c2", "sleep 1")).await);
     let asked = status_as(&host, other, command).await;
@@ -844,13 +855,10 @@ async fn the_agent_is_the_stamped_caller() {
     host.shutdown().await.unwrap();
 
     assert_eq!(
-        named,
+        by_other,
         RunAnswer::Refused {
-            why: CallRefusal::Caller {
-                why: CallerRefusal::NotTheCaller {
-                    named: AGENT,
-                    caller: other,
-                }
+            why: CallRefusal::Reach {
+                why: Refusal::NoReach
             }
         }
     );

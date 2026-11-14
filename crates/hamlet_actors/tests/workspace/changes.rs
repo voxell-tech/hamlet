@@ -11,8 +11,8 @@ use hamlet_messages::workspace::reach::{
     Access, Footing, Mode, Project, Reach, Refusal, SecretsVersion,
 };
 use hamlet_messages::workspace::{
-    AgentNumber, CallId, CallRefusal, CallerRefusal, ConversationId,
-    RealmTask, RunAnswer,
+    AgentNumber, CallId, CallRefusal, ConversationId, RealmTask,
+    RunAnswer,
 };
 use hamlet_testing::Scratch;
 use hamlet_testing::links::symlink;
@@ -21,8 +21,8 @@ use sha2::{Digest, Sha256};
 
 use super::files::{ask, project, working_in};
 use super::{
-    AGENT, Peers, SECRET, agent, agent_runs, filesystem, host_with,
-    reach, realm, realm_sets, run,
+    AGENT, Peers, SECRET, WRONG_CALLER, agent, agent_runs, error_of,
+    filesystem, host_with, reach, realm, realm_sets, run,
 };
 
 pub(super) fn write(
@@ -31,7 +31,6 @@ pub(super) fn write(
     content: &str,
 ) -> WriteFile {
     WriteFile {
-        agent: AGENT,
         call: CallId(call.to_owned()),
         conversation: ConversationId("c1".to_owned()),
         realm_task: None,
@@ -46,7 +45,6 @@ pub(super) fn edit(
     edits: &[(&str, &str)],
 ) -> EditFile {
     EditFile {
-        agent: AGENT,
         call: CallId(call.to_owned()),
         conversation: ConversationId("c1".to_owned()),
         realm_task: None,
@@ -301,7 +299,9 @@ pub(super) fn manual(folder: &Path) -> Reach {
     })
 }
 
-/// A change is for the agent the host stamped as the caller.
+/// A change is for the agent the host stamped as the caller: agent
+/// 8, which has no reach, changes nothing, and an actor that is not
+/// an agent fails as a wrong caller.
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_change_is_for_the_agent_that_called() {
@@ -311,28 +311,18 @@ async fn a_change_is_for_the_agent_that_called() {
     let host = working_in(&dir, &folder, Arc::default()).await;
     let asked = write("w1", &folder.join("a.md"), "b");
     let other = ask(&host, &agent(AgentNumber(8)), &asked).await;
-    let from_realm = ask(&host, &realm(), &asked).await;
+    let from_realm = error_of(&host, &realm(), &asked).await;
     host.shutdown().await.unwrap();
 
     assert_eq!(
         other,
         ChangeAnswer::Refused {
-            why: CallRefusal::Caller {
-                why: CallerRefusal::NotTheCaller {
-                    named: AGENT,
-                    caller: AgentNumber(8),
-                }
+            why: CallRefusal::Reach {
+                why: Refusal::NoReach
             }
         }
     );
-    assert_eq!(
-        from_realm,
-        ChangeAnswer::Refused {
-            why: CallRefusal::Caller {
-                why: CallerRefusal::NotAnAgent
-            }
-        }
-    );
+    assert_eq!(from_realm, WRONG_CALLER);
     assert_eq!(read(&folder.join("a.md")), "a");
 }
 

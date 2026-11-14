@@ -11,16 +11,14 @@ use hamlet_messages::workspace::files::{
     Truncation,
 };
 use hamlet_messages::workspace::reach::{Access, Refusal};
-use hamlet_messages::workspace::{
-    AgentNumber, CallRefusal, CallerRefusal,
-};
+use hamlet_messages::workspace::{AgentNumber, CallRefusal};
 use hamlet_testing::Scratch;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
 use super::{
-    AGENT, Peers, SECRET, agent, call_as, decoded, host_with, reach,
-    realm, realm_sets, rows_in_file,
+    AGENT, Peers, SECRET, WRONG_CALLER, agent, call_as, decoded,
+    error_of, host_with, reach, realm, realm_sets, rows_in_file,
 };
 
 /// Calls the workspace with `asked`, as the actor at `from`.
@@ -46,7 +44,6 @@ where
 
 fn read_file(path: &Path) -> ReadFile {
     ReadFile {
-        agent: AGENT,
         path: path.to_owned(),
         offset: None,
         limit: None,
@@ -55,7 +52,6 @@ fn read_file(path: &Path) -> ReadFile {
 
 fn search(under: &Path, pattern: &str) -> Search {
     Search {
-        agent: AGENT,
         under: under.to_owned(),
         pattern: pattern.to_owned(),
         name: None,
@@ -65,7 +61,6 @@ fn search(under: &Path, pattern: &str) -> Search {
 
 fn find(under: &Path) -> Find {
     Find {
-        agent: AGENT,
         under: under.to_owned(),
         name: None,
     }
@@ -321,9 +316,9 @@ async fn an_agents_filesystem_is_not_the_workspaces_to_read() {
     );
 }
 
-/// A file tool is for the agent the host stamped as the caller: an
-/// agent naming another and an actor that is not an agent are
-/// refused.
+/// A file tool is for the agent the host stamped as the caller:
+/// agent 8, which has no reach, reads nothing, and an actor that is
+/// not an agent fails as a wrong caller.
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_read_is_for_the_agent_that_called() {
@@ -333,28 +328,18 @@ async fn a_read_is_for_the_agent_that_called() {
     let host = working_in(&dir, &folder, Arc::default()).await;
     let asked = read_file(&folder.join("a.md"));
     let other = ask(&host, &agent(AgentNumber(8)), &asked).await;
-    let from_realm = ask(&host, &realm(), &asked).await;
+    let from_realm = error_of(&host, &realm(), &asked).await;
     host.shutdown().await.unwrap();
 
     assert_eq!(
         other,
         FileAnswer::Refused {
-            why: CallRefusal::Caller {
-                why: CallerRefusal::NotTheCaller {
-                    named: AGENT,
-                    caller: AgentNumber(8),
-                }
+            why: CallRefusal::Reach {
+                why: Refusal::NoReach
             }
         }
     );
-    assert_eq!(
-        from_realm,
-        FileAnswer::Refused {
-            why: CallRefusal::Caller {
-                why: CallerRefusal::NotAnAgent
-            }
-        }
-    );
+    assert_eq!(from_realm, WRONG_CALLER);
 }
 
 /// A read, a search and a find change nothing, so they leave no row.

@@ -16,16 +16,16 @@ use hamlet_messages::workspace::reach::{
 };
 use hamlet_messages::workspace::{
     Answer, AnswerTaken, CallId, CallRefusal, Changed, ChiefAnswer,
-    ConversationId, Exit, Lapse, ReachVersion, RealmRefusal,
-    RealmTask, RunAnswer,
+    ConversationId, Exit, Lapse, ReachVersion, RealmTask, RunAnswer,
 };
 use hamlet_testing::Scratch;
 
 use super::changes::{changed, edit, manual, read, sha256, write};
 use super::files::{ask, project};
 use super::{
-    AGENT, Leave, Peers, SECRET, agent, agent_runs, files_holding,
-    filesystem, read_only, realm, realm_sets, run, told, told_within,
+    AGENT, Leave, Peers, SECRET, WRONG_CALLER, agent, agent_runs,
+    error_of, files_holding, filesystem, read_only, realm,
+    realm_sets, run, told, told_within,
 };
 
 /// A host on `dir` whose peers share `peers`, with agent 7's
@@ -468,8 +468,8 @@ async fn no_secret_is_kept_or_shown_for_a_wait() {
     assert_eq!(waits(&dir), 2);
 }
 
-/// Only the realm answers a wait: an agent's answer is refused and
-/// the wait stays.
+/// Only the realm answers a wait: an agent's answer fails as a wrong
+/// caller and the wait stays.
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn only_the_realm_answers_a_wait() {
@@ -480,7 +480,7 @@ async fn only_the_realm_answers_a_wait() {
     realm_sets(&host, 1, manual(&folder)).await;
     agent_runs(&host, &run("c1", "touch marker")).await;
 
-    let taken: AnswerTaken = ask(
+    let taken = error_of(
         &host,
         &agent(AGENT),
         &ChiefAnswer {
@@ -493,12 +493,7 @@ async fn only_the_realm_answers_a_wait() {
     tokio::time::sleep(Duration::from_millis(300)).await;
     host.shutdown().await.unwrap();
 
-    assert_eq!(
-        taken,
-        AnswerTaken::Refused {
-            why: RealmRefusal::NotTheRealm
-        }
-    );
+    assert_eq!(taken, WRONG_CALLER);
     assert_eq!(waits(&dir), 1);
     assert!(!folder.join("marker").exists());
 }

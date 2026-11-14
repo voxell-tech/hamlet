@@ -10,15 +10,14 @@ use hamlet_actor::Action;
 use serde::{Deserialize, Serialize};
 
 use super::reach::Need;
-use super::{
-    AgentNumber, CallId, CallRefusal, ConversationId, RealmTask,
-};
+use super::{CallId, CallRefusal, ConversationId, RealmTask};
+use crate::Message;
+use crate::address::{Agent, Workspace};
 use crate::bytes::{Base64, Sha256};
 
 /// Reads a file: a text file's lines, or an image.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ReadFile {
-    pub agent: AgentNumber,
     pub path: PathBuf,
     /// The first line to read, from 1.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -33,11 +32,15 @@ impl Action for ReadFile {
     const NAME: &'static str = "read_file";
 }
 
+impl Message for ReadFile {
+    type To = Workspace;
+    type From = Agent;
+}
+
 /// Finds the lines that match a regular expression in the text files
 /// under a folder, or in one file.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Search {
-    pub agent: AgentNumber,
     pub under: PathBuf,
     pub pattern: String,
     /// A file name pattern, with `*` and `?`, that the files must
@@ -53,10 +56,14 @@ impl Action for Search {
     const NAME: &'static str = "search";
 }
 
+impl Message for Search {
+    type To = Workspace;
+    type From = Agent;
+}
+
 /// Lists a folder, or finds the files under it by name.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Find {
-    pub agent: AgentNumber,
     pub under: PathBuf,
     /// As [`Search::name`]. Without it, the folder's own entries.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -66,6 +73,11 @@ pub struct Find {
 impl Action for Find {
     type Output = FileAnswer;
     const NAME: &'static str = "find";
+}
+
+impl Message for Find {
+    type To = Workspace;
+    type From = Agent;
 }
 
 /// The workspace's answer to a [`ReadFile`], a [`Search`] or a
@@ -148,10 +160,9 @@ pub struct Image {
 /// it waits for a chief.
 pub const MOST_CONTENT: u64 = 16 * 1024 * 1024;
 
-/// Creates or replaces a whole file for an agent.
+/// Creates or replaces a whole file for the calling agent.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WriteFile {
-    pub agent: AgentNumber,
     pub call: CallId,
     pub conversation: ConversationId,
     /// `None` when no chief's instruction started the work.
@@ -167,10 +178,14 @@ impl Action for WriteFile {
     const NAME: &'static str = "write_file";
 }
 
-/// Makes exact text replacements in one file for an agent.
+impl Message for WriteFile {
+    type To = Workspace;
+    type From = Agent;
+}
+
+/// Makes exact text replacements in one file for the calling agent.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EditFile {
-    pub agent: AgentNumber,
     pub call: CallId,
     pub conversation: ConversationId,
     /// `None` when no chief's instruction started the work.
@@ -183,6 +198,11 @@ pub struct EditFile {
 impl Action for EditFile {
     type Output = ChangeAnswer;
     const NAME: &'static str = "edit_file";
+}
+
+impl Message for EditFile {
+    type To = Workspace;
+    type From = Agent;
 }
 
 /// One replacement of an [`EditFile`].

@@ -23,7 +23,6 @@ const OTHER: &str = "secret-other-agent";
 
 fn reading(path: &Path) -> ReadFile {
     ReadFile {
-        agent: AGENT,
         path: path.to_owned(),
         offset: None,
         limit: None,

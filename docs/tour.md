@@ -341,23 +341,28 @@ agents' commands and file changes under the sandbox, within each agent's
 reach (C18 to C21). `hamlet_messages` holds the calls between actors and their
 answers, one module per actor that takes them: `workspace` (with
 `workspace/reach.rs` and `workspace/files.rs`), `realm` and `agent`.
-Each crosses the host as CBOR. `fixtures/` holds the bytes of each
-message, and `tests/fixtures.rs` rewrites a fixture whose bytes changed
-and fails once, so the change is committed.
+Each crosses the host as CBOR. `address.rs` holds the actors as
+parties, with their kinds and keys, and `sender.rs` the check of a
+caller. `fixtures/` holds the bytes of each message, and
+`tests/fixtures/main.rs` rewrites a fixture whose bytes changed and
+fails once, so the change is committed.
 
 The realm, the actor `realm/local`, sets each agent's reach
 (`SetReach`), answers calls that wait for a chief (`ChiefAnswer`) and
 may cancel any agent's commands. An agent, the actor `agent/<n>` keyed
 by its `AgentNumber`, calls for its own tools: `Run`, `CommandStatus`,
 `Cancel`, `ReadFile`, `Search`, `Find`, `WriteFile` and `EditFile`.
-`agent_of` in `workspace.rs` takes the agent from the caller the host
-stamped and refuses any other caller, or an agent that names another.
-`ListTools` checks no caller. The workspace calls the realm with
-`Secrets` and `NeedsChief`, and an agent with `Finished`. In this
-repository the realm and the agent are only the demo's stand-ins. The
-host gives the workspace its `Sandbox` as a value of `HostOptions`, and
-the workspace does not start without one; `workspace::Options` there
-sets how long a call waits for its command.
+Each message but `Cancel` is a `Message`, which names the party that
+takes it and the kind that sends it. A handler first reads its sender
+from the caller the host stamped, with `sender::sender`, and any other
+caller fails with the error `message.wrong_caller`. An agent's call is
+for the agent that made it; `Cancel` admits the realm or the agent it
+names. The workspace calls the realm with `Secrets` and `NeedsChief`,
+and an agent with `Finished`. In this repository the realm and the
+agent are only the demo's stand-ins. The host gives the workspace its
+`Sandbox` as a value of `HostOptions`, and the workspace does not start
+without one; `workspace::Options` there sets how long a call waits for
+its command.
 
 `workspace/reach.rs` keeps the reach: one row per agent in the table
 `reach`, with its version and its `Reach`, an agent's, a worker's (with

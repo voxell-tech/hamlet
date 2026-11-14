@@ -11,10 +11,15 @@ use std::fmt::Debug;
 use std::path::{Path, PathBuf};
 
 use ciborium::Value;
+use hamlet_actor::Action;
 use hamlet_actor::action::{decode_positional, encode_positional};
+use hamlet_actor_error::ActorError;
+use hamlet_address::Caller;
+use hamlet_messages::address::{Agent, Party, Realm, Workspace};
 use hamlet_messages::agent::{Finished, Outcome};
 use hamlet_messages::bytes::{Base64, Sha256};
 use hamlet_messages::realm::{NeedsChief, SecretList, Secrets};
+use hamlet_messages::sender::wrong_caller;
 use hamlet_messages::workspace::files::{
     Change, ChangeAnswer, CutBy, EditDiff, EditFile, FileAnswer,
     Find, Hashed, Image, Note, ReadFile, Replace, Search, Severity,
@@ -26,14 +31,13 @@ use hamlet_messages::workspace::reach::{
 };
 use hamlet_messages::workspace::{
     AddedTool, AgentNumber, Answer, AnswerTaken, CallId, CallRefusal,
-    CallerRefusal, Cancel, CancelAnswer, Changed, ChiefAnswer,
-    CommandEnd, CommandId, CommandStatus, ConversationId, Cut, Exit,
-    Lapse, ListTools, Program, ReachAnswer, ReachVersion,
-    RealmRefusal, RealmTask, Run, RunAnswer, SetReach, ToolList,
-    Which,
+    Cancel, Cancelled, Changed, ChiefAnswer, CommandEnd, CommandId,
+    CommandStatus, ConversationId, Cut, Exit, InForce, Lapse,
+    ListTools, Program, ReachVersion, RealmTask, Run, RunAnswer,
+    SetReach, ToolList, Which,
 };
-use serde::Serialize;
 use serde::de::DeserializeOwned;
+use serde::{Deserialize, Serialize};
 
 use self::cases::{Cases, named, tagged};
 
@@ -41,15 +45,12 @@ const AGENT: AgentNumber = AgentNumber(7);
 
 fn enums() -> Vec<Cases> {
     vec![
-        tagged::<ReachAnswer>(),
         tagged::<Answer>(),
         tagged::<AnswerTaken>(),
-        tagged::<CallerRefusal>(),
         tagged::<Program>(),
         tagged::<RunAnswer>(),
         tagged::<Exit>(),
         tagged::<Which>(),
-        tagged::<CancelAnswer>(),
         tagged::<CallRefusal>(),
         tagged::<Changed>(),
         tagged::<Outcome>(),
@@ -58,7 +59,6 @@ fn enums() -> Vec<Cases> {
         tagged::<FileAnswer>(),
         tagged::<ChangeAnswer>(),
         tagged::<Hashed>(),
-        named::<RealmRefusal>(),
         named::<Lapse>(),
         named::<Need>(),
         named::<Mode>(),
@@ -252,6 +252,8 @@ fn every_message_and_every_case_matches_its_fixture() {
     the_answers_about_a_command(&mut fixtures);
     the_reads(&mut fixtures);
     the_changes(&mut fixtures);
+    the_addresses(&mut fixtures);
+    the_wrong_callers(&mut fixtures);
     fixtures.remove_unwritten();
     fixtures.assert_unchanged_and_covered();
 }
@@ -309,21 +311,14 @@ fn the_workspaces_messages(fixtures: &mut Fixtures) {
     );
     fixtures.answer(
         "workspace/set_reach.in_force",
-        &ReachAnswer::InForce {
+        &InForce {
             version: ReachVersion(3),
-        },
-    );
-    fixtures.answer(
-        "workspace/set_reach.refused",
-        &ReachAnswer::Refused {
-            why: RealmRefusal::NotTheRealm,
         },
     );
     let task = Some(RealmTask("task-1".into()));
     fixtures.args(
         "workspace/run",
         &Run {
-            agent: AGENT,
             call: CallId("call-1".into()),
             conversation: ConversationId("c1".into()),
             realm_task: task.clone(),
@@ -337,7 +332,6 @@ fn the_workspaces_messages(fixtures: &mut Fixtures) {
     fixtures.args(
         "workspace/run.tool",
         &Run {
-            agent: AGENT,
             call: CallId("call-1".into()),
             conversation: ConversationId("c1".into()),
             realm_task: task.clone(),
@@ -365,7 +359,6 @@ fn the_workspaces_messages(fixtures: &mut Fixtures) {
     fixtures.args(
         "workspace/write_file",
         &WriteFile {
-            agent: AGENT,
             call: CallId("call-2".into()),
             conversation: ConversationId("c1".into()),
             realm_task: None,
@@ -376,7 +369,6 @@ fn the_workspaces_messages(fixtures: &mut Fixtures) {
     fixtures.args(
         "workspace/edit_file",
         &EditFile {
-            agent: AGENT,
             call: CallId("call-3".into()),
             conversation: ConversationId("c1".into()),
             realm_task: task,
@@ -431,15 +423,6 @@ fn the_answers_about_a_command(fixtures: &mut Fixtures) {
         },
     );
     for (name, refusal) in [
-        (
-            "caller",
-            CallRefusal::Caller {
-                why: CallerRefusal::NotTheCaller {
-                    named: AGENT,
-                    caller: AgentNumber(8),
-                },
-            },
-        ),
         (
             "reach",
             CallRefusal::Reach {
@@ -521,7 +504,6 @@ fn the_answers_about_a_command(fixtures: &mut Fixtures) {
     fixtures.args(
         "workspace/command_status",
         &CommandStatus {
-            agent: AGENT,
             command: CommandId(4),
         },
     );
@@ -558,23 +540,8 @@ fn the_answers_about_a_command(fixtures: &mut Fixtures) {
     }
     fixtures.answer(
         "workspace/cancel.cancelled",
-        &CancelAnswer::Cancelled {
+        &Cancelled {
             commands: vec![CommandId(4), CommandId(5)],
-        },
-    );
-    fixtures.answer(
-        "workspace/cancel.refused",
-        &CancelAnswer::Refused {
-            why: CallerRefusal::NotTheCaller {
-                named: AGENT,
-                caller: AgentNumber(8),
-            },
-        },
-    );
-    fixtures.answer(
-        "workspace/cancel.refused.not_an_agent",
-        &CancelAnswer::Refused {
-            why: CallerRefusal::NotAnAgent,
         },
     );
     fixtures.args(
@@ -672,12 +639,6 @@ fn the_answers_about_a_command(fixtures: &mut Fixtures) {
             },
         ),
         ("no_wait", AnswerTaken::NoWait),
-        (
-            "refused",
-            AnswerTaken::Refused {
-                why: RealmRefusal::NotTheRealm,
-            },
-        ),
     ] {
         fixtures.answer(
             &format!("workspace/chief_answer.{name}"),
@@ -698,7 +659,6 @@ fn the_reads(fixtures: &mut Fixtures) {
     fixtures.args(
         "workspace/read_file",
         &ReadFile {
-            agent: AGENT,
             path: "/work/project/notes.md".into(),
             offset: Some(10),
             limit: Some(20),
@@ -707,7 +667,6 @@ fn the_reads(fixtures: &mut Fixtures) {
     fixtures.args(
         "workspace/search",
         &Search {
-            agent: AGENT,
             under: "/work/project".into(),
             pattern: "fn main".into(),
             name: Some("*.rs".into()),
@@ -717,7 +676,6 @@ fn the_reads(fixtures: &mut Fixtures) {
     fixtures.args(
         "workspace/find",
         &Find {
-            agent: AGENT,
             under: "/work/project".into(),
             name: None,
         },
@@ -886,6 +844,49 @@ fn the_changes(fixtures: &mut Fixtures) {
                 .into(),
         },
     );
+}
+
+fn the_addresses(fixtures: &mut Fixtures) {
+    fixtures
+        .answer("address/workspace", &Workspace.address().unwrap());
+    fixtures.answer("address/realm", &Realm.address().unwrap());
+    fixtures
+        .answer("address/agent", &Agent(AGENT).address().unwrap());
+}
+
+/// An error as its caller reads it with [`ActorError::extract`].
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+struct Seen {
+    group: String,
+    code: String,
+    message: String,
+    metadata: serde_json::Value,
+}
+
+impl Seen {
+    fn of(error: &anyhow::Error) -> Self {
+        let error = ActorError::extract(error);
+        Self {
+            group: error.group().to_owned(),
+            code: error.code().to_owned(),
+            message: error.message().to_owned(),
+            metadata: error.metadata().unwrap(),
+        }
+    }
+}
+
+fn the_wrong_callers(fixtures: &mut Fixtures) {
+    let realm = Caller::Actor(Realm.address().unwrap());
+    for (name, action, caller) in [
+        ("run.realm", Run::NAME, Some(realm)),
+        ("set_reach.client", SetReach::NAME, Some(Caller::Client)),
+        ("set_reach.program", SetReach::NAME, None),
+    ] {
+        fixtures.answer(
+            &format!("error/wrong_caller.{name}"),
+            &Seen::of(&wrong_caller(action, caller)),
+        );
+    }
 }
 
 /// A refusal of a changed file says what the file held and holds.

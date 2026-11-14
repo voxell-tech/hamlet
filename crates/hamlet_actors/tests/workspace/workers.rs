@@ -12,8 +12,8 @@ use hamlet_messages::workspace::reach::{
     Footing, Mode, Project, Reach, Refusal, SecretsVersion,
 };
 use hamlet_messages::workspace::{
-    AgentNumber, CallId, CallRefusal, ConversationId, Exit,
-    ReachAnswer, ReachVersion, RunAnswer,
+    AgentNumber, CallId, CallRefusal, ConversationId, Exit, InForce,
+    ReachVersion, RunAnswer,
 };
 use hamlet_testing::Scratch;
 
@@ -78,7 +78,7 @@ async fn a_workers_scratch_folder_lives_as_long_as_the_worker() {
 
     assert_eq!(
         set,
-        ReachAnswer::InForce {
+        InForce {
             version: ReachVersion(1)
         }
     );
@@ -94,7 +94,7 @@ async fn a_workers_scratch_folder_lives_as_long_as_the_worker() {
     assert_eq!(again.exit, Exit::Code { code: 0 });
     assert_eq!(
         ended,
-        ReachAnswer::InForce {
+        InForce {
             version: ReachVersion(2)
         }
     );
@@ -161,7 +161,6 @@ async fn a_worker_reads_its_starters_files_and_changes_none() {
             &host,
             &agent(AGENT),
             &ReadFile {
-                agent: AGENT,
                 path: notes.clone(),
                 offset: None,
                 limit: None,
@@ -172,7 +171,6 @@ async fn a_worker_reads_its_starters_files_and_changes_none() {
             &host,
             &agent(AGENT),
             &WriteFile {
-                agent: AGENT,
                 call: CallId("w1".into()),
                 conversation: ConversationId("c1".into()),
                 realm_task: None,

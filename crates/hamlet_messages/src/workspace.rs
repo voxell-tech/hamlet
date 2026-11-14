@@ -10,6 +10,8 @@ use serde::{Deserialize, Serialize};
 
 use self::files::Hashed;
 use self::reach::{Need, Reach, Refusal};
+use crate::Message;
+use crate::address::{Agent, Realm, Workspace};
 
 /// The number in an agent actor's file name,
 /// `actors/agent/<n>.sqlite`, and its key.
@@ -62,38 +64,20 @@ pub struct SetReach {
 }
 
 impl Action for SetReach {
-    type Output = ReachAnswer;
+    type Output = InForce;
     const NAME: &'static str = "set_reach";
 }
 
-/// The workspace's answer to a [`SetReach`].
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum ReachAnswer {
-    /// The agent's version in force after the call.
-    InForce {
-        version: ReachVersion,
-    },
-    Refused {
-        why: RealmRefusal,
-    },
+impl Message for SetReach {
+    type To = Workspace;
+    type From = Realm;
 }
 
-/// A call only the realm makes, which the workspace does not take
-/// from this caller.
-#[derive(
-    Clone,
-    Debug,
-    PartialEq,
-    Eq,
-    Serialize,
-    Deserialize,
-    thiserror::Error,
-)]
-#[serde(rename_all = "snake_case")]
-pub enum RealmRefusal {
-    #[error("only the realm makes this call")]
-    NotTheRealm,
+/// The workspace's answer to a [`SetReach`]: the agent's version in
+/// force after the call.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InForce {
+    pub version: ReachVersion,
 }
 
 /// A chief's answer to a call that waits for one, or the end of the
@@ -110,6 +94,11 @@ pub struct ChiefAnswer {
 impl Action for ChiefAnswer {
     type Output = AnswerTaken;
     const NAME: &'static str = "chief_answer";
+}
+
+impl Message for ChiefAnswer {
+    type To = Workspace;
+    type From = Realm;
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -146,42 +135,15 @@ pub enum AnswerTaken {
     /// The call runs, and the agent is called with its end.
     Runs,
     /// The call does not run, and the agent is called with why.
-    NotRun {
-        why: CallRefusal,
-    },
+    NotRun { why: CallRefusal },
     /// The agent has no call waiting under this id: its wait ended
     /// before, and nothing changed.
     NoWait,
-    Refused {
-        why: RealmRefusal,
-    },
 }
 
-/// A call of an agent's tool from a caller it is not for.
-#[derive(
-    Clone,
-    Debug,
-    PartialEq,
-    Eq,
-    Serialize,
-    Deserialize,
-    thiserror::Error,
-)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum CallerRefusal {
-    #[error("only an agent calls for its tools")]
-    NotAnAgent,
-    #[error("agent {} called for agent {}", caller.0, named.0)]
-    NotTheCaller {
-        named: AgentNumber,
-        caller: AgentNumber,
-    },
-}
-
-/// Runs a script or a tool added by hand for an agent.
+/// Runs a script or a tool added by hand for the calling agent.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Run {
-    pub agent: AgentNumber,
     pub call: CallId,
     pub conversation: ConversationId,
     /// `None` when no chief's instruction started the work.
@@ -213,6 +175,11 @@ impl Action for Run {
     const NAME: &'static str = "run";
 }
 
+impl Message for Run {
+    type To = Workspace;
+    type From = Agent;
+}
+
 /// Asks which tools a chief added by hand (C17), to offer them to a
 /// model.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -221,6 +188,11 @@ pub struct ListTools;
 impl Action for ListTools {
     type Output = ToolList;
     const NAME: &'static str = "list_tools";
+}
+
+impl Message for ListTools {
+    type To = Workspace;
+    type From = Agent;
 }
 
 /// The tools added by hand that load, in their folders' order.
@@ -321,7 +293,7 @@ pub struct Cancel {
 }
 
 impl Action for Cancel {
-    type Output = CancelAnswer;
+    type Output = Cancelled;
     const NAME: &'static str = "cancel";
 }
 
@@ -334,29 +306,27 @@ pub enum Which {
     All,
 }
 
-/// The workspace's answer to a [`Cancel`].
+/// The workspace's answer to a [`Cancel`]: the commands it ended,
+/// none when none of them ran.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum CancelAnswer {
-    /// The commands it ended, none when none of them ran.
-    Cancelled {
-        commands: Vec<CommandId>,
-    },
-    Refused {
-        why: CallerRefusal,
-    },
+pub struct Cancelled {
+    pub commands: Vec<CommandId>,
 }
 
 /// Asks how a command of the calling agent stands.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CommandStatus {
-    pub agent: AgentNumber,
     pub command: CommandId,
 }
 
 impl Action for CommandStatus {
     type Output = RunAnswer;
     const NAME: &'static str = "command_status";
+}
+
+impl Message for CommandStatus {
+    type To = Workspace;
+    type From = Agent;
 }
 
 /// A call of an agent's tool the workspace does not carry out.
@@ -371,8 +341,6 @@ impl Action for CommandStatus {
 )]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum CallRefusal {
-    #[error("{why}")]
-    Caller { why: CallerRefusal },
     #[error("{why}")]
     Reach { why: Refusal },
     /// The id was given before to a call with another request (S19).

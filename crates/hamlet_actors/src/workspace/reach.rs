@@ -8,6 +8,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use hamlet_actor_core::{BindParam, ColumnValue, SqliteTransaction};
+use hamlet_messages::address::LOCAL;
 use hamlet_messages::workspace::reach::{
     Access, Footing, Mode, Need, Reach, Refusal, SecretsVersion,
     Trust,
@@ -19,8 +20,6 @@ use hamlet_os::fs::path::{normalize, text};
 use hamlet_sandbox::{
     Policy, base_env, host_env, is_within, real_path,
 };
-
-use super::MACHINE;
 
 // Copied from the server's `oversight/gate.rs` and `tools/shell.rs`.
 /// Commands that reach the network, by the words they name, in lower
@@ -167,7 +166,7 @@ impl RealmFolder {
     pub fn spill(&self, agent: AgentNumber) -> PathBuf {
         self.real
             .join("actors/workspace")
-            .join(format!("{MACHINE}.output"))
+            .join(format!("{LOCAL}.output"))
             .join(agent.0.to_string())
     }
 

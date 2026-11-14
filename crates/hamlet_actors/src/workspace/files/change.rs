@@ -12,8 +12,10 @@ use std::sync::{Arc, Mutex, PoisonError};
 use anyhow::{Context, Result, bail};
 use hamlet_actor::{Ctx, Handler};
 use hamlet_actor_core::{BindParam, ColumnValue, SqliteTransaction};
+use hamlet_messages::address::Agent;
 use hamlet_messages::agent::Outcome;
 use hamlet_messages::bytes;
+use hamlet_messages::sender::sender;
 use hamlet_messages::workspace::files::{
     Change, ChangeAnswer, EditDiff, EditFile, Hashed, MOST_CONTENT,
     Replace, WriteFile,
@@ -36,8 +38,8 @@ use super::{Gated, Passed};
 use crate::workspace::pending::{self, Pending, Rechecked, Wait};
 use crate::workspace::reach::{self, Op, Placement, Purpose};
 use crate::workspace::{
-    Invalid, Weighing, Workspace, calling_agent, calls, checked_call,
-    read_only, tell, transact, transact_if,
+    Invalid, Weighing, Workspace, calls, checked_call, read_only,
+    tell, transact, transact_if,
 };
 
 mod shown;
@@ -132,7 +134,6 @@ impl Asked<'_> {
 
 /// A change as the handler weighs it.
 struct Request<'a> {
-    named: AgentNumber,
     call: &'a CallId,
     conversation: &'a ConversationId,
     path: &'a Path,
@@ -145,7 +146,6 @@ impl<'a> Request<'a> {
     fn of(pending: &'a Pending) -> Result<Self> {
         Ok(match pending {
             Pending::Write(asked) => Self {
-                named: asked.agent,
                 call: &asked.call,
                 conversation: &asked.conversation,
                 path: &asked.path,
@@ -153,7 +153,6 @@ impl<'a> Request<'a> {
                 request_hash: calls::request_hash(asked)?,
             },
             Pending::Edit(asked) => Self {
-                named: asked.agent,
                 call: &asked.call,
                 conversation: &asked.conversation,
                 path: &asked.path,
@@ -171,7 +170,8 @@ impl Handler<WriteFile> for Workspace {
         ctx: Ctx<Self>,
         asked: WriteFile,
     ) -> Result<ChangeAnswer> {
-        self.change(&ctx, Pending::Write(asked)).await
+        let Agent(agent) = sender::<WriteFile, _>(&ctx)?;
+        self.change(&ctx, agent, Pending::Write(asked)).await
     }
 }
 
@@ -181,7 +181,8 @@ impl Handler<EditFile> for Workspace {
         ctx: Ctx<Self>,
         asked: EditFile,
     ) -> Result<ChangeAnswer> {
-        self.change(&ctx, Pending::Edit(asked)).await
+        let Agent(agent) = sender::<EditFile, _>(&ctx)?;
+        self.change(&ctx, agent, Pending::Edit(asked)).await
     }
 }
 
@@ -213,16 +214,11 @@ impl Workspace {
     async fn change(
         &self,
         ctx: &Ctx<Self>,
+        agent: AgentNumber,
         pending: Pending,
     ) -> Result<ChangeAnswer> {
         let request = Request::of(&pending)?;
         let action = request.asked.op();
-        let agent = match calling_agent(ctx, request.named, action)? {
-            Ok(agent) => agent,
-            Err(refusal) => {
-                return Ok(ChangeAnswer::Refused { why: refusal });
-            }
-        };
         let path = text(request.path);
         if let Err(why) = checked_call(request.call).and_then(|()| {
             is_absolute(&path)
@@ -978,7 +974,6 @@ mod tests {
         let call = CallId("w1".into());
         let conversation = ConversationId("c1".into());
         let request = Request {
-            named: AgentNumber(7),
             call: &call,
             conversation: &conversation,
             path: Path::new("/p/a.md"),

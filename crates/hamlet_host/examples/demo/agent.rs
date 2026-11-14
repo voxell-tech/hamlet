@@ -38,7 +38,8 @@
 //! prints `finished/<call> <exit code>` as above, a change
 //! `finished/<call>/changed <created>`, `finished/<call>/refused 1`
 //! or `finished/<call>/failed 1`, and a call that did not run
-//! `finished/<call>/not_run 1`; each logs why.
+//! `finished/<call>/not_run 1`; each logs why. The agent takes
+//! `finished` from the workspace only.
 
 use std::io::Write;
 use std::sync::Arc;
@@ -49,9 +50,10 @@ use hamlet_actor::{Action, Actor, Ctx, Handler, Registry};
 use hamlet_actor_core::{
     ActorConfig, ActorFactory, ActorKeySegment, BindParam,
 };
-use hamlet_actors::workspace;
-use hamlet_host::{Address, Caller, Host, HostRef};
+use hamlet_host::{Caller, Host, HostRef};
+use hamlet_messages::address::{self, Party};
 use hamlet_messages::agent::{Finished, Outcome};
+use hamlet_messages::sender::sender;
 use hamlet_messages::workspace::files::{
     ChangeAnswer, FileAnswer, ReadFile, WriteFile,
 };
@@ -64,7 +66,7 @@ use hamlet_messages::workspace::{
 pub fn factory() -> ActorFactory {
     let mut registry = Registry::new();
     registry.register_actor_with::<Agent>(
-        workspace::AGENT,
+        address::Agent::KIND,
         ActorConfig {
             has_database: true,
             ..ActorConfig::default()
@@ -72,7 +74,7 @@ pub fn factory() -> ActorFactory {
     );
     registry
         .into_factories()
-        .remove(workspace::AGENT)
+        .remove(address::Agent::KIND)
         .expect("the registry holds the kind it registered")
 }
 
@@ -127,7 +129,7 @@ impl Handler<Ask> for Agent {
     ) -> Result<Vec<u8>> {
         HostRef::of(ctx.inner())?
             .call(
-                &Address::new(workspace::KIND, workspace::MACHINE)?,
+                &address::Workspace.address()?,
                 &ask.name,
                 ask.args,
                 Duration::from_secs(10),
@@ -142,6 +144,7 @@ impl Handler<Finished> for Agent {
         ctx: Ctx<Self>,
         finished: Finished,
     ) -> Result<()> {
+        sender::<Finished, _>(&ctx)?;
         let call = &finished.call.0;
         let (command, word, code) = match &finished.outcome {
             Outcome::Ran(end) => {
@@ -220,12 +223,12 @@ async fn run_one(host: &Host, words: &[String]) -> Result<()> {
     let [number, verb, rest @ ..] = words else {
         bail!("usage: demo agent <n> run|status ...");
     };
-    let agent = AgentNumber(number.parse()?);
+    let me =
+        address::Agent(AgentNumber(number.parse()?)).address()?;
     let conversation = ConversationId("demo".to_owned());
     let (name, args, call) = match (verb.as_str(), rest) {
         ("run", [call, script @ ..]) if !script.is_empty() => {
             let run = Run {
-                agent,
                 call: CallId(call.clone()),
                 conversation,
                 realm_task: None,
@@ -240,7 +243,6 @@ async fn run_one(host: &Host, words: &[String]) -> Result<()> {
         }
         ("tool", [call, tool, arguments @ ..]) => {
             let run = Run {
-                agent,
                 call: CallId(call.clone()),
                 conversation,
                 realm_task: None,
@@ -254,7 +256,6 @@ async fn run_one(host: &Host, words: &[String]) -> Result<()> {
         }
         ("read", [path]) => {
             let read = ReadFile {
-                agent,
                 path: path.into(),
                 offset: None,
                 limit: None,
@@ -265,7 +266,6 @@ async fn run_one(host: &Host, words: &[String]) -> Result<()> {
         }
         ("status", [command]) => {
             let status = CommandStatus {
-                agent,
                 command: CommandId(command.parse()?),
             };
             let args =
@@ -274,7 +274,6 @@ async fn run_one(host: &Host, words: &[String]) -> Result<()> {
         }
         ("write", [call, path, content @ ..]) => {
             let write = WriteFile {
-                agent,
                 call: CallId(call.clone()),
                 conversation,
                 realm_task: None,
@@ -291,20 +290,15 @@ async fn run_one(host: &Host, words: &[String]) -> Result<()> {
              <command> | write <call> <path> <content ...>"
         ),
     };
-    host.get_or_start(&Address::new(
-        workspace::KIND,
-        workspace::MACHINE,
-    )?)
-    .await?;
-    host.get_or_start(&Address::new(workspace::AGENT, number)?)
-        .await?;
+    host.get_or_start(&address::Workspace.address()?).await?;
+    host.get_or_start(&me).await?;
     let ask = Ask {
         name: name.to_owned(),
         args,
     };
     let reply = host
         .call(
-            &Address::new(workspace::AGENT, number)?,
+            &me,
             Ask::NAME,
             hamlet_actor::action::encode_positional(&ask)?,
             Duration::from_secs(20),

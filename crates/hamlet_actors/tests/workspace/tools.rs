@@ -20,9 +20,9 @@ use super::changes::{read, write};
 use super::files::ask;
 use super::waits::chief;
 use super::{
-    AGENT, Peers, SECRET, agent, agent_runs, answering_within, done,
-    filesystem, host, host_with, reach, realm_sets, run, running,
-    told, told_within,
+    AGENT, Peers, SECRET, WRONG_CALLER, agent, agent_runs,
+    answering_within, done, error_of, filesystem, host, host_with,
+    reach, realm, realm_sets, run, running, told, told_within,
 };
 
 const MANIFEST: &str = r#"{
@@ -46,7 +46,6 @@ fn add_tool(dir: &Path, folder: &str, manifest: &str) -> PathBuf {
 
 fn tool(call: &str, name: &str, arguments: &str) -> Run {
     Run {
-        agent: AGENT,
         call: CallId(call.to_owned()),
         conversation: ConversationId("c1".to_owned()),
         realm_task: None,
@@ -55,6 +54,16 @@ fn tool(call: &str, name: &str, arguments: &str) -> Run {
             arguments: arguments.to_owned(),
         },
     }
+}
+
+/// Only an agent lists the tools.
+#[tokio::test(flavor = "multi_thread")]
+async fn only_an_agent_lists_the_tools() {
+    let dir = Scratch::new("workspace-tools-caller");
+    let host = host(&dir).await;
+    let from_realm = error_of(&host, &realm(), &ListTools).await;
+    host.shutdown().await.unwrap();
+    assert_eq!(from_realm, WRONG_CALLER);
 }
 
 /// The tools that load are listed with what a model is offered; a

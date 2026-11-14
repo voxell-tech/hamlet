@@ -14,7 +14,9 @@ use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
-use hamlet_actor::{Action, Ctx, Handler};
+use hamlet_actor::{Ctx, Handler};
+use hamlet_messages::address::Agent;
+use hamlet_messages::sender::sender;
 use hamlet_messages::workspace::files::{
     FileAnswer, Find, ReadFile, Search, Text,
 };
@@ -26,7 +28,7 @@ use hamlet_sandbox::scrub::scrub_text;
 
 pub(super) use self::change::{Paths, cut_off_changes};
 use super::reach::{self, Gate, Op, Placement, Purpose};
-use super::{Invalid, Weighing, Workspace, calling_agent, read_only};
+use super::{Invalid, Weighing, Workspace, read_only};
 
 /// A file tool's call the gate let through: where it runs, and the
 /// secrets its answer is scrubbed of.
@@ -145,17 +147,10 @@ impl Workspace {
     async fn read_tool(
         &self,
         ctx: &Ctx<Self>,
-        named: AgentNumber,
+        agent: AgentNumber,
         path: &Path,
-        action: &str,
         work: impl FnOnce(&Env) -> FileAnswer + Send + 'static,
     ) -> Result<FileAnswer> {
-        let agent = match calling_agent(ctx, named, action)? {
-            Ok(agent) => agent,
-            Err(refusal) => {
-                return Ok(FileAnswer::Refused { why: refusal });
-            }
-        };
         if !is_absolute(&text(path)) {
             return Ok(FileAnswer::Refused {
                 why: CallRefusal::Invalid {
@@ -193,19 +188,14 @@ impl Handler<ReadFile> for Workspace {
         ctx: Ctx<Self>,
         asked: ReadFile,
     ) -> Result<FileAnswer> {
+        let Agent(agent) = sender::<ReadFile, _>(&ctx)?;
         let path = text(&asked.path);
-        self.read_tool(
-            &ctx,
-            asked.agent,
-            &asked.path,
-            ReadFile::NAME,
-            move |env| {
-                read::read(env, &path, asked.offset, asked.limit)
-                    .unwrap_or_else(|error| FileAnswer::Failed {
-                        words: error.message,
-                    })
-            },
-        )
+        self.read_tool(&ctx, agent, &asked.path, move |env| {
+            read::read(env, &path, asked.offset, asked.limit)
+                .unwrap_or_else(|error| FileAnswer::Failed {
+                    words: error.message,
+                })
+        })
         .await
     }
 }
@@ -216,26 +206,21 @@ impl Handler<Search> for Workspace {
         ctx: Ctx<Self>,
         asked: Search,
     ) -> Result<FileAnswer> {
+        let Agent(agent) = sender::<Search, _>(&ctx)?;
         let under = text(&asked.under);
-        self.read_tool(
-            &ctx,
-            asked.agent,
-            &asked.under,
-            Search::NAME,
-            move |env| {
-                listed(walk::search(
-                    env,
-                    &under,
-                    &asked.pattern,
-                    asked.name.as_deref(),
-                    if asked.ignore_case {
-                        walk::Case::Ignored
-                    } else {
-                        walk::Case::Matched
-                    },
-                ))
-            },
-        )
+        self.read_tool(&ctx, agent, &asked.under, move |env| {
+            listed(walk::search(
+                env,
+                &under,
+                &asked.pattern,
+                asked.name.as_deref(),
+                if asked.ignore_case {
+                    walk::Case::Ignored
+                } else {
+                    walk::Case::Matched
+                },
+            ))
+        })
         .await
     }
 }
@@ -246,16 +231,11 @@ impl Handler<Find> for Workspace {
         ctx: Ctx<Self>,
         asked: Find,
     ) -> Result<FileAnswer> {
+        let Agent(agent) = sender::<Find, _>(&ctx)?;
         let under = text(&asked.under);
-        self.read_tool(
-            &ctx,
-            asked.agent,
-            &asked.under,
-            Find::NAME,
-            move |env| {
-                listed(walk::find(env, &under, asked.name.as_deref()))
-            },
-        )
+        self.read_tool(&ctx, agent, &asked.under, move |env| {
+            listed(walk::find(env, &under, asked.name.as_deref()))
+        })
         .await
     }
 }

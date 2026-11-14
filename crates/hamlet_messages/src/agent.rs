@@ -4,6 +4,8 @@
 use hamlet_actor::Action;
 use serde::{Deserialize, Serialize};
 
+use crate::Message;
+use crate::address::{Agent, Workspace};
 use crate::workspace::files::ChangeAnswer;
 use crate::workspace::{CallId, CallRefusal, CommandEnd};
 
@@ -20,6 +22,11 @@ pub struct Finished {
 impl Action for Finished {
     type Output = ();
     const NAME: &'static str = "finished";
+}
+
+impl Message for Finished {
+    type To = Agent;
+    type From = Workspace;
 }
 
 /// The end of a call.

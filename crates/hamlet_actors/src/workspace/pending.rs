@@ -12,11 +12,13 @@
 use std::sync::Arc;
 
 use anyhow::{Context, Result, bail};
-use hamlet_actor::{Action, Ctx, Handler};
+use hamlet_actor::{Ctx, Handler};
 use hamlet_actor_core::{BindParam, ColumnValue, SqliteTransaction};
-use hamlet_host::Address;
+use hamlet_host::HostRef;
+use hamlet_messages::address::Realm;
 use hamlet_messages::agent::Outcome;
 use hamlet_messages::realm::NeedsChief;
+use hamlet_messages::sender::sender;
 use hamlet_messages::workspace::files::{
     EditDiff, EditFile, Hashed, WriteFile,
 };
@@ -30,8 +32,8 @@ use serde::{Deserialize, Serialize};
 
 use super::reach::{self, Gate, Network, Op};
 use super::{
-    REALM, REALM_KEY, Weighing, Workspace, call_actor, calls,
-    read_only, realm_calling, tell, transact_if,
+    CALL_WITHIN, Weighing, Workspace, call, calls, read_only, tell,
+    transact_if,
 };
 
 /// One row per call that waits for a chief, beside its `calls` row.
@@ -342,16 +344,21 @@ impl Workspace {
         ctx: &Ctx<Self>,
         notice: NeedsChief,
     ) {
-        let (agent, call) = (notice.agent, notice.call.clone());
+        let (agent, id) = (notice.agent, notice.call.clone());
         let asked = async {
-            let to = Address::new(REALM, REALM_KEY)?;
-            call_actor(ctx, to, &notice).await
+            call(
+                &HostRef::of(ctx.inner())?,
+                &Realm,
+                &notice,
+                CALL_WITHIN,
+            )
+            .await
         };
         if let Err(error) = asked.await {
             tracing::warn!(
                 ?error,
                 agent = agent.0,
-                call = call.0,
+                call = id.0,
                 "the realm was not told that a call waits for a \
                  chief"
             );
@@ -462,10 +469,7 @@ impl Handler<ChiefAnswer> for Workspace {
         ctx: Ctx<Self>,
         answered: ChiefAnswer,
     ) -> Result<AnswerTaken> {
-        if let Err(refusal) = realm_calling(&ctx, ChiefAnswer::NAME)?
-        {
-            return Ok(AnswerTaken::Refused { why: refusal });
-        }
+        sender::<ChiefAnswer, _>(&ctx)?;
         let wait = read_only(&ctx, async |tx| {
             find(tx, answered.agent, &answered.call).await
         })

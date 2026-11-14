@@ -8,9 +8,9 @@ use hamlet_host::{Address, Host};
 use hamlet_messages::agent::Outcome;
 use hamlet_messages::workspace::reach::{Reach, Refusal};
 use hamlet_messages::workspace::{
-    AgentNumber, Answer, AnswerTaken, CallId, CallRefusal,
-    CallerRefusal, Cancel, CancelAnswer, ConversationId, Exit, Lapse,
-    ReachAnswer, ReachVersion, Run, RunAnswer, SetReach, Which,
+    AgentNumber, Answer, AnswerTaken, CallId, CallRefusal, Cancel,
+    Cancelled, ConversationId, Exit, InForce, Lapse, ReachVersion,
+    Run, RunAnswer, SetReach, Which,
 };
 use hamlet_testing::Scratch;
 
@@ -18,10 +18,18 @@ use super::changes::manual;
 use super::files::{ask, project};
 use super::waits::{chief, waits};
 use super::{
-    AGENT, Leave, agent, agent_runs, answering_within, filesystem,
-    host_with, ran, reach, realm, realm_sets, run, running, runs_as,
-    status_as, told, told_within,
+    AGENT, Leave, WRONG_CALLER, agent, agent_runs, answering_within,
+    error_of, filesystem, host_with, ran, reach, realm, realm_sets,
+    run, running, runs_as, status_as, told, told_within,
 };
+
+/// A cancel of agent 7's commands of `which`.
+fn cancel(which: Which) -> Cancel {
+    Cancel {
+        agent: AGENT,
+        which,
+    }
+}
 
 /// Asks the workspace, as the actor at `from`, to end agent 7's
 /// commands of `which`.
@@ -29,16 +37,8 @@ async fn cancels(
     host: &Host,
     from: &Address,
     which: Which,
-) -> CancelAnswer {
-    ask(
-        host,
-        from,
-        &Cancel {
-            agent: AGENT,
-            which,
-        },
-    )
-    .await
+) -> Cancelled {
+    ask(host, from, &cancel(which)).await
 }
 
 fn one(call: &str) -> Which {
@@ -87,7 +87,7 @@ async fn a_cancel_ends_a_running_command_and_the_agent_is_told_once()
 
     assert_eq!(
         answer,
-        CancelAnswer::Cancelled {
+        Cancelled {
             commands: vec![command]
         }
     );
@@ -136,7 +136,7 @@ async fn a_cancel_within_the_wait_answers_the_call() {
     assert_eq!(end.exit, Exit::Cancelled);
     assert_eq!(
         answer,
-        CancelAnswer::Cancelled {
+        Cancelled {
             commands: vec![end.command]
         }
     );
@@ -181,10 +181,7 @@ async fn a_cancel_ends_a_conversations_commands_or_all() {
     told_within(&peers, 3, Duration::from_secs(3)).await;
     host.shutdown().await.unwrap();
 
-    let mut of_a = match of_a {
-        CancelAnswer::Cancelled { commands: of_a } => of_a,
-        other => panic!("the cancel answered {other:?}"),
-    };
+    let mut of_a = of_a.commands;
     of_a.sort_by_key(|command| command.0);
     assert_eq!(of_a, commands[..2]);
     assert_eq!(
@@ -195,7 +192,7 @@ async fn a_cancel_ends_a_conversations_commands_or_all() {
     );
     assert_eq!(
         all,
-        CancelAnswer::Cancelled {
+        Cancelled {
             commands: vec![commands[2]]
         }
     );
@@ -232,7 +229,7 @@ async fn a_cancel_of_nothing_does_nothing() {
     tokio::time::sleep(Duration::from_millis(300)).await;
     host.shutdown().await.unwrap();
 
-    let none = CancelAnswer::Cancelled {
+    let none = Cancelled {
         commands: Vec::new(),
     };
     assert_eq!(
@@ -264,7 +261,7 @@ async fn a_cancel_after_a_restart_finds_nothing() {
 
     assert_eq!(
         answer,
-        CancelAnswer::Cancelled {
+        Cancelled {
             commands: Vec::new()
         }
     );
@@ -276,7 +273,8 @@ async fn a_cancel_after_a_restart_finds_nothing() {
 }
 
 /// Only the realm and the agent named cancel its commands: another
-/// agent and another kind are refused, and the command runs on.
+/// agent and another kind fail as wrong callers, and the command
+/// runs on.
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_cancel_comes_from_the_realm_or_the_agent_it_names() {
@@ -288,11 +286,12 @@ async fn a_cancel_comes_from_the_realm_or_the_agent_it_names() {
     let command =
         running(&agent_runs(&host, &run("c1", "sleep 5")).await);
     let other = AgentNumber(8);
-    let by_other = cancels(&host, &agent(other), Which::All).await;
-    let by_a_stranger = cancels(
+    let by_other =
+        error_of(&host, &agent(other), &cancel(Which::All)).await;
+    let by_a_stranger = error_of(
         &host,
         &Address::new("other", "x").unwrap(),
-        Which::All,
+        &cancel(Which::All),
     )
     .await;
     let meanwhile = status_as(&host, AGENT, command).await;
@@ -300,25 +299,11 @@ async fn a_cancel_comes_from_the_realm_or_the_agent_it_names() {
     told_within(&peers, 1, Duration::from_secs(3)).await;
     host.shutdown().await.unwrap();
 
-    assert_eq!(
-        by_other,
-        CancelAnswer::Refused {
-            why: CallerRefusal::NotTheCaller {
-                named: AGENT,
-                caller: other,
-            }
-        }
-    );
-    assert_eq!(
-        by_a_stranger,
-        CancelAnswer::Refused {
-            why: CallerRefusal::NotAnAgent
-        }
-    );
+    assert_eq!([by_other, by_a_stranger], [WRONG_CALLER; 2]);
     assert_eq!(meanwhile, RunAnswer::Running { command });
     assert_eq!(
         by_the_realm,
-        CancelAnswer::Cancelled {
+        Cancelled {
             commands: vec![command]
         }
     );
@@ -331,7 +316,7 @@ pub(super) async fn realm_sets_for(
     number: AgentNumber,
     version: u64,
     reach: Reach,
-) -> ReachAnswer {
+) -> InForce {
     ask(
         host,
         &realm(),
@@ -363,10 +348,7 @@ async fn an_ended_reach_ends_the_agents_commands() {
     let command = running(
         &agent_runs(&host, &run("c1", "sleep 1.5; touch late")).await,
     );
-    let others = Run {
-        agent: other,
-        ..run("c1", "sleep 1.5; touch late")
-    };
+    let others = run("c1", "sleep 1.5; touch late");
     running(&runs_as(&host, other, &others).await);
 
     let asked = Instant::now();
@@ -381,7 +363,7 @@ async fn an_ended_reach_ends_the_agents_commands() {
 
     assert_eq!(
         ended,
-        ReachAnswer::InForce {
+        InForce {
             version: ReachVersion(2)
         }
     );
@@ -446,7 +428,7 @@ async fn an_ended_reach_closes_the_agents_waits() {
     );
     assert_eq!(
         ended,
-        ReachAnswer::InForce {
+        InForce {
             version: ReachVersion(2)
         }
     );
@@ -511,7 +493,7 @@ async fn an_allow_racing_an_ended_reach_runs_nothing() {
         let allowed = allow.await.unwrap();
         assert_eq!(
             ended,
-            ReachAnswer::InForce {
+            InForce {
                 version: ReachVersion(version + 1)
             }
         );
@@ -585,7 +567,7 @@ async fn the_notice_to_an_agent_that_is_gone_is_dropped() {
 
     assert_eq!(
         ended,
-        ReachAnswer::InForce {
+        InForce {
             version: ReachVersion(2)
         }
     );
