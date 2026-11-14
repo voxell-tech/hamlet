@@ -48,7 +48,8 @@ _Avoid_: blank scholar, temp hire
 How a chief or an agent names an agent or a scholar, by ids and never by a
 name: `hand`, `mayor@<hamlet>` (by the hamlet's id), `hire#<id>`,
 `worker#<id>`, `scholar#<id>`. Wherever an agent is shown, its address comes
-first and its name beside it.
+first and its name beside it. An actor's address is another thing: its
+kind and its key.
 _Avoid_: handle, username
 
 **Name**:
@@ -213,6 +214,24 @@ _Avoid_: receipt
 A step the server has recorded to do after a change and runs on a thread of
 its own, so a crash loses none.
 _Avoid_: task (a task is an agent's work)
+
+### Actors
+
+**Actor runtime**:
+What runs actors: the `hamlet_actor*` crates, and `hamlet_host`, the host
+that runs them in one process.
+_Avoid_: runtime (a runtime is one running harness)
+
+**Actor**:
+One instance of an actor kind, found by its kind and its key, with its
+state in a file of its own. Not the chief, agent or realm that makes a
+change, which the store's code calls `Actor`.
+
+**Set-aside timer**:
+An actor's one-shot timer that used up its tries without its action
+running to its end. The actor keeps it, and nothing runs it again until
+it is put back.
+_Avoid_: dead letter (a letter is what one agent sends another)
 
 ### Between agents
 
