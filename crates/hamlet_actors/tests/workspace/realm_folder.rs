@@ -235,6 +235,9 @@ async fn a_realm_folder_reached_through_a_link_works() {
     let read_back: FileAnswer =
         ask(&host, &agent(AGENT), &reading(&project.join("a.md")))
             .await;
+    let own = dir.join("actors/agent/7.fs/x");
+    let into_own: ChangeAnswer =
+        ask(&host, &agent(AGENT), &write("w2", &own, "x")).await;
     let mut commands = Vec::new();
     let mut reads = Vec::new();
     for (n, path) in
@@ -268,6 +271,12 @@ async fn a_realm_folder_reached_through_a_link_works() {
             FileAnswer::Text(read) if read.text.contains("written")
         ),
         "{read_back:?}"
+    );
+    assert_eq!(
+        into_own,
+        ChangeAnswer::Refused(CallRefusal::Reach(
+            Refusal::AgentFilesystem { path: own }
+        ))
     );
     for output in &commands {
         assert!(!output.contains(CREDENTIALS), "{output:?}");

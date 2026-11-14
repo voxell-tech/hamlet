@@ -124,28 +124,38 @@ pub(super) async fn in_force(
     }
 }
 
-/// The realm folder, `HAMLET_HOME`, as its real path, links followed.
+/// The realm folder, `HAMLET_HOME`, as its real path, links followed,
+/// and as written.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct RealmFolder(PathBuf);
+pub struct RealmFolder {
+    real: PathBuf,
+    written: PathBuf,
+}
 
 impl RealmFolder {
     pub fn new(path: &Path) -> io::Result<Self> {
-        Ok(Self(real_path(&std::path::absolute(path)?)))
+        let written = std::path::absolute(path)?;
+        Ok(Self {
+            real: real_path(&written),
+            written,
+        })
     }
 
     pub fn root(&self) -> &Path {
-        &self.0
+        &self.real
     }
 
     /// `actors/agent/<n>.fs/`, the agent's filesystem. The only way
     /// the workspace names one.
     pub fn filesystem(&self, agent: AgentNumber) -> PathBuf {
-        self.0.join("actors/agent").join(format!("{}.fs", agent.0))
+        self.real
+            .join("actors/agent")
+            .join(format!("{}.fs", agent.0))
     }
 
     /// `workers/`, which holds the workers' scratch folders.
     pub fn workers(&self) -> PathBuf {
-        self.0.join("workers")
+        self.real.join("workers")
     }
 
     /// `workers/<n>/`, a worker's scratch folder.
@@ -155,33 +165,39 @@ impl RealmFolder {
 
     /// The folder of `agent`'s spilled command output.
     pub fn spill(&self, agent: AgentNumber) -> PathBuf {
-        self.0
+        self.real
             .join("actors/workspace")
             .join(format!("{MACHINE}.output"))
             .join(agent.0.to_string())
     }
 
     fn library(&self) -> PathBuf {
-        self.0.join("library")
+        self.real.join("library")
     }
 
     /// Tools a chief adds by hand (C17).
     pub fn tools(&self) -> PathBuf {
-        self.0.join("tools")
+        self.real.join("tools")
     }
 
     fn has_inside(&self, path: &Path) -> bool {
-        is_within(&real_path(path), &self.0)
+        is_within(&real_path(path), &self.real)
     }
 
-    /// Whether `path`, normalized, is in any agent's filesystem.
+    /// Checks whether `path`, as written, is in an agent's filesystem
+    /// under either spelling of the realm folder.
     fn is_in_a_filesystem(&self, path: &Path) -> bool {
-        path.strip_prefix(self.0.join("actors/agent"))
-            .ok()
-            .and_then(|rest| rest.components().next())
-            .is_some_and(|first| {
-                first.as_os_str().to_string_lossy().ends_with(".fs")
-            })
+        [&self.real, &self.written].into_iter().any(|root| {
+            path.strip_prefix(root.join("actors/agent"))
+                .ok()
+                .and_then(|rest| rest.components().next())
+                .is_some_and(|first| {
+                    first
+                        .as_os_str()
+                        .to_string_lossy()
+                        .ends_with(".fs")
+                })
+        })
     }
 }
 
