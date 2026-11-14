@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use hamlet_messages::workspace::files::{
-    Change, ChangeAnswer, EditFile, Replace, WriteFile,
+    Change, ChangeAnswer, EditFile, MOST_CONTENT, Replace, WriteFile,
 };
 use hamlet_messages::workspace::reach::{
     Access, Footing, Mode, Need, Project, Reach, Refusal,
@@ -237,6 +237,43 @@ async fn a_change_out_of_reach_names_the_path_and_writes_nothing() {
             "Could not edit file: {}. Path is not a file.",
             folder.join("sub").display()
         ))
+    );
+}
+
+/// A write's content past 16 MiB is refused with its size and the
+/// limit, and nothing is written; one of 16 MiB is written.
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_write_past_the_limit_is_refused_and_writes_nothing() {
+    let dir = Scratch::new("workspace-change-large");
+    let (_project, folder) =
+        project("workspace-change-large-project", &[]);
+    let host = working_in(&dir, &folder, Arc::default()).await;
+    let me = agent(AGENT);
+    let most = usize::try_from(MOST_CONTENT).unwrap();
+    let large = folder.join("large.txt");
+    let largest = folder.join("largest.txt");
+
+    let refused =
+        ask(&host, &me, &write("w1", &large, &"x".repeat(most + 1)))
+            .await;
+    let wrote =
+        ask(&host, &me, &write("w2", &largest, &"x".repeat(most)))
+            .await;
+    host.shutdown().await.unwrap();
+
+    assert_eq!(
+        refused,
+        ChangeAnswer::Refused(CallRefusal::TooLarge {
+            bytes: MOST_CONTENT + 1,
+            limit: MOST_CONTENT,
+        })
+    );
+    assert!(!large.exists());
+    assert!(changed(wrote).created);
+    assert_eq!(
+        std::fs::metadata(&largest).unwrap().len(),
+        MOST_CONTENT
     );
 }
 

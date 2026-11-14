@@ -13,8 +13,8 @@ use anyhow::{Context, Result};
 use hamlet_actor::{Ctx, Handler};
 use hamlet_actor_core::{BindParam, ColumnValue, SqliteTransaction};
 use hamlet_messages::workspace::files::{
-    Change, ChangeAnswer, EditDiff, EditFile, Hashed, Replace,
-    WriteFile,
+    Change, ChangeAnswer, EditDiff, EditFile, Hashed, MOST_CONTENT,
+    Replace, WriteFile,
 };
 use hamlet_messages::workspace::{
     AgentNumber, CallId, CallRefusal, ConversationId,
@@ -41,6 +41,11 @@ pub struct Paths(Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>);
 impl Paths {
     /// Waits until no other change is at work on `path`, and holds it
     /// until the guard is dropped.
+    ///
+    /// The lock is by the path as written. A change through a link
+    /// and one through its target take two locks, so both can pass
+    /// the check of what the file holds before either renames, and
+    /// the second rename wins.
     async fn hold(&self, path: &str) -> OwnedMutexGuard<()> {
         let lock = {
             let mut paths =
@@ -222,11 +227,27 @@ impl Workspace {
                 why,
             )));
         }
+        if let Asked::Write(content) = request.asked {
+            let bytes = u64::try_from(content.len())?;
+            if bytes > MOST_CONTENT {
+                return Ok(ChangeAnswer::Refused(
+                    CallRefusal::TooLarge {
+                        bytes,
+                        limit: MOST_CONTENT,
+                    },
+                ));
+            }
+        }
         let held = self.paths.hold(&path).await;
         let mut fetched = false;
         let passed = loop {
             match self.weigh(ctx, agent, &request).await? {
                 Weighed::Answer(answer) => return Ok(answer),
+                // Also the row of a first copy that was dropped
+                // between its rename and its record: this copy then
+                // runs afresh on the file the first one changed, so
+                // an edit can answer that its old text was not found
+                // for a change that was made.
                 Weighed::Unfinished { id, temp } => {
                     if let Some(temp) = temp {
                         remove_new_file(&temp);
