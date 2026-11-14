@@ -87,6 +87,11 @@ that would have had it.
 | `search` | Finds a linear-time regular expression in files, with a name filter and optional case-insensitive matching, up to 100 hits; skips binary files, files that are not UTF-8, files over 1 MiB and build folders |
 | `find` | Lists a folder, or finds files by name under it, up to 100 matches |
 
+Each `bash` call's command and its output, as it comes, are also shown in
+the agent's commands terminal, which the chief can watch and nobody types into.
+A server an agent starts runs from `bash` with `&`, its output sent to a file the
+agent reads later; it is kept until the server stops.
+
 A lead can turn tools off for a hire under it (H41); the prompt names them. A
 worker has only the built-in tools its starter gave it (H42). The society's
 tools, offered by role, are in [`hamlet.md`](hamlet.md).

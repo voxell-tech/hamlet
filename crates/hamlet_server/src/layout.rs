@@ -53,6 +53,11 @@ impl Layout {
         self.scholars().join(format!("{scholar}.git"))
     }
 
+    /// The terminals kept across restarts, outside agents' reach.
+    pub fn terminals(&self) -> PathBuf {
+        self.root.join("terminals")
+    }
+
     /// The Hand's lodge.
     pub fn hand(&self) -> PathBuf {
         self.root.join("hand")

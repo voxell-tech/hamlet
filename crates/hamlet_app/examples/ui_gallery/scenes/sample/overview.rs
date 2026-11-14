@@ -16,6 +16,7 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
             | Scene::Hamlet
             | Scene::Bylaws
             | Scene::Hub
+            | Scene::HubMenu
             | Scene::Scholar
             | Scene::Realm
             | Scene::Desk
@@ -239,6 +240,9 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
             },
         ];
         ada.skills = vec!["orchard".into()];
+    }
+    if scene == Scene::HubMenu {
+        super::terminal::logs(&mut state);
     }
     hamlet_client::receive(
         world,

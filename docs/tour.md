@@ -55,7 +55,7 @@ it, and it is not edited here.
 | `hamlet_store` | The realm's database: `schema.sql` with Diesel's tables generated from it, opening and checking it, transactions, markers and jobs, and the typed ids |
 | `hamlet_git` | Scholars' and the library's repositories through gix, with no git program: refs, commits from files, reads, diffs, merges, reverts, versions, history, purging, and the writes that check a lodge out |
 | `hamlet_sandbox` | What confines a command: the bubblewrap and Seatbelt policies, launching, a command's leftovers, and the secrets taken out of what it gives back |
-| `hamlet_os` | The system calls whose form differs by OS, with no C code below them: `fs`, directories held open and what is reached from them one name at a time, never through a link at that name, and the tools' walk, path text and error words; `process`, a command's process tree, started inside its limits and killed whole |
+| `hamlet_os` | The system calls whose form differs by OS, with no C code below them: `fs`, directories held open and what is reached from them one name at a time, never through a link at that name, and the tools' walk, path text and error words; `process`, a command's process tree, started inside its limits and killed whole, and `process::pty`, a command on a pseudo-terminal |
 | `hamlet_app` | `hamlet_app`, the window: its panels, menus, chat and pointer, and the eight examples that draw the world and the panels |
 | `harnesses/pi/` | Node pi-durable/pi-ai runtime; conversations, provider calls, compaction and forks |
 | `hamlet_protocol` | Both protocols' types: `client` and `runtime`; `Version`, the semver version each protocol carries; `RequestId`, which holds only a hyphenated UUID; `State::apply` for a client's changes; recorded frames, the schema pi reads and the client schema's fingerprint |
@@ -115,7 +115,13 @@ and draws a picture through `PictureView`, which the app's `links` and
 `pictures` screens set. The panels' steps before fynix mounts are `PanelSystems` in
 `hamlet_app/src/lib.rs` (`Follow`, `Bind`), in `PreUpdate`;
 `panel_sets` orders them, and the apps in `testing.rs` add it, so a UI
-test settles in one update.
+test settles in one update. A panel registers its dock window in
+`dock.rs` with `add_panel`; one that opens more than once, as the
+Terminal panel does, with `add_numbered_panel`. Its others are
+`<id>-2`, `<id>-3` and so on, known only while the dock or the shown
+desk holds them, so the dock's add menu offers only the first. A
+terminal dragged from a Terminal panel's list onto the dock opens in
+one of them (`screens/terminal/carry.rs`).
 
 ## The store and the repositories
 
@@ -172,6 +178,7 @@ double of the remote workspace worker.
 | `files.rs`, `inbox.rs` | Files a chief attaches (C33, S29): uploaded in parts and kept once by hash in the realm's `files/` folder; `inbox.rs` saves them, and what agents send with `tell` and `ask` (H30), in the receiver's `inbox/` and names where |
 | `attached.rs` | A chief's line with its attachments: each caption set in the words at its attachment's place (C33) |
 | `work.rs`, `work/` | What agents' tools do: the built-in tools in `tools.rs` and `tools/` (`files`, `shell`, `search`, `find`, `diff`, `environment` which is each agent's reach under the sandbox), tools added by hand in `added.rs`, the catalogue of society tools by name in `catalogue.rs`, and an edit's shown change in `cut.rs` |
+| `terminals.rs`, `terminals/` | `Terminals`: shells on pseudo-terminals, for the connections that watch them, and each agent's read-only commands terminal, which the shell tool prints to through a `Feed`; closed when their agent ends or their hamlet goes. `screen.rs`, each one's `vt100` screen, the bytes that redraw it, its last command and whether one is running; `shell.rs`, starting the chief's unsandboxed shell; `chief.rs`, the chief's `terminal` requests; `kept.rs`, `restore`, which opens again under `terminals/` what the last stop kept |
 | `clients.rs`, `clients/` | Connections (`connection.rs`), strict parsing of client messages (`check.rs`), the requests and who answers each (`requests.rs`), the state and its changes (`state.rs`), transcripts (`fold.rs`) and the chief's documents (`documents.rs`) |
 | `workspace.rs`, `workspace/` | The remote workspace: each agent's session there (`serving.rs`) and a lodge's copy kept in step with the server's (`lodges.rs`) |
 | `providers.rs`, `credentials.rs`, `settings.rs` | The model catalogue and provider requests, sign-ins, the atomic credentials file and secret removal, and the realm's settings with the process's overrides |
@@ -247,6 +254,7 @@ built-in ones.
 | The message field and its chips: typing, sending, the place of each attachment, the chips in a sent line | `hamlet_app/src/screens/chat.rs` (`send_typed`), `chat/field.rs`, `chat/attach.rs` (the chips), `chat/bubble.rs` (a sent line); the field itself is fynix's `rich_field` |
 | Images on a line: upload, fitting, what a model takes, the read tool's images | `hamlet_server/src/images.rs`, `providers.rs`, `work/tools/files.rs`; in the window `hamlet_client/src/images.rs`, `hamlet_desktop/src/clipboard.rs`, `hamlet_app/src/screens/chat/attach.rs` and, for a custom model's limits, `hamlet_app/src/models/home.rs`; in the CLI `hamlet_cli/src/chat.rs` and `terminal.rs` |
 | Files and folders on a line, and sent with `tell` or `ask`: upload, the inbox, the cap | `hamlet_server/src/files.rs`, `inbox.rs`, `attached.rs`, `images.rs` (`attach`), `work/tools/parcel.rs`, `calls/society/letters.rs`, `oversight/gate.rs` (`Call::Parcel`); in the window `hamlet_client/src/files.rs`, `hamlet_desktop/src/choose.rs`, `hamlet_app/src/screens/chat/attach.rs`; in the CLI `hamlet_cli/src/client.rs`, `chat.rs` and `mentions.rs` (the `@path` tokens) |
+| Terminals: the chief's shells, the agents' commands logs, the panel | `hamlet_server/src/terminals.rs`, `terminals/`; `hamlet_os/src/process/pty.rs`; `hamlet_protocol/src/screen.rs` (resizing a screen, both ends); `hamlet_client/src/terminals.rs`; `hamlet_app/src/screens/terminal.rs`, `screens/terminal/`; [`sandbox.md`](sandbox.md#terminals) |
 | A panel or right-click menu | `hamlet_app/src/screens/`, `world_menu/items.rs` |
 | The Hub: its rail, a thread, its details sheet, scholar and hamlet pages | `hamlet_app/src/screens/hub.rs`, `hub/` (`rail.rs`, `thread.rs`, `details.rs`, `scholar.rs`) |
 | Toasts that answer petitions in place | `hamlet_app/src/toasts.rs` |
