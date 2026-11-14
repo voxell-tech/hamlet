@@ -139,23 +139,24 @@ impl Workspace {
     }
 
     /// Passes a read of `path` for the agent `named` through the
-    /// gate, as the caller the host stamped, or why it is refused.
-    async fn reading(
+    /// gate, as the caller the host stamped, and answers what `work`
+    /// reads, or why it is refused.
+    async fn read_tool(
         &self,
         ctx: &Ctx<Self>,
         named: AgentNumber,
         path: &Path,
         action: &str,
-    ) -> Result<Result<Passed, CallRefusal>> {
+        work: impl FnOnce(&Env) -> FileAnswer + Send + 'static,
+    ) -> Result<FileAnswer> {
         let agent = match calling_agent(ctx, named, action)? {
             Ok(agent) => agent,
-            Err(refusal) => return Ok(Err(refusal)),
+            Err(refusal) => return Ok(FileAnswer::Refused(refusal)),
         };
         if !is_absolute(&text(path)) {
-            return Ok(Err(CallRefusal::Invalid(format!(
-                "{} is not an absolute path",
-                path.display()
-            ))));
+            return Ok(FileAnswer::Refused(CallRefusal::Invalid(
+                format!("{} is not an absolute path", path.display()),
+            )));
         }
         let mut fetched = false;
         loop {
@@ -168,11 +169,15 @@ impl Workspace {
                 reach.as_ref(),
                 &Op::Read { path },
             )? {
-                Gated::Pass(reading) => return Ok(Ok(reading)),
+                Gated::Pass(reading) => {
+                    return reading.run(work).await;
+                }
                 Gated::Chief(..) => {
                     anyhow::bail!("the gate asked a chief for a read")
                 }
-                Gated::Refused(refusal) => return Ok(Err(refusal)),
+                Gated::Refused(refusal) => {
+                    return Ok(FileAnswer::Refused(refusal));
+                }
                 Gated::Fetch(version) => {
                     self.fetch_secrets(ctx, version, &mut fetched)
                         .await?;
@@ -188,22 +193,20 @@ impl Handler<ReadFile> for Workspace {
         ctx: Ctx<Self>,
         asked: ReadFile,
     ) -> Result<FileAnswer> {
-        let reading = match self
-            .reading(&ctx, asked.agent, &asked.path, ReadFile::NAME)
-            .await?
-        {
-            Ok(reading) => reading,
-            Err(refusal) => return Ok(FileAnswer::Refused(refusal)),
-        };
         let path = text(&asked.path);
-        reading
-            .run(move |env| {
+        self.read_tool(
+            &ctx,
+            asked.agent,
+            &asked.path,
+            ReadFile::NAME,
+            move |env| {
                 read::read(env, &path, asked.offset, asked.limit)
                     .unwrap_or_else(|error| {
                         FileAnswer::Failed(error.message)
                     })
-            })
-            .await
+            },
+        )
+        .await
     }
 }
 
@@ -213,24 +216,23 @@ impl Handler<Search> for Workspace {
         ctx: Ctx<Self>,
         asked: Search,
     ) -> Result<FileAnswer> {
-        let reading = match self
-            .reading(&ctx, asked.agent, &asked.under, Search::NAME)
-            .await?
-        {
-            Ok(reading) => reading,
-            Err(refusal) => return Ok(FileAnswer::Refused(refusal)),
-        };
-        reading
-            .run(move |env| {
+        let under = text(&asked.under);
+        self.read_tool(
+            &ctx,
+            asked.agent,
+            &asked.under,
+            Search::NAME,
+            move |env| {
                 listed(walk::search(
                     env,
-                    &text(&asked.under),
+                    &under,
                     &asked.pattern,
                     asked.name.as_deref(),
                     asked.ignore_case,
                 ))
-            })
-            .await
+            },
+        )
+        .await
     }
 }
 
@@ -240,22 +242,17 @@ impl Handler<Find> for Workspace {
         ctx: Ctx<Self>,
         asked: Find,
     ) -> Result<FileAnswer> {
-        let reading = match self
-            .reading(&ctx, asked.agent, &asked.under, Find::NAME)
-            .await?
-        {
-            Ok(reading) => reading,
-            Err(refusal) => return Ok(FileAnswer::Refused(refusal)),
-        };
-        reading
-            .run(move |env| {
-                listed(walk::find(
-                    env,
-                    &text(&asked.under),
-                    asked.name.as_deref(),
-                ))
-            })
-            .await
+        let under = text(&asked.under);
+        self.read_tool(
+            &ctx,
+            asked.agent,
+            &asked.under,
+            Find::NAME,
+            move |env| {
+                listed(walk::find(env, &under, asked.name.as_deref()))
+            },
+        )
+        .await
     }
 }
 
