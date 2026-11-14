@@ -351,7 +351,7 @@ with their kinds and keys, and `sender.rs` the check of a caller.
 `fixtures/` holds the bytes of each message, and
 `tests/fixtures/main.rs` rewrites a fixture whose bytes changed and
 fails once, so the change is committed. `fixtures/stored/` holds each
-type a row keeps and is never rewritten; `lib.rs` says how a message
+case of each type a row keeps and is never rewritten; `lib.rs` says how a message
 may change.
 
 The realm, the actor `realm/local`, sets each agent's reach

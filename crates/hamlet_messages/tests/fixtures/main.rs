@@ -152,14 +152,100 @@ struct Root {
     found: BTreeSet<String>,
 }
 
+/// The cases the probed values hold.
+#[derive(Default)]
+struct Coverage {
+    found: BTreeMap<Cases, BTreeSet<String>>,
+    in_unions: BTreeSet<InUnion>,
+    roots: BTreeMap<String, Root>,
+}
+
+impl Coverage {
+    fn probe<T: DeserializeOwned>(
+        &mut self,
+        name: &str,
+        value: &Value,
+        unions: &[Union],
+        problems: &mut Vec<String>,
+    ) {
+        let mut found = Found::default();
+        cases::found::<T>(name, value, unions, &mut found);
+        problems.extend(found.problems);
+        self.in_unions.extend(found.in_unions);
+        if let (Some(cases), Some(tag)) =
+            (cases::tagged_cases::<T>(), cases::tag(value))
+        {
+            self.roots
+                .entry(cases::short_name::<T>())
+                .or_insert(Root {
+                    cases,
+                    found: BTreeSet::new(),
+                })
+                .found
+                .insert(tag.to_owned());
+        }
+        for (cases, case) in found.cases {
+            self.found.entry(cases).or_default().insert(case);
+        }
+    }
+
+    /// The cases of `enums`, of `unions` and of each root that no
+    /// probed value holds.
+    fn missing<'a>(
+        &self,
+        what: &str,
+        enums: impl IntoIterator<Item = &'a Cases>,
+        unions: impl IntoIterator<Item = &'a Union>,
+    ) -> Vec<String> {
+        let mut problems = Vec::new();
+        for cases in enums {
+            let found = self.found.get(cases);
+            for case in *cases {
+                if !found.is_some_and(|found| found.contains(*case)) {
+                    problems.push(format!(
+                        "no {what} holds {case} of {cases:?}"
+                    ));
+                }
+            }
+        }
+        for (name, root) in &self.roots {
+            for case in root.cases {
+                if !root.found.contains(*case) {
+                    problems.push(format!(
+                        "no {what}'s root is {case} of {name}"
+                    ));
+                }
+            }
+        }
+        for union in unions {
+            for family in &union.families {
+                for case in family.cases {
+                    let held = InUnion {
+                        union: union.name.clone(),
+                        family: family.name.clone(),
+                        case: (*case).to_owned(),
+                    };
+                    if !self.in_unions.contains(&held) {
+                        problems.push(format!(
+                            "no {what} holds {case} of {} in the \
+                             union {}",
+                            family.name, union.name
+                        ));
+                    }
+                }
+            }
+        }
+        problems
+    }
+}
+
 struct Fixtures {
     unions: Vec<Union>,
     written: BTreeSet<String>,
     rewritten: Vec<String>,
     problems: Vec<String>,
-    found: BTreeMap<Cases, BTreeSet<String>>,
-    in_unions: BTreeSet<InUnion>,
-    roots: BTreeMap<String, Root>,
+    messages: Coverage,
+    stored: Coverage,
 }
 
 impl Fixtures {
@@ -169,9 +255,8 @@ impl Fixtures {
             written: BTreeSet::new(),
             rewritten: Vec::new(),
             problems: Vec::new(),
-            found: BTreeMap::new(),
-            in_unions: BTreeSet::new(),
-            roots: BTreeMap::new(),
+            messages: Coverage::default(),
+            stored: Coverage::default(),
         }
     }
 
@@ -237,6 +322,13 @@ impl Fixtures {
             value,
             ciborium::from_reader::<T, _>(kept.as_slice()),
         );
+        self.stored.probe::<T>(
+            &name,
+            &ciborium::from_reader::<Value, _>(kept.as_slice())
+                .unwrap(),
+            &self.unions,
+            &mut self.problems,
+        );
         kept
     }
 
@@ -281,25 +373,12 @@ impl Fixtures {
             self.problems
                 .push(format!("{name} writes a field as null"));
         }
-        let mut found = Found::default();
-        cases::found::<T>(name, value, &self.unions, &mut found);
-        self.problems.extend(found.problems);
-        self.in_unions.extend(found.in_unions);
-        if let (Some(cases), Some(tag)) =
-            (cases::tagged_cases::<T>(), cases::tag(value))
-        {
-            self.roots
-                .entry(cases::short_name::<T>())
-                .or_insert(Root {
-                    cases,
-                    found: BTreeSet::new(),
-                })
-                .found
-                .insert(tag.to_owned());
-        }
-        for (cases, case) in found.cases {
-            self.found.entry(cases).or_default().insert(case);
-        }
+        self.messages.probe::<T>(
+            name,
+            value,
+            &self.unions,
+            &mut self.problems,
+        );
     }
 
     fn check(&mut self, name: &str, bytes: &[u8]) {
@@ -344,25 +423,26 @@ impl Fixtures {
                     "two enums have the cases {cases:?}"
                 ));
             }
-            let found = self.found.get(cases);
-            for case in *cases {
-                if !found.is_some_and(|found| found.contains(*case)) {
-                    problems.push(format!(
-                        "no fixture holds {case} of {cases:?}"
-                    ));
-                }
-            }
         }
-        for (name, root) in &self.roots {
-            for case in root.cases {
-                if !root.found.contains(*case) {
-                    problems.push(format!(
-                        "no fixture's root is {case} of {name}"
-                    ));
-                }
-            }
-        }
-        for cases in self.found.keys() {
+        problems.extend(self.messages.missing(
+            "fixture",
+            &enums,
+            &self.unions,
+        ));
+        let stored_unions = self.unions.iter().filter(|union| {
+            self.stored
+                .in_unions
+                .iter()
+                .any(|held| held.union == union.name)
+        });
+        problems.extend(self.stored.missing(
+            "stored fixture",
+            self.stored.found.keys(),
+            stored_unions,
+        ));
+        for cases in
+            self.messages.found.keys().chain(self.stored.found.keys())
+        {
             if !enums.contains(cases) {
                 problems.push(format!(
                     "the enum of {cases:?} is missing from enums()"
@@ -370,22 +450,6 @@ impl Fixtures {
             }
         }
         for union in &self.unions {
-            for family in &union.families {
-                for case in family.cases {
-                    let held = InUnion {
-                        union: union.name.clone(),
-                        family: family.name.clone(),
-                        case: (*case).to_owned(),
-                    };
-                    if !self.in_unions.contains(&held) {
-                        problems.push(format!(
-                            "no fixture holds {case} of {} in the \
-                             union {}",
-                            family.name, union.name
-                        ));
-                    }
-                }
-            }
             for (at, first) in union.families.iter().enumerate() {
                 for second in &union.families[at + 1..] {
                     for tag in first
@@ -662,6 +726,148 @@ fn the_stored_rows(fixtures: &mut Fixtures) {
         "end.change_not_run",
         &ChangeNotRun::from(WaitEnd::ChiefRefused { reason: None }),
     );
+    the_stored_cases(fixtures);
+}
+
+/// A kept row of each case the rows above leave out, and of each
+/// optional field set.
+fn the_stored_cases(fixtures: &mut Fixtures) {
+    fixtures.stored(
+        "reach.worker.started",
+        &Reach::Worker {
+            starter: Some(AGENT),
+            footing: footing(),
+        },
+    );
+    fixtures.stored(
+        "reach.agent.auto",
+        &Reach::Agent(Footing {
+            project: Some(Project {
+                folder: "/work/project".into(),
+                mode: Mode::Auto,
+            }),
+            ..footing()
+        }),
+    );
+    fixtures.stored_request(
+        "request.run.tool",
+        &Run {
+            program: Program::Tool {
+                name: "word_count".into(),
+                arguments: r#"{"path":"/project/a.md"}"#.into(),
+            },
+            ..asked_run()
+        },
+    );
+    fixtures.stored(
+        "needs.edit",
+        &vec![Need::Network, Need::Command, Need::Edit],
+    );
+    fixtures.stored(
+        "end.command.cut",
+        &CommandEnd {
+            cut: Some(Cut {
+                total_bytes: 52_428_800,
+                total_lines: 1_048_576,
+                full_output: "/realm/actors/workspace/local.output/\
+                              7/4.log"
+                    .into(),
+            }),
+            ..command_end(Exit::Code { code: 0 })
+        },
+    );
+    for (name, exit) in [
+        ("timed_out", Exit::TimedOut),
+        (
+            "failed",
+            Exit::Failed {
+                words: "bash: command not found".into(),
+            },
+        ),
+        ("cut_off", Exit::CutOff),
+        ("cancelled", Exit::Cancelled),
+    ] {
+        fixtures.stored(
+            &format!("end.command.{name}"),
+            &command_end(exit),
+        );
+    }
+    fixtures.stored(
+        "end.change.changed.diff",
+        &ChangeEnd::Changed(changed(
+            false,
+            8,
+            Some(EditDiff {
+                diff: "- 1 hello\n+ 1 goodbye".into(),
+                patch: "--- notes.md\n+++ notes.md\n@@ -1 +1 \
+                        @@\n-hello\n+goodbye\n"
+                    .into(),
+                first_changed_line: Some(1),
+            }),
+        )),
+    );
+    fixtures.stored(
+        "end.change.failed",
+        &ChangeEnd::Failed {
+            words: "notes.md: permission denied".into(),
+        },
+    );
+    let mut ends = wait_ends().to_vec();
+    ends.push((
+        "lapsed.stopped",
+        WaitEnd::Lapsed {
+            lapse: Lapse::Stopped,
+        },
+    ));
+    for (name, end) in ends {
+        fixtures.stored(
+            &format!("end.run_not_run.{name}"),
+            &RunNotRun::from(end.clone()),
+        );
+        fixtures.stored(
+            &format!("end.change_not_run.{name}"),
+            &ChangeNotRun::from(end),
+        );
+    }
+    fixtures.stored(
+        "end.run_not_run.reach_needs",
+        &RunNotRun::from(needs_more::<ReachRefusal>()),
+    );
+    fixtures.stored(
+        "end.change_not_run.reach_needs",
+        &ChangeNotRun::from(needs_more::<FileGate>()),
+    );
+    for (name, why) in [
+        ("no_reach", ReachRefusal::NoReach),
+        ("project_in_realm", project_in_realm()),
+    ] {
+        fixtures.stored(
+            &format!("end.run_not_run.reach_refuses.{name}"),
+            &RunNotRun::from(refuses(why.clone())),
+        );
+        fixtures.stored(
+            &format!("end.change_not_run.reach_refuses.{name}"),
+            &ChangeNotRun::from(refuses(FileGate::from(why))),
+        );
+    }
+    for (name, why) in [
+        ("outside_reach", outside_reach_to_change()),
+        ("agent_filesystem", agent_filesystem()),
+    ] {
+        fixtures.stored(
+            &format!("end.change_not_run.reach_refuses.{name}"),
+            &ChangeNotRun::from(refuses(FileGate::from(why))),
+        );
+    }
+    for (name, why) in [
+        ("tool_not_found", tool_not_found()),
+        ("tool_arguments", tool_arguments()),
+    ] {
+        fixtures.stored(
+            &format!("end.run_not_run.{name}"),
+            &RunNotRun::from(why),
+        );
+    }
 }
 
 fn wait_ends() -> [(&'static str, WaitEnd); 3] {
