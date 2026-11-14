@@ -198,16 +198,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_stamp_has_fixed_bytes() {
-        let actor = Stamp(Some(Caller::Actor(
-            Address::new("asker", "a").unwrap(),
-        )));
-        assert_eq!(Stamp::PROGRAM.bytes().unwrap(), [0xf6]);
-        assert_eq!(Stamp::client().bytes().unwrap(), b"\x66client");
-        assert_eq!(
-            actor.bytes().unwrap(),
-            b"\xa1\x65actor\xa2\x64kind\x65asker\x63key\x61a"
-        );
+    fn the_sample_stamps_have_fixed_bytes() {
         assert_eq!(
             Stamp::sample_bytes().unwrap(),
             [

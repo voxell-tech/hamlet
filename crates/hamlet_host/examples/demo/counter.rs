@@ -223,7 +223,7 @@ async fn action(
 /// in CBOR, as the actor of `ctx`. Replies with that reply, then the
 /// call's time in microseconds.
 async fn call(ctx: &ActorContext, args: &[u8]) -> Result<Vec<u8>> {
-    let to: Address = ciborium::from_reader(args)?;
+    let to = ciborium::from_reader::<Address, _>(args)?;
     let begun = Instant::now();
     let mut reply = HostRef::of(ctx)?
         .call(&to, "called", Vec::new(), CALL_DEADLINE)
@@ -240,8 +240,9 @@ async fn called(
     conn: Option<&ConnHandle>,
 ) -> Result<i64> {
     let params = conn.map(ConnHandle::params).unwrap_or_default();
-    let caller: Option<Caller> =
-        ciborium::from_reader(params.as_slice())?;
+    let caller = ciborium::from_reader::<Option<Caller>, _>(
+        params.as_slice(),
+    )?;
     let caller = caller
         .as_ref()
         .map_or_else(|| "none".to_owned(), ToString::to_string);

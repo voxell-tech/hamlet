@@ -997,6 +997,7 @@ async fn an_ended_generation_calls_and_makes_nothing() {
     let callee = at("callee", "x");
     let a = at("asker", "a");
     make(&host, &[&callee, &a]).await;
+    let kept = HostRef::of(&contexts.0.lock().unwrap()[0]).unwrap();
     host.stop(&a, ShutdownKind::Sleep).await.unwrap();
     make(&host, &[&a]).await;
     host.stop(&a, ShutdownKind::Destroy).await.unwrap();
@@ -1022,7 +1023,17 @@ async fn an_ended_generation_calls_and_makes_nothing() {
             .await,
         );
     }
-    let mut made = Vec::new();
+    let mut made = vec![
+        kept.call(
+            &callee,
+            Who::NAME,
+            Vec::new(),
+            Duration::from_secs(10),
+        )
+        .await
+        .map(drop),
+        kept.get_or_start(&at("callee", "z")).await,
+    ];
     for ctx in &contexts[..2] {
         let view = HostRef::of(ctx).unwrap();
         assert_eq!(view.own_address(), &a);
