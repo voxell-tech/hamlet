@@ -249,7 +249,7 @@ pub(crate) fn spawn_bound(
         &Preamble {
             input: leader.give(ends.input.into())?,
             output: leader.give(ends.output.into())?,
-            owner: leader.0.leader_id.into(),
+            key: leader.0.leader_id.into(),
         }
         .encode(),
     )?;
@@ -434,7 +434,7 @@ pub(crate) fn standard_input() -> io::Result<(File, u64)> {
 }
 
 pub(crate) fn take_ends(preamble: &Preamble) -> io::Result<Ends> {
-    if preamble.owner != u64::from(std::process::id()) {
+    if preamble.key != u64::from(std::process::id()) {
         return Err(no_ends());
     }
     let handle = |value: u64| {

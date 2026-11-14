@@ -156,7 +156,7 @@ pub(crate) fn spawn_bound(
         &Preamble {
             input: ends[0].as_raw_fd() as u64,
             output: ends[1].as_raw_fd() as u64,
-            owner: number(getpid()),
+            key: key(getpid()),
         }
         .encode(),
     )?;
@@ -333,7 +333,7 @@ pub(crate) fn take_ends(preamble: &Preamble) -> io::Result<Ends> {
     if parent.is_none_or(Pid::is_init) {
         end_now();
     }
-    if parent.map(number) != Some(preamble.owner) {
+    if parent.map(key) != Some(preamble.key) {
         return Err(no_ends());
     }
     let fd =
@@ -407,8 +407,7 @@ fn watch_parent(parent: Pid) -> io::Result<()> {
     Ok(())
 }
 
-/// The number a preamble names `pid` by.
-fn number(pid: Pid) -> u64 {
+fn key(pid: Pid) -> u64 {
     pid.as_raw_nonzero().get().unsigned_abs().into()
 }
 

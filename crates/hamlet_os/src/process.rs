@@ -196,9 +196,7 @@ fn no_ends() -> io::Error {
 struct Preamble {
     input: u64,
     output: u64,
-    /// The process the ends are for: on Unix its parent, on Windows
-    /// itself.
-    owner: u64,
+    key: u64,
 }
 
 impl Preamble {
@@ -210,7 +208,7 @@ impl Preamble {
         bytes[..8].copy_from_slice(&Self::TAG);
         bytes[8..16].copy_from_slice(&self.input.to_le_bytes());
         bytes[16..24].copy_from_slice(&self.output.to_le_bytes());
-        bytes[24..].copy_from_slice(&self.owner.to_le_bytes());
+        bytes[24..].copy_from_slice(&self.key.to_le_bytes());
         bytes
     }
 
@@ -221,7 +219,7 @@ impl Preamble {
         (bytes[..8] == Self::TAG).then_some(Self {
             input: value(8)?,
             output: value(16)?,
-            owner: value(24)?,
+            key: value(24)?,
         })
     }
 }
