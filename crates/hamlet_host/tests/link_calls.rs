@@ -12,7 +12,7 @@ use calls::{
     DEADLINE, Exit, Fail, Input, KINDS, Large, Make, OwnStandIn,
     Seen, Slow, Started, Thread, WAIT, Who, agent_input, close,
     eventually, factories, frames_read, made, open, ready, relay,
-    starts, wait_for,
+    starts,
 };
 use code::code;
 use files::any_file_of;
@@ -25,6 +25,7 @@ use hamlet_host::link::{Ask, FRAME_LIMIT, Frame, WireError};
 use hamlet_host::route::{CallerKind, Operation, Routes};
 use hamlet_host::{Address, Caller, HostEvent, HostOptions};
 use hamlet_testing::Scratch;
+use linked::{has_line, wait_for};
 use logs::Logs;
 use serde::de::DeserializeOwned;
 use serde_json::json;
@@ -91,12 +92,6 @@ fn create(id: u64, from: Option<Caller>, at: &Address) -> Frame {
             input: agent_input(None),
         },
     }
-}
-
-fn has_line(logs: &Logs, words: &[&str]) -> bool {
-    logs.text()
-        .lines()
-        .any(|line| words.iter().all(|word| line.contains(word)))
 }
 
 fn coded() -> Fail {

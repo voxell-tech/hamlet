@@ -47,6 +47,16 @@ pub fn fingerprint() -> &'static str {
         .unwrap_or_default()
 }
 
+/// The kinds of `factories`, in order, as a hello and a welcome state
+/// them.
+pub(crate) fn kinds(
+    factories: &HashMap<String, ActorFactory>,
+) -> Vec<String> {
+    let mut kinds = factories.keys().cloned().collect::<Vec<_>>();
+    kinds.sort_unstable();
+    kinds
+}
+
 /// The Rust host's answer to a Node host's hello: a
 /// [`Frame::Welcome`] stating the Rust host's kinds `ours` and its
 /// route table `routes`, or a [`Frame::Refused`] when the hello's
@@ -118,8 +128,7 @@ pub async fn serve(
         .with_context(|| format!("{} is not set", child::HOME))?;
     let out =
         Writer::start(output, "link-output", AtBreak::EndProcess)?;
-    let mut kinds = factories.keys().cloned().collect::<Vec<_>>();
-    kinds.sort_unstable();
+    let kinds = kinds(&factories);
     out.write(&Frame::Hello {
         protocol: PROTOCOL,
         fingerprint: fingerprint().to_owned(),

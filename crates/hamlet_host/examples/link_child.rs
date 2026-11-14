@@ -14,8 +14,9 @@
 //!                       milliseconds
 //! --stray               write a line, once the link is taken, to a
 //!                       copy of the standard output it started with
-//! --frames <file>       by hand, append the name of each frame it
-//!                       reads to <file>, one to a line
+//! --frames <file>       by hand or at --protocol, append the name
+//!                       of each frame it reads to <file>, one to a
+//!                       line
 //! --protocol <version>  without serving the link, say hello on its
 //!                       ends stating <version>, and end at the Rust
 //!                       host's answer
@@ -125,13 +126,10 @@ fn main() -> Result<()> {
                 .block_on(link::serve(factories()))
         }
         Mode::Hello(protocol) => {
-            let Ends {
-                mut input,
-                mut output,
-            } = Ends::take()?;
+            let Ends { input, mut output } = Ends::take()?;
             record_start(starts.as_deref())?;
             say_hello(&mut output, protocol)?;
-            link::read(&mut input)?;
+            Reader::new(input, frames.as_deref())?.next()?;
             Ok(())
         }
         Mode::ByHand(part) => {
@@ -233,7 +231,7 @@ impl Reader {
             return Ok(None);
         };
         if let Some(record) = &mut self.record {
-            writeln!(record, "{}", name(&frame))?;
+            writeln!(record, "{}", frame.name())?;
         }
         Ok(Some(frame))
     }
@@ -247,19 +245,6 @@ impl Reader {
                 None => process::end_now(),
             }
         }
-    }
-}
-
-fn name(frame: &Frame) -> &'static str {
-    match frame {
-        Frame::Hello { .. } => "hello",
-        Frame::Welcome { .. } => "welcome",
-        Frame::Refused { .. } => "refused",
-        Frame::Ready => "ready",
-        Frame::Goodbye => "goodbye",
-        Frame::Request { .. } => "request",
-        Frame::Reply { .. } => "reply",
-        Frame::HostEvent(_) => "host_event",
     }
 }
 
@@ -414,15 +399,7 @@ impl Handler<Relay> for Agent {
         ctx: Ctx<Self>,
         relay: Relay,
     ) -> Result<Seen> {
-        let called = HostRef::of(ctx.inner())?
-            .call(
-                &relay.to,
-                &relay.name,
-                relay.args,
-                Duration::from_millis(relay.deadline_ms),
-            )
-            .await;
-        Ok(Seen::of_call(called))
+        relay.run(ctx.inner()).await
     }
 }
 

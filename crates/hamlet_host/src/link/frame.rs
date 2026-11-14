@@ -79,7 +79,7 @@ pub enum Frame {
 
 impl Frame {
     /// The frame's tag as serde writes it, such as `request`.
-    pub(crate) fn name(&self) -> String {
+    pub fn name(&self) -> String {
         match ciborium::Value::serialized(self) {
             Ok(ciborium::Value::Text(name)) => name,
             Ok(ciborium::Value::Map(fields)) => fields

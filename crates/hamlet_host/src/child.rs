@@ -96,8 +96,7 @@ pub fn open(
         .to_str()
         .context("the realm folder's path is not UTF-8")?
         .to_owned();
-    let mut ours = factories.keys().cloned().collect::<Vec<_>>();
-    ours.sort_unstable();
+    let ours = link::kinds(&factories);
     let routes = options.routes.clone();
     let port = Port::new(Role::Rust, child.kinds);
     let host = Host::open_linked(
@@ -197,6 +196,9 @@ impl Supervisor {
 enum End {
     /// The child is to go, and a new one start.
     Lost,
+    /// The child's hello was refused. It reads why and exits, and a
+    /// new one starts.
+    Refused,
     /// The supervisor shuts down.
     Shutdown,
 }
@@ -368,7 +370,7 @@ async fn session(
                         pid,
                         "refused the Node host's hello"
                     );
-                    return End::Lost;
+                    return End::Refused;
                 }
                 if let Err(error) = written {
                     tracing::warn!(
@@ -416,8 +418,9 @@ async fn until(deadline: Option<Instant>) {
 /// so calls out fail with `link.lost` and new ones with `link.down`.
 /// At a shutdown it then says goodbye and gives the child
 /// [`EXIT_DEADLINE`] to exit, the goodbye's wait for a full pipe
-/// included; past that, or when the child is lost, it kills the
-/// child's tree at once. Dropped, the tree kills it again, and tokio
+/// included, and so it gives a refused child, which reads why and
+/// exits; past that, or when the child is lost, it kills the child's
+/// tree at once. Dropped, the tree kills it again, and tokio
 /// reaps the child.
 async fn end_child(
     port: &Port,
@@ -432,6 +435,11 @@ async fn end_child(
         })
         .await
         .ok(),
+        End::Refused => {
+            tokio::time::timeout(EXIT_DEADLINE, child.tree.ended())
+                .await
+                .ok()
+        }
         End::Lost => None,
     };
     let ended = match exited {

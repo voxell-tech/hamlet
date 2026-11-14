@@ -1,9 +1,12 @@
 //! The actions of the stand-in Node host's kind `agent`, which the
 //! stand-in serves and the tests call.
 
+use std::time::Duration;
+
 use hamlet_actor::Action;
+use hamlet_actor_core::ActorContext;
 use hamlet_actor_error::{ActorError, ActorErrorKind};
-use hamlet_host::{Address, Caller};
+use hamlet_host::{Address, Caller, HostRef};
 use serde::{Deserialize, Serialize};
 
 /// What a call gave its caller.
@@ -76,6 +79,25 @@ pub struct Relay {
     pub name: String,
     pub args: Vec<u8>,
     pub deadline_ms: u64,
+}
+
+impl Relay {
+    /// Makes the call as the actor whose context is `ctx`, and
+    /// answers what it gave.
+    pub async fn run(
+        self,
+        ctx: &ActorContext,
+    ) -> anyhow::Result<Seen> {
+        let called = HostRef::of(ctx)?
+            .call(
+                &self.to,
+                &self.name,
+                self.args,
+                Duration::from_millis(self.deadline_ms),
+            )
+            .await;
+        Ok(Seen::of_call(called))
+    }
 }
 
 impl Action for Relay {

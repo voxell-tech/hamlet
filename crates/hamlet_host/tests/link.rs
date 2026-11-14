@@ -338,10 +338,9 @@ mod handshake {
     #[cfg(unix)]
     use hamlet_testing::signals::kill;
     use tokio::io::{AsyncBufReadExt, BufReader};
-    use tokio::sync::watch;
     use tracing_subscriber::filter::LevelFilter;
 
-    use super::linked::{self, own_stand_in};
+    use super::linked::{self, has_line, own_stand_in, wait_for};
     use super::logs::Logs;
 
     /// How long a test waits for a child to be ready.
@@ -382,21 +381,6 @@ mod handshake {
         .unwrap()
     }
 
-    async fn wait_for(
-        state: &mut watch::Receiver<LinkState>,
-        to: LinkState,
-    ) {
-        let reached = tokio::time::timeout(
-            READY_WAIT,
-            state.wait_for(|now| *now == to),
-        )
-        .await;
-        assert!(
-            matches!(reached, Ok(Ok(_))),
-            "the link never got {to:?}"
-        );
-    }
-
     /// Each start the stand-in recorded: its process id and when it
     /// started, in Unix milliseconds.
     fn starts(path: &Path) -> Vec<(u32, u64)> {
@@ -426,12 +410,6 @@ mod handshake {
     }
 
     /// Whether a line of `logs` holds each of `words`.
-    fn has_line(logs: &Logs, words: &[&str]) -> bool {
-        logs.text()
-            .lines()
-            .any(|line| words.iter().all(|word| line.contains(word)))
-    }
-
     #[tokio::test]
     async fn a_child_gets_ready_and_exits_cleanly_at_the_shutdown() {
         let home = Scratch::new("link-ready");
@@ -459,6 +437,29 @@ mod handshake {
         assert!(!state.has_changed().unwrap());
         assert_eq!(*state.borrow(), LinkState::Down);
         supervisor.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn a_refused_child_reads_why_before_it_ends() {
+        let home = Scratch::new("link-refused-reads");
+        let (record, frames) =
+            (home.join("starts"), home.join("frames"));
+        let (_host, supervisor) = open(
+            &home,
+            &[
+                "--protocol",
+                "9.0.0",
+                "--starts",
+                record.to_str().unwrap(),
+                "--frames",
+                frames.to_str().unwrap(),
+            ],
+        );
+        wait_for_starts(&record, 2).await;
+        supervisor.shutdown().await;
+        let read =
+            std::fs::read_to_string(&frames).unwrap_or_default();
+        assert_eq!(read.lines().next(), Some("refused"), "{read:?}");
     }
 
     #[tokio::test]

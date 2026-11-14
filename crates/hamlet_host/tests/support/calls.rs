@@ -22,10 +22,9 @@ use hamlet_host::{Address, Caller, Host, HostOptions, HostRef};
 use hamlet_os::process::{Pipes, Tree};
 use serde::{Deserialize, Serialize};
 use serde_bytes::ByteBuf;
-use tokio::sync::watch;
 
 pub use crate::actions::*;
-use crate::linked::{child, own_stand_in};
+use crate::linked::{child, own_stand_in, wait_for};
 
 /// How long a test waits for what it set going.
 pub const WAIT: Duration = Duration::from_secs(10);
@@ -100,19 +99,6 @@ pub async fn made(home: &Path, actors: &[&Address]) {
         host.create(at, Vec::new()).await.unwrap();
     }
     host.shutdown().await.unwrap();
-}
-
-pub async fn wait_for(
-    state: &mut watch::Receiver<LinkState>,
-    to: LinkState,
-) {
-    let reached =
-        tokio::time::timeout(WAIT, state.wait_for(|now| *now == to))
-            .await;
-    assert!(
-        matches!(reached, Ok(Ok(_))),
-        "the link never got {to:?}"
-    );
 }
 
 /// What `check` gives once it gives something, within [`WAIT`].
@@ -282,15 +268,7 @@ impl Handler<Relay> for Peer {
         ctx: Ctx<Self>,
         relay: Relay,
     ) -> anyhow::Result<Seen> {
-        let called = HostRef::of(ctx.inner())?
-            .call(
-                &relay.to,
-                &relay.name,
-                relay.args,
-                Duration::from_millis(relay.deadline_ms),
-            )
-            .await;
-        Ok(Seen::of_call(called))
+        relay.run(ctx.inner()).await
     }
 }
 

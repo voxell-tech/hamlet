@@ -3,9 +3,13 @@
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
-use hamlet_host::child::ChildOptions;
+use hamlet_host::child::{ChildOptions, LinkState};
 use hamlet_os::process::{Command, Pipes, Tree};
+use tokio::sync::watch;
+
+use crate::logs::Logs;
 
 /// The stand-in, in the `examples` folder of the profile's folder,
 /// which holds the test at some depth: the depth differs between
@@ -53,4 +57,27 @@ pub fn own_stand_in(home: &Path, args: &[&str]) -> (Tree, Pipes) {
         cwd: home,
     })
     .unwrap()
+}
+
+/// Waits for the link's state `to`, failing past 30 seconds.
+pub async fn wait_for(
+    state: &mut watch::Receiver<LinkState>,
+    to: LinkState,
+) {
+    let reached = tokio::time::timeout(
+        Duration::from_secs(30),
+        state.wait_for(|now| *now == to),
+    )
+    .await;
+    assert!(
+        matches!(reached, Ok(Ok(_))),
+        "the link never got {to:?}"
+    );
+}
+
+/// Whether a line of `logs` holds each of `words`.
+pub fn has_line(logs: &Logs, words: &[&str]) -> bool {
+    logs.text()
+        .lines()
+        .any(|line| words.iter().all(|word| line.contains(word)))
 }
