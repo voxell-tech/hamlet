@@ -66,6 +66,16 @@ impl Host {
     /// to a client sends the reason with it unless it drops the
     /// metadata first.
     ///
+    /// For a kind that runs in the host's Node child (see
+    /// [`child::open`](crate::child::open)), the child makes the
+    /// actor. The create fails at once with `link.down`, and nothing
+    /// is sent, while the link is not ready. It fails with
+    /// `link.lost` when the link goes down before the answer comes,
+    /// and with `actor.not_ready` when no answer comes within the
+    /// start deadline: in both its outcome is unknown, and a create
+    /// again fails with `actor.duplicate_key` if the first made the
+    /// actor.
+    ///
     /// [`ActorError`]: struct@hamlet_actor_error::ActorError
     pub async fn create(
         &self,

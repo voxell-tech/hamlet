@@ -57,6 +57,13 @@ impl Host {
     /// outcome is then unknown: the action may have run in part, or
     /// in full. So it is when a kill cuts a call off, and nothing
     /// calls again.
+    ///
+    /// For a kind that runs in the host's Node child (see
+    /// [`child::open`](crate::child::open)), the call goes to the
+    /// child. It fails at once with `link.down`, and nothing is sent,
+    /// while the link is not ready. It fails with `link.lost` when
+    /// the link goes down before the answer comes: its outcome is
+    /// then unknown.
     pub async fn call(
         &self,
         to: &Address,

@@ -140,6 +140,49 @@ fn every_frame_round_trips_and_the_stream_ends_cleanly() {
     assert_eq!(link::read(&mut input).unwrap(), None);
 }
 
+/// The body of a request of each ask, encoded by hand: serde's
+/// default enum form with `snake_case` tags, and a caller and an
+/// address as maps.
+#[test]
+fn a_request_of_each_ask_has_the_recorded_bytes() {
+    let call = Frame::Request {
+        id: 7,
+        from: Some(Caller::Actor(
+            Address::new("realm", "main").unwrap(),
+        )),
+        to: Address::new("agent", "3").unwrap(),
+        ask: Ask::Call {
+            name: "submit".to_owned(),
+            args: vec![0x81, 0xa0],
+            deadline_ms: 10_000,
+        },
+    };
+    let create = Frame::Request {
+        id: 8,
+        from: Some(Caller::Client),
+        to: Address::new("agent", "3").unwrap(),
+        ask: Ask::Create { input: vec![0xa0] },
+    };
+    let body = |frame| hex(&encoded(frame)[8..]);
+    assert_eq!(
+        body(&call),
+        "a16772657175657374a4626964076466726f6da1656163746f72a2646b696e\
+         64657265616c6d636b6579646d61696e62746fa2646b696e64656167656e74\
+         636b657961336361736ba16463616c6ca3646e616d65667375626d69746461\
+         7267734281a06b646561646c696e655f6d73192710"
+    );
+    assert_eq!(
+        body(&create),
+        "a16772657175657374a4626964086466726f6d66636c69656e7462746fa264\
+         6b696e64656167656e74636b657961336361736ba166637265617465a16569\
+         6e70757441a0"
+    );
+}
+
+fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
 #[test]
 fn a_write_at_the_workspace_cap_round_trips_through_a_pipe() {
     let frame = call(vec![7; WRITE_CAP]);
