@@ -17,7 +17,8 @@
 //! demo block <key> <ms>         block the actor's event loop <ms> in
 //!                               synchronous code
 //! demo call <key> <to>          have the counter <key> call the actor
-//!                               <to> as itself
+//!                               <to> as itself; make <to> first, as
+//!                               with `get`
 //! demo calls [<key> <to>] [--count <n>]
 //!                               have the counter <key>, `a` by
 //!                               default, call the counter <to>, `b` by
@@ -32,19 +33,22 @@
 //!
 //! A `<key>` names a counter of the first kind, and `<kind>/<key>` an
 //! actor of any kind. A command on a counter makes it first if there
-//! is none, except `timers` and `rearm`, which then fail. Each
-//! command prints `<kind>/<key> <count>`, the count the actor replied
-//! with. Booting prints `boot <kind>/<key> <count>` for each actor it
-//! started, once its start ends. `timers` prints `timer
-//! <kind>/<key> <event_id> <action> due=<ms> tries=<n> error=<code>`
-//! for each timer, and `rearm` prints `rearm <kind>/<key> <event_id>
-//! <true|false>`. `call` prints `call <from> <to> <n> <us>us`, where
-//! `<n>` counts the calls `<to>` had from `<from>`, and `calls`
-//! prints `calls <from> <to> count=<n> p50=<us>us p99=<us>us
-//! from=<n>`, the times of the calls measured in the calling counter.
-//! A counter that is called logs its caller. Logs go to standard
-//! error. The demo exits once its host has shut down, also when an
-//! actor it could not stop still blocks a thread.
+//! is none, except `timers` and `rearm`, which then fail. `call`
+//! makes only its caller: a call to a `<to>` with no actor fails with
+//! `actor.not_found` and makes none. Each command prints
+//! `<kind>/<key> <count>`, the count the actor replied with. Booting
+//! prints `boot <kind>/<key> <count>` for each actor it started, once
+//! its start ends. `timers` prints `timer <kind>/<key> <event_id>
+//! <action> due=<ms> tries=<n> error=<code>` for each timer, and
+//! `rearm` prints `rearm <kind>/<key> <event_id> <true|false>`.
+//! `call` prints `call <from> <to> <n> <us>us`, where `<n>` counts
+//! the calls `<to>` had from `<from>`, and `calls` prints `calls
+//! <from> <to> count=<n> p50=<us>us p99=<us>us from=<n>`, the times
+//! of the calls measured in the calling counter. A counter that is
+//! called logs its caller. An error is printed with the `group.code`
+//! of the actor's error it holds first, as `actor.not_found`. Logs go
+//! to standard error. The demo exits once its host has shut down,
+//! also when an actor it could not stop still blocks a thread.
 
 #[path = "demo/act.rs"]
 mod act;
@@ -59,7 +63,7 @@ use std::time::Duration;
 
 use act::act;
 use anyhow::{Context, Result, anyhow, bail};
-use command::{number, print_reply, run};
+use command::{number, print_reply, run, shown};
 use hamlet_host::{Host, HostOptions};
 use tokio::sync::mpsc;
 use tracing_subscriber::EnvFilter;
@@ -69,7 +73,11 @@ async fn main() {
     let code = match demo().await {
         Ok(()) => 0,
         Err(error) => {
-            let _ = writeln!(std::io::stderr(), "Error: {error:?}");
+            let _ = writeln!(
+                std::io::stderr(),
+                "Error: {}",
+                shown(&error)
+            );
             1
         }
     };
@@ -207,7 +215,7 @@ async fn serve(
             () = &mut stop => return Ok(()),
         };
         if let Err(error) = ran {
-            writeln!(std::io::stdout(), "error: {error:#}")?;
+            writeln!(std::io::stdout(), "error: {}", shown(&error))?;
         }
     }
 }

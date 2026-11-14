@@ -2840,6 +2840,26 @@ async fn a_command_line_the_demo_refuses_makes_no_actor() {
     host.shutdown().await.unwrap();
 }
 
+/// The demo's `call` makes only its caller: a call to a key of a kind
+/// the demo runs that holds no actor fails with `actor.not_found`,
+/// which the demo prints, and leaves no file there.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_demos_call_makes_only_its_caller() {
+    let dir = Scratch::new("host-demo-call");
+    let host = Host::open(&dir, factories()).unwrap();
+    let words = ["call", "a", "b"].map(str::to_owned);
+    let called =
+        command::run(&host, &["counter".to_owned()], &words).await;
+    host.shutdown().await.unwrap();
+    let error = called.expect_err("a call to a key with no actor");
+    assert!(
+        command::shown(&error).starts_with("actor.not_found: "),
+        "{error:#}"
+    );
+    assert!(any_file_of(&dir, "counter", "a"));
+    assert!(!any_file_of(&dir, "counter", "b"));
+}
+
 /// A call ends within its deadline while its callee's event loop is
 /// busy in async code with another action: the deadline covers the
 /// call's connection, whose opening waits behind that action, as
