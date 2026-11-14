@@ -256,16 +256,18 @@ mod logs;
 /// The handshake, with a stand-in Node host as the child: the
 /// example `link_child`, built beside this test.
 mod handshake {
-    use std::io::Write;
+    use std::collections::BTreeMap;
+    use std::io::{Read, Write};
     #[cfg(unix)]
     use std::os::unix::process::ExitStatusExt;
     use std::path::{Path, PathBuf};
-    use std::process::{Command, Stdio};
+    use std::process::Stdio;
     use std::time::{Duration, Instant};
 
     use hamlet_host::child::{ChildOptions, LinkState, Supervisor};
     use hamlet_host::link::{self, Frame, PROTOCOL};
     use hamlet_host::route::Routes;
+    use hamlet_os::process::{Command, Pipes, Tree};
     use hamlet_testing::Scratch;
     use hamlet_testing::signals::is_alive;
     #[cfg(unix)]
@@ -330,17 +332,21 @@ mod handshake {
     }
 
     /// The stand-in, started by the test itself on `home`, with this
-    /// process as its Rust host. Spawn it on the test's own thread:
-    /// Linux kills it when the thread that started it ends.
-    fn own_stand_in(home: &Path, args: &[&str]) -> Command {
-        let mut command = Command::new(stand_in());
-        command
-            .args(args)
-            .env_clear()
-            .env("HAMLET_HOME", home)
-            .env("HAMLET_LINK_PARENT", std::process::id().to_string())
-            .stdin(Stdio::piped());
-        command
+    /// process as its Rust host.
+    fn own_stand_in(home: &Path, args: &[&str]) -> (Tree, Pipes) {
+        let mut argv = vec![stand_in().to_str().unwrap().to_owned()];
+        argv.extend(args.iter().map(|arg| (*arg).to_owned()));
+        let home = home.to_str().unwrap();
+        let env = BTreeMap::from([(
+            "HAMLET_HOME".to_owned(),
+            home.to_owned(),
+        )]);
+        Tree::spawn_bound(Command {
+            argv: &argv,
+            env: &env,
+            cwd: home,
+        })
+        .unwrap()
     }
 
     async fn wait_for(
@@ -480,13 +486,14 @@ mod handshake {
         let mut state = supervisor.state();
         wait_for(&mut state, LinkState::Ready).await;
 
-        let mut second = own_stand_in(&home, &[])
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .unwrap();
-        let mut input = second.stdin.take().unwrap();
-        let mut output = second.stdout.take().unwrap();
+        let (
+            mut second,
+            Pipes {
+                mut input,
+                mut output,
+                mut errors,
+            },
+        ) = own_stand_in(&home, &[]);
         let hello = link::read(&mut output).unwrap();
         assert!(
             matches!(&hello, Some(Frame::Hello { kinds, .. }) if kinds == &["agent"]),
@@ -503,9 +510,9 @@ mod handshake {
         )
         .unwrap();
         assert_eq!(link::read(&mut output).unwrap(), None);
-        let ended = second.wait_with_output().unwrap();
-        assert!(!ended.status.success());
-        let stderr = String::from_utf8_lossy(&ended.stderr);
+        assert!(!second.ended().await.unwrap().success());
+        let mut stderr = String::new();
+        errors.read_to_string(&mut stderr).unwrap();
         let lock = home.join("node.lock");
         assert!(
             stderr.contains(&lock.display().to_string()),
@@ -533,7 +540,7 @@ mod handshake {
         wait_for(&mut supervisor.state(), LinkState::Ready).await;
         supervisor.shutdown().await;
 
-        let mut expected = vec!["HAMLET_HOME", "HAMLET_LINK_PARENT"];
+        let mut expected = vec!["HAMLET_HOME"];
         for inherited in ["PATH", "HAMLET_FAULT_DIR"] {
             if std::env::var_os(inherited).is_some() {
                 expected.push(inherited);
@@ -548,6 +555,18 @@ mod handshake {
             .collect::<Vec<_>>();
         names.sort_unstable();
         assert_eq!(names, expected);
+    }
+
+    #[tokio::test]
+    async fn what_a_child_wrote_to_the_standard_output_it_started_with_does_not_reach_the_link()
+     {
+        let home = Scratch::new("link-stray");
+        let supervisor =
+            Supervisor::start(options(&home, &["--stray"])).unwrap();
+        wait_for(&mut supervisor.state(), LinkState::Ready).await;
+        let status =
+            supervisor.shutdown().await.expect("a child ran");
+        assert!(status.success(), "{status}");
     }
 
     /// Runs as a Rust host in a process of its own, with the stand-in
@@ -635,26 +654,23 @@ mod handshake {
     async fn a_child_whose_link_input_ends_kills_itself() {
         let home = Scratch::new("link-input");
         let record = home.join("starts");
-        let mut child = own_stand_in(
+        let (
+            mut child,
+            Pipes {
+                input,
+                output: _output,
+                errors: _errors,
+            },
+        ) = own_stand_in(
             &home,
             &["--hold", "--starts", record.to_str().unwrap()],
-        )
-        .spawn()
-        .unwrap();
+        );
         wait_for_starts(&record, 1).await;
-        drop(child.stdin.take());
-        let dropped = Instant::now();
-        let status = loop {
-            if let Some(status) = child.try_wait().unwrap() {
-                break status;
-            }
-            if dropped.elapsed() > GONE_WAIT {
-                let _ = child.kill();
-                let _ = child.wait();
-                panic!("the child outlived its link's input");
-            }
-            tokio::time::sleep(Duration::from_millis(20)).await;
-        };
+        drop(input);
+        let status = tokio::time::timeout(GONE_WAIT, child.ended())
+            .await
+            .expect("the child outlived its link's input")
+            .unwrap();
         #[cfg(unix)]
         assert_eq!(status.signal(), Some(9), "{status}");
         #[cfg(windows)]

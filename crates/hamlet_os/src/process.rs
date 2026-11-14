@@ -1,11 +1,10 @@
 //! The processes of one command: started together, limited, and
-//! killed together.
+//! killed together, or bound to the process that starts them.
 
 mod sys;
 
 use std::collections::BTreeMap;
-use std::fs::File;
-use std::io;
+use std::io::{self, PipeReader, PipeWriter, Read};
 use std::process::{ExitStatus, Stdio};
 
 use tokio::process::{ChildStderr, ChildStdout};
@@ -36,69 +35,63 @@ impl Default for Limits {
 
 /// A command to start.
 pub struct Command<'a> {
-    /// The program and its arguments. [`Tree::spawn`] refuses an
-    /// empty one.
+    /// The program and its arguments. [`Tree`] refuses an empty one.
     pub argv: &'a [String],
     /// Its whole environment.
     pub env: &'a BTreeMap<String, String>,
     pub cwd: &'a str,
-    pub stdin: Stdio,
+}
+
+/// This process's ends of the pipes to a child started with
+/// [`Tree::spawn_bound`].
+pub struct Pipes {
+    /// What the child reads as [`Ends::input`].
+    pub input: PipeWriter,
+    /// What the child writes as [`Ends::output`].
+    pub output: PipeReader,
+    /// The child's standard output and standard error.
+    pub errors: PipeReader,
+}
+
+/// A bound child's ends of the pipes to the parent that started it.
+pub struct Ends {
+    pub input: PipeReader,
+    pub output: PipeWriter,
 }
 
 /// The processes of a running command. Dropped before it is
 /// released, it kills them.
 pub struct Tree(Option<sys::Group>);
 
-enum Hold<'a> {
-    Limited(
-        #[cfg_attr(
-            unix,
-            expect(
-                dead_code,
-                reason = "Unix applies them in `limited`"
-            )
-        )]
-        &'a Limits,
-    ),
-    Bound,
-}
-
 /// The processes a command left running when it ended.
 pub struct Leftovers(sys::Group);
 
 impl Tree {
-    /// Starts `command` as a tree of its own, with both outputs
-    /// piped.
+    /// Starts `command` as a tree of its own, reading `stdin`, with
+    /// both outputs piped.
     pub fn spawn(
         command: Command<'_>,
+        stdin: Stdio,
         limits: &Limits,
     ) -> io::Result<(Self, ChildStdout, ChildStderr)> {
-        Self::start(command, Hold::Limited(limits))
+        has_program(&command)?;
+        let (group, stdout, stderr) =
+            sys::spawn(command, stdin, limits)?;
+        Ok((Self(Some(group)), stdout, stderr))
     }
 
-    /// Starts `command` as a tree of its own, with both outputs
-    /// piped and no limits, for a child that ends with this process.
-    /// On Windows the tree's job ends it when this process exits,
-    /// however it exits. On Unix the child binds itself, with
-    /// [`end_with_parent`].
+    /// Starts `command` as a tree of its own, with no limits, bound
+    /// to this process: its process is killed when this process ends,
+    /// however it ends, from its call to [`Ends::take`] on, and on
+    /// Linux and Windows from its start. Its standard output writes
+    /// to [`Pipes::errors`] with its standard error, and its standard
+    /// input holds only what [`Ends::take`] reads.
     pub fn spawn_bound(
         command: Command<'_>,
-    ) -> io::Result<(Self, ChildStdout, ChildStderr)> {
-        Self::start(command, Hold::Bound)
-    }
-
-    fn start(
-        command: Command<'_>,
-        hold: Hold<'_>,
-    ) -> io::Result<(Self, ChildStdout, ChildStderr)> {
-        if command.argv.is_empty() {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "a command needs a program",
-            ));
-        }
-        let (group, stdout, stderr) = sys::spawn(command, hold)?;
-        Ok((Self(Some(group)), stdout, stderr))
+    ) -> io::Result<(Self, Pipes)> {
+        has_program(&command)?;
+        let (group, pipes) = sys::spawn_bound(command)?;
+        Ok((Self(Some(group)), pipes))
     }
 
     /// Kills every process of the tree now.
@@ -120,6 +113,88 @@ impl Tree {
     /// leftovers, if anything does.
     pub fn release(mut self) -> Option<Leftovers> {
         self.0.take().filter(sys::Group::is_running).map(Leftovers)
+    }
+}
+
+fn has_program(command: &Command<'_>) -> io::Result<()> {
+    if command.argv.is_empty() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "a command needs a program",
+        ));
+    }
+    Ok(())
+}
+
+impl Command<'_> {
+    /// Its program, arguments, environment and folder, killed when
+    /// dropped.
+    fn program(&self) -> tokio::process::Command {
+        let mut spawn = tokio::process::Command::new(&self.argv[0]);
+        spawn
+            .args(&self.argv[1..])
+            .env_clear()
+            .envs(self.env)
+            .current_dir(self.cwd)
+            .kill_on_drop(true);
+        spawn
+    }
+}
+
+impl Ends {
+    /// Takes this process's ends of the pipes to the parent that
+    /// started it with [`Tree::spawn_bound`]. From then on this
+    /// process is killed when that parent ends, however it ends, and
+    /// at once when it has ended already, and the processes it starts
+    /// do not have the ends. Fails at once when this process was not
+    /// started bound, or has taken its ends already.
+    pub fn take() -> io::Result<Self> {
+        let preamble = sys::standard_input()
+            .ok()
+            .filter(|(_, waiting)| *waiting == Preamble::LEN as u64)
+            .and_then(|(mut input, _)| {
+                let mut bytes = [0; Preamble::LEN];
+                input.read_exact(&mut bytes).ok()?;
+                Preamble::decode(&bytes)
+            })
+            .ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::NotFound,
+                    "no ends to take: this process was not started \
+                     bound, or took them already",
+                )
+            })?;
+        sys::take_ends(&preamble)
+    }
+}
+
+/// What a bound child's standard input holds at its start, and
+/// nothing after: a tag, then the values its two ends have in it.
+struct Preamble {
+    input: u64,
+    output: u64,
+}
+
+impl Preamble {
+    const TAG: [u8; 8] = *b"ends/v01";
+    const LEN: usize = 24;
+
+    fn encode(&self) -> [u8; Self::LEN] {
+        let mut bytes = [0; Self::LEN];
+        bytes[..8].copy_from_slice(&Self::TAG);
+        bytes[8..16].copy_from_slice(&self.input.to_le_bytes());
+        bytes[16..].copy_from_slice(&self.output.to_le_bytes());
+        bytes
+    }
+
+    fn decode(bytes: &[u8; Self::LEN]) -> Option<Self> {
+        let value = |at: usize| {
+            bytes[at..at + 8].try_into().map(u64::from_le_bytes).ok()
+        };
+        (bytes[..8] == Self::TAG).then_some(Self {
+            input: value(8)?,
+            output: value(16)?,
+        })
     }
 }
 
@@ -163,25 +238,6 @@ pub fn is_executable(path: &str) -> bool {
     sys::is_executable(path)
 }
 
-/// Takes this process's standard input and output for a pipe to its
-/// parent, and returns them as (input, output). From then on standard
-/// output writes to standard error and standard input reads nothing,
-/// here and in the processes it starts. On Windows it changes the
-/// process's standard handles, which Rust's standard library and the
-/// processes it starts read, and not the C runtime's descriptors.
-pub fn take_stdio() -> io::Result<(File, File)> {
-    sys::take_stdio()
-}
-
-/// On Linux, sets this process's parent-death signal to SIGKILL,
-/// which holds while the calling thread lives. Then, on every Unix,
-/// kills this process now if its parent is not `parent`. Only Linux
-/// has the signal. On Windows it does nothing: a parent that started
-/// this process with [`Tree::spawn_bound`] ends it on exit.
-pub fn end_with_parent(parent: u32) -> io::Result<()> {
-    sys::end_with_parent(parent)
-}
-
 /// Kills this process at once.
 pub fn end_now() -> ! {
     sys::end_now()
@@ -208,8 +264,8 @@ mod tests {
                 argv: &argv,
                 env: &env,
                 cwd: "/",
-                stdin: Stdio::null(),
             },
+            Stdio::null(),
             &Limits::default(),
         )
         .unwrap();
@@ -291,10 +347,6 @@ mod tests {
 
     fn powershell(
         script: &str,
-        spawn: impl FnOnce(
-            Command<'_>,
-        )
-            -> io::Result<(Tree, ChildStdout, ChildStderr)>,
     ) -> (Tree, Lines<BufReader<ChildStdout>>) {
         let program = format!(
             r"{}\System32\WindowsPowerShell\v1.0\powershell.exe",
@@ -308,12 +360,15 @@ mod tests {
             script.into(),
         ];
         let env = std::env::vars().collect();
-        let (tree, stdout, _) = spawn(Command {
-            argv: &argv,
-            env: &env,
-            cwd: &std::env::temp_dir().to_string_lossy(),
-            stdin: Stdio::null(),
-        })
+        let (tree, stdout, _) = Tree::spawn(
+            Command {
+                argv: &argv,
+                env: &env,
+                cwd: &std::env::temp_dir().to_string_lossy(),
+            },
+            Stdio::null(),
+            &Limits::default(),
+        )
         .unwrap();
         (tree, BufReader::new(stdout).lines())
     }
@@ -340,10 +395,8 @@ mod tests {
 
     #[tokio::test]
     async fn a_timeout_ends_the_whole_job() {
-        let (mut tree, mut lines) = powershell(
-            &format!("{SLEEPER}; Start-Sleep 300"),
-            |command| Tree::spawn(command, &Limits::default()),
-        );
+        let (mut tree, mut lines) =
+            powershell(&format!("{SLEEPER}; Start-Sleep 300"));
         let pid = id(&mut lines).await;
         tree.kill();
         tree.ended().await.unwrap();
@@ -352,9 +405,7 @@ mod tests {
 
     #[tokio::test]
     async fn ending_leftovers_ends_their_job() {
-        let (mut tree, mut lines) = powershell(SLEEPER, |command| {
-            Tree::spawn(command, &Limits::default())
-        });
+        let (mut tree, mut lines) = powershell(SLEEPER);
         let pid = id(&mut lines).await;
         tree.ended().await.unwrap();
         let leftovers = tree.release().expect("the ping runs on");
@@ -370,10 +421,7 @@ mod tests {
     async fn released_leftovers_end_with_the_reaper() {
         if std::env::var_os(SERVER).is_some() {
             reap_with_server().unwrap();
-            let (mut tree, mut lines) =
-                powershell(SLEEPER, |command| {
-                    Tree::spawn(command, &Limits::default())
-                });
+            let (mut tree, mut lines) = powershell(SLEEPER);
             let pid = id(&mut lines).await;
             tree.ended().await.unwrap();
             let leftovers = tree.release().expect("the ping runs on");
@@ -407,41 +455,174 @@ mod tests {
             .unwrap_or_else(|| panic!("{shown}"));
         assert!(is_gone(pid).await, "{pid}");
     }
+}
 
-    const HOLDER: &str = "HAMLET_TEST_BOUND_HOLDER";
+/// A bound child is this test binary again, running one test as one
+/// part of it.
+#[cfg(test)]
+mod bound {
+    use std::io::{BufRead, BufReader, Write};
+    use std::time::{Duration, Instant};
+
+    use hamlet_testing::signals::is_alive;
+    use tokio::io::AsyncBufReadExt as _;
+
+    use super::*;
+
+    /// Names the part a copy of the test binary plays.
+    const PART: &str = "HAMLET_TEST_BOUND_PART";
+
+    /// The part this copy plays, if it is not the test itself.
+    fn part() -> Option<String> {
+        std::env::var(PART).ok()
+    }
+
+    /// The command line of this test binary running `test` alone.
+    fn this_test(test: &str) -> [String; 4] {
+        [
+            std::env::current_exe()
+                .unwrap()
+                .to_string_lossy()
+                .into_owned(),
+            "--exact".into(),
+            test.into(),
+            "--nocapture".into(),
+        ]
+    }
+
+    /// `test` as `part`.
+    fn run_part(test: &str, part: &str) -> tokio::process::Command {
+        let [program, args @ ..] = this_test(test);
+        let mut command = tokio::process::Command::new(program);
+        command.args(args).env(PART, part).kill_on_drop(true);
+        command
+    }
+
+    /// `test` as the child part, started bound.
+    fn spawn_child(test: &str) -> (Tree, Pipes) {
+        let argv = this_test(test);
+        let mut env: BTreeMap<_, _> = std::env::vars().collect();
+        env.insert(PART.to_owned(), "child".to_owned());
+        Tree::spawn_bound(Command {
+            argv: &argv,
+            env: &env,
+            cwd: &std::env::current_dir().unwrap().to_string_lossy(),
+        })
+        .unwrap()
+    }
+
+    /// The child part: takes its ends, writes its id to its output,
+    /// then each line of its input, and stays until it is killed.
+    fn child() -> ! {
+        let Ends { input, mut output } = Ends::take().unwrap();
+        writeln!(output, "{}", std::process::id()).unwrap();
+        for line in BufReader::new(input).lines() {
+            writeln!(output, "{}", line.unwrap()).unwrap();
+        }
+        loop {
+            std::thread::park();
+        }
+    }
 
     #[tokio::test]
-    async fn a_bound_tree_ends_with_the_process_that_holds_it() {
-        if std::env::var_os(HOLDER).is_some() {
-            let (tree, mut lines) =
-                powershell(SLEEPER, Tree::spawn_bound);
-            let pid = id(&mut lines).await;
-            #[expect(
-                clippy::print_stdout,
-                reason = "the parent test reads the id from it"
-            )]
-            {
-                println!("{pid}");
+    async fn a_bound_child_that_took_its_ends_is_gone_within_two_seconds_of_its_parent()
+     {
+        const TEST: &str = "process::bound::a_bound_child_that_took_its_ends_is_gone_within_two_seconds_of_its_parent";
+        match part().as_deref() {
+            Some("child") => child(),
+            Some("parent") => {
+                let (_tree, pipes) = spawn_child(TEST);
+                let pid = BufReader::new(pipes.output)
+                    .lines()
+                    .next()
+                    .unwrap()
+                    .unwrap();
+                #[expect(
+                    clippy::print_stdout,
+                    reason = "the test reads the child's id from it"
+                )]
+                {
+                    println!("child {pid}");
+                }
+                std::future::pending::<()>().await;
             }
-            std::mem::forget(tree);
+            _ => {}
+        }
+        let mut parent = run_part(TEST, "parent")
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut shown =
+            tokio::io::BufReader::new(parent.stdout.take().unwrap())
+                .lines();
+        let pid: u32 = loop {
+            let line = shown
+                .next_line()
+                .await
+                .unwrap()
+                .expect("the parent printed the child's id");
+            if let Some(pid) = line.strip_prefix("child ") {
+                break pid.parse().unwrap();
+            }
+        };
+        assert!(is_alive(pid));
+        parent.kill().await.unwrap();
+        let killed = Instant::now();
+        while is_alive(pid) {
+            if killed.elapsed() > Duration::from_secs(2) {
+                #[cfg(unix)]
+                let _ = hamlet_testing::signals::kill(pid);
+                panic!("the child {pid} outlived its parent");
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    }
+
+    #[tokio::test]
+    async fn a_bound_child_outlives_the_thread_that_started_it() {
+        const TEST: &str =
+            "process::bound::a_bound_child_outlives_the_thread_that_started_it";
+        if part().is_some() {
+            child();
+        }
+        let runtime = tokio::runtime::Handle::current();
+        let (_tree, mut pipes) = std::thread::spawn(move || {
+            let _runtime = runtime.enter();
+            spawn_child(TEST)
+        })
+        .join()
+        .unwrap();
+        let mut echoed = BufReader::new(pipes.output).lines();
+        echoed.next().unwrap().unwrap();
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        writeln!(pipes.input, "still here").unwrap();
+        assert_eq!(echoed.next().unwrap().unwrap(), "still here");
+    }
+
+    #[tokio::test]
+    async fn a_take_in_a_process_not_started_bound_fails_at_once() {
+        const TEST: &str =
+            "process::bound::a_take_in_a_process_not_started_bound_fails_at_once";
+        if part().is_some() {
+            let taken = Ends::take().map(|_| ());
+            assert_eq!(
+                taken.map_err(|error| error.kind()),
+                Err(io::ErrorKind::NotFound)
+            );
             return;
         }
-        let mut holder = tokio::process::Command::new(
-            std::env::current_exe().unwrap(),
+        // Its standard input stays open and empty: a take that read
+        // it would wait.
+        let mut unbound = run_part(TEST, "unbound")
+            .stdin(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let ended = tokio::time::timeout(
+            Duration::from_secs(10),
+            unbound.wait(),
         )
-        .args([
-            "--exact",
-            "process::tests::a_bound_tree_ends_with_the_process_that_holds_it",
-            "--nocapture",
-        ])
-        .env(HOLDER, "1")
-        .stdout(Stdio::piped())
-        .spawn()
-        .unwrap();
-        let mut lines =
-            BufReader::new(holder.stdout.take().unwrap()).lines();
-        let pid = id(&mut lines).await;
-        holder.wait().await.unwrap();
-        assert!(is_gone(pid).await, "{pid}");
+        .await
+        .expect("the take waited");
+        assert!(ended.unwrap().success());
     }
 }

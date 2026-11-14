@@ -1,20 +1,17 @@
 //! The Node host as the Rust host's child process: the Rust host's
 //! [`Supervisor`], which starts, watches, ends and restarts it, and
-//! the child's own hold on its standard input and output,
-//! [`take_stdio`].
+//! the child's own hold on the link's ends, [`take_stdio`].
 //!
 //! A child has ended here once it has exited and its process group
 //! is killed. tokio reaps its process after that.
 
 use std::collections::BTreeMap;
-use std::fs::File;
-use std::io::{self, PipeWriter};
-use std::process::{ExitStatus, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::io::{self, PipeReader, PipeWriter};
+use std::process::ExitStatus;
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
-use hamlet_os::process::{Command, Tree};
+use hamlet_os::process::{self, Command, Pipes, Tree};
 use parking_lot::Mutex;
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::time::Instant;
@@ -25,15 +22,11 @@ use crate::route::Routes;
 /// The child's variable naming the realm folder it opens.
 pub(crate) const HOME: &str = "HAMLET_HOME";
 
-/// The child's variable naming the Rust host's process id.
-const PARENT: &str = "HAMLET_LINK_PARENT";
-
 /// The child's whole environment: each variable, and where its value
 /// comes from. An inherited variable the Rust host does not have, or
 /// whose value is not UTF-8, is left out.
 const ENVIRONMENT: &[(&str, Value)] = &[
     (HOME, Value::Home),
-    (PARENT, Value::Parent),
     ("PATH", Value::Inherited),
     #[cfg(feature = "faults")]
     ("HAMLET_FAULT_DIR", Value::Inherited),
@@ -59,8 +52,6 @@ static ENDS: Mutex<Option<Ends>> = Mutex::new(None);
 enum Value {
     /// [`ChildOptions::home`].
     Home,
-    /// The Rust host's process id.
-    Parent,
     /// The Rust host's own environment.
     Inherited,
 }
@@ -116,10 +107,7 @@ impl Supervisor {
         let (stop, stopped) = oneshot::channel();
         let (state, watching) = watch::channel(LinkState::Down);
         let logs = tracing::dispatcher::get_default(Clone::clone);
-        // One thread spawns every child and lives as long as the
-        // supervisor: Linux sends a child its parent-death signal
-        // when the thread that started it ends. Its runtime has
-        // signals, which a tree waits on.
+        // Its runtime has signals, which a tree waits on.
         let thread = thread::Builder::new()
             .name("node-link".to_owned())
             .spawn(move || {
@@ -210,21 +198,18 @@ async fn supervise(
 /// standard error to the Rust host's until it ends, which outlives
 /// the supervisor's runtime.
 fn spawn(options: &ChildOptions) -> io::Result<Running> {
-    let (reader, input) = io::pipe()?;
-    let (tree, stdout, stderr) = Tree::spawn_bound(Command {
+    let (
+        tree,
+        Pipes {
+            input,
+            output,
+            mut errors,
+        },
+    ) = Tree::spawn_bound(Command {
         argv: &options.argv,
         env: &environment(options),
         cwd: &options.home,
-        stdin: Stdio::from(reader),
     })?;
-    #[cfg(unix)]
-    let (output, errors) =
-        (stdout.into_owned_fd()?, stderr.into_owned_fd()?);
-    #[cfg(windows)]
-    let (output, errors) =
-        (stdout.into_owned_handle()?, stderr.into_owned_handle()?);
-    let (output, mut errors) =
-        (File::from(output), File::from(errors));
     let (frames, received) = mpsc::unbounded_channel();
     thread::Builder::new()
         .name("node-link-read".to_owned())
@@ -246,7 +231,6 @@ fn environment(options: &ChildOptions) -> BTreeMap<String, String> {
         .filter_map(|(name, value)| {
             let value = match value {
                 Value::Home => options.home.clone(),
-                Value::Parent => std::process::id().to_string(),
                 Value::Inherited => std::env::var(name).ok()?,
             };
             Some(((*name).to_owned(), value))
@@ -257,7 +241,7 @@ fn environment(options: &ChildOptions) -> BTreeMap<String, String> {
 /// Sends what each read of a child's `output` gives: each frame, then
 /// the output's end or the break of the link.
 fn read_frames(
-    mut output: File,
+    mut output: PipeReader,
     frames: &mpsc::UnboundedSender<Result<Option<Frame>, Broken>>,
 ) {
     loop {
@@ -418,38 +402,19 @@ pub(crate) struct Ends {
     /// The Rust host's frames.
     pub(crate) frames: mpsc::UnboundedReceiver<Frame>,
     /// Frames to the Rust host.
-    pub(crate) output: File,
+    pub(crate) output: PipeWriter,
 }
 
-/// Takes this process's standard input and output for the link to
-/// the Rust host that started it. From then on standard output
-/// writes to standard error and standard input reads nothing, here
-/// and in the processes it starts, and the process kills itself when
-/// the Rust host is gone. Call it first, before anything reads or
-/// writes either. Fails when they are taken already, or when
-/// `HAMLET_LINK_PARENT` names no process id.
+/// Takes this process's ends of the link to the Rust host that
+/// started it. From then on the process is killed when the Rust host
+/// is gone or the link's input ends. Fails when no [`Supervisor`]
+/// started this process, or when it has taken the ends already.
 pub fn take_stdio() -> io::Result<()> {
-    static TAKEN: AtomicBool = AtomicBool::new(false);
-    if TAKEN.swap(true, Ordering::SeqCst) {
-        return Err(io::Error::new(
-            io::ErrorKind::AlreadyExists,
-            "the link has taken standard input and output already",
-        ));
-    }
-    let parent = std::env::var(PARENT)
-        .ok()
-        .and_then(|pid| pid.parse::<u32>().ok())
-        .ok_or_else(|| {
-            io::Error::new(
-                io::ErrorKind::InvalidInput,
-                format!("{PARENT} names no process id"),
-            )
-        })?;
-    let (input, output) = hamlet_os::process::take_stdio()?;
+    let process::Ends { input, output } = process::Ends::take()?;
     let (frames, received) = mpsc::unbounded_channel();
     thread::Builder::new()
         .name("link-input".to_owned())
-        .spawn(move || watch_input(parent, input, &frames))?;
+        .spawn(move || read_input(input, &frames))?;
     *ENDS.lock() = Some(Ends {
         frames: received,
         output,
@@ -458,24 +423,17 @@ pub fn take_stdio() -> io::Result<()> {
 }
 
 /// Passes the Rust host's frames on from `input`, and kills the
-/// process once its parent is not `parent` or the input ends or
-/// breaks.
-fn watch_input(
-    parent: u32,
-    mut input: File,
+/// process once the input ends or breaks.
+fn read_input(
+    mut input: PipeReader,
     frames: &mpsc::UnboundedSender<Frame>,
 ) -> ! {
-    // On this thread, which lives as long as the process: the
-    // parent-death signal holds while the thread that set it lives.
-    if hamlet_os::process::end_with_parent(parent).is_err() {
-        hamlet_os::process::end_now();
-    }
     // Reading goes on after the receiver is dropped: only the input's
     // end ends the process.
     while let Ok(Some(frame)) = link::read(&mut input) {
         let _ = frames.send(frame);
     }
-    hamlet_os::process::end_now()
+    process::end_now()
 }
 
 /// The link's ends [`take_stdio`] took, once.

@@ -1,25 +1,27 @@
-//! A stand-in Node host for the link's tests. It takes its standard
-//! input and output for the link as the Node host does, and serves
-//! the link with the one kind `agent`, whose actors it never starts.
+//! A stand-in Node host for the link's tests. It takes the link's
+//! ends as the Node host does, and serves the link with the one kind
+//! `agent`, whose actors it never starts.
 //!
 //! ```text
-//! link_child [--env <file>] [--starts <file>] [--protocol <version> | --hold]
+//! link_child [--env <file>] [--starts <file>] [--stray] [--protocol <version> | --hold]
 //!
 //! --env <file>          write the names of its environment's
 //!                       variables to <file>, one to a line
 //! --starts <file>       append `<pid> <ms>` to <file> once it has
-//!                       taken the link, or at its start with
-//!                       --protocol, <ms> in Unix milliseconds
-//! --protocol <version>  without taking the link, say hello on its
-//!                       standard output stating <version>, and end
-//!                       at the Rust host's answer
+//!                       taken the link's ends, <ms> in Unix
+//!                       milliseconds
+//! --stray               write a line, once the link is taken, to a
+//!                       copy of the standard output it started with
+//! --protocol <version>  without serving the link, say hello on its
+//!                       ends stating <version>, and end at the Rust
+//!                       host's answer
 //! --hold                take the link, then say nothing and wait to
 //!                       be killed
 //! ```
 
 use std::collections::HashMap;
-use std::fs::OpenOptions;
-use std::io::{self, Write};
+use std::fs::{File, OpenOptions};
+use std::io::{self, PipeReader, PipeWriter, Write};
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
@@ -27,6 +29,7 @@ use anyhow::{Context, Result, bail};
 use hamlet_actor_core::{ActorConfig, ActorFactory};
 use hamlet_host::child;
 use hamlet_host::link::{self, Frame};
+use hamlet_os::process::Ends;
 use hamlet_protocol::Version;
 
 /// The one kind the stand-in holds.
@@ -42,6 +45,7 @@ enum Mode {
 fn main() -> Result<()> {
     let mut env = None;
     let mut starts = None;
+    let mut stray = false;
     let mut mode = Mode::Serve;
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
@@ -52,6 +56,7 @@ fn main() -> Result<()> {
         match arg.as_str() {
             "--env" => env = Some(PathBuf::from(value()?)),
             "--starts" => starts = Some(PathBuf::from(value()?)),
+            "--stray" => stray = true,
             "--protocol" => mode = Mode::Hello(value()?.parse()?),
             "--hold" => mode = Mode::Hold,
             _ => bail!("unknown argument {arg}"),
@@ -65,7 +70,11 @@ fn main() -> Result<()> {
     }
     match mode {
         Mode::Serve => {
+            let copy = stray.then(stdout_copy).transpose()?;
             child::take_stdio()?;
+            if let Some(mut copy) = copy {
+                copy.write_all(b"stray\n")?;
+            }
             record_start(starts.as_deref())?;
             tokio::runtime::Runtime::new()?
                 .block_on(link::serve(factories()))
@@ -78,10 +87,24 @@ fn main() -> Result<()> {
             }
         }
         Mode::Hello(protocol) => {
+            let Ends { input, output } = Ends::take()?;
             record_start(starts.as_deref())?;
-            hello(protocol)
+            hello(protocol, input, output)
         }
     }
+}
+
+/// A copy of the standard output this process started with, as a
+/// C runtime keeps it.
+fn stdout_copy() -> io::Result<File> {
+    #[cfg(unix)]
+    let copy = std::os::fd::AsFd::as_fd(&io::stdout())
+        .try_clone_to_owned()?;
+    #[cfg(windows)]
+    let copy =
+        std::os::windows::io::AsHandle::as_handle(&io::stdout())
+            .try_clone_to_owned()?;
+    Ok(File::from(copy))
 }
 
 /// Appends this process's id and the time to `path`, in one write.
@@ -114,11 +137,15 @@ fn factories() -> HashMap<String, ActorFactory> {
     HashMap::from([(KIND.to_owned(), factory)])
 }
 
-/// Says hello on the standard output stating `protocol`, and returns
-/// at the Rust host's answer.
-fn hello(protocol: Version) -> Result<()> {
+/// Says hello on `output` stating `protocol`, and returns at the Rust
+/// host's answer on `input`.
+fn hello(
+    protocol: Version,
+    mut input: PipeReader,
+    mut output: PipeWriter,
+) -> Result<()> {
     link::write(
-        &mut io::stdout(),
+        &mut output,
         &Frame::Hello {
             protocol,
             fingerprint: link::fingerprint().to_owned(),
@@ -126,6 +153,6 @@ fn hello(protocol: Version) -> Result<()> {
             pid: std::process::id(),
         },
     )?;
-    link::read(&mut io::stdin())?;
+    link::read(&mut input)?;
     Ok(())
 }

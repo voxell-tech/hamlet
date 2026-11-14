@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
+import { join } from "node:path";
 import { test } from "node:test";
 import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
@@ -8,7 +9,18 @@ import { fileURLToPath } from "node:url";
 /** The Node host's folder, where `@hamlet/actor-node` resolves. */
 const HOST = fileURLToPath(new URL("../..", import.meta.url));
 
-/** A Node host that takes its stdio for the link, then uses stdout and stdin as any code would. */
+/** The repository's folder. */
+const ROOT = fileURLToPath(new URL("../../../..", import.meta.url));
+
+/** `hamlet_os`'s example that runs its arguments as its bound child, which `cargo xtask node` builds. */
+const BOUND = join(
+    process.env.CARGO_TARGET_DIR ?? join(ROOT, "target"),
+    "debug",
+    "examples",
+    process.platform === "win32" ? "bound.exe" : "bound",
+);
+
+/** A Node host that takes the link's ends, then uses stdout and stdin as any code would. */
 const CHILD = `
 require("@hamlet/actor-node").takeStdio();
 process.stdout.write("written to stdout\\n");
@@ -22,22 +34,10 @@ process.stdin.on("end", () => {
 });
 `;
 
-/** A Node host that takes its stdio for the link, says so on stderr, and stays alive. */
+/** A Node host that takes the link's ends, says so with its pid on stderr, and stays alive. */
 const HELD = `
 require("@hamlet/actor-node").takeStdio();
-process.stderr.write("taken\\n");
-setInterval(() => {}, 1_000);
-`;
-
-/** A process that starts `HELD` as its child, prints the child's pid, and stays alive. */
-const MIDDLE = `
-const { spawn } = require("node:child_process");
-const host = spawn(process.execPath, ["-e", ${JSON.stringify(HELD)}], {
-    cwd: ${JSON.stringify(HOST)},
-    env: { PATH: process.env.PATH, HAMLET_LINK_PARENT: String(process.pid) },
-    stdio: ["pipe", "pipe", "inherit"],
-});
-process.stdout.write(\`\${host.pid}\\n\`);
+process.stderr.write(\`taken \${process.pid}\\n\`);
 setInterval(() => {}, 1_000);
 `;
 
@@ -52,12 +52,9 @@ function isAlive(pid: number): boolean {
 }
 
 test("takeStdio leaves stdout to the link and stdin to nothing", async () => {
-    const child = spawn(process.execPath, ["-e", CHILD], {
+    const child = spawn(BOUND, [process.execPath, "-e", CHILD], {
         cwd: HOST,
-        env: {
-            PATH: process.env.PATH,
-            HAMLET_LINK_PARENT: String(process.pid),
-        },
+        env: { PATH: process.env.PATH },
         signal: AbortSignal.timeout(20_000),
         killSignal: "SIGKILL",
     });
@@ -80,28 +77,27 @@ test("takeStdio leaves stdout to the link and stdin to nothing", async () => {
 });
 
 test("a Node host whose parent is killed is gone within 2 seconds", async () => {
-    const middle = spawn(process.execPath, ["-e", MIDDLE], {
+    const parent = spawn(BOUND, [process.execPath, "-e", HELD], {
         cwd: HOST,
-        stdio: ["ignore", "pipe", "pipe"],
+        env: { PATH: process.env.PATH },
+        stdio: ["ignore", "ignore", "pipe"],
         signal: AbortSignal.timeout(20_000),
         killSignal: "SIGKILL",
     });
-    let stdout = "";
     let stderr = "";
-    middle.stdout.on("data", (chunk) => {
-        stdout += chunk;
-    });
-    middle.stderr.on("data", (chunk) => {
+    parent.stderr.on("data", (chunk) => {
         stderr += chunk;
     });
     const taken = Date.now() + 20_000;
-    while (!/^\d+$/m.test(stdout) || !/^taken$/m.test(stderr)) {
+    let shown = /^taken (\d+)$/m.exec(stderr);
+    while (shown === null) {
         assert.ok(Date.now() < taken, stderr);
         await sleep(10);
+        shown = /^taken (\d+)$/m.exec(stderr);
     }
-    const pid = Number(stdout.trim());
+    const pid = Number(shown[1]);
 
-    middle.kill("SIGKILL");
+    parent.kill("SIGKILL");
     const deadline = Date.now() + 2_000;
     while (isAlive(pid)) {
         if (Date.now() > deadline) {
