@@ -3,7 +3,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use hamlet_actor_error::ActorError;
 
-use super::access::Stamp;
+use super::access::{Origin, Stamp};
 use super::{Host, HostInner, Open};
 use crate::address::Address;
 use crate::directory::Place;
@@ -88,7 +88,28 @@ impl HostInner {
             Open::OrCreate | Open::Existing => Operation::GetOrStart,
         };
         self.admit(operation, stamp.caller(), at)?;
-        let Place::Local(_) = self.locate(at)?;
-        self.ensure_started(at, &open).await.map(drop)
+        match (self.locate(at)?, stamp.origin(), open) {
+            (Place::Local(_), _, open) => {
+                self.ensure_started(at, &open).await.map(drop)
+            }
+            (Place::Linked(port), Origin::Here, Open::New(input)) => {
+                self.within_start_deadline(
+                    at,
+                    port.create(stamp.caller(), at, input),
+                )
+                .await
+            }
+            (
+                Place::Linked(_),
+                Origin::Here,
+                Open::OrCreate | Open::Existing,
+            ) => todo!("U5, the host unit: only a create crosses"),
+            (Place::Linked(_), Origin::Peer, _) => {
+                todo!(
+                    "U5, the host unit: a peer's start of its own \
+                     kind"
+                )
+            }
+        }
     }
 }

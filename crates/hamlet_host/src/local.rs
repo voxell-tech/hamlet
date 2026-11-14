@@ -56,12 +56,14 @@ use rusqlite::{Connection, OptionalExtension};
 use tokio::sync::{broadcast, oneshot, watch};
 use tokio::task::{AbortHandle, JoinHandle};
 
+pub(crate) use self::access::Inbound;
 use self::access::Stamp;
 pub use self::access::{HostRef, Values};
 use self::create::DuplicateKey;
 use crate::address::{Address, Named, plain};
 use crate::directory::{Directory, Place};
 use crate::event::HostEvent;
+use crate::link::Port;
 use crate::plain_sqlite::{self, PlainSqlite};
 use crate::route::Routes;
 
@@ -925,13 +927,24 @@ impl Host {
         factories: HashMap<String, ActorFactory>,
         options: HostOptions,
     ) -> Result<Self> {
+        Self::open_linked(dir, factories, options, None)
+    }
+
+    /// [`Host::open_with`], for a host that the link's module opens
+    /// with a port to the other host.
+    pub(crate) fn open_linked(
+        dir: &Path,
+        factories: HashMap<String, ActorFactory>,
+        options: HostOptions,
+        linked: Option<Port>,
+    ) -> Result<Self> {
         plain(&options.name, Named::Host)?;
         for kind in factories.keys() {
             plain(kind, Named::Kind)?;
         }
         call::check_kinds(&factories)?;
         std::fs::create_dir_all(dir.join("actors"))?;
-        let directory = Directory::local(factories);
+        let directory = Directory::new(factories, linked)?;
         let mut locks = vec![FolderLock::take(
             &dir.join(format!("{}.lock", options.name)),
         )?];
@@ -1140,7 +1153,7 @@ impl Host {
         &self,
         at: &Address,
     ) -> Result<Vec<SetAsideTimer>> {
-        let Place::Local(_) = self.inner().locate(at)?;
+        self.inner().directory.factory(at, "set_aside_timers")?;
         let generation =
             self.inner().ensure_started(at, &Open::Existing).await?;
         generation.actor.context().set_aside_timers().await
@@ -1157,7 +1170,7 @@ impl Host {
         event_id: &str,
         due_at: i64,
     ) -> Result<bool> {
-        let Place::Local(_) = self.inner().locate(at)?;
+        self.inner().directory.factory(at, "rearm_timer")?;
         let generation =
             self.inner().ensure_started(at, &Open::Existing).await?;
         generation
@@ -1200,7 +1213,7 @@ impl Host {
         reason: ShutdownKind,
     ) -> Result<()> {
         let host = self.inner();
-        let Place::Local(_) = host.locate(at)?;
+        host.directory.factory(at, "stop")?;
         loop {
             if let Some(stop) = host.ask_stop(at, None, reason.into())
             {
@@ -2131,8 +2144,7 @@ async fn start_generation(
     opening: &mut Option<Opening>,
     opened: &Mutex<Option<PlainSqlite>>,
 ) -> Result<Arc<Generation>> {
-    let Place::Local(factory) = host.locate(at)?;
-    let factory = factory.clone();
+    let factory = host.directory.factory(at, "start")?.clone();
     let claim = Arc::new(OpenClaim::default());
     let task = tokio::task::spawn_blocking({
         let dir = host.dir.clone();

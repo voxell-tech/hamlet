@@ -14,7 +14,7 @@ use hamlet_actor_error::ActorError;
 use serde::Serialize;
 use tracing::Instrument;
 
-use super::access::Stamp;
+use super::access::{Origin, Stamp};
 use super::{Host, HostInner, Open, actor_id, host_shut_down};
 use crate::address::{Address, Caller};
 use crate::directory::Place;
@@ -103,36 +103,72 @@ impl HostInner {
             stamp.caller(),
             to,
         )?;
-        let Place::Local(_) = self.locate(to)?;
-        let params = stamp.bytes()?;
+        let place = self.locate(to)?;
         let span = tracing::debug_span!(
             "call",
             actor_id = actor_id(to).as_str(),
             action = name,
             caller = stamp.caller().map(tracing::field::display)
         );
-        let mut shut = self.starts_end.subscribe();
-        let call = async {
-            let begun = Instant::now();
-            let generation = tokio::time::timeout(
-                deadline,
-                self.ensure_started(to, &Open::Existing),
-            )
-            .await
-            .map_err(|_| ActionTimedOut.build())??;
-            let left = deadline.saturating_sub(begun.elapsed());
-            generation.actor.action(params, name, args, left).await
-        };
-        async {
-            tokio::select! {
-                called = call => called,
-                _ = shut.wait_for(Option::is_some) => {
-                    Err(host_shut_down())
+        let called = async {
+            match (place, stamp.origin()) {
+                (Place::Local(_), _) => {
+                    self.act(&stamp, to, name, args, deadline).await
+                }
+                (Place::Linked(port), Origin::Here) => {
+                    port.call(
+                        stamp.caller(),
+                        to,
+                        name,
+                        args,
+                        deadline,
+                    )
+                    .await
+                }
+                (Place::Linked(_), Origin::Peer) => {
+                    todo!(
+                        "U5, the host unit: a peer's call of its \
+                         own kind"
+                    )
                 }
             }
-        }
-        .instrument(span)
+        };
+        self.or_shut(called).instrument(span).await
+    }
+
+    /// The call in this host: the actor started from its file within
+    /// `deadline`, then its action within what is left.
+    async fn act(
+        self: &Arc<Self>,
+        stamp: &Stamp,
+        to: &Address,
+        name: &str,
+        args: Vec<u8>,
+        deadline: Duration,
+    ) -> Result<Vec<u8>> {
+        let params = stamp.bytes()?;
+        let begun = Instant::now();
+        let generation = tokio::time::timeout(
+            deadline,
+            self.ensure_started(to, &Open::Existing),
+        )
         .await
+        .map_err(|_| ActionTimedOut.build())??;
+        let left = deadline.saturating_sub(begun.elapsed());
+        generation.actor.action(params, name, args, left).await
+    }
+
+    /// `work`, or `actor.stopping` at once when the host begins to
+    /// shut down.
+    async fn or_shut<T>(
+        &self,
+        work: impl Future<Output = Result<T>>,
+    ) -> Result<T> {
+        let mut shut = self.starts_end.subscribe();
+        tokio::select! {
+            done = work => done,
+            _ = shut.wait_for(Option::is_some) => Err(host_shut_down()),
+        }
     }
 
     /// Refuses an actor's `operation` of itself, which would wait for

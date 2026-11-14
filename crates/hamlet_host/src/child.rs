@@ -16,6 +16,7 @@ use parking_lot::Mutex;
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::time::Instant;
 
+pub use crate::link::LinkState;
 use crate::link::{self, Broken, Frame};
 use crate::route::Routes;
 
@@ -69,17 +70,6 @@ pub struct ChildOptions {
     pub node_kinds: Vec<String>,
     /// The route table the welcome gives the child.
     pub routes: Routes,
-}
-
-/// The link's state, as the Rust host sees it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum LinkState {
-    /// No child has been welcomed, or the welcomed one is gone.
-    Down,
-    /// The Rust host has accepted the child's hello.
-    Welcomed,
-    /// The child has said it is ready.
-    Ready,
 }
 
 /// Keeps one Node child running, from a thread of its own. A child

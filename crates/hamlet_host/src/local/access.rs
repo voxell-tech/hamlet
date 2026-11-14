@@ -9,9 +9,11 @@ use anyhow::{Context, Result};
 use hamlet_actor_core::{ActorContext, ActorLifecycle};
 
 use super::{
-    HostInner, HostOptions, LocalHandle, Open, host_shut_down,
+    Host, HostInner, HostOptions, LocalHandle, Open, host_shut_down,
 };
 use crate::address::{Address, Caller};
+use crate::event::HostEvent;
+use crate::link::Vetted;
 
 /// An actor's view of the host that runs it, from its `create` on:
 /// the realm folder, the values the program that opened the host gave
@@ -115,24 +117,61 @@ impl HostRef {
                 ),
             ));
         }
-        Ok((host, Stamp(Some(Caller::Actor(self.me.clone())))))
+        let stamp = Stamp {
+            caller: Some(Caller::Actor(self.me.clone())),
+            origin: Origin::Here,
+        };
+        Ok((host, stamp))
     }
 }
 
-/// The caller the host stamps on an operation: none for the program,
-/// a client, or an actor. An actor's stamp for an operation is made
-/// only by `HostRef::current`, after its generation's check.
-pub(crate) struct Stamp(Option<Caller>);
+/// Who an operation is for, as the host stamps it (none for the
+/// program, a client, or an actor), and where it entered this host.
+/// An actor's stamp is made only by `HostRef::current`, after its
+/// generation's check, and by [`Stamp::from_peer`], after the link's.
+pub(crate) struct Stamp {
+    caller: Option<Caller>,
+    origin: Origin,
+}
+
+/// Where an operation entered this host.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Origin {
+    /// Here: the program, a client of it, or an actor of this host.
+    Here,
+    /// In the other host of the link, which this host's link let in.
+    /// It runs here or fails: it never crosses the link again.
+    Peer,
+}
 
 impl Stamp {
-    pub(crate) const PROGRAM: Self = Self(None);
+    pub(crate) const PROGRAM: Self = Self {
+        caller: None,
+        origin: Origin::Here,
+    };
 
     pub(crate) fn client() -> Self {
-        Self(Some(Caller::Client))
+        Self {
+            caller: Some(Caller::Client),
+            origin: Origin::Here,
+        }
+    }
+
+    /// The stamp of an operation the other host asked for. Takes only
+    /// what the link vetted.
+    pub(crate) fn from_peer(from: Vetted) -> Self {
+        Self {
+            caller: from.into_caller(),
+            origin: Origin::Peer,
+        }
     }
 
     pub(crate) fn caller(&self) -> Option<&Caller> {
-        self.0.as_ref()
+        self.caller.as_ref()
+    }
+
+    pub(crate) fn origin(&self) -> Origin {
+        self.origin
     }
 
     /// The call's connection parameters.
@@ -144,9 +183,75 @@ impl Stamp {
     }
 
     pub(super) fn sample_bytes() -> Result<[Vec<u8>; 2]> {
-        let actor =
-            Self(Some(Caller::Actor(Address::new("k", "k")?)));
+        let actor = Self {
+            caller: Some(Caller::Actor(Address::new("k", "k")?)),
+            origin: Origin::Here,
+        };
         Ok([Self::client().bytes()?, actor.bytes()?])
+    }
+}
+
+/// The link's view of the host: what an operation the link let in
+/// reaches. It holds the host weakly, so the link never keeps the
+/// host open, and it names the runtime the host's actors run on,
+/// which is where a peer's operation runs.
+#[derive(Clone)]
+pub(crate) struct Inbound {
+    host: Weak<HostInner>,
+    runtime: tokio::runtime::Handle,
+}
+
+impl Inbound {
+    /// Fails outside a tokio runtime.
+    pub(crate) fn of(host: &Host) -> Result<Self> {
+        Ok(Self {
+            host: Arc::downgrade(host.inner()),
+            runtime: tokio::runtime::Handle::try_current().context(
+                "a host with a link opens inside the tokio runtime \
+                 its actors run on",
+            )?,
+        })
+    }
+
+    pub(crate) fn runtime(&self) -> &tokio::runtime::Handle {
+        &self.runtime
+    }
+
+    /// Runs a call the other host asked for, on the host's one call
+    /// path: the route check again, then this host's own actor.
+    /// `actor.stopping` once the host is gone.
+    pub(crate) async fn call(
+        &self,
+        from: Vetted,
+        to: &Address,
+        name: &str,
+        args: Vec<u8>,
+        deadline: Duration,
+    ) -> Result<Vec<u8>> {
+        let host = self.host.upgrade().ok_or_else(host_shut_down)?;
+        host.call(Stamp::from_peer(from), to, name, args, deadline)
+            .await
+    }
+
+    /// Runs a create the other host asked for, on the host's one
+    /// start path.
+    pub(crate) async fn create(
+        &self,
+        from: Vetted,
+        at: &Address,
+        input: Vec<u8>,
+    ) -> Result<()> {
+        let host = self.host.upgrade().ok_or_else(host_shut_down)?;
+        host.start(Stamp::from_peer(from), at, Open::New(input))
+            .await
+    }
+
+    /// Passes on an event of the Node host's to this host's
+    /// [`Host::events`].
+    pub(crate) fn report(&self, event: HostEvent) {
+        if let Some(host) = self.host.upgrade() {
+            let _ = host.events.send(event);
+        }
     }
 }
 

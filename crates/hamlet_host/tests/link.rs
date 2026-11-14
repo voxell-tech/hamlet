@@ -5,7 +5,7 @@ use std::path::Path;
 use std::thread;
 
 use hamlet_host::link::{
-    self, Broken, FRAME_LIMIT, Frame, PROTOCOL, WireError,
+    self, Ask, Broken, FRAME_LIMIT, Frame, PROTOCOL, WireError,
 };
 use hamlet_host::route::{CallerKind, Operation, Routes};
 use hamlet_host::{Address, Caller, HostEvent};
@@ -20,15 +20,17 @@ const WRITE_CAP: usize = 16 << 20;
 const FINGERPRINT: &str = "link.fingerprint";
 
 fn call(args: Vec<u8>) -> Frame {
-    Frame::Call {
+    Frame::Request {
         id: 7,
         from: Some(Caller::Actor(
             Address::new("agent", "a1").unwrap(),
         )),
         to: Address::new("workspace", "w1").unwrap(),
-        name: "write".to_owned(),
-        args,
-        deadline_ms: 30_000,
+        ask: Ask::Call {
+            name: "write".to_owned(),
+            args,
+            deadline_ms: 30_000,
+        },
     }
 }
 
@@ -56,21 +58,33 @@ fn every_frame() -> Vec<Frame> {
         Frame::Ready,
         Frame::Goodbye,
         call(vec![0, 1, 2, 255]),
-        Frame::Call {
+        Frame::Request {
             id: 8,
             from: Some(Caller::Client),
             to: Address::new("agent", "a2").unwrap(),
-            name: "say".to_owned(),
-            args: Vec::new(),
-            deadline_ms: 1,
+            ask: Ask::Call {
+                name: "say".to_owned(),
+                args: Vec::new(),
+                deadline_ms: 1,
+            },
         },
-        Frame::Call {
+        Frame::Request {
             id: 9,
             from: None,
             to: Address::new("agent", "a3").unwrap(),
-            name: "stop".to_owned(),
-            args: vec![9],
-            deadline_ms: u64::MAX,
+            ask: Ask::Call {
+                name: "stop".to_owned(),
+                args: vec![9],
+                deadline_ms: u64::MAX,
+            },
+        },
+        Frame::Request {
+            id: 10,
+            from: Some(Caller::Actor(
+                Address::new("realm", "main").unwrap(),
+            )),
+            to: Address::new("agent", "3").unwrap(),
+            ask: Ask::Create { input: vec![0xa0] },
         },
         Frame::Reply {
             id: 7,
@@ -215,6 +229,7 @@ fn shapes() -> String {
     tracer
         .trace_simple_type::<Result<ByteBuf, WireError>>()
         .unwrap();
+    tracer.trace_simple_type::<Ask>().unwrap();
     tracer.trace_simple_type::<Frame>().unwrap();
     serde_json::to_string_pretty(&tracer.registry().unwrap()).unwrap()
 }
