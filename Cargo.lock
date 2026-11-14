@@ -4883,6 +4883,7 @@ dependencies = [
  "hamlet_actor_core",
  "hamlet_actor_error",
  "hamlet_host",
+ "hamlet_os",
  "hamlet_protocol",
  "hamlet_sqlite",
  "hamlet_testing",
