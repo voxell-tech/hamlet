@@ -1,13 +1,14 @@
 use std::sync::Arc;
 
 use anyhow::Result;
-use hamlet_actor_core::error::ActorRuntime;
 use hamlet_actor_error::ActorError;
 
 use super::access::{Origin, Stamp};
 use super::{Host, HostInner, Open};
 use crate::address::Address;
-use crate::directory::Place;
+use crate::directory::{
+    Place, not_registered, runs_in_the_other_host,
+};
 use crate::route::Operation;
 
 /// A create of a key that holds an actor.
@@ -104,20 +105,11 @@ impl HostInner {
                 Place::Linked(_),
                 Origin::Here,
                 Open::OrCreate | Open::Existing,
-            ) => Err(ActorRuntime::InvalidOperation {
-                operation: "get_or_start".to_owned(),
-                reason: format!(
-                    "the kind `{}` runs in the other host, which \
-                     makes an actor only by a create",
-                    at.kind()
-                ),
+            ) => {
+                Err(runs_in_the_other_host("get_or_start", at.kind()))
             }
-            .build()),
             (Place::Linked(_), Origin::Peer, _) => {
-                Err(ActorRuntime::NotRegistered {
-                    actor_name: at.kind().to_owned(),
-                }
-                .build())
+                Err(not_registered(at.kind()))
             }
         }
     }

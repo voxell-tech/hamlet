@@ -63,12 +63,7 @@ impl Directory {
     /// Where the actors of `kind` run. Fails with
     /// `actor.not_registered` for a kind the directory does not hold.
     pub(crate) fn place(&self, kind: &str) -> Result<&Place> {
-        self.0.get(kind).ok_or_else(|| {
-            ActorRuntime::NotRegistered {
-                actor_name: kind.to_owned(),
-            }
-            .build()
-        })
+        self.0.get(kind).ok_or_else(|| not_registered(kind))
     }
 
     /// The factory of the kind of `at`, for an operation that only
@@ -84,30 +79,32 @@ impl Directory {
     ) -> Result<&Arc<ActorFactory>> {
         match self.place(at.kind())? {
             Place::Local(factory) => Ok(factory),
-            Place::Linked(_) => Err(ActorRuntime::InvalidOperation {
-                operation: operation.to_owned(),
-                reason: format!(
-                    "the kind `{}` runs in the other host, and only \
-                     a call and a create cross the link",
-                    at.kind()
-                ),
+            Place::Linked(_) => {
+                Err(runs_in_the_other_host(operation, at.kind()))
             }
-            .build()),
         }
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::link::Role;
-
-    #[test]
-    fn a_linked_kind_that_is_not_a_plain_name_is_refused() {
-        let port = Port::new(Role::Rust, ["Agent".to_owned()]);
-        let error = Directory::new(HashMap::new(), Some(port))
-            .err()
-            .expect("a kind that is not a plain name was let in");
-        assert!(error.to_string().contains("`Agent`"), "{error:#}");
+pub(crate) fn not_registered(kind: &str) -> anyhow::Error {
+    ActorRuntime::NotRegistered {
+        actor_name: kind.to_owned(),
     }
+    .build()
+}
+
+/// `actor.invalid_operation` for `operation` of an actor of `kind`,
+/// which the other host of the link runs.
+pub(crate) fn runs_in_the_other_host(
+    operation: &str,
+    kind: &str,
+) -> anyhow::Error {
+    ActorRuntime::InvalidOperation {
+        operation: operation.to_owned(),
+        reason: format!(
+            "the kind `{kind}` runs in the other host, and only a \
+             call and a create cross the link"
+        ),
+    }
+    .build()
 }

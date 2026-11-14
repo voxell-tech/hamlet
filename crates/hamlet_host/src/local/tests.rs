@@ -4,10 +4,14 @@ use hamlet_actor_core::{ActorConfig, ActorStart};
 use hamlet_testing::Scratch;
 use serde::{Deserialize, Serialize};
 
+use self::code::code;
 use super::*;
 use crate::Caller;
 use crate::link::{Role, Side, Vetted};
 use crate::route::{CallerKind, Operation};
+
+#[path = "../../tests/support/code.rs"]
+mod code;
 
 const DEADLINE: Duration = Duration::from_secs(10);
 
@@ -170,7 +174,7 @@ async fn an_ended_generations_handle_reaches_nothing_of_its_key_made_again()
 
 /// A kind that answers who called it, and gets or starts an actor as
 /// itself.
-struct Peer;
+struct Callee;
 
 #[derive(Serialize, Deserialize)]
 struct Who;
@@ -191,7 +195,7 @@ impl Action for GetOrStart {
 }
 
 #[async_trait::async_trait]
-impl Actor for Peer {
+impl Actor for Callee {
     type Input = ();
     type Actions = (Who, GetOrStart);
     type Events = ();
@@ -203,7 +207,7 @@ impl Actor for Peer {
     }
 }
 
-impl Handler<Who> for Peer {
+impl Handler<Who> for Callee {
     async fn handle(
         self: Arc<Self>,
         ctx: Ctx<Self>,
@@ -213,7 +217,7 @@ impl Handler<Who> for Peer {
     }
 }
 
-impl Handler<GetOrStart> for Peer {
+impl Handler<GetOrStart> for Callee {
     async fn handle(
         self: Arc<Self>,
         ctx: Ctx<Self>,
@@ -227,8 +231,8 @@ fn at(kind: &str, key: &str) -> Address {
     Address::new(kind, key).unwrap()
 }
 
-/// A Rust host of the [`Peer`] kinds `kinds`, linked to a Node host
-/// that runs `agent`.
+/// A Rust host of the kinds `kinds`, each a [`Callee`], linked to a
+/// Node host that runs `agent`.
 fn linked(
     dir: &Path,
     kinds: &[&str],
@@ -236,7 +240,7 @@ fn linked(
 ) -> Result<Host> {
     let mut registry = Registry::new();
     for kind in kinds {
-        registry.register_actor_with::<Peer>(
+        registry.register_actor_with::<Callee>(
             kind,
             ActorConfig {
                 has_database: true,
@@ -273,11 +277,6 @@ async fn who(
     inbound
         .call(vetted(from), to, Who::NAME, args, DEADLINE)
         .await
-}
-
-fn code(error: &anyhow::Error) -> String {
-    let error = ActorError::extract(error);
-    format!("{}.{}", error.group(), error.code())
 }
 
 #[test]
@@ -360,19 +359,36 @@ async fn a_peers_operation_meets_the_route_table_again() {
     host.create(&realm, Vec::new()).await.unwrap();
     let mut events = host.events();
 
-    let refused = who(&inbound, &agent, &realm)
-        .await
-        .expect_err("the table let an agent reach the realm");
-    assert_eq!(code(&refused), "actor.refused");
+    let called = who(&inbound, &agent, &realm).await.map(drop);
+    let made = at("realm", "m");
+    let created =
+        inbound.create(vetted(&agent), &made, Vec::new()).await;
+    for refused in [called, created] {
+        let refused = refused
+            .expect_err("the table let an agent reach the realm");
+        assert_eq!(code(&refused), "actor.refused");
+    }
+    assert!(!actor_path(&dir, &made).exists());
+    let mut reported = Vec::new();
+    while let Ok(event) = events.try_recv() {
+        reported.push(event);
+    }
     assert_eq!(
-        events.try_recv().unwrap(),
-        HostEvent::Refused {
-            from: Caller::Actor(agent),
-            to: realm,
-            operation: Operation::Call {
-                action: Who::NAME.to_owned(),
+        reported,
+        [
+            HostEvent::Refused {
+                from: Caller::Actor(agent.clone()),
+                to: realm,
+                operation: Operation::Call {
+                    action: Who::NAME.to_owned(),
+                },
             },
-        }
+            HostEvent::Refused {
+                from: Caller::Actor(agent),
+                to: made,
+                operation: Operation::Create,
+            },
+        ]
     );
     host.shutdown().await.unwrap();
 }

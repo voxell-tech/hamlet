@@ -1107,7 +1107,9 @@ impl Host {
     }
 
     /// Starts the actor at `at` unless it runs, made first with no
-    /// input if its file holds none.
+    /// input if its file holds none. Fails with
+    /// `actor.invalid_operation` for a kind the other host of a link
+    /// runs.
     pub async fn get_or_start(&self, at: &Address) -> Result<()> {
         self.inner().start(Stamp::PROGRAM, at, Open::OrCreate).await
     }
@@ -1148,7 +1150,8 @@ impl Host {
 
     /// The one-shot timers the actor at `at` set aside after their
     /// last try. Starts the actor from its file if it is not running,
-    /// and never makes one.
+    /// and never makes one. Fails with `actor.invalid_operation` for
+    /// a kind the other host of a link runs.
     pub async fn set_aside_timers(
         &self,
         at: &Address,
@@ -1163,7 +1166,9 @@ impl Host {
     /// due at `due_at` in ms since the Unix epoch, with its tries
     /// counted from none. Returns false when the actor holds no
     /// set-aside timer of that id. Starts the actor as
-    /// [`Host::set_aside_timers`] does.
+    /// [`Host::set_aside_timers`] does. Fails with
+    /// `actor.invalid_operation` for a kind the other host of a link
+    /// runs.
     pub async fn rearm_timer(
         &self,
         at: &Address,
@@ -1187,12 +1192,14 @@ impl Host {
     /// it a destroy. A sleep leaves a stopped actor as it is, its
     /// file and its timer with it; a destroy removes its files and
     /// cancels its timer, and one repeated after it ended ends the
-    /// same way. Fails for an actor of no kind of this host, before
-    /// anything reaches the folder, and a destroy of a stopped actor
-    /// fails in a host that has shut down, which may no longer hold
-    /// the folder. A destroy answers `Ok` only once the actor's files
-    /// are gone: a removal that fails fails the destroy and every
-    /// caller that waited for it, whichever stop removed them.
+    /// same way. Fails for an actor of no kind of this host, with
+    /// `actor.invalid_operation` for a kind the other host of a link
+    /// runs, before anything reaches the folder, and a destroy of a
+    /// stopped actor fails in a host that has shut down, which may no
+    /// longer hold the folder. A destroy answers `Ok` only once the
+    /// actor's files are gone: a removal that fails fails the destroy
+    /// and every caller that waited for it, whichever stop removed
+    /// them.
     ///
     /// A stop ends within [`HostOptions::stop_deadline`], whatever
     /// the actor does. An actor that does not stop by then is given
