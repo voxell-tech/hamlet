@@ -1,10 +1,10 @@
 use std::collections::VecDeque;
-use std::io;
+use std::io::{self, Write as _};
 use std::path::Path;
 
 use super::{
     BadName, Directory, Exists, Kind, LastLink, Mode, Name, Open,
-    Regular, Stat, path,
+    Regular, Removing, Replace, Stat, path,
 };
 
 /// The most symbolic links one path may pass, as Linux allows, more
@@ -319,17 +319,54 @@ impl Reached {
         }
         Ok(())
     }
+
+    /// Replaces the last name with a regular file holding `content`,
+    /// written first as the new file `temp` in the same folder and
+    /// renamed over the name, so that the name holds all of the old
+    /// file or all of the new. The new file keeps the mode of the
+    /// file it replaces, or is made with `mode` as the umask allows.
+    /// The missing folders are made. On a failure `temp` is removed.
+    pub fn replace(
+        &mut self,
+        temp: &Name,
+        content: &[u8],
+        mode: Mode,
+    ) -> io::Result<()> {
+        self.make_folders()?;
+        let Some(last) = self.last()? else {
+            return Err(io::ErrorKind::IsADirectory.into());
+        };
+        let kept = self
+            .dir
+            .stat(last)?
+            .filter(|stat| stat.kind == Kind::File)
+            .map(|stat| stat.mode);
+        let new = self.dir.file(temp, Open::New(mode))?;
+        let written = (|| {
+            new.file().write_all(content)?;
+            if let Some(kept) = kept {
+                new.set_mode(kept)?;
+            }
+            new.file().sync_all()?;
+            self.dir.rename(temp, &self.dir, last, Replace::Always)
+        })();
+        if let Err(error) = written {
+            let _ = self.dir.remove(temp, Removing::File);
+            return Err(error);
+        }
+        self.dir.sync()
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use std::fs;
-    use std::io::{Read as _, Write as _};
+    use std::io::Read as _;
 
-    use hamlet_testing::Scratch;
     #[cfg(windows)]
     use hamlet_testing::links::junction;
     use hamlet_testing::links::{self, symlink};
+    use hamlet_testing::{Scratch, names_in};
 
     use super::*;
 
@@ -573,6 +610,81 @@ mod tests {
         let own = at(&scratch.join("l"), Follow::NotLast);
         assert_eq!(own.real, path::text(&scratch.join("l")));
         assert_eq!(own.stat().unwrap().kind, Kind::Link);
+    }
+
+    /// A replace writes the new file beside the old one and renames
+    /// it over it: the file keeps its mode, a link at its name still
+    /// leads to it, and nothing is left beside it.
+    #[cfg(unix)]
+    #[test]
+    fn a_replace_keeps_the_files_mode_and_its_link() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let scratch = Scratch::new("walk-replace");
+        let file = scratch.join("f");
+        fs::write(&file, "old").unwrap();
+        fs::set_permissions(&file, fs::Permissions::from_mode(0o751))
+            .unwrap();
+        symlink("f", scratch.join("l")).unwrap();
+        let mut at = at(&scratch.join("l"), Follow::Last);
+
+        at.replace(
+            &Name::new(".f.new").unwrap(),
+            b"new",
+            Mode::new(0o600),
+        )
+        .unwrap();
+
+        assert_eq!(fs::read_to_string(&file).unwrap(), "new");
+        let mode = fs::metadata(&file).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o751);
+        assert!(
+            fs::symlink_metadata(scratch.join("l"))
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
+        assert_eq!(names_in(&scratch), ["f", "l"]);
+    }
+
+    /// A replace of a name with no file makes the folders on the way
+    /// and the file.
+    #[test]
+    fn a_replace_makes_a_new_file_and_its_folders() {
+        let scratch = Scratch::new("walk-replace-new");
+        let mut at = at(&scratch.join("a/b/f"), Follow::Last);
+
+        at.replace(
+            &Name::new(".f.new").unwrap(),
+            b"made",
+            Mode::SHARED,
+        )
+        .unwrap();
+
+        assert_eq!(
+            fs::read_to_string(scratch.join("a/b/f")).unwrap(),
+            "made"
+        );
+        assert_eq!(names_in(&scratch.join("a/b")), ["f"]);
+    }
+
+    /// A replace that cannot rename over the name leaves it as it was
+    /// and removes the file it wrote.
+    #[test]
+    fn a_failed_replace_removes_its_new_file() {
+        let scratch = Scratch::new("walk-replace-fails");
+        fs::create_dir_all(scratch.join("d/inside")).unwrap();
+        let mut at = at(&scratch.join("d"), Follow::Last);
+
+        let replaced = at.replace(
+            &Name::new(".d.new").unwrap(),
+            b"x",
+            Mode::SHARED,
+        );
+
+        assert!(replaced.is_err());
+        assert_eq!(names_in(&scratch), ["d"]);
+        assert_eq!(names_in(&scratch.join("d")), ["inside"]);
     }
 
     #[cfg(windows)]

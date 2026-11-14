@@ -29,6 +29,10 @@ faults = []
 [dev-dependencies]
 async-trait.workspace = true
 hamlet_actor.workspace = true
+# The demo runs the workspace, which runs on this host.
+hamlet_actors.workspace = true
+hamlet_messages.workspace = true
+hamlet_sandbox.workspace = true
 # The crate's own tests and examples run with its fault points.
 hamlet_host = { workspace = true, features = ["faults"] }
 hamlet_testing.workspace = true

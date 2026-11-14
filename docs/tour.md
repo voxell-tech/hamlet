@@ -57,8 +57,8 @@ it, and it is not edited here.
 | `hamlet_server` | `hamlet_server`: the realm's society, its conversations, the gate, budgets, tools, clients, credentials and harness supervision |
 | `hamlet_store` | The realm's database: `schema.sql` with Diesel's tables generated from it, opening and checking it, transactions, markers and jobs, and the typed ids |
 | `hamlet_git` | Scholars' and the library's repositories through gix, with no git program: refs, commits from files, reads, diffs, merges, reverts, versions, history, purging, and the writes that check a lodge out |
-| `hamlet_sandbox` | What confines a command: the bubblewrap and Seatbelt policies, launching, a command's leftovers, and the secrets taken out of what it gives back |
-| `hamlet_os` | The system calls whose form differs by OS, with no C code below them: `fs`, directories held open and what is reached from them one name at a time, never through a link at that name, and the tools' walk, path text and error words; `process`, a command's process tree, started inside its limits and killed whole |
+| `hamlet_sandbox` | What confines a command: the bubblewrap and Seatbelt policies, launching, a command's leftovers, the secrets taken out of what it gives back, and a file replaced only while it holds what was read |
+| `hamlet_os` | The system calls whose form differs by OS, with no C code below them: `fs`, directories held open and what is reached from them one name at a time, never through a link at that name, a file replaced by a new one renamed over it, and the tools' walk, path text and error words; `process`, a command's process tree, started inside its limits and killed whole |
 | `hamlet_app` | `hamlet_app`, the window: its panels, menus, chat and pointer, and the eight examples that draw the world and the panels |
 | `harnesses/pi/` | Node pi-durable/pi-ai runtime; conversations, provider calls, compaction and forks |
 | `hamlet_protocol` | Both protocols' types: `client` and `runtime`; `Version`, the semver version each protocol carries; `RequestId`, which holds only a hyphenated UUID; `State::apply` for a client's changes; recorded frames, the schema pi reads and the client schema's fingerprint |
@@ -78,9 +78,11 @@ it, and it is not edited here.
 | `hamlet_actor_client` | A Rust client that calls actors |
 | `hamlet_actor_wire` | The actor runtime's shared types and versioned wire formats, generated from the schemas in `schemas/` |
 | `hamlet_actor_error`, `hamlet_actor_error_macros` | The actor runtime's structured errors and the derive that declares them |
-| `hamlet_host` | Runs actors in this process, each in one plain SQLite file; the `demo` example and its counter actor; fault points behind the `faults` feature |
+| `hamlet_host` | Runs actors in this process, each in one plain SQLite file; the `demo` example, its counter actor and its stand-ins for the realm and an agent; fault points behind the `faults` feature |
+| `hamlet_actors` | Hamlet's actors on the actor host: the `workspace`, which runs the agents' commands and file changes within each agent's reach |
+| `hamlet_messages` | The calls Hamlet's actors make to each other and their answers, one module per actor that takes them, and the CBOR fixture of each |
 | `hamlet_sqlite` | The actor runtime's SQL requests run on a rusqlite connection, for `hamlet_host` and for the core's tests |
-| `hamlet_killkit` | Kills the demo host at a scenario's step and checks what survived, as `cargo xtask killkit` |
+| `hamlet_killkit` | Kills the demo host at a scenario's step and checks what survived, the workspace's commands included, as `cargo xtask killkit` |
 
 The workspace's `bevy` entry turns on no feature: `hamlet_app` turns on
 the product's set, and every other crate names only the ones its own
@@ -154,12 +156,15 @@ which writes make the lodge hold a commit.
 
 ## The actor runtime
 
-The server does not use the actor runtime. Six crates hold it, all named
-`hamlet_actor*`. Their code is ported from another project, so each is
+The server does not use the actor runtime. Six crates hold it:
+`hamlet_actor_core`, `hamlet_actor`, `hamlet_actor_client`,
+`hamlet_actor_wire`, `hamlet_actor_error` and `hamlet_actor_error_macros`.
+Their code is ported from another project, so each is
 licensed `Apache-2.0` alone, with a `LICENSE` and a `NOTICE` that names
 the origin, and each file changed from the origin says so on its first
 line. The rest of the workspace is `MIT OR Apache-2.0`. Code written for
-Hamlet, such as `hamlet_host`, stays under the workspace licence.
+Hamlet, such as `hamlet_host`, `hamlet_actors` and `hamlet_messages`,
+stays under the workspace licence.
 
 The core reaches its host through the `ActorHost` trait in
 `hamlet_actor_core/src/host.rs`: an actor that asks to sleep or to stop,
@@ -287,7 +292,15 @@ succeeds, or with its actor's file at a destroy.
 the host from the command line, under a host name and with counter kinds
 of its options, each line run by `examples/demo/command.rs`, with the
 counter actor in `examples/demo/counter.rs`; a counter calls another as
-itself, and `calls --count <n>` times those calls. `tests/local.rs` tests the host,
+itself, and `calls --count <n>` times those calls. The demo also
+registers the [workspace](#the-workspace-actor), given a sandbox where
+`Sandbox::open(Isolation::Sandboxed)` gives one, and two stand-ins that
+call it: `examples/demo/realm.rs`, the actor `realm/local`, which sets
+reaches, answers for the realm's secrets with one made-up secret and
+answers waits as a chief; and `examples/demo/agent.rs`, the actor
+`agent/<n>`, which makes `actors/agent/<n>.fs/` as it starts, runs
+scripts and tools, reads and writes files, and keeps each `Finished` it
+is told. `tests/local.rs` tests the host,
 `tests/create.rs` tests `create`, and `tests/access.rs` tests what an
 actor reaches of its host, its calls to other actors included.
 `tests/timer.rs` tests one-shots that come due as their actor sleeps or
@@ -311,9 +324,149 @@ host that serves one in-memory database through `hamlet_sqlite`.
 `cargo xtask killkit` runs `hamlet_killkit`. Its scenarios are rows of
 `src/scenario.rs`: the commands that set up, the fault point or the time to kill at,
 the commands after each restart, and what each restart must show.
+`workspace-command` kills the host while a command answered `Running`
+still runs, and checks after each restart that the command did not go
+on, that its row reads cut off and that the agent was told nothing.
 `cargo xtask idle` is `xtask/src/idle.rs`. It reads `/proc` for the
 resident memory of a process tree and the growth of each thread's
 `voluntary_ctxt_switches`.
+
+## The workspace actor
+
+The server does not use it. `hamlet_actors` holds Hamlet's actors on the
+actor host. Its one kind is `workspace`, in `src/workspace.rs` and
+`src/workspace/`: one actor per machine, keyed `local`, that runs the
+agents' commands and file changes under the sandbox, within each agent's
+reach (C18 to C21). `hamlet_messages` holds the calls between actors and their
+answers, one module per actor that takes them: `workspace` (with
+`workspace/reach.rs` and `workspace/files.rs`), `realm` and `agent`.
+Each crosses the host as CBOR. `fixtures/` holds the bytes of each
+message, and `tests/fixtures.rs` rewrites a fixture whose bytes changed
+and fails once, so the change is committed.
+
+The realm, the actor `realm/local`, sets each agent's reach
+(`SetReach`), answers calls that wait for a chief (`ChiefAnswer`) and
+may cancel any agent's commands. An agent, the actor `agent/<n>` keyed
+by its `AgentNumber`, calls for its own tools: `Run`, `CommandStatus`,
+`Cancel`, `ReadFile`, `Search`, `Find`, `WriteFile` and `EditFile`.
+`agent_of` in `workspace.rs` takes the agent from the caller the host
+stamped and refuses any other caller, or an agent that names another.
+`ListTools` checks no caller. The workspace calls the realm with
+`Secrets` and `NeedsChief`, and an agent with `Finished`. In this
+repository the realm and the agent are only the demo's stand-ins. The
+host gives the workspace its `Sandbox` as a value of `HostOptions`, and
+the workspace does not start without one; `workspace::Options` there
+sets how long a call waits for its command.
+
+`workspace/reach.rs` keeps the reach: one row per agent in the table
+`reach`, with its version and its `Reach`, an agent's, a worker's (with
+its starter, none for a chief's worker) or ended. Only the realm sets
+it. `apply` keeps a `SetReach` only when its version is newer than the
+one in force, and the answer is `InForce` with the version in force
+after the call, so a reach that arrives late changes nothing. A row is
+never deleted, so an ended reach stays ended.
+
+`gate` in `reach.rs` weighs each call under the reach in force. It
+refuses a call with no reach or an ended one, and a path out of reach or
+in an agent's filesystem. It answers `NeedsSecrets` while the workspace
+holds a list of the realm's secrets older than the version the reach
+names: the call then fetches the list from the realm once (`Secrets`)
+and passes the gate again. The list is held in memory only, so each
+start fetches it again. It answers `NeedsChief` with what the call
+waits for (H11): the network for a command that asks for it, or names a
+word of `NETWORK_WORDS`, while the reach has none; a command or an edit
+of the folder its hamlet works on in manual mode, without trust for
+the conversation (C21). Otherwise the call runs.
+
+A command's life is in `workspace.rs` and `workspace/run.rs`. `Run`
+carries a `Program`: a bash script, which runs at most 120 seconds or
+its shorter `timeout_ms` (C16), or a tool added by hand. A call that
+passes the gate opens a row in the table `calls` (`calls.rs`), keyed by
+the agent and the call's id, with the hash of its request; the row's id
+is the `CommandId`. The command runs on a thread of its own
+(`run::start`). The call waits 5 seconds (`run::ANSWER_WITHIN`): it
+answers `Done` with the `CommandEnd` if the command ended by then, else
+`Running` with its id. After `Running`, the workspace calls the agent
+once with `Finished` when the command ends; a failed call is logged and
+dropped. The actor stays awake while a command runs. A command whose
+host stopped or was killed keeps its row `running`, and the next start
+of the workspace marks it cut off (`run::CUT_OFF`); no one is told.
+`CommandStatus` answers by command id, for the agent's own commands. A
+repeat of a call with the same id and request answers from its row, or
+waits with the first call while the command runs; the same id with
+another request is refused as `CallReused`.
+
+`workspace/run/output.rs` keeps a command's output, the realm's secrets
+taken out as it streams. Its end carries the tail, the last 2000 lines
+or 50 KiB. Once the output passes the tail, all of it goes to a spill
+file, `actors/workspace/local.output/<agent>/<command>.log`, up to
+512 MiB (`SPILL_CAP`), which the end's `Cut` names and the agent may
+read.
+
+`workspace/files.rs` passes the file tools through the gate and runs
+them on the sandbox's `Env`, off the runtime, with the secrets taken out
+of the answer. Paths arrive absolute. `ReadFile` (`files/read.rs`),
+`Search` and `Find` (`files/walk.rs`) keep no row. `WriteFile`, at most
+16 MiB (`MOST_CONTENT`), and `EditFile`, exact replacements
+(`files/edit.rs`) shown as a diff (`files/diff.rs`), are changes, in
+`files/change.rs`. One change at a time holds a path, by the path as
+written. A change reads the file, writes its row as `changing` with the
+path of the new file it is about to make, writes the content to
+`.hamlet-<uuid>.new` beside the file and renames it over the file with
+`Env::replace_file`, only while the file still holds what was read;
+otherwise it is refused as `FileChanged`. Its row then holds the
+answer, so a repeat by call id answers from it. A start removes the new
+files and the rows of changes a kill cut off (`cut_off_changes`), so a
+repeat of one runs afresh.
+
+`workspace/pending.rs` keeps calls that wait for a chief (H11, H34).
+Such a call's row is `waiting`, and its own request is in the table
+`waits`, with the reach version it was weighed under and, for a change,
+the hash of what the file held. A request that holds one of the realm's
+secrets is refused as `HoldsSecret`, since no secret is stored. After
+the commit the workspace calls the realm with `NeedsChief`, the call in
+words with the secrets taken out, and answers `WaitsForChief`. The
+realm answers with `ChiefAnswer`. A refusal or a lapse ends the wait. An
+allow checks the call again under the reach in force (`recheck`): it
+runs when the gate lets it, or when it needs only what the chief was
+asked; else it is refused as `ReachChanged`. A change also needs the
+file to still hold what hashes to what the chief was shown, else
+`FileChanged`. An allow's scope is in the reach the realm sets before
+it answers, not in the answer. The agent hears how the call ended with
+`Finished`. A wait stays through a restart.
+
+`Cancel` ends an agent's running commands, one call's, one
+conversation's or all of them, as `Exit::Cancelled`, and answers once
+each has stopped. It ends no wait. A `SetReach` to `Reach::Ended` ends
+the agent's waits as lapsed and tells the agent of each, cancels all its
+commands, ends what they left running under Seatbelt, and removes a
+worker's scratch folder.
+
+`workspace/workers.rs` keeps the workers' scratch folders,
+`workers/<n>/` (H42): made when a worker's reach arrives, and again
+before a call when one is missing; removed when its reach ends; and
+swept at the workspace's start for each worker whose reach ended. An
+agent's filesystem is `actors/agent/<n>.fs/` (`RealmFolder::filesystem`
+in `reach.rs`). The agent makes it, and the workspace's file tools never
+change it. When its hamlet has no folder, an agent's commands run
+there, and a worker's in its scratch folder.
+
+`workspace/tools.rs` holds the tools a chief adds by hand (C17): each a
+folder of `tools/` with a `manifest.json`. `ListTools` lists those that
+load, in their folders' order, and why each other folder does not; a
+name that a built-in or a society tool has is reserved. `Program::Tool`
+runs one: its arguments must be a JSON object its manifest's schema
+takes, and it reads them on its standard input. It runs in its own
+folder with the reach, environment and limits of its manifest rather
+than the agent's reach, and the gate weighs it as a command whose
+network is its manifest's. `tools/` and `library/` are locked in every
+agent's policy, so no agent writes them. How each policy is built, and
+what holds on each OS, is in [`sandbox.md`](sandbox.md#the-workspace-actor).
+
+`tests/workspace.rs` and `tests/workspace/` run the workspace through a
+host, called by test actors in the realm's and agents' places: the
+reach and commands in `workspace.rs`, then `files.rs`, `changes.rs`,
+`waits.rs`, `cancel.rs`, `workers.rs`, `tools.rs` and `realm_folder.rs`. `hamlet_messages/tests/fixtures.rs` checks the messages.
 
 ## The server
 
@@ -447,6 +600,15 @@ built-in ones.
 | What the host reports on `Host::events` | `hamlet_host/src/event.rs` |
 | A one-shot timer's tries, and the timers set aside after them | `hamlet_actor_core/src/actor/schedule.rs`; `Host::set_aside_timers` and `Host::rearm_timer` in `hamlet_host/src/local.rs` |
 | A kill scenario | `hamlet_killkit/src/scenario.rs`, and a fault point with `hamlet_host::fault::point` |
+| A message between actors, or its fixture | `hamlet_messages/src/`, then `cargo test -p hamlet_messages` rewrites `fixtures/` |
+| An agent's reach on the workspace, and the gate | `hamlet_actors/src/workspace/reach.rs` (`apply`, `gate`, `placement`); [the workspace actor](#the-workspace-actor) |
+| A command's life: its row, `Done` or `Running`, `Finished`, its status, a repeat, a cut-off command | `hamlet_actors/src/workspace.rs`, `workspace/run.rs`, `workspace/calls.rs` |
+| A command's tail and spill file | `hamlet_actors/src/workspace/run/output.rs` |
+| The workspace's reads, writes and edits | `hamlet_actors/src/workspace/files.rs`, `files/`; the replace by rename in `hamlet_sandbox/src/env.rs` and `hamlet_os/src/fs/walk.rs` |
+| Calls that wait for a chief on the workspace | `hamlet_actors/src/workspace/pending.rs` |
+| Cancelling an agent's commands, and an ended reach | `hamlet_actors/src/workspace.rs` (`cancel`, `end_agent`) |
+| Workers' scratch folders on the workspace | `hamlet_actors/src/workspace/workers.rs` |
+| Tools added by hand on the workspace | `hamlet_actors/src/workspace/tools.rs` |
 
 `hamlet_realm/src/hamlet.rs` bridges received entities to the generator's
 plots and roads. `Hire` marks an agent that is a hire; `HamletId` is a

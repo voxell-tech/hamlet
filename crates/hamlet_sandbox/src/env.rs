@@ -11,18 +11,20 @@ use std::time::Duration;
 
 use hamlet_os::fs::path::{self, text};
 use hamlet_os::fs::{
-    FileId, Follow, Kind, Mode, Open, Reached, Stat, SystemError,
-    Unreached, system_error,
+    FileId, Follow, Kind, Mode, Name, Open, Reached, Stat,
+    SystemError, Unreached, system_error,
 };
 use hamlet_os::process::{self, Tree};
 use hamlet_workspace_wire::Code;
+use sha2::{Digest, Sha256};
 use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::time::Instant;
 
 use super::Sandbox;
 use super::policy::{
-    Policy, SetupError, canon_text, directory_root, fixed_roots,
-    is_readable, is_writable, policy_hash, private_tmp, temp_root,
+    Access, Policy, SetupError, canon_text, directory_root,
+    fixed_roots, is_readable, is_writable, policy_hash, private_tmp,
+    temp_root,
 };
 use crate::scrub::Scrubber;
 
@@ -125,6 +127,60 @@ impl FileError {
     }
 }
 
+/// The file a change would replace, as [`Env::read_for_change`] read
+/// it.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Current {
+    /// The real path the change leads to.
+    pub real: String,
+    /// The SHA-256 of the regular file's bytes, or `None` where no
+    /// file is.
+    pub digest: Option<[u8; 32]>,
+}
+
+/// The outcome of [`Env::replace_file`].
+#[derive(Debug, PartialEq, Eq)]
+pub enum Replaced {
+    /// The file holds the new content. It was not there before when
+    /// `created`.
+    Done { created: bool },
+    /// The file no longer held what was read, so nothing was written:
+    /// the SHA-256 of what it holds now, or `None` where no file is.
+    Changed(Option<[u8; 32]>),
+}
+
+/// The SHA-256 of the regular file `at` names, or `None` where
+/// nothing is. Each part of its bytes goes to `part` as it is read.
+fn digest(
+    at: &Reached,
+    part: &mut impl FnMut(&[u8]),
+) -> Result<Option<[u8; 32]>, FileError> {
+    let mut file = match at.file(Open::Read) {
+        Ok(file) => file.into_file(),
+        Err(error) if error.kind() == ErrorKind::NotFound => {
+            return Ok(None);
+        }
+        Err(error) => {
+            return Err(file_error(&error, "open", &at.resolved));
+        }
+    };
+    let mut hasher = Sha256::new();
+    let mut buffer = vec![0; 64 << 10];
+    loop {
+        match io::Read::read(&mut file, &mut buffer) {
+            Ok(0) => return Ok(Some(hasher.finalize().into())),
+            Ok(n) => {
+                hasher.update(&buffer[..n]);
+                part(&buffer[..n]);
+            }
+            Err(error) if error.kind() == ErrorKind::Interrupted => {}
+            Err(error) => {
+                return Err(file_error(&error, "read", &at.resolved));
+            }
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FileKind {
     File,
@@ -176,12 +232,6 @@ impl<'a> Launch<'a> {
             Self::Shell(argv) | Self::Program { argv, .. } => argv,
         }
     }
-}
-
-#[derive(Clone, Copy)]
-enum Reach {
-    Read,
-    Write,
 }
 
 impl Env {
@@ -302,7 +352,7 @@ impl Env {
     fn reach(
         &self,
         path: &str,
-        reach: Reach,
+        access: Access,
         follow: Follow,
     ) -> Result<Reached, FileError> {
         if let Some(refusal) = self.root_refusal() {
@@ -321,12 +371,12 @@ impl Env {
                     described(SystemError::LOOP, "open", &resolved)
                 }
             })?;
-        let (allowed, verb) = match reach {
-            Reach::Read => (
+        let (allowed, verb) = match access {
+            Access::Read => (
                 is_readable(&self.policy, &self.tmp, &reached.real),
                 "read",
             ),
-            Reach::Write => (
+            Access::Write => (
                 is_writable(
                     &self.policy,
                     &self.tmp,
@@ -352,7 +402,7 @@ impl Env {
         &self,
         path: &str,
     ) -> Result<FileInfo, FileError> {
-        let at = self.reach(path, Reach::Read, Follow::NotLast)?;
+        let at = self.reach(path, Access::Read, Follow::NotLast)?;
         let stat = at.stat().map_err(|error| {
             file_error(&error, "lstat", &at.resolved)
         })?;
@@ -373,7 +423,7 @@ impl Env {
         &self,
         path: &str,
     ) -> Result<Vec<FileInfo>, FileError> {
-        let at = self.reach(path, Reach::Read, Follow::Last)?;
+        let at = self.reach(path, Access::Read, Follow::Last)?;
         let scandir = |error: &io::Error| {
             file_error(error, "scandir", &at.resolved)
         };
@@ -406,7 +456,7 @@ impl Env {
         &self,
         path: &str,
     ) -> Result<String, FileError> {
-        let at = self.reach(path, Reach::Read, Follow::Last)?;
+        let at = self.reach(path, Access::Read, Follow::Last)?;
         at.stat().map(|_| at.real.clone()).map_err(|error| {
             file_error(&error, "realpath", &at.resolved)
         })
@@ -429,7 +479,7 @@ impl Env {
         &self,
         path: &str,
     ) -> Result<(fs::File, String), FileError> {
-        let at = self.reach(path, Reach::Read, Follow::Last)?;
+        let at = self.reach(path, Access::Read, Follow::Last)?;
         let file = at.file(Open::Read).map_err(|error| {
             if error.kind() == ErrorKind::IsADirectory {
                 FileError::new(
@@ -481,7 +531,7 @@ impl Env {
         content: &str,
         how: Open,
     ) -> Result<(), FileError> {
-        let mut at = self.reach(path, Reach::Write, Follow::Last)?;
+        let mut at = self.reach(path, Access::Write, Follow::Last)?;
         at.make_folders().map_err(|error| {
             file_error(
                 &error,
@@ -495,6 +545,67 @@ impl Env {
         file.file()
             .write_all(content.as_bytes())
             .map_err(|error| file_error(&error, "open", &at.resolved))
+    }
+
+    /// Reads the file a change of `path` would replace: where the
+    /// path leads, and the digest of the regular file there, if any,
+    /// whose bytes go to `part` as they are read. Refused where the
+    /// policy does not let the path be changed.
+    pub fn read_for_change(
+        &self,
+        path: &str,
+        part: &mut impl FnMut(&[u8]),
+    ) -> Result<Current, FileError> {
+        let at = self.reach(path, Access::Write, Follow::Last)?;
+        let digest = digest(&at, part)?;
+        Ok(Current {
+            real: at.real,
+            digest,
+        })
+    }
+
+    /// Replaces the file at `path` with `content` by way of the new
+    /// file `temp` in its folder, renamed over it, so the file holds
+    /// all of the old content or all of the new. Only while `path`
+    /// still leads to `real` and the file's digest is `was` (`None`:
+    /// no file); otherwise the change hears what it is now. A
+    /// file a write in place could not open is refused in its words.
+    pub fn replace_file(
+        &self,
+        path: &str,
+        real: &str,
+        temp: &str,
+        was: Option<&[u8; 32]>,
+        content: &[u8],
+    ) -> Result<Replaced, FileError> {
+        let mut at = self.reach(path, Access::Write, Follow::Last)?;
+        if at.real != real {
+            return Err(FileError::new(
+                Code::PermissionDenied,
+                MOVED,
+            ));
+        }
+        let now = digest(&at, &mut |_| ())?;
+        if now.as_ref() != was {
+            return Ok(Replaced::Changed(now));
+        }
+        if now.is_some() {
+            at.file(Open::Append).map_err(|error| {
+                file_error(&error, "open", &at.resolved)
+            })?;
+        }
+        let temp = Name::new(temp).map_err(|_| {
+            FileError::new(
+                Code::Invalid,
+                format!("{temp} is no name"),
+            )
+        })?;
+        at.replace(&temp, content, NEW_FILE).map_err(|error| {
+            file_error(&error, "open", &at.resolved)
+        })?;
+        Ok(Replaced::Done {
+            created: now.is_none(),
+        })
     }
 
     /// A new empty file for spilled output.
@@ -524,30 +635,61 @@ impl Env {
         leftovers: &Leftovers,
         output: &mut (impl FnMut(&str) + Send),
     ) -> Result<Ran, ExecError> {
-        let mut scrubber = Scrubber::new(secrets);
         let mut spill = Spill::default();
-        let mut kept = |text: &str, spill: &mut Spill| {
+        let streamed = self
+            .stream(
+                launch,
+                timeout,
+                secrets,
+                leftovers,
+                &mut |text| {
+                    spill.push(self, text);
+                    output(text);
+                },
+            )
+            .await;
+        let spilled = spill
+            .finish()
+            .map_err(|error| ExecError::Spill(error.message))?;
+        match streamed {
+            Ok(exit_code) => Ok(Ran {
+                exit_code,
+                spill: spilled,
+            }),
+            Err(ExecError::Timeout { .. }) => {
+                Err(ExecError::Timeout { spill: spilled })
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    /// [`Env::exec`], with the output, `secrets` taken out, only
+    /// given to `output` as it comes: none of it is kept. Returns the
+    /// exit code; a timeout spills nothing.
+    pub async fn stream(
+        &self,
+        launch: Launch<'_>,
+        timeout: Duration,
+        secrets: &[String],
+        leftovers: &Leftovers,
+        output: &mut (impl FnMut(&str) + Send),
+    ) -> Result<i32, ExecError> {
+        let mut scrubber = Scrubber::new(secrets);
+        let mut kept = |text: &str| {
             if !text.is_empty() {
-                spill.push(self, text);
                 output(text);
             }
         };
         let ran = self
             .spawned(launch, timeout, leftovers, &mut |text| {
-                kept(&scrubber.push(text), &mut spill);
+                kept(&scrubber.push(text));
             })
             .await;
-        kept(&scrubber.flush(), &mut spill);
-        let spilled = spill
-            .finish()
-            .map_err(|error| ExecError::Spill(error.message))?;
+        kept(&scrubber.flush());
         match ran? {
-            Ended::Exited(status) => Ok(Ran {
-                exit_code: exit_code(&status),
-                spill: spilled,
-            }),
+            Ended::Exited(status) => Ok(exit_code(&status)),
             Ended::TimedOut => {
-                Err(ExecError::Timeout { spill: spilled })
+                Err(ExecError::Timeout { spill: None })
             }
         }
     }
@@ -967,6 +1109,8 @@ mod tests {
 
     use hamlet_testing::Scratch;
     use hamlet_testing::links::symlink;
+    #[cfg(unix)]
+    use hamlet_testing::names_in;
 
     use super::*;
     use crate::policy::host_env;
@@ -1130,6 +1274,191 @@ mod tests {
         assert_eq!(
             fs::read_to_string(folder.join("file")).unwrap(),
             "kept\n"
+        );
+    }
+
+    /// An environment that may change `folder`.
+    #[cfg(unix)]
+    fn changing(scratch: &Scratch) -> (PathBuf, Env) {
+        let home = scratch.join("home");
+        let house = home.join("houses/home/0");
+        let folder = scratch.join("folder");
+        fs::create_dir_all(&house).unwrap();
+        fs::create_dir_all(&folder).unwrap();
+        let env = Env::new(
+            &text(&folder),
+            open_policy(&folder, &house, &home, &[]),
+            Sandbox::testing(),
+        )
+        .unwrap();
+        (folder, env)
+    }
+
+    /// A change reads what it replaces and where the path leads, and
+    /// replaces it, or makes it where nothing was.
+    #[cfg(unix)]
+    #[test]
+    fn a_change_replaces_the_file_it_read() {
+        let scratch = Scratch::new("env-change");
+        let (folder, env) = changing(&scratch);
+        fs::write(folder.join("f"), "old").unwrap();
+
+        let mut old = Vec::new();
+        let read = env
+            .read_for_change("f", &mut |part| {
+                old.extend_from_slice(part);
+            })
+            .unwrap();
+        let replaced = env
+            .replace_file(
+                "f",
+                &read.real,
+                ".f.new",
+                read.digest.as_ref(),
+                b"new",
+            )
+            .unwrap();
+        let fresh =
+            env.read_for_change("sub/g", &mut |_| ()).unwrap();
+        let made = env
+            .replace_file(
+                "sub/g",
+                &fresh.real,
+                ".g.new",
+                None,
+                b"made",
+            )
+            .unwrap();
+
+        assert_eq!(read.real, text(&folder.join("f")));
+        assert_eq!(old, b"old");
+        assert_eq!(read.digest, Some(Sha256::digest(b"old").into()));
+        assert_eq!(replaced, Replaced::Done { created: false });
+        assert_eq!(fresh.real, text(&folder.join("sub/g")));
+        assert_eq!(fresh.digest, None);
+        assert_eq!(made, Replaced::Done { created: true });
+        assert_eq!(
+            fs::read_to_string(folder.join("f")).unwrap(),
+            "new"
+        );
+        assert_eq!(
+            fs::read_to_string(folder.join("sub/g")).unwrap(),
+            "made"
+        );
+        assert_eq!(names_in(&folder), ["f", "sub"]);
+        assert_eq!(names_in(&folder.join("sub")), ["g"]);
+    }
+
+    /// A file that no longer holds what was read is not replaced, and
+    /// the change hears what it holds now.
+    #[cfg(unix)]
+    #[test]
+    fn a_change_of_a_file_that_changed_is_refused() {
+        let scratch = Scratch::new("env-change-stale");
+        let (folder, env) = changing(&scratch);
+        fs::write(folder.join("f"), "old").unwrap();
+        let read = env.read_for_change("f", &mut |_| ()).unwrap();
+        let none = env.read_for_change("g", &mut |_| ()).unwrap();
+        fs::write(folder.join("f"), "theirs").unwrap();
+        fs::write(folder.join("g"), "made meanwhile").unwrap();
+
+        let stale = env
+            .replace_file(
+                "f",
+                &read.real,
+                ".f.new",
+                read.digest.as_ref(),
+                b"new",
+            )
+            .unwrap();
+        let made = env
+            .replace_file("g", &none.real, ".g.new", None, b"new")
+            .unwrap();
+
+        assert_eq!(
+            stale,
+            Replaced::Changed(Some(Sha256::digest(b"theirs").into()))
+        );
+        assert_eq!(
+            made,
+            Replaced::Changed(Some(
+                Sha256::digest(b"made meanwhile").into()
+            ))
+        );
+        assert_eq!(
+            fs::read_to_string(folder.join("f")).unwrap(),
+            "theirs"
+        );
+        assert_eq!(names_in(&folder), ["f", "g"]);
+    }
+
+    /// A path that leads elsewhere than when it was read is not
+    /// replaced, so the new file is never made in a folder the change
+    /// did not name.
+    #[cfg(unix)]
+    #[test]
+    fn a_change_whose_path_leads_elsewhere_is_refused() {
+        let scratch = Scratch::new("env-change-moved");
+        let (folder, env) = changing(&scratch);
+        fs::create_dir_all(folder.join("a")).unwrap();
+        fs::create_dir_all(folder.join("b")).unwrap();
+        symlink("a", folder.join("l")).unwrap();
+        let read = env.read_for_change("l/f", &mut |_| ()).unwrap();
+        fs::remove_file(folder.join("l")).unwrap();
+        symlink("b", folder.join("l")).unwrap();
+
+        let moved = env
+            .replace_file("l/f", &read.real, ".f.new", None, b"new")
+            .unwrap_err();
+
+        assert_eq!(moved.message, MOVED);
+        assert!(names_in(&folder.join("a")).is_empty());
+        assert!(names_in(&folder.join("b")).is_empty());
+    }
+
+    /// A change goes no further than a write in place would: a path
+    /// out of the policy and a file the server may not write are
+    /// refused in a write's words.
+    #[cfg(unix)]
+    #[test]
+    fn a_change_is_refused_where_a_write_would_be() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let scratch = Scratch::new("env-change-refused");
+        let (folder, env) = changing(&scratch);
+        let locked = folder.join("locked");
+        fs::write(&locked, "old").unwrap();
+        fs::set_permissions(
+            &locked,
+            fs::Permissions::from_mode(0o444),
+        )
+        .unwrap();
+        let outside = text(&scratch.join("home/x"));
+
+        let read =
+            env.read_for_change("locked", &mut |_| ()).unwrap();
+        let refused = env
+            .replace_file(
+                "locked",
+                &read.real,
+                ".l.new",
+                read.digest.as_ref(),
+                b"new",
+            )
+            .unwrap_err();
+        let written = env.write_file("locked", "new").unwrap_err();
+        let out =
+            env.read_for_change(&outside, &mut |_| ()).unwrap_err();
+
+        assert_eq!(refused.message, written.message);
+        assert_eq!(refused.code, Code::PermissionDenied);
+        assert_eq!(fs::read_to_string(&locked).unwrap(), "old");
+        assert_eq!(names_in(&folder), ["locked"]);
+        assert_eq!(
+            out.message,
+            format!(
+                "{outside} is out of this agent's reach to change"
+            )
         );
     }
 

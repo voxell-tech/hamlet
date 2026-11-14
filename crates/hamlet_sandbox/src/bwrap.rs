@@ -7,8 +7,9 @@ use hamlet_os::fs::path::text;
 
 use super::Confined;
 use super::policy::{
-    Policy, above_roots, fixed_roots, is_dir, is_within_text,
-    temp_root, write_roots,
+    Grant, Layer, Policy, above_roots, canon_text, depth,
+    fixed_roots, is_dir, is_locked, is_readable, is_writable, layers,
+    write_roots,
 };
 
 /// Where Homebrew installs on Linux.
@@ -39,7 +40,10 @@ pub(super) fn command(
     if policy.net {
         push(&["--share-net"]);
     }
-    push(&["--die-with-parent", "--new-session"]);
+    // No `--new-session`: the leader has a session of its own
+    // (`hamlet_os`), and a sandbox init that left it for another
+    // would leave the group a cancel kills before it dies with bwrap.
+    push(&["--die-with-parent"]);
     if policy.open {
         push(&["--ro-bind", "/", "/"]);
     } else {
@@ -71,48 +75,129 @@ pub(super) fn command(
     if !policy.open {
         push(&["--tmpfs", "/tmp"]);
     }
-    if policy.open {
-        // An empty folder over each. One that is missing has nothing
-        // to hide and cannot be mounted over.
-        let mut hidden =
-            policy.hidden.iter().map(|p| text(p)).collect::<Vec<_>>();
-        hidden.push(temp_root());
-        for path in hidden.iter().filter(|path| is_dir(path)) {
-            push(&["--tmpfs", path]);
+    // Each mount at its depth, so that a deeper one lies over the
+    // ones that hold it: the deepest root decides, also for a hidden
+    // folder inside a write root. Of two at the same place the later
+    // rank lies on top.
+    let mut mounts = Vec::<(usize, u8, Vec<String>)>::new();
+    let mut covers = Vec::new();
+    // With the machine open its links are there, and an older
+    // bubblewrap cannot mount through one, so each mount lands where
+    // its root really is. Closed, only the mounts are there.
+    let place = |path: &str| {
+        if policy.open {
+            canon_text(path)
+        } else {
+            path.to_owned()
+        }
+    };
+    let mut mount = |path: &str, rank, flag: &str, bind: bool| {
+        let mut words = vec![flag.to_owned()];
+        if bind {
+            words.push(path.to_owned());
+        }
+        words.push(place(path));
+        mounts.push((depth(path), rank, words));
+    };
+    for Layer { path, real, grant } in layers(policy, tmp) {
+        match grant {
+            // An empty folder over it. One that is missing has
+            // nothing to hide and cannot be mounted over.
+            Grant::Hidden if is_dir(&path) => {
+                mount(&path, 0, "--tmpfs", false);
+                covers.push(place(&path));
+            }
+            Grant::Hidden => {}
+            // A root that is missing has nothing to read, as under
+            // Seatbelt, and stops no command.
+            Grant::Read => mount(&path, 1, "--ro-bind-try", true),
+            // A locked path's mount lies under deeper ones, so a
+            // write root inside one is bound read-only itself.
+            Grant::Write if is_locked(policy, &real) => {
+                mount(&path, 2, "--ro-bind", true);
+            }
+            Grant::Write => mount(&path, 2, "--bind", true),
         }
     }
-    // A root that is missing has nothing to read, as under Seatbelt,
-    // and stops no command.
-    for path in &policy.ro {
-        let path = text(path);
-        push(&["--ro-bind-try", &path, &path]);
-    }
-    let writes = write_roots(policy, tmp);
-    for path in &writes {
-        push(&["--bind", path, path]);
-    }
     // Mount points keep roots and their writable ancestors in place.
-    let mut seen = BTreeSet::new();
+    let writes = write_roots(policy, tmp);
     let mut points = above_roots(policy, tmp);
     points.extend(fixed_roots(policy, tmp));
+    let mut seen = BTreeSet::new();
     points.retain(|path| seen.insert(path.clone()));
-    points.sort_by_key(String::len);
     for path in &points {
         if Path::new(path).exists()
-            && writes
-                .iter()
-                .any(|rw| path != rw && is_within_text(path, rw))
+            && !writes.contains(path)
+            && is_writable(policy, tmp, &canon_text(path), false)
         {
-            push(&["--bind", path, path]);
+            mount(path, 3, "--bind", true);
         }
     }
     for path in &policy.locked {
         let path = text(path);
-        push(&["--ro-bind-try", &path, &path]);
+        if is_readable(policy, tmp, &canon_text(&path)) {
+            mount(&path, 4, "--ro-bind-try", true);
+        }
+    }
+    mounts.sort_by_key(|(depth, rank, _)| (*depth, *rank));
+    for (_, _, words) in &mounts {
+        push(&words.iter().map(String::as_str).collect::<Vec<_>>());
+    }
+    // Read-only once the roots inside it are mounted, so that a
+    // write there fails as it does under Seatbelt.
+    for path in &covers {
+        push(&["--remount-ro", path]);
     }
     push(&["--chdir", cwd, "--"]);
     args.extend(argv.iter().cloned());
     let mut env = policy.env.clone();
     env.insert("TMPDIR".into(), tmp.to_owned());
     Confined { argv: args, env }
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use std::fs;
+
+    use hamlet_testing::Scratch;
+
+    use super::*;
+    use crate::policy::temp_root;
+
+    /// With the machine open, no mount lands on a path through a
+    /// link: an older bubblewrap cannot make one there, and every
+    /// command would fail.
+    #[test]
+    fn an_open_policys_mounts_land_past_links() {
+        let scratch = Scratch::new("bwrap-links");
+        let project = scratch.join("project");
+        fs::create_dir_all(project.join("realm/library")).unwrap();
+        let alias = scratch.join("alias");
+        std::os::unix::fs::symlink(&project, &alias).unwrap();
+        let policy = Policy {
+            ro: vec![alias.join("realm/library")],
+            rw: vec![alias.clone()],
+            open: true,
+            hidden: vec![alias.join("realm")],
+            locked: vec![alias.join("realm/library")],
+            ..Policy::default()
+        };
+        let tmp =
+            hamlet_os::fs::path::join(&[temp_root(), "house".into()]);
+        let argv = command(&policy, &["true".into()], "/", &tmp).argv;
+        let mut through = Vec::new();
+        for (i, word) in argv.iter().enumerate() {
+            let at = match word.as_str() {
+                "--tmpfs" | "--remount-ro" => &argv[i + 1],
+                "--bind" | "--ro-bind" | "--ro-bind-try" => {
+                    &argv[i + 2]
+                }
+                _ => continue,
+            };
+            if *at != canon_text(at) {
+                through.push(format!("{word} {at}"));
+            }
+        }
+        assert!(through.is_empty(), "{through:#?}");
+    }
 }

@@ -29,6 +29,10 @@
 //! demo serve [<n>]              boot, start <n> counters that never
 //!                               sleep, then run one command per line
 //!                               of stdin until it ends or SIGTERM
+//! demo realm ...                the stub realm's commands, in
+//!                               demo/realm.rs
+//! demo agent ...                the stub agent's commands, in
+//!                               demo/agent.rs
 //! ```
 //!
 //! A `<key>` names a counter of the first kind, and `<kind>/<key>` an
@@ -52,19 +56,26 @@
 
 #[path = "demo/act.rs"]
 mod act;
+#[path = "demo/agent.rs"]
+mod agent;
 #[path = "demo/command.rs"]
 mod command;
 #[path = "demo/counter.rs"]
 mod counter;
+#[path = "demo/realm.rs"]
+mod realm;
 
 use std::io::{IsTerminal, Write};
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Duration;
 
 use act::act;
 use anyhow::{Context, Result, anyhow, bail};
 use command::{number, print_reply, run, shown};
+use hamlet_actors::workspace;
 use hamlet_host::{Host, HostOptions};
+use hamlet_sandbox::{Isolation, Sandbox};
 use tokio::sync::mpsc;
 use tracing_subscriber::EnvFilter;
 
@@ -109,10 +120,19 @@ async fn demo() -> Result<()> {
     } else {
         counter::Sleep::WhenIdle
     };
-    let factories = counter::factories(
+    let mut factories = counter::factories(
         &kinds.iter().map(String::as_str).collect::<Vec<_>>(),
         sleep,
     );
+    factories
+        .insert(workspace::KIND.to_owned(), workspace::factory());
+    factories.insert(workspace::REALM.to_owned(), realm::factory());
+    factories.insert(workspace::AGENT.to_owned(), agent::factory());
+    // The workspace does not start where there is no sandbox.
+    let options = match Sandbox::open(Isolation::Sandboxed) {
+        Ok(sandbox) => options.with_value(Arc::new(sandbox)),
+        Err(_) => options,
+    };
     let host = Host::open_with(&home, factories, options)?;
     let result = match command {
         Some("serve") => {
@@ -126,7 +146,7 @@ async fn demo() -> Result<()> {
         }
         Some(_) => {
             host.boot().await?;
-            run(&host, &kinds, args).await
+            run_line(&host, &kinds, args).await
         }
         None => Err(anyhow!(
             "usage: demo [--name <name>] [--kind <kind>]... \
@@ -136,6 +156,24 @@ async fn demo() -> Result<()> {
     };
     host.shutdown().await?;
     result
+}
+
+/// Runs one command line split into words: the stub realm's, a stub
+/// agent's, or one for the counters of `kinds`.
+async fn run_line(
+    host: &Host,
+    kinds: &[String],
+    words: &[String],
+) -> Result<()> {
+    match words.split_first() {
+        Some((first, rest)) if first == "realm" => {
+            realm::run(host, rest).await
+        }
+        Some((first, rest)) if first == "agent" => {
+            agent::run(host, rest).await
+        }
+        _ => run(host, kinds, words).await,
+    }
 }
 
 /// The host's options and its counter kinds, read from the options
@@ -211,7 +249,7 @@ async fn serve(
             continue;
         }
         let ran = tokio::select! {
-            ran = run(host, kinds, &words) => ran,
+            ran = run_line(host, kinds, &words) => ran,
             () = &mut stop => return Ok(()),
         };
         if let Err(error) = ran {
