@@ -559,6 +559,14 @@ fn the_changes_match_their_fixtures() {
         )),
     );
     fixtures.answer(
+        "workspace/write_file.refused.project_in_realm",
+        &ChangeAnswer::Refused(CallRefusal::Reach(
+            Refusal::ProjectInRealm {
+                folder: "/realm/projects/site".into(),
+            },
+        )),
+    );
+    fixtures.answer(
         "workspace/write_file.waits_for_chief",
         &ChangeAnswer::WaitsForChief(vec![Need::Edit]),
     );

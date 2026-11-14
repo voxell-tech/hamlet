@@ -170,6 +170,16 @@ impl RealmFolder {
         self.0.join("tools")
     }
 
+    /// Whether `path` is the realm folder or lies inside it, where
+    /// the system resolves both.
+    fn holds(&self, path: &Path) -> bool {
+        let real = |path: &Path| {
+            std::fs::canonicalize(path)
+                .unwrap_or_else(|_| path.to_owned())
+        };
+        is_within(&real(path), &real(&self.0))
+    }
+
     /// Whether `path`, normalized, is in any agent's filesystem.
     fn is_in_a_filesystem(&self, path: &Path) -> bool {
         path.strip_prefix(self.0.join("actors/agent"))
@@ -273,6 +283,13 @@ fn needs(
     footing: &Footing,
     op: &Op<'_>,
 ) -> Result<Vec<Need>, Refusal> {
+    if let Some(project) = &footing.project
+        && home.holds(&project.folder)
+    {
+        return Err(Refusal::ProjectInRealm {
+            folder: project.folder.clone(),
+        });
+    }
     let file_tool = || {
         placement(home, agent, reach, Purpose::FileTool)
             .ok_or(Refusal::NoReach)

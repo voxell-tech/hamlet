@@ -1,13 +1,14 @@
 //! C18: an agent never reaches the rest of the realm's folder, also
-//! when the folder its hamlet works on holds it.
+//! when the folder its hamlet works on holds it, and works on no
+//! folder inside it.
 
 use std::path::Path;
 
-use hamlet_messages::workspace::CallRefusal;
 use hamlet_messages::workspace::files::{
     ChangeAnswer, FileAnswer, ReadFile,
 };
 use hamlet_messages::workspace::reach::{Access, Refusal};
+use hamlet_messages::workspace::{CallRefusal, RunAnswer};
 use hamlet_testing::Scratch;
 
 use super::changes::{read, write};
@@ -149,5 +150,65 @@ async fn a_project_that_holds_the_realm_folder_reaches_none_of_it() {
             ],
             "{inside}"
         );
+    }
+}
+
+/// A project folder that is the realm folder, or lies in it, also by
+/// a link in its path: no command or file tool runs there, and the
+/// agent hears why.
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_project_in_the_realm_folder_is_refused() {
+    let scratch = Scratch::new("workspace-project-in-realm");
+    let dir = scratch.join("realm");
+    filesystem(&dir);
+    let notes = dir.join("projects/site/notes.md");
+    std::fs::create_dir_all(notes.parent().unwrap()).unwrap();
+    std::fs::write(&notes, "notes").unwrap();
+    let alias = scratch.join("alias");
+    std::os::unix::fs::symlink(&dir, &alias).unwrap();
+    for (n, folder) in [
+        dir.clone(),
+        dir.join("projects/site"),
+        alias.join("projects/site"),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let host = host(&dir).await;
+        realm_sets(&host, n as u64 + 1, reach(folder.to_str())).await;
+        let refusal = CallRefusal::Reach(Refusal::ProjectInRealm {
+            folder: folder.clone(),
+        });
+        let ran = agent_runs(
+            &host,
+            &run(
+                &format!("c{n}"),
+                &format!("printf x > {}", quoted(&notes)),
+            ),
+        )
+        .await;
+        let reads: FileAnswer =
+            ask(&host, &agent(AGENT), &reading(&notes)).await;
+        let changes: ChangeAnswer = ask(
+            &host,
+            &agent(AGENT),
+            &write(&format!("w{n}"), &notes, "x"),
+        )
+        .await;
+        host.shutdown().await.unwrap();
+        let case = folder.display();
+        assert_eq!(
+            ran,
+            RunAnswer::Refused(refusal.clone()),
+            "{case}"
+        );
+        assert_eq!(
+            reads,
+            FileAnswer::Refused(refusal.clone()),
+            "{case}"
+        );
+        assert_eq!(changes, ChangeAnswer::Refused(refusal), "{case}");
+        assert_eq!(read(&notes), "notes", "{case}");
     }
 }
