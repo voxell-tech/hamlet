@@ -17,10 +17,13 @@ hamlet_host.workspace = true
 hamlet_messages.workspace = true
 hamlet_os.workspace = true
 hamlet_sandbox.workspace = true
+hamlet_workspace_wire.workspace = true
+regex.workspace = true
 sha2.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true
 tracing.workspace = true
+unicode-normalization = "0.1"
 
 [dev-dependencies]
 serde.workspace = true

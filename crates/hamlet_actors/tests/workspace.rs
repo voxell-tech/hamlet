@@ -29,6 +29,9 @@ use hamlet_testing::Scratch;
 use rusqlite::{Connection, OpenFlags};
 use serde::{Deserialize, Serialize};
 
+#[path = "workspace/files.rs"]
+mod files;
+
 const AGENT: AgentNumber = AgentNumber(7);
 
 /// The secret the stub realm holds.

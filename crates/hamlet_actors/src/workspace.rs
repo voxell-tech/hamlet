@@ -2,6 +2,7 @@
 //! commands and file changes under the sandbox, within each agent's
 //! reach.
 
+mod files;
 pub mod reach;
 mod run;
 
@@ -15,6 +16,7 @@ use hamlet_actor_core::{ActorConfig, ActorFactory};
 use hamlet_host::{Address, Caller, Cause, Host, HostRef};
 use hamlet_messages::agent::Finished;
 use hamlet_messages::realm::{SecretList, Secrets};
+use hamlet_messages::workspace::files::{Find, ReadFile, Search};
 use hamlet_messages::workspace::reach::SecretsVersion;
 use hamlet_messages::workspace::{
     AgentNumber, CallId, CallRefusal, CallerRefusal, CommandEnd,
@@ -38,6 +40,11 @@ pub const REALM_KEY: &str = "local";
 
 /// The kind of an agent, keyed by its [`AgentNumber`].
 pub const AGENT: &str = "agent";
+
+/// The most lines and bytes of a command's output or a file handed
+/// to an agent at once (C16).
+const MOST_LINES: usize = 2000;
+const MOST_BYTES: usize = 50 * 1024;
 
 /// How the workspace answers, given by its host as a value of
 /// [`hamlet_host::HostOptions`]. Without one, it waits 5 seconds.
@@ -88,7 +95,8 @@ struct Held {
 #[async_trait::async_trait]
 impl Actor for Workspace {
     type Input = ();
-    type Actions = (SetReach, Run, CommandStatus);
+    type Actions =
+        (SetReach, Run, CommandStatus, ReadFile, Search, Find);
     type Events = ();
     type ConnParams = Option<Caller>;
     type Action = ();
@@ -142,9 +150,21 @@ impl Workspace {
         )
     }
 
-    /// Calls the realm for its secrets, and holds them when they are
-    /// newer than the ones held.
-    async fn fetch_secrets(&self, ctx: &Ctx<Self>) -> Result<()> {
+    /// Calls the realm for its secrets, which the reach in force says
+    /// are of `version`, and holds them when they are newer than the
+    /// ones held. A call fetches once: `fetched` says it did.
+    async fn fetch_secrets(
+        &self,
+        ctx: &Ctx<Self>,
+        version: SecretsVersion,
+        fetched: &mut bool,
+    ) -> Result<()> {
+        if std::mem::replace(fetched, true) {
+            bail!(
+                "the realm's secrets are older than version {}",
+                version.0
+            );
+        }
         let answer = Host::call_from(
             ctx.inner(),
             &Address::new(REALM, REALM_KEY),
@@ -229,15 +249,8 @@ impl Handler<Run> for Workspace {
                 }
                 Ok(Decision::Fetch(version)) => {
                     tx.rollback().await?;
-                    if fetched {
-                        bail!(
-                            "the realm's secrets are older than \
-                             version {}",
-                            version.0
-                        );
-                    }
-                    self.fetch_secrets(&ctx).await?;
-                    fetched = true;
+                    self.fetch_secrets(&ctx, version, &mut fetched)
+                        .await?;
                 }
                 Err(error) => {
                     tx.rollback().await?;

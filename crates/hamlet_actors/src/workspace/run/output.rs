@@ -7,9 +7,7 @@ use std::path::PathBuf;
 
 use hamlet_messages::workspace::Cut;
 
-/// The most lines and bytes of a command's output kept (C16).
-const TAIL_LINES: usize = 2000;
-const TAIL_BYTES: usize = 50 * 1024;
+use crate::workspace::{MOST_BYTES, MOST_LINES};
 
 /// The most of a command's output a spill file holds.
 pub(super) const SPILL_CAP: u64 = 512 * 1024 * 1024;
@@ -66,8 +64,8 @@ impl Output {
         self.newlines += text.matches('\n').count() as u64;
         self.ends_a_line = text.ends_with('\n');
         if self.spill.file.is_none() && self.spill.failed.is_none() {
-            if self.bytes <= TAIL_BYTES as u64
-                && self.lines() <= TAIL_LINES as u64
+            if self.bytes <= MOST_BYTES as u64
+                && self.lines() <= MOST_LINES as u64
             {
                 self.tail.push(text);
                 return;
@@ -220,12 +218,12 @@ struct Tail {
 impl Tail {
     fn push(&mut self, text: &str) {
         self.kept.push_str(text);
-        if self.kept.len() > 4 * TAIL_BYTES {
+        if self.kept.len() > 4 * MOST_BYTES {
             self.kept = self.text();
         }
     }
 
-    /// The last [`TAIL_LINES`] lines within [`TAIL_BYTES`], a line
+    /// The last [`MOST_LINES`] lines within [`MOST_BYTES`], a line
     /// cut by the byte limit dropped whole when a newline follows it,
     /// and without the control characters that break display; tabs
     /// and newlines stay.
@@ -234,10 +232,10 @@ impl Tail {
         let body = kept.strip_suffix('\n').unwrap_or(kept);
         let mut start = body
             .rmatch_indices('\n')
-            .nth(TAIL_LINES - 1)
+            .nth(MOST_LINES - 1)
             .map_or(0, |(at, _)| at + 1);
-        if kept.len() - start > TAIL_BYTES {
-            let mut from = kept.len() - TAIL_BYTES;
+        if kept.len() - start > MOST_BYTES {
+            let mut from = kept.len() - MOST_BYTES;
             while !kept.is_char_boundary(from) {
                 from += 1;
             }
@@ -282,16 +280,16 @@ mod tests {
 
     #[test]
     fn output_within_the_tail_spills_nothing() {
-        let lines = "x\n".repeat(TAIL_LINES);
+        let lines = "x\n".repeat(MOST_LINES);
         let (tail, cut, file) = spilled(SPILL_CAP, &[&lines]);
         assert_eq!((tail, cut, file), (lines, None, String::new()));
     }
 
     #[test]
     fn the_spill_holds_all_until_its_cap_then_a_note() {
-        let first = "a".repeat(TAIL_BYTES);
+        let first = "a".repeat(MOST_BYTES);
         let (tail, cut, file) =
-            spilled(TAIL_BYTES as u64 + 4, &[&first, "bcdefgh\n"]);
+            spilled(MOST_BYTES as u64 + 4, &[&first, "bcdefgh\n"]);
         let cut = cut.expect("a cut");
         assert_eq!(
             file,
@@ -307,7 +305,7 @@ mod tests {
     #[test]
     fn a_line_past_the_line_limit_opens_the_spill() {
         let lines: Vec<String> =
-            (0..=TAIL_LINES).map(|n| format!("{n}\n")).collect();
+            (0..=MOST_LINES).map(|n| format!("{n}\n")).collect();
         let chunks: Vec<&str> =
             lines.iter().map(String::as_str).collect();
         let (_, cut, file) = spilled(SPILL_CAP, &chunks);
@@ -323,7 +321,7 @@ mod tests {
             .unwrap();
         let mut output =
             Output::new(scratch.join("7/1.log"), SPILL_CAP);
-        output.push(&"y\n".repeat(TAIL_LINES + 1));
+        output.push(&"y\n".repeat(MOST_LINES + 1));
         let (_, cut) = output.finish();
         assert!(cut.unwrap_err().starts_with(
             "The command ran but its full output could not be saved"
@@ -344,6 +342,6 @@ mod tests {
         assert_eq!(wide.text(), "end");
         let mut long = Tail::default();
         long.push(&"\u{e9}".repeat(30 * 1024));
-        assert_eq!(long.text().len(), TAIL_BYTES);
+        assert_eq!(long.text().len(), MOST_BYTES);
     }
 }

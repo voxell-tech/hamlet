@@ -4707,12 +4707,15 @@ dependencies = [
  "hamlet_os",
  "hamlet_sandbox",
  "hamlet_testing",
+ "hamlet_workspace_wire",
+ "regex",
  "rusqlite",
  "serde",
  "sha2",
  "tokio",
  "tokio-util",
  "tracing",
+ "unicode-normalization",
 ]
 
 [[package]]
