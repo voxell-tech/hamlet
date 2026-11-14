@@ -10,13 +10,15 @@ use hamlet_messages::agent::Outcome;
 use hamlet_messages::workspace::files::ChangeAnswer;
 use hamlet_messages::workspace::reach::{Need, Refusal};
 use hamlet_messages::workspace::{
-    AddedTool, CallId, CallRefusal, ConversationId, Exit, ListTools,
-    Program, Run, RunAnswer, ToolList,
+    AddedTool, Answer, AnswerTaken, CallId, CallRefusal,
+    ConversationId, Exit, ListTools, Program, Run, RunAnswer, Scope,
+    ToolList,
 };
 use hamlet_testing::Scratch;
 
 use super::changes::{read, write};
 use super::files::ask;
+use super::waits::chief;
 use super::{
     AGENT, Peers, SECRET, agent, agent_runs, answering_within, done,
     filesystem, host, host_with, reach, realm_sets, run, running,
@@ -172,28 +174,50 @@ async fn a_long_tool_answers_running_then_finished() {
 }
 
 /// A tool whose manifest reaches the network waits for a chief when
-/// the agent's reach does not give it, as a command does.
+/// the agent's reach does not give it, as a command does. Once a
+/// chief allows it, it runs, its manifest read again: a tool removed
+/// meanwhile does not run.
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_tool_that_reaches_the_network_waits_for_a_chief() {
     let dir = Scratch::new("workspace-tools-network");
     filesystem(&dir);
-    add_tool(
-        &dir,
-        "fetch",
-        r#"{"name": "fetch", "exec": ["cat"], "sandbox": {"net": true}}"#,
-    );
+    let fetch = r#"{"name": "fetch", "exec": ["cat"], "sandbox": {"net": true}}"#;
+    add_tool(&dir, "fetch", fetch);
     let peers = Arc::new(Peers::default());
     let host = host_with(&dir, peers.clone()).await;
     realm_sets(&host, 1, reach(None)).await;
-    let answer =
+    let first =
         agent_runs(&host, &tool("t1", "fetch", r#"{"url":"x"}"#))
             .await;
+    let second =
+        agent_runs(&host, &tool("t2", "fetch", r#"{"url":"y"}"#))
+            .await;
+    let allowed =
+        chief(&host, "t1", Answer::Allow(Scope::Once)).await;
+    told_within(&peers, 1, Duration::from_secs(5)).await;
+    std::fs::remove_dir_all(dir.join("tools/fetch")).unwrap();
+    let gone = chief(&host, "t2", Answer::Allow(Scope::Once)).await;
     host.shutdown().await.unwrap();
-    assert_eq!(answer, RunAnswer::WaitsForChief(vec![Need::Network]));
+    let waits = RunAnswer::WaitsForChief(vec![Need::Network]);
+    assert_eq!((first, second), (waits.clone(), waits));
     let asked = peers.asked.lock().unwrap().clone();
-    assert_eq!(asked.len(), 1);
     assert_eq!(asked[0].subject, r#"fetch {"url":"x"}"#);
+    assert_eq!(allowed, AnswerTaken::Runs);
+    let told = told(&peers);
+    let Outcome::Ran(end) = &told[0].1.outcome else {
+        panic!("the agent was told {told:?}");
+    };
+    assert_eq!(
+        (&end.exit, end.output.as_str()),
+        (&Exit::Code(0), r#"{"url":"x"}"#)
+    );
+    assert_eq!(
+        gone,
+        AnswerTaken::NotRun(CallRefusal::Invalid(
+            "Tool \"fetch\" not found".into()
+        ))
+    );
 }
 
 /// No agent writes the tools folder: not a command, not a write, and
