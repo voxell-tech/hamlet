@@ -371,3 +371,80 @@ fn clip(text: &str, most: usize) -> String {
 fn is_pi_space(c: char) -> bool {
     (c.is_whitespace() && c != '\u{85}') || c == '\u{feff}'
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `*` stands for any run of characters, `/` included, and `?`
+    /// for one; a `*` that took too little takes more.
+    #[test]
+    fn names_match_as_globs() {
+        assert!(is_glob_match("*.rs", "main.rs"));
+        assert!(!is_glob_match("*.rs", "main.rsx"));
+        assert!(is_glob_match("a*b*c", "aXbYbZc"));
+        assert!(is_glob_match("a*bc", "abcbc"));
+        assert!(!is_glob_match("a*bc", "abcb"));
+        assert!(is_glob_match("?.md", "a.md"));
+        assert!(!is_glob_match("?.md", "ab.md"));
+        assert!(is_glob_match("**", ""));
+        assert!(!is_glob_match("", "a"));
+    }
+
+    /// A pattern with a `/` is matched against the path under the
+    /// folder searched, and one without against the name alone.
+    #[test]
+    fn a_pattern_with_a_slash_matches_the_path() {
+        assert!(is_wanted("*.rs", "src/main.rs"));
+        assert!(is_wanted("src/*.rs", "src/main.rs"));
+        assert!(is_wanted("src/*.rs", "src/deep/main.rs"));
+        assert!(!is_wanted("src/*.rs", "lib/src/main.rs"));
+        assert!(!is_wanted("main", "src/main.rs"));
+    }
+
+    /// A pattern that needs more than linear time and one that is not
+    /// a regular expression are refused in words that say which.
+    #[test]
+    fn a_bad_pattern_is_refused_and_said_why() {
+        let refused = |pattern| match compile(pattern, false) {
+            Ok(_) => panic!("{pattern} compiled"),
+            Err(failure) => failure.words(),
+        };
+        let not_linear = "`pattern` holds a backreference, a \
+                          lookaround or another part a search in \
+                          linear time cannot take. Use a \
+                          linear-time pattern.";
+        assert_eq!(refused("a(?=b)"), not_linear);
+        assert_eq!(refused("(a)\\1"), not_linear);
+        assert_eq!(
+            refused("(a"),
+            "`pattern` is not a regular expression: unclosed group. \
+             Correct the pattern."
+        );
+    }
+
+    /// Ignoring case lowers the pattern but for the letter after a
+    /// backslash, so `\D` stays a non-digit.
+    #[test]
+    fn ignoring_case_keeps_an_escape() {
+        let matches = compile("HeLLo \\D+", true).ok().unwrap();
+        assert!(matches("say HELLO abc"));
+        assert!(!matches("say hello 123"));
+        let exact = compile("HeLLo", false).ok().unwrap();
+        assert!(!exact("hello"));
+    }
+
+    /// Lines lose a `\r` and a last empty line, and a long one is
+    /// clipped with `...`.
+    #[test]
+    fn lines_are_split_and_clipped() {
+        assert_eq!(lines_of("a\r\nb\n"), ["a", "b"]);
+        assert_eq!(lines_of("a\n\n"), ["a", ""]);
+        assert!(lines_of("").is_empty());
+        assert_eq!(
+            clip("\u{e9}\u{e9}\u{e9}\u{e9}", 3),
+            "\u{e9}\u{e9}\u{e9}..."
+        );
+        assert_eq!(clip("abc", 3), "abc");
+    }
+}

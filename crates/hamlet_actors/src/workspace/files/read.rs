@@ -262,3 +262,119 @@ fn character_end(bytes: &[u8], index: usize) -> usize {
     }
     end
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn lines(count: usize, width: usize) -> String {
+        vec!["x".repeat(width); count].join("\n")
+    }
+
+    /// A read keeps at most 2000 lines, and says the line limit cut
+    /// it only when lines were left out.
+    #[test]
+    fn a_read_is_cut_at_two_thousand_lines() {
+        let (kept, cut) = truncate_head(&lines(2500, 1));
+        assert_eq!(kept, lines(2000, 1));
+        assert_eq!(cut.by, Some(CutBy::Lines));
+        assert_eq!((cut.total_lines, cut.output_lines), (2500, 2000));
+
+        let whole = lines(2000, 1);
+        let (kept, cut) = truncate_head(&whole);
+        assert_eq!(kept, whole);
+        assert_eq!(cut.by, None);
+    }
+
+    /// Past 50 KiB a read keeps the whole lines that fit, and a file
+    /// that fits all its lines but one byte over, with its last
+    /// newline, is still cut by bytes.
+    #[test]
+    fn a_read_is_cut_at_fifty_kilobytes() {
+        // 51 lines of 1000 bytes and their 50 newlines fit in 51200.
+        let (kept, cut) = truncate_head(&lines(100, 1000));
+        assert_eq!(cut.by, Some(CutBy::Bytes));
+        assert_eq!((cut.output_lines, cut.output_bytes), (51, 51050));
+        assert_eq!(kept, lines(51, 1000));
+
+        let (kept, cut) =
+            truncate_head(&format!("{}\n", "a".repeat(MOST_BYTES)));
+        assert_eq!(cut.by, Some(CutBy::Bytes));
+        assert_eq!(kept, "a".repeat(MOST_BYTES));
+        assert!(!cut.first_line_exceeds_limit);
+    }
+
+    /// A first line over 50 KiB keeps nothing, and the read shows its
+    /// start, cut at a character's start.
+    #[test]
+    fn a_first_line_too_long_keeps_nothing() {
+        let (kept, cut) = truncate_head(&format!(
+            "{}\nend",
+            "x".repeat(MOST_BYTES + 1)
+        ));
+        assert_eq!(kept, "");
+        assert!(cut.first_line_exceeds_limit);
+        assert_eq!(cut.by, Some(CutBy::Bytes));
+        assert_eq!((cut.output_lines, cut.output_bytes), (0, 0));
+
+        // Byte 51200 of "a" and two-byte characters is the second
+        // byte of one.
+        let line = format!("a{}", "\u{e9}".repeat(30_000));
+        assert_eq!(
+            character_end(line.as_bytes(), MOST_BYTES),
+            51_199
+        );
+        assert_eq!(character_end(b"abc", MOST_BYTES), MOST_BYTES);
+    }
+
+    /// Sizes as pi writes them, a half rounded up.
+    #[test]
+    fn sizes_are_written_as_pi_writes_them() {
+        assert_eq!(format_size(1023), "1023B");
+        assert_eq!(format_size(1024), "1.0KB");
+        assert_eq!(format_size(1280), "1.3KB");
+        assert_eq!(format_size(60_001), "58.6KB");
+        assert_eq!(format_size(3 * 1024 * 1024 / 2), "1.5MB");
+    }
+
+    /// An image is told by its first bytes, and only a whole header
+    /// counts.
+    #[test]
+    fn an_image_is_told_by_its_first_bytes() {
+        let mut png =
+            vec![0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+        png.extend(13u32.to_be_bytes());
+        png.extend(b"IHDR");
+        let mut no_header = png.clone();
+        no_header[12..16].copy_from_slice(b"IDAT");
+        let mut webp = b"RIFF".to_vec();
+        webp.extend([0; 4]);
+        webp.extend(b"WEBP");
+
+        assert_eq!(image(&png), Some("image/png"));
+        assert_eq!(image(&no_header), None);
+        assert_eq!(image(&png[..12]), None);
+        assert_eq!(
+            image(&[0xff, 0xd8, 0xff, 0xe0]),
+            Some("image/jpeg")
+        );
+        assert_eq!(image(&[0xff, 0xd8, 0xff, 0xf7]), None);
+        assert_eq!(image(b"GIF89a..."), Some("image/gif"));
+        assert_eq!(image(b"GIF87a"), Some("image/gif"));
+        assert_eq!(image(&webp), Some("image/webp"));
+        assert_eq!(image(b"RIFF"), None);
+        assert_eq!(image(b"plain text"), None);
+    }
+
+    /// A screenshot's name as macOS writes it, with a narrow no-break
+    /// space before its meridiem.
+    #[test]
+    fn a_meridiem_gets_a_narrow_space() {
+        assert_eq!(
+            narrow_meridiem("/a/Shot at 9.41.10 PM.png"),
+            "/a/Shot at 9.41.10\u{202f}PM.png"
+        );
+        assert_eq!(narrow_meridiem("/a/b am.c"), "/a/b\u{202f}am.c");
+        assert_eq!(narrow_meridiem("/a/I am here"), "/a/I am here");
+    }
+}

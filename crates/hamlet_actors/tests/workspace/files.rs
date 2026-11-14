@@ -7,7 +7,8 @@ use std::sync::atomic::Ordering;
 use hamlet_actor::Action;
 use hamlet_host::{Address, Host};
 use hamlet_messages::workspace::files::{
-    FileAnswer, Find, ReadFile, Search, Text,
+    CutBy, FileAnswer, Find, ReadFile, Search, Severity, Text,
+    Truncation,
 };
 use hamlet_messages::workspace::reach::{Access, Refusal};
 use hamlet_messages::workspace::{
@@ -145,6 +146,108 @@ async fn the_file_tools_read_the_project() {
     assert!(
         matches!(&missing, FileAnswer::Failed(words) if words.contains("ENOENT")),
         "{missing:?}"
+    );
+}
+
+/// A long file is read in parts, each saying where to go on.
+// Ported from the server's `reads_a_long_file_in_parts_saying_where_
+// to_go_on`.
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_long_file_is_read_in_parts_saying_where_to_go_on() {
+    let dir = Scratch::new("workspace-files-long");
+    let lines = (1..=2500).map(|n| n.to_string()).collect::<Vec<_>>();
+    let (_project, folder) = project(
+        "workspace-files-long-project",
+        &[("long.txt", &lines.join("\n"))],
+    );
+    let host = working_in(&dir, &folder, Arc::default()).await;
+    let me = agent(AGENT);
+    let long = folder.join("long.txt");
+    let head = text(ask(&host, &me, &read_file(&long)).await);
+    let some = text(
+        ask(
+            &host,
+            &me,
+            &ReadFile {
+                offset: Some(10),
+                limit: Some(2),
+                ..read_file(&long)
+            },
+        )
+        .await,
+    );
+    let past = ask(
+        &host,
+        &me,
+        &ReadFile {
+            offset: Some(2600),
+            ..read_file(&long)
+        },
+    )
+    .await;
+    host.shutdown().await.unwrap();
+
+    assert!(head.text.ends_with("\n2000"));
+    assert_eq!(
+        head.notes[0].message,
+        "Showing lines 1-2000 of 2500. Use offset=2001 to continue."
+    );
+    assert_eq!(some.text, "10\n11");
+    assert_eq!(
+        some.notes[0].message,
+        "2489 more lines in file. Use offset=12 to continue."
+    );
+    assert_eq!(
+        past,
+        FileAnswer::Failed(
+            "Offset 2600 is beyond end of file (2500 lines total)"
+                .into()
+        )
+    );
+}
+
+/// A first line over 50 KiB is shown up to the last character that
+/// fits, with a warning that says how to read the rest.
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_first_line_too_long_shows_its_start() {
+    let dir = Scratch::new("workspace-files-wide");
+    // One byte, then two-byte characters: byte 51200 falls inside
+    // one.
+    let line = format!("a{}", "\u{e9}".repeat(30_000));
+    let (_project, folder) = project(
+        "workspace-files-wide-project",
+        &[("wide.txt", &format!("{line}\nnext\n"))],
+    );
+    let host = working_in(&dir, &folder, Arc::default()).await;
+    let wide = folder.join("wide.txt");
+    let read =
+        text(ask(&host, &agent(AGENT), &read_file(&wide)).await);
+    host.shutdown().await.unwrap();
+
+    assert_eq!(read.text, line[..51_199]);
+    assert_eq!(read.notes.len(), 1);
+    assert_eq!(read.notes[0].severity, Severity::Warn);
+    assert_eq!(
+        read.notes[0].message,
+        format!(
+            "Line 1 is 58.6KB, exceeds the 50.0KB limit; showing \
+             its first 50.0KB. Use bash: sed -n '1p' {} | tail -c \
+             +51200",
+            wide.display()
+        )
+    );
+    assert_eq!(
+        read.truncation,
+        Some(Truncation {
+            by: Some(CutBy::Bytes),
+            total_lines: 2,
+            total_bytes: 60_007,
+            output_lines: 1,
+            output_bytes: 51_199,
+            first_line_exceeds_limit: true,
+        })
     );
 }
 
