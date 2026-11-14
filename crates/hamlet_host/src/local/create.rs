@@ -1,7 +1,3 @@
-//! The explicit create of an actor, with its input, and the one path
-//! of every create and get-or-start. Only a create and `get_or_start`
-//! make an actor, and only a create gives it an input.
-
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -81,9 +77,6 @@ impl Host {
 }
 
 impl HostInner {
-    /// Starts the actor at `at` for `stamp`, as `open` lets it: a
-    /// create when `open` makes the actor with its input, else a
-    /// get-or-start.
     pub(super) async fn start(
         self: &Arc<Self>,
         stamp: Stamp,

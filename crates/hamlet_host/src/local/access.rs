@@ -1,7 +1,3 @@
-//! What an actor reaches of the host that runs it: the realm folder,
-//! the values the program that opened the host gave it, and the other
-//! actors, which it calls, creates and starts as itself.
-
 use std::any::{Any, TypeId};
 use std::collections::HashMap;
 use std::fmt;
@@ -23,15 +19,11 @@ use crate::address::{Address, Caller};
 ///
 /// Each of [`HostRef::call`], [`HostRef::create`] and
 /// [`HostRef::get_or_start`] is made as this actor, stamped with its
-/// address: an actor reaches the others only as itself. Each fails at
-/// once with `actor.stopping` once the actor's generation has ended,
-/// also when its key was made again, and with
-/// `actor.invalid_operation` on the actor's own address, which would
-/// wait for its own handler or its own start.
+/// address. Each fails at once with `actor.stopping` once the actor's
+/// generation has ended, also when its key was made again, and with
+/// `actor.invalid_operation` on the actor's own address.
 ///
-/// It holds the host weakly, so an actor that keeps it never keeps
-/// its host open. A clone may go to a task the actor registers: it is
-/// checked when the task uses it.
+/// An actor that keeps it never keeps its host open.
 #[derive(Clone)]
 pub struct HostRef {
     host: Weak<HostInner>,
@@ -103,17 +95,14 @@ impl HostRef {
         host.start(stamp, at, Open::New(input)).await
     }
 
-    /// The actor at `at`, as
-    /// [`Host::get_or_start`](super::Host::get_or_start) answers it,
-    /// for this actor.
+    /// Starts the actor at `at` as
+    /// [`Host::get_or_start`](super::Host::get_or_start) does, for
+    /// this actor.
     pub async fn get_or_start(&self, at: &Address) -> Result<()> {
         let (host, stamp) = self.current()?;
         host.start(stamp, at, Open::OrCreate).await
     }
 
-    /// The host and this actor's stamp, while the host runs this
-    /// view's generation. The only place the host makes an actor's
-    /// stamp, so one exists only for a generation that is current.
     fn current(&self) -> Result<(Arc<HostInner>, Stamp)> {
         let host = self.host.upgrade().ok_or_else(host_shut_down)?;
         if !host.runs(&self.me, self.generation) {
@@ -128,9 +117,8 @@ impl HostRef {
     }
 }
 
-/// Who an operation is for, as the host stamps it: none for the
-/// program, a client, or an actor. An actor's is made only by
-/// [`HostRef`], after its generation's check.
+/// The caller the host stamps on an operation: none for the program,
+/// a client, or an actor.
 pub(crate) struct Stamp(Option<Caller>);
 
 impl Stamp {
@@ -144,8 +132,7 @@ impl Stamp {
         self.0.as_ref()
     }
 
-    /// The call's connection parameters: the CBOR of the
-    /// `Option<Caller>`, so none is CBOR null.
+    /// The call's connection parameters.
     pub(crate) fn bytes(&self) -> Result<Vec<u8>> {
         let mut bytes = Vec::new();
         ciborium::into_writer(&self.caller(), &mut bytes)
@@ -153,9 +140,6 @@ impl Stamp {
         Ok(bytes)
     }
 
-    /// The bytes of a client's stamp and of an actor's, as
-    /// [`Stamp::bytes`] writes them, for the host's check of each
-    /// kind at its open.
     pub(super) fn sample_bytes() -> Result<[Vec<u8>; 2]> {
         let actor =
             Self(Some(Caller::Actor(Address::new("k", "k")?)));
@@ -213,10 +197,6 @@ impl HostOptions {
 mod tests {
     use super::*;
 
-    /// The bytes other hosts and other languages read: none is CBOR
-    /// null, a client the text `client`, and an actor a map from
-    /// `actor` to its address; the samples for the check at open are
-    /// the same bytes.
     #[test]
     fn a_stamp_has_fixed_bytes() {
         let actor = Stamp(Some(Caller::Actor(

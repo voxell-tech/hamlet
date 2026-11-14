@@ -691,8 +691,6 @@ async fn a_calls_log_line_names_its_caller_target_and_action() {
     );
 }
 
-/// An address inside an action's arguments has fixed bytes, which
-/// other hosts and other languages read.
 #[test]
 fn an_address_in_an_actions_arguments_has_fixed_bytes() {
     let args = hamlet_actor::action::encode_positional(&Ask {
@@ -991,12 +989,8 @@ async fn an_actor_that_calls_itself_fails_at_once() {
     assert!(outcomes[0].ms < 1_000, "{outcomes:?}");
 }
 
-/// The view of a generation that has ended calls, creates and starts
-/// nothing, also once its key is made again, and also when it is
-/// built after the generation ended. The running generation's view
-/// calls as the actor.
 #[tokio::test(flavor = "multi_thread")]
-async fn an_ended_generation_calls_nothing() {
+async fn an_ended_generation_calls_and_makes_nothing() {
     let dir = Scratch::new("call-ended");
     let contexts = Arc::new(Contexts::default());
     let host = open_callers(&dir, contexts.clone());

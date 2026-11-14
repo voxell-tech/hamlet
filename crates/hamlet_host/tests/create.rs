@@ -242,8 +242,6 @@ struct MakeSelf(Mutex<Vec<(Option<String>, Duration)>>);
 #[derive(Default)]
 struct Contexts(Mutex<Vec<ActorContext>>);
 
-/// Makes the actor at `to` from the actor of `ctx`, as [`Make`]
-/// says.
 async fn make(
     ctx: &ActorContext,
     to: &Address,

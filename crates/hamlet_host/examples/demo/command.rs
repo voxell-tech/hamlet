@@ -156,8 +156,7 @@ async fn calls(
 }
 
 /// Starts the actor at `at`, made if it has none, when its kind is
-/// one of `kinds`. An actor of any other kind is left for the call to
-/// it to find, or not.
+/// one of `kinds`.
 async fn make(
     host: &Host,
     kinds: &[String],

@@ -2971,12 +2971,6 @@ async fn a_destroy_that_joins_a_sleep_answers_the_removal_of_its_files()
     slept.expect_err("a sleep the destroy took over");
 }
 
-/// A key with an upper-case letter is refused, as one with `/` is:
-/// on a disk that ignores case, `counter/a` and `counter/A` would
-/// name one file. An address of such a key is neither built nor
-/// decoded, so no entry point of the host is reached with it; inside
-/// an action's arguments, the decode of the arguments fails. A host
-/// refuses to open with such a kind, or such a name.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_key_or_kind_with_an_upper_case_letter_is_refused() {
     let dir = Scratch::new("upper-case-key");
@@ -3058,8 +3052,6 @@ async fn a_key_or_kind_with_an_upper_case_letter_is_refused() {
     );
 }
 
-/// The two names of an address of the kind `counter` and `key`, as
-/// an `Address` is written.
 #[derive(serde::Serialize)]
 struct Names<'a> {
     kind: &'a str,
@@ -3073,15 +3065,12 @@ fn names(key: &str) -> Names<'_> {
     }
 }
 
-/// Decodes `names` by itself, as an address.
 fn decoded(names: &Names) -> anyhow::Result<Address> {
     let mut bytes = Vec::new();
     ciborium::into_writer(names, &mut bytes)?;
     Ok(ciborium::from_reader(bytes.as_slice())?)
 }
 
-/// Decodes, as an action's arguments with named fields, one address
-/// of the kind `counter` and `key`.
 fn decoded_in_arguments(key: &str) -> anyhow::Result<Address> {
     #[derive(serde::Serialize)]
     struct Args<'a> {

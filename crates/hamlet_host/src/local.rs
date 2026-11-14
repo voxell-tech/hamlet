@@ -631,7 +631,7 @@ impl Default for HostOptions {
 
 /// The host's actors, and whether it has shut down.
 struct Actors {
-    /// Each actor that is not stopped with no deadline, by address.
+    /// Each actor that is not stopped with no deadline.
     lives: HashMap<Address, Life>,
     /// Set by [`Host::shutdown`], or when the last [`Host`] drops.
     /// From then on no transition adds a state: the host starts no
@@ -1086,22 +1086,18 @@ impl Host {
         Ok(began)
     }
 
-    /// The actor at `at`, started if it is not running, made with no
-    /// input if it has none.
+    /// Starts the actor at `at` unless it runs, made first with no
+    /// input if its file holds none.
     pub async fn get_or_start(&self, at: &Address) -> Result<()> {
         self.inner().start(Stamp::PROGRAM, at, Open::OrCreate).await
     }
 }
 
 impl HostInner {
-    /// Where the actor at `at` runs. Fails for a kind the directory
-    /// does not hold, before anything reaches the folder.
     fn locate(&self, at: &Address) -> Result<&Place> {
         self.directory.place(at.kind())
     }
 
-    /// Whether the host runs generation `generation` of the actor at
-    /// `at`, from its start on.
     fn runs(&self, at: &Address, generation: u64) -> bool {
         self.actors
             .lock()
@@ -1673,13 +1669,11 @@ fn retry_start(owned: &Owned, due: i64) {
     drop(replaced);
 }
 
-/// The core's id of the actor at `at`, `kind/key`. The host writes
-/// the id only here.
+/// The core's id of the actor at `at`.
 fn actor_id(at: &Address) -> String {
     at.to_string()
 }
 
-/// `actors/<kind>/<key>.sqlite` under `dir`.
 fn actor_path(dir: &Path, at: &Address) -> PathBuf {
     dir.join("actors")
         .join(at.kind())

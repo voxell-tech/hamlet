@@ -1,17 +1,12 @@
-//! An actor's address, the rule its names follow, and who made a
-//! call. Plain data: nothing here depends on the host.
-
 use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
-/// An actor's address: its kind, which the host's directory maps to
-/// where the kind's actors run, and its key within the kind. Both are
-/// plain names, so an `Address` that exists is valid. Its text is
-/// `kind/key`.
+/// An actor's address: its kind and its key within the kind, both
+/// plain names. Its text is `kind/key`.
 ///
 /// Serde writes the map `{kind, key}`, and reads it through
-/// [`Address::new`], so a decode refuses a name that is not plain.
+/// [`Address::new`].
 #[derive(
     Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize,
 )]
@@ -22,7 +17,9 @@ pub struct Address {
 }
 
 impl Address {
-    /// Refuses a kind or a key that is not plain.
+    /// Refuses a kind or a key that is not plain: not empty, not
+    /// starting with `.`, at most 128 bytes, and only `a-z`, `0-9`,
+    /// `-`, `_` and `.`.
     pub fn new(
         kind: impl Into<String>,
         key: impl Into<String>,
@@ -48,8 +45,6 @@ impl fmt::Display for Address {
     }
 }
 
-/// An address as it decodes, before its names are checked. Named
-/// `Address` for serde, so a traced shape keeps its name.
 #[derive(Deserialize)]
 #[serde(rename = "Address")]
 struct Unchecked {
@@ -83,7 +78,6 @@ impl InvalidName {
     }
 }
 
-/// What a refused name was to be.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Named {
     KindOrKey,
@@ -101,9 +95,6 @@ impl fmt::Display for Named {
     }
 }
 
-/// Refuses `name`, a `what`, unless it is plain: not empty, not
-/// starting with `.`, at most 128 bytes, and only `a-z`, `0-9`, `-`,
-/// `_` and `.`.
 pub(crate) fn plain(
     name: &str,
     what: Named,
@@ -135,13 +126,11 @@ pub(crate) fn plain(
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Caller {
-    /// The actor at this address.
     Actor(Address),
     /// A client of the program that opened the host.
     Client,
 }
 
-/// `kind/key` for an actor, `client` for a client.
 impl fmt::Display for Caller {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -226,7 +215,6 @@ mod tests {
         assert_eq!(Caller::Client.to_string(), "client");
     }
 
-    /// The bytes other hosts and other languages read.
     #[test]
     fn an_address_has_fixed_bytes() {
         let at = Address::new("raw", "x").unwrap();
