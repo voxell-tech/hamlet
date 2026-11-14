@@ -3,17 +3,26 @@
 //! nothing it starts runs outside the job, and ending the job ends
 //! all of it.
 
-#![expect(unsafe_code, reason = "the Win32 job and thread calls")]
+#![expect(
+    unsafe_code,
+    reason = "the Win32 job, process, thread and handle calls"
+)]
 
 use std::fs::File;
 use std::os::windows::io::{
-    AsRawHandle as _, BorrowedHandle, HandleOrInvalid, HandleOrNull,
-    IntoRawHandle as _, OwnedHandle, RawHandle,
+    AsHandle as _, AsRawHandle as _, BorrowedHandle, HandleOrInvalid,
+    HandleOrNull, IntoRawHandle as _, OwnedHandle, RawHandle,
 };
 use std::process::{ExitStatus, Stdio};
 use std::{io, iter};
 
 use tokio::process::{Child, ChildStderr, ChildStdout};
+use windows_sys::Win32::Foundation::{
+    HANDLE_FLAG_INHERIT, SetHandleInformation,
+};
+use windows_sys::Win32::System::Console::{
+    STD_INPUT_HANDLE, STD_OUTPUT_HANDLE, SetStdHandle,
+};
 use windows_sys::Win32::System::Diagnostics::ToolHelp::{
     CreateToolhelp32Snapshot, TH32CS_SNAPTHREAD, THREADENTRY32,
     Thread32First, Thread32Next,
@@ -32,10 +41,10 @@ use windows_sys::Win32::System::JobObjects::{
 use windows_sys::Win32::System::Threading::{
     CREATE_NO_WINDOW, CREATE_SUSPENDED, GetCurrentProcess,
     OpenProcess, OpenThread, PROCESS_SYNCHRONIZE, ResumeThread,
-    THREAD_SUSPEND_RESUME, WaitForSingleObject,
+    THREAD_SUSPEND_RESUME, TerminateProcess, WaitForSingleObject,
 };
 
-use crate::process::{Command, Limits};
+use crate::process::{Command, Hold, Limits};
 
 /// A command's job and the leader it was started with.
 pub(crate) struct Group {
@@ -195,20 +204,30 @@ fn limits_of(
 
 pub(crate) fn spawn(
     command: Command<'_>,
-    limits: &Limits,
+    hold: Hold<'_>,
 ) -> io::Result<(Group, ChildStdout, ChildStderr)> {
-    let mut info = limits_of(
-        JOB_OBJECT_LIMIT_PROCESS_TIME
-            | JOB_OBJECT_LIMIT_ACTIVE_PROCESS
-            | JOB_OBJECT_LIMIT_DIE_ON_UNHANDLED_EXCEPTION,
-    );
-    let basic = &mut info.BasicLimitInformation;
-    // In ticks of 100 ns, of user time.
-    basic.PerProcessUserTimeLimit =
-        i64::try_from(limits.cpu_secs.saturating_mul(10_000_000))
+    let info = match hold {
+        Hold::Limited(limits) => {
+            let mut info = limits_of(
+                JOB_OBJECT_LIMIT_PROCESS_TIME
+                    | JOB_OBJECT_LIMIT_ACTIVE_PROCESS
+                    | JOB_OBJECT_LIMIT_DIE_ON_UNHANDLED_EXCEPTION,
+            );
+            let basic = &mut info.BasicLimitInformation;
+            // In ticks of 100 ns, of user time.
+            basic.PerProcessUserTimeLimit = i64::try_from(
+                limits.cpu_secs.saturating_mul(10_000_000),
+            )
             .unwrap_or(i64::MAX);
-    basic.ActiveProcessLimit =
-        u32::try_from(limits.max_procs).unwrap_or(u32::MAX);
+            basic.ActiveProcessLimit =
+                u32::try_from(limits.max_procs).unwrap_or(u32::MAX);
+            info
+        }
+        Hold::Bound => limits_of(
+            JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+                | JOB_OBJECT_LIMIT_DIE_ON_UNHANDLED_EXCEPTION,
+        ),
+    };
     let job = Job::new(&info)?;
     let mut spawn = tokio::process::Command::new(&command.argv[0]);
     spawn
@@ -343,16 +362,41 @@ pub(crate) fn is_executable(path: &str) -> bool {
     std::fs::metadata(path).is_ok_and(|meta| meta.is_file())
 }
 
-/// Fails: the Windows half is not built.
 pub(crate) fn take_stdio() -> io::Result<(File, File)> {
-    Err(io::ErrorKind::Unsupported.into())
+    let (stdin, stdout) = (io::stdin(), io::stdout());
+    let taken = (
+        File::from(stdin.as_handle().try_clone_to_owned()?),
+        File::from(stdout.as_handle().try_clone_to_owned()?),
+    );
+    // Read first: each call returns the handle set at the time.
+    let (input, output) =
+        (stdin.as_raw_handle(), stdout.as_raw_handle());
+    let errors = io::stderr().as_raw_handle();
+    // Left open: it is this process's standard input from now on.
+    let nothing = File::open("NUL")?.into_raw_handle();
+    // SAFETY: the calls only store or flag handles this process
+    // holds, and close none.
+    let done = unsafe {
+        SetStdHandle(STD_OUTPUT_HANDLE, errors) != 0
+            && SetStdHandle(STD_INPUT_HANDLE, nothing) != 0
+            && SetHandleInformation(input, HANDLE_FLAG_INHERIT, 0)
+                != 0
+            && SetHandleInformation(output, HANDLE_FLAG_INHERIT, 0)
+                != 0
+    };
+    if !done {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(taken)
 }
 
-/// Fails: the Windows half is not built.
 pub(crate) fn end_with_parent(_parent: u32) -> io::Result<()> {
-    Err(io::ErrorKind::Unsupported.into())
+    Ok(())
 }
 
 pub(crate) fn end_now() -> ! {
+    // SAFETY: the call only reads the constant that names this
+    // process.
+    unsafe { TerminateProcess(GetCurrentProcess(), 1) };
     std::process::abort()
 }

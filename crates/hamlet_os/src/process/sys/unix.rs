@@ -11,7 +11,7 @@ use rustix::process::{
 use tokio::process::{Child, ChildStderr, ChildStdout};
 use tokio::signal::unix::{SignalKind, signal};
 
-use crate::process::{Command, Limits};
+use crate::process::{Command, Hold, Limits};
 
 /// A process group and the leader it was started with. The leader is
 /// reaped only as the group is dropped, and an id stays taken while
@@ -111,7 +111,7 @@ fn has_live_members(id: Pid) -> bool {
 
 pub(crate) fn spawn(
     command: Command<'_>,
-    _limits: &Limits,
+    _hold: Hold<'_>,
 ) -> io::Result<(Group, ChildStdout, ChildStderr)> {
     let exits = signal(SignalKind::child())?;
     let mut spawn = tokio::process::Command::new(&command.argv[0]);
