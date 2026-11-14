@@ -369,7 +369,7 @@ impl Message for Cancel {
     type From = Agent;
 }
 
-/// The calls whose commands a [`Cancel`] ends.
+/// The calls whose commands a [`Cancel`] or a [`CancelAgent`] ends.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Which {

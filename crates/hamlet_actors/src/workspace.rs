@@ -423,7 +423,7 @@ impl Workspace {
         let settled =
             pending::settle(&tx, wait, "running", None, None).await;
         let command = match settled {
-            Ok(Some(id)) => CommandId(u32::try_from(id)?),
+            Ok(Some(id)) => run::command_id(id)?,
             Ok(None) => {
                 tx.rollback().await?;
                 return Ok(AnswerTaken::NoWait);

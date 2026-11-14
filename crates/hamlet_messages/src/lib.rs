@@ -28,6 +28,8 @@
 //! `fixtures/` holds the bytes of each one as the host carries it,
 //! so a host in another language can check its shapes against them.
 //! A change to a shape rewrites its fixture and fails the test once.
+//! A stored fixture is never rewritten, so a change to a type a row
+//! keeps fails every run until it reads the stored bytes as before.
 //! `fixtures/error/` holds each error in the test's own form,
 //! `{group, code, message, metadata}`, not the form of
 //! `ActorError`'s serde: no wire between hosts carries an error yet.

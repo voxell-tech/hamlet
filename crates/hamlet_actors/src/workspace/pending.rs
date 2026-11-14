@@ -158,7 +158,7 @@ pub(super) async fn open(
         patch: scrub(&change.patch),
         ..change
     });
-    calls::insert(
+    let row = calls::insert(
         tx,
         opening.agent,
         &call,
@@ -169,6 +169,9 @@ pub(super) async fn open(
         None,
     )
     .await?;
+    if let Pending::Run(_) = opening.request {
+        run::command_id(row)?;
+    }
     tx.execute(
         "INSERT INTO waits (agent, call, needs, request, \
          reach_version, base_hash) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",

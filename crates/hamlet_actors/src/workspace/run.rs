@@ -74,7 +74,7 @@ pub(super) const CUT_OFF: &str =
 
 /// A command's row, from its call's.
 pub(super) fn row_of(call: Call) -> Result<Row> {
-    let command = CommandId(u32::try_from(call.id)?);
+    let command = command_id(call.id)?;
     let state = match (call.state.as_str(), call.answer) {
         ("running", _) => State::Running,
         ("cut_off", _) => State::CutOff,
@@ -115,7 +115,13 @@ pub(super) async fn open(
         None,
     )
     .await?;
-    Ok(CommandId(u32::try_from(id)?))
+    command_id(id)
+}
+
+/// The command of the call whose row id is `row`, which fits in a
+/// `u32` or the command is not started.
+pub(super) fn command_id(row: i64) -> Result<CommandId> {
+    Ok(CommandId(u32::try_from(row)?))
 }
 
 /// Records how a running command ended, in `tx`.
