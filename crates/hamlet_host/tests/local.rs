@@ -2873,3 +2873,36 @@ async fn a_command_line_the_demo_refuses_makes_no_actor() {
     }
     host.shutdown().await.unwrap();
 }
+
+/// A call ends within its deadline while its callee's event loop is
+/// busy in async code with another action: the deadline covers the
+/// call's connection, whose opening waits behind that action, as
+/// much as the action it calls.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_call_to_a_busy_actor_ends_within_its_deadline() {
+    let dir = Scratch::new("call-deadline-busy");
+    let (kinds, mut napping) = with_nappers();
+    let host = Host::open(&dir, kinds).unwrap();
+    let b = host.get_or_start("slow", "b").await.unwrap();
+    let nap = napping.nap(&host, &b).await;
+    let begun = tokio::time::Instant::now();
+    let called = host
+        .call(
+            &Address::new("slow", "b"),
+            "get",
+            Vec::new(),
+            Duration::from_millis(300),
+            Cause::root("test"),
+        )
+        .await;
+    let took = begun.elapsed();
+    nap.await.unwrap().unwrap();
+    host.shutdown().await.unwrap();
+    let outcome = called.map(drop).map_err(|error| code(&error));
+    assert!(
+        took < Duration::from_secs(1)
+            && outcome == Err("actor.action_timed_out".to_owned()),
+        "the call took {took:?}: {outcome:?}"
+    );
+}
+

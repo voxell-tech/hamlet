@@ -37,8 +37,9 @@ impl Host {
     /// makes an actor: for a key with no actor it fails with
     /// `actor.not_found` and leaves no file. Only `get_or_start` and
     /// [`Host::create`] make one. The call ends within `deadline`,
-    /// its start included, and the action within the shorter of what
-    /// is left and the kind's action timeout: past either, it fails
+    /// its start and its connection's opening included, whatever the
+    /// actor is doing, and the action within the shorter of what is
+    /// left and the kind's action timeout: past either, it fails
     /// with `actor.action_timed_out`. Fails at once with
     /// `actor.not_registered` for a kind the directory does not hold,
     /// with `actor.destroying` for an actor that is being destroyed,

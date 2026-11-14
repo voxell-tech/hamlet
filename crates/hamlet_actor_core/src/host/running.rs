@@ -13,7 +13,8 @@ use tokio::task::JoinHandle;
 
 use super::HostHandle;
 use super::dispatch::{
-    dispatch_action_through_task, with_action_dispatch_timeout,
+    ActionTimedOut, dispatch_action_through_task,
+    with_action_dispatch_timeout,
 };
 use crate::actor::action::ActionDispatchError;
 use crate::actor::connection::DisconnectOnDrop;
@@ -168,9 +169,13 @@ impl RunningActor {
     }
 
     /// Calls an action: a connection for the call, opened with
-    /// `params` as its parameters, the action through the actor task
-    /// within `deadline` or the kind's action timeout, whichever is
-    /// shorter, then the connection closes.
+    /// `params` as its parameters, the action through the actor task,
+    /// then the connection closes. The call ends within `deadline`,
+    /// its connection's opening included, and the action within the
+    /// shorter of what is left and the kind's action timeout: past
+    /// either, it fails with `actor.action_timed_out`. A connection
+    /// whose opening outlasts the call closes once it opens, so the
+    /// actor sees it close as it saw it open.
     pub async fn action(
         &self,
         params: Vec<u8>,
@@ -178,15 +183,26 @@ impl RunningActor {
         args: Vec<u8>,
         deadline: Duration,
     ) -> Result<Vec<u8>> {
-        let conn = self
-            .ctx
-            .connect_conn_with_request(params, None, async {
-                Ok::<Vec<u8>, anyhow::Error>(Vec::new())
-            })
-            .await?;
-        let request_connection = DisconnectOnDrop::new(conn.clone());
+        let begun = crate::time::Instant::now();
+        let ctx = self.ctx.clone();
+        let mut connect = RuntimeSpawner::spawn(async move {
+            let conn = ctx
+                .connect_conn_with_request(params, None, async {
+                    Ok::<Vec<u8>, anyhow::Error>(Vec::new())
+                })
+                .await?;
+            Ok::<_, anyhow::Error>((
+                conn.clone(),
+                DisconnectOnDrop::new(conn),
+            ))
+        });
+        let (conn, request_connection) =
+            crate::time::timeout(deadline, &mut connect)
+                .await
+                .map_err(|_| ActionTimedOut.build())???;
+        let left = deadline.saturating_sub(begun.elapsed());
         let result = with_action_dispatch_timeout(
-            deadline.min(self.action_timeout),
+            left.min(self.action_timeout),
             dispatch_action_through_task(
                 &self.dispatch,
                 conn.clone(),
