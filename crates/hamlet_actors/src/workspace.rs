@@ -409,9 +409,9 @@ impl Workspace {
                 network,
                 secrets,
             } => (reach, network, secrets),
-            pending::Rechecked::Changed(changed) => {
+            pending::Rechecked::Changed(gated) => {
                 let changed = pending::changed(
-                    changed,
+                    gated,
                     reach::Refused::of_program,
                 )?;
                 let why = pending::NotRun::Run(changed.into());

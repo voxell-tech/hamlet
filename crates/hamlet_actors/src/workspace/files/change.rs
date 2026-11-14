@@ -424,10 +424,10 @@ impl Workspace {
                 Rechecked::Pass { reach, secrets, .. } => {
                     (reach, secrets)
                 }
-                Rechecked::Changed(changed) => {
+                Rechecked::Changed(gated) => {
                     drop(held);
                     let changed = pending::changed(
-                        changed,
+                        gated,
                         Refused::of_change::<FileGate>,
                     )?;
                     let why = NotRun::Change(changed.into());

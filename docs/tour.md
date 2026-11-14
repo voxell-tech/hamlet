@@ -342,12 +342,16 @@ actor host. Its one kind is `workspace`, in `src/workspace.rs` and
 agents' commands and file changes under the sandbox, within each agent's
 reach (C18 to C21). `hamlet_messages` holds the calls between actors and their
 answers, one module per actor that takes them: `workspace` (with
-`workspace/reach.rs` and `workspace/files.rs`), `realm` and `agent`.
-Each crosses the host as CBOR. `address.rs` holds the actors as
-parties, with their kinds and keys, and `sender.rs` the check of a
-caller. `fixtures/` holds the bytes of each message, and
+`workspace/reach.rs`, `workspace/files.rs` and `workspace/refusal.rs`,
+the refusals by family), `realm` and `agent`. Each crosses the host as
+CBOR. An answer is `ended`, `running`, `waits_for_chief` or `refused`
+with a reason and its words. `address.rs` holds the actors as parties,
+with their kinds and keys, and `sender.rs` the check of a caller.
+`fixtures/` holds the bytes of each message, and
 `tests/fixtures/main.rs` rewrites a fixture whose bytes changed and
-fails once, so the change is committed.
+fails once, so the change is committed. `fixtures/stored/` holds each
+type a row keeps and is never rewritten; `lib.rs` says how a message
+may change.
 
 The realm, the actor `realm/local`, sets each agent's reach
 (`SetReach`), answers calls that wait for a chief (`ChiefAnswer`) and
@@ -393,7 +397,7 @@ passes the gate opens a row in the table `calls` (`calls.rs`), keyed by
 the agent and the call's id, with the hash of its request; the row's id
 is the `CommandId`. The command runs on a thread of its own
 (`run::start`). The call waits 5 seconds (`run::ANSWER_WITHIN`): it
-answers `Done` with the `CommandEnd` if the command ended by then, else
+answers `Ended` with the command's end if it ended by then, else
 `Running` with its id. After `Running`, the workspace calls the agent
 once with `Finished` when the command ends; a failed call is logged and
 dropped. The actor stays awake while a command runs. A command whose
@@ -402,7 +406,7 @@ of the workspace marks it cut off (`run::CUT_OFF`); no one is told.
 `CommandStatus` answers by command id, for the agent's own commands. A
 repeat of a call with the same id and request answers from its row, or
 waits with the first call while the command runs; the same id with
-another request is refused as `CallReused`.
+another request fails with the error `message.id_reused`.
 
 `workspace/run/output.rs` keeps a command's output, the realm's secrets
 taken out as it streams. Its end carries the tail, the last 2000 lines
@@ -422,7 +426,7 @@ written. A change reads the file, writes its row as `changing` with the
 path of the new file it is about to make, writes the content to
 `.hamlet-<uuid>.new` beside the file and renames it over the file with
 `Env::replace_file`, only while the file still holds what was read;
-otherwise it is refused as `FileChanged`. Its row then holds the
+otherwise it ends not run, as `FileChanged`. Its row then holds the
 answer, so a repeat by call id answers from it. A start removes the new
 files and the rows of changes a kill cut off (`cut_off_changes`), so a
 repeat of one runs afresh.
@@ -437,9 +441,9 @@ words with the secrets taken out, and answers `WaitsForChief`. The
 realm answers with `ChiefAnswer`. A refusal or a lapse ends the wait. An
 allow checks the call again under the reach in force (`recheck`): it
 runs when the gate lets it, or when it needs only what the chief was
-asked; else it is refused as `ReachChanged`. A change also needs the
-file to still hold what hashes to what the chief was shown, else
-`FileChanged`. An allow's scope is in the reach the realm sets before
+asked; else it does not run, as `ReachChanged`. A change also needs
+the file to still hold what hashes to what the chief was shown, else
+it does not run, as `FileChanged`. An allow's scope is in the reach the realm sets before
 it answers, not in the answer. The agent hears how the call ended with
 `Finished`. A wait stays through a restart.
 
@@ -475,7 +479,7 @@ what holds on each OS, is in [`sandbox.md`](sandbox.md#the-workspace-actor).
 `tests/workspace.rs` and `tests/workspace/` run the workspace through a
 host, called by test actors in the realm's and agents' places: the
 reach and commands in `workspace.rs`, then `files.rs`, `changes.rs`,
-`waits.rs`, `cancel.rs`, `workers.rs`, `tools.rs` and `realm_folder.rs`. `hamlet_messages/tests/fixtures.rs` checks the messages.
+`waits.rs`, `cancel.rs`, `workers.rs`, `tools.rs` and `realm_folder.rs`. `hamlet_messages/tests/fixtures/main.rs` checks the messages.
 
 ## The server
 
@@ -611,7 +615,7 @@ built-in ones.
 | A kill scenario | `hamlet_killkit/src/scenario.rs`, and a fault point with `hamlet_host::fault::point` |
 | A message between actors, or its fixture | `hamlet_messages/src/`, then `cargo test -p hamlet_messages` rewrites `fixtures/` |
 | An agent's reach on the workspace, and the gate | `hamlet_actors/src/workspace/reach.rs` (`apply`, `gate`, `placement`); [the workspace actor](#the-workspace-actor) |
-| A command's life: its row, `Done` or `Running`, `Finished`, its status, a repeat, a cut-off command | `hamlet_actors/src/workspace.rs`, `workspace/run.rs`, `workspace/calls.rs` |
+| A command's life: its row, `Ended` or `Running`, `Finished`, its status, a repeat, a cut-off command | `hamlet_actors/src/workspace.rs`, `workspace/run.rs`, `workspace/calls.rs` |
 | A command's tail and spill file | `hamlet_actors/src/workspace/run/output.rs` |
 | The workspace's reads, writes and edits | `hamlet_actors/src/workspace/files.rs`, `files/`; the replace by rename in `hamlet_sandbox/src/env.rs` and `hamlet_os/src/fs/walk.rs` |
 | Calls that wait for a chief on the workspace | `hamlet_actors/src/workspace/pending.rs` |
