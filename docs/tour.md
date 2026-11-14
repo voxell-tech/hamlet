@@ -216,7 +216,9 @@ generation's file alone. A start that waits for another start of its
 actor, a call's included, cancels a sleep the starting generation asked
 for, so that generation answers it. A start must end within
 `HostOptions::start_deadline`, 60 seconds by default. Past it, the start
-fails with `actor.not_ready` and closes the file. A stop must end within
+fails with `actor.not_ready` and closes the file. An open of the file
+still waiting then, for a file another program holds, is given up: it
+writes nothing, however late it ends. A stop must end within
 `HostOptions::stop_deadline`, 45 seconds by default. An actor that does
 not stop by then is stuck: its stop fails with `actor.shutdown_timeout`,
 as does every later start or stop of it in this host, and its file keeps
