@@ -7,5 +7,6 @@
 //! A change to a shape rewrites its fixture and fails the test once.
 
 pub mod agent;
+pub mod bytes;
 pub mod realm;
 pub mod workspace;

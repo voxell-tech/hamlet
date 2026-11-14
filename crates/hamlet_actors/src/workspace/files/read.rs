@@ -1,6 +1,7 @@
 //! A read of a file: a text file's first lines within the limits,
 //! with remarks on what was left out, or an image as it is.
 
+use hamlet_messages::bytes::Base64;
 use hamlet_messages::workspace::files::{
     CutBy, FileAnswer, Image, Note, Severity, Text, Truncation,
 };
@@ -42,7 +43,7 @@ pub(super) fn read(
     if let Some(mime) = image(&bytes) {
         return Ok(FileAnswer::Image(Image {
             mime: mime.to_owned(),
-            bytes,
+            data: Base64(bytes),
         }));
     }
     let text = String::from_utf8_lossy(&bytes);

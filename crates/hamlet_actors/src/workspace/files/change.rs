@@ -13,6 +13,7 @@ use anyhow::{Context, Result, bail};
 use hamlet_actor::{Ctx, Handler};
 use hamlet_actor_core::{BindParam, ColumnValue, SqliteTransaction};
 use hamlet_messages::agent::Outcome;
+use hamlet_messages::bytes;
 use hamlet_messages::workspace::files::{
     Change, ChangeAnswer, EditDiff, EditFile, Hashed, MOST_CONTENT,
     Replace, WriteFile,
@@ -798,7 +799,9 @@ fn still(
 }
 
 fn hashed(digest: Option<[u8; 32]>) -> Hashed {
-    digest.map_or(Hashed::Absent, Hashed::Sha256)
+    digest.map_or(Hashed::Absent, |digest| Hashed::Sha256 {
+        hash: bytes::Sha256(digest),
+    })
 }
 
 /// Replaces the file at `path` with what `planned` writes, through
@@ -895,7 +898,9 @@ fn outcome(
             ChangeAnswer::Changed(Change {
                 path: path.to_owned(),
                 created,
-                hash: Sha256::digest(&planned.content).into(),
+                hash: bytes::Sha256(
+                    Sha256::digest(&planned.content).into(),
+                ),
                 diff: planned.diff,
             })
         }
@@ -1068,13 +1073,19 @@ mod tests {
             Ok(Replaced::Changed(None)),
         );
 
-        let old = Hashed::Sha256(Sha256::digest(b"old").into());
+        let old = Hashed::Sha256 {
+            hash: bytes::Sha256(Sha256::digest(b"old").into()),
+        };
         assert_eq!(
             refused,
             ChangeAnswer::Refused(CallRefusal::FileChanged {
                 path: "/p/a.md".into(),
                 was: old,
-                now: Hashed::Sha256(Sha256::digest(b"theirs").into()),
+                now: Hashed::Sha256 {
+                    hash: bytes::Sha256(
+                        Sha256::digest(b"theirs").into()
+                    ),
+                },
             })
         );
         assert_eq!(

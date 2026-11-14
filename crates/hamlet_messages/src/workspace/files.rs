@@ -13,6 +13,7 @@ use super::reach::Need;
 use super::{
     AgentNumber, CallId, CallRefusal, ConversationId, RealmTask,
 };
+use crate::bytes::{Base64, Sha256};
 
 /// Reads a file: a text file's lines, or an image.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -126,7 +127,7 @@ pub enum CutBy {
 pub struct Image {
     /// As `image/png`.
     pub mime: String,
-    pub bytes: Vec<u8>,
+    pub data: Base64,
 }
 
 /// The most bytes a [`WriteFile`]'s content holds: 16 MiB, which
@@ -195,8 +196,8 @@ pub struct Change {
     pub path: PathBuf,
     /// The file was not there before.
     pub created: bool,
-    /// The SHA-256 of what the file holds now.
-    pub hash: [u8; 32],
+    /// The hash of what the file holds now.
+    pub hash: Sha256,
     /// Set for an edit.
     pub diff: Option<EditDiff>,
 }
@@ -216,11 +217,13 @@ pub struct EditDiff {
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize,
 )]
+#[serde(tag = "type", rename_all = "snake_case")]
 pub enum Hashed {
     /// No file was there.
     Absent,
-    /// The SHA-256 of its bytes.
-    Sha256([u8; 32]),
+    Sha256 {
+        hash: Sha256,
+    },
 }
 
 impl std::fmt::Display for Hashed {
@@ -230,11 +233,7 @@ impl std::fmt::Display for Hashed {
     ) -> std::fmt::Result {
         match self {
             Self::Absent => write!(f, "no file"),
-            Self::Sha256(hash) => {
-                write!(f, "sha256 ")?;
-                hash.iter()
-                    .try_for_each(|byte| write!(f, "{byte:02x}"))
-            }
+            Self::Sha256 { hash } => write!(f, "sha256 {hash}"),
         }
     }
 }

@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 
 use hamlet_actor::action::{decode_positional, encode_positional};
 use hamlet_messages::agent::{Finished, Outcome};
+use hamlet_messages::bytes::{Base64, Sha256};
 use hamlet_messages::realm::{NeedsChief, SecretList, Secrets};
 use hamlet_messages::workspace::files::{
     Change, ChangeAnswer, CutBy, EditDiff, EditFile, FileAnswer,
@@ -386,7 +387,7 @@ fn the_answers_about_a_command_match_their_fixtures() {
                 Change {
                     path: "/work/project/notes.md".into(),
                     created: true,
-                    hash: [7; 32],
+                    hash: Sha256([7; 32]),
                     diff: None,
                 },
             )),
@@ -545,7 +546,7 @@ fn the_reads_match_their_fixtures() {
         "workspace/read_file.image",
         &FileAnswer::Image(Image {
             mime: "image/gif".into(),
-            bytes: b"GIF89a".to_vec(),
+            data: Base64(b"GIF89a".to_vec()),
         }),
     );
     fixtures.answer(
@@ -575,7 +576,7 @@ fn the_changes_match_their_fixtures() {
         &ChangeAnswer::Changed(Change {
             path: path.clone(),
             created: true,
-            hash: [7; 32],
+            hash: Sha256([7; 32]),
             diff: None,
         }),
     );
@@ -584,7 +585,7 @@ fn the_changes_match_their_fixtures() {
         &ChangeAnswer::Changed(Change {
             path: path.clone(),
             created: false,
-            hash: [8; 32],
+            hash: Sha256([8; 32]),
             diff: Some(EditDiff {
                 diff: "- 1 hello\n+ 1 goodbye".into(),
                 patch: "--- notes.md\n+++ notes.md\n@@ -1 +1 \
@@ -598,7 +599,9 @@ fn the_changes_match_their_fixtures() {
         "workspace/edit_file.refused.file_changed",
         &ChangeAnswer::Refused(CallRefusal::FileChanged {
             path: path.clone(),
-            was: Hashed::Sha256([1; 32]),
+            was: Hashed::Sha256 {
+                hash: Sha256([1; 32]),
+            },
             now: Hashed::Absent,
         }),
     );
@@ -654,7 +657,9 @@ fn the_changes_match_their_fixtures() {
 fn a_changed_file_is_told_by_its_hashes() {
     let refusal = CallRefusal::FileChanged {
         path: "/p/a.md".into(),
-        was: Hashed::Sha256([0xab; 32]),
+        was: Hashed::Sha256 {
+            hash: Sha256([0xab; 32]),
+        },
         now: Hashed::Absent,
     };
     assert_eq!(

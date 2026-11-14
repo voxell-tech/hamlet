@@ -310,7 +310,7 @@ async fn run_one(host: &Host, words: &[String]) -> Result<()> {
                 writeln!(out, "read {}", text.text.len())?;
             }
             FileAnswer::Image(image) => {
-                writeln!(out, "read {}", image.bytes.len())?;
+                writeln!(out, "read {}", image.data.0.len())?;
             }
             FileAnswer::Refused(refusal) => {
                 tracing::warn!(%refusal, "the workspace refused agent {number}");

@@ -3,6 +3,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use hamlet_messages::bytes;
 use hamlet_messages::workspace::files::{
     Change, ChangeAnswer, EditFile, MOST_CONTENT, Replace, WriteFile,
 };
@@ -67,8 +68,8 @@ pub(super) fn changed(answer: ChangeAnswer) -> Change {
     }
 }
 
-pub(super) fn sha256(bytes: &[u8]) -> [u8; 32] {
-    Sha256::digest(bytes).into()
+pub(super) fn sha256(content: &[u8]) -> bytes::Sha256 {
+    bytes::Sha256(Sha256::digest(content).into())
 }
 
 pub(super) fn read(path: &Path) -> String {

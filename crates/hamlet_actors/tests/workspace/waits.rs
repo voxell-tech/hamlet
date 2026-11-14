@@ -345,8 +345,10 @@ async fn a_change_to_a_file_changed_meanwhile_is_refused() {
 
     let refusal = CallRefusal::FileChanged {
         path: file.clone(),
-        was: Hashed::Sha256(sha256(b"a")),
-        now: Hashed::Sha256(sha256(b"theirs")),
+        was: Hashed::Sha256 { hash: sha256(b"a") },
+        now: Hashed::Sha256 {
+            hash: sha256(b"theirs"),
+        },
     };
     assert_eq!(taken, AnswerTaken::NotRun(refusal.clone()));
     assert_eq!(outcomes(&peers), [Outcome::NotRun(refusal)]);
