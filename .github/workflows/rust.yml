@@ -9,11 +9,10 @@ permissions:
   contents: read
 
 # A new push to a pull request cancels that pull request's older run.
-# On main a run in progress is never cancelled: a newer push waits for
-# it, and replaces a push to main that is still waiting.
+# Each run on main is a group of its own, so none waits for another.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+  group: ${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && github.run_id || github.ref }}
+  cancel-in-progress: true
 
 # No debug info and no incremental build: with them the runner has too
 # little room to link every test and example, and the linker is killed.
