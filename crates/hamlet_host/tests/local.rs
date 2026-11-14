@@ -4,7 +4,6 @@
 //! and the deadline of a start.
 
 use std::collections::HashMap;
-use std::future::Future;
 use std::mem::ManuallyDrop;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -1407,7 +1406,6 @@ async fn a_shutdown_closes_the_others_while_one_is_slow_and_reports_it()
     let text = format!("{error:#}");
     assert!(text.contains("brittle/b"), "{text}");
     assert!(!text.contains("counter/"), "{text}");
-    // A call in flight fails once its host begins to shut down.
     let error = nap
         .await
         .unwrap()
@@ -1526,7 +1524,6 @@ async fn a_second_host_opens_the_folder_at_once_after_a_shutdown() {
     let nap = napping.nap(&host, &b).await;
 
     host.shutdown().await.unwrap();
-    // A call in flight fails once its host begins to shut down.
     let error = nap
         .await
         .unwrap()
@@ -1599,7 +1596,7 @@ async fn the_folder_is_free_after_every_shutdown() {
         ))
         .await;
         host.shutdown().await.unwrap();
-        // Only the host's own work may hold it now.
+        // Once these tasks end, `host` is the last `Host`.
         while sleeps.join_next().await.is_some() {}
         drop(host);
         host = match Host::open(&dir, factories()) {
@@ -1868,7 +1865,6 @@ async fn a_call_fails_at_once_once_its_host_shuts_down() {
             .expect_err("a call to a host that is shutting down");
         assert!(code(&error) == "actor.stopping", "{error:#}");
     }
-    // A call in flight fails once its host begins to shut down.
     let error = nap
         .await
         .unwrap()
@@ -2344,7 +2340,7 @@ async fn boot_returns_while_the_starts_it_began_are_stuck() {
     host.shutdown().await.unwrap();
 }
 
-/// H1. Boot leaves alone the file of an actor its host runs, which
+/// Boot leaves alone the file of an actor its host runs, which
 /// the actor holds locked.
 #[tokio::test(flavor = "multi_thread")]
 async fn boot_succeeds_while_an_actor_of_its_host_runs() {
@@ -2385,7 +2381,7 @@ fn slow_counters() -> HashMap<String, ActorFactory> {
     )])
 }
 
-/// L7. Boot begins the start of an actor a kill cut off, and returns
+/// Boot begins the start of an actor a kill cut off, and returns
 /// without waiting for it. A call made meanwhile waits for the start.
 #[tokio::test(flavor = "multi_thread")]
 async fn boot_returns_before_the_starts_it_begins() {
@@ -2430,14 +2426,30 @@ impl std::io::Write for Logs {
     }
 }
 
-/// L1. Boot reads only the files of its own kinds. Another kind's
+impl Logs {
+    fn record(&self) -> tracing::subscriber::DefaultGuard {
+        use tracing_subscriber::util::SubscriberInitExt;
+
+        tracing_subscriber::fmt()
+            .with_max_level(
+                tracing_subscriber::filter::LevelFilter::WARN,
+            )
+            .with_ansi(false)
+            .with_writer({
+                let logs = self.clone();
+                move || logs.clone()
+            })
+            .finish()
+            .set_default()
+    }
+}
+
+/// Boot reads only the files of its own kinds. Another kind's
 /// file, which another process holds locked with a run a kill cut
 /// off, neither fails nor slows it, nor is logged, and nothing of
 /// that kind starts.
 #[tokio::test(flavor = "multi_thread")]
 async fn boot_reads_only_the_files_of_its_kinds() {
-    use tracing_subscriber::util::SubscriberInitExt;
-
     let dir = Scratch::new("host-boot-kinds");
     std::fs::create_dir_all(dir.join("actors/other")).unwrap();
     let held =
@@ -2456,15 +2468,7 @@ async fn boot_reads_only_the_files_of_its_kinds() {
 
     let host = Host::open(&dir, factories()).unwrap();
     let logs = Logs::default();
-    let logging = tracing_subscriber::fmt()
-        .with_max_level(tracing_subscriber::filter::LevelFilter::WARN)
-        .with_ansi(false)
-        .with_writer({
-            let logs = logs.clone();
-            move || logs.clone()
-        })
-        .finish()
-        .set_default();
+    let logging = logs.record();
     let began =
         tokio::time::timeout(Duration::from_secs(1), host.boot())
             .await
@@ -2480,7 +2484,7 @@ async fn boot_reads_only_the_files_of_its_kinds() {
     assert_eq!(probe(&dir, "other", "x").unwrap(), 1);
 }
 
-/// L2. Hosts of different names, each with a kind of its own, open
+/// Hosts of different names, each with a kind of its own, open
 /// one folder at once, and each boots while the other runs an actor.
 /// A second host of one name is refused by that name's lock, and a
 /// name must be a plain file name.
@@ -2528,14 +2532,12 @@ async fn hosts_of_different_names_share_a_folder() {
     node.shutdown().await.unwrap();
 }
 
-/// E1. One actor file that boot cannot read does not fail the boot.
+/// One actor file that boot cannot read does not fail the boot.
 /// Boot logs it once, raises an event that names its actor, and
 /// boots the rest: a counter whose one-shot came due while the host
 /// was down starts and runs it.
 #[tokio::test(flavor = "multi_thread")]
 async fn boot_goes_past_a_file_it_cannot_read() {
-    use tracing_subscriber::util::SubscriberInitExt;
-
     let dir = Scratch::new("host-boot-unreadable");
     let host = Host::open(&dir, factories()).unwrap();
     let id = host.get_or_start("counter", "a").await.unwrap();
@@ -2553,15 +2555,7 @@ async fn boot_goes_past_a_file_it_cannot_read() {
     let host = Host::open(&dir, factories()).unwrap();
     let mut events = host.events();
     let logs = Logs::default();
-    let logging = tracing_subscriber::fmt()
-        .with_max_level(tracing_subscriber::filter::LevelFilter::WARN)
-        .with_ansi(false)
-        .with_writer({
-            let logs = logs.clone();
-            move || logs.clone()
-        })
-        .finish()
-        .set_default();
+    let logging = logs.record();
     let began = host.boot().await;
     drop(logging);
     assert_eq!(began.unwrap(), std::slice::from_ref(&id));
@@ -2857,7 +2851,13 @@ async fn a_start_finishes_the_destroy_its_file_holds() {
 async fn a_command_line_the_demo_refuses_makes_no_actor() {
     let dir = Scratch::new("host-demo-refused");
     let host = Host::open(&dir, factories()).unwrap();
-    for line in ["bogus k", "block k soon", "schedule k soon"] {
+    for line in [
+        "bogus k",
+        "block k soon",
+        "schedule k soon",
+        "increment k soon",
+        "increment k 0",
+    ] {
         let words = line
             .split_whitespace()
             .map(str::to_owned)

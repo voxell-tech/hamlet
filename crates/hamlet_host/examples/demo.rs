@@ -35,10 +35,11 @@
 //! ```
 //!
 //! A `<key>` names a counter of the first kind, and `<kind>/<key>` an
-//! actor of any kind. A command on a counter makes it first if it has
-//! none. Each command prints `<kind>/<key> <count>`, the count the
-//! actor replied with. Booting prints `boot <kind>/<key> <count>` for
-//! each actor it started, once its start ends. `timers` prints `timer
+//! actor of any kind. A command on a counter makes it first if there
+//! is none, except `timers` and `rearm`, which then fail. Each
+//! command prints `<kind>/<key> <count>`, the count the actor replied
+//! with. Booting prints `boot <kind>/<key> <count>` for each actor it
+//! started, once its start ends. `timers` prints `timer
 //! <kind>/<key> <event_id> <action> due=<ms> tries=<n> error=<code>`
 //! for each timer, and `rearm` prints `rearm <kind>/<key> <event_id>
 //! <true|false>`. `call` prints `call <from> <to> <n> <us>us`, where

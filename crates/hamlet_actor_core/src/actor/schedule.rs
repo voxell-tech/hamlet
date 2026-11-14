@@ -280,9 +280,10 @@ impl ActorContext {
     /// returns its event id. One that comes due while the host is
     /// down fires at the actor's next start.
     ///
-    /// Its handler runs at least once and at most
-    /// [`MAX_ONE_SHOT_TRIES`] times: after the last try the timer is
-    /// set aside, and the actor is not woken for it again. It can run
+    /// Its handler runs at most [`MAX_ONE_SHOT_TRIES`] times, and not
+    /// at all when every try ends before the action runs, as when the
+    /// actor fails each start: after the last try the timer is set
+    /// aside, and the actor is not woken for it again. It can run
     /// again after a kill that lands between the handler's commit
     /// and its reply, so a handler must tolerate a second run. A
     /// handler that ends its timer with [`end_one_shot`] in its own

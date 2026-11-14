@@ -165,7 +165,7 @@ async fn received<T>(rx: oneshot::Receiver<Result<T>>) -> Result<T> {
 fn serve(conn: Connection, rx: &mpsc::Receiver<Command>) {
     // The work `when_idle` holds until no transaction is open, in the
     // order it came.
-    let mut idle: Vec<Idle> = Vec::new();
+    let mut idle = Vec::new();
     while let Ok(command) = rx.recv() {
         match command {
             Command::Sql(request) => request.answer(&conn),
@@ -229,10 +229,10 @@ mod tests {
         let rows = file
             .close_with(|conn| {
                 conn.execute("INSERT INTO t VALUES ('host')", [])?;
-                let rows: i64 = conn.query_row(
+                let rows = conn.query_row(
                     "SELECT COUNT(*) FROM t WHERE who = 'actor'",
                     [],
-                    |row| row.get(0),
+                    |row| row.get::<_, i64>(0),
                 )?;
                 Ok(rows)
             })
@@ -242,8 +242,10 @@ mod tests {
         assert!(file.exec("SELECT 1".to_owned()).await.is_err());
 
         let conn = open(&dir.join("a.sqlite"), false).unwrap();
-        let who: String = conn
-            .query_row("SELECT who FROM t", [], |row| row.get(0))
+        let who = conn
+            .query_row("SELECT who FROM t", [], |row| {
+                row.get::<_, String>(0)
+            })
             .unwrap();
         assert_eq!(who, "host");
     }
@@ -262,8 +264,8 @@ mod tests {
         }
     }
 
-    /// Idle work waits for the open transaction to commit, and runs
-    /// before the statements sent after the commit. At the close, it
+    /// Idle work waits for the open transaction to end, and runs
+    /// before the statements sent after it ends. At the close, it
     /// runs after the rollback of a transaction left open.
     #[tokio::test]
     async fn idle_work_waits_for_the_open_transaction() {
@@ -323,9 +325,9 @@ mod tests {
         file.close_with(|_| Ok(())).await.unwrap();
         let conn = Connection::open(&path).unwrap();
         conn.busy_timeout(std::time::Duration::ZERO).unwrap();
-        let rows: i64 = conn
+        let rows = conn
             .query_row("SELECT COUNT(*) FROM ballast", [], |row| {
-                row.get(0)
+                row.get::<_, i64>(0)
             })
             .unwrap();
         assert_eq!(rows, 1);

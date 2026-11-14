@@ -14,6 +14,7 @@ use std::time::Duration;
 use act::act;
 use anyhow::{Context as _, Result};
 use async_trait::async_trait;
+use clock::now_ms;
 use code::code;
 use hamlet_actor::{
     Action, Actor, ActorConfig, Ctx, Handler, Registry,
@@ -33,10 +34,16 @@ use tokio::time::{Instant, sleep};
 
 #[path = "../examples/demo/act.rs"]
 mod act;
+#[path = "support/clock.rs"]
+mod clock;
 #[path = "support/code.rs"]
 mod code;
 #[path = "../examples/demo/counter.rs"]
 mod counter;
+
+fn factories() -> HashMap<String, ActorFactory> {
+    counter::factories(&["counter"], counter::Sleep::WhenIdle)
+}
 
 /// How far ahead a test schedules its one-shot.
 const SOON_MS: u64 = 10;
@@ -178,7 +185,7 @@ async fn a_one_shot_whose_raw_handler_panics_runs_once() {
     let dir = Scratch::new("timer-panic-raw");
     a_panicking_handler_runs_once(
         &dir,
-        || counter::factories(&["counter"], counter::Sleep::WhenIdle),
+        factories,
         "counter",
         ("schedule", schedule_args(SOON_MS, "panic")),
         ("get", |reply| counter::count(reply).unwrap()),
@@ -543,15 +550,7 @@ async fn starts_after(
     starts.load(Ordering::SeqCst)
 }
 
-/// Milliseconds since the Unix epoch, the clock timers use.
-fn now_ms() -> i64 {
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap();
-    i64::try_from(now.as_millis()).unwrap()
-}
-
-/// M1. A one-shot whose handler drops its reply, without a panic, is
+/// A one-shot whose handler drops its reply, without a panic, is
 /// kept to be tried again. Each generation tries it once, and its
 /// idle stop leaves the past deadline that starts the next at once.
 /// The sixth finds it tried five times, sets it aside, and stops for
@@ -705,7 +704,7 @@ async fn count_in(sql: &SqliteDb, table: &str) -> Result<i64> {
     }
 }
 
-/// The third loop. From its second generation the actor's event loop
+/// From its second generation the actor's event loop
 /// panics before it reads the one-shot queued for it, so the one-shot
 /// is kept, and each crash stop leaves the past deadline that starts
 /// the next generation at once. Generations 2 to 6 each try it once.
@@ -797,7 +796,7 @@ const SWEEP_DUE_MS: u64 = 100;
 
 /// Starts one counter per step, `<prefix><n>`. Each schedules a
 /// one-shot `increment` and is stopped for `reason` at its own moment
-/// near the one-shot's due time, in steps of 100 µs from 3 ms before
+/// near the one-shot's due time, in steps of 100 us from 3 ms before
 /// to 3 ms after. Returns the actors' ids.
 async fn stop_each_near_its_due_time(
     host: &Host,
@@ -832,15 +831,13 @@ async fn stop_each_near_its_due_time(
     ids
 }
 
-/// A1. Each counter sleeps near the time its one-shot comes due,
+/// Each counter sleeps near the time its one-shot comes due,
 /// before, while or after it runs. However the stop and the one-shot
 /// fall, the one-shot runs once: a stop that comes first leaves a
 /// deadline that wakes the actor for it.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_sleep_near_the_due_time_keeps_the_timer() {
     let dir = Scratch::new("timer-sleep-sweep");
-    let factories =
-        || counter::factories(&["counter"], counter::Sleep::WhenIdle);
     let host = Host::open(&dir, factories()).unwrap();
     let ids =
         stop_each_near_its_due_time(&host, "s", ShutdownKind::Sleep)
@@ -867,13 +864,11 @@ async fn a_sleep_near_the_due_time_keeps_the_timer() {
     );
 }
 
-/// A2. Each counter is destroyed near the time its one-shot comes
+/// Each counter is destroyed near the time its one-shot comes
 /// due. No timer brings a destroyed actor back.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn an_alarm_due_during_a_destroy_does_not_revive_it() {
     let dir = Scratch::new("timer-destroy-sweep");
-    let factories =
-        || counter::factories(&["counter"], counter::Sleep::WhenIdle);
     let host = Host::open(&dir, factories()).unwrap();
     let ids = stop_each_near_its_due_time(
         &host,
@@ -903,7 +898,7 @@ async fn a_timer_does_not_make_a_file_that_is_gone() {
     let dir = Scratch::new("timer-file-gone");
     let host = Host::open_with(
         &dir,
-        counter::factories(&["counter"], counter::Sleep::WhenIdle),
+        factories(),
         HostOptions {
             start_retry: Duration::from_millis(100),
             ..HostOptions::default()
@@ -944,8 +939,6 @@ async fn boot_with_deadline(
     dir: &Path,
     wake_at: i64,
 ) -> (Host, String, Vec<String>) {
-    let factories =
-        || counter::factories(&["counter"], counter::Sleep::WhenIdle);
     let host = Host::open(dir, factories()).unwrap();
     let id = host.get_or_start("counter", "a").await.unwrap();
     host.shutdown().await.unwrap();

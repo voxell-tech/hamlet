@@ -18,13 +18,13 @@ pub async fn run(
 ) -> Result<()> {
     let kind = kinds.first().context("the demo runs no kind")?;
     if words.first().is_some_and(|word| word == "calls") {
-        return calls(host, kinds, &words[1..]).await;
+        return calls(host, kinds, kind, &words[1..]).await;
     }
     let (command, at) = match words {
         [command, key, ..] => (command.as_str(), address(kind, key)),
         _ => bail!("a command takes an actor key"),
     };
-    let id = format!("{}/{}", at.kind, at.key);
+    let id = id_of(&at);
     let mut out = std::io::stdout();
     match command {
         "timers" => {
@@ -76,7 +76,11 @@ pub async fn run(
     // refuses makes none.
     let (args, times) = match command {
         "increment" => {
-            (Vec::new(), number(words.get(2)).unwrap_or(1))
+            let times = words
+                .get(2)
+                .map_or(Ok(1), |word| number(Some(word)))?;
+            ensure!(times > 0, "`increment` counts from 1");
+            (Vec::new(), times)
         }
         "get" | "sleep" | "destroy" => (Vec::new(), 1),
         "block" => (number(words.get(2))?.to_le_bytes().to_vec(), 1),
@@ -106,9 +110,9 @@ pub async fn run(
 async fn calls(
     host: &Host,
     kinds: &[String],
+    kind: &str,
     words: &[String],
 ) -> Result<()> {
-    let kind = kinds.first().context("the demo runs no kind")?;
     let mut pair = Vec::new();
     let mut count = 1000;
     let mut words = words.iter();
@@ -169,7 +173,7 @@ async fn make(
     if kinds.contains(&at.kind) {
         host.get_or_start(&at.kind, &at.key).await
     } else {
-        Ok(format!("{}/{}", at.kind, at.key))
+        Ok(id_of(at))
     }
 }
 
@@ -180,7 +184,7 @@ async fn call(
     caller: &str,
     to: &Address,
 ) -> Result<(i64, u64)> {
-    let target = format!("{}/{}", to.kind, to.key).into_bytes();
+    let target = id_of(to).into_bytes();
     let reply = act(host, caller, "call", target).await?;
     let (n, micros) = reply
         .split_first_chunk::<8>()
@@ -208,6 +212,10 @@ fn address(kind: &str, word: &str) -> Address {
         Some((kind, key)) => Address::new(kind, key),
         None => Address::new(kind, word),
     }
+}
+
+fn id_of(at: &Address) -> String {
+    format!("{}/{}", at.kind, at.key)
 }
 
 pub fn number(word: Option<&String>) -> Result<u64> {

@@ -135,7 +135,6 @@ impl HostInner {
             action = name,
             task = cause.task()
         );
-        // Holds a time once the host has begun to shut down.
         let mut shut = self.starts_end.subscribe();
         let call = async {
             let begun = Instant::now();
@@ -161,11 +160,8 @@ impl HostInner {
     }
 }
 
-/// The one place every call, and every create of an actor by an
-/// actor, passes before it reaches the directory: the program's, a
-/// client's and an actor's. It refuses an actor's `operation` of
-/// itself, which would wait for its own handler or its own start. A
-/// check of which kind may reach which belongs here.
+/// Refuses an actor's `operation` of itself, which would wait for its
+/// own handler or its own start.
 pub(super) fn admit(
     operation: &str,
     caller: Option<&Caller>,

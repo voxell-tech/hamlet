@@ -10,15 +10,18 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::process::ExitStatusExt;
 use std::path::Path;
 use std::process::{Command, ExitStatus, Stdio};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
 use act::act;
+use clock::now_ms;
 use hamlet_actor_core::ActorFactory;
 use hamlet_host::{Address, Host, HostEvent};
 use hamlet_testing::Scratch;
 
 #[path = "../examples/demo/act.rs"]
 mod act;
+#[path = "support/clock.rs"]
+mod clock;
 #[path = "../examples/demo/counter.rs"]
 mod counter;
 
@@ -599,12 +602,6 @@ fn aborting_child() {
     });
 }
 
-/// Milliseconds since the Unix epoch, the clock timers use.
-fn now_ms() -> i64 {
-    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
-    i64::try_from(now.as_millis()).unwrap()
-}
-
 /// How one aborting child ended, and what it printed.
 #[derive(Debug)]
 struct Ended {
@@ -667,7 +664,7 @@ fn run_aborting_child(home: &Path, step: &str) -> Ended {
     Ended { status, lines }
 }
 
-/// M2. A one-shot whose handler aborts the process. The process that
+/// A one-shot whose handler aborts the process. The process that
 /// armed it and the first four boots after it each try it and die.
 /// The fifth boot finds it tried five times and sets it aside, with
 /// no outcome recorded, and its process stays up. The bystander
