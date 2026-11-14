@@ -155,31 +155,37 @@ impl Ends {
                 input.read_exact(&mut bytes).ok()?;
                 Preamble::decode(&bytes)
             })
-            .ok_or_else(|| {
-                io::Error::new(
-                    io::ErrorKind::NotFound,
-                    "no ends to take: this process was not started \
-                     bound, or took them already",
-                )
-            })?;
+            .ok_or_else(no_ends)?;
         sys::take_ends(&preamble)
     }
+}
+
+fn no_ends() -> io::Error {
+    io::Error::new(
+        io::ErrorKind::NotFound,
+        "no ends to take: this process was not started bound, or \
+         took them already",
+    )
 }
 
 struct Preamble {
     input: u64,
     output: u64,
+    /// The process the ends are for: on Unix its parent, on Windows
+    /// itself.
+    owner: u64,
 }
 
 impl Preamble {
     const TAG: [u8; 8] = *b"ends/v01";
-    const LEN: usize = 24;
+    const LEN: usize = 32;
 
     fn encode(&self) -> [u8; Self::LEN] {
         let mut bytes = [0; Self::LEN];
         bytes[..8].copy_from_slice(&Self::TAG);
         bytes[8..16].copy_from_slice(&self.input.to_le_bytes());
-        bytes[16..].copy_from_slice(&self.output.to_le_bytes());
+        bytes[16..24].copy_from_slice(&self.output.to_le_bytes());
+        bytes[24..].copy_from_slice(&self.owner.to_le_bytes());
         bytes
     }
 
@@ -190,6 +196,7 @@ impl Preamble {
         (bytes[..8] == Self::TAG).then_some(Self {
             input: value(8)?,
             output: value(16)?,
+            owner: value(24)?,
         })
     }
 }
@@ -488,10 +495,10 @@ mod bound {
         command
     }
 
-    fn spawn_child(test: &str) -> (Tree, Pipes) {
+    fn spawn_child(test: &str, part: &str) -> (Tree, Pipes) {
         let argv = this_test(test);
         let mut env: BTreeMap<_, _> = std::env::vars().collect();
-        env.insert(PART.to_owned(), "child".to_owned());
+        env.insert(PART.to_owned(), part.to_owned());
         Tree::spawn_bound(Command {
             argv: &argv,
             env: &env,
@@ -518,7 +525,7 @@ mod bound {
         match part().as_deref() {
             Some("child") => child(),
             Some("parent") => {
-                let (_tree, pipes) = spawn_child(TEST);
+                let (_tree, pipes) = spawn_child(TEST, "child");
                 let pid = BufReader::new(pipes.output)
                     .lines()
                     .next()
@@ -575,7 +582,7 @@ mod bound {
         let runtime = tokio::runtime::Handle::current();
         let (_tree, mut pipes) = std::thread::spawn(move || {
             let _runtime = runtime.enter();
-            spawn_child(TEST)
+            spawn_child(TEST, "child")
         })
         .join()
         .unwrap();
@@ -605,6 +612,41 @@ mod bound {
         let ended = tokio::time::timeout(
             Duration::from_secs(10),
             unbound.wait(),
+        )
+        .await
+        .expect("the take waited");
+        assert!(ended.unwrap().success());
+    }
+
+    #[tokio::test]
+    async fn a_take_in_a_process_its_bound_child_started_fails_at_once()
+     {
+        const TEST: &str = "process::bound::a_take_in_a_process_its_bound_child_started_fails_at_once";
+        match part().as_deref() {
+            Some("launcher") => {
+                let [program, args @ ..] = this_test(TEST);
+                let taken = std::process::Command::new(program)
+                    .args(args)
+                    .env(PART, "taker")
+                    .status()
+                    .unwrap();
+                assert!(taken.success(), "{taken}");
+                return;
+            }
+            Some(_) => {
+                let taken = Ends::take().map(|_| ());
+                assert_eq!(
+                    taken.map_err(|error| error.kind()),
+                    Err(io::ErrorKind::NotFound)
+                );
+                return;
+            }
+            None => {}
+        }
+        let (mut launcher, _pipes) = spawn_child(TEST, "launcher");
+        let ended = tokio::time::timeout(
+            Duration::from_secs(20),
+            launcher.ended(),
         )
         .await
         .expect("the take waited");

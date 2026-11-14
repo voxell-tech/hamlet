@@ -24,7 +24,9 @@ use rustix::process::{
 use tokio::process::{Child, ChildStderr, ChildStdout};
 use tokio::signal::unix::{SignalKind, signal};
 
-use crate::process::{Command, Ends, Limits, Pipes, Preamble};
+use crate::process::{
+    Command, Ends, Limits, Pipes, Preamble, no_ends,
+};
 
 /// A process group and the leader it was started with. The leader is
 /// reaped only as the group is dropped, and an id stays taken while
@@ -158,6 +160,7 @@ pub(crate) fn spawn_bound(
         &Preamble {
             input: ends[0].as_raw_fd() as u64,
             output: ends[1].as_raw_fd() as u64,
+            owner: number(getpid()),
         }
         .encode(),
     )?;
@@ -342,12 +345,20 @@ pub(crate) fn standard_input() -> io::Result<(File, u64)> {
 }
 
 pub(crate) fn take_ends(preamble: &Preamble) -> io::Result<Ends> {
+    let parent = rustix::process::getppid();
+    #[cfg(not(target_os = "linux"))]
+    if parent.is_none_or(Pid::is_init) {
+        end_now();
+    }
+    if parent.map(number) != Some(preamble.owner) {
+        return Err(no_ends());
+    }
     let fd =
         |value: u64| RawFd::try_from(value).map_err(io::Error::other);
     let (input, output) = (fd(preamble.input)?, fd(preamble.output)?);
-    // SAFETY: the parent kept both open across exec for this process,
-    // and the preamble that names them is read once, so nothing else
-    // owns them.
+    // SAFETY: this process's parent kept both open across exec for
+    // it, and the preamble that names them is read once, so nothing
+    // else owns them.
     let (input, output) = unsafe {
         (OwnedFd::from_raw_fd(input), OwnedFd::from_raw_fd(output))
     };
@@ -355,7 +366,9 @@ pub(crate) fn take_ends(preamble: &Preamble) -> io::Result<Ends> {
         fcntl_setfd(end, FdFlags::CLOEXEC)?;
     }
     #[cfg(not(target_os = "linux"))]
-    watch_parent()?;
+    if let Some(parent) = parent {
+        watch_parent(parent)?;
+    }
     Ok(Ends {
         input: input.into(),
         output: output.into(),
@@ -363,18 +376,13 @@ pub(crate) fn take_ends(preamble: &Preamble) -> io::Result<Ends> {
 }
 
 #[cfg(not(target_os = "linux"))]
-fn watch_parent() -> io::Result<()> {
+fn watch_parent(parent: Pid) -> io::Result<()> {
     use std::mem::MaybeUninit;
 
     use rustix::event::kqueue::{
         Event, EventFilter, EventFlags, ProcessEvents, kevent, kqueue,
     };
 
-    let Some(parent) =
-        rustix::process::getppid().filter(|pid| !pid.is_init())
-    else {
-        end_now()
-    };
     let queue = kqueue()?;
     let exit = Event::new(
         EventFilter::Proc {
@@ -414,6 +422,11 @@ fn watch_parent() -> io::Result<()> {
             }
         })?;
     Ok(())
+}
+
+/// The number a preamble names `pid` by.
+fn number(pid: Pid) -> u64 {
+    pid.as_raw_nonzero().get().unsigned_abs().into()
 }
 
 pub(crate) fn end_now() -> ! {

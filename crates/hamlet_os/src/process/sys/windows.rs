@@ -44,7 +44,9 @@ use windows_sys::Win32::System::Threading::{
     THREAD_SUSPEND_RESUME, TerminateProcess, WaitForSingleObject,
 };
 
-use crate::process::{Command, Ends, Limits, Pipes, Preamble};
+use crate::process::{
+    Command, Ends, Limits, Pipes, Preamble, no_ends,
+};
 
 /// A command's job and the leader it was started with.
 pub(crate) struct Group {
@@ -258,6 +260,7 @@ pub(crate) fn spawn_bound(
         &Preamble {
             input: leader.give(child_input.into())?,
             output: leader.give(child_output.into())?,
+            owner: leader.0.leader_id.into(),
         }
         .encode(),
     )?;
@@ -449,6 +452,9 @@ pub(crate) fn standard_input() -> io::Result<(File, u64)> {
 }
 
 pub(crate) fn take_ends(preamble: &Preamble) -> io::Result<Ends> {
+    if preamble.owner != u64::from(std::process::id()) {
+        return Err(no_ends());
+    }
     let handle = |value: u64| {
         usize::try_from(value)
             .map(|value| value as RawHandle)
