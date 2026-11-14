@@ -24,8 +24,8 @@ use hamlet_messages::workspace::{
     CallerRefusal, Cancel, CancelAnswer, Changed, ChiefAnswer,
     CommandEnd, CommandId, CommandStatus, ConversationId, Cut, Exit,
     Lapse, ListTools, Program, ReachAnswer, ReachVersion,
-    RealmRefusal, RealmTask, Run, RunAnswer, SetReach, Shell,
-    ToolList, Which,
+    RealmRefusal, RealmTask, Run, RunAnswer, SetReach, ToolList,
+    Which,
 };
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -152,7 +152,6 @@ fn the_workspaces_messages_match_their_fixtures() {
             conversation: ConversationId("c1".into()),
             realm_task: task.clone(),
             program: Program::Script {
-                shell: Shell::Bash,
                 script: "echo hi".into(),
                 network: false,
                 timeout_ms: Some(30_000),

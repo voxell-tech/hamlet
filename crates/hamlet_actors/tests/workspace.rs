@@ -22,7 +22,7 @@ use hamlet_messages::workspace::{
     AgentNumber, CallId, CallRefusal, CallerRefusal, CommandEnd,
     CommandId, CommandStatus, ConversationId, Exit, Program,
     ReachAnswer, ReachVersion, RealmRefusal, RealmTask, Run,
-    RunAnswer, SetReach, Shell,
+    RunAnswer, SetReach,
 };
 use hamlet_sandbox::Sandbox;
 use hamlet_testing::Scratch;
@@ -468,7 +468,6 @@ fn run(call: &str, script: &str) -> Run {
         conversation: ConversationId("c1".to_owned()),
         realm_task: None,
         program: Program::Script {
-            shell: Shell::Bash,
             script: script.to_owned(),
             network: false,
             timeout_ms: None,

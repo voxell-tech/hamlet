@@ -72,7 +72,6 @@ impl<'a> Ready<'a> {
                 script,
                 network,
                 timeout_ms,
-                ..
             } => {
                 return Ok(Self::Script {
                     script,

@@ -159,14 +159,6 @@ pub enum CallerRefusal {
     },
 }
 
-/// The shell a command's script is written for.
-#[derive(
-    Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize,
-)]
-pub enum Shell {
-    Bash,
-}
-
 /// Runs a script or a tool added by hand for an agent.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Run {
@@ -182,7 +174,6 @@ pub struct Run {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Program {
     Script {
-        shell: Shell,
         script: String,
         /// The model said the command needs the network (C19).
         network: bool,

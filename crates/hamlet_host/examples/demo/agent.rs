@@ -54,7 +54,7 @@ use hamlet_messages::workspace::files::{
 };
 use hamlet_messages::workspace::{
     AgentNumber, CallId, CommandEnd, CommandId, CommandStatus,
-    ConversationId, Exit, Program, Run, RunAnswer, Shell,
+    ConversationId, Exit, Program, Run, RunAnswer,
 };
 
 /// The kind `agent`.
@@ -198,7 +198,6 @@ pub async fn run(host: &Host, words: &[String]) -> Result<()> {
                 conversation,
                 realm_task: None,
                 program: Program::Script {
-                    shell: Shell::Bash,
                     script: script.join(" "),
                     network: false,
                     timeout_ms: None,
