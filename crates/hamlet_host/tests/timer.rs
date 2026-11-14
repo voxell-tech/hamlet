@@ -1,8 +1,9 @@
 //! Timers: what a one-shot schedule does when its handler panics,
 //! and when its actor sleeps or is destroyed as it comes due, a
 //! one-shot that never finishes set aside after five tries, a
-//! stored deadline at either end of the clock's range, and a start
-//! for a deadline that fails.
+//! stored deadline at either end of the clock's range, a start for a
+//! deadline that fails, a double drain, twenty one-shots due at once,
+//! and a handler that returns an error.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -11,15 +12,18 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
 
 use act::act;
-use anyhow::Result;
+use anyhow::{Context as _, Result};
 use async_trait::async_trait;
 use hamlet_actor::{
     Action, Actor, ActorConfig, Ctx, Handler, Registry,
 };
-use hamlet_actor_core::actor::schedule::end_one_shot;
+use hamlet_actor_core::actor::schedule::{
+    ScheduledFireInfo, end_one_shot,
+};
 use hamlet_actor_core::sqlite::SqliteDb;
 use hamlet_actor_core::{
-    ActorEvent, ActorFactory, ActorStart, ColumnValue, ShutdownKind,
+    ActorContext, ActorEvent, ActorFactory, ActorStart, BindParam,
+    ColumnValue, ShutdownKind,
 };
 use hamlet_actor_error::ActorError;
 use hamlet_host::{Address, Caller, Host, HostEvent, HostOptions};
@@ -1179,5 +1183,248 @@ async fn a_calls_failed_start_of_an_actor_with_no_deadline_is_not_tried_again()
         starts_after(&starts, 2, Duration::from_millis(500)).await;
     assert_eq!(after, 2, "the failed start was tried again");
     assert!(!host.is_running(&id));
+    host.shutdown().await.unwrap();
+}
+
+/// The kind `timed`, of the raw event API, whose one-shot handlers
+/// count their runs in the table `runs`, by action and event. Each
+/// action runs on a task of its own.
+/// - `twice` schedules a one-shot `inc` due at once, then drains the
+///   due one-shots twice at once.
+/// - `twenty` schedules twenty one-shots `slow`, due 10 ms apart.
+/// - `fail` schedules a one-shot `error` due at once.
+/// - `inc` counts its run and ends its one-shot, in one transaction.
+/// - `slow` waits 50 ms, then does as `inc` does, so the runs of
+///   one-shots due close together overlap.
+/// - `error` counts its run, then returns an error.
+/// - `read` replies with what [`read_runs`] reads of the action its
+///   arguments name.
+fn timed() -> HashMap<String, ActorFactory> {
+    let config = ActorConfig {
+        name: Some("timed".to_owned()),
+        has_database: true,
+        ..ActorConfig::default()
+    };
+    HashMap::from([(
+        "timed".to_owned(),
+        ActorFactory::new(config, |start| Box::pin(run_timed(start))),
+    )])
+}
+
+async fn run_timed(start: ActorStart) -> Result<()> {
+    let ActorStart {
+        ctx, mut events, ..
+    } = start;
+    ctx.sql()
+        .exec(
+            "CREATE TABLE IF NOT EXISTS runs (action TEXT NOT NULL, \
+             event TEXT NOT NULL, n INTEGER NOT NULL, PRIMARY KEY \
+             (action, event))",
+        )
+        .await?;
+    while let Some(event) = events.recv().await {
+        let ActorEvent::Action {
+            name,
+            args,
+            scheduled_fire,
+            reply,
+            ..
+        } = event
+        else {
+            counter::answer(event);
+            continue;
+        };
+        let ctx = ctx.clone();
+        tokio::spawn(async move {
+            reply.send(
+                timed_action(&ctx, &name, &args, scheduled_fire)
+                    .await,
+            );
+        });
+    }
+    Ok(())
+}
+
+async fn timed_action(
+    ctx: &ActorContext,
+    name: &str,
+    args: &[u8],
+    fire: Option<ScheduledFireInfo>,
+) -> Result<Vec<u8>> {
+    const COUNT: &str = "INSERT INTO runs (action, event, n) VALUES \
+                         (?, ?, 1) ON CONFLICT (action, event) DO \
+                         UPDATE SET n = n + 1";
+    let counted = |fire: &ScheduledFireInfo| {
+        Some(vec![
+            BindParam::Text(name.to_owned()),
+            BindParam::Text(fire.id.clone()),
+        ])
+    };
+    match name {
+        "twice" => {
+            ctx.after(Duration::ZERO, "inc", &[]).await?;
+            tokio::try_join!(
+                ctx.drain_overdue_scheduled_events(),
+                ctx.drain_overdue_scheduled_events()
+            )?;
+        }
+        "twenty" => {
+            for n in 0..20 {
+                ctx.after(Duration::from_millis(10 * n), "slow", &[])
+                    .await?;
+            }
+        }
+        "fail" => {
+            ctx.after(Duration::ZERO, "error", &[]).await?;
+        }
+        "inc" | "slow" => {
+            let fire = fire.context("a one-shot's action")?;
+            if name == "slow" {
+                sleep(Duration::from_millis(50)).await;
+            }
+            let tx = ctx.sql().begin_transaction(None).await?;
+            end_one_shot(&tx, &fire).await?;
+            tx.execute(COUNT, counted(&fire)).await?;
+            tx.commit().await?;
+        }
+        "error" => {
+            let fire = fire.context("a one-shot's action")?;
+            ctx.sql().execute(COUNT, counted(&fire)).await?;
+            anyhow::bail!("the handler returns an error");
+        }
+        "read" => {
+            let action = std::str::from_utf8(args)?.to_owned();
+            let runs = ctx
+                .sql()
+                .execute(
+                    "SELECT COALESCE(SUM(n), 0), COUNT(*), \
+                     COALESCE(MAX(n), 0), (SELECT COUNT(*) FROM \
+                     _actor_schedule_events) FROM runs WHERE action \
+                     = ?",
+                    Some(vec![BindParam::Text(action)]),
+                )
+                .await?;
+            let row = runs.rows.first().context("no row")?;
+            let mut reply = Vec::new();
+            for value in row {
+                let ColumnValue::Integer(value) = value else {
+                    anyhow::bail!("a count reads {value:?}");
+                };
+                reply.extend_from_slice(&value.to_le_bytes());
+            }
+            return Ok(reply);
+        }
+        other => anyhow::bail!("unknown action `{other}`"),
+    }
+    Ok(Vec::new())
+}
+
+/// What the kind `timed` stored of the runs of `action`: how many
+/// runs, of how many one-shots, the most runs of one, and how many
+/// one-shots are still stored.
+#[derive(Debug, PartialEq)]
+struct Tally {
+    runs: i64,
+    one_shots: i64,
+    most: i64,
+    stored: i64,
+}
+
+async fn read_runs(host: &Host, id: &str, action: &str) -> Tally {
+    let reply = act(host, id, "read", action.as_bytes().to_vec())
+        .await
+        .unwrap();
+    let values = reply
+        .as_chunks::<8>()
+        .0
+        .iter()
+        .map(|chunk| i64::from_le_bytes(*chunk))
+        .collect::<Vec<_>>();
+    let [runs, one_shots, most, stored] = values[..] else {
+        panic!("read replied {values:?}");
+    };
+    Tally {
+        runs,
+        one_shots,
+        most,
+        stored,
+    }
+}
+
+/// Waits until the runs of `action` read `want`, then for 300 ms, and
+/// checks they still read it.
+async fn runs_settle(
+    host: &Host,
+    id: &str,
+    action: &str,
+    want: Tally,
+) {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let read = read_runs(host, id, action).await;
+        if read == want {
+            break;
+        }
+        assert!(Instant::now() < deadline, "{action}: {read:?}");
+        sleep(Duration::from_millis(10)).await;
+    }
+    sleep(Duration::from_millis(300)).await;
+    assert_eq!(read_runs(host, id, action).await, want, "{action}");
+}
+
+/// The runs of `n` one-shots, each run once and none left stored.
+fn each_once(n: i64) -> Tally {
+    Tally {
+        runs: n,
+        one_shots: n,
+        most: 1,
+        stored: 0,
+    }
+}
+
+/// A one-shot that comes due runs once though its generation drains
+/// the due one-shots twice at once, beside the drain of its own
+/// alarm: one drain claims it, and the others pass it over.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_double_drain_runs_a_one_shot_once() {
+    let dir = Scratch::new("timer-double-drain");
+    let host = Host::open(&dir, timed()).unwrap();
+    let id = host.get_or_start("timed", "a").await.unwrap();
+    for round in 1..=20 {
+        act(&host, &id, "twice", Vec::new()).await.unwrap();
+        runs_settle(&host, &id, "inc", each_once(round)).await;
+    }
+    host.shutdown().await.unwrap();
+}
+
+/// Twenty one-shots due 10 ms apart, whose handlers each take 50 ms
+/// and so run at once, each run once.
+#[tokio::test(flavor = "multi_thread")]
+async fn twenty_overlapping_timers_each_run_once() {
+    let dir = Scratch::new("timer-twenty");
+    let host = Host::open(&dir, timed()).unwrap();
+    let id = host.get_or_start("timed", "a").await.unwrap();
+    act(&host, &id, "twenty", Vec::new()).await.unwrap();
+    runs_settle(&host, &id, "slow", each_once(20)).await;
+    host.shutdown().await.unwrap();
+}
+
+/// A one-shot whose handler returns an error runs once: its row goes
+/// with the run, so neither its generation nor the next tries it
+/// again, and nothing is set aside.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_one_shot_whose_handler_returns_an_error_runs_once() {
+    let dir = Scratch::new("timer-error");
+    let host = Host::open(&dir, timed()).unwrap();
+    let id = host.get_or_start("timed", "a").await.unwrap();
+    act(&host, &id, "fail", Vec::new()).await.unwrap();
+    runs_settle(&host, &id, "error", each_once(1)).await;
+    host.stop(&id, ShutdownKind::Sleep).await.unwrap();
+    runs_settle(&host, &id, "error", each_once(1)).await;
+    let set_aside = host
+        .set_aside_timers(&Address::new("timed", "a"))
+        .await
+        .unwrap();
+    assert!(set_aside.is_empty(), "{set_aside:?}");
     host.shutdown().await.unwrap();
 }
