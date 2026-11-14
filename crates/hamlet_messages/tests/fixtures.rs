@@ -16,8 +16,8 @@ use hamlet_messages::workspace::files::{
     Text, Truncation, WriteFile,
 };
 use hamlet_messages::workspace::reach::{
-    Footing, Mode, Need, Project, Reach, Refusal, SecretsVersion,
-    Trust,
+    Access, Footing, Mode, Need, Project, Reach, Refusal,
+    SecretsVersion, Trust,
 };
 use hamlet_messages::workspace::{
     AddedTool, AgentNumber, Answer, AnswerTaken, CallId, CallRefusal,
@@ -135,6 +135,16 @@ fn the_workspaces_messages_match_their_fixtures() {
     );
     fixtures
         .args("workspace/set_reach.ended", &set_reach(Reach::Ended));
+    fixtures.args(
+        "workspace/set_reach.auto",
+        &set_reach(Reach::Agent(Footing {
+            project: Some(Project {
+                folder: "/work/project".into(),
+                mode: Mode::Auto,
+            }),
+            ..footing()
+        })),
+    );
     fixtures.answer(
         "workspace/set_reach.in_force",
         &ReachAnswer::InForce(ReachVersion(3)),
@@ -256,11 +266,17 @@ fn the_answers_about_a_command_match_their_fixtures() {
     );
     for (name, refusal) in [
         (
+            "caller",
+            CallRefusal::Caller(CallerRefusal::NotTheCaller {
+                named: AGENT,
+                caller: AgentNumber(8),
+            }),
+        ),
+        (
             "reach",
             CallRefusal::Reach(Refusal::OutsideReach {
                 path: "/etc".into(),
-                access:
-                    hamlet_messages::workspace::reach::Access::Read,
+                access: Access::Read,
             }),
         ),
         ("reused", CallRefusal::CallReused(CallId("call-1".into()))),
@@ -288,6 +304,14 @@ fn the_answers_about_a_command_match_their_fixtures() {
                 why: Changed::Refused(Refusal::NoReach),
             },
         ),
+        (
+            "invalid",
+            CallRefusal::Invalid(
+                "Invalid timeout: must be a positive number of \
+                 seconds"
+                    .into(),
+            ),
+        ),
     ] {
         fixtures.answer(
             &format!("workspace/run.refused.{name}"),
@@ -311,6 +335,10 @@ fn the_answers_about_a_command_match_their_fixtures() {
             agent: AGENT,
             command: CommandId(4),
         },
+    );
+    fixtures.answer(
+        "workspace/command_status.refused.no_such_command",
+        &RunAnswer::Refused(CallRefusal::NoSuchCommand(CommandId(9))),
     );
     for (name, which) in [
         ("one", Which::One(CallId("call-1".into()))),
@@ -338,6 +366,10 @@ fn the_answers_about_a_command_match_their_fixtures() {
             named: AGENT,
             caller: AgentNumber(8),
         }),
+    );
+    fixtures.answer(
+        "workspace/cancel.refused.not_an_agent",
+        &CancelAnswer::Refused(CallerRefusal::NotAnAgent),
     );
     fixtures.args(
         "agent/finished",
@@ -487,6 +519,29 @@ fn the_reads_match_their_fixtures() {
         }),
     );
     fixtures.answer(
+        "workspace/read_file.text.long_line",
+        &FileAnswer::Text(Text {
+            text: r#"{"rows":[[1,2,3],[4,5,6],[7,8,9]"#.into(),
+            notes: vec![Note {
+                severity: Severity::Warn,
+                code: "truncated".into(),
+                message: "Line 1 is 120.0KB, exceeds the 50.0KB \
+                          limit; showing its first 50.0KB. Use \
+                          bash: sed -n '1p' /work/project/rows.json \
+                          | tail -c +51201"
+                    .into(),
+            }],
+            truncation: Some(Truncation {
+                by: Some(CutBy::Bytes),
+                total_lines: 1,
+                total_bytes: 122_880,
+                output_lines: 1,
+                output_bytes: 51_200,
+                first_line_exceeds_limit: true,
+            }),
+        }),
+    );
+    fixtures.answer(
         "workspace/read_file.image",
         &FileAnswer::Image(Image {
             mime: "image/gif".into(),
@@ -552,6 +607,15 @@ fn the_changes_match_their_fixtures() {
         &ChangeAnswer::Refused(CallRefusal::Reach(
             Refusal::AgentFilesystem {
                 path: "/realm/actors/agent/7.fs/notes.md".into(),
+            },
+        )),
+    );
+    fixtures.answer(
+        "workspace/write_file.refused.outside_reach",
+        &ChangeAnswer::Refused(CallRefusal::Reach(
+            Refusal::OutsideReach {
+                path: "/etc/hosts".into(),
+                access: Access::Change,
             },
         )),
     );
