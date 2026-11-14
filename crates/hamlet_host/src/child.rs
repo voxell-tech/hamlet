@@ -14,7 +14,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
-use hamlet_os::process::{Command, Limits, Tree};
+use hamlet_os::process::{Command, Tree};
 use parking_lot::Mutex;
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::time::Instant;
@@ -211,15 +211,12 @@ async fn supervise(
 /// the supervisor's runtime.
 fn spawn(options: &ChildOptions) -> io::Result<Running> {
     let (reader, input) = io::pipe()?;
-    let (tree, stdout, stderr) = Tree::spawn(
-        Command {
-            argv: &options.argv,
-            env: &environment(options),
-            cwd: &options.home,
-            stdin: Stdio::from(reader),
-        },
-        &Limits::default(),
-    )?;
+    let (tree, stdout, stderr) = Tree::spawn_bound(Command {
+        argv: &options.argv,
+        env: &environment(options),
+        cwd: &options.home,
+        stdin: Stdio::from(reader),
+    })?;
     #[cfg(unix)]
     let (output, errors) =
         (stdout.into_owned_fd()?, stderr.into_owned_fd()?);

@@ -250,15 +250,14 @@ fn the_frames_shapes_are_recorded() {
     );
 }
 
-#[cfg(unix)]
 #[path = "support/logs.rs"]
 mod logs;
 
 /// The handshake, with a stand-in Node host as the child: the
 /// example `link_child`, built beside this test.
-#[cfg(unix)]
 mod handshake {
     use std::io::Write;
+    #[cfg(unix)]
     use std::os::unix::process::ExitStatusExt;
     use std::path::{Path, PathBuf};
     use std::process::{Command, Stdio};
@@ -268,7 +267,9 @@ mod handshake {
     use hamlet_host::link::{self, Frame, PROTOCOL};
     use hamlet_host::route::Routes;
     use hamlet_testing::Scratch;
-    use hamlet_testing::signals::{is_alive, kill};
+    use hamlet_testing::signals::is_alive;
+    #[cfg(unix)]
+    use hamlet_testing::signals::kill;
     use tokio::io::{AsyncBufReadExt, BufReader};
     use tokio::sync::watch;
     use tracing_subscriber::filter::LevelFilter;
@@ -300,7 +301,12 @@ mod handshake {
     fn stand_in() -> PathBuf {
         let exe = std::env::current_exe().unwrap();
         exe.ancestors()
-            .map(|folder| folder.join("examples").join("link_child"))
+            .map(|folder| {
+                folder.join("examples").join(format!(
+                    "link_child{}",
+                    std::env::consts::EXE_SUFFIX
+                ))
+            })
             .find(|path| path.exists())
             .unwrap_or_else(|| {
                 panic!(
@@ -604,6 +610,7 @@ mod handshake {
         let killed = Instant::now();
         while is_alive(pid) {
             if killed.elapsed() > GONE_WAIT {
+                #[cfg(unix)]
                 let _ = kill(pid);
                 panic!("the child {pid} outlived its Rust host");
             }
@@ -648,6 +655,9 @@ mod handshake {
             }
             tokio::time::sleep(Duration::from_millis(20)).await;
         };
+        #[cfg(unix)]
         assert_eq!(status.signal(), Some(9), "{status}");
+        #[cfg(windows)]
+        assert!(!status.success(), "{status}");
     }
 }
