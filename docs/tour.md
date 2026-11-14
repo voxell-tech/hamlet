@@ -189,7 +189,9 @@ digits, `-`, `_` and `.`, and do not start with `.`, so no two of them
 name one file on a disk that ignores case. `Address::new` refuses any
 other with `InvalidName`, and a decode of an `Address` refuses it too,
 so an `Address` that exists is valid. `Host::open` refuses such a kind
-or name.
+or name. `Address`, `InvalidName` and `Caller` live in
+`hamlet_address`, which the messages between actors use without the
+host, and `hamlet_host` re-exports them.
 `local/create.rs` holds `create`, the other way to make an actor: it
 makes the actor with an input, kept in the file's `_hamlet_actor` row
 and given to each start, and fails with `actor.duplicate_key` for a key
@@ -598,7 +600,7 @@ built-in ones.
 | Desks and their switcher in the top bar | `hamlet_app/src/desk.rs`, `desk/switcher.rs`, `desk/switcher/motion.rs` |
 | An actor's lifecycle, schedules, state or SQL | `hamlet_actor_core/src/actor/`; [the actor runtime](#the-actor-runtime) |
 | Where actors' files are, deadlines and timers, shutdown, the folder lock | `hamlet_host/src/local.rs`, `plain_sqlite.rs` |
-| An actor's address, the name rule, and who made a call | `hamlet_address` |
+| An actor's address, the name rule, and who made a call | `hamlet_address/src/lib.rs` |
 | Calls between actors | `hamlet_host/src/local/call.rs` |
 | Making an actor with an input | `hamlet_host/src/local/create.rs` |
 | What an actor reaches of its host: its address, the realm folder, the program's values, and its calls, creates and get-or-starts as itself | `hamlet_host/src/local/access.rs` |
