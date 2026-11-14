@@ -8,6 +8,7 @@ use std::path::PathBuf;
 use hamlet_actor::Action;
 use serde::{Deserialize, Serialize};
 
+use self::files::Hashed;
 use self::reach::{Need, Reach, Refusal};
 
 /// The number in an agent actor's file name,
@@ -230,35 +231,16 @@ pub enum CallRefusal {
     Invalid(String),
     #[error("this agent has no command {}", .0.0)]
     NoSuchCommand(CommandId),
-}
-
-/// Creates or replaces a whole file for an agent.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct WriteFile {
-    pub agent: AgentNumber,
-    pub call: CallId,
-    pub conversation: ConversationId,
-    /// `None` when no chief's instruction started the work.
-    pub realm_task: Option<RealmTask>,
-    pub path: PathBuf,
-    pub content: String,
-}
-
-/// Makes exact text replacements in one file for an agent.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct EditFile {
-    pub agent: AgentNumber,
-    pub call: CallId,
-    pub conversation: ConversationId,
-    /// `None` when no chief's instruction started the work.
-    pub realm_task: Option<RealmTask>,
-    pub path: PathBuf,
-    pub edits: Vec<Replace>,
-}
-
-/// One replacement of an [`EditFile`].
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Replace {
-    pub old: String,
-    pub new: String,
+    /// The file no longer holds what it held when the agent asked,
+    /// so the change was not made.
+    #[error(
+        "{} changed after the change was asked for: it held {was} and \
+         now holds {now}. Read it again and ask again",
+        path.display()
+    )]
+    FileChanged {
+        path: PathBuf,
+        was: Hashed,
+        now: Hashed,
+    },
 }

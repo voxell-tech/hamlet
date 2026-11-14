@@ -11,8 +11,9 @@ use hamlet_actor::action::{decode_positional, encode_positional};
 use hamlet_messages::agent::Finished;
 use hamlet_messages::realm::{SecretList, Secrets};
 use hamlet_messages::workspace::files::{
-    CutBy, FileAnswer, Find, Image, Note, ReadFile, Search, Severity,
-    Text, Truncation,
+    Change, ChangeAnswer, CutBy, EditDiff, EditFile, FileAnswer,
+    Find, Hashed, Image, Note, ReadFile, Replace, Search, Severity,
+    Text, Truncation, WriteFile,
 };
 use hamlet_messages::workspace::reach::{
     Footing, Mode, Need, Project, Reach, Refusal, SecretsVersion,
@@ -20,9 +21,9 @@ use hamlet_messages::workspace::reach::{
 };
 use hamlet_messages::workspace::{
     AgentNumber, CallId, CallRefusal, CommandEnd, CommandId,
-    CommandStatus, ConversationId, Cut, EditFile, Exit, ReachAnswer,
-    ReachRefusal, ReachVersion, RealmTask, Replace, Run, RunAnswer,
-    SetReach, Shell, WriteFile,
+    CommandStatus, ConversationId, Cut, Exit, ReachAnswer,
+    ReachRefusal, ReachVersion, RealmTask, Run, RunAnswer, SetReach,
+    Shell,
 };
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -342,5 +343,79 @@ fn the_reads_match_their_fixtures() {
              '/work/project/gone.md'"
                 .into(),
         ),
+    );
+}
+
+#[test]
+fn the_changes_match_their_fixtures() {
+    let mut fixtures = Fixtures::default();
+    let path = std::path::PathBuf::from("/work/project/notes.md");
+    fixtures.answer(
+        "workspace/write_file.changed",
+        &ChangeAnswer::Changed(Change {
+            path: path.clone(),
+            created: true,
+            hash: [7; 32],
+            diff: None,
+        }),
+    );
+    fixtures.answer(
+        "workspace/edit_file.changed",
+        &ChangeAnswer::Changed(Change {
+            path: path.clone(),
+            created: false,
+            hash: [8; 32],
+            diff: Some(EditDiff {
+                diff: "- 1 hello\n+ 1 goodbye".into(),
+                patch: "--- notes.md\n+++ notes.md\n@@ -1 +1 \
+                        @@\n-hello\n+goodbye\n"
+                    .into(),
+                first_changed_line: Some(1),
+            }),
+        }),
+    );
+    fixtures.answer(
+        "workspace/edit_file.refused.file_changed",
+        &ChangeAnswer::Refused(CallRefusal::FileChanged {
+            path: path.clone(),
+            was: Hashed::Sha256([1; 32]),
+            now: Hashed::Absent,
+        }),
+    );
+    fixtures.answer(
+        "workspace/write_file.refused.reach",
+        &ChangeAnswer::Refused(CallRefusal::Reach(
+            Refusal::AgentFilesystem {
+                path: "/realm/actors/agent/7.fs/notes.md".into(),
+            },
+        )),
+    );
+    fixtures.answer(
+        "workspace/edit_file.failed",
+        &ChangeAnswer::Failed(
+            "Could not find the exact text in \
+             /work/project/notes.md. The old text must match \
+             exactly including all whitespace and newlines."
+                .into(),
+        ),
+    );
+}
+
+/// A refusal of a changed file says what the file held and holds.
+#[test]
+fn a_changed_file_is_told_by_its_hashes() {
+    let refusal = CallRefusal::FileChanged {
+        path: "/p/a.md".into(),
+        was: Hashed::Sha256([0xab; 32]),
+        now: Hashed::Absent,
+    };
+    assert_eq!(
+        refusal.to_string(),
+        format!(
+            "/p/a.md changed after the change was asked for: it \
+             held sha256 {} and now holds no file. Read it again \
+             and ask again",
+            "ab".repeat(32)
+        )
     );
 }
