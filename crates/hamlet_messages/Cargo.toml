@@ -13,6 +13,7 @@ base64.workspace = true
 hamlet_actor.workspace = true
 hamlet_actor_error.workspace = true
 hamlet_address.workspace = true
+hamlet_protocol.workspace = true
 serde.workspace = true
 thiserror.workspace = true
 tracing.workspace = true

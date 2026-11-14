@@ -58,6 +58,15 @@ pub struct Union {
     pub families: Vec<Family>,
 }
 
+impl Union {
+    /// Its name with no parameters, as serde's errors give it.
+    fn outer_name(&self) -> &str {
+        self.name
+            .split_once('<')
+            .map_or(&self.name, |(outer, _)| outer)
+    }
+}
+
 /// A family of a [`Union`], and the probe of a value of it.
 pub struct Family {
     pub name: String,
@@ -151,26 +160,16 @@ pub fn found<T: DeserializeOwned>(
                 cases: None,
                 message,
             }) if message.contains("untagged enum") => {
-                let Some(union) = unions.iter().find(|union| {
-                    message.ends_with(&format!(
-                        "untagged enum {}",
-                        union.name
-                    ))
-                }) else {
-                    found.problems.push(format!(
-                        "{name}: the union of \"{message}\" is \
-                         missing from unions()"
-                    ));
-                    continue;
-                };
-                let Some(position) = position(value, &path, union)
-                else {
-                    found.problems.push(format!(
-                        "{name}: no family of {} has a type around \
-                         {text}",
-                        union.name
-                    ));
-                    continue;
+                let (union, position) = match union_at::<T>(
+                    &message, value, &path, &text, unions,
+                ) {
+                    Ok(at) => at,
+                    Err(problem) => {
+                        found
+                            .problems
+                            .push(format!("{name}: {problem}"));
+                        continue;
+                    }
                 };
                 if !read_as_a_family.contains(&position) {
                     in_union(
@@ -181,6 +180,56 @@ pub fn found<T: DeserializeOwned>(
             }
             Err(_) | Ok(_) => {}
         }
+    }
+}
+
+/// The union an untagged enum's error names, and its position around
+/// `path`. The error leaves out a generic union's parameters, so of
+/// the unions of that name it reads those `T`'s name holds, else all,
+/// and takes the one with a family that has the `type` around `path`.
+fn union_at<'u, T>(
+    message: &str,
+    value: &Value,
+    path: &[usize],
+    text: &str,
+    unions: &'u [Union],
+) -> Result<(&'u Union, Vec<usize>), String> {
+    let probed = short_name::<T>();
+    let (held, others) = unions
+        .iter()
+        .filter(|union| {
+            message.ends_with(&format!(
+                "untagged enum {}",
+                union.outer_name()
+            ))
+        })
+        .partition::<Vec<_>, _>(|union| probed.contains(&union.name));
+    let named = if held.is_empty() { others } else { held };
+    let Some(first) = named.first() else {
+        return Err(format!(
+            "the union of \"{message}\" is missing from unions()"
+        ));
+    };
+    let around = named
+        .iter()
+        .filter_map(|union| {
+            Some((*union, position(value, path, union)?))
+        })
+        .collect::<Vec<_>>();
+    match around.as_slice() {
+        [(union, position)] => Ok((union, position.clone())),
+        [] => Err(format!(
+            "no family of {} has a type around {text}",
+            first.outer_name()
+        )),
+        around => Err(format!(
+            "{} each have a family with the type around {text}",
+            around
+                .iter()
+                .map(|(union, _)| union.name.as_str())
+                .collect::<Vec<_>>()
+                .join(" and ")
+        )),
     }
 }
 

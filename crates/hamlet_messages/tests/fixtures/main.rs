@@ -90,20 +90,28 @@ fn enums() -> Vec<Cases> {
         named::<Severity>(),
         named::<CutBy>(),
     ]
+    .into_iter()
+    .chain(realm::enums())
+    .collect()
 }
 
 /// A union and its families. The match is never run: it fails to
 /// compile when a family is missing, extra or of another type.
 macro_rules! union {
-    ($union:ident { $($case:ident: $family:ty),+ $(,)? }) => {{
-        let _ = |union: $union| match union {
+    ($union:ident $(<$param:ty>)? {
+        $($case:ident: $family:ty),+ $(,)?
+    }) => {{
+        let _ = |union: $union $(<$param>)?| match union {
             $($union::$case(family) => {
                 let _: $family = family;
             })+
         };
-        union::<$union>(vec![$(family::<$family>()),+])
+        union::<$union $(<$param>)?>(vec![$(family::<$family>()),+])
     }};
 }
+
+// After `union!`, which it uses.
+mod realm;
 
 /// Every untagged union, with its families.
 fn unions() -> Vec<Union> {
@@ -147,6 +155,9 @@ fn unions() -> Vec<Union> {
             Stale: Stale,
         }),
     ]
+    .into_iter()
+    .chain(realm::unions())
+    .collect()
 }
 
 fn folder() -> PathBuf {
@@ -183,10 +194,7 @@ impl Fixtures {
     where
         T: Serialize + DeserializeOwned + PartialEq + Debug,
     {
-        let bytes = encode_positional(value).unwrap();
-        let name = format!("{name}.args");
-        self.check(&name, &bytes);
-        self.read_back(&name, value, decode_positional::<T>(&bytes));
+        let (name, bytes) = self.unprobed_args(name, value);
         let Value::Array(arguments) =
             ciborium::from_reader::<Value, _>(bytes.as_slice())
                 .unwrap()
@@ -198,7 +206,23 @@ impl Fixtures {
         }
     }
 
-    /// Checks an answer.
+    /// Checks the arguments of a call, but not the cases they hold.
+    fn unprobed_args<T>(
+        &mut self,
+        name: &str,
+        value: &T,
+    ) -> (String, Vec<u8>)
+    where
+        T: Serialize + DeserializeOwned + PartialEq + Debug,
+    {
+        let bytes = encode_positional(value).unwrap();
+        let name = format!("{name}.args");
+        self.check(&name, &bytes);
+        self.read_back(&name, value, decode_positional::<T>(&bytes));
+        (name, bytes)
+    }
+
+    /// Checks an answer, which the host carries through JSON.
     fn answer<T>(&mut self, name: &str, value: &T)
     where
         T: Serialize + DeserializeOwned + PartialEq + Debug,
@@ -206,17 +230,35 @@ impl Fixtures {
         let json = serde_json::to_value(value).unwrap();
         let mut bytes = Vec::new();
         ciborium::into_writer(&json, &mut bytes).unwrap();
-        let name = format!("{name}.answer");
-        self.check(&name, &bytes);
+        self.decoded(&format!("{name}.answer"), value, &bytes);
+    }
+
+    /// Checks the input an actor is created with, CBOR of the Rust
+    /// type itself.
+    fn input<T>(&mut self, name: &str, value: &T)
+    where
+        T: Serialize + DeserializeOwned + PartialEq + Debug,
+    {
+        let mut bytes = Vec::new();
+        ciborium::into_writer(value, &mut bytes).unwrap();
+        self.decoded(&format!("{name}.input"), value, &bytes);
+    }
+
+    /// Checks `bytes`, that they read back as `value`, and the cases
+    /// they hold.
+    fn decoded<T>(&mut self, name: &str, value: &T, bytes: &[u8])
+    where
+        T: DeserializeOwned + PartialEq + Debug,
+    {
+        self.check(name, bytes);
         self.read_back(
-            &name,
+            name,
             value,
-            ciborium::from_reader::<T, _>(bytes.as_slice()),
+            ciborium::from_reader::<T, _>(bytes),
         );
         self.probe::<T>(
-            &name,
-            &ciborium::from_reader::<Value, _>(bytes.as_slice())
-                .unwrap(),
+            name,
+            &ciborium::from_reader::<Value, _>(bytes).unwrap(),
         );
     }
 
@@ -468,6 +510,7 @@ fn every_message_and_every_case_matches_its_fixture() {
     the_addresses(&mut fixtures);
     the_errors(&mut fixtures);
     the_stored_rows(&mut fixtures);
+    realm::the_realms_messages(&mut fixtures);
     fixtures.remove_unwritten();
     fixtures.assert_unchanged_and_covered();
 }

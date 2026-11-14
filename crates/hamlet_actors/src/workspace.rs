@@ -21,7 +21,6 @@ use hamlet_actor_core::{
     ActorConfig, ActorFactory, SqliteTransaction,
 };
 use hamlet_host::{Caller, HostRef};
-use hamlet_messages::Message;
 use hamlet_messages::address::{self, Party};
 use hamlet_messages::agent::{Finished, Outcome};
 use hamlet_messages::realm::{NeedsChief, Secrets};
@@ -42,6 +41,7 @@ use hamlet_messages::workspace::{
 use hamlet_sandbox::{AllLeftovers, Sandbox};
 
 use self::reach::{Gate, Purpose, RealmFolder};
+use crate::call;
 
 /// The most lines and bytes of a command's output or a file handed
 /// to an agent at once (C16).
@@ -679,21 +679,6 @@ async fn read_only<T>(
     done
 }
 
-/// Calls `to` with `message` as the actor of `host`, and decodes its
-/// answer.
-async fn call<M: Message>(
-    host: &HostRef,
-    to: &M::To,
-    message: &M,
-    deadline: Duration,
-) -> Result<M::Output> {
-    let args = hamlet_actor::action::encode_positional(message)?;
-    let answer =
-        host.call(&to.address()?, M::NAME, args, deadline).await?;
-    ciborium::from_reader(answer.as_slice())
-        .with_context(|| format!("decode the answer to {}", M::NAME))
-}
-
 /// Calls `agent` with how its call `id` ended, once. A failed call,
 /// as to an agent that no longer exists, is logged and dropped.
 async fn tell(
@@ -985,6 +970,7 @@ mod tests {
     use hamlet_actor::ActionSet;
     use hamlet_actor_error::ActorError;
     use hamlet_host::{Host, HostOptions};
+    use hamlet_messages::Message;
     use hamlet_messages::workspace::reach::Reach;
     use hamlet_messages::workspace::{
         Answer, CallId, ConversationId, ReachVersion,

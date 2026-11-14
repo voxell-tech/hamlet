@@ -25,6 +25,19 @@
 //! another request holds fails with `message.id_reused`
 //! ([`sender::IdReused`]). No answer has a case for either.
 //!
+//! The client protocol's types a message carries follow that
+//! protocol's rules, not these: an enum is tagged by `kind`, an unset
+//! field is `null`, and an integer is a `u64`. They are the requests
+//! of [`realm::client`], the `id` of a [`realm::Asked`] and the
+//! attachments of an [`agent::Input::Line`].
+//! `crates/hamlet_protocol/client_schema.fingerprint` holds their
+//! shapes, and the fixture test does not read into them.
+//!
+//! The realm takes a repeat of a call that carries an id, a chief's
+//! [`realm::Asked`] or [`realm::client`] request or an agent's
+//! [`realm::Tool`], by its sender, its id and the SHA-256 of the CBOR
+//! of the act it carries.
+//!
 //! `fixtures/` holds the bytes of each one as the host carries it,
 //! so a host in another language can check its shapes against them.
 //! A change to a shape rewrites its fixture and fails the test once.
@@ -74,6 +87,7 @@
 pub mod address;
 pub mod agent;
 pub mod bytes;
+pub mod profile;
 pub mod realm;
 pub mod sender;
 pub mod workspace;

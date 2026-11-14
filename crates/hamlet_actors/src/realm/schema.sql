@@ -1,0 +1,149 @@
+-- Every table of the realm actor, in its file. Made at each start by
+-- `Realm::create`. The module named above each table is that table's
+-- one writer in the code.
+
+-- chiefs.rs
+CREATE TABLE IF NOT EXISTS realm (
+	id INTEGER PRIMARY KEY CHECK (id = 1),
+	schema INTEGER NOT NULL,
+	limits TEXT NOT NULL) STRICT;
+CREATE TABLE IF NOT EXISTS chief (
+	id INTEGER PRIMARY KEY CHECK (id = 1)) STRICT;
+CREATE TABLE IF NOT EXISTS hamlet (
+	id TEXT PRIMARY KEY,
+	name TEXT NOT NULL,
+	mayor INTEGER NOT NULL,
+	tier TEXT NOT NULL,
+	folder TEXT,
+	mode TEXT NOT NULL,
+	limits TEXT NOT NULL,
+	at INTEGER NOT NULL) STRICT;
+CREATE TABLE IF NOT EXISTS hamlet_chief (
+	hamlet TEXT NOT NULL,
+	chief INTEGER NOT NULL,
+	PRIMARY KEY (hamlet, chief)) STRICT;
+
+-- tree.rs (hire_tool_off: tree/tools.rs)
+CREATE TABLE IF NOT EXISTS profile (
+	id INTEGER PRIMARY KEY,
+	kind TEXT NOT NULL) STRICT;
+CREATE TABLE IF NOT EXISTS agent (
+	id INTEGER PRIMARY KEY,
+	kind TEXT NOT NULL,
+	status TEXT NOT NULL,
+	ended_how TEXT,
+	ended_by TEXT,
+	ended_why TEXT,
+	at INTEGER NOT NULL) STRICT;
+CREATE TABLE IF NOT EXISTS hire (
+	agent INTEGER PRIMARY KEY,
+	hamlet TEXT NOT NULL,
+	profile INTEGER NOT NULL,
+	lead INTEGER,
+	purpose TEXT) STRICT;
+CREATE TABLE IF NOT EXISTS hire_tool_off (
+	hire INTEGER NOT NULL,
+	tool TEXT NOT NULL,
+	PRIMARY KEY (hire, tool)) STRICT;
+
+-- versions.rs
+CREATE TABLE IF NOT EXISTS reach (
+	agent INTEGER PRIMARY KEY,
+	wanted INTEGER NOT NULL,
+	applied INTEGER) STRICT;
+CREATE TABLE IF NOT EXISTS place (
+	agent INTEGER PRIMARY KEY,
+	version INTEGER NOT NULL) STRICT;
+CREATE TABLE IF NOT EXISTS revision (
+	id INTEGER PRIMARY KEY CHECK (id = 1),
+	n INTEGER NOT NULL) STRICT;
+
+-- marker.rs: what a request or a society tool call made (S19).
+CREATE TABLE IF NOT EXISTS marker (
+	caller TEXT NOT NULL,
+	id TEXT NOT NULL,
+	action TEXT NOT NULL,
+	digest BLOB NOT NULL,
+	done BLOB NOT NULL,
+	pushes BLOB NOT NULL,
+	at INTEGER NOT NULL,
+	PRIMARY KEY (caller, id)) STRICT;
+
+-- record.rs (H17)
+CREATE TABLE IF NOT EXISTS decision (
+	id INTEGER PRIMARY KEY,
+	kind TEXT NOT NULL,
+	hamlet TEXT,
+	agent INTEGER,
+	by TEXT NOT NULL,
+	why TEXT,
+	at INTEGER NOT NULL) STRICT;
+
+-- steps.rs: a hire's row is ('hire', its agent).
+CREATE TABLE IF NOT EXISTS step (
+	kind TEXT NOT NULL,
+	n INTEGER NOT NULL,
+	done TEXT,
+	closed INTEGER NOT NULL DEFAULT 0,
+	at INTEGER NOT NULL,
+	PRIMARY KEY (kind, n)) STRICT;
+
+-- tasks.rs
+CREATE TABLE IF NOT EXISTS task (
+	id INTEGER PRIMARY KEY,
+	origin TEXT NOT NULL,
+	agent INTEGER,
+	payer TEXT NOT NULL,
+	at INTEGER NOT NULL) STRICT;
+
+-- letters.rs
+CREATE TABLE IF NOT EXISTS letter (
+	id INTEGER PRIMARY KEY,
+	kind TEXT NOT NULL,
+	sender INTEGER NOT NULL,
+	receiver INTEGER NOT NULL,
+	way TEXT NOT NULL,
+	text TEXT NOT NULL,
+	task INTEGER,
+	conversation TEXT,
+	answer TEXT,
+	at INTEGER NOT NULL) STRICT;
+
+-- laid.rs. A laid road keeps its lower end as `a`.
+CREATE TABLE IF NOT EXISTS road (
+	a INTEGER NOT NULL,
+	b INTEGER NOT NULL,
+	hamlet TEXT NOT NULL,
+	used_at INTEGER,
+	up_at INTEGER,
+	at INTEGER NOT NULL,
+	PRIMARY KEY (a, b)) STRICT;
+
+-- budget.rs
+CREATE TABLE IF NOT EXISTS charge (
+	agent INTEGER NOT NULL,
+	call TEXT NOT NULL,
+	payer TEXT NOT NULL,
+	micros INTEGER NOT NULL,
+	took_ms INTEGER NOT NULL,
+	at INTEGER NOT NULL,
+	PRIMARY KEY (agent, call)) STRICT;
+CREATE TABLE IF NOT EXISTS budget_reset (
+	id INTEGER PRIMARY KEY,
+	payer TEXT NOT NULL,
+	at INTEGER NOT NULL) STRICT;
+
+-- waits.rs
+CREATE TABLE IF NOT EXISTS wait (
+	id INTEGER PRIMARY KEY,
+	agent INTEGER NOT NULL,
+	call TEXT NOT NULL,
+	subject TEXT NOT NULL,
+	needs TEXT NOT NULL,
+	reach_version INTEGER NOT NULL,
+	choice TEXT,
+	scope TEXT,
+	reason TEXT,
+	closed_at INTEGER,
+	at INTEGER NOT NULL,
+	UNIQUE (agent, call)) STRICT;
