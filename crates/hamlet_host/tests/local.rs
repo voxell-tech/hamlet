@@ -13,6 +13,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::Duration;
 
 use act::{DEADLINE, act};
+use began::began;
 use code::code;
 use files::any_file_of;
 use hamlet_actor_core::{
@@ -27,6 +28,8 @@ use rusqlite::{Connection, OpenFlags};
 
 #[path = "../examples/demo/act.rs"]
 mod act;
+#[path = "support/began.rs"]
+mod began;
 #[path = "support/code.rs"]
 mod code;
 #[path = "../examples/demo/command.rs"]
@@ -123,15 +126,12 @@ impl Napping {
     }
 }
 
-/// Waits up to ten seconds for `what` to be reported on `reports`.
+/// Waits for `what` to be reported on `reports`.
 async fn reported(
     what: &str,
     reports: &mut tokio::sync::mpsc::UnboundedReceiver<()>,
 ) {
-    tokio::time::timeout(Duration::from_secs(10), reports.recv())
-        .await
-        .unwrap_or_else(|_| panic!("{what} did not begin"))
-        .unwrap();
+    began(what, reports.recv()).await.unwrap();
 }
 
 /// A kind whose action `nap` takes three seconds to answer, so a stop
@@ -1771,12 +1771,12 @@ async fn a_start_that_never_finishes_fails_at_its_deadline() {
         },
     )
     .unwrap();
-    let began = tokio::time::Instant::now();
+    let asked = tokio::time::Instant::now();
     let start = tokio::spawn({
         let host = host.clone();
         async move { host.get_or_start("stuck", "a").await }
     });
-    begun.notified().await;
+    began("the stuck start", begun.notified()).await;
     let call = tokio::spawn({
         let host = host.clone();
         async move {
@@ -1794,7 +1794,7 @@ async fn a_start_that_never_finishes_fails_at_its_deadline() {
         let host = host.clone();
         async move { host.stop("stuck/a", ShutdownKind::Sleep).await }
     });
-    let by = began + START_DEADLINE * 3;
+    let by = asked + START_DEADLINE * 3;
     let start = tokio::time::timeout_at(by, start)
         .await
         .expect("the start outlived its deadline")
@@ -1883,14 +1883,14 @@ async fn a_call_fails_at_once_once_its_host_shuts_down() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_shutdown_returns_while_a_start_is_stuck() {
     let dir = Scratch::new("host-stuck-shutdown");
-    let (began, dropped) = (Arc::default(), Arc::default());
+    let (begun, dropped) = (Arc::default(), Arc::default());
     let host =
-        Host::open(&dir, stuck("stuck", &began, &dropped)).unwrap();
+        Host::open(&dir, stuck("stuck", &begun, &dropped)).unwrap();
     let start = tokio::spawn({
         let host = host.clone();
         async move { host.get_or_start("stuck", "a").await }
     });
-    began.notified().await;
+    began("the stuck start", begun.notified()).await;
     tokio::time::timeout(Duration::from_secs(3), host.shutdown())
         .await
         .expect("the shutdown waited for the stuck start")
@@ -1993,6 +1993,68 @@ async fn a_start_past_its_deadline_does_not_wait_for_a_statement() {
             )
             .unwrap();
     assert_eq!(running, 1);
+}
+
+/// A create whose start misses its deadline while a statement of its
+/// start holds the file past the close's grace fails with the start's
+/// error, without waiting for the statement, and leaves the actor
+/// made, as any failed start does. Until the statement ends, a create
+/// of the key cannot read the file and fails at its own deadline, not
+/// as a duplicate. Then the next boot starts the actor, and a create
+/// of its key fails with `actor.duplicate_key`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_create_whose_start_a_statement_holds_leaves_the_actor_made()
+ {
+    let dir = Scratch::new("host-create-statement");
+    let hold = Hold::new(&dir);
+    let open = || {
+        Host::open_with(
+            &dir,
+            scanner(&dir),
+            HostOptions {
+                start_deadline: START_DEADLINE,
+                ..HostOptions::default()
+            },
+        )
+        .unwrap()
+    };
+    let create = async |host: &Host| {
+        tokio::time::timeout(
+            Duration::from_secs(10),
+            host.create("scanner", "a", Vec::new()),
+        )
+        .await
+        .expect("the create waited for the statement")
+    };
+    let host = open();
+    let begun = std::time::Instant::now();
+    let first = create(&host)
+        .await
+        .expect_err("a create whose start missed its deadline");
+    let took = begun.elapsed();
+    let during = create(&host)
+        .await
+        .expect_err("a create while the statement holds the file");
+    host.shutdown().await.unwrap();
+    drop(host);
+
+    drop(hold);
+    wait_for_the_file(&dir, "scanner", "a").await;
+    let host = open();
+    let booted = host.boot().await.unwrap();
+    let started = host.get_or_start("scanner", "a").await;
+    let after =
+        create(&host).await.expect_err("a create of a made key");
+    host.shutdown().await.unwrap();
+    assert!(code(&first) == "actor.not_ready", "{first:#}");
+    assert!(
+        took < START_DEADLINE + Duration::from_secs(2),
+        "{took:?}"
+    );
+    assert!(code(&during) == "actor.not_ready", "{during:#}");
+    assert_eq!(booted, ["scanner/a"]);
+    started.unwrap();
+    assert!(code(&after) == "actor.duplicate_key", "{after:#}");
 }
 
 /// What the first start of a [`sleeper`] asks for before it is ready.
