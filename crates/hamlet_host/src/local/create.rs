@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use anyhow::Result;
+use hamlet_actor_core::error::ActorRuntime;
 use hamlet_actor_error::ActorError;
 
 use super::access::{Origin, Stamp};
@@ -103,12 +104,20 @@ impl HostInner {
                 Place::Linked(_),
                 Origin::Here,
                 Open::OrCreate | Open::Existing,
-            ) => todo!("U5, the host unit: only a create crosses"),
+            ) => Err(ActorRuntime::InvalidOperation {
+                operation: "get_or_start".to_owned(),
+                reason: format!(
+                    "the kind `{}` runs in the other host, which \
+                     makes an actor only by a create",
+                    at.kind()
+                ),
+            }
+            .build()),
             (Place::Linked(_), Origin::Peer, _) => {
-                todo!(
-                    "U5, the host unit: a peer's start of its own \
-                     kind"
-                )
+                Err(ActorRuntime::NotRegistered {
+                    actor_name: at.kind().to_owned(),
+                }
+                .build())
             }
         }
     }

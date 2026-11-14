@@ -3,11 +3,11 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use anyhow::Result;
+use anyhow::{Result, bail};
 use hamlet_actor_core::ActorFactory;
 use hamlet_actor_core::error::ActorRuntime;
 
-use crate::Address;
+use crate::address::{Address, Named, plain};
 use crate::link::Port;
 
 /// Where the actors of one kind run.
@@ -31,15 +31,23 @@ impl Directory {
         factories: HashMap<String, ActorFactory>,
         linked: Option<Port>,
     ) -> Result<Self> {
-        let places = factories
+        let mut places = factories
             .into_iter()
             .map(|(kind, factory)| {
                 (kind, Place::Local(Arc::new(factory)))
             })
-            .collect();
+            .collect::<HashMap<_, _>>();
         if let Some(port) = linked {
-            let _ = port;
-            todo!("U5, the host unit: the other host's kinds")
+            for kind in &port.theirs().kinds {
+                plain(kind, Named::Kind)?;
+                let place = Place::Linked(port.clone());
+                if places.insert(kind.clone(), place).is_some() {
+                    bail!(
+                        "the kind `{kind}` runs in both hosts of \
+                         the link"
+                    );
+                }
+            }
         }
         Ok(Self(places))
     }
@@ -76,13 +84,30 @@ impl Directory {
     ) -> Result<&Arc<ActorFactory>> {
         match self.place(at.kind())? {
             Place::Local(factory) => Ok(factory),
-            Place::Linked(_) => {
-                let _ = operation;
-                todo!(
-                    "U5, the host unit: only a call and a create \
-                     cross"
-                )
+            Place::Linked(_) => Err(ActorRuntime::InvalidOperation {
+                operation: operation.to_owned(),
+                reason: format!(
+                    "the kind `{}` runs in the other host, and only \
+                     a call and a create cross the link",
+                    at.kind()
+                ),
             }
+            .build()),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::link::Role;
+
+    #[test]
+    fn a_linked_kind_that_is_not_a_plain_name_is_refused() {
+        let port = Port::new(Role::Rust, ["Agent".to_owned()]);
+        let error = Directory::new(HashMap::new(), Some(port))
+            .err()
+            .expect("a kind that is not a plain name was let in");
+        assert!(error.to_string().contains("`Agent`"), "{error:#}");
     }
 }

@@ -126,10 +126,10 @@ impl HostInner {
                     .await
                 }
                 (Place::Linked(_), Origin::Peer) => {
-                    todo!(
-                        "U5, the host unit: a peer's call of its \
-                         own kind"
-                    )
+                    Err(ActorRuntime::NotRegistered {
+                        actor_name: to.kind().to_owned(),
+                    }
+                    .build())
                 }
             }
         };

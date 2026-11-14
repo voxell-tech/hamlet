@@ -1,7 +1,15 @@
+use hamlet_actor::action::encode_positional;
+use hamlet_actor::{Action, Actor, Ctx, Handler, Registry};
 use hamlet_actor_core::{ActorConfig, ActorStart};
 use hamlet_testing::Scratch;
+use serde::{Deserialize, Serialize};
 
 use super::*;
+use crate::Caller;
+use crate::link::{Role, Side, Vetted};
+use crate::route::{CallerKind, Operation};
+
+const DEADLINE: Duration = Duration::from_secs(10);
 
 /// The kind `waker`, whose run handler sets the run wake deadline
 /// `wake_at` and then answers only lifecycle events.
@@ -158,4 +166,278 @@ async fn an_ended_generations_handle_reaches_nothing_of_the_next() {
 async fn an_ended_generations_handle_reaches_nothing_of_its_key_made_again()
  {
     an_ended_generations_handle_reaches_nothing(true).await;
+}
+
+/// A kind that answers who called it, and gets or starts an actor as
+/// itself.
+struct Peer;
+
+#[derive(Serialize, Deserialize)]
+struct Who;
+
+impl Action for Who {
+    type Output = Option<Caller>;
+    const NAME: &'static str = "who";
+}
+
+#[derive(Serialize, Deserialize)]
+struct GetOrStart {
+    at: Address,
+}
+
+impl Action for GetOrStart {
+    type Output = ();
+    const NAME: &'static str = "get_or_start";
+}
+
+#[async_trait::async_trait]
+impl Actor for Peer {
+    type Input = ();
+    type Actions = (Who, GetOrStart);
+    type Events = ();
+    type ConnParams = Option<Caller>;
+    type Action = ();
+
+    async fn create(_: &Ctx<Self>) -> Result<Self> {
+        Ok(Self)
+    }
+}
+
+impl Handler<Who> for Peer {
+    async fn handle(
+        self: Arc<Self>,
+        ctx: Ctx<Self>,
+        _: Who,
+    ) -> Result<Option<Caller>> {
+        ctx.conn().context("the call has no connection")?.params()
+    }
+}
+
+impl Handler<GetOrStart> for Peer {
+    async fn handle(
+        self: Arc<Self>,
+        ctx: Ctx<Self>,
+        GetOrStart { at }: GetOrStart,
+    ) -> Result<()> {
+        HostRef::of(ctx.inner())?.get_or_start(&at).await
+    }
+}
+
+fn at(kind: &str, key: &str) -> Address {
+    Address::new(kind, key).unwrap()
+}
+
+/// A Rust host of the [`Peer`] kinds `kinds`, linked to a Node host
+/// that runs `agent`.
+fn linked(
+    dir: &Path,
+    kinds: &[&str],
+    routes: Routes,
+) -> Result<Host> {
+    let mut registry = Registry::new();
+    for kind in kinds {
+        registry.register_actor_with::<Peer>(
+            kind,
+            ActorConfig {
+                has_database: true,
+                ..ActorConfig::default()
+            },
+        );
+    }
+    Host::open_linked(
+        dir,
+        registry.into_factories(),
+        HostOptions {
+            routes,
+            ..HostOptions::default()
+        },
+        Some(Port::new(Role::Rust, ["agent".to_owned()])),
+    )
+}
+
+/// The stamp of `from`, an actor of the Node host, as the link vets
+/// it.
+fn vetted(from: &Address) -> Vetted {
+    Side::new(Role::Node, ["agent".to_owned()])
+        .vet(Some(Caller::Actor(from.clone())))
+        .unwrap()
+}
+
+/// Calls `who` of the actor at `to` for `from`, as the link does.
+async fn who(
+    inbound: &Inbound,
+    from: &Address,
+    to: &Address,
+) -> Result<Vec<u8>> {
+    let args = encode_positional(&Who)?;
+    inbound
+        .call(vetted(from), to, Who::NAME, args, DEADLINE)
+        .await
+}
+
+fn code(error: &anyhow::Error) -> String {
+    let error = ActorError::extract(error);
+    format!("{}.{}", error.group(), error.code())
+}
+
+#[test]
+fn a_kind_both_hosts_hold_is_refused_at_open() {
+    let dir = Scratch::new("host-linked-both");
+    let error = linked(&dir, &["realm", "agent"], Routes::Any)
+        .err()
+        .expect("a kind both hosts hold was let in");
+    assert!(error.to_string().contains("`agent`"), "{error:#}");
+    assert!(!dir.join("host.lock").exists());
+    linked(&dir, &["realm"], Routes::Any).unwrap();
+}
+
+/// Boot reads the files of the host's own kinds alone: a file put by
+/// hand in a local kind's folder is reported, and one in the linked
+/// kind's folder is never read.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_linked_kind_is_never_locked_or_booted() {
+    let dir = Scratch::new("host-linked-boot");
+    let host = linked(&dir, &["realm"], Routes::Any).unwrap();
+    assert_eq!(host.boot().await.unwrap(), []);
+    assert!(!dir.join("actors").join("agent").exists());
+
+    for kind in ["realm", "agent"] {
+        let folder = dir.join("actors").join(kind);
+        std::fs::create_dir_all(&folder).unwrap();
+        std::fs::write(folder.join("x.sqlite"), "not a database")
+            .unwrap();
+    }
+    let mut events = host.events();
+    assert_eq!(host.boot().await.unwrap(), []);
+    let mut unreadable = Vec::new();
+    while let Ok(event) = events.try_recv() {
+        if let HostEvent::UnreadableFile { actor, .. } = event {
+            unreadable.push(actor);
+        }
+    }
+    assert_eq!(unreadable, [at("realm", "x")]);
+    host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_peers_call_runs_here_stamped_with_its_vetted_caller() {
+    let dir = Scratch::new("host-linked-peer-call");
+    let host = linked(&dir, &["realm"], Routes::Any).unwrap();
+    let inbound = Inbound::of(&host).unwrap();
+    let (agent, realm) = (at("agent", "a"), at("realm", "r"));
+    host.create(&realm, Vec::new()).await.unwrap();
+
+    let reply = who(&inbound, &agent, &realm).await.unwrap();
+    assert_eq!(
+        ciborium::from_reader::<Option<Caller>, _>(reply.as_slice())
+            .unwrap(),
+        Some(Caller::Actor(agent.clone()))
+    );
+
+    let made = at("realm", "m");
+    inbound
+        .create(vetted(&agent), &made, Vec::new())
+        .await
+        .unwrap();
+    let again = inbound
+        .create(vetted(&agent), &made, Vec::new())
+        .await
+        .expect_err("a second create made the actor again");
+    assert_eq!(code(&again), "actor.duplicate_key");
+    host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_peers_operation_meets_the_route_table_again() {
+    let dir = Scratch::new("host-linked-peer-route");
+    let routes = Routes::only(&[(
+        CallerKind::Actor("agent".to_owned()),
+        &["workspace"],
+    )]);
+    let host = linked(&dir, &["realm"], routes).unwrap();
+    let inbound = Inbound::of(&host).unwrap();
+    let (agent, realm) = (at("agent", "a"), at("realm", "r"));
+    host.create(&realm, Vec::new()).await.unwrap();
+    let mut events = host.events();
+
+    let refused = who(&inbound, &agent, &realm)
+        .await
+        .expect_err("the table let an agent reach the realm");
+    assert_eq!(code(&refused), "actor.refused");
+    assert_eq!(
+        events.try_recv().unwrap(),
+        HostEvent::Refused {
+            from: Caller::Actor(agent),
+            to: realm,
+            operation: Operation::Call {
+                action: Who::NAME.to_owned(),
+            },
+        }
+    );
+    host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn only_a_call_and_a_create_cross_the_link() {
+    let dir = Scratch::new("host-linked-operations");
+    let host = linked(&dir, &["realm"], Routes::Any).unwrap();
+    let (agent, realm) = (at("agent", "a"), at("realm", "r"));
+    host.create(&realm, Vec::new()).await.unwrap();
+    let get_or_start =
+        encode_positional(&GetOrStart { at: agent.clone() }).unwrap();
+
+    let refused = [
+        ("get_or_start", host.get_or_start(&agent).await.err()),
+        (
+            "get_or_start",
+            host.call(
+                &realm,
+                GetOrStart::NAME,
+                get_or_start,
+                DEADLINE,
+            )
+            .await
+            .err(),
+        ),
+        ("stop", host.stop(&agent, ShutdownKind::Sleep).await.err()),
+        (
+            "stop",
+            host.stop(&agent, ShutdownKind::Destroy).await.err(),
+        ),
+        (
+            "set_aside_timers",
+            host.set_aside_timers(&agent).await.err(),
+        ),
+        ("rearm_timer", host.rearm_timer(&agent, "e", 0).await.err()),
+    ];
+    for (operation, error) in refused {
+        let error = error.expect(operation);
+        assert_eq!(
+            code(&error),
+            "actor.invalid_operation",
+            "{error:#}"
+        );
+        assert_eq!(
+            ActorError::extract(&error).metadata().unwrap()
+                ["operation"],
+            operation
+        );
+    }
+    host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_peers_request_for_a_kind_of_its_own_is_not_sent_back() {
+    let dir = Scratch::new("host-linked-peer-own-kind");
+    let host = linked(&dir, &["realm"], Routes::Any).unwrap();
+    let inbound = Inbound::of(&host).unwrap();
+    let (a, b) = (at("agent", "a"), at("agent", "b"));
+
+    let called = who(&inbound, &a, &b).await.err();
+    let made = inbound.create(vetted(&a), &b, Vec::new()).await.err();
+    for error in [called, made] {
+        let error = error.expect("a peer's request was sent back");
+        assert_eq!(code(&error), "actor.not_registered", "{error:#}");
+    }
+    host.shutdown().await.unwrap();
 }
