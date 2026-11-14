@@ -121,8 +121,8 @@ pub(crate) fn spawn(
         .stdin(command.stdin)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        .kill_on_drop(true)
-        .process_group(0);
+        .kill_on_drop(true);
+    session(&mut spawn);
     let mut leader = spawn.spawn()?;
     let id = leader
         .id()
@@ -134,6 +134,25 @@ pub(crate) fn spawn(
         unreachable!("both outputs are piped");
     };
     Ok((Group { id, leader, exits }, stdout, stderr))
+}
+
+/// Makes `spawn`'s process the leader of a session of its own, and so
+/// of a group whose id is its own: no terminal is left to its
+/// processes, and they stay in the group the leader's end kills.
+#[expect(
+    unsafe_code,
+    reason = "a session's leader is made between fork and exec"
+)]
+fn session(spawn: &mut tokio::process::Command) {
+    // SAFETY: the child calls only setsid, which is
+    // async-signal-safe, before exec, allocates nothing and touches
+    // no shared state.
+    unsafe {
+        spawn.pre_exec(|| {
+            rustix::process::setsid()?;
+            Ok(())
+        });
+    }
 }
 
 pub(crate) fn limited(

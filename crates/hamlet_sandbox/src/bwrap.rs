@@ -40,7 +40,10 @@ pub(super) fn command(
     if policy.net {
         push(&["--share-net"]);
     }
-    push(&["--die-with-parent", "--new-session"]);
+    // No `--new-session`: the leader has a session of its own
+    // (`hamlet_os`), and a sandbox init that left it for another
+    // would leave the group a cancel kills before it dies with bwrap.
+    push(&["--die-with-parent"]);
     if policy.open {
         push(&["--ro-bind", "/", "/"]);
     } else {
