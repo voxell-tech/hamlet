@@ -1183,7 +1183,7 @@ async fn a_get_or_start_that_waits_for_a_calls_start_makes_the_actor()
         })
         .unwrap();
         let (called, made) = tokio::join!(
-            host.call(&to, Who::NAME, args, Duration::from_secs(10),),
+            host.call(&to, Who::NAME, args, Duration::from_secs(10)),
             host.get_or_start("callee", &key),
         );
         if let Err(error) = &called {

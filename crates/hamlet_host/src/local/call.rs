@@ -30,8 +30,6 @@ pub enum Caller {
     Client,
 }
 
-/// As the host's log names a caller: an actor by `kind/key`, a client
-/// as `client`.
 impl std::fmt::Display for Caller {
     fn fmt(
         &self,

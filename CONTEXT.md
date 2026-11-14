@@ -243,8 +243,8 @@ chief, agent or realm that makes a change, which the store's code calls
 **Call**:
 An actor's action run for its caller, which the host stamps on it:
 another actor, a client, or none for the program that opened the host.
-A call carries no cause and no task: a call made for a task carries that
-task in its own message. A call never makes its actor.
+A call made for a task carries that task in its own message. A call
+never makes its actor.
 
 **Set-aside timer**:
 An actor's one-shot timer that used up its tries without its handler's

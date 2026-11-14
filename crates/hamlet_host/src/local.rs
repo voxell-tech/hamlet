@@ -227,10 +227,9 @@ impl From<ShutdownKind> for Request {
     }
 }
 
-/// What the waiters of a `Reading`, `Starting`, `Stopping` or
-/// `Destroying` state await: the channel closes when the work that
-/// owns the state ends, and holds how a start failed, or that a stop
-/// missed its deadline or failed to remove a destroyed actor's files.
+/// The channel the waiters of a `Reading`, `Starting`, `Stopping` or
+/// `Destroying` state await: it closes when the work that owns the
+/// state ends, and holds a [`Failed`] once that work fails.
 type Waiters = watch::Receiver<Option<Failed>>;
 
 /// How a start failed, or a stop missed its deadline or failed to
@@ -386,9 +385,6 @@ impl Owned {
         }
     }
 
-    /// Tells the waiters that the start this owns failed, or the stop
-    /// it owns missed its deadline or failed to remove the files of
-    /// the actor it destroyed, with `error`.
     fn fail(&self, error: &anyhow::Error) {
         self.wake.send_replace(Some(Failed::new(error)));
     }
@@ -1699,7 +1695,6 @@ fn retry_start(owned: &Owned, due: i64) {
 }
 
 /// The id of the actor of `kind` and `key`, which names its file.
-/// Fails unless both are plain.
 fn actor_id(kind: &str, key: &str) -> Result<String> {
     for part in [kind, key] {
         plain(part, "actor kind or key")?;
@@ -1707,15 +1702,14 @@ fn actor_id(kind: &str, key: &str) -> Result<String> {
     Ok(format!("{kind}/{key}"))
 }
 
-/// Fails unless `name`, a `what`, is plain: lower-case letters,
-/// digits, `-`, `_` and `.`, not starting with `.`. With no
-/// upper-case letter, two names never name one file, also on a disk
-/// that ignores case.
+/// Fails unless `name`, a `what`, is plain.
 fn plain(name: &str, what: &str) -> Result<()> {
     let plain = !name.is_empty()
         && !name.starts_with('.')
         && name.len() <= 128
         && name.bytes().all(|byte| {
+            // With no upper-case letter, two names never name one
+            // file, also on a disk that ignores case.
             byte.is_ascii_lowercase()
                 || byte.is_ascii_digit()
                 || matches!(byte, b'-' | b'_' | b'.')
@@ -1862,7 +1856,7 @@ fn open_actor_file(
             if !open.makes() {
                 return Err(Found::Nothing.into());
             }
-            claim.write()?;
+            claim.claim_write()?;
         }
         let mut conn = plain_sqlite::open(&path, open.makes())?;
         let bumped =
@@ -1874,7 +1868,7 @@ fn open_actor_file(
             return Ok((PlainSqlite::serve(conn)?, bumped));
         }
         conn.close().map_err(|(_, error)| error)?;
-        claim.write()?;
+        claim.claim_write()?;
         destroy_file(&path)?;
     }
 }
@@ -1894,7 +1888,7 @@ impl OpenClaim {
 
     /// Claims for the open, which may then write. Fails once its
     /// start gave it up.
-    fn write(&self) -> Result<()> {
+    fn claim_write(&self) -> Result<()> {
         match self.0.compare_exchange(
             Self::FREE,
             Self::OPEN,
@@ -1926,11 +1920,9 @@ type Opening =
     (JoinHandle<Result<(PlainSqlite, Bumped)>>, Arc<OpenClaim>);
 
 /// Gives up the open of a start that failed while the open ran. An
-/// open that has not claimed its write never writes. One that has
-/// holds the file's lock, or makes a file that was not there, so its
-/// write waits only for a program that opened that new file in the
-/// same instant, and then no longer than SQLite's busy timeout: this
-/// waits for it, and returns the file it opened.
+/// open that already claimed its write is awaited, each of its
+/// statements within rusqlite's default busy timeout, and its file
+/// returned if it opened one.
 async fn give_up_open((task, claim): Opening) -> Option<PlainSqlite> {
     if claim.give_up() {
         return None;
@@ -1999,7 +1991,7 @@ fn bump_generation(
         [],
         |row| Ok((row.get(0)?, row.get(1)?)),
     )?;
-    claim.write()?;
+    claim.claim_write()?;
     tx.commit()?;
     Ok(Some(Bumped {
         generation,
@@ -2021,9 +2013,6 @@ fn bump_generation(
 /// the actor it made, its files with it, and tells its waiters
 /// nothing either, since no actor is left; unless the file did not
 /// close within the grace, when the actor stays, as for any start.
-/// A start that fails while its open of the file runs on, waiting
-/// for a file another program holds, gives the open up: it writes
-/// nothing, however late it ends.
 async fn start_actor(
     owned: Owned,
     id: u64,

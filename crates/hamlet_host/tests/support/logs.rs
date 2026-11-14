@@ -23,8 +23,7 @@ impl std::io::Write for Logs {
     }
 }
 
-/// What [`Logs::record`] returns: the logs are recorded until it
-/// drops.
+/// The guard of [`Logs::record`].
 pub struct Recording {
     _default: tracing::subscriber::DefaultGuard,
     /// A second live dispatcher. With one, tracing caches a
