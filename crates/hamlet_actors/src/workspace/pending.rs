@@ -32,7 +32,7 @@ use serde::{Deserialize, Serialize};
 use super::reach::{self, Gate, Op};
 use super::{
     REALM, REALM_KEY, Workspace, caller, calls, is_the_realm,
-    refused, tell,
+    read_only, refused, tell, transact_if,
 };
 
 /// One row per call that waits for a chief, beside its `calls` row.
@@ -367,25 +367,15 @@ impl Workspace {
         wait: &Wait,
         refusal: CallRefusal,
     ) -> Result<AnswerTaken> {
-        let tx = ctx.sql().begin_transaction(None).await?;
-        let settled = settle(
-            &tx,
-            wait,
-            "refused",
-            Some(calls::cbor(&refusal)?),
-            None,
-        )
-        .await;
-        match settled {
-            Ok(Some(_)) => tx.commit().await?,
-            Ok(None) => {
-                tx.rollback().await?;
-                return Ok(AnswerTaken::NoWait);
-            }
-            Err(error) => {
-                tx.rollback().await?;
-                return Err(error);
-            }
+        let settled = transact_if(ctx, async |tx| {
+            let answer = Some(calls::cbor(&refusal)?);
+            Ok(settle(tx, wait, "refused", answer, None)
+                .await?
+                .ok_or(()))
+        })
+        .await?;
+        if settled.is_err() {
+            return Ok(AnswerTaken::NoWait);
         }
         tell(
             ctx,
@@ -407,10 +397,11 @@ impl Workspace {
     ) -> Result<Rechecked> {
         let mut fetched = false;
         loop {
-            let tx = ctx.sql().begin_transaction(None).await?;
-            let in_force = reach::in_force(&tx, wait.agent).await;
-            tx.rollback().await?;
-            let (now, reach) = in_force?
+            let in_force = read_only(ctx, async |tx| {
+                reach::in_force(tx, wait.agent).await
+            })
+            .await?;
+            let (now, reach) = in_force
                 .context("a call waits for an agent with no reach")?;
             let (held, secrets) = self.held();
             let changed = |why| {
@@ -478,10 +469,11 @@ impl Handler<ChiefAnswer> for Workspace {
             refused(caller.as_ref(), ChiefAnswer::NAME, &refusal);
             return Ok(AnswerTaken::Refused(refusal));
         }
-        let tx = ctx.sql().begin_transaction(None).await?;
-        let wait = find(&tx, answered.agent, &answered.call).await;
-        tx.rollback().await?;
-        let Some(wait) = wait? else {
+        let wait = read_only(&ctx, async |tx| {
+            find(tx, answered.agent, &answered.call).await
+        })
+        .await?;
+        let Some(wait) = wait else {
             return Ok(AnswerTaken::NoWait);
         };
         match answered.answer {

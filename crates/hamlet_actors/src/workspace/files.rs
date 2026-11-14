@@ -163,12 +163,13 @@ impl Workspace {
         }
         let mut fetched = false;
         loop {
-            let tx = ctx.sql().begin_transaction(None).await?;
-            let reach = reach::read(&tx, agent).await;
-            tx.rollback().await?;
+            let reach = super::read_only(ctx, async |tx| {
+                reach::read(tx, agent).await
+            })
+            .await?;
             match self.gated(
                 agent,
-                reach?.as_ref(),
+                reach.as_ref(),
                 &Op::Read { path },
             )? {
                 Gated::Pass(reading) => return Ok(Ok(reading)),

@@ -11,12 +11,15 @@ mod tools;
 mod workers;
 
 use std::collections::HashMap;
+use std::convert::Infallible;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 use hamlet_actor::{Action, Actor, Ctx, Handler, Registry};
-use hamlet_actor_core::{ActorConfig, ActorFactory};
+use hamlet_actor_core::{
+    ActorConfig, ActorFactory, SqliteTransaction,
+};
 use hamlet_host::{Address, Caller, Cause, Host, HostRef};
 use hamlet_messages::agent::{Finished, Outcome};
 use hamlet_messages::realm::{NeedsChief, SecretList, Secrets};
@@ -474,10 +477,11 @@ impl Handler<CommandStatus> for Workspace {
                 )));
             }
         };
-        let tx = ctx.sql().begin_transaction(None).await?;
-        let row = run::status(&tx, agent, asked.command).await;
-        tx.rollback().await?;
-        Ok(match row? {
+        let row = read_only(&ctx, async |tx| {
+            run::status(tx, agent, asked.command).await
+        })
+        .await?;
+        Ok(match row {
             None => RunAnswer::Refused(CallRefusal::NoSuchCommand(
                 asked.command,
             )),
@@ -633,12 +637,51 @@ async fn record(
     ctx: &Ctx<Workspace>,
     end: &CommandEnd,
 ) -> Result<()> {
+    transact(ctx, async |tx| run::end(tx, end).await).await
+}
+
+/// Runs `work` in a transaction: commits it when `work` succeeds,
+/// rolls it back when it fails.
+async fn transact<T>(
+    ctx: &Ctx<Workspace>,
+    work: impl AsyncFnOnce(&SqliteTransaction) -> Result<T>,
+) -> Result<T> {
+    let Ok(done) = transact_if(ctx, async |tx| {
+        work(tx).await.map(Ok::<T, Infallible>)
+    })
+    .await?;
+    Ok(done)
+}
+
+/// Runs `work` in a transaction: commits it only when `work` answers
+/// `Ok(Ok(_))`, and rolls it back otherwise.
+async fn transact_if<T, E>(
+    ctx: &Ctx<Workspace>,
+    work: impl AsyncFnOnce(&SqliteTransaction) -> Result<Result<T, E>>,
+) -> Result<Result<T, E>> {
     let tx = ctx.sql().begin_transaction(None).await?;
-    if let Err(error) = run::end(&tx, end).await {
-        tx.rollback().await?;
-        return Err(error);
+    match work(&tx).await {
+        Ok(Ok(done)) => {
+            tx.commit().await?;
+            Ok(Ok(done))
+        }
+        other => {
+            tx.rollback().await?;
+            other
+        }
     }
-    tx.commit().await
+}
+
+/// Runs `work` in a transaction that it only reads, then rolls it
+/// back.
+async fn read_only<T>(
+    ctx: &Ctx<Workspace>,
+    work: impl AsyncFnOnce(&SqliteTransaction) -> Result<T>,
+) -> Result<T> {
+    let tx = ctx.sql().begin_transaction(None).await?;
+    let done = work(&tx).await;
+    tx.rollback().await?;
+    done
 }
 
 /// Calls `agent` with how its call `call` ended, once. A failed
@@ -694,7 +737,7 @@ impl Workspace {
     /// the gate and opens its row, in `tx`.
     async fn decide(
         &self,
-        tx: &hamlet_actor_core::SqliteTransaction,
+        tx: &SqliteTransaction,
         agent: AgentNumber,
         run: &Run,
         request_hash: &[u8],
@@ -870,29 +913,20 @@ impl Handler<SetReach> for Workspace {
             refused(caller.as_ref(), SetReach::NAME, &refusal);
             return Ok(ReachAnswer::Refused(refusal));
         }
-        let tx = ctx.sql().begin_transaction(None).await?;
-        let applied = async {
-            let in_force = reach::apply(&tx, &set).await?;
+        let (in_force, now, closed) = transact(&ctx, async |tx| {
+            let in_force = reach::apply(tx, &set).await?;
             // The reach in force, not the call's: an ended reach
             // repeated under its version with another body stays
             // ended.
-            let now = reach::read(&tx, set.agent).await?;
+            let now = reach::read(tx, set.agent).await?;
             let closed = if now == Some(Reach::Ended) {
-                pending::close(&tx, set.agent, &LAPSED).await?
+                pending::close(tx, set.agent, &LAPSED).await?
             } else {
                 Vec::new()
             };
-            anyhow::Ok((in_force, now, closed))
-        }
-        .await;
-        let (in_force, now, closed) = match applied {
-            Ok(applied) => applied,
-            Err(error) => {
-                tx.rollback().await?;
-                return Err(error);
-            }
-        };
-        tx.commit().await?;
+            Ok((in_force, now, closed))
+        })
+        .await?;
         match now {
             Some(Reach::Ended) => {
                 self.end_agent(&ctx, set.agent, closed).await?;

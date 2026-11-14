@@ -73,19 +73,16 @@ pub(super) async fn sweep(
         })
         .map(AgentNumber)
         .collect();
-    let mut ended = Vec::new();
-    let tx = ctx.sql().begin_transaction(None).await?;
-    let read = async {
+    let ended = super::read_only(ctx, async |tx| {
+        let mut ended = Vec::new();
         for worker in workers {
-            if reach::read(&tx, worker).await? == Some(Reach::Ended) {
+            if reach::read(tx, worker).await? == Some(Reach::Ended) {
                 ended.push(worker);
             }
         }
-        anyhow::Ok(())
-    }
-    .await;
-    tx.rollback().await?;
-    read?;
+        Ok(ended)
+    })
+    .await?;
     for worker in ended {
         remove(home, worker).await;
     }

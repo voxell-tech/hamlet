@@ -34,7 +34,8 @@ use super::{Gated, Passed};
 use crate::workspace::pending::{self, Pending, Rechecked, Wait};
 use crate::workspace::reach::{self, Op, Placement, Purpose};
 use crate::workspace::{
-    Workspace, agent_of, caller, calls, checked_call, refused, tell,
+    Workspace, agent_of, caller, calls, checked_call, read_only,
+    refused, tell, transact, transact_if,
 };
 
 /// The paths changes are at work on: one change at a time checks and
@@ -64,33 +65,27 @@ impl Paths {
 /// Removes the new files of the changes a kill cut off, and their
 /// rows, so that a repeat of each is a fresh call.
 pub async fn cut_off_changes(ctx: &Ctx<Workspace>) -> Result<()> {
-    let tx = ctx.sql().begin_transaction(None).await?;
-    let unfinished = tx
-        .execute(
-            "SELECT id, temp FROM calls WHERE state = 'changing'",
-            None,
-        )
-        .await;
-    let unfinished = match unfinished {
-        Ok(read) => read.rows,
-        Err(error) => {
-            tx.rollback().await?;
-            return Err(error);
+    transact(ctx, async |tx| {
+        let unfinished = tx
+            .execute(
+                "SELECT id, temp FROM calls WHERE state = 'changing'",
+                None,
+            )
+            .await?
+            .rows;
+        for row in unfinished {
+            let [ColumnValue::Integer(id), temp] = row.as_slice()
+            else {
+                continue;
+            };
+            if let ColumnValue::Text(temp) = temp {
+                remove_new_file(temp);
+            }
+            forget(tx, *id).await?;
         }
-    };
-    for row in unfinished {
-        let [ColumnValue::Integer(id), temp] = row.as_slice() else {
-            continue;
-        };
-        if let ColumnValue::Text(temp) = temp {
-            remove_new_file(temp);
-        }
-        if let Err(error) = forget(&tx, *id).await {
-            tx.rollback().await?;
-            return Err(error);
-        }
-    }
-    tx.commit().await
+        Ok(())
+    })
+    .await
 }
 
 /// Removes the new file a change was about to make. A failure is
@@ -270,13 +265,8 @@ impl Workspace {
                     if let Some(temp) = temp {
                         remove_new_file(&temp);
                     }
-                    let tx =
-                        ctx.sql().begin_transaction(None).await?;
-                    if let Err(error) = forget(&tx, id).await {
-                        tx.rollback().await?;
-                        return Err(error);
-                    }
-                    tx.commit().await?;
+                    transact(ctx, async |tx| forget(tx, id).await)
+                        .await?;
                 }
                 Weighed::Fetch(version) => {
                     self.fetch_secrets(ctx, version, &mut fetched)
@@ -338,21 +328,13 @@ impl Workspace {
                 .await;
         }
         let (temp_name, temp) = temp_of(&planned);
-        let tx = ctx.sql().begin_transaction(None).await?;
-        let opened = open(&tx, agent, &request, &temp).await;
+        let opened = transact_if(ctx, async |tx| {
+            open(tx, agent, &request, &temp).await
+        })
+        .await?;
         let id = match opened {
-            Ok(Ok(id)) => {
-                tx.commit().await?;
-                id
-            }
-            Ok(Err(answer)) => {
-                tx.rollback().await?;
-                return Ok(answer);
-            }
-            Err(error) => {
-                tx.rollback().await?;
-                return Err(error);
-            }
+            Ok(id) => id,
+            Err(answer) => return Ok(answer),
         };
         self.carry_out(
             ctx,
@@ -381,10 +363,9 @@ impl Workspace {
         held: OwnedMutexGuard<()>,
     ) -> Result<ChangeAnswer> {
         let agent = opening.agent;
-        let tx = ctx.sql().begin_transaction(None).await?;
-        let opened = async {
+        let opened = transact_if(ctx, async |tx| {
             if let Some(call) =
-                calls::find(&tx, agent, request.call).await?
+                calls::find(tx, agent, request.call).await?
             {
                 return Ok(Err(match answered(call, request)? {
                     Weighed::Answer(answer) => answer,
@@ -394,24 +375,14 @@ impl Workspace {
                     ),
                 }));
             }
-            Ok(pending::open(&tx, secrets, opening)
+            Ok(pending::open(tx, secrets, opening)
                 .await?
                 .map_err(ChangeAnswer::Refused))
-        }
-        .await;
+        })
+        .await?;
         let notice = match opened {
-            Ok(Ok(notice)) => {
-                tx.commit().await?;
-                notice
-            }
-            Ok(Err(answer)) => {
-                tx.rollback().await?;
-                return Ok(answer);
-            }
-            Err(error) => {
-                tx.rollback().await?;
-                return Err(error);
-            }
+            Ok(notice) => notice,
+            Err(answer) => return Ok(answer),
         };
         drop(held);
         let needs = notice.needs.clone();
@@ -539,21 +510,13 @@ impl Workspace {
         temp: Option<&str>,
         held: OwnedMutexGuard<()>,
     ) -> Result<Option<(i64, OwnedMutexGuard<()>)>> {
-        let tx = ctx.sql().begin_transaction(None).await?;
-        match pending::settle(&tx, wait, state, answer, temp).await {
-            Ok(Some(id)) => {
-                tx.commit().await?;
-                Ok(Some((id, held)))
-            }
-            Ok(None) => {
-                tx.rollback().await?;
-                Ok(None)
-            }
-            Err(error) => {
-                tx.rollback().await?;
-                Err(error)
-            }
-        }
+        let settled = transact_if(ctx, async |tx| {
+            Ok(pending::settle(tx, wait, state, answer, temp)
+                .await?
+                .ok_or(()))
+        })
+        .await?;
+        Ok(settled.ok().map(|id| (id, held)))
     }
 
     /// Replaces the file of `request`, whose row `id` was written,
@@ -591,12 +554,7 @@ impl Workspace {
             &secrets,
             outcome(request.path, &request.asked, planned, replaced),
         );
-        let tx = ctx.sql().begin_transaction(None).await?;
-        if let Err(error) = end(&tx, id, &answer).await {
-            tx.rollback().await?;
-            return Err(error);
-        }
-        tx.commit().await?;
+        transact(ctx, async |tx| end(tx, id, &answer).await).await?;
         drop(held);
         Ok(answer)
     }
@@ -609,10 +567,12 @@ impl Workspace {
         agent: AgentNumber,
         request: &Request<'_>,
     ) -> Result<Weighed> {
-        let tx = ctx.sql().begin_transaction(None).await?;
-        let found = calls::find(&tx, agent, request.call).await;
-        let in_force = reach::in_force(&tx, agent).await;
-        tx.rollback().await?;
+        let (found, in_force) = read_only(ctx, async |tx| {
+            let found = calls::find(tx, agent, request.call).await;
+            let in_force = reach::in_force(tx, agent).await;
+            Ok((found, in_force))
+        })
+        .await?;
         if let Some(call) = found? {
             return answered(call, request);
         }
