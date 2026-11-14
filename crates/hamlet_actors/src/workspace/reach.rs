@@ -238,8 +238,6 @@ pub enum Gate {
     NeedsSecrets(SecretsVersion),
 }
 
-/// Why the gate refuses a call: the agent's reach, or the path a file
-/// call names, by its access.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Refused {
     Reach(ReachRefusal),
@@ -248,7 +246,6 @@ pub enum Refused {
 }
 
 impl Refused {
-    /// The refusal of a command or a tool, which names no path.
     pub fn of_program(self) -> anyhow::Result<ReachRefusal> {
         match self {
             Self::Reach(why) => Ok(why),
@@ -258,7 +255,6 @@ impl Refused {
         }
     }
 
-    /// The refusal of a read, a search or a find.
     pub fn of_read(self) -> anyhow::Result<ReadRefusal> {
         match self {
             Self::Reach(why) => Ok(why.into()),
@@ -269,7 +265,6 @@ impl Refused {
         }
     }
 
-    /// The refusal of a write or an edit.
     pub fn of_change<R>(self) -> anyhow::Result<R>
     where
         R: From<ReachRefusal> + From<PathRefusal<ToChange>>,

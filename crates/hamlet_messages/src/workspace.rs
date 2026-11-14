@@ -259,9 +259,7 @@ pub struct Fault {
 )]
 pub struct CommandId(pub u32);
 
-/// The workspace's answer to a [`Run`], and to a [`CommandStatus`]
-/// with `R` as [`refusal::StatusRefusal`]: how the call's command
-/// stands.
+/// The workspace's answer to a [`Run`] and to a [`CommandStatus`].
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 #[serde(bound(
@@ -380,7 +378,7 @@ impl Message for Cancel {
     type From = Agent;
 }
 
-/// The calls whose commands a [`Cancel`] ends.
+/// The calls whose commands a [`Cancel`] or a [`CancelAgent`] ends.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Which {

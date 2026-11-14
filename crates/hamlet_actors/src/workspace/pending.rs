@@ -52,8 +52,7 @@ pub(super) const SCHEMA: &str = "CREATE TABLE IF NOT EXISTS waits (
 	PRIMARY KEY (agent, call)) STRICT";
 
 /// The request a waiting call runs if a chief allows it: its own,
-/// never what the workspace read for it. It is kept as the message's
-/// own bytes, and read back by its call's `op`.
+/// never what the workspace read for it.
 #[derive(Clone, Debug)]
 pub(super) enum Pending {
     Run(Run),
@@ -62,7 +61,6 @@ pub(super) enum Pending {
 }
 
 impl Pending {
-    /// The `op` of its call's row.
     fn op(&self) -> &'static str {
         match self {
             Self::Run(_) => run::OP,
@@ -79,7 +77,6 @@ impl Pending {
         }
     }
 
-    /// The request `bytes` keep, of a call whose row's `op` is `op`.
     fn read(op: &str, bytes: &[u8]) -> Result<Self> {
         Ok(match op {
             run::OP => Self::Run(ciborium::from_reader(bytes)?),
@@ -161,7 +158,7 @@ pub(super) async fn open(
         patch: scrub(&change.patch),
         ..change
     });
-    calls::insert(
+    let row = calls::insert(
         tx,
         opening.agent,
         &call,
@@ -172,6 +169,9 @@ pub(super) async fn open(
         None,
     )
     .await?;
+    if let Pending::Run(_) = opening.request {
+        run::command_id(row)?;
+    }
     tx.execute(
         "INSERT INTO waits (agent, call, needs, request, \
          reach_version, base_hash) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
@@ -325,14 +325,12 @@ pub(super) async fn settle(
     }
 }
 
-/// Why a wait ended without its call running, by the call's kind.
 pub(super) enum NotRun {
     Run(RunNotRun),
     Change(ChangeNotRun),
 }
 
 impl NotRun {
-    /// `why` the wait of a call of `op` ended.
     fn of(op: &str, why: WaitEnd) -> Result<Self> {
         Ok(match op {
             run::OP => Self::Run(why.into()),
@@ -348,7 +346,6 @@ impl NotRun {
         }
     }
 
-    /// The end the agent is told of.
     pub(super) fn outcome(&self) -> Outcome {
         match self {
             Self::Run(why) => Outcome::Run {
@@ -416,7 +413,6 @@ pub(super) enum Rechecked {
     Changed(ReachChanged<Refused>),
 }
 
-/// `changed` with the gate's refusal as `why` gives it.
 pub(super) fn changed<G>(
     changed: ReachChanged<Refused>,
     why: impl FnOnce(Refused) -> Result<G>,

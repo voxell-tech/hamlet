@@ -76,8 +76,6 @@ fn is_local<P: Party>(caller: Option<&Caller>) -> bool {
     )
 }
 
-/// The agent at `key`, which its number writes back exactly: one key
-/// per agent.
 fn agent_at(key: &str) -> Option<AgentNumber> {
     let number = key.parse::<u32>().ok()?;
     (number.to_string() == key).then_some(AgentNumber(number))
@@ -154,7 +152,6 @@ pub struct IdReused {
     call: String,
 }
 
-/// The host's stamp, absent for the program's own call.
 #[derive(Debug, Serialize)]
 #[serde(transparent)]
 struct Stamp(Option<Caller>);
@@ -213,7 +210,6 @@ mod tests {
                 "{key}"
             );
         }
-        // `+` is no address's, so only the key is read.
         assert_eq!(agent_at("+7"), None);
         assert_eq!(agent_at("7"), Some(AgentNumber(7)));
     }

@@ -340,17 +340,18 @@ The server does not use it. `hamlet_actors` holds Hamlet's actors on the
 actor host. Its one kind is `workspace`, in `src/workspace.rs` and
 `src/workspace/`: one actor per machine, keyed `local`, that runs the
 agents' commands and file changes under the sandbox, within each agent's
-reach (C18 to C21). `hamlet_messages` holds the calls between actors and their
-answers, one module per actor that takes them: `workspace` (with
-`workspace/reach.rs`, `workspace/files.rs` and `workspace/refusal.rs`,
-the refusals by family), `realm` and `agent`. Each crosses the host as
-CBOR. An answer is `ended`, `running`, `waits_for_chief` or `refused`
-with a reason and its words. `address.rs` holds the actors as parties,
+reach (C18 to C21). `hamlet_messages` holds the calls between actors
+and their answers, one module per actor that takes them: `workspace`
+(with `workspace/reach.rs`, `workspace/files.rs` and
+`workspace/refusal.rs`, the refusals by family), `realm` and `agent`.
+Each crosses the host as CBOR. A command is answered `ended`,
+`running`, `waits_for_chief` or `refused`, and a file change the same
+without `running`; a refusal holds a reason and its words. `address.rs` holds the actors as parties,
 with their kinds and keys, and `sender.rs` the check of a caller.
 `fixtures/` holds the bytes of each message, and
 `tests/fixtures/main.rs` rewrites a fixture whose bytes changed and
 fails once, so the change is committed. `fixtures/stored/` holds each
-type a row keeps and is never rewritten; `lib.rs` says how a message
+case of each type a row keeps and is never rewritten; `lib.rs` says how a message
 may change.
 
 The realm, the actor `realm/local`, sets each agent's reach
@@ -363,9 +364,9 @@ Each message is a `Message`, which names the party that takes it and
 the kind that sends it. A handler first reads its sender from the
 caller the host stamped, with `sender::sender`, and any other caller
 fails with the error `message.wrong_caller`. An agent's call is for
-the agent that made it. The workspace calls the realm with `Secrets` and `NeedsChief`,
-and an agent with `Finished`. In this repository the realm and the
-agent are only the demo's stand-ins. The host gives the workspace its
+the agent that made it. The workspace calls the realm with `Secrets`
+and `NeedsChief`, and an agent with `Finished`. In this repository
+the realm and the agent are only the demo's stand-ins. The host gives the workspace its
 `Sandbox` as a value of `HostOptions`, and the workspace does not start
 without one; `workspace::Options` there sets how long a call waits for
 its command.
@@ -443,8 +444,8 @@ allow checks the call again under the reach in force (`recheck`): it
 runs when the gate lets it, or when it needs only what the chief was
 asked; else it does not run, as `ReachChanged`. A change also needs
 the file to still hold what hashes to what the chief was shown, else
-it does not run, as `FileChanged`. An allow's scope is in the reach the realm sets before
-it answers, not in the answer. The agent hears how the call ended with
+it does not run, as `FileChanged`. An allow's scope is in the reach
+the realm sets before it answers, not in the answer. The agent hears how the call ended with
 `Finished`. A wait stays through a restart.
 
 `Cancel` ends the calling agent's running commands, and `CancelAgent`

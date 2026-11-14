@@ -41,7 +41,7 @@
 //! prints `finished/<call> <exit code>` as above, a change
 //! `finished/<call>/changed <created>` or `finished/<call>/failed 1`,
 //! and a call that did not run `finished/<call>/not_run 1`; each logs
-//! why. The agent takes `finished` from the workspace only.
+//! why.
 
 use std::io::Write;
 use std::sync::Arc;
@@ -382,8 +382,6 @@ async fn run_one(host: &Host, words: &[String]) -> Result<()> {
     print_run(answer, call, rest, number)
 }
 
-/// Prints the line of a run's `answer`, or of a status's when it has
-/// no `call`.
 fn print_run<R: std::fmt::Display>(
     answer: RunAnswer<R>,
     call: Option<&String>,

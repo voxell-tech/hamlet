@@ -61,10 +61,8 @@ const SECRET: &str = "s3cr3t-value";
 const PEERS: [&str; 3] =
     [address::Realm::KIND, address::Agent::KIND, "other"];
 
-/// The error of a call from a caller its message does not admit.
 const WRONG_CALLER: &str = "message.wrong_caller";
 
-/// The error of a call whose id was given before to another request.
 const ID_REUSED: &str = "message.id_reused";
 
 #[derive(Default)]
@@ -298,14 +296,11 @@ fn decoded<T: serde::de::DeserializeOwned>(reply: &[u8]) -> T {
     ciborium::from_reader(reply).unwrap()
 }
 
-/// The `group.code` of the error a call failed with.
 fn error_code(reply: anyhow::Result<Vec<u8>>) -> String {
     let error = ActorError::extract(&reply.unwrap_err());
     format!("{}.{}", error.group(), error.code())
 }
 
-/// The `group.code` of the error the workspace failed `asked` with,
-/// called as the actor at `from`.
 async fn error_of<A: Action>(
     host: &Host,
     from: &Address,

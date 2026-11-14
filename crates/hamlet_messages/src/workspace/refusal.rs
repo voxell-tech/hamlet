@@ -101,7 +101,7 @@ pub enum InvalidPath {
 }
 
 /// A path the gate does not let a file call touch. `A` is the access
-/// the call asks for, [`ToRead`] or [`ToChange`].
+/// the call asks for.
 #[derive(
     Clone,
     Debug,
@@ -242,7 +242,7 @@ pub enum WaitEnd {
 
 /// A chief allowed the call, but the reach changed while it waited
 /// and no longer lets it run (S18). `G` is what the gate refuses the
-/// call with: [`ReachRefusal`] for a run, [`FileGate`] for a change.
+/// call with.
 #[derive(
     Clone,
     Debug,
@@ -389,8 +389,7 @@ pub enum ChangeRefusal {
     Reach(#[from] ReachRefusal),
 }
 
-/// What a fresh `WriteFile` is refused with: an edit's families and
-/// [`InvalidContent`].
+/// What a fresh `WriteFile` is refused with.
 #[derive(
     Clone,
     Debug,

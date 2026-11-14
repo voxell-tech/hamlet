@@ -269,8 +269,7 @@ async fn an_actor_that_keeps_its_host_ref_does_not_keep_the_host() {
     host.shutdown().await.unwrap();
 }
 
-/// Answers who called it, holds when asked to, and refuses when
-/// asked to.
+/// Answers who called it, and holds when asked to.
 struct Callee;
 
 /// Answers the caller the host stamped on this call. `claimed` names
@@ -297,7 +296,6 @@ impl Action for Hold {
     const NAME: &'static str = "hold";
 }
 
-/// Fails with [`Refusal`], naming the caller the host stamped.
 #[derive(Serialize, Deserialize)]
 struct Refuse;
 
@@ -306,7 +304,6 @@ impl Action for Refuse {
     const NAME: &'static str = "refuse";
 }
 
-/// A coded error with metadata.
 #[derive(Debug, ActorError, Serialize)]
 #[error(
     "message",
@@ -395,8 +392,8 @@ impl Handler<Hold> for Callee {
     }
 }
 
-/// How a call went: its reply, or its error's `group.code`, message
-/// and metadata, and how long it took.
+/// How a call went: its reply, or its error's `group.code`, and how
+/// long it took.
 #[derive(Debug, Serialize, Deserialize)]
 struct Outcome {
     reply: Option<Vec<u8>>,
@@ -714,9 +711,6 @@ async fn the_callee_reads_who_called_whatever_the_arguments_say() {
     );
 }
 
-/// A handler's coded error reaches its caller whole: its code,
-/// message and metadata, whether an actor, a client or the program
-/// made the call.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_coded_error_reaches_each_caller_whole() {
     let dir = Scratch::new("call-coded-error");

@@ -1,6 +1,3 @@
-//! Ending an agent's commands: the agent's own cancel, the realm's
-//! cancel of an agent, and an agent whose reach ended.
-
 use std::time::{Duration, Instant};
 
 use hamlet_actor::Action;
@@ -25,7 +22,6 @@ use super::{
     run, running, runs_as, status_as, told, told_within,
 };
 
-/// The realm's cancel of agent 7's commands of `which`.
 fn cancel_agent(which: Which) -> CancelAgent {
     CancelAgent {
         agent: AGENT,
@@ -33,7 +29,6 @@ fn cancel_agent(which: Which) -> CancelAgent {
     }
 }
 
-/// Asks the workspace, as agent 7, to end its commands of `which`.
 async fn agent_cancels(host: &Host, which: Which) -> Cancelled {
     ask(host, &agent(AGENT), &Cancel { which }).await
 }

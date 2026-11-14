@@ -20,8 +20,7 @@
 //! `waits/<n>/<call> <needs>`, how many things it needs, and logs its
 //! subject. `answer` prints `answered/<call> 1` when the call runs,
 //! and else `answered/<call>/not_run 0`, logging why, or
-//! `answered/<call>/no_wait 0`. The realm takes `secrets` and
-//! `needs_chief` from the workspace only.
+//! `answered/<call>/no_wait 0`.
 
 use std::io::Write;
 use std::sync::Arc;
@@ -131,11 +130,8 @@ impl Handler<Decide> for Realm {
     }
 }
 
-/// The longest the realm waits for the workspace's answer.
 const CALL_WITHIN: Duration = Duration::from_secs(10);
 
-/// Calls `to` with `message` as the actor of `host`, and decodes its
-/// answer.
 async fn call<M: Message>(
     host: &HostRef,
     to: &M::To,

@@ -30,11 +30,10 @@ use super::changes::{edit, manual, read, sha256, write};
 use super::files::{ask, project};
 use super::{
     AGENT, ID_REUSED, Leave, Peers, SECRET, WRONG_CALLER, agent,
-    agent_runs, error_of, files_holding, filesystem, read_only,
-    realm, realm_sets, run, status_as, told, told_within,
+    agent_runs, call_as, error_of, files_holding, filesystem,
+    read_only, realm, realm_sets, run, status_as, told, told_within,
 };
 
-/// A change's answer that it waits for a chief to allow an edit.
 fn waits_for_an_edit<R>() -> ChangeAnswer<R> {
     ChangeAnswer::WaitsForChief {
         needs: vec![Need::Edit],
@@ -99,9 +98,8 @@ fn manual_with_network(folder: &Path) -> Reach {
 
 /// In manual mode a command waits for a chief: the call answers so,
 /// the realm is told once with the call's task and its words, and
-/// nothing runs. The wait keeps the call's own request, as the
-/// message's bytes. A repeat answers that it waits and tells no one;
-/// a repeat with another task is another request, which fails with
+/// nothing runs. A repeat answers that it waits and tells no one; a
+/// repeat with another task is another request, which fails with
 /// `message.id_reused` (M-E10).
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
@@ -145,8 +143,10 @@ async fn a_command_that_needs_a_chief_waits_and_the_realm_is_told() {
     );
     assert!(!folder.join("marker").exists());
     assert_eq!(waits(&dir), 1);
-    let kept: Vec<u8> = read_only(&dir)
-        .query_row("SELECT request FROM waits", [], |row| row.get(0))
+    let kept = read_only(&dir)
+        .query_row("SELECT request FROM waits", [], |row| {
+            row.get::<_, Vec<u8>>(0)
+        })
         .unwrap();
     assert_eq!(
         ciborium::from_reader::<Run, _>(kept.as_slice()).unwrap(),
@@ -202,9 +202,7 @@ async fn a_command_a_chief_allows_runs_and_the_agent_hears_its_end() {
 }
 
 /// A chief's refusal and a lapse each end their wait: nothing runs,
-/// the agent is told why once, and a repeat of the call answers it,
-/// as does the status of its row's command id, which the agent was
-/// never told.
+/// the agent is told why once, and a repeat of the call answers it.
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_refusal_and_a_lapse_end_the_wait_and_run_nothing() {
@@ -553,6 +551,44 @@ async fn only_the_realm_answers_a_wait() {
     assert_eq!(taken, WRONG_CALLER);
     assert_eq!(waits(&dir), 1);
     assert!(!folder.join("marker").exists());
+}
+
+/// A command's id is its row's id, so a command whose row id passes
+/// a `u32` fails before it waits, and nothing of it is kept.
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_command_whose_row_id_is_no_command_id_does_not_wait() {
+    let dir = Scratch::new("workspace-wait-row-id");
+    let (_project, folder) = project("workspace-wait-row-id-p", &[]);
+    let peers = Arc::new(Peers::default());
+    let host = host_with(&dir, peers.clone()).await;
+    realm_sets(&host, 1, manual(&folder)).await;
+    host.shutdown().await.unwrap();
+    rusqlite::Connection::open(
+        dir.join("actors/workspace/local.sqlite"),
+    )
+    .unwrap()
+    .execute_batch(
+        "DELETE FROM sqlite_sequence WHERE name = 'calls'; INSERT \
+         INTO sqlite_sequence (name, seq) VALUES ('calls', \
+         4294967295)",
+    )
+    .unwrap();
+
+    let host = host_with(&dir, peers.clone()).await;
+    let answered = call_as(
+        &host,
+        &agent(AGENT),
+        Run::NAME,
+        hamlet_actor::action::encode_positional(&run("c1", "true"))
+            .unwrap(),
+    )
+    .await;
+    host.shutdown().await.unwrap();
+
+    assert!(answered.is_err(), "{answered:?}");
+    assert_eq!(waits(&dir), 0);
+    assert_eq!(asked(&peers), []);
 }
 
 /// A wait stays through a restart, and nothing of it ran. Allowed

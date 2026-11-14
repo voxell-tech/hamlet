@@ -231,9 +231,8 @@ pub struct Replace {
     pub new: String,
 }
 
-/// The workspace's answer to an [`EditFile`], and to a [`WriteFile`]
-/// with `R` as [`WriteRefusal`]. Every word in it has the realm's
-/// secrets taken out.
+/// The workspace's answer to a [`WriteFile`] or an [`EditFile`].
+/// Every word in it has the realm's secrets taken out.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 #[serde(bound(

@@ -1,5 +1,5 @@
 //! An agent's reach on a machine, as the realm sets it (C18 to C21,
-//! H11). Why a call does not pass it is in [`super::refusal`].
+//! H11).
 
 use std::path::PathBuf;
 
@@ -88,7 +88,6 @@ pub enum Need {
     Edit,
 }
 
-/// "the network", "a command", "an edit".
 impl std::fmt::Display for Need {
     fn fmt(
         &self,
@@ -102,8 +101,6 @@ impl std::fmt::Display for Need {
     }
 }
 
-/// `needs` in words, the last two joined by "and": "the network and
-/// an edit".
 pub(crate) fn needs_words(needs: &[Need]) -> String {
     let words =
         needs.iter().map(ToString::to_string).collect::<Vec<_>>();
