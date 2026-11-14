@@ -234,16 +234,10 @@ impl Workspace {
                 version.0
             );
         }
-        let answer = Host::call_from(
-            ctx.inner(),
-            &Address::new(REALM, REALM_KEY),
-            Secrets::NAME,
-            hamlet_actor::action::encode_positional(&Secrets)?,
-            Duration::from_secs(10),
-            Cause::root("workspace"),
-        )
-        .await
-        .context("fetch the realm's secrets")?;
+        let answer =
+            call_actor(ctx, Address::new(REALM, REALM_KEY), &Secrets)
+                .await
+                .context("fetch the realm's secrets")?;
         let list: SecretList =
             ciborium::from_reader(answer.as_slice())
                 .context("decode the realm's secrets")?;
@@ -684,6 +678,24 @@ async fn read_only<T>(
     done
 }
 
+/// Calls `to` with `action` and answers its encoded output.
+async fn call_actor<A: Action>(
+    ctx: &Ctx<Workspace>,
+    to: Address,
+    action: &A,
+) -> Result<Vec<u8>> {
+    let args = hamlet_actor::action::encode_positional(action)?;
+    Host::call_from(
+        ctx.inner(),
+        &to,
+        A::NAME,
+        args,
+        Duration::from_secs(10),
+        Cause::root("workspace"),
+    )
+    .await
+}
+
 /// Calls `agent` with how its call `call` ended, once. A failed
 /// call, as to an agent that no longer exists, is logged and dropped.
 async fn tell(
@@ -693,23 +705,10 @@ async fn tell(
     outcome: Outcome,
 ) {
     let id = call.0.clone();
-    let told = async {
-        let args =
-            hamlet_actor::action::encode_positional(&Finished {
-                call,
-                outcome,
-            })?;
-        Host::call_from(
-            ctx.inner(),
-            &Address::new(AGENT, agent.0.to_string()),
-            Finished::NAME,
-            args,
-            Duration::from_secs(10),
-            Cause::root("workspace"),
-        )
-        .await
-    };
-    if let Err(error) = told.await {
+    let to = Address::new(AGENT, agent.0.to_string());
+    if let Err(error) =
+        call_actor(ctx, to, &Finished { call, outcome }).await
+    {
         tracing::warn!(
             ?error,
             agent = agent.0,

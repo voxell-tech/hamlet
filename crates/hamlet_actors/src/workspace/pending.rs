@@ -10,12 +10,11 @@
 //! and a repeat of the call answers that it waits.
 
 use std::sync::Arc;
-use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 use hamlet_actor::{Action, Ctx, Handler};
 use hamlet_actor_core::{BindParam, ColumnValue, SqliteTransaction};
-use hamlet_host::{Address, Host};
+use hamlet_host::Address;
 use hamlet_messages::agent::Outcome;
 use hamlet_messages::realm::NeedsChief;
 use hamlet_messages::workspace::files::{
@@ -31,8 +30,8 @@ use serde::{Deserialize, Serialize};
 
 use super::reach::{self, Gate, Op};
 use super::{
-    REALM, REALM_KEY, Workspace, caller, calls, is_the_realm,
-    read_only, refused, tell, transact_if,
+    REALM, REALM_KEY, Workspace, call_actor, caller, calls,
+    is_the_realm, read_only, refused, tell, transact_if,
 };
 
 /// One row per call that waits for a chief, beside its `calls` row.
@@ -353,18 +352,8 @@ impl Workspace {
         notice: NeedsChief,
     ) {
         let (agent, call) = (notice.agent, notice.call.clone());
-        let asked = async {
-            Host::call_from(
-                ctx.inner(),
-                &Address::new(REALM, REALM_KEY),
-                NeedsChief::NAME,
-                hamlet_actor::action::encode_positional(&notice)?,
-                Duration::from_secs(10),
-                hamlet_host::Cause::root("workspace"),
-            )
-            .await
-        };
-        if let Err(error) = asked.await {
+        let to = Address::new(REALM, REALM_KEY);
+        if let Err(error) = call_actor(ctx, to, &notice).await {
             tracing::warn!(
                 ?error,
                 agent = agent.0,
