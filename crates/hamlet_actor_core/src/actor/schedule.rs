@@ -51,14 +51,16 @@ pub const MIN_INTERVAL_MS: i64 = 5_000;
 const DEFAULT_HISTORY_LIMIT: i64 = 20;
 const CLAIM_ONE_SHOT_BATCH_SIZE: usize = 128;
 /// How many times a one-shot is tried. Each claim of a due one-shot
-/// is one try, committed before its action is dispatched, however
-/// the try then ends: the action failed or dropped its reply, a stop
-/// cut it short, the process died, or the event never reached the
-/// action. The drain that finds a one-shot with this many tries runs
-/// nothing for it: it moves the row to `_actor_schedule_set_aside`,
-/// logs an error and tells the host through
-/// `ActorHost::timer_set_aside`. Nothing wakes the actor for that
-/// timer again until [`ActorContext::rearm_set_aside`] puts it back.
+/// is one try, committed before its action is dispatched. A try whose
+/// handler answers, with its result, an error or a panic, ends the
+/// one-shot. A try whose handler does not answer leaves it for the
+/// next: a stop cut the handler short, its reply was dropped unsent,
+/// the process died, or the event never reached the handler. The
+/// drain that finds a one-shot with this many tries runs nothing for
+/// it: it moves the row to `_actor_schedule_set_aside`, logs an
+/// error and tells the host through `ActorHost::timer_set_aside`.
+/// Nothing wakes the actor for that timer again until
+/// [`ActorContext::rearm_set_aside`] puts it back.
 ///
 /// So a timer can be set aside without its action ever having run,
 /// when its actor failed five starts in a row: each start claimed it
