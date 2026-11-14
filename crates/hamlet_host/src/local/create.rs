@@ -20,7 +20,7 @@ use crate::directory::Place;
 pub(super) struct DuplicateKey;
 
 impl Host {
-    /// Makes the actor of `kind` and `key` and starts it with
+    /// Makes the actor at `at` and starts it with
     /// `input`, the bytes its kind reads as its create input: the
     /// CBOR of its `Input` for a kind of the authoring layer. The
     /// input is kept with the actor and given to each start, and the

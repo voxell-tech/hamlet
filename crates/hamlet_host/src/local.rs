@@ -1160,7 +1160,7 @@ impl Host {
     /// it a destroy. A sleep leaves a stopped actor as it is, its
     /// file and its timer with it; a destroy removes its files and
     /// cancels its timer, and one repeated after it ended ends the
-    /// same way. Fails for an id of no kind of this host, before
+    /// same way. Fails for an actor of no kind of this host, before
     /// anything reaches the folder, and a destroy of a stopped actor
     /// fails in a host that has shut down, which may no longer hold
     /// the folder. A destroy answers `Ok` only once the actor's files
@@ -1244,7 +1244,7 @@ impl Host {
     pub async fn shutdown(&self) -> Result<()> {
         self.inner().shut_down();
         // No state is added once the host is shut.
-        let ids = self
+        let addresses = self
             .inner()
             .actors
             .lock()
@@ -1252,7 +1252,7 @@ impl Host {
             .keys()
             .cloned()
             .collect::<Vec<_>>();
-        let stops = ids
+        let stops = addresses
             .into_iter()
             .map(|at| {
                 let host = self.clone();
@@ -1662,8 +1662,8 @@ fn retry_start(owned: &Owned, due: i64) {
     drop(replaced);
 }
 
-/// The core's id of the actor at `at`: the one place the host asks
-/// for it.
+/// The core's id of the actor at `at`, `kind/key`. The host writes
+/// the id only here.
 fn actor_id(at: &Address) -> String {
     at.to_string()
 }

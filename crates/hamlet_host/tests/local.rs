@@ -318,7 +318,6 @@ async fn starts_an_actor_by_its_kind_and_key() {
     assert_eq!(call(&host, &id, "increment").await, 2);
 
     let other = at("counter", "b");
-
     host.get_or_start(&other).await.unwrap();
     assert_eq!(call(&host, &other, "get").await, 0);
     assert!(dir.join("actors/counter/a.sqlite").is_file());
@@ -2774,10 +2773,10 @@ async fn a_destroy_removes_a_running_a_sleeping_and_a_waiting_actor()
     host.shutdown().await.unwrap();
 }
 
-/// A destroy reaches only a valid id of one of the host's own kinds,
+/// A destroy reaches only an actor of one of the host's own kinds,
 /// in a host that has not shut down: it removes no other file.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_destroy_refuses_an_id_that_is_not_its_hosts() {
+async fn a_destroy_refuses_an_actor_that_is_not_its_hosts() {
     let dir = Scratch::new("host-destroy-refused");
     std::fs::create_dir_all(dir.join("actors/other")).unwrap();
     std::fs::write(dir.join("actors/other/x.sqlite"), b"kept")
