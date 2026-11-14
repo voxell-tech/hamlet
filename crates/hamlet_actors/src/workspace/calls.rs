@@ -54,7 +54,6 @@ pub(super) fn request_hash(
     Ok(Sha256::digest(cbor(request)?).to_vec())
 }
 
-/// `value` in CBOR, as a row keeps it.
 pub(super) fn cbor(value: &impl Serialize) -> Result<Vec<u8>> {
     let mut bytes = Vec::new();
     ciborium::into_writer(value, &mut bytes)?;

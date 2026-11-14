@@ -438,16 +438,11 @@ impl Workspace {
                 let answer = ChangeAnswer::Failed(scrub_text(
                     &secrets, &words,
                 ));
-                let bytes = calls::cbor(&answer)?;
-                let settled = pending::settled(
-                    ctx,
-                    wait,
-                    "ended",
-                    Some(bytes),
-                    None,
-                )
-                .await?;
-                if settled.is_none() {
+                let bytes = Some(calls::cbor(&answer)?);
+                if pending::settled(ctx, wait, "ended", bytes, None)
+                    .await?
+                    .is_none()
+                {
                     return Ok(AnswerTaken::NoWait);
                 }
                 tell(

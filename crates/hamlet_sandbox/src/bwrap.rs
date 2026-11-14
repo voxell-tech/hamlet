@@ -103,29 +103,23 @@ pub(super) fn command(
         match grant {
             // An empty folder over it. One that is missing has
             // nothing to hide and cannot be mounted over.
-            Grant::Nothing if is_dir(&path) => {
+            Grant::Hidden if is_dir(&path) => {
                 mount(&path, 0, "--tmpfs", false);
                 covers.push(place(&path));
             }
-            Grant::Nothing => {}
+            Grant::Hidden => {}
             // A root that is missing has nothing to read, as under
             // Seatbelt, and stops no command.
-            Grant::Read => {
-                mount(&path, 1, "--ro-bind-try", true);
-            }
+            Grant::Read => mount(&path, 1, "--ro-bind-try", true),
             // A locked path's mount lies under deeper ones, so a
             // write root inside one is bound read-only itself.
             Grant::Write if is_locked(policy, &real) => {
                 mount(&path, 2, "--ro-bind", true);
             }
-            Grant::Write => {
-                mount(&path, 2, "--bind", true);
-            }
+            Grant::Write => mount(&path, 2, "--bind", true),
         }
     }
     // Mount points keep roots and their writable ancestors in place.
-    // One under a hidden root is in its empty folder, and one under a
-    // locked path in its read-only mount: neither needs one.
     let writes = write_roots(policy, tmp);
     let mut points = above_roots(policy, tmp);
     points.extend(fixed_roots(policy, tmp));

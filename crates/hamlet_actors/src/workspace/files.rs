@@ -28,7 +28,7 @@ use hamlet_sandbox::scrub::scrub_text;
 
 pub(super) use self::change::{Paths, cut_off_changes};
 use super::reach::{self, Gate, Op, Placement, Purpose};
-use super::{Workspace, calling_agent};
+use super::{Workspace, calling_agent, read_only};
 
 /// A file tool's call the gate let through: where it runs, and the
 /// secrets its answer is scrubbed of.
@@ -138,9 +138,6 @@ impl Workspace {
         })
     }
 
-    /// Passes a read of `path` for the agent `named` through the
-    /// gate, as the caller the host stamped, and answers what `work`
-    /// reads, or why it is refused.
     async fn read_tool(
         &self,
         ctx: &Ctx<Self>,
@@ -160,7 +157,7 @@ impl Workspace {
         }
         let mut fetched = false;
         loop {
-            let reach = super::read_only(ctx, async |tx| {
+            let reach = read_only(ctx, async |tx| {
                 reach::read(tx, agent).await
             })
             .await?;

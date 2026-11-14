@@ -29,9 +29,9 @@ use hamlet_messages::workspace::files::{
 use hamlet_messages::workspace::reach::{Reach, SecretsVersion};
 use hamlet_messages::workspace::{
     AgentNumber, AnswerTaken, CallId, CallRefusal, CallerRefusal,
-    Cancel, CancelAnswer, ChiefAnswer, CommandEnd, CommandId,
-    CommandStatus, Exit, Lapse, ListTools, Program, ReachAnswer,
-    RealmRefusal, Run, RunAnswer, SetReach, ToolList, Which,
+    Cancel, CancelAnswer, ChiefAnswer, CommandId, CommandStatus,
+    Exit, Lapse, ListTools, Program, ReachAnswer, RealmRefusal, Run,
+    RunAnswer, SetReach, ToolList, Which,
 };
 use hamlet_sandbox::{AllLeftovers, Sandbox};
 
@@ -516,7 +516,10 @@ impl Workspace {
                     ),
                 ),
             };
-            if let Err(error) = record(&ctx, &end).await {
+            if let Err(error) =
+                transact(&ctx, async |tx| run::end(tx, &end).await)
+                    .await
+            {
                 tracing::warn!(
                     ?error,
                     command = command.0,
@@ -614,16 +617,6 @@ impl Handler<Cancel> for Workspace {
     }
 }
 
-/// Records `end` in its command's row.
-async fn record(
-    ctx: &Ctx<Workspace>,
-    end: &CommandEnd,
-) -> Result<()> {
-    transact(ctx, async |tx| run::end(tx, end).await).await
-}
-
-/// Runs `work` in a transaction: commits it when `work` succeeds,
-/// rolls it back when it fails.
 async fn transact<T>(
     ctx: &Ctx<Workspace>,
     work: impl AsyncFnOnce(&SqliteTransaction) -> Result<T>,
@@ -635,8 +628,6 @@ async fn transact<T>(
     Ok(done)
 }
 
-/// Runs `work` in a transaction: commits it only when `work` answers
-/// `Ok(Ok(_))`, and rolls it back otherwise.
 async fn transact_if<T, E>(
     ctx: &Ctx<Workspace>,
     work: impl AsyncFnOnce(&SqliteTransaction) -> Result<Result<T, E>>,
@@ -654,8 +645,6 @@ async fn transact_if<T, E>(
     }
 }
 
-/// Runs `work` in a transaction that it only reads, then rolls it
-/// back.
 async fn read_only<T>(
     ctx: &Ctx<Workspace>,
     work: impl AsyncFnOnce(&SqliteTransaction) -> Result<T>,
@@ -666,7 +655,6 @@ async fn read_only<T>(
     done
 }
 
-/// Calls `to` with `action` and answers its encoded output.
 async fn call_actor<A: Action>(
     ctx: &Ctx<Workspace>,
     to: Address,
@@ -971,8 +959,6 @@ fn is_the_realm(caller: Option<&Caller>) -> bool {
     matches!(caller, Some(Caller::Actor(from)) if from.kind == REALM)
 }
 
-/// Refuses `ctx`'s call unless the realm made it. A refusal is logged
-/// as one of `action`.
 fn realm_calling(
     ctx: &Ctx<Workspace>,
     action: &str,
@@ -986,8 +972,6 @@ fn realm_calling(
     Ok(Err(refusal))
 }
 
-/// The agent of `ctx`'s call of an agent's tool, as [`agent_of`]
-/// finds it. A refusal is logged as one of `action`.
 fn calling_agent(
     ctx: &Ctx<Workspace>,
     named: AgentNumber,

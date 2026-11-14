@@ -113,9 +113,6 @@ pub enum Refusal {
     AgentFilesystem { path: PathBuf },
     #[error("this agent has no reach on this machine")]
     NoReach,
-    /// The project folder is the realm folder or lies inside it, so
-    /// a command or a file tool there would reach what C18 keeps
-    /// from every agent.
     #[error(
         "the folder this agent works on, {}, is in the realm's \
          folder, where no agent's commands or file tools run",

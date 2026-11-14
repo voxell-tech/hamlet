@@ -174,7 +174,7 @@ fn profile(policy: &Policy, tmp: &str) -> Profile {
     // also for a hidden folder inside a granted one.
     for Layer { path, grant, .. } in layers(policy, tmp) {
         let (kind, rule) = match grant {
-            Grant::Nothing => (
+            Grant::Hidden => (
                 "HIDDEN",
                 r#"(deny file-read* file-write* (subpath (param "{}")))"#,
             ),

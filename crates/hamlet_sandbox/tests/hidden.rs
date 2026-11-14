@@ -17,7 +17,6 @@ const CREDENTIALS: &str = "secret-credentials";
 const OTHER: &str = "secret-other-agent";
 const LATE: &str = "secret-made-later";
 
-/// A realm folder as the workspace places an agent in it.
 struct Realm {
     root: PathBuf,
 }
@@ -58,7 +57,6 @@ fn shown(path: &Path) -> String {
     format!("'{}'", path.display())
 }
 
-/// Runs `script` under `env`, and answers its output.
 async fn run(env: &Env, script: &str) -> String {
     let argv =
         ["bash".to_owned(), "-c".to_owned(), script.to_owned()];
@@ -75,11 +73,6 @@ async fn run(env: &Env, script: &str) -> String {
     out
 }
 
-/// What a command and the file operations under `env` reach in
-/// `realm`, which `env`'s policy hides, against what C18 grants: the
-/// agent's own filesystem to write, the library to read, a locked
-/// folder inside the own filesystem to read only. Each break is named
-/// in the list answered.
 async fn breaks(env: &Env, realm: &Realm) -> Vec<String> {
     let mut found = Vec::new();
     let mut expect = |holds: bool, what: String| {
@@ -101,7 +94,6 @@ async fn breaks(env: &Env, realm: &Realm) -> Vec<String> {
             !read.contains(words),
             format!("a command read {path:?}"),
         );
-        // Each change starts from the file as it was.
         let mut kept = |what: String| {
             let holds = fs::read_to_string(path).ok().as_deref()
                 == Some(words);
@@ -116,7 +108,6 @@ async fn breaks(env: &Env, realm: &Realm) -> Vec<String> {
         kept(format!("a command changed {path:?}"));
         run(env, &format!("rm -f {}", shown(path))).await;
         kept(format!("a command removed {path:?}"));
-        // Not even into an empty folder over it.
         expect(
             !wrote.contains("wrote"),
             format!("a command's write of {path:?} succeeded"),
@@ -162,7 +153,6 @@ async fn breaks(env: &Env, realm: &Realm) -> Vec<String> {
     found
 }
 
-/// The policy of an agent with `project`, in `realm`.
 fn policy(project: &Path, realm: &Realm) -> Policy {
     Policy {
         ro: vec![realm.library()],
@@ -175,10 +165,6 @@ fn policy(project: &Path, realm: &Realm) -> Policy {
     }
 }
 
-/// The realm folder in the project folder, one or three folders down,
-/// and beside it: a command reads and writes the project and the rest
-/// of the machine, and of the realm only what C18 grants, through a
-/// link too and also what is made there while it runs.
 #[tokio::test]
 async fn a_project_that_holds_the_hidden_folder_keeps_it_hidden() {
     let mut failed = Vec::new();
@@ -246,8 +232,6 @@ async fn a_project_that_holds_the_hidden_folder_keeps_it_hidden() {
     assert!(failed.is_empty(), "{failed:#?}");
 }
 
-/// A read root that holds the hidden folder, with the machine closed:
-/// the folder stays hidden but for the agent's own filesystem.
 #[tokio::test]
 async fn a_read_root_that_holds_the_hidden_folder_keeps_it_hidden() {
     let scratch = Scratch::new("sandbox-hidden-read");
@@ -285,10 +269,6 @@ async fn a_read_root_that_holds_the_hidden_folder_keeps_it_hidden() {
     assert!(found.is_empty(), "{found:#?}");
 }
 
-/// The roots named through a link in their path, as when the realm
-/// folder is reached by one: the folder stays hidden by either name.
-/// A root that is itself a link is refused when the sandbox is set
-/// up.
 #[tokio::test]
 async fn a_hidden_folder_named_through_a_link_stays_hidden() {
     let scratch = Scratch::new("sandbox-hidden-link");
@@ -315,8 +295,6 @@ async fn a_hidden_folder_named_through_a_link_stays_hidden() {
     assert!(found.is_empty(), "{found:#?}");
 }
 
-/// A write root inside a locked folder stays read-only, as a cache a
-/// hand-added tool's manifest grants inside the tool's own folder.
 #[tokio::test]
 async fn a_write_root_inside_a_locked_folder_stays_read_only() {
     let scratch = Scratch::new("sandbox-locked-cache");
@@ -326,7 +304,7 @@ async fn a_write_root_inside_a_locked_folder_stays_read_only() {
     let policy = Policy {
         ro: vec![dir.clone()],
         rw: vec![cache.clone()],
-        locked: vec![dir.clone()],
+        locked: vec![dir],
         env: base_env(),
         ..Policy::default()
     };
@@ -348,8 +326,6 @@ async fn a_write_root_inside_a_locked_folder_stays_read_only() {
     assert!(!new.exists());
 }
 
-/// A write root at the place of a hidden one is granted, as the
-/// deepest root at a place with the greater grant decides.
 #[tokio::test]
 async fn a_write_root_at_a_hidden_place_is_granted() {
     let scratch = Scratch::new("sandbox-hidden-granted");

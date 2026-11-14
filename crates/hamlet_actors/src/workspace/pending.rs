@@ -228,7 +228,6 @@ pub(super) async fn find(
     }))
 }
 
-/// Ends `wait` as [`settle`] does, in a transaction of its own.
 pub(super) async fn settled(
     ctx: &Ctx<Workspace>,
     wait: &Wait,

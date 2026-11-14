@@ -34,11 +34,6 @@ fn quoted(path: &Path) -> String {
     format!("'{}'", path.display())
 }
 
-/// The realm folder in the project folder, one and three folders
-/// down: the agent's commands and file tools read and change the
-/// project and its own filesystem, and neither the realm's
-/// credentials nor another agent's filesystem, under the real
-/// sandbox.
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_project_that_holds_the_realm_folder_reaches_none_of_it() {
@@ -68,14 +63,14 @@ async fn a_project_that_holds_the_realm_folder_reaches_none_of_it() {
                 quoted(&project.join("note.md"))
             ),
         ]
-        .iter()
+        .into_iter()
         .enumerate()
         {
             let end = done(
-                agent_runs(&host, &run(&format!("c{n}"), script))
+                agent_runs(&host, &run(&format!("c{n}"), &script))
                     .await,
             );
-            commands.push((script.clone(), end.output));
+            commands.push((script, end.output));
         }
         let mut reads = Vec::new();
         for path in [&credentials, &notes] {
@@ -153,9 +148,6 @@ async fn a_project_that_holds_the_realm_folder_reaches_none_of_it() {
     }
 }
 
-/// A project folder that is the realm folder, or lies in it, also by
-/// a link in its path: no command or file tool runs there, and the
-/// agent hears why.
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_project_in_the_realm_folder_is_refused() {

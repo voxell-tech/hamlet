@@ -291,7 +291,6 @@ pub(crate) fn private_tmp(
     Ok(dir)
 }
 
-/// Where [`private_tmp`] puts `policy`'s temp folder.
 fn tmp_of(policy: &Policy) -> String {
     let mut digest = Sha256::new();
     for each in &policy.rw {
@@ -325,8 +324,7 @@ pub(crate) fn fixed_roots(policy: &Policy, tmp: &str) -> Vec<String> {
     roots
 }
 
-/// True when `real`, a path without links, lies in a locked path,
-/// compared without case as a hidden root is.
+/// A locked path is compared without case, as a hidden root is.
 pub(crate) fn is_locked(policy: &Policy, real: &str) -> bool {
     let folded = real.to_lowercase();
     policy.locked.iter().any(|each| {
@@ -337,30 +335,21 @@ pub(crate) fn is_locked(policy: &Policy, real: &str) -> bool {
     })
 }
 
-/// What a root of a policy grants inside it. Of two roots at the
-/// same place, the greater grant holds.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum Grant {
-    /// Nothing: a hidden root.
-    Nothing,
+    Hidden,
     Read,
     Write,
 }
 
-/// A root of a policy, as written and where it really is, and what
-/// it grants.
 pub(crate) struct Layer {
     pub path: String,
     pub real: String,
     pub grant: Grant,
 }
 
-/// The roots of `policy` with `tmp` as its temp folder, each before
-/// the roots inside it, so that laid down in this order the deepest
-/// root that holds a path decides it. Of roots at one place only the
-/// greatest grant is kept. Another house's temp folder is as private
-/// as the house, so the folder of them all is hidden. With the
-/// machine closed, a hidden root no grant holds has nothing to hide.
+/// The roots of `policy`, each before the roots inside it, and of
+/// roots at one place only the greatest grant.
 pub(crate) fn layers(policy: &Policy, tmp: &str) -> Vec<Layer> {
     let mut hidden =
         policy.hidden.iter().map(|p| text(p)).collect::<Vec<_>>();
@@ -372,7 +361,7 @@ pub(crate) fn layers(policy: &Policy, tmp: &str) -> Vec<Layer> {
             grant,
         })
     };
-    let mut all = with(Grant::Nothing, hidden)
+    let mut all = with(Grant::Hidden, hidden)
         .chain(with(
             Grant::Read,
             policy.ro.iter().map(|p| text(p)).collect(),
@@ -390,11 +379,11 @@ pub(crate) fn layers(policy: &Policy, tmp: &str) -> Vec<Layer> {
     if !policy.open {
         let granted = layers
             .iter()
-            .filter(|layer| layer.grant != Grant::Nothing)
+            .filter(|layer| layer.grant != Grant::Hidden)
             .map(|layer| layer.real.clone())
             .collect::<Vec<_>>();
         layers.retain(|layer| {
-            layer.grant != Grant::Nothing
+            layer.grant != Grant::Hidden
                 || granted
                     .iter()
                     .any(|root| is_within_text(&layer.real, root))
@@ -403,20 +392,16 @@ pub(crate) fn layers(policy: &Policy, tmp: &str) -> Vec<Layer> {
     layers
 }
 
-/// How many names deep `real`, a path without links, lies.
 fn names(real: &str) -> usize {
     real.split('/').filter(|name| !name.is_empty()).count()
 }
 
-/// How many names deep `path` really lies, past its links.
 pub(crate) fn depth(path: &str) -> usize {
     names(&canon_text(path))
 }
 
-/// The grant of the deepest root of `policy` that holds `real`, a
-/// path without links, or `None` when no root does. Read roots count
-/// only with `reads`. A hidden root is compared without case, so that
-/// a volume that ignores case cannot carry a path past one.
+/// A hidden root is compared without case, so that a volume that
+/// ignores case cannot carry a path past one.
 fn deciding(
     policy: &Policy,
     tmp: &str,
@@ -430,7 +415,7 @@ fn deciding(
         .find(|layer| {
             let root = &layer.real;
             match layer.grant {
-                Grant::Nothing => {
+                Grant::Hidden => {
                     is_within_text(&folded, &root.to_lowercase())
                 }
                 Grant::Read if !reads => false,
@@ -450,7 +435,7 @@ pub(crate) fn is_readable(
     real: &str,
 ) -> bool {
     match deciding(policy, tmp, real, true) {
-        Some(grant) => grant != Grant::Nothing,
+        Some(grant) => grant != Grant::Hidden,
         None => policy.open,
     }
 }
@@ -507,8 +492,6 @@ pub(crate) fn above_roots(policy: &Policy, tmp: &str) -> Vec<String> {
 mod tests {
     use super::*;
 
-    /// The temp folder a policy's commands get is not a place its
-    /// file operations reach: two policies can share it.
     #[test]
     fn a_policy_reads_and_writes_no_temp_folder() {
         let policy = Policy::default();

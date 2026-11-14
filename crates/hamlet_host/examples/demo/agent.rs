@@ -210,7 +210,6 @@ pub async fn run(host: &Host, words: &[String]) -> Result<()> {
     run_one(host, words).await
 }
 
-/// Runs `demo agent <words>` for one agent.
 async fn run_one(host: &Host, words: &[String]) -> Result<()> {
     let [number, verb, rest @ ..] = words else {
         bail!("usage: demo agent <n> run|status ...");

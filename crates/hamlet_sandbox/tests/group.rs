@@ -1,5 +1,3 @@
-//! A command's processes stay in the process group its end kills.
-
 #![cfg(target_os = "linux")]
 
 use std::collections::BTreeSet;
@@ -11,8 +9,6 @@ use hamlet_sandbox::{
 };
 use hamlet_testing::Scratch;
 
-/// The process groups of the processes whose arguments hold `word`,
-/// once one of them is `sleep`.
 fn groups_holding(word: &str) -> Option<BTreeSet<String>> {
     let mut groups = BTreeSet::new();
     let mut slept = false;
@@ -36,9 +32,6 @@ fn groups_holding(word: &str) -> Option<BTreeSet<String>> {
     slept.then_some(groups)
 }
 
-/// Every process a sandboxed command runs, the sandbox's own among
-/// them, is in one group, so ending the command at any moment ends
-/// all of it.
 #[tokio::test]
 async fn a_command_runs_in_one_process_group() {
     let scratch = Scratch::new("sandbox-group");

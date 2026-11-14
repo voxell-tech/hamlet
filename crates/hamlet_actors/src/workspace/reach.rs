@@ -169,8 +169,6 @@ impl RealmFolder {
         self.0.join("tools")
     }
 
-    /// Whether `path` is the realm folder or lies inside it, where
-    /// the system resolves both.
     fn holds(&self, path: &Path) -> bool {
         let real = |path: &Path| {
             std::fs::canonicalize(path)

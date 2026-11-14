@@ -213,7 +213,6 @@ async fn a_change_out_of_reach_names_the_path_and_writes_nothing() {
             Refusal::AgentFilesystem { path: ours }
         ))
     );
-    // The gate weighs a path where its links lead.
     for (answer, path) in
         [(&by_link, "out/sub/x"), (&by_mine, "mine/x")]
     {
