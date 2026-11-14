@@ -480,7 +480,6 @@ fn node(root: &Path) -> Result<(), Failure> {
         return Ok(());
     };
     native(root, names)?;
-    // The native tests start Node through it.
     status(&mut locked(
         "build",
         &["-p", "hamlet_os", "--example", "bound"],
