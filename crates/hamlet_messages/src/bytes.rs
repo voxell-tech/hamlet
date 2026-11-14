@@ -34,26 +34,35 @@ impl<'de> Deserialize<'de> for Sha256 {
         from: D,
     ) -> Result<Self, D::Error> {
         let text = String::deserialize(from)?;
-        if text.len() != 64
-            || !text.bytes().all(
-                |digit| matches!(digit, b'0'..=b'9' | b'a'..=b'f'),
-            )
-        {
-            return Err(D::Error::custom(
+        let refused = || {
+            D::Error::custom(
                 "a SHA-256 is 64 lowercase hex characters",
-            ));
+            )
+        };
+        let nibble = |digit: u8| match digit {
+            b'0'..=b'9' => Some(digit - b'0'),
+            b'a'..=b'f' => Some(digit - b'a' + 10),
+            _ => None,
+        };
+        if text.len() != 64 {
+            return Err(refused());
         }
         let mut hash = [0; 32];
-        for (at, byte) in hash.iter_mut().enumerate() {
-            *byte = u8::from_str_radix(&text[2 * at..2 * at + 2], 16)
-                .map_err(D::Error::custom)?;
+        for (byte, pair) in
+            hash.iter_mut().zip(text.as_bytes().chunks(2))
+        {
+            let (Some(high), Some(low)) =
+                (nibble(pair[0]), nibble(pair[1]))
+            else {
+                return Err(refused());
+            };
+            *byte = high << 4 | low;
         }
         Ok(Self(hash))
     }
 }
 
-/// Bytes as standard base64 text with padding, which a model's image
-/// input takes as it is.
+/// Bytes as standard base64 text with padding.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Base64(pub Vec<u8>);
 
