@@ -16,7 +16,7 @@ use hamlet_messages::workspace::reach::{
 };
 use hamlet_messages::workspace::{
     AgentNumber, CallId, CallRefusal, CommandEnd, CommandId,
-    CommandStatus, ConversationId, EditFile, Exit, ReachAnswer,
+    CommandStatus, ConversationId, Cut, EditFile, Exit, ReachAnswer,
     ReachRefusal, ReachVersion, RealmTask, Replace, Run, RunAnswer,
     SetReach, Shell, WriteFile,
 };
@@ -182,6 +182,7 @@ fn command_end(exit: Exit) -> CommandEnd {
         command: CommandId(4),
         exit,
         output: "hi\n".into(),
+        cut: None,
         policy: "3f2a".into(),
         took_ms: 12,
     }
@@ -193,6 +194,19 @@ fn the_answers_about_a_command_match_their_fixtures() {
     fixtures.answer(
         "workspace/run.done",
         &RunAnswer::Done(command_end(Exit::Code(0))),
+    );
+    fixtures.answer(
+        "workspace/run.done.cut",
+        &RunAnswer::Done(CommandEnd {
+            cut: Some(Cut {
+                total_bytes: 52_428_800,
+                total_lines: 1_048_576,
+                full_output: "/realm/actors/workspace/local.output/\
+                              7/4.log"
+                    .into(),
+            }),
+            ..command_end(Exit::Code(0))
+        }),
     );
     fixtures.answer(
         "workspace/run.running",

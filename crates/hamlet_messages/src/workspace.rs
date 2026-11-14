@@ -161,9 +161,22 @@ pub struct CommandEnd {
     pub exit: Exit,
     /// Its last 2000 lines or 50 KiB, the secrets taken out.
     pub output: String,
+    /// Set when `output` is not all it printed.
+    pub cut: Option<Cut>,
     /// The hash of the sandbox policy it ran under.
     pub policy: String,
     pub took_ms: u64,
+}
+
+/// What a command printed beyond the tail its end carries.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Cut {
+    /// All it printed, the secrets taken out.
+    pub total_bytes: u64,
+    pub total_lines: u64,
+    /// The file that holds all it printed, up to 512 MiB, which the
+    /// agent may read.
+    pub full_output: PathBuf,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
