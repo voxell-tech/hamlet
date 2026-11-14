@@ -181,20 +181,22 @@ with kinds of its own, share the folder. Each host also locks
 `actors/<kind>/.lock` for each of its kinds, so no two hosts hold one
 kind.
 
-`get_or_start` finds an actor by kind and key and starts it on the file
-`actors/<kind>/<key>.sqlite`, making it if it has none. A kind, a key and
-a host's name take only lower-case letters, digits, `-`, `_` and `.`, and
-do not start with `.`, so no two of them name one file on a disk that
-ignores case. Every entry point refuses another, as `Host::open` refuses
-such a kind.
+`get_or_start` finds an actor by its `Address`, a kind and a key, and
+starts it on the file `actors/<kind>/<key>.sqlite`, making it if it has
+none. A kind, a key and a host's name take only lower-case letters,
+digits, `-`, `_` and `.`, and do not start with `.`, so no two of them
+name one file on a disk that ignores case. `Address::new` refuses any
+other with `InvalidName`, and a decode of an `Address` refuses it too,
+so an `Address` that exists is valid. `Host::open` refuses such a kind
+or name.
 `local/create.rs` holds `create`, the other way to make an actor: it
 makes the actor with an input, kept in the file's `_hamlet_actor` row
 and given to each start, and fails with `actor.duplicate_key` for a key
 that holds an actor. A create whose own start fails removes the actor it
 made, so the key is free again. A create of a key whose destroy is unfinished
 never opens the old data. An actor makes another as itself with
-`Host::create_from(&ctx, ...)` and `Host::get_or_start_from(&ctx, ...)`.
-Nothing else makes an actor.
+`create` and `get_or_start` on its `HostRef`. Nothing else makes an
+actor.
 
 `local/call.rs` holds the calls: `call` calls an action
 of the actor at an `Address`, starting it from its file first, within
@@ -205,17 +207,18 @@ actor fails with `actor.not_found` and
 makes no file. Each call carries its `Caller` as its connection's
 parameters: none
 for `call`, a client for `call_for_client`, and the calling actor's
-address for `Host::call_from(&ctx, ...)`, which takes it from the
-actor's context. One check, `admit`, runs before every call reaches the
-directory, and before every create or get-or-start by an actor, and
-refuses an actor's call, create or get-or-start of itself. A call fails at once
+address for `HostRef::call`. One check, `admit`, runs before every
+call, create and get-or-start reaches the directory, and refuses an
+actor's call, create or get-or-start of itself. A call fails at once
 when its host begins to shut down. `Host::open` refuses a kind that
 cannot read the stamp: the authoring layer gives each factory the
-decode its connection preflight runs. `local/access.rs` gives an actor,
-through `HostRef::of(ctx)`, the realm folder and the values the program
-gave with `HostOptions::with_value`. `directory.rs` maps each actor
-kind to where its actors run, here always this host; a call to a kind it
-does not hold fails at once with `actor.not_registered`.
+decode its connection preflight runs. `local/access.rs` gives an actor
+its view of the host, `HostRef::of(ctx)`: its own address, the realm
+folder, the values the program gave with `HostOptions::with_value`, and
+the calls, creates and get-or-starts it makes as itself, each refused
+with `actor.stopping` once its generation has ended. `directory.rs` maps
+each actor kind to where its actors run, here always this host; a call
+to a kind it does not hold fails at once with `actor.not_registered`.
 
 Each actor that is not stopped with no deadline is one `Life` in the
 host's map: read by boot, stopped with a deadline, starting, running,
@@ -589,9 +592,10 @@ built-in ones.
 | Desks and their switcher in the top bar | `hamlet_app/src/desk.rs`, `desk/switcher.rs`, `desk/switcher/motion.rs` |
 | An actor's lifecycle, schedules, state or SQL | `hamlet_actor_core/src/actor/`; [the actor runtime](#the-actor-runtime) |
 | Where actors' files are, deadlines and timers, shutdown, the folder lock | `hamlet_host/src/local.rs`, `plain_sqlite.rs` |
-| Calls between actors, and who made a call | `hamlet_host/src/local/call.rs` |
-| Making an actor with an input, or from another actor | `hamlet_host/src/local/create.rs` |
-| What an actor reaches of its host: the realm folder, the program's values | `hamlet_host/src/local/access.rs` |
+| An actor's address, the name rule, and who made a call | `hamlet_host/src/address.rs` |
+| Calls between actors | `hamlet_host/src/local/call.rs` |
+| Making an actor with an input | `hamlet_host/src/local/create.rs` |
+| What an actor reaches of its host: its address, the realm folder, the program's values, and its calls, creates and get-or-starts as itself | `hamlet_host/src/local/access.rs` |
 | Where each actor kind runs | `hamlet_host/src/directory.rs` |
 | What the host reports on `Host::events` | `hamlet_host/src/event.rs` |
 | A one-shot timer's tries, and the timers set aside after them | `hamlet_actor_core/src/actor/schedule.rs`; `Host::set_aside_timers` and `Host::rearm_timer` in `hamlet_host/src/local.rs` |

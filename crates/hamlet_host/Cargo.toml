@@ -16,6 +16,7 @@ hamlet_sqlite.workspace = true
 parking_lot.workspace = true
 rusqlite.workspace = true
 serde.workspace = true
+thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 

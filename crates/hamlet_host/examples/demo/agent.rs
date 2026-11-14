@@ -125,14 +125,14 @@ impl Handler<Ask> for Agent {
         ctx: Ctx<Self>,
         ask: Ask,
     ) -> Result<Vec<u8>> {
-        Host::call_from(
-            ctx.inner(),
-            &Address::new(workspace::KIND, workspace::MACHINE),
-            &ask.name,
-            ask.args,
-            Duration::from_secs(10),
-        )
-        .await
+        HostRef::of(ctx.inner())?
+            .call(
+                &Address::new(workspace::KIND, workspace::MACHINE)?,
+                &ask.name,
+                ask.args,
+                Duration::from_secs(10),
+            )
+            .await
     }
 }
 
@@ -285,16 +285,20 @@ async fn run_one(host: &Host, words: &[String]) -> Result<()> {
              <command> | write <call> <path> <content ...>"
         ),
     };
-    host.get_or_start(workspace::KIND, workspace::MACHINE)
+    host.get_or_start(&Address::new(
+        workspace::KIND,
+        workspace::MACHINE,
+    )?)
+    .await?;
+    host.get_or_start(&Address::new(workspace::AGENT, number)?)
         .await?;
-    host.get_or_start(workspace::AGENT, number).await?;
     let ask = Ask {
         name: name.to_owned(),
         args,
     };
     let reply = host
         .call(
-            &Address::new(workspace::AGENT, number),
+            &Address::new(workspace::AGENT, number)?,
             Ask::NAME,
             hamlet_actor::action::encode_positional(&ask)?,
             Duration::from_secs(20),

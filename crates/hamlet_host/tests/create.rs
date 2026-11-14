@@ -9,6 +9,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use anyhow::Context as _;
+use at::at;
 use began::began;
 use code::code;
 use files::any_file_of;
@@ -23,6 +24,8 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use tokio::sync::Notify;
 
+#[path = "support/at.rs"]
+mod at;
 #[path = "support/began.rs"]
 mod began;
 #[path = "support/call.rs"]
@@ -220,8 +223,7 @@ struct Maker;
 /// a get-or-start without one. Answers the failure's `group.code`.
 #[derive(Serialize, Deserialize)]
 struct Make {
-    kind: String,
-    key: String,
+    to: Address,
     input: Option<Vec<u8>>,
 }
 
@@ -240,19 +242,19 @@ struct MakeSelf(Mutex<Vec<(Option<String>, Duration)>>);
 #[derive(Default)]
 struct Contexts(Mutex<Vec<ActorContext>>);
 
-/// Makes the actor of `kind` and `key` from the actor of `ctx`, as
-/// [`Make`] says.
 async fn make(
     ctx: &ActorContext,
-    kind: &str,
-    key: &str,
+    to: &Address,
     input: Option<Vec<u8>>,
 ) -> Option<String> {
-    let made = match input {
-        Some(input) => Host::create_from(ctx, kind, key, input).await,
-        None => Host::get_or_start_from(ctx, kind, key).await,
+    let made = async {
+        let host = HostRef::of(ctx)?;
+        match input {
+            Some(input) => host.create(to, input).await,
+            None => host.get_or_start(to).await,
+        }
     };
-    made.err().map(|error| code(&error))
+    made.await.err().map(|error| code(&error))
 }
 
 #[async_trait::async_trait]
@@ -269,15 +271,11 @@ impl Actor for Maker {
             contexts.0.lock().unwrap().push(ctx.inner().clone());
         }
         if let Some(made) = host.value::<MakeSelf>() {
-            let (kind, key) = ctx
-                .inner()
-                .actor_id()
-                .split_once('/')
-                .context("the actor id has no kind")?;
             for input in [Some(cbor("self")), None] {
                 let begun = Instant::now();
                 let outcome =
-                    make(ctx.inner(), kind, key, input).await;
+                    make(ctx.inner(), host.own_address(), input)
+                        .await;
                 made.0
                     .lock()
                     .unwrap()
@@ -294,13 +292,7 @@ impl Handler<Make> for Maker {
         ctx: Ctx<Self>,
         make_it: Make,
     ) -> anyhow::Result<Option<String>> {
-        Ok(make(
-            ctx.inner(),
-            &make_it.kind,
-            &make_it.key,
-            make_it.input,
-        )
-        .await)
+        Ok(make(ctx.inner(), &make_it.to, make_it.input).await)
     }
 }
 
@@ -332,11 +324,11 @@ async fn call<M: Action>(
 where
     M::Output: DeserializeOwned,
 {
-    call::call(host, &Address::new("made", key), action).await
+    call::call(host, &at("made", key), action).await
 }
 
 /// The error of `made`, which was to fail.
-fn failed(made: anyhow::Result<String>) -> anyhow::Error {
+fn failed(made: anyhow::Result<()>) -> anyhow::Error {
     made.expect_err("the create was to fail")
 }
 
@@ -349,13 +341,14 @@ async fn a_create_makes_the_actor_with_its_input_read_once() {
     let made = Arc::new(Counts::default());
     let host =
         open(&dir, HostOptions::default().with_value(made.clone()));
-    let id = host.create("made", "a", cbor("first")).await.unwrap();
+    host.create(&at("made", "a"), cbor("first")).await.unwrap();
     let input = call(&host, "a", &Input).await.unwrap();
-    host.stop("made/a", ShutdownKind::Sleep).await.unwrap();
+    host.stop(&at("made", "a"), ShutdownKind::Sleep)
+        .await
+        .unwrap();
     let notes = call(&host, "a", &Notes).await.unwrap();
     let again = call(&host, "a", &Input).await.unwrap();
     host.shutdown().await.unwrap();
-    assert_eq!(id, "made/a");
     assert_eq!((input.as_str(), again.as_str()), ("first", "first"));
     assert_eq!(notes, ["first"]);
     assert_eq!(made.created.load(Ordering::SeqCst), 1);
@@ -373,12 +366,14 @@ async fn a_create_of_a_key_that_holds_an_actor_fails_and_changes_nothing()
     let made = Arc::new(Counts::default());
     let host =
         open(&dir, HostOptions::default().with_value(made.clone()));
-    host.create("made", "a", cbor("first")).await.unwrap();
+    host.create(&at("made", "a"), cbor("first")).await.unwrap();
     let running =
-        failed(host.create("made", "a", cbor("second")).await);
-    host.stop("made/a", ShutdownKind::Sleep).await.unwrap();
+        failed(host.create(&at("made", "a"), cbor("second")).await);
+    host.stop(&at("made", "a"), ShutdownKind::Sleep)
+        .await
+        .unwrap();
     let asleep =
-        failed(host.create("made", "a", cbor("third")).await);
+        failed(host.create(&at("made", "a"), cbor("third")).await);
     let notes = call(&host, "a", &Notes).await.unwrap();
     let input = call(&host, "a", &Input).await.unwrap();
     host.shutdown().await.unwrap();
@@ -399,11 +394,13 @@ async fn a_create_of_an_actor_asleep_with_a_timer_leaves_the_timer() {
     let made = Arc::new(Counts::default());
     let host =
         open(&dir, HostOptions::default().with_value(made.clone()));
-    host.create("made", "a", cbor("first")).await.unwrap();
+    host.create(&at("made", "a"), cbor("first")).await.unwrap();
     call(&host, "a", &Arm).await.unwrap();
-    host.stop("made/a", ShutdownKind::Sleep).await.unwrap();
+    host.stop(&at("made", "a"), ShutdownKind::Sleep)
+        .await
+        .unwrap();
     let asleep =
-        failed(host.create("made", "a", cbor("second")).await);
+        failed(host.create(&at("made", "a"), cbor("second")).await);
     let begun = Instant::now();
     while made.started.load(Ordering::SeqCst) < 2
         && begun.elapsed() < Duration::from_secs(5)
@@ -428,9 +425,10 @@ async fn of_two_creates_of_one_key_at_once_one_makes_the_actor() {
         open(&dir, HostOptions::default().with_value(made.clone()));
     for round in 0..50 {
         let key = format!("k{round}");
+        let to = at("made", &key);
         let (x, y) = tokio::join!(
-            host.create("made", &key, cbor("x")),
-            host.create("made", &key, cbor("y")),
+            host.create(&to, cbor("x")),
+            host.create(&to, cbor("y")),
         );
         let (maker, error) = match (x, y) {
             (Ok(_), Err(error)) => ("x", error),
@@ -467,7 +465,8 @@ async fn a_create_whose_first_start_fails_leaves_no_actor() {
         ("empty", Vec::new(), false),
     ] {
         *fail.0.lock().unwrap() = usize::from(fails);
-        let first = failed(host.create("made", key, input).await);
+        let first =
+            failed(host.create(&at("made", key), input).await);
         assert_ne!(code(&first), "actor.duplicate_key", "{first:#}");
         assert!(
             !any_file_of(&dir, "made", key),
@@ -477,7 +476,7 @@ async fn a_create_whose_first_start_fails_leaves_no_actor() {
             .await
             .expect_err("a call to an actor whose create failed");
         assert_eq!(code(&error), "actor.not_found", "{error:#}");
-        host.create("made", key, cbor("second")).await.unwrap();
+        host.create(&at("made", key), cbor("second")).await.unwrap();
         let input = call(&host, key, &Input).await.unwrap();
         let notes = call(&host, key, &Notes).await.unwrap();
         assert_eq!(input, "second", "{key}");
@@ -511,9 +510,12 @@ async fn a_failed_start_tells_each_caller_why() {
             .with_value(Arc::new(Counts::default()))
             .with_value(fail.clone()),
     );
-    let created = failed(host.create("made", "a", cbor("a")).await);
-    host.create("made", "a", cbor("a")).await.unwrap();
-    host.stop("made/a", ShutdownKind::Sleep).await.unwrap();
+    let created =
+        failed(host.create(&at("made", "a"), cbor("a")).await);
+    host.create(&at("made", "a"), cbor("a")).await.unwrap();
+    host.stop(&at("made", "a"), ShutdownKind::Sleep)
+        .await
+        .unwrap();
     *fail.0.lock().unwrap() = usize::MAX;
     let mut calls = tokio::task::JoinSet::new();
     for _ in 0..8 {
@@ -548,9 +550,10 @@ async fn a_create_that_fails_leaves_the_key_to_a_create_that_waited()
         open(&dir, HostOptions::default().with_value(made.clone()));
     for round in 0..50 {
         let key = format!("k{round}");
+        let to = at("made", &key);
         let (bad, good) = tokio::join!(
-            host.create("made", &key, vec![0xff]),
-            host.create("made", &key, cbor("good")),
+            host.create(&to, vec![0xff]),
+            host.create(&to, cbor("good")),
         );
         let bad = failed(bad);
         if let Err(error) = good {
@@ -580,7 +583,7 @@ async fn a_create_a_shutdown_cuts_off_leaves_no_actor() {
     );
     let create = tokio::spawn({
         let host = host.clone();
-        async move { host.create("made", "a", cbor("cut")).await }
+        async move { host.create(&at("made", "a"), cbor("cut")).await }
     });
     began("the held start", held.0.notified()).await;
     tokio::time::timeout(Duration::from_secs(10), host.shutdown())
@@ -598,7 +601,7 @@ async fn a_create_a_shutdown_cuts_off_leaves_no_actor() {
 
     let host =
         open(&dir, HostOptions::default().with_value(made.clone()));
-    host.create("made", "a", cbor("next")).await.unwrap();
+    host.create(&at("made", "a"), cbor("next")).await.unwrap();
     let notes = call(&host, "a", &Notes).await.unwrap();
     host.shutdown().await.unwrap();
     assert_eq!(code(&cut), "actor.not_ready", "{cut:#}");
@@ -625,17 +628,20 @@ async fn a_create_waits_out_no_destroy_and_brings_no_old_data_back() {
             .with_value(made.clone())
             .with_value(slow.clone()),
     );
-    host.create("made", "a", cbor("old")).await.unwrap();
+    host.create(&at("made", "a"), cbor("old")).await.unwrap();
     let destroy = tokio::spawn({
         let host = host.clone();
-        async move { host.stop("made/a", ShutdownKind::Destroy).await }
+        async move {
+            host.stop(&at("made", "a"), ShutdownKind::Destroy).await
+        }
     });
     began("the destroy", slow.began.notified()).await;
     let begun = Instant::now();
-    let during = failed(host.create("made", "a", cbor("new")).await);
+    let during =
+        failed(host.create(&at("made", "a"), cbor("new")).await);
     let waited = begun.elapsed();
     destroy.await.unwrap().unwrap();
-    host.create("made", "a", cbor("new")).await.unwrap();
+    host.create(&at("made", "a"), cbor("new")).await.unwrap();
     let notes = call(&host, "a", &Notes).await.unwrap();
     host.shutdown().await.unwrap();
     assert_eq!(code(&during), "actor.destroying", "{during:#}");
@@ -653,7 +659,7 @@ async fn a_create_finishes_a_destroy_a_kill_cut_off() {
     let made = Arc::new(Counts::default());
     let options = HostOptions::default().with_value(made.clone());
     let host = open(&dir, options.clone());
-    host.create("made", "a", cbor("old")).await.unwrap();
+    host.create(&at("made", "a"), cbor("old")).await.unwrap();
     host.shutdown().await.unwrap();
     drop(host);
     // What a destroy leaves when a kill cuts it off after its mark.
@@ -663,7 +669,7 @@ async fn a_create_finishes_a_destroy_a_kill_cut_off() {
         .unwrap();
 
     let host = open(&dir, options);
-    host.create("made", "a", cbor("new")).await.unwrap();
+    host.create(&at("made", "a"), cbor("new")).await.unwrap();
     let notes = call(&host, "a", &Notes).await.unwrap();
     host.shutdown().await.unwrap();
     assert_eq!(notes, ["new"]);
@@ -680,13 +686,10 @@ async fn ask(
     input: Option<Vec<u8>>,
 ) -> Option<String> {
     let make = Make {
-        kind: kind.to_owned(),
-        key: key.to_owned(),
+        to: at(kind, key),
         input,
     };
-    call::call(host, &Address::new("maker", from), &make)
-        .await
-        .unwrap()
+    call::call(host, &at("maker", from), &make).await.unwrap()
 }
 
 /// An actor makes another as the program does: a create gives the
@@ -700,7 +703,7 @@ async fn an_actor_makes_another_as_the_program_does() {
     let made = Arc::new(Counts::default());
     let host =
         open(&dir, HostOptions::default().with_value(made.clone()));
-    host.get_or_start("maker", "m").await.unwrap();
+    host.get_or_start(&at("maker", "m")).await.unwrap();
     let created =
         ask(&host, "m", "made", "b", Some(cbor("from m"))).await;
     let again =
@@ -709,7 +712,7 @@ async fn an_actor_makes_another_as_the_program_does() {
     let fresh = ask(&host, "m", "maker", "n", None).await;
     let notes = call(&host, "b", &Notes).await.unwrap();
     let input = call(&host, "b", &Input).await.unwrap();
-    let n_runs = host.is_running("maker/n");
+    let n_runs = host.is_running(&at("maker", "n"));
     host.shutdown().await.unwrap();
     assert_eq!(created, None);
     assert_eq!(again.as_deref(), Some("actor.duplicate_key"));
@@ -734,7 +737,7 @@ async fn an_actor_that_makes_itself_fails_at_once() {
     );
     let started = tokio::time::timeout(
         Duration::from_secs(5),
-        host.get_or_start("maker", "s"),
+        host.get_or_start(&at("maker", "s")),
     )
     .await;
     host.shutdown().await.unwrap();
@@ -765,16 +768,18 @@ async fn an_ended_generation_makes_nothing() {
             .with_value(made.clone())
             .with_value(contexts.clone()),
     );
-    host.get_or_start("maker", "m").await.unwrap();
-    host.stop("maker/m", ShutdownKind::Sleep).await.unwrap();
-    host.get_or_start("maker", "m").await.unwrap();
+    host.get_or_start(&at("maker", "m")).await.unwrap();
+    host.stop(&at("maker", "m"), ShutdownKind::Sleep)
+        .await
+        .unwrap();
+    host.get_or_start(&at("maker", "m")).await.unwrap();
     let contexts = contexts.0.lock().unwrap().clone();
     let mut outcomes = Vec::new();
     for (n, ctx) in contexts.iter().enumerate() {
         let key = format!("k{n}");
         outcomes.push((
-            make(ctx, "made", &key, Some(cbor("x"))).await,
-            make(ctx, "maker", &key, None).await,
+            make(ctx, &at("made", &key), Some(cbor("x"))).await,
+            make(ctx, &at("maker", &key), None).await,
         ));
     }
     let ended_made = dir.join("actors/maker/k0.sqlite").exists();
@@ -867,10 +872,11 @@ async fn a_create_given_up_while_its_file_is_held_leaves_no_actor() {
     options.start_deadline = Duration::from_millis(300);
     let host = open(&dir, options);
     let holder = hold(&path);
-    let first = failed(host.create("made", "a", cbor("first")).await);
+    let first =
+        failed(host.create(&at("made", "a"), cbor("first")).await);
     holder.release().await;
     let left = stored_actor(&path);
-    let second = host.create("made", "a", cbor("second")).await;
+    let second = host.create(&at("made", "a"), cbor("second")).await;
     let input = call(&host, "a", &Input).await;
     host.shutdown().await.unwrap();
     assert_eq!(code(&first), "actor.not_ready", "{first:#}");
@@ -892,7 +898,7 @@ async fn a_start_given_up_while_its_file_is_held_writes_nothing() {
     let made = Arc::new(Counts::default());
     let host =
         open(&dir, HostOptions::default().with_value(made.clone()));
-    host.create("made", "a", cbor("first")).await.unwrap();
+    host.create(&at("made", "a"), cbor("first")).await.unwrap();
     host.shutdown().await.unwrap();
     drop(host);
     let slept = stored_actor(&path);
@@ -902,7 +908,7 @@ async fn a_start_given_up_while_its_file_is_held_writes_nothing() {
     let host = open(&dir, options);
     let holder = hold(&path);
     let started = host
-        .get_or_start("made", "a")
+        .get_or_start(&at("made", "a"))
         .await
         .expect_err("a start of a held file");
     holder.release().await;
@@ -928,7 +934,7 @@ async fn a_shutdown_returns_while_a_start_waits_for_a_held_file() {
     let holder = hold(&path);
     let create = tokio::spawn({
         let host = host.clone();
-        async move { host.create("made", "a", cbor("first")).await }
+        async move { host.create(&at("made", "a"), cbor("first")).await }
     });
     // Long enough for the create to reach its file.
     tokio::time::sleep(Duration::from_millis(300)).await;
@@ -947,7 +953,7 @@ async fn a_shutdown_returns_while_a_start_waits_for_a_held_file() {
         open(&dir, HostOptions::default().with_value(made.clone()));
     holder.release().await;
     let left = stored_actor(&path);
-    let second = host.create("made", "a", cbor("second")).await;
+    let second = host.create(&at("made", "a"), cbor("second")).await;
     let input = call(&host, "a", &Input).await;
     host.shutdown().await.unwrap();
     assert_eq!(code(&first), "actor.not_ready", "{first:#}");
@@ -973,7 +979,7 @@ async fn creates_with_no_time_to_start_leave_no_file_when_they_fail()
     let mut outcomes = Vec::new();
     for n in 0..50 {
         let key = format!("k{n}");
-        let created = host.create("made", &key, cbor("x")).await;
+        let created = host.create(&at("made", &key), cbor("x")).await;
         outcomes.push((key, created.map_err(|error| code(&error))));
     }
     // Long enough for an open its start gave up to write, if it
