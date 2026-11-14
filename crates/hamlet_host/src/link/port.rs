@@ -3,15 +3,19 @@
 //! pipe with the requests in flight on it.
 
 use std::collections::HashMap;
+use std::io::ErrorKind;
 use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Result;
+use hamlet_actor_core::error::ActorRuntime;
+use hamlet_actor_core::host::ActionTimedOut;
 use hamlet_actor_error::ActorError;
 use parking_lot::Mutex;
 use serde_bytes::ByteBuf;
 use tokio::sync::{oneshot, watch};
 
+use super::frame::encode;
 use super::{
     Ask, Broken, Frame, Role, Side, Vetted, WireError, Writer,
 };
@@ -120,15 +124,22 @@ impl Port {
     /// it welcomes. The Node host calls it at the welcome, once its
     /// folder is open.
     pub(crate) fn welcomed(&self, out: Writer, host: Inbound) {
-        let _ = (out, host);
-        todo!("U5, the link unit: a session at the welcome")
+        let mut link = self.0.link.lock();
+        if let Link::Down = *link {
+            *link = Link::Welcomed(Session::new(out, host));
+            self.0.state.send_replace(LinkState::Welcomed);
+        }
     }
 
     /// Welcomed to Ready: this host's requests leave on the session.
     /// The Rust host calls it at the child's `Ready`. The Node host
     /// calls it right after `welcomed`, before boot.
     pub(crate) fn ready(&self) {
-        todo!("U5, the link unit: the link is ready")
+        let mut link = self.0.link.lock();
+        if let Link::Welcomed(session) = &*link {
+            *link = Link::Ready(session.clone());
+            self.0.state.send_replace(LinkState::Ready);
+        }
     }
 
     /// Any state to Down. The session's requests out fail with
@@ -137,7 +148,13 @@ impl Port {
     /// link. Drops the port's hold on the session's writer; the
     /// supervisor keeps its own clone for the goodbye.
     pub(crate) fn down(&self) {
-        todo!("U5, the link unit: the link goes down")
+        let mut link = self.0.link.lock();
+        if let Link::Welcomed(session) | Link::Ready(session) =
+            std::mem::replace(&mut *link, Link::Down)
+        {
+            session.lose();
+            self.0.state.send_replace(LinkState::Down);
+        }
     }
 
     /// The action `name` of the actor at `to`, for `caller`, within
@@ -154,8 +171,15 @@ impl Port {
         args: Vec<u8>,
         deadline: Duration,
     ) -> Result<Vec<u8>> {
-        let _ = (caller, to, name, args, deadline);
-        todo!("U5, the link unit: a call across the link")
+        self.may_ask(caller)?;
+        let deadline_ms =
+            u64::try_from(deadline.as_millis()).unwrap_or(u64::MAX);
+        let ask = Ask::Call {
+            name: name.to_owned(),
+            args,
+            deadline_ms,
+        };
+        self.session()?.ask(caller, to, ask, Some(deadline)).await
     }
 
     /// Makes the actor at `at` with `input`, for `caller`. Fails as
@@ -167,8 +191,18 @@ impl Port {
         at: &Address,
         input: Vec<u8>,
     ) -> Result<()> {
-        let _ = (caller, at, input);
-        todo!("U5, the link unit: a create across the link")
+        self.may_ask(caller)?;
+        let ask = Ask::Create { input };
+        self.session()?.ask(caller, at, ask, None).await.map(drop)
+    }
+
+    /// The session this host's requests leave on, or `link.down`
+    /// unless the link is Ready.
+    fn session(&self) -> Result<Arc<Session>> {
+        match &*self.0.link.lock() {
+            Link::Ready(session) => Ok(session.clone()),
+            Link::Down | Link::Welcomed(_) => Err(Down.build()),
+        }
     }
 
     /// Fails with `actor.invalid_operation`, before anything is
@@ -177,16 +211,47 @@ impl Port {
     /// this host, so its kind is this host's. Only none and a client
     /// depend on which host this is.
     fn may_ask(&self, caller: Option<&Caller>) -> Result<()> {
-        let _ = caller;
-        todo!("U5, the link unit: who this host asks for")
+        if matches!(caller, Some(Caller::Actor(_)))
+            || self.0.ours.has_a_program()
+        {
+            return Ok(());
+        }
+        Err(ActorRuntime::InvalidOperation {
+            operation: "ask across the link".to_owned(),
+            reason: "the Node host asks only as one of its actors"
+                .to_owned(),
+        }
+        .build())
     }
 
     /// Takes one frame the other host wrote after the handshake. This
     /// is the one place a peer's frame is judged: an `Err` is the
     /// link's end.
     pub(crate) fn take(&self, frame: Frame) -> Result<Taken, Broken> {
-        let _ = frame;
-        todo!("U5, the link unit: a frame after the handshake")
+        let session = match &*self.0.link.lock() {
+            Link::Welcomed(session) | Link::Ready(session) => {
+                session.clone()
+            }
+            Link::Down => {
+                return Err(Broken::OutOfTurn(name(&frame)));
+            }
+        };
+        match frame {
+            Frame::Request { id, from, to, ask } => {
+                session.run(id, self.0.theirs.vet(from)?, to, ask);
+            }
+            Frame::Reply { id, result } => session.settle(id, result),
+            Frame::HostEvent(event)
+                if self.0.theirs.role == Role::Node =>
+            {
+                session.report(event);
+            }
+            Frame::Goodbye if self.0.theirs.role == Role::Rust => {
+                return Ok(Taken::Goodbye);
+            }
+            frame => return Err(Broken::OutOfTurn(name(&frame))),
+        }
+        Ok(Taken::Handled)
     }
 }
 
@@ -231,8 +296,44 @@ impl Session {
         ask: Ask,
         within: Option<Duration>,
     ) -> Result<Vec<u8>> {
-        let _ = (caller, to, ask, within);
-        todo!("U5, the link unit: a request and its reply")
+        let id = {
+            let mut pending = self.pending.lock();
+            let id = pending.next;
+            pending.next += 1;
+            id
+        };
+        let bytes = encode(&Frame::Request {
+            id,
+            from: caller.cloned(),
+            to: to.clone(),
+            ask,
+        })?;
+        let (answer, answered) = oneshot::channel();
+        {
+            let mut pending = self.pending.lock();
+            if pending.lost {
+                return Err(Down.build());
+            }
+            pending.waiting.insert(id, answer);
+        }
+        let _forget = Forget {
+            pending: &self.pending,
+            id,
+        };
+        let asked = async {
+            self.out.queue(bytes).await.map_err(|_| Down.build())?;
+            match answered.await {
+                Ok(Ok(output)) => Ok(output),
+                Ok(Err(error)) => Err(error.into_error()),
+                Err(_) => Err(Lost.build()),
+            }
+        };
+        match within {
+            Some(within) => tokio::time::timeout(within, asked)
+                .await
+                .map_err(|_| ActionTimedOut.build())?,
+            None => asked.await,
+        }
     }
 
     /// Runs the other host's request on this host's runtime, never on
@@ -244,8 +345,28 @@ impl Session {
         to: Address,
         ask: Ask,
     ) {
-        let _ = (id, from, to, ask);
-        todo!("U5, the link unit: a peer's request runs here")
+        let session = self.clone();
+        self.host.runtime().spawn(async move {
+            let result = match ask {
+                Ask::Call {
+                    name,
+                    args,
+                    deadline_ms,
+                } => {
+                    let deadline = Duration::from_millis(deadline_ms);
+                    session
+                        .host
+                        .call(from, &to, &name, args, deadline)
+                        .await
+                }
+                Ask::Create { input } => session
+                    .host
+                    .create(from, &to, input)
+                    .await
+                    .map(|()| Vec::new()),
+            };
+            session.reply(id, result).await;
+        });
     }
 
     /// Writes the reply to the request `id`, with `WireError::of` for
@@ -255,28 +376,73 @@ impl Session {
     /// cannot be written is dropped, and the asking side learns of
     /// the link's end by itself.
     async fn reply(&self, id: u64, result: Result<Vec<u8>>) {
-        let _ = (id, result);
-        todo!("U5, the link unit: a reply")
+        let result = result
+            .map(ByteBuf::from)
+            .map_err(|error| WireError::of(&error));
+        if let Err(error) =
+            self.out.write(&Frame::Reply { id, result }).await
+            && error.kind() == ErrorKind::InvalidInput
+        {
+            let error = WireError::of(&anyhow::Error::new(error));
+            let reply = Frame::Reply {
+                id,
+                result: Err(error),
+            };
+            let _ = self.out.write(&reply).await;
+        }
     }
 
     /// Settles the request `id`. A reply to an id that is not out
     /// (its call hit its deadline, or was dropped) is dropped, not a
     /// fault.
     fn settle(&self, id: u64, result: Result<ByteBuf, WireError>) {
-        let _ = (id, result);
-        todo!("U5, the link unit: a reply settles its request")
+        let waiting = self.pending.lock().waiting.remove(&id);
+        if let Some(waiting) = waiting {
+            let _ = waiting.send(result.map(ByteBuf::into_vec));
+        }
     }
 
     /// Passes an event of the Node host's to this host's
     /// `Host::events`.
     fn report(&self, event: HostEvent) {
-        let _ = event;
-        todo!("U5, the link unit: the Node host's event")
+        self.host.report(event);
     }
 
     /// Fails each request out with `link.lost`, and every later one
     /// with `link.down`. Only [`Port::down`] calls it.
     fn lose(&self) {
-        todo!("U5, the link unit: the session is lost")
+        let mut pending = self.pending.lock();
+        pending.lost = true;
+        pending.waiting.clear();
     }
 }
+
+/// Forgets the request `id` when its wait ends, however it ends.
+struct Forget<'a> {
+    pending: &'a Mutex<Pending>,
+    id: u64,
+}
+
+impl Drop for Forget<'_> {
+    fn drop(&mut self) {
+        self.pending.lock().waiting.remove(&self.id);
+    }
+}
+
+/// The name `frame` has on the wire.
+fn name(frame: &Frame) -> String {
+    match frame {
+        Frame::Hello { .. } => "hello",
+        Frame::Welcome { .. } => "welcome",
+        Frame::Refused { .. } => "refused",
+        Frame::Ready => "ready",
+        Frame::Goodbye => "goodbye",
+        Frame::Request { .. } => "request",
+        Frame::Reply { .. } => "reply",
+        Frame::HostEvent(_) => "host_event",
+    }
+    .to_owned()
+}
+
+#[cfg(test)]
+mod tests;
