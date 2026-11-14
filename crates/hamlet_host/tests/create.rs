@@ -4,7 +4,7 @@
 //! nothing, and one whose destroy is unfinished brings none of the
 //! old data back. An actor makes another as the program does.
 
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -16,6 +16,7 @@ use hamlet_actor::{
     Action, Actor, ActorConfig, ColumnValue, Ctx, Handler, Registry,
 };
 use hamlet_actor_core::{ActorContext, ShutdownKind};
+use hamlet_actor_error::ActorError;
 use hamlet_host::{Address, Caller, Host, HostOptions, HostRef};
 use hamlet_testing::Scratch;
 use serde::de::DeserializeOwned;
@@ -39,8 +40,8 @@ struct Counts {
     started: AtomicUsize,
 }
 
-/// Fails the next start of an actor, once.
-struct FailNext(AtomicBool);
+/// Fails as many of the next starts as it counts.
+struct FailStarts(Mutex<usize>);
 
 /// How long each destroy takes. `began` is notified as each begins.
 struct SlowDestroy {
@@ -108,8 +109,13 @@ impl Actor for Made {
 
     async fn create(ctx: &Ctx<Self>) -> anyhow::Result<Self> {
         let fails = HostRef::of(ctx.inner())?
-            .value::<FailNext>()
-            .is_some_and(|fail| fail.0.swap(false, Ordering::SeqCst));
+            .value::<FailStarts>()
+            .is_some_and(|fail| {
+                let mut left = fail.0.lock().unwrap();
+                let fails = *left > 0;
+                *left = left.saturating_sub(1);
+                fails
+            });
         if fails {
             anyhow::bail!("this start fails");
         }
@@ -448,7 +454,7 @@ async fn of_two_creates_of_one_key_at_once_one_makes_the_actor() {
 async fn a_create_whose_first_start_fails_leaves_no_actor() {
     let dir = Scratch::new("create-fails");
     let made = Arc::new(Counts::default());
-    let fail = Arc::new(FailNext(AtomicBool::new(false)));
+    let fail = Arc::new(FailStarts(Mutex::new(0)));
     let host = open(
         &dir,
         HostOptions::default()
@@ -460,7 +466,7 @@ async fn a_create_whose_first_start_fails_leaves_no_actor() {
         ("unreadable", vec![0xff], false),
         ("empty", Vec::new(), false),
     ] {
-        fail.0.store(fails, Ordering::SeqCst);
+        *fail.0.lock().unwrap() = usize::from(fails);
         let first = failed(host.create("made", key, input).await);
         assert_ne!(code(&first), "actor.duplicate_key", "{first:#}");
         assert!(
@@ -478,8 +484,56 @@ async fn a_create_whose_first_start_fails_leaves_no_actor() {
         assert_eq!(notes, ["second"], "{key}");
     }
     host.shutdown().await.unwrap();
-    assert!(!fail.0.load(Ordering::SeqCst), "the first start failed");
+    assert_eq!(*fail.0.lock().unwrap(), 0, "the start did not fail");
     assert_eq!(made.created.load(Ordering::SeqCst), 3);
+}
+
+/// Why a start failed, as the error a host answers it with carries
+/// it: in the error's metadata, under `error`.
+fn why(error: &anyhow::Error) -> String {
+    ActorError::extract(error)
+        .metadata()
+        .and_then(|meta| meta["error"].as_str().map(str::to_owned))
+        .unwrap_or_default()
+}
+
+/// A start that fails for a reason of its kind's own tells it to each
+/// caller it fails: a create, and each call that began a start of the
+/// actor or waited for one. The error is `core.internal_error`, whose
+/// message hides the reason.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_failed_start_tells_each_caller_why() {
+    let dir = Scratch::new("create-why");
+    let fail = Arc::new(FailStarts(Mutex::new(1)));
+    let host = open(
+        &dir,
+        HostOptions::default()
+            .with_value(Arc::new(Counts::default()))
+            .with_value(fail.clone()),
+    );
+    let created = failed(host.create("made", "a", cbor("a")).await);
+    host.create("made", "a", cbor("a")).await.unwrap();
+    host.stop("made/a", ShutdownKind::Sleep).await.unwrap();
+    *fail.0.lock().unwrap() = usize::MAX;
+    let mut calls = tokio::task::JoinSet::new();
+    for _ in 0..8 {
+        let host = host.clone();
+        calls.spawn(async move { call(&host, "a", &Notes).await });
+    }
+    let calls = calls.join_all().await;
+    host.shutdown().await.unwrap();
+    assert_eq!(code(&created), "core.internal_error", "{created:#}");
+    assert!(
+        why(&created).contains("this start fails"),
+        "{created:#}"
+    );
+    for called in calls {
+        let error = called.expect_err("a call whose start failed");
+        assert!(
+            why(&error).contains("this start fails"),
+            "{error:#}"
+        );
+    }
 }
 
 /// Of two creates of one key at once, one with an input the kind

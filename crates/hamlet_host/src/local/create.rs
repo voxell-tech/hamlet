@@ -48,13 +48,24 @@ impl Host {
     /// the key cannot open the file and fails at its start deadline.
     /// Once it ends, a create fails with `actor.duplicate_key`, and
     /// the next boot starts the actor, since its file stays marked
-    /// running. A create that waited
-    /// for another create's start that failed then makes the actor
-    /// itself; one that waited for any other start that failed fails
-    /// with that start's error. A kill during the create's start
-    /// leaves the actor made, with its input, which each start gives
-    /// the core until one starts it: boot starts it, and tries again
-    /// after each start retry for as long as its start fails.
+    /// running. A create that waited for another create's start that
+    /// failed then makes the actor itself; one that waited for any
+    /// other start that failed fails with that start's error. A kill
+    /// during the create's start leaves the actor made, with its
+    /// input, which each start gives the core until one starts it:
+    /// boot starts it, and tries again after each start retry for as
+    /// long as its start fails.
+    ///
+    /// A start that fails for a reason of the kind's own, an error of
+    /// its `create` hook say, fails with `core.internal_error`, for a
+    /// create, a call or any start that waited for it. The authoring
+    /// layer hands the core only the error's [`ActorError`], and the
+    /// message of an error with no code of its own is hidden unless
+    /// `HAMLET_ACTOR_EXPOSE_ERRORS=1`, so that a client never reads
+    /// it. The reason stays in the error's metadata, as its `error`:
+    /// `ActorError::extract(&error).metadata()`.
+    ///
+    /// [`ActorError`]: hamlet_actor_error::ActorError
     pub async fn create(
         &self,
         kind: &str,
