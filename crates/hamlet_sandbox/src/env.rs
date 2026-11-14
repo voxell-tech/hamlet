@@ -524,30 +524,61 @@ impl Env {
         leftovers: &Leftovers,
         output: &mut (impl FnMut(&str) + Send),
     ) -> Result<Ran, ExecError> {
-        let mut scrubber = Scrubber::new(secrets);
         let mut spill = Spill::default();
-        let mut kept = |text: &str, spill: &mut Spill| {
+        let streamed = self
+            .stream(
+                launch,
+                timeout,
+                secrets,
+                leftovers,
+                &mut |text| {
+                    spill.push(self, text);
+                    output(text);
+                },
+            )
+            .await;
+        let spilled = spill
+            .finish()
+            .map_err(|error| ExecError::Spill(error.message))?;
+        match streamed {
+            Ok(exit_code) => Ok(Ran {
+                exit_code,
+                spill: spilled,
+            }),
+            Err(ExecError::Timeout { .. }) => {
+                Err(ExecError::Timeout { spill: spilled })
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    /// [`Env::exec`], with the output, `secrets` taken out, only
+    /// given to `output` as it comes: none of it is kept. Returns the
+    /// exit code; a timeout spills nothing.
+    pub async fn stream(
+        &self,
+        launch: Launch<'_>,
+        timeout: Duration,
+        secrets: &[String],
+        leftovers: &Leftovers,
+        output: &mut (impl FnMut(&str) + Send),
+    ) -> Result<i32, ExecError> {
+        let mut scrubber = Scrubber::new(secrets);
+        let mut kept = |text: &str| {
             if !text.is_empty() {
-                spill.push(self, text);
                 output(text);
             }
         };
         let ran = self
             .spawned(launch, timeout, leftovers, &mut |text| {
-                kept(&scrubber.push(text), &mut spill);
+                kept(&scrubber.push(text));
             })
             .await;
-        kept(&scrubber.flush(), &mut spill);
-        let spilled = spill
-            .finish()
-            .map_err(|error| ExecError::Spill(error.message))?;
+        kept(&scrubber.flush());
         match ran? {
-            Ended::Exited(status) => Ok(Ran {
-                exit_code: exit_code(&status),
-                spill: spilled,
-            }),
+            Ended::Exited(status) => Ok(exit_code(&status)),
             Ended::TimedOut => {
-                Err(ExecError::Timeout { spill: spilled })
+                Err(ExecError::Timeout { spill: None })
             }
         }
     }
