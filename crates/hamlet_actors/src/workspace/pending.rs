@@ -229,6 +229,21 @@ pub(super) async fn find(
     }))
 }
 
+/// Ends `wait` as [`settle`] does, in a transaction of its own.
+pub(super) async fn settled(
+    ctx: &Ctx<Workspace>,
+    wait: &Wait,
+    state: &str,
+    answer: Option<Vec<u8>>,
+    temp: Option<&str>,
+) -> Result<Option<i64>> {
+    let settled = transact_if(ctx, async |tx| {
+        Ok(settle(tx, wait, state, answer, temp).await?.ok_or(()))
+    })
+    .await?;
+    Ok(settled.ok())
+}
+
 /// Ends `wait` in `tx`: removes it, and sets its call's row to
 /// `state` with `answer` and `temp`. Returns the row's id, or `None`
 /// when another answer ended the wait first.
@@ -367,14 +382,11 @@ impl Workspace {
         wait: &Wait,
         refusal: CallRefusal,
     ) -> Result<AnswerTaken> {
-        let settled = transact_if(ctx, async |tx| {
-            let answer = Some(calls::cbor(&refusal)?);
-            Ok(settle(tx, wait, "refused", answer, None)
-                .await?
-                .ok_or(()))
-        })
-        .await?;
-        if settled.is_err() {
+        let answer = Some(calls::cbor(&refusal)?);
+        if settled(ctx, wait, "refused", answer, None)
+            .await?
+            .is_none()
+        {
             return Ok(AnswerTaken::NoWait);
         }
         tell(

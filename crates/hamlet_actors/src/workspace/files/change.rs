@@ -443,16 +443,14 @@ impl Workspace {
                     &secrets, &words,
                 ));
                 let bytes = calls::cbor(&answer)?;
-                let settled = self
-                    .settled(
-                        ctx,
-                        wait,
-                        "ended",
-                        Some(bytes),
-                        None,
-                        held,
-                    )
-                    .await?;
+                let settled = pending::settled(
+                    ctx,
+                    wait,
+                    "ended",
+                    Some(bytes),
+                    None,
+                )
+                .await?;
                 if settled.is_none() {
                     return Ok(AnswerTaken::NoWait);
                 }
@@ -467,9 +465,14 @@ impl Workspace {
             }
         };
         let (temp_name, temp) = temp_of(&planned);
-        let Some((id, held)) = self
-            .settled(ctx, wait, "changing", None, Some(&temp), held)
-            .await?
+        let Some(id) = pending::settled(
+            ctx,
+            wait,
+            "changing",
+            None,
+            Some(&temp),
+        )
+        .await?
         else {
             return Ok(AnswerTaken::NoWait);
         };
@@ -496,27 +499,6 @@ impl Workspace {
         )
         .await;
         Ok(AnswerTaken::Runs)
-    }
-
-    /// Settles `wait` as `state` in a transaction of its own while
-    /// its path is `held`. Returns its row's id and the path, or
-    /// `None` when another answer ended the wait first.
-    async fn settled(
-        &self,
-        ctx: &Ctx<Self>,
-        wait: &Wait,
-        state: &str,
-        answer: Option<Vec<u8>>,
-        temp: Option<&str>,
-        held: OwnedMutexGuard<()>,
-    ) -> Result<Option<(i64, OwnedMutexGuard<()>)>> {
-        let settled = transact_if(ctx, async |tx| {
-            Ok(pending::settle(tx, wait, state, answer, temp)
-                .await?
-                .ok_or(()))
-        })
-        .await?;
-        Ok(settled.ok().map(|id| (id, held)))
     }
 
     /// Replaces the file of `request`, whose row `id` was written,
