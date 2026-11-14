@@ -396,7 +396,7 @@ fn read_probe(home: &Path, probe: &Probe) -> Result<i64> {
         Read::Files => {
             let mut found = 0;
             for suffix in ["", "-wal", "-shm"] {
-                let mut path = file.clone().into_os_string();
+                let mut path = file.as_os_str().to_owned();
                 path.push(suffix);
                 found += i64::from(Path::new(&path).try_exists()?);
             }

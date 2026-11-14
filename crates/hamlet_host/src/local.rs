@@ -995,7 +995,11 @@ impl Host {
                 );
                 reading
             };
-            let stored = match stored_actor(&path) {
+            let StoredActor {
+                wake_at,
+                cut_off,
+                destroyed,
+            } = match stored_actor(&path) {
                 Ok(Some(stored)) => stored,
                 Ok(None) => continue,
                 Err(error) => {
@@ -1014,11 +1018,6 @@ impl Host {
                     continue;
                 }
             };
-            let StoredActor {
-                wake_at,
-                cut_off,
-                destroyed,
-            } = stored;
             if destroyed {
                 match destroy_file(&path) {
                     Ok(()) => tracing::info!(
@@ -1196,8 +1195,8 @@ impl Host {
             actor_id.split_once('/').with_context(|| {
                 format!("`{actor_id}` is not kind/key")
             })?;
-        self.inner().located(kind, key)?;
         let host = self.inner();
+        host.located(kind, key)?;
         loop {
             if let Some(stop) =
                 host.ask_stop(actor_id, None, reason.into())
@@ -1259,15 +1258,15 @@ impl Host {
     pub async fn shutdown(&self) -> Result<()> {
         self.inner().shut_down();
         // No state is added once the host is shut.
-        let ids: Vec<String> = self
+        let ids = self
             .inner()
             .actors
             .lock()
             .lives
             .keys()
             .cloned()
-            .collect();
-        let stops: Vec<_> = ids
+            .collect::<Vec<_>>();
+        let stops = ids
             .into_iter()
             .map(|actor_id| {
                 let host = self.clone();
@@ -1277,13 +1276,11 @@ impl Host {
                 });
                 (actor_id, stop)
             })
-            .collect();
+            .collect::<Vec<_>>();
         let mut failed = Vec::new();
         for (actor_id, stop) in stops {
-            if let Err(error) = stop
-                .await
-                .map_err(anyhow::Error::from)
-                .and_then(|stopped| stopped)
+            if let Err(error) =
+                stop.await.map_err(anyhow::Error::from).flatten()
             {
                 failed.push(format!("{actor_id}: {error:#}"));
             }
@@ -1532,16 +1529,15 @@ fn mark_stopped(
     conn: &Connection,
     alarm: Option<i64>,
 ) -> Result<Option<i64>> {
-    let scheduled: Option<i64> =
-        if has_table(conn, "_actor_schedule_events")? {
-            conn.query_row(
-                "SELECT MIN(trigger_at) FROM _actor_schedule_events",
-                [],
-                |row| row.get(0),
-            )?
-        } else {
-            None
-        };
+    let scheduled = if has_table(conn, "_actor_schedule_events")? {
+        conn.query_row(
+            "SELECT MIN(trigger_at) FROM _actor_schedule_events",
+            [],
+            |row| row.get::<_, Option<i64>>(0),
+        )?
+    } else {
+        None
+    };
     let run_wake_at = if has_table(conn, "_actor_meta")? {
         conn.query_row(
             "SELECT value FROM _actor_meta WHERE key = ?",
@@ -1734,10 +1730,10 @@ fn destroy_file(path: &Path) -> Result<()> {
         if has_table(&conn, "_hamlet_actor")? {
             mark_destroyed(&conn)?;
         }
-        let busy: i64 = conn.query_row(
+        let busy = conn.query_row(
             "PRAGMA wal_checkpoint(TRUNCATE)",
             [],
-            |row| row.get(0),
+            |row| row.get::<_, i64>(0),
         )?;
         ensure!(busy == 0, "{} stayed busy", path.display());
         conn.close().map_err(|(_, error)| error)?;
@@ -1888,11 +1884,11 @@ fn bump_generation(
 ) -> Result<Option<Bumped>> {
     let tx = conn.transaction()?;
     tx.execute_batch(ACTOR_TABLE)?;
-    let destroyed: Option<bool> = tx
+    let destroyed = tx
         .query_row(
             "SELECT destroying FROM _hamlet_actor",
             [],
-            |row| row.get(0),
+            |row| row.get::<_, bool>(0),
         )
         .optional()?;
     match (destroyed, open) {
