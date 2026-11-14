@@ -237,8 +237,10 @@ marked running or whose deadline has come, without waiting for it, and
 arms a timer for each other stored deadline. While boot reads an actor's
 file, a start of that actor waits, and a file boot cannot read is
 reported on `Host::events` and passed over. `examples/demo.rs` drives
-the host from the command line, with the counter actor in
-`examples/demo/counter.rs`. `tests/local.rs` tests the host,
+the host from the command line, under a host name and with counter kinds
+of its options, each line run by `examples/demo/command.rs`, with the
+counter actor in `examples/demo/counter.rs`; a counter calls another as
+itself, and `calls --count <n>` times those calls. `tests/local.rs` tests the host,
 `tests/timer.rs` tests one-shots that come due as their actor sleeps or
 is destroyed and handlers that panic, and `tests/kill.rs` kills a child
 host at a fault point and boots the folder again.
@@ -256,7 +258,7 @@ Most of the library's tests run on `TestHost` in `src/testing.rs`, a
 host that serves one in-memory database through `hamlet_sqlite`.
 
 `cargo xtask killkit` runs `hamlet_killkit`. Its scenarios are rows of
-`src/scenario.rs`: the commands that set up, the fault point to kill at,
+`src/scenario.rs`: the commands that set up, the fault point or the time to kill at,
 the commands after each restart, and what each restart must show.
 `cargo xtask idle` is `xtask/src/idle.rs`. It reads `/proc` for the
 resident memory of a process tree and the growth of each thread's

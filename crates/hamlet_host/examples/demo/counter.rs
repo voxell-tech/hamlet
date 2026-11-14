@@ -22,6 +22,12 @@
 //!   the actor's event loop itself that long, in synchronous code, as
 //!   an actor stuck in a blocking call does, then replies with the
 //!   count. A stop of the actor waits for it.
+//! - `call` takes an actor's `<kind>/<key>` and calls its `called` as
+//!   this actor. It replies with that reply, then the call's time in
+//!   microseconds as a little-endian `u64`.
+//! - `called` adds one to the calls of its caller, as the host
+//!   stamped it, logs who called, and replies with how many calls it
+//!   had from that caller.
 //!
 //! `increment` passes the fault point `tx-open` inside its
 //! transaction, and `tx-committed` after it commits and before it
@@ -35,7 +41,7 @@
 //! actor's SQL until it times out.
 
 use std::collections::HashMap;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::{Result, anyhow};
 use hamlet_actor_core::actor::schedule::{
@@ -43,8 +49,12 @@ use hamlet_actor_core::actor::schedule::{
 };
 use hamlet_actor_core::{
     ActorConfig, ActorContext, ActorEvent, ActorFactory, ActorStart,
-    BindParam, ColumnValue,
+    BindParam, ColumnValue, ConnHandle,
 };
+use hamlet_host::{Address, Caller, Cause, Host};
+
+/// How long a counter's call to another may take.
+const CALL_DEADLINE: Duration = Duration::from_secs(60);
 
 /// Whether counters sleep once idle.
 #[derive(Clone, Copy)]
@@ -54,18 +64,26 @@ pub enum Sleep {
     Never,
 }
 
-/// The actor kinds the demo host runs.
-pub fn factories(sleep: Sleep) -> HashMap<String, ActorFactory> {
-    let config = ActorConfig {
-        name: Some("counter".to_owned()),
-        has_database: true,
-        no_sleep: matches!(sleep, Sleep::Never),
-        ..ActorConfig::default()
-    };
-    HashMap::from([(
-        "counter".to_owned(),
-        ActorFactory::new(config, |start| Box::pin(run(start))),
-    )])
+/// The counter kinds `kinds`.
+pub fn factories(
+    kinds: &[&str],
+    sleep: Sleep,
+) -> HashMap<String, ActorFactory> {
+    kinds
+        .iter()
+        .map(|kind| {
+            let config = ActorConfig {
+                name: Some((*kind).to_owned()),
+                has_database: true,
+                no_sleep: matches!(sleep, Sleep::Never),
+                ..ActorConfig::default()
+            };
+            let factory = ActorFactory::new(config, |start| {
+                Box::pin(run(start))
+            });
+            ((*kind).to_owned(), factory)
+        })
+        .collect()
 }
 
 /// The count an action replied with.
@@ -84,7 +102,9 @@ pub async fn run(start: ActorStart) -> Result<()> {
     ctx.sql()
         .exec(
             "CREATE TABLE IF NOT EXISTS counter (id INTEGER PRIMARY \
-             KEY, value INTEGER NOT NULL)"
+             KEY, value INTEGER NOT NULL); CREATE TABLE IF NOT \
+             EXISTS calls (caller TEXT PRIMARY KEY, n INTEGER NOT \
+             NULL)"
                 .to_owned(),
         )
         .await?;
@@ -93,6 +113,7 @@ pub async fn run(start: ActorStart) -> Result<()> {
             ActorEvent::Action {
                 name,
                 args,
+                conn,
                 scheduled_fire,
                 reply,
                 ..
@@ -108,17 +129,16 @@ pub async fn run(start: ActorStart) -> Result<()> {
                 }
                 let ctx = ctx.clone();
                 tokio::spawn(async move {
-                    let count = action(
+                    let replied = action(
                         &ctx,
                         &name,
                         args,
+                        conn.as_ref(),
                         scheduled_fire.as_ref(),
                     )
                     .await;
                     if name != "drop" {
-                        reply.send(count.map(|count| {
-                            count.to_le_bytes().to_vec()
-                        }));
+                        reply.send(replied);
                     }
                 });
             }
@@ -152,9 +172,10 @@ async fn action(
     ctx: &ActorContext,
     name: &str,
     args: Vec<u8>,
+    conn: Option<&ConnHandle>,
     fire: Option<&ScheduledFireInfo>,
-) -> Result<i64> {
-    match name {
+) -> Result<Vec<u8>> {
+    let count = match name {
         "increment" => add_one(ctx, fire).await,
         "panic" => {
             add_one(ctx, None).await?;
@@ -191,7 +212,61 @@ async fn action(
             .await?;
             Ok(count)
         }
+        "call" => return call(ctx, &args).await,
+        "called" => called(ctx, conn).await,
         other => Err(anyhow!("unknown action `{other}`")),
+    }?;
+    Ok(count.to_le_bytes().to_vec())
+}
+
+/// Calls the `called` action of the actor whose `<kind>/<key>` is
+/// `args`, as the actor of `ctx`. Replies with that reply, then the
+/// call's time in microseconds.
+async fn call(ctx: &ActorContext, args: &[u8]) -> Result<Vec<u8>> {
+    let to = std::str::from_utf8(args)?;
+    let (kind, key) = to
+        .split_once('/')
+        .ok_or_else(|| anyhow!("`{to}` is not <kind>/<key>"))?;
+    let begun = Instant::now();
+    let mut reply = Host::call_from(
+        ctx,
+        &Address::new(kind, key),
+        "called",
+        Vec::new(),
+        CALL_DEADLINE,
+        Cause::root("demo"),
+    )
+    .await?;
+    let micros = u64::try_from(begun.elapsed().as_micros())?;
+    reply.extend_from_slice(&micros.to_le_bytes());
+    Ok(reply)
+}
+
+/// Adds one to the calls of the caller that `conn` carries, logs it,
+/// and answers how many calls the actor had from that caller.
+async fn called(
+    ctx: &ActorContext,
+    conn: Option<&ConnHandle>,
+) -> Result<i64> {
+    let params = conn.map(ConnHandle::params).unwrap_or_default();
+    let caller = match ciborium::from_reader(params.as_slice())? {
+        Some(Caller::Actor(at)) => format!("{}/{}", at.kind, at.key),
+        Some(Caller::Client) => "client".to_owned(),
+        None => "none".to_owned(),
+    };
+    tracing::info!(actor = ctx.actor_id(), caller, "called");
+    let result = ctx
+        .sql()
+        .execute(
+            "INSERT INTO calls (caller, n) VALUES (?, 1) ON \
+             CONFLICT (caller) DO UPDATE SET n = n + 1 RETURNING n"
+                .to_owned(),
+            Some(vec![BindParam::Text(caller)]),
+        )
+        .await?;
+    match result.rows.first().and_then(|row| row.first()) {
+        Some(ColumnValue::Integer(n)) => Ok(*n),
+        other => Err(anyhow!("the count of calls reads {other:?}")),
     }
 }
 

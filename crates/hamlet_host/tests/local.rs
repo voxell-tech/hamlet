@@ -31,7 +31,7 @@ mod command;
 mod counter;
 
 fn factories() -> HashMap<String, ActorFactory> {
-    counter::factories(counter::Sleep::WhenIdle)
+    counter::factories(&["counter"], counter::Sleep::WhenIdle)
 }
 
 /// How long an actor may take to answer while another actor stops.
@@ -2722,7 +2722,10 @@ async fn a_command_line_the_demo_refuses_makes_no_actor() {
             .split_whitespace()
             .map(str::to_owned)
             .collect::<Vec<_>>();
-        let error = command::run(&host, &words).await.unwrap_err();
+        let error =
+            command::run(&host, &["counter".to_owned()], &words)
+                .await
+                .unwrap_err();
         assert!(
             !any_file_of(&dir, "counter", "k"),
             "{line}: {error:#}"
