@@ -368,16 +368,24 @@ async fn a_one_shot_whose_trait_handler_a_stop_cuts_short_runs_again()
 /// within a millisecond.
 const QUEUED: Duration = Duration::from_millis(200);
 
+/// The runs of `boom` and of `inc` that a kind [`inline`] finished:
+/// `boom`'s once its count is written, `inc`'s once committed.
+#[derive(Default)]
+struct Ran {
+    boom: AtomicU32,
+    inc: AtomicU32,
+}
+
 /// The kind `inline`, of the raw event API, which runs each action
 /// inside its event loop, so that the events that come meanwhile wait
 /// in its channel. It counts the runs of `boom` and of `inc` in
-/// tables of those names.
+/// tables of those names, and in `ran`.
 /// - `arm` schedules a one-shot `boom` due at once and waits for the
 ///   core to queue it, then schedules three one-shots `inc` due at
 ///   once and waits for them to queue behind it.
 /// - `boom` counts its run and panics, in the event loop.
 /// - `inc` counts its run and ends its one-shot, in one transaction.
-fn inline() -> HashMap<String, ActorFactory> {
+fn inline(ran: &Arc<Ran>) -> HashMap<String, ActorFactory> {
     let config = ActorConfig {
         name: Some("inline".to_owned()),
         has_database: true,
@@ -385,13 +393,14 @@ fn inline() -> HashMap<String, ActorFactory> {
     };
     HashMap::from([(
         "inline".to_owned(),
-        ActorFactory::new(config, |start| {
-            Box::pin(run_inline(start))
+        ActorFactory::new(config, {
+            let ran = ran.clone();
+            move |start| Box::pin(run_inline(start, ran.clone()))
         }),
     )])
 }
 
-async fn run_inline(start: ActorStart) -> Result<()> {
+async fn run_inline(start: ActorStart, ran: Arc<Ran>) -> Result<()> {
     let ActorStart {
         ctx, mut events, ..
     } = start;
@@ -420,6 +429,7 @@ async fn run_inline(start: ActorStart) -> Result<()> {
             }
             "boom" => {
                 ctx.sql().execute(add_one("boom"), None).await?;
+                ran.boom.fetch_add(1, Ordering::SeqCst);
                 panic!("the event loop panics");
             }
             "inc" => {
@@ -429,6 +439,7 @@ async fn run_inline(start: ActorStart) -> Result<()> {
                 }
                 tx.execute(&add_one("inc"), None).await?;
                 tx.commit().await?;
+                ran.inc.fetch_add(1, Ordering::SeqCst);
             }
             _ => {}
         }
@@ -441,26 +452,36 @@ async fn run_inline(start: ActorStart) -> Result<()> {
 /// while three other one-shots wait in its channel. The panic ends
 /// only the row of the one-shot whose handler it cut short. The three
 /// never reached the actor's code, so their rows are kept, and each
-/// runs once after the actor starts again: by the timer the crash
-/// stop leaves, or at the next boot. A later boot runs none again.
+/// runs once when the timer the crash stop leaves starts the actor
+/// again. A later boot starts it for none of them.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_panic_in_the_event_loop_keeps_the_one_shots_queued_behind_it()
  {
     let dir = Scratch::new("timer-loop-panic");
-    let host = Host::open(&dir, inline()).unwrap();
+    let ran = Arc::new(Ran::default());
+    let host = Host::open(&dir, inline(&ran)).unwrap();
     let id = host.get_or_start("inline", "a").await.unwrap();
     act(&host, &id, "arm", Vec::new()).await.unwrap();
-    sleep(Duration::from_secs(1)).await;
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let runs = || {
+        (
+            ran.boom.load(Ordering::SeqCst),
+            ran.inc.load(Ordering::SeqCst),
+        )
+    };
+    while runs().0 < 1 || runs().1 < 3 {
+        assert!(Instant::now() < deadline, "ran {:?}", runs());
+        sleep(Duration::from_millis(10)).await;
+    }
     host.shutdown().await.unwrap();
     drop(host);
 
-    let mut boots = Vec::new();
     for _ in 0..2 {
-        let host = Host::open(&dir, inline()).unwrap();
-        boots.push(host.boot().await.unwrap());
-        sleep(Duration::from_millis(500)).await;
+        let host = Host::open(&dir, inline(&ran)).unwrap();
+        let booted = host.boot().await.unwrap();
         host.shutdown().await.unwrap();
         drop(host);
+        assert!(booted.is_empty(), "a boot started {booted:?}");
         assert_eq!(
             stored(&dir, &id, "inc"),
             Stored {
@@ -475,7 +496,7 @@ async fn a_panic_in_the_event_loop_keeps_the_one_shots_queued_behind_it()
             "the panicking handler did not run once"
         );
     }
-    assert!(boots[1].is_empty(), "the second boot started it");
+    assert_eq!(runs(), (1, 3));
 }
 
 /// How many generations of a kind have begun.
