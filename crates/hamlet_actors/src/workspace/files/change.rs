@@ -303,13 +303,7 @@ impl Workspace {
             tokio::task::spawn_blocking(move || {
                 let replaced =
                     env(&placement, sandbox).and_then(|env| {
-                        env.replace_file(
-                            &path,
-                            &planned.current.real,
-                            &temp_name,
-                            planned.current.bytes.as_deref(),
-                            &planned.content,
-                        )
+                        carried_out(&env, &path, &temp_name, &planned)
                     });
                 (replaced, held, planned)
             })
@@ -428,6 +422,23 @@ fn plan(
             })
         }
     }
+}
+
+/// Replaces the file at `path` with what `planned` writes, through
+/// the new file `temp_name`, only while it holds what `planned` read.
+fn carried_out(
+    env: &Env,
+    path: &str,
+    temp_name: &str,
+    planned: &Planned,
+) -> Result<Replaced, FileError> {
+    env.replace_file(
+        path,
+        &planned.current.real,
+        temp_name,
+        planned.current.bytes.as_deref(),
+        &planned.content,
+    )
 }
 
 /// The file tools' environment of `placement`, failing in a file's
@@ -633,6 +644,43 @@ mod tests {
                 ))
             ));
         }
+    }
+
+    /// A change replaces the file only while it holds what the change
+    /// read: a file written meanwhile is left as it is, and the
+    /// change hears what it holds now.
+    #[test]
+    fn a_file_written_after_the_read_is_left_as_it_is() {
+        let scratch =
+            hamlet_testing::Scratch::new("change-meanwhile");
+        let cwd = scratch.join("work");
+        std::fs::create_dir_all(&cwd).unwrap();
+        let file = text(&cwd.join("a.md"));
+        std::fs::write(&file, "old").unwrap();
+        let env = Env::new(
+            &text(&cwd),
+            hamlet_sandbox::Policy {
+                rw: vec![cwd.clone()],
+                env: hamlet_sandbox::base_env(),
+                ..hamlet_sandbox::Policy::default()
+            },
+            hamlet_sandbox::Sandbox::testing(),
+        )
+        .unwrap();
+        let planned = Planned {
+            current: env.read_for_change(&file).unwrap(),
+            content: b"new".to_vec(),
+            diff: None,
+        };
+        std::fs::write(&file, "theirs").unwrap();
+
+        let replaced = carried_out(&env, &file, ".a.new", &planned);
+
+        assert_eq!(
+            replaced.unwrap(),
+            Replaced::Changed(Some(b"theirs".to_vec()))
+        );
+        assert_eq!(std::fs::read(&file).unwrap(), b"theirs");
     }
 
     /// A file that no longer held what the change read is refused
