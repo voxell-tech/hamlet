@@ -39,8 +39,11 @@ struct Counts {
 /// Fails the next start of an actor, once.
 struct FailNext(AtomicBool);
 
-/// How long each destroy takes.
-struct SlowDestroy(Duration);
+/// How long each destroy takes. `began` is notified as each begins.
+struct SlowDestroy {
+    takes: Duration,
+    began: Notify,
+}
 
 /// Holds each start: it is told when the start begins, and the start
 /// then waits an hour.
@@ -138,7 +141,8 @@ impl Actor for Made {
     ) -> anyhow::Result<()> {
         let slow = HostRef::of(ctx.inner())?.value::<SlowDestroy>();
         if let Some(slow) = slow {
-            tokio::time::sleep(slow.0).await;
+            slow.began.notify_one();
+            tokio::time::sleep(slow.takes).await;
         }
         Ok(())
     }
@@ -554,18 +558,22 @@ async fn a_create_a_shutdown_cuts_off_leaves_no_actor() {
 async fn a_create_waits_out_no_destroy_and_brings_no_old_data_back() {
     let dir = Scratch::new("create-destroying");
     let made = Arc::new(Counts::default());
+    let slow = Arc::new(SlowDestroy {
+        takes: Duration::from_secs(1),
+        began: Notify::new(),
+    });
     let host = open(
         &dir,
-        HostOptions::default().with_value(made.clone()).with_value(
-            Arc::new(SlowDestroy(Duration::from_secs(1))),
-        ),
+        HostOptions::default()
+            .with_value(made.clone())
+            .with_value(slow.clone()),
     );
     host.create("made", "a", cbor("old")).await.unwrap();
     let destroy = tokio::spawn({
         let host = host.clone();
         async move { host.stop("made/a", ShutdownKind::Destroy).await }
     });
-    tokio::time::sleep(Duration::from_millis(200)).await;
+    slow.began.notified().await;
     let begun = Instant::now();
     let during = failed(host.create("made", "a", cbor("new")).await);
     let waited = begun.elapsed();
