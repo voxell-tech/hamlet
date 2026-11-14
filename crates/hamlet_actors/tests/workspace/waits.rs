@@ -597,3 +597,55 @@ async fn a_chief_is_shown_each_text_of_a_change_cut() {
         )
     );
 }
+
+/// In manual mode a change waits for a chief by the path it really
+/// writes, however its path or the project's is spelled: through a
+/// link to the project's folder, by the real path of a project set
+/// through a link, or through `/proc/self/root`.
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_change_waits_however_its_path_is_spelled() {
+    let dir = Scratch::new("workspace-wait-spelled");
+    let (scratch, _) = project("workspace-wait-spelled-p", &[]);
+    let real = scratch.join("var/proj");
+    std::fs::create_dir_all(&real).unwrap();
+    let linked = scratch.join("home/proj");
+    std::os::unix::fs::symlink(
+        scratch.join("var"),
+        scratch.join("home"),
+    )
+    .unwrap();
+    let mut cases = vec![
+        (real.clone(), linked.join("a.md")),
+        (linked.clone(), real.join("b.md")),
+    ];
+    if cfg!(target_os = "linux") {
+        cases.push((
+            real.clone(),
+            Path::new("/proc/self/root")
+                .join(real.strip_prefix("/").unwrap())
+                .join("c.md"),
+        ));
+    }
+    let host = host_with(&dir, Arc::default()).await;
+    let mut answers = Vec::new();
+    for (n, (folder, path)) in cases.iter().enumerate() {
+        realm_sets(&host, n as u64 + 1, manual(folder)).await;
+        let answer: ChangeAnswer = ask(
+            &host,
+            &agent(AGENT),
+            &write(&format!("w{n}"), path, "unasked"),
+        )
+        .await;
+        answers.push((path.clone(), answer));
+    }
+    host.shutdown().await.unwrap();
+
+    let waits_for = ChangeAnswer::WaitsForChief(vec![Need::Edit]);
+    let all_wait = answers
+        .iter()
+        .map(|(path, _)| (path.clone(), waits_for.clone()))
+        .collect::<Vec<_>>();
+    assert_eq!(answers, all_wait);
+    assert_eq!(std::fs::read_dir(&real).unwrap().count(), 0);
+}

@@ -171,11 +171,7 @@ impl RealmFolder {
     }
 
     fn holds(&self, path: &Path) -> bool {
-        let real = |path: &Path| {
-            std::fs::canonicalize(path)
-                .unwrap_or_else(|_| path.to_owned())
-        };
-        is_within(&real(path), &real(&self.0))
+        is_within(&real_path(path), &self.0)
     }
 
     /// Whether `path`, normalized, is in any agent's filesystem.
@@ -321,7 +317,10 @@ fn needs(
             let in_manual_project =
                 footing.project.as_ref().is_some_and(|project| {
                     project.mode == Mode::Manual
-                        && is_within(&path, &project.folder)
+                        && is_within(
+                            &real_path(&path),
+                            &real_path(&project.folder),
+                        )
                 });
             Ok(
                 if in_manual_project
