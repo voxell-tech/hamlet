@@ -1995,6 +1995,68 @@ async fn a_start_past_its_deadline_does_not_wait_for_a_statement() {
     assert_eq!(running, 1);
 }
 
+/// A create whose start misses its deadline while a statement of its
+/// start holds the file past the close's grace fails with the start's
+/// error, without waiting for the statement, and leaves the actor
+/// made, as any failed start does. Until the statement ends, a create
+/// of the key cannot read the file and fails at its own deadline, not
+/// as a duplicate. Then the next boot starts the actor, and a create
+/// of its key fails with `actor.duplicate_key`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_create_whose_start_a_statement_holds_leaves_the_actor_made()
+ {
+    let dir = Scratch::new("host-create-statement");
+    let hold = Hold::new(&dir);
+    let open = || {
+        Host::open_with(
+            &dir,
+            scanner(&dir),
+            HostOptions {
+                start_deadline: START_DEADLINE,
+                ..HostOptions::default()
+            },
+        )
+        .unwrap()
+    };
+    let create = async |host: &Host| {
+        tokio::time::timeout(
+            Duration::from_secs(10),
+            host.create("scanner", "a", Vec::new()),
+        )
+        .await
+        .expect("the create waited for the statement")
+    };
+    let host = open();
+    let begun = std::time::Instant::now();
+    let first = create(&host)
+        .await
+        .expect_err("a create whose start missed its deadline");
+    let took = begun.elapsed();
+    let during = create(&host)
+        .await
+        .expect_err("a create while the statement holds the file");
+    host.shutdown().await.unwrap();
+    drop(host);
+
+    drop(hold);
+    wait_for_the_file(&dir, "scanner", "a").await;
+    let host = open();
+    let booted = host.boot().await.unwrap();
+    let started = host.get_or_start("scanner", "a").await;
+    let after =
+        create(&host).await.expect_err("a create of a made key");
+    host.shutdown().await.unwrap();
+    assert!(code(&first) == "actor.not_ready", "{first:#}");
+    assert!(
+        took < START_DEADLINE + Duration::from_secs(2),
+        "{took:?}"
+    );
+    assert!(code(&during) == "actor.not_ready", "{during:#}");
+    assert_eq!(booted, ["scanner/a"]);
+    started.unwrap();
+    assert!(code(&after) == "actor.duplicate_key", "{after:#}");
+}
+
 /// What the first start of a [`sleeper`] asks for before it is ready.
 #[derive(Clone, Copy)]
 enum Ask {
