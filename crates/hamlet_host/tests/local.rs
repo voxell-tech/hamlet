@@ -13,6 +13,8 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::Duration;
 
 use act::{DEADLINE, act};
+use code::code;
+use files::any_file_of;
 use hamlet_actor_core::{
     ActorConfig, ActorContext, ActorEvent, ActorFactory, ActorStart,
     ColumnValue, ShutdownKind,
@@ -25,10 +27,14 @@ use rusqlite::{Connection, OpenFlags};
 
 #[path = "../examples/demo/act.rs"]
 mod act;
+#[path = "support/code.rs"]
+mod code;
 #[path = "../examples/demo/command.rs"]
 mod command;
 #[path = "../examples/demo/counter.rs"]
 mod counter;
+#[path = "support/files.rs"]
+mod files;
 
 fn factories() -> HashMap<String, ActorFactory> {
     counter::factories(&["counter"], counter::Sleep::WhenIdle)
@@ -817,7 +823,7 @@ async fn a_stop_past_its_deadline_fails_its_waiters_and_later_calls()
     ] {
         let error = ended.expect_err(who);
         assert!(
-            is_actor_error(&error, "shutdown_timeout"),
+            code(&error) == "actor.shutdown_timeout",
             "{error:#}"
         );
     }
@@ -832,7 +838,7 @@ async fn a_stop_past_its_deadline_fails_its_waiters_and_later_calls()
     .await
     .expect("a call to the stuck actor waited")
     .unwrap_err();
-    assert!(is_actor_error(&error, "shutdown_timeout"), "{error:#}");
+    assert!(code(&error) == "actor.shutdown_timeout", "{error:#}");
     let error = tokio::time::timeout(
         PROMPT,
         host.create("blocker", "b", Vec::new()),
@@ -840,7 +846,7 @@ async fn a_stop_past_its_deadline_fails_its_waiters_and_later_calls()
     .await
     .expect("a create of the stuck actor's key waited")
     .unwrap_err();
-    assert!(is_actor_error(&error, "shutdown_timeout"), "{error:#}");
+    assert!(code(&error) == "actor.shutdown_timeout", "{error:#}");
     let error = format!("{:#}", host.shutdown().await.unwrap_err());
     assert!(error.contains(&stuck), "{error}");
     drop(release);
@@ -879,7 +885,7 @@ async fn a_destroy_past_its_deadline_is_finished_at_the_next_boot(
         .await
         .expect_err("a destroy past its deadline");
     let took = begun.elapsed();
-    assert!(is_actor_error(&error, "shutdown_timeout"), "{error:#}");
+    assert!(code(&error) == "actor.shutdown_timeout", "{error:#}");
     assert!(at_the_deadline(took), "{took:?}");
     let error = format!("{:#}", host.shutdown().await.unwrap_err());
     assert!(error.contains(&stuck), "{error}");
@@ -1132,12 +1138,6 @@ async fn a_stop_ends_a_transaction_its_generation_left_open() {
     assert_eq!((running, wake_at, marks), (0, Some(due), 0));
 }
 
-/// Whether `error` is the core's error `actor.<code>`.
-fn is_actor_error(error: &anyhow::Error, code: &str) -> bool {
-    let error = ActorError::extract(error);
-    (error.group(), error.code()) == ("actor", code)
-}
-
 /// A call to a kind the directory does not hold fails at once with
 /// `actor.not_registered`, and makes no folder or file for it.
 #[tokio::test(flavor = "multi_thread")]
@@ -1157,7 +1157,7 @@ async fn a_call_to_an_unknown_kind_fails_at_once_and_makes_no_file() {
     .await
     .expect("the call to an unknown kind waited")
     .expect_err("a call to an unknown kind must fail");
-    assert!(is_actor_error(&error, "not_registered"), "{error:#}");
+    assert!(code(&error) == "actor.not_registered", "{error:#}");
     assert!(!dir.join("actors/nobody").exists());
     assert!(!host.is_running("nobody/a"));
     host.shutdown().await.unwrap();
@@ -1183,7 +1183,7 @@ async fn a_call_ends_at_its_deadline() {
         .await
         .expect_err("the nap outlived the call's deadline");
     let took = begun.elapsed();
-    assert!(is_actor_error(&error, "action_timed_out"), "{error:#}");
+    assert!(code(&error) == "actor.action_timed_out", "{error:#}");
     assert!(
         took >= Duration::from_millis(300)
             && took < Duration::from_secs(2),
@@ -1226,7 +1226,7 @@ async fn a_call_waiting_for_its_actors_stop_ends_at_its_deadline() {
         .await
         .expect_err("b's stop outlived the call's deadline");
     let took = begun.elapsed();
-    assert!(is_actor_error(&error, "action_timed_out"), "{error:#}");
+    assert!(code(&error) == "actor.action_timed_out", "{error:#}");
     assert!(
         took >= Duration::from_millis(300)
             && took < Duration::from_secs(2),
@@ -1267,7 +1267,7 @@ async fn a_call_to_an_actor_being_destroyed_fails_at_once() {
     .await
     .expect("the call waited for the destroy")
     .expect_err("a call to an actor being destroyed must fail");
-    assert!(is_actor_error(&error, "destroying"), "{error:#}");
+    assert!(code(&error) == "actor.destroying", "{error:#}");
     assert!(!destroy.is_finished(), "b was destroyed before its nap");
 
     nap.await.unwrap().unwrap();
@@ -1324,7 +1324,7 @@ async fn a_shutdown_closes_the_others_while_one_is_slow_and_reports_it()
         .await
         .unwrap()
         .expect_err("a call in flight as its host shuts down");
-    assert!(is_actor_error(&error, "stopping"), "{error:#}");
+    assert!(code(&error) == "actor.stopping", "{error:#}");
     for id in ["brittle/b", "counter/a", "counter/c"] {
         assert!(!host.is_running(id), "{id} still runs");
     }
@@ -1447,7 +1447,7 @@ async fn a_second_host_opens_the_folder_at_once_after_a_shutdown() {
         .await
         .unwrap()
         .expect_err("a call in flight as its host shuts down");
-    assert!(is_actor_error(&error, "stopping"), "{error:#}");
+    assert!(code(&error) == "actor.stopping", "{error:#}");
     drop(host);
 
     let again = Host::open(&dir, with_nappers())
@@ -1705,13 +1705,13 @@ async fn a_start_that_never_finishes_fails_at_its_deadline() {
         .expect("the start outlived its deadline")
         .unwrap()
         .expect_err("a start that never finishes must fail");
-    assert!(is_actor_error(&start, "not_ready"), "{start:#}");
+    assert!(code(&start) == "actor.not_ready", "{start:#}");
     let call = tokio::time::timeout_at(by, call)
         .await
         .expect("the call outlived the start")
         .unwrap()
         .expect_err("the call must fail with the start");
-    assert!(is_actor_error(&call, "not_ready"), "{call:#}");
+    assert!(code(&call) == "actor.not_ready", "{call:#}");
     tokio::time::timeout_at(by, stop)
         .await
         .expect("the stop outlived the start")
@@ -1780,14 +1780,14 @@ async fn a_call_fails_at_once_once_its_host_shuts_down() {
             .expect("a call waited on a host that is shutting down")
             .unwrap()
             .expect_err("a call to a host that is shutting down");
-        assert!(is_actor_error(&error, "stopping"), "{error:#}");
+        assert!(code(&error) == "actor.stopping", "{error:#}");
     }
     // A call in flight fails once its host begins to shut down.
     let error = nap
         .await
         .unwrap()
         .expect_err("a call in flight as its host shuts down");
-    assert!(is_actor_error(&error, "stopping"), "{error:#}");
+    assert!(code(&error) == "actor.stopping", "{error:#}");
     stop.await.unwrap().unwrap();
     shutdown.await.unwrap().unwrap();
 }
@@ -1813,7 +1813,7 @@ async fn a_shutdown_returns_while_a_start_is_stuck() {
         .expect("the start outlived the shutdown")
         .unwrap()
         .expect_err("a start the shutdown ended must fail");
-    assert!(is_actor_error(&start, "not_ready"), "{start:#}");
+    assert!(code(&start) == "actor.not_ready", "{start:#}");
     assert!(!host.is_running("stuck/a"));
     wait_for_the_drop(&dropped).await;
 }
@@ -1879,7 +1879,7 @@ async fn a_start_past_its_deadline_does_not_wait_for_a_statement() {
     .expect("the start waited for the statement past 30 s")
     .expect_err("a start past its deadline must fail");
     let took = begun.elapsed();
-    assert!(is_actor_error(&error, "not_ready"), "{error:#}");
+    assert!(code(&error) == "actor.not_ready", "{error:#}");
     assert!(
         took >= START_DEADLINE
             && took < START_DEADLINE + Duration::from_secs(2),
@@ -2091,7 +2091,7 @@ async fn a_call_during_a_start_keeps_a_crash_or_a_destroy() {
                 let error =
                     called.expect_err("a call to a destroyed actor");
                 assert!(
-                    is_actor_error(&error, "destroying"),
+                    code(&error) == "actor.destroying",
                     "{error:#}"
                 );
                 host.stop("sleeper/a", ShutdownKind::Destroy)
@@ -2132,7 +2132,7 @@ async fn a_create_during_a_start_leaves_the_sleep_it_asked_for() {
         .await
         .unwrap()
         .expect_err("a create of a key a start made");
-    assert!(is_actor_error(&error, "duplicate_key"), "{error:#}");
+    assert!(code(&error) == "actor.duplicate_key", "{error:#}");
 
     let begun = std::time::Instant::now();
     while host.is_running("sleeper/a") {
@@ -2188,7 +2188,7 @@ async fn boot_returns_while_the_starts_it_began_are_stuck() {
     for id in &began {
         let error =
             act(&host, id, "get", Vec::new()).await.unwrap_err();
-        assert!(is_actor_error(&error, "not_ready"), "{error:#}");
+        assert!(code(&error) == "actor.not_ready", "{error:#}");
     }
     host.shutdown().await.unwrap();
 }
@@ -2528,7 +2528,7 @@ async fn a_start_during_boots_read_of_its_file_waits_for_the_read() {
         for create in creates {
             let error = create.await.unwrap().expect_err("a create");
             assert!(
-                is_actor_error(&error, "duplicate_key"),
+                code(&error) == "actor.duplicate_key",
                 "round {round}: {error:#}"
             );
         }
@@ -2563,17 +2563,6 @@ async fn hosts_of_different_names_cannot_share_a_kind() {
     let node =
         Host::open_with(&dir, factories(), named("node")).unwrap();
     node.shutdown().await.unwrap();
-}
-
-/// Whether any of the actor's three files is on disk: its file, its
-/// write-ahead file and its shared-memory file.
-fn any_file_of(dir: &Path, kind: &str, key: &str) -> bool {
-    ["", "-wal", "-shm"].iter().any(|suffix| {
-        dir.join("actors")
-            .join(kind)
-            .join(format!("{key}.sqlite{suffix}"))
-            .exists()
-    })
 }
 
 /// A destroy removes the actor's data whether it runs, sleeps with
@@ -2706,7 +2695,7 @@ async fn a_start_finishes_the_destroy_its_file_holds() {
         .set_aside_timers(&kept_out)
         .await
         .expect_err("a start of a destroyed actor's file");
-    assert!(is_actor_error(&error, "not_found"), "{error:#}");
+    assert!(code(&error) == "actor.not_found", "{error:#}");
     assert!(!any_file_of(&dir, "counter", "kept-out"));
     host.shutdown().await.unwrap();
 }

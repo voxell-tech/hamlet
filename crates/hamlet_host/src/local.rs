@@ -141,9 +141,10 @@ const ACTOR_TABLE: &str = "CREATE TABLE IF NOT EXISTS _hamlet_actor \
 /// once for a `Destroying` or `Stuck` one. A start that waited for a
 /// start that failed, or for a stop that missed its deadline, fails
 /// with it, rather than start again; one that waited for a start that
-/// found no actor reads the state again, so a `get_or_start` behind a
-/// call makes the actor the call could not. A create fails at once
-/// with `actor.duplicate_key` for a `Stopped`, `Running` or
+/// found no actor, or for a create's own start that failed and
+/// removed the actor, reads the state again, so a `get_or_start`
+/// behind a call makes the actor the call could not. A create fails
+/// at once with `actor.duplicate_key` for a `Stopped`, `Running` or
 /// `Stopping` actor, and waits for a `Reading` or `Starting` one as a
 /// start does, without marking it woken: it ends in a failure, and
 /// answers nothing the generation runs for. `Host::stop` waits for a
@@ -583,7 +584,9 @@ impl Drop for FolderLock {
 pub struct HostOptions {
     /// How long a start may take, from opening the actor's file
     /// until its core is ready. A start that takes longer fails with
-    /// `actor.not_ready`. 60 seconds by default.
+    /// `actor.not_ready`. 60 seconds by default. A start waits for a
+    /// file that a statement of an earlier failed start still holds,
+    /// and fails at its deadline if that statement outlasts it.
     pub start_deadline: Duration,
     /// How long a stop may take, from asking the actor's core to
     /// stop until its file is closed. Past it, the stop fails with
@@ -1299,7 +1302,9 @@ impl HostInner {
     /// Starts the actor unless it runs, and returns the generation
     /// that runs it. Waits for a start or a stop under way first, and
     /// fails with a start it waited for, or a stop that missed its
-    /// deadline. Fails at once for an actor that is being destroyed,
+    /// deadline, but reads the state again after a start that found
+    /// no actor, or a create's own start that failed and removed the
+    /// actor. Fails at once for an actor that is being destroyed,
     /// or whose stop missed its deadline, and in a host that has shut
     /// down, also when it shuts down during the wait: such a host
     /// starts no actor again, so a wait could only delay the failure.
@@ -1954,8 +1959,9 @@ async fn start_actor(
         Ok(generation) => generation,
         // A failed start keeps its running mark, so the next boot
         // tries it again rather than leave an alarm it may not have
-        // stored. The core ends a start whose future was dropped at
-        // the deadline, and the close fences what it does meanwhile.
+        // stored; but a create's own start removes the actor it made.
+        // The core ends a start whose future was dropped at the
+        // deadline, and the close fences what it does meanwhile.
         // A file whose thread still runs a statement stays locked
         // until the statement ends: a start of the actor meanwhile
         // waits for the lock, and fails if it outlasts that wait.

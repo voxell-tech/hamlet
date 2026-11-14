@@ -8,6 +8,8 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use anyhow::Context as _;
+use call::call;
+use code::code;
 use hamlet_actor::{
     Action, Actor, ActorConfig, Ctx, Handler, Registry,
 };
@@ -20,9 +22,11 @@ use hamlet_host::{
 use hamlet_testing::Scratch;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
-use support::{call, code};
 
-mod support;
+#[path = "support/call.rs"]
+mod call;
+#[path = "support/code.rs"]
+mod code;
 
 /// The kind `kind`, an actor of the trait API `A`, with a database.
 fn kind<A: Actor>(registry: &mut Registry, kind: &str) {

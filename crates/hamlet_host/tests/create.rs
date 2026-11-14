@@ -9,6 +9,8 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use anyhow::Context as _;
+use code::code;
+use files::any_file_of;
 use hamlet_actor::{
     Action, Actor, ActorConfig, ColumnValue, Ctx, Handler, Registry,
 };
@@ -17,9 +19,13 @@ use hamlet_host::{Address, Caller, Host, HostOptions, HostRef};
 use hamlet_testing::Scratch;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
-use support::code;
 
-mod support;
+#[path = "support/call.rs"]
+mod call;
+#[path = "support/code.rs"]
+mod code;
+#[path = "support/files.rs"]
+mod files;
 
 /// What the kind counts: the runs of `on_create`, which reads the
 /// input, and the starts that reached `create`.
@@ -302,7 +308,7 @@ async fn call<M: Action>(
 where
     M::Output: DeserializeOwned,
 {
-    support::call(host, &Address::new("made", key), action).await
+    call::call(host, &Address::new("made", key), action).await
 }
 
 /// The error of `made`, which was to fail.
@@ -415,14 +421,6 @@ async fn of_two_creates_of_one_key_at_once_one_makes_the_actor() {
     assert_eq!(made.created.load(Ordering::SeqCst), 50);
 }
 
-/// Whether any of the three files of `made/<key>` is in `dir`.
-fn any_file(dir: &Scratch, key: &str) -> bool {
-    ["", "-wal", "-shm"].iter().any(|suffix| {
-        dir.join(format!("actors/made/{key}.sqlite{suffix}"))
-            .exists()
-    })
-}
-
 /// A create whose own first start fails leaves nothing of the actor:
 /// no file, a call fails with `actor.not_found`, and the key is free
 /// for a create that makes the actor from its own input. So for a
@@ -447,7 +445,10 @@ async fn a_create_whose_first_start_fails_leaves_no_actor() {
         fail.0.store(fails, Ordering::SeqCst);
         let first = failed(host.create("made", key, input).await);
         assert_ne!(code(&first), "actor.duplicate_key", "{first:#}");
-        assert!(!any_file(&dir, key), "{key}: a file is left");
+        assert!(
+            !any_file_of(&dir, "made", key),
+            "{key}: a file is left"
+        );
         let error = call(&host, key, &Input)
             .await
             .expect_err("a call to an actor whose create failed");
@@ -563,7 +564,7 @@ async fn ask(
         key: key.to_owned(),
         input,
     };
-    support::call(host, &Address::new("maker", from), &make)
+    call::call(host, &Address::new("maker", from), &make)
         .await
         .unwrap()
 }
