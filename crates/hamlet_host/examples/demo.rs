@@ -30,6 +30,8 @@
 //!                               of stdin until it ends or SIGTERM
 //! demo realm ...                the stub realm's commands, in
 //!                               demo/realm.rs
+//! demo agent ...                the stub agent's commands, in
+//!                               demo/agent.rs
 //! ```
 //!
 //! A `<key>` names a counter of the first kind, and `<kind>/<key>` an
@@ -49,6 +51,8 @@
 
 #[path = "demo/act.rs"]
 mod act;
+#[path = "demo/agent.rs"]
+mod agent;
 #[path = "demo/command.rs"]
 mod command;
 #[path = "demo/counter.rs"]
@@ -114,6 +118,7 @@ async fn demo() -> Result<()> {
     factories
         .insert(workspace::KIND.to_owned(), workspace::factory());
     factories.insert(workspace::REALM.to_owned(), realm::factory());
+    factories.insert(workspace::AGENT.to_owned(), agent::factory());
     // The workspace does not start where there is no sandbox.
     let options = match Sandbox::open(Isolation::Sandboxed) {
         Ok(sandbox) => options.with_value(Arc::new(sandbox)),
@@ -144,8 +149,8 @@ async fn demo() -> Result<()> {
     result
 }
 
-/// Runs one command line split into words: the stub realm's, or one
-/// for the counters of `kinds`.
+/// Runs one command line split into words: the stub realm's, a stub
+/// agent's, or one for the counters of `kinds`.
 async fn run_line(
     host: &Host,
     kinds: &[String],
@@ -154,6 +159,9 @@ async fn run_line(
     match words.split_first() {
         Some((first, rest)) if first == "realm" => {
             realm::run(host, rest).await
+        }
+        Some((first, rest)) if first == "agent" => {
+            agent::run(host, rest).await
         }
         _ => run(host, kinds, words).await,
     }
