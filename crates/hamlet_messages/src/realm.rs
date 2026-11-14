@@ -52,8 +52,9 @@ pub struct NeedsChief {
     /// The realm's task of the call, as the call carried it (W1).
     pub realm_task: Option<RealmTask>,
     pub needs: Vec<Need>,
-    /// The call in words for the chief, the secrets taken out, at
-    /// most 2000 characters.
+    /// The call in words for the chief, the secrets taken out: a
+    /// command's script, or a change's path and texts, each text cut
+    /// to 2000 characters.
     pub subject: String,
     /// An edit's change, the secrets taken out.
     pub change: Option<EditDiff>,

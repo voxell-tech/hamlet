@@ -49,9 +49,6 @@ pub(super) const SCHEMA: &str = "CREATE TABLE IF NOT EXISTS waits (
 	opened_at INTEGER NOT NULL,
 	PRIMARY KEY (agent, call)) STRICT";
 
-/// The most characters of a call shown to a chief.
-const SUBJECT_CHARS: usize = 2000;
-
 /// What a waiting call runs if a chief allows it: its own request,
 /// never what the workspace read for it.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -146,8 +143,7 @@ pub(super) async fn open(
         return Ok(Err(CallRefusal::HoldsSecret));
     }
     let scrub = |words: &str| scrub_text(secrets, words);
-    let subject: String =
-        scrub(&opening.words).chars().take(SUBJECT_CHARS).collect();
+    let subject = scrub(&opening.words);
     let change = opening.change.map(|change| EditDiff {
         diff: scrub(&change.diff),
         patch: scrub(&change.patch),
@@ -430,9 +426,15 @@ impl Workspace {
                         .iter()
                         .all(|need| wait.needs.contains(need)) =>
                 {
+                    // The chief allowed the network, or the reach
+                    // gives it now.
+                    let network = needs.contains(&Need::Network)
+                        || reach
+                            .footing()
+                            .is_some_and(|footing| footing.network);
                     return Ok(Rechecked::Pass {
                         reach,
-                        network: needs.contains(&Need::Network),
+                        network,
                         secrets,
                     });
                 }

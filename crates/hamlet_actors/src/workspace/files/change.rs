@@ -322,7 +322,12 @@ impl Workspace {
                 base_hash: Some(hashed(
                     planned.current.bytes.as_deref(),
                 )),
-                words: words_of(&path, &request.asked, &planned),
+                words: words_of(
+                    &path,
+                    &request.asked,
+                    &planned,
+                    &secrets,
+                ),
                 change: planned.diff,
                 request: pending.clone(),
             };
@@ -693,29 +698,51 @@ fn decoded<T: serde::de::DeserializeOwned>(
 }
 
 /// The change of `asked` at `path`, as `planned`, in words for a
-/// chief, as today's petition words it.
+/// chief, as today's petition words it: each part with `secrets`
+/// taken out, then cut.
 fn words_of(
     path: &str,
     asked: &Asked<'_>,
     planned: &Planned,
+    secrets: &[String],
 ) -> String {
+    let part = |text: &str| cut(&scrub_text(secrets, text));
+    let path = part(path);
     match (asked, &planned.current.bytes) {
         (Asked::Write(content), None) => {
-            format!("{path}\nA new file:\n{content}")
+            format!("{path}\nA new file:\n{}", part(content))
         }
         (Asked::Write(content), Some(old)) => format!(
-            "{path}\nReplace:\n{}\nWith:\n{content}",
-            String::from_utf8_lossy(old)
+            "{path}\nReplace:\n{}\nWith:\n{}",
+            part(&String::from_utf8_lossy(old)),
+            part(content)
         ),
         (Asked::Edit(edits), _) => {
-            edits.iter().fold(path.to_owned(), |words, edit| {
+            edits.iter().fold(path, |words, edit| {
                 format!(
                     "{words}\nReplace:\n{}\nWith:\n{}",
-                    edit.old, edit.new
+                    part(&edit.old),
+                    part(&edit.new)
                 )
             })
         }
     }
+}
+
+// Copied from the server's `oversight/gate.rs` `cut`.
+/// `text` cut to its first 2000 characters, saying how many more
+/// there were.
+fn cut(text: &str) -> String {
+    const SHOWN: usize = 2000;
+    let count = text.chars().count();
+    if count <= SHOWN {
+        return text.into();
+    }
+    let end = text
+        .char_indices()
+        .nth(SHOWN)
+        .map_or(text.len(), |(i, _)| i);
+    format!("{}\n[{} more characters]", &text[..end], count - SHOWN)
 }
 
 /// What a change plans to write, copied out of the request for its

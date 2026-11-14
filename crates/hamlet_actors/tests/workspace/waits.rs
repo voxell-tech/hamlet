@@ -517,3 +517,86 @@ async fn a_wait_the_realm_was_not_told_of_stays() {
     );
     assert_eq!(waits(&dir), 2);
 }
+
+/// A granted command runs under the reach in force: with the network
+/// when the reach gives it since, though the chief was asked for it
+/// too, and when trust given while it waited now lets it run with no
+/// chief. Each runs under the policy of a command that needs none.
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_granted_command_runs_under_the_reach_in_force() {
+    let dir = Scratch::new("workspace-wait-network");
+    let (_project, folder) = project("workspace-wait-network-p", &[]);
+    let peers = Arc::new(Peers::default());
+    let host = host_with(&dir, peers.clone()).await;
+    realm_sets(&host, 1, manual(&folder)).await;
+    let fetches =
+        agent_runs(&host, &run("c1", "curl -s localhost:9; true"))
+            .await;
+    realm_sets(&host, 2, manual_with_network(&folder)).await;
+    agent_runs(&host, &run("c2", "true")).await;
+    chief(&host, "c1", Answer::Allow(Scope::Once)).await;
+    told_within(&peers, 1, Duration::from_secs(10)).await;
+    let Reach::Agent(mut trusting) = manual_with_network(&folder)
+    else {
+        unreachable!()
+    };
+    trusting.trust = vec![hamlet_messages::workspace::reach::Trust {
+        conversation: ConversationId("c1".into()),
+        edits: false,
+        commands: true,
+    }];
+    realm_sets(&host, 3, Reach::Agent(trusting)).await;
+    let plain = agent_runs(&host, &run("c3", "true")).await;
+    chief(&host, "c2", Answer::Allow(Scope::Once)).await;
+    told_within(&peers, 2, Duration::from_secs(10)).await;
+    host.shutdown().await.unwrap();
+
+    assert_eq!(
+        fetches,
+        RunAnswer::WaitsForChief(vec![Need::Network, Need::Command])
+    );
+    let RunAnswer::Done(plain) = plain else {
+        panic!("a trusted command answered {plain:?}");
+    };
+    let policies = outcomes(&peers)
+        .into_iter()
+        .map(|outcome| match outcome {
+            Outcome::Ran(end) => (end.exit, end.policy),
+            other => panic!("the agent was told {other:?}"),
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        policies,
+        [
+            (Exit::Code(0), plain.policy.clone()),
+            (Exit::Code(0), plain.policy)
+        ]
+    );
+}
+
+/// A chief is shown each text of a change cut to 2000 characters, as
+/// today, so a write over a long file still shows what it writes.
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_chief_is_shown_each_text_of_a_change_cut() {
+    let dir = Scratch::new("workspace-wait-long");
+    let old = "o".repeat(3000);
+    let (_project, folder) =
+        project("workspace-wait-long-p", &[("a.md", &old)]);
+    let peers = Arc::new(Peers::default());
+    let host = host_with(&dir, peers.clone()).await;
+    realm_sets(&host, 1, manual(&folder)).await;
+    let file = folder.join("a.md");
+    ask(&host, &agent(AGENT), &write("w1", &file, "new")).await;
+    host.shutdown().await.unwrap();
+
+    assert_eq!(
+        asked(&peers)[0].subject,
+        format!(
+            "{}\nReplace:\n{}\n[1000 more characters]\nWith:\nnew",
+            file.display(),
+            &old[..2000]
+        )
+    );
+}
