@@ -101,7 +101,7 @@ async fn a_worker_reads_its_starters_files_and_changes_none() {
         let starters = dir.join("actors/agent/3.fs");
         let others = dir.join("actors/agent/9.fs");
         for (fs, words) in
-            [(&starters, "remember"), (&others, "private")]
+            [(&starters, "remember"), (&others, "not-for-workers")]
         {
             std::fs::create_dir_all(fs).unwrap();
             std::fs::write(fs.join("notes.md"), words).unwrap();
@@ -178,7 +178,7 @@ async fn a_worker_reads_its_starters_files_and_changes_none() {
         );
         assert_ne!(writes.exit, Exit::Code(0), "{case}: {writes:?}");
         assert_ne!(other.exit, Exit::Code(0), "{case}: {other:?}");
-        assert!(!other.output.contains("private"), "{case}");
+        assert!(!other.output.contains("not-for-workers"), "{case}");
         let FileAnswer::Text(text) = read_tool else {
             panic!("{case}: the read answered {read_tool:?}");
         };
