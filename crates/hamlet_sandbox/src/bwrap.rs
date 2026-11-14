@@ -8,7 +8,7 @@ use hamlet_os::fs::path::text;
 use super::Confined;
 use super::policy::{
     Grant, Layer, Policy, above_roots, canon_text, depth,
-    fixed_roots, is_dir, is_granted_writes, is_readable, layers,
+    fixed_roots, is_dir, is_locked, is_readable, is_writable, layers,
     write_roots,
 };
 
@@ -82,7 +82,7 @@ pub(super) fn command(
         let words = words.iter().map(ToString::to_string).collect();
         mounts.push((depth(path), rank, words));
     };
-    for Layer { path, grant } in layers(policy, tmp) {
+    for Layer { path, real, grant } in layers(policy, tmp) {
         match grant {
             // An empty folder over it. One that is missing has
             // nothing to hide and cannot be mounted over.
@@ -96,13 +96,19 @@ pub(super) fn command(
             Grant::Read => {
                 mount(&path, 1, &["--ro-bind-try", &path, &path]);
             }
+            // A locked path's mount lies under deeper ones, so a
+            // write root inside one is bound read-only itself.
+            Grant::Write if is_locked(policy, &real) => {
+                mount(&path, 2, &["--ro-bind", &path, &path]);
+            }
             Grant::Write => {
                 mount(&path, 2, &["--bind", &path, &path]);
             }
         }
     }
     // Mount points keep roots and their writable ancestors in place.
-    // One under a hidden root is in its empty folder and needs none.
+    // One under a hidden root is in its empty folder, and one under a
+    // locked path in its read-only mount: neither needs one.
     let writes = write_roots(policy, tmp);
     let mut points = above_roots(policy, tmp);
     points.extend(fixed_roots(policy, tmp));
@@ -111,7 +117,7 @@ pub(super) fn command(
     for path in &points {
         if Path::new(path).exists()
             && !writes.contains(path)
-            && is_granted_writes(policy, tmp, &canon_text(path))
+            && is_writable(policy, tmp, &canon_text(path), false)
         {
             mount(path, 3, &["--bind", path, path]);
         }

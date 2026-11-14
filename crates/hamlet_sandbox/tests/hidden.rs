@@ -314,3 +314,63 @@ async fn a_hidden_folder_named_through_a_link_stays_hidden() {
     }
     assert!(found.is_empty(), "{found:#?}");
 }
+
+/// A write root inside a locked folder stays read-only, as a cache a
+/// hand-added tool's manifest grants inside the tool's own folder.
+#[tokio::test]
+async fn a_write_root_inside_a_locked_folder_stays_read_only() {
+    let scratch = Scratch::new("sandbox-locked-cache");
+    let dir = scratch.join("tool");
+    let cache = dir.join("cache");
+    fs::create_dir_all(&cache).unwrap();
+    let policy = Policy {
+        ro: vec![dir.clone()],
+        rw: vec![cache.clone()],
+        locked: vec![dir.clone()],
+        env: base_env(),
+        ..Policy::default()
+    };
+    let env = Env::new(
+        &cache.to_string_lossy(),
+        policy,
+        Sandbox::testing(),
+    )
+    .unwrap();
+    let new = cache.join("new.md");
+    let wrote = run(
+        &env,
+        &format!("printf x > {} && echo wrote", shown(&new)),
+    )
+    .await;
+    let by_file = env.write_file(&new.to_string_lossy(), "x");
+    assert!(!wrote.contains("wrote"), "a command wrote: {wrote:?}");
+    assert!(by_file.is_err(), "a file write: {by_file:?}");
+    assert!(!new.exists());
+}
+
+/// A write root at the place of a hidden one is granted, as the
+/// deepest root at a place with the greater grant decides.
+#[tokio::test]
+async fn a_write_root_at_a_hidden_place_is_granted() {
+    let scratch = Scratch::new("sandbox-hidden-granted");
+    let dir = scratch.join("folder");
+    fs::create_dir_all(&dir).unwrap();
+    let policy = Policy {
+        rw: vec![dir.clone()],
+        open: true,
+        hidden: vec![dir.clone()],
+        env: host_env(),
+        ..Policy::default()
+    };
+    let env =
+        Env::new(&dir.to_string_lossy(), policy, Sandbox::testing())
+            .unwrap();
+    let new = dir.join("new.md");
+    let wrote = run(
+        &env,
+        &format!("printf x > {} && echo wrote", shown(&new)),
+    )
+    .await;
+    assert!(wrote.contains("wrote"), "{wrote:?}");
+    assert_eq!(fs::read_to_string(&new).unwrap(), "x");
+}

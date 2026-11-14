@@ -61,19 +61,19 @@ impl Policy {
 
     /// Whether a command under this policy reads `path`, where the
     /// system resolves it.
+    /// No temp folder counts: another policy can share one.
     pub fn reads(&self, path: &Path) -> bool {
-        is_readable(self, &tmp_of(self), &canon_text(&text(path)))
+        let real = canon_text(&text(path));
+        !is_within_text(&real, &temp_root())
+            && is_readable(self, &tmp_of(self), &real)
     }
 
     /// Whether a command under this policy writes `path`, where the
-    /// system resolves it.
+    /// system resolves it. No temp folder counts.
     pub fn writes(&self, path: &Path) -> bool {
-        is_writable(
-            self,
-            &tmp_of(self),
-            &canon_text(&text(path)),
-            false,
-        )
+        let real = canon_text(&text(path));
+        !is_within_text(&real, &temp_root())
+            && is_writable(self, &tmp_of(self), &real, false)
     }
 }
 
@@ -325,20 +325,9 @@ pub(crate) fn fixed_roots(policy: &Policy, tmp: &str) -> Vec<String> {
     roots
 }
 
-/// True when the deepest write or hidden root of `policy` that holds
-/// `real`, a path without links, is a write root. A locked path is
-/// still granted.
-pub(crate) fn is_granted_writes(
-    policy: &Policy,
-    tmp: &str,
-    real: &str,
-) -> bool {
-    deciding(policy, tmp, real, false) == Some(Grant::Write)
-}
-
 /// True when `real`, a path without links, lies in a locked path,
 /// compared without case as a hidden root is.
-fn is_locked(policy: &Policy, real: &str) -> bool {
+pub(crate) fn is_locked(policy: &Policy, real: &str) -> bool {
     let folded = real.to_lowercase();
     policy.locked.iter().any(|each| {
         is_within_text(
@@ -358,40 +347,70 @@ pub(crate) enum Grant {
     Write,
 }
 
-/// A root of a policy, as written, and what it grants.
+/// A root of a policy, as written and where it really is, and what
+/// it grants.
 pub(crate) struct Layer {
     pub path: String,
+    pub real: String,
     pub grant: Grant,
 }
 
 /// The roots of `policy` with `tmp` as its temp folder, each before
 /// the roots inside it, so that laid down in this order the deepest
-/// root that holds a path decides it. Another house's temp folder is
-/// as private as the house, so the folder of them all is hidden.
+/// root that holds a path decides it. Of roots at one place only the
+/// greatest grant is kept. Another house's temp folder is as private
+/// as the house, so the folder of them all is hidden. With the
+/// machine closed, a hidden root no grant holds has nothing to hide.
 pub(crate) fn layers(policy: &Policy, tmp: &str) -> Vec<Layer> {
     let mut hidden =
         policy.hidden.iter().map(|p| text(p)).collect::<Vec<_>>();
     hidden.push(temp_root());
     let with = |grant, paths: Vec<String>| {
-        paths.into_iter().map(move |path| Layer { path, grant })
+        paths.into_iter().map(move |path| Layer {
+            real: canon_text(&path),
+            path,
+            grant,
+        })
     };
-    let mut layers = with(Grant::Nothing, hidden)
+    let mut all = with(Grant::Nothing, hidden)
         .chain(with(
             Grant::Read,
             policy.ro.iter().map(|p| text(p)).collect(),
         ))
         .chain(with(Grant::Write, write_roots(policy, tmp)))
         .collect::<Vec<_>>();
-    layers.sort_by_key(|layer| (depth(&layer.path), layer.grant));
+    all.sort_by_key(|layer| (names(&layer.real), layer.grant));
+    let mut layers = Vec::<Layer>::new();
+    for layer in all {
+        match layers.last_mut() {
+            Some(last) if last.real == layer.real => *last = layer,
+            _ => layers.push(layer),
+        }
+    }
+    if !policy.open {
+        let granted = layers
+            .iter()
+            .filter(|layer| layer.grant != Grant::Nothing)
+            .map(|layer| layer.real.clone())
+            .collect::<Vec<_>>();
+        layers.retain(|layer| {
+            layer.grant != Grant::Nothing
+                || granted
+                    .iter()
+                    .any(|root| is_within_text(&layer.real, root))
+        });
+    }
     layers
+}
+
+/// How many names deep `real`, a path without links, lies.
+fn names(real: &str) -> usize {
+    real.split('/').filter(|name| !name.is_empty()).count()
 }
 
 /// How many names deep `path` really lies, past its links.
 pub(crate) fn depth(path: &str) -> usize {
-    canon_text(path)
-        .split('/')
-        .filter(|name| !name.is_empty())
-        .count()
+    names(&canon_text(path))
 }
 
 /// The grant of the deepest root of `policy` that holds `real`, a
@@ -409,14 +428,14 @@ fn deciding(
         .into_iter()
         .rev()
         .find(|layer| {
-            let root = canon_text(&layer.path);
+            let root = &layer.real;
             match layer.grant {
                 Grant::Nothing => {
                     is_within_text(&folded, &root.to_lowercase())
                 }
                 Grant::Read if !reads => false,
                 Grant::Read | Grant::Write => {
-                    is_within_text(real, &root)
+                    is_within_text(real, root)
                 }
             }
         })
@@ -445,7 +464,7 @@ pub(crate) fn is_writable(
     real: &str,
     moved: bool,
 ) -> bool {
-    is_granted_writes(policy, tmp, real)
+    deciding(policy, tmp, real, false) == Some(Grant::Write)
         && !is_locked(policy, real)
         && !(moved
             && fixed_roots(policy, tmp).iter().any(|root| {
@@ -487,6 +506,16 @@ pub(crate) fn above_roots(policy: &Policy, tmp: &str) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The temp folder a policy's commands get is not a place its
+    /// file operations reach: two policies can share it.
+    #[test]
+    fn a_policy_reads_and_writes_no_temp_folder() {
+        let policy = Policy::default();
+        let file = path::join(&[tmp_of(&policy), "notes.md".into()]);
+        assert!(!policy.reads(Path::new(&file)));
+        assert!(!policy.writes(Path::new(&file)));
+    }
 
     #[test]
     fn a_policy_hash_is_stable() {

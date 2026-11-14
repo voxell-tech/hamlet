@@ -172,7 +172,7 @@ fn profile(policy: &Policy, tmp: &str) -> Profile {
     // Of two rules that match, the later one decides, so each root
     // comes after the roots that hold it: the deepest root decides,
     // also for a hidden folder inside a granted one.
-    for Layer { path, grant } in layers(policy, tmp) {
+    for Layer { path, grant, .. } in layers(policy, tmp) {
         let (kind, rule) = match grant {
             Grant::Nothing => (
                 "HIDDEN",
