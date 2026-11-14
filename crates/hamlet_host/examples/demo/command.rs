@@ -218,8 +218,8 @@ fn id_of(at: &Address) -> String {
     format!("{}/{}", at.kind, at.key)
 }
 
-/// How the demo prints `error`: led by the `group.code` of an actor's
-/// error in its chain, as `actor.not_found`.
+/// `error` as the demo prints it, led by the `group.code` of the
+/// first `ActorError` in its chain, as `actor.not_found`.
 pub fn shown(error: &anyhow::Error) -> String {
     match error
         .chain()

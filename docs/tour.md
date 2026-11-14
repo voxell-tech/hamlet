@@ -194,8 +194,8 @@ Nothing else makes an actor.
 `local/call.rs` holds the calls: `call` calls an action
 of the actor at an `Address`, starting it from its file first, within
 the caller's deadline, and logs the call with its caller, its target
-and its action. A call takes no cause: a call that belongs to a realm
-task carries that task in its own message. A call to a key with no
+and its action. A call that belongs to a realm task carries that task
+in its own message. A call to a key with no
 actor fails with `actor.not_found` and
 makes no file. Each call carries its `Caller` as its connection's
 parameters: none
@@ -277,8 +277,8 @@ five tries runs nothing for it: it moves the row to
 `_actor_schedule_set_aside`, and the host reports the timer on
 `Host::events` as `HostEvent::TimerSetAside`. `Host::set_aside_timers` lists an
 actor's set-aside timers, and `Host::rearm_timer` puts one back with its
-tries counted from none. A set-aside timer leaves only that way, by a
-re-arm that succeeds, or with its actor's file at a destroy.
+tries counted from none. A set-aside timer leaves only by a re-arm that
+succeeds, or with its actor's file at a destroy.
 
 `examples/demo.rs` drives
 the host from the command line, under a host name and with counter kinds

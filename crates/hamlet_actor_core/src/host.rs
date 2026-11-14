@@ -35,9 +35,7 @@ pub type HostHandle = Arc<dyn ActorHost>;
 ///
 /// Most methods with a default serve what a local host does not
 /// have: a token, HTTP request counting, hibernating WebSockets and
-/// the key-value store from before SQLite. `timer_set_aside` does
-/// nothing by default, for a host that reports no set-aside timer,
-/// such as a test's; the local host implements it. `Any` lets a host
+/// the key-value store from before SQLite. `Any` lets a host
 /// downcast the handle an actor's context holds back to its own
 /// type.
 pub trait ActorHost: Any + Send + Sync + 'static {

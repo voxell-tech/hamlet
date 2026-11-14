@@ -933,9 +933,9 @@ async fn a_shutdown_returns_while_a_start_waits_for_a_held_file() {
     // Long enough for the create to reach its file.
     tokio::time::sleep(Duration::from_millis(300)).await;
     assert!(!create.is_finished(), "the create ended at once");
-    // Well under SQLite's 5 s busy timeout, after which the open
-    // would give up by itself: a shutdown that waited for it would
-    // still return before a longer bound.
+    // Well under rusqlite's default 5 s busy timeout, after which the
+    // open would give up by itself: a shutdown that waited for it
+    // would still return before a longer bound.
     tokio::time::timeout(Duration::from_secs(3), host.shutdown())
         .await
         .expect("the shutdown waited for the held file")
@@ -976,7 +976,8 @@ async fn creates_with_no_time_to_start_leave_no_file_when_they_fail()
         let created = host.create("made", &key, cbor("x")).await;
         outcomes.push((key, created.map_err(|error| code(&error))));
     }
-    // Long enough for an open its start gave up to write, as it did.
+    // Long enough for an open its start gave up to write, if it
+    // would.
     tokio::time::sleep(Duration::from_millis(500)).await;
     host.shutdown().await.unwrap();
     let wrong = outcomes
