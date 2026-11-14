@@ -12,6 +12,7 @@ use crate::actor::messages::ActorEvent;
 pub struct Reply<T> {
     tx: Option<oneshot::Sender<Result<T>>>,
     on_reply: Option<Box<dyn FnOnce(&Result<T>) + Send>>,
+    on_cut_off: Option<Box<dyn FnOnce() + Send>>,
 }
 
 impl<T> Reply<T> {
@@ -26,8 +27,32 @@ impl<T> Reply<T> {
         self
     }
 
+    /// Runs `on_cut_off` just before the reply is answered for a
+    /// handler that did not run to its end: by [`Reply::cut_off`], or
+    /// by a drop with no panic of the handler's to report.
+    pub(crate) fn on_cut_off(
+        mut self,
+        on_cut_off: impl FnOnce() + Send + 'static,
+    ) -> Self {
+        self.on_cut_off = Some(Box::new(on_cut_off));
+        self
+    }
+
     pub fn send(mut self, result: Result<T>) {
         self.deliver(result);
+    }
+
+    /// Answers `error` for a handler that was cut off before its end,
+    /// as by its actor's stop.
+    pub fn cut_off(mut self, error: anyhow::Error) {
+        self.cut();
+        self.deliver(Err(error));
+    }
+
+    fn cut(&mut self) {
+        if let Some(on_cut_off) = self.on_cut_off.take() {
+            on_cut_off();
+        }
     }
 
     /// Runs cancellation-safe work and replies with its result. If
@@ -58,12 +83,13 @@ impl<T> Reply<T> {
     }
 }
 
-/// A reply dropped unsent answers `actor.dropped_reply`, or
-/// `actor.panicked` when the thread that drops it is unwinding from a
-/// panic. A handler that panics in the task holding its reply, as
-/// each action of the authoring layer does, drops the reply that way,
-/// so the panic reads as the handler's outcome, like an error it
-/// returned, and a one-shot it ran is not kept to run again.
+/// A reply dropped unsent answers `actor.dropped_reply`, as a cut-off
+/// of its handler, or `actor.panicked` when the thread that drops it
+/// is unwinding from a panic. A handler that panics in the task
+/// holding its reply, as each action of the authoring layer does,
+/// drops the reply that way, so the panic reads as the handler's
+/// outcome, like an error it returned, and a one-shot it ran is not
+/// kept to run again.
 ///
 /// A panic in an actor's event loop answers each reply the loop
 /// received as panicked. A reply still queued in the loop's channel
@@ -74,16 +100,17 @@ impl<T> Reply<T> {
 impl<T> Drop for Reply<T> {
     fn drop(&mut self) {
         if self.tx.is_some() {
-            self.deliver(Err(
+            let error =
                 if std::thread::panicking() && !UNREACHED.get() {
                     crate::error::ActorRuntime::Panicked {
                         operation: "a handler".to_owned(),
                     }
                     .build()
                 } else {
+                    self.cut();
                     crate::error::ActorLifecycle::DroppedReply.build()
-                },
-            ));
+                };
+            self.deliver(Err(error));
         }
     }
 }
@@ -104,6 +131,7 @@ impl<T> From<oneshot::Sender<Result<T>>> for Reply<T> {
         Self {
             tx: Some(tx),
             on_reply: None,
+            on_cut_off: None,
         }
     }
 }

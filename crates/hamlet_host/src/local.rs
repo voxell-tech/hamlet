@@ -31,7 +31,7 @@
 use std::collections::HashMap;
 use std::fs::{File, TryLockError};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Arc, Weak};
 use std::time::Duration;
 
@@ -54,7 +54,7 @@ use hamlet_actor_error::ActorError;
 use parking_lot::Mutex;
 use rusqlite::{Connection, OptionalExtension};
 use tokio::sync::{broadcast, oneshot, watch};
-use tokio::task::AbortHandle;
+use tokio::task::{AbortHandle, JoinHandle};
 
 pub use self::access::{HostRef, Values};
 pub use self::call::Caller;
@@ -230,11 +230,12 @@ impl From<ShutdownKind> for Request {
 /// What the waiters of a `Reading`, `Starting`, `Stopping` or
 /// `Destroying` state await: the channel closes when the work that
 /// owns the state ends, and holds how a start failed, or that a stop
-/// missed its deadline.
+/// missed its deadline or failed to remove a destroyed actor's files.
 type Waiters = watch::Receiver<Option<Failed>>;
 
-/// How a start failed, or a stop missed its deadline, for each of its
-/// waiters to return.
+/// How a start failed, or a stop missed its deadline or failed to
+/// remove a destroyed actor's files, for each of its waiters to
+/// return.
 #[derive(Clone)]
 struct Failed {
     error: ActorError,
@@ -386,7 +387,8 @@ impl Owned {
     }
 
     /// Tells the waiters that the start this owns failed, or the stop
-    /// it owns missed its deadline, with `error`.
+    /// it owns missed its deadline or failed to remove the files of
+    /// the actor it destroyed, with `error`.
     fn fail(&self, error: &anyhow::Error) {
         self.wake.send_replace(Some(Failed::new(error)));
     }
@@ -504,10 +506,17 @@ impl Stop {
         drop(replaced);
         if destroyed {
             let path = actor_path(&host.dir, &owned.actor_id);
-            return tokio::task::spawn_blocking(move || {
+            let removed = tokio::task::spawn_blocking(move || {
                 destroy_file(&path)
             })
-            .await?;
+            .await
+            .map_err(anyhow::Error::from)
+            .flatten();
+            // A destroy that joined this stop answers it too.
+            if let Err(error) = &removed {
+                owned.fail(error);
+            }
+            return removed;
         }
         marked.map(|_| ()).context("mark the actor stopped")
     }
@@ -604,13 +613,13 @@ pub struct HostOptions {
     /// tried again, and a failure of it keeps the deadline the actor
     /// held.
     pub start_retry: Duration,
-    /// The host's name, a plain file name: `host` by default. The
-    /// host locks the folder with `<name>.lock`, so hosts of
-    /// different names open one folder at once, and a second host of
-    /// one name is refused. Hosts that share a folder run kinds of
-    /// their own: each host locks `actors/<kind>/.lock` for each of
-    /// its kinds, and a host given a kind another host holds is
-    /// refused.
+    /// The host's name, which takes what a kind takes (see
+    /// [`Host`]): `host` by default. The host locks the folder with
+    /// `<name>.lock`, so hosts of different names open one folder at
+    /// once, and a second host of one name is refused. Hosts that
+    /// share a folder run kinds of their own: each host locks
+    /// `actors/<kind>/.lock` for each of its kinds, and a host given
+    /// a kind another host holds is refused.
     pub name: String,
     /// What the host gives its actors, by type: none by default. See
     /// [`HostOptions::with_value`].
@@ -867,11 +876,15 @@ fn destroying(generation: Arc<Generation>, done: Waiters) -> Life {
     }
 }
 
-/// The actors of one realm folder, run in this process. When the last
-/// clone drops, the host starts no actor again, as after
-/// [`Host::shutdown`], and cancels the timers of stopped actors;
-/// their deadlines stay in their files for the next boot. Starts and
-/// stops under way end on their own, without a `Host`.
+/// The actors of one realm folder, run in this process. An actor is
+/// named by its kind and its key, which name its file
+/// `actors/<kind>/<key>.sqlite`: each takes lower-case letters,
+/// digits, `-`, `_` and `.`, and does not start with `.`. Every
+/// method refuses any other kind or key. When the last clone drops,
+/// the host starts no actor again, as after [`Host::shutdown`], and
+/// cancels the timers of stopped actors; their deadlines stay in
+/// their files for the next boot. Starts and stops under way end on
+/// their own, without a `Host`.
 #[derive(Clone)]
 pub struct Host(Arc<Handle>);
 
@@ -901,9 +914,9 @@ struct LocalHandle {
 impl Host {
     /// Takes the folder's lock and opens it, with each kind of
     /// `factories` running in this host, with the default
-    /// [`HostOptions`]. Fails when another host of the same name
-    /// holds the folder's lock, or another host holds one of the
-    /// kinds.
+    /// [`HostOptions`]. Fails when a kind is not a name [`Host`]
+    /// takes, another host of the same name holds the folder's lock,
+    /// or another host holds one of the kinds.
     pub fn open(
         dir: &Path,
         factories: HashMap<String, ActorFactory>,
@@ -918,6 +931,9 @@ impl Host {
         options: HostOptions,
     ) -> Result<Self> {
         plain(&options.name, "host name")?;
+        for kind in factories.keys() {
+            plain(kind, "actor kind")?;
+        }
         call::check_kinds(&factories)?;
         std::fs::create_dir_all(dir.join("actors"))?;
         let directory = Directory::local(factories);
@@ -1169,7 +1185,9 @@ impl Host {
     /// same way. Fails for an id of no kind of this host, before
     /// anything reaches the folder, and a destroy of a stopped actor
     /// fails in a host that has shut down, which may no longer hold
-    /// the folder.
+    /// the folder. A destroy answers `Ok` only once the actor's files
+    /// are gone: a removal that fails fails the destroy and every
+    /// caller that waited for it, whichever stop removed them.
     ///
     /// A stop ends within [`HostOptions::stop_deadline`], whatever
     /// the actor does. An actor that does not stop by then is given
@@ -1681,7 +1699,7 @@ fn retry_start(owned: &Owned, due: i64) {
 }
 
 /// The id of the actor of `kind` and `key`, which names its file.
-/// Both must be plain file names.
+/// Fails unless both are plain.
 fn actor_id(kind: &str, key: &str) -> Result<String> {
     for part in [kind, key] {
         plain(part, "actor kind or key")?;
@@ -1689,19 +1707,23 @@ fn actor_id(kind: &str, key: &str) -> Result<String> {
     Ok(format!("{kind}/{key}"))
 }
 
-/// Fails unless `name`, a `what`, is a plain file name.
+/// Fails unless `name`, a `what`, is plain: lower-case letters,
+/// digits, `-`, `_` and `.`, not starting with `.`. With no
+/// upper-case letter, two names never name one file, also on a disk
+/// that ignores case.
 fn plain(name: &str, what: &str) -> Result<()> {
     let plain = !name.is_empty()
         && !name.starts_with('.')
         && name.len() <= 128
         && name.bytes().all(|byte| {
-            byte.is_ascii_alphanumeric()
+            byte.is_ascii_lowercase()
+                || byte.is_ascii_digit()
                 || matches!(byte, b'-' | b'_' | b'.')
         });
     ensure!(
         plain,
-        "`{name}` is not a valid {what}: use letters, digits, `-`, \
-         `_` and `.`, and do not start with `.`"
+        "`{name}` is not a valid {what}: use lower-case letters, \
+         digits, `-`, `_` and `.`, and do not start with `.`"
     );
     Ok(())
 }
@@ -1820,12 +1842,15 @@ impl Found {
 /// and with [`Found::Exists`] for [`Open::New`] and an actor's row. A
 /// file that holds a destroy a kill cut off is removed first, as the
 /// destroy would have: the start then makes the actor anew if `open`
-/// makes it, and finds nothing if not.
+/// makes it, and finds nothing if not. Before each write to the
+/// actor's files it claims `claim`, and fails without writing once
+/// its start gave it up.
 fn open_actor_file(
     dir: &Path,
     kind: &str,
     key: &str,
     open: &Open,
+    claim: &OpenClaim,
 ) -> Result<(PlainSqlite, Bumped)> {
     if open.makes() {
         std::fs::create_dir_all(dir.join("actors").join(kind))?;
@@ -1833,18 +1858,85 @@ fn open_actor_file(
     let path = actor_path(dir, &format!("{kind}/{key}"));
     // Runs twice at most: the second open finds no file to destroy.
     loop {
-        if !open.makes() && !path.try_exists()? {
-            return Err(Found::Nothing.into());
+        if !path.try_exists()? {
+            if !open.makes() {
+                return Err(Found::Nothing.into());
+            }
+            claim.write()?;
         }
         let mut conn = plain_sqlite::open(&path, open.makes())?;
-        let bumped = bump_generation(&mut conn, kind, key, open)
-            .with_context(|| format!("start {}", path.display()))?;
+        let bumped =
+            bump_generation(&mut conn, kind, key, open, claim)
+                .with_context(|| {
+                    format!("start {}", path.display())
+                })?;
         if let Some(bumped) = bumped {
             return Ok((PlainSqlite::serve(conn)?, bumped));
         }
         conn.close().map_err(|(_, error)| error)?;
+        claim.write()?;
         destroy_file(&path)?;
     }
+}
+
+/// Decides once whether a start's open of the actor's file may write
+/// to it: the open claims it as it is about to write, and the start
+/// as it gives the open up, at its deadline or the host's shutdown.
+/// Whichever comes first has it. An open given up writes nothing,
+/// however late it ends, also after the host let the folder go.
+#[derive(Default)]
+struct OpenClaim(AtomicU8);
+
+impl OpenClaim {
+    const FREE: u8 = 0;
+    const OPEN: u8 = 1;
+    const GIVEN_UP: u8 = 2;
+
+    /// Claims for the open, which may then write. Fails once its
+    /// start gave it up.
+    fn write(&self) -> Result<()> {
+        match self.0.compare_exchange(
+            Self::FREE,
+            Self::OPEN,
+            Ordering::SeqCst,
+            Ordering::SeqCst,
+        ) {
+            Ok(_) | Err(Self::OPEN) => Ok(()),
+            Err(_) => bail!("the start gave its open of the file up"),
+        }
+    }
+
+    /// Claims for the start, which gives the open up. Answers whether
+    /// it did: not when the open claimed first, and so writes.
+    fn give_up(&self) -> bool {
+        self.0
+            .compare_exchange(
+                Self::FREE,
+                Self::GIVEN_UP,
+                Ordering::SeqCst,
+                Ordering::SeqCst,
+            )
+            .is_ok()
+    }
+}
+
+/// A start's open of the actor's file while it runs on a blocking
+/// thread: its task, and the claim that decides whether it writes.
+type Opening =
+    (JoinHandle<Result<(PlainSqlite, Bumped)>>, Arc<OpenClaim>);
+
+/// Gives up the open of a start that failed while the open ran. An
+/// open that has not claimed its write never writes. One that has
+/// holds the file's lock, or makes a file that was not there, so its
+/// write waits only for a program that opened that new file in the
+/// same instant, and then no longer than SQLite's busy timeout: this
+/// waits for it, and returns the file it opened.
+async fn give_up_open((task, claim): Opening) -> Option<PlainSqlite> {
+    if claim.give_up() {
+        return None;
+    }
+    let (file, _) = task.await.ok()?.ok()?;
+    Some(file)
 }
 
 /// What a start reads from the actor's `_hamlet_actor` row.
@@ -1866,12 +1958,14 @@ struct Bumped {
 /// and [`Open::Existing`], and with [`Found::Exists`] for a row and
 /// [`Open::New`], and changes nothing then. The row is the actor: of
 /// two creates of one key, the one whose transaction writes it first
-/// makes the actor.
+/// makes the actor. Claims `claim` before it commits, and changes
+/// nothing if its start gave it up.
 fn bump_generation(
     conn: &mut Connection,
     kind: &str,
     key: &str,
     open: &Open,
+    claim: &OpenClaim,
 ) -> Result<Option<Bumped>> {
     let tx = conn.transaction()?;
     tx.execute_batch(ACTOR_TABLE)?;
@@ -1905,6 +1999,7 @@ fn bump_generation(
         [],
         |row| Ok((row.get(0)?, row.get(1)?)),
     )?;
+    claim.write()?;
     tx.commit()?;
     Ok(Some(Bumped {
         generation,
@@ -1926,6 +2021,9 @@ fn bump_generation(
 /// the actor it made, its files with it, and tells its waiters
 /// nothing either, since no actor is left; unless the file did not
 /// close within the grace, when the actor stays, as for any start.
+/// A start that fails while its open of the file runs on, waiting
+/// for a file another program holds, gives the open up: it writes
+/// nothing, however late it ends.
 async fn start_actor(
     owned: Owned,
     id: u64,
@@ -1935,11 +2033,19 @@ async fn start_actor(
     let host = owned.host.clone();
     let actor_id = owned.actor_id.clone();
     let creates = matches!(open, Open::New(_));
+    let mut opening = None;
     let opened = Mutex::new(None);
     let started = host
         .within_start_deadline(
             &actor_id,
-            start_generation(&host, &actor_id, id, open, &opened),
+            start_generation(
+                &host,
+                &actor_id,
+                id,
+                open,
+                &mut opening,
+                &opened,
+            ),
         )
         .await;
     let generation = match started {
@@ -1949,7 +2055,10 @@ async fn start_actor(
         // stored. The core ends a start whose future was dropped at
         // the deadline, and the close fences what it does meanwhile.
         Err(error) => {
-            let file = opened.lock().take();
+            let file = match opening.take() {
+                Some(opening) => give_up_open(opening).await,
+                None => opened.lock().take(),
+            };
             // The file is open only once the start's transaction
             // wrote the row: a create's start made the actor then.
             let made = creates && file.is_some();
@@ -2060,12 +2169,14 @@ async fn unmake(host: &HostInner, actor_id: &str) -> bool {
 }
 
 /// Opens the actor's file and starts its core, as the generation of
-/// id `id`. Puts the file in `opened` once it is open.
+/// id `id`. Holds the open in `opening` while it runs, and puts the
+/// file in `opened` once it is open.
 async fn start_generation(
     host: &Arc<HostInner>,
     actor_id: &str,
     id: u64,
     open: Open,
+    opening: &mut Option<Opening>,
     opened: &Mutex<Option<PlainSqlite>>,
 ) -> Result<Arc<Generation>> {
     let (kind, key) = actor_id
@@ -2073,12 +2184,17 @@ async fn start_generation(
         .ok_or_else(|| anyhow!("actor id {actor_id} has no kind"))?;
     let Place::Local(factory) = host.directory.place(kind)?;
     let factory = factory.clone();
-    let (file, bumped) = tokio::task::spawn_blocking({
+    let claim = Arc::new(OpenClaim::default());
+    let task = tokio::task::spawn_blocking({
         let dir = host.dir.clone();
         let (kind, key) = (kind.to_owned(), key.to_owned());
-        move || open_actor_file(&dir, &kind, &key, &open)
-    })
-    .await??;
+        let claim = claim.clone();
+        move || open_actor_file(&dir, &kind, &key, &open, &claim)
+    });
+    let (task, _) = opening.insert((task, claim));
+    let result = task.await;
+    *opening = None;
+    let (file, bumped) = result??;
     *opened.lock() = Some(file.clone());
     let alarm = Arc::new(Mutex::new(None));
     let actor = RunningActor::start(StartRequest {
@@ -2260,7 +2376,6 @@ mod tests {
     use hamlet_testing::Scratch;
 
     use super::*;
-    use crate::cause::Cause;
 
     /// The kind `waker`, whose run handler sets the run wake deadline
     /// `wake_at` and then answers only lifecycle events.
@@ -2296,8 +2411,14 @@ mod tests {
         let mut bare =
             plain_sqlite::open(&dir.join("bare.sqlite"), true)
                 .unwrap();
-        bump_generation(&mut bare, "bare", "a", &Open::OrCreate)
-            .unwrap();
+        bump_generation(
+            &mut bare,
+            "bare",
+            "a",
+            &Open::OrCreate,
+            &OpenClaim::default(),
+        )
+        .unwrap();
         assert_eq!(mark_stopped(&bare, None).unwrap(), None);
         assert_eq!(mark_stopped(&bare, Some(5)).unwrap(), Some(5));
 
@@ -2365,7 +2486,6 @@ mod tests {
                 name,
                 Vec::new(),
                 Duration::from_secs(600),
-                Cause::root("test"),
             )
         };
         call("increment").await.unwrap();

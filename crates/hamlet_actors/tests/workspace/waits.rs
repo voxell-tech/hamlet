@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use hamlet_actor::Action;
-use hamlet_host::{Cause, Host};
+use hamlet_host::Host;
 use hamlet_messages::agent::Outcome;
 use hamlet_messages::realm::NeedsChief;
 use hamlet_messages::workspace::files::{ChangeAnswer, Hashed};
@@ -495,7 +495,6 @@ async fn a_wait_the_realm_was_not_told_of_stays() {
         Leave::NAME,
         hamlet_actor::action::encode_positional(&Leave).unwrap(),
         Duration::from_secs(10),
-        Cause::root("test"),
     )
     .await
     .unwrap();

@@ -4,7 +4,7 @@
 use std::time::{Duration, Instant};
 
 use hamlet_actor::Action;
-use hamlet_host::{Address, Cause, Host};
+use hamlet_host::{Address, Host};
 use hamlet_messages::agent::Outcome;
 use hamlet_messages::workspace::reach::{Reach, Refusal};
 use hamlet_messages::workspace::{
@@ -507,7 +507,6 @@ async fn the_notice_to_an_agent_that_is_gone_is_dropped() {
         Leave::NAME,
         hamlet_actor::action::encode_positional(&Leave).unwrap(),
         Duration::from_secs(10),
-        Cause::root("test"),
     )
     .await
     .unwrap();

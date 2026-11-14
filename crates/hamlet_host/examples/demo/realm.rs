@@ -31,7 +31,7 @@ use anyhow::{Context, Result, bail};
 use hamlet_actor::{Action, Actor, Ctx, Handler, Registry};
 use hamlet_actor_core::{ActorConfig, ActorFactory, BindParam};
 use hamlet_actors::workspace;
-use hamlet_host::{Address, Caller, Cause, Host};
+use hamlet_host::{Address, Caller, Host};
 use hamlet_messages::realm::{NeedsChief, SecretList, Secrets};
 use hamlet_messages::workspace::reach::{
     Footing, Mode, Project, Reach, SecretsVersion, Trust,
@@ -109,7 +109,6 @@ impl Handler<Grant> for Realm {
             SetReach::NAME,
             hamlet_actor::action::encode_positional(&set)?,
             Duration::from_secs(10),
-            Cause::root("realm"),
         )
         .await?;
         Ok(ciborium::from_reader(reply.as_slice())?)
@@ -128,7 +127,6 @@ impl Handler<Decide> for Realm {
             ChiefAnswer::NAME,
             hamlet_actor::action::encode_positional(&answer)?,
             Duration::from_secs(10),
-            Cause::root("realm"),
         )
         .await?;
         Ok(ciborium::from_reader(reply.as_slice())?)
@@ -215,7 +213,6 @@ pub async fn run(host: &Host, words: &[String]) -> Result<()> {
             Grant::NAME,
             hamlet_actor::action::encode_positional(&Grant(set))?,
             Duration::from_secs(20),
-            Cause::root("demo"),
         )
         .await?;
     let mut out = std::io::stdout();
@@ -318,7 +315,6 @@ async fn answer_call(
             Decide::NAME,
             hamlet_actor::action::encode_positional(&decide)?,
             Duration::from_secs(20),
-            Cause::root("demo"),
         )
         .await?;
     let mut out = std::io::stdout();

@@ -182,7 +182,8 @@ pub(crate) const LIST_SET_ASIDE_SQL: &str =
     "SELECT event_id, action, args, trigger_at, tries, last_error, \
      set_aside_at FROM _actor_schedule_set_aside ORDER BY event_id";
 // Puts a set-aside one-shot back with a new due time and no tries;
-// `DISCARD_SET_ASIDE_SQL` then deletes it there, in the same batch.
+// `DELETE_SET_ASIDE_SQL` then deletes it from the set-aside table,
+// in the same batch.
 pub(crate) const REARM_SET_ASIDE_SQL: &str =
     "INSERT INTO _actor_schedule_events (event_id, trigger_at, \
      action, args, kind, cron_expression, timezone, interval_ms, \
@@ -191,7 +192,7 @@ pub(crate) const REARM_SET_ASIDE_SQL: &str =
      action, args, ?, NULL, NULL, NULL, NULL, 0, ray_id, \
      traceparent, tracestate, NULL, 0, NULL FROM \
      _actor_schedule_set_aside WHERE event_id = ?";
-pub(crate) const DISCARD_SET_ASIDE_SQL: &str =
+pub(crate) const DELETE_SET_ASIDE_SQL: &str =
     "DELETE FROM _actor_schedule_set_aside WHERE event_id = ?";
 
 pub(crate) const LOAD_QUEUE_NEXT_ID_SQL: &str =

@@ -51,7 +51,7 @@ use hamlet_actor_core::{
     ActorConfig, ActorContext, ActorEvent, ActorFactory, ActorStart,
     BindParam, ColumnValue, ConnHandle,
 };
-use hamlet_host::{Address, Caller, Cause, Host};
+use hamlet_host::{Address, Caller, Host};
 
 /// How long a counter's call to another may take.
 const CALL_DEADLINE: Duration = Duration::from_secs(60);
@@ -234,7 +234,6 @@ async fn call(ctx: &ActorContext, args: &[u8]) -> Result<Vec<u8>> {
         "called",
         Vec::new(),
         CALL_DEADLINE,
-        Cause::root("demo"),
     )
     .await?;
     let micros = u64::try_from(begun.elapsed().as_micros())?;

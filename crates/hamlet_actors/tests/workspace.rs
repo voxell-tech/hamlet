@@ -10,9 +10,7 @@ use anyhow::Context;
 use hamlet_actor::{Action, Actor, Ctx, Handler, Registry};
 use hamlet_actor_core::{ActorConfig, ActorFactory};
 use hamlet_actors::workspace;
-use hamlet_host::{
-    Address, Caller, Cause, Host, HostOptions, HostRef,
-};
+use hamlet_host::{Address, Caller, Host, HostOptions, HostRef};
 use hamlet_messages::agent::{Finished, Outcome};
 use hamlet_messages::realm::{NeedsChief, SecretList, Secrets};
 use hamlet_messages::workspace::reach::{
@@ -123,7 +121,6 @@ impl Handler<Forward> for Peer {
             &forward.name,
             forward.args,
             Duration::from_secs(20),
-            Cause::root("test"),
         )
         .await
     }
@@ -288,7 +285,6 @@ async fn call_as(
             Forward::NAME,
             hamlet_actor::action::encode_positional(&forward)?,
             Duration::from_secs(20),
-            Cause::root("test"),
         )
         .await?;
     ciborium::from_reader(reply.as_slice())
@@ -420,7 +416,6 @@ async fn only_the_realm_sets_a_reach() {
         SetReach::NAME,
         set_reach(5, reach(Some("/"))),
         Duration::from_secs(10),
-        Cause::root("test"),
     );
     answers.push(decoded(&client.await.unwrap()));
     let none = host.call(
@@ -428,7 +423,6 @@ async fn only_the_realm_sets_a_reach() {
         SetReach::NAME,
         set_reach(5, reach(Some("/"))),
         Duration::from_secs(10),
-        Cause::root("test"),
     );
     answers.push(decoded(&none.await.unwrap()));
     host.shutdown().await.unwrap();
@@ -912,7 +906,6 @@ async fn a_finished_to_an_agent_that_is_gone_is_dropped() {
         Leave::NAME,
         hamlet_actor::action::encode_positional(&Leave).unwrap(),
         Duration::from_secs(10),
-        Cause::root("test"),
     )
     .await
     .unwrap();

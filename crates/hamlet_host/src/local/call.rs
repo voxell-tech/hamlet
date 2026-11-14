@@ -15,7 +15,6 @@ use tracing::Instrument;
 
 use super::access::current;
 use super::{Host, HostInner, Open, host_shut_down};
-use crate::cause::Cause;
 use crate::directory::Address;
 
 /// Who made a call, as the host stamps it. The callee reads it from
@@ -31,19 +30,37 @@ pub enum Caller {
     Client,
 }
 
+/// As the host's log names a caller: an actor by `kind/key`, a client
+/// as `client`.
+impl std::fmt::Display for Caller {
+    fn fmt(
+        &self,
+        f: &mut std::fmt::Formatter<'_>,
+    ) -> std::fmt::Result {
+        match self {
+            Self::Actor(from) => {
+                write!(f, "{}/{}", from.kind, from.key)
+            }
+            Self::Client => f.write_str("client"),
+        }
+    }
+}
+
 impl Host {
     /// Calls the action `name` of the actor at `to`, with no caller,
     /// started from its file first if it is not running. A call never
     /// makes an actor: for a key with no actor it fails with
     /// `actor.not_found` and leaves no file. Only `get_or_start` and
     /// [`Host::create`] make one. The call ends within `deadline`,
-    /// its start included, and the action within the shorter of what
-    /// is left and the kind's action timeout: past either, it fails
+    /// its start and its connection's opening included, whatever the
+    /// actor is doing, and the action within the shorter of what is
+    /// left and the kind's action timeout: past either, it fails
     /// with `actor.action_timed_out`. Fails at once with
     /// `actor.not_registered` for a kind the directory does not hold,
     /// with `actor.destroying` for an actor that is being destroyed,
     /// and with `actor.shutdown_timeout` for one whose stop missed
-    /// its deadline. The host's log carries `cause`'s task.
+    /// its deadline. The host logs each call at DEBUG with its
+    /// caller, its target and its action.
     ///
     /// When the host begins to shut down, the call fails at once with
     /// `actor.stopping`, also when its action already runs. Its
@@ -56,11 +73,8 @@ impl Host {
         name: &str,
         args: Vec<u8>,
         deadline: Duration,
-        cause: Cause,
     ) -> Result<Vec<u8>> {
-        self.inner()
-            .call(None, to, name, args, deadline, cause)
-            .await
+        self.inner().call(None, to, name, args, deadline).await
     }
 
     /// Calls as [`Host::call`] does, stamped with
@@ -72,17 +86,9 @@ impl Host {
         name: &str,
         args: Vec<u8>,
         deadline: Duration,
-        cause: Cause,
     ) -> Result<Vec<u8>> {
         self.inner()
-            .call(
-                Some(Caller::Client),
-                to,
-                name,
-                args,
-                deadline,
-                cause,
-            )
+            .call(Some(Caller::Client), to, name, args, deadline)
             .await
     }
 
@@ -97,7 +103,6 @@ impl Host {
         name: &str,
         args: Vec<u8>,
         deadline: Duration,
-        cause: Cause,
     ) -> Result<Vec<u8>> {
         let running = current(ctx)?;
         running
@@ -108,7 +113,6 @@ impl Host {
                 name,
                 args,
                 deadline,
-                cause,
             )
             .await
     }
@@ -124,7 +128,6 @@ impl HostInner {
         name: &str,
         args: Vec<u8>,
         deadline: Duration,
-        cause: Cause,
     ) -> Result<Vec<u8>> {
         admit("call", caller.as_ref(), to)?;
         let actor_id = self.located(&to.kind, &to.key)?;
@@ -133,7 +136,7 @@ impl HostInner {
             "call",
             actor_id,
             action = name,
-            task = cause.task()
+            caller = caller.as_ref().map(tracing::field::display)
         );
         let mut shut = self.starts_end.subscribe();
         let call = async {

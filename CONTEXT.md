@@ -235,13 +235,21 @@ _Avoid_: runtime (a runtime is one running harness)
 
 **Actor**:
 One instance of an actor kind, found by its kind and its key, with its
-state in a file of its own. Not the chief, agent or realm that makes a
-change, which the store's code calls `Actor`.
+state in a file of its own. A kind and a key take only lower-case
+letters, digits, `-`, `_` and `.`, and do not start with `.`. Not the
+chief, agent or realm that makes a change, which the store's code calls
+`Actor`.
+
+**Call**:
+An actor's action run for its caller, which the host stamps on it:
+another actor, a client, or none for the program that opened the host.
+A call carries no cause and no task: a call made for a task carries that
+task in its own message. A call never makes its actor.
 
 **Set-aside timer**:
-An actor's one-shot timer that used up its tries without its action
-running to its end. The actor keeps it, and nothing runs it again until
-it is put back.
+An actor's one-shot timer that used up its tries without its handler's
+reply. The actor keeps it, and nothing runs it again until a re-arm puts
+it back. The actor's destroy removes it.
 _Avoid_: dead letter (a letter is what one agent sends another)
 
 ### Between agents

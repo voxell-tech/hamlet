@@ -686,8 +686,8 @@ fn query_catalog() -> Vec<QueryCase> {
 			expectation: indexed(None, &["_actor_schedule_events", "_actor_schedule_set_aside"]),
 		},
 		QueryCase {
-			id: "schedule.discard_set_aside",
-			sql: queries::DISCARD_SET_ASIDE_SQL.into(),
+			id: "schedule.delete_set_aside",
+			sql: queries::DELETE_SET_ASIDE_SQL.into(),
 			params: vec![text("aside:00000000")],
 			expectation: indexed(None, &["_actor_schedule_set_aside"]),
 		},

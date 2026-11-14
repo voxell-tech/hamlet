@@ -50,7 +50,7 @@ use hamlet_actor_core::{
     ActorConfig, ActorFactory, ActorKeySegment, BindParam,
 };
 use hamlet_actors::workspace;
-use hamlet_host::{Address, Caller, Cause, Host, HostRef};
+use hamlet_host::{Address, Caller, Host, HostRef};
 use hamlet_messages::agent::{Finished, Outcome};
 use hamlet_messages::workspace::files::{
     ChangeAnswer, FileAnswer, ReadFile, WriteFile,
@@ -131,7 +131,6 @@ impl Handler<Ask> for Agent {
             &ask.name,
             ask.args,
             Duration::from_secs(10),
-            Cause::root("agent"),
         )
         .await
     }
@@ -300,7 +299,6 @@ async fn run_one(host: &Host, words: &[String]) -> Result<()> {
             Ask::NAME,
             hamlet_actor::action::encode_positional(&ask)?,
             Duration::from_secs(20),
-            Cause::root("demo"),
         )
         .await?;
     let reply: Vec<u8> = ciborium::from_reader(reply.as_slice())?;

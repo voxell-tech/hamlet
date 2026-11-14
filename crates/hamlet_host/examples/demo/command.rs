@@ -4,6 +4,7 @@ use std::io::Write;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, bail, ensure};
+use hamlet_actor_error::ActorError;
 use hamlet_host::{Address, Host};
 
 use crate::act::act;
@@ -61,7 +62,6 @@ pub async fn run(
                 words.get(2).context("call takes <to>")?,
             );
             let caller = make(host, kinds, &at).await?;
-            make(host, kinds, &to).await?;
             let (n, micros) = call(host, &caller, &to).await?;
             writeln!(
                 out,
@@ -216,6 +216,20 @@ fn address(kind: &str, word: &str) -> Address {
 
 fn id_of(at: &Address) -> String {
     format!("{}/{}", at.kind, at.key)
+}
+
+/// How the demo prints `error`: led by the `group.code` of an actor's
+/// error in its chain, as `actor.not_found`.
+pub fn shown(error: &anyhow::Error) -> String {
+    match error
+        .chain()
+        .find_map(|cause| cause.downcast_ref::<ActorError>())
+    {
+        Some(found) => {
+            format!("{}.{}: {error:#}", found.group(), found.code())
+        }
+        None => format!("{error:#}"),
+    }
 }
 
 pub fn number(word: Option<&String>) -> Result<u64> {

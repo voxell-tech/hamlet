@@ -20,7 +20,7 @@ use hamlet_actor::{Action, Actor, Ctx, Handler, Registry};
 use hamlet_actor_core::{
     ActorConfig, ActorFactory, SqliteTransaction,
 };
-use hamlet_host::{Address, Caller, Cause, Host, HostRef};
+use hamlet_host::{Address, Caller, Host, HostRef};
 use hamlet_messages::agent::{Finished, Outcome};
 use hamlet_messages::realm::{NeedsChief, SecretList, Secrets};
 use hamlet_messages::workspace::files::{
@@ -679,7 +679,6 @@ async fn call_actor<A: Action>(
         A::NAME,
         args,
         Duration::from_secs(10),
-        Cause::root("workspace"),
     )
     .await
 }
