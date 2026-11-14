@@ -20,8 +20,9 @@ use hamlet_messages::workspace::refusal::{
     Stale, ToChange, WaitEnd, WriteRefusal,
 };
 use hamlet_messages::workspace::{
-    Answer, AnswerTaken, CallId, ChiefAnswer, ConversationId, Exit,
-    Lapse, ReachVersion, RealmTask, RunAnswer, RunEnd,
+    Answer, AnswerTaken, CallId, ChiefAnswer, CommandId,
+    ConversationId, Exit, Lapse, ReachVersion, RealmTask, RunAnswer,
+    RunEnd,
 };
 use hamlet_testing::Scratch;
 
@@ -30,7 +31,7 @@ use super::files::{ask, project};
 use super::{
     AGENT, ID_REUSED, Leave, Peers, SECRET, WRONG_CALLER, agent,
     agent_runs, error_of, files_holding, filesystem, read_only,
-    realm, realm_sets, run, told, told_within,
+    realm, realm_sets, run, status_as, told, told_within,
 };
 
 /// A change's answer that it waits for a chief to allow an edit.
@@ -193,7 +194,9 @@ async fn a_command_a_chief_allows_runs_and_the_agent_hears_its_end() {
 }
 
 /// A chief's refusal and a lapse each end their wait: nothing runs,
-/// the agent is told why once, and a repeat of the call answers it.
+/// the agent is told why once, and a repeat of the call answers it,
+/// as does the status of its row's command id, which the agent was
+/// never told.
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_refusal_and_a_lapse_end_the_wait_and_run_nothing() {
@@ -223,6 +226,7 @@ async fn a_refusal_and_a_lapse_end_the_wait_and_run_nothing() {
     .await;
     told_within(&peers, 2, Duration::from_secs(5)).await;
     let repeat = agent_runs(&host, &run("c1", "touch one")).await;
+    let status = status_as(&host, AGENT, CommandId(1)).await;
     host.shutdown().await.unwrap();
 
     let by_chief = RunNotRun::from(WaitEnd::ChiefRefused {
@@ -257,6 +261,20 @@ async fn a_refusal_and_a_lapse_end_the_wait_and_run_nothing() {
     );
     assert_eq!(
         repeat,
+        RunAnswer::Ended {
+            end: not_run(by_chief.clone())
+        }
+    );
+    let c1: i64 = read_only(&dir)
+        .query_row(
+            "SELECT id FROM calls WHERE call = 'c1'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(c1, 1);
+    assert_eq!(
+        status,
         RunAnswer::Ended {
             end: not_run(by_chief)
         }
