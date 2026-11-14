@@ -23,23 +23,36 @@ impl std::io::Write for Logs {
     }
 }
 
+/// What [`Logs::record`] returns: the logs are recorded until it
+/// drops.
+pub struct Recording {
+    _default: tracing::subscriber::DefaultGuard,
+    /// A second live dispatcher. With one, tracing caches a
+    /// callsite's interest from the thread that reaches it first,
+    /// which may be another test's thread with no subscriber, and
+    /// this thread's subscriber never sees that callsite.
+    _second: tracing::Dispatch,
+}
+
 impl Logs {
     /// Records what is logged at `level` or above on this thread
     /// until the guard drops.
-    pub fn record(
-        &self,
-        level: LevelFilter,
-    ) -> tracing::subscriber::DefaultGuard {
-        tracing_subscriber::fmt()
-            .with_max_level(level)
-            .with_span_events(FmtSpan::NEW)
-            .with_ansi(false)
-            .with_writer({
-                let logs = self.clone();
-                move || logs.clone()
-            })
-            .finish()
-            .set_default()
+    pub fn record(&self, level: LevelFilter) -> Recording {
+        Recording {
+            _default: tracing_subscriber::fmt()
+                .with_max_level(level)
+                .with_span_events(FmtSpan::NEW)
+                .with_ansi(false)
+                .with_writer({
+                    let logs = self.clone();
+                    move || logs.clone()
+                })
+                .finish()
+                .set_default(),
+            _second: tracing::Dispatch::new(
+                tracing::subscriber::NoSubscriber::default(),
+            ),
+        }
     }
 
     /// What was logged so far.
