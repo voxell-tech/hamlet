@@ -5,6 +5,7 @@
 
 #![expect(unsafe_code, reason = "the Win32 job and thread calls")]
 
+use std::fs::File;
 use std::os::windows::io::{
     AsRawHandle as _, BorrowedHandle, HandleOrInvalid, HandleOrNull,
     IntoRawHandle as _, OwnedHandle, RawHandle,
@@ -340,4 +341,18 @@ pub(crate) fn unenforced(
 
 pub(crate) fn is_executable(path: &str) -> bool {
     std::fs::metadata(path).is_ok_and(|meta| meta.is_file())
+}
+
+/// Fails: the Windows half is not built.
+pub(crate) fn take_stdio() -> io::Result<(File, File)> {
+    Err(io::ErrorKind::Unsupported.into())
+}
+
+/// Fails: the Windows half is not built.
+pub(crate) fn end_with_parent(_parent: u32) -> io::Result<()> {
+    Err(io::ErrorKind::Unsupported.into())
+}
+
+pub(crate) fn end_now() -> ! {
+    std::process::abort()
 }

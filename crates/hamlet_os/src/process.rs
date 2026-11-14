@@ -4,6 +4,7 @@
 mod sys;
 
 use std::collections::BTreeMap;
+use std::fs::File;
 use std::io;
 use std::process::{ExitStatus, Stdio};
 
@@ -128,6 +129,27 @@ pub fn reap_with_server() -> io::Result<()> {
 /// Whether `path` is a file this process may run.
 pub fn is_executable(path: &str) -> bool {
     sys::is_executable(path)
+}
+
+/// Takes this process's standard input and output for a pipe to its
+/// parent, and returns them as (input, output). From then on standard
+/// output writes to standard error and standard input reads nothing,
+/// here and in the processes it starts.
+pub fn take_stdio() -> io::Result<(File, File)> {
+    sys::take_stdio()
+}
+
+/// On Linux, sets this process's parent-death signal to SIGKILL,
+/// which holds while the calling thread lives. Then, on every Unix,
+/// kills this process now if its parent is not `parent`. Only Linux
+/// has the signal.
+pub fn end_with_parent(parent: u32) -> io::Result<()> {
+    sys::end_with_parent(parent)
+}
+
+/// Kills this process at once.
+pub fn end_now() -> ! {
+    sys::end_now()
 }
 
 #[cfg(all(test, unix))]

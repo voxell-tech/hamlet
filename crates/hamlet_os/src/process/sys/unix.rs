@@ -1,10 +1,12 @@
+use std::fs::File;
 use std::io;
+use std::os::fd::AsFd;
 use std::os::unix::process::ExitStatusExt;
 use std::process::{ExitStatus, Stdio};
 
 use rustix::process::{
-    Pid, Signal, WaitId, WaitIdOptions, WaitIdStatus,
-    kill_process_group, waitid,
+    Pid, Signal, WaitId, WaitIdOptions, WaitIdStatus, getpid,
+    getppid, kill_process, kill_process_group, waitid,
 };
 use tokio::process::{Child, ChildStderr, ChildStdout};
 use tokio::signal::unix::{SignalKind, signal};
@@ -181,4 +183,29 @@ pub(crate) fn is_executable(path: &str) -> bool {
 /// its Seatbelt commands running.
 pub(crate) fn reap_with_server() -> io::Result<()> {
     Ok(())
+}
+
+pub(crate) fn take_stdio() -> io::Result<(File, File)> {
+    let input = File::from(io::stdin().as_fd().try_clone_to_owned()?);
+    let output =
+        File::from(io::stdout().as_fd().try_clone_to_owned()?);
+    rustix::stdio::dup2_stdout(io::stderr())?;
+    rustix::stdio::dup2_stdin(File::open("/dev/null")?)?;
+    Ok((input, output))
+}
+
+pub(crate) fn end_with_parent(parent: u32) -> io::Result<()> {
+    #[cfg(target_os = "linux")]
+    rustix::process::set_parent_process_death_signal(Some(
+        Signal::KILL,
+    ))?;
+    if Pid::as_raw(getppid()) as u32 != parent {
+        end_now();
+    }
+    Ok(())
+}
+
+pub(crate) fn end_now() -> ! {
+    let _ = kill_process(getpid(), Signal::KILL);
+    std::process::abort()
 }
