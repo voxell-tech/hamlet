@@ -1928,8 +1928,9 @@ type Opening =
 /// Gives up the open of a start that failed while the open ran. An
 /// open that has not claimed its write never writes. One that has
 /// holds the file's lock, or makes a file that was not there, so its
-/// write waits for nothing else: this waits for it, and returns the
-/// file it opened.
+/// write waits only for a program that opened that new file in the
+/// same instant, and then no longer than SQLite's busy timeout: this
+/// waits for it, and returns the file it opened.
 async fn give_up_open((task, claim): Opening) -> Option<PlainSqlite> {
     if claim.give_up() {
         return None;

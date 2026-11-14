@@ -933,7 +933,10 @@ async fn a_shutdown_returns_while_a_start_waits_for_a_held_file() {
     // Long enough for the create to reach its file.
     tokio::time::sleep(Duration::from_millis(300)).await;
     assert!(!create.is_finished(), "the create ended at once");
-    tokio::time::timeout(Duration::from_secs(10), host.shutdown())
+    // Well under SQLite's 5 s busy timeout, after which the open
+    // would give up by itself: a shutdown that waited for it would
+    // still return before a longer bound.
+    tokio::time::timeout(Duration::from_secs(3), host.shutdown())
         .await
         .expect("the shutdown waited for the held file")
         .unwrap();
