@@ -21,8 +21,6 @@ env:
   CARGO_PROFILE_DEV_DEBUG: 0
   CARGO_PROFILE_TEST_DEBUG: 0
   CARGO_INCREMENTAL: 0
-  # The crates test-windows tests, in its two test steps. test-changed
-  # tests on Windows only those of them a pull request changes.
   WINDOWS_SERVER_TESTS: -p hamlet_os -p hamlet_server
   WINDOWS_HOST_TESTS: -p hamlet_host -p hamlet_actor_core -p hamlet_actor -p hamlet_actor_client -p hamlet_actor_wire -p hamlet_actor_error -p hamlet_actor_error_macros
 
@@ -245,9 +243,6 @@ jobs:
       # After the upload, so the binaries are kept when these tests fail.
       - run: cargo test --locked --no-fail-fast ${{ env.WINDOWS_HOST_TESTS }}
 
-  # The tests of the crates a pull request changes, on macOS and
-  # Windows, beside the full jobs: an answer in minutes for code that
-  # differs by system.
   test-changed:
     if: github.event_name == 'pull_request'
     name: test-changed-${{ matrix.system }}
@@ -264,7 +259,6 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-          # vendor/fynix is a submodule.
           submodules: recursive
           # The merge commit and its parents: the first is the base.
           fetch-depth: 2

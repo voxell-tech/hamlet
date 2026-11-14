@@ -9,10 +9,8 @@ import { fileURLToPath } from "node:url";
 /** The Node host's folder, where `@hamlet/actor-node` resolves. */
 const HOST = fileURLToPath(new URL("../..", import.meta.url));
 
-/** The repository's folder. */
 const ROOT = fileURLToPath(new URL("../../../..", import.meta.url));
 
-/** `hamlet_os`'s example that runs its arguments as its bound child, which `cargo xtask node` builds. */
 const BOUND = join(
     process.env.CARGO_TARGET_DIR ?? join(ROOT, "target"),
     "debug",
@@ -20,7 +18,6 @@ const BOUND = join(
     process.platform === "win32" ? "bound.exe" : "bound",
 );
 
-/** A Node host that takes the link's ends, then uses stdout and stdin as any code would. */
 const CHILD = `
 require("@hamlet/actor-node").takeLink();
 process.stdout.write("written to stdout\\n");
@@ -34,7 +31,6 @@ process.stdin.on("end", () => {
 });
 `;
 
-/** A Node host that takes the link's ends, says so with its pid on stderr, and stays alive. */
 const HELD = `
 require("@hamlet/actor-node").takeLink();
 process.stderr.write(\`taken \${process.pid}\\n\`);

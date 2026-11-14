@@ -94,8 +94,6 @@ fn main() -> Result<()> {
     }
 }
 
-/// A copy of the standard output this process started with, as a
-/// C runtime keeps it.
 fn stdout_copy() -> io::Result<File> {
     #[cfg(unix)]
     let copy = std::os::fd::AsFd::as_fd(&io::stdout())
@@ -137,8 +135,6 @@ fn factories() -> HashMap<String, ActorFactory> {
     HashMap::from([(KIND.to_owned(), factory)])
 }
 
-/// Says hello on `output` stating `protocol`, and returns at the Rust
-/// host's answer on `input`.
 fn hello(
     protocol: Version,
     mut input: PipeReader,

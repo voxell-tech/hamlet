@@ -35,7 +35,6 @@ pub(crate) struct Group {
     leader: Child,
     /// SIGCHLD, heard from before the leader started.
     exits: tokio::signal::unix::Signal,
-    /// Dropped, it ends the thread a bound leader was forked from.
     #[cfg(target_os = "linux")]
     forked_from: Option<mpsc::Sender<Infallible>>,
 }
@@ -168,7 +167,7 @@ pub(crate) fn spawn_bound(
         .stdin(preamble)
         .stdout(child_errors.try_clone()?)
         .stderr(child_errors);
-    keep_bound(&mut spawn, ends.each_ref().map(AsRawFd::as_raw_fd));
+    keep_open(&mut spawn, ends.each_ref().map(AsRawFd::as_raw_fd));
     #[cfg(target_os = "linux")]
     let group = start_from_a_lasting_thread(spawn)?;
     #[cfg(not(target_os = "linux"))]
@@ -183,7 +182,6 @@ pub(crate) fn spawn_bound(
     ))
 }
 
-/// Starts `spawn` as the leader of a group of its own.
 fn start(mut spawn: tokio::process::Command) -> io::Result<Group> {
     let exits = signal(SignalKind::child())?;
     session(&mut spawn);
@@ -206,8 +204,9 @@ fn start(mut spawn: tokio::process::Command) -> io::Result<Group> {
 /// that forked it ends.
 #[cfg(target_os = "linux")]
 fn start_from_a_lasting_thread(
-    spawn: tokio::process::Command,
+    mut spawn: tokio::process::Command,
 ) -> io::Result<Group> {
+    end_with_forking_thread(&mut spawn);
     let runtime = tokio::runtime::Handle::try_current()
         .map_err(io::Error::other)?;
     let (send_group, group) = mpsc::sync_channel(1);
@@ -217,7 +216,6 @@ fn start_from_a_lasting_thread(
         .spawn(move || {
             let _runtime = runtime.enter();
             let _ = send_group.send(start(spawn));
-            // Returns once `hold` is dropped.
             let _ = held.recv();
         })?;
     let mut group = group.recv().map_err(|_| {
@@ -236,16 +234,11 @@ fn above_standard(end: OwnedFd) -> io::Result<OwnedFd> {
     Ok(fcntl_dupfd_cloexec(&end, 3)?)
 }
 
-/// Keeps `ends` open in the leader across exec, at their numbers. On
-/// Linux, also makes the end of the thread that forks the leader kill
-/// it.
-fn keep_bound(spawn: &mut tokio::process::Command, ends: [RawFd; 2]) {
-    #[cfg(target_os = "linux")]
-    let parent = getpid();
+fn keep_open(spawn: &mut tokio::process::Command, ends: [RawFd; 2]) {
     // SAFETY: between fork and exec the leader calls only fcntl,
-    // prctl and getppid, which are async-signal-safe, allocates
-    // nothing and touches no shared state. `ends` are open in it:
-    // this process holds them across the fork.
+    // which is async-signal-safe, allocates nothing and touches no
+    // shared state. `ends` are open in it: this process holds them
+    // across the fork.
     unsafe {
         spawn.pre_exec(move || {
             for end in ends {
@@ -254,16 +247,26 @@ fn keep_bound(spawn: &mut tokio::process::Command, ends: [RawFd; 2]) {
                     FdFlags::empty(),
                 )?;
             }
-            #[cfg(target_os = "linux")]
-            {
-                rustix::process::set_parent_process_death_signal(
-                    Some(Signal::KILL),
-                )?;
-                // A parent that ended before the signal was set sent
-                // none.
-                if rustix::process::getppid() != Some(parent) {
-                    return Err(io::ErrorKind::NotFound.into());
-                }
+            Ok(())
+        });
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn end_with_forking_thread(spawn: &mut tokio::process::Command) {
+    let parent = getpid();
+    // SAFETY: between fork and exec the leader calls only prctl and
+    // getppid, which are async-signal-safe, allocates nothing and
+    // touches no shared state.
+    unsafe {
+        spawn.pre_exec(move || {
+            rustix::process::set_parent_process_death_signal(Some(
+                Signal::KILL,
+            ))?;
+            // A parent that ended before the signal was set sent
+            // none.
+            if rustix::process::getppid() != Some(parent) {
+                return Err(io::ErrorKind::NotFound.into());
             }
             Ok(())
         });
@@ -332,8 +335,6 @@ pub(crate) fn reap_with_server() -> io::Result<()> {
     Ok(())
 }
 
-/// A copy of this process's standard input, and the bytes waiting on
-/// it now.
 pub(crate) fn standard_input() -> io::Result<(File, u64)> {
     let stdin = io::stdin();
     let waiting = rustix::io::ioctl_fionread(&stdin)?;
@@ -361,8 +362,6 @@ pub(crate) fn take_ends(preamble: &Preamble) -> io::Result<Ends> {
     })
 }
 
-/// Kills this process when its parent exits, from a thread that waits
-/// with no timeout, or now when the parent has exited already.
 #[cfg(not(target_os = "linux"))]
 fn watch_parent() -> io::Result<()> {
     use std::mem::MaybeUninit;
@@ -371,8 +370,6 @@ fn watch_parent() -> io::Result<()> {
         Event, EventFilter, EventFlags, ProcessEvents, kevent, kqueue,
     };
 
-    // An orphan's parent is launchd, which never starts a bound
-    // child.
     let Some(parent) =
         rustix::process::getppid().filter(|pid| !pid.is_init())
     else {
@@ -409,13 +406,10 @@ fn watch_parent() -> io::Result<()> {
                 let mut exit =
                     [const { MaybeUninit::<Event>::uninit() }; 1];
                 // SAFETY: as above.
-                let waited =
-                    unsafe { kevent(&queue, &[], &mut exit, None) };
-                // With no timeout, it returns at the exit or on an
-                // error; after an error the parent is no longer
-                // watched.
-                if !matches!(waited, Err(rustix::io::Errno::INTR)) {
-                    end_now();
+                match unsafe { kevent(&queue, &[], &mut exit, None) }
+                {
+                    Err(rustix::io::Errno::INTR) => {}
+                    Ok(_) | Err(_) => end_now(),
                 }
             }
         })?;

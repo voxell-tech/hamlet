@@ -127,8 +127,6 @@ fn has_program(command: &Command<'_>) -> io::Result<()> {
 }
 
 impl Command<'_> {
-    /// Its program, arguments, environment and folder, killed when
-    /// dropped.
     fn program(&self) -> tokio::process::Command {
         let mut spawn = tokio::process::Command::new(&self.argv[0]);
         spawn
@@ -168,8 +166,6 @@ impl Ends {
     }
 }
 
-/// What a bound child's standard input holds at its start, and
-/// nothing after: a tag, then the values its two ends have in it.
 struct Preamble {
     input: u64,
     output: u64,
@@ -457,8 +453,6 @@ mod tests {
     }
 }
 
-/// A bound child is this test binary again, running one test as one
-/// part of it.
 #[cfg(test)]
 mod bound {
     use std::io::{BufRead, BufReader, Write};
@@ -469,15 +463,12 @@ mod bound {
 
     use super::*;
 
-    /// Names the part a copy of the test binary plays.
     const PART: &str = "HAMLET_TEST_BOUND_PART";
 
-    /// The part this copy plays, if it is not the test itself.
     fn part() -> Option<String> {
         std::env::var(PART).ok()
     }
 
-    /// The command line of this test binary running `test` alone.
     fn this_test(test: &str) -> [String; 4] {
         [
             std::env::current_exe()
@@ -490,7 +481,6 @@ mod bound {
         ]
     }
 
-    /// `test` as `part`.
     fn run_part(test: &str, part: &str) -> tokio::process::Command {
         let [program, args @ ..] = this_test(test);
         let mut command = tokio::process::Command::new(program);
@@ -498,7 +488,6 @@ mod bound {
         command
     }
 
-    /// `test` as the child part, started bound.
     fn spawn_child(test: &str) -> (Tree, Pipes) {
         let argv = this_test(test);
         let mut env: BTreeMap<_, _> = std::env::vars().collect();
@@ -511,8 +500,6 @@ mod bound {
         .unwrap()
     }
 
-    /// The child part: takes its ends, writes its id to its output,
-    /// then each line of its input, and stays until it is killed.
     fn child() -> ! {
         let Ends { input, mut output } = Ends::take().unwrap();
         writeln!(output, "{}", std::process::id()).unwrap();
@@ -611,8 +598,6 @@ mod bound {
             );
             return;
         }
-        // Its standard input stays open and empty: a take that read
-        // it would wait.
         let mut unbound = run_part(TEST, "unbound")
             .stdin(Stdio::piped())
             .spawn()

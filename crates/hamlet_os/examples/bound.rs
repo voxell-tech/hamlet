@@ -40,8 +40,7 @@ async fn main() -> io::Result<ExitCode> {
         }),
     ];
     let status = tree.ended().await?;
-    // Kills what the child left running, which may hold its outputs.
-    drop(tree);
+    tree.kill();
     drop(input);
     for copy in copies {
         copy.join()

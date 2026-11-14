@@ -107,7 +107,6 @@ impl Supervisor {
         let (stop, stopped) = oneshot::channel();
         let (state, watching) = watch::channel(LinkState::Down);
         let logs = tracing::dispatcher::get_default(Clone::clone);
-        // Its runtime has signals, which a tree waits on.
         let thread = thread::Builder::new()
             .name("node-link".to_owned())
             .spawn(move || {
@@ -436,7 +435,6 @@ fn read_input(
     process::end_now()
 }
 
-/// The link's ends [`take_link`] took, once.
 pub(crate) fn take_ends() -> Option<Ends> {
     ENDS.lock().take()
 }

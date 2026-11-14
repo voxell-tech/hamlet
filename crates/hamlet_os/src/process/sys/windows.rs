@@ -1,8 +1,7 @@
 //! Windows: each command runs in a Job Object of its own. It starts
 //! suspended and joins its job before its first instruction, so
 //! nothing it starts runs outside the job, and ending the job ends
-//! all of it. A bound command's job ends when its last handle, held
-//! only by this process, closes.
+//! all of it.
 
 #![expect(
     unsafe_code,
@@ -273,20 +272,14 @@ pub(crate) fn spawn_bound(
     ))
 }
 
-/// A group whose leader is in its job and has not run. Dropped, it
-/// kills the leader.
 struct Suspended(Group);
 
 impl Suspended {
-    /// Starts `spawn` suspended, with no window, in a new job with
-    /// `info`.
     fn start(
         mut spawn: tokio::process::Command,
         info: &JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
     ) -> io::Result<Self> {
         let job = Job::new(info)?;
-        // A leader that fails to join its job is dropped suspended,
-        // and killed.
         spawn.creation_flags(CREATE_SUSPENDED | CREATE_NO_WINDOW);
         let leader = spawn.spawn()?;
         let (Some(leader_id), Some(handle)) =
@@ -332,7 +325,6 @@ impl Suspended {
         Ok(given as usize as u64)
     }
 
-    /// Lets the leader run.
     fn resume(self) -> io::Result<Group> {
         resume(self.0.leader_id)?;
         Ok(self.0)
