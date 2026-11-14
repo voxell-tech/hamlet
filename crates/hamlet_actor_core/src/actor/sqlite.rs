@@ -901,13 +901,11 @@ impl SqliteDb {
         statements: Vec<SqliteBatchStatement>,
     ) -> Result<Vec<ExecuteResult>> {
         let config = self.remote_config()?;
-        let results = config
+        config
             .handle
             .sqlite_execute_batch(config.actor_id.clone(), statements)
             .await
-            .map_err(remote_request_error)?;
-        config.handle.transaction_committed(&config.actor_id);
-        Ok(results)
+            .map_err(remote_request_error)
     }
 
     async fn remote_execute_with_session(

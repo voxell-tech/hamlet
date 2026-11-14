@@ -134,6 +134,16 @@ mod moved_tests {
         }
     }
 
+    /// A dispatcher to hold while a test installs its own. With one
+    /// live dispatcher, tracing caches a callsite's interest from the
+    /// thread that reaches it first, which may be another test's
+    /// thread with no subscriber.
+    fn second_dispatch() -> tracing::Dispatch {
+        tracing::Dispatch::new(
+            tracing::subscriber::NoSubscriber::default(),
+        )
+    }
+
     #[tokio::test(start_paused = true)]
     async fn shutdown_task_counter_reaches_zero_after_completion() {
         let ctx = ActorContext::new_for_sleep_tests(
@@ -254,6 +264,7 @@ mod moved_tests {
             Registry::default().with(ShutdownTaskRefusedLayer {
                 count: warning_count.clone(),
             });
+        let _second_dispatch = second_dispatch();
         let _guard = tracing::subscriber::set_default(subscriber);
 
         ctx.teardown_sleep_state().await;
@@ -276,6 +287,7 @@ mod moved_tests {
             Registry::default().with(RegisteredTaskDeadlineLayer {
                 count: warning_count.clone(),
             });
+        let _second_dispatch = second_dispatch();
         let _guard = tracing::subscriber::set_default(subscriber);
 
         ctx.register_task(futures::future::pending::<()>());

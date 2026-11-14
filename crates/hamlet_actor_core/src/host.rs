@@ -8,14 +8,17 @@ pub(crate) mod dispatch;
 pub(crate) mod http;
 mod running;
 
+use std::any::Any;
 use std::sync::Arc;
 
 use anyhow::Result;
 use hamlet_actor_wire::shared_types::actor_key;
 use tokio::sync::{oneshot, watch};
 
+pub use self::dispatch::ActionTimedOut;
 pub use self::running::{RunningActor, StartRequest};
 use self::tunnel::HibernatingWebSocketMetadata;
+use crate::actor::schedule::SetAsideTimer;
 use crate::async_counter::AsyncCounter;
 use crate::runtime::RuntimeBoxFuture;
 use crate::sqlite::{
@@ -32,8 +35,9 @@ pub type HostHandle = Arc<dyn ActorHost>;
 ///
 /// The methods with a default serve what a local host does not have:
 /// HTTP request counting, hibernating WebSockets and the key-value
-/// store from before SQLite.
-pub trait ActorHost: Send + Sync + 'static {
+/// store from before SQLite. `Any` lets a host downcast the handle
+/// an actor's context holds back to its own type.
+pub trait ActorHost: Any + Send + Sync + 'static {
     fn endpoint(&self) -> &str;
 
     fn token(&self) -> Option<&str> {
@@ -94,14 +98,19 @@ pub trait ActorHost: Send + Sync + 'static {
         statements: Vec<SqliteBatchStatement>,
     ) -> RuntimeBoxFuture<Result<Vec<ExecuteResult>>>;
 
-    /// A transaction on the actor's database committed: a
-    /// transaction's commit, which state transactions use, or a
-    /// batch. A statement that commits on its own, and a `COMMIT`
-    /// sent as a statement, do not call it. After a transaction it
-    /// runs once the transaction released its gate; after a batch it
-    /// runs while the batch still holds the gate. It must return at
-    /// once.
-    fn transaction_committed(&self, actor_id: &str);
+    /// The core set aside the actor's one-shot `timer` after its last
+    /// try (see [`MAX_ONE_SHOT_TRIES`]): the actor is not woken for
+    /// it again. Called once per timer, after the move committed,
+    /// while the actor's drain holds its schedule lock: it must
+    /// return at once and must not call into the actor's schedule.
+    ///
+    /// [`MAX_ONE_SHOT_TRIES`]: crate::actor::schedule::MAX_ONE_SHOT_TRIES
+    fn timer_set_aside(
+        &self,
+        _actor_id: &str,
+        _timer: &SetAsideTimer,
+    ) {
+    }
 
     fn http_request_counter(
         &self,

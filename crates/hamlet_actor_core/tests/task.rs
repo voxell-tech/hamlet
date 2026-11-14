@@ -537,8 +537,6 @@ pub(crate) mod moved_tests {
                 anyhow::bail!("channel host has no sqlite")
             })
         }
-
-        fn transaction_committed(&self, _actor_id: &str) {}
     }
 
     fn test_envoy_handle()
@@ -3697,8 +3695,8 @@ pub(crate) mod moved_tests {
                 "INSERT INTO _actor_schedule_events (event_id, \
                  trigger_at, action, args, kind, cron_expression, \
                  timezone, interval_ms, last_started_at, \
-                 max_history) VALUES ('invalid', 100, 'tick', NULL, \
-                 99, NULL, NULL, NULL, NULL, 0)",
+                 max_history, tries) VALUES ('invalid', 100, \
+                 'tick', NULL, 99, NULL, NULL, NULL, NULL, 0, 0)",
                 None,
             )
             .await

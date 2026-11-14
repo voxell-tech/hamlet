@@ -1,8 +1,8 @@
 //! The kill kit. For each run it starts the demo host of
 //! `hamlet_host` on a fresh realm folder, kills it with SIGKILL at
-//! the scenario's fault point, restarts it twice, and prints one line
-//! with the state before the kill and after each restart. It exits
-//! non-zero when any run fails its scenario.
+//! the scenario's fault point or at a random time, restarts it twice,
+//! and prints one line with the state before the kill and after each
+//! restart. It exits non-zero when any run fails its scenario.
 //!
 //! ```text
 //! hamlet_killkit <scenario> [--runs <n>] [--demo <path>] [--keep]
@@ -27,9 +27,10 @@ use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, anyhow, bail, ensure};
+use rand::Rng;
 use rusqlite::{Connection, OpenFlags};
 
-use crate::scenario::{Is, SCENARIOS, Scenario};
+use crate::scenario::{Is, Kill, Probe, Read, SCENARIOS, Scenario};
 
 /// How long the kit waits for a reply, a fault point or a restart.
 const PATIENCE: Duration = Duration::from_secs(30);
@@ -171,7 +172,8 @@ fn options(
 
 /// One run's record.
 struct Report {
-    /// The fault point and the pid the kill stopped.
+    /// When the kill came, as the fault point or the time drawn, and
+    /// the pid it stopped.
     killed: String,
     /// Each actor's last acknowledged count before the kill.
     acked: BTreeMap<String, i64>,
@@ -231,7 +233,7 @@ impl Report {
 
     fn describe(&self) -> String {
         let mut text = format!(
-            "killed at {}, acked {}",
+            "killed {}, acked {}",
             self.killed,
             values(&self.acked)
         );
@@ -277,12 +279,12 @@ fn run_once(
     private_dir(&home)?;
     private_dir(&faults)?;
 
-    let mut host = Host::start(
-        demo,
-        &home,
-        Some((scenario.fault, &faults)),
-        &dir.join("host.log"),
-    )?;
+    let fault = match scenario.kill {
+        Kill::Fault(point) => Some((point, faults.as_path())),
+        Kill::After { .. } => None,
+    };
+    let mut host =
+        Host::start(demo, &home, fault, &dir.join("host.log"))?;
     let mut acked = BTreeMap::new();
     for line in scenario.setup {
         host.send(line)?;
@@ -295,21 +297,28 @@ fn run_once(
         let (actor, count) = host.reply()?;
         acked.insert(actor, count);
     }
-    let killed = host.kill_at_fault(&faults)?;
+    let killed = match scenario.kill {
+        Kill::Fault(_) => host.kill_at_fault(&faults)?,
+        Kill::After { min_ms, max_ms } => {
+            host.kill_after(Duration::from_millis(
+                rand::thread_rng().gen_range(min_ms..=max_ms),
+            ))?
+        }
+    };
 
     std::thread::sleep(
         (sent + Duration::from_millis(scenario.down_ms))
             .saturating_duration_since(Instant::now()),
     );
     let mut restarts = Vec::new();
-    for n in 1..=2 {
+    for (n, lines) in (1..).zip(scenario.restart) {
         let mut host = Host::start(
             demo,
             &home,
             None,
             &dir.join(format!("restart-{n}.log")),
         )?;
-        for line in scenario.restart {
+        for line in lines {
             host.send(line)?;
         }
         let mut restart = Restart::new();
@@ -324,7 +333,7 @@ fn run_once(
             restart.insert(name, count);
         }
         for probe in scenario.probes {
-            let value = read_probe(&home.join(probe.file), probe.sql)
+            let value = read_probe(&home, probe)
                 .with_context(|| format!("probe {}", probe.name))?;
             restart.insert(probe.name.to_owned(), value);
         }
@@ -373,13 +382,27 @@ fn fresh_dir(parent: &Path, stem: &str) -> Result<PathBuf> {
     unreachable!("the folder names never run out")
 }
 
-fn read_probe(file: &Path, sql: &str) -> Result<i64> {
-    let conn = Connection::open_with_flags(
-        file,
-        OpenFlags::SQLITE_OPEN_READ_ONLY,
-    )
-    .with_context(|| format!("open {}", file.display()))?;
-    Ok(conn.query_row(sql, [], |row| row.get(0))?)
+fn read_probe(home: &Path, probe: &Probe) -> Result<i64> {
+    let file = home.join(probe.file);
+    match probe.read {
+        Read::Sql(sql) => {
+            let conn = Connection::open_with_flags(
+                &file,
+                OpenFlags::SQLITE_OPEN_READ_ONLY,
+            )
+            .with_context(|| format!("open {}", file.display()))?;
+            Ok(conn.query_row(sql, [], |row| row.get(0))?)
+        }
+        Read::Files => {
+            let mut found = 0;
+            for suffix in ["", "-wal", "-shm"] {
+                let mut path = file.as_os_str().to_owned();
+                path.push(suffix);
+                found += i64::from(Path::new(&path).try_exists()?);
+            }
+            Ok(found)
+        }
+    }
 }
 
 /// Reads `counter/<key> <count>`.
@@ -482,7 +505,24 @@ impl Host {
         );
         self.child.kill()?;
         self.child.wait()?;
-        Ok(format!("{point} (pid {pid})"))
+        Ok(format!("at {point} (pid {pid})"))
+    }
+
+    /// Kills the host with SIGKILL once `wait` has passed. Returns
+    /// the time and the pid.
+    fn kill_after(mut self, wait: Duration) -> Result<String> {
+        std::thread::sleep(wait);
+        ensure!(
+            self.child.try_wait()?.is_none(),
+            "the host exited before its kill"
+        );
+        let pid = self.child.id();
+        self.child.kill()?;
+        self.child.wait()?;
+        Ok(format!(
+            "{} ms after the trigger (pid {pid})",
+            wait.as_millis()
+        ))
     }
 
     /// Ends stdin, so the host stops, and returns every line it

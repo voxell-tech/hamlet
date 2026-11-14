@@ -19,6 +19,9 @@ use uuid::Uuid;
 
 use crate::actor::context::ActorContext;
 use crate::actor::internal_storage::queries::*;
+pub use crate::actor::internal_storage::{
+    RUN_WAKE_AT_META_KEY, decode_run_wake_at,
+};
 use crate::actor::internal_storage::{
     optional_owned_text_param, read_trace_context,
     trace_context_params,
@@ -28,7 +31,9 @@ use crate::error::{
 };
 use crate::host::HostHandle as EnvoyHandle;
 use crate::runtime::RuntimeSpawner;
-use crate::sqlite::{BindParam, ColumnValue, SqliteBatchStatement};
+use crate::sqlite::{
+    BindParam, ColumnValue, SqliteBatchStatement, SqliteTransaction,
+};
 use crate::telemetry::{
     ActorInvocationTelemetry, IncomingTraceContext,
 };
@@ -45,6 +50,22 @@ pub const MAX_ACTOR_HISTORY: i64 = 10_000;
 pub const MIN_INTERVAL_MS: i64 = 5_000;
 const DEFAULT_HISTORY_LIMIT: i64 = 20;
 const CLAIM_ONE_SHOT_BATCH_SIZE: usize = 128;
+/// How many times a one-shot is tried. Each claim of a due one-shot
+/// is one try, committed before its action is dispatched, however
+/// the try then ends: the action failed or dropped its reply, a stop
+/// cut it short, the process died, or the event never reached the
+/// action. The drain that finds a one-shot with this many tries runs
+/// nothing for it: it moves the row to `_actor_schedule_set_aside`,
+/// logs an error and tells the host through
+/// `ActorHost::timer_set_aside`. Nothing wakes the actor for that
+/// timer again until [`ActorContext::rearm_set_aside`] puts it back.
+///
+/// So a timer can be set aside without its action ever having run,
+/// when its actor failed five starts in a row: each start claimed it
+/// before the actor failed. And five ordinary stops that each cut the
+/// same action short, such as five host restarts while it runs, also
+/// set it aside, although nothing failed.
+pub const MAX_ONE_SHOT_TRIES: u32 = 5;
 pub(crate) const GLOBAL_HISTORY_PRUNE_INTERVAL: usize = 100;
 pub(crate) const GLOBAL_HISTORY_RETAINED_ROWS: i64 =
     MAX_ACTOR_HISTORY - GLOBAL_HISTORY_PRUNE_INTERVAL as i64;
@@ -171,6 +192,31 @@ pub(crate) struct DueScheduleDispatch {
     pub trace_context: IncomingTraceContext,
 }
 
+/// A one-shot set aside after its last try, as it was then.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SetAsideTimer {
+    pub event_id: String,
+    pub action: String,
+    pub args: Vec<u8>,
+    /// The due time it had, in ms.
+    pub due_at: i64,
+    pub tries: u32,
+    /// The last try's outcome as `group.code`, `None` when none came
+    /// back, as when the process ended during the try.
+    pub last_error: Option<String>,
+    /// When it was set aside, in ms.
+    pub set_aside_at: i64,
+}
+
+/// A due schedule as the drain reads it.
+struct DueSchedule {
+    event: StoredSchedule,
+    trace_context: IncomingTraceContext,
+    /// The claims of a one-shot before this drain.
+    tries: u32,
+    last_error: Option<String>,
+}
+
 #[derive(Clone, Debug)]
 struct StoredSchedule {
     event_id: String,
@@ -213,6 +259,8 @@ impl ActorContext {
             .unwrap_or_default()
     }
 
+    /// Arms a one-shot timer `duration` from now, as [`Self::at`]
+    /// does.
     pub async fn after(
         &self,
         duration: Duration,
@@ -227,6 +275,19 @@ impl ActorContext {
         self.at(timestamp_ms, action_name, args).await
     }
 
+    /// Arms a one-shot timer that calls the action `action_name`
+    /// with `args` at `timestamp_ms`, in ms since the Unix epoch, and
+    /// returns its event id. One that comes due while the host is
+    /// down fires at the actor's next start.
+    ///
+    /// Its handler runs at most [`MAX_ONE_SHOT_TRIES`] times, and not
+    /// at all when every try ends before the action runs, as when the
+    /// actor fails each start: after the last try the timer is set
+    /// aside, and the actor is not woken for it again. It can run
+    /// again after a kill that lands between the handler's commit
+    /// and its reply, so a handler must tolerate a second run. A
+    /// handler that ends its timer with [`end_one_shot`] in its own
+    /// transaction is not run again once that transaction commits.
     pub async fn at(
         &self,
         timestamp_ms: i64,
@@ -272,6 +333,7 @@ impl ActorContext {
                 Some(vec![
                     BindParam::Text(event_id.to_owned()),
                     BindParam::Integer(ScheduleKind::At.as_i64()),
+                    BindParam::Integer(self.claim_generation()),
                 ]),
             )
             .await
@@ -296,6 +358,7 @@ impl ActorContext {
                 Some(vec![
                     BindParam::Text(event_id.to_owned()),
                     BindParam::Integer(ScheduleKind::At.as_i64()),
+                    BindParam::Integer(self.claim_generation()),
                 ]),
             )
             .await
@@ -322,9 +385,10 @@ impl ActorContext {
             .sql()
             .query(
                 LIST_SCHEDULED_EVENTS_SQL,
-                Some(vec![BindParam::Integer(
-                    ScheduleKind::At.as_i64(),
-                )]),
+                Some(vec![
+                    BindParam::Integer(ScheduleKind::At.as_i64()),
+                    BindParam::Integer(self.claim_generation()),
+                ]),
             )
             .await
             .context("list one-shot schedules")?;
@@ -341,6 +405,84 @@ impl ActorContext {
                 })
             })
             .collect()
+    }
+
+    /// The one-shots set aside after their last try, in event id
+    /// order. See [`MAX_ONE_SHOT_TRIES`].
+    pub async fn set_aside_timers(
+        &self,
+    ) -> Result<Vec<SetAsideTimer>> {
+        let result = self
+            .sql()
+            .query(LIST_SET_ASIDE_SQL, None)
+            .await
+            .context("list set-aside one-shot schedules")?;
+        result
+            .rows
+            .iter()
+            .map(|row| read_set_aside_timer(row))
+            .collect()
+    }
+
+    /// Puts the set-aside one-shot `event_id` back, due at
+    /// `timestamp_ms`, with no tries. Returns false when no one-shot
+    /// is set aside under that id.
+    pub async fn rearm_set_aside(
+        &self,
+        event_id: &str,
+        timestamp_ms: i64,
+    ) -> Result<bool> {
+        let _mutation = self.0.schedule_mutation_lock.lock().await;
+        let results = self
+            .sql()
+            .execute_batch(vec![
+                SqliteBatchStatement {
+                    sql: REARM_SET_ASIDE_SQL.to_owned(),
+                    params: Some(vec![
+                        BindParam::Integer(timestamp_ms),
+                        BindParam::Integer(ScheduleKind::At.as_i64()),
+                        BindParam::Text(event_id.to_owned()),
+                    ]),
+                },
+                SqliteBatchStatement {
+                    sql: DISCARD_SET_ASIDE_SQL.to_owned(),
+                    params: Some(vec![BindParam::Text(
+                        event_id.to_owned(),
+                    )]),
+                },
+            ])
+            .await
+            .context("re-arm set-aside one-shot schedule")?;
+        let rearmed =
+            results.first().is_some_and(|result| result.changes > 0);
+        if rearmed {
+            self.mark_schedule_dirty();
+            self.record_schedules_updated();
+            self.sync_alarm().await?;
+        }
+        Ok(rearmed)
+    }
+
+    /// Deletes the set-aside one-shot `event_id`. Returns false when
+    /// no one-shot is set aside under that id.
+    pub async fn discard_set_aside(
+        &self,
+        event_id: &str,
+    ) -> Result<bool> {
+        let _mutation = self.0.schedule_mutation_lock.lock().await;
+        let result = self
+            .sql()
+            .execute(
+                DISCARD_SET_ASIDE_SQL,
+                Some(vec![BindParam::Text(event_id.to_owned())]),
+            )
+            .await
+            .context("discard set-aside one-shot schedule")?;
+        let removed = result.changes > 0;
+        if removed {
+            self.record_schedules_updated();
+        }
+        Ok(removed)
     }
 
     pub async fn cron_set(
@@ -660,51 +802,107 @@ impl ActorContext {
             return Ok(Vec::new());
         }
         let now_ms = self.schedule_now_timestamp_ms();
+        let generation = self.claim_generation();
         let _mutation = self.0.schedule_mutation_lock.lock().await;
         let result = self
             .sql()
             .query(
                 TAKE_DUE_SCHEDULES_SQL,
-                Some(vec![BindParam::Integer(now_ms)]),
+                Some(vec![
+                    BindParam::Integer(now_ms),
+                    BindParam::Integer(generation),
+                ]),
             )
             .await
             .context("load due schedules")?;
-        let due_schedules = result
+        let (set_aside, due_schedules): (Vec<_>, Vec<_>) = result
             .rows
             .iter()
             .map(|row| read_due_schedule(row))
-            .collect::<Result<Vec<_>>>()?;
-        let claim_statements = due_schedules
+            .collect::<Result<Vec<_>>>()?
+            .into_iter()
+            .partition(|due| {
+                due.event.kind == ScheduleKind::At
+                    && due.tries >= MAX_ONE_SHOT_TRIES
+            });
+        // One batch, so one transaction, sets aside and claims.
+        let mut statements = Vec::new();
+        for due in &set_aside {
+            statements.push(SqliteBatchStatement {
+                sql: SET_ASIDE_ONE_SHOT_SQL.to_owned(),
+                params: Some(vec![
+                    BindParam::Integer(now_ms),
+                    BindParam::Text(due.event.event_id.clone()),
+                    BindParam::Integer(ScheduleKind::At.as_i64()),
+                    BindParam::Integer(i64::from(MAX_ONE_SHOT_TRIES)),
+                ]),
+            });
+            statements.push(SqliteBatchStatement {
+                sql: END_ONE_SHOT_SQL.to_owned(),
+                params: Some(end_one_shot_params(
+                    &due.event.event_id,
+                )),
+            });
+        }
+        let one_shots = due_schedules
             .iter()
-            .filter(|(event, _)| event.kind == ScheduleKind::At)
-            .collect::<Vec<_>>()
-            .chunks(CLAIM_ONE_SHOT_BATCH_SIZE)
-            .map(|events| {
+            .filter(|due| due.event.kind == ScheduleKind::At)
+            .collect::<Vec<_>>();
+        statements.extend(
+            one_shots.chunks(CLAIM_ONE_SHOT_BATCH_SIZE).map(|dues| {
                 let mut params =
-                    Vec::with_capacity(events.len() * 2 + 1);
+                    Vec::with_capacity(dues.len() * 2 + 2);
+                params.push(BindParam::Integer(generation));
                 params.push(BindParam::Integer(
                     ScheduleKind::At.as_i64(),
                 ));
-                for (event, _) in events {
+                for due in dues {
                     params.push(BindParam::Text(
-                        event.event_id.clone(),
+                        due.event.event_id.clone(),
                     ));
-                    params.push(BindParam::Integer(event.trigger_at));
+                    params.push(BindParam::Integer(
+                        due.event.trigger_at,
+                    ));
                 }
                 SqliteBatchStatement {
-                    sql: claim_one_shots_sql(events.len()),
+                    sql: claim_one_shots_sql(dues.len()),
                     params: Some(params),
                 }
-            })
-            .collect::<Vec<_>>();
-        if !claim_statements.is_empty() {
-            self.sql()
-                .execute_batch(claim_statements)
-                .await
-                .context("claim due one-shot schedules")?;
+            }),
+        );
+        if !statements.is_empty() {
+            self.sql().execute_batch(statements).await.context(
+                "set aside and claim due one-shot schedules",
+            )?;
+        }
+        for due in one_shots.iter().filter(|due| due.tries > 0) {
+            tracing::warn!(
+                actor_id = %self.actor_id(),
+                event_id = %due.event.event_id,
+                action = %due.event.action,
+                last_error = ?due.last_error,
+                "one-shot schedule try {} of {MAX_ONE_SHOT_TRIES}",
+                due.tries + 1,
+            );
+        }
+        for due in set_aside {
+            self.report_set_aside(SetAsideTimer {
+                event_id: due.event.event_id,
+                action: due.event.action,
+                args: due.event.args,
+                due_at: due.event.trigger_at,
+                tries: due.tries,
+                last_error: due.last_error,
+                set_aside_at: now_ms,
+            });
         }
         let mut dispatches = Vec::new();
-        for (event, trace_context) in due_schedules {
+        for DueSchedule {
+            event,
+            trace_context,
+            ..
+        } in due_schedules
+        {
             if event.kind == ScheduleKind::At {
                 dispatches.push(DueScheduleDispatch {
                     event_id: event.event_id.clone(),
@@ -878,6 +1076,91 @@ impl ActorContext {
         }
     }
 
+    /// Logs a one-shot the drain set aside and tells the host.
+    fn report_set_aside(&self, timer: SetAsideTimer) {
+        tracing::error!(
+            actor_id = %self.actor_id(),
+            event_id = %timer.event_id,
+            action = %timer.action,
+            tries = timer.tries,
+            last_error = ?timer.last_error,
+            "one-shot schedule set aside after its last try"
+        );
+        let host = self.0.schedule_envoy_handle.lock().clone();
+        if let Some(host) = host {
+            host.timer_set_aside(self.actor_id(), &timer);
+        }
+    }
+
+    /// Deletes the row of a one-shot that fired, unless its action
+    /// may not have run to its end: no reply came back, or the reply
+    /// is one of `UNFINISHED_ACTION_CODES`. A kept row stays claimed
+    /// by this generation, so the next one runs it, and records the
+    /// outcome as its `last_error`.
+    pub(crate) async fn finish_one_shot_dispatch(
+        &self,
+        event_id: &str,
+        replied: bool,
+        error: Option<&anyhow::Error>,
+    ) {
+        let outcome = error.map(ActorError::extract);
+        let unfinished = outcome.as_ref().is_some_and(|outcome| {
+            outcome.group() == "actor"
+                && UNFINISHED_ACTION_CODES.contains(&outcome.code())
+        });
+        if !replied || unfinished {
+            if let Some(outcome) = outcome {
+                self.record_one_shot_outcome(
+                    event_id,
+                    format!("{}.{}", outcome.group(), outcome.code()),
+                )
+                .await;
+            }
+            return;
+        }
+        if let Err(error) = self
+            .sql()
+            .execute(
+                END_ONE_SHOT_SQL,
+                Some(end_one_shot_params(event_id)),
+            )
+            .await
+        {
+            tracing::error!(
+                ?error,
+                event_id,
+                "failed to delete fired one-shot schedule"
+            );
+        }
+    }
+
+    async fn record_one_shot_outcome(
+        &self,
+        event_id: &str,
+        outcome: String,
+    ) {
+        if let Err(error) = self
+            .sql()
+            .execute(
+                KEEP_ONE_SHOT_SQL,
+                Some(vec![
+                    BindParam::Text(outcome),
+                    BindParam::Text(event_id.to_owned()),
+                    BindParam::Integer(ScheduleKind::At.as_i64()),
+                    BindParam::Integer(self.claim_generation()),
+                ]),
+            )
+            .await
+        {
+            tracing::error!(
+                ?error,
+                event_id,
+                "failed to record the outcome of a kept one-shot \
+                 schedule"
+            );
+        }
+    }
+
     pub(crate) async fn recover_interrupted_schedule_history(
         &self,
     ) -> Result<()> {
@@ -1026,7 +1309,12 @@ impl ActorContext {
                 )]),
             )
         } else {
-            (NEXT_SCHEDULE_SQL, None)
+            (
+                NEXT_SCHEDULE_SQL,
+                Some(vec![BindParam::Integer(
+                    self.claim_generation(),
+                )]),
+            )
         };
         let result = self.sql().query(sql, params).await?;
         match result.rows.first().and_then(|row| row.first()) {
@@ -1194,6 +1482,12 @@ impl ActorContext {
             generation,
         );
         Ok(())
+    }
+
+    /// The generation a claim marks a one-shot with. A context with
+    /// no generation claims as 0, which no host generation is.
+    fn claim_generation(&self) -> i64 {
+        i64::from(self.0.schedule_generation.lock().unwrap_or(0))
     }
 
     pub(crate) fn configure_schedule_envoy(
@@ -1417,6 +1711,46 @@ impl ActorContext {
             .schedule_alarm_dispatch_enabled
             .store(false, Ordering::SeqCst);
     }
+}
+
+/// The `actor` error codes of an action that did not run to its end:
+/// its generation stopped it, or the core cannot tell. Any other
+/// error came from the action itself.
+const UNFINISHED_ACTION_CODES: &[&str] = &[
+    "starting",
+    "not_ready",
+    "stopping",
+    "destroying",
+    "destroyed",
+    "shutdown_timeout",
+    "dropped_reply",
+    "overloaded",
+    "aborted",
+    "action_timed_out",
+];
+
+/// Deletes the row of the one-shot `fire` inside `tx`, so it leaves
+/// with the action's change: a kill before `tx` commits runs the
+/// action again, and a kill after does not. Does nothing for a
+/// recurring fire.
+pub async fn end_one_shot(
+    tx: &SqliteTransaction,
+    fire: &ScheduledFireInfo,
+) -> Result<()> {
+    if fire.kind != ScheduleKind::At {
+        return Ok(());
+    }
+    tx.execute(END_ONE_SHOT_SQL, Some(end_one_shot_params(&fire.id)))
+        .await
+        .context("end one-shot schedule")?;
+    Ok(())
+}
+
+fn end_one_shot_params(event_id: &str) -> Vec<BindParam> {
+    vec![
+        BindParam::Text(event_id.to_owned()),
+        BindParam::Integer(ScheduleKind::At.as_i64()),
+    ]
 }
 
 fn validate_name(name: &str) -> Result<()> {
@@ -1697,13 +2031,43 @@ fn read_stored_schedule(
     }
 }
 
-fn read_due_schedule(
-    row: &[ColumnValue],
-) -> Result<(StoredSchedule, IncomingTraceContext)> {
+fn read_due_schedule(row: &[ColumnValue]) -> Result<DueSchedule> {
     let event = read_stored_schedule(row)?;
     let trace_context =
         read_trace_context(row, 10, "schedule trace context")?;
-    Ok((event, trace_context))
+    let tries = read_tries(row, 13, &event.event_id)?;
+    let last_error = read_optional_text(row, 14, "last_error")?;
+    Ok(DueSchedule {
+        event,
+        trace_context,
+        tries,
+        last_error,
+    })
+}
+
+fn read_set_aside_timer(
+    row: &[ColumnValue],
+) -> Result<SetAsideTimer> {
+    let event_id = read_text(row, 0, "event_id")?;
+    Ok(SetAsideTimer {
+        action: read_text(row, 1, "action")?,
+        args: read_optional_blob(row, 2, "args")?.unwrap_or_default(),
+        due_at: read_i64(row, 3, "trigger_at")?,
+        tries: read_tries(row, 4, &event_id)?,
+        last_error: read_optional_text(row, 5, "last_error")?,
+        set_aside_at: read_i64(row, 6, "set_aside_at")?,
+        event_id,
+    })
+}
+
+fn read_tries(
+    row: &[ColumnValue],
+    index: usize,
+    schedule_id: &str,
+) -> Result<u32> {
+    u32::try_from(read_i64(row, index, "tries")?).map_err(|_| {
+        invalid_row(schedule_id, "tries is out of range")
+    })
 }
 
 fn read_cron_fire(row: &[ColumnValue]) -> Result<CronFire> {

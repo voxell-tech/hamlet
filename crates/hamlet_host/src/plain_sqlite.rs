@@ -13,16 +13,23 @@ use hamlet_actor_core::{
     BindParam, ExecuteResult, QueryResult, SqliteBatchStatement,
 };
 use hamlet_sqlite::Request;
-use rusqlite::types::Value;
-use rusqlite::{Connection, params_from_iter};
+use rusqlite::{Connection, OpenFlags};
 use tokio::sync::oneshot;
+
+/// The last work on a file before it closes. What it returns answers
+/// the caller once the file is closed, so the caller finds the file
+/// unlocked.
+type Last = Box<dyn FnOnce(&Connection) -> Answer + Send>;
+
+type Answer = Box<dyn FnOnce() + Send>;
+
+/// Work of the host's own that waits for no transaction to be open.
+type Idle = Box<dyn FnOnce(&Connection) -> Result<()> + Send>;
 
 enum Command {
     Sql(Request),
-    /// A write of the host's own, held while the actor has a
-    /// transaction open so it never joins the actor's transaction.
-    HostWrite(HostWrite),
-    Close(oneshot::Sender<()>),
+    WhenIdle(Idle),
+    Close(Last),
 }
 
 #[derive(Clone)]
@@ -30,10 +37,15 @@ pub struct PlainSqlite {
     tx: mpsc::Sender<Command>,
 }
 
-/// Opens an actor's file. The exclusive lock is taken at the first
-/// access, so the caller writes before it serves the file.
-pub fn open(path: &Path) -> Result<Connection> {
-    let conn = Connection::open(path)
+/// Opens an actor's file, and makes it if `create` and it is
+/// missing. The exclusive lock is taken at the first access, so the
+/// caller writes before it serves the file.
+pub fn open(path: &Path, create: bool) -> Result<Connection> {
+    let mut flags = OpenFlags::default();
+    if !create {
+        flags.remove(OpenFlags::SQLITE_OPEN_CREATE);
+    }
+    let conn = Connection::open_with_flags(path, flags)
         .with_context(|| format!("open {}", path.display()))?;
     // The locking mode comes first, so the write-ahead log keeps its
     // index in this process's memory instead of a shared file.
@@ -88,32 +100,46 @@ impl PlainSqlite {
             .await
     }
 
-    /// Queues a write of the host's own, which runs once the actor
-    /// has no transaction open. Writes run in the order they are
-    /// queued, each after the fault point `point`.
-    pub fn host_write(
+    /// Runs `work` on the connection as soon as no transaction is
+    /// open: at once when none is, else once the open one ends, or at
+    /// the close, after the rollback. A statement sent after `work`
+    /// runs after it, unless it belongs to a transaction open when
+    /// `work` was sent. An error of `work` is logged. Fails once the
+    /// file is closed.
+    pub fn when_idle(
         &self,
-        point: &'static str,
-        sql: &str,
-        params: Vec<Value>,
-    ) -> Result<HostWriteResult> {
-        let (reply, rx) = oneshot::channel();
-        self.send(Command::HostWrite(HostWrite {
-            point,
-            sql: sql.to_owned(),
-            params,
-            reply,
-        }))?;
-        Ok(HostWriteResult(rx))
+        work: impl FnOnce(&Connection) -> Result<()> + Send + 'static,
+    ) -> Result<()> {
+        self.send(Command::WhenIdle(Box::new(work)))
     }
 
     /// Closes the connection, which releases the file's lock, and
     /// returns once it is closed.
     pub async fn close(&self) {
+        let _ = self.close_with(|_| Ok(())).await;
+    }
+
+    /// Runs `last` on the connection, then closes it and ends the
+    /// file's thread, whatever `last` returned, and returns what
+    /// `last` returned once the file is closed. It runs as soon as
+    /// the statements queued before it have, without waiting for an
+    /// open transaction: one still open belongs to a generation that
+    /// has ended, so it is rolled back first. Only the work that
+    /// [`Self::when_idle`] holds runs between that rollback, `last`
+    /// and the close, and any statement sent after them fails with
+    /// "sqlite file is closed".
+    pub async fn close_with<T: Send + 'static>(
+        &self,
+        last: impl FnOnce(&Connection) -> Result<T> + Send + 'static,
+    ) -> Result<T> {
         let (reply, rx) = oneshot::channel();
-        if self.send(Command::Close(reply)).is_ok() {
-            let _ = rx.await;
-        }
+        self.send(Command::Close(Box::new(move |conn| {
+            let result = last(conn);
+            Box::new(move || {
+                let _ = reply.send(result);
+            })
+        })))?;
+        received(rx).await
     }
 
     async fn request<T>(
@@ -137,75 +163,61 @@ async fn received<T>(rx: oneshot::Receiver<Result<T>>) -> Result<T> {
 }
 
 fn serve(conn: Connection, rx: &mpsc::Receiver<Command>) {
-    let mut held = Vec::new();
+    // The work `when_idle` holds until no transaction is open, in the
+    // order it came.
+    let mut idle = Vec::new();
     while let Ok(command) = rx.recv() {
         match command {
             Command::Sql(request) => request.answer(&conn),
-            Command::HostWrite(write) => held.push(write),
-            Command::Close(reply) => {
-                run_held(&conn, &mut held);
+            Command::WhenIdle(work) => idle.push(work),
+            Command::Close(last) => {
+                if !conn.is_autocommit()
+                    && let Err(error) = conn.execute_batch("ROLLBACK")
+                {
+                    tracing::error!(
+                        ?error,
+                        "sqlite file did not roll back"
+                    );
+                }
+                run_idle(&conn, &mut idle);
+                let answer = last(&conn);
                 if let Err((_, error)) = conn.close() {
                     tracing::error!(
                         ?error,
                         "sqlite file did not close"
                     );
                 }
-                let _ = reply.send(());
+                answer();
                 return;
             }
         }
-        run_held(&conn, &mut held);
+        if conn.is_autocommit() {
+            run_idle(&conn, &mut idle);
+        }
     }
 }
 
-struct HostWrite {
-    point: &'static str,
-    sql: String,
-    params: Vec<Value>,
-    reply: oneshot::Sender<Result<()>>,
-}
-
-/// The result of a queued host write.
-pub struct HostWriteResult(oneshot::Receiver<Result<()>>);
-
-impl HostWriteResult {
-    pub async fn wait(self) -> Result<()> {
-        received(self.0).await
-    }
-}
-
-/// Runs the host's held writes when no transaction is open.
-fn run_held(conn: &Connection, held: &mut Vec<HostWrite>) {
-    if !conn.is_autocommit() {
-        return;
-    }
-    for HostWrite {
-        point,
-        sql,
-        params,
-        reply,
-    } in held.drain(..)
-    {
-        crate::fault::point(point);
-        let result = conn
-            .execute(&sql, params_from_iter(params))
-            .map(drop)
-            .map_err(Into::into);
-        let _ = reply.send(result);
+fn run_idle(conn: &Connection, idle: &mut Vec<Idle>) {
+    for work in idle.drain(..) {
+        if let Err(error) = work(conn) {
+            tracing::error!(
+                ?error,
+                "the host's write to a file failed"
+            );
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use hamlet_actor_core::ColumnValue;
     use hamlet_testing::Scratch;
 
     use super::*;
 
     #[tokio::test]
-    async fn a_host_write_waits_out_an_open_transaction() {
-        let dir = Scratch::new("plain-sqlite-held");
-        let conn = open(&dir.join("a.sqlite")).unwrap();
+    async fn closing_rolls_back_an_open_transaction_first() {
+        let dir = Scratch::new("plain-sqlite-close");
+        let conn = open(&dir.join("a.sqlite"), true).unwrap();
         conn.execute_batch("CREATE TABLE t (who TEXT NOT NULL)")
             .unwrap();
         let file = PlainSqlite::serve(conn).unwrap();
@@ -214,25 +226,110 @@ mod tests {
         file.exec("INSERT INTO t VALUES ('actor')".to_owned())
             .await
             .unwrap();
-        let written = file
-            .host_write(
-                "test-write",
-                "INSERT INTO t VALUES (?)",
-                vec![Value::Text("host".to_owned())],
-            )
-            .unwrap();
-        file.exec("ROLLBACK".to_owned()).await.unwrap();
-        written.wait().await.unwrap();
-
         let rows = file
-            .exec("SELECT who FROM t".to_owned())
+            .close_with(|conn| {
+                conn.execute("INSERT INTO t VALUES ('host')", [])?;
+                let rows = conn.query_row(
+                    "SELECT COUNT(*) FROM t WHERE who = 'actor'",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )?;
+                Ok(rows)
+            })
             .await
-            .unwrap()
-            .rows;
-        assert_eq!(
-            rows,
-            vec![vec![ColumnValue::Text("host".into())]]
-        );
+            .unwrap();
+        assert_eq!(rows, 0);
+        assert!(file.exec("SELECT 1".to_owned()).await.is_err());
+
+        let conn = open(&dir.join("a.sqlite"), false).unwrap();
+        let who = conn
+            .query_row("SELECT who FROM t", [], |row| {
+                row.get::<_, String>(0)
+            })
+            .unwrap();
+        assert_eq!(who, "host");
+    }
+
+    /// How many rows of `t` hold `who`.
+    async fn rows_of(file: &PlainSqlite, who: &str) -> i64 {
+        let result = file
+            .exec(format!(
+                "SELECT COUNT(*) FROM t WHERE who = '{who}'"
+            ))
+            .await
+            .unwrap();
+        match result.rows[0][0] {
+            hamlet_actor_core::ColumnValue::Integer(rows) => rows,
+            ref other => panic!("a count of {other:?}"),
+        }
+    }
+
+    /// Idle work waits for the open transaction to end, and runs
+    /// before the statements sent after it ends. At the close, it
+    /// runs after the rollback of a transaction left open.
+    #[tokio::test]
+    async fn idle_work_waits_for_the_open_transaction() {
+        let dir = Scratch::new("plain-sqlite-idle");
+        let path = dir.join("a.sqlite");
+        let conn = open(&path, true).unwrap();
+        conn.execute_batch("CREATE TABLE t (who TEXT NOT NULL)")
+            .unwrap();
+        let file = PlainSqlite::serve(conn).unwrap();
+        let insert = |who: &'static str| {
+            move |conn: &Connection| {
+                conn.execute("INSERT INTO t VALUES (?)", [who])?;
+                Ok(())
+            }
+        };
+
+        file.exec("BEGIN".to_owned()).await.unwrap();
+        file.when_idle(insert("host")).unwrap();
+        file.exec("INSERT INTO t VALUES ('actor')".to_owned())
+            .await
+            .unwrap();
+        assert_eq!(rows_of(&file, "host").await, 0);
+        file.exec("ROLLBACK".to_owned()).await.unwrap();
+        assert_eq!(rows_of(&file, "actor").await, 0);
+        assert_eq!(rows_of(&file, "host").await, 1);
+
+        file.exec("BEGIN".to_owned()).await.unwrap();
+        file.exec("INSERT INTO t VALUES ('leaked')".to_owned())
+            .await
+            .unwrap();
+        file.when_idle(insert("closing")).unwrap();
         file.close().await;
+        assert!(file.when_idle(insert("closed")).is_err());
+
+        let conn = open(&path, false).unwrap();
+        let file = PlainSqlite::serve(conn).unwrap();
+        assert_eq!(rows_of(&file, "leaked").await, 0);
+        assert_eq!(rows_of(&file, "closing").await, 1);
+        file.close().await;
+    }
+
+    /// The close checkpoints the write-ahead log, which takes a while
+    /// for a large one. The file is unlocked once `close_with` has
+    /// answered.
+    #[tokio::test]
+    async fn closing_answers_once_the_file_is_unlocked() {
+        let dir = Scratch::new("plain-sqlite-unlocked");
+        let path = dir.join("a.sqlite");
+        let conn = open(&path, true).unwrap();
+        conn.execute_batch(
+            "PRAGMA wal_autocheckpoint = 0; CREATE TABLE ballast (b \
+             BLOB NOT NULL); INSERT INTO ballast VALUES \
+             (randomblob(32000000))",
+        )
+        .unwrap();
+        let file = PlainSqlite::serve(conn).unwrap();
+        file.close_with(|_| Ok(())).await.unwrap();
+        let conn = Connection::open(&path).unwrap();
+        conn.busy_timeout(std::time::Duration::ZERO).unwrap();
+        let rows = conn
+            .query_row("SELECT COUNT(*) FROM ballast", [], |row| {
+                row.get::<_, i64>(0)
+            })
+            .unwrap();
+        assert_eq!(rows, 1);
     }
 }

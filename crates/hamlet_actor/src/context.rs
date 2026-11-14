@@ -439,6 +439,8 @@ impl<A: Actor> Ctx<A> {
 }
 
 impl Schedule<'_> {
+    /// Arms a one-shot timer `duration` from now. See
+    /// [`ActorContext::at`] for what its handler is promised.
     pub async fn after(
         &self,
         duration: Duration,
@@ -448,6 +450,9 @@ impl Schedule<'_> {
         self.inner.after(duration, action_name, args).await
     }
 
+    /// Arms a one-shot timer at `timestamp_ms`, in ms since the Unix
+    /// epoch. See [`ActorContext::at`] for what its handler is
+    /// promised.
     pub async fn at(
         &self,
         timestamp_ms: i64,

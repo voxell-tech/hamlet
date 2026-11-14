@@ -4868,6 +4868,9 @@ name = "hamlet_host"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
+ "ciborium",
+ "hamlet_actor",
  "hamlet_actor_core",
  "hamlet_actor_error",
  "hamlet_host",
@@ -4875,6 +4878,7 @@ dependencies = [
  "hamlet_testing",
  "parking_lot",
  "rusqlite",
+ "serde",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -4885,6 +4889,7 @@ name = "hamlet_killkit"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "rand 0.8.8",
  "rusqlite",
 ]
 

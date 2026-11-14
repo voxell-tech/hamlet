@@ -937,9 +937,6 @@ impl SqliteDb {
             false,
         )
         .await;
-        if commit && let Ok(config) = self.runtime_config() {
-            config.handle.transaction_committed(&config.actor_id);
-        }
         Ok(())
     }
 

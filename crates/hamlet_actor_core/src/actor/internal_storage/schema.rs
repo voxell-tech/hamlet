@@ -6,7 +6,7 @@ use crate::sqlite::{
     BindParam, ColumnValue, SqliteBatchStatement, SqliteDb,
 };
 
-pub(crate) const INTERNAL_SCHEMA_VERSION: i64 = 2;
+pub(crate) const INTERNAL_SCHEMA_VERSION: i64 = 4;
 
 const SCHEMA_VERSION_KEY: &str = "schema_version";
 
@@ -34,7 +34,7 @@ CREATE TABLE IF NOT EXISTS _actor_meta (
 // shipped; after release, all changes must be appended as new
 // migrations and INTERNAL_SCHEMA_VERSION must advance.
 pub(crate) const MIGRATIONS: &[&[&str]] =
-    &[MIGRATION_V1, MIGRATION_V2];
+    &[MIGRATION_V1, MIGRATION_V2, MIGRATION_V3, MIGRATION_V4];
 
 const MIGRATION_V1: &[&str] = &[
     // W[queue_next_id per enqueue; alarm per head-change; token once
@@ -189,6 +189,77 @@ const MIGRATION_V2: &[&str] = &[
     "ALTER TABLE _actor_queue ADD COLUMN tracestate TEXT",
 ];
 
+// A one-shot keeps its row while its action runs, marked with the
+// generation that claimed it, until the action's own transaction or
+// the finish after its reply deletes it. A row an older generation
+// claimed is due again.
+const MIGRATION_V3: &[&str] = &[r#"
+ALTER TABLE _actor_schedule_events ADD COLUMN claimed_generation INTEGER
+"#];
+
+// A one-shot counts its claims in `tries`, and a claim past the
+// limit moves it to `_actor_schedule_set_aside`. `tries` is NOT NULL
+// with no default, which `ADD COLUMN` cannot add, so the table is
+// built again with its rows.
+const MIGRATION_V4: &[&str] = &[
+    r#"
+CREATE TABLE _actor_schedule_events_v4 (
+    event_id         TEXT PRIMARY KEY,
+    trigger_at       INTEGER NOT NULL,
+    action           TEXT NOT NULL,
+    args             BLOB,
+    kind             INTEGER NOT NULL,
+    cron_expression  TEXT,
+    timezone         TEXT,
+    interval_ms      INTEGER,
+    last_started_at  INTEGER,
+    max_history      INTEGER NOT NULL,
+    ray_id           TEXT,
+    traceparent      TEXT,
+    tracestate       TEXT,
+    claimed_generation INTEGER,
+    tries            INTEGER NOT NULL,
+    last_error       TEXT
+) STRICT, WITHOUT ROWID
+"#,
+    r#"
+INSERT INTO _actor_schedule_events_v4 (event_id, trigger_at, action,
+    args, kind, cron_expression, timezone, interval_ms,
+    last_started_at, max_history, ray_id, traceparent, tracestate,
+    claimed_generation, tries, last_error)
+SELECT event_id, trigger_at, action, args, kind, cron_expression,
+    timezone, interval_ms, last_started_at, max_history, ray_id,
+    traceparent, tracestate, claimed_generation, 0, NULL
+FROM _actor_schedule_events
+"#,
+    "DROP TABLE _actor_schedule_events",
+    "ALTER TABLE _actor_schedule_events_v4 RENAME TO \
+     _actor_schedule_events",
+    r#"
+CREATE INDEX _actor_schedule_events_trigger_at
+    ON _actor_schedule_events (trigger_at)
+"#,
+    CREATE_SCHEDULE_SET_ASIDE,
+];
+
+// A one-shot set aside after its last try, as it was when it was
+// set aside: its due time, the claims it had and the outcome of the
+// last one, NULL when none came back.
+const CREATE_SCHEDULE_SET_ASIDE: &str = r#"
+CREATE TABLE _actor_schedule_set_aside (
+    event_id     TEXT PRIMARY KEY,
+    action       TEXT NOT NULL,
+    args         BLOB,
+    trigger_at   INTEGER NOT NULL,
+    tries        INTEGER NOT NULL,
+    last_error   TEXT,
+    set_aside_at INTEGER NOT NULL,
+    ray_id       TEXT,
+    traceparent  TEXT,
+    tracestate   TEXT
+) STRICT, WITHOUT ROWID
+"#;
+
 /// Returns a row when the bootstrap root exists.
 pub(crate) const HAS_INTERNAL_SCHEMA_SQL: &str =
     "SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = \
@@ -226,7 +297,10 @@ CREATE TABLE _actor_schedule_events (
     max_history      INTEGER NOT NULL,
     ray_id           TEXT,
     traceparent      TEXT,
-    tracestate       TEXT
+    tracestate       TEXT,
+    claimed_generation INTEGER,
+    tries            INTEGER NOT NULL,
+    last_error       TEXT
 ) STRICT, WITHOUT ROWID
 "#;
 
@@ -249,15 +323,18 @@ CREATE TABLE _actor_queue (
 /// must be added here too, which
 /// `fresh_schema_matches_the_migration_ladder` checks.
 fn fresh_schema() -> impl Iterator<Item = &'static str> {
-    MIGRATION_V1.iter().map(|sql| {
-        if sql.contains("CREATE TABLE _actor_schedule_events") {
-            FRESH_SCHEDULE_EVENTS
-        } else if sql.contains("CREATE TABLE _actor_queue ") {
-            FRESH_QUEUE
-        } else {
-            sql
-        }
-    })
+    MIGRATION_V1
+        .iter()
+        .map(|sql| {
+            if sql.contains("CREATE TABLE _actor_schedule_events") {
+                FRESH_SCHEDULE_EVENTS
+            } else if sql.contains("CREATE TABLE _actor_queue ") {
+                FRESH_QUEUE
+            } else {
+                sql
+            }
+        })
+        .chain([CREATE_SCHEDULE_SET_ASIDE])
 }
 
 /// One atomic bootstrap batch; callers may append framework-owned

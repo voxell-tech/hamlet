@@ -15,12 +15,16 @@ pub type ActorEntryFn =
 pub type ActorEntryFn =
     dyn Fn(ActorStart) -> RuntimeBoxFuture<Result<()>> + Send + Sync;
 
+/// Checks whether a runtime can read a connection's parameters.
+type ConnParamsCheckFn = dyn Fn(&[u8]) -> Result<()> + Send + Sync;
+
 /// Runtime extension point for building actor receive loops.
 pub struct ActorFactory {
     config: ActorConfig,
     entry: Box<ActorEntryFn>,
     manual_startup_ready: bool,
     streams_request_body: bool,
+    conn_params_check: Option<Box<ConnParamsCheckFn>>,
 }
 
 #[cfg(feature = "wasm-runtime")]
@@ -51,6 +55,7 @@ impl ActorFactory {
             entry: Box::new(entry),
             manual_startup_ready: false,
             streams_request_body: false,
+            conn_params_check: None,
         }
     }
 
@@ -68,6 +73,7 @@ impl ActorFactory {
             entry: Box::new(entry),
             manual_startup_ready: true,
             streams_request_body: false,
+            conn_params_check: None,
         }
     }
 
@@ -76,6 +82,27 @@ impl ActorFactory {
     pub fn with_streaming_request_body(mut self) -> Self {
         self.streams_request_body = true;
         self
+    }
+
+    /// Declares how this runtime decodes a connection's parameters,
+    /// so a host can check, before any connection, that the runtime
+    /// reads the parameters the host gives.
+    pub fn with_conn_params_check<F>(mut self, check: F) -> Self
+    where
+        F: Fn(&[u8]) -> Result<()> + Send + Sync + 'static,
+    {
+        self.conn_params_check = Some(Box::new(check));
+        self
+    }
+
+    /// Whether this runtime reads `params` as a connection's
+    /// parameters. A runtime that declared no check takes them as
+    /// bytes, and reads any.
+    pub fn check_conn_params(&self, params: &[u8]) -> Result<()> {
+        match &self.conn_params_check {
+            Some(check) => check(params),
+            None => Ok(()),
+        }
     }
 
     pub fn config(&self) -> &ActorConfig {
@@ -132,6 +159,10 @@ impl fmt::Debug for ActorFactory {
             .field("config", &self.config)
             .field("manual_startup_ready", &self.manual_startup_ready)
             .field("streams_request_body", &self.streams_request_body)
+            .field(
+                "conn_params_check",
+                &self.conn_params_check.is_some(),
+            )
             .field("entry", &"<boxed entry>")
             .finish()
     }

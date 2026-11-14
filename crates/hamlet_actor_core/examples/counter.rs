@@ -8,6 +8,7 @@
 use std::collections::HashMap;
 use std::io::Cursor;
 use std::path::Path;
+use std::time::Duration;
 
 use anyhow::{Result, anyhow};
 use ciborium::{from_reader, into_writer};
@@ -15,7 +16,7 @@ use hamlet_actor_core::{
     ActorConfig, ActorEvent, ActorFactory, ActorStart,
     RequestSaveOpts, SerializeStateReason, StateDelta,
 };
-use hamlet_host::Host;
+use hamlet_host::{Address, Cause, Host};
 
 fn encode_count(count: i64) -> Result<Vec<u8>> {
     let mut out = Vec::new();
@@ -125,10 +126,16 @@ async fn main() -> Result<()> {
         HashMap::from([("counter".to_owned(), counter_factory())]),
     )?;
     host.boot().await?;
-    let actor_id = host.get_or_start("counter", "default").await?;
+    host.get_or_start("counter", "default").await?;
     let count = host
-        .action(&actor_id, "increment", encode_count(1)?)
+        .call(
+            &Address::new("counter", "default"),
+            "increment",
+            encode_count(1)?,
+            Duration::from_secs(60),
+            Cause::root("example"),
+        )
         .await?;
     println!("count {}", decode_count(&count)?);
-    host.stop_all().await
+    host.shutdown().await
 }
