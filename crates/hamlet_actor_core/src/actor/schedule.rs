@@ -1092,24 +1092,22 @@ impl ActorContext {
         }
     }
 
-    /// Deletes the row of a one-shot that fired, unless its action
-    /// may not have run to its end: no reply came back, or the reply
-    /// is one of `UNFINISHED_ACTION_CODES`. A kept row stays claimed
-    /// by this generation, so the next one runs it, and records the
-    /// outcome as its `last_error`.
+    /// Deletes the row of a one-shot that fired, unless its handler
+    /// did not answer: the action was never sent, or the handler was
+    /// cut off before its end, as by its actor's stop, and its reply
+    /// answered for it. A handler that answered ran once, also with
+    /// an error, whatever its code, or with a panic. A kept row stays
+    /// claimed by this generation, so the next one runs it, and
+    /// records the outcome as its `last_error`.
     pub(crate) async fn finish_one_shot_dispatch(
         &self,
         event_id: &str,
-        replied: bool,
+        answered: bool,
         error: Option<&anyhow::Error>,
     ) {
-        let outcome = error.map(ActorError::extract);
-        let unfinished = outcome.as_ref().is_some_and(|outcome| {
-            outcome.group() == "actor"
-                && UNFINISHED_ACTION_CODES.contains(&outcome.code())
-        });
-        if !replied || unfinished {
-            if let Some(outcome) = outcome {
+        if !answered {
+            if let Some(error) = error {
+                let outcome = ActorError::extract(error);
                 self.record_one_shot_outcome(
                     event_id,
                     format!("{}.{}", outcome.group(), outcome.code()),
@@ -1712,22 +1710,6 @@ impl ActorContext {
             .store(false, Ordering::SeqCst);
     }
 }
-
-/// The `actor` error codes of an action that did not run to its end:
-/// its generation stopped it, or the core cannot tell. Any other
-/// error came from the action itself.
-const UNFINISHED_ACTION_CODES: &[&str] = &[
-    "starting",
-    "not_ready",
-    "stopping",
-    "destroying",
-    "destroyed",
-    "shutdown_timeout",
-    "dropped_reply",
-    "overloaded",
-    "aborted",
-    "action_timed_out",
-];
 
 /// Deletes the row of the one-shot `fire` inside `tx`, so it leaves
 /// with the action's change: a kill before `tx` commits runs the

@@ -3,7 +3,7 @@
 //! one-shot that never finishes set aside after five tries, a
 //! stored deadline at either end of the clock's range, a start for a
 //! deadline that fails, a double drain, twenty one-shots due at once,
-//! and a handler that returns an error.
+//! and a handler that returns an error, its own or a call's.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -27,7 +27,9 @@ use hamlet_actor_core::{
     ActorContext, ActorEvent, ActorFactory, ActorStart, BindParam,
     ColumnValue, ShutdownKind,
 };
-use hamlet_host::{Address, Caller, Host, HostEvent, HostOptions};
+use hamlet_host::{
+    Address, Caller, Cause, Host, HostEvent, HostOptions,
+};
 use hamlet_testing::Scratch;
 use serde::{Deserialize, Serialize};
 use tokio::time::{Instant, sleep};
@@ -200,8 +202,8 @@ async fn a_one_shot_whose_raw_handler_panics_runs_once() {
 /// good on its first run and ends on any later one.
 ///
 /// `fire`'s record lands before its panic, and a stop between the two
-/// cuts it short: the authoring layer answers it `actor.stopping`,
-/// which keeps its one-shot to run again. So `fire` holds `firing`
+/// cuts it short: the authoring layer answers it as cut off, which
+/// keeps its one-shot to run again. So `fire` holds `firing`
 /// until it ends or naps, and `runs` takes it first: a run it counts
 /// has ended, or naps.
 struct Fuse<const NAPS: bool> {
@@ -330,10 +332,10 @@ async fn a_one_shot_whose_trait_handler_panics_runs_once() {
 
 /// A stop cuts short a one-shot's handler of the trait API that
 /// recorded its run outside the one-shot's transaction: the handler
-/// is answered `actor.stopping`, so its one-shot is kept, and the
-/// deadline the stop stores starts the actor again at once, which
-/// runs it again. Such a handler runs at least once; one that ends
-/// its one-shot in its own transaction runs once.
+/// is answered as cut off, `actor.stopping`, so its one-shot is kept,
+/// and the deadline the stop stores starts the actor again at once,
+/// which runs it again. Such a handler runs at least once; one that
+/// ends its one-shot in its own transaction runs once.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_one_shot_whose_trait_handler_a_stop_cuts_short_runs_again()
 {
@@ -368,6 +370,222 @@ async fn a_one_shot_whose_trait_handler_a_stop_cuts_short_runs_again()
     assert!(host.boot().await.unwrap().is_empty());
     wait_for_runs(&host, &id, "runs", fuse_runs, 2).await;
     host.shutdown().await.unwrap();
+}
+
+/// The `actor` codes a call to another actor fails with when the
+/// callee did not run the action to its end: it was starting,
+/// stopping or gone, too busy, or out of time.
+const CALL_FAILURES: [&str; 10] = [
+    "starting",
+    "not_ready",
+    "stopping",
+    "destroying",
+    "destroyed",
+    "shutdown_timeout",
+    "dropped_reply",
+    "overloaded",
+    "aborted",
+    "action_timed_out",
+];
+
+/// An actor of the trait API whose one-shot `pass` records its run in
+/// the table `runs`, then returns the error of a call it made to
+/// another actor. Its key names that error's `actor` code. For
+/// `action_timed_out`, `pass` makes the call: to `nap` of
+/// `relay/callee`, which never ends, with 50 ms to run. For any other
+/// code it returns the error such a call fails with. `arm` schedules
+/// `pass`; `runs` reads the record; `pending` counts the one-shots
+/// fired whose handler has not answered and been finished.
+struct Relay;
+
+#[derive(Serialize, Deserialize)]
+struct Pass;
+
+#[derive(Serialize, Deserialize)]
+struct Nap;
+
+#[derive(Serialize, Deserialize)]
+struct Pending;
+
+impl Action for Pass {
+    type Output = ();
+    const NAME: &'static str = "pass";
+}
+
+impl Action for Nap {
+    type Output = ();
+    const NAME: &'static str = "nap";
+}
+
+impl Action for Pending {
+    type Output = i64;
+    const NAME: &'static str = "pending";
+}
+
+#[async_trait]
+impl Actor for Relay {
+    type Input = ();
+    type Actions = (Arm, Pass, Nap, Runs, Pending);
+    type Events = ();
+    type ConnParams = Option<Caller>;
+    type Action = ();
+
+    async fn create(ctx: &Ctx<Self>) -> Result<Self> {
+        ctx.sql().exec(&count_table("runs")).await?;
+        Ok(Self)
+    }
+}
+
+impl Handler<Arm> for Relay {
+    async fn handle(
+        self: Arc<Self>,
+        ctx: Ctx<Self>,
+        _: Arm,
+    ) -> Result<()> {
+        ctx.schedule()
+            .after(Duration::from_millis(SOON_MS), Pass::NAME, &[])
+            .await?;
+        Ok(())
+    }
+}
+
+impl Handler<Pass> for Relay {
+    async fn handle(
+        self: Arc<Self>,
+        ctx: Ctx<Self>,
+        _: Pass,
+    ) -> Result<()> {
+        ctx.sql().execute(&add_one("runs"), None).await?;
+        let (_, code) =
+            ctx.actor_id().split_once('/').context("an actor id")?;
+        if code == "action_timed_out" {
+            Host::call_from(
+                ctx.inner(),
+                &Address::new("relay", "callee"),
+                Nap::NAME,
+                Vec::new(),
+                Duration::from_millis(50),
+                Cause::root("test"),
+            )
+            .await?;
+            anyhow::bail!("a call to `nap` ended");
+        }
+        Err(hamlet_actor_error::ActorError {
+            kind: hamlet_actor_error::ActorErrorKind::Dynamic {
+                group: "actor".to_owned(),
+                code: code.to_owned(),
+                default_message: format!("the call failed: {code}"),
+            },
+            meta: None,
+            message: None,
+            actor: None,
+        }
+        .into())
+    }
+}
+
+impl Handler<Nap> for Relay {
+    async fn handle(
+        self: Arc<Self>,
+        _: Ctx<Self>,
+        _: Nap,
+    ) -> Result<()> {
+        std::future::pending().await
+    }
+}
+
+impl Handler<Runs> for Relay {
+    async fn handle(
+        self: Arc<Self>,
+        ctx: Ctx<Self>,
+        _: Runs,
+    ) -> Result<i64> {
+        count_in(ctx.sql(), "runs").await
+    }
+}
+
+impl Handler<Pending> for Relay {
+    async fn handle(
+        self: Arc<Self>,
+        ctx: Ctx<Self>,
+        _: Pending,
+    ) -> Result<i64> {
+        let read = ctx
+            .sql()
+            .query(
+                "SELECT COUNT(*) FROM _actor_schedule_events WHERE \
+                 claimed_generation IS NOT NULL AND last_error IS \
+                 NULL",
+                None,
+            )
+            .await?;
+        match read.rows.first().and_then(|row| row.first()) {
+            Some(ColumnValue::Integer(pending)) => Ok(*pending),
+            other => anyhow::bail!("pending read {other:?}"),
+        }
+    }
+}
+
+/// A one-shot whose handler returns the error of a call it made runs
+/// once, whatever that error's code: the handler ran to its end. Its
+/// row goes with the run, so its next generation does not run it
+/// again, and nothing is set aside.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_one_shot_whose_handler_returns_a_calls_error_runs_once() {
+    let dir = Scratch::new("timer-call-error");
+    let mut registry = Registry::new();
+    registry.register_actor_with::<Relay>(
+        "relay",
+        ActorConfig {
+            name: Some("relay".to_owned()),
+            has_database: true,
+            ..ActorConfig::default()
+        },
+    );
+    let host = Host::open(&dir, registry.into_factories()).unwrap();
+    host.get_or_start("relay", "callee").await.unwrap();
+    let mut ids = Vec::new();
+    for code in CALL_FAILURES {
+        let id = host.get_or_start("relay", code).await.unwrap();
+        act(&host, &id, "arm", Vec::new()).await.unwrap();
+        ids.push(id);
+    }
+    for id in &ids {
+        wait_for_runs(&host, id, "runs", fuse_runs, 1).await;
+        wait_for_runs(&host, id, "pending", fuse_runs, 0).await;
+    }
+    // A kept one-shot runs again when its actor's next generation
+    // starts.
+    for id in &ids {
+        host.stop(id, ShutdownKind::Sleep).await.unwrap();
+    }
+    for code in CALL_FAILURES {
+        host.get_or_start("relay", code).await.unwrap();
+    }
+    sleep(Duration::from_millis(500)).await;
+    let mut ran = Vec::new();
+    for (code, id) in CALL_FAILURES.iter().zip(&ids) {
+        let runs = fuse_runs(
+            act(&host, id, "runs", Vec::new()).await.unwrap(),
+        );
+        let set_aside = host
+            .set_aside_timers(&Address::new("relay", *code))
+            .await
+            .unwrap();
+        ran.push((*code, runs, set_aside.len()));
+    }
+    host.shutdown().await.unwrap();
+    drop(host);
+    let stored_one_shots = ids
+        .iter()
+        .map(|id| stored(&dir, id, "runs").schedules)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        ran,
+        CALL_FAILURES.map(|code| (code, 1, 0)),
+        "(code, runs, set aside)"
+    );
+    assert_eq!(stored_one_shots, [0; 10], "one-shots still stored");
 }
 
 /// How long `arm` of the kind `inline` waits for the core to queue

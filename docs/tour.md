@@ -260,10 +260,11 @@ over.
 A one-shot timer, armed with `ActorContext::at` in
 `hamlet_actor_core/src/actor/schedule.rs`, is tried at most five times,
 `MAX_ONE_SHOT_TRIES`. Each try is a claim of the timer's row, committed
-before its action runs. The core deletes the row once the action
-replies, or the handler deletes it with `end_one_shot` in its own
-transaction. A run that may not have ended, such as one a stop cut
-short, keeps the row for the next try. The drain that finds a row with
+before its action runs. The core deletes the row once the handler
+answers, with its result, an error of any code or a panic, or the
+handler deletes it with `end_one_shot` in its own transaction. A
+handler that did not answer, because a stop cut it short or its reply
+was dropped unsent, keeps the row for the next try. The drain that finds a row with
 five tries runs nothing for it: it moves the row to
 `_actor_schedule_set_aside`, and the host reports the timer on
 `Host::events` as `HostEvent::TimerSetAside`. `Host::set_aside_timers` lists an
