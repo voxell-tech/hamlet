@@ -592,21 +592,49 @@ async fn a_slow_stop_does_not_stall_other_actors() {
 /// until the test drops the sender.
 type Gate = Arc<Mutex<std::sync::mpsc::Receiver<()>>>;
 
-/// A statement that runs for seconds: about 7 on a machine where
-/// SQLite counts 14 million rows a second.
-const LONG_STATEMENT: &str = "WITH RECURSIVE c(x) AS (SELECT 1 \
-                              UNION ALL SELECT x + 1 FROM c WHERE x \
-                              < 100000000) SELECT COUNT(*) FROM c";
+/// The file of the realm folder `dir` that a [`Hold`] locks.
+fn hold_file(dir: &Path) -> PathBuf {
+    dir.join("hold.sqlite")
+}
+
+/// Locks the [`hold_file`] of a realm folder until it is dropped, so
+/// that a [`held_statement`] on that file runs until then. The file
+/// is in rollback-journal mode, where the exclusive lock keeps every
+/// reader out. Closing the connection lets the lock go.
+struct Hold {
+    _lock: Connection,
+}
+
+impl Hold {
+    fn new(dir: &Path) -> Self {
+        let conn = Connection::open(hold_file(dir)).unwrap();
+        conn.execute_batch("CREATE TABLE held (x); BEGIN EXCLUSIVE")
+            .unwrap();
+        Self { _lock: conn }
+    }
+}
+
+/// A statement that reads `file` and waits up to an hour for its
+/// lock, so that it runs on its connection's thread until the test
+/// drops the [`Hold`] of that file.
+fn held_statement(file: &Path) -> String {
+    let file = file.display().to_string().replace('\'', "''");
+    format!(
+        "PRAGMA busy_timeout = 3600000; ATTACH DATABASE '{file}' AS \
+         hold; SELECT COUNT(*) FROM hold.held; DETACH DATABASE hold"
+    )
+}
 
 /// The kind `blocker`, whose event loop blocks in synchronous code at
 /// its action `block`, until `gate` closes, as an actor stuck in a
-/// blocking call does. Its action `scan` runs [`LONG_STATEMENT`] from
-/// the event loop. Each sends on `blocked` first. Its grace at a stop
+/// blocking call does. Its action `query` runs `statement` from the
+/// event loop. Each sends on `blocked` first. Its grace at a stop
 /// is 200 ms, so its core soon gives the event loop up and waits for
 /// it to end. Every action answers a count of 0.
 fn blocker(
     gate: &Gate,
     blocked: tokio::sync::mpsc::UnboundedSender<()>,
+    statement: String,
 ) -> ActorFactory {
     let config = ActorConfig {
         name: Some("blocker".to_owned()),
@@ -618,6 +646,7 @@ fn blocker(
     ActorFactory::new(config, move |start: ActorStart| {
         let gate = gate.clone();
         let blocked = blocked.clone();
+        let statement = statement.clone();
         Box::pin(async move {
             let ActorStart {
                 ctx, mut events, ..
@@ -630,11 +659,11 @@ fn blocker(
                                 let _ = blocked.send(());
                                 let _ = gate.lock().recv();
                             }
-                            "scan" => {
+                            "query" => {
                                 let _ = blocked.send(());
                                 let _ = ctx
                                     .sql()
-                                    .exec(LONG_STATEMENT.to_owned())
+                                    .exec(statement.clone())
                                     .await;
                             }
                             _ => {}
@@ -652,7 +681,8 @@ fn blocker(
 /// The stop deadline the tests of a blocked actor give their host.
 const STOP_DEADLINE: Duration = Duration::from_secs(2);
 
-/// The counters and a [`blocker`] that waits on `gate`, run by a host
+/// The counters and a [`blocker`] that waits on `gate`, or on the
+/// [`Hold`] of `dir` in its action `query`, run on `dir` by a host
 /// with [`STOP_DEADLINE`].
 fn blocked_host(
     dir: &Path,
@@ -660,8 +690,11 @@ fn blocked_host(
     blocked: &tokio::sync::mpsc::UnboundedSender<()>,
 ) -> Host {
     let mut kinds = factories();
-    kinds
-        .insert("blocker".to_owned(), blocker(gate, blocked.clone()));
+    let statement = held_statement(&hold_file(dir));
+    kinds.insert(
+        "blocker".to_owned(),
+        blocker(gate, blocked.clone(), statement),
+    );
     let options = HostOptions {
         stop_deadline: STOP_DEADLINE,
         ..HostOptions::default()
@@ -669,7 +702,7 @@ fn blocked_host(
     Host::open_with(dir, kinds, options).unwrap()
 }
 
-/// Calls the action `action`, `block` or `scan`, of the [`blocker`]
+/// Calls the action `action`, `block` or `query`, of the [`blocker`]
 /// `actor_id`, and returns once its event loop blocks.
 async fn block(
     host: &Host,
@@ -759,11 +792,18 @@ async fn a_shutdown_returns_while_a_statement_holds_the_file() {
     let (blocked, mut blocks) =
         tokio::sync::mpsc::unbounded_channel();
     let host = blocked_host(&dir, &gate, &blocked);
+    let hold = Hold::new(&dir);
     let stuck = host.get_or_start("blocker", "b").await.unwrap();
-    block(&host, &stuck, "scan", &mut blocks).await;
+    block(&host, &stuck, "query", &mut blocks).await;
 
     let begun = std::time::Instant::now();
-    let error = format!("{:#}", host.shutdown().await.unwrap_err());
+    let shutdown = tokio::time::timeout(
+        Duration::from_secs(20),
+        host.shutdown(),
+    )
+    .await
+    .expect("the shutdown waited for the statement");
+    let error = format!("{:#}", shutdown.unwrap_err());
     let took = begun.elapsed();
     assert!(at_the_deadline(took), "{took:?}");
     assert!(error.contains(&stuck), "{error}");
@@ -772,6 +812,7 @@ async fn a_shutdown_returns_while_a_statement_holds_the_file() {
         "the statement ended before the shutdown returned"
     );
 
+    drop(hold);
     wait_for_the_file(&dir, "blocker", "b").await;
     let host = blocked_host(&dir, &gate, &blocked);
     assert_eq!(
@@ -852,12 +893,12 @@ async fn a_stop_past_its_deadline_fails_its_waiters_and_later_calls()
     drop(release);
 }
 
-/// Waits until no connection holds the actor's file, for at most two
-/// minutes: a statement still running on its thread keeps it open.
+/// Waits until no connection holds the actor's file, for at most ten
+/// seconds: a statement still running on its thread keeps it open.
 async fn wait_for_the_file(dir: &Path, kind: &str, key: &str) {
     let begun = std::time::Instant::now();
     while probe(dir, kind, key).is_err() {
-        assert!(begun.elapsed() < Duration::from_secs(120));
+        assert!(begun.elapsed() < Duration::from_secs(10));
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
 }
@@ -865,7 +906,7 @@ async fn wait_for_the_file(dir: &Path, kind: &str, key: &str) {
 /// A destroy whose stop misses its deadline fails as a sleep's does,
 /// and its mark stays in the file it gave up: the next boot finishes
 /// the destroy, removes the actor's three files and starts nothing.
-/// The [`blocker`]'s action `action`, `block` or `scan`, holds its
+/// The [`blocker`]'s action `action`, `block` or `query`, holds its
 /// event loop or its file's thread past the deadline.
 async fn a_destroy_past_its_deadline_is_finished_at_the_next_boot(
     action: &'static str,
@@ -876,19 +917,24 @@ async fn a_destroy_past_its_deadline_is_finished_at_the_next_boot(
     let (blocked, mut blocks) =
         tokio::sync::mpsc::unbounded_channel();
     let host = blocked_host(&dir, &gate, &blocked);
+    let hold = Hold::new(&dir);
     let stuck = host.get_or_start("blocker", "b").await.unwrap();
     block(&host, &stuck, action, &mut blocks).await;
 
     let begun = std::time::Instant::now();
-    let error = host
-        .stop(&stuck, ShutdownKind::Destroy)
-        .await
-        .expect_err("a destroy past its deadline");
+    let error = tokio::time::timeout(
+        Duration::from_secs(20),
+        host.stop(&stuck, ShutdownKind::Destroy),
+    )
+    .await
+    .expect("the destroy waited for the actor")
+    .expect_err("a destroy past its deadline");
     let took = begun.elapsed();
     assert!(code(&error) == "actor.shutdown_timeout", "{error:#}");
     assert!(at_the_deadline(took), "{took:?}");
     let error = format!("{:#}", host.shutdown().await.unwrap_err());
     assert!(error.contains(&stuck), "{error}");
+    drop(hold);
     wait_for_the_file(&dir, "blocker", "b").await;
 
     let host = blocked_host(&dir, &gate, &blocked);
@@ -909,7 +955,7 @@ async fn a_destroy_of_a_blocked_actor_past_its_deadline_is_finished_at_the_next_
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_destroy_past_its_deadline_during_a_statement_is_finished_at_the_next_boot()
  {
-    a_destroy_past_its_deadline_is_finished_at_the_next_boot("scan")
+    a_destroy_past_its_deadline_is_finished_at_the_next_boot("query")
         .await;
 }
 
@@ -1818,20 +1864,22 @@ async fn a_shutdown_returns_while_a_start_is_stuck() {
     wait_for_the_drop(&dropped).await;
 }
 
-/// The kind `scanner`, whose start runs [`LONG_STATEMENT`] before its
-/// actor is ready, so the statement holds the file's thread past a
-/// short start deadline.
-fn scanner() -> HashMap<String, ActorFactory> {
+/// The kind `scanner`, whose start runs the [`held_statement`] on the
+/// [`hold_file`] of `dir` before its actor is ready, so the statement
+/// holds the file's thread past a short start deadline.
+fn scanner(dir: &Path) -> HashMap<String, ActorFactory> {
     let config = ActorConfig {
         name: Some("scanner".to_owned()),
         has_database: true,
         ..ActorConfig::default()
     };
+    let statement = held_statement(&hold_file(dir));
     HashMap::from([(
         "scanner".to_owned(),
         ActorFactory::new_with_manual_startup_ready(
             config,
-            |start: ActorStart| {
+            move |start: ActorStart| {
+                let statement = statement.clone();
                 Box::pin(async move {
                     let ActorStart {
                         ctx,
@@ -1839,7 +1887,7 @@ fn scanner() -> HashMap<String, ActorFactory> {
                         startup_ready,
                         ..
                     } = start;
-                    ctx.sql().exec(LONG_STATEMENT.to_owned()).await?;
+                    ctx.sql().exec(statement).await?;
                     if let Some(ready) = startup_ready {
                         let _ = ready.send(Ok(()));
                     }
@@ -1861,9 +1909,10 @@ fn scanner() -> HashMap<String, ActorFactory> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_start_past_its_deadline_does_not_wait_for_a_statement() {
     let dir = Scratch::new("host-start-statement");
+    let hold = Hold::new(&dir);
     let host = Host::open_with(
         &dir,
-        scanner(),
+        scanner(&dir),
         HostOptions {
             start_deadline: START_DEADLINE,
             ..HostOptions::default()
@@ -1891,6 +1940,7 @@ async fn a_start_past_its_deadline_does_not_wait_for_a_statement() {
     );
     host.shutdown().await.unwrap();
 
+    drop(hold);
     wait_for_the_file(&dir, "scanner", "a").await;
     let running: i64 =
         Connection::open(dir.join("actors/scanner/a.sqlite"))
