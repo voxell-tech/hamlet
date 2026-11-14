@@ -8,13 +8,17 @@ use std::fmt::Debug;
 use std::path::{Path, PathBuf};
 
 use hamlet_actor::action::{decode_positional, encode_positional};
+use hamlet_messages::agent::Finished;
+use hamlet_messages::realm::{SecretList, Secrets};
 use hamlet_messages::workspace::reach::{
-    Footing, Mode, Project, Reach, SecretsVersion, Trust,
+    Footing, Mode, Need, Project, Reach, Refusal, SecretsVersion,
+    Trust,
 };
 use hamlet_messages::workspace::{
-    AgentNumber, CallId, ConversationId, EditFile, ReachAnswer,
-    ReachRefusal, ReachVersion, RealmTask, Replace, Run, SetReach,
-    Shell, WriteFile,
+    AgentNumber, CallId, CallRefusal, CommandEnd, CommandId,
+    CommandStatus, ConversationId, EditFile, Exit, ReachAnswer,
+    ReachRefusal, ReachVersion, RealmTask, Replace, Run, RunAnswer,
+    SetReach, Shell, WriteFile,
 };
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -169,6 +173,80 @@ fn the_workspaces_messages_match_their_fixtures() {
                 old: "hello".into(),
                 new: "goodbye".into(),
             }],
+        },
+    );
+}
+
+fn command_end(exit: Exit) -> CommandEnd {
+    CommandEnd {
+        command: CommandId(4),
+        exit,
+        output: "hi\n".into(),
+        policy: "3f2a".into(),
+        took_ms: 12,
+    }
+}
+
+#[test]
+fn the_answers_about_a_command_match_their_fixtures() {
+    let mut fixtures = Fixtures::default();
+    fixtures.answer(
+        "workspace/run.done",
+        &RunAnswer::Done(command_end(Exit::Code(0))),
+    );
+    fixtures.answer(
+        "workspace/run.running",
+        &RunAnswer::Running {
+            command: CommandId(4),
+        },
+    );
+    for (name, refusal) in [
+        (
+            "reach",
+            CallRefusal::Reach(Refusal::OutsideReach {
+                path: "/etc".into(),
+                access:
+                    hamlet_messages::workspace::reach::Access::Read,
+            }),
+        ),
+        ("reused", CallRefusal::CallReused(CallId("call-1".into()))),
+        ("needs_chief", CallRefusal::NeedsChief(vec![Need::Network])),
+    ] {
+        fixtures.answer(
+            &format!("workspace/run.refused.{name}"),
+            &RunAnswer::Refused(refusal),
+        );
+    }
+    for (name, exit) in [
+        ("timed_out", Exit::TimedOut),
+        ("failed", Exit::Failed("bash: command not found".into())),
+        ("cut_off", Exit::CutOff),
+    ] {
+        fixtures.answer(
+            &format!("workspace/run.done.{name}"),
+            &RunAnswer::Done(command_end(exit)),
+        );
+    }
+    fixtures.args(
+        "workspace/command_status",
+        &CommandStatus {
+            agent: AGENT,
+            command: CommandId(4),
+        },
+    );
+    fixtures.args(
+        "agent/finished",
+        &Finished {
+            call: CallId("call-1".into()),
+            end: command_end(Exit::Code(1)),
+        },
+    );
+    fixtures.args("realm/secrets", &Secrets);
+    fixtures.answer(
+        "realm/secrets",
+        &SecretList {
+            version: SecretsVersion(2),
+            values: vec!["made-up-secret".into()],
         },
     );
 }

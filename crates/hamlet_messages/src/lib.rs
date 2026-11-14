@@ -7,4 +7,6 @@
 //! tests both read, so the two sides agree on every shape. A change
 //! to a shape rewrites its fixture and fails the test once.
 
+pub mod agent;
+pub mod realm;
 pub mod workspace;

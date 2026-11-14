@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use hamlet_actor::Action;
 use serde::{Deserialize, Serialize};
 
-use self::reach::Reach;
+use self::reach::{Need, Reach, Refusal};
 
 /// The number in an agent actor's file name,
 /// `actors/agent/<n>.sqlite`, and its key.
@@ -129,6 +129,93 @@ pub struct Run {
     pub network: bool,
     /// Shortens the 120 s limit (C16), in milliseconds.
     pub timeout_ms: Option<u64>,
+}
+
+impl Action for Run {
+    type Output = RunAnswer;
+    const NAME: &'static str = "run";
+}
+
+/// The workspace's id of a command, from 1.
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize,
+)]
+pub struct CommandId(pub u64);
+
+/// The workspace's answer to a [`Run`] and to a [`CommandStatus`].
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RunAnswer {
+    Done(CommandEnd),
+    /// The command runs on, and the agent is called with
+    /// [`crate::agent::Finished`] when it ends.
+    Running {
+        command: CommandId,
+    },
+    Refused(CallRefusal),
+}
+
+/// How a command ended, and the end of what it printed.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CommandEnd {
+    pub command: CommandId,
+    pub exit: Exit,
+    /// Its last 2000 lines or 50 KiB, the secrets taken out.
+    pub output: String,
+    /// The hash of the sandbox policy it ran under.
+    pub policy: String,
+    pub took_ms: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Exit {
+    /// Its exit code, or 128 and the signal that ended it.
+    Code(i32),
+    TimedOut,
+    /// It did not start, or its output could not be kept.
+    Failed(String),
+    /// The workspace's host stopped or was killed while it ran.
+    CutOff,
+}
+
+/// Asks how a command of the calling agent stands.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CommandStatus {
+    pub agent: AgentNumber,
+    pub command: CommandId,
+}
+
+impl Action for CommandStatus {
+    type Output = RunAnswer;
+    const NAME: &'static str = "command_status";
+}
+
+/// A call of an agent's tool the workspace does not carry out.
+#[derive(
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    Serialize,
+    Deserialize,
+    thiserror::Error,
+)]
+pub enum CallRefusal {
+    #[error(transparent)]
+    Caller(CallerRefusal),
+    #[error(transparent)]
+    Reach(Refusal),
+    /// The id was given before to a call with another request (S19).
+    #[error("the call id {} was used before for another request", .0.0)]
+    CallReused(CallId),
+    #[error(
+        "this call needs a chief to allow {0:?}, and the workspace \
+         runs only what needs no chief"
+    )]
+    NeedsChief(Vec<Need>),
+    #[error("{0}")]
+    Invalid(String),
+    #[error("this agent has no command {}", .0.0)]
+    NoSuchCommand(CommandId),
 }
 
 /// Creates or replaces a whole file for an agent.
