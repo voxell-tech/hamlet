@@ -182,8 +182,9 @@ makes the actor with an input, kept in the file's `_hamlet_actor` row
 and given to each start, and fails with `actor.duplicate_key` for a key
 that holds an actor. A create whose own start fails removes the actor it
 made, so the key is free again. A create of a key whose destroy is unfinished
-never opens the old data. Nothing else
-makes an actor. `local/call.rs` holds the calls: `call` calls an action
+never opens the old data. An actor makes another as itself with
+`Host::create_from(&ctx, ...)` and `Host::get_or_start_from(&ctx, ...)`.
+Nothing else makes an actor. `local/call.rs` holds the calls: `call` calls an action
 of the actor at an `Address`, starting it from its file first, within
 the caller's deadline, and logs the call's `Cause`, the task it belongs
 to. A call to a key with no actor fails with `actor.not_found` and
@@ -191,8 +192,9 @@ makes no file. Each call carries its `Caller` as its connection's
 parameters: none
 for `call`, a client for `call_for_client`, and the calling actor's
 address for `Host::call_from(&ctx, ...)`, which takes it from the
-actor's context. One check, `admit`, runs before every call reaches the
-directory and refuses an actor's call to itself. A call fails at once
+actor's context. One check, `admit`, runs before every call and every
+create by an actor reaches the directory, and refuses an actor's call or
+create of itself. A call fails at once
 when its host begins to shut down. `Host::open` refuses a kind that
 cannot read the stamp: the authoring layer gives each factory the
 decode its connection preflight runs. `local/access.rs` gives an actor,
@@ -204,7 +206,10 @@ until each file is closed, lets the folder go, and leaves the host
 starting none. A stop has a deadline, 45 seconds by default: an actor
 that does not stop by then, its code blocked, is given up and reported
 as not stopped, its file keeps its running mark for the next boot, and
-the host starts it no more. Each actor
+the host starts it no more. A failed start of an actor with a reason of
+its own to run, a run a kill cut off or a deadline that came, is tried
+again 30 seconds later, for as long as it fails; a call's failed start
+is not, and keeps the deadline the actor held. Each actor
 that is not stopped with no deadline is one `Life` in the host's map:
 stopped with a deadline, starting, running, stopping or being destroyed.
 A start or a stop runs on a task of its own and waits only on its own

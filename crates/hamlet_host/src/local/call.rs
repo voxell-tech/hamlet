@@ -9,11 +9,11 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result};
 use hamlet_actor_core::error::ActorRuntime;
 use hamlet_actor_core::host::ActionTimedOut;
-use hamlet_actor_core::{ActorContext, ActorFactory, ActorLifecycle};
+use hamlet_actor_core::{ActorContext, ActorFactory};
 use serde::{Deserialize, Serialize};
 use tracing::Instrument;
 
-use super::access::running;
+use super::access::current;
 use super::{Host, HostInner, Open, host_shut_down};
 use crate::cause::Cause;
 use crate::directory::Address;
@@ -99,24 +99,7 @@ impl Host {
         deadline: Duration,
         cause: Cause,
     ) -> Result<Vec<u8>> {
-        let running = running(ctx)?;
-        let ended = !running
-            .host
-            .actors
-            .lock()
-            .lives
-            .get(&running.actor_id)
-            .is_some_and(|life| {
-                life.is_generation(running.generation)
-            });
-        if ended {
-            return Err(ActorLifecycle::Stopping.build().context(
-                format!(
-                    "generation {} of actor {} has ended",
-                    running.generation, running.actor_id
-                ),
-            ));
-        }
+        let running = current(ctx)?;
         running
             .host
             .call(
@@ -143,7 +126,7 @@ impl HostInner {
         deadline: Duration,
         cause: Cause,
     ) -> Result<Vec<u8>> {
-        admit(caller.as_ref(), to)?;
+        admit("call", caller.as_ref(), to)?;
         let actor_id = self.located(&to.kind, &to.key)?;
         let params = stamp(caller.as_ref())?;
         let span = tracing::debug_span!(
@@ -178,16 +161,22 @@ impl HostInner {
     }
 }
 
-/// The one place every call passes before it reaches the directory:
-/// the program's, a client's and an actor's. It refuses an actor's
-/// call to itself. A check of which kind may call which belongs here.
-fn admit(caller: Option<&Caller>, to: &Address) -> Result<()> {
+/// The one place every call, and every create of an actor by an
+/// actor, passes before it reaches the directory: the program's, a
+/// client's and an actor's. It refuses an actor's `operation` of
+/// itself, which would wait for its own handler or its own start. A
+/// check of which kind may reach which belongs here.
+pub(super) fn admit(
+    operation: &str,
+    caller: Option<&Caller>,
+    to: &Address,
+) -> Result<()> {
     match caller {
         Some(Caller::Actor(from)) if from == to => {
             Err(ActorRuntime::InvalidOperation {
-                operation: "call".to_owned(),
+                operation: operation.to_owned(),
                 reason: format!(
-                    "the actor {}/{} calls itself",
+                    "the actor {}/{} is its own target",
                     to.kind, to.key
                 ),
             }

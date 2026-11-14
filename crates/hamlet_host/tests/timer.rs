@@ -945,11 +945,7 @@ async fn a_deadline_at_the_lowest_time_starts_the_actor_at_once() {
         boot_with_deadline(&dir, i64::MIN).await;
     assert_eq!(started, vec![id.clone()]);
     // Boot does not wait for the start it began.
-    let deadline = Instant::now() + Duration::from_secs(5);
-    while !host.is_running(&id) {
-        assert!(Instant::now() < deadline, "boot did not start it");
-        sleep(Duration::from_millis(10)).await;
-    }
+    until_running(&host, &id).await;
     host.shutdown().await.unwrap();
 }
 
@@ -1007,6 +1003,34 @@ fn counters_that_fail_to_start(
     )])
 }
 
+/// A host of the counters of [`counters_that_fail_to_start`], whose
+/// start retry is `retry`.
+fn open_failing(
+    dir: &Path,
+    starts: &Starts,
+    failures: &Starts,
+    retry: Duration,
+) -> Host {
+    Host::open_with(
+        dir,
+        counters_that_fail_to_start(starts, failures),
+        HostOptions {
+            start_retry: retry,
+            ..HostOptions::default()
+        },
+    )
+    .unwrap()
+}
+
+/// Waits until the actor `id` runs.
+async fn until_running(host: &Host, id: &str) {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !host.is_running(id) {
+        assert!(Instant::now() < deadline, "{id} never started");
+        sleep(Duration::from_millis(10)).await;
+    }
+}
+
 /// A start that a timer began for its actor's deadline, and that
 /// failed, does not lose the deadline: after the host's start retry,
 /// a timer starts the actor again, as many times as it takes. The
@@ -1016,15 +1040,12 @@ async fn a_timer_whose_start_failed_is_armed_again() {
     let dir = Scratch::new("timer-start-retry");
     let starts = Starts::default();
     let failures = Starts::default();
-    let host = Host::open_with(
+    let host = open_failing(
         &dir,
-        counters_that_fail_to_start(&starts, &failures),
-        HostOptions {
-            start_retry: Duration::from_millis(300),
-            ..HostOptions::default()
-        },
-    )
-    .unwrap();
+        &starts,
+        &failures,
+        Duration::from_millis(300),
+    );
     let id = host.get_or_start("counter", "a").await.unwrap();
     act(&host, &id, "schedule", schedule_args(300, "increment"))
         .await
@@ -1033,13 +1054,127 @@ async fn a_timer_whose_start_failed_is_armed_again() {
     host.stop(&id, ShutdownKind::Sleep).await.unwrap();
 
     assert_eq!(starts_after(&starts, 4, Duration::ZERO).await, 4);
-    let deadline = Instant::now() + Duration::from_secs(5);
-    while !host.is_running(&id) {
-        assert!(Instant::now() < deadline, "the fourth start failed");
-        sleep(Duration::from_millis(10)).await;
-    }
+    until_running(&host, &id).await;
     let reply = act(&host, &id, "get", Vec::new()).await.unwrap();
     assert_eq!(counter::count(reply).unwrap(), 1);
     assert_eq!(starts.load(Ordering::SeqCst), 4);
+    host.shutdown().await.unwrap();
+}
+
+/// Boot's start of an actor that a kill left running, which fails,
+/// is tried again after the host's start retry, as many times as it
+/// takes.
+#[tokio::test(flavor = "multi_thread")]
+async fn boot_tries_a_run_a_kill_cut_off_again_until_it_starts() {
+    let dir = Scratch::new("timer-boot-retry");
+    let starts = Starts::default();
+    let failures = Starts::default();
+    let retry = Duration::from_millis(300);
+    let host = open_failing(&dir, &starts, &failures, retry);
+    let id = host.get_or_start("counter", "a").await.unwrap();
+    host.shutdown().await.unwrap();
+    drop(host);
+    // What a kill leaves of a running actor.
+    rusqlite::Connection::open(
+        dir.join(format!("actors/{id}.sqlite")),
+    )
+    .unwrap()
+    .execute("UPDATE _hamlet_actor SET running = 1", [])
+    .unwrap();
+    failures.store(2, Ordering::SeqCst);
+
+    let host = open_failing(&dir, &starts, &failures, retry);
+    assert_eq!(host.boot().await.unwrap(), std::slice::from_ref(&id));
+    assert_eq!(starts_after(&starts, 4, Duration::ZERO).await, 4);
+    until_running(&host, &id).await;
+    host.shutdown().await.unwrap();
+}
+
+/// A call's start that fails is not tried again, and keeps the
+/// deadline its actor held, whether a stop left it or a failed
+/// start's retry did: the timer still starts the actor then, and the
+/// one-shot that was due runs.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_calls_failed_start_keeps_the_deadline_its_actor_held() {
+    let dir = Scratch::new("timer-call-keeps");
+    let starts = Starts::default();
+    let failures = Starts::default();
+    let host = open_failing(
+        &dir,
+        &starts,
+        &failures,
+        Duration::from_secs(1),
+    );
+    let id = host.get_or_start("counter", "a").await.unwrap();
+    act(&host, &id, "schedule", schedule_args(1500, "increment"))
+        .await
+        .unwrap();
+    host.stop(&id, ShutdownKind::Sleep).await.unwrap();
+    failures.store(3, Ordering::SeqCst);
+
+    // Asleep until its one-shot is due, the actor is started by the
+    // call itself.
+    let error = act(&host, &id, "get", Vec::new()).await.unwrap_err();
+    assert_eq!(starts.load(Ordering::SeqCst), 2, "{error:#}");
+    // The timer's start at the deadline fails too.
+    assert_eq!(starts_after(&starts, 3, Duration::ZERO).await, 3);
+    // A create of the key starts nothing, and fails with
+    // `actor.duplicate_key` once that start's failure left the actor
+    // asleep with its retry; while the start runs, a create waits
+    // for it and fails with its error.
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let error = host
+            .create("counter", "a", Vec::new())
+            .await
+            .unwrap_err();
+        let error = ActorError::extract(&error);
+        if error.code() == "duplicate_key" {
+            break;
+        }
+        assert!(Instant::now() < deadline, "the start never ended");
+        sleep(Duration::from_millis(10)).await;
+    }
+    let error = act(&host, &id, "get", Vec::new()).await.unwrap_err();
+    assert_eq!(starts.load(Ordering::SeqCst), 4, "{error:#}");
+
+    // The retry's start.
+    assert_eq!(starts_after(&starts, 5, Duration::ZERO).await, 5);
+    until_running(&host, &id).await;
+    wait_for_runs(
+        &host,
+        &id,
+        "get",
+        |reply| counter::count(reply).unwrap(),
+        1,
+    )
+    .await;
+    assert_eq!(starts.load(Ordering::SeqCst), 5);
+    host.shutdown().await.unwrap();
+}
+
+/// A call's start of an actor that held no deadline, which fails, is
+/// not tried again.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_calls_failed_start_of_an_actor_with_no_deadline_is_not_tried_again()
+ {
+    let dir = Scratch::new("timer-call-no-retry");
+    let starts = Starts::default();
+    let failures = Starts::default();
+    let host = open_failing(
+        &dir,
+        &starts,
+        &failures,
+        Duration::from_millis(100),
+    );
+    let id = host.get_or_start("counter", "a").await.unwrap();
+    host.stop(&id, ShutdownKind::Sleep).await.unwrap();
+    failures.store(1, Ordering::SeqCst);
+
+    act(&host, &id, "get", Vec::new()).await.unwrap_err();
+    let after =
+        starts_after(&starts, 2, Duration::from_millis(500)).await;
+    assert_eq!(after, 2, "the failed start was tried again");
+    assert!(!host.is_running(&id));
     host.shutdown().await.unwrap();
 }

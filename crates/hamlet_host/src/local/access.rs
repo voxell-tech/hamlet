@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
-use hamlet_actor_core::ActorContext;
+use hamlet_actor_core::{ActorContext, ActorLifecycle};
 
 use super::{HostInner, HostOptions, LocalHandle, host_shut_down};
 use crate::directory::Address;
@@ -78,6 +78,29 @@ pub(super) fn running(ctx: &ActorContext) -> Result<Running> {
         actor_id: handle.actor_id.clone(),
         generation: handle.generation,
     })
+}
+
+/// The generation that `ctx` belongs to, and its host, while the
+/// host's map holds that generation. Fails with `actor.stopping` once
+/// the generation has ended, also when its key was made again.
+pub(super) fn current(ctx: &ActorContext) -> Result<Running> {
+    let running = running(ctx)?;
+    let ended = !running
+        .host
+        .actors
+        .lock()
+        .lives
+        .get(&running.actor_id)
+        .is_some_and(|life| life.is_generation(running.generation));
+    if ended {
+        return Err(ActorLifecycle::Stopping.build().context(
+            format!(
+                "generation {} of actor {} has ended",
+                running.generation, running.actor_id
+            ),
+        ));
+    }
+    Ok(running)
 }
 
 /// The values a host gives its actors, at most one of each type.

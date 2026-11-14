@@ -25,6 +25,8 @@ use rusqlite::{Connection, OpenFlags};
 
 #[path = "../examples/demo/act.rs"]
 mod act;
+#[path = "../examples/demo/command.rs"]
+mod command;
 #[path = "../examples/demo/counter.rs"]
 mod counter;
 
@@ -2706,5 +2708,25 @@ async fn a_start_finishes_the_destroy_its_file_holds() {
         .expect_err("a start of a destroyed actor's file");
     assert!(is_actor_error(&error, "not_found"), "{error:#}");
     assert!(!any_file_of(&dir, "counter", "kept-out"));
+    host.shutdown().await.unwrap();
+}
+
+/// A demo command line the demo refuses, for its command or for a
+/// number it cannot read, makes no actor.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_command_line_the_demo_refuses_makes_no_actor() {
+    let dir = Scratch::new("host-demo-refused");
+    let host = Host::open(&dir, factories()).unwrap();
+    for line in ["bogus k", "block k soon", "schedule k soon"] {
+        let words = line
+            .split_whitespace()
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+        let error = command::run(&host, &words).await.unwrap_err();
+        assert!(
+            !any_file_of(&dir, "counter", "k"),
+            "{line}: {error:#}"
+        );
+    }
     host.shutdown().await.unwrap();
 }
