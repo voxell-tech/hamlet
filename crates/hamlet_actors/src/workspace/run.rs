@@ -469,7 +469,7 @@ async fn ran(spec: Spec) -> CommandEnd {
             Exit::Failed(scrub_text(&spec.secrets, &why)),
             cut.ok().flatten(),
         ),
-        (_, Err(why)) => (Exit::Failed(why), None),
+        (_, Err(why)) => (Exit::Failed(why.to_string()), None),
         (exit, Ok(cut)) => (exit, cut),
     };
     CommandEnd {

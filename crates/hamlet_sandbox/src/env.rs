@@ -1113,6 +1113,8 @@ mod tests {
 
     use hamlet_testing::Scratch;
     use hamlet_testing::links::symlink;
+    #[cfg(unix)]
+    use hamlet_testing::names_in;
 
     use super::*;
     use crate::policy::host_env;
@@ -1294,22 +1296,6 @@ mod tests {
         )
         .unwrap();
         (folder, env)
-    }
-
-    #[cfg(unix)]
-    fn names_in(folder: &Path) -> Vec<String> {
-        let mut names = fs::read_dir(folder)
-            .unwrap()
-            .map(|entry| {
-                entry
-                    .unwrap()
-                    .file_name()
-                    .to_string_lossy()
-                    .into_owned()
-            })
-            .collect::<Vec<_>>();
-        names.sort();
-        names
     }
 
     /// A change reads what it replaces and where the path leads, and

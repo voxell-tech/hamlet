@@ -307,7 +307,9 @@ impl Handler<Run> for Workspace {
             Err(refusal) => return Ok(RunAnswer::Refused(refusal)),
         };
         if let Err(why) = checked(&run) {
-            return Ok(RunAnswer::Refused(CallRefusal::Invalid(why)));
+            return Ok(RunAnswer::Refused(CallRefusal::Invalid(
+                why.to_string(),
+            )));
         }
         let request_hash = calls::request_hash(&run)?;
         // Read before the row is opened: past its commit, nothing
@@ -862,34 +864,49 @@ fn answer_of(row: run::Row) -> RunAnswer {
     }
 }
 
-/// Why `run` is not a request the workspace takes, in the words of
+/// Why a call is not a request the workspace takes, in the words of
 /// the server's tools.
-fn checked(run: &Run) -> Result<(), String> {
+#[derive(Debug, thiserror::Error)]
+enum Invalid {
+    #[error(
+        "Invalid call id: {0:?} is not 1 to 128 of A-Z, a-z, 0-9, \
+         '.', '_', ':' and '-'"
+    )]
+    CallId(String),
+    #[error("Invalid command: longer than 1 MiB")]
+    LongCommand,
+    #[error("Invalid timeout: must be a positive number of seconds")]
+    ZeroTimeout,
+    #[error("Invalid arguments: longer than 1 MiB")]
+    LongArguments,
+    #[error("{0} is not an absolute path")]
+    NotAbsolute(String),
+}
+
+/// Refuses `run` where it is not a request the workspace takes.
+fn checked(run: &Run) -> Result<(), Invalid> {
     checked_call(&run.call)?;
     match &run.program {
         Program::Script { script, .. }
             if script.len() > 1024 * 1024 =>
         {
-            Err("Invalid command: longer than 1 MiB".to_owned())
+            Err(Invalid::LongCommand)
         }
         Program::Script {
             timeout_ms: Some(0),
             ..
-        } => Err("Invalid timeout: must be a positive number of \
-                  seconds"
-            .to_owned()),
+        } => Err(Invalid::ZeroTimeout),
         Program::Tool { arguments, .. }
             if arguments.len() > 1024 * 1024 =>
         {
-            Err("Invalid arguments: longer than 1 MiB".to_owned())
+            Err(Invalid::LongArguments)
         }
         Program::Script { .. } | Program::Tool { .. } => Ok(()),
     }
 }
 
-/// Why `call` is not an id the workspace takes, in the words of the
-/// server's tools.
-fn checked_call(call: &CallId) -> Result<(), String> {
+/// Refuses `call` where it is not an id the workspace takes.
+fn checked_call(call: &CallId) -> Result<(), Invalid> {
     let call = &call.0;
     if call.is_empty()
         || call.len() > 128
@@ -897,10 +914,7 @@ fn checked_call(call: &CallId) -> Result<(), String> {
             byte.is_ascii_alphanumeric() || b"._:-".contains(&byte)
         })
     {
-        return Err(format!(
-            "Invalid call id: {call:?} is not 1 to 128 of A-Z, a-z, \
-             0-9, '.', '_', ':' and '-'"
-        ));
+        return Err(Invalid::CallId(call.clone()));
     }
     Ok(())
 }

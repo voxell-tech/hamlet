@@ -35,7 +35,7 @@ use super::{Gated, Passed};
 use crate::workspace::pending::{self, Pending, Rechecked, Wait};
 use crate::workspace::reach::{self, Op, Placement, Purpose};
 use crate::workspace::{
-    Weighing, Workspace, calling_agent, calls, checked_call,
+    Invalid, Weighing, Workspace, calling_agent, calls, checked_call,
     read_only, tell, transact, transact_if,
 };
 
@@ -227,12 +227,12 @@ impl Workspace {
         };
         let path = text(request.path);
         if let Err(why) = checked_call(request.call).and_then(|()| {
-            is_absolute(&path).then_some(()).ok_or_else(|| {
-                format!("{path} is not an absolute path")
-            })
+            is_absolute(&path)
+                .then_some(())
+                .ok_or_else(|| Invalid::NotAbsolute(path.clone()))
         }) {
             return Ok(ChangeAnswer::Refused(CallRefusal::Invalid(
-                why,
+                why.to_string(),
             )));
         }
         if let Asked::Write(content) = request.asked {

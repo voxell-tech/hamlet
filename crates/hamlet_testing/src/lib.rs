@@ -22,6 +22,18 @@ pub use server::{
     Models, Server, Socket, Unstarted, answers, cli, send, until,
 };
 
+/// The names in `folder`, sorted.
+pub fn names_in(folder: &Path) -> Vec<String> {
+    let mut names = std::fs::read_dir(folder)
+        .unwrap()
+        .map(|entry| {
+            entry.unwrap().file_name().to_string_lossy().into_owned()
+        })
+        .collect::<Vec<_>>();
+    names.sort();
+    names
+}
+
 /// The variables a developer's shell may carry that would change what
 /// a test server does. Every test process strips them before setting
 /// its own.

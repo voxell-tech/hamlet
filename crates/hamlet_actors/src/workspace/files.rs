@@ -26,7 +26,7 @@ use hamlet_sandbox::scrub::scrub_text;
 
 pub(super) use self::change::{Paths, cut_off_changes};
 use super::reach::{self, Gate, Op, Placement, Purpose};
-use super::{Weighing, Workspace, calling_agent, read_only};
+use super::{Invalid, Weighing, Workspace, calling_agent, read_only};
 
 /// A file tool's call the gate let through: where it runs, and the
 /// secrets its answer is scrubbed of.
@@ -154,7 +154,8 @@ impl Workspace {
         };
         if !is_absolute(&text(path)) {
             return Ok(FileAnswer::Refused(CallRefusal::Invalid(
-                format!("{} is not an absolute path", path.display()),
+                Invalid::NotAbsolute(path.display().to_string())
+                    .to_string(),
             )));
         }
         let gated = self

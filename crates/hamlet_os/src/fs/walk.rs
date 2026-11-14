@@ -363,10 +363,10 @@ mod tests {
     use std::fs;
     use std::io::Read as _;
 
-    use hamlet_testing::Scratch;
     #[cfg(windows)]
     use hamlet_testing::links::junction;
     use hamlet_testing::links::{self, symlink};
+    use hamlet_testing::{Scratch, names_in};
 
     use super::*;
 
@@ -610,21 +610,6 @@ mod tests {
         let own = at(&scratch.join("l"), Follow::NotLast);
         assert_eq!(own.real, path::text(&scratch.join("l")));
         assert_eq!(own.stat().unwrap().kind, Kind::Link);
-    }
-
-    fn names_in(folder: &Path) -> Vec<String> {
-        let mut names = fs::read_dir(folder)
-            .unwrap()
-            .map(|entry| {
-                entry
-                    .unwrap()
-                    .file_name()
-                    .to_string_lossy()
-                    .into_owned()
-            })
-            .collect::<Vec<_>>();
-        names.sort();
-        names
     }
 
     /// A replace writes the new file beside the old one and renames

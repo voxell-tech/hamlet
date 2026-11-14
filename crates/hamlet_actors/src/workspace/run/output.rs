@@ -88,7 +88,7 @@ impl Output {
     /// not be kept.
     pub(super) fn finish(
         self,
-    ) -> (String, Result<Option<Cut>, String>) {
+    ) -> (String, Result<Option<Cut>, Unsaved>) {
         let tail = self.tail.text();
         let total_lines = self.lines();
         let cut = self.spill.finish().map(|spilled| {
@@ -98,18 +98,17 @@ impl Output {
                 full_output,
             })
         });
-        (
-            tail,
-            cut.map_err(|error| {
-                format!(
-                    "The command ran but its full output could not \
-                     be saved: {error}. Inspect its files before \
-                     repeating it."
-                )
-            }),
-        )
+        (tail, cut.map_err(Unsaved))
     }
 }
+
+/// A command's full output that could not be saved.
+#[derive(Debug, thiserror::Error)]
+#[error(
+    "The command ran but its full output could not be saved: {0}. \
+     Inspect its files before repeating it."
+)]
+pub(super) struct Unsaved(io::Error);
 
 impl Spill {
     fn write(&mut self, text: &str) {
@@ -323,7 +322,7 @@ mod tests {
             Output::new(scratch.join("7/1.log"), SPILL_CAP);
         output.push(&"y\n".repeat(MOST_LINES + 1));
         let (_, cut) = output.finish();
-        assert!(cut.unwrap_err().starts_with(
+        assert!(cut.unwrap_err().to_string().starts_with(
             "The command ran but its full output could not be saved"
         ));
     }
