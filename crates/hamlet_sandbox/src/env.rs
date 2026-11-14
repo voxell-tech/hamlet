@@ -1261,8 +1261,8 @@ mod tests {
         );
     }
 
-    #[cfg(unix)]
     /// An environment that may change `folder`.
+    #[cfg(unix)]
     fn changing(scratch: &Scratch) -> (PathBuf, Env) {
         let home = scratch.join("home");
         let house = home.join("houses/home/0");
@@ -1278,6 +1278,7 @@ mod tests {
         (folder, env)
     }
 
+    #[cfg(unix)]
     fn names_in(folder: &Path) -> Vec<String> {
         let mut names = fs::read_dir(folder)
             .unwrap()
@@ -1295,6 +1296,7 @@ mod tests {
 
     /// A change reads what it replaces and where the path leads, and
     /// replaces it, or makes it where nothing was.
+    #[cfg(unix)]
     #[test]
     fn a_change_replaces_the_file_it_read() {
         let scratch = Scratch::new("env-change");
@@ -1342,6 +1344,7 @@ mod tests {
 
     /// A file that no longer holds what was read is not replaced, and
     /// the change hears what it holds now.
+    #[cfg(unix)]
     #[test]
     fn a_change_of_a_file_that_changed_is_refused() {
         let scratch = Scratch::new("env-change-stale");
@@ -1383,6 +1386,7 @@ mod tests {
     /// A path that leads elsewhere than when it was read is not
     /// replaced, so the new file is never made in a folder the change
     /// did not name.
+    #[cfg(unix)]
     #[test]
     fn a_change_whose_path_leads_elsewhere_is_refused() {
         let scratch = Scratch::new("env-change-moved");
@@ -1447,6 +1451,7 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_folder_and_a_fifo_are_read_and_written_as_no_regular_file() {
         let scratch = Scratch::new("env-special");
