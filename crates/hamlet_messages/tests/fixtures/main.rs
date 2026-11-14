@@ -46,14 +46,15 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 use self::cases::{
-    Cases, Found, Union, family, named, tagged, union,
+    Cases, Found, InUnion, Union, family, named, tagged, union,
 };
 
 const AGENT: AgentNumber = AgentNumber(7);
 
 /// Every enum the fixtures hold. A generic enum is listed once: its
-/// cases are the same whatever it holds. Each of its forms is a
-/// family of a union, and counted there.
+/// cases are the same whatever it holds. Its forms are counted apart
+/// where one is a fixture's root or a union's family, and together
+/// anywhere else.
 fn enums() -> Vec<Cases> {
     vec![
         tagged::<Answer>(),
@@ -158,7 +159,10 @@ struct Fixtures {
     rewritten: Vec<String>,
     problems: Vec<String>,
     found: BTreeMap<Cases, BTreeSet<String>>,
-    in_unions: BTreeSet<(String, String, String)>,
+    in_unions: BTreeSet<InUnion>,
+    /// Each enum a fixture's root is, by its name with its
+    /// parameters, with its cases and those found.
+    roots: BTreeMap<String, (Cases, BTreeSet<String>)>,
 }
 
 impl Fixtures {
@@ -170,6 +174,7 @@ impl Fixtures {
             problems: Vec::new(),
             found: BTreeMap::new(),
             in_unions: BTreeSet::new(),
+            roots: BTreeMap::new(),
         }
     }
 
@@ -289,6 +294,15 @@ impl Fixtures {
         cases::found::<T>(name, value, &self.unions, &mut found);
         self.problems.extend(found.problems);
         self.in_unions.extend(found.in_unions);
+        if let (Some(cases), Some(tag)) =
+            (cases::tagged_cases::<T>(), cases::tag(value))
+        {
+            self.roots
+                .entry(cases::short_name::<T>())
+                .or_insert((cases, BTreeSet::new()))
+                .1
+                .insert(tag.to_owned());
+        }
         for (cases, case) in found.cases {
             self.found.entry(cases).or_default().insert(case);
         }
@@ -345,6 +359,15 @@ impl Fixtures {
                 }
             }
         }
+        for (root, (cases, found)) in &self.roots {
+            for case in *cases {
+                if !found.contains(*case) {
+                    problems.push(format!(
+                        "no fixture's root is {case} of {root}"
+                    ));
+                }
+            }
+        }
         for cases in self.found.keys() {
             if !enums.contains(cases) {
                 problems.push(format!(
@@ -355,11 +378,11 @@ impl Fixtures {
         for union in &self.unions {
             for family in &union.families {
                 for case in family.cases {
-                    let held = (
-                        union.name.clone(),
-                        family.name.clone(),
-                        (*case).to_owned(),
-                    );
+                    let held = InUnion {
+                        union: union.name.clone(),
+                        family: family.name.clone(),
+                        case: (*case).to_owned(),
+                    };
                     if !self.in_unions.contains(&held) {
                         problems.push(format!(
                             "no fixture holds {case} of {} in the \
@@ -1247,6 +1270,12 @@ fn the_changes(fixtures: &mut Fixtures) {
                         newlines."
                     .into(),
             },
+        },
+    );
+    fixtures.answer(
+        "workspace/edit_file.waits_for_chief",
+        &ChangeAnswer::<ChangeRefusal>::WaitsForChief {
+            needs: vec![Need::Edit],
         },
     );
     fixtures.answer(

@@ -15,10 +15,24 @@ pub type Cases = &'static [&'static str];
 const UNKNOWN: &str = "?";
 
 pub fn tagged<E: DeserializeOwned>() -> Cases {
-    cases_of::<E>(&Value::Map(vec![(
+    cases_of::<E>(&tag_probe())
+}
+
+/// `T`'s cases when it is an enum tagged by `type`.
+pub fn tagged_cases<T: DeserializeOwned>() -> Option<Cases> {
+    match T::deserialize(TaggedReader(&tag_probe())) {
+        Err(Probed {
+            cases: Some(cases), ..
+        }) => Some(cases),
+        _ => None,
+    }
+}
+
+fn tag_probe() -> Value {
+    Value::Map(vec![(
         Value::Text("type".into()),
         Value::Text(UNKNOWN.into()),
-    )]))
+    )])
 }
 
 pub fn named<E: DeserializeOwned>() -> Cases {
@@ -67,7 +81,7 @@ pub fn family<E: DeserializeOwned>() -> Family {
 }
 
 /// A type's name with no module paths, as serde and a reader name it.
-fn short_name<T>() -> String {
+pub fn short_name<T>() -> String {
     let mut name = String::new();
     for letter in std::any::type_name::<T>().chars() {
         name.push(letter);
@@ -85,12 +99,20 @@ fn short_name<T>() -> String {
 }
 
 /// The enum cases fixtures hold, each case of a union's family also
-/// as `(union, family, case)`, and what kept a case from being found.
+/// where the union holds it, and what kept a case from being found.
 #[derive(Default)]
 pub struct Found {
     pub cases: Vec<(Cases, String)>,
-    pub in_unions: Vec<(String, String, String)>,
+    pub in_unions: Vec<InUnion>,
     pub problems: Vec<String>,
+}
+
+/// A case of a family, held where a union holds that family.
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct InUnion {
+    pub union: String,
+    pub family: String,
+    pub case: String,
 }
 
 /// Adds each enum case `value` holds when read as a `T`, with that
@@ -162,23 +184,26 @@ pub fn found<T: DeserializeOwned>(
     }
 }
 
-/// The nearest map around `path` in `value` whose `type` is a case
-/// of a family of `union`.
+/// The outermost map around `path` in `value` whose `type` is a case
+/// of a family of `union`. A family's value can hold a map whose
+/// `type` is another family's case, so the nearest map is not the
+/// union's; a map above the union that shares a case is read as the
+/// family and fails loudly.
 fn position(
     value: &Value,
     path: &[usize],
     union: &Union,
 ) -> Option<Vec<usize>> {
-    (0..path.len()).rev().map(|end| path[..end].to_vec()).find(
-        |position| {
+    (0..path.len())
+        .map(|end| path[..end].to_vec())
+        .find(|position| {
             tag(read_at(value, position)).is_some_and(|tag| {
                 union
                     .families
                     .iter()
                     .any(|family| family.cases.contains(&tag))
             })
-        },
-    )
+        })
 }
 
 /// Reads the union's value at `position` as the family that has its
@@ -200,11 +225,11 @@ fn in_union(
         .collect::<Vec<_>>();
     match owners.as_slice() {
         [family] => {
-            found.in_unions.push((
-                union.name.clone(),
-                family.name.clone(),
-                tag.to_owned(),
-            ));
+            found.in_unions.push(InUnion {
+                union: union.name.clone(),
+                family: family.name.clone(),
+                case: tag.to_owned(),
+            });
             (family.found)(
                 &format!("{name} at {position:?}"),
                 value,
@@ -224,7 +249,7 @@ fn in_union(
     }
 }
 
-fn tag(value: &Value) -> Option<&str> {
+pub fn tag(value: &Value) -> Option<&str> {
     let Value::Map(entries) = value else {
         return None;
     };
