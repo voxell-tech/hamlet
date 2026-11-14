@@ -1,5 +1,6 @@
 //! The calls the `workspace` actor takes, and its answers.
 
+pub mod files;
 pub mod reach;
 
 use std::path::PathBuf;

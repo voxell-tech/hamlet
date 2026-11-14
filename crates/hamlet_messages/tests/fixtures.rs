@@ -10,6 +10,10 @@ use std::path::{Path, PathBuf};
 use hamlet_actor::action::{decode_positional, encode_positional};
 use hamlet_messages::agent::Finished;
 use hamlet_messages::realm::{SecretList, Secrets};
+use hamlet_messages::workspace::files::{
+    CutBy, FileAnswer, Find, Image, Note, ReadFile, Search, Severity,
+    Text, Truncation,
+};
 use hamlet_messages::workspace::reach::{
     Footing, Mode, Need, Project, Reach, Refusal, SecretsVersion,
     Trust,
@@ -262,5 +266,81 @@ fn the_answers_about_a_command_match_their_fixtures() {
             version: SecretsVersion(2),
             values: vec!["made-up-secret".into()],
         },
+    );
+}
+
+#[test]
+fn the_reads_match_their_fixtures() {
+    let mut fixtures = Fixtures::default();
+    fixtures.args(
+        "workspace/read_file",
+        &ReadFile {
+            agent: AGENT,
+            path: "/work/project/notes.md".into(),
+            offset: Some(10),
+            limit: Some(20),
+        },
+    );
+    fixtures.args(
+        "workspace/search",
+        &Search {
+            agent: AGENT,
+            under: "/work/project".into(),
+            pattern: "fn main".into(),
+            name: Some("*.rs".into()),
+            ignore_case: true,
+        },
+    );
+    fixtures.args(
+        "workspace/find",
+        &Find {
+            agent: AGENT,
+            under: "/work/project".into(),
+            name: None,
+        },
+    );
+    fixtures.answer(
+        "workspace/read_file.text",
+        &FileAnswer::Text(Text {
+            text: "line 10\nline 11".into(),
+            notes: vec![Note {
+                severity: Severity::Info,
+                code: "truncated".into(),
+                message: "Showing lines 10-11 of 40. Use offset=12 \
+                          to continue."
+                    .into(),
+            }],
+            truncation: Some(Truncation {
+                by: Some(CutBy::Lines),
+                total_lines: 40,
+                total_bytes: 300,
+                output_lines: 2,
+                output_bytes: 15,
+                first_line_exceeds_limit: false,
+            }),
+        }),
+    );
+    fixtures.answer(
+        "workspace/read_file.image",
+        &FileAnswer::Image(Image {
+            mime: "image/gif".into(),
+            bytes: b"GIF89a".to_vec(),
+        }),
+    );
+    fixtures.answer(
+        "workspace/read_file.refused",
+        &FileAnswer::Refused(CallRefusal::Reach(
+            Refusal::AgentFilesystem {
+                path: "/realm/actors/agent/7.fs/notes.md".into(),
+            },
+        )),
+    );
+    fixtures.answer(
+        "workspace/read_file.failed",
+        &FileAnswer::Failed(
+            "ENOENT: no such file or directory, open \
+             '/work/project/gone.md'"
+                .into(),
+        ),
     );
 }
