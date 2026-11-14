@@ -736,6 +736,28 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_call_with_the_longest_deadline_crosses_and_is_answered()
+     {
+        let mut rust = Linked::ready(Role::Rust);
+        let called =
+            call(&rust.port, at("agent", "a"), Duration::MAX);
+        let Frame::Request {
+            id,
+            ask: Ask::Call { deadline_ms, .. },
+            ..
+        } = rust.next().await
+        else {
+            panic!("a call");
+        };
+        assert_eq!(deadline_ms, u64::MAX);
+        assert!(matches!(
+            rust.port.take(reply(id, b"out")),
+            Ok(Taken::Handled)
+        ));
+        assert_eq!(called.await.unwrap().unwrap(), b"out");
+    }
+
+    #[tokio::test]
     async fn the_state_follows_the_link() {
         let mut rust = Linked::new(Role::Rust);
         let mut state = rust.port.state();
@@ -808,11 +830,12 @@ mod tests {
         ));
     }
 
-    /// This host runs no kind, so each request it runs answers
-    /// `actor.not_registered`.
+    /// The link is only welcomed, and this host runs no kind, so each
+    /// request it runs answers `actor.not_registered`.
     #[tokio::test]
     async fn a_peers_request_is_vetted_run_and_answered() {
-        let mut rust = Linked::ready(Role::Rust);
+        let mut rust = Linked::new(Role::Rust);
+        rust.welcome();
         let request = |id, from, ask| Frame::Request {
             id,
             from,
