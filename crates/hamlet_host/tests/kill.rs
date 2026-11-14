@@ -16,7 +16,7 @@ use act::act;
 use at::at;
 use clock::now_ms;
 use hamlet_actor_core::ActorFactory;
-use hamlet_host::{Host, HostEvent};
+use hamlet_host::{Address, Host, HostEvent};
 use hamlet_testing::Scratch;
 
 #[path = "../examples/demo/act.rs"]
@@ -76,12 +76,14 @@ fn child_host() {
     runtime.block_on(async {
         let host = Host::open(Path::new(&home), factories()).unwrap();
         if std::env::var_os(CHILD_DESTROY).is_some() {
-            let id = host.get_or_start("counter", "a").await.unwrap();
+            let id = at("counter", "a");
+            host.get_or_start(&id).await.unwrap();
             for action in ["increment", "increment", "destroy"] {
                 act(&host, &id, action, Vec::new()).await.unwrap();
             }
         } else if let Some(ms) = schedule_ms {
-            let id = host.get_or_start("counter", "a").await.unwrap();
+            let id = at("counter", "a");
+            host.get_or_start(&id).await.unwrap();
             act(&host, &id, "schedule", ms.to_le_bytes().to_vec())
                 .await
                 .unwrap();
@@ -178,17 +180,17 @@ fn sleep_until(instant: Instant) {
     );
 }
 
-async fn count(host: &Host, actor_id: &str) -> i64 {
-    let reply = act(host, actor_id, "get", Vec::new()).await.unwrap();
+async fn count(host: &Host, at: &Address) -> i64 {
+    let reply = act(host, at, "get", Vec::new()).await.unwrap();
     counter::count(reply).unwrap()
 }
 
 /// Waits for the actor's count to reach `want`: a start runs an
 /// overdue one-shot on a task of its own, after it returns.
-async fn wait_for_count(host: &Host, actor_id: &str, want: i64) {
+async fn wait_for_count(host: &Host, at: &Address, want: i64) {
     let deadline =
         tokio::time::Instant::now() + Duration::from_secs(10);
-    while count(host, actor_id).await != want {
+    while count(host, at).await != want {
         assert!(
             tokio::time::Instant::now() < deadline,
             "the count never reached {want}"
@@ -266,7 +268,7 @@ fn marks(home: &Path) -> Marks {
 /// boot began, then stops every actor, which waits for the scheduled
 /// work the starts began. Returns what the boot began and what the
 /// file holds after the stop.
-async fn restart(home: &Path) -> (Vec<String>, Stored) {
+async fn restart(home: &Path) -> (Vec<Address>, Stored) {
     let host = Host::open(home, factories()).unwrap();
     let started = host.boot().await.unwrap();
     for id in &started {
@@ -284,14 +286,15 @@ async fn a_schedule_acknowledged_before_a_kill_fires_once() {
     sleep_until(due.latest + Duration::from_millis(200));
 
     let host = Host::open(&home, factories()).unwrap();
-    assert_eq!(host.boot().await.unwrap(), vec!["counter/a"]);
-    wait_for_count(&host, "counter/a", 1).await;
+    assert_eq!(host.boot().await.unwrap(), vec![at("counter", "a")]);
+    wait_for_count(&host, &at("counter", "a"), 1).await;
     host.shutdown().await.unwrap();
     drop(host);
 
     let host = Host::open(&home, factories()).unwrap();
     assert!(host.boot().await.unwrap().is_empty());
-    let id = host.get_or_start("counter", "a").await.unwrap();
+    let id = at("counter", "a");
+    host.get_or_start(&id).await.unwrap();
     assert_eq!(count(&host, &id).await, 1);
     host.shutdown().await.unwrap();
 }
@@ -315,8 +318,8 @@ async fn a_stop_before_the_schedule_is_due_stores_its_deadline() {
     sleep_until(due.latest + Duration::from_millis(200));
 
     let host = Host::open(&home, factories()).unwrap();
-    assert_eq!(host.boot().await.unwrap(), vec!["counter/a"]);
-    wait_for_count(&host, "counter/a", 1).await;
+    assert_eq!(host.boot().await.unwrap(), vec![at("counter", "a")]);
+    wait_for_count(&host, &at("counter", "a"), 1).await;
     host.shutdown().await.unwrap();
 }
 
@@ -334,7 +337,7 @@ async fn a_kill_while_a_one_shot_runs_runs_it_once() {
     );
 
     let (started, after) = restart(&home).await;
-    assert_eq!(started, vec!["counter/a"]);
+    assert_eq!(started, vec![at("counter", "a")]);
     assert_eq!(
         after,
         Stored {
@@ -362,7 +365,8 @@ async fn a_kill_on_the_boot_that_fires_a_due_alarm_runs_it_once() {
     let home = Scratch::new("kill-timer-fired");
     {
         let host = Host::open(&home, factories()).unwrap();
-        let id = host.get_or_start("counter", "a").await.unwrap();
+        let id = at("counter", "a");
+        host.get_or_start(&id).await.unwrap();
         act(&host, &id, "increment", Vec::new()).await.unwrap();
         act(&host, &id, "schedule", 500u64.to_le_bytes().to_vec())
             .await
@@ -397,7 +401,7 @@ async fn a_kill_on_the_boot_that_fires_a_due_alarm_runs_it_once() {
     );
 
     let (started, after) = restart(&home).await;
-    assert_eq!(started, vec!["counter/a"]);
+    assert_eq!(started, vec![at("counter", "a")]);
     assert_eq!(
         after,
         Stored {
@@ -433,7 +437,7 @@ async fn a_kill_after_the_timer_handler_commits_runs_it_once() {
     );
 
     let (started, after) = restart(&home).await;
-    assert_eq!(started, vec!["counter/a"]);
+    assert_eq!(started, vec![at("counter", "a")]);
     assert_eq!(
         after,
         Stored {
@@ -485,7 +489,8 @@ async fn a_destroy_a_kill_cut_off_is_finished_at_the_next_boot() {
             path.push(suffix);
             assert!(!Path::new(&path).exists(), "{cut}: {path:?}");
         }
-        let id = host.get_or_start("counter", "a").await.unwrap();
+        let id = at("counter", "a");
+        host.get_or_start(&id).await.unwrap();
         assert_eq!(count(&host, &id).await, 0, "{cut}");
         host.shutdown().await.unwrap();
     }
@@ -529,11 +534,11 @@ fn aborting_child() {
     let runtime = tokio::runtime::Runtime::new().unwrap();
     runtime.block_on(async {
         let host = Host::open(Path::new(&home), factories()).unwrap();
-        let at = at("counter", "a");
+        let a = at("counter", "a");
         match step.as_str() {
             "arm" => {
-                let k =
-                    host.get_or_start("counter", "k").await.unwrap();
+                let k = at("counter", "k");
+                host.get_or_start(&k).await.unwrap();
                 for _ in 0..7 {
                     act(&host, &k, "increment", Vec::new())
                         .await
@@ -542,8 +547,7 @@ fn aborting_child() {
                 let due = BYSTANDER_DUE_MS.to_le_bytes().to_vec();
                 act(&host, &k, "schedule", due).await.unwrap();
                 writeln!(out, "armed").unwrap();
-                let a =
-                    host.get_or_start("counter", "a").await.unwrap();
+                host.get_or_start(&a).await.unwrap();
                 let mut abort = 100u64.to_le_bytes().to_vec();
                 abort.extend_from_slice(b"abort");
                 act(&host, &a, "schedule", abort).await.unwrap();
@@ -552,12 +556,11 @@ fn aborting_child() {
                 let mut events = host.events();
                 host.boot().await.unwrap();
                 tokio::time::sleep(STAY).await;
-                let timers =
-                    host.set_aside_timers(&at).await.unwrap();
+                let timers = host.set_aside_timers(&a).await.unwrap();
                 let set_aside: Vec<HostEvent> = timers
                     .iter()
                     .map(|timer| HostEvent::TimerSetAside {
-                        actor: at.clone(),
+                        actor: a.clone(),
                         event_id: timer.event_id.clone(),
                         action: timer.action.clone(),
                         due_at: timer.due_at,
@@ -590,10 +593,10 @@ fn aborting_child() {
             }
             "rearm" => {
                 let due = now_ms() + REARM_DUE_MS;
-                for timer in host.set_aside_timers(&at).await.unwrap()
+                for timer in host.set_aside_timers(&a).await.unwrap()
                 {
                     let rearmed = host
-                        .rearm_timer(&at, &timer.event_id, due)
+                        .rearm_timer(&a, &timer.event_id, due)
                         .await
                         .unwrap();
                     writeln!(out, "rearmed {rearmed}").unwrap();

@@ -203,10 +203,16 @@ pub async fn run(host: &Host, words: &[String]) -> Result<()> {
         version: ReachVersion(version.parse()?),
         reach: parse_reach(rest)?,
     };
-    host.get_or_start(workspace::KIND, workspace::MACHINE)
-        .await?;
-    host.get_or_start(workspace::REALM, workspace::REALM_KEY)
-        .await?;
+    host.get_or_start(&Address::new(
+        workspace::KIND,
+        workspace::MACHINE,
+    )?)
+    .await?;
+    host.get_or_start(&Address::new(
+        workspace::REALM,
+        workspace::REALM_KEY,
+    )?)
+    .await?;
     let reply = host
         .call(
             &Address::new(workspace::REALM, workspace::REALM_KEY)?,
@@ -305,10 +311,16 @@ async fn answer_call(
         call: CallId(call.to_owned()),
         answer,
     });
-    host.get_or_start(workspace::KIND, workspace::MACHINE)
-        .await?;
-    host.get_or_start(workspace::REALM, workspace::REALM_KEY)
-        .await?;
+    host.get_or_start(&Address::new(
+        workspace::KIND,
+        workspace::MACHINE,
+    )?)
+    .await?;
+    host.get_or_start(&Address::new(
+        workspace::REALM,
+        workspace::REALM_KEY,
+    )?)
+    .await?;
     let reply = host
         .call(
             &Address::new(workspace::REALM, workspace::REALM_KEY)?,

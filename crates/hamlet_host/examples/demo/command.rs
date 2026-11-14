@@ -25,14 +25,13 @@ pub async fn run(
         [command, key, ..] => (command.as_str(), address(kind, key)?),
         _ => bail!("a command takes an actor key"),
     };
-    let id = id_of(&at);
     let mut out = std::io::stdout();
     match command {
         "timers" => {
             for timer in host.set_aside_timers(&at).await? {
                 writeln!(
                     out,
-                    "timer {id} {} {} due={} tries={} error={}",
+                    "timer {at} {} {} due={} tries={} error={}",
                     timer.event_id,
                     timer.action,
                     timer.due_at,
@@ -53,7 +52,7 @@ pub async fn run(
                     i64::try_from(now.as_millis())?,
                 )
                 .await?;
-            writeln!(out, "rearm {id} {event_id} {rearmed}")?;
+            writeln!(out, "rearm {at} {event_id} {rearmed}")?;
             return Ok(());
         }
         "call" => {
@@ -61,14 +60,9 @@ pub async fn run(
                 kind,
                 words.get(2).context("call takes <to>")?,
             )?;
-            let caller = make(host, kinds, &at).await?;
-            let (n, micros) = call(host, &caller, &to).await?;
-            writeln!(
-                out,
-                "call {caller} {}/{} {n} {micros}us",
-                to.kind(),
-                to.key()
-            )?;
+            make(host, kinds, &at).await?;
+            let (n, micros) = call(host, &at, &to).await?;
+            writeln!(out, "call {at} {to} {n} {micros}us")?;
             return Ok(());
         }
         _ => {}
@@ -95,12 +89,12 @@ pub async fn run(
         }
         other => bail!("unknown command `{other}`"),
     };
-    let actor_id = host.get_or_start(at.kind(), at.key()).await?;
+    host.get_or_start(&at).await?;
     let mut reply = Vec::new();
     for _ in 0..times {
-        reply = act(host, &actor_id, command, args.clone()).await?;
+        reply = act(host, &at, command, args.clone()).await?;
     }
-    print_reply("", &actor_id, reply)
+    print_reply("", &at, reply)
 }
 
 /// Has the counter `[<from> <to>]`, `a` and `b` by default, call the
@@ -130,18 +124,18 @@ async fn calls(
         _ => bail!("calls takes no actor, or <from> <to>"),
     };
     ensure!(count > 0, "calls takes a count above 0");
-    let caller = make(host, kinds, &from).await?;
+    make(host, kinds, &from).await?;
     make(host, kinds, &to).await?;
     let mut micros = Vec::new();
     let mut first = None;
     let mut last = 0;
     for done in 0..count {
-        let (n, took) = call(host, &caller, &to).await?;
+        let (n, took) = call(host, &from, &to).await?;
         let want =
             first.get_or_insert(n).saturating_add_unsigned(done);
         ensure!(
             n == want,
-            "call {done} read {n} calls from {caller}, not {want}"
+            "call {done} read {n} calls from {from}, not {want}"
         );
         micros.push(took);
         last = n;
@@ -153,10 +147,8 @@ async fn calls(
     };
     writeln!(
         std::io::stdout(),
-        "calls {caller} {}/{} count={count} p50={}us p99={}us \
+        "calls {from} {to} count={count} p50={}us p99={}us \
          from={last}",
-        to.kind(),
-        to.key(),
         at(50),
         at(99)
     )?;
@@ -164,28 +156,27 @@ async fn calls(
 }
 
 /// Starts the actor at `at`, made if it has none, when its kind is
-/// one of `kinds`, and returns its id. An actor of any other kind is
-/// left for the call to it to find, or not.
+/// one of `kinds`. An actor of any other kind is left for the call to
+/// it to find, or not.
 async fn make(
     host: &Host,
     kinds: &[String],
     at: &Address,
-) -> Result<String> {
+) -> Result<()> {
     if kinds.iter().any(|kind| kind == at.kind()) {
-        host.get_or_start(at.kind(), at.key()).await
-    } else {
-        Ok(id_of(at))
+        host.get_or_start(at).await?;
     }
+    Ok(())
 }
 
 /// Has the counter `caller` call the actor at `to`, and answers how
 /// many calls `to` had from it and the call's time in microseconds.
 async fn call(
     host: &Host,
-    caller: &str,
+    caller: &Address,
     to: &Address,
 ) -> Result<(i64, u64)> {
-    let target = id_of(to).into_bytes();
+    let target = to.to_string().into_bytes();
     let reply = act(host, caller, "call", target).await?;
     let (n, micros) = reply
         .split_first_chunk::<8>()
@@ -199,11 +190,11 @@ async fn call(
 /// Prints the count a counter replied with.
 pub fn print_reply(
     prefix: &str,
-    actor_id: &str,
+    at: &Address,
     reply: Vec<u8>,
 ) -> Result<()> {
     let count = counter::count(reply)?;
-    writeln!(std::io::stdout(), "{prefix}{actor_id} {count}")?;
+    writeln!(std::io::stdout(), "{prefix}{at} {count}")?;
     Ok(())
 }
 
@@ -213,10 +204,6 @@ fn address(kind: &str, word: &str) -> Result<Address> {
         Some((kind, key)) => Address::new(kind, key)?,
         None => Address::new(kind, word)?,
     })
-}
-
-fn id_of(at: &Address) -> String {
-    format!("{}/{}", at.kind(), at.key())
 }
 
 /// `error` as the demo prints it, led by the `group.code` of the

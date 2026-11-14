@@ -49,20 +49,9 @@ impl HostRef {
 /// The generation of an actor that a host of this crate runs.
 pub(super) struct Running {
     pub(super) host: Arc<HostInner>,
-    pub(super) actor_id: String,
+    pub(super) at: Address,
     /// The generation's id, as the host's map holds it.
     pub(super) generation: u64,
-}
-
-impl Running {
-    /// The actor's address.
-    pub(super) fn address(&self) -> Result<Address> {
-        let (kind, key) =
-            self.actor_id.split_once('/').with_context(|| {
-                format!("actor id {} has no kind", self.actor_id)
-            })?;
-        Ok(Address::new(kind, key)?)
-    }
 }
 
 /// The generation that `ctx` belongs to, and its host. Fails for an
@@ -76,7 +65,7 @@ pub(super) fn running(ctx: &ActorContext) -> Result<Running> {
         .context("the actor runs in no Hamlet host")?;
     Ok(Running {
         host: handle.host.upgrade().ok_or_else(host_shut_down)?,
-        actor_id: handle.actor_id.clone(),
+        at: handle.at.clone(),
         generation: handle.generation,
     })
 }
@@ -91,13 +80,13 @@ pub(super) fn current(ctx: &ActorContext) -> Result<Running> {
         .actors
         .lock()
         .lives
-        .get(&running.actor_id)
+        .get(&running.at)
         .is_some_and(|life| life.is_generation(running.generation));
     if ended {
         return Err(ActorLifecycle::Stopping.build().context(
             format!(
                 "generation {} of actor {} has ended",
-                running.generation, running.actor_id
+                running.generation, running.at
             ),
         ));
     }

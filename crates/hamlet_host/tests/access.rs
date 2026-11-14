@@ -101,7 +101,7 @@ async fn an_actor_reaches_the_realm_folder_of_its_host() {
         },
     );
     let host = Host::open(&dir, registry.into_factories()).unwrap();
-    host.get_or_start("here", "one").await.unwrap();
+    host.get_or_start(&at("here", "one")).await.unwrap();
     let reply = host
         .call(
             &at("here", "one"),
@@ -191,7 +191,7 @@ async fn an_actor_reads_its_hosts_values_in_create_and_in_a_handler()
         HostOptions::default().with_value(tally.clone()),
     )
     .unwrap();
-    host.get_or_start("reader", "a").await.unwrap();
+    host.get_or_start(&at("reader", "a")).await.unwrap();
     let read = call(&host, &at("reader", "a"), &Read).await;
     host.shutdown().await.unwrap();
     assert_eq!(read.unwrap(), (true, false));
@@ -248,7 +248,7 @@ fn keepers() -> std::collections::HashMap<String, ActorFactory> {
 async fn an_actor_that_keeps_its_host_ref_does_not_keep_the_host() {
     let dir = Scratch::new("access-keeper");
     let host = Host::open(&dir, keepers()).unwrap();
-    host.get_or_start("keeper", "a").await.unwrap();
+    host.get_or_start(&at("keeper", "a")).await.unwrap();
     call(&host, &at("keeper", "a"), &Ping).await.unwrap();
     drop(host);
     let deadline =
@@ -586,7 +586,7 @@ async fn ask<M: Action>(
 /// Makes each actor of `at`.
 async fn make(host: &Host, at: &[&Address]) {
     for at in at {
-        host.get_or_start(at.kind(), at.key()).await.unwrap();
+        host.get_or_start(at).await.unwrap();
     }
 }
 
@@ -771,8 +771,8 @@ async fn an_actors_call_starts_a_sleeping_callee() {
     let callee = at("callee", "x");
     let a = at("asker", "a");
     make(&host, &[&callee, &a]).await;
-    host.stop("callee/x", ShutdownKind::Sleep).await.unwrap();
-    assert!(!host.is_running("callee/x"));
+    host.stop(&callee, ShutdownKind::Sleep).await.unwrap();
+    assert!(!host.is_running(&callee));
     let outcome = ask(
         &host,
         &a,
@@ -979,7 +979,7 @@ async fn an_actor_that_calls_itself_fails_at_once() {
     .unwrap();
     let started = tokio::time::timeout(
         Duration::from_secs(5),
-        host.get_or_start("self", "a"),
+        host.get_or_start(&at("self", "a")),
     )
     .await;
     let ping = call(&host, &at("self", "a"), &Ping).await;
@@ -1006,9 +1006,9 @@ async fn an_ended_generation_calls_nothing() {
     let callee = at("callee", "x");
     let a = at("asker", "a");
     make(&host, &[&callee, &a]).await;
-    host.stop("asker/a", ShutdownKind::Sleep).await.unwrap();
+    host.stop(&a, ShutdownKind::Sleep).await.unwrap();
     make(&host, &[&a]).await;
-    host.stop("asker/a", ShutdownKind::Destroy).await.unwrap();
+    host.stop(&a, ShutdownKind::Destroy).await.unwrap();
     make(&host, &[&a]).await;
     let contexts = contexts.0.lock().unwrap().clone();
     let mut outcomes = Vec::new();
@@ -1171,7 +1171,7 @@ async fn a_call_after_a_destroy_fails_and_leaves_no_file() {
     let a = at("asker", "a");
     let callee = at("callee", "x");
     make(&host, &[&a, &callee]).await;
-    host.stop("callee/x", ShutdownKind::Destroy).await.unwrap();
+    host.stop(&callee, ShutdownKind::Destroy).await.unwrap();
     let outcomes = calls_to(&host, &a, &callee).await;
     host.shutdown().await.unwrap();
     for outcome in &outcomes {
@@ -1201,7 +1201,7 @@ async fn a_get_or_start_that_waits_for_a_calls_start_makes_the_actor()
         .unwrap();
         let (called, made) = tokio::join!(
             host.call(&to, Who::NAME, args, Duration::from_secs(10)),
-            host.get_or_start("callee", &key),
+            host.get_or_start(&to),
         );
         if let Err(error) = &called {
             assert_eq!(code(error), "actor.not_found", "{error:#}");

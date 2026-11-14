@@ -28,7 +28,7 @@ use hamlet_actor_core::{
     ActorContext, ActorEvent, ActorFactory, ActorStart, BindParam,
     ColumnValue, ShutdownKind,
 };
-use hamlet_host::{Caller, Host, HostEvent, HostOptions};
+use hamlet_host::{Address, Caller, Host, HostEvent, HostOptions};
 use hamlet_testing::Scratch;
 use serde::{Deserialize, Serialize};
 use tokio::time::{Instant, sleep};
@@ -60,9 +60,9 @@ struct Stored {
 
 /// Opens the actor's file to read. No host may hold it: a host
 /// holds its actors' files alone.
-fn closed_file(dir: &Path, actor_id: &str) -> rusqlite::Connection {
+fn closed_file(dir: &Path, at: &Address) -> rusqlite::Connection {
     rusqlite::Connection::open_with_flags(
-        dir.join(format!("actors/{actor_id}.sqlite")),
+        dir.join(format!("actors/{at}.sqlite")),
         rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
     )
     .unwrap()
@@ -70,8 +70,8 @@ fn closed_file(dir: &Path, actor_id: &str) -> rusqlite::Connection {
 
 /// Reads the actor's file. `runs` is the one row of its table
 /// `table`.
-fn stored(dir: &Path, actor_id: &str, table: &str) -> Stored {
-    let conn = closed_file(dir, actor_id);
+fn stored(dir: &Path, at: &Address, table: &str) -> Stored {
+    let conn = closed_file(dir, at);
     let read = |sql: &str| -> i64 {
         conn.query_row(sql, [], |row| row.get(0)).unwrap()
     };
@@ -88,8 +88,8 @@ fn stored(dir: &Path, actor_id: &str, table: &str) -> Stored {
 
 /// The generation the actor's file last started and the deadline its
 /// last stop left.
-fn last_start(dir: &Path, actor_id: &str) -> (i64, Option<i64>) {
-    closed_file(dir, actor_id)
+fn last_start(dir: &Path, at: &Address) -> (i64, Option<i64>) {
+    closed_file(dir, at)
         .query_row(
             "SELECT generation, wake_at FROM _hamlet_actor",
             [],
@@ -117,15 +117,14 @@ fn add_one(table: &str) -> String {
 /// Calls `action` until `runs` reads its reply as `want`.
 async fn wait_for_runs(
     host: &Host,
-    actor_id: &str,
+    at: &Address,
     action: &str,
     runs: impl Fn(Vec<u8>) -> i64,
     want: i64,
 ) {
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
-        let reply =
-            act(host, actor_id, action, Vec::new()).await.unwrap();
+        let reply = act(host, at, action, Vec::new()).await.unwrap();
         if runs(reply) == want {
             return;
         }
@@ -156,7 +155,8 @@ async fn a_panicking_handler_runs_once(
     let (schedule, args) = schedule;
     let (get, runs) = read_runs;
     let host = Host::open(dir, factories()).unwrap();
-    let id = host.get_or_start(kind, "a").await.unwrap();
+    let id = at(kind, "a");
+    host.get_or_start(&id).await.unwrap();
     act(&host, &id, schedule, args).await.unwrap();
     wait_for_runs(&host, &id, get, runs, 1).await;
     // The stop waits for the scheduled dispatch to finish.
@@ -174,7 +174,7 @@ async fn a_panicking_handler_runs_once(
     );
 
     let host = Host::open(dir, factories()).unwrap();
-    host.get_or_start(kind, "a").await.unwrap();
+    host.get_or_start(&at(kind, "a")).await.unwrap();
     // Long enough for a start to run an overdue one-shot.
     sleep(Duration::from_millis(500)).await;
     wait_for_runs(&host, &id, get, runs, 1).await;
@@ -343,7 +343,8 @@ async fn a_one_shot_whose_trait_handler_a_stop_cuts_short_runs_again()
     let dir = Scratch::new("timer-cut-trait");
     let factories = || fuse_factories::<true>("nap");
     let host = Host::open(&dir, factories()).unwrap();
-    let id = host.get_or_start("nap", "a").await.unwrap();
+    let id = at("nap", "a");
+    host.get_or_start(&id).await.unwrap();
     act(&host, &id, "arm", Vec::new()).await.unwrap();
     wait_for_runs(&host, &id, "runs", fuse_runs, 1).await;
     host.stop(&id, ShutdownKind::Sleep).await.unwrap();
@@ -543,10 +544,11 @@ async fn a_one_shot_whose_handler_returns_a_calls_error_runs_once() {
         },
     );
     let host = Host::open(&dir, registry.into_factories()).unwrap();
-    host.get_or_start("relay", "callee").await.unwrap();
+    host.get_or_start(&at("relay", "callee")).await.unwrap();
     let mut ids = Vec::new();
     for code in CALL_FAILURES {
-        let id = host.get_or_start("relay", code).await.unwrap();
+        let id = at("relay", code);
+        host.get_or_start(&id).await.unwrap();
         act(&host, &id, "arm", Vec::new()).await.unwrap();
         ids.push(id);
     }
@@ -560,7 +562,7 @@ async fn a_one_shot_whose_handler_returns_a_calls_error_runs_once() {
         host.stop(id, ShutdownKind::Sleep).await.unwrap();
     }
     for code in CALL_FAILURES {
-        host.get_or_start("relay", code).await.unwrap();
+        host.get_or_start(&at("relay", code)).await.unwrap();
     }
     sleep(Duration::from_millis(500)).await;
     let mut ran = Vec::new();
@@ -683,7 +685,8 @@ async fn a_panic_in_the_event_loop_keeps_the_one_shots_queued_behind_it()
     let dir = Scratch::new("timer-loop-panic");
     let ran = Arc::new(Ran::default());
     let host = Host::open(&dir, inline(&ran)).unwrap();
-    let id = host.get_or_start("inline", "a").await.unwrap();
+    let id = at("inline", "a");
+    host.get_or_start(&id).await.unwrap();
     act(&host, &id, "arm", Vec::new()).await.unwrap();
     let deadline = Instant::now() + Duration::from_secs(10);
     let runs = || {
@@ -779,7 +782,8 @@ async fn a_one_shot_that_drops_its_reply_is_set_aside_after_five_runs()
     let host =
         Host::open(&dir, counters_that_sleep_soon(&starts)).unwrap();
     let mut events = host.events();
-    let id = host.get_or_start("counter", "a").await.unwrap();
+    let id = at("counter", "a");
+    host.get_or_start(&id).await.unwrap();
     act(&host, &id, "schedule", schedule_args(SOON_MS, "drop"))
         .await
         .unwrap();
@@ -933,7 +937,8 @@ async fn a_loop_that_panics_before_its_one_shot_sets_it_aside_after_five_starts(
     let starts = Starts::default();
     let host = Host::open(&dir, poisoned(&starts)).unwrap();
     let mut events = host.events();
-    let id = host.get_or_start("poison", "a").await.unwrap();
+    let id = at("poison", "a");
+    host.get_or_start(&id).await.unwrap();
     act(&host, &id, "arm", Vec::new()).await.unwrap();
     host.stop(&id, ShutdownKind::Sleep).await.unwrap();
     assert_eq!(
@@ -1018,11 +1023,12 @@ async fn stop_each_near_its_due_time(
     host: &Host,
     prefix: &str,
     reason: ShutdownKind,
-) -> Vec<String> {
+) -> Vec<Address> {
     let mut ids = Vec::new();
     for step in -30i64..=30 {
         let key = format!("{prefix}{}", step + 30);
-        let id = host.get_or_start("counter", &key).await.unwrap();
+        let id = at("counter", &key);
+        host.get_or_start(&id).await.unwrap();
         let scheduled = std::time::Instant::now();
         act(
             host,
@@ -1063,7 +1069,7 @@ async fn a_sleep_near_the_due_time_keeps_the_timer() {
     host.shutdown().await.unwrap();
     drop(host);
 
-    let stranded: Vec<(&String, Stored)> = ids
+    let stranded: Vec<(&Address, Stored)> = ids
         .iter()
         .map(|id| (id, stored(&dir, id, "counter")))
         .filter(|(_, stored)| {
@@ -1093,15 +1099,15 @@ async fn an_alarm_due_during_a_destroy_does_not_revive_it() {
     )
     .await;
     sleep(Duration::from_secs(1)).await;
-    let file = |id: &String| dir.join(format!("actors/{id}.sqlite"));
-    let revived: Vec<&String> = ids
+    let file = |id: &Address| dir.join(format!("actors/{id}.sqlite"));
+    let revived: Vec<&Address> = ids
         .iter()
         .filter(|id| host.is_running(id) || file(id).exists())
         .collect();
     assert!(revived.is_empty(), "destroyed actors back: {revived:?}");
     host.shutdown().await.unwrap();
     drop(host);
-    let left: Vec<&String> =
+    let left: Vec<&Address> =
         ids.iter().filter(|id| file(id).exists()).collect();
     assert!(left.is_empty(), "destroyed actors' files: {left:?}");
 }
@@ -1121,7 +1127,8 @@ async fn a_timer_does_not_make_a_file_that_is_gone() {
         },
     )
     .unwrap();
-    let id = host.get_or_start("counter", "a").await.unwrap();
+    let id = at("counter", "a");
+    host.get_or_start(&id).await.unwrap();
     act(&host, &id, "schedule", 300u64.to_le_bytes().to_vec())
         .await
         .unwrap();
@@ -1134,7 +1141,7 @@ async fn a_timer_does_not_make_a_file_that_is_gone() {
     loop {
         assert!(!file.exists(), "the timer made the file again");
         let Err(error) =
-            host.create("counter", "a", Vec::new()).await
+            host.create(&at("counter", "a"), Vec::new()).await
         else {
             break;
         };
@@ -1154,9 +1161,10 @@ async fn a_timer_does_not_make_a_file_that_is_gone() {
 async fn boot_with_deadline(
     dir: &Path,
     wake_at: i64,
-) -> (Host, String, Vec<String>) {
+) -> (Host, Address, Vec<Address>) {
     let host = Host::open(dir, factories()).unwrap();
-    let id = host.get_or_start("counter", "a").await.unwrap();
+    let id = at("counter", "a");
+    host.get_or_start(&id).await.unwrap();
     host.shutdown().await.unwrap();
     drop(host);
     rusqlite::Connection::open(
@@ -1261,7 +1269,7 @@ fn open_failing(
 }
 
 /// Waits until the actor `id` runs.
-async fn until_running(host: &Host, id: &str) {
+async fn until_running(host: &Host, id: &Address) {
     let deadline = Instant::now() + Duration::from_secs(5);
     while !host.is_running(id) {
         assert!(Instant::now() < deadline, "{id} never started");
@@ -1284,7 +1292,8 @@ async fn a_timer_whose_start_failed_is_armed_again() {
         &failures,
         Duration::from_millis(300),
     );
-    let id = host.get_or_start("counter", "a").await.unwrap();
+    let id = at("counter", "a");
+    host.get_or_start(&id).await.unwrap();
     act(&host, &id, "schedule", schedule_args(300, "increment"))
         .await
         .unwrap();
@@ -1309,7 +1318,8 @@ async fn boot_tries_a_run_a_kill_cut_off_again_until_it_starts() {
     let failures = Starts::default();
     let retry = Duration::from_millis(300);
     let host = open_failing(&dir, &starts, &failures, retry);
-    let id = host.get_or_start("counter", "a").await.unwrap();
+    let id = at("counter", "a");
+    host.get_or_start(&id).await.unwrap();
     host.shutdown().await.unwrap();
     drop(host);
     // What a kill leaves of a running actor.
@@ -1343,7 +1353,8 @@ async fn a_calls_failed_start_keeps_the_deadline_its_actor_held() {
         &failures,
         Duration::from_secs(1),
     );
-    let id = host.get_or_start("counter", "a").await.unwrap();
+    let id = at("counter", "a");
+    host.get_or_start(&id).await.unwrap();
     act(&host, &id, "schedule", schedule_args(1500, "increment"))
         .await
         .unwrap();
@@ -1363,7 +1374,7 @@ async fn a_calls_failed_start_keeps_the_deadline_its_actor_held() {
     let deadline = Instant::now() + Duration::from_secs(5);
     loop {
         let error = host
-            .create("counter", "a", Vec::new())
+            .create(&at("counter", "a"), Vec::new())
             .await
             .unwrap_err();
         if code(&error) == "actor.duplicate_key" {
@@ -1404,7 +1415,8 @@ async fn a_calls_failed_start_of_an_actor_with_no_deadline_is_not_tried_again()
         &failures,
         Duration::from_millis(100),
     );
-    let id = host.get_or_start("counter", "a").await.unwrap();
+    let id = at("counter", "a");
+    host.get_or_start(&id).await.unwrap();
     host.stop(&id, ShutdownKind::Sleep).await.unwrap();
     failures.store(1, Ordering::SeqCst);
 
@@ -1560,7 +1572,7 @@ struct Tally {
     stored: i64,
 }
 
-async fn read_runs(host: &Host, id: &str, action: &str) -> Tally {
+async fn read_runs(host: &Host, id: &Address, action: &str) -> Tally {
     let reply = act(host, id, "read", action.as_bytes().to_vec())
         .await
         .unwrap();
@@ -1585,7 +1597,7 @@ async fn read_runs(host: &Host, id: &str, action: &str) -> Tally {
 /// checks they still read it.
 async fn runs_settle(
     host: &Host,
-    id: &str,
+    id: &Address,
     action: &str,
     want: Tally,
 ) {
@@ -1619,7 +1631,8 @@ fn each_once(n: i64) -> Tally {
 async fn a_double_drain_runs_a_one_shot_once() {
     let dir = Scratch::new("timer-double-drain");
     let host = Host::open(&dir, timed()).unwrap();
-    let id = host.get_or_start("timed", "a").await.unwrap();
+    let id = at("timed", "a");
+    host.get_or_start(&id).await.unwrap();
     for round in 1..=20 {
         act(&host, &id, "twice", Vec::new()).await.unwrap();
         runs_settle(&host, &id, "inc", each_once(round)).await;
@@ -1633,7 +1646,8 @@ async fn a_double_drain_runs_a_one_shot_once() {
 async fn twenty_overlapping_timers_each_run_once() {
     let dir = Scratch::new("timer-twenty");
     let host = Host::open(&dir, timed()).unwrap();
-    let id = host.get_or_start("timed", "a").await.unwrap();
+    let id = at("timed", "a");
+    host.get_or_start(&id).await.unwrap();
     act(&host, &id, "twenty", Vec::new()).await.unwrap();
     runs_settle(&host, &id, "slow", each_once(20)).await;
     host.shutdown().await.unwrap();
@@ -1646,7 +1660,8 @@ async fn twenty_overlapping_timers_each_run_once() {
 async fn a_one_shot_whose_handler_returns_an_error_runs_once() {
     let dir = Scratch::new("timer-error");
     let host = Host::open(&dir, timed()).unwrap();
-    let id = host.get_or_start("timed", "a").await.unwrap();
+    let id = at("timed", "a");
+    host.get_or_start(&id).await.unwrap();
     act(&host, &id, "fail", Vec::new()).await.unwrap();
     runs_settle(&host, &id, "error", each_once(1)).await;
     host.stop(&id, ShutdownKind::Sleep).await.unwrap();

@@ -98,34 +98,34 @@ struct Napping {
 }
 
 impl Napping {
-    /// Calls the action `nap` of the napper `actor_id`, and returns
-    /// once the nap began.
+    /// Calls the action `nap` of the napper at `at`, and returns once
+    /// the nap began.
     async fn nap(
         &mut self,
         host: &Host,
-        actor_id: &str,
+        at: &Address,
     ) -> tokio::task::JoinHandle<anyhow::Result<Vec<u8>>> {
         let nap = tokio::spawn({
             let host = host.clone();
-            let actor_id = actor_id.to_owned();
-            async move { act(&host, &actor_id, "nap", Vec::new()).await }
+            let at = at.clone();
+            async move { act(&host, &at, "nap", Vec::new()).await }
         });
         reported("a nap", &mut self.naps).await;
         nap
     }
 
-    /// Stops the napper `actor_id` for `reason`, and returns once its
+    /// Stops the napper at `at` for `reason`, and returns once its
     /// core began the stop.
     async fn stop(
         &mut self,
         host: &Host,
-        actor_id: &str,
+        at: &Address,
         reason: ShutdownKind,
     ) -> tokio::task::JoinHandle<anyhow::Result<()>> {
         let stop = tokio::spawn({
             let host = host.clone();
-            let actor_id = actor_id.to_owned();
-            async move { host.stop(&actor_id, reason).await }
+            let at = at.clone();
+            async move { host.stop(&at, reason).await }
         });
         reported("a stop", &mut self.stops).await;
         stop
@@ -275,17 +275,17 @@ fn keeper(contexts: &Contexts) -> HashMap<String, ActorFactory> {
     )])
 }
 
-async fn call(host: &Host, actor_id: &str, action: &str) -> i64 {
-    call_with(host, actor_id, action, Vec::new()).await
+async fn call(host: &Host, at: &Address, action: &str) -> i64 {
+    call_with(host, at, action, Vec::new()).await
 }
 
 async fn call_with(
     host: &Host,
-    actor_id: &str,
+    at: &Address,
     action: &str,
     args: Vec<u8>,
 ) -> i64 {
-    let reply = act(host, actor_id, action, args).await.unwrap();
+    let reply = act(host, at, action, args).await.unwrap();
     counter::count(reply).unwrap()
 }
 
@@ -311,13 +311,15 @@ async fn starts_an_actor_by_its_kind_and_key() {
     let dir = Scratch::new("host-start");
     let host = Host::open(&dir, factories()).unwrap();
 
-    let id = host.get_or_start("counter", "a").await.unwrap();
-    assert_eq!(id, "counter/a");
+    let id = at("counter", "a");
+    host.get_or_start(&id).await.unwrap();
     assert_eq!(call(&host, &id, "increment").await, 1);
-    assert_eq!(host.get_or_start("counter", "a").await.unwrap(), id);
+    host.get_or_start(&id).await.unwrap();
     assert_eq!(call(&host, &id, "increment").await, 2);
 
-    let other = host.get_or_start("counter", "b").await.unwrap();
+    let other = at("counter", "b");
+
+    host.get_or_start(&other).await.unwrap();
     assert_eq!(call(&host, &other, "get").await, 0);
     assert!(dir.join("actors/counter/a.sqlite").is_file());
 
@@ -325,9 +327,9 @@ async fn starts_an_actor_by_its_kind_and_key() {
     assert!(probe(&dir, "counter", "a").is_err());
 
     for bad in ["", "../a", ".hidden", "a/b"] {
-        assert!(host.get_or_start("counter", bad).await.is_err());
+        assert!(Address::new("counter", bad).is_err());
     }
-    assert!(host.get_or_start("nobody", "a").await.is_err());
+    assert!(host.get_or_start(&at("nobody", "a")).await.is_err());
     host.shutdown().await.unwrap();
 }
 
@@ -335,7 +337,8 @@ async fn starts_an_actor_by_its_kind_and_key() {
 async fn a_stopped_actor_closes_its_file_and_starts_again() {
     let dir = Scratch::new("host-stop");
     let host = Host::open(&dir, factories()).unwrap();
-    let id = host.get_or_start("counter", "a").await.unwrap();
+    let id = at("counter", "a");
+    host.get_or_start(&id).await.unwrap();
     call(&host, &id, "increment").await;
     call(&host, &id, "increment").await;
 
@@ -353,7 +356,8 @@ async fn a_stopped_actor_closes_its_file_and_starts_again() {
 async fn a_second_host_is_refused_by_the_folder_lock() {
     let dir = Scratch::new("host-lock");
     let first = Host::open(&dir, factories()).unwrap();
-    let id = first.get_or_start("counter", "a").await.unwrap();
+    let id = at("counter", "a");
+    first.get_or_start(&id).await.unwrap();
 
     let Err(error) = Host::open(&dir, factories()) else {
         panic!("a second host opened the folder");
@@ -365,7 +369,8 @@ async fn a_second_host_is_refused_by_the_folder_lock() {
     first.shutdown().await.unwrap();
     drop(first);
     let again = Host::open(&dir, factories()).unwrap();
-    let id = again.get_or_start("counter", "a").await.unwrap();
+    let id = at("counter", "a");
+    again.get_or_start(&id).await.unwrap();
     assert_eq!(call(&again, &id, "get").await, 1);
     again.shutdown().await.unwrap();
 }
@@ -374,7 +379,8 @@ async fn a_second_host_is_refused_by_the_folder_lock() {
 async fn boot_arms_a_stored_alarm_and_starts_the_actor_when_due() {
     let dir = Scratch::new("host-alarm");
     let host = Host::open(&dir, factories()).unwrap();
-    let id = host.get_or_start("counter", "a").await.unwrap();
+    let id = at("counter", "a");
+    host.get_or_start(&id).await.unwrap();
     call_with(&host, &id, "schedule", 3000u64.to_le_bytes().to_vec())
         .await;
     host.shutdown().await.unwrap();
@@ -397,7 +403,8 @@ async fn boot_arms_a_stored_alarm_and_starts_the_actor_when_due() {
 async fn boot_starts_an_actor_whose_alarm_came_due_while_down() {
     let dir = Scratch::new("host-due");
     let host = Host::open(&dir, factories()).unwrap();
-    let id = host.get_or_start("counter", "a").await.unwrap();
+    let id = at("counter", "a");
+    host.get_or_start(&id).await.unwrap();
     call_with(&host, &id, "schedule", 200u64.to_le_bytes().to_vec())
         .await;
     host.shutdown().await.unwrap();
@@ -426,8 +433,8 @@ async fn an_actor_that_asks_to_sleep_or_be_destroyed_stops_at_once() {
     for n in 0..10 {
         for action in ["sleep", "destroy"] {
             let key = format!("{action}-{n}");
-            let id =
-                host.get_or_start("counter", &key).await.unwrap();
+            let id = at("counter", &key);
+            host.get_or_start(&id).await.unwrap();
             act(&host, &id, action, Vec::new()).await.unwrap();
             // An actor counts as running until its stop closed its
             // file, or removed it for a destroy.
@@ -485,7 +492,8 @@ async fn an_action_with_no_reply_times_out() {
         }),
     )]);
     let host = Host::open(&dir, factories).unwrap();
-    let id = host.get_or_start("mute", "a").await.unwrap();
+    let id = at("mute", "a");
+    host.get_or_start(&id).await.unwrap();
 
     let error = tokio::time::timeout(
         Duration::from_secs(5),
@@ -508,7 +516,8 @@ async fn an_action_with_no_reply_times_out() {
 async fn an_action_error_keeps_the_actors_message() {
     let dir = Scratch::new("host-action-error");
     let host = Host::open(&dir, factories()).unwrap();
-    let id = host.get_or_start("counter", "a").await.unwrap();
+    let id = at("counter", "a");
+    host.get_or_start(&id).await.unwrap();
 
     for (action, args, cause) in [
         ("nope", Vec::new(), "unknown action `nope`"),
@@ -527,7 +536,8 @@ async fn an_action_error_keeps_the_actors_message() {
 async fn many_alarms_of_a_running_actor_leave_no_task_behind() {
     let dir = Scratch::new("host-one-timer");
     let host = Host::open(&dir, factories()).unwrap();
-    let id = host.get_or_start("counter", "a").await.unwrap();
+    let id = at("counter", "a");
+    host.get_or_start(&id).await.unwrap();
     let schedule = |ms: u64| {
         call_with(&host, &id, "schedule", ms.to_le_bytes().to_vec())
     };
@@ -609,8 +619,10 @@ fn stuck_stop_child() {
         tokio::time::timeout(Duration::from_secs(30), async {
             let host =
                 Host::open(Path::new(&home), factories()).unwrap();
-            let a = host.get_or_start("counter", "a").await.unwrap();
-            let b = host.get_or_start("counter", "b").await.unwrap();
+            let a = at("counter", "a");
+            host.get_or_start(&a).await.unwrap();
+            let b = at("counter", "b");
+            host.get_or_start(&b).await.unwrap();
             tokio::spawn({
                 let host = host.clone();
                 let b = b.clone();
@@ -636,7 +648,7 @@ fn stuck_stop_child() {
             .await;
             prompt(
                 "a start while b's stop is stuck",
-                host.get_or_start("counter", "c"),
+                host.get_or_start(&at("counter", "c")),
             )
             .await;
         })
@@ -652,8 +664,10 @@ async fn a_slow_stop_does_not_stall_other_actors() {
     let dir = Scratch::new("host-slow-stop");
     let (kinds, mut napping) = with_nappers();
     let host = Host::open(&dir, kinds).unwrap();
-    let a = host.get_or_start("counter", "a").await.unwrap();
-    let b = host.get_or_start("slow", "b").await.unwrap();
+    let a = at("counter", "a");
+    host.get_or_start(&a).await.unwrap();
+    let b = at("slow", "b");
+    host.get_or_start(&b).await.unwrap();
     let nap = napping.nap(&host, &b).await;
     let stop = napping.stop(&host, &b, ShutdownKind::Sleep).await;
 
@@ -661,7 +675,7 @@ async fn a_slow_stop_does_not_stall_other_actors() {
         .await;
     prompt(
         "a start while b stops",
-        host.get_or_start("counter", "c"),
+        host.get_or_start(&at("counter", "c")),
     )
     .await;
 
@@ -785,17 +799,17 @@ fn blocked_host(
 }
 
 /// Calls the action `action`, `block` or `query`, of the [`blocker`]
-/// `actor_id`, and returns once its event loop blocks.
+/// at `at`, and returns once its event loop blocks.
 async fn block(
     host: &Host,
-    actor_id: &str,
+    at: &Address,
     action: &'static str,
     blocks: &mut tokio::sync::mpsc::UnboundedReceiver<()>,
 ) {
     tokio::spawn({
         let host = host.clone();
-        let actor_id = actor_id.to_owned();
-        async move { act(&host, &actor_id, action, Vec::new()).await }
+        let at = at.clone();
+        async move { act(&host, &at, action, Vec::new()).await }
     });
     blocks.recv().await.unwrap();
 }
@@ -825,9 +839,11 @@ async fn a_shutdown_returns_at_the_stop_deadline_of_a_blocked_actor()
     let (blocked, mut blocks) =
         tokio::sync::mpsc::unbounded_channel();
     let host = blocked_host(&dir, &gate, &blocked);
-    let counter = host.get_or_start("counter", "a").await.unwrap();
+    let counter = at("counter", "a");
+    host.get_or_start(&counter).await.unwrap();
     call(&host, &counter, "increment").await;
-    let stuck = host.get_or_start("blocker", "b").await.unwrap();
+    let stuck = at("blocker", "b");
+    host.get_or_start(&stuck).await.unwrap();
     block(&host, &stuck, "block", &mut blocks).await;
 
     let begun = std::time::Instant::now();
@@ -846,8 +862,8 @@ async fn a_shutdown_returns_at_the_stop_deadline_of_a_blocked_actor()
             .unwrap_err()
     );
     assert!(at_the_deadline(took), "{took:?}");
-    assert!(error.contains(&stuck), "{error}");
-    assert!(!error.contains(&counter), "{error}");
+    assert!(error.contains(&stuck.to_string()), "{error}");
+    assert!(!error.contains(&counter.to_string()), "{error}");
 
     let host = blocked_host(&dir, &gate, &blocked);
     assert_eq!(
@@ -875,7 +891,8 @@ async fn a_shutdown_returns_while_a_statement_holds_the_file() {
         tokio::sync::mpsc::unbounded_channel();
     let host = blocked_host(&dir, &gate, &blocked);
     let hold = Hold::new(&dir);
-    let stuck = host.get_or_start("blocker", "b").await.unwrap();
+    let stuck = at("blocker", "b");
+    host.get_or_start(&stuck).await.unwrap();
     block(&host, &stuck, "query", &mut blocks).await;
 
     let begun = std::time::Instant::now();
@@ -888,7 +905,7 @@ async fn a_shutdown_returns_while_a_statement_holds_the_file() {
     let error = format!("{:#}", shutdown.unwrap_err());
     let took = begun.elapsed();
     assert!(at_the_deadline(took), "{took:?}");
-    assert!(error.contains(&stuck), "{error}");
+    assert!(error.contains(&stuck.to_string()), "{error}");
     assert!(
         probe(&dir, "blocker", "b").is_err(),
         "the statement ended before the shutdown returned"
@@ -920,7 +937,8 @@ async fn a_stop_past_its_deadline_fails_its_waiters_and_later_calls()
     let (blocked, mut blocks) =
         tokio::sync::mpsc::unbounded_channel();
     let host = blocked_host(&dir, &gate, &blocked);
-    let stuck = host.get_or_start("blocker", "b").await.unwrap();
+    let stuck = at("blocker", "b");
+    host.get_or_start(&stuck).await.unwrap();
     block(&host, &stuck, "block", &mut blocks).await;
 
     let begun = std::time::Instant::now();
@@ -964,14 +982,14 @@ async fn a_stop_past_its_deadline_fails_its_waiters_and_later_calls()
     assert!(code(&error) == "actor.shutdown_timeout", "{error:#}");
     let error = tokio::time::timeout(
         PROMPT,
-        host.create("blocker", "b", Vec::new()),
+        host.create(&at("blocker", "b"), Vec::new()),
     )
     .await
     .expect("a create of the stuck actor's key waited")
     .unwrap_err();
     assert!(code(&error) == "actor.shutdown_timeout", "{error:#}");
     let error = format!("{:#}", host.shutdown().await.unwrap_err());
-    assert!(error.contains(&stuck), "{error}");
+    assert!(error.contains(&stuck.to_string()), "{error}");
     drop(release);
 }
 
@@ -1000,7 +1018,8 @@ async fn a_destroy_past_its_deadline_is_finished_at_the_next_boot(
         tokio::sync::mpsc::unbounded_channel();
     let host = blocked_host(&dir, &gate, &blocked);
     let hold = Hold::new(&dir);
-    let stuck = host.get_or_start("blocker", "b").await.unwrap();
+    let stuck = at("blocker", "b");
+    host.get_or_start(&stuck).await.unwrap();
     block(&host, &stuck, action, &mut blocks).await;
 
     let begun = std::time::Instant::now();
@@ -1015,7 +1034,7 @@ async fn a_destroy_past_its_deadline_is_finished_at_the_next_boot(
     assert!(code(&error) == "actor.shutdown_timeout", "{error:#}");
     assert!(at_the_deadline(took), "{took:?}");
     let error = format!("{:#}", host.shutdown().await.unwrap_err());
-    assert!(error.contains(&stuck), "{error}");
+    assert!(error.contains(&stuck.to_string()), "{error}");
     drop(hold);
     wait_for_the_file(&dir, "blocker", "b").await;
 
@@ -1050,14 +1069,17 @@ async fn two_starts_of_one_key_make_one_actor() {
         .map(|_| {
             let host = host.clone();
             tokio::spawn(async move {
-                host.get_or_start("counter", "a").await
+                host.get_or_start(&at("counter", "a")).await
             })
         })
         .collect();
     for start in starts {
-        assert_eq!(start.await.unwrap().unwrap(), "counter/a");
+        start.await.unwrap().unwrap();
     }
-    assert_eq!(call(&host, "counter/a", "increment").await, 1);
+    assert_eq!(
+        call(&host, &at("counter", "a"), "increment").await,
+        1
+    );
     host.shutdown().await.unwrap();
     assert_eq!(probe(&dir, "counter", "a").unwrap(), 1);
 }
@@ -1069,13 +1091,15 @@ async fn a_start_during_its_actors_stop_waits_and_starts_it_fresh() {
     let dir = Scratch::new("host-start-in-stop");
     let (kinds, mut napping) = with_nappers();
     let host = Host::open(&dir, kinds).unwrap();
-    let a = host.get_or_start("counter", "a").await.unwrap();
-    let b = host.get_or_start("slow", "b").await.unwrap();
+    let a = at("counter", "a");
+    host.get_or_start(&a).await.unwrap();
+    let b = at("slow", "b");
+    host.get_or_start(&b).await.unwrap();
     let nap = napping.nap(&host, &b).await;
     let stop = napping.stop(&host, &b, ShutdownKind::Sleep).await;
     let start = tokio::spawn({
         let host = host.clone();
-        async move { host.get_or_start("slow", "b").await }
+        async move { host.get_or_start(&at("slow", "b")).await }
     });
 
     prompt(
@@ -1088,7 +1112,7 @@ async fn a_start_during_its_actors_stop_waits_and_starts_it_fresh() {
 
     nap.await.unwrap().unwrap();
     stop.await.unwrap().unwrap();
-    assert_eq!(start.await.unwrap().unwrap(), b);
+    start.await.unwrap().unwrap();
     act(&host, &b, "get", Vec::new()).await.unwrap();
     host.shutdown().await.unwrap();
     assert_eq!(probe(&dir, "slow", "b").unwrap(), 2);
@@ -1102,10 +1126,11 @@ async fn an_ended_generation_cannot_write_to_the_next() {
     let dir = Scratch::new("host-ended-write");
     let contexts = Contexts::default();
     let host = Host::open(&dir, keeper(&contexts)).unwrap();
-    let id = host.get_or_start("keeper", "t").await.unwrap();
+    let id = at("keeper", "t");
+    host.get_or_start(&id).await.unwrap();
     let ended = contexts.lock()[0].clone();
     host.stop(&id, ShutdownKind::Sleep).await.unwrap();
-    host.get_or_start("keeper", "t").await.unwrap();
+    host.get_or_start(&at("keeper", "t")).await.unwrap();
 
     let in_transaction = async {
         let tx = ended.sql().begin_transaction(None).await?;
@@ -1144,16 +1169,17 @@ async fn an_ended_generations_crash_leaves_the_actor_running(
     let dir = Scratch::new("host-ended-crash");
     let contexts = Contexts::default();
     let host = Host::open(&dir, keeper(&contexts)).unwrap();
-    let id = host.get_or_start("keeper", "t").await.unwrap();
+    let id = at("keeper", "t");
+    host.get_or_start(&id).await.unwrap();
     let ended = contexts.lock()[0].clone();
     let leaked_at = tokio::time::Instant::now();
     let leaked =
         ended.sql().begin_transaction(Some(LEAK)).await.unwrap();
     host.stop(&id, ShutdownKind::Sleep).await.unwrap();
-    host.get_or_start("keeper", "t").await.unwrap();
+    host.get_or_start(&at("keeper", "t")).await.unwrap();
     if made_again {
         host.stop(&id, ShutdownKind::Destroy).await.unwrap();
-        host.get_or_start("keeper", "t").await.unwrap();
+        host.get_or_start(&at("keeper", "t")).await.unwrap();
     }
     assert_eq!(call(&host, &id, "count").await, 0);
     assert!(
@@ -1187,7 +1213,8 @@ async fn a_destroy_during_a_sleep_stop_removes_the_file() {
     let dir = Scratch::new("host-destroy-in-stop");
     let (kinds, mut napping) = with_nappers();
     let host = Host::open(&dir, kinds).unwrap();
-    let b = host.get_or_start("slow", "b").await.unwrap();
+    let b = at("slow", "b");
+    host.get_or_start(&b).await.unwrap();
     let nap = napping.nap(&host, &b).await;
     let sleep = napping.stop(&host, &b, ShutdownKind::Sleep).await;
     assert!(!sleep.is_finished(), "b stopped before its nap ended");
@@ -1208,7 +1235,8 @@ async fn a_stop_ends_a_transaction_its_generation_left_open() {
     let dir = Scratch::new("host-stop-leaked");
     let contexts = Contexts::default();
     let host = Host::open(&dir, keeper(&contexts)).unwrap();
-    let id = host.get_or_start("keeper", "t").await.unwrap();
+    let id = at("keeper", "t");
+    host.get_or_start(&id).await.unwrap();
     let ctx = contexts.lock()[0].clone();
     let event = ctx
         .after(Duration::from_secs(600), "count", &[])
@@ -1263,7 +1291,7 @@ async fn a_call_to_an_unknown_kind_fails_at_once_and_makes_no_file() {
     .expect_err("a call to an unknown kind must fail");
     assert!(code(&error) == "actor.not_registered", "{error:#}");
     assert!(!dir.join("actors/nobody").exists());
-    assert!(!host.is_running("nobody/a"));
+    assert!(!host.is_running(&at("nobody", "a")));
     host.shutdown().await.unwrap();
 }
 
@@ -1275,7 +1303,8 @@ async fn a_call_ends_at_its_deadline() {
     let dir = Scratch::new("host-call-deadline");
     let (kinds, _) = with_nappers();
     let host = Host::open(&dir, kinds).unwrap();
-    let b = host.get_or_start("slow", "b").await.unwrap();
+    let b = at("slow", "b");
+    host.get_or_start(&b).await.unwrap();
     let begun = tokio::time::Instant::now();
     let error = host
         .call(
@@ -1305,7 +1334,8 @@ async fn a_call_waiting_for_its_actors_stop_ends_at_its_deadline() {
     let dir = Scratch::new("host-call-stop-deadline");
     let (kinds, mut napping) = with_nappers();
     let host = Host::open(&dir, kinds).unwrap();
-    let b = host.get_or_start("slow", "b").await.unwrap();
+    let b = at("slow", "b");
+    host.get_or_start(&b).await.unwrap();
     let nap = napping.nap(&host, &b).await;
     let stop = napping.stop(&host, &b, ShutdownKind::Sleep).await;
 
@@ -1341,7 +1371,8 @@ async fn a_call_to_an_actor_being_destroyed_fails_at_once() {
     let dir = Scratch::new("host-call-destroying");
     let (kinds, mut napping) = with_nappers();
     let host = Host::open(&dir, kinds).unwrap();
-    let b = host.get_or_start("slow", "b").await.unwrap();
+    let b = at("slow", "b");
+    host.get_or_start(&b).await.unwrap();
     let nap = napping.nap(&host, &b).await;
     let destroy =
         napping.stop(&host, &b, ShutdownKind::Destroy).await;
@@ -1372,9 +1403,11 @@ async fn a_shutdown_closes_the_others_while_one_is_slow_and_reports_it()
     let dir = Scratch::new("host-shutdown-slow");
     let (kinds, mut napping) = with_nappers();
     let host = Host::open(&dir, kinds).unwrap();
-    let brittle = host.get_or_start("brittle", "b").await.unwrap();
+    let brittle = at("brittle", "b");
+    host.get_or_start(&brittle).await.unwrap();
     for key in ["a", "c"] {
-        let id = host.get_or_start("counter", key).await.unwrap();
+        let id = at("counter", key);
+        host.get_or_start(&id).await.unwrap();
         call(&host, &id, "increment").await;
     }
     act(&host, &brittle, "unmark", Vec::new()).await.unwrap();
@@ -1410,8 +1443,10 @@ async fn a_shutdown_closes_the_others_while_one_is_slow_and_reports_it()
         .unwrap()
         .expect_err("a call in flight as its host shuts down");
     assert!(code(&error) == "actor.stopping", "{error:#}");
-    for id in ["brittle/b", "counter/a", "counter/c"] {
-        assert!(!host.is_running(id), "{id} still runs");
+    for id in
+        [at("brittle", "b"), at("counter", "a"), at("counter", "c")]
+    {
+        assert!(!host.is_running(&id), "{id} still runs");
     }
 }
 
@@ -1459,12 +1494,12 @@ async fn no_timer_starts_an_actor_after_a_shutdown() {
     let dir = Scratch::new("host-shutdown-timers");
     let host = Host::open(&dir, factories()).unwrap();
     let schedule = 400u64.to_le_bytes().to_vec();
-    let stopped =
-        host.get_or_start("counter", "stopped").await.unwrap();
+    let stopped = at("counter", "stopped");
+    host.get_or_start(&stopped).await.unwrap();
     call_with(&host, &stopped, "schedule", schedule.clone()).await;
     host.stop(&stopped, ShutdownKind::Sleep).await.unwrap();
-    let running =
-        host.get_or_start("counter", "running").await.unwrap();
+    let running = at("counter", "running");
+    host.get_or_start(&running).await.unwrap();
     call_with(&host, &running, "schedule", schedule).await;
 
     host.shutdown().await.unwrap();
@@ -1473,7 +1508,9 @@ async fn no_timer_starts_an_actor_after_a_shutdown() {
         assert!(!host.is_running(id), "a timer started {id}");
     }
     assert!(
-        act(&host, "counter/new", "get", Vec::new()).await.is_err()
+        act(&host, &at("counter", "new"), "get", Vec::new())
+            .await
+            .is_err()
     );
     assert!(!dir.join("actors/counter/new.sqlite").exists());
     assert!(host.boot().await.is_err(), "a shut host booted");
@@ -1493,7 +1530,7 @@ async fn no_timer_starts_an_actor_after_a_shutdown() {
 
     let host = Host::open(&dir, factories()).unwrap();
     let mut started = host.boot().await.unwrap();
-    started.sort();
+    started.sort_by_key(ToString::to_string);
     assert_eq!(started, [running.clone(), stopped.clone()]);
     for id in [&stopped, &running] {
         let deadline =
@@ -1514,12 +1551,15 @@ async fn a_second_host_opens_the_folder_at_once_after_a_shutdown() {
     let dir = Scratch::new("host-shutdown-reopen");
     let (kinds, mut napping) = with_nappers();
     let host = Host::open(&dir, kinds).unwrap();
-    let a = host.get_or_start("counter", "a").await.unwrap();
+    let a = at("counter", "a");
+    host.get_or_start(&a).await.unwrap();
     call(&host, &a, "increment").await;
-    let c = host.get_or_start("counter", "c").await.unwrap();
+    let c = at("counter", "c");
+    host.get_or_start(&c).await.unwrap();
     call(&host, &c, "increment").await;
     call(&host, &c, "increment").await;
-    let b = host.get_or_start("slow", "b").await.unwrap();
+    let b = at("slow", "b");
+    host.get_or_start(&b).await.unwrap();
     let nap = napping.nap(&host, &b).await;
 
     host.shutdown().await.unwrap();
@@ -1569,12 +1609,12 @@ async fn the_folder_is_free_after_every_shutdown() {
             }
         }
     });
-    let keys: Vec<String> =
-        (0..16).map(|key| format!("counter/{key}")).collect();
+    let keys: Vec<Address> =
+        (0..16).map(|key| at("counter", &key.to_string())).collect();
     let mut refused = Vec::new();
     let mut host = Host::open(&dir, factories()).unwrap();
     for key in 0..16 {
-        host.get_or_start("counter", &key.to_string())
+        host.get_or_start(&at("counter", &key.to_string()))
             .await
             .unwrap();
     }
@@ -1639,11 +1679,13 @@ async fn a_dropped_host_starts_nothing() {
     let dir = Scratch::new("host-dropped");
     let (kinds, mut napping) = with_nappers();
     let host = Host::open(&dir, kinds).unwrap();
-    let x = host.get_or_start("counter", "x").await.unwrap();
+    let x = at("counter", "x");
+    host.get_or_start(&x).await.unwrap();
     let due = 1_000u64.to_le_bytes().to_vec();
     call_with(&host, &x, "schedule", due).await;
     host.stop(&x, ShutdownKind::Sleep).await.unwrap();
-    let y = host.get_or_start("slow", "y").await.unwrap();
+    let y = at("slow", "y");
+    host.get_or_start(&y).await.unwrap();
     // The nap, and the stop that waits for it, go on without their
     // callers.
     tokio::select! {
@@ -1770,7 +1812,7 @@ async fn a_start_that_never_finishes_fails_at_its_deadline() {
     let asked = tokio::time::Instant::now();
     let start = tokio::spawn({
         let host = host.clone();
-        async move { host.get_or_start("stuck", "a").await }
+        async move { host.get_or_start(&at("stuck", "a")).await }
     });
     began("the stuck start", begun.notified()).await;
     let call = tokio::spawn({
@@ -1787,7 +1829,9 @@ async fn a_start_that_never_finishes_fails_at_its_deadline() {
     });
     let stop = tokio::spawn({
         let host = host.clone();
-        async move { host.stop("stuck/a", ShutdownKind::Sleep).await }
+        async move {
+            host.stop(&at("stuck", "a"), ShutdownKind::Sleep).await
+        }
     });
     let by = asked + START_DEADLINE * 3;
     let start = tokio::time::timeout_at(by, start)
@@ -1807,7 +1851,7 @@ async fn a_start_that_never_finishes_fails_at_its_deadline() {
         .expect("the stop outlived the start")
         .unwrap()
         .unwrap();
-    assert!(!host.is_running("stuck/a"));
+    assert!(!host.is_running(&at("stuck", "a")));
     let running = Connection::open_with_flags(
         dir.join("actors/stuck/a.sqlite"),
         OpenFlags::SQLITE_OPEN_READ_ONLY,
@@ -1833,7 +1877,8 @@ async fn a_call_fails_at_once_once_its_host_shuts_down() {
     let dir = Scratch::new("host-shut-call");
     let (kinds, mut napping) = with_nappers();
     let host = Host::open(&dir, kinds).unwrap();
-    let b = host.get_or_start("slow", "b").await.unwrap();
+    let b = at("slow", "b");
+    host.get_or_start(&b).await.unwrap();
     let get = |host: &Host| {
         let host = host.clone();
         let b = b.clone();
@@ -1882,7 +1927,7 @@ async fn a_shutdown_returns_while_a_start_is_stuck() {
         Host::open(&dir, stuck("stuck", &begun, &dropped)).unwrap();
     let start = tokio::spawn({
         let host = host.clone();
-        async move { host.get_or_start("stuck", "a").await }
+        async move { host.get_or_start(&at("stuck", "a")).await }
     });
     began("the stuck start", begun.notified()).await;
     tokio::time::timeout(Duration::from_secs(3), host.shutdown())
@@ -1895,7 +1940,7 @@ async fn a_shutdown_returns_while_a_start_is_stuck() {
         .unwrap()
         .expect_err("a start the shutdown ended must fail");
     assert!(code(&start) == "actor.not_ready", "{start:#}");
-    assert!(!host.is_running("stuck/a"));
+    assert!(!host.is_running(&at("stuck", "a")));
     wait_for_the_drop(&dropped).await;
 }
 
@@ -1957,7 +2002,7 @@ async fn a_start_past_its_deadline_does_not_wait_for_a_statement() {
     let begun = std::time::Instant::now();
     let error = tokio::time::timeout(
         Duration::from_secs(30),
-        host.get_or_start("scanner", "a"),
+        host.get_or_start(&at("scanner", "a")),
     )
     .await
     .expect("the start waited for the statement past 30 s")
@@ -2015,7 +2060,7 @@ async fn a_create_whose_start_a_statement_holds_leaves_the_actor_made()
     let create = async |host: &Host| {
         tokio::time::timeout(
             Duration::from_secs(10),
-            host.create("scanner", "a", Vec::new()),
+            host.create(&at("scanner", "a"), Vec::new()),
         )
         .await
         .expect("the create waited for the statement")
@@ -2036,7 +2081,7 @@ async fn a_create_whose_start_a_statement_holds_leaves_the_actor_made()
     wait_for_the_file(&dir, "scanner", "a").await;
     let host = open();
     let booted = host.boot().await.unwrap();
-    let started = host.get_or_start("scanner", "a").await;
+    let started = host.get_or_start(&at("scanner", "a")).await;
     let after =
         create(&host).await.expect_err("a create of a made key");
     host.shutdown().await.unwrap();
@@ -2046,7 +2091,7 @@ async fn a_create_whose_start_a_statement_holds_leaves_the_actor_made()
         "{took:?}"
     );
     assert!(code(&during) == "actor.not_ready", "{during:#}");
-    assert_eq!(booted, ["scanner/a"]);
+    assert_eq!(booted, [at("scanner", "a")]);
     started.unwrap();
     assert!(code(&after) == "actor.duplicate_key", "{after:#}");
 }
@@ -2140,7 +2185,7 @@ async fn during_a_start<T: Send + 'static>(
 ) -> tokio::task::JoinHandle<T> {
     let start = tokio::spawn({
         let host = host.clone();
-        async move { host.get_or_start("sleeper", "a").await }
+        async move { host.get_or_start(&at("sleeper", "a")).await }
     });
     asks.recv().await.unwrap();
     let then = tokio::spawn(then);
@@ -2194,7 +2239,7 @@ async fn a_call_during_a_start_cancels_the_sleep_it_asked_for() {
     assert_eq!(counter::count(reply).unwrap(), 1);
 
     let idle = std::time::Instant::now();
-    while host.is_running("sleeper/a") {
+    while host.is_running(&at("sleeper", "a")) {
         assert!(
             idle.elapsed() < Duration::from_secs(10),
             "the generation did not sleep once idle"
@@ -2239,7 +2284,7 @@ async fn a_call_during_a_start_keeps_a_crash_or_a_destroy() {
                     code(&error) == "actor.destroying",
                     "{error:#}"
                 );
-                host.stop("sleeper/a", ShutdownKind::Destroy)
+                host.stop(&at("sleeper", "a"), ShutdownKind::Destroy)
                     .await
                     .unwrap();
                 assert!(!any_file_of(&dir, "sleeper", "a"));
@@ -2269,7 +2314,7 @@ async fn a_create_during_a_start_leaves_the_sleep_it_asked_for() {
     .unwrap();
     let create = {
         let host = host.clone();
-        async move { host.create("sleeper", "a", Vec::new()).await }
+        async move { host.create(&at("sleeper", "a"), Vec::new()).await }
     };
     let create =
         during_a_start(&host, &mut asks, &gate, create).await;
@@ -2280,7 +2325,7 @@ async fn a_create_during_a_start_leaves_the_sleep_it_asked_for() {
     assert!(code(&error) == "actor.duplicate_key", "{error:#}");
 
     let begun = std::time::Instant::now();
-    while host.is_running("sleeper/a") {
+    while host.is_running(&at("sleeper", "a")) {
         assert!(
             begun.elapsed() < Duration::from_secs(10),
             "the create kept the generation from its sleep"
@@ -2301,7 +2346,7 @@ async fn boot_returns_while_the_starts_it_began_are_stuck() {
     let keys = ["a", "b", "c"];
     let host = Host::open(&dir, factories()).unwrap();
     for key in keys {
-        host.get_or_start("counter", key).await.unwrap();
+        host.get_or_start(&at("counter", key)).await.unwrap();
     }
     host.shutdown().await.unwrap();
     drop(host);
@@ -2327,8 +2372,8 @@ async fn boot_returns_while_the_starts_it_began_are_stuck() {
         .await
         .expect("boot waited for a stuck start")
         .unwrap();
-    began.sort();
-    assert_eq!(began, keys.map(|key| format!("counter/{key}")));
+    began.sort_by_key(ToString::to_string);
+    assert_eq!(began, keys.map(|key| at("counter", key)));
     for id in &began {
         let error =
             act(&host, id, "get", Vec::new()).await.unwrap_err();
@@ -2343,7 +2388,8 @@ async fn boot_returns_while_the_starts_it_began_are_stuck() {
 async fn boot_succeeds_while_an_actor_of_its_host_runs() {
     let dir = Scratch::new("host-boot-running");
     let host = Host::open(&dir, factories()).unwrap();
-    let id = host.get_or_start("counter", "a").await.unwrap();
+    let id = at("counter", "a");
+    host.get_or_start(&id).await.unwrap();
     assert!(host.boot().await.unwrap().is_empty());
     assert_eq!(call(&host, &id, "increment").await, 1);
     host.shutdown().await.unwrap();
@@ -2384,7 +2430,8 @@ fn slow_counters() -> HashMap<String, ActorFactory> {
 async fn boot_returns_before_the_starts_it_begins() {
     let dir = Scratch::new("host-boot-returns");
     let host = Host::open(&dir, factories()).unwrap();
-    let id = host.get_or_start("counter", "a").await.unwrap();
+    let id = at("counter", "a");
+    host.get_or_start(&id).await.unwrap();
     call(&host, &id, "increment").await;
     host.shutdown().await.unwrap();
     drop(host);
@@ -2474,10 +2521,12 @@ async fn hosts_of_different_names_share_a_folder() {
     };
     let main =
         Host::open_with(&dir, factories(), named("main")).unwrap();
-    let a = main.get_or_start("counter", "a").await.unwrap();
+    let a = at("counter", "a");
+    main.get_or_start(&a).await.unwrap();
     let node =
         Host::open_with(&dir, others(), named("node")).unwrap();
-    let x = node.get_or_start("other", "x").await.unwrap();
+    let x = at("other", "x");
+    node.get_or_start(&x).await.unwrap();
     assert!(main.boot().await.unwrap().is_empty());
     assert!(node.boot().await.unwrap().is_empty());
 
@@ -2504,7 +2553,8 @@ async fn hosts_of_different_names_share_a_folder() {
 async fn boot_goes_past_a_file_it_cannot_read() {
     let dir = Scratch::new("host-boot-unreadable");
     let host = Host::open(&dir, factories()).unwrap();
-    let id = host.get_or_start("counter", "a").await.unwrap();
+    let id = at("counter", "a");
+    host.get_or_start(&id).await.unwrap();
     call_with(&host, &id, "schedule", 100u64.to_le_bytes().to_vec())
         .await;
     host.shutdown().await.unwrap();
@@ -2554,7 +2604,7 @@ async fn boot_passes_over_a_file_a_destroy_removed_after_its_list() {
     for round in 0..ROUNDS {
         let host = Host::open(&dir, factories()).unwrap();
         for key in &keys {
-            host.get_or_start("counter", key).await.unwrap();
+            host.get_or_start(&at("counter", key)).await.unwrap();
         }
         host.shutdown().await.unwrap();
         drop(host);
@@ -2569,7 +2619,7 @@ async fn boot_passes_over_a_file_a_destroy_removed_after_its_list() {
             .iter()
             .map(|key| {
                 let host = host.clone();
-                let id = format!("counter/{key}");
+                let id = at("counter", key);
                 tokio::spawn(async move {
                     host.stop(&id, ShutdownKind::Destroy).await
                 })
@@ -2603,7 +2653,7 @@ async fn a_start_during_boots_read_of_its_file_waits_for_the_read() {
         (0..KEYS).map(|n| format!("k{n}")).collect();
     let host = Host::open(&dir, factories()).unwrap();
     for key in &keys {
-        host.get_or_start("counter", key).await.unwrap();
+        host.get_or_start(&at("counter", key)).await.unwrap();
     }
     host.shutdown().await.unwrap();
     drop(host);
@@ -2619,9 +2669,10 @@ async fn a_start_during_boots_read_of_its_file_waits_for_the_read() {
             let key = key.clone();
             tokio::spawn(async move {
                 if create {
-                    host.create("counter", &key, Vec::new()).await
+                    host.create(&at("counter", &key), Vec::new())
+                        .await
                 } else {
-                    host.get_or_start("counter", &key).await
+                    host.get_or_start(&at("counter", &key)).await
                 }
             })
         };
@@ -2684,31 +2735,32 @@ async fn a_destroy_removes_a_running_a_sleeping_and_a_waiting_actor()
     let dir = Scratch::new("host-destroy-states");
     let host = Host::open(&dir, factories()).unwrap();
     for key in ["running", "sleeping", "waiting"] {
-        let id = host.get_or_start("counter", key).await.unwrap();
+        let id = at("counter", key);
+        host.get_or_start(&id).await.unwrap();
         call(&host, &id, "increment").await;
     }
     call_with(
         &host,
-        "counter/waiting",
+        &at("counter", "waiting"),
         "schedule",
         300u64.to_le_bytes().to_vec(),
     )
     .await;
     for key in ["sleeping", "waiting"] {
-        host.stop(&format!("counter/{key}"), ShutdownKind::Sleep)
+        host.stop(&at("counter", key), ShutdownKind::Sleep)
             .await
             .unwrap();
     }
 
     for key in ["running", "sleeping", "waiting"] {
-        let id = format!("counter/{key}");
+        let id = at("counter", key);
         host.stop(&id, ShutdownKind::Destroy).await.unwrap();
         assert!(!host.is_running(&id), "{key}");
         assert!(!any_file_of(&dir, "counter", key), "{key}");
         host.stop(&id, ShutdownKind::Destroy).await.unwrap();
     }
     tokio::time::sleep(Duration::from_millis(600)).await;
-    assert!(!host.is_running("counter/waiting"));
+    assert!(!host.is_running(&at("counter", "waiting")));
     assert!(!any_file_of(&dir, "counter", "waiting"));
     host.shutdown().await.unwrap();
     drop(host);
@@ -2716,11 +2768,8 @@ async fn a_destroy_removes_a_running_a_sleeping_and_a_waiting_actor()
     let host = Host::open(&dir, factories()).unwrap();
     assert!(host.boot().await.unwrap().is_empty());
     for key in ["running", "sleeping", "waiting"] {
-        host.get_or_start("counter", key).await.unwrap();
-        assert_eq!(
-            call(&host, &format!("counter/{key}"), "get").await,
-            0
-        );
+        host.get_or_start(&at("counter", key)).await.unwrap();
+        assert_eq!(call(&host, &at("counter", key), "get").await, 0);
     }
     host.shutdown().await.unwrap();
 }
@@ -2735,15 +2784,16 @@ async fn a_destroy_refuses_an_id_that_is_not_its_hosts() {
         .unwrap();
     std::fs::write(dir.join("kept.sqlite"), b"kept").unwrap();
     let host = Host::open(&dir, factories()).unwrap();
-    for id in
-        ["other/x", "counter/../../kept", "counter", "counter/.x"]
-    {
-        assert!(
-            host.stop(id, ShutdownKind::Destroy).await.is_err(),
-            "{id}"
-        );
+    assert!(
+        host.stop(&at("other", "x"), ShutdownKind::Destroy)
+            .await
+            .is_err()
+    );
+    for key in ["../../kept", ".x"] {
+        assert!(Address::new("counter", key).is_err(), "{key}");
     }
-    let id = host.get_or_start("counter", "a").await.unwrap();
+    let id = at("counter", "a");
+    host.get_or_start(&id).await.unwrap();
     host.stop(&id, ShutdownKind::Sleep).await.unwrap();
     host.shutdown().await.unwrap();
     assert!(host.stop(&id, ShutdownKind::Destroy).await.is_err());
@@ -2760,7 +2810,8 @@ async fn a_destroy_ends_a_transaction_its_generation_left_open() {
     let dir = Scratch::new("host-destroy-leaked");
     let contexts = Contexts::default();
     let host = Host::open(&dir, keeper(&contexts)).unwrap();
-    let id = host.get_or_start("keeper", "t").await.unwrap();
+    let id = at("keeper", "t");
+    host.get_or_start(&id).await.unwrap();
     let ctx = contexts.lock()[0].clone();
     ctx.sql().exec("BEGIN").await.unwrap();
     ctx.sql()
@@ -2786,7 +2837,8 @@ async fn a_start_finishes_the_destroy_its_file_holds() {
     let dir = Scratch::new("host-destroy-stored");
     let host = Host::open(&dir, factories()).unwrap();
     for key in ["made", "kept-out"] {
-        let id = host.get_or_start("counter", key).await.unwrap();
+        let id = at("counter", key);
+        host.get_or_start(&id).await.unwrap();
         call(&host, &id, "increment").await;
         host.stop(&id, ShutdownKind::Sleep).await.unwrap();
         Connection::open(
@@ -2797,8 +2849,8 @@ async fn a_start_finishes_the_destroy_its_file_holds() {
         .unwrap();
     }
 
-    host.get_or_start("counter", "made").await.unwrap();
-    assert_eq!(call(&host, "counter/made", "get").await, 0);
+    host.get_or_start(&at("counter", "made")).await.unwrap();
+    assert_eq!(call(&host, &at("counter", "made"), "get").await, 0);
     let kept_out = at("counter", "kept-out");
     let error = host
         .set_aside_timers(&kept_out)
@@ -2867,7 +2919,8 @@ async fn a_call_to_a_busy_actor_ends_within_its_deadline() {
     let dir = Scratch::new("call-deadline-busy");
     let (kinds, mut napping) = with_nappers();
     let host = Host::open(&dir, kinds).unwrap();
-    let b = host.get_or_start("slow", "b").await.unwrap();
+    let b = at("slow", "b");
+    host.get_or_start(&b).await.unwrap();
     let nap = napping.nap(&host, &b).await;
     let begun = tokio::time::Instant::now();
     let called = host
@@ -2899,7 +2952,8 @@ async fn a_destroy_that_joins_a_sleep_answers_the_removal_of_its_files()
     let dir = Scratch::new("destroy-joins-sleep");
     let (kinds, mut napping) = with_nappers();
     let host = Host::open(&dir, kinds).unwrap();
-    let b = host.get_or_start("slow", "b").await.unwrap();
+    let b = at("slow", "b");
+    host.get_or_start(&b).await.unwrap();
     std::fs::create_dir(dir.join("actors/slow/b.sqlite-shm"))
         .unwrap();
     let nap = napping.nap(&host, &b).await;
@@ -2918,34 +2972,22 @@ async fn a_destroy_that_joins_a_sleep_answers_the_removal_of_its_files()
     slept.expect_err("a sleep the destroy took over");
 }
 
-/// Each entry point refuses a key with an upper-case letter, as it
-/// refuses one with `/`, before anything reaches the folder: on a
-/// disk that ignores case, `counter/a` and `counter/A` would name one
-/// file. An address of such a key is neither built nor decoded, so
-/// no call reaches the host with it; inside an action's arguments,
-/// the decode of the arguments fails. A host refuses to open with
-/// such a kind, or such a name.
+/// A key with an upper-case letter is refused, as one with `/` is:
+/// on a disk that ignores case, `counter/a` and `counter/A` would
+/// name one file. An address of such a key is neither built nor
+/// decoded, so no entry point of the host is reached with it; inside
+/// an action's arguments, the decode of the arguments fails. A host
+/// refuses to open with such a kind, or such a name.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_key_or_kind_with_an_upper_case_letter_is_refused() {
     let dir = Scratch::new("upper-case-key");
     let host = Host::open(&dir, factories()).unwrap();
-    let a = host.get_or_start("counter", "a").await.unwrap();
+    let a = at("counter", "a");
+    host.get_or_start(&a).await.unwrap();
     act(&host, &a, "increment", Vec::new()).await.unwrap();
     let mut accepted = Vec::new();
     for key in ["A", "Ab", "a/b"] {
-        let id = format!("counter/{key}");
         let entries = [
-            (
-                "get_or_start",
-                host.get_or_start("counter", key).await.map(drop),
-            ),
-            (
-                "create",
-                host.create("counter", key, Vec::new())
-                    .await
-                    .map(drop),
-            ),
-            ("destroy", host.stop(&id, ShutdownKind::Destroy).await),
             (
                 "new",
                 Address::new("counter", key)
@@ -2974,6 +3016,7 @@ async fn a_key_or_kind_with_an_upper_case_letter_is_refused() {
             accepted.push(format!("arguments {key}: {to:?}"));
         }
     }
+    assert!(Address::new("Counter", "a").is_err());
     let count = act(&host, &a, "get", Vec::new()).await.unwrap();
     host.shutdown().await.unwrap();
     drop(host);

@@ -10,8 +10,9 @@ use hamlet_actor_error::ActorError;
 
 use super::access::current;
 use super::call::admit;
-use super::{Host, HostInner, Open};
+use super::{Host, HostInner, Open, actor_id};
 use crate::address::{Address, Caller};
+use crate::directory::Place;
 
 /// A create of a key that holds an actor.
 #[derive(ActorError)]
@@ -24,7 +25,7 @@ impl Host {
     /// CBOR of its `Input` for a kind of the authoring layer. The
     /// input is kept with the actor and given to each start, and the
     /// core reads it only while the actor has no state, so the kind
-    /// reads it once. Returns the actor's id.
+    /// reads it once.
     ///
     /// Fails with `actor.duplicate_key` and changes nothing for a key
     /// that holds an actor, running, asleep or stopping. Waits first
@@ -71,11 +72,10 @@ impl Host {
     /// [`ActorError`]: struct@hamlet_actor_error::ActorError
     pub async fn create(
         &self,
-        kind: &str,
-        key: &str,
+        at: &Address,
         input: Vec<u8>,
-    ) -> Result<String> {
-        self.inner().start_by_key(kind, key, Open::New(input)).await
+    ) -> Result<()> {
+        self.inner().start(at, Open::New(input)).await
     }
 
     /// Makes the actor of `kind` and `key` as [`Host::create`] does,
@@ -90,9 +90,9 @@ impl Host {
         key: &str,
         input: Vec<u8>,
     ) -> Result<String> {
-        reach(ctx, "create", kind, key)?
-            .start_by_key(kind, key, Open::New(input))
-            .await
+        let (host, at) = reach(ctx, "create", kind, key)?;
+        host.start(&at, Open::New(input)).await?;
+        Ok(actor_id(&at))
     }
 
     /// The actor for `kind` and `key`, as [`Host::get_or_start`]
@@ -103,41 +103,35 @@ impl Host {
         kind: &str,
         key: &str,
     ) -> Result<String> {
-        reach(ctx, "get_or_start", kind, key)?
-            .start_by_key(kind, key, Open::OrCreate)
-            .await
+        let (host, at) = reach(ctx, "get_or_start", kind, key)?;
+        host.start(&at, Open::OrCreate).await?;
+        Ok(actor_id(&at))
     }
 }
 
 impl HostInner {
-    /// Starts the actor of `kind` and `key` as `open` lets it, and
-    /// returns its id.
-    pub(super) async fn start_by_key(
+    /// Starts the actor at `at` as `open` lets it.
+    pub(super) async fn start(
         self: &Arc<Self>,
-        kind: &str,
-        key: &str,
+        at: &Address,
         open: Open,
-    ) -> Result<String> {
-        let actor_id = self.located(kind, key)?;
-        self.ensure_started(&actor_id, &open).await?;
-        Ok(actor_id)
+    ) -> Result<()> {
+        let Place::Local(_) = self.locate(at)?;
+        self.ensure_started(at, &open).await.map(drop)
     }
 }
 
-/// The host of the actor whose context is `ctx`, for its `operation`
-/// of the actor of `kind` and `key`. Fails as [`admit`] does, and
-/// from a generation that has ended.
+/// The host of the actor whose context is `ctx`, and the address of
+/// `kind` and `key`, for its `operation` of that actor. Fails as
+/// [`admit`] does, and from a generation that has ended.
 fn reach(
     ctx: &ActorContext,
     operation: &str,
     kind: &str,
     key: &str,
-) -> Result<Arc<HostInner>> {
+) -> Result<(Arc<HostInner>, Address)> {
     let from = current(ctx)?;
-    admit(
-        operation,
-        Some(&Caller::Actor(from.address()?)),
-        &Address::new(kind, key)?,
-    )?;
-    Ok(from.host)
+    let at = Address::new(kind, key)?;
+    admit(operation, Some(&Caller::Actor(from.at)), &at)?;
+    Ok((from.host, at))
 }

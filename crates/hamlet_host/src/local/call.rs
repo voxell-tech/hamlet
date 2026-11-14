@@ -13,8 +13,9 @@ use hamlet_actor_core::{ActorContext, ActorFactory};
 use tracing::Instrument;
 
 use super::access::current;
-use super::{Host, HostInner, Open, host_shut_down};
+use super::{Host, HostInner, Open, actor_id, host_shut_down};
 use crate::address::{Address, Caller};
+use crate::directory::Place;
 
 impl Host {
     /// Calls the action `name` of the actor at `to`, with no caller,
@@ -78,7 +79,7 @@ impl Host {
         running
             .host
             .call(
-                Some(Caller::Actor(running.address()?)),
+                Some(Caller::Actor(running.at)),
                 to,
                 name,
                 args,
@@ -100,11 +101,11 @@ impl HostInner {
         deadline: Duration,
     ) -> Result<Vec<u8>> {
         admit("call", caller.as_ref(), to)?;
-        let actor_id = self.located(to.kind(), to.key())?;
+        let Place::Local(_) = self.locate(to)?;
         let params = stamp(caller.as_ref())?;
         let span = tracing::debug_span!(
             "call",
-            actor_id,
+            actor_id = actor_id(to).as_str(),
             action = name,
             caller = caller.as_ref().map(tracing::field::display)
         );
@@ -113,7 +114,7 @@ impl HostInner {
             let begun = Instant::now();
             let generation = tokio::time::timeout(
                 deadline,
-                self.ensure_started(&actor_id, &Open::Existing),
+                self.ensure_started(to, &Open::Existing),
             )
             .await
             .map_err(|_| ActionTimedOut.build())??;
