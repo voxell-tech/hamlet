@@ -229,10 +229,15 @@ impl Handler<ReadFile> for Workspace {
         let Agent(agent) = sender(&ctx, &asked)?;
         let path = text(&asked.path);
         self.read_tool(&ctx, agent, &asked.path, move |env| {
-            read::read(env, &path, asked.offset, asked.limit)
-                .unwrap_or_else(|error| ReadAnswer::Failed {
-                    words: error.message,
-                })
+            read::read(
+                env,
+                &path,
+                asked.offset.map(u64::from),
+                asked.limit.map(u64::from),
+            )
+            .unwrap_or_else(|error| ReadAnswer::Failed {
+                words: error.message,
+            })
         })
         .await
     }

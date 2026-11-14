@@ -31,7 +31,7 @@ use crate::{Message, worded};
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize,
 )]
-pub struct AgentNumber(pub u64);
+pub struct AgentNumber(pub u32);
 
 /// The id an agent gives a tool call. A repeat of the call carries
 /// the same id.
@@ -183,7 +183,7 @@ pub enum Program {
         network: bool,
         /// Shortens the 120 s limit (C16), in milliseconds.
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        timeout_ms: Option<u64>,
+        timeout_ms: Option<u32>,
     },
     /// A tool a chief added by hand (C17), which reads `arguments`,
     /// a JSON object, on its standard input. It runs with the reach
@@ -243,11 +243,12 @@ pub struct Fault {
     pub words: String,
 }
 
-/// The workspace's id of a command, from 1.
+/// The workspace's id of a command, from 1: its call's row id, which
+/// fits in a `u32` or the command is not started.
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize,
 )]
-pub struct CommandId(pub u64);
+pub struct CommandId(pub u32);
 
 /// The workspace's answer to a [`Run`], and to a [`CommandStatus`]
 /// with `R` as [`refusal::StatusRefusal`]: how the call's command
@@ -330,21 +331,44 @@ pub enum Exit {
     },
     /// The workspace's host stopped or was killed while it ran.
     CutOff,
-    /// A [`Cancel`] ended it, or its agent's reach ended.
+    /// A [`Cancel`] or a [`CancelAgent`] ended it, or its agent's
+    /// reach ended.
     Cancelled,
 }
 
 /// Ends the named running commands of an agent, each as
-/// [`Exit::Cancelled`]. Called by the realm, or by the agent named.
+/// [`Exit::Cancelled`]. The realm names the agent.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CancelAgent {
+    pub agent: AgentNumber,
+    pub which: Which,
+}
+
+impl Action for CancelAgent {
+    type Output = Cancelled;
+    const NAME: &'static str = "cancel_agent";
+}
+
+impl Message for CancelAgent {
+    type To = Workspace;
+    type From = Realm;
+}
+
+/// Ends the named running commands of the calling agent, each as
+/// [`Exit::Cancelled`].
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Cancel {
-    pub agent: AgentNumber,
     pub which: Which,
 }
 
 impl Action for Cancel {
     type Output = Cancelled;
     const NAME: &'static str = "cancel";
+}
+
+impl Message for Cancel {
+    type To = Workspace;
+    type From = Agent;
 }
 
 /// The calls whose commands a [`Cancel`] ends.
@@ -356,8 +380,8 @@ pub enum Which {
     All,
 }
 
-/// The workspace's answer to a [`Cancel`]: the commands it ended,
-/// none when none of them ran.
+/// The workspace's answer to a [`Cancel`] and to a [`CancelAgent`]:
+/// the commands it ended, none when none of them ran.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Cancelled {
     pub commands: Vec<CommandId>,

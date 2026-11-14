@@ -161,7 +161,7 @@ impl Handler<NeedsChief> for Realm {
                 "INSERT INTO waits (agent, call, needs, subject) \
                  VALUES (?1, ?2, ?3, ?4)",
                 Some(vec![
-                    BindParam::Integer(i64::try_from(asked.agent.0)?),
+                    BindParam::Integer(i64::from(asked.agent.0)),
                     BindParam::Text(asked.call.0.clone()),
                     BindParam::Integer(needs),
                     BindParam::Text(asked.subject.clone()),

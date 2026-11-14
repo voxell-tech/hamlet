@@ -24,10 +24,10 @@ pub struct ReadFile {
     pub path: PathBuf,
     /// The first line to read, from 1.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub offset: Option<u64>,
+    pub offset: Option<u32>,
     /// The most lines to read.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub limit: Option<u64>,
+    pub limit: Option<u32>,
 }
 
 impl Action for ReadFile {

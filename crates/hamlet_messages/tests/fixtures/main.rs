@@ -37,10 +37,10 @@ use hamlet_messages::workspace::refusal::{
 };
 use hamlet_messages::workspace::{
     AddedTool, AgentNumber, Answer, AnswerTaken, CallId, Cancel,
-    Cancelled, ChiefAnswer, CommandEnd, CommandId, CommandStatus,
-    ConversationId, Cut, Exit, Fault, InForce, Lapse, ListTools,
-    Program, ReachVersion, RealmTask, Run, RunAnswer, RunEnd,
-    SetReach, ToolList, Which,
+    CancelAgent, Cancelled, ChiefAnswer, CommandEnd, CommandId,
+    CommandStatus, ConversationId, Cut, Exit, Fault, InForce, Lapse,
+    ListTools, Program, ReachVersion, RealmTask, Run, RunAnswer,
+    RunEnd, SetReach, ToolList, Which,
 };
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -872,12 +872,18 @@ fn the_answers_about_a_command(fixtures: &mut Fixtures) {
     ] {
         fixtures.args(
             &format!("workspace/cancel.{name}"),
-            &Cancel {
-                agent: AGENT,
-                which,
-            },
+            &Cancel { which },
         );
     }
+    fixtures.args(
+        "workspace/cancel_agent.conversation",
+        &CancelAgent {
+            agent: AGENT,
+            which: Which::Conversation {
+                conversation: ConversationId("c1".into()),
+            },
+        },
+    );
     fixtures.answer(
         "workspace/cancel.cancelled",
         &Cancelled {
@@ -1339,4 +1345,38 @@ fn a_changed_file_is_told_by_its_hashes() {
             "ab".repeat(32)
         )
     );
+}
+
+/// Each integer TypeScript writes reads up to 2^32 - 1 and fails
+/// from 2^32, which a JavaScript `number` writes as a float.
+#[test]
+fn an_integer_typescript_writes_is_a_u32() {
+    fn reads<T: DeserializeOwned>(args: serde_json::Value) -> bool {
+        let args = encode_positional(&args).unwrap();
+        decode_positional::<T>(&args).is_ok()
+    }
+    let read = |number| serde_json::json!({"path": "/a", "offset": number, "limit": number});
+    let script = |number| {
+        serde_json::json!({
+            "call": "c", "conversation": "c",
+            "program": {"type": "script", "script": "true",
+                        "network": false, "timeout_ms": number}
+        })
+    };
+    let status = |number| serde_json::json!({"command": number});
+    let cancel = |number| serde_json::json!({"agent": number, "which": {"type": "all"}});
+    for (number, fits) in
+        [(u64::from(u32::MAX), true), (1 << 32, false)]
+    {
+        assert_eq!(
+            [
+                reads::<ReadFile>(read(number)),
+                reads::<Run>(script(number)),
+                reads::<CommandStatus>(status(number)),
+                reads::<CancelAgent>(cancel(number)),
+            ],
+            [fits; 4],
+            "{number}"
+        );
+    }
 }

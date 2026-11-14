@@ -25,9 +25,7 @@ use hamlet_messages::Message;
 use hamlet_messages::address::{self, Party};
 use hamlet_messages::agent::{Finished, Outcome};
 use hamlet_messages::realm::{NeedsChief, Secrets};
-use hamlet_messages::sender::{
-    Sender, id_reused, sender, wrong_caller,
-};
+use hamlet_messages::sender::{id_reused, sender};
 use hamlet_messages::workspace::files::{
     EditFile, Find, ReadFile, Search, WriteFile,
 };
@@ -36,9 +34,10 @@ use hamlet_messages::workspace::refusal::{
     CallRefusal, InvalidProgram, RunRefusal, StatusRefusal, WaitEnd,
 };
 use hamlet_messages::workspace::{
-    AgentNumber, AnswerTaken, CallId, Cancel, Cancelled, ChiefAnswer,
-    CommandId, CommandStatus, Exit, InForce, Lapse, ListTools,
-    Program, Run, RunAnswer, RunEnd, SetReach, ToolList, Which,
+    AgentNumber, AnswerTaken, CallId, Cancel, CancelAgent, Cancelled,
+    ChiefAnswer, CommandId, CommandStatus, Exit, InForce, Lapse,
+    ListTools, Program, Run, RunAnswer, RunEnd, SetReach, ToolList,
+    Which,
 };
 use hamlet_sandbox::{AllLeftovers, Sandbox};
 
@@ -104,6 +103,7 @@ impl Actor for Workspace {
         SetReach,
         Run,
         CommandStatus,
+        CancelAgent,
         Cancel,
         ListTools,
         ReadFile,
@@ -298,7 +298,7 @@ impl Handler<Run> for Workspace {
         let request_hash = calls::request_hash(&run)?;
         // Read before the row is opened: past its commit, nothing
         // returns before the command starts.
-        let leftovers = self.leftovers.of(i64::try_from(agent.0)?);
+        let leftovers = self.leftovers.of(i64::from(agent.0));
         let (this, ctx, run) = (&*self, &ctx, &run);
         let request_hash = &request_hash;
         let decision = self
@@ -392,7 +392,7 @@ impl Workspace {
         run: &Run,
     ) -> Result<AnswerTaken> {
         let agent = wait.agent;
-        let leftovers = self.leftovers.of(i64::try_from(agent.0)?);
+        let leftovers = self.leftovers.of(i64::from(agent.0));
         let ready = match tools::Ready::of(&self.home, run) {
             Ok(ready) => ready,
             Err(refusal) => {
@@ -424,7 +424,7 @@ impl Workspace {
         let settled =
             pending::settle(&tx, wait, "running", None, None).await;
         let command = match settled {
-            Ok(Some(id)) => CommandId(u64::try_from(id)?),
+            Ok(Some(id)) => CommandId(u32::try_from(id)?),
             Ok(None) => {
                 tx.rollback().await?;
                 return Ok(AnswerTaken::NoWait);
@@ -613,26 +613,30 @@ impl Workspace {
     }
 }
 
+impl Handler<CancelAgent> for Workspace {
+    async fn handle(
+        self: Arc<Self>,
+        ctx: Ctx<Self>,
+        cancel: CancelAgent,
+    ) -> Result<Cancelled> {
+        sender(&ctx, &cancel)?;
+        Ok(Cancelled {
+            commands: self
+                .cancel(&ctx, cancel.agent, &cancel.which)
+                .await,
+        })
+    }
+}
+
 impl Handler<Cancel> for Workspace {
     async fn handle(
         self: Arc<Self>,
         ctx: Ctx<Self>,
         cancel: Cancel,
     ) -> Result<Cancelled> {
-        let caller = ctx
-            .conn()
-            .context("the call has no connection")?
-            .params()?;
-        if address::Realm::of(caller.as_ref()).is_none()
-            && address::Agent::of(caller.as_ref())
-                != Some(address::Agent(cancel.agent))
-        {
-            return Err(wrong_caller(Cancel::NAME, caller));
-        }
+        let address::Agent(agent) = sender(&ctx, &cancel)?;
         Ok(Cancelled {
-            commands: self
-                .cancel(&ctx, cancel.agent, &cancel.which)
-                .await,
+            commands: self.cancel(&ctx, agent, &cancel.which).await,
         })
     }
 }
@@ -962,7 +966,7 @@ impl Workspace {
         closed: Vec<(CallId, pending::NotRun)>,
     ) -> Result<()> {
         self.cancel(ctx, agent, &Which::All).await;
-        let owner = i64::try_from(agent.0)?;
+        let owner = i64::from(agent.0);
         self.leftovers.end(|of| of == owner);
         workers::remove(&self.home, agent).await;
         let task_ctx = ctx.clone();
@@ -990,7 +994,7 @@ mod tests {
 
     use super::*;
 
-    fn row<M: Action>(message: &M) -> (&'static str, Vec<u8>) {
+    fn row<M: Message>(message: &M) -> (&'static str, Vec<u8>) {
         let args =
             hamlet_actor::action::encode_positional(message).unwrap();
         (M::NAME, args)
@@ -1019,10 +1023,11 @@ mod tests {
             row(&CommandStatus {
                 command: CommandId(1),
             }),
-            row(&Cancel {
+            row(&CancelAgent {
                 agent: AgentNumber(7),
                 which: Which::All,
             }),
+            row(&Cancel { which: Which::All }),
             row(&ListTools),
             row(&ReadFile {
                 path: "/a".into(),
@@ -1062,7 +1067,9 @@ mod tests {
     }
 
     /// No workspace message is the program's own, so a call with no
-    /// caller reaches each handler's check and fails there.
+    /// caller reaches each handler's check and fails there, naming
+    /// the handler's own action. Which party a check admits is
+    /// tested per action in `tests/workspace/`.
     #[tokio::test(flavor = "multi_thread")]
     async fn every_action_refuses_a_caller_it_does_not_admit() {
         let actions = every_action();
@@ -1098,8 +1105,13 @@ mod tests {
                 .expect_err(name);
             let error = ActorError::extract(&error);
             assert_eq!(
-                (name, error.group(), error.code()),
-                (name, "message", "wrong_caller")
+                (error.group(), error.code(), error.metadata()),
+                (
+                    "message",
+                    "wrong_caller",
+                    Some(serde_json::json!({ "action": name }))
+                ),
+                "{name}"
             );
         }
     }

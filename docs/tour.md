@@ -351,16 +351,15 @@ fails once, so the change is committed.
 
 The realm, the actor `realm/local`, sets each agent's reach
 (`SetReach`), answers calls that wait for a chief (`ChiefAnswer`) and
-may cancel any agent's commands. An agent, the actor `agent/<n>` keyed
-by its `AgentNumber`, calls for its own tools: `ListTools`, `Run`,
-`CommandStatus`, `Cancel`, `ReadFile`, `Search`, `Find`, `WriteFile`
-and `EditFile`.
-Each message but `Cancel` is a `Message`, which names the party that
-takes it and the kind that sends it. A handler first reads its sender
-from the caller the host stamped, with `sender::sender`, and any other
-caller fails with the error `message.wrong_caller`. An agent's call is
-for the agent that made it; `Cancel` admits the realm or the agent it
-names. The workspace calls the realm with `Secrets` and `NeedsChief`,
+may cancel any agent's commands (`CancelAgent`). An agent, the actor
+`agent/<n>` keyed by its `AgentNumber`, calls for its own tools:
+`ListTools`, `Run`, `CommandStatus`, `Cancel`, `ReadFile`, `Search`,
+`Find`, `WriteFile` and `EditFile`.
+Each message is a `Message`, which names the party that takes it and
+the kind that sends it. A handler first reads its sender from the
+caller the host stamped, with `sender::sender`, and any other caller
+fails with the error `message.wrong_caller`. An agent's call is for
+the agent that made it. The workspace calls the realm with `Secrets` and `NeedsChief`,
 and an agent with `Finished`. In this repository the realm and the
 agent are only the demo's stand-ins. The host gives the workspace its
 `Sandbox` as a value of `HostOptions`, and the workspace does not start
@@ -444,9 +443,10 @@ file to still hold what hashes to what the chief was shown, else
 it answers, not in the answer. The agent hears how the call ended with
 `Finished`. A wait stays through a restart.
 
-`Cancel` ends an agent's running commands, one call's, one
-conversation's or all of them, as `Exit::Cancelled`, and answers once
-each has stopped. It ends no wait. A `SetReach` to `Reach::Ended` ends
+`Cancel` ends the calling agent's running commands, and `CancelAgent`
+the named agent's: one call's, one conversation's or all of them, as
+`Exit::Cancelled`. Each answers once every command has stopped, and
+ends no wait. A `SetReach` to `Reach::Ended` ends
 the agent's waits as lapsed and tells the agent of each, cancels all its
 commands, ends what they left running under Seatbelt, and removes a
 worker's scratch folder.

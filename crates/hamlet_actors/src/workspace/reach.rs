@@ -62,7 +62,7 @@ pub(super) async fn apply(
     tx: &SqliteTransaction,
     set: &SetReach,
 ) -> anyhow::Result<ReachVersion> {
-    let agent = BindParam::Integer(i64::try_from(set.agent.0)?);
+    let agent = BindParam::Integer(i64::from(set.agent.0));
     let body = super::calls::cbor(&set.reach)?;
     tx.execute(
         "INSERT INTO reach (agent, version, body, applied_at) \
@@ -108,7 +108,7 @@ pub(super) async fn in_force(
     let read = tx
         .execute(
             "SELECT version, body FROM reach WHERE agent = ?1",
-            Some(vec![BindParam::Integer(i64::try_from(agent.0)?)]),
+            Some(vec![BindParam::Integer(i64::from(agent.0))]),
         )
         .await?;
     match read.rows.first().map(Vec::as_slice) {

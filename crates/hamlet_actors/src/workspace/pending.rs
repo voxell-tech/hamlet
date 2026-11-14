@@ -148,7 +148,7 @@ pub(super) async fn open(
         "INSERT INTO waits (agent, call, needs, request, \
          reach_version, base_hash) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
         Some(vec![
-            BindParam::Integer(i64::try_from(opening.agent.0)?),
+            BindParam::Integer(i64::from(opening.agent.0)),
             BindParam::Text(call.0.clone()),
             BindParam::Blob(calls::cbor(&opening.needs)?),
             BindParam::Blob(request),
@@ -197,7 +197,7 @@ pub(super) async fn find(
             "SELECT needs, request, reach_version, base_hash FROM \
              waits WHERE agent = ?1 AND call = ?2",
             Some(vec![
-                BindParam::Integer(i64::try_from(agent.0)?),
+                BindParam::Integer(i64::from(agent.0)),
                 BindParam::Text(call.0.clone()),
             ]),
         )
@@ -253,7 +253,7 @@ pub(super) async fn settle(
     answer: Option<Vec<u8>>,
     temp: Option<&str>,
 ) -> Result<Option<i64>> {
-    let agent = BindParam::Integer(i64::try_from(wait.agent.0)?);
+    let agent = BindParam::Integer(i64::from(wait.agent.0));
     let call = BindParam::Text(wait.call.0.clone());
     let removed = tx
         .execute(
@@ -346,7 +346,7 @@ pub(super) async fn close(
     agent: AgentNumber,
     why: &WaitEnd,
 ) -> Result<Vec<(CallId, NotRun)>> {
-    let agent = BindParam::Integer(i64::try_from(agent.0)?);
+    let agent = BindParam::Integer(i64::from(agent.0));
     tx.execute(
         "DELETE FROM waits WHERE agent = ?1",
         Some(vec![agent.clone()]),
