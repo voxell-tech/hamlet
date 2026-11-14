@@ -8,13 +8,18 @@
 //! text on the pipe breaks the link rather than being read as a
 //! length to wait for.
 
+use std::collections::{BTreeSet, HashMap};
 use std::io::{self, ErrorKind, Read, Write};
+use std::path::Path;
 
+use anyhow::{Context, Result, bail};
+use hamlet_actor_core::ActorFactory;
 use hamlet_protocol::Version;
 use serde::{Deserialize, Serialize};
 use serde_bytes::ByteBuf;
 
-use crate::{Address, Caller, HostEvent};
+use crate::child::{self, ChildOptions};
+use crate::{Address, Caller, Host, HostEvent, HostOptions};
 
 /// The link protocol's version. A host refuses a peer whose version
 /// is not compatible with its own by semver's caret.
@@ -26,6 +31,9 @@ pub const MAGIC: [u8; 4] = *b"HLNK";
 /// The largest body a frame may have, 32 MiB: a write at the
 /// workspace's 16 MiB cap fits with the frame around it.
 pub const FRAME_LIMIT: usize = 32 << 20;
+
+/// The Node host's name, so its folder lock is `node.lock`.
+const NODE: &str = "node";
 
 /// The fingerprint file, which `cargo test -p hamlet_host` rewrites
 /// when the frames' shapes change.
@@ -224,4 +232,96 @@ fn fill(
         }
     }
     Ok(filled)
+}
+
+/// The Rust host's answer to a Node host's hello: a
+/// [`Frame::Welcome`] stating the Rust host's own kinds, or a
+/// [`Frame::Refused`] when the hello's protocol is not compatible
+/// with [`PROTOCOL`], its fingerprint is not [`fingerprint`], or its
+/// kinds are not the ones the Node host must hold.
+pub(crate) fn answer(
+    protocol: &Version,
+    theirs: &str,
+    kinds: &[String],
+    options: &ChildOptions,
+) -> Frame {
+    let held = kinds.iter().collect::<BTreeSet<_>>();
+    let expected = options.node_kinds.iter().collect::<BTreeSet<_>>();
+    let reason = if !protocol.is_compatible(&PROTOCOL) {
+        format!(
+            "the link protocol {protocol} is not compatible with \
+             the Rust host's {PROTOCOL}"
+        )
+    } else if theirs != fingerprint() {
+        format!(
+            "the link fingerprint {theirs} is not the Rust host's {}",
+            fingerprint()
+        )
+    } else if held != expected {
+        format!(
+            "the Node host holds the kinds {held:?}, not \
+             {expected:?}"
+        )
+    } else {
+        return Frame::Welcome {
+            protocol: PROTOCOL,
+            fingerprint: fingerprint().to_owned(),
+            kinds: options.kinds.clone(),
+        };
+    };
+    Frame::Refused { reason }
+}
+
+/// Serves the Node host's half of the link, on the ends
+/// [`child::take_stdio`] took. Says hello with the kinds of
+/// `factories` before it opens any file. Once welcomed, opens the
+/// folder `HAMLET_HOME` as the host `node` with them, boots it, says
+/// it is ready, and at the goodbye shuts the host down and returns.
+/// Fails with the Rust host's reason when it refuses the hello, and
+/// when the folder does not open or boot.
+pub async fn serve(
+    factories: HashMap<String, ActorFactory>,
+) -> Result<()> {
+    let child::Ends {
+        mut frames,
+        mut output,
+    } = child::take_ends().context(
+        "the link's ends are not taken: call take_stdio first, and \
+         serve the link once",
+    )?;
+    let home = std::env::var_os(child::HOME)
+        .with_context(|| format!("{} is not set", child::HOME))?;
+    let mut kinds = factories.keys().cloned().collect::<Vec<_>>();
+    kinds.sort_unstable();
+    write(
+        &mut output,
+        &Frame::Hello {
+            protocol: PROTOCOL,
+            fingerprint: fingerprint().to_owned(),
+            kinds,
+            pid: std::process::id(),
+        },
+    )?;
+    match frames.recv().await {
+        Some(Frame::Welcome { .. }) => {}
+        Some(Frame::Refused { reason }) => {
+            bail!("the Rust host refused this Node host: {reason}")
+        }
+        Some(Frame::Goodbye) => return Ok(()),
+        frame => bail!("the Rust host wrote {frame:?} out of turn"),
+    }
+    let host = Host::open_with(
+        Path::new(&home),
+        factories,
+        HostOptions {
+            name: NODE.to_owned(),
+            ..HostOptions::default()
+        },
+    )?;
+    host.boot().await?;
+    write(&mut output, &Frame::Ready)?;
+    match frames.recv().await {
+        Some(Frame::Goodbye) => host.shutdown().await,
+        frame => bail!("the Rust host wrote {frame:?} out of turn"),
+    }
 }

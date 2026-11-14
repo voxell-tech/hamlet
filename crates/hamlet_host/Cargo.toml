@@ -12,6 +12,7 @@ anyhow.workspace = true
 ciborium.workspace = true
 hamlet_actor_core.workspace = true
 hamlet_actor_error.workspace = true
+hamlet_os.workspace = true
 hamlet_protocol.workspace = true
 hamlet_sqlite.workspace = true
 parking_lot.workspace = true

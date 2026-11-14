@@ -3,6 +3,7 @@
 //! `hamlet_actor_core`.
 
 mod cause;
+pub mod child;
 mod directory;
 mod event;
 pub mod fault;

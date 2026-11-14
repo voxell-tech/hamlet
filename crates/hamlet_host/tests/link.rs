@@ -234,3 +234,399 @@ fn the_frames_shapes_are_recorded() {
          hello."
     );
 }
+
+#[cfg(unix)]
+#[path = "support/logs.rs"]
+mod logs;
+
+/// The handshake, with a stand-in Node host as the child: the
+/// example `link_child`, built beside this test.
+#[cfg(unix)]
+mod handshake {
+    use std::io::Write;
+    use std::os::unix::process::ExitStatusExt;
+    use std::path::{Path, PathBuf};
+    use std::process::{Command, Stdio};
+    use std::time::{Duration, Instant};
+
+    use hamlet_host::child::{ChildOptions, LinkState, Supervisor};
+    use hamlet_host::link::{self, Frame, PROTOCOL};
+    use hamlet_testing::Scratch;
+    use hamlet_testing::signals::{is_alive, kill};
+    use tokio::io::{AsyncBufReadExt, BufReader};
+    use tokio::sync::watch;
+    use tracing_subscriber::filter::LevelFilter;
+
+    use super::logs::Logs;
+
+    /// How long a test waits for a child to be ready.
+    const READY_WAIT: Duration = Duration::from_secs(30);
+
+    /// How long a child may outlive its link.
+    const GONE_WAIT: Duration = Duration::from_secs(2);
+
+    /// The folder of the Rust host [`rust_host`] runs. Unset, that
+    /// test does nothing.
+    const HOST_HOME: &str = "HAMLET_LINK_TEST_HOME";
+
+    /// Set, the Rust host's child holds.
+    const HOST_HOLD: &str = "HAMLET_LINK_TEST_HOLD";
+
+    /// What the Rust host's child does on the link.
+    enum StandIn {
+        Serves,
+        Holds,
+    }
+
+    /// The stand-in Node host, built beside this test.
+    fn stand_in() -> PathBuf {
+        let exe = std::env::current_exe().unwrap();
+        let path = exe
+            .parent()
+            .and_then(Path::parent)
+            .unwrap()
+            .join("examples")
+            .join("link_child");
+        assert!(
+            path.exists(),
+            "no stand-in Node host at {}: build it with `cargo \
+             build -p hamlet_host --examples`",
+            path.display()
+        );
+        path
+    }
+
+    fn options(home: &Path, args: &[&str]) -> ChildOptions {
+        let mut argv = vec![stand_in().to_str().unwrap().to_owned()];
+        argv.extend(args.iter().map(|arg| (*arg).to_owned()));
+        ChildOptions {
+            argv,
+            home: home.to_str().unwrap().to_owned(),
+            kinds: vec!["realm".to_owned()],
+            node_kinds: vec!["agent".to_owned()],
+        }
+    }
+
+    /// The stand-in, started by the test itself on `home`, with this
+    /// process as its Rust host. Spawn it on the test's own thread:
+    /// Linux kills it when the thread that started it ends.
+    fn own_stand_in(home: &Path, args: &[&str]) -> Command {
+        let mut command = Command::new(stand_in());
+        command
+            .args(args)
+            .env_clear()
+            .env("HAMLET_HOME", home)
+            .env("HAMLET_LINK_PARENT", std::process::id().to_string())
+            .stdin(Stdio::piped());
+        command
+    }
+
+    async fn wait_for(
+        state: &mut watch::Receiver<LinkState>,
+        to: LinkState,
+    ) {
+        let reached = tokio::time::timeout(
+            READY_WAIT,
+            state.wait_for(|now| *now == to),
+        )
+        .await;
+        assert!(
+            matches!(reached, Ok(Ok(_))),
+            "the link never got {to:?}"
+        );
+    }
+
+    /// Each start the stand-in recorded: its process id and when it
+    /// started, in Unix milliseconds.
+    fn starts(path: &Path) -> Vec<(u32, u64)> {
+        std::fs::read_to_string(path)
+            .unwrap_or_default()
+            .lines()
+            .map(|line| {
+                let (pid, ms) = line.split_once(' ').unwrap();
+                (pid.parse().unwrap(), ms.parse().unwrap())
+            })
+            .collect()
+    }
+
+    async fn wait_for_starts(
+        path: &Path,
+        count: usize,
+    ) -> Vec<(u32, u64)> {
+        let deadline = Instant::now() + READY_WAIT;
+        loop {
+            let starts = starts(path);
+            if starts.len() >= count {
+                return starts;
+            }
+            assert!(Instant::now() < deadline, "{starts:?}");
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    }
+
+    /// Whether a line of `logs` holds each of `words`.
+    fn has_line(logs: &Logs, words: &[&str]) -> bool {
+        logs.text()
+            .lines()
+            .any(|line| words.iter().all(|word| line.contains(word)))
+    }
+
+    #[tokio::test]
+    async fn a_child_gets_ready_and_exits_cleanly_at_the_shutdown() {
+        let home = Scratch::new("link-ready");
+        let supervisor =
+            Supervisor::start(options(&home, &[])).unwrap();
+        wait_for(&mut supervisor.state(), LinkState::Ready).await;
+        assert!(home.join("node.lock").exists());
+        let status =
+            supervisor.shutdown().await.expect("a child ran");
+        assert!(status.success(), "{status}");
+    }
+
+    #[tokio::test]
+    async fn a_hello_of_another_protocol_is_refused_and_logged() {
+        let home = Scratch::new("link-protocol");
+        let logs = Logs::default();
+        let _recording = logs.record(LevelFilter::ERROR);
+        let supervisor = Supervisor::start(options(
+            &home,
+            &["--protocol", "9.0.0"],
+        ))
+        .unwrap();
+        let state = supervisor.state();
+        let deadline = Instant::now() + READY_WAIT;
+        while !has_line(&logs, &["refused", "9.0.0"]) {
+            assert!(Instant::now() < deadline, "{}", logs.text());
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        assert!(!state.has_changed().unwrap());
+        assert_eq!(*state.borrow(), LinkState::Down);
+        supervisor.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn a_refused_child_is_followed_by_a_new_one_a_second_later_each_time()
+     {
+        let home = Scratch::new("link-restart");
+        let record = home.join("starts");
+        let supervisor = Supervisor::start(options(
+            &home,
+            &[
+                "--protocol",
+                "9.0.0",
+                "--starts",
+                record.to_str().unwrap(),
+            ],
+        ))
+        .unwrap();
+        let starts = wait_for_starts(&record, 3).await;
+        supervisor.shutdown().await;
+        for pair in starts.windows(2) {
+            let gap = pair[1].1 - pair[0].1;
+            assert!((1000..1800).contains(&gap), "{starts:?}");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_hello_of_other_kinds_is_refused_before_the_child_opens_a_file()
+     {
+        let home = Scratch::new("link-kinds");
+        let record = home.join("starts");
+        let logs = Logs::default();
+        let _recording = logs.record(LevelFilter::ERROR);
+        let mut options =
+            options(&home, &["--starts", record.to_str().unwrap()]);
+        options.node_kinds = vec!["profile".to_owned()];
+        let supervisor = Supervisor::start(options).unwrap();
+        wait_for_starts(&record, 2).await;
+        assert!(
+            has_line(&logs, &["refused", "profile"]),
+            "{}",
+            logs.text()
+        );
+        supervisor.shutdown().await;
+        assert!(!home.join("node.lock").exists());
+        assert!(!home.join("actors").exists());
+    }
+
+    #[tokio::test]
+    async fn a_second_node_host_on_the_folder_fails_at_its_lock_and_is_never_ready()
+     {
+        let home = Scratch::new("link-lock");
+        let supervisor =
+            Supervisor::start(options(&home, &[])).unwrap();
+        let mut state = supervisor.state();
+        wait_for(&mut state, LinkState::Ready).await;
+
+        let mut second = own_stand_in(&home, &[])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut input = second.stdin.take().unwrap();
+        let mut output = second.stdout.take().unwrap();
+        let hello = link::read(&mut output).unwrap();
+        assert!(
+            matches!(&hello, Some(Frame::Hello { kinds, .. }) if kinds == &["agent"]),
+            "{hello:?}"
+        );
+        link::write(
+            &mut input,
+            &Frame::Welcome {
+                protocol: PROTOCOL,
+                fingerprint: link::fingerprint().to_owned(),
+                kinds: vec!["realm".to_owned()],
+            },
+        )
+        .unwrap();
+        assert_eq!(link::read(&mut output).unwrap(), None);
+        let ended = second.wait_with_output().unwrap();
+        assert!(!ended.status.success());
+        let stderr = String::from_utf8_lossy(&ended.stderr);
+        let lock = home.join("node.lock");
+        assert!(
+            stderr.contains(&lock.display().to_string()),
+            "{stderr}"
+        );
+
+        assert!(!state.has_changed().unwrap());
+        assert_eq!(*state.borrow(), LinkState::Ready);
+        drop(input);
+        assert!(supervisor.shutdown().await.unwrap().success());
+    }
+
+    #[tokio::test]
+    async fn the_childs_environment_holds_only_the_named_variables() {
+        assert!(std::env::vars_os().any(|(name, _)| {
+            name.to_string_lossy().starts_with("CARGO_")
+        }));
+        let home = Scratch::new("link-env");
+        let names = home.join("env");
+        let supervisor = Supervisor::start(options(
+            &home,
+            &["--env", names.to_str().unwrap()],
+        ))
+        .unwrap();
+        wait_for(&mut supervisor.state(), LinkState::Ready).await;
+        supervisor.shutdown().await;
+
+        let mut expected = vec!["HAMLET_HOME", "HAMLET_LINK_PARENT"];
+        for inherited in ["PATH", "HAMLET_FAULT_DIR"] {
+            if std::env::var_os(inherited).is_some() {
+                expected.push(inherited);
+            }
+        }
+        expected.sort_unstable();
+        let names = std::fs::read_to_string(names).unwrap();
+        let mut names = names.lines().collect::<Vec<_>>();
+        names.sort_unstable();
+        assert_eq!(names, expected);
+    }
+
+    /// Runs as a Rust host in a process of its own, with the stand-in
+    /// as its child, until it is killed. Prints `ready` once the link
+    /// is ready, or at once when the child holds.
+    #[tokio::test]
+    async fn rust_host() {
+        let Some(home) = std::env::var_os(HOST_HOME) else {
+            return;
+        };
+        let home = PathBuf::from(home);
+        let record = home.join("starts");
+        let hold = std::env::var_os(HOST_HOLD).is_some();
+        let mut args = vec!["--starts", record.to_str().unwrap()];
+        if hold {
+            args.push("--hold");
+        }
+        let supervisor =
+            Supervisor::start(options(&home, &args)).unwrap();
+        if !hold {
+            wait_for(&mut supervisor.state(), LinkState::Ready).await;
+        }
+        writeln!(std::io::stdout(), "ready").unwrap();
+        std::future::pending::<()>().await;
+    }
+
+    /// Runs [`rust_host`] in a process of its own with its child
+    /// doing `stand_in`, kills it with SIGKILL once it is ready and
+    /// its child has started, and asserts that the child is gone
+    /// within [`GONE_WAIT`].
+    async fn kill_a_rust_host(home: &Path, stand_in: StandIn) {
+        let mut command = tokio::process::Command::new(
+            std::env::current_exe().unwrap(),
+        );
+        command
+            .args(["--exact", "handshake::rust_host", "--nocapture"])
+            .env(HOST_HOME, home)
+            .stdout(Stdio::piped())
+            .kill_on_drop(true);
+        if let StandIn::Holds = stand_in {
+            command.env(HOST_HOLD, "1");
+        }
+        let mut host = command.spawn().unwrap();
+        let mut lines =
+            BufReader::new(host.stdout.take().unwrap()).lines();
+        let ready = tokio::time::timeout(READY_WAIT, async {
+            while let Some(line) = lines.next_line().await.unwrap() {
+                if line == "ready" {
+                    return true;
+                }
+            }
+            false
+        })
+        .await;
+        assert_eq!(ready, Ok(true));
+        let (pid, _) =
+            wait_for_starts(&home.join("starts"), 1).await[0];
+        assert!(is_alive(pid));
+        host.kill().await.unwrap();
+        let killed = Instant::now();
+        while is_alive(pid) {
+            if killed.elapsed() > GONE_WAIT {
+                let _ = kill(pid);
+                panic!("the child {pid} outlived its Rust host");
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    }
+
+    #[tokio::test]
+    async fn a_killed_rust_hosts_child_is_gone_within_two_seconds() {
+        kill_a_rust_host(&Scratch::new("link-kill"), StandIn::Serves)
+            .await;
+    }
+
+    #[tokio::test]
+    async fn a_killed_rust_hosts_child_that_has_not_said_hello_is_gone_within_two_seconds()
+     {
+        kill_a_rust_host(&Scratch::new("link-hold"), StandIn::Holds)
+            .await;
+    }
+
+    #[tokio::test]
+    async fn a_child_whose_link_input_ends_kills_itself() {
+        let home = Scratch::new("link-input");
+        let record = home.join("starts");
+        let mut child = own_stand_in(
+            &home,
+            &["--hold", "--starts", record.to_str().unwrap()],
+        )
+        .spawn()
+        .unwrap();
+        wait_for_starts(&record, 1).await;
+        drop(child.stdin.take());
+        let dropped = Instant::now();
+        let status = loop {
+            if let Some(status) = child.try_wait().unwrap() {
+                break status;
+            }
+            if dropped.elapsed() > GONE_WAIT {
+                let _ = child.kill();
+                let _ = child.wait();
+                panic!("the child outlived its link's input");
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        };
+        assert_eq!(status.signal(), Some(9), "{status}");
+    }
+}
