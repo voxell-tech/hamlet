@@ -8,10 +8,16 @@
 //! length to wait for.
 
 use std::io::{self, ErrorKind, PipeWriter, Read, Write};
+use std::thread;
 
+use hamlet_actor_error::{
+    ActorError, ActorErrorKind, INTERNAL_ERROR,
+};
+use hamlet_os::process;
 use hamlet_protocol::Version;
 use serde::{Deserialize, Serialize};
 use serde_bytes::ByteBuf;
+use serde_json::value::RawValue;
 use tokio::sync::mpsc;
 
 use crate::route::Routes;
@@ -122,8 +128,28 @@ impl WireError {
     /// The actor specifier and the `anyhow` context around a coded
     /// error do not cross.
     pub(crate) fn of(error: &anyhow::Error) -> Self {
-        let _ = error;
-        todo!("U5, the link unit: an error as it crosses the link")
+        let coded = error
+            .chain()
+            .find_map(|cause| cause.downcast_ref::<ActorError>());
+        let Some(coded) = coded else {
+            let debug =
+                serde_json::json!({ "error": format!("{error:?}") });
+            return Self {
+                group: INTERNAL_ERROR.group.to_owned(),
+                code: INTERNAL_ERROR.code.to_owned(),
+                message: format!("{error:#}"),
+                metadata: Some(debug.to_string()),
+            };
+        };
+        Self {
+            group: coded.group().to_owned(),
+            code: coded.code().to_owned(),
+            message: coded.message().to_owned(),
+            metadata: coded
+                .meta
+                .as_deref()
+                .map(|meta| meta.get().to_owned()),
+        }
     }
 
     /// The error for the asking host's caller: a dynamic `ActorError`
@@ -131,7 +157,23 @@ impl WireError {
     /// `ActorError::extract` and the bridge to JavaScript read as
     /// they read any other.
     pub(crate) fn into_error(self) -> anyhow::Error {
-        todo!("U5, the link unit: a crossed error for the caller")
+        let Self {
+            group,
+            code,
+            message,
+            metadata,
+        } = self;
+        anyhow::Error::new(ActorError {
+            kind: ActorErrorKind::Dynamic {
+                group,
+                code,
+                default_message: message.clone(),
+            },
+            meta: metadata
+                .and_then(|text| RawValue::from_string(text).ok()),
+            message: Some(message),
+            actor: None,
+        })
     }
 }
 
@@ -284,6 +326,11 @@ fn fill(
     Ok(filled)
 }
 
+/// The frames a [`Writer`] holds unwritten before a write waits, so a
+/// side that writes faster than its peer reads goes at the pipe's
+/// pace.
+const QUEUE: usize = 16;
+
 /// What a [`Writer`]'s thread does when the pipe fails.
 pub(crate) enum AtBreak {
     /// Stop writing: the Rust host, whose reader sees the child end
@@ -307,12 +354,28 @@ impl Writer {
     /// the last `Writer` drops, then closes the pipe. When a write
     /// fails, it does as `at_break` says.
     pub(crate) fn start(
-        out: PipeWriter,
+        mut out: PipeWriter,
         thread: &str,
         at_break: AtBreak,
     ) -> io::Result<Self> {
-        let _ = (out, thread, at_break);
-        todo!("U5, the link unit: the pipe's one writer")
+        let (queue, mut queued) = mpsc::channel::<Vec<u8>>(QUEUE);
+        thread::Builder::new().name(thread.to_owned()).spawn(
+            move || {
+                while let Some(bytes) = queued.blocking_recv() {
+                    if out
+                        .write_all(&bytes)
+                        .and_then(|()| out.flush())
+                        .is_err()
+                    {
+                        match at_break {
+                            AtBreak::Close => return,
+                            AtBreak::EndProcess => process::end_now(),
+                        }
+                    }
+                }
+            },
+        )?;
+        Ok(Self(queue))
     }
 
     /// Queues `frame`, waiting while the queue is full. Fails with
@@ -323,7 +386,220 @@ impl Writer {
         &self,
         frame: &Frame,
     ) -> io::Result<()> {
-        let _ = frame;
-        todo!("U5, the link unit: queue a frame")
+        self.queue(encode(frame)?).await
+    }
+
+    /// Queues the bytes of a frame [`encode`] made, as
+    /// [`Writer::write`] does.
+    pub(super) async fn queue(
+        &self,
+        bytes: Vec<u8>,
+    ) -> io::Result<()> {
+        self.0
+            .send(bytes)
+            .await
+            .map_err(|_| io::Error::from(ErrorKind::BrokenPipe))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use anyhow::anyhow;
+    use serde_json::json;
+
+    use super::*;
+
+    const TEN_S: Duration = Duration::from_secs(10);
+
+    fn request(id: u64, args: Vec<u8>) -> Frame {
+        Frame::Request {
+            id,
+            from: None,
+            to: Address::new("agent", "a").unwrap(),
+            ask: Ask::Call {
+                name: "say".to_owned(),
+                args,
+                deadline_ms: 1_000,
+            },
+        }
+    }
+
+    /// The metadata's text is one a parse would change: its keys out
+    /// of order, and a number with a trailing zero.
+    #[test]
+    fn a_coded_error_keeps_its_four_fields_through_of_and_into_error()
+    {
+        let meta =
+            r#"{"caller":"client","action":"end","weight":1.50}"#;
+        let coded = anyhow::Error::new(ActorError {
+            kind: ActorErrorKind::Dynamic {
+                group: "message".to_owned(),
+                code: "wrong_caller".to_owned(),
+                default_message: "The caller may not send this."
+                    .to_owned(),
+            },
+            meta: Some(
+                RawValue::from_string(meta.to_owned()).unwrap(),
+            ),
+            message: Some("client may not send 'end'.".to_owned()),
+            actor: None,
+        })
+        .context("call agent/a");
+        let crossed =
+            ActorError::extract(&WireError::of(&coded).into_error());
+        assert_eq!(
+            (crossed.group(), crossed.code(), crossed.message()),
+            ("message", "wrong_caller", "client may not send 'end'.")
+        );
+        assert_eq!(
+            crossed.meta.as_deref().map(RawValue::get),
+            Some(meta)
+        );
+    }
+
+    #[test]
+    fn a_raw_error_crosses_with_its_chain_as_the_message() {
+        let raw = anyhow!("the disk is full").context("open agent/a");
+        let crossed =
+            ActorError::extract(&WireError::of(&raw).into_error());
+        assert_eq!(
+            (crossed.group(), crossed.code(), crossed.message()),
+            (
+                "core",
+                "internal_error",
+                "open agent/a: the disk is full"
+            )
+        );
+        assert_eq!(
+            crossed.metadata(),
+            Some(json!({ "error": format!("{raw:?}") }))
+        );
+    }
+
+    /// Each frame is larger than a pipe's buffer, so two frames
+    /// written at once in parts would interleave.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn frames_queued_at_once_arrive_whole() {
+        let (mut input, output) = io::pipe().unwrap();
+        let reader = thread::spawn(move || {
+            let mut frames = Vec::new();
+            while let Some(frame) = read(&mut input).unwrap() {
+                frames.push(frame);
+            }
+            frames
+        });
+        let writer =
+            Writer::start(output, "test-link-output", AtBreak::Close)
+                .unwrap();
+        let sent = (0..64u8)
+            .map(|id| {
+                request(
+                    id.into(),
+                    vec![id; (100 << 10) + usize::from(id)],
+                )
+            })
+            .collect::<Vec<_>>();
+        let tasks = sent
+            .chunks(4)
+            .map(|frames| {
+                let (writer, frames) =
+                    (writer.clone(), frames.to_vec());
+                tokio::spawn(async move {
+                    for frame in &frames {
+                        writer.write(frame).await.unwrap();
+                    }
+                })
+            })
+            .collect::<Vec<_>>();
+        for task in tasks {
+            task.await.unwrap();
+        }
+        drop(writer);
+        let mut received = tokio::time::timeout(
+            TEN_S,
+            tokio::task::spawn_blocking(move || {
+                reader.join().unwrap()
+            }),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        received.sort_by_key(|frame| match frame {
+            Frame::Request { id, .. } => *id,
+            _ => u64::MAX,
+        });
+        assert_eq!(received, sent);
+    }
+
+    /// The reader waits until this test's runtime tells it to read. A
+    /// write that held the runtime would keep it from telling: the
+    /// reader then reads anyway, so the test fails rather than hangs.
+    #[tokio::test(flavor = "current_thread")]
+    async fn a_large_frame_to_a_slow_reader_blocks_only_the_writer() {
+        let (mut input, output) = io::pipe().unwrap();
+        let (go, told) = std::sync::mpsc::channel();
+        let reader = thread::spawn(move || {
+            let told = told.recv_timeout(TEN_S).is_ok();
+            (told, read(&mut input).unwrap())
+        });
+        let writer =
+            Writer::start(output, "test-link-output", AtBreak::Close)
+                .unwrap();
+        let frame = request(1, vec![7; 24 << 20]);
+        writer.write(&frame).await.unwrap();
+        let ticking = tokio::spawn(async {
+            for _ in 0..3 {
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        });
+        ticking.await.unwrap();
+        let _ = go.send(());
+        let (told, read) = tokio::task::spawn_blocking(move || {
+            reader.join().unwrap()
+        })
+        .await
+        .unwrap();
+        assert!(
+            told,
+            "the write held the runtime until the frame was read"
+        );
+        assert_eq!(read, Some(frame));
+    }
+
+    #[tokio::test]
+    async fn a_writer_queues_no_frame_over_the_limit_and_fails_once_its_pipe_breaks()
+     {
+        let (mut input, output) = io::pipe().unwrap();
+        let writer =
+            Writer::start(output, "test-link-output", AtBreak::Close)
+                .unwrap();
+        let over = writer
+            .write(&request(1, vec![0; FRAME_LIMIT]))
+            .await
+            .unwrap_err();
+        assert_eq!(over.kind(), ErrorKind::InvalidInput);
+        writer.write(&Frame::Ready).await.unwrap();
+        let (input, next) = tokio::task::spawn_blocking(move || {
+            let next = read(&mut input).unwrap();
+            (input, next)
+        })
+        .await
+        .unwrap();
+        assert_eq!(next, Some(Frame::Ready));
+
+        drop(input);
+        let broken = tokio::time::timeout(TEN_S, async {
+            loop {
+                if let Err(error) = writer.write(&Frame::Ready).await
+                {
+                    return error;
+                }
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(broken.kind(), ErrorKind::BrokenPipe);
     }
 }
