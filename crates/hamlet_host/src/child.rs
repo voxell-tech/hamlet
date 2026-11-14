@@ -76,8 +76,7 @@ pub struct ChildOptions {
     pub kinds: Vec<String>,
     /// The kinds the child must state in its hello.
     pub node_kinds: Vec<String>,
-    /// The Rust host's route table, which its welcome gives the
-    /// child.
+    /// The route table the welcome gives the child.
     pub routes: Routes,
 }
 

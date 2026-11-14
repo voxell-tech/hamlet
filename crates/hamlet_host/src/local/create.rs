@@ -12,6 +12,7 @@ use super::access::current;
 use super::call::Caller;
 use super::{Host, HostInner, Open};
 use crate::directory::Address;
+use crate::route::Operation;
 
 /// A create of a key that holds an actor.
 #[derive(ActorError)]
@@ -91,7 +92,7 @@ impl Host {
         key: &str,
         input: Vec<u8>,
     ) -> Result<String> {
-        reach(ctx, "create", kind, key)?
+        reach(ctx, Operation::Create, kind, key)?
             .start_by_key(kind, key, Open::New(input))
             .await
     }
@@ -104,7 +105,7 @@ impl Host {
         kind: &str,
         key: &str,
     ) -> Result<String> {
-        reach(ctx, "get_or_start", kind, key)?
+        reach(ctx, Operation::GetOrStart, kind, key)?
             .start_by_key(kind, key, Open::OrCreate)
             .await
     }
@@ -130,14 +131,13 @@ impl HostInner {
 /// does, and from a generation that has ended.
 fn reach(
     ctx: &ActorContext,
-    operation: &str,
+    operation: Operation,
     kind: &str,
     key: &str,
 ) -> Result<Arc<HostInner>> {
     let from = current(ctx)?;
     from.host.admit(
         operation,
-        None,
         Some(&Caller::Actor(from.address()?)),
         &Address::new(kind, key),
     )?;

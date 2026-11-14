@@ -4,6 +4,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::route::Operation;
 use crate::{Address, Caller};
 
 /// Something that happened to an actor of the host.
@@ -30,12 +31,11 @@ pub enum HostEvent {
     /// Boot could not read the file of the actor at `actor`, and
     /// booted the rest without it. `error` says why.
     UnreadableFile { actor: Address, error: String },
-    /// The route table refused `from`'s call of the action `action`
-    /// of the actor at `to`, or its create or get-or-start of that
-    /// actor when `action` is `None`.
+    /// The route table refused `from`'s `operation` on the actor at
+    /// `to`.
     Refused {
         from: Caller,
         to: Address,
-        action: Option<String>,
+        operation: Operation,
     },
 }

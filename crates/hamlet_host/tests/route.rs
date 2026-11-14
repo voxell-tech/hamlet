@@ -1,7 +1,5 @@
-//! The route table, with Hamlet's: an agent reaches the realm, the
-//! workspace and the profile, and never another agent; a client
-//! reaches the realm and an agent. The host refuses any other call or
-//! make from a caller with `actor.refused`.
+//! The route table: a call or make it does not allow fails with
+//! `actor.refused`.
 
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -13,7 +11,7 @@ use hamlet_actor::{
     Action, Actor, ActorConfig, Ctx, Handler, Registry,
 };
 use hamlet_actor_error::ActorError;
-use hamlet_host::route::{CallerKind, Routes};
+use hamlet_host::route::{CallerKind, Operation, Routes};
 use hamlet_host::{
     Address, Caller, Host, HostEvent, HostOptions, HostRef,
 };
@@ -35,7 +33,6 @@ const KINDS: [&str; 4] = ["realm", "workspace", "profile", "agent"];
 
 const DEADLINE: Duration = Duration::from_secs(10);
 
-/// Hamlet's route table.
 fn routes() -> Routes {
     Routes::only(&[
         (CallerKind::Actor("realm".to_owned()), &KINDS),
@@ -49,13 +46,10 @@ fn routes() -> Routes {
     ])
 }
 
-/// The ids of the actors whose ping ran, in order, in a host that
-/// holds it.
+/// Ids of the actors whose ping ran, in order.
 #[derive(Default)]
 struct Pinged(Mutex<Vec<String>>);
 
-/// An actor of any kind: it answers a ping, and pings and makes other
-/// actors as itself.
 struct Peer;
 
 #[derive(Serialize, Deserialize)]
@@ -66,18 +60,16 @@ impl Action for Ping {
     const NAME: &'static str = "ping";
 }
 
-/// Pings the actor at `to`, and answers how that went.
 #[derive(Serialize, Deserialize)]
 struct Ask {
     to: Address,
 }
 
 impl Action for Ask {
-    type Output = Outcome;
+    type Output = Option<Failure>;
     const NAME: &'static str = "ask";
 }
 
-/// Makes the actor of `kind` and `key`, and answers how that went.
 #[derive(Serialize, Deserialize)]
 struct Make {
     kind: String,
@@ -85,23 +77,23 @@ struct Make {
 }
 
 impl Action for Make {
-    type Output = Outcome;
+    type Output = Option<Failure>;
     const NAME: &'static str = "make";
 }
 
-/// How an operation went: `None` when it was answered, else its
-/// error's `group.code` and the JSON of its metadata.
-type Outcome = Option<(String, String)>;
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+struct Failure {
+    code: String,
+    metadata: String,
+}
 
-fn outcome<T>(result: anyhow::Result<T>) -> Outcome {
-    result.err().map(|error| {
-        (
-            code(&error),
-            ActorError::extract(&error)
-                .metadata()
-                .unwrap_or_default()
-                .to_string(),
-        )
+fn failure<T>(result: anyhow::Result<T>) -> Option<Failure> {
+    result.err().map(|error| Failure {
+        code: code(&error),
+        metadata: ActorError::extract(&error)
+            .metadata()
+            .unwrap_or_default()
+            .to_string(),
     })
 }
 
@@ -142,8 +134,8 @@ impl Handler<Ask> for Peer {
         self: Arc<Self>,
         ctx: Ctx<Self>,
         ask: Ask,
-    ) -> anyhow::Result<Outcome> {
-        Ok(outcome(
+    ) -> anyhow::Result<Option<Failure>> {
+        Ok(failure(
             Host::call_from(
                 ctx.inner(),
                 &ask.to,
@@ -161,8 +153,8 @@ impl Handler<Make> for Peer {
         self: Arc<Self>,
         ctx: Ctx<Self>,
         make: Make,
-    ) -> anyhow::Result<Outcome> {
-        Ok(outcome(
+    ) -> anyhow::Result<Option<Failure>> {
+        Ok(failure(
             Host::create_from(
                 ctx.inner(),
                 &make.kind,
@@ -174,8 +166,6 @@ impl Handler<Make> for Peer {
     }
 }
 
-/// A host of Hamlet's kinds and table on `dir`, which records each
-/// ping in `pinged`.
 fn open(dir: &Scratch, pinged: Arc<Pinged>) -> Host {
     let mut registry = Registry::new();
     for kind in KINDS {
@@ -199,23 +189,23 @@ fn open(dir: &Scratch, pinged: Arc<Pinged>) -> Host {
     .unwrap()
 }
 
-/// Makes each actor of `at`, with no caller.
 async fn make(host: &Host, at: &[&Address]) {
     for at in at {
         host.create(&at.kind, &at.key, Vec::new()).await.unwrap();
     }
 }
 
-/// Has the actor at `from` ping the actor at `to`, and answers how
-/// that went.
-async fn ask(host: &Host, from: &Address, to: &Address) -> Outcome {
+async fn ask(
+    host: &Host,
+    from: &Address,
+    to: &Address,
+) -> Option<Failure> {
     call(host, from, &Ask { to: to.clone() }).await.unwrap()
 }
 
 /// An agent's call to another agent fails with `actor.refused`,
 /// naming both kinds, and the callee's action does not run. The host
-/// reports the refusal on its events and in its log. The agent's
-/// calls to the realm, the workspace and the profile are answered.
+/// reports the refusal on its events and in its log.
 #[tokio::test]
 async fn an_agent_reaches_the_realm_workspace_and_profile_but_not_another_agent()
  {
@@ -242,10 +232,11 @@ async fn an_agent_reaches_the_realm_workspace_and_profile_but_not_another_agent(
     drop(logging);
     host.shutdown().await.unwrap();
 
-    let (code, metadata) = refused.expect("another agent answered");
-    assert_eq!(code, "actor.refused");
+    let refused = refused.expect("another agent answered");
+    assert_eq!(refused.code, "actor.refused");
     assert_eq!(
-        serde_json::from_str::<serde_json::Value>(&metadata).unwrap(),
+        serde_json::from_str::<serde_json::Value>(&refused.metadata)
+            .unwrap(),
         serde_json::json!({
             "operation": "call",
             "from": {"actor": "agent"},
@@ -266,7 +257,9 @@ async fn an_agent_reaches_the_realm_workspace_and_profile_but_not_another_agent(
         [HostEvent::Refused {
             from: Caller::Actor(a),
             to: b,
-            action: Some(Ping::NAME.to_owned()),
+            operation: Operation::Call {
+                action: Ping::NAME.to_owned(),
+            },
         }]
     );
     let logged = logs.text();
@@ -280,8 +273,6 @@ async fn an_agent_reaches_the_realm_workspace_and_profile_but_not_another_agent(
     );
 }
 
-/// A client's call is answered at the realm and at an agent, and
-/// refused at the workspace and at the profile.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_client_reaches_the_realm_and_an_agent_but_not_the_workspace_or_profile()
  {
@@ -302,7 +293,7 @@ async fn a_client_reaches_the_realm_and_an_agent_but_not_the_workspace_or_profil
             .await;
         outcomes.push((
             to.kind.clone(),
-            outcome(called).map(|(code, _)| code),
+            failure(called).map(|failure| failure.code),
         ));
     }
     host.shutdown().await.unwrap();
@@ -318,8 +309,6 @@ async fn a_client_reaches_the_realm_and_an_agent_but_not_the_workspace_or_profil
     );
 }
 
-/// An agent's create of another agent fails with `actor.refused`, and
-/// leaves no file for its key.
 #[tokio::test(flavor = "multi_thread")]
 async fn an_agents_create_of_another_agent_is_refused_and_leaves_no_file()
  {
@@ -339,7 +328,7 @@ async fn an_agents_create_of_another_agent_is_refused_and_leaves_no_file()
     .unwrap();
     host.shutdown().await.unwrap();
     assert_eq!(
-        made.map(|(code, _)| code).as_deref(),
+        made.map(|failure| failure.code).as_deref(),
         Some("actor.refused")
     );
     assert!(!any_file_of(&dir, "agent", "b"));

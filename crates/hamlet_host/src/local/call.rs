@@ -18,7 +18,7 @@ use super::access::current;
 use super::{Host, HostInner, Open, host_shut_down};
 use crate::directory::Address;
 use crate::event::HostEvent;
-use crate::route::CallerKind;
+use crate::route::{CallerKind, Operation};
 
 /// An operation the route table does not let its caller make.
 #[derive(ActorError, Serialize)]
@@ -150,7 +150,13 @@ impl HostInner {
         args: Vec<u8>,
         deadline: Duration,
     ) -> Result<Vec<u8>> {
-        self.admit("call", Some(name), caller.as_ref(), to)?;
+        self.admit(
+            Operation::Call {
+                action: name.to_owned(),
+            },
+            caller.as_ref(),
+            to,
+        )?;
         let actor_id = self.located(&to.kind, &to.key)?;
         let params = stamp(caller.as_ref())?;
         let span = tracing::debug_span!(
@@ -186,11 +192,9 @@ impl HostInner {
     /// Refuses an actor's `operation` of itself, which would wait for
     /// its own handler or its own start, and reports and refuses an
     /// operation the route table does not let its caller make.
-    /// `action` is a call's action.
     pub(super) fn admit(
         &self,
-        operation: &str,
-        action: Option<&str>,
+        operation: Operation,
         caller: Option<&Caller>,
         to: &Address,
     ) -> Result<()> {
@@ -201,7 +205,7 @@ impl HostInner {
             && actor == to
         {
             return Err(ActorRuntime::InvalidOperation {
-                operation: operation.to_owned(),
+                operation: operation.to_string(),
                 reason: format!(
                     "the actor {}/{} is its own target",
                     to.kind, to.key
@@ -215,22 +219,22 @@ impl HostInner {
         tracing::warn!(
             caller = %from,
             actor_id = format!("{}/{}", to.kind, to.key),
-            operation,
-            action,
+            ?operation,
             "the host refused an operation its route table does not \
              allow"
         );
-        let _ = self.events.send(HostEvent::Refused {
-            from: from.clone(),
-            to: to.clone(),
-            action: action.map(str::to_owned),
-        });
-        Err(Refused {
-            operation: operation.to_owned(),
+        let refused = Refused {
+            operation: operation.to_string(),
             from: CallerKind::of(from),
             to: to.kind.clone(),
         }
-        .build())
+        .build();
+        let _ = self.events.send(HostEvent::Refused {
+            from: from.clone(),
+            to: to.clone(),
+            operation,
+        });
+        Err(refused)
     }
 }
 

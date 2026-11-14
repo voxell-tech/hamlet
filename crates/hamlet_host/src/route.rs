@@ -26,7 +26,6 @@ pub enum CallerKind {
 }
 
 impl CallerKind {
-    /// The kind of `caller`.
     pub(crate) fn of(caller: &Caller) -> Self {
         match caller {
             Caller::Actor(from) => Self::Actor(from.kind.clone()),
@@ -35,8 +34,6 @@ impl CallerKind {
     }
 }
 
-/// As a refusal names a caller: an actor by its kind, a client as
-/// `client`.
 impl std::fmt::Display for CallerKind {
     fn fmt(
         &self,
@@ -49,9 +46,29 @@ impl std::fmt::Display for CallerKind {
     }
 }
 
-/// The (caller, target kind) pairs a host lets through. A call, a
-/// create or a get-or-start with a caller passes only for a pair the
-/// table holds.
+/// What a caller asks of an actor.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Operation {
+    Call { action: String },
+    Create,
+    GetOrStart,
+}
+
+impl std::fmt::Display for Operation {
+    fn fmt(
+        &self,
+        f: &mut std::fmt::Formatter<'_>,
+    ) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Call { .. } => "call",
+            Self::Create => "create",
+            Self::GetOrStart => "get_or_start",
+        })
+    }
+}
+
+/// The (caller, target kind) pairs a host lets through.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Routes {
@@ -76,7 +93,6 @@ impl Routes {
         )
     }
 
-    /// Whether the table lets `caller` reach an actor of `kind`.
     pub(crate) fn allows(&self, caller: &Caller, kind: &str) -> bool {
         match self {
             Self::Any => true,

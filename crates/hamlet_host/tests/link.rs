@@ -7,7 +7,7 @@ use std::thread;
 use hamlet_host::link::{
     self, Broken, FRAME_LIMIT, Frame, PROTOCOL, WireError,
 };
-use hamlet_host::route::{CallerKind, Routes};
+use hamlet_host::route::{CallerKind, Operation, Routes};
 use hamlet_host::{Address, Caller, HostEvent};
 use serde_bytes::ByteBuf;
 use serde_reflection::{Tracer, TracerConfig};
@@ -98,7 +98,9 @@ fn every_frame() -> Vec<Frame> {
         Frame::HostEvent(HostEvent::Refused {
             from: Caller::Actor(Address::new("agent", "a1")),
             to: Address::new("agent", "a2"),
-            action: Some("ping".to_owned()),
+            operation: Operation::Call {
+                action: "ping".to_owned(),
+            },
         }),
     ]
 }
@@ -206,6 +208,7 @@ fn shapes() -> String {
     tracer.trace_simple_type::<Caller>().unwrap();
     tracer.trace_simple_type::<CallerKind>().unwrap();
     tracer.trace_simple_type::<Routes>().unwrap();
+    tracer.trace_simple_type::<Operation>().unwrap();
     tracer.trace_simple_type::<HostEvent>().unwrap();
     tracer
         .trace_simple_type::<Result<ByteBuf, WireError>>()
