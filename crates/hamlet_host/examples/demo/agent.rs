@@ -7,6 +7,8 @@
 //!                    call <call>
 //! demo agent <n> status <command>
 //!                    ask how agent <n>'s command stands
+//! demo agent <n> write <call> <path> <content ...>
+//!                    write a file for agent <n>, as its call <call>
 //! ```
 //!
 //! Its start makes `actors/agent/<n>.fs/`, the agent's filesystem.
@@ -20,6 +22,9 @@
 //! code 0 after the name of its end, as in `done/<call>/timed_out 0`.
 //! An end whose output was cut first prints `cut/<call> <bytes>`, the
 //! size of all the command printed, kept in the file the end names.
+//! `write` prints `changed/<call> 1` when it made the file and
+//! `changed/<call> 0` when it replaced one, or `refused/<call> 1` or
+//! `failed/<call> 1` and logs why.
 
 use std::io::Write;
 use std::sync::Arc;
@@ -33,6 +38,7 @@ use hamlet_actor_core::{
 use hamlet_actors::workspace;
 use hamlet_host::{Address, Caller, Cause, Host, HostRef};
 use hamlet_messages::agent::Finished;
+use hamlet_messages::workspace::files::{ChangeAnswer, WriteFile};
 use hamlet_messages::workspace::{
     AgentNumber, CallId, CommandEnd, CommandId, CommandStatus,
     ConversationId, Exit, Run, RunAnswer, Shell,
@@ -64,7 +70,8 @@ struct Ask {
 }
 
 impl Action for Ask {
-    type Output = RunAnswer;
+    /// The workspace's answer, as it encoded it.
+    type Output = Vec<u8>;
     const NAME: &'static str = "ask";
 }
 
@@ -101,8 +108,8 @@ impl Handler<Ask> for Agent {
         self: Arc<Self>,
         ctx: Ctx<Self>,
         ask: Ask,
-    ) -> Result<RunAnswer> {
-        let reply = Host::call_from(
+    ) -> Result<Vec<u8>> {
+        Host::call_from(
             ctx.inner(),
             &Address::new(workspace::KIND, workspace::MACHINE),
             &ask.name,
@@ -110,8 +117,7 @@ impl Handler<Ask> for Agent {
             Duration::from_secs(10),
             Cause::root("agent"),
         )
-        .await?;
-        Ok(ciborium::from_reader(reply.as_slice())?)
+        .await
     }
 }
 
@@ -151,12 +157,13 @@ pub async fn run(host: &Host, words: &[String]) -> Result<()> {
         bail!("usage: demo agent <n> run|status ...");
     };
     let agent = AgentNumber(number.parse()?);
+    let conversation = ConversationId("demo".to_owned());
     let (name, args, call) = match (verb.as_str(), rest) {
         ("run", [call, script @ ..]) if !script.is_empty() => {
             let run = Run {
                 agent,
                 call: CallId(call.clone()),
-                conversation: ConversationId("demo".to_owned()),
+                conversation,
                 realm_task: None,
                 shell: Shell::Bash,
                 script: script.join(" "),
@@ -175,9 +182,22 @@ pub async fn run(host: &Host, words: &[String]) -> Result<()> {
                 hamlet_actor::action::encode_positional(&status)?;
             (CommandStatus::NAME, args, None)
         }
+        ("write", [call, path, content @ ..]) => {
+            let write = WriteFile {
+                agent,
+                call: CallId(call.clone()),
+                conversation,
+                realm_task: None,
+                path: path.into(),
+                content: content.join(" "),
+            };
+            let args =
+                hamlet_actor::action::encode_positional(&write)?;
+            (WriteFile::NAME, args, Some(call))
+        }
         _ => bail!(
             "usage: demo agent <n> run <call> <script ...> | status \
-             <command>"
+             <command> | write <call> <path> <content ...>"
         ),
     };
     host.get_or_start(workspace::KIND, workspace::MACHINE)
@@ -196,8 +216,28 @@ pub async fn run(host: &Host, words: &[String]) -> Result<()> {
             Cause::root("demo"),
         )
         .await?;
-    let answer: RunAnswer = ciborium::from_reader(reply.as_slice())?;
+    let reply: Vec<u8> = ciborium::from_reader(reply.as_slice())?;
     let mut out = std::io::stdout();
+    if name == WriteFile::NAME {
+        let call = call.map_or("", String::as_str);
+        match ciborium::from_reader(reply.as_slice())? {
+            ChangeAnswer::Changed(change) => writeln!(
+                out,
+                "changed/{call} {}",
+                i64::from(change.created)
+            )?,
+            ChangeAnswer::Refused(refusal) => {
+                tracing::warn!(%refusal, "the workspace refused agent {number}");
+                writeln!(out, "refused/{call} 1")?;
+            }
+            ChangeAnswer::Failed(words) => {
+                tracing::warn!(%words, "agent {number}'s write failed");
+                writeln!(out, "failed/{call} 1")?;
+            }
+        }
+        return Ok(());
+    }
+    let answer: RunAnswer = ciborium::from_reader(reply.as_slice())?;
     match (answer, call) {
         (RunAnswer::Done(end), Some(call)) => {
             print_cut(call, &end)?;
