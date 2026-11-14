@@ -77,6 +77,20 @@ pub enum Frame {
     HostEvent(HostEvent),
 }
 
+impl Frame {
+    /// The frame's tag as serde writes it, such as `request`.
+    pub(crate) fn name(&self) -> String {
+        match ciborium::Value::serialized(self) {
+            Ok(ciborium::Value::Text(name)) => name,
+            Ok(ciborium::Value::Map(fields)) => fields
+                .into_iter()
+                .find_map(|(tag, _)| tag.into_text().ok())
+                .unwrap_or_default(),
+            _ => String::new(),
+        }
+    }
+}
+
 /// An operation one host asks of an actor in the other.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

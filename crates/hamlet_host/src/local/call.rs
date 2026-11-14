@@ -116,14 +116,7 @@ impl HostInner {
                     self.act(&stamp, to, name, args, deadline).await
                 }
                 (Place::Linked(port), Origin::Here) => {
-                    port.call(
-                        stamp.caller(),
-                        to,
-                        name,
-                        args,
-                        deadline,
-                    )
-                    .await
+                    port.call(&stamp, to, name, args, deadline).await
                 }
                 (Place::Linked(_), Origin::Peer) => {
                     Err(not_registered(to.kind()))

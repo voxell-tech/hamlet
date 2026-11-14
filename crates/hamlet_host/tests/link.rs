@@ -267,13 +267,15 @@ fn the_frames_shapes_are_recorded() {
     );
 }
 
+#[path = "support/linked.rs"]
+mod linked;
 #[path = "support/logs.rs"]
 mod logs;
 
 /// The handshake, with a stand-in Node host as the child: the
 /// example `link_child`, built beside this test.
 mod handshake {
-    use std::collections::BTreeMap;
+    use std::collections::{BTreeMap, HashMap};
     use std::io::{Read, Write};
     #[cfg(unix)]
     use std::os::unix::process::ExitStatusExt;
@@ -281,9 +283,12 @@ mod handshake {
     use std::process::Stdio;
     use std::time::{Duration, Instant};
 
-    use hamlet_host::child::{ChildOptions, LinkState, Supervisor};
+    use hamlet_host::child::{
+        self, ChildOptions, LinkState, Supervisor,
+    };
     use hamlet_host::link::{self, Frame, PROTOCOL};
     use hamlet_host::route::Routes;
+    use hamlet_host::{Host, HostOptions};
     use hamlet_os::process::{Command, Pipes, Tree};
     use hamlet_testing::Scratch;
     use hamlet_testing::signals::is_alive;
@@ -293,6 +298,7 @@ mod handshake {
     use tokio::sync::watch;
     use tracing_subscriber::filter::LevelFilter;
 
+    use super::linked::{self, stand_in};
     use super::logs::Logs;
 
     /// How long a test waits for a child to be ready.
@@ -314,38 +320,23 @@ mod handshake {
         Holds,
     }
 
-    /// The stand-in Node host, in the `examples` folder of the
-    /// profile's folder, which holds this test at some depth: the
-    /// depth differs between cargo's build layouts.
-    fn stand_in() -> PathBuf {
-        let exe = std::env::current_exe().unwrap();
-        exe.ancestors()
-            .map(|folder| {
-                folder.join("examples").join(format!(
-                    "link_child{}",
-                    std::env::consts::EXE_SUFFIX
-                ))
-            })
-            .find(|path| path.exists())
-            .unwrap_or_else(|| {
-                panic!(
-                    "no stand-in Node host above {}: build it with \
-                     `cargo build -p hamlet_host --examples`",
-                    exe.display()
-                )
-            })
+    /// A Rust host of no kinds on `home`, with the stand-in run with
+    /// `args` as its child.
+    fn open(home: &Path, args: &[&str]) -> (Host, Supervisor) {
+        open_with(home, linked::child(args))
     }
 
-    fn options(home: &Path, args: &[&str]) -> ChildOptions {
-        let mut argv = vec![stand_in().to_str().unwrap().to_owned()];
-        argv.extend(args.iter().map(|arg| (*arg).to_owned()));
-        ChildOptions {
-            argv,
-            home: home.to_str().unwrap().to_owned(),
-            kinds: vec!["realm".to_owned()],
-            node_kinds: vec!["agent".to_owned()],
-            routes: Routes::Any,
-        }
+    fn open_with(
+        home: &Path,
+        child: ChildOptions,
+    ) -> (Host, Supervisor) {
+        child::open(
+            home,
+            HashMap::new(),
+            HostOptions::default(),
+            child,
+        )
+        .unwrap()
     }
 
     /// The stand-in, started by the test itself on `home`, with this
@@ -419,8 +410,7 @@ mod handshake {
     #[tokio::test]
     async fn a_child_gets_ready_and_exits_cleanly_at_the_shutdown() {
         let home = Scratch::new("link-ready");
-        let supervisor =
-            Supervisor::start(options(&home, &[])).unwrap();
+        let (_host, supervisor) = open(&home, &[]);
         wait_for(&mut supervisor.state(), LinkState::Ready).await;
         assert!(home.join("node.lock").exists());
         let status =
@@ -433,11 +423,8 @@ mod handshake {
         let home = Scratch::new("link-protocol");
         let logs = Logs::default();
         let _recording = logs.record(LevelFilter::ERROR);
-        let supervisor = Supervisor::start(options(
-            &home,
-            &["--protocol", "9.0.0"],
-        ))
-        .unwrap();
+        let (_host, supervisor) =
+            open(&home, &["--protocol", "9.0.0"]);
         let state = supervisor.state();
         let deadline = Instant::now() + READY_WAIT;
         while !has_line(&logs, &["refused", "9.0.0"]) {
@@ -454,7 +441,7 @@ mod handshake {
      {
         let home = Scratch::new("link-restart");
         let record = home.join("starts");
-        let supervisor = Supervisor::start(options(
+        let (_host, supervisor) = open(
             &home,
             &[
                 "--protocol",
@@ -462,8 +449,7 @@ mod handshake {
                 "--starts",
                 record.to_str().unwrap(),
             ],
-        ))
-        .unwrap();
+        );
         let starts = wait_for_starts(&record, 3).await;
         supervisor.shutdown().await;
         for pair in starts.windows(2) {
@@ -479,10 +465,10 @@ mod handshake {
         let record = home.join("starts");
         let logs = Logs::default();
         let _recording = logs.record(LevelFilter::ERROR);
-        let mut options =
-            options(&home, &["--starts", record.to_str().unwrap()]);
-        options.node_kinds = vec!["profile".to_owned()];
-        let supervisor = Supervisor::start(options).unwrap();
+        let mut child =
+            linked::child(&["--starts", record.to_str().unwrap()]);
+        child.kinds = vec!["profile".to_owned()];
+        let (_host, supervisor) = open_with(&home, child);
         wait_for_starts(&record, 2).await;
         assert!(
             has_line(&logs, &["refused", "profile"]),
@@ -491,15 +477,14 @@ mod handshake {
         );
         supervisor.shutdown().await;
         assert!(!home.join("node.lock").exists());
-        assert!(!home.join("actors").exists());
+        assert!(!home.join("actors").join("agent").exists());
     }
 
     #[tokio::test]
     async fn a_second_node_host_on_the_folder_fails_at_its_lock_and_is_never_ready()
      {
         let home = Scratch::new("link-lock");
-        let supervisor =
-            Supervisor::start(options(&home, &[])).unwrap();
+        let (_host, supervisor) = open(&home, &[]);
         let mut state = supervisor.state();
         wait_for(&mut state, LinkState::Ready).await;
 
@@ -549,11 +534,8 @@ mod handshake {
         }));
         let home = Scratch::new("link-env");
         let names = home.join("env");
-        let supervisor = Supervisor::start(options(
-            &home,
-            &["--env", names.to_str().unwrap()],
-        ))
-        .unwrap();
+        let (_host, supervisor) =
+            open(&home, &["--env", names.to_str().unwrap()]);
         wait_for(&mut supervisor.state(), LinkState::Ready).await;
         supervisor.shutdown().await;
 
@@ -578,8 +560,7 @@ mod handshake {
     async fn what_a_child_wrote_to_the_standard_output_it_started_with_does_not_reach_the_link()
      {
         let home = Scratch::new("link-stray");
-        let supervisor =
-            Supervisor::start(options(&home, &["--stray"])).unwrap();
+        let (_host, supervisor) = open(&home, &["--stray"]);
         wait_for(&mut supervisor.state(), LinkState::Ready).await;
         let status =
             supervisor.shutdown().await.expect("a child ran");
@@ -601,8 +582,7 @@ mod handshake {
         if hold {
             args.push("--hold");
         }
-        let supervisor =
-            Supervisor::start(options(&home, &args)).unwrap();
+        let (_host, supervisor) = open(&home, &args);
         if !hold {
             wait_for(&mut supervisor.state(), LinkState::Ready).await;
         }

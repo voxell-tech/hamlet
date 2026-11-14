@@ -42,7 +42,8 @@ fn call(
 ) -> JoinHandle<Result<Vec<u8>>> {
     let port = port.clone();
     tokio::spawn(async move {
-        port.call(None, &to, "slow", Vec::new(), deadline).await
+        port.call(&Stamp::PROGRAM, &to, "slow", Vec::new(), deadline)
+            .await
     })
 }
 
@@ -124,11 +125,13 @@ impl Linked {
 
 async fn asked(port: &Port, to: &Address) -> [String; 2] {
     let called = port
-        .call(None, to, "who", Vec::new(), TEN_S)
+        .call(&Stamp::PROGRAM, to, "who", Vec::new(), TEN_S)
         .await
         .unwrap_err();
-    let created =
-        port.create(None, to, Vec::new()).await.unwrap_err();
+    let created = port
+        .create(&Stamp::PROGRAM, to, Vec::new())
+        .await
+        .unwrap_err();
     [code(&called), code(&created)]
 }
 
@@ -136,15 +139,20 @@ async fn asked(port: &Port, to: &Address) -> [String; 2] {
 async fn the_node_hosts_program_asks_nothing_across_the_link() {
     let mut node = Linked::ready(Role::Node);
     let realm = at("realm", "r");
-    for caller in [None, Some(Caller::Client)] {
+    let peer = Side::new(Role::Rust, ["realm".to_owned()])
+        .vet(Some(Caller::Actor(at("realm", "x"))))
+        .unwrap();
+    for stamp in
+        [Stamp::PROGRAM, Stamp::client(), Stamp::from_peer(peer)]
+    {
         let called = node
             .port
-            .call(caller.as_ref(), &realm, "who", Vec::new(), TEN_S)
+            .call(&stamp, &realm, "who", Vec::new(), TEN_S)
             .await
             .unwrap_err();
         let created = node
             .port
-            .create(caller.as_ref(), &realm, Vec::new())
+            .create(&stamp, &realm, Vec::new())
             .await
             .unwrap_err();
         assert_eq!(
@@ -156,10 +164,10 @@ async fn the_node_hosts_program_asks_nothing_across_the_link() {
 
     let agent = Caller::Actor(at("agent", "a"));
     let called = tokio::spawn({
-        let (port, agent) = (node.port.clone(), agent.clone());
+        let port = node.port.clone();
         async move {
-            port.call(Some(&agent), &realm, "who", Vec::new(), TEN_S)
-                .await
+            let stamp = Stamp::actor(at("agent", "a"));
+            port.call(&stamp, &realm, "who", Vec::new(), TEN_S).await
         }
     });
     let Frame::Request { id, from, .. } = node.next().await else {
@@ -224,7 +232,13 @@ async fn a_dropped_call_leaves_nothing_pending() {
     let agent = at("agent", "a");
     let dropped = tokio::time::timeout(
         SHORT,
-        rust.port.call(None, &agent, "slow", Vec::new(), TEN_S),
+        rust.port.call(
+            &Stamp::PROGRAM,
+            &agent,
+            "slow",
+            Vec::new(),
+            TEN_S,
+        ),
     )
     .await;
     assert!(dropped.is_err());
@@ -233,7 +247,7 @@ async fn a_dropped_call_leaves_nothing_pending() {
 
     let timed_out = rust
         .port
-        .call(None, &agent, "slow", Vec::new(), SHORT)
+        .call(&Stamp::PROGRAM, &agent, "slow", Vec::new(), SHORT)
         .await
         .unwrap_err();
     assert_eq!(code(&timed_out), "actor.action_timed_out");
@@ -247,7 +261,7 @@ async fn a_reply_to_an_id_that_is_not_out_is_dropped() {
     let agent = at("agent", "a");
     let timed_out = rust
         .port
-        .call(None, &agent, "slow", Vec::new(), SHORT)
+        .call(&Stamp::PROGRAM, &agent, "slow", Vec::new(), SHORT)
         .await
         .unwrap_err();
     assert_eq!(code(&timed_out), "actor.action_timed_out");
@@ -412,7 +426,7 @@ async fn a_request_or_reply_over_the_limit_is_an_uncoded_error() {
     let asked = rust
         .port
         .call(
-            None,
+            &Stamp::PROGRAM,
             &at("agent", "a"),
             "big",
             vec![0; FRAME_LIMIT],

@@ -164,6 +164,15 @@ impl Stamp {
         }
     }
 
+    /// The stamp of an operation the actor at `at` makes here.
+    #[cfg(test)]
+    pub(crate) fn actor(at: Address) -> Self {
+        Self {
+            caller: Some(Caller::Actor(at)),
+            origin: Origin::Here,
+        }
+    }
+
     pub(crate) fn caller(&self) -> Option<&Caller> {
         self.caller.as_ref()
     }

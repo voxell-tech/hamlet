@@ -97,7 +97,7 @@ impl HostInner {
             (Place::Linked(port), Origin::Here, Open::New(input)) => {
                 self.within_start_deadline(
                     at,
-                    port.create(stamp.caller(), at, input),
+                    port.create(&stamp, at, input),
                 )
                 .await
             }

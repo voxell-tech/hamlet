@@ -3,7 +3,6 @@
 //! pipe with the requests in flight on it.
 
 use std::collections::HashMap;
-use std::io::ErrorKind;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -19,7 +18,7 @@ use super::frame::encode;
 use super::{
     Ask, Broken, Frame, Role, Side, Vetted, WireError, Writer,
 };
-use crate::local::Inbound;
+use crate::local::{Inbound, Origin, Stamp};
 use crate::{Address, Caller, HostEvent};
 
 /// The link's state, as the Rust host sees it.
@@ -70,6 +69,16 @@ enum Link {
     Ready(Arc<Session>),
 }
 
+impl Link {
+    fn state(&self) -> LinkState {
+        match self {
+            Self::Down => LinkState::Down,
+            Self::Welcomed(_) => LinkState::Welcomed,
+            Self::Ready(_) => LinkState::Ready,
+        }
+    }
+}
+
 pub(crate) enum Taken {
     Handled,
     Goodbye,
@@ -105,35 +114,52 @@ impl Port {
     /// Down to Welcomed: a new session on `out`, whose requests from
     /// the other host reach `host`.
     pub(crate) fn welcomed(&self, out: Writer, host: Inbound) {
-        let mut link = self.0.link.lock();
-        if let Link::Down = *link {
-            *link = Link::Welcomed(Session::new(out, host));
-            self.0.state.send_replace(LinkState::Welcomed);
-        }
+        self.shift(|link| {
+            matches!(link, Link::Down)
+                .then(|| Link::Welcomed(Session::new(out, host)))
+        });
     }
 
     /// Welcomed to Ready: this host's requests leave on the session.
     pub(crate) fn ready(&self) {
-        let mut link = self.0.link.lock();
-        if let Link::Welcomed(session) = &*link {
-            *link = Link::Ready(session.clone());
-            self.0.state.send_replace(LinkState::Ready);
-        }
+        self.shift(|link| match link {
+            Link::Welcomed(session) => {
+                Some(Link::Ready(session.clone()))
+            }
+            Link::Down | Link::Ready(_) => None,
+        });
     }
 
     /// Any state to Down. The session's requests out fail with
-    /// `link.lost`, and its later ones with `link.down`.
+    /// `link.lost`, and its later ones with `link.down`. Only the
+    /// Rust host's port goes down: the Node host's process ends with
+    /// its pipe.
     pub(crate) fn down(&self) {
-        let mut link = self.0.link.lock();
-        if let Link::Welcomed(session) | Link::Ready(session) =
-            std::mem::replace(&mut *link, Link::Down)
+        debug_assert_eq!(self.0.ours, Role::Rust);
+        let lost = self.shift(|link| {
+            (!matches!(link, Link::Down)).then_some(Link::Down)
+        });
+        if let Some(Link::Welcomed(session) | Link::Ready(session)) =
+            lost
         {
             session.lose();
-            self.0.state.send_replace(LinkState::Down);
         }
     }
 
-    /// The action `name` of the actor at `to`, for `caller`, within
+    /// Replaces the link with what `next` makes of it, if anything,
+    /// tells the state's watchers, and returns the link it replaced.
+    fn shift(
+        &self,
+        next: impl FnOnce(&Link) -> Option<Link>,
+    ) -> Option<Link> {
+        let mut link = self.0.link.lock();
+        let next = next(&link)?;
+        let replaced = std::mem::replace(&mut *link, next);
+        self.0.state.send_replace(link.state());
+        Some(replaced)
+    }
+
+    /// The action `name` of the actor at `to`, for `stamp`, within
     /// `deadline`. It fails:
     /// - at once with `link.down` unless the link is Ready;
     /// - with `link.lost` when the link goes down with the call out;
@@ -141,13 +167,13 @@ impl Port {
     /// - otherwise with the other host's error, as it gave it.
     pub(crate) async fn call(
         &self,
-        caller: Option<&Caller>,
+        stamp: &Stamp,
         to: &Address,
         name: &str,
         args: Vec<u8>,
         deadline: Duration,
     ) -> Result<Vec<u8>> {
-        self.may_ask(caller)?;
+        let caller = self.may_ask(stamp)?;
         let deadline_ms =
             u64::try_from(deadline.as_millis()).unwrap_or(u64::MAX);
         let ask = Ask::Call {
@@ -158,15 +184,15 @@ impl Port {
         self.session()?.ask(caller, to, ask, Some(deadline)).await
     }
 
-    /// Makes the actor at `at` with `input`, for `caller`. Fails as
+    /// Makes the actor at `at` with `input`, for `stamp`. Fails as
     /// [`Port::call`] does. It has no deadline of its own.
     pub(crate) async fn create(
         &self,
-        caller: Option<&Caller>,
+        stamp: &Stamp,
         at: &Address,
         input: Vec<u8>,
     ) -> Result<()> {
-        self.may_ask(caller)?;
+        let caller = self.may_ask(stamp)?;
         let ask = Ask::Create { input };
         self.session()?.ask(caller, at, ask, None).await.map(drop)
     }
@@ -178,18 +204,32 @@ impl Port {
         }
     }
 
-    /// Fails with `actor.invalid_operation`, before anything is
-    /// written, for a caller this host does not ask for.
-    fn may_ask(&self, caller: Option<&Caller>) -> Result<()> {
-        if matches!(caller, Some(Caller::Actor(_)))
-            || self.0.ours.has_a_program()
-        {
-            return Ok(());
-        }
+    /// The caller of `stamp`, which this host asks for: one of its
+    /// actors, or in the Rust host its program or a client. Fails
+    /// with `actor.invalid_operation` for any other, before anything
+    /// is written, and for an operation the other host asked for.
+    fn may_ask<'a>(
+        &self,
+        stamp: &'a Stamp,
+    ) -> Result<Option<&'a Caller>> {
+        let caller = stamp.caller();
+        let reason = match (stamp.origin(), caller) {
+            (Origin::Here, Some(Caller::Actor(_))) => {
+                return Ok(caller);
+            }
+            (Origin::Here, _) if self.0.ours.has_a_program() => {
+                return Ok(caller);
+            }
+            (Origin::Here, _) => {
+                "the Node host asks only as one of its actors"
+            }
+            (Origin::Peer, _) => {
+                "an operation the other host asked for runs here"
+            }
+        };
         Err(ActorRuntime::InvalidOperation {
             operation: "ask across the link".to_owned(),
-            reason: "the Node host asks only as one of its actors"
-                .to_owned(),
+            reason: reason.to_owned(),
         }
         .build())
     }
@@ -202,7 +242,7 @@ impl Port {
                 session.clone()
             }
             Link::Down => {
-                return Err(Broken::OutOfTurn(name(&frame)));
+                return Err(Broken::OutOfTurn(frame.name()));
             }
         };
         match frame {
@@ -218,7 +258,7 @@ impl Port {
             Frame::Goodbye if self.0.theirs.role == Role::Rust => {
                 return Ok(Taken::Goodbye);
             }
-            frame => return Err(Broken::OutOfTurn(name(&frame))),
+            frame => return Err(Broken::OutOfTurn(frame.name())),
         }
         Ok(Taken::Handled)
     }
@@ -334,20 +374,21 @@ impl Session {
         });
     }
 
+    /// Writes the reply to `id`. A reply that cannot be a frame, as
+    /// one over the limit, is answered with the reason in its place.
     async fn reply(&self, id: u64, result: Result<Vec<u8>>) {
         let result = result
             .map(ByteBuf::from)
             .map_err(|error| WireError::of(&error));
-        if let Err(error) =
-            self.out.write(&Frame::Reply { id, result }).await
-            && error.kind() == ErrorKind::InvalidInput
-        {
-            let error = WireError::of(&anyhow::Error::new(error));
-            let reply = Frame::Reply {
-                id,
-                result: Err(error),
-            };
-            let _ = self.out.write(&reply).await;
+        let bytes =
+            encode(&Frame::Reply { id, result }).or_else(|error| {
+                encode(&Frame::Reply {
+                    id,
+                    result: Err(WireError::of(&error.into())),
+                })
+            });
+        if let Ok(bytes) = bytes {
+            let _ = self.out.queue(bytes).await;
         }
     }
 
@@ -380,20 +421,6 @@ impl Drop for Forget<'_> {
     fn drop(&mut self) {
         self.pending.lock().waiting.remove(&self.id);
     }
-}
-
-fn name(frame: &Frame) -> String {
-    match frame {
-        Frame::Hello { .. } => "hello",
-        Frame::Welcome { .. } => "welcome",
-        Frame::Refused { .. } => "refused",
-        Frame::Ready => "ready",
-        Frame::Goodbye => "goodbye",
-        Frame::Request { .. } => "request",
-        Frame::Reply { .. } => "reply",
-        Frame::HostEvent(_) => "host_event",
-    }
-    .to_owned()
 }
 
 #[cfg(test)]

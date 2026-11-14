@@ -19,9 +19,11 @@ use hamlet_protocol::Version;
 pub(crate) use peer::{Role, Side, Vetted};
 pub use port::LinkState;
 pub(crate) use port::{Port, Taken};
+use tokio::sync::broadcast::error::RecvError;
 
-use crate::child::{self, ChildOptions};
-use crate::{Host, HostOptions};
+use crate::local::Inbound;
+use crate::route::Routes;
+use crate::{Host, HostOptions, child};
 
 /// The link protocol's version. A host refuses a peer whose version
 /// is not compatible with its own by semver's caret.
@@ -46,19 +48,22 @@ pub fn fingerprint() -> &'static str {
 }
 
 /// The Rust host's answer to a Node host's hello: a
-/// [`Frame::Welcome`] stating the Rust host's own kinds and routes,
-/// or a [`Frame::Refused`] when the hello's protocol is not
-/// compatible with [`PROTOCOL`], its fingerprint is not
-/// [`fingerprint`], or its kinds are not the ones the Node host must
-/// hold.
+/// [`Frame::Welcome`] stating the Rust host's kinds `ours` and its
+/// route table `routes`, or a [`Frame::Refused`] when the hello's
+/// protocol is not compatible with [`PROTOCOL`], its fingerprint is
+/// not [`fingerprint`], or its kinds are not the ones `port` sends to
+/// the Node host.
 pub(crate) fn answer(
     protocol: &Version,
     theirs: &str,
     kinds: &[String],
-    options: &ChildOptions,
+    port: &Port,
+    ours: &[String],
+    routes: &Routes,
 ) -> Frame {
     let held = kinds.iter().collect::<BTreeSet<_>>();
-    let expected = options.node_kinds.iter().collect::<BTreeSet<_>>();
+    let expected =
+        port.theirs().kinds.iter().collect::<BTreeSet<_>>();
     let reason = if !protocol.is_compatible(&PROTOCOL) {
         format!(
             "the link protocol {protocol} is not compatible with \
@@ -78,53 +83,61 @@ pub(crate) fn answer(
         return Frame::Welcome {
             protocol: PROTOCOL,
             fingerprint: fingerprint().to_owned(),
-            kinds: options.kinds.clone(),
-            routes: options.routes.clone(),
+            kinds: ours.to_vec(),
+            routes: routes.clone(),
         };
     };
     Frame::Refused { reason }
 }
 
-/// Serves the Node host's half of the link, on the ends
-/// [`child::take_link`] took. Says hello with the kinds of
-/// `factories` before it opens any file. Once welcomed, opens the
-/// folder `HAMLET_HOME` as the host `node` with them and the
-/// welcome's routes, boots it, says it is ready, and at the goodbye
-/// shuts the host down and returns.
-/// Fails with the Rust host's reason when it refuses the hello, and
-/// when the folder does not open or boot.
+/// Serves the Node host's half of the link until the Rust host's
+/// goodbye, on the ends [`child::take_link`] took. Says hello with
+/// the kinds of `factories` before it opens any file. Once welcomed,
+/// opens the folder `HAMLET_HOME` as the host `node` with them and
+/// the welcome's routes, its actors' calls to the welcome's kinds
+/// going to the Rust host. Takes the Rust host's frames from then on,
+/// boots the host and says it is ready. At the goodbye it shuts the
+/// host down and returns.
+///
+/// No actor of this host sees `link.down` or `link.lost`: the link is
+/// up before boot starts any actor, and when the pipe fails either
+/// way, this process ends at once.
+///
+/// Fails with the Rust host's reason when it refuses the hello, when
+/// the folder does not open or boot, and when the Rust host breaks
+/// the link's rules.
 pub async fn serve(
     factories: HashMap<String, ActorFactory>,
 ) -> Result<()> {
-    let child::Ends {
-        mut frames,
-        mut output,
-    } = child::take_ends().context(
-        "the link's ends are not taken: call take_link first, and \
-         serve the link once",
-    )?;
+    let child::Ends { mut frames, output } = child::take_ends()
+        .context(
+            "the link's ends are not taken: call take_link first, \
+             and serve the link once",
+        )?;
     let home = std::env::var_os(child::HOME)
         .with_context(|| format!("{} is not set", child::HOME))?;
+    let out =
+        Writer::start(output, "link-output", AtBreak::EndProcess)?;
     let mut kinds = factories.keys().cloned().collect::<Vec<_>>();
     kinds.sort_unstable();
-    write(
-        &mut output,
-        &Frame::Hello {
-            protocol: PROTOCOL,
-            fingerprint: fingerprint().to_owned(),
-            kinds,
-            pid: std::process::id(),
-        },
-    )?;
-    let routes = match frames.recv().await {
-        Some(Frame::Welcome { routes, .. }) => routes,
+    out.write(&Frame::Hello {
+        protocol: PROTOCOL,
+        fingerprint: fingerprint().to_owned(),
+        kinds,
+        pid: std::process::id(),
+    })
+    .await?;
+    let (theirs, routes) = match frames.recv().await {
+        Some(Frame::Welcome { kinds, routes, .. }) => (kinds, routes),
         Some(Frame::Refused { reason }) => {
             bail!("the Rust host refused this Node host: {reason}")
         }
         Some(Frame::Goodbye) => return Ok(()),
-        frame => bail!("the Rust host wrote {frame:?} out of turn"),
+        Some(frame) => bail!(Broken::OutOfTurn(frame.name())),
+        None => bail!("the link's input is gone"),
     };
-    let host = Host::open_with(
+    let port = Port::new(Role::Node, theirs);
+    let host = Host::open_linked(
         Path::new(&home),
         factories,
         HostOptions {
@@ -132,11 +145,49 @@ pub async fn serve(
             routes,
             ..HostOptions::default()
         },
+        Some(port.clone()),
     )?;
-    host.boot().await?;
-    write(&mut output, &Frame::Ready)?;
-    match frames.recv().await {
-        Some(Frame::Goodbye) => host.shutdown().await,
-        frame => bail!("the Rust host wrote {frame:?} out of turn"),
+    port.welcomed(out.clone(), Inbound::of(&host)?);
+    port.ready();
+    let mut events = host.events();
+    let mut reporting = true;
+    let taking = async {
+        loop {
+            tokio::select! {
+                frame = frames.recv() => match frame {
+                    Some(frame) => match port.take(frame)? {
+                        Taken::Handled => {}
+                        Taken::Goodbye => return anyhow::Ok(()),
+                    },
+                    // The input's end ends the process, so the
+                    // frames end only with it.
+                    None => std::future::pending().await,
+                },
+                event = events.recv(), if reporting => match event {
+                    Ok(event) => {
+                        let _ = out.write(&Frame::HostEvent(event)).await;
+                    }
+                    Err(RecvError::Lagged(missed)) => tracing::warn!(
+                        missed,
+                        "the Rust host missed events of this host"
+                    ),
+                    Err(RecvError::Closed) => reporting = false,
+                },
+            }
+        }
+    };
+    let booting = async {
+        host.boot().await?;
+        out.write(&Frame::Ready).await?;
+        anyhow::Ok(())
+    };
+    let mut taking = std::pin::pin!(taking);
+    tokio::select! {
+        booted = booting => {
+            booted?;
+            taking.await?;
+        }
+        taken = &mut taking => taken?,
     }
+    host.shutdown().await
 }
