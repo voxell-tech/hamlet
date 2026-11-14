@@ -1,5 +1,5 @@
 //! Ending an agent's commands: a cancel from the realm or the agent,
-//! and an agent whose reach ended (W4).
+//! and an agent whose reach ended.
 
 use std::time::{Duration, Instant};
 
@@ -306,7 +306,7 @@ pub(super) async fn realm_sets_for(
     .await
 }
 
-/// W4: when an agent's reach ends, its running commands end in the
+/// when an agent's reach ends, its running commands end in the
 /// handling of that call, so none runs on once the realm has its
 /// answer, and the agent is told each once. Another agent's command
 /// runs on, and the ended agent starts no command.
@@ -369,7 +369,7 @@ async fn an_ended_reach_ends_the_agents_commands() {
     );
 }
 
-/// W4: an ended reach closes the agent's waits for a chief in the
+/// an ended reach closes the agent's waits for a chief in the
 /// same change: the agent is told its call's wait lapsed, a chief's
 /// allow a moment later finds no wait and starts nothing, and a
 /// repeat of the call answers that it lapsed.
@@ -413,10 +413,10 @@ async fn an_ended_reach_closes_the_agents_waits() {
     assert!(!folder.join("marker").exists());
 }
 
-/// A chief's allow and the agent's end, sent together, never let a
+/// A chief's allow and the agent's end, called at once, never let a
 /// command of the ended agent run: whichever comes first, the agent
 /// is told once, and the command's file is never made. Every other
-/// round sends the end a moment later, so both orders occur.
+/// round calls with the end a moment later, so both orders occur.
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn an_allow_racing_an_ended_reach_runs_nothing() {

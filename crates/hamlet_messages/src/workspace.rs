@@ -152,7 +152,7 @@ pub enum AnswerTaken {
     Refused(RealmRefusal),
 }
 
-/// A call of an agent's tool from a caller it is not for (W2).
+/// A call of an agent's tool from a caller it is not for.
 #[derive(
     Clone,
     Debug,

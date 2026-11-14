@@ -538,7 +538,7 @@ mod tests {
         list.iter().map(PathBuf::from).collect()
     }
 
-    /// C18, C20, 4.2: an agent with a project folder writes it and
+    /// C18, C20: an agent with a project folder writes it and
     /// its own filesystem, and reads the machine but the realm
     /// folder, with the chief's environment.
     #[test]
@@ -563,7 +563,7 @@ mod tests {
         assert_eq!(placed.cwd, PathBuf::from("/work/project"));
     }
 
-    /// C18, C16, 4.2: the Hand or a hire with no folder works in its
+    /// C18, C16: the Hand or a hire with no folder works in its
     /// own filesystem, which is its home, and reads nothing else of
     /// the machine.
     #[test]
@@ -585,7 +585,7 @@ mod tests {
         );
     }
 
-    /// H42, C18, 4.2: a worker writes its scratch folder and the
+    /// H42, C18: a worker writes its scratch folder and the
     /// project, and reads its starter's filesystem, never its own
     /// or another agent's.
     #[test]
@@ -633,7 +633,7 @@ mod tests {
         }
     }
 
-    /// 4.2: a worker with no project works in its scratch folder,
+    /// a worker with no project works in its scratch folder,
     /// which is its home.
     #[test]
     fn a_worker_with_no_project_works_in_its_scratch_folder() {
@@ -651,7 +651,7 @@ mod tests {
         );
     }
 
-    /// A4: a file tool's policy does not write the agent's own
+    /// a file tool's policy does not write the agent's own
     /// filesystem, so a link into it is refused when the work checks
     /// the real path.
     #[test]
@@ -672,8 +672,8 @@ mod tests {
         }
     }
 
-    /// The "You see" box: a change outside the reach is refused with
-    /// its path, before any chief is asked, also in manual mode.
+    /// A change outside the reach is refused with its path, before
+    /// any chief is asked, also in manual mode.
     #[test]
     fn a_change_outside_the_reach_names_the_path() {
         let reach = Reach::Agent(footing(project(Mode::Manual)));
@@ -804,7 +804,7 @@ mod tests {
         );
     }
 
-    /// W3: no call passes while the workspace's list of secrets is
+    /// C32: no call passes while the workspace's list of secrets is
     /// older than the reach's, or missing after a restart, even one
     /// that would wait for a chief. A refusal needs no list.
     #[test]

@@ -149,7 +149,8 @@ async fn a_write_and_an_edit_change_the_project() {
 /// in manual mode, before anything else, and nothing is written: by
 /// `..`, by a full path, by a link out of the project and by a link
 /// into the agent's own filesystem. An edit of a file that is not
-/// UTF-8 fails in today's words and leaves it as it was.
+/// UTF-8 fails in the words of the server's tools and leaves it as it
+/// was.
 // Ported from the server's `writes_and_edits_nothing_out_of_reach`.
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
@@ -369,11 +370,11 @@ async fn a_repeat_of_a_change_answers_from_its_row() {
     assert_eq!(read(&file), "theirs\n");
 }
 
-/// Copies of one change sent together write once, and each hears the
+/// Copies of one change called at once write once, and each hears the
 /// first one's answer.
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
-async fn copies_of_a_change_sent_together_write_once() {
+async fn copies_of_a_change_called_at_once_write_once() {
     let dir = Scratch::new("workspace-change-copies");
     let (_project, folder) = project(
         "workspace-change-copies-project",

@@ -209,7 +209,7 @@ fn size(bytes: u64) -> String {
 }
 
 /// The running output of a command, of which its last lines are kept.
-// Copied from the server's `truncate::Tail`, deleted with it.
+// Copied from the server's `truncate::Tail`.
 #[derive(Default)]
 struct Tail {
     kept: String,

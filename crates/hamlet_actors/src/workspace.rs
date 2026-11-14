@@ -81,7 +81,7 @@ pub fn factory() -> ActorFactory {
 struct Workspace {
     home: RealmFolder,
     sandbox: Sandbox,
-    /// The realm's secrets, held in memory only (W3): none after a
+    /// The realm's secrets, held in memory only: none after a
     /// start, so the first command fetches them.
     secrets: Mutex<Option<Held>>,
     /// What commands left running under Seatbelt, ended with the
@@ -815,7 +815,8 @@ fn answer_of(row: run::Row) -> RunAnswer {
     }
 }
 
-/// Why `run` is not a request the workspace takes, in today's words.
+/// Why `run` is not a request the workspace takes, in the words of
+/// the server's tools.
 fn checked(run: &Run) -> Result<(), String> {
     checked_call(&run.call)?;
     match &run.program {
@@ -839,7 +840,8 @@ fn checked(run: &Run) -> Result<(), String> {
     }
 }
 
-/// Why `call` is not an id the workspace takes, in today's words.
+/// Why `call` is not an id the workspace takes, in the words of the
+/// server's tools.
 fn checked_call(call: &CallId) -> Result<(), String> {
     let call = &call.0;
     if call.is_empty()
@@ -917,7 +919,7 @@ impl Handler<SetReach> for Workspace {
 const LAPSED: CallRefusal = CallRefusal::Lapsed(Lapse::Ended);
 
 impl Workspace {
-    /// Ends what `agent`, whose reach ended, has running (W4): its
+    /// Ends what `agent`, whose reach ended, has running: its
     /// commands, what they left under Seatbelt, and then its scratch
     /// folder when it was a worker. Its waits in `closed` ended with
     /// the reach, and the agent is told of each apart from this call,
@@ -953,7 +955,7 @@ fn is_the_realm(caller: Option<&Caller>) -> bool {
 }
 
 /// The agent a call of an agent's tool is for: the stamped caller,
-/// which must be an agent and the one the request names (W2).
+/// which must be an agent and the one the request names.
 pub fn agent_of(
     caller: Option<&Caller>,
     named: AgentNumber,

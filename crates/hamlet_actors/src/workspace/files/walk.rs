@@ -1,7 +1,6 @@
 //! A search of the lines in the files under a folder, and a find of
 //! the files under it by name (C16).
-// Copied from the server's `tools/{walk,search,find}.rs`, deleted
-// with them.
+// Copied from the server's `tools/{walk,search,find}.rs`.
 
 use hamlet_os::fs::path;
 use hamlet_sandbox::{Env, FileInfo, FileKind};

@@ -267,8 +267,9 @@ async fn a_pending_operation_is_refused_after_a_revoke() {
 }
 
 /// In manual mode a write and an edit wait for a chief, and the realm
-/// is shown each in today's words, the edit with its change. Allowed,
-/// each is carried out and the agent is told its answer.
+/// is shown each in the words of the server's tools, the edit with
+/// its change. Allowed, each is carried out and the agent is told its
+/// answer.
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_change_waits_and_is_carried_out_when_allowed() {
@@ -575,8 +576,8 @@ async fn a_granted_command_runs_under_the_reach_in_force() {
     );
 }
 
-/// A chief is shown each text of a change cut to 2000 characters, as
-/// today, so a write over a long file still shows what it writes.
+/// A chief is shown each text of a change cut to 2000 characters, so
+/// a write over a long file still shows what it writes.
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_chief_is_shown_each_text_of_a_change_cut() {

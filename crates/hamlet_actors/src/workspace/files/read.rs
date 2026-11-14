@@ -11,8 +11,7 @@ use crate::workspace::{MOST_BYTES, MOST_LINES};
 
 /// `path`'s lines from `offset`, at most `limit` of them and within
 /// the limits, or the image it holds.
-// Copied from the server's `tools/files.rs` `read_text`, deleted
-// with it.
+// Copied from the server's `tools/files.rs` `read_text`.
 pub(super) fn read(
     env: &Env,
     path: &str,
@@ -130,8 +129,7 @@ pub(super) fn read(
 }
 
 /// The type of image `bytes` begin as, if it is one a model takes.
-// Copied from the server's `images::Format::detect`, deleted with
-// it.
+// Copied from the server's `images::Format::detect`.
 fn image(bytes: &[u8]) -> Option<&'static str> {
     const PNG: [u8; 8] =
         [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
@@ -185,7 +183,7 @@ fn narrow_meridiem(path: &str) -> String {
 }
 
 /// `bytes` as pi writes a size, rounding a half up.
-// Copied from the server's `truncate::format_size`, deleted with it.
+// Copied from the server's `truncate::format_size`.
 fn format_size(bytes: usize) -> String {
     let tenths = |unit: usize| {
         let tenths = (bytes * 10 + unit / 2) / unit;
@@ -202,8 +200,7 @@ fn format_size(bytes: usize) -> String {
 
 /// The first whole lines of `content` within the limits, and how it
 /// was cut. When the first line alone is too long, nothing.
-// Copied from the server's `truncate::truncate_head`, deleted with
-// it.
+// Copied from the server's `truncate::truncate_head`.
 fn truncate_head(content: &str) -> (String, Truncation) {
     let mut lines = content.split('\n').collect::<Vec<_>>();
     if content.is_empty() {

@@ -10,7 +10,7 @@ use crate::workspace::{
 };
 
 /// Asks the realm for its list of secrets in force. Called by the
-/// workspace, which holds the answer in memory only (W3).
+/// workspace, which holds the answer in memory only.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Secrets;
 
@@ -49,7 +49,7 @@ pub struct NeedsChief {
     pub agent: AgentNumber,
     pub call: CallId,
     pub conversation: ConversationId,
-    /// The realm's task of the call, as the call carried it (W1).
+    /// The realm's task of the call, as the call carried it.
     pub realm_task: Option<RealmTask>,
     pub needs: Vec<Need>,
     /// The call in words for the chief, the secrets taken out: a

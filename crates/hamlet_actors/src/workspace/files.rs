@@ -66,8 +66,7 @@ impl Passed {
     }
 }
 
-/// `answer` with `secrets` taken out of every word, as from every
-/// tool's result today (C32).
+/// `answer` with `secrets` taken out of every word (C32).
 fn scrubbed(secrets: &[String], answer: FileAnswer) -> FileAnswer {
     let scrub = |words: &str| scrub_text(secrets, words);
     match answer {

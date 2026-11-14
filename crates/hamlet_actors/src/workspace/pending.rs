@@ -84,7 +84,7 @@ pub(super) struct Opening {
 }
 
 /// Opens the wait of `opening` in `tx`, or refuses it when its
-/// request holds one of `secrets`, which is never stored (W3).
+/// request holds one of `secrets`, which is never stored.
 /// Returns what the realm is told once `tx` commits.
 pub(super) async fn open(
     tx: &SqliteTransaction,

@@ -698,8 +698,8 @@ fn decoded<T: serde::de::DeserializeOwned>(
 }
 
 /// The change of `asked` at `path`, as `planned`, in words for a
-/// chief, as today's petition words it: each part with `secrets`
-/// taken out, then cut.
+/// chief, as the server's petition words it: each part with
+/// `secrets` taken out, then cut.
 fn words_of(
     path: &str,
     asked: &Asked<'_>,
@@ -954,8 +954,7 @@ fn outcome(
     }
 }
 
-/// `answer` with `secrets` taken out of every word, as from every
-/// tool's result today (C32).
+/// `answer` with `secrets` taken out of every word (C32).
 fn scrubbed(
     secrets: &[String],
     answer: ChangeAnswer,
@@ -1123,7 +1122,7 @@ mod tests {
     }
 
     /// A replace that failed answers a write in the file's words, and
-    /// an edit in today's words for an edit.
+    /// an edit in the words of the server's tools for an edit.
     #[test]
     fn a_failed_replace_says_why() {
         let error = || FileError {

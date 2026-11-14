@@ -1,4 +1,4 @@
-//! Workers' scratch folders under `workers/` (H42, design 4.4): made
+//! Workers' scratch folders under `workers/` (H42): made
 //! when a worker's reach arrives, and again before its call when one
 //! is missing; removed when its reach ends, once its commands have
 //! stopped; and swept at the workspace's start when a kill left one

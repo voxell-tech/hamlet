@@ -106,7 +106,7 @@ pub(super) async fn working_in(
 }
 
 /// A read, a search and a find of the project answer what is there,
-/// cut as today's tools cut it.
+/// cut as the server's tools cut it.
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn the_file_tools_read_the_project() {
@@ -369,7 +369,7 @@ async fn a_read_leaves_no_row() {
     assert_eq!(rows_in_file(&dir), before);
 }
 
-/// W3: what a file tool hands an agent has the realm's secrets taken
+/// C32: what a file tool hands an agent has the realm's secrets taken
 /// out, also on the first call after a start, which fetches them.
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]

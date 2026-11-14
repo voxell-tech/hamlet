@@ -241,8 +241,6 @@ enum Unloaded {
          Schema object"
     )]
     ParametersNotObject,
-    /// Boxed, as the schema's error is larger than the rest of the
-    /// manifest's errors together.
     #[error("parameters do not compile: {0}")]
     Uncompiled(Box<jsonschema::ValidationError<'static>>),
     #[error(transparent)]

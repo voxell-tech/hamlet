@@ -389,7 +389,7 @@ async fn an_older_reach_version_is_ignored() {
     assert_eq!(reach_rows(&dir), [(7, 3, reach(None))]);
 }
 
-/// W2: an agent, another kind, a client and a call with no caller
+/// an agent, another kind, a client and a call with no caller
 /// are each refused, leave no row, and change no reach. Their
 /// version 5 would outrank the realm's version 1 had any of them
 /// applied.
@@ -594,7 +594,7 @@ fn done(answer: RunAnswer) -> CommandEnd {
     }
 }
 
-/// W3: no command starts while the workspace holds no list of the
+/// C32: no command starts while the workspace holds no list of the
 /// realm's secrets, as after every start. It calls the realm for it
 /// first, and takes the secret out of the command's output.
 #[cfg(unix)]
@@ -627,7 +627,7 @@ async fn a_command_waits_for_the_secrets_list() {
     assert!(fs.join("started").exists());
 }
 
-/// W3: a host's restart forgets the list, so the first command after
+/// C32: a host's restart forgets the list, so the first command after
 /// it calls the realm again.
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
@@ -652,7 +652,7 @@ async fn the_list_is_fetched_again_after_a_restart() {
     assert_eq!(outputs, ["[REDACTED]\n"; 2]);
 }
 
-/// W3: a secret a command printed is in no byte of the workspace's
+/// C32: a secret a command printed is in no byte of the workspace's
 /// file, its write-ahead file or its shared-memory file.
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
@@ -790,7 +790,7 @@ async fn a_repeat_within_the_wait_answers_as_the_first() {
 }
 
 /// A repeat after the command ended answers its end from the row and
-/// runs nothing again; one with another request is refused (W1).
+/// runs nothing again; one with another request is refused.
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_repeat_answers_from_the_row_and_runs_nothing() {
@@ -822,7 +822,7 @@ async fn a_repeat_answers_from_the_row_and_runs_nothing() {
     );
 }
 
-/// W2: an agent's call naming another agent is refused and runs
+/// an agent's call naming another agent is refused and runs
 /// nothing; a status asked for another agent's command finds none.
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]

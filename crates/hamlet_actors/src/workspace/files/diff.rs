@@ -1,5 +1,5 @@
 //! The diff and the patch of an edit, as pi's `edit` makes them.
-// Copied from the server's `tools/diff.rs`, deleted with it.
+// Copied from the server's `tools/diff.rs`.
 
 use std::collections::HashMap;
 

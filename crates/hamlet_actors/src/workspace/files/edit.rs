@@ -1,5 +1,5 @@
 //! An edit's text replacements, matched as pi's `edit` matches them.
-// Copied from the server's `tools/files.rs`, deleted with it.
+// Copied from the server's `tools/files.rs`.
 
 use hamlet_messages::workspace::files::{EditDiff, Replace};
 use hamlet_workspace_wire::Code;

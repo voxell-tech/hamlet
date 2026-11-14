@@ -1,4 +1,4 @@
-//! Workers' scratch folders (H42, design 4.4): made when a worker's
+//! Workers' scratch folders (H42): made when a worker's
 //! reach arrives, removed when it ends, and swept at the workspace's
 //! start when a kill left one behind.
 
