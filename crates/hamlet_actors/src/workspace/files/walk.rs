@@ -368,7 +368,7 @@ fn clip(text: &str, most: usize) -> String {
 }
 
 /// Whether pi counts `c` as a space.
-fn is_pi_space(c: char) -> bool {
+pub(super) fn is_pi_space(c: char) -> bool {
     (c.is_whitespace() && c != '\u{85}') || c == '\u{feff}'
 }
 

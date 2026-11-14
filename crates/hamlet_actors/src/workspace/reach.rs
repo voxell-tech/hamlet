@@ -6,7 +6,6 @@
 
 use std::io;
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use hamlet_actor_core::{BindParam, ColumnValue, SqliteTransaction};
 use hamlet_messages::workspace::reach::{
@@ -62,7 +61,6 @@ pub(super) async fn apply(
     let agent = BindParam::Integer(i64::try_from(set.agent.0)?);
     let mut body = Vec::new();
     ciborium::into_writer(&set.reach, &mut body)?;
-    let now = SystemTime::now().duration_since(UNIX_EPOCH)?;
     tx.execute(
         "INSERT INTO reach (agent, version, body, applied_at) \
          VALUES (?1, ?2, ?3, ?4) ON CONFLICT (agent) DO UPDATE SET \
@@ -73,7 +71,7 @@ pub(super) async fn apply(
             agent.clone(),
             BindParam::Integer(i64::try_from(set.version.0)?),
             BindParam::Blob(body),
-            BindParam::Integer(i64::try_from(now.as_millis())?),
+            BindParam::Integer(super::calls::now_ms()?),
         ]),
     )
     .await?;

@@ -5,23 +5,23 @@
 use std::io;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
-use hamlet_actor_core::{BindParam, ColumnValue, SqliteTransaction};
+use hamlet_actor_core::{BindParam, SqliteTransaction};
 use hamlet_messages::workspace::{
-    AgentNumber, CallId, CommandEnd, CommandId, Exit, Run, RunAnswer,
+    AgentNumber, CallId, CommandEnd, CommandId, Exit, RunAnswer,
 };
 use hamlet_os::fs::path::text;
 use hamlet_sandbox::scrub::scrub_text;
 use hamlet_sandbox::{
     Env, ExecError, Launch, Leftovers, Policy, Sandbox,
 };
-use sha2::{Digest, Sha256};
 use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 
 use self::output::{Output, SPILL_CAP};
+use super::calls::{self, Call};
 
 mod output;
 
@@ -30,20 +30,6 @@ pub const ANSWER_WITHIN: Duration = Duration::from_secs(5);
 
 /// The longest a command runs (C16). A call may only shorten it.
 pub const LONGEST: Duration = Duration::from_secs(120);
-
-/// One row per call that changes something, by the agent and the
-/// id it gave the call. A command's id is its row's.
-pub(super) const SCHEMA: &str = "CREATE TABLE IF NOT EXISTS calls (
-	id INTEGER PRIMARY KEY AUTOINCREMENT,
-	agent INTEGER NOT NULL,
-	call TEXT NOT NULL,
-	op TEXT NOT NULL,
-	request_hash BLOB NOT NULL,
-	state TEXT NOT NULL,
-	answer BLOB,
-	opened_at INTEGER NOT NULL,
-	ended_at INTEGER,
-	UNIQUE (agent, call)) STRICT";
 
 /// How a command's row stands.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -54,18 +40,13 @@ pub(super) enum State {
     CutOff,
 }
 
+/// The op of a command's row.
+pub(super) const OP: &str = "run";
+
 /// A command's row.
 pub(super) struct Row {
     pub command: CommandId,
-    pub request_hash: Vec<u8>,
     pub state: State,
-}
-
-/// The hash of `run` that a repeat of its call must match.
-pub(super) fn request_hash(run: &Run) -> Result<Vec<u8>> {
-    let mut bytes = Vec::new();
-    ciborium::into_writer(run, &mut bytes)?;
-    Ok(Sha256::digest(&bytes).to_vec())
 }
 
 /// The row of `agent`'s command `command`, in `tx`.
@@ -74,17 +55,11 @@ pub(super) async fn status(
     agent: AgentNumber,
     command: CommandId,
 ) -> Result<Option<Row>> {
-    let read = tx
-        .execute(
-            "SELECT id, request_hash, state, answer FROM calls \
-             WHERE agent = ?1 AND id = ?2 AND op = 'run'",
-            Some(vec![
-                BindParam::Integer(i64::try_from(agent.0)?),
-                BindParam::Integer(i64::try_from(command.0)?),
-            ]),
-        )
-        .await?;
-    read.rows.first().map(|row| read_row(row)).transpose()
+    let id = i64::try_from(command.0)?;
+    calls::by_id(tx, agent, id, OP)
+        .await?
+        .map(row_of)
+        .transpose()
 }
 
 /// Marks every command still running as cut off: the host they ran
@@ -92,50 +67,21 @@ pub(super) async fn status(
 pub(super) const CUT_OFF: &str =
     "UPDATE calls SET state = 'cut_off' WHERE state = 'running'";
 
-/// The row of `agent`'s call `call`, in `tx`.
-pub(super) async fn find(
-    tx: &SqliteTransaction,
-    agent: AgentNumber,
-    call: &CallId,
-) -> Result<Option<Row>> {
-    let read = tx
-        .execute(
-            "SELECT id, request_hash, state, answer FROM calls \
-             WHERE agent = ?1 AND call = ?2",
-            Some(vec![
-                BindParam::Integer(i64::try_from(agent.0)?),
-                BindParam::Text(call.0.clone()),
-            ]),
-        )
-        .await?;
-    read.rows.first().map(|row| read_row(row)).transpose()
-}
-
-fn read_row(row: &[ColumnValue]) -> Result<Row> {
-    let [
-        ColumnValue::Integer(id),
-        ColumnValue::Blob(request_hash),
-        ColumnValue::Text(state),
-        answer,
-    ] = row
-    else {
-        bail!("a call's row has another shape: {row:?}");
-    };
-    let command = CommandId(u64::try_from(*id)?);
-    let state = match (state.as_str(), answer) {
+/// A command's row, from its call's.
+pub(super) fn row_of(call: Call) -> Result<Row> {
+    let command = CommandId(u64::try_from(call.id)?);
+    let state = match (call.state.as_str(), call.answer) {
         ("running", _) => State::Running,
         ("cut_off", _) => State::CutOff,
-        ("ended", ColumnValue::Blob(answer)) => State::Ended(
+        ("ended", Some(answer)) => State::Ended(
             ciborium::from_reader(answer.as_slice())
                 .context("decode a command's end")?,
         ),
-        _ => bail!("command {} has the state {state}", command.0),
+        (state, _) => {
+            bail!("command {} has the state {state}", command.0)
+        }
     };
-    Ok(Row {
-        command,
-        request_hash: request_hash.clone(),
-        state,
-    })
+    Ok(Row { command, state })
 }
 
 /// Records `agent`'s call `call` as a running command, in `tx`.
@@ -148,13 +94,14 @@ pub(super) async fn open(
     let opened = tx
         .execute(
             "INSERT INTO calls (agent, call, op, request_hash, \
-             state, opened_at) VALUES (?1, ?2, 'run', ?3, \
-             'running', ?4)",
+             state, opened_at) VALUES (?1, ?2, ?3, ?4, 'running', \
+             ?5)",
             Some(vec![
                 BindParam::Integer(i64::try_from(agent.0)?),
                 BindParam::Text(call.0.clone()),
+                BindParam::Text(OP.to_owned()),
                 BindParam::Blob(request_hash),
-                BindParam::Integer(now_ms()?),
+                BindParam::Integer(calls::now_ms()?),
             ]),
         )
         .await?;
@@ -176,7 +123,7 @@ pub(super) async fn end(
          ?2 WHERE id = ?3 AND state = 'running'",
         Some(vec![
             BindParam::Blob(answer),
-            BindParam::Integer(now_ms()?),
+            BindParam::Integer(calls::now_ms()?),
             BindParam::Integer(i64::try_from(end.command.0)?),
         ]),
     )
@@ -198,11 +145,6 @@ pub(super) fn without_output(
         policy: String::new(),
         took_ms: 0,
     }
-}
-
-fn now_ms() -> Result<i64> {
-    let now = SystemTime::now().duration_since(UNIX_EPOCH)?;
-    Ok(i64::try_from(now.as_millis())?)
 }
 
 /// Who hears a running command's end: the call that started it and

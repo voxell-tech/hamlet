@@ -19,14 +19,16 @@ hamlet_os.workspace = true
 hamlet_sandbox.workspace = true
 hamlet_workspace_wire.workspace = true
 regex.workspace = true
+serde.workspace = true
 sha2.workspace = true
+thiserror.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true
 tracing.workspace = true
 unicode-normalization = "0.1"
+uuid.workspace = true
 
 [dev-dependencies]
-serde.workspace = true
 hamlet_testing.workspace = true
 rusqlite.workspace = true
 

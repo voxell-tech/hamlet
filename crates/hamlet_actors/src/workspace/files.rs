@@ -1,8 +1,12 @@
 //! An agent's file tools on its project files: each call passes the
 //! gate with the agent's reach, runs under the sandbox's policy for
 //! file tools, and hands back only what the realm's secrets were
-//! taken out of. A read, a search and a find leave no row.
+//! taken out of. A read, a search and a find leave no row; a write
+//! and an edit leave one, which makes a repeat safe.
 
+mod change;
+mod diff;
+mod edit;
 mod read;
 mod walk;
 
@@ -14,23 +18,25 @@ use hamlet_actor::{Action, Ctx, Handler};
 use hamlet_messages::workspace::files::{
     FileAnswer, Find, ReadFile, Search, Text,
 };
+use hamlet_messages::workspace::reach::{Reach, SecretsVersion};
 use hamlet_messages::workspace::{AgentNumber, CallRefusal};
 use hamlet_os::fs::path::{is_absolute, text};
 use hamlet_sandbox::Env;
 use hamlet_sandbox::scrub::scrub_text;
 
+pub(super) use self::change::{Paths, cut_off_changes};
 use super::reach::{self, Gate, Op, Placement, Purpose};
 use super::{Workspace, agent_of, caller, refused};
 
-/// A read the gate let through: where it runs, and the secrets its
-/// answer is scrubbed of.
-struct Reading {
+/// A file tool's call the gate let through: where it runs, and the
+/// secrets its answer is scrubbed of.
+struct Passed {
     placement: Placement,
     sandbox: hamlet_sandbox::Sandbox,
     secrets: Arc<Vec<String>>,
 }
 
-impl Reading {
+impl Passed {
     /// The answer of `work`, run off the runtime on the file tools'
     /// environment, with the secrets taken out.
     async fn run(
@@ -87,7 +93,52 @@ fn scrubbed(secrets: &[String], answer: FileAnswer) -> FileAnswer {
     }
 }
 
+/// What the gate makes of a file tool's call.
+enum Gated {
+    Pass(Passed),
+    Refused(CallRefusal),
+    /// The secrets held are older than this version.
+    Fetch(SecretsVersion),
+}
+
 impl Workspace {
+    /// The gate's verdict on the file tool's `op` of `agent` under
+    /// `reach`, with the placement and the secrets of a call it lets
+    /// through.
+    fn gated(
+        &self,
+        agent: AgentNumber,
+        reach: Option<&Reach>,
+        op: &Op<'_>,
+    ) -> Result<Gated> {
+        let (held, secrets) = self.held();
+        Ok(match reach::gate(&self.home, agent, reach, held, op) {
+            Gate::Run { .. } => Gated::Pass(Passed {
+                placement: reach
+                    .and_then(|reach| {
+                        reach::placement(
+                            &self.home,
+                            agent,
+                            reach,
+                            Purpose::FileTool,
+                        )
+                    })
+                    .context(
+                        "the gate passed a file tool with no reach",
+                    )?,
+                sandbox: self.sandbox,
+                secrets,
+            }),
+            Gate::Refuse(refusal) => {
+                Gated::Refused(CallRefusal::Reach(refusal))
+            }
+            Gate::NeedsChief(needs) => {
+                Gated::Refused(CallRefusal::NeedsChief(needs))
+            }
+            Gate::NeedsSecrets(version) => Gated::Fetch(version),
+        })
+    }
+
     /// Passes a read of `path` for the agent `named` through the
     /// gate, as the caller the host stamped, or why it is refused.
     async fn reading(
@@ -96,7 +147,7 @@ impl Workspace {
         named: AgentNumber,
         path: &Path,
         action: &str,
-    ) -> Result<Result<Reading, CallRefusal>> {
+    ) -> Result<Result<Passed, CallRefusal>> {
         let caller = caller(ctx)?;
         let agent = match agent_of(caller.as_ref(), named) {
             Ok(agent) => agent,
@@ -116,43 +167,14 @@ impl Workspace {
             let tx = ctx.sql().begin_transaction(None).await?;
             let reach = reach::read(&tx, agent).await;
             tx.rollback().await?;
-            let reach = reach?;
-            let (held, secrets) = self.held();
-            let op = Op::Read { path };
-            match reach::gate(
-                &self.home,
+            match self.gated(
                 agent,
-                reach.as_ref(),
-                held,
-                &op,
-            ) {
-                Gate::Run { .. } => {
-                    let placement = reach
-                        .as_ref()
-                        .and_then(|reach| {
-                            reach::placement(
-                                &self.home,
-                                agent,
-                                reach,
-                                Purpose::FileTool,
-                            )
-                        })
-                        .context(
-                            "the gate passed a read with no reach",
-                        )?;
-                    return Ok(Ok(Reading {
-                        placement,
-                        sandbox: self.sandbox,
-                        secrets,
-                    }));
-                }
-                Gate::Refuse(refusal) => {
-                    return Ok(Err(CallRefusal::Reach(refusal)));
-                }
-                Gate::NeedsChief(needs) => {
-                    return Ok(Err(CallRefusal::NeedsChief(needs)));
-                }
-                Gate::NeedsSecrets(version) => {
+                reach?.as_ref(),
+                &Op::Read { path },
+            )? {
+                Gated::Pass(reading) => return Ok(Ok(reading)),
+                Gated::Refused(refusal) => return Ok(Err(refusal)),
+                Gated::Fetch(version) => {
                     self.fetch_secrets(ctx, version, &mut fetched)
                         .await?;
                 }

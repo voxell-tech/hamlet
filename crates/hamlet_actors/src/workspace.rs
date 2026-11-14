@@ -2,6 +2,7 @@
 //! commands and file changes under the sandbox, within each agent's
 //! reach.
 
+mod calls;
 mod files;
 pub mod reach;
 mod run;
@@ -16,7 +17,9 @@ use hamlet_actor_core::{ActorConfig, ActorFactory};
 use hamlet_host::{Address, Caller, Cause, Host, HostRef};
 use hamlet_messages::agent::Finished;
 use hamlet_messages::realm::{SecretList, Secrets};
-use hamlet_messages::workspace::files::{Find, ReadFile, Search};
+use hamlet_messages::workspace::files::{
+    EditFile, Find, ReadFile, Search, WriteFile,
+};
 use hamlet_messages::workspace::reach::SecretsVersion;
 use hamlet_messages::workspace::{
     AgentNumber, CallId, CallRefusal, CallerRefusal, CommandEnd,
@@ -84,6 +87,8 @@ struct Workspace {
     answer_within: Duration,
     /// Who hears each running command's end, until it ended.
     running: Mutex<HashMap<CommandId, Arc<run::Waiters>>>,
+    /// The paths a change is at work on.
+    paths: files::Paths,
 }
 
 /// A list of the realm's secrets and its version.
@@ -95,8 +100,16 @@ struct Held {
 #[async_trait::async_trait]
 impl Actor for Workspace {
     type Input = ();
-    type Actions =
-        (SetReach, Run, CommandStatus, ReadFile, Search, Find);
+    type Actions = (
+        SetReach,
+        Run,
+        CommandStatus,
+        ReadFile,
+        Search,
+        Find,
+        WriteFile,
+        EditFile,
+    );
     type Events = ();
     type ConnParams = Option<Caller>;
     type Action = ();
@@ -112,10 +125,11 @@ impl Actor for Workspace {
             .exec(format!(
                 "{};{};{}",
                 reach::SCHEMA,
-                run::SCHEMA,
+                calls::SCHEMA,
                 run::CUT_OFF
             ))
             .await?;
+        files::cut_off_changes(ctx).await?;
         Ok(Self {
             home: RealmFolder::new(host.folder())?,
             sandbox,
@@ -127,6 +141,7 @@ impl Actor for Workspace {
                     options.answer_within
                 }),
             running: Mutex::new(HashMap::new()),
+            paths: files::Paths::default(),
         })
     }
 }
@@ -222,7 +237,7 @@ impl Handler<Run> for Workspace {
         if let Err(why) = checked(&run) {
             return Ok(RunAnswer::Refused(CallRefusal::Invalid(why)));
         }
-        let request_hash = run::request_hash(&run)?;
+        let request_hash = calls::request_hash(&run)?;
         // Read before the row is opened: past its commit, nothing
         // returns before the command starts.
         let leftovers = self.leftovers.of(i64::try_from(agent.0)?);
@@ -463,12 +478,13 @@ impl Workspace {
         run: &Run,
         request_hash: &[u8],
     ) -> Result<Decision> {
-        if let Some(row) = run::find(tx, agent, &run.call).await? {
-            if row.request_hash != request_hash {
+        if let Some(call) = calls::find(tx, agent, &run.call).await? {
+            if !call.is(run::OP, request_hash) {
                 return Ok(Decision::Answer(RunAnswer::Refused(
                     CallRefusal::CallReused(run.call.clone()),
                 )));
             }
+            let row = run::row_of(call)?;
             if let Some(waiters) = self.waiters(row.command) {
                 return Ok(Decision::Wait(row.command, waiters));
             }
@@ -549,7 +565,21 @@ fn answer_of(row: run::Row) -> RunAnswer {
 
 /// Why `run` is not a request the workspace takes, in today's words.
 fn checked(run: &Run) -> Result<(), String> {
-    let call = &run.call.0;
+    checked_call(&run.call)?;
+    if run.script.len() > 1024 * 1024 {
+        return Err("Invalid command: longer than 1 MiB".to_owned());
+    }
+    if run.timeout_ms == Some(0) {
+        return Err("Invalid timeout: must be a positive number of \
+                    seconds"
+            .to_owned());
+    }
+    Ok(())
+}
+
+/// Why `call` is not an id the workspace takes, in today's words.
+fn checked_call(call: &CallId) -> Result<(), String> {
+    let call = &call.0;
     if call.is_empty()
         || call.len() > 128
         || !call.bytes().all(|byte| {
@@ -560,14 +590,6 @@ fn checked(run: &Run) -> Result<(), String> {
             "Invalid call id: {call:?} is not 1 to 128 of A-Z, a-z, \
              0-9, '.', '_', ':' and '-'"
         ));
-    }
-    if run.script.len() > 1024 * 1024 {
-        return Err("Invalid command: longer than 1 MiB".to_owned());
-    }
-    if run.timeout_ms == Some(0) {
-        return Err("Invalid timeout: must be a positive number of \
-                    seconds"
-            .to_owned());
     }
     Ok(())
 }

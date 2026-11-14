@@ -24,7 +24,11 @@ use super::{
 };
 
 /// Calls the workspace with `asked`, as the actor at `from`.
-async fn ask<A>(host: &Host, from: &Address, asked: &A) -> A::Output
+pub(super) async fn ask<A>(
+    host: &Host,
+    from: &Address,
+    asked: &A,
+) -> A::Output
 where
     A: Action + Serialize,
     A::Output: DeserializeOwned,
@@ -75,7 +79,10 @@ fn text(answer: FileAnswer) -> Text {
 }
 
 /// A project folder outside the realm folder, holding `files`.
-fn project(name: &str, files: &[(&str, &str)]) -> (Scratch, PathBuf) {
+pub(super) fn project(
+    name: &str,
+    files: &[(&str, &str)],
+) -> (Scratch, PathBuf) {
     let scratch = Scratch::new(name);
     let folder = scratch.join("project");
     for (file, content) in files {
@@ -88,7 +95,7 @@ fn project(name: &str, files: &[(&str, &str)]) -> (Scratch, PathBuf) {
 }
 
 /// A host on `dir` where agent 7 works in `folder`.
-async fn working_in(
+pub(super) async fn working_in(
     dir: &Path,
     folder: &Path,
     peers: Arc<Peers>,

@@ -32,6 +32,9 @@ use serde::{Deserialize, Serialize};
 #[path = "workspace/files.rs"]
 mod files;
 
+#[path = "workspace/changes.rs"]
+mod changes;
+
 const AGENT: AgentNumber = AgentNumber(7);
 
 /// The secret the stub realm holds.
@@ -522,6 +525,30 @@ fn filesystem(dir: &Path) -> std::path::PathBuf {
     let fs = dir.join("actors/agent/7.fs");
     std::fs::create_dir_all(&fs).unwrap();
     fs
+}
+
+/// The files under the realm folder `dir` whose bytes hold `needle`.
+fn files_holding(
+    dir: &Path,
+    needle: &str,
+) -> Vec<std::path::PathBuf> {
+    let mut found = Vec::new();
+    let mut folders = vec![dir.to_owned()];
+    while let Some(folder) = folders.pop() {
+        for entry in std::fs::read_dir(&folder).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                folders.push(path);
+            } else if std::fs::read(&path).is_ok_and(|bytes| {
+                bytes
+                    .windows(needle.len())
+                    .any(|at| at == needle.as_bytes())
+            }) {
+                found.push(path);
+            }
+        }
+    }
+    found
 }
 
 /// The end of a command that answered `Done`.
