@@ -196,9 +196,7 @@ pub(crate) struct DueScheduleDispatch {
     pub trace_context: IncomingTraceContext,
 }
 
-/// A one-shot set aside after its last try, as it was then. It stays
-/// set aside until a re-arm that succeeds puts it back, or its
-/// actor's destroy removes it. See [`MAX_ONE_SHOT_TRIES`].
+/// A one-shot set aside after its last try, as it was then.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SetAsideTimer {
     pub event_id: String,
@@ -1079,10 +1077,10 @@ impl ActorContext {
     /// Deletes the row of a one-shot that fired, unless its handler
     /// did not answer: the action was never sent, or the handler was
     /// cut off before its end, as by its actor's stop, and its reply
-    /// answered for it. A handler that answered ran once, also with
-    /// an error, whatever its code, or with a panic. A kept row stays
-    /// claimed by this generation, so the next one runs it, and
-    /// records the outcome as its `last_error`.
+    /// answered for it. A handler that answered, with an error or a
+    /// panic too, ran once. A kept row stays claimed by this
+    /// generation, so the next one runs it, and records the outcome
+    /// as its `last_error`.
     pub(crate) async fn finish_one_shot_dispatch(
         &self,
         event_id: &str,

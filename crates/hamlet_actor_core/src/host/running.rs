@@ -176,8 +176,7 @@ impl RunningActor {
     /// shorter of what is left and the kind's action timeout: past
     /// either, it fails with `actor.action_timed_out`. A connection
     /// whose opening outlasts the call closes once it opens, so the
-    /// actor sees it close as it saw it open. The opening logs in the
-    /// caller's span, as the rest of the call does.
+    /// actor sees it close as it saw it open.
     pub async fn action(
         &self,
         params: Vec<u8>,
