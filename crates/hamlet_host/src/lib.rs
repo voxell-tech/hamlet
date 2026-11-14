@@ -17,6 +17,8 @@ pub mod link;
 mod local;
 mod plain_sqlite;
 pub mod route;
+#[cfg(test)]
+mod testing;
 
 pub use address::{Address, Caller, InvalidName};
 pub use event::HostEvent;

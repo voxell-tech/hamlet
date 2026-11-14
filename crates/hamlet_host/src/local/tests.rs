@@ -4,14 +4,11 @@ use hamlet_actor_core::{ActorConfig, ActorStart};
 use hamlet_testing::Scratch;
 use serde::{Deserialize, Serialize};
 
-use self::code::code;
 use super::*;
 use crate::Caller;
 use crate::link::{Role, Side, Vetted};
 use crate::route::{CallerKind, Operation};
-
-#[path = "../../tests/support/code.rs"]
-mod code;
+use crate::testing::code;
 
 const DEADLINE: Duration = Duration::from_secs(10);
 

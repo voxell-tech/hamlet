@@ -1,7 +1,6 @@
 use std::io::{self, PipeReader};
 use std::thread;
 
-use code::code;
 use hamlet_testing::Scratch;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
@@ -9,10 +8,8 @@ use tokio::task::JoinHandle;
 use super::*;
 use crate::link::{AtBreak, FRAME_LIMIT, read};
 use crate::route::Operation;
+use crate::testing::code;
 use crate::{Host, HostOptions};
-
-#[path = "../../../tests/support/code.rs"]
-mod code;
 
 const TEN_S: Duration = Duration::from_secs(10);
 const SHORT: Duration = Duration::from_millis(50);
