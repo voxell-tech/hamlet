@@ -19,6 +19,7 @@ use hamlet_host::{Address, Caller, Host, HostOptions, HostRef};
 use hamlet_testing::Scratch;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
+use tokio::sync::Notify;
 
 #[path = "support/call.rs"]
 mod call;
@@ -40,6 +41,10 @@ struct FailNext(AtomicBool);
 
 /// How long each destroy takes.
 struct SlowDestroy(Duration);
+
+/// Holds each start: it is told when the start begins, and the start
+/// then waits an hour.
+struct HeldStart(Notify);
 
 /// Writes its input as a note in `on_create`, and a note each time
 /// its timer fires.
@@ -101,6 +106,12 @@ impl Actor for Made {
             .is_some_and(|fail| fail.0.swap(false, Ordering::SeqCst));
         if fails {
             anyhow::bail!("this start fails");
+        }
+        if let Some(held) =
+            HostRef::of(ctx.inner())?.value::<HeldStart>()
+        {
+            held.0.notify_one();
+            tokio::time::sleep(Duration::from_secs(3600)).await;
         }
         counts(ctx)?.started.fetch_add(1, Ordering::SeqCst);
         Ok(Self)
@@ -489,6 +500,50 @@ async fn a_create_that_fails_leaves_the_key_to_a_create_that_waited()
     }
     host.shutdown().await.unwrap();
     assert_eq!(made.created.load(Ordering::SeqCst), 50);
+}
+
+/// A create whose start a shutdown cuts off fails with
+/// `actor.not_ready` and removes the actor it made, its files with
+/// it, so a create in the next host makes the actor from its own
+/// input.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_create_a_shutdown_cuts_off_leaves_no_actor() {
+    let dir = Scratch::new("create-shutdown");
+    let made = Arc::new(Counts::default());
+    let held = Arc::new(HeldStart(Notify::new()));
+    let host = open(
+        &dir,
+        HostOptions::default()
+            .with_value(made.clone())
+            .with_value(held.clone()),
+    );
+    let create = tokio::spawn({
+        let host = host.clone();
+        async move { host.create("made", "a", cbor("cut")).await }
+    });
+    held.0.notified().await;
+    tokio::time::timeout(Duration::from_secs(10), host.shutdown())
+        .await
+        .expect("the shutdown waited for the held start")
+        .unwrap();
+    let cut = failed(
+        tokio::time::timeout(Duration::from_secs(5), create)
+            .await
+            .expect("the create outlived the shutdown")
+            .unwrap(),
+    );
+    let left = any_file_of(&dir, "made", "a");
+    drop(host);
+
+    let host =
+        open(&dir, HostOptions::default().with_value(made.clone()));
+    host.create("made", "a", cbor("next")).await.unwrap();
+    let notes = call(&host, "a", &Notes).await.unwrap();
+    host.shutdown().await.unwrap();
+    assert_eq!(code(&cut), "actor.not_ready", "{cut:#}");
+    assert!(!left, "the cut-off create left a file");
+    assert_eq!(notes, ["next"]);
+    assert_eq!(made.created.load(Ordering::SeqCst), 1);
 }
 
 /// K3, K4: a create of a key whose destroy is under way fails at once
