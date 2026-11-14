@@ -17,7 +17,6 @@ pub async fn run(host: &Host, words: &[String]) -> Result<()> {
     };
     let mut out = std::io::stdout();
     match command {
-        "realm" => return crate::realm::run(host, &words[1..]).await,
         "timers" => {
             let at = address(key)?;
             for timer in host.set_aside_timers(&at).await? {

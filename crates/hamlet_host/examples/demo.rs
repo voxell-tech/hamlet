@@ -47,7 +47,7 @@ use std::time::Duration;
 
 use act::act;
 use anyhow::{Context, Result, anyhow};
-use command::{number, print_reply, run};
+use command::{number, print_reply};
 use hamlet_actors::workspace;
 use hamlet_host::{Host, HostOptions};
 use hamlet_sandbox::{Isolation, Sandbox};
@@ -107,7 +107,7 @@ async fn demo() -> Result<()> {
         }
         Some(_) => {
             host.boot().await?;
-            run(&host, &args).await
+            run_line(&host, &args).await
         }
         None => Err(anyhow!(
             "usage: demo \
@@ -117,6 +117,17 @@ async fn demo() -> Result<()> {
     };
     host.shutdown().await?;
     result
+}
+
+/// Runs one command line split into words: the stub realm's, or a
+/// counter's.
+async fn run_line(host: &Host, words: &[String]) -> Result<()> {
+    match words.split_first() {
+        Some((first, rest)) if first == "realm" => {
+            realm::run(host, rest).await
+        }
+        _ => command::run(host, words).await,
+    }
 }
 
 /// Boots, starts `loaded` counters, then runs each line of stdin as
@@ -156,7 +167,7 @@ async fn serve(host: &Host, loaded: u64) -> Result<()> {
             continue;
         }
         let ran = tokio::select! {
-            ran = run(host, &words) => ran,
+            ran = run_line(host, &words) => ran,
             () = &mut stop => return Ok(()),
         };
         if let Err(error) = ran {
