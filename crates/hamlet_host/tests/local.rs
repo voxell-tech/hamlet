@@ -1446,8 +1446,8 @@ fn kept(dir: &Path, key: &str) -> Kept {
         ),
         running: read("SELECT running FROM _hamlet_actor"),
         wakes_for_its_row: read(
-            "SELECT wake_at = (SELECT MIN(trigger_at) FROM \
-             _actor_schedule_events) FROM _hamlet_actor",
+            "SELECT COALESCE(wake_at = (SELECT MIN(trigger_at) FROM \
+             _actor_schedule_events), 0) FROM _hamlet_actor",
         ) == 1,
     }
 }
@@ -1460,7 +1460,8 @@ fn kept(dir: &Path, key: &str) -> Kept {
 async fn no_timer_starts_an_actor_after_a_shutdown() {
     let dir = Scratch::new("host-shutdown-timers");
     let host = Host::open(&dir, factories()).unwrap();
-    let schedule = 400u64.to_le_bytes().to_vec();
+    let delay_ms = 3000u64;
+    let schedule = delay_ms.to_le_bytes().to_vec();
     let stopped =
         host.get_or_start("counter", "stopped").await.unwrap();
     call_with(&host, &stopped, "schedule", schedule.clone()).await;
@@ -1468,9 +1469,13 @@ async fn no_timer_starts_an_actor_after_a_shutdown() {
     let running =
         host.get_or_start("counter", "running").await.unwrap();
     call_with(&host, &running, "schedule", schedule).await;
+    let armed = tokio::time::Instant::now();
 
     host.shutdown().await.unwrap();
-    tokio::time::sleep(Duration::from_millis(800)).await;
+    tokio::time::sleep_until(
+        armed + Duration::from_millis(delay_ms + 400),
+    )
+    .await;
     for id in [&stopped, &running] {
         assert!(!host.is_running(id), "a timer started {id}");
     }
