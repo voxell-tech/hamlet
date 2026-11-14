@@ -894,10 +894,7 @@ impl Handler<SetReach> for Workspace {
         ctx: Ctx<Self>,
         set: SetReach,
     ) -> Result<ReachAnswer> {
-        let caller = caller(&ctx)?;
-        if !is_the_realm(caller.as_ref()) {
-            let refusal = RealmRefusal::NotTheRealm;
-            refused(caller.as_ref(), SetReach::NAME, &refusal);
+        if let Err(refusal) = realm_calling(&ctx, SetReach::NAME)? {
             return Ok(ReachAnswer::Refused(refusal));
         }
         let (in_force, now, closed) = transact(&ctx, async |tx| {
@@ -973,6 +970,21 @@ fn caller(ctx: &Ctx<Workspace>) -> Result<Option<Caller>> {
 
 fn is_the_realm(caller: Option<&Caller>) -> bool {
     matches!(caller, Some(Caller::Actor(from)) if from.kind == REALM)
+}
+
+/// Refuses `ctx`'s call unless the realm made it. A refusal is logged
+/// as one of `action`.
+fn realm_calling(
+    ctx: &Ctx<Workspace>,
+    action: &str,
+) -> Result<Result<(), RealmRefusal>> {
+    let caller = caller(ctx)?;
+    if is_the_realm(caller.as_ref()) {
+        return Ok(Ok(()));
+    }
+    let refusal = RealmRefusal::NotTheRealm;
+    refused(caller.as_ref(), action, &refusal);
+    Ok(Err(refusal))
 }
 
 /// The agent of `ctx`'s call of an agent's tool, as [`agent_of`]

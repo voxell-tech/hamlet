@@ -23,15 +23,15 @@ use hamlet_messages::workspace::files::{
 use hamlet_messages::workspace::reach::{Need, Reach};
 use hamlet_messages::workspace::{
     AgentNumber, Answer, AnswerTaken, CallId, CallRefusal, Changed,
-    ChiefAnswer, ReachVersion, RealmRefusal, Run,
+    ChiefAnswer, ReachVersion, Run,
 };
 use hamlet_sandbox::scrub::scrub_text;
 use serde::{Deserialize, Serialize};
 
 use super::reach::{self, Gate, Op};
 use super::{
-    REALM, REALM_KEY, Workspace, call_actor, caller, calls,
-    is_the_realm, read_only, refused, tell, transact_if,
+    REALM, REALM_KEY, Workspace, call_actor, calls, read_only,
+    realm_calling, tell, transact_if,
 };
 
 /// One row per call that waits for a chief, beside its `calls` row.
@@ -464,10 +464,8 @@ impl Handler<ChiefAnswer> for Workspace {
         ctx: Ctx<Self>,
         answered: ChiefAnswer,
     ) -> Result<AnswerTaken> {
-        let caller = caller(&ctx)?;
-        if !is_the_realm(caller.as_ref()) {
-            let refusal = RealmRefusal::NotTheRealm;
-            refused(caller.as_ref(), ChiefAnswer::NAME, &refusal);
+        if let Err(refusal) = realm_calling(&ctx, ChiefAnswer::NAME)?
+        {
             return Ok(AnswerTaken::Refused(refusal));
         }
         let wait = read_only(&ctx, async |tx| {
