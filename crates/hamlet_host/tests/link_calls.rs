@@ -1,6 +1,3 @@
-//! Calls and creates across the link, each way, with the stand-in
-//! Node host, the example `link_child`, built beside this test.
-
 #[cfg(unix)]
 use std::os::unix::process::ExitStatusExt;
 use std::path::Path;
@@ -25,7 +22,7 @@ use hamlet_host::link::{Ask, FRAME_LIMIT, Frame, WireError};
 use hamlet_host::route::{CallerKind, Operation, Routes};
 use hamlet_host::{Address, Caller, HostEvent, HostOptions};
 use hamlet_testing::Scratch;
-use linked::{has_line, wait_for};
+use linked::{GONE_WAIT, has_line, wait_for};
 use logs::Logs;
 use serde::de::DeserializeOwned;
 use serde_json::json;
@@ -48,9 +45,6 @@ mod linked;
 #[path = "support/logs.rs"]
 mod logs;
 
-/// How long a Node host may outlive the break of its link.
-const GONE_WAIT: Duration = Duration::from_secs(2);
-
 fn args<M: Action>(action: &M) -> Vec<u8> {
     encode_positional(action).unwrap()
 }
@@ -63,7 +57,6 @@ fn arg(path: &Path) -> &str {
     path.to_str().unwrap()
 }
 
-/// A request of `M` to `to` for `from`.
 fn request<M: Action>(
     id: u64,
     from: Option<Caller>,
@@ -82,7 +75,6 @@ fn request<M: Action>(
     }
 }
 
-/// A create, for `from`, of the agent `at` whose start calls no one.
 fn create(id: u64, from: Option<Caller>, at: &Address) -> Frame {
     Frame::Request {
         id,
@@ -134,9 +126,7 @@ async fn a_rust_actors_call_reaches_a_node_actor_stamped_with_its_address()
     assert_eq!(decoded::<Option<Caller>>(&unbounded.unwrap()), None);
 }
 
-/// On a current-thread runtime, which also runs the Node host's
-/// calls.
-#[tokio::test]
+#[tokio::test(flavor = "current_thread")]
 async fn a_node_actors_call_reaches_a_rust_actor_stamped_with_its_address()
  {
     let home = Scratch::new("link-in");
@@ -226,8 +216,6 @@ async fn the_rust_host_answers_a_node_hosts_call_before_it_is_ready()
     assert_eq!(state, LinkState::Welcomed);
 }
 
-/// The realm counts its notes, so the second answer is the second
-/// start's.
 #[tokio::test(flavor = "multi_thread")]
 async fn an_actor_whose_start_calls_a_rust_actor_is_answered_on_a_fresh_node_host()
  {
@@ -251,8 +239,6 @@ async fn an_actor_whose_start_calls_a_rust_actor_is_answered_on_a_fresh_node_hos
     assert_eq!(second.unwrap(), Some(Seen::output(2)));
 }
 
-/// Neither the realm, nor any agent but the caller, may reach an
-/// agent.
 fn agents_kept_from_agents() -> Routes {
     Routes::only(&[
         (CallerKind::Actor("realm".to_owned()), &["workspace"]),
@@ -557,8 +543,6 @@ async fn an_uncoded_handler_error_crosses_as_an_internal_error_with_its_text()
     }
 }
 
-/// The realm is not running, so a call that reached it would start
-/// it.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_stamp_the_other_host_does_not_speak_for_breaks_the_link() {
     let realm = at("realm", "r");
@@ -674,8 +658,6 @@ async fn only_a_call_and_a_create_cross_the_link() {
     assert_eq!(frames_read(&frames), ["welcome", "goodbye"]);
 }
 
-/// The next call's reply comes after the late one, which the Node
-/// host writes at the deadline it was given.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_call_past_its_deadline_times_out_and_its_late_reply_is_dropped()
  {
@@ -770,8 +752,6 @@ async fn a_frame_over_the_limit_fails_at_once_and_the_link_stays_up()
     assert_eq!(starts(&record), 1);
 }
 
-/// The realm is not running, so the agent's call starts it on the
-/// thread that runs the call.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_node_hosts_call_runs_off_the_link_thread() {
     let home = Scratch::new("link-thread");

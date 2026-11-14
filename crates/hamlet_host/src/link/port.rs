@@ -131,9 +131,7 @@ impl Port {
     }
 
     /// Any state to Down. The session's requests out fail with
-    /// `link.lost`, and its later ones with `link.down`. Only the
-    /// Rust host's port goes down: the Node host's process ends with
-    /// its pipe.
+    /// `link.lost`, and its later ones with `link.down`.
     pub(crate) fn down(&self) {
         debug_assert_eq!(self.0.ours, Role::Rust);
         let lost = self.shift(|link| {
@@ -146,8 +144,6 @@ impl Port {
         }
     }
 
-    /// Replaces the link with what `next` makes of it, if anything,
-    /// tells the state's watchers, and returns the link it replaced.
     fn shift(
         &self,
         next: impl FnOnce(&Link) -> Option<Link>,
@@ -173,7 +169,7 @@ impl Port {
         args: Vec<u8>,
         deadline: Duration,
     ) -> Result<Vec<u8>> {
-        let caller = self.may_ask(stamp)?;
+        let caller = self.caller_of(stamp)?;
         let deadline_ms =
             u64::try_from(deadline.as_millis()).unwrap_or(u64::MAX);
         let ask = Ask::Call {
@@ -192,7 +188,7 @@ impl Port {
         at: &Address,
         input: Vec<u8>,
     ) -> Result<()> {
-        let caller = self.may_ask(stamp)?;
+        let caller = self.caller_of(stamp)?;
         let ask = Ask::Create { input };
         self.session()?.ask(caller, at, ask, None).await.map(drop)
     }
@@ -204,11 +200,7 @@ impl Port {
         }
     }
 
-    /// The caller of `stamp`, which this host asks for: one of its
-    /// actors, or in the Rust host its program or a client. Fails
-    /// with `actor.invalid_operation` for any other, before anything
-    /// is written, and for an operation the other host asked for.
-    fn may_ask<'a>(
+    fn caller_of<'a>(
         &self,
         stamp: &'a Stamp,
     ) -> Result<Option<&'a Caller>> {
@@ -374,8 +366,6 @@ impl Session {
         });
     }
 
-    /// Writes the reply to `id`. A reply that cannot be a frame, as
-    /// one over the limit, is answered with the reason in its place.
     async fn reply(&self, id: u64, result: Result<Vec<u8>>) {
         let result = result
             .map(ByteBuf::from)

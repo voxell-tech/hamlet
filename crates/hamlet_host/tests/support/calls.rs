@@ -1,6 +1,3 @@
-//! A Rust host whose kinds call the stand-in's `agent` and answer
-//! it, and the stand-in run by the test itself as its Rust host.
-
 use std::collections::HashMap;
 use std::io::{PipeReader, PipeWriter, Read};
 use std::path::Path;
@@ -26,16 +23,12 @@ use serde_bytes::ByteBuf;
 pub use crate::actions::*;
 use crate::linked::{child, own_stand_in, wait_for};
 
-/// How long a test waits for what it set going.
 pub const WAIT: Duration = Duration::from_secs(10);
 
-/// The deadline of the tests' calls.
 pub const DEADLINE: Duration = Duration::from_secs(10);
 
-/// The Rust host's kinds.
 pub const KINDS: [&str; 2] = ["realm", "workspace"];
 
-/// The kinds `kinds`, each made by [`Peer`].
 pub fn factories(kinds: &[&str]) -> HashMap<String, ActorFactory> {
     let mut registry = Registry::new();
     for kind in kinds {
@@ -50,8 +43,6 @@ pub fn factories(kinds: &[&str]) -> HashMap<String, ActorFactory> {
     registry.into_factories()
 }
 
-/// A Rust host of [`KINDS`] on `home` with `options`, with the
-/// stand-in run with `args` as its child.
 pub fn open(
     home: &Path,
     options: HostOptions,
@@ -66,7 +57,6 @@ pub fn open(
     .unwrap()
 }
 
-/// [`open`] under `routes`, once the link is ready.
 pub async fn ready(
     home: &Path,
     routes: Routes,
@@ -84,15 +74,12 @@ pub async fn ready(
     (host, node)
 }
 
-/// Shuts the stand-in down, which exits cleanly, then the host.
 pub async fn close(host: Host, node: Supervisor) {
     let status = node.shutdown().await.expect("a child ran");
     assert!(status.success(), "{status}");
     host.shutdown().await.unwrap();
 }
 
-/// Makes `actors` from a Rust host with no child, which lets the
-/// folder go.
 pub async fn made(home: &Path, actors: &[&Address]) {
     let host = Host::open(home, factories(&KINDS)).unwrap();
     for at in actors {
@@ -101,7 +88,6 @@ pub async fn made(home: &Path, actors: &[&Address]) {
     host.shutdown().await.unwrap();
 }
 
-/// What `check` gives once it gives something, within [`WAIT`].
 pub async fn eventually<T>(
     what: &str,
     mut check: impl FnMut() -> Option<T>,
@@ -119,7 +105,6 @@ pub async fn eventually<T>(
         .unwrap_or_else(|_| panic!("{what} never happened"))
 }
 
-/// How many starts the stand-in recorded in `path`.
 pub fn starts(path: &Path) -> usize {
     std::fs::read_to_string(path)
         .unwrap_or_default()
@@ -127,9 +112,6 @@ pub fn starts(path: &Path) -> usize {
         .count()
 }
 
-/// The names of the frames the stand-in recorded reading in
-/// `path`. Once it has read the shutdown's goodbye, which follows
-/// every frame written before it, they are all it was sent.
 pub fn frames_read(path: &Path) -> Vec<String> {
     std::fs::read_to_string(path)
         .unwrap_or_default()
@@ -138,14 +120,12 @@ pub fn frames_read(path: &Path) -> Vec<String> {
         .collect()
 }
 
-/// The input of an agent whose start calls the `note` of `note`.
 pub fn agent_input(note: Option<&Address>) -> Vec<u8> {
     let mut input = Vec::new();
     ciborium::into_writer(&note, &mut input).unwrap();
     input
 }
 
-/// The call of `action` that a [`Relay`] makes of `to`.
 pub fn relay<M: Action>(to: &Address, action: &M) -> Relay {
     Relay {
         to: to.clone(),
@@ -160,7 +140,6 @@ impl Seen {
         Self::Output(serde_json::to_value(output).unwrap())
     }
 
-    /// The error's `group.code`, as `actor.refused`.
     pub fn code(&self) -> Option<String> {
         match self {
             Self::Output(_) => None,
@@ -171,7 +150,6 @@ impl Seen {
     }
 }
 
-/// How many notes the actor took, this one included.
 #[derive(Serialize, Deserialize)]
 pub struct Note;
 
@@ -180,7 +158,6 @@ impl Action for Note {
     const NAME: &'static str = "note";
 }
 
-/// Makes the agent `at` with [`agent_input`] of `input`.
 #[derive(Serialize, Deserialize)]
 pub struct Make {
     pub at: Address,
@@ -192,7 +169,6 @@ impl Action for Make {
     const NAME: &'static str = "make";
 }
 
-/// The name of the thread the action runs on.
 #[derive(Serialize, Deserialize)]
 pub struct Thread;
 
@@ -201,7 +177,6 @@ impl Action for Thread {
     const NAME: &'static str = "thread";
 }
 
-/// A text of `bytes` bytes.
 #[derive(Serialize, Deserialize)]
 pub struct Large {
     pub bytes: usize,
@@ -212,7 +187,6 @@ impl Action for Large {
     const NAME: &'static str = "large";
 }
 
-/// An actor of the Rust host's kinds.
 pub struct Peer {
     notes: AtomicU64,
 }
@@ -305,17 +279,14 @@ impl Handler<Large> for Peer {
     }
 }
 
-/// The stand-in, run by the test itself as its Rust host.
 pub struct OwnStandIn {
     tree: Tree,
     input: PipeWriter,
-    /// `None` once the test closed it.
     output: Option<PipeReader>,
     errors: PipeReader,
 }
 
 impl OwnStandIn {
-    /// The stand-in run with `args` on `home`.
     pub fn start(home: &Path, args: &[&str]) -> Self {
         let (
             tree,
@@ -337,7 +308,6 @@ impl OwnStandIn {
         link::write(&mut self.input, frame).unwrap();
     }
 
-    /// The next frame it writes, within [`WAIT`].
     pub async fn read(&mut self) -> Frame {
         let mut output =
             self.output.take().expect("its output is closed");
@@ -353,8 +323,6 @@ impl OwnStandIn {
         read.unwrap().expect("the stand-in's output ended")
     }
 
-    /// Takes its hello, welcomes it as the Rust host of `kinds`
-    /// under `routes`, and takes its `Ready`.
     pub async fn welcome(&mut self, kinds: &[&str], routes: Routes) {
         let hello = self.read().await;
         assert!(matches!(hello, Frame::Hello { .. }), "{hello:?}");
@@ -370,8 +338,6 @@ impl OwnStandIn {
         assert_eq!(self.read().await, Frame::Ready);
     }
 
-    /// The frames it writes before its reply to `id`, and the
-    /// reply.
     pub async fn until_reply(
         &mut self,
         id: u64,
@@ -391,8 +357,6 @@ impl OwnStandIn {
         self.output = None;
     }
 
-    /// How it ended, failing past `within`, and what it wrote to
-    /// its standard error.
     pub async fn ended(
         mut self,
         within: Duration,

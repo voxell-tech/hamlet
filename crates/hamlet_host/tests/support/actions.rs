@@ -1,6 +1,3 @@
-//! The actions of the stand-in Node host's kind `agent`, which the
-//! stand-in serves and the tests call.
-
 use std::time::Duration;
 
 use hamlet_actor::Action;
@@ -9,7 +6,6 @@ use hamlet_actor_error::{ActorError, ActorErrorKind};
 use hamlet_host::{Address, Caller, HostRef};
 use serde::{Deserialize, Serialize};
 
-/// What a call gave its caller.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Seen {
@@ -23,7 +19,6 @@ pub enum Seen {
 }
 
 impl Seen {
-    /// What `outcome` gave its caller.
     pub fn of(outcome: anyhow::Result<serde_json::Value>) -> Self {
         match outcome {
             Ok(output) => Self::Output(output),
@@ -39,7 +34,6 @@ impl Seen {
         }
     }
 
-    /// What a call's `called` output, or its error, gave its caller.
     pub fn of_call(called: anyhow::Result<Vec<u8>>) -> Self {
         Self::of(called.and_then(|output| {
             Ok(ciborium::from_reader(output.as_slice())?)
@@ -55,7 +49,6 @@ impl Action for Who {
     const NAME: &'static str = "who";
 }
 
-/// An agent's input.
 #[derive(Serialize, Deserialize)]
 pub struct Input;
 
@@ -64,7 +57,6 @@ impl Action for Input {
     const NAME: &'static str = "input";
 }
 
-/// What the call of an agent's start gave.
 #[derive(Serialize, Deserialize)]
 pub struct Started;
 
@@ -82,8 +74,6 @@ pub struct Relay {
 }
 
 impl Relay {
-    /// Makes the call as the actor whose context is `ctx`, and
-    /// answers what it gave.
     pub async fn run(
         self,
         ctx: &ActorContext,
@@ -120,7 +110,6 @@ pub enum Fail {
 }
 
 impl Fail {
-    /// The error the action fails with.
     pub fn into_error(self) -> anyhow::Error {
         let (group, code, message, metadata) = match self {
             Self::Coded {
@@ -152,7 +141,6 @@ impl Action for Fail {
     const NAME: &'static str = "fail";
 }
 
-/// An agent's action that answers after `ms`.
 #[derive(Serialize, Deserialize)]
 pub struct Slow {
     pub ms: u64,
@@ -163,7 +151,6 @@ impl Action for Slow {
     const NAME: &'static str = "slow";
 }
 
-/// An agent's action that ends its Node host.
 #[derive(Serialize, Deserialize)]
 pub struct Exit;
 

@@ -1,11 +1,6 @@
-//! The Node host as the Rust host's child process: [`open`], which
-//! opens a host whose other kinds run in the child, the
-//! [`Supervisor`], which starts, watches, ends and restarts the
-//! child, and the child's own hold on the link's ends,
-//! [`take_link`].
+//! The Node host as the Rust host's child process.
 //!
 //! A child has ended here once it has exited and its tree is killed.
-//! tokio reaps its process after that.
 
 use std::collections::{BTreeMap, HashMap};
 use std::io::{self, PipeReader, PipeWriter};
@@ -58,7 +53,6 @@ static ENDS: Mutex<Option<Ends>> = Mutex::new(None);
 
 /// Where the value of a variable of [`ENVIRONMENT`] comes from.
 enum Value {
-    /// The host's folder.
     Home,
     /// The Rust host's own environment.
     Inherited,
@@ -77,9 +71,7 @@ pub struct ChildOptions {
 /// Opens the folder `dir` as [`Host::open_with`] does, with the
 /// kinds of `child` running in a Node child that the returned
 /// [`Supervisor`] keeps running, in `dir`. A call to, or a create of,
-/// an actor of those kinds goes to the child, and fails with
-/// `link.down` while the link is not ready, and with `link.lost` when
-/// the link goes down before the answer comes. The child's actors
+/// an actor of those kinds goes to the child. The child's actors
 /// call this host's.
 ///
 /// Must be called in the tokio runtime the host's actors run on,
@@ -118,11 +110,9 @@ pub fn open(
     Ok((host, supervisor))
 }
 
-/// What the supervisor's thread works with, all of it fixed at open.
 struct Supervised {
     argv: Vec<String>,
     home: String,
-    /// The Rust host's kinds, which the welcome states.
     ours: Vec<String>,
     /// The route table the welcome gives the child.
     routes: Routes,
@@ -176,9 +166,8 @@ impl Supervisor {
     /// Starts no more children, fails the calls out to the running
     /// one with `link.lost`, says goodbye to it, gives it 15 seconds
     /// to exit, then kills its tree. Returns how that child ended, or
-    /// `None` when no child was running, as in the second between two
-    /// children or after a start that failed, or when its end could
-    /// not be waited for.
+    /// `None` when no child was running, or when its end could not be
+    /// waited for.
     pub async fn shutdown(self) -> Option<ExitStatus> {
         let Self { stop, thread, .. } = self;
         drop(stop);
@@ -196,8 +185,6 @@ impl Supervisor {
 enum End {
     /// The child is to go, and a new one start.
     Lost,
-    /// The child's hello was refused. It reads why and exits, and a
-    /// new one starts.
     Refused,
     /// The supervisor shuts down.
     Shutdown,
@@ -206,9 +193,6 @@ enum End {
 /// A child the supervisor started.
 struct Running {
     tree: Tree,
-    /// The child's one writer. The session the port holds has a
-    /// clone, and this one outlives the port's going down, for the
-    /// goodbye.
     out: Writer,
     /// What each read of the child's output gave: its frames, then
     /// its end or the break of the link.
@@ -245,10 +229,6 @@ async fn supervise(
     }
 }
 
-/// Starts a child as a tree of its own, with its environment, its
-/// writer, a thread that reads its frames, and a thread that copies
-/// its standard error to the Rust host's until it ends, which
-/// outlives the supervisor's runtime.
 fn spawn(supervised: &Supervised) -> io::Result<Running> {
     let (
         tree,
@@ -414,14 +394,6 @@ async fn until(deadline: Option<Instant>) {
     }
 }
 
-/// Ends `child` and returns how it ended. Takes the port down first,
-/// so calls out fail with `link.lost` and new ones with `link.down`.
-/// At a shutdown it then says goodbye and gives the child
-/// [`EXIT_DEADLINE`] to exit, the goodbye's wait for a full pipe
-/// included, and so it gives a refused child, which reads why and
-/// exits; past that, or when the child is lost, it kills the child's
-/// tree at once. Dropped, the tree kills it again, and tokio
-/// reaps the child.
 async fn end_child(
     port: &Port,
     mut child: Running,
@@ -466,8 +438,7 @@ async fn end_child(
 
 /// The link's ends in the Node host.
 pub(crate) struct Ends {
-    /// The Rust host's frames.
-    pub(crate) frames: mpsc::UnboundedReceiver<Frame>,
+    pub(crate) frames: Frames,
     /// Frames to the Rust host.
     pub(crate) output: PipeWriter,
 }
@@ -483,7 +454,7 @@ pub fn take_link() -> io::Result<()> {
         .name("link-input".to_owned())
         .spawn(move || read_input(input, &frames))?;
     *ENDS.lock() = Some(Ends {
-        frames: received,
+        frames: Frames(received),
         output,
     });
     Ok(())
@@ -501,6 +472,18 @@ fn read_input(
         let _ = frames.send(frame);
     }
     process::end_now()
+}
+
+/// The Rust host's frames, which end only with this process.
+pub(crate) struct Frames(mpsc::UnboundedReceiver<Frame>);
+
+impl Frames {
+    pub(crate) async fn next(&mut self) -> Frame {
+        match self.0.recv().await {
+            Some(frame) => frame,
+            None => std::future::pending().await,
+        }
+    }
 }
 
 pub(crate) fn take_ends() -> Option<Ends> {

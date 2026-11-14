@@ -47,8 +47,6 @@ pub fn fingerprint() -> &'static str {
         .unwrap_or_default()
 }
 
-/// The kinds of `factories`, in order, as a hello and a welcome state
-/// them.
 pub(crate) fn kinds(
     factories: &HashMap<String, ActorFactory>,
 ) -> Vec<String> {
@@ -58,11 +56,7 @@ pub(crate) fn kinds(
 }
 
 /// The Rust host's answer to a Node host's hello: a
-/// [`Frame::Welcome`] stating the Rust host's kinds `ours` and its
-/// route table `routes`, or a [`Frame::Refused`] when the hello's
-/// protocol is not compatible with [`PROTOCOL`], its fingerprint is
-/// not [`fingerprint`], or its kinds are not the ones `port` sends to
-/// the Node host.
+/// [`Frame::Welcome`] or a [`Frame::Refused`].
 pub(crate) fn answer(
     protocol: &Version,
     theirs: &str,
@@ -103,11 +97,7 @@ pub(crate) fn answer(
 /// Serves the Node host's half of the link until the Rust host's
 /// goodbye, on the ends [`child::take_link`] took. Says hello with
 /// the kinds of `factories` before it opens any file. Once welcomed,
-/// opens the folder `HAMLET_HOME` as the host `node` with them and
-/// the welcome's routes, its actors' calls to the welcome's kinds
-/// going to the Rust host. Takes the Rust host's frames from then on,
-/// boots the host and says it is ready. At the goodbye it shuts the
-/// host down and returns.
+/// opens the folder `HAMLET_HOME` as the host `node`.
 ///
 /// No actor of this host sees `link.down` or `link.lost`: the link is
 /// up before boot starts any actor, and when the pipe fails either
@@ -136,14 +126,13 @@ pub async fn serve(
         pid: std::process::id(),
     })
     .await?;
-    let (theirs, routes) = match frames.recv().await {
-        Some(Frame::Welcome { kinds, routes, .. }) => (kinds, routes),
-        Some(Frame::Refused { reason }) => {
+    let (theirs, routes) = match frames.next().await {
+        Frame::Welcome { kinds, routes, .. } => (kinds, routes),
+        Frame::Refused { reason } => {
             bail!("the Rust host refused this Node host: {reason}")
         }
-        Some(Frame::Goodbye) => return Ok(()),
-        Some(frame) => bail!(Broken::OutOfTurn(frame.name())),
-        None => bail!("the link's input is gone"),
+        Frame::Goodbye => return Ok(()),
+        frame => bail!(Broken::OutOfTurn(frame.name())),
     };
     let port = Port::new(Role::Node, theirs);
     let host = Host::open_linked(
@@ -163,14 +152,9 @@ pub async fn serve(
     let taking = async {
         loop {
             tokio::select! {
-                frame = frames.recv() => match frame {
-                    Some(frame) => match port.take(frame)? {
-                        Taken::Handled => {}
-                        Taken::Goodbye => return anyhow::Ok(()),
-                    },
-                    // The input's end ends the process, so the
-                    // frames end only with it.
-                    None => std::future::pending().await,
+                frame = frames.next() => match port.take(frame)? {
+                    Taken::Handled => {}
+                    Taken::Goodbye => return anyhow::Ok(()),
                 },
                 event = events.recv(), if reporting => match event {
                     Ok(event) => {

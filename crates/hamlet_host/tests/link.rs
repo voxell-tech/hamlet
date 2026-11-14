@@ -140,9 +140,6 @@ fn every_frame_round_trips_and_the_stream_ends_cleanly() {
     assert_eq!(link::read(&mut input).unwrap(), None);
 }
 
-/// The body of a request of each ask, encoded by hand: serde's
-/// default enum form with `snake_case` tags, and a caller and an
-/// address as maps.
 #[test]
 fn a_request_of_each_ask_has_the_recorded_bytes() {
     let call = Frame::Request {
@@ -340,14 +337,13 @@ mod handshake {
     use tokio::io::{AsyncBufReadExt, BufReader};
     use tracing_subscriber::filter::LevelFilter;
 
-    use super::linked::{self, has_line, own_stand_in, wait_for};
+    use super::linked::{
+        self, GONE_WAIT, has_line, own_stand_in, wait_for,
+    };
     use super::logs::Logs;
 
     /// How long a test waits for a child to be ready.
     const READY_WAIT: Duration = Duration::from_secs(30);
-
-    /// How long a child may outlive its link.
-    const GONE_WAIT: Duration = Duration::from_secs(2);
 
     /// The folder of the Rust host [`rust_host`] runs. Unset, that
     /// test does nothing.
@@ -362,8 +358,6 @@ mod handshake {
         Holds,
     }
 
-    /// A Rust host of no kinds on `home`, with the stand-in run with
-    /// `args` as its child.
     fn open(home: &Path, args: &[&str]) -> (Host, Supervisor) {
         open_with(home, linked::child(args))
     }

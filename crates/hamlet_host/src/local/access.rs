@@ -164,7 +164,6 @@ impl Stamp {
         }
     }
 
-    /// The stamp of an operation the actor at `at` makes here.
     #[cfg(test)]
     pub(crate) fn actor(at: Address) -> Self {
         Self {

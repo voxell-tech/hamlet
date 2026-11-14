@@ -31,9 +31,6 @@
 //!                       `<kind>/<key>`
 //! --silent              by hand, get to Ready, then answer nothing
 //! ```
-//!
-//! By hand, it reads frames until the goodbye, and its process ends
-//! with the link's input, as a Node host's does.
 
 use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
@@ -59,7 +56,6 @@ use actions::{Exit, Fail, Input, Relay, Seen, Slow, Started, Who};
 /// The one kind the stand-in holds.
 const KIND: &str = "agent";
 
-/// The deadline of the calls the stand-in makes on its own.
 const DEADLINE: Duration = Duration::from_secs(10);
 
 /// What the stand-in does on the link.
@@ -69,7 +65,6 @@ enum Mode {
     ByHand(Part),
 }
 
-/// The part of the Node host's half the stand-in plays by hand.
 enum Part {
     Hold,
     Welcomed,
@@ -144,7 +139,6 @@ fn main() -> Result<()> {
     }
 }
 
-/// The caller `text` names: `none`, `client` or `<kind>/<key>`.
 fn stamp(text: &str) -> Result<Option<Caller>> {
     Ok(match text {
         "none" => None,
@@ -206,7 +200,6 @@ fn say_hello(
     Ok(())
 }
 
-/// The Rust host's frames, each named in a record when there is one.
 struct Reader {
     input: PipeReader,
     record: Option<File>,
@@ -225,7 +218,6 @@ impl Reader {
         Ok(Self { input, record })
     }
 
-    /// The next frame, or `None` once the input ends or breaks.
     fn next(&mut self) -> Result<Option<Frame>> {
         let Ok(Some(frame)) = link::read(&mut self.input) else {
             return Ok(None);
@@ -236,7 +228,6 @@ impl Reader {
         Ok(Some(frame))
     }
 
-    /// Reads frames until the goodbye.
     fn hold(&mut self) -> Result<()> {
         loop {
             match self.next()? {
@@ -274,8 +265,6 @@ fn by_hand(
     reader.hold()
 }
 
-/// Asks `realm/r`'s `who` as `agent/a`, and writes the reply to
-/// `answer`.
 fn ask_early(
     reader: &mut Reader,
     output: &mut PipeWriter,
@@ -301,7 +290,6 @@ fn ask_early(
     Ok(())
 }
 
-/// The request `0`, asking `realm/r`'s `who` for `from`.
 fn ask_who(from: Option<Caller>) -> Result<Frame> {
     Ok(Frame::Request {
         id: 0,
@@ -327,11 +315,8 @@ fn factories() -> HashMap<String, ActorFactory> {
     registry.into_factories()
 }
 
-/// An actor of the kind `agent`. Its input names the actor whose
-/// `note` its start calls, if any.
 struct Agent {
     input: Option<Address>,
-    /// What the start's call gave.
     started: Option<Seen>,
 }
 
@@ -343,7 +328,6 @@ impl Actor for Agent {
     type ConnParams = Option<Caller>;
     type Action = ();
 
-    // It runs at each start, so a fresh Node host's boot calls again.
     async fn create(ctx: &Ctx<Self>) -> Result<Self> {
         let input = ctx.input()?;
         let started = match &input {
