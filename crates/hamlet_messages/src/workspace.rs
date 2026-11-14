@@ -180,7 +180,7 @@ pub enum Shell {
     Bash,
 }
 
-/// Runs a script for an agent.
+/// Runs a script or a tool added by hand for an agent.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Run {
     pub agent: AgentNumber,
@@ -188,17 +188,56 @@ pub struct Run {
     pub conversation: ConversationId,
     /// `None` when no chief's instruction started the work.
     pub realm_task: Option<RealmTask>,
-    pub shell: Shell,
-    pub script: String,
-    /// The model said the command needs the network (C19).
-    pub network: bool,
-    /// Shortens the 120 s limit (C16), in milliseconds.
-    pub timeout_ms: Option<u64>,
+    pub program: Program,
+}
+
+/// What a [`Run`] runs.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Program {
+    Script {
+        shell: Shell,
+        script: String,
+        /// The model said the command needs the network (C19).
+        network: bool,
+        /// Shortens the 120 s limit (C16), in milliseconds.
+        timeout_ms: Option<u64>,
+    },
+    /// A tool a chief added by hand (C17), which reads `arguments`,
+    /// a JSON object, on its standard input. It runs with the reach
+    /// and the time limit its manifest gives.
+    Tool { name: String, arguments: String },
 }
 
 impl Action for Run {
     type Output = RunAnswer;
     const NAME: &'static str = "run";
+}
+
+/// Asks which tools a chief added by hand (C17), to offer them to a
+/// model.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ListTools;
+
+impl Action for ListTools {
+    type Output = ToolList;
+    const NAME: &'static str = "list_tools";
+}
+
+/// The tools added by hand that load, in their folders' order.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ToolList {
+    pub tools: Vec<AddedTool>,
+    /// Why each folder of a tool that does not load is left out.
+    pub faults: Vec<String>,
+}
+
+/// A tool added by hand, as a model is offered it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AddedTool {
+    pub name: String,
+    pub description: String,
+    /// The JSON Schema of its arguments, as JSON.
+    pub parameters: String,
 }
 
 /// The workspace's id of a command, from 1.

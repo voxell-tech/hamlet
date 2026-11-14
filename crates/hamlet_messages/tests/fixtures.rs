@@ -20,11 +20,12 @@ use hamlet_messages::workspace::reach::{
     Trust,
 };
 use hamlet_messages::workspace::{
-    AgentNumber, Answer, AnswerTaken, CallId, CallRefusal,
+    AddedTool, AgentNumber, Answer, AnswerTaken, CallId, CallRefusal,
     CallerRefusal, Cancel, CancelAnswer, Changed, ChiefAnswer,
     CommandEnd, CommandId, CommandStatus, ConversationId, Cut, Exit,
-    Lapse, ReachAnswer, ReachVersion, RealmRefusal, RealmTask, Run,
-    RunAnswer, Scope, SetReach, Shell, Which,
+    Lapse, ListTools, Program, ReachAnswer, ReachVersion,
+    RealmRefusal, RealmTask, Run, RunAnswer, Scope, SetReach, Shell,
+    ToolList, Which,
 };
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -150,10 +151,40 @@ fn the_workspaces_messages_match_their_fixtures() {
             call: CallId("call-1".into()),
             conversation: ConversationId("c1".into()),
             realm_task: task.clone(),
-            shell: Shell::Bash,
-            script: "echo hi".into(),
-            network: false,
-            timeout_ms: Some(30_000),
+            program: Program::Script {
+                shell: Shell::Bash,
+                script: "echo hi".into(),
+                network: false,
+                timeout_ms: Some(30_000),
+            },
+        },
+    );
+    fixtures.args(
+        "workspace/run.tool",
+        &Run {
+            agent: AGENT,
+            call: CallId("call-1".into()),
+            conversation: ConversationId("c1".into()),
+            realm_task: task.clone(),
+            program: Program::Tool {
+                name: "word_count".into(),
+                arguments: r#"{"path":"/project/a.md"}"#.into(),
+            },
+        },
+    );
+    fixtures.args("workspace/list_tools", &ListTools);
+    fixtures.answer(
+        "workspace/list_tools",
+        &ToolList {
+            tools: vec![AddedTool {
+                name: "word_count".into(),
+                description: "Counts the words of a file".into(),
+                parameters: r#"{"type":"object","properties":{"path":{"type":"string"}}}"#.into(),
+            }],
+            faults: vec![
+                "/realm/tools/broken: manifest.json is not valid JSON"
+                    .into(),
+            ],
         },
     );
     fixtures.args(

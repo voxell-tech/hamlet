@@ -47,7 +47,7 @@ use hamlet_messages::agent::{Finished, Outcome};
 use hamlet_messages::workspace::files::{ChangeAnswer, WriteFile};
 use hamlet_messages::workspace::{
     AgentNumber, CallId, CommandEnd, CommandId, CommandStatus,
-    ConversationId, Exit, Run, RunAnswer, Shell,
+    ConversationId, Exit, Program, Run, RunAnswer, Shell,
 };
 
 /// The kind `agent`.
@@ -190,10 +190,12 @@ pub async fn run(host: &Host, words: &[String]) -> Result<()> {
                 call: CallId(call.clone()),
                 conversation,
                 realm_task: None,
-                shell: Shell::Bash,
-                script: script.join(" "),
-                network: false,
-                timeout_ms: None,
+                program: Program::Script {
+                    shell: Shell::Bash,
+                    script: script.join(" "),
+                    network: false,
+                    timeout_ms: None,
+                },
             };
             let args = hamlet_actor::action::encode_positional(&run)?;
             (Run::NAME, args, Some(call))
