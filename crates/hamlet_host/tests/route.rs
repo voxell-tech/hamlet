@@ -4,6 +4,7 @@
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use at::at;
 use call::call;
 use code::code;
 use files::any_file_of;
@@ -20,6 +21,8 @@ use logs::Logs;
 use serde::{Deserialize, Serialize};
 use tracing_subscriber::filter::LevelFilter;
 
+#[path = "support/at.rs"]
+mod at;
 #[path = "support/call.rs"]
 mod call;
 #[path = "support/code.rs"]
@@ -72,8 +75,7 @@ impl Action for Ask {
 
 #[derive(Serialize, Deserialize)]
 struct Make {
-    kind: String,
-    key: String,
+    at: Address,
 }
 
 impl Action for Make {
@@ -136,14 +138,14 @@ impl Handler<Ask> for Peer {
         ask: Ask,
     ) -> anyhow::Result<Option<Failure>> {
         Ok(failure(
-            Host::call_from(
-                ctx.inner(),
-                &ask.to,
-                Ping::NAME,
-                hamlet_actor::action::encode_positional(&Ping)?,
-                DEADLINE,
-            )
-            .await,
+            HostRef::of(ctx.inner())?
+                .call(
+                    &ask.to,
+                    Ping::NAME,
+                    hamlet_actor::action::encode_positional(&Ping)?,
+                    DEADLINE,
+                )
+                .await,
         ))
     }
 }
@@ -155,13 +157,9 @@ impl Handler<Make> for Peer {
         make: Make,
     ) -> anyhow::Result<Option<Failure>> {
         Ok(failure(
-            Host::create_from(
-                ctx.inner(),
-                &make.kind,
-                &make.key,
-                Vec::new(),
-            )
-            .await,
+            HostRef::of(ctx.inner())?
+                .create(&make.at, Vec::new())
+                .await,
         ))
     }
 }
@@ -191,7 +189,7 @@ fn open(dir: &Scratch, pinged: Arc<Pinged>) -> Host {
 
 async fn make(host: &Host, at: &[&Address]) {
     for at in at {
-        host.create(&at.kind, &at.key, Vec::new()).await.unwrap();
+        host.create(at, Vec::new()).await.unwrap();
     }
 }
 
@@ -212,13 +210,10 @@ async fn an_agent_reaches_the_realm_workspace_and_profile_but_not_another_agent(
     let dir = Scratch::new("route-agent");
     let pinged = Arc::<Pinged>::default();
     let host = open(&dir, pinged.clone());
-    let a = Address::new("agent", "a");
-    let b = Address::new("agent", "b");
-    let others = [
-        Address::new("realm", "r"),
-        Address::new("workspace", "w"),
-        Address::new("profile", "p"),
-    ];
+    let a = at("agent", "a");
+    let b = at("agent", "b");
+    let others =
+        [at("realm", "r"), at("workspace", "w"), at("profile", "p")];
     make(&host, &[&a, &b]).await;
     make(&host, &others.each_ref()).await;
     let mut events = host.events();
@@ -278,10 +273,10 @@ async fn a_client_reaches_the_realm_and_an_agent_but_not_the_workspace_or_profil
  {
     let dir = Scratch::new("route-client");
     let host = open(&dir, Arc::default());
-    let at = KINDS.map(|kind| Address::new(kind, "x"));
-    make(&host, &at.each_ref()).await;
+    let targets = KINDS.map(|kind| at(kind, "x"));
+    make(&host, &targets.each_ref()).await;
     let mut outcomes = Vec::new();
-    for to in &at {
+    for to in &targets {
         let called = host
             .call_for_client(
                 to,
@@ -292,7 +287,7 @@ async fn a_client_reaches_the_realm_and_an_agent_but_not_the_workspace_or_profil
             )
             .await;
         outcomes.push((
-            to.kind.clone(),
+            to.kind().to_owned(),
             failure(called).map(|failure| failure.code),
         ));
     }
@@ -314,14 +309,13 @@ async fn an_agents_create_of_another_agent_is_refused_and_leaves_no_file()
  {
     let dir = Scratch::new("route-create");
     let host = open(&dir, Arc::default());
-    let a = Address::new("agent", "a");
+    let a = at("agent", "a");
     make(&host, &[&a]).await;
     let made = call(
         &host,
         &a,
         &Make {
-            kind: "agent".to_owned(),
-            key: "b".to_owned(),
+            at: at("agent", "b"),
         },
     )
     .await

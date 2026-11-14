@@ -7,16 +7,17 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
+use hamlet_actor_core::ActorFactory;
 use hamlet_actor_core::error::ActorRuntime;
 use hamlet_actor_core::host::ActionTimedOut;
-use hamlet_actor_core::{ActorContext, ActorFactory};
 use hamlet_actor_error::ActorError;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use tracing::Instrument;
 
-use super::access::current;
-use super::{Host, HostInner, Open, host_shut_down};
-use crate::directory::Address;
+use super::access::Stamp;
+use super::{Host, HostInner, Open, actor_id, host_shut_down};
+use crate::address::{Address, Caller};
+use crate::directory::Place;
 use crate::event::HostEvent;
 use crate::route::{CallerKind, Operation};
 
@@ -33,33 +34,6 @@ struct Refused {
     operation: String,
     from: CallerKind,
     to: String,
-}
-
-/// Who made a call, as the host stamps it. The callee reads it from
-/// its call's connection parameters, which are the CBOR of an
-/// `Option<Caller>`: a call that no actor and no client made carries
-/// none.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Caller {
-    /// The actor at this address.
-    Actor(Address),
-    /// A client of the program that opened the host.
-    Client,
-}
-
-impl std::fmt::Display for Caller {
-    fn fmt(
-        &self,
-        f: &mut std::fmt::Formatter<'_>,
-    ) -> std::fmt::Result {
-        match self {
-            Self::Actor(from) => {
-                write!(f, "{}/{}", from.kind, from.key)
-            }
-            Self::Client => f.write_str("client"),
-        }
-    }
 }
 
 impl Host {
@@ -90,13 +64,14 @@ impl Host {
         args: Vec<u8>,
         deadline: Duration,
     ) -> Result<Vec<u8>> {
-        self.inner().call(None, to, name, args, deadline).await
+        self.inner()
+            .call(Stamp::PROGRAM, to, name, args, deadline)
+            .await
     }
 
     /// Calls as [`Host::call`] does, stamped with
     /// [`Caller::Client`]: for a call a client of the program asked
-    /// for. Fails at once with `actor.refused` for a kind the route
-    /// table does not let a client reach.
+    /// for.
     pub async fn call_for_client(
         &self,
         to: &Address,
@@ -105,44 +80,17 @@ impl Host {
         deadline: Duration,
     ) -> Result<Vec<u8>> {
         self.inner()
-            .call(Some(Caller::Client), to, name, args, deadline)
-            .await
-    }
-
-    /// Calls as [`Host::call`] does, from the actor whose context is
-    /// `ctx`, stamped with its address: an actor calls only as
-    /// itself. Fails at once with `actor.invalid_operation` for a
-    /// call to itself, which would wait for its own handler, with
-    /// `actor.refused` for a kind the route table does not let its
-    /// kind reach, and with `actor.stopping` from a generation that
-    /// has ended.
-    pub async fn call_from(
-        ctx: &ActorContext,
-        to: &Address,
-        name: &str,
-        args: Vec<u8>,
-        deadline: Duration,
-    ) -> Result<Vec<u8>> {
-        let running = current(ctx)?;
-        running
-            .host
-            .call(
-                Some(Caller::Actor(running.address()?)),
-                to,
-                name,
-                args,
-                deadline,
-            )
+            .call(Stamp::client(), to, name, args, deadline)
             .await
     }
 }
 
 impl HostInner {
-    /// Calls the action `name` of the actor at `to` for `caller`,
+    /// Calls the action `name` of the actor at `to` for `stamp`,
     /// stamped on the call's connection, as [`Host::call`] says.
-    async fn call(
+    pub(super) async fn call(
         self: &Arc<Self>,
-        caller: Option<Caller>,
+        stamp: Stamp,
         to: &Address,
         name: &str,
         args: Vec<u8>,
@@ -152,23 +100,23 @@ impl HostInner {
             Operation::Call {
                 action: name.to_owned(),
             },
-            caller.as_ref(),
+            stamp.caller(),
             to,
         )?;
-        let actor_id = self.located(&to.kind, &to.key)?;
-        let params = stamp(caller.as_ref())?;
+        let Place::Local(_) = self.locate(to)?;
+        let params = stamp.bytes()?;
         let span = tracing::debug_span!(
             "call",
-            actor_id,
+            actor_id = actor_id(to).as_str(),
             action = name,
-            caller = caller.as_ref().map(tracing::field::display)
+            caller = stamp.caller().map(tracing::field::display)
         );
         let mut shut = self.starts_end.subscribe();
         let call = async {
             let begun = Instant::now();
             let generation = tokio::time::timeout(
                 deadline,
-                self.ensure_started(&actor_id, &Open::Existing),
+                self.ensure_started(to, &Open::Existing),
             )
             .await
             .map_err(|_| ActionTimedOut.build())??;
@@ -204,19 +152,16 @@ impl HostInner {
         {
             return Err(ActorRuntime::InvalidOperation {
                 operation: operation.to_string(),
-                reason: format!(
-                    "the actor {}/{} is its own target",
-                    to.kind, to.key
-                ),
+                reason: format!("the actor {to} is its own target"),
             }
             .build());
         }
-        if self.options.routes.allows(from, &to.kind) {
+        if self.options.routes.allows(from, to.kind()) {
             return Ok(());
         }
         tracing::warn!(
             caller = %from,
-            actor_id = format!("{}/{}", to.kind, to.key),
+            actor_id = actor_id(to).as_str(),
             ?operation,
             "the host refused an operation its route table does not \
              allow"
@@ -224,7 +169,7 @@ impl HostInner {
         let refused = Refused {
             operation: operation.to_string(),
             from: CallerKind::of(from),
-            to: to.kind.clone(),
+            to: to.kind().to_owned(),
         }
         .build();
         let _ = self.events.send(HostEvent::Refused {
@@ -236,15 +181,6 @@ impl HostInner {
     }
 }
 
-/// The connection parameters that stamp a call with `caller`: the
-/// CBOR of the `Option<Caller>`, so none is CBOR null.
-fn stamp(caller: Option<&Caller>) -> Result<Vec<u8>> {
-    let mut params = Vec::new();
-    ciborium::into_writer(&caller, &mut params)
-        .context("encode the caller's stamp")?;
-    Ok(params)
-}
-
 /// Fails for a kind that cannot read the stamp of an actor's call or
 /// a client's, naming it. A kind decodes its calls' connection
 /// parameters as it declared them, and one that cannot decode a stamp
@@ -252,11 +188,7 @@ fn stamp(caller: Option<&Caller>) -> Result<Vec<u8>> {
 pub(super) fn check_kinds(
     factories: &HashMap<String, ActorFactory>,
 ) -> Result<()> {
-    let stamps =
-        [Caller::Client, Caller::Actor(Address::new("k", "k"))]
-            .iter()
-            .map(|caller| stamp(Some(caller)))
-            .collect::<Result<Vec<_>>>()?;
+    let stamps = Stamp::sample_bytes()?;
     for (kind, factory) in factories {
         for stamp in &stamps {
             factory.check_conn_params(stamp).with_context(|| {

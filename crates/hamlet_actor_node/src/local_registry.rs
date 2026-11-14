@@ -57,7 +57,8 @@ impl CoreRegistry {
         let host = Host::open(Path::new(&dir), factories)
             .map_err(napi_anyhow_error)?;
         *self.host.lock() = Some(host.clone());
-        host.boot().await.map_err(napi_anyhow_error)
+        let began = host.boot().await.map_err(napi_anyhow_error)?;
+        Ok(began.iter().map(ToString::to_string).collect())
     }
 
     /// Makes the actor of `kind` and `key` with `input`, the CBOR
@@ -71,10 +72,12 @@ impl CoreRegistry {
         key: String,
         input: Buffer,
     ) -> napi::Result<String> {
+        let at = address(kind, key)?;
         self.host()?
-            .create(&kind, &key, input.to_vec())
+            .create(&at, input.to_vec())
             .await
-            .map_err(napi_anyhow_error)
+            .map_err(napi_anyhow_error)?;
+        Ok(at.to_string())
     }
 
     /// The actor of `kind` and `key`, made with no input when the key
@@ -86,10 +89,12 @@ impl CoreRegistry {
         kind: String,
         key: String,
     ) -> napi::Result<String> {
+        let at = address(kind, key)?;
         self.host()?
-            .get_or_start(&kind, &key)
+            .get_or_start(&at)
             .await
-            .map_err(napi_anyhow_error)
+            .map_err(napi_anyhow_error)?;
+        Ok(at.to_string())
     }
 
     /// Calls the action `name` of the actor of `kind` and `key`,
@@ -105,10 +110,11 @@ impl CoreRegistry {
         args: Buffer,
         deadline_ms: u32,
     ) -> napi::Result<Buffer> {
+        let at = address(kind, key)?;
         let output = self
             .host()?
             .call(
-                &Address::new(kind, key),
+                &at,
                 &name,
                 args.to_vec(),
                 Duration::from_millis(deadline_ms.into()),
@@ -145,6 +151,13 @@ impl Default for CoreRegistry {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// The address of `kind` and `key`. A name that is not plain fails
+/// with its text.
+fn address(kind: String, key: String) -> napi::Result<Address> {
+    Address::new(kind, key)
+        .map_err(|error| napi_anyhow_error(error.into()))
 }
 
 /// The host owns its factories, while the N-API factory object keeps

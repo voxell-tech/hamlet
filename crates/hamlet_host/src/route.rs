@@ -28,7 +28,9 @@ pub enum CallerKind {
 impl CallerKind {
     pub(crate) fn of(caller: &Caller) -> Self {
         match caller {
-            Caller::Actor(from) => Self::Actor(from.kind.clone()),
+            Caller::Actor(from) => {
+                Self::Actor(from.kind().to_owned())
+            }
             Caller::Client => Self::Client,
         }
     }

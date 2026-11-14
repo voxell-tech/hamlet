@@ -22,8 +22,10 @@ const FINGERPRINT: &str = "link.fingerprint";
 fn call(args: Vec<u8>) -> Frame {
     Frame::Call {
         id: 7,
-        from: Some(Caller::Actor(Address::new("agent", "a1"))),
-        to: Address::new("workspace", "w1"),
+        from: Some(Caller::Actor(
+            Address::new("agent", "a1").unwrap(),
+        )),
+        to: Address::new("workspace", "w1").unwrap(),
         name: "write".to_owned(),
         args,
         deadline_ms: 30_000,
@@ -57,7 +59,7 @@ fn every_frame() -> Vec<Frame> {
         Frame::Call {
             id: 8,
             from: Some(Caller::Client),
-            to: Address::new("agent", "a2"),
+            to: Address::new("agent", "a2").unwrap(),
             name: "say".to_owned(),
             args: Vec::new(),
             deadline_ms: 1,
@@ -65,7 +67,7 @@ fn every_frame() -> Vec<Frame> {
         Frame::Call {
             id: 9,
             from: None,
-            to: Address::new("agent", "a3"),
+            to: Address::new("agent", "a3").unwrap(),
             name: "stop".to_owned(),
             args: vec![9],
             deadline_ms: u64::MAX,
@@ -84,7 +86,7 @@ fn every_frame() -> Vec<Frame> {
             }),
         },
         Frame::HostEvent(HostEvent::TimerSetAside {
-            actor: Address::new("agent", "a1"),
+            actor: Address::new("agent", "a1").unwrap(),
             event_id: "e1".to_owned(),
             action: "wake".to_owned(),
             due_at: 1_700_000_000_000,
@@ -92,12 +94,12 @@ fn every_frame() -> Vec<Frame> {
             error: Some("actor.action_timed_out".to_owned()),
         }),
         Frame::HostEvent(HostEvent::UnreadableFile {
-            actor: Address::new("agent", "a4"),
+            actor: Address::new("agent", "a4").unwrap(),
             error: "not a database".to_owned(),
         }),
         Frame::HostEvent(HostEvent::Refused {
-            from: Caller::Actor(Address::new("agent", "a1")),
-            to: Address::new("agent", "a2"),
+            from: Caller::Actor(Address::new("agent", "a1").unwrap()),
+            to: Address::new("agent", "a2").unwrap(),
             operation: Operation::Call {
                 action: "ping".to_owned(),
             },

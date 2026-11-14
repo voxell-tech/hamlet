@@ -343,8 +343,11 @@ impl Workspace {
         notice: NeedsChief,
     ) {
         let (agent, call) = (notice.agent, notice.call.clone());
-        let to = Address::new(REALM, REALM_KEY);
-        if let Err(error) = call_actor(ctx, to, &notice).await {
+        let asked = async {
+            let to = Address::new(REALM, REALM_KEY)?;
+            call_actor(ctx, to, &notice).await
+        };
+        if let Err(error) = asked.await {
             tracing::warn!(
                 ?error,
                 agent = agent.0,
