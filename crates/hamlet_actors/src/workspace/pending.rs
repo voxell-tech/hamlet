@@ -61,17 +61,6 @@ pub(super) enum Pending {
     Edit(EditFile),
 }
 
-impl Pending {
-    /// The op of its call, as the call's row holds it.
-    fn op(&self) -> &'static str {
-        match self {
-            Self::Run(_) => run::OP,
-            Self::Write(_) => WRITE,
-            Self::Edit(_) => EDIT,
-        }
-    }
-}
-
 /// A wait as it is stored.
 pub(super) struct Wait {
     pub agent: AgentNumber,
@@ -570,7 +559,12 @@ impl Handler<ChiefAnswer> for Workspace {
                 }
             },
         };
-        let why = NotRun::of(wait.request.op(), ended)?;
+        let why = match &wait.request {
+            Pending::Run(_) => NotRun::Run(ended.into()),
+            Pending::Write(_) | Pending::Edit(_) => {
+                NotRun::Change(ended.into())
+            }
+        };
         self.not_run(&ctx, &wait, why).await
     }
 }

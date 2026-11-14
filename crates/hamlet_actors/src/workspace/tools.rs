@@ -253,7 +253,7 @@ fn load(home: &RealmFolder) -> (Vec<Tool>, Vec<Fault>) {
         Err(error) => {
             if error.kind() != std::io::ErrorKind::NotFound {
                 faults.push(Fault {
-                    folder,
+                    folder: text(&folder),
                     words: error.to_string(),
                 });
             }
@@ -295,7 +295,7 @@ fn load(home: &RealmFolder) -> (Vec<Tool>, Vec<Fault>) {
             Ok(tool) => tools.push(tool),
             Err(unloaded) => {
                 faults.push(Fault {
-                    folder: path,
+                    folder: text(&path),
                     words: unloaded.to_string(),
                 });
             }

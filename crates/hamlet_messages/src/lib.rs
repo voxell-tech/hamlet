@@ -21,8 +21,8 @@
 //!
 //! A call from a caller that is not its message's [`Message::From`]
 //! fails with the error `message.wrong_caller`
-//! ([`sender::WrongCaller`]), and a call whose id was given before to
-//! another request fails with `message.id_reused`
+//! ([`sender::WrongCaller`]), and a call whose id a kept call of
+//! another request holds fails with `message.id_reused`
 //! ([`sender::IdReused`]). No answer has a case for either.
 //!
 //! `fixtures/` holds the bytes of each one as the host carries it,

@@ -3,8 +3,10 @@
 //! Every answer is built from the same few arms:
 //!
 //! - `ended { end }`: the call ended, and `end` says how. It is the
-//!   end [`crate::agent::Finished`] carries, and a repeat of the call
-//!   answers it again.
+//!   end [`crate::agent::Finished`] carries. A repeat of the call
+//!   answers it again, except a change that `failed` before it was
+//!   planned, as an edit whose text is not found: the workspace kept
+//!   nothing of it.
 //! - `running`, `waits_for_chief`: the call goes on, and the agent is
 //!   called with `Finished` when it ends.
 //! - `refused { why, words }`: the workspace kept nothing of the
@@ -231,10 +233,12 @@ pub struct AddedTool {
     pub parameters: String,
 }
 
-/// A tool's folder that is left out of a [`ToolList`].
+/// A tool's folder, or the tools' own, that is left out of a
+/// [`ToolList`].
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Fault {
-    pub folder: PathBuf,
+    /// The folder's path, as text even where its name is not UTF-8.
+    pub folder: String,
     /// Why it does not load, in words.
     pub words: String,
 }

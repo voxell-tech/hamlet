@@ -18,6 +18,7 @@ use hamlet_messages::workspace::{
     AddedTool, Answer, AnswerTaken, CallId, ConversationId, Exit,
     Fault, ListTools, Program, Run, RunAnswer, RunEnd, ToolList,
 };
+use hamlet_os::fs::path::text;
 use hamlet_testing::Scratch;
 
 use super::changes::{read, write};
@@ -102,14 +103,37 @@ async fn the_tools_added_by_hand_are_listed() {
         list.faults,
         [
             Fault {
-                folder: dir.join("tools/broken"),
+                folder: text(&dir.join("tools/broken")),
                 words: "manifest.json is not valid JSON".into(),
             },
             Fault {
-                folder: dir.join("tools/shell"),
+                folder: text(&dir.join("tools/shell")),
                 words: "name 'bash' is reserved".into(),
             },
         ]
+    );
+}
+
+/// A tool folder whose name is not UTF-8 is a fault named in lossy
+/// text, and the other tools are still listed.
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_folder_whose_name_is_not_text_is_a_fault() {
+    use std::os::unix::ffi::OsStrExt as _;
+
+    let dir = Scratch::new("workspace-tools-not-text");
+    add_tool(&dir, "a-echo", MANIFEST);
+    let odd = std::ffi::OsStr::from_bytes(b"bad\xff");
+    std::fs::create_dir_all(dir.join("tools").join(odd)).unwrap();
+    let host = host(&dir).await;
+    let list: ToolList = ask(&host, &agent(AGENT), &ListTools).await;
+    host.shutdown().await.unwrap();
+    assert_eq!(list.tools.len(), 1);
+    assert_eq!(list.faults.len(), 1);
+    assert!(
+        list.faults[0].folder.ends_with("tools/bad\u{fffd}"),
+        "{:?}",
+        list.faults[0]
     );
 }
 
