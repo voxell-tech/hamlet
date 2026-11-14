@@ -6,6 +6,7 @@ pub mod connection;
 pub mod database;
 mod http;
 pub mod kv;
+pub mod link;
 pub mod local_registry;
 pub mod napi_actor_events;
 pub mod queue;

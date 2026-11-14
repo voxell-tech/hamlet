@@ -341,6 +341,7 @@ const {
     HttpResponseBodyStream,
     HttpRequestBodyStream,
     Kv,
+    takeStdio,
     CoreRegistry,
     Queue,
     QueueMessage,
@@ -366,6 +367,7 @@ module.exports.JsActorStateTransaction = JsActorStateTransaction;
 module.exports.HttpResponseBodyStream = HttpResponseBodyStream;
 module.exports.HttpRequestBodyStream = HttpRequestBodyStream;
 module.exports.Kv = Kv;
+module.exports.takeStdio = takeStdio;
 module.exports.CoreRegistry = CoreRegistry;
 module.exports.Queue = Queue;
 module.exports.QueueMessage = QueueMessage;
