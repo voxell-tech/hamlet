@@ -18,9 +18,7 @@ use hamlet_actor::{Action, Ctx, Handler};
 use hamlet_messages::workspace::files::{
     FileAnswer, Find, ReadFile, Search, Text,
 };
-use hamlet_messages::workspace::reach::{
-    Need, Reach, SecretsVersion,
-};
+use hamlet_messages::workspace::reach::{Need, Reach};
 use hamlet_messages::workspace::{AgentNumber, CallRefusal};
 use hamlet_os::fs::path::{is_absolute, text};
 use hamlet_sandbox::Env;
@@ -28,7 +26,7 @@ use hamlet_sandbox::scrub::scrub_text;
 
 pub(super) use self::change::{Paths, cut_off_changes};
 use super::reach::{self, Gate, Op, Placement, Purpose};
-use super::{Workspace, calling_agent, read_only};
+use super::{Weighing, Workspace, calling_agent, read_only};
 
 /// A file tool's call the gate let through: where it runs, and the
 /// secrets its answer is scrubbed of.
@@ -100,8 +98,6 @@ enum Gated {
     /// It waits for a chief to allow these.
     Chief(Passed, Vec<Need>),
     Refused(CallRefusal),
-    /// The secrets held are older than this version.
-    Fetch(SecretsVersion),
 }
 
 impl Workspace {
@@ -113,7 +109,7 @@ impl Workspace {
         agent: AgentNumber,
         reach: Option<&Reach>,
         op: &Op<'_>,
-    ) -> Result<Gated> {
+    ) -> Result<Weighing<Gated>> {
         let (held, secrets) = self.held();
         let passed = || -> Result<Passed> {
             Ok(Passed {
@@ -128,14 +124,20 @@ impl Workspace {
                 secrets: secrets.clone(),
             })
         };
-        Ok(match reach::gate(&self.home, agent, reach, held, op) {
-            Gate::Run { .. } => Gated::Pass(passed()?),
-            Gate::NeedsChief(needs) => Gated::Chief(passed()?, needs),
-            Gate::Refuse(refusal) => {
-                Gated::Refused(CallRefusal::Reach(refusal))
-            }
-            Gate::NeedsSecrets(version) => Gated::Fetch(version),
-        })
+        Ok(Weighing::Done(
+            match reach::gate(&self.home, agent, reach, held, op) {
+                Gate::Run { .. } => Gated::Pass(passed()?),
+                Gate::NeedsChief(needs) => {
+                    Gated::Chief(passed()?, needs)
+                }
+                Gate::Refuse(refusal) => {
+                    Gated::Refused(CallRefusal::Reach(refusal))
+                }
+                Gate::NeedsSecrets(version) => {
+                    return Ok(Weighing::NeedsSecrets(version));
+                }
+            },
+        ))
     }
 
     async fn read_tool(
@@ -155,30 +157,22 @@ impl Workspace {
                 format!("{} is not an absolute path", path.display()),
             )));
         }
-        let mut fetched = false;
-        loop {
-            let reach = read_only(ctx, async |tx| {
-                reach::read(tx, agent).await
+        let gated = self
+            .weighed(ctx, move || async move {
+                let reach = read_only(ctx, async |tx| {
+                    reach::read(tx, agent).await
+                })
+                .await?;
+                self.gated(agent, reach.as_ref(), &Op::Read { path })
             })
             .await?;
-            match self.gated(
-                agent,
-                reach.as_ref(),
-                &Op::Read { path },
-            )? {
-                Gated::Pass(reading) => {
-                    return reading.run(work).await;
-                }
-                Gated::Chief(..) => {
-                    anyhow::bail!("the gate asked a chief for a read")
-                }
-                Gated::Refused(refusal) => {
-                    return Ok(FileAnswer::Refused(refusal));
-                }
-                Gated::Fetch(version) => {
-                    self.fetch_secrets(ctx, version, &mut fetched)
-                        .await?;
-                }
+        match gated {
+            Gated::Pass(reading) => reading.run(work).await,
+            Gated::Chief(..) => {
+                anyhow::bail!("the gate asked a chief for a read")
+            }
+            Gated::Refused(refusal) => {
+                Ok(FileAnswer::Refused(refusal))
             }
         }
     }

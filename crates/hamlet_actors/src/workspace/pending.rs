@@ -30,8 +30,8 @@ use serde::{Deserialize, Serialize};
 
 use super::reach::{self, Gate, Op};
 use super::{
-    REALM, REALM_KEY, Workspace, call_actor, calls, read_only,
-    realm_calling, tell, transact_if,
+    REALM, REALM_KEY, Weighing, Workspace, call_actor, calls,
+    read_only, realm_calling, tell, transact_if,
 };
 
 /// One row per call that waits for a chief, beside its `calls` row.
@@ -395,8 +395,7 @@ impl Workspace {
         wait: &Wait,
         op: &Op<'_>,
     ) -> Result<Rechecked> {
-        let mut fetched = false;
-        loop {
+        self.weighed(ctx, move || async move {
             let in_force = read_only(ctx, async |tx| {
                 reach::in_force(tx, wait.agent).await
             })
@@ -405,55 +404,55 @@ impl Workspace {
                 .context("a call waits for an agent with no reach")?;
             let (held, secrets) = self.held();
             let changed = |why| {
-                Ok(Rechecked::Refused(CallRefusal::ReachChanged {
+                Rechecked::Refused(CallRefusal::ReachChanged {
                     since: wait.reach_version,
                     now,
                     why,
-                }))
+                })
             };
-            match reach::gate(
-                &self.home,
-                wait.agent,
-                Some(&reach),
-                held,
-                op,
-            ) {
-                Gate::NeedsSecrets(version) => {
-                    self.fetch_secrets(ctx, version, &mut fetched)
-                        .await?;
-                }
-                Gate::Run { network } => {
-                    return Ok(Rechecked::Pass {
+            Ok(Weighing::Done(
+                match reach::gate(
+                    &self.home,
+                    wait.agent,
+                    Some(&reach),
+                    held,
+                    op,
+                ) {
+                    Gate::NeedsSecrets(version) => {
+                        return Ok(Weighing::NeedsSecrets(version));
+                    }
+                    Gate::Run { network } => Rechecked::Pass {
                         reach,
                         network,
                         secrets,
-                    });
-                }
-                Gate::NeedsChief(needs)
-                    if needs
-                        .iter()
-                        .all(|need| wait.needs.contains(need)) =>
-                {
-                    // The chief allowed the network, or the reach
-                    // gives it now.
-                    let network = needs.contains(&Need::Network)
-                        || reach
-                            .footing()
-                            .is_some_and(|footing| footing.network);
-                    return Ok(Rechecked::Pass {
-                        reach,
-                        network,
-                        secrets,
-                    });
-                }
-                Gate::NeedsChief(needs) => {
-                    return changed(Changed::Needs(needs));
-                }
-                Gate::Refuse(refusal) => {
-                    return changed(Changed::Refused(refusal));
-                }
-            }
-        }
+                    },
+                    Gate::NeedsChief(needs)
+                        if needs.iter().all(|need| {
+                            wait.needs.contains(need)
+                        }) =>
+                    {
+                        // The chief allowed the network, or the reach
+                        // gives it now.
+                        let network = needs.contains(&Need::Network)
+                            || reach.footing().is_some_and(
+                                |footing| footing.network,
+                            );
+                        Rechecked::Pass {
+                            reach,
+                            network,
+                            secrets,
+                        }
+                    }
+                    Gate::NeedsChief(needs) => {
+                        changed(Changed::Needs(needs))
+                    }
+                    Gate::Refuse(refusal) => {
+                        changed(Changed::Refused(refusal))
+                    }
+                },
+            ))
+        })
+        .await
     }
 }
 

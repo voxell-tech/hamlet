@@ -35,8 +35,8 @@ use super::{Gated, Passed};
 use crate::workspace::pending::{self, Pending, Rechecked, Wait};
 use crate::workspace::reach::{self, Op, Placement, Purpose};
 use crate::workspace::{
-    Workspace, calling_agent, calls, checked_call, read_only, tell,
-    transact, transact_if,
+    Weighing, Workspace, calling_agent, calls, checked_call,
+    read_only, tell, transact, transact_if,
 };
 
 mod shown;
@@ -188,13 +188,6 @@ impl Handler<EditFile> for Workspace {
 /// What a change's row, its reach and its secrets come to.
 enum Weighed {
     Answer(ChangeAnswer),
-    /// A change a failure cut off after its row was written, which no
-    /// one is at work on.
-    Unfinished {
-        id: i64,
-        temp: Option<String>,
-    },
-    Fetch(hamlet_messages::workspace::reach::SecretsVersion),
     Pass(Passed),
     /// It waits for a chief to allow these, under this reach.
     Chief(Passed, Vec<Need>, ReachVersion),
@@ -254,30 +247,15 @@ impl Workspace {
             }
         }
         let held = self.paths.hold(&path).await;
-        let mut fetched = false;
-        let (passed, chief) = loop {
-            match self.weigh(ctx, agent, &request).await? {
-                Weighed::Answer(answer) => return Ok(answer),
-                // Also the row of a first copy that was dropped
-                // between its rename and its record: this copy then
-                // runs afresh on the file the first one changed, so
-                // an edit can answer that its old text was not found
-                // for a change that was made.
-                Weighed::Unfinished { id, temp } => {
-                    if let Some(temp) = temp {
-                        remove_new_file(&temp);
-                    }
-                    transact(ctx, async |tx| forget(tx, id).await)
-                        .await?;
-                }
-                Weighed::Fetch(version) => {
-                    self.fetch_secrets(ctx, version, &mut fetched)
-                        .await?;
-                }
-                Weighed::Pass(passed) => break (passed, None),
-                Weighed::Chief(passed, needs, version) => {
-                    break (passed, Some((needs, version)));
-                }
+        let request = &request;
+        let weighed = self
+            .weighed(ctx, move || self.weigh(ctx, agent, request))
+            .await?;
+        let (passed, chief) = match weighed {
+            Weighed::Answer(answer) => return Ok(answer),
+            Weighed::Pass(passed) => (passed, None),
+            Weighed::Chief(passed, needs, version) => {
+                (passed, Some((needs, version)))
             }
         };
         let Passed {
@@ -323,14 +301,12 @@ impl Workspace {
                 request: pending.clone(),
             };
             return self
-                .wait_for_chief(
-                    ctx, &request, &secrets, opening, held,
-                )
+                .wait_for_chief(ctx, request, &secrets, opening, held)
                 .await;
         }
         let (temp_name, temp) = temp_of(&planned);
         let opened = transact_if(ctx, async |tx| {
-            open(tx, agent, &request, &temp).await
+            open(tx, agent, request, &temp).await
         })
         .await?;
         let id = match opened {
@@ -340,7 +316,7 @@ impl Workspace {
         self.carry_out(
             ctx,
             id,
-            &request,
+            request,
             Carry {
                 placement,
                 sandbox,
@@ -369,8 +345,8 @@ impl Workspace {
                 calls::find(tx, agent, request.call).await?
             {
                 return Ok(Err(match answered(call, request)? {
-                    Weighed::Answer(answer) => answer,
-                    _ => ChangeAnswer::Failed(
+                    Row::Answer(answer) => answer,
+                    Row::Unfinished { .. } => ChangeAnswer::Failed(
                         "another change with this call id is at work"
                             .into(),
                     ),
@@ -545,36 +521,65 @@ impl Workspace {
         ctx: &Ctx<Self>,
         agent: AgentNumber,
         request: &Request<'_>,
-    ) -> Result<Weighed> {
-        let (found, in_force) = read_only(ctx, async |tx| {
-            let found = calls::find(tx, agent, request.call).await;
-            let in_force = reach::in_force(tx, agent).await;
-            Ok((found, in_force))
-        })
-        .await?;
-        if let Some(call) = found? {
-            return answered(call, request);
-        }
-        let in_force = in_force?;
-        let op = Op::Change {
-            conversation: request.conversation,
-            path: request.path,
-        };
-        let reach = in_force.as_ref().map(|(_, reach)| reach);
-        Ok(match self.gated(agent, reach, &op)? {
-            Gated::Pass(passed) => Weighed::Pass(passed),
-            Gated::Chief(passed, needs) => Weighed::Chief(
-                passed,
-                needs,
-                in_force
-                    .map(|(version, _)| version)
-                    .context("a chief is asked with no reach")?,
-            ),
-            Gated::Refused(refusal) => {
-                Weighed::Answer(ChangeAnswer::Refused(refusal))
+    ) -> Result<Weighing<Weighed>> {
+        loop {
+            let (found, in_force) = read_only(ctx, async |tx| {
+                let found =
+                    calls::find(tx, agent, request.call).await;
+                let in_force = reach::in_force(tx, agent).await;
+                Ok((found, in_force))
+            })
+            .await?;
+            if let Some(call) = found? {
+                match answered(call, request)? {
+                    Row::Answer(answer) => {
+                        return Ok(Weighing::Done(Weighed::Answer(
+                            answer,
+                        )));
+                    }
+                    // Also the row of a first copy that was dropped
+                    // between its rename and its record: this copy
+                    // then runs afresh on the file the first one
+                    // changed, so an edit can answer that its old
+                    // text was not found for a change that was made.
+                    Row::Unfinished { id, temp } => {
+                        if let Some(temp) = temp {
+                            remove_new_file(&temp);
+                        }
+                        transact(ctx, async |tx| {
+                            forget(tx, id).await
+                        })
+                        .await?;
+                        continue;
+                    }
+                }
             }
-            Gated::Fetch(version) => Weighed::Fetch(version),
-        })
+            let in_force = in_force?;
+            let op = Op::Change {
+                conversation: request.conversation,
+                path: request.path,
+            };
+            let reach = in_force.as_ref().map(|(_, reach)| reach);
+            let gated = match self.gated(agent, reach, &op)? {
+                Weighing::Done(gated) => gated,
+                Weighing::NeedsSecrets(version) => {
+                    return Ok(Weighing::NeedsSecrets(version));
+                }
+            };
+            return Ok(Weighing::Done(match gated {
+                Gated::Pass(passed) => Weighed::Pass(passed),
+                Gated::Chief(passed, needs) => Weighed::Chief(
+                    passed,
+                    needs,
+                    in_force
+                        .map(|(version, _)| version)
+                        .context("a chief is asked with no reach")?,
+                ),
+                Gated::Refused(refusal) => {
+                    Weighed::Answer(ChangeAnswer::Refused(refusal))
+                }
+            }));
+        }
     }
 }
 
@@ -597,26 +602,34 @@ fn temp_of(planned: &Planned) -> (String, String) {
     (temp_name, temp)
 }
 
+/// What a change's row answers a repeat of it.
+enum Row {
+    Answer(ChangeAnswer),
+    /// A change a failure cut off after its row was written, which no
+    /// one is at work on.
+    Unfinished {
+        id: i64,
+        temp: Option<String>,
+    },
+}
+
 /// What the row `call` answers a change of `request`.
-fn answered(
-    call: calls::Call,
-    request: &Request<'_>,
-) -> Result<Weighed> {
+fn answered(call: calls::Call, request: &Request<'_>) -> Result<Row> {
     if !call.is(request.asked.op(), &request.request_hash) {
-        return Ok(Weighed::Answer(ChangeAnswer::Refused(
+        return Ok(Row::Answer(ChangeAnswer::Refused(
             CallRefusal::CallReused(request.call.clone()),
         )));
     }
     Ok(match call.state.as_str() {
-        "ended" => Weighed::Answer(decoded("answer", call.answer)?),
-        "waiting" => Weighed::Answer(ChangeAnswer::WaitsForChief(
+        "ended" => Row::Answer(decoded("answer", call.answer)?),
+        "waiting" => Row::Answer(ChangeAnswer::WaitsForChief(
             decoded("needs", call.answer)?,
         )),
-        "refused" => Weighed::Answer(ChangeAnswer::Refused(decoded(
+        "refused" => Row::Answer(ChangeAnswer::Refused(decoded(
             "refusal",
             call.answer,
         )?)),
-        "changing" => Weighed::Unfinished {
+        "changing" => Row::Unfinished {
             id: call.id,
             temp: call.temp,
         },
@@ -836,8 +849,8 @@ async fn open(
 ) -> Result<Result<i64, ChangeAnswer>> {
     if let Some(call) = calls::find(tx, agent, request.call).await? {
         return Ok(Err(match answered(call, request)? {
-            Weighed::Answer(answer) => answer,
-            _ => ChangeAnswer::Failed(
+            Row::Answer(answer) => answer,
+            Row::Unfinished { .. } => ChangeAnswer::Failed(
                 "another change with this call id is at work".into(),
             ),
         }));
@@ -988,17 +1001,17 @@ mod tests {
 
         assert!(matches!(
             ended.unwrap(),
-            Weighed::Answer(given) if given == answer
+            Row::Answer(given) if given == answer
         ));
         assert!(matches!(
             unfinished.unwrap(),
-            Weighed::Unfinished { id: 4, temp: Some(temp) }
+            Row::Unfinished { id: 4, temp: Some(temp) }
                 if temp == "/p/.hamlet-x.new"
         ));
         for refused in [other, a_run] {
             assert!(matches!(
                 refused.unwrap(),
-                Weighed::Answer(ChangeAnswer::Refused(
+                Row::Answer(ChangeAnswer::Refused(
                     CallRefusal::CallReused(_)
                 ))
             ));

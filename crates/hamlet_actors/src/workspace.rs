@@ -219,21 +219,34 @@ impl Workspace {
         )
     }
 
-    /// Calls the realm for its secrets, which the reach in force says
-    /// are of `version`, and holds them when they are newer than the
-    /// ones held. A call fetches once: `fetched` says it did.
-    async fn fetch_secrets(
+    /// What `weigh` comes to under a list of the realm's secrets as
+    /// new as the reach in force asks for. When it asks for a newer
+    /// list, the list is fetched from the realm, once, and `weigh`
+    /// runs again.
+    async fn weighed<T, W>(
         &self,
         ctx: &Ctx<Self>,
-        version: SecretsVersion,
-        fetched: &mut bool,
-    ) -> Result<()> {
-        if std::mem::replace(fetched, true) {
-            bail!(
+        mut weigh: impl FnMut() -> W,
+    ) -> Result<T>
+    where
+        W: Future<Output = Result<Weighing<T>>>,
+    {
+        if let Weighing::Done(done) = weigh().await? {
+            return Ok(done);
+        }
+        self.fetch_secrets(ctx).await?;
+        match weigh().await? {
+            Weighing::Done(done) => Ok(done),
+            Weighing::NeedsSecrets(version) => bail!(
                 "the realm's secrets are older than version {}",
                 version.0
-            );
+            ),
         }
+    }
+
+    /// Calls the realm for its secrets, and holds them when they are
+    /// newer than the ones held.
+    async fn fetch_secrets(&self, ctx: &Ctx<Self>) -> Result<()> {
         let answer =
             call_actor(ctx, Address::new(REALM, REALM_KEY), &Secrets)
                 .await
@@ -256,6 +269,13 @@ impl Workspace {
         }
         Ok(())
     }
+}
+
+/// What weighing a call came to, or the version of the realm's
+/// secrets it needs first.
+enum Weighing<T> {
+    Done(T),
+    NeedsSecrets(SecretsVersion),
 }
 
 /// What the gate let a command do, once its row is open.
@@ -293,42 +313,47 @@ impl Handler<Run> for Workspace {
         // Read before the row is opened: past its commit, nothing
         // returns before the command starts.
         let leftovers = self.leftovers.of(i64::try_from(agent.0)?);
-        let mut fetched = false;
-        let opened = loop {
-            let tx = ctx.sql().begin_transaction(None).await?;
-            let decided =
-                self.decide(&tx, agent, &run, &request_hash).await;
-            match decided {
-                Ok(Decision::Open(opened)) => {
-                    if let Err(error) = tx.commit().await {
-                        self.ran(opened.running.command);
-                        return Err(error);
+        let (this, ctx, run) = (&*self, &ctx, &run);
+        let request_hash = &request_hash;
+        let decision = self
+            .weighed(ctx, move || async move {
+                let tx = ctx.sql().begin_transaction(None).await?;
+                match this.decide(&tx, agent, run, request_hash).await
+                {
+                    Ok(Weighing::Done(Decision::Open(opened))) => {
+                        if let Err(error) = tx.commit().await {
+                            this.ran(opened.running.command);
+                            return Err(error);
+                        }
+                        Ok(Weighing::Done(Decision::Open(opened)))
                     }
-                    break opened;
+                    Ok(Weighing::Done(Decision::AskChief(
+                        notice,
+                    ))) => {
+                        tx.commit().await?;
+                        Ok(Weighing::Done(Decision::AskChief(notice)))
+                    }
+                    Ok(other) => {
+                        tx.rollback().await?;
+                        Ok(other)
+                    }
+                    Err(error) => {
+                        tx.rollback().await?;
+                        Err(error)
+                    }
                 }
-                Ok(Decision::Answer(answer)) => {
-                    tx.rollback().await?;
-                    return Ok(answer);
-                }
-                Ok(Decision::Wait(command, waiters)) => {
-                    tx.rollback().await?;
-                    return Ok(waiters.answer(command).await);
-                }
-                Ok(Decision::AskChief(notice)) => {
-                    tx.commit().await?;
-                    let needs = notice.needs.clone();
-                    self.ask_chief(&ctx, notice).await;
-                    return Ok(RunAnswer::WaitsForChief(needs));
-                }
-                Ok(Decision::Fetch(version)) => {
-                    tx.rollback().await?;
-                    self.fetch_secrets(&ctx, version, &mut fetched)
-                        .await?;
-                }
-                Err(error) => {
-                    tx.rollback().await?;
-                    return Err(error);
-                }
+            })
+            .await?;
+        let opened = match decision {
+            Decision::Open(opened) => opened,
+            Decision::Answer(answer) => return Ok(answer),
+            Decision::Wait(command, waiters) => {
+                return Ok(waiters.answer(command).await);
+            }
+            Decision::AskChief(notice) => {
+                let needs = notice.needs.clone();
+                self.ask_chief(ctx, notice).await;
+                return Ok(RunAnswer::WaitsForChief(needs));
             }
         };
         let running = opened.running;
@@ -339,7 +364,7 @@ impl Handler<Run> for Workspace {
             opened.secrets,
             leftovers,
         );
-        self.clone().start(&ctx, &running, spec);
+        self.clone().start(ctx, &running, spec);
         Ok(running.waiters.answer(running.command).await)
     }
 }
@@ -700,8 +725,6 @@ enum Decision {
     /// A repeat of a call whose command runs: it hears what the first
     /// call hears.
     Wait(CommandId, Arc<run::Waiters>),
-    /// The secrets held are older than this version.
-    Fetch(SecretsVersion),
     /// The call waits for a chief: commit, then tell the realm.
     AskChief(NeedsChief),
 }
@@ -715,24 +738,31 @@ impl Workspace {
         agent: AgentNumber,
         run: &Run,
         request_hash: &[u8],
-    ) -> Result<Decision> {
+    ) -> Result<Weighing<Decision>> {
         if let Some(call) = calls::find(tx, agent, &run.call).await? {
             if !call.is(run::OP, request_hash) {
-                return Ok(Decision::Answer(RunAnswer::Refused(
-                    CallRefusal::CallReused(run.call.clone()),
+                return Ok(Weighing::Done(Decision::Answer(
+                    RunAnswer::Refused(CallRefusal::CallReused(
+                        run.call.clone(),
+                    )),
                 )));
             }
             let row = run::row_of(call)?;
             if let Some(waiters) = self.waiters(row.command) {
-                return Ok(Decision::Wait(row.command, waiters));
+                return Ok(Weighing::Done(Decision::Wait(
+                    row.command,
+                    waiters,
+                )));
             }
-            return Ok(Decision::Answer(answer_of(row)));
+            return Ok(Weighing::Done(Decision::Answer(answer_of(
+                row,
+            ))));
         }
         let ready = match tools::Ready::of(&self.home, run) {
             Ok(ready) => ready,
             Err(refusal) => {
-                return Ok(Decision::Answer(RunAnswer::Refused(
-                    refusal,
+                return Ok(Weighing::Done(Decision::Answer(
+                    RunAnswer::Refused(refusal),
                 )));
             }
         };
@@ -751,8 +781,8 @@ impl Workspace {
         ) {
             Gate::Run { network } => network,
             Gate::Refuse(refusal) => {
-                return Ok(Decision::Answer(RunAnswer::Refused(
-                    CallRefusal::Reach(refusal),
+                return Ok(Weighing::Done(Decision::Answer(
+                    RunAnswer::Refused(CallRefusal::Reach(refusal)),
                 )));
             }
             Gate::NeedsChief(needs) => {
@@ -768,7 +798,7 @@ impl Workspace {
                     words: tools::words(run),
                     change: None,
                 };
-                return Ok(
+                return Ok(Weighing::Done(
                     match pending::open(tx, &secrets, opening).await?
                     {
                         Ok(notice) => Decision::AskChief(notice),
@@ -776,10 +806,10 @@ impl Workspace {
                             RunAnswer::Refused(refusal),
                         ),
                     },
-                );
+                ));
             }
             Gate::NeedsSecrets(version) => {
-                return Ok(Decision::Fetch(version));
+                return Ok(Weighing::NeedsSecrets(version));
             }
         };
         let placement = self.program_placement(
@@ -807,12 +837,12 @@ impl Workspace {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .insert(command, running.clone());
-        Ok(Decision::Open(Opened {
+        Ok(Weighing::Done(Decision::Open(Opened {
             running,
             placement,
             exec: ready.exec(),
             secrets,
-        }))
+        })))
     }
 }
 
