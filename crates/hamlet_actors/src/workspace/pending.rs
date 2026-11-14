@@ -343,8 +343,11 @@ impl Workspace {
         notice: NeedsChief,
     ) {
         let (agent, call) = (notice.agent, notice.call.clone());
-        let to = Address::new(REALM, REALM_KEY);
-        if let Err(error) = call_actor(ctx, to, &notice).await {
+        let asked = async {
+            let to = Address::new(REALM, REALM_KEY)?;
+            call_actor(ctx, to, &notice).await
+        };
+        if let Err(error) = asked.await {
             tracing::warn!(
                 ?error,
                 agent = agent.0,
@@ -373,10 +376,12 @@ impl Workspace {
             ctx,
             wait.agent,
             wait.call.clone(),
-            Outcome::NotRun(refusal.clone()),
+            Outcome::NotRun {
+                why: refusal.clone(),
+            },
         )
         .await;
-        Ok(AnswerTaken::NotRun(refusal))
+        Ok(AnswerTaken::NotRun { why: refusal })
     }
 
     /// Weighs `wait`, which a chief allowed, again under the reach in
@@ -439,10 +444,10 @@ impl Workspace {
                         }
                     }
                     Gate::NeedsChief(needs) => {
-                        changed(Changed::Needs(needs))
+                        changed(Changed::Needs { needs })
                     }
                     Gate::Refuse(refusal) => {
-                        changed(Changed::Refused(refusal))
+                        changed(Changed::Refused { why: refusal })
                     }
                 },
             ))
@@ -459,7 +464,7 @@ impl Handler<ChiefAnswer> for Workspace {
     ) -> Result<AnswerTaken> {
         if let Err(refusal) = realm_calling(&ctx, ChiefAnswer::NAME)?
         {
-            return Ok(AnswerTaken::Refused(refusal));
+            return Ok(AnswerTaken::Refused { why: refusal });
         }
         let wait = read_only(&ctx, async |tx| {
             find(tx, answered.agent, &answered.call).await
@@ -477,9 +482,13 @@ impl Handler<ChiefAnswer> for Workspace {
                 )
                 .await
             }
-            Answer::Lapsed(lapse) => {
-                self.not_run(&ctx, &wait, CallRefusal::Lapsed(lapse))
-                    .await
+            Answer::Lapsed { lapse } => {
+                self.not_run(
+                    &ctx,
+                    &wait,
+                    CallRefusal::Lapsed { lapse },
+                )
+                .await
             }
             Answer::Allow => match &wait.request {
                 Pending::Run(run) => {

@@ -107,13 +107,20 @@ async fn a_command_that_needs_a_chief_waits_and_the_realm_is_told() {
     tokio::time::sleep(Duration::from_millis(300)).await;
     host.shutdown().await.unwrap();
 
-    assert_eq!(first, RunAnswer::WaitsForChief(vec![Need::Command]));
+    assert_eq!(
+        first,
+        RunAnswer::WaitsForChief {
+            needs: vec![Need::Command]
+        }
+    );
     assert_eq!(again, first);
     assert_eq!(
         reused,
-        RunAnswer::Refused(CallRefusal::CallReused(CallId(
-            "c1".into()
-        )))
+        RunAnswer::Refused {
+            why: CallRefusal::CallReused {
+                call: CallId("c1".into())
+            }
+        }
     );
     assert_eq!(
         asked(&peers),
@@ -162,7 +169,7 @@ async fn a_command_a_chief_allows_runs_and_the_agent_hears_its_end() {
     };
     assert_eq!(
         (&end.exit, end.output.as_str()),
-        (&Exit::Code(0), "made\n")
+        (&Exit::Code { code: 0 }, "made\n")
     );
     assert_eq!(repeat, RunAnswer::Done(end.clone()));
     assert!(folder.join("marker").exists());
@@ -190,8 +197,14 @@ async fn a_refusal_and_a_lapse_end_the_wait_and_run_nothing() {
         },
     )
     .await;
-    let lapsed =
-        chief(&host, "c2", Answer::Lapsed(Lapse::Rewound)).await;
+    let lapsed = chief(
+        &host,
+        "c2",
+        Answer::Lapsed {
+            lapse: Lapse::Rewound,
+        },
+    )
+    .await;
     told_within(&peers, 2, Duration::from_secs(5)).await;
     let repeat = agent_runs(&host, &run("c1", "touch one")).await;
     host.shutdown().await.unwrap();
@@ -199,17 +212,31 @@ async fn a_refusal_and_a_lapse_end_the_wait_and_run_nothing() {
     let by_chief = CallRefusal::ChiefRefused {
         reason: Some("not now".into()),
     };
-    let by_lapse = CallRefusal::Lapsed(Lapse::Rewound);
-    assert_eq!(refused, AnswerTaken::NotRun(by_chief.clone()));
-    assert_eq!(lapsed, AnswerTaken::NotRun(by_lapse.clone()));
+    let by_lapse = CallRefusal::Lapsed {
+        lapse: Lapse::Rewound,
+    };
+    assert_eq!(
+        refused,
+        AnswerTaken::NotRun {
+            why: by_chief.clone()
+        }
+    );
+    assert_eq!(
+        lapsed,
+        AnswerTaken::NotRun {
+            why: by_lapse.clone()
+        }
+    );
     assert_eq!(
         outcomes(&peers),
         [
-            Outcome::NotRun(by_chief.clone()),
-            Outcome::NotRun(by_lapse)
+            Outcome::NotRun {
+                why: by_chief.clone()
+            },
+            Outcome::NotRun { why: by_lapse }
         ]
     );
-    assert_eq!(repeat, RunAnswer::Refused(by_chief));
+    assert_eq!(repeat, RunAnswer::Refused { why: by_chief });
     assert!(!folder.join("one").exists());
     assert!(!folder.join("two").exists());
     assert_eq!(waits(&dir), 0);
@@ -244,21 +271,33 @@ async fn a_pending_operation_is_refused_after_a_revoke() {
     let moved = CallRefusal::ReachChanged {
         since: ReachVersion(1),
         now: ReachVersion(3),
-        why: Changed::Refused(Refusal::OutsideReach {
-            path: file.clone(),
-            access: Access::Change,
-        }),
+        why: Changed::Refused {
+            why: Refusal::OutsideReach {
+                path: file.clone(),
+                access: Access::Change,
+            },
+        },
     };
     let no_network = CallRefusal::ReachChanged {
         since: ReachVersion(1),
         now: ReachVersion(3),
-        why: Changed::Needs(vec![Need::Network, Need::Command]),
+        why: Changed::Needs {
+            needs: vec![Need::Network, Need::Command],
+        },
     };
-    assert_eq!(change, AnswerTaken::NotRun(moved.clone()));
-    assert_eq!(command, AnswerTaken::NotRun(no_network.clone()));
+    assert_eq!(change, AnswerTaken::NotRun { why: moved.clone() });
+    assert_eq!(
+        command,
+        AnswerTaken::NotRun {
+            why: no_network.clone()
+        }
+    );
     assert_eq!(
         outcomes(&peers),
-        [Outcome::NotRun(moved), Outcome::NotRun(no_network)]
+        [
+            Outcome::NotRun { why: moved },
+            Outcome::NotRun { why: no_network }
+        ]
     );
     assert_eq!(read(&file), "a");
     assert!(!folder.join("fetched").exists());
@@ -290,7 +329,9 @@ async fn a_change_waits_and_is_carried_out_when_allowed() {
     told_within(&peers, 2, Duration::from_secs(5)).await;
     host.shutdown().await.unwrap();
 
-    let waits_for = ChangeAnswer::WaitsForChief(vec![Need::Edit]);
+    let waits_for = ChangeAnswer::WaitsForChief {
+        needs: vec![Need::Edit],
+    };
     assert_eq!((edited, wrote), (waits_for.clone(), waits_for));
     assert_eq!(unchanged, "one\ntwo\n");
     let asked = asked(&peers);
@@ -312,8 +353,10 @@ async fn a_change_waits_and_is_carried_out_when_allowed() {
         (AnswerTaken::Runs, AnswerTaken::Runs)
     );
     let outcomes = outcomes(&peers);
-    let [Outcome::Changed(edit), Outcome::Changed(write)] =
-        outcomes.as_slice()
+    let [
+        Outcome::Changed { answer: edit },
+        Outcome::Changed { answer: write },
+    ] = outcomes.as_slice()
     else {
         panic!("the agent was told {outcomes:?}");
     };
@@ -345,11 +388,18 @@ async fn a_change_to_a_file_changed_meanwhile_is_refused() {
 
     let refusal = CallRefusal::FileChanged {
         path: file.clone(),
-        was: Hashed::Sha256(sha256(b"a")),
-        now: Hashed::Sha256(sha256(b"theirs")),
+        was: Hashed::Sha256 { hash: sha256(b"a") },
+        now: Hashed::Sha256 {
+            hash: sha256(b"theirs"),
+        },
     };
-    assert_eq!(taken, AnswerTaken::NotRun(refusal.clone()));
-    assert_eq!(outcomes(&peers), [Outcome::NotRun(refusal)]);
+    assert_eq!(
+        taken,
+        AnswerTaken::NotRun {
+            why: refusal.clone()
+        }
+    );
+    assert_eq!(outcomes(&peers), [Outcome::NotRun { why: refusal }]);
     assert_eq!(read(&file), "theirs");
 }
 
@@ -382,12 +432,21 @@ async fn no_secret_is_kept_or_shown_for_a_wait() {
             .await;
     host.shutdown().await.unwrap();
 
-    assert_eq!(script, RunAnswer::Refused(CallRefusal::HoldsSecret));
+    assert_eq!(
+        script,
+        RunAnswer::Refused {
+            why: CallRefusal::HoldsSecret
+        }
+    );
     assert_eq!(
         content,
-        ChangeAnswer::Refused(CallRefusal::HoldsSecret)
+        ChangeAnswer::Refused {
+            why: CallRefusal::HoldsSecret
+        }
     );
-    let waits_for = ChangeAnswer::WaitsForChief(vec![Need::Edit]);
+    let waits_for = ChangeAnswer::WaitsForChief {
+        needs: vec![Need::Edit],
+    };
     assert_eq!((over, edited), (waits_for.clone(), waits_for));
     let asked = asked(&peers);
     assert_eq!(asked.len(), 2);
@@ -436,7 +495,9 @@ async fn only_the_realm_answers_a_wait() {
 
     assert_eq!(
         taken,
-        AnswerTaken::Refused(RealmRefusal::NotTheRealm)
+        AnswerTaken::Refused {
+            why: RealmRefusal::NotTheRealm
+        }
     );
     assert_eq!(waits(&dir), 1);
     assert!(!folder.join("marker").exists());
@@ -464,7 +525,12 @@ async fn a_wait_stays_through_a_restart() {
     told_within(&peers, 1, Duration::from_secs(10)).await;
     host.shutdown().await.unwrap();
 
-    assert_eq!(repeat, RunAnswer::WaitsForChief(vec![Need::Command]));
+    assert_eq!(
+        repeat,
+        RunAnswer::WaitsForChief {
+            needs: vec![Need::Command]
+        }
+    );
     assert_eq!(taken, AnswerTaken::Runs);
     assert_eq!(
         peers.fetched.load(std::sync::atomic::Ordering::SeqCst),
@@ -472,7 +538,7 @@ async fn a_wait_stays_through_a_restart() {
     );
     assert!(matches!(
         outcomes(&peers).as_slice(),
-        [Outcome::Ran(end)] if end.exit == Exit::Code(0)
+        [Outcome::Ran(end)] if end.exit == Exit::Code { code: 0 }
     ));
     assert!(folder.join("marker").exists());
 }
@@ -502,7 +568,9 @@ async fn a_wait_the_realm_was_not_told_of_stays() {
     let repeat = agent_runs(&host, &run("c2", "touch two")).await;
     host.shutdown().await.unwrap();
 
-    let waits_for = RunAnswer::WaitsForChief(vec![Need::Command]);
+    let waits_for = RunAnswer::WaitsForChief {
+        needs: vec![Need::Command],
+    };
     assert_eq!((first, repeat), (waits_for.clone(), waits_for));
     assert_eq!(
         asked(&peers)
@@ -550,7 +618,9 @@ async fn a_granted_command_runs_under_the_reach_in_force() {
 
     assert_eq!(
         fetches,
-        RunAnswer::WaitsForChief(vec![Need::Network, Need::Command])
+        RunAnswer::WaitsForChief {
+            needs: vec![Need::Network, Need::Command]
+        }
     );
     let RunAnswer::Done(plain) = plain else {
         panic!("a trusted command answered {plain:?}");
@@ -565,8 +635,8 @@ async fn a_granted_command_runs_under_the_reach_in_force() {
     assert_eq!(
         policies,
         [
-            (Exit::Code(0), plain.policy.clone()),
-            (Exit::Code(0), plain.policy)
+            (Exit::Code { code: 0 }, plain.policy.clone()),
+            (Exit::Code { code: 0 }, plain.policy)
         ]
     );
 }
@@ -636,7 +706,9 @@ async fn a_change_waits_however_its_path_is_spelled() {
     }
     host.shutdown().await.unwrap();
 
-    let waits_for = ChangeAnswer::WaitsForChief(vec![Need::Edit]);
+    let waits_for = ChangeAnswer::WaitsForChief {
+        needs: vec![Need::Edit],
+    };
     let all_wait = answers
         .iter()
         .map(|(path, _)| (path.clone(), waits_for.clone()))

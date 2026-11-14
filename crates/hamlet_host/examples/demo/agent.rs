@@ -125,14 +125,14 @@ impl Handler<Ask> for Agent {
         ctx: Ctx<Self>,
         ask: Ask,
     ) -> Result<Vec<u8>> {
-        Host::call_from(
-            ctx.inner(),
-            &Address::new(workspace::KIND, workspace::MACHINE),
-            &ask.name,
-            ask.args,
-            Duration::from_secs(10),
-        )
-        .await
+        HostRef::of(ctx.inner())?
+            .call(
+                &Address::new(workspace::KIND, workspace::MACHINE)?,
+                &ask.name,
+                ask.args,
+                Duration::from_secs(10),
+            )
+            .await
     }
 }
 
@@ -149,23 +149,29 @@ impl Handler<Finished> for Agent {
                 let (word, code) = exit_word(&end.exit);
                 (end.command.0, word, code)
             }
-            Outcome::Changed(ChangeAnswer::Changed(change)) => {
-                (0, "/changed", i64::from(change.created))
+            Outcome::Changed {
+                answer: ChangeAnswer::Changed(change),
+            } => (0, "/changed", i64::from(change.created)),
+            Outcome::Changed {
+                answer: ChangeAnswer::Refused { why },
             }
-            Outcome::Changed(ChangeAnswer::Refused(why))
-            | Outcome::NotRun(why) => {
+            | Outcome::NotRun { why } => {
                 tracing::warn!(%why, "agent's call {call} did not change or run");
                 let word = match &finished.outcome {
-                    Outcome::NotRun(_) => "/not_run",
+                    Outcome::NotRun { .. } => "/not_run",
                     _ => "/refused",
                 };
                 (0, word, 1)
             }
-            Outcome::Changed(ChangeAnswer::Failed(words)) => {
+            Outcome::Changed {
+                answer: ChangeAnswer::Failed { words },
+            } => {
                 tracing::warn!(%words, "agent's call {call} failed");
                 (0, "/failed", 1)
             }
-            Outcome::Changed(ChangeAnswer::WaitsForChief(_)) => {
+            Outcome::Changed {
+                answer: ChangeAnswer::WaitsForChief { .. },
+            } => {
                 bail!("a change ended as waiting")
             }
         };
@@ -285,16 +291,20 @@ async fn run_one(host: &Host, words: &[String]) -> Result<()> {
              <command> | write <call> <path> <content ...>"
         ),
     };
-    host.get_or_start(workspace::KIND, workspace::MACHINE)
+    host.get_or_start(&Address::new(
+        workspace::KIND,
+        workspace::MACHINE,
+    )?)
+    .await?;
+    host.get_or_start(&Address::new(workspace::AGENT, number)?)
         .await?;
-    host.get_or_start(workspace::AGENT, number).await?;
     let ask = Ask {
         name: name.to_owned(),
         args,
     };
     let reply = host
         .call(
-            &Address::new(workspace::AGENT, number),
+            &Address::new(workspace::AGENT, number)?,
             Ask::NAME,
             hamlet_actor::action::encode_positional(&ask)?,
             Duration::from_secs(20),
@@ -310,13 +320,13 @@ async fn run_one(host: &Host, words: &[String]) -> Result<()> {
                 writeln!(out, "read {}", text.text.len())?;
             }
             FileAnswer::Image(image) => {
-                writeln!(out, "read {}", image.bytes.len())?;
+                writeln!(out, "read {}", image.data.0.len())?;
             }
-            FileAnswer::Refused(refusal) => {
+            FileAnswer::Refused { why: refusal } => {
                 tracing::warn!(%refusal, "the workspace refused agent {number}");
                 writeln!(out, "read 0")?;
             }
-            FileAnswer::Failed(words) => {
+            FileAnswer::Failed { words } => {
                 tracing::warn!(%words, "agent {number}'s read failed");
                 writeln!(out, "read 0")?;
             }
@@ -331,15 +341,15 @@ async fn run_one(host: &Host, words: &[String]) -> Result<()> {
                 "changed/{call} {}",
                 i64::from(change.created)
             )?,
-            ChangeAnswer::Refused(refusal) => {
+            ChangeAnswer::Refused { why: refusal } => {
                 tracing::warn!(%refusal, "the workspace refused agent {number}");
                 writeln!(out, "refused/{call} 1")?;
             }
-            ChangeAnswer::Failed(words) => {
+            ChangeAnswer::Failed { words } => {
                 tracing::warn!(%words, "agent {number}'s write failed");
                 writeln!(out, "failed/{call} 1")?;
             }
-            ChangeAnswer::WaitsForChief(needs) => {
+            ChangeAnswer::WaitsForChief { needs } => {
                 writeln!(out, "waits/{call} {}", needs.len())?;
             }
         }
@@ -355,10 +365,10 @@ async fn run_one(host: &Host, words: &[String]) -> Result<()> {
         }
         (RunAnswer::Done(end), None) => {
             let (state, code) = match &end.exit {
-                Exit::Code(code) => ("ended", i64::from(*code)),
+                Exit::Code { code } => ("ended", i64::from(*code)),
                 Exit::CutOff => ("cut_off", 0),
                 Exit::TimedOut => ("timed_out", 0),
-                Exit::Failed(_) => ("failed", 0),
+                Exit::Failed { .. } => ("failed", 0),
                 Exit::Cancelled => ("cancelled", 0),
             };
             writeln!(out, "status/{}/{state} {code}", end.command.0)?;
@@ -369,12 +379,12 @@ async fn run_one(host: &Host, words: &[String]) -> Result<()> {
         (RunAnswer::Running { command }, None) => {
             writeln!(out, "status/{}/running 0", command.0)?;
         }
-        (RunAnswer::WaitsForChief(needs), call) => {
+        (RunAnswer::WaitsForChief { needs }, call) => {
             let name =
                 call.map_or_else(|| rest.join("/"), Clone::clone);
             writeln!(out, "waits/{name} {}", needs.len())?;
         }
-        (RunAnswer::Refused(refusal), call) => {
+        (RunAnswer::Refused { why: refusal }, call) => {
             let name =
                 call.map_or_else(|| rest.join("/"), Clone::clone);
             tracing::warn!(%refusal, "the workspace refused agent {number}");
@@ -387,9 +397,9 @@ async fn run_one(host: &Host, words: &[String]) -> Result<()> {
 /// The suffix and the code a line prints for `exit`.
 fn exit_word(exit: &Exit) -> (&'static str, i64) {
     match exit {
-        Exit::Code(code) => ("", i64::from(*code)),
+        Exit::Code { code } => ("", i64::from(*code)),
         Exit::TimedOut => ("/timed_out", 0),
-        Exit::Failed(_) => ("/failed", 0),
+        Exit::Failed { .. } => ("/failed", 0),
         Exit::CutOff => ("/cut_off", 0),
         Exit::Cancelled => ("/cancelled", 0),
     }

@@ -3,6 +3,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use hamlet_messages::bytes;
 use hamlet_messages::workspace::files::{
     Change, ChangeAnswer, EditFile, MOST_CONTENT, Replace, WriteFile,
 };
@@ -67,8 +68,8 @@ pub(super) fn changed(answer: ChangeAnswer) -> Change {
     }
 }
 
-pub(super) fn sha256(bytes: &[u8]) -> [u8; 32] {
-    Sha256::digest(bytes).into()
+pub(super) fn sha256(content: &[u8]) -> bytes::Sha256 {
+    bytes::Sha256(Sha256::digest(content).into())
 }
 
 pub(super) fn read(path: &Path) -> String {
@@ -172,13 +173,13 @@ async fn a_change_out_of_reach_names_the_path_and_writes_nothing() {
     let up = folder.join("../elsewhere/x");
     let full = elsewhere.join("x");
     let ours = own.join("x");
-    let outside = |path: PathBuf| {
-        ChangeAnswer::Refused(CallRefusal::Reach(
-            Refusal::OutsideReach {
+    let outside = |path: PathBuf| ChangeAnswer::Refused {
+        why: CallRefusal::Reach {
+            why: Refusal::OutsideReach {
                 path,
                 access: Access::Change,
             },
-        ))
+        },
     };
 
     let by_up = ask(&host, &me, &write("w1", &up, "x")).await;
@@ -209,9 +210,11 @@ async fn a_change_out_of_reach_names_the_path_and_writes_nothing() {
     assert_eq!(by_full, outside(full));
     assert_eq!(
         by_own,
-        ChangeAnswer::Refused(CallRefusal::Reach(
-            Refusal::AgentFilesystem { path: ours }
-        ))
+        ChangeAnswer::Refused {
+            why: CallRefusal::Reach {
+                why: Refusal::AgentFilesystem { path: ours }
+            }
+        }
     );
     for (answer, path) in
         [(&by_link, "out/sub/x"), (&by_mine, "mine/x")]
@@ -226,18 +229,22 @@ async fn a_change_out_of_reach_names_the_path_and_writes_nothing() {
     assert_eq!(std::fs::read_dir(&own).unwrap().count(), 0);
     assert_eq!(
         by_raw,
-        ChangeAnswer::Failed(format!(
-            "Could not edit file: {}. Error code: invalid.",
-            raw.display()
-        ))
+        ChangeAnswer::Failed {
+            words: format!(
+                "Could not edit file: {}. Error code: invalid.",
+                raw.display()
+            )
+        }
     );
     assert_eq!(std::fs::read(&raw).unwrap(), [0x61, 0xff, 0x0a]);
     assert_eq!(
         by_folder,
-        ChangeAnswer::Failed(format!(
-            "Could not edit file: {}. Path is not a file.",
-            folder.join("sub").display()
-        ))
+        ChangeAnswer::Failed {
+            words: format!(
+                "Could not edit file: {}. Path is not a file.",
+                folder.join("sub").display()
+            )
+        }
     );
 }
 
@@ -265,10 +272,12 @@ async fn a_write_past_the_limit_is_refused_and_writes_nothing() {
 
     assert_eq!(
         refused,
-        ChangeAnswer::Refused(CallRefusal::TooLarge {
-            bytes: MOST_CONTENT + 1,
-            limit: MOST_CONTENT,
-        })
+        ChangeAnswer::Refused {
+            why: CallRefusal::TooLarge {
+                bytes: MOST_CONTENT + 1,
+                limit: MOST_CONTENT,
+            }
+        }
     );
     assert!(!large.exists());
     assert!(changed(wrote).created);
@@ -307,18 +316,22 @@ async fn a_change_is_for_the_agent_that_called() {
 
     assert_eq!(
         other,
-        ChangeAnswer::Refused(CallRefusal::Caller(
-            CallerRefusal::NotTheCaller {
-                named: AGENT,
-                caller: AgentNumber(8),
+        ChangeAnswer::Refused {
+            why: CallRefusal::Caller {
+                why: CallerRefusal::NotTheCaller {
+                    named: AGENT,
+                    caller: AgentNumber(8),
+                }
             }
-        ))
+        }
     );
     assert_eq!(
         from_realm,
-        ChangeAnswer::Refused(CallRefusal::Caller(
-            CallerRefusal::NotAnAgent
-        ))
+        ChangeAnswer::Refused {
+            why: CallRefusal::Caller {
+                why: CallerRefusal::NotAnAgent
+            }
+        }
     );
     assert_eq!(read(&folder.join("a.md")), "a");
 }
@@ -356,9 +369,11 @@ async fn a_repeat_of_a_change_answers_from_its_row() {
     assert_eq!(after_restart, first);
     assert_eq!(
         reused,
-        ChangeAnswer::Refused(CallRefusal::CallReused(CallId(
-            "e1".into()
-        )))
+        ChangeAnswer::Refused {
+            why: CallRefusal::CallReused {
+                call: CallId("e1".into())
+            }
+        }
     );
     assert_eq!(read(&file), "theirs\n");
 }
@@ -419,12 +434,22 @@ async fn a_call_id_is_one_calls_whatever_it_does() {
         ask(&host, &me, &write("c2", &file, "y")).await;
     host.shutdown().await.unwrap();
 
-    let reused =
-        |id: &str| CallRefusal::CallReused(CallId(id.to_owned()));
+    let reused = |id: &str| CallRefusal::CallReused {
+        call: CallId(id.to_owned()),
+    };
     assert!(matches!(ran, RunAnswer::Done(_)), "{ran:?}");
-    assert_eq!(write_after_run, ChangeAnswer::Refused(reused("c1")));
-    assert_eq!(run_after_write, RunAnswer::Refused(reused("c2")));
-    assert_eq!(edit_after_write, ChangeAnswer::Refused(reused("c2")));
+    assert_eq!(
+        write_after_run,
+        ChangeAnswer::Refused { why: reused("c1") }
+    );
+    assert_eq!(
+        run_after_write,
+        RunAnswer::Refused { why: reused("c2") }
+    );
+    assert_eq!(
+        edit_after_write,
+        ChangeAnswer::Refused { why: reused("c2") }
+    );
     assert_eq!(after_restart, wrote);
     assert_eq!(read(&file), "y");
 }
@@ -472,10 +497,12 @@ async fn what_a_change_hands_back_is_scrubbed() {
     assert!(!diff.patch.contains(SECRET));
     assert_eq!(
         missing,
-        ChangeAnswer::Failed(format!(
-            "Could not edit file: {}. Error code: not_found.",
-            folder.join("[REDACTED].md").display()
-        ))
+        ChangeAnswer::Failed {
+            words: format!(
+                "Could not edit file: {}. Error code: not_found.",
+                folder.join("[REDACTED].md").display()
+            )
+        }
     );
     assert_eq!(
         super::files_holding(&dir, SECRET),
@@ -616,9 +643,11 @@ async fn large_writes_alone() {
     assert_eq!(read(&auto), "small");
     assert_eq!(
         waits,
-        ChangeAnswer::WaitsForChief(vec![
-            hamlet_messages::workspace::reach::Need::Edit,
-        ])
+        ChangeAnswer::WaitsForChief {
+            needs: vec![
+                hamlet_messages::workspace::reach::Need::Edit,
+            ]
+        }
     );
     let subject = peers.asked.lock().unwrap()[0].subject.clone();
     let shown = format!(

@@ -13,6 +13,7 @@ use super::reach::Need;
 use super::{
     AgentNumber, CallId, CallRefusal, ConversationId, RealmTask,
 };
+use crate::bytes::{Base64, Sha256};
 
 /// Reads a file: a text file's lines, or an image.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -20,8 +21,10 @@ pub struct ReadFile {
     pub agent: AgentNumber,
     pub path: PathBuf,
     /// The first line to read, from 1.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub offset: Option<u64>,
     /// The most lines to read.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub limit: Option<u64>,
 }
 
@@ -40,6 +43,7 @@ pub struct Search {
     /// A file name pattern, with `*` and `?`, that the files must
     /// match: their name, or their path under `under` when it holds
     /// a `/`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
     pub ignore_case: bool,
 }
@@ -55,6 +59,7 @@ pub struct Find {
     pub agent: AgentNumber,
     pub under: PathBuf,
     /// As [`Search::name`]. Without it, the folder's own entries.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
 }
 
@@ -66,13 +71,18 @@ impl Action for Find {
 /// The workspace's answer to a [`ReadFile`], a [`Search`] or a
 /// [`Find`]. Every word in it has the realm's secrets taken out.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
 pub enum FileAnswer {
     Text(Text),
     Image(Image),
-    Refused(CallRefusal),
+    Refused {
+        why: CallRefusal,
+    },
     /// The file could not be read, or the request could not be
     /// carried out, in words for the model.
-    Failed(String),
+    Failed {
+        words: String,
+    },
 }
 
 /// The text a read, a search or a find gives the model.
@@ -81,6 +91,7 @@ pub struct Text {
     pub text: String,
     pub notes: Vec<Note>,
     /// Set when a read left lines out.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub truncation: Option<Truncation>,
 }
 
@@ -96,6 +107,7 @@ pub struct Note {
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize,
 )]
+#[serde(rename_all = "snake_case")]
 pub enum Severity {
     Info,
     Warn,
@@ -104,6 +116,7 @@ pub enum Severity {
 /// The cut of a read to its first lines.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Truncation {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub by: Option<CutBy>,
     pub total_lines: u64,
     pub total_bytes: u64,
@@ -116,6 +129,7 @@ pub struct Truncation {
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize,
 )]
+#[serde(rename_all = "snake_case")]
 pub enum CutBy {
     Lines,
     Bytes,
@@ -126,7 +140,7 @@ pub enum CutBy {
 pub struct Image {
     /// As `image/png`.
     pub mime: String,
-    pub bytes: Vec<u8>,
+    pub data: Base64,
 }
 
 /// The most bytes a [`WriteFile`]'s content holds: 16 MiB, which
@@ -141,6 +155,7 @@ pub struct WriteFile {
     pub call: CallId,
     pub conversation: ConversationId,
     /// `None` when no chief's instruction started the work.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub realm_task: Option<RealmTask>,
     pub path: PathBuf,
     /// At most [`MOST_CONTENT`] bytes.
@@ -159,6 +174,7 @@ pub struct EditFile {
     pub call: CallId,
     pub conversation: ConversationId,
     /// `None` when no chief's instruction started the work.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub realm_task: Option<RealmTask>,
     pub path: PathBuf,
     pub edits: Vec<Replace>,
@@ -179,14 +195,21 @@ pub struct Replace {
 /// The workspace's answer to a [`WriteFile`] or an [`EditFile`].
 /// Every word in it has the realm's secrets taken out.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
 pub enum ChangeAnswer {
     Changed(Change),
     /// The change waits for a chief to allow it. The agent is called
     /// with [`crate::agent::Finished`] when the wait ends.
-    WaitsForChief(Vec<Need>),
-    Refused(CallRefusal),
+    WaitsForChief {
+        needs: Vec<Need>,
+    },
+    Refused {
+        why: CallRefusal,
+    },
     /// The change could not be made, in words for the model.
-    Failed(String),
+    Failed {
+        words: String,
+    },
 }
 
 /// A change made.
@@ -195,9 +218,10 @@ pub struct Change {
     pub path: PathBuf,
     /// The file was not there before.
     pub created: bool,
-    /// The SHA-256 of what the file holds now.
-    pub hash: [u8; 32],
+    /// The hash of what the file holds now.
+    pub hash: Sha256,
     /// Set for an edit.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub diff: Option<EditDiff>,
 }
 
@@ -209,6 +233,7 @@ pub struct EditDiff {
     /// A unified patch of the file.
     pub patch: String,
     /// The first changed line of the new text, from 1.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub first_changed_line: Option<u64>,
 }
 
@@ -216,11 +241,13 @@ pub struct EditDiff {
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize,
 )]
+#[serde(tag = "type", rename_all = "snake_case")]
 pub enum Hashed {
     /// No file was there.
     Absent,
-    /// The SHA-256 of its bytes.
-    Sha256([u8; 32]),
+    Sha256 {
+        hash: Sha256,
+    },
 }
 
 impl std::fmt::Display for Hashed {
@@ -230,11 +257,7 @@ impl std::fmt::Display for Hashed {
     ) -> std::fmt::Result {
         match self {
             Self::Absent => write!(f, "no file"),
-            Self::Sha256(hash) => {
-                write!(f, "sha256 ")?;
-                hash.iter()
-                    .try_for_each(|byte| write!(f, "{byte:02x}"))
-            }
+            Self::Sha256 { hash } => write!(f, "sha256 {hash}"),
         }
     }
 }

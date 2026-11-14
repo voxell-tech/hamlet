@@ -31,7 +31,7 @@ use anyhow::{Context, Result, bail};
 use hamlet_actor::{Action, Actor, Ctx, Handler, Registry};
 use hamlet_actor_core::{ActorConfig, ActorFactory, BindParam};
 use hamlet_actors::workspace;
-use hamlet_host::{Address, Caller, Host};
+use hamlet_host::{Address, Caller, Host, HostRef};
 use hamlet_messages::realm::{NeedsChief, SecretList, Secrets};
 use hamlet_messages::workspace::reach::{
     Footing, Mode, Project, Reach, SecretsVersion, Trust,
@@ -103,14 +103,14 @@ impl Handler<Grant> for Realm {
         ctx: Ctx<Self>,
         Grant(set): Grant,
     ) -> Result<ReachAnswer> {
-        let reply = Host::call_from(
-            ctx.inner(),
-            &Address::new(workspace::KIND, workspace::MACHINE),
-            SetReach::NAME,
-            hamlet_actor::action::encode_positional(&set)?,
-            Duration::from_secs(10),
-        )
-        .await?;
+        let reply = HostRef::of(ctx.inner())?
+            .call(
+                &Address::new(workspace::KIND, workspace::MACHINE)?,
+                SetReach::NAME,
+                hamlet_actor::action::encode_positional(&set)?,
+                Duration::from_secs(10),
+            )
+            .await?;
         Ok(ciborium::from_reader(reply.as_slice())?)
     }
 }
@@ -121,14 +121,14 @@ impl Handler<Decide> for Realm {
         ctx: Ctx<Self>,
         Decide(answer): Decide,
     ) -> Result<AnswerTaken> {
-        let reply = Host::call_from(
-            ctx.inner(),
-            &Address::new(workspace::KIND, workspace::MACHINE),
-            ChiefAnswer::NAME,
-            hamlet_actor::action::encode_positional(&answer)?,
-            Duration::from_secs(10),
-        )
-        .await?;
+        let reply = HostRef::of(ctx.inner())?
+            .call(
+                &Address::new(workspace::KIND, workspace::MACHINE)?,
+                ChiefAnswer::NAME,
+                hamlet_actor::action::encode_positional(&answer)?,
+                Duration::from_secs(10),
+            )
+            .await?;
         Ok(ciborium::from_reader(reply.as_slice())?)
     }
 }
@@ -203,13 +203,19 @@ pub async fn run(host: &Host, words: &[String]) -> Result<()> {
         version: ReachVersion(version.parse()?),
         reach: parse_reach(rest)?,
     };
-    host.get_or_start(workspace::KIND, workspace::MACHINE)
-        .await?;
-    host.get_or_start(workspace::REALM, workspace::REALM_KEY)
-        .await?;
+    host.get_or_start(&Address::new(
+        workspace::KIND,
+        workspace::MACHINE,
+    )?)
+    .await?;
+    host.get_or_start(&Address::new(
+        workspace::REALM,
+        workspace::REALM_KEY,
+    )?)
+    .await?;
     let reply = host
         .call(
-            &Address::new(workspace::REALM, workspace::REALM_KEY),
+            &Address::new(workspace::REALM, workspace::REALM_KEY)?,
             Grant::NAME,
             hamlet_actor::action::encode_positional(&Grant(set))?,
             Duration::from_secs(20),
@@ -217,10 +223,10 @@ pub async fn run(host: &Host, words: &[String]) -> Result<()> {
         .await?;
     let mut out = std::io::stdout();
     match ciborium::from_reader(reply.as_slice())? {
-        ReachAnswer::InForce(in_force) => {
+        ReachAnswer::InForce { version: in_force } => {
             writeln!(out, "reach/{agent} {}", in_force.0)?;
         }
-        ReachAnswer::Refused(refusal) => {
+        ReachAnswer::Refused { why: refusal } => {
             writeln!(out, "reach/{agent} refused: {refusal}")?;
         }
     }
@@ -294,9 +300,15 @@ async fn answer_call(
         _ => match answer {
             "allow" => Answer::Allow,
             "refuse" => Answer::Refuse { reason: None },
-            "stopped" => Answer::Lapsed(Lapse::Stopped),
-            "rewound" => Answer::Lapsed(Lapse::Rewound),
-            "ended" => Answer::Lapsed(Lapse::Ended),
+            "stopped" => Answer::Lapsed {
+                lapse: Lapse::Stopped,
+            },
+            "rewound" => Answer::Lapsed {
+                lapse: Lapse::Rewound,
+            },
+            "ended" => Answer::Lapsed {
+                lapse: Lapse::Ended,
+            },
             _ => bail!("`{answer}` is not an answer"),
         },
     };
@@ -305,13 +317,19 @@ async fn answer_call(
         call: CallId(call.to_owned()),
         answer,
     });
-    host.get_or_start(workspace::KIND, workspace::MACHINE)
-        .await?;
-    host.get_or_start(workspace::REALM, workspace::REALM_KEY)
-        .await?;
+    host.get_or_start(&Address::new(
+        workspace::KIND,
+        workspace::MACHINE,
+    )?)
+    .await?;
+    host.get_or_start(&Address::new(
+        workspace::REALM,
+        workspace::REALM_KEY,
+    )?)
+    .await?;
     let reply = host
         .call(
-            &Address::new(workspace::REALM, workspace::REALM_KEY),
+            &Address::new(workspace::REALM, workspace::REALM_KEY)?,
             Decide::NAME,
             hamlet_actor::action::encode_positional(&decide)?,
             Duration::from_secs(20),
@@ -320,14 +338,14 @@ async fn answer_call(
     let mut out = std::io::stdout();
     match ciborium::from_reader(reply.as_slice())? {
         AnswerTaken::Runs => writeln!(out, "answered/{call} 1")?,
-        AnswerTaken::NotRun(why) => {
+        AnswerTaken::NotRun { why } => {
             tracing::warn!(%why, "agent {agent}'s call {call} did not run");
             writeln!(out, "answered/{call}/not_run 0")?;
         }
         AnswerTaken::NoWait => {
             writeln!(out, "answered/{call}/no_wait 0")?;
         }
-        AnswerTaken::Refused(why) => {
+        AnswerTaken::Refused { why } => {
             tracing::warn!(%why, "the workspace refused the realm");
             writeln!(out, "answered/{call}/refused 0")?;
         }

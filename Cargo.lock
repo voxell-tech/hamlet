@@ -4859,6 +4859,7 @@ dependencies = [
  "parking_lot",
  "rusqlite",
  "serde",
+ "thiserror 2.0.21",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -4877,6 +4878,7 @@ dependencies = [
 name = "hamlet_messages"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "ciborium",
  "hamlet_actor",
  "serde",

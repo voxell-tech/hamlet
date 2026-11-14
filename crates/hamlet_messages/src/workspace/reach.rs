@@ -10,10 +10,12 @@ use super::{AgentNumber, ConversationId};
 /// The places one agent's tool calls may touch on this machine, and
 /// when they wait for a chief.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
 pub enum Reach {
     Agent(Footing),
     /// `starter` is `None` for a chief's worker (H42).
     Worker {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         starter: Option<AgentNumber>,
         footing: Footing,
     },
@@ -26,6 +28,7 @@ pub enum Reach {
 pub struct Footing {
     /// The hamlet's folder (C20). `None` for the Hand, a hire of a
     /// hamlet with no folder, and their workers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub project: Option<Project>,
     /// The network for every agent, or a lasting grant (C19).
     pub network: bool,
@@ -46,6 +49,7 @@ pub struct Project {
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize,
 )]
+#[serde(rename_all = "snake_case")]
 pub enum Mode {
     Manual,
     Auto,
@@ -77,6 +81,7 @@ pub struct SecretsVersion(pub u64);
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize,
 )]
+#[serde(rename_all = "snake_case")]
 pub enum Need {
     Network,
     Command,
@@ -86,6 +91,7 @@ pub enum Need {
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize,
 )]
+#[serde(rename_all = "snake_case")]
 pub enum Access {
     Read,
     Change,
@@ -101,6 +107,7 @@ pub enum Access {
     Deserialize,
     thiserror::Error,
 )]
+#[serde(tag = "type", rename_all = "snake_case")]
 pub enum Refusal {
     #[error("{} is out of this agent's reach to {}", path.display(), match access {
         Access::Read => "read",

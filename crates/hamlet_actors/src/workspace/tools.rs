@@ -84,10 +84,8 @@ impl<'a> Ready<'a> {
             .0
             .into_iter()
             .find(|tool| tool.spec.name == *name)
-            .ok_or_else(|| {
-                CallRefusal::Invalid(format!(
-                    "Tool \"{name}\" not found"
-                ))
+            .ok_or_else(|| CallRefusal::Invalid {
+                words: format!("Tool \"{name}\" not found"),
             })?;
         let schema =
             serde_json::from_str::<Value>(&tool.spec.parameters)
@@ -103,9 +101,9 @@ impl<'a> Ready<'a> {
                     })
             });
         if !valid {
-            return Err(CallRefusal::Invalid(format!(
-                "Validation failed for tool {name}"
-            )));
+            return Err(CallRefusal::Invalid {
+                words: format!("Validation failed for tool {name}"),
+            });
         }
         Ok(Self::Tool {
             tool: Box::new(tool),

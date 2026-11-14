@@ -151,7 +151,7 @@ async fn the_file_tools_read_the_project() {
     assert_eq!(found.text, "src/main.rs:1: fn main() {}");
     assert_eq!(listed.text, "notes.md\nsrc/");
     assert!(
-        matches!(&missing, FileAnswer::Failed(words) if words.contains("ENOENT")),
+        matches!(&missing, FileAnswer::Failed { words } if words.contains("ENOENT")),
         "{missing:?}"
     );
 }
@@ -207,10 +207,11 @@ async fn a_long_file_is_read_in_parts_saying_where_to_go_on() {
     );
     assert_eq!(
         past,
-        FileAnswer::Failed(
-            "Offset 2600 is beyond end of file (2500 lines total)"
+        FileAnswer::Failed {
+            words: "Offset 2600 is beyond end of file (2500 lines \
+                    total)"
                 .into()
-        )
+        }
     );
 }
 
@@ -282,12 +283,14 @@ async fn a_read_outside_the_reach_names_the_path() {
     host.shutdown().await.unwrap();
 
     for (path, read, searched, found) in answers {
-        let refused = FileAnswer::Refused(CallRefusal::Reach(
-            Refusal::OutsideReach {
-                path,
-                access: Access::Read,
+        let refused = FileAnswer::Refused {
+            why: CallRefusal::Reach {
+                why: Refusal::OutsideReach {
+                    path,
+                    access: Access::Read,
+                },
             },
-        ));
+        };
         assert_eq!(read, refused);
         assert_eq!(searched, refused);
         assert_eq!(found, refused);
@@ -310,9 +313,11 @@ async fn an_agents_filesystem_is_not_the_workspaces_to_read() {
 
     assert_eq!(
         read,
-        FileAnswer::Refused(CallRefusal::Reach(
-            Refusal::AgentFilesystem { path: notes }
-        ))
+        FileAnswer::Refused {
+            why: CallRefusal::Reach {
+                why: Refusal::AgentFilesystem { path: notes }
+            }
+        }
     );
 }
 
@@ -333,18 +338,22 @@ async fn a_read_is_for_the_agent_that_called() {
 
     assert_eq!(
         other,
-        FileAnswer::Refused(CallRefusal::Caller(
-            CallerRefusal::NotTheCaller {
-                named: AGENT,
-                caller: AgentNumber(8),
+        FileAnswer::Refused {
+            why: CallRefusal::Caller {
+                why: CallerRefusal::NotTheCaller {
+                    named: AGENT,
+                    caller: AgentNumber(8),
+                }
             }
-        ))
+        }
     );
     assert_eq!(
         from_realm,
-        FileAnswer::Refused(CallRefusal::Caller(
-            CallerRefusal::NotAnAgent
-        ))
+        FileAnswer::Refused {
+            why: CallRefusal::Caller {
+                why: CallerRefusal::NotAnAgent
+            }
+        }
     );
 }
 
@@ -400,7 +409,7 @@ async fn what_a_read_hands_back_is_scrubbed() {
     assert_eq!(found.text, "[REDACTED].md:1: key = [REDACTED]");
     assert_eq!(listed.text, "[REDACTED].md");
     assert!(
-        matches!(&missing, FileAnswer::Failed(words) if words.contains("[REDACTED]/x")),
+        matches!(&missing, FileAnswer::Failed { words } if words.contains("[REDACTED]/x")),
         "{missing:?}"
     );
 }
