@@ -1,0 +1,236 @@
+//! A stand-in for an agent: the actor `agent/<n>`, which calls the
+//! workspace as itself and records what the workspace tells it.
+//!
+//! ```text
+//! demo agent <n> run <call> <script ...>
+//!                    run a script in agent <n>'s filesystem, as its
+//!                    call <call>
+//! demo agent <n> status <command>
+//!                    ask how agent <n>'s command stands
+//! ```
+//!
+//! Its start makes `actors/agent/<n>.fs/`, the agent's filesystem.
+//! `run` prints `done/<call> <exit code>` or `running/<call>
+//! <command>`; `status` prints `status/<command>/running 0`,
+//! `status/<command>/ended <exit code>` or
+//! `status/<command>/cut_off 0`. A refusal prints `refused/<call> 1`
+//! and logs why. When the workspace calls the agent with a command's
+//! end, the agent keeps it in its `finished` table and prints
+//! `finished/<call> <exit code>`. An end with no exit code prints the
+//! code 0 after the name of its end, as in `done/<call>/timed_out 0`.
+
+use std::io::Write;
+use std::sync::Arc;
+use std::time::Duration;
+
+use anyhow::{Result, bail};
+use hamlet_actor::{Action, Actor, Ctx, Handler, Registry};
+use hamlet_actor_core::{
+    ActorConfig, ActorFactory, ActorKeySegment, BindParam,
+};
+use hamlet_actors::workspace;
+use hamlet_host::{Address, Caller, Cause, Host, HostRef};
+use hamlet_messages::agent::Finished;
+use hamlet_messages::workspace::{
+    AgentNumber, CallId, CommandId, CommandStatus, ConversationId,
+    Exit, Run, RunAnswer, Shell,
+};
+
+/// The kind `agent`.
+pub fn factory() -> ActorFactory {
+    let mut registry = Registry::new();
+    registry.register_actor_with::<Agent>(
+        workspace::AGENT,
+        ActorConfig {
+            has_database: true,
+            ..ActorConfig::default()
+        },
+    );
+    registry
+        .into_factories()
+        .remove(workspace::AGENT)
+        .expect("the registry holds the kind it registered")
+}
+
+struct Agent;
+
+/// Asks the agent to call the workspace with `name` and `args`.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct Ask {
+    name: String,
+    args: Vec<u8>,
+}
+
+impl Action for Ask {
+    type Output = RunAnswer;
+    const NAME: &'static str = "ask";
+}
+
+#[async_trait::async_trait]
+impl Actor for Agent {
+    type Input = ();
+    type Actions = (Ask, Finished);
+    type Events = ();
+    type ConnParams = Option<Caller>;
+    type Action = ();
+
+    async fn create(ctx: &Ctx<Self>) -> Result<Self> {
+        let Some(ActorKeySegment::String(key)) = ctx.key().first()
+        else {
+            bail!("an agent's key is its number");
+        };
+        let folder = HostRef::of(ctx.inner())?
+            .folder()
+            .join(format!("actors/agent/{key}.fs"));
+        std::fs::create_dir_all(folder)?;
+        ctx.sql()
+            .exec(
+                "CREATE TABLE IF NOT EXISTS finished (call TEXT NOT \
+                 NULL, command INTEGER NOT NULL, exit TEXT NOT \
+                 NULL) STRICT",
+            )
+            .await?;
+        Ok(Self)
+    }
+}
+
+impl Handler<Ask> for Agent {
+    async fn handle(
+        self: Arc<Self>,
+        ctx: Ctx<Self>,
+        ask: Ask,
+    ) -> Result<RunAnswer> {
+        let reply = Host::call_from(
+            ctx.inner(),
+            &Address::new(workspace::KIND, workspace::MACHINE),
+            &ask.name,
+            ask.args,
+            Duration::from_secs(10),
+            Cause::root("agent"),
+        )
+        .await?;
+        Ok(ciborium::from_reader(reply.as_slice())?)
+    }
+}
+
+impl Handler<Finished> for Agent {
+    async fn handle(
+        self: Arc<Self>,
+        ctx: Ctx<Self>,
+        finished: Finished,
+    ) -> Result<()> {
+        let (word, code) = exit_word(&finished.end.exit);
+        ctx.sql()
+            .execute(
+                "INSERT INTO finished (call, command, exit) VALUES \
+                 (?1, ?2, ?3)",
+                Some(vec![
+                    BindParam::Text(finished.call.0.clone()),
+                    BindParam::Integer(i64::try_from(
+                        finished.end.command.0,
+                    )?),
+                    BindParam::Text(format!("{word} {code}")),
+                ]),
+            )
+            .await?;
+        writeln!(
+            std::io::stdout(),
+            "finished/{}{word} {code}",
+            finished.call.0
+        )?;
+        Ok(())
+    }
+}
+
+/// Runs `demo agent <words>`.
+pub async fn run(host: &Host, words: &[String]) -> Result<()> {
+    let [number, verb, rest @ ..] = words else {
+        bail!("usage: demo agent <n> run|status ...");
+    };
+    let agent = AgentNumber(number.parse()?);
+    let (name, args, call) = match (verb.as_str(), rest) {
+        ("run", [call, script @ ..]) if !script.is_empty() => {
+            let run = Run {
+                agent,
+                call: CallId(call.clone()),
+                conversation: ConversationId("demo".to_owned()),
+                realm_task: None,
+                shell: Shell::Bash,
+                script: script.join(" "),
+                network: false,
+                timeout_ms: None,
+            };
+            let args = hamlet_actor::action::encode_positional(&run)?;
+            (Run::NAME, args, Some(call))
+        }
+        ("status", [command]) => {
+            let status = CommandStatus {
+                agent,
+                command: CommandId(command.parse()?),
+            };
+            let args =
+                hamlet_actor::action::encode_positional(&status)?;
+            (CommandStatus::NAME, args, None)
+        }
+        _ => bail!(
+            "usage: demo agent <n> run <call> <script ...> | status \
+             <command>"
+        ),
+    };
+    host.get_or_start(workspace::KIND, workspace::MACHINE)
+        .await?;
+    host.get_or_start(workspace::AGENT, number).await?;
+    let ask = Ask {
+        name: name.to_owned(),
+        args,
+    };
+    let reply = host
+        .call(
+            &Address::new(workspace::AGENT, number),
+            Ask::NAME,
+            hamlet_actor::action::encode_positional(&ask)?,
+            Duration::from_secs(20),
+            Cause::root("demo"),
+        )
+        .await?;
+    let answer: RunAnswer = ciborium::from_reader(reply.as_slice())?;
+    let mut out = std::io::stdout();
+    match (answer, call) {
+        (RunAnswer::Done(end), Some(call)) => {
+            let (word, code) = exit_word(&end.exit);
+            writeln!(out, "done/{call}{word} {code}")?;
+        }
+        (RunAnswer::Done(end), None) => {
+            let (state, code) = match &end.exit {
+                Exit::Code(code) => ("ended", i64::from(*code)),
+                Exit::CutOff => ("cut_off", 0),
+                Exit::TimedOut => ("timed_out", 0),
+                Exit::Failed(_) => ("failed", 0),
+            };
+            writeln!(out, "status/{}/{state} {code}", end.command.0)?;
+        }
+        (RunAnswer::Running { command }, Some(call)) => {
+            writeln!(out, "running/{call} {}", command.0)?;
+        }
+        (RunAnswer::Running { command }, None) => {
+            writeln!(out, "status/{}/running 0", command.0)?;
+        }
+        (RunAnswer::Refused(refusal), call) => {
+            let name =
+                call.map_or_else(|| rest.join("/"), Clone::clone);
+            tracing::warn!(%refusal, "the workspace refused agent {number}");
+            writeln!(out, "refused/{name} 1")?;
+        }
+    }
+    Ok(())
+}
+
+/// The suffix and the code a line prints for `exit`.
+fn exit_word(exit: &Exit) -> (&'static str, i64) {
+    match exit {
+        Exit::Code(code) => ("", i64::from(*code)),
+        Exit::TimedOut => ("/timed_out", 0),
+        Exit::Failed(_) => ("/failed", 0),
+        Exit::CutOff => ("/cut_off", 0),
+    }
+}
