@@ -220,8 +220,24 @@ its view of the host, `HostRef::of(ctx)`: its own address, the realm
 folder, the values the program gave with `HostOptions::with_value`, and
 the calls, creates and get-or-starts it makes as itself, each refused
 with `actor.stopping` once its generation has ended. `directory.rs` maps
-each actor kind to where its actors run, here always this host; a call
-to a kind it does not hold fails at once with `actor.not_registered`.
+each actor kind to where its actors run: this host, or the host at the
+other end of the link; a call to a kind it does not hold fails at once
+with `actor.not_registered`.
+
+`child.rs` and `link.rs` join a Rust host to its Node child, the Node
+host, over the child's pipe. `child::open` opens a host whose other
+kinds run in the child, and its `Supervisor` starts the child, ends it
+with its tree, and starts another a second later when it is lost. The
+child takes its ends with `take_link` and runs `link::serve`. The two
+say hello, welcome and ready (`link/frame.rs` holds the frames and their
+codec, `link.fingerprint` the frames' shapes), and then each takes the
+other's calls and creates through its `Port` (`link/port.rs`). A peer's
+request is checked against who that host speaks for (`link/peer.rs`),
+then runs on the host's own call or start path, so `admit` checks it
+again. Only a call and a create cross the link. A call to the child
+fails with `link.down`, and nothing is sent, until the child is ready,
+and with `link.lost`, its outcome unknown, when the child is lost with
+the call out. Nothing sends a call again.
 
 Each actor that is not stopped with no deadline is one `Life` in the
 host's map: read by boot, stopped with a deadline, starting, running,
@@ -601,6 +617,7 @@ built-in ones.
 | Making an actor with an input | `hamlet_host/src/local/create.rs` |
 | What an actor reaches of its host: its address, the realm folder, the program's values, and its calls, creates and get-or-starts as itself | `hamlet_host/src/local/access.rs` |
 | Where each actor kind runs | `hamlet_host/src/directory.rs` |
+| The link to the Node host: its child, handshake, frames, and calls each way | `hamlet_host/src/child.rs`, `link.rs`, `link/`; the stand-in Node host `hamlet_host/examples/link_child.rs` |
 | What the host reports on `Host::events` | `hamlet_host/src/event.rs` |
 | A one-shot timer's tries, and the timers set aside after them | `hamlet_actor_core/src/actor/schedule.rs`; `Host::set_aside_timers` and `Host::rearm_timer` in `hamlet_host/src/local.rs` |
 | A kill scenario | `hamlet_killkit/src/scenario.rs`, and a fault point with `hamlet_host::fault::point` |
