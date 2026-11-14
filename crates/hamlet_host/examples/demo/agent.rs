@@ -5,6 +5,9 @@
 //! demo agent <n> run <call> <script ...>
 //!                    run a script in agent <n>'s filesystem, as its
 //!                    call <call>
+//! demo agent <first>..<last> run <call> <script ...>
+//!                    have each agent from <first> to <last> run the
+//!                    script at once, agent <k> as its call <call>-<k>
 //! demo agent <n> tool <call> <name> <json ...>
 //!                    run the tool added by hand <name> with the
 //!                    arguments <json>, as agent <n>'s call <call>
@@ -185,6 +188,31 @@ impl Handler<Finished> for Agent {
 
 /// Runs `demo agent <words>`.
 pub async fn run(host: &Host, words: &[String]) -> Result<()> {
+    if let [agents, verb, call, script @ ..] = words
+        && verb == "run"
+        && let Some((first, last)) = agents.split_once("..")
+    {
+        let mut runs = tokio::task::JoinSet::new();
+        for agent in first.parse::<u64>()?..=last.parse()? {
+            let host = host.clone();
+            let mut words = vec![
+                agent.to_string(),
+                verb.clone(),
+                format!("{call}-{agent}"),
+            ];
+            words.extend_from_slice(script);
+            runs.spawn(async move { run_one(&host, &words).await });
+        }
+        while let Some(ran) = runs.join_next().await {
+            ran??;
+        }
+        return Ok(());
+    }
+    run_one(host, words).await
+}
+
+/// Runs `demo agent <words>` for one agent.
+async fn run_one(host: &Host, words: &[String]) -> Result<()> {
     let [number, verb, rest @ ..] = words else {
         bail!("usage: demo agent <n> run|status ...");
     };
