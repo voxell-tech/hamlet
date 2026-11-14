@@ -29,6 +29,7 @@ use hamlet_workspace_wire::Code;
 use sha2::{Digest, Sha256};
 use tokio::sync::OwnedMutexGuard;
 
+use self::shown::cut;
 use super::edit::{self, CallError};
 use super::{Gated, Passed};
 use crate::workspace::pending::{self, Pending, Rechecked, Wait};
@@ -37,6 +38,8 @@ use crate::workspace::{
     Workspace, calling_agent, calls, checked_call, read_only, tell,
     transact, transact_if,
 };
+
+mod shown;
 
 /// The paths changes are at work on: one change at a time checks and
 /// replaces a path.
@@ -202,6 +205,9 @@ struct Planned {
     current: Current,
     content: Vec<u8>,
     diff: Option<EditDiff>,
+    /// What a chief is shown of the file a write replaces, where one
+    /// is there and a chief is asked.
+    replaced: Option<String>,
 }
 
 /// Why a change has no plan.
@@ -285,6 +291,7 @@ impl Workspace {
             &path,
             &request.asked,
             None,
+            chief.as_ref().map(|_| secrets.as_slice()),
         )
         .await?
         {
@@ -305,9 +312,7 @@ impl Workspace {
                 request_hash: request.request_hash.clone(),
                 needs,
                 reach_version,
-                base_hash: Some(hashed(
-                    planned.current.bytes.as_deref(),
-                )),
+                base_hash: Some(hashed(planned.current.digest)),
                 words: words_of(
                     &path,
                     &request.asked,
@@ -421,6 +426,7 @@ impl Workspace {
             &path,
             &request.asked,
             Some(was),
+            None,
         )
         .await?
         {
@@ -640,13 +646,12 @@ fn words_of(
 ) -> String {
     let part = |text: &str| cut(&scrub_text(secrets, text));
     let path = part(path);
-    match (asked, &planned.current.bytes) {
+    match (asked, &planned.replaced) {
         (Asked::Write(content), None) => {
             format!("{path}\nA new file:\n{}", part(content))
         }
         (Asked::Write(content), Some(old)) => format!(
-            "{path}\nReplace:\n{}\nWith:\n{}",
-            part(&String::from_utf8_lossy(old)),
+            "{path}\nReplace:\n{old}\nWith:\n{}",
             part(content)
         ),
         (Asked::Edit(edits), _) => {
@@ -661,42 +666,33 @@ fn words_of(
     }
 }
 
-// Copied from the server's `oversight/gate.rs` `cut`.
-/// `text` cut to its first 2000 characters, saying how many more
-/// there were.
-fn cut(text: &str) -> String {
-    const SHOWN: usize = 2000;
-    let count = text.chars().count();
-    if count <= SHOWN {
-        return text.into();
-    }
-    let end = text
-        .char_indices()
-        .nth(SHOWN)
-        .map_or(text.len(), |(i, _)| i);
-    format!("{}\n[{} more characters]", &text[..end], count - SHOWN)
-}
-
 /// What a change plans to write, copied out of the request for its
 /// thread.
 enum PlannedAs {
-    Write(Vec<u8>),
+    Write {
+        content: Vec<u8>,
+        /// The secrets to take out of what a chief is shown of the
+        /// file it replaces, where a chief is asked.
+        shown: Option<Vec<String>>,
+    },
     Edit(Vec<Replace>),
 }
 
-/// [`plan`], off the runtime.
+/// [`plan`], off the runtime. `shown` is as [`PlannedAs::Write`]'s.
 async fn planned(
     placement: Placement,
     sandbox: hamlet_sandbox::Sandbox,
     path: &str,
     asked: &Asked<'_>,
     was: Option<Hashed>,
+    shown: Option<&[String]>,
 ) -> Result<Result<Planned, Unplanned>> {
     let path = path.to_owned();
     let asked = match *asked {
-        Asked::Write(content) => {
-            PlannedAs::Write(content.as_bytes().to_vec())
-        }
+        Asked::Write(content) => PlannedAs::Write {
+            content: content.as_bytes().to_vec(),
+            shown: shown.map(<[String]>::to_vec),
+        },
         Asked::Edit(edits) => PlannedAs::Edit(edits.to_vec()),
     };
     tokio::task::spawn_blocking(move || {
@@ -708,7 +704,8 @@ async fn planned(
 
 /// Reads what the change at `path` replaces, and works out what it
 /// writes, or says in words why it cannot. With `was`, the file must
-/// still hold what hashes to it.
+/// still hold what hashes to it. A write holds no more of the file it
+/// replaces than what a chief is shown; an edit holds all of it.
 fn plan(
     placement: &Placement,
     sandbox: hamlet_sandbox::Sandbox,
@@ -716,23 +713,37 @@ fn plan(
     asked: PlannedAs,
     was: Option<Hashed>,
 ) -> Result<Planned, Unplanned> {
-    let current = env(placement, sandbox)
-        .and_then(|env| env.read_for_change(path));
-    if let (Some(was), Ok(current)) = (was, &current) {
-        let now = hashed(current.bytes.as_deref());
-        if now != was {
-            return Err(Unplanned::Changed { now });
-        }
-    }
+    let env = env(placement, sandbox);
     match asked {
-        PlannedAs::Write(content) => Ok(Planned {
-            current: current
-                .map_err(|error| Unplanned::Failed(error.message))?,
-            content,
-            diff: None,
-        }),
+        PlannedAs::Write { content, shown } => {
+            let mut replaced =
+                shown.as_deref().map(shown::Replaced::new);
+            let current = env.and_then(|env| {
+                env.read_for_change(path, &mut |part| {
+                    if let Some(replaced) = &mut replaced {
+                        replaced.push(part);
+                    }
+                })
+            });
+            let current = still(current, was)?
+                .map_err(|error| Unplanned::Failed(error.message))?;
+            Ok(Planned {
+                replaced: replaced
+                    .filter(|_| current.digest.is_some())
+                    .map(shown::Replaced::shown),
+                current,
+                content,
+                diff: None,
+            })
+        }
         PlannedAs::Edit(edits) => {
-            let current = current.map_err(|error| {
+            let mut bytes = Vec::new();
+            let current = env.and_then(|env| {
+                env.read_for_change(path, &mut |part| {
+                    bytes.extend_from_slice(part);
+                })
+            });
+            let current = still(current, was)?.map_err(|error| {
                 Unplanned::Failed(
                     match error.code {
                         // A folder, or another file that is not
@@ -748,25 +759,40 @@ fn plan(
                     .to_string(),
                 )
             })?;
-            let (content, diff) =
-                edit::edited(path, current.bytes.clone(), &edits)
-                    .map_err(|error| {
-                        Unplanned::Failed(error.to_string())
-                    })?;
+            let (content, diff) = edit::edited(
+                path,
+                current.digest.is_some().then_some(bytes),
+                &edits,
+            )
+            .map_err(|error| Unplanned::Failed(error.to_string()))?;
             Ok(Planned {
                 current,
                 content: content.into_bytes(),
                 diff: Some(diff),
+                replaced: None,
             })
         }
     }
 }
 
-/// What `bytes` hash to, or [`Hashed::Absent`] for no file.
-fn hashed(bytes: Option<&[u8]>) -> Hashed {
-    bytes.map_or(Hashed::Absent, |bytes| {
-        Hashed::Sha256(Sha256::digest(bytes).into())
-    })
+/// `current`, unless it was read and no longer hashes to `was`.
+fn still(
+    current: Result<Current, FileError>,
+    was: Option<Hashed>,
+) -> Result<Result<Current, FileError>, Unplanned> {
+    if let (Some(was), Ok(current)) = (was, &current) {
+        let now = hashed(current.digest);
+        if now != was {
+            return Err(Unplanned::Changed { now });
+        }
+    }
+    Ok(current)
+}
+
+/// What a file of `digest` hashes to, or [`Hashed::Absent`] for no
+/// file.
+fn hashed(digest: Option<[u8; 32]>) -> Hashed {
+    digest.map_or(Hashed::Absent, Hashed::Sha256)
 }
 
 /// Replaces the file at `path` with what `planned` writes, through
@@ -781,7 +807,7 @@ fn carried_out(
         path,
         &planned.current.real,
         temp_name,
-        planned.current.bytes.as_deref(),
+        planned.current.digest.as_ref(),
         &planned.content,
     )
 }
@@ -870,8 +896,8 @@ fn outcome(
         Ok(Replaced::Changed(now)) => {
             ChangeAnswer::Refused(CallRefusal::FileChanged {
                 path: path.to_owned(),
-                was: hashed(planned.current.bytes.as_deref()),
-                now: hashed(now.as_deref()),
+                was: hashed(planned.current.digest),
+                now: hashed(now),
             })
         }
         Err(error) => ChangeAnswer::Failed(match asked {
@@ -915,10 +941,11 @@ mod tests {
         Planned {
             current: Current {
                 real: "/p/a.md".into(),
-                bytes: was.map(<[u8]>::to_vec),
+                digest: was.map(|was| Sha256::digest(was).into()),
             },
             content: b"new".to_vec(),
             diff: None,
+            replaced: None,
         }
     }
 
@@ -1000,9 +1027,10 @@ mod tests {
         )
         .unwrap();
         let planned = Planned {
-            current: env.read_for_change(&file).unwrap(),
+            current: env.read_for_change(&file, &mut |_| ()).unwrap(),
             content: b"new".to_vec(),
             diff: None,
+            replaced: None,
         };
         std::fs::write(&file, "theirs").unwrap();
 
@@ -1010,7 +1038,7 @@ mod tests {
 
         assert_eq!(
             replaced.unwrap(),
-            Replaced::Changed(Some(b"theirs".to_vec()))
+            Replaced::Changed(Some(Sha256::digest(b"theirs").into()))
         );
         assert_eq!(std::fs::read(&file).unwrap(), b"theirs");
     }
@@ -1023,7 +1051,9 @@ mod tests {
             Path::new("/p/a.md"),
             &Asked::Write("new"),
             planned(Some(b"old")),
-            Ok(Replaced::Changed(Some(b"theirs".to_vec()))),
+            Ok(Replaced::Changed(Some(
+                Sha256::digest(b"theirs").into(),
+            ))),
         );
         let gone = outcome(
             Path::new("/p/a.md"),

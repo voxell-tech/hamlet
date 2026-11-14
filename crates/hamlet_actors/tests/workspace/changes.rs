@@ -7,7 +7,8 @@ use hamlet_messages::workspace::files::{
     Change, ChangeAnswer, EditFile, MOST_CONTENT, Replace, WriteFile,
 };
 use hamlet_messages::workspace::reach::{
-    Access, Footing, Mode, Project, Reach, Refusal, SecretsVersion,
+    Access, Footing, Mode, Need, Project, Reach, Refusal,
+    SecretsVersion,
 };
 use hamlet_messages::workspace::{
     AgentNumber, CallId, CallRefusal, CallerRefusal, ConversationId,
@@ -542,4 +543,94 @@ async fn a_change_cut_off_by_a_kill_is_gone_at_the_next_start() {
     assert_eq!(changed(first).hash, sha256(b"b"));
     assert_eq!(changed(second).hash, sha256(b"c"));
     assert_eq!(read(&folder.join("a.md")), "b");
+}
+
+/// The size of the files the large writes replace.
+#[cfg(target_os = "linux")]
+const LARGE: u64 = 384 << 20;
+
+/// The host's peak memory in KiB, as the system counts it.
+#[cfg(target_os = "linux")]
+fn peak_kib() -> u64 {
+    std::fs::read_to_string("/proc/self/status")
+        .unwrap()
+        .lines()
+        .find_map(|line| line.strip_prefix("VmHWM:"))
+        .and_then(|rest| rest.trim().strip_suffix("kB"))
+        .and_then(|kib| kib.trim().parse().ok())
+        .expect("a peak in /proc/self/status")
+}
+
+/// A write over a large file holds little of the old file in memory,
+/// also in manual mode, where a chief is shown its start. Run in a
+/// process of its own, so that no other test raises the peak.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_write_over_a_large_file_keeps_little_of_it_in_memory() {
+    const MOST_KIB: u64 = 128 << 10;
+    let ran =
+        std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "changes::large_writes_alone",
+                "--ignored",
+                "--nocapture",
+            ])
+            .output()
+            .unwrap();
+    let printed = String::from_utf8_lossy(&ran.stdout);
+    assert!(
+        ran.status.success(),
+        "{printed}{}",
+        String::from_utf8_lossy(&ran.stderr)
+    );
+    let peak = printed
+        .lines()
+        .find_map(|line| line.strip_prefix("peak KiB: "))
+        .and_then(|kib| kib.parse::<u64>().ok())
+        .unwrap_or_else(|| panic!("no peak in {printed}"));
+    assert!(peak < MOST_KIB, "the host's peak was {peak} KiB");
+}
+
+/// The writes
+/// [`a_write_over_a_large_file_keeps_little_of_it_in_memory`]
+/// measures.
+#[cfg(target_os = "linux")]
+#[ignore = "a_write_over_a_large_file_keeps_little_of_it_in_memory \
+            runs it alone"]
+#[tokio::test(flavor = "multi_thread")]
+#[expect(
+    clippy::print_stdout,
+    reason = "it prints the peak it measured"
+)]
+async fn large_writes_alone() {
+    let dir = Scratch::new("workspace-change-large");
+    let (_project, folder) = project("workspace-change-large-p", &[]);
+    let (auto, manual_file) =
+        (folder.join("auto"), folder.join("manual"));
+    for file in [&auto, &manual_file] {
+        std::fs::File::create(file).unwrap().set_len(LARGE).unwrap();
+    }
+    let peers = Arc::new(Peers::default());
+    let host = working_in(&dir, &folder, peers.clone()).await;
+    let me = agent(AGENT);
+    let wrote = ask(&host, &me, &write("w1", &auto, "small")).await;
+    realm_sets(&host, 2, manual(&folder)).await;
+    let waits =
+        ask(&host, &me, &write("w2", &manual_file, "small")).await;
+    host.shutdown().await.unwrap();
+    let peak = peak_kib();
+
+    assert!(!changed(wrote).created);
+    assert_eq!(read(&auto), "small");
+    assert_eq!(waits, ChangeAnswer::WaitsForChief(vec![Need::Edit]));
+    let subject = peers.asked.lock().unwrap()[0].subject.clone();
+    let shown = format!(
+        "{}\nReplace:\n{}\n[{} more characters]\nWith:\nsmall",
+        manual_file.display(),
+        "\0".repeat(2000),
+        LARGE - 2000
+    );
+    assert_eq!(subject, shown);
+    println!("peak KiB: {peak}");
 }
