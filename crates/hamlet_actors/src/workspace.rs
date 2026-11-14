@@ -331,10 +331,11 @@ impl Workspace {
                 // The host stops: the next start marks the row cut
                 // off.
                 Err(_) if abort.is_cancelled() => return,
+                // Its thread panicked.
                 Err(_) => run::without_output(
                     command,
                     Exit::Failed(
-                        "the command could not start".into(),
+                        "the command's thread ended before it".into(),
                     ),
                 ),
             };

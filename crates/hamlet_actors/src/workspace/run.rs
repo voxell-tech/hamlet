@@ -2,6 +2,7 @@
 //! process, started under the sandbox on a thread of its own, which
 //! lives until the command ends.
 
+use std::io;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -297,8 +298,7 @@ pub struct Spec {
 }
 
 /// Starts `spec`'s command on a thread of its own. The receiver gets
-/// its end, or nothing when `abort` fired first, which kills it, or
-/// when the thread could not run it.
+/// its end, or nothing when `abort` fired first, which kills it.
 ///
 /// On Linux the sandbox dies with the thread that started it
 /// (`--die-with-parent` is `PR_SET_PDEATHSIG`, which follows the
@@ -308,32 +308,59 @@ pub fn start(
     spec: Spec,
     abort: CancellationToken,
 ) -> oneshot::Receiver<CommandEnd> {
+    start_on(spec, abort, |name, body| {
+        std::thread::Builder::new().name(name).spawn(body).map(drop)
+    })
+}
+
+/// [`start`], with the thread made by `spawn`.
+fn start_on(
+    spec: Spec,
+    abort: CancellationToken,
+    spawn: impl FnOnce(String, Box<dyn FnOnce() + Send>) -> io::Result<()>,
+) -> oneshot::Receiver<CommandEnd> {
     let (tx, rx) = oneshot::channel();
-    let spawned = std::thread::Builder::new()
-        .name(format!("command-{}", spec.command.0))
-        .spawn(move || {
+    let command = spec.command;
+    // Kept here too, so a thread that never runs still ends the call.
+    let tx = Arc::new(Mutex::new(Some(tx)));
+    let send = |tx: &Mutex<Option<oneshot::Sender<CommandEnd>>>,
+                end| {
+        if let Some(tx) =
+            tx.lock().unwrap_or_else(PoisonError::into_inner).take()
+        {
+            let _ = tx.send(end);
+        }
+    };
+    let failed = move |why: io::Error| {
+        without_output(
+            command,
+            Exit::Failed(format!(
+                "the command could not start: {why}"
+            )),
+        )
+    };
+    let thread_tx = tx.clone();
+    let spawned = spawn(
+        format!("command-{}", command.0),
+        Box::new(move || {
             let runtime =
                 tokio::runtime::Builder::new_current_thread()
                     .enable_all()
                     .build();
             let runtime = match runtime {
                 Ok(runtime) => runtime,
-                Err(error) => {
-                    tracing::warn!(%error, "a command's runtime");
-                    return;
-                }
+                Err(error) => return send(&thread_tx, failed(error)),
             };
             runtime.block_on(async {
                 tokio::select! {
-                    end = ran(spec) => {
-                        let _ = tx.send(end);
-                    }
+                    end = ran(spec) => send(&thread_tx, end),
                     () = abort.cancelled() => {}
                 }
             });
-        });
+        }),
+    );
     if let Err(error) = spawned {
-        tracing::warn!(%error, "a command's thread");
+        send(&tx, failed(error));
     }
     rx
 }
@@ -388,6 +415,7 @@ async fn ran(spec: Spec) -> CommandEnd {
 }
 
 /// The running output of a command, of which its last lines are kept.
+// Copied from the server's `truncate::Tail`, deleted with it.
 #[derive(Default)]
 struct Tail {
     kept: String,
@@ -440,6 +468,43 @@ impl Tail {
 mod tests {
     use super::*;
 
+    /// Command 1 running `script` in `cwd`, which it may write.
+    fn spec(cwd: &std::path::Path, script: &str) -> Spec {
+        Spec {
+            command: CommandId(1),
+            script: script.to_owned(),
+            cwd: cwd.to_owned(),
+            policy: Policy {
+                rw: vec![cwd.to_owned()],
+                env: hamlet_sandbox::base_env(),
+                ..Policy::default()
+            },
+            sandbox: Sandbox::testing(),
+            timeout: Duration::from_secs(10),
+            secrets: Arc::default(),
+            leftovers: hamlet_sandbox::AllLeftovers::default().of(1),
+        }
+    }
+
+    /// A command whose thread cannot be made ends as failed, and
+    /// says why, rather than leaving its call to wait for nothing.
+    #[tokio::test]
+    async fn a_command_without_a_thread_fails() {
+        let ended = start_on(
+            spec(std::path::Path::new("/"), "true"),
+            CancellationToken::new(),
+            |_, _| Err(io::Error::other("no threads left")),
+        );
+
+        let end = ended.await.expect("an end");
+        assert_eq!(
+            end.exit,
+            Exit::Failed(
+                "the command could not start: no threads left".into()
+            )
+        );
+    }
+
     /// On Linux the sandbox dies with the thread that started it:
     /// a command started from a thread that then exits is killed,
     /// while one whose thread lives reaches its end. So `start` gives
@@ -461,21 +526,7 @@ mod tests {
                 hamlet_testing::Scratch::new("command-thread");
             let cwd = scratch.join("work");
             std::fs::create_dir_all(&cwd).unwrap();
-            let spec = Spec {
-                command: CommandId(1),
-                script: "sleep 1; touch marker".to_owned(),
-                cwd: cwd.clone(),
-                policy: Policy {
-                    rw: vec![cwd.clone()],
-                    env: hamlet_sandbox::base_env(),
-                    ..Policy::default()
-                },
-                sandbox: Sandbox::testing(),
-                timeout: Duration::from_secs(10),
-                secrets: Arc::default(),
-                leftovers: hamlet_sandbox::AllLeftovers::default()
-                    .of(1),
-            };
+            let spec = spec(&cwd, "sleep 1; touch marker");
             let handle = runtime.handle().clone();
             let (moved, arrived) = std::sync::mpsc::channel();
             let (done, release) = std::sync::mpsc::channel::<()>();

@@ -864,3 +864,46 @@ async fn a_finished_to_an_agent_that_is_gone_is_dropped() {
         .unwrap();
     assert_eq!(state, "ended");
 }
+
+/// A command that passes its time limit is killed whole and ends as
+/// timed out: answered `Done` when the limit comes within the wait,
+/// else `Running` and then one `Finished`.
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_command_past_its_limit_ends_timed_out() {
+    for (wait_ms, limit_ms, in_the_answer) in
+        [(3000, 300, true), (200, 800, false)]
+    {
+        let dir = Scratch::new("workspace-timed-out");
+        let fs = filesystem(&dir);
+        let peers = answering_within(wait_ms);
+        let host = host_with(&dir, peers.clone()).await;
+        realm_sets(&host, 1, reach(None)).await;
+        let call = Run {
+            timeout_ms: Some(limit_ms),
+            ..run("c1", "(sleep 2; touch late) & sleep 2; touch late")
+        };
+        let answer = agent_runs(&host, &call).await;
+        told_within(&peers, 1, Duration::from_secs(3)).await;
+        tokio::time::sleep(Duration::from_millis(2500)).await;
+        host.shutdown().await.unwrap();
+
+        let end = match answer {
+            RunAnswer::Done(end) => {
+                assert!(in_the_answer, "answered Done past the wait");
+                assert_eq!(told(&peers), []);
+                end
+            }
+            RunAnswer::Running { command } => {
+                assert!(!in_the_answer, "answered Running in time");
+                let told = told(&peers);
+                assert_eq!(told.len(), 1, "{told:?}");
+                assert_eq!(told[0].1.end.command, command);
+                told[0].1.end.clone()
+            }
+            other => panic!("the command answered {other:?}"),
+        };
+        assert_eq!(end.exit, Exit::TimedOut, "limit {limit_ms} ms");
+        assert!(!fs.join("late").exists(), "the command ran on");
+    }
+}
