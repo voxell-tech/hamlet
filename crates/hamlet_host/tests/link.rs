@@ -291,22 +291,21 @@ mod handshake {
         Holds,
     }
 
-    /// The stand-in Node host, built beside this test.
+    /// The stand-in Node host, in the `examples` folder of the
+    /// profile's folder, which holds this test at some depth: the
+    /// depth differs between cargo's build layouts.
     fn stand_in() -> PathBuf {
         let exe = std::env::current_exe().unwrap();
-        let path = exe
-            .parent()
-            .and_then(Path::parent)
-            .unwrap()
-            .join("examples")
-            .join("link_child");
-        assert!(
-            path.exists(),
-            "no stand-in Node host at {}: build it with `cargo \
-             build -p hamlet_host --examples`",
-            path.display()
-        );
-        path
+        exe.ancestors()
+            .map(|folder| folder.join("examples").join("link_child"))
+            .find(|path| path.exists())
+            .unwrap_or_else(|| {
+                panic!(
+                    "no stand-in Node host above {}: build it with \
+                     `cargo build -p hamlet_host --examples`",
+                    exe.display()
+                )
+            })
     }
 
     fn options(home: &Path, args: &[&str]) -> ChildOptions {
