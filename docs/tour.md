@@ -463,7 +463,7 @@ what holds on each OS, is in [`sandbox.md`](sandbox.md#the-workspace-actor).
 `tests/workspace.rs` and `tests/workspace/` run the workspace through a
 host, called by test actors in the realm's and agents' places: the
 reach and commands in `workspace.rs`, then `files.rs`, `changes.rs`,
-`waits.rs`, `cancel.rs`, `workers.rs` and `tools.rs`. `hamlet_messages/tests/fixtures.rs` checks the messages.
+`waits.rs`, `cancel.rs`, `workers.rs`, `tools.rs` and `realm_folder.rs`. `hamlet_messages/tests/fixtures.rs` checks the messages.
 
 ## The server
 
