@@ -189,7 +189,8 @@ in `test/native/` load the native module, so `npm test` leaves them out
 and `npm run test:native` runs them. `cargo xtask node` runs all three
 after pi's: it builds the module, copies the library into
 `crates/hamlet_actor_node/` under the name its `index.js` loads (on
-Linux x64, `actor-node.linux-x64-gnu.node`), then runs the native tests.
+Linux x64, `actor-node.linux-x64-gnu.node`), builds `hamlet_os`'s example
+`bound`, which the native tests start Node through, then runs them.
 By hand, on Linux:
 
 ```sh
@@ -197,6 +198,7 @@ npm run check --prefix hosts/node
 npm test --prefix hosts/node
 cargo build -p hamlet_actor_node
 cp target/debug/libhamlet_actor_node.so crates/hamlet_actor_node/actor-node.linux-x64-gnu.node
+cargo build -p hamlet_os --example bound
 npm run test:native --prefix hosts/node
 ```
 
