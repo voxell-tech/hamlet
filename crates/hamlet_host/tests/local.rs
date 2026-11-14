@@ -20,10 +20,12 @@ use hamlet_actor_core::{
     ColumnValue, ShutdownKind,
 };
 use hamlet_actor_error::ActorError;
-use hamlet_host::{Address, Cause, Host, HostEvent, HostOptions};
+use hamlet_host::{Address, Host, HostEvent, HostOptions};
 use hamlet_testing::Scratch;
+use logs::Logs;
 use parking_lot::Mutex;
 use rusqlite::{Connection, OpenFlags};
+use tracing_subscriber::filter::LevelFilter;
 
 #[path = "../examples/demo/act.rs"]
 mod act;
@@ -37,6 +39,8 @@ mod command;
 mod counter;
 #[path = "support/files.rs"]
 mod files;
+#[path = "support/logs.rs"]
+mod logs;
 
 fn factories() -> HashMap<String, ActorFactory> {
     counter::factories(&["counter"], counter::Sleep::WhenIdle)
@@ -1254,7 +1258,6 @@ async fn a_call_to_an_unknown_kind_fails_at_once_and_makes_no_file() {
             "get",
             Vec::new(),
             DEADLINE,
-            Cause::root("test"),
         ),
     )
     .await
@@ -1282,7 +1285,6 @@ async fn a_call_ends_at_its_deadline() {
             "nap",
             Vec::new(),
             Duration::from_millis(300),
-            Cause::root("test"),
         )
         .await
         .expect_err("the nap outlived the call's deadline");
@@ -1316,7 +1318,6 @@ async fn a_call_waiting_for_its_actors_stop_ends_at_its_deadline() {
             "get",
             Vec::new(),
             Duration::from_millis(300),
-            Cause::root("test"),
         )
         .await
         .expect_err("b's stop outlived the call's deadline");
@@ -1782,7 +1783,6 @@ async fn a_start_that_never_finishes_fails_at_its_deadline() {
                 "get",
                 Vec::new(),
                 Duration::from_secs(30),
-                Cause::root("test"),
             )
             .await
         }
@@ -2169,7 +2169,6 @@ async fn call_during_a_start(
                 "get",
                 Vec::new(),
                 Duration::from_secs(10),
-                Cause::root("test"),
             )
             .await
         }
@@ -2411,39 +2410,6 @@ async fn boot_returns_before_the_starts_it_begins() {
     host.shutdown().await.unwrap();
 }
 
-/// What is logged on the thread that made it, at WARN or above.
-#[derive(Clone, Default)]
-struct Logs(Arc<Mutex<Vec<u8>>>);
-
-impl std::io::Write for Logs {
-    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        self.0.lock().extend_from_slice(buf);
-        Ok(buf.len())
-    }
-
-    fn flush(&mut self) -> std::io::Result<()> {
-        Ok(())
-    }
-}
-
-impl Logs {
-    fn record(&self) -> tracing::subscriber::DefaultGuard {
-        use tracing_subscriber::util::SubscriberInitExt;
-
-        tracing_subscriber::fmt()
-            .with_max_level(
-                tracing_subscriber::filter::LevelFilter::WARN,
-            )
-            .with_ansi(false)
-            .with_writer({
-                let logs = self.clone();
-                move || logs.clone()
-            })
-            .finish()
-            .set_default()
-    }
-}
-
 /// Boot reads only the files of its own kinds. Another kind's
 /// file, which another process holds locked with a run a kill cut
 /// off, neither fails nor slows it, nor is logged, and nothing of
@@ -2468,7 +2434,7 @@ async fn boot_reads_only_the_files_of_its_kinds() {
 
     let host = Host::open(&dir, factories()).unwrap();
     let logs = Logs::default();
-    let logging = logs.record();
+    let logging = logs.record(LevelFilter::WARN);
     let began =
         tokio::time::timeout(Duration::from_secs(1), host.boot())
             .await
@@ -2476,7 +2442,7 @@ async fn boot_reads_only_the_files_of_its_kinds() {
             .unwrap();
     drop(logging);
     assert!(began.is_empty(), "{began:?}");
-    let logged = String::from_utf8(logs.0.lock().clone()).unwrap();
+    let logged = logs.text();
     assert!(logged.is_empty(), "{logged}");
     host.shutdown().await.unwrap();
     drop(host);
@@ -2555,11 +2521,11 @@ async fn boot_goes_past_a_file_it_cannot_read() {
     let host = Host::open(&dir, factories()).unwrap();
     let mut events = host.events();
     let logs = Logs::default();
-    let logging = logs.record();
+    let logging = logs.record(LevelFilter::WARN);
     let began = host.boot().await;
     drop(logging);
     assert_eq!(began.unwrap(), std::slice::from_ref(&id));
-    let logged = String::from_utf8(logs.0.lock().clone()).unwrap();
+    let logged = logs.text();
     assert_eq!(logged.matches("bad.sqlite").count(), 1, "{logged}");
     let event = events.try_recv().expect("no event for the file");
     assert!(
@@ -2872,4 +2838,180 @@ async fn a_command_line_the_demo_refuses_makes_no_actor() {
         );
     }
     host.shutdown().await.unwrap();
+}
+
+/// The demo's `call` makes only its caller: a call to a key of a kind
+/// the demo runs that holds no actor fails with `actor.not_found`,
+/// which the demo prints, and leaves no file there.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_demos_call_makes_only_its_caller() {
+    let dir = Scratch::new("host-demo-call");
+    let host = Host::open(&dir, factories()).unwrap();
+    let words = ["call", "a", "b"].map(str::to_owned);
+    let called =
+        command::run(&host, &["counter".to_owned()], &words).await;
+    host.shutdown().await.unwrap();
+    let error = called.expect_err("a call to a key with no actor");
+    assert!(
+        command::shown(&error).starts_with("actor.not_found: "),
+        "{error:#}"
+    );
+    assert!(any_file_of(&dir, "counter", "a"));
+    assert!(!any_file_of(&dir, "counter", "b"));
+}
+
+/// A call ends within its deadline while its callee's event loop is
+/// busy in async code with another action: the deadline covers the
+/// call's connection, whose opening waits behind that action, as
+/// much as the action it calls.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_call_to_a_busy_actor_ends_within_its_deadline() {
+    let dir = Scratch::new("call-deadline-busy");
+    let (kinds, mut napping) = with_nappers();
+    let host = Host::open(&dir, kinds).unwrap();
+    let b = host.get_or_start("slow", "b").await.unwrap();
+    let nap = napping.nap(&host, &b).await;
+    let begun = tokio::time::Instant::now();
+    let called = host
+        .call(
+            &Address::new("slow", "b"),
+            "get",
+            Vec::new(),
+            Duration::from_millis(300),
+        )
+        .await;
+    let took = begun.elapsed();
+    nap.await.unwrap().unwrap();
+    host.shutdown().await.unwrap();
+    let outcome = called.map(drop).map_err(|error| code(&error));
+    assert!(
+        took < Duration::from_secs(1)
+            && outcome == Err("actor.action_timed_out".to_owned()),
+        "the call took {took:?}: {outcome:?}"
+    );
+}
+
+/// A destroy that joins a stop for a sleep answers what removing the
+/// actor's files came to, as a destroy that stops the actor itself
+/// does: here an error, since a folder stands where its shared-memory
+/// file goes, and a file's removal cannot remove a folder.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_destroy_that_joins_a_sleep_answers_the_removal_of_its_files()
+ {
+    let dir = Scratch::new("destroy-joins-sleep");
+    let (kinds, mut napping) = with_nappers();
+    let host = Host::open(&dir, kinds).unwrap();
+    let b = host.get_or_start("slow", "b").await.unwrap();
+    std::fs::create_dir(dir.join("actors/slow/b.sqlite-shm"))
+        .unwrap();
+    let nap = napping.nap(&host, &b).await;
+    let sleep = napping.stop(&host, &b, ShutdownKind::Sleep).await;
+    let destroyed = host.stop(&b, ShutdownKind::Destroy).await;
+    let slept = sleep.await.unwrap();
+    nap.await.unwrap().ok();
+    let left = any_file_of(&dir, "slow", "b");
+    host.shutdown().await.unwrap();
+    assert!(left, "the actor's files are gone");
+    let error = destroyed.expect_err("a destroy that left the files");
+    assert!(
+        format!("{error:#}").contains("b.sqlite-shm"),
+        "{error:#}"
+    );
+    slept.expect_err("a sleep the destroy took over");
+}
+
+/// Each entry point refuses a key with an upper-case letter, as it
+/// refuses one with `/`, before anything reaches the folder: on a
+/// disk that ignores case, `counter/a` and `counter/A` would name one
+/// file. A host refuses to open with such a kind, or such a name.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_key_or_kind_with_an_upper_case_letter_is_refused() {
+    let dir = Scratch::new("upper-case-key");
+    let host = Host::open(&dir, factories()).unwrap();
+    let a = host.get_or_start("counter", "a").await.unwrap();
+    act(&host, &a, "increment", Vec::new()).await.unwrap();
+    let mut accepted = Vec::new();
+    for key in ["A", "Ab", "a/b"] {
+        let at = Address::new("counter", key);
+        let id = format!("counter/{key}");
+        let entries = [
+            (
+                "get_or_start",
+                host.get_or_start("counter", key).await.map(drop),
+            ),
+            (
+                "create",
+                host.create("counter", key, Vec::new())
+                    .await
+                    .map(drop),
+            ),
+            (
+                "call",
+                host.call(&at, "get", Vec::new(), DEADLINE)
+                    .await
+                    .map(drop),
+            ),
+            ("destroy", host.stop(&id, ShutdownKind::Destroy).await),
+            (
+                "set_aside_timers",
+                host.set_aside_timers(&at).await.map(drop),
+            ),
+            (
+                "rearm_timer",
+                host.rearm_timer(&at, "event", 0).await.map(drop),
+            ),
+        ];
+        for (entry, result) in entries {
+            match result {
+                Err(error)
+                    if format!("{error:#}").contains(
+                        "is not a valid actor kind or key",
+                    ) => {}
+                other => {
+                    accepted
+                        .push(format!("{entry} {key}: {other:?}"));
+                }
+            }
+        }
+    }
+    let count = act(&host, &a, "get", Vec::new()).await.unwrap();
+    host.shutdown().await.unwrap();
+    drop(host);
+    let mut kinds = factories();
+    let counter = kinds.remove("counter").unwrap();
+    kinds.insert("Counter".to_owned(), counter);
+    let opened = Host::open(&dir, kinds).map(drop);
+    let named = Host::open_with(
+        &dir,
+        factories(),
+        HostOptions {
+            name: "Host".to_owned(),
+            ..HostOptions::default()
+        },
+    )
+    .map(drop);
+    assert_eq!(accepted, Vec::<String>::new());
+    assert_eq!(counter::count(count).unwrap(), 1);
+    // By name: on a disk that ignores case, as macOS's, a file of `A`
+    // exists as soon as `a`'s does.
+    let names = std::fs::read_dir(dir.join("actors/counter"))
+        .unwrap()
+        .map(|entry| {
+            entry.unwrap().file_name().into_string().unwrap()
+        })
+        .collect::<Vec<_>>();
+    assert!(
+        names.iter().all(|name| !name.starts_with('A')),
+        "{names:?}"
+    );
+    let error = opened.expect_err("a host with the kind `Counter`");
+    assert!(
+        format!("{error:#}").contains("is not a valid actor kind"),
+        "{error:#}"
+    );
+    let error = named.expect_err("a host named `Host`");
+    assert!(
+        format!("{error:#}").contains("is not a valid host name"),
+        "{error:#}"
+    );
 }

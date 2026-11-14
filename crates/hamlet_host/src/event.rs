@@ -10,10 +10,10 @@ use crate::Address;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum HostEvent {
-    /// The one-shot timer `event_id` of the actor at `actor` failed
-    /// its last try, the `tries`-th, and is set aside: its actor is
-    /// not woken for it again. It stays in the actor's file, and
-    /// [`Host::rearm_timer`] puts it back.
+    /// The one-shot timer `event_id` of the actor at `actor` used up
+    /// its `tries` tries with no answer from its handler, and is set
+    /// aside: its actor is not woken for it again. It stays in the
+    /// actor's file, and [`Host::rearm_timer`] puts it back.
     ///
     /// [`Host::rearm_timer`]: crate::Host::rearm_timer
     TimerSetAside {

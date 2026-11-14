@@ -16,7 +16,7 @@ use hamlet_actor_core::{
     ActorConfig, ActorEvent, ActorFactory, ActorStart,
     RequestSaveOpts, SerializeStateReason, StateDelta,
 };
-use hamlet_host::{Address, Cause, Host};
+use hamlet_host::{Address, Host};
 
 fn encode_count(count: i64) -> Result<Vec<u8>> {
     let mut out = Vec::new();
@@ -133,7 +133,6 @@ async fn main() -> Result<()> {
             "increment",
             encode_count(1)?,
             Duration::from_secs(60),
-            Cause::root("example"),
         )
         .await?;
     println!("count {}", decode_count(&count)?);

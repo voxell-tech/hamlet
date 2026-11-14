@@ -2492,6 +2492,11 @@ impl ActorContext {
 			);
 			let invocation_telemetry = invocation.telemetry();
 			let (reply_tx, reply_rx) = oneshot::channel();
+			let cut_off = Arc::new(AtomicBool::new(false));
+			let reply = Reply::from(reply_tx).on_cut_off({
+				let cut_off = Arc::clone(&cut_off);
+				move || cut_off.store(true, Ordering::SeqCst)
+			});
 
 			let mut dispatch_error = None;
 			let mut replied = false;
@@ -2502,7 +2507,7 @@ impl ActorContext {
 					conn: None,
 					scheduled_fire: Some(scheduled_fire),
 					invocation_telemetry: Some(invocation_telemetry),
-					reply: Reply::from(reply_tx),
+					reply,
 				},
 				"scheduled_action",
 			) {
@@ -2543,7 +2548,8 @@ impl ActorContext {
 			ctx.finish_schedule_dispatch(&event_id, history_id, dispatch_error.as_ref())
 				.await;
 			if one_shot {
-				ctx.finish_one_shot_dispatch(&event_id, replied, dispatch_error.as_ref())
+				let answered = replied && !cut_off.load(Ordering::SeqCst);
+				ctx.finish_one_shot_dispatch(&event_id, answered, dispatch_error.as_ref())
 					.await;
 			}
 			if let (Some(name), Some(error)) = (recurring_name, dispatch_error.as_ref()) {

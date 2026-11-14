@@ -177,7 +177,11 @@ with kinds of its own, share the folder. Each host also locks
 kind.
 
 `get_or_start` finds an actor by kind and key and starts it on the file
-`actors/<kind>/<key>.sqlite`, making it if it has none.
+`actors/<kind>/<key>.sqlite`, making it if it has none. A kind, a key and
+a host's name take only lower-case letters, digits, `-`, `_` and `.`, and
+do not start with `.`, so no two of them name one file on a disk that
+ignores case. Every entry point refuses another, as `Host::open` refuses
+such a kind.
 `local/create.rs` holds `create`, the other way to make an actor: it
 makes the actor with an input, kept in the file's `_hamlet_actor` row
 and given to each start, and fails with `actor.duplicate_key` for a key
@@ -189,8 +193,10 @@ Nothing else makes an actor.
 
 `local/call.rs` holds the calls: `call` calls an action
 of the actor at an `Address`, starting it from its file first, within
-the caller's deadline, and logs the call's `Cause`, the task it belongs
-to. A call to a key with no actor fails with `actor.not_found` and
+the caller's deadline, and logs the call with its caller, its target
+and its action. A call takes no cause: a call that belongs to a realm
+task carries that task in its own message. A call to a key with no
+actor fails with `actor.not_found` and
 makes no file. Each call carries its `Caller` as its connection's
 parameters: none
 for `call`, a client for `call_for_client`, and the calling actor's
@@ -216,7 +222,9 @@ generation's file alone. A start that waits for another start of its
 actor, a call's included, cancels a sleep the starting generation asked
 for, so that generation answers it. A start must end within
 `HostOptions::start_deadline`, 60 seconds by default. Past it, the start
-fails with `actor.not_ready` and closes the file. A stop must end within
+fails with `actor.not_ready` and closes the file. An open of the file
+still waiting then, for a file another program holds, is given up: it
+writes nothing, however late it ends. A stop must end within
 `HostOptions::stop_deadline`, 45 seconds by default. An actor that does
 not stop by then is stuck: its stop fails with `actor.shutdown_timeout`,
 as does every later start or stop of it in this host, and its file keeps
@@ -260,15 +268,17 @@ over.
 A one-shot timer, armed with `ActorContext::at` in
 `hamlet_actor_core/src/actor/schedule.rs`, is tried at most five times,
 `MAX_ONE_SHOT_TRIES`. Each try is a claim of the timer's row, committed
-before its action runs. The core deletes the row once the action
-replies, or the handler deletes it with `end_one_shot` in its own
-transaction. A run that may not have ended, such as one a stop cut
-short, keeps the row for the next try. The drain that finds a row with
+before its action runs. The core deletes the row once the handler
+answers, with its result, an error of any code or a panic, or the
+handler deletes it with `end_one_shot` in its own transaction. A
+handler that did not answer, because a stop cut it short or its reply
+was dropped unsent, keeps the row for the next try. The drain that finds a row with
 five tries runs nothing for it: it moves the row to
 `_actor_schedule_set_aside`, and the host reports the timer on
 `Host::events` as `HostEvent::TimerSetAside`. `Host::set_aside_timers` lists an
 actor's set-aside timers, and `Host::rearm_timer` puts one back with its
-tries counted from none.
+tries counted from none. A set-aside timer leaves only that way, by a
+re-arm that succeeds, or with its actor's file at a destroy.
 
 `examples/demo.rs` drives
 the host from the command line, under a host name and with counter kinds

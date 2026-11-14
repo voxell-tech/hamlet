@@ -51,14 +51,18 @@ pub const MIN_INTERVAL_MS: i64 = 5_000;
 const DEFAULT_HISTORY_LIMIT: i64 = 20;
 const CLAIM_ONE_SHOT_BATCH_SIZE: usize = 128;
 /// How many times a one-shot is tried. Each claim of a due one-shot
-/// is one try, committed before its action is dispatched, however
-/// the try then ends: the action failed or dropped its reply, a stop
-/// cut it short, the process died, or the event never reached the
-/// action. The drain that finds a one-shot with this many tries runs
-/// nothing for it: it moves the row to `_actor_schedule_set_aside`,
-/// logs an error and tells the host through
-/// `ActorHost::timer_set_aside`. Nothing wakes the actor for that
-/// timer again until [`ActorContext::rearm_set_aside`] puts it back.
+/// is one try, committed before its action is dispatched. A try whose
+/// handler answers, with its result, an error or a panic, ends the
+/// one-shot. A try whose handler does not answer leaves it for the
+/// next: a stop cut the handler short, its reply was dropped unsent,
+/// the process died, or the event never reached the handler. The
+/// drain that finds a one-shot with this many tries runs nothing for
+/// it: it moves the row to `_actor_schedule_set_aside`, logs an
+/// error and tells the host through `ActorHost::timer_set_aside`.
+/// Nothing wakes the actor for that timer again. It leaves that table
+/// only by a re-arm that succeeds, [`ActorContext::rearm_set_aside`],
+/// which puts it back, or by the actor's destroy, which removes its
+/// file.
 ///
 /// So a timer can be set aside without its action ever having run,
 /// when its actor failed five starts in a row: each start claimed it
@@ -192,7 +196,9 @@ pub(crate) struct DueScheduleDispatch {
     pub trace_context: IncomingTraceContext,
 }
 
-/// A one-shot set aside after its last try, as it was then.
+/// A one-shot set aside after its last try, as it was then. It stays
+/// set aside until a re-arm that succeeds puts it back, or its
+/// actor's destroy removes it. See [`MAX_ONE_SHOT_TRIES`].
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SetAsideTimer {
     pub event_id: String,
@@ -445,7 +451,7 @@ impl ActorContext {
                     ]),
                 },
                 SqliteBatchStatement {
-                    sql: DISCARD_SET_ASIDE_SQL.to_owned(),
+                    sql: DELETE_SET_ASIDE_SQL.to_owned(),
                     params: Some(vec![BindParam::Text(
                         event_id.to_owned(),
                     )]),
@@ -461,28 +467,6 @@ impl ActorContext {
             self.sync_alarm().await?;
         }
         Ok(rearmed)
-    }
-
-    /// Deletes the set-aside one-shot `event_id`. Returns false when
-    /// no one-shot is set aside under that id.
-    pub async fn discard_set_aside(
-        &self,
-        event_id: &str,
-    ) -> Result<bool> {
-        let _mutation = self.0.schedule_mutation_lock.lock().await;
-        let result = self
-            .sql()
-            .execute(
-                DISCARD_SET_ASIDE_SQL,
-                Some(vec![BindParam::Text(event_id.to_owned())]),
-            )
-            .await
-            .context("discard set-aside one-shot schedule")?;
-        let removed = result.changes > 0;
-        if removed {
-            self.record_schedules_updated();
-        }
-        Ok(removed)
     }
 
     pub async fn cron_set(
@@ -1092,24 +1076,22 @@ impl ActorContext {
         }
     }
 
-    /// Deletes the row of a one-shot that fired, unless its action
-    /// may not have run to its end: no reply came back, or the reply
-    /// is one of `UNFINISHED_ACTION_CODES`. A kept row stays claimed
-    /// by this generation, so the next one runs it, and records the
-    /// outcome as its `last_error`.
+    /// Deletes the row of a one-shot that fired, unless its handler
+    /// did not answer: the action was never sent, or the handler was
+    /// cut off before its end, as by its actor's stop, and its reply
+    /// answered for it. A handler that answered ran once, also with
+    /// an error, whatever its code, or with a panic. A kept row stays
+    /// claimed by this generation, so the next one runs it, and
+    /// records the outcome as its `last_error`.
     pub(crate) async fn finish_one_shot_dispatch(
         &self,
         event_id: &str,
-        replied: bool,
+        answered: bool,
         error: Option<&anyhow::Error>,
     ) {
-        let outcome = error.map(ActorError::extract);
-        let unfinished = outcome.as_ref().is_some_and(|outcome| {
-            outcome.group() == "actor"
-                && UNFINISHED_ACTION_CODES.contains(&outcome.code())
-        });
-        if !replied || unfinished {
-            if let Some(outcome) = outcome {
+        if !answered {
+            if let Some(error) = error {
+                let outcome = ActorError::extract(error);
                 self.record_one_shot_outcome(
                     event_id,
                     format!("{}.{}", outcome.group(), outcome.code()),
@@ -1712,22 +1694,6 @@ impl ActorContext {
             .store(false, Ordering::SeqCst);
     }
 }
-
-/// The `actor` error codes of an action that did not run to its end:
-/// its generation stopped it, or the core cannot tell. Any other
-/// error came from the action itself.
-const UNFINISHED_ACTION_CODES: &[&str] = &[
-    "starting",
-    "not_ready",
-    "stopping",
-    "destroying",
-    "destroyed",
-    "shutdown_timeout",
-    "dropped_reply",
-    "overloaded",
-    "aborted",
-    "action_timed_out",
-];
 
 /// Deletes the row of the one-shot `fire` inside `tx`, so it leaves
 /// with the action's change: a kill before `tx` commits runs the

@@ -1309,7 +1309,7 @@ mod moved_tests {
     }
 
     #[tokio::test]
-    async fn a_fired_one_shot_is_kept_only_when_its_action_did_not_end()
+    async fn a_fired_one_shot_is_kept_only_when_its_handler_did_not_answer()
      {
         let cases = [
             ("ok", true, None, false),
@@ -1327,31 +1327,37 @@ mod moved_tests {
                 false,
             ),
             (
-                "stopping",
+                "handler returned stopping",
                 true,
+                Some(actor_error("actor", "stopping")),
+                false,
+            ),
+            (
+                "handler returned aborted",
+                true,
+                Some(actor_error("actor", "aborted")),
+                false,
+            ),
+            (
+                "handler returned action_timed_out",
+                true,
+                Some(actor_error("actor", "action_timed_out")),
+                false,
+            ),
+            (
+                "cut off by its stop",
+                false,
                 Some(actor_error("actor", "stopping")),
                 true,
             ),
             (
-                "aborted",
-                true,
-                Some(actor_error("actor", "aborted")),
-                true,
-            ),
-            (
-                "timed out",
-                true,
-                Some(actor_error("actor", "action_timed_out")),
-                true,
-            ),
-            (
-                "no reply",
+                "never sent",
                 false,
                 Some(actor_error("actor", "not_configured")),
                 true,
             ),
         ];
-        for (case, replied, error, kept) in cases {
+        for (case, answered, error, kept) in cases {
             let ctx = context("actor-one-shot-finish");
             ctx.at(BASE_TIME, "tick", &[]).await.unwrap();
             let dispatch = ctx
@@ -1361,7 +1367,7 @@ mod moved_tests {
                 .remove(0);
             ctx.finish_one_shot_dispatch(
                 &dispatch.event_id,
-                replied,
+                answered,
                 error.as_ref(),
             )
             .await;
@@ -1584,10 +1590,13 @@ mod moved_tests {
                 Some(("actor", "dropped_reply")),
             ),
             ("no inbox", false, Some(("actor", "not_configured"))),
-            ("stopping", true, Some(("actor", "stopping"))),
-            ("timed out", true, Some(("actor", "action_timed_out"))),
+            (
+                "cut off by its stop",
+                false,
+                Some(("actor", "stopping")),
+            ),
         ];
-        for (case, replied, error) in cases {
+        for (case, answered, error) in cases {
             let ctx = context("actor-one-shot-outcome");
             ctx.at(BASE_TIME, "tick", &[]).await.unwrap();
             let dispatch = ctx
@@ -1599,7 +1608,7 @@ mod moved_tests {
                 error.map(|(group, code)| actor_error(group, code));
             ctx.finish_one_shot_dispatch(
                 &dispatch.event_id,
-                replied,
+                answered,
                 error.as_ref(),
             )
             .await;
@@ -1731,7 +1740,7 @@ mod moved_tests {
         );
         ctx.set_schedule_time_for_tests(BASE_TIME);
         let host = TestHost::new_for_tests();
-        let event_id = set_aside_one(&ctx, &host).await;
+        set_aside_one(&ctx, &host).await;
 
         let error =
             ctx.at(BASE_TIME, "other", &[]).await.unwrap_err();
@@ -1742,8 +1751,6 @@ mod moved_tests {
                 "max_schedules_exceeded".to_owned()
             )
         );
-        assert!(ctx.discard_set_aside(&event_id).await.unwrap());
-        ctx.at(BASE_TIME, "other", &[]).await.unwrap();
     }
 
     #[tokio::test]
@@ -1803,23 +1810,6 @@ mod moved_tests {
         assert_eq!(dispatches.len(), 1);
         assert_eq!(dispatches[0].event_id, event_id);
         assert_eq!(one_shot_tries(&ctx).await, vec![(1, None)]);
-    }
-
-    #[tokio::test]
-    async fn a_discarded_one_shot_is_gone() {
-        let ctx = context("actor-set-aside-discard");
-        let host = TestHost::new_for_tests();
-        let event_id = set_aside_one(&ctx, &host).await;
-
-        assert!(ctx.discard_set_aside(&event_id).await.unwrap());
-        assert!(ctx.set_aside_timers().await.unwrap().is_empty());
-        assert!(!ctx.discard_set_aside(&event_id).await.unwrap());
-        assert!(
-            !ctx.rearm_set_aside(&event_id, BASE_TIME).await.unwrap()
-        );
-        assert!(
-            ctx.list_scheduled_events().await.unwrap().is_empty()
-        );
     }
 
     #[tokio::test]

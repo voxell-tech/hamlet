@@ -8,7 +8,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use hamlet_actor_core::ActorFactory;
-use hamlet_host::{Address, Cause, Host};
+use hamlet_host::{Address, Host};
 use napi::bindgen_prelude::Buffer;
 use napi_derive::napi;
 use parking_lot::Mutex;
@@ -112,7 +112,6 @@ impl CoreRegistry {
                 &name,
                 args.to_vec(),
                 Duration::from_millis(deadline_ms.into()),
-                Cause::root("node"),
             )
             .await
             .map_err(napi_anyhow_error)?;

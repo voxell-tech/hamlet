@@ -788,3 +788,206 @@ async fn an_ended_generation_makes_nothing() {
     assert!(!ended_made, "the ended generation made maker/k0");
     assert_eq!(made.created.load(Ordering::SeqCst), 1);
 }
+
+/// Another program's connection to the file at `path`, which holds
+/// its write lock from [`hold`] until `release` ends it.
+struct Holder {
+    release: std::sync::mpsc::Sender<()>,
+    thread: std::thread::JoinHandle<()>,
+}
+
+/// Opens the file at `path`, made if it is missing, and holds its
+/// write lock in a thread of its own until [`Holder::release`].
+fn hold(path: &std::path::Path) -> Holder {
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    let holder = rusqlite::Connection::open(path).unwrap();
+    holder
+        .execute_batch(
+            "PRAGMA journal_mode = WAL; CREATE TABLE IF NOT EXISTS \
+             held (x); BEGIN EXCLUSIVE; INSERT INTO held VALUES (1);",
+        )
+        .unwrap();
+    let (release, released) = std::sync::mpsc::channel();
+    let thread = std::thread::spawn(move || {
+        let _ = released.recv();
+        holder.execute_batch("ROLLBACK").unwrap();
+    });
+    Holder { release, thread }
+}
+
+impl Holder {
+    /// Lets the file go, then waits long enough for a start that
+    /// waited for it to open it and write, as SQLite tries again
+    /// every 100 ms at most.
+    async fn release(self) {
+        self.release.send(()).unwrap();
+        self.thread.join().unwrap();
+        tokio::time::sleep(Duration::from_millis(1500)).await;
+    }
+}
+
+/// The actor's row in the file at `path`, read with its own
+/// connection: its generation and its running mark, or `None` for a
+/// file with no actor.
+fn stored_actor(path: &std::path::Path) -> Option<(i64, i64)> {
+    let conn = rusqlite::Connection::open_with_flags(
+        path,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+    )
+    .unwrap();
+    let has_table = conn
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE name = \
+             '_hamlet_actor'",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .unwrap();
+    if has_table == 0 {
+        return None;
+    }
+    conn.query_row(
+        "SELECT generation, running FROM _hamlet_actor",
+        [],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    )
+    .ok()
+}
+
+/// A create whose file another program holds past the start deadline
+/// fails with `actor.not_ready`. When the program lets the file go,
+/// the given-up start writes nothing to it, so the key holds no
+/// actor, and the next create makes the actor from its own input.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_create_given_up_while_its_file_is_held_leaves_no_actor() {
+    let dir = Scratch::new("create-held-file");
+    let path = dir.join("actors/made/a.sqlite");
+    let made = Arc::new(Counts::default());
+    let mut options = HostOptions::default().with_value(made.clone());
+    options.start_deadline = Duration::from_millis(300);
+    let host = open(&dir, options);
+    let holder = hold(&path);
+    let first = failed(host.create("made", "a", cbor("first")).await);
+    holder.release().await;
+    let left = stored_actor(&path);
+    let second = host.create("made", "a", cbor("second")).await;
+    let input = call(&host, "a", &Input).await;
+    host.shutdown().await.unwrap();
+    assert_eq!(code(&first), "actor.not_ready", "{first:#}");
+    assert_eq!(left, None, "the given-up start wrote its actor");
+    second.unwrap();
+    assert_eq!(input.unwrap(), "second");
+    assert_eq!(made.created.load(Ordering::SeqCst), 1);
+}
+
+/// A start of an actor asleep in its file, which another program
+/// holds past the start deadline, fails with `actor.not_ready`. When
+/// the program lets the file go, the given-up start writes nothing:
+/// the actor's generation and its running mark are as its last stop
+/// left them, so no boot starts it.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_start_given_up_while_its_file_is_held_writes_nothing() {
+    let dir = Scratch::new("start-held-file");
+    let path = dir.join("actors/made/a.sqlite");
+    let made = Arc::new(Counts::default());
+    let host =
+        open(&dir, HostOptions::default().with_value(made.clone()));
+    host.create("made", "a", cbor("first")).await.unwrap();
+    host.shutdown().await.unwrap();
+    drop(host);
+    let slept = stored_actor(&path);
+
+    let mut options = HostOptions::default().with_value(made.clone());
+    options.start_deadline = Duration::from_millis(300);
+    let host = open(&dir, options);
+    let holder = hold(&path);
+    let started = host
+        .get_or_start("made", "a")
+        .await
+        .expect_err("a start of a held file");
+    holder.release().await;
+    let left = stored_actor(&path);
+    host.shutdown().await.unwrap();
+    assert_eq!(code(&started), "actor.not_ready", "{started:#}");
+    assert_eq!(slept.map(|(_, running)| running), Some(0));
+    assert_eq!(left, slept, "the given-up start wrote to the file");
+}
+
+/// A shutdown ends a create whose file another program holds, and
+/// returns while the program still holds it. The next host opens the
+/// folder, and when the program lets the file go, the old host's
+/// given-up start writes nothing to it: a create in the next host
+/// makes the actor from its own input.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_shutdown_returns_while_a_start_waits_for_a_held_file() {
+    let dir = Scratch::new("shutdown-held-file");
+    let path = dir.join("actors/made/a.sqlite");
+    let made = Arc::new(Counts::default());
+    let host =
+        open(&dir, HostOptions::default().with_value(made.clone()));
+    let holder = hold(&path);
+    let create = tokio::spawn({
+        let host = host.clone();
+        async move { host.create("made", "a", cbor("first")).await }
+    });
+    // Long enough for the create to reach its file.
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(!create.is_finished(), "the create ended at once");
+    // Well under SQLite's 5 s busy timeout, after which the open
+    // would give up by itself: a shutdown that waited for it would
+    // still return before a longer bound.
+    tokio::time::timeout(Duration::from_secs(3), host.shutdown())
+        .await
+        .expect("the shutdown waited for the held file")
+        .unwrap();
+    let first = failed(create.await.unwrap());
+    drop(host);
+
+    let host =
+        open(&dir, HostOptions::default().with_value(made.clone()));
+    holder.release().await;
+    let left = stored_actor(&path);
+    let second = host.create("made", "a", cbor("second")).await;
+    let input = call(&host, "a", &Input).await;
+    host.shutdown().await.unwrap();
+    assert_eq!(code(&first), "actor.not_ready", "{first:#}");
+    assert_eq!(left, None, "the old host's start wrote its actor");
+    second.unwrap();
+    assert_eq!(input.unwrap(), "second");
+    assert_eq!(made.created.load(Ordering::SeqCst), 1);
+}
+
+/// Creates with no time to start, which the timer's tick lets a few
+/// of make their actor, leave no file when they fail with
+/// `actor.not_ready`, however their open and their start's deadline
+/// fall: an open that claimed its write first made the actor, which
+/// its start then removes; one its start gave up first makes nothing.
+#[tokio::test(flavor = "multi_thread")]
+async fn creates_with_no_time_to_start_leave_no_file_when_they_fail()
+{
+    let dir = Scratch::new("create-no-time");
+    let made = Arc::new(Counts::default());
+    let mut options = HostOptions::default().with_value(made.clone());
+    options.start_deadline = Duration::ZERO;
+    let host = open(&dir, options);
+    let mut outcomes = Vec::new();
+    for n in 0..50 {
+        let key = format!("k{n}");
+        let created = host.create("made", &key, cbor("x")).await;
+        outcomes.push((key, created.map_err(|error| code(&error))));
+    }
+    // Long enough for an open its start gave up to write, as it did.
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    host.shutdown().await.unwrap();
+    let wrong = outcomes
+        .into_iter()
+        .filter(|(key, created)| match created {
+            Ok(_) => !any_file_of(&dir, "made", key),
+            Err(code) => {
+                code != "actor.not_ready"
+                    || any_file_of(&dir, "made", key)
+            }
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(wrong, Vec::new());
+}
