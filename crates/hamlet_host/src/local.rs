@@ -1669,7 +1669,8 @@ fn retry_start(owned: &Owned, due: i64) {
     drop(replaced);
 }
 
-/// The core's id of the actor at `at`.
+/// The core's id of the actor at `at`. The host makes the id only
+/// here.
 fn actor_id(at: &Address) -> String {
     at.to_string()
 }

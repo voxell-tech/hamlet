@@ -592,9 +592,10 @@ built-in ones.
 | Desks and their switcher in the top bar | `hamlet_app/src/desk.rs`, `desk/switcher.rs`, `desk/switcher/motion.rs` |
 | An actor's lifecycle, schedules, state or SQL | `hamlet_actor_core/src/actor/`; [the actor runtime](#the-actor-runtime) |
 | Where actors' files are, deadlines and timers, shutdown, the folder lock | `hamlet_host/src/local.rs`, `plain_sqlite.rs` |
-| Calls between actors, and who made a call | `hamlet_host/src/local/call.rs` |
-| Making an actor with an input, or from another actor | `hamlet_host/src/local/create.rs` |
-| What an actor reaches of its host: the realm folder, the program's values | `hamlet_host/src/local/access.rs` |
+| An actor's address, the name rule, and who made a call | `hamlet_host/src/address.rs` |
+| Calls between actors | `hamlet_host/src/local/call.rs` |
+| Making an actor with an input | `hamlet_host/src/local/create.rs` |
+| What an actor reaches of its host: its address, the realm folder, the program's values, and its calls, creates and get-or-starts as itself | `hamlet_host/src/local/access.rs` |
 | Where each actor kind runs | `hamlet_host/src/directory.rs` |
 | What the host reports on `Host::events` | `hamlet_host/src/event.rs` |
 | A one-shot timer's tries, and the timers set aside after them | `hamlet_actor_core/src/actor/schedule.rs`; `Host::set_aside_timers` and `Host::rearm_timer` in `hamlet_host/src/local.rs` |

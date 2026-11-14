@@ -118,7 +118,8 @@ impl HostRef {
 }
 
 /// The caller the host stamps on an operation: none for the program,
-/// a client, or an actor.
+/// a client, or an actor. An actor's stamp for an operation is made
+/// only by `HostRef::current`, after its generation's check.
 pub(crate) struct Stamp(Option<Caller>);
 
 impl Stamp {
