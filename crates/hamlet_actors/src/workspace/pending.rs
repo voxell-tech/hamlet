@@ -488,7 +488,7 @@ impl Handler<ChiefAnswer> for Workspace {
                 self.not_run(&ctx, &wait, CallRefusal::Lapsed(lapse))
                     .await
             }
-            Answer::Allow(_) => match &wait.request {
+            Answer::Allow => match &wait.request {
                 Pending::Run(run) => {
                     self.clone().grant_run(&ctx, &wait, run).await
                 }

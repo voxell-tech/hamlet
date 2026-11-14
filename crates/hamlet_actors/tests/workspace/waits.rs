@@ -17,7 +17,7 @@ use hamlet_messages::workspace::reach::{
 use hamlet_messages::workspace::{
     Answer, AnswerTaken, CallId, CallRefusal, Changed, ChiefAnswer,
     ConversationId, Exit, Lapse, ReachVersion, RealmRefusal,
-    RealmTask, RunAnswer, Scope,
+    RealmTask, RunAnswer,
 };
 use hamlet_testing::Scratch;
 
@@ -148,9 +148,9 @@ async fn a_command_a_chief_allows_runs_and_the_agent_hears_its_end() {
     let asked_run = run("c1", "touch marker; echo made");
     agent_runs(&host, &asked_run).await;
 
-    let taken = chief(&host, "c1", Answer::Allow(Scope::Once)).await;
+    let taken = chief(&host, "c1", Answer::Allow).await;
     told_within(&peers, 1, Duration::from_secs(10)).await;
-    let again = chief(&host, "c1", Answer::Allow(Scope::Once)).await;
+    let again = chief(&host, "c1", Answer::Allow).await;
     let repeat = agent_runs(&host, &asked_run).await;
     tokio::time::sleep(Duration::from_millis(300)).await;
     host.shutdown().await.unwrap();
@@ -237,9 +237,8 @@ async fn a_pending_operation_is_refused_after_a_revoke() {
         .await;
     realm_sets(&host, 3, manual(&elsewhere)).await;
 
-    let change = chief(&host, "w1", Answer::Allow(Scope::Once)).await;
-    let command =
-        chief(&host, "c1", Answer::Allow(Scope::Once)).await;
+    let change = chief(&host, "w1", Answer::Allow).await;
+    let command = chief(&host, "c1", Answer::Allow).await;
     told_within(&peers, 2, Duration::from_secs(5)).await;
     host.shutdown().await.unwrap();
 
@@ -287,10 +286,8 @@ async fn a_change_waits_and_is_carried_out_when_allowed() {
         ask(&host, &me, &edit("e1", &file, &[("two", "2")])).await;
     let wrote = ask(&host, &me, &write("w1", &made, "hi")).await;
     let unchanged = read(&file);
-    let edit_taken =
-        chief(&host, "e1", Answer::Allow(Scope::Once)).await;
-    let write_taken =
-        chief(&host, "w1", Answer::Allow(Scope::Once)).await;
+    let edit_taken = chief(&host, "e1", Answer::Allow).await;
+    let write_taken = chief(&host, "w1", Answer::Allow).await;
     told_within(&peers, 2, Duration::from_secs(5)).await;
     host.shutdown().await.unwrap();
 
@@ -343,7 +340,7 @@ async fn a_change_to_a_file_changed_meanwhile_is_refused() {
     ask(&host, &agent(AGENT), &write("w1", &file, "b")).await;
     std::fs::write(&file, "theirs").unwrap();
 
-    let taken = chief(&host, "w1", Answer::Allow(Scope::Once)).await;
+    let taken = chief(&host, "w1", Answer::Allow).await;
     told_within(&peers, 1, Duration::from_secs(5)).await;
     host.shutdown().await.unwrap();
 
@@ -431,7 +428,7 @@ async fn only_the_realm_answers_a_wait() {
         &ChiefAnswer {
             agent: AGENT,
             call: CallId("c1".into()),
-            answer: Answer::Allow(Scope::Always),
+            answer: Answer::Allow,
         },
     )
     .await;
@@ -464,7 +461,7 @@ async fn a_wait_stays_through_a_restart() {
     let repeat = agent_runs(&host, &asked_run).await;
     let fetched_before =
         peers.fetched.load(std::sync::atomic::Ordering::SeqCst);
-    let taken = chief(&host, "c1", Answer::Allow(Scope::Once)).await;
+    let taken = chief(&host, "c1", Answer::Allow).await;
     told_within(&peers, 1, Duration::from_secs(10)).await;
     host.shutdown().await.unwrap();
 
@@ -536,7 +533,7 @@ async fn a_granted_command_runs_under_the_reach_in_force() {
             .await;
     realm_sets(&host, 2, manual_with_network(&folder)).await;
     agent_runs(&host, &run("c2", "true")).await;
-    chief(&host, "c1", Answer::Allow(Scope::Once)).await;
+    chief(&host, "c1", Answer::Allow).await;
     told_within(&peers, 1, Duration::from_secs(10)).await;
     let Reach::Agent(mut trusting) = manual_with_network(&folder)
     else {
@@ -549,7 +546,7 @@ async fn a_granted_command_runs_under_the_reach_in_force() {
     }];
     realm_sets(&host, 3, Reach::Agent(trusting)).await;
     let plain = agent_runs(&host, &run("c3", "true")).await;
-    chief(&host, "c2", Answer::Allow(Scope::Once)).await;
+    chief(&host, "c2", Answer::Allow).await;
     told_within(&peers, 2, Duration::from_secs(10)).await;
     host.shutdown().await.unwrap();
 

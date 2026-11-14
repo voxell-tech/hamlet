@@ -24,7 +24,7 @@ use hamlet_messages::workspace::{
     CallerRefusal, Cancel, CancelAnswer, Changed, ChiefAnswer,
     CommandEnd, CommandId, CommandStatus, ConversationId, Cut, Exit,
     Lapse, ListTools, Program, ReachAnswer, ReachVersion,
-    RealmRefusal, RealmTask, Run, RunAnswer, Scope, SetReach, Shell,
+    RealmRefusal, RealmTask, Run, RunAnswer, SetReach, Shell,
     ToolList, Which,
 };
 use serde::Serialize;
@@ -393,9 +393,7 @@ fn the_answers_about_a_command_match_their_fixtures() {
     );
     fixtures.answer("realm/needs_chief", &());
     for (name, answer) in [
-        ("once", Answer::Allow(Scope::Once)),
-        ("conversation", Answer::Allow(Scope::Conversation)),
-        ("always", Answer::Allow(Scope::Always)),
+        ("allow", Answer::Allow),
         (
             "refuse",
             Answer::Refuse {

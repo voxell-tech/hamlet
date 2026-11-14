@@ -9,7 +9,7 @@
 //!     [net] [worker | worker=<starter>]
 //!     [trust=<conversation>:edits,commands] [secrets=<v>] [ended]
 //!                    set agent <n>'s reach; manual mode by default
-//! demo realm answer <n> <call> once|conversation|always|refuse
+//! demo realm answer <n> <call> allow|refuse
 //!     |refuse=<reason>|stopped|rewound|ended
 //!                    answer agent <n>'s call <call> as a chief, or
 //!                    end its wait
@@ -38,8 +38,7 @@ use hamlet_messages::workspace::reach::{
 };
 use hamlet_messages::workspace::{
     AgentNumber, Answer, AnswerTaken, CallId, ChiefAnswer,
-    ConversationId, Lapse, ReachAnswer, ReachVersion, Scope,
-    SetReach,
+    ConversationId, Lapse, ReachAnswer, ReachVersion, SetReach,
 };
 
 /// The kind `realm`.
@@ -296,9 +295,7 @@ async fn answer_call(
             reason: Some(reason.to_owned()),
         },
         _ => match answer {
-            "once" => Answer::Allow(Scope::Once),
-            "conversation" => Answer::Allow(Scope::Conversation),
-            "always" => Answer::Allow(Scope::Always),
+            "allow" => Answer::Allow,
             "refuse" => Answer::Refuse { reason: None },
             "stopped" => Answer::Lapsed(Lapse::Stopped),
             "rewound" => Answer::Lapsed(Lapse::Rewound),

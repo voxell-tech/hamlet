@@ -10,8 +10,7 @@ use hamlet_messages::workspace::reach::{Reach, Refusal};
 use hamlet_messages::workspace::{
     AgentNumber, Answer, AnswerTaken, CallId, CallRefusal,
     CallerRefusal, Cancel, CancelAnswer, ConversationId, Exit, Lapse,
-    ReachAnswer, ReachVersion, Run, RunAnswer, Scope, SetReach,
-    Which,
+    ReachAnswer, ReachVersion, Run, RunAnswer, SetReach, Which,
 };
 use hamlet_testing::Scratch;
 
@@ -386,8 +385,7 @@ async fn an_ended_reach_closes_the_agents_waits() {
     let waiting = agent_runs(&host, &call).await;
 
     let ended = realm_sets(&host, 2, Reach::Ended).await;
-    let allowed =
-        chief(&host, "c1", Answer::Allow(Scope::Once)).await;
+    let allowed = chief(&host, "c1", Answer::Allow).await;
     let repeat = agent_runs(&host, &call).await;
     told_within(&peers, 1, Duration::from_secs(3)).await;
     tokio::time::sleep(Duration::from_millis(500)).await;
@@ -439,7 +437,7 @@ async fn an_allow_racing_an_ended_reach_runs_nothing() {
         let allow = {
             let (host, call) = (host.clone(), call.clone());
             tokio::spawn(async move {
-                chief(&host, &call, Answer::Allow(Scope::Once)).await
+                chief(&host, &call, Answer::Allow).await
             })
         };
         // A moment later in every other round, so the allow comes

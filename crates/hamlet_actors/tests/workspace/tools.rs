@@ -11,7 +11,7 @@ use hamlet_messages::workspace::files::ChangeAnswer;
 use hamlet_messages::workspace::reach::{Need, Refusal};
 use hamlet_messages::workspace::{
     AddedTool, Answer, AnswerTaken, CallId, CallRefusal,
-    ConversationId, Exit, ListTools, Program, Run, RunAnswer, Scope,
+    ConversationId, Exit, ListTools, Program, Run, RunAnswer,
     ToolList,
 };
 use hamlet_testing::Scratch;
@@ -193,11 +193,10 @@ async fn a_tool_that_reaches_the_network_waits_for_a_chief() {
     let second =
         agent_runs(&host, &tool("t2", "fetch", r#"{"url":"y"}"#))
             .await;
-    let allowed =
-        chief(&host, "t1", Answer::Allow(Scope::Once)).await;
+    let allowed = chief(&host, "t1", Answer::Allow).await;
     told_within(&peers, 1, Duration::from_secs(5)).await;
     std::fs::remove_dir_all(dir.join("tools/fetch")).unwrap();
-    let gone = chief(&host, "t2", Answer::Allow(Scope::Once)).await;
+    let gone = chief(&host, "t2", Answer::Allow).await;
     host.shutdown().await.unwrap();
     let waits = RunAnswer::WaitsForChief(vec![Need::Network]);
     assert_eq!((first, second), (waits.clone(), waits));

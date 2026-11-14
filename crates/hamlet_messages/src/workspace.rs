@@ -91,10 +91,9 @@ pub enum RealmRefusal {
 }
 
 /// A chief's answer to a call that waits for one, or the end of the
-/// wait (H11, H34). Called by the realm. For an answer that allows
-/// more than once, the realm sets the reach first and has its answer
-/// before it calls: the workspace takes the scope from the reach, not
-/// from here.
+/// wait (H11, H34). Called by the realm. `Allow` allows this call;
+/// for an answer that allows more than once, the realm sets the reach
+/// first and has its answer before it calls.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ChiefAnswer {
     pub agent: AgentNumber,
@@ -109,21 +108,9 @@ impl Action for ChiefAnswer {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Answer {
-    Allow(Scope),
+    Allow,
     Refuse { reason: Option<String> },
     Lapsed(Lapse),
-}
-
-/// How long a chief allows what a call needs (H11).
-#[derive(
-    Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize,
-)]
-pub enum Scope {
-    Once,
-    /// Edits or commands for the rest of the agent's conversation.
-    Conversation,
-    /// Until taken back or the agent ends.
-    Always,
 }
 
 /// Why a wait ended with no answer (H34).
