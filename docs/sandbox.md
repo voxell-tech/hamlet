@@ -75,6 +75,70 @@ server itself owns the credentials and the database, and only exposes the
 confined operations it implements. Credentials are scrubbed before tool
 output or provider text is persisted or sent to clients.
 
+## The workspace actor
+
+The `workspace` actor in `hamlet_actors`, which the server does not use
+(see [the tour](tour.md#the-workspace-actor)), builds its policies
+itself from the reach the realm set, with `placement` in
+`workspace/reach.rs`. It uses `hamlet_sandbox`'s `Policy`, `Env` and
+`scrub`, as the server does.
+
+An agent's own place is its filesystem, `actors/agent/<n>.fs/`, or a
+worker's scratch folder, `workers/<n>/`. Every policy reads the realm's
+`library/` and `tools/` and the folder of the agent's spilled output,
+and a worker's also reads its starter's filesystem (a chief's worker has
+no starter). The folder its hamlet works on is writable. The own place
+is writable for a command, and for a worker's file tools too; an
+agent's file tools never write its filesystem. With a folder, the
+policy is `open`: the machine is readable but the realm's folder, which
+is `hidden`, and the environment is the chief's own (`host_env`), so the
+project's tools are found; the call works in the folder. A folder
+that holds the realm's folder shows it again, since bubblewrap binds the
+writable folders after it covers the hidden ones. Without one,
+only the listed paths are reached, the environment is `base_env` with
+`HOME` at the own place, and the call works there. `library/` and
+`tools/` are `locked`, so they stay read-only also inside a folder that
+holds the realm's (C18). `net` is on only for a command the gate gave
+the network.
+
+The gate reads the same policies: a read passes where the file tools'
+policy reads, and a change where it writes and nothing locks the path.
+A change in an agent's filesystem is always refused, and a read there
+unless the policy reads it, as a worker reads its starter's.
+
+A tool added by hand (`workspace/tools.rs`, C17) runs under the policy
+of its manifest's `sandbox`: `fs_ro` and `fs_rw`, resolved from the
+tool's folder; its own folder readable; `tools/` and its own folder
+locked; `base_env` with the manifest's `env`; and its `limits`
+(`wall_secs`, `cpu_secs`), which `check_limits` bounds. It works in its
+own folder, and its `net` holds only when the gate gave it the network.
+
+Commands run through `Env::private` and `Env::stream`, which take the
+realm's secrets out of the output as it comes. The file tools run on
+`Env::new` in the host's process, so their reach is the `Env`'s own
+walk from opened folders, not bubblewrap's or Seatbelt's. A change reads
+the file with `Env::read_for_change` and replaces it with
+`Env::replace_file`: the new content goes to a new file beside it, which
+is renamed over it only while the path leads where it led and the file
+holds what was read.
+
+What holds on each OS:
+
+- **Linux**: bubblewrap. Its `--die-with-parent` ends the sandbox when
+  the thread that started it ends, since the parent-death signal
+  follows the thread. So each command runs on a thread of its own,
+  which lives until the command ends, and a command dies with its host,
+  a kill included.
+- **macOS**: Seatbelt, which has no parent-death rule. A host that
+  stops ends its commands: the stop drops each command's stream, which
+  kills its process group, and the workspace ends what commands left
+  running when it is dropped and when an agent's reach ends. A command,
+  and what it left running, can outlive a killed host. Its row still
+  reads cut off at the next start.
+- **Windows**: no sandbox. `Sandbox::open(Isolation::Sandboxed)` fails,
+  so the demo gives the workspace no sandbox, and the workspace does
+  not start.
+
 ## Insecure mode on Windows
 
 A Windows server starts only with `--insecure` (ADR 0008).
