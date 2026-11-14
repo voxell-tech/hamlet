@@ -6,29 +6,6 @@ use std::sync::Arc;
 use anyhow::Result;
 use hamlet_actor_core::ActorFactory;
 use hamlet_actor_core::error::ActorRuntime;
-use serde::{Deserialize, Serialize};
-
-/// An actor's address: its kind, which the directory maps to where
-/// the kind's actors run, and its key within the kind.
-#[derive(
-    Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize,
-)]
-pub struct Address {
-    pub kind: String,
-    pub key: String,
-}
-
-impl Address {
-    pub fn new(
-        kind: impl Into<String>,
-        key: impl Into<String>,
-    ) -> Self {
-        Self {
-            kind: kind.into(),
-            key: key.into(),
-        }
-    }
-}
 
 /// Where the actors of one kind run.
 pub(crate) enum Place {

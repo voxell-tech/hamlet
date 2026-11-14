@@ -4,8 +4,10 @@
 use hamlet_actor::Action;
 use serde::{Deserialize, Serialize};
 
-use crate::workspace::files::ChangeAnswer;
-use crate::workspace::{CallId, CallRefusal, CommandEnd};
+use crate::Message;
+use crate::address::{Agent, Workspace};
+use crate::workspace::files::ChangeEnd;
+use crate::workspace::{CallId, RunEnd};
 
 /// Tells the agent how a call ended that the workspace answered
 /// `Running` or `WaitsForChief` for. Called by the workspace once,
@@ -22,14 +24,16 @@ impl Action for Finished {
     const NAME: &'static str = "finished";
 }
 
-/// The end of a call.
+impl Message for Finished {
+    type To = Agent;
+    type From = Workspace;
+}
+
+/// The end of a call, by its kind: the `end` its answer would have
+/// held under `ended`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
 pub enum Outcome {
-    /// Its command ended.
-    Ran(CommandEnd),
-    /// Its change, which a chief allowed, was carried out or failed.
-    Changed(ChangeAnswer),
-    /// It did not run: a chief refused it, its wait lapsed, or what
-    /// the chief allowed no longer holds.
-    NotRun(CallRefusal),
+    Run { end: RunEnd },
+    Change { end: ChangeEnd },
 }

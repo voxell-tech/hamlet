@@ -229,8 +229,9 @@ _Avoid_: task (a task is an agent's work)
 ### Actors
 
 **Actor runtime**:
-What runs actors: the `hamlet_actor` and `hamlet_actor_*` crates, and
-`hamlet_host`, the host that runs them in one process.
+What runs actors: the `hamlet_actor` and `hamlet_actor_*` crates,
+`hamlet_host`, the host that runs them in one process, and
+`hamlet_address`, an actor's address.
 _Avoid_: runtime (a runtime is one running harness)
 
 **Actor**:

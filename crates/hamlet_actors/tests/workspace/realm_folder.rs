@@ -5,13 +5,16 @@
 use std::path::Path;
 
 use hamlet_messages::workspace::files::{
-    ChangeAnswer, FileAnswer, ReadFile,
+    ChangeAnswer, ChangeEnd, ReadAnswer, ReadFile,
 };
-use hamlet_messages::workspace::reach::{Access, Refusal};
-use hamlet_messages::workspace::{CallRefusal, Exit, RunAnswer};
+use hamlet_messages::workspace::refusal::{
+    PathRefusal, ReachRefusal, ReadRefusal, ToChange, ToRead,
+    WriteRefusal,
+};
+use hamlet_messages::workspace::{Exit, RunAnswer};
 use hamlet_testing::Scratch;
 
-use super::changes::{read, write};
+use super::changes::{read, refused, write};
 use super::files::ask;
 use super::{
     AGENT, agent, agent_runs, done, filesystem, host, reach,
@@ -23,7 +26,6 @@ const OTHER: &str = "secret-other-agent";
 
 fn reading(path: &Path) -> ReadFile {
     ReadFile {
-        agent: AGENT,
         path: path.to_owned(),
         offset: None,
         limit: None,
@@ -74,13 +76,13 @@ async fn a_project_that_holds_the_realm_folder_reaches_none_of_it() {
         }
         let mut reads = Vec::new();
         for path in [&credentials, &notes] {
-            let answer: FileAnswer =
+            let answer: ReadAnswer =
                 ask(&host, &agent(AGENT), &reading(path)).await;
             reads.push(answer);
         }
         let mut changes = Vec::new();
         for (n, path) in [&credentials, &notes].iter().enumerate() {
-            let answer: ChangeAnswer = ask(
+            let answer: ChangeAnswer<WriteRefusal> = ask(
                 &host,
                 &agent(AGENT),
                 &write(&format!("w{n}"), path, "changed"),
@@ -114,34 +116,32 @@ async fn a_project_that_holds_the_realm_folder_reaches_none_of_it() {
         assert_eq!(
             reads,
             [
-                FileAnswer::Refused(CallRefusal::Reach(
-                    Refusal::OutsideReach {
+                ReadAnswer::Refused {
+                    why: PathRefusal::OutsideReach {
                         path: credentials.clone(),
-                        access: Access::Read,
+                        access: ToRead::Read,
                     }
-                )),
-                FileAnswer::Refused(CallRefusal::Reach(
-                    Refusal::AgentFilesystem {
+                    .into()
+                },
+                ReadAnswer::Refused {
+                    why: PathRefusal::<ToRead>::AgentFilesystem {
                         path: notes.clone()
                     }
-                )),
+                    .into()
+                },
             ],
             "{inside}"
         );
         assert_eq!(
             changes,
             [
-                ChangeAnswer::Refused(CallRefusal::Reach(
-                    Refusal::OutsideReach {
-                        path: credentials.clone(),
-                        access: Access::Change,
-                    }
-                )),
-                ChangeAnswer::Refused(CallRefusal::Reach(
-                    Refusal::AgentFilesystem {
-                        path: notes.clone()
-                    }
-                )),
+                refused(PathRefusal::OutsideReach {
+                    path: credentials.clone(),
+                    access: ToChange::Change,
+                }),
+                refused(PathRefusal::<ToChange>::AgentFilesystem {
+                    path: notes.clone()
+                }),
             ],
             "{inside}"
         );
@@ -169,9 +169,9 @@ async fn a_project_in_the_realm_folder_is_refused() {
     {
         let host = host(&dir).await;
         realm_sets(&host, n as u64 + 1, reach(folder.to_str())).await;
-        let refusal = CallRefusal::Reach(Refusal::ProjectInRealm {
+        let refusal = ReachRefusal::ProjectInRealm {
             folder: folder.clone(),
-        });
+        };
         let ran = agent_runs(
             &host,
             &run(
@@ -180,9 +180,9 @@ async fn a_project_in_the_realm_folder_is_refused() {
             ),
         )
         .await;
-        let reads: FileAnswer =
+        let reads: ReadAnswer =
             ask(&host, &agent(AGENT), &reading(&notes)).await;
-        let changes: ChangeAnswer = ask(
+        let changes: ChangeAnswer<WriteRefusal> = ask(
             &host,
             &agent(AGENT),
             &write(&format!("w{n}"), &notes, "x"),
@@ -192,15 +192,19 @@ async fn a_project_in_the_realm_folder_is_refused() {
         let case = folder.display();
         assert_eq!(
             ran,
-            RunAnswer::Refused(refusal.clone()),
+            RunAnswer::Refused {
+                why: refusal.clone().into()
+            },
             "{case}"
         );
         assert_eq!(
             reads,
-            FileAnswer::Refused(refusal.clone()),
+            ReadAnswer::Refused {
+                why: refusal.clone().into()
+            },
             "{case}"
         );
-        assert_eq!(changes, ChangeAnswer::Refused(refusal), "{case}");
+        assert_eq!(changes, refused(refusal), "{case}");
         assert_eq!(read(&notes), "notes", "{case}");
     }
 }
@@ -226,17 +230,17 @@ async fn a_realm_folder_reached_through_a_link_works() {
         &run("c1", &format!("printf ran > {}", quoted(&note))),
     )
     .await;
-    let wrote: ChangeAnswer = ask(
+    let wrote: ChangeAnswer<WriteRefusal> = ask(
         &host,
         &agent(AGENT),
         &write("w1", &project.join("a.md"), "written"),
     )
     .await;
-    let read_back: FileAnswer =
+    let read_back: ReadAnswer =
         ask(&host, &agent(AGENT), &reading(&project.join("a.md")))
             .await;
     let own = dir.join("actors/agent/7.fs/x");
-    let into_own: ChangeAnswer =
+    let into_own: ChangeAnswer<WriteRefusal> =
         ask(&host, &agent(AGENT), &write("w2", &own, "x")).await;
     let mut commands = Vec::new();
     let mut reads = Vec::new();
@@ -256,27 +260,35 @@ async fn a_realm_folder_reached_through_a_link_works() {
             .await,
         );
         commands.push(end.output);
-        let answer: FileAnswer =
+        let answer: ReadAnswer =
             ask(&host, &agent(AGENT), &reading(path)).await;
         reads.push(answer);
     }
     host.shutdown().await.unwrap();
 
-    assert_eq!(done(ran).exit, Exit::Code(0));
+    assert_eq!(done(ran).exit, Exit::Code { code: 0 });
     assert_eq!(read(&note), "ran");
-    assert!(matches!(wrote, ChangeAnswer::Changed(_)), "{wrote:?}");
+    assert!(
+        matches!(
+            wrote,
+            ChangeAnswer::Ended {
+                end: ChangeEnd::Changed(_)
+            }
+        ),
+        "{wrote:?}"
+    );
     assert!(
         matches!(
             &read_back,
-            FileAnswer::Text(read) if read.text.contains("written")
+            ReadAnswer::Text(read) if read.text.contains("written")
         ),
         "{read_back:?}"
     );
     assert_eq!(
         into_own,
-        ChangeAnswer::Refused(CallRefusal::Reach(
-            Refusal::AgentFilesystem { path: own }
-        ))
+        refused(PathRefusal::<ToChange>::AgentFilesystem {
+            path: own
+        })
     );
     for output in &commands {
         assert!(!output.contains(CREDENTIALS), "{output:?}");
@@ -285,9 +297,11 @@ async fn a_realm_folder_reached_through_a_link_works() {
         assert!(
             matches!(
                 answer,
-                FileAnswer::Refused(CallRefusal::Reach(
-                    Refusal::OutsideReach { .. }
-                ))
+                ReadAnswer::Refused {
+                    why: ReadRefusal::Path(
+                        PathRefusal::OutsideReach { .. }
+                    )
+                }
             ),
             "{answer:?}"
         );

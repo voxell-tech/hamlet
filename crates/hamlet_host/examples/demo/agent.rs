@@ -32,13 +32,16 @@
 //! size of all the command printed, kept in the file the end names.
 //! `write` prints `changed/<call> 1` when it made the file and
 //! `changed/<call> 0` when it replaced one, or `refused/<call> 1` or
-//! `failed/<call> 1` and logs why. A call that waits for a chief
-//! prints `waits/<call> <needs>`, how many things it needs. When the
-//! wait ends, the agent is called with how the call ended: a command
+//! `failed/<call> 1` and logs why, and `not_run/<call> 1` when the
+//! file changed after the write was asked for. A repeat of a run or
+//! a write whose wait ended without it running for another reason
+//! prints `refused/<call> 1`. A call that waits for a chief prints
+//! `waits/<call> <needs>`, how many things it needs. When the wait
+//! ends, the agent is called with how the call ended: a command
 //! prints `finished/<call> <exit code>` as above, a change
-//! `finished/<call>/changed <created>`, `finished/<call>/refused 1`
-//! or `finished/<call>/failed 1`, and a call that did not run
-//! `finished/<call>/not_run 1`; each logs why.
+//! `finished/<call>/changed <created>` or `finished/<call>/failed 1`,
+//! and a call that did not run `finished/<call>/not_run 1`; each logs
+//! why. The agent takes `finished` from the workspace only.
 
 use std::io::Write;
 use std::sync::Arc;
@@ -49,22 +52,26 @@ use hamlet_actor::{Action, Actor, Ctx, Handler, Registry};
 use hamlet_actor_core::{
     ActorConfig, ActorFactory, ActorKeySegment, BindParam,
 };
-use hamlet_actors::workspace;
-use hamlet_host::{Address, Caller, Host, HostRef};
+use hamlet_host::{Caller, Host, HostRef};
+use hamlet_messages::address::{self, Party};
 use hamlet_messages::agent::{Finished, Outcome};
+use hamlet_messages::sender::sender;
 use hamlet_messages::workspace::files::{
-    ChangeAnswer, FileAnswer, ReadFile, WriteFile,
+    ChangeAnswer, ChangeEnd, ReadAnswer, ReadFile, WriteFile,
+};
+use hamlet_messages::workspace::refusal::{
+    ChangeNotRun, RunRefusal, StatusRefusal, WriteRefusal,
 };
 use hamlet_messages::workspace::{
     AgentNumber, CallId, CommandEnd, CommandId, CommandStatus,
-    ConversationId, Exit, Program, Run, RunAnswer,
+    ConversationId, Exit, Program, Run, RunAnswer, RunEnd,
 };
 
 /// The kind `agent`.
 pub fn factory() -> ActorFactory {
     let mut registry = Registry::new();
     registry.register_actor_with::<Agent>(
-        workspace::AGENT,
+        address::Agent::KIND,
         ActorConfig {
             has_database: true,
             ..ActorConfig::default()
@@ -72,7 +79,7 @@ pub fn factory() -> ActorFactory {
     );
     registry
         .into_factories()
-        .remove(workspace::AGENT)
+        .remove(address::Agent::KIND)
         .expect("the registry holds the kind it registered")
 }
 
@@ -125,14 +132,14 @@ impl Handler<Ask> for Agent {
         ctx: Ctx<Self>,
         ask: Ask,
     ) -> Result<Vec<u8>> {
-        Host::call_from(
-            ctx.inner(),
-            &Address::new(workspace::KIND, workspace::MACHINE),
-            &ask.name,
-            ask.args,
-            Duration::from_secs(10),
-        )
-        .await
+        HostRef::of(ctx.inner())?
+            .call(
+                &address::Workspace.address()?,
+                &ask.name,
+                ask.args,
+                Duration::from_secs(10),
+            )
+            .await
     }
 }
 
@@ -142,31 +149,36 @@ impl Handler<Finished> for Agent {
         ctx: Ctx<Self>,
         finished: Finished,
     ) -> Result<()> {
+        sender::<Finished, _>(&ctx)?;
         let call = &finished.call.0;
         let (command, word, code) = match &finished.outcome {
-            Outcome::Ran(end) => {
+            Outcome::Run {
+                end: RunEnd::Ran(end),
+            } => {
                 print_cut(call, end)?;
                 let (word, code) = exit_word(&end.exit);
                 (end.command.0, word, code)
             }
-            Outcome::Changed(ChangeAnswer::Changed(change)) => {
-                (0, "/changed", i64::from(change.created))
+            Outcome::Change {
+                end: ChangeEnd::Changed(change),
+            } => (0, "/changed", i64::from(change.created)),
+            Outcome::Run {
+                end: RunEnd::NotRun { why },
+            } => {
+                tracing::warn!(%why, "agent's call {call} did not run");
+                (0, "/not_run", 1)
             }
-            Outcome::Changed(ChangeAnswer::Refused(why))
-            | Outcome::NotRun(why) => {
-                tracing::warn!(%why, "agent's call {call} did not change or run");
-                let word = match &finished.outcome {
-                    Outcome::NotRun(_) => "/not_run",
-                    _ => "/refused",
-                };
-                (0, word, 1)
+            Outcome::Change {
+                end: ChangeEnd::NotRun { why },
+            } => {
+                tracing::warn!(%why, "agent's call {call} did not run");
+                (0, "/not_run", 1)
             }
-            Outcome::Changed(ChangeAnswer::Failed(words)) => {
+            Outcome::Change {
+                end: ChangeEnd::Failed { words },
+            } => {
                 tracing::warn!(%words, "agent's call {call} failed");
                 (0, "/failed", 1)
-            }
-            Outcome::Changed(ChangeAnswer::WaitsForChief(_)) => {
-                bail!("a change ended as waiting")
             }
         };
         ctx.sql()
@@ -214,12 +226,12 @@ async fn run_one(host: &Host, words: &[String]) -> Result<()> {
     let [number, verb, rest @ ..] = words else {
         bail!("usage: demo agent <n> run|status ...");
     };
-    let agent = AgentNumber(number.parse()?);
+    let me =
+        address::Agent(AgentNumber(number.parse()?)).address()?;
     let conversation = ConversationId("demo".to_owned());
     let (name, args, call) = match (verb.as_str(), rest) {
         ("run", [call, script @ ..]) if !script.is_empty() => {
             let run = Run {
-                agent,
                 call: CallId(call.clone()),
                 conversation,
                 realm_task: None,
@@ -234,7 +246,6 @@ async fn run_one(host: &Host, words: &[String]) -> Result<()> {
         }
         ("tool", [call, tool, arguments @ ..]) => {
             let run = Run {
-                agent,
                 call: CallId(call.clone()),
                 conversation,
                 realm_task: None,
@@ -248,7 +259,6 @@ async fn run_one(host: &Host, words: &[String]) -> Result<()> {
         }
         ("read", [path]) => {
             let read = ReadFile {
-                agent,
                 path: path.into(),
                 offset: None,
                 limit: None,
@@ -259,7 +269,6 @@ async fn run_one(host: &Host, words: &[String]) -> Result<()> {
         }
         ("status", [command]) => {
             let status = CommandStatus {
-                agent,
                 command: CommandId(command.parse()?),
             };
             let args =
@@ -268,7 +277,6 @@ async fn run_one(host: &Host, words: &[String]) -> Result<()> {
         }
         ("write", [call, path, content @ ..]) => {
             let write = WriteFile {
-                agent,
                 call: CallId(call.clone()),
                 conversation,
                 realm_task: None,
@@ -285,16 +293,15 @@ async fn run_one(host: &Host, words: &[String]) -> Result<()> {
              <command> | write <call> <path> <content ...>"
         ),
     };
-    host.get_or_start(workspace::KIND, workspace::MACHINE)
-        .await?;
-    host.get_or_start(workspace::AGENT, number).await?;
+    host.get_or_start(&address::Workspace.address()?).await?;
+    host.get_or_start(&me).await?;
     let ask = Ask {
         name: name.to_owned(),
         args,
     };
     let reply = host
         .call(
-            &Address::new(workspace::AGENT, number),
+            &me,
             Ask::NAME,
             hamlet_actor::action::encode_positional(&ask)?,
             Duration::from_secs(20),
@@ -306,17 +313,17 @@ async fn run_one(host: &Host, words: &[String]) -> Result<()> {
     if name == ReadFile::NAME {
         // The bytes it read, or 0 and a warning.
         match ciborium::from_reader(reply.as_slice())? {
-            FileAnswer::Text(text) => {
+            ReadAnswer::Text(text) => {
                 writeln!(out, "read {}", text.text.len())?;
             }
-            FileAnswer::Image(image) => {
-                writeln!(out, "read {}", image.bytes.len())?;
+            ReadAnswer::Image(image) => {
+                writeln!(out, "read {}", image.data.0.len())?;
             }
-            FileAnswer::Refused(refusal) => {
+            ReadAnswer::Refused { why: refusal } => {
                 tracing::warn!(%refusal, "the workspace refused agent {number}");
                 writeln!(out, "read 0")?;
             }
-            FileAnswer::Failed(words) => {
+            ReadAnswer::Failed { words } => {
                 tracing::warn!(%words, "agent {number}'s read failed");
                 writeln!(out, "read 0")?;
             }
@@ -325,40 +332,87 @@ async fn run_one(host: &Host, words: &[String]) -> Result<()> {
     }
     if name == WriteFile::NAME {
         let call = call.map_or("", String::as_str);
-        match ciborium::from_reader(reply.as_slice())? {
-            ChangeAnswer::Changed(change) => writeln!(
+        match ciborium::from_reader::<ChangeAnswer<WriteRefusal>, _>(
+            reply.as_slice(),
+        )? {
+            ChangeAnswer::Ended {
+                end: ChangeEnd::Changed(change),
+            } => writeln!(
                 out,
                 "changed/{call} {}",
                 i64::from(change.created)
             )?,
-            ChangeAnswer::Refused(refusal) => {
+            ChangeAnswer::Refused { why: refusal } => {
                 tracing::warn!(%refusal, "the workspace refused agent {number}");
                 writeln!(out, "refused/{call} 1")?;
             }
-            ChangeAnswer::Failed(words) => {
+            ChangeAnswer::Ended {
+                end: ChangeEnd::Failed { words },
+            } => {
                 tracing::warn!(%words, "agent {number}'s write failed");
                 writeln!(out, "failed/{call} 1")?;
             }
-            ChangeAnswer::WaitsForChief(needs) => {
+            ChangeAnswer::Ended {
+                end: ChangeEnd::NotRun { why },
+            } => {
+                tracing::warn!(%why, "agent {number}'s write did not run");
+                let word = match why {
+                    ChangeNotRun::Stale(_) => "not_run",
+                    ChangeNotRun::Wait(_)
+                    | ChangeNotRun::Reach(_) => "refused",
+                };
+                writeln!(out, "{word}/{call} 1")?;
+            }
+            ChangeAnswer::WaitsForChief { needs } => {
                 writeln!(out, "waits/{call} {}", needs.len())?;
             }
         }
         return Ok(());
     }
-    let answer =
-        ciborium::from_reader::<RunAnswer, _>(reply.as_slice())?;
+    if name == CommandStatus::NAME {
+        let answer = ciborium::from_reader::<
+            RunAnswer<StatusRefusal>,
+            _,
+        >(reply.as_slice())?;
+        return print_run(answer, None, rest, number);
+    }
+    let answer = ciborium::from_reader::<RunAnswer<RunRefusal>, _>(
+        reply.as_slice(),
+    )?;
+    print_run(answer, call, rest, number)
+}
+
+/// Prints the line of a run's `answer`, or of a status's when it has
+/// no `call`.
+fn print_run<R: std::fmt::Display>(
+    answer: RunAnswer<R>,
+    call: Option<&String>,
+    rest: &[String],
+    number: &str,
+) -> Result<()> {
+    let mut out = std::io::stdout();
     match (answer, call) {
-        (RunAnswer::Done(end), Some(call)) => {
+        (
+            RunAnswer::Ended {
+                end: RunEnd::Ran(end),
+            },
+            Some(call),
+        ) => {
             print_cut(call, &end)?;
             let (word, code) = exit_word(&end.exit);
             writeln!(out, "done/{call}{word} {code}")?;
         }
-        (RunAnswer::Done(end), None) => {
+        (
+            RunAnswer::Ended {
+                end: RunEnd::Ran(end),
+            },
+            None,
+        ) => {
             let (state, code) = match &end.exit {
-                Exit::Code(code) => ("ended", i64::from(*code)),
+                Exit::Code { code } => ("ended", i64::from(*code)),
                 Exit::CutOff => ("cut_off", 0),
                 Exit::TimedOut => ("timed_out", 0),
-                Exit::Failed(_) => ("failed", 0),
+                Exit::Failed { .. } => ("failed", 0),
                 Exit::Cancelled => ("cancelled", 0),
             };
             writeln!(out, "status/{}/{state} {code}", end.command.0)?;
@@ -369,12 +423,23 @@ async fn run_one(host: &Host, words: &[String]) -> Result<()> {
         (RunAnswer::Running { command }, None) => {
             writeln!(out, "status/{}/running 0", command.0)?;
         }
-        (RunAnswer::WaitsForChief(needs), call) => {
+        (RunAnswer::WaitsForChief { needs }, call) => {
             let name =
                 call.map_or_else(|| rest.join("/"), Clone::clone);
             writeln!(out, "waits/{name} {}", needs.len())?;
         }
-        (RunAnswer::Refused(refusal), call) => {
+        (
+            RunAnswer::Ended {
+                end: RunEnd::NotRun { why },
+            },
+            call,
+        ) => {
+            let name =
+                call.map_or_else(|| rest.join("/"), Clone::clone);
+            tracing::warn!(%why, "agent {number}'s call did not run");
+            writeln!(out, "refused/{name} 1")?;
+        }
+        (RunAnswer::Refused { why: refusal }, call) => {
             let name =
                 call.map_or_else(|| rest.join("/"), Clone::clone);
             tracing::warn!(%refusal, "the workspace refused agent {number}");
@@ -387,9 +452,9 @@ async fn run_one(host: &Host, words: &[String]) -> Result<()> {
 /// The suffix and the code a line prints for `exit`.
 fn exit_word(exit: &Exit) -> (&'static str, i64) {
     match exit {
-        Exit::Code(code) => ("", i64::from(*code)),
+        Exit::Code { code } => ("", i64::from(*code)),
         Exit::TimedOut => ("/timed_out", 0),
-        Exit::Failed(_) => ("/failed", 0),
+        Exit::Failed { .. } => ("/failed", 0),
         Exit::CutOff => ("/cut_off", 0),
         Exit::Cancelled => ("/cancelled", 0),
     }

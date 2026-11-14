@@ -1,0 +1,18 @@
+[package]
+name = "hamlet_address"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+description = "An actor's address and who made a call, as Hamlet's hosts write them"
+
+[dependencies]
+serde.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+ciborium.workspace = true
+
+[lints]
+workspace = true

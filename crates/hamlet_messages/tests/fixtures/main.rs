@@ -1,0 +1,1288 @@
+//! The fixtures: each message's bytes as the host carries them. A
+//! call's arguments are encoded as the authoring layer encodes them,
+//! and an answer as it encodes an action's output. A message whose
+//! bytes changed rewrites its fixture and fails once, so the change
+//! is committed with it.
+
+mod cases;
+
+use std::collections::{BTreeMap, BTreeSet};
+use std::fmt::Debug;
+use std::path::{Path, PathBuf};
+
+use ciborium::Value;
+use hamlet_actor::Action;
+use hamlet_actor::action::{decode_positional, encode_positional};
+use hamlet_actor_error::ActorError;
+use hamlet_address::Caller;
+use hamlet_messages::address::{Agent, Party, Realm, Workspace};
+use hamlet_messages::agent::{Finished, Outcome};
+use hamlet_messages::bytes::{Base64, Sha256};
+use hamlet_messages::realm::{NeedsChief, SecretList, Secrets};
+use hamlet_messages::sender::{id_reused, wrong_caller};
+use hamlet_messages::workspace::files::{
+    Change, ChangeAnswer, ChangeEnd, CutBy, EditDiff, EditFile, Find,
+    Hashed, Image, Note, ReadAnswer, ReadFile, Replace, Search,
+    SearchAnswer, Severity, Text, Truncation, WriteFile,
+};
+use hamlet_messages::workspace::reach::{
+    Footing, Mode, Need, Project, Reach, SecretsVersion, Trust,
+};
+use hamlet_messages::workspace::refusal::{
+    CallRefusal, ChangeNotRun, ChangeRefusal, FileGate,
+    InvalidContent, InvalidPath, InvalidProgram, PathRefusal,
+    ReachChanged, ReachRefusal, ReadRefusal, RunNotRun, RunRefusal,
+    Stale, StatusRefusal, ToChange, ToRead, ToolRefusal, WaitEnd,
+    WriteRefusal,
+};
+use hamlet_messages::workspace::{
+    AddedTool, AgentNumber, Answer, AnswerTaken, CallId, Cancel,
+    Cancelled, ChiefAnswer, CommandEnd, CommandId, CommandStatus,
+    ConversationId, Cut, Exit, Fault, InForce, Lapse, ListTools,
+    Program, ReachVersion, RealmTask, Run, RunAnswer, RunEnd,
+    SetReach, ToolList, Which,
+};
+use serde::de::DeserializeOwned;
+use serde::{Deserialize, Serialize};
+
+use self::cases::{
+    Cases, Found, Union, family, named, tagged, union,
+};
+
+const AGENT: AgentNumber = AgentNumber(7);
+
+/// Every enum the fixtures hold. A generic enum is listed once: its
+/// cases are the same whatever it holds.
+fn enums() -> Vec<Cases> {
+    vec![
+        tagged::<Answer>(),
+        tagged::<AnswerTaken>(),
+        tagged::<Program>(),
+        tagged::<RunAnswer>(),
+        tagged::<RunEnd>(),
+        tagged::<Exit>(),
+        tagged::<Which>(),
+        tagged::<Outcome>(),
+        tagged::<Reach>(),
+        tagged::<ReadAnswer>(),
+        tagged::<SearchAnswer>(),
+        tagged::<ChangeAnswer>(),
+        tagged::<ChangeEnd>(),
+        tagged::<Hashed>(),
+        tagged::<CallRefusal>(),
+        tagged::<InvalidProgram>(),
+        tagged::<ToolRefusal>(),
+        tagged::<InvalidPath>(),
+        tagged::<PathRefusal<ToRead>>(),
+        tagged::<ReachRefusal>(),
+        tagged::<InvalidContent>(),
+        tagged::<StatusRefusal>(),
+        tagged::<WaitEnd>(),
+        tagged::<ReachChanged<ReachRefusal>>(),
+        tagged::<Stale>(),
+        named::<Lapse>(),
+        named::<Need>(),
+        named::<Mode>(),
+        named::<ToRead>(),
+        named::<ToChange>(),
+        named::<Severity>(),
+        named::<CutBy>(),
+    ]
+}
+
+/// Every untagged union, with its families.
+fn unions() -> Vec<Union> {
+    vec![
+        union::<RunRefusal>(vec![
+            family::<CallRefusal>(),
+            family::<InvalidProgram>(),
+            family::<ToolRefusal>(),
+            family::<ReachRefusal>(),
+        ]),
+        union::<ReadRefusal>(vec![
+            family::<InvalidPath>(),
+            family::<PathRefusal<ToRead>>(),
+            family::<ReachRefusal>(),
+        ]),
+        union::<ChangeRefusal>(vec![
+            family::<CallRefusal>(),
+            family::<InvalidPath>(),
+            family::<PathRefusal<ToChange>>(),
+            family::<ReachRefusal>(),
+        ]),
+        union::<WriteRefusal>(vec![
+            family::<CallRefusal>(),
+            family::<InvalidPath>(),
+            family::<PathRefusal<ToChange>>(),
+            family::<ReachRefusal>(),
+            family::<InvalidContent>(),
+        ]),
+        union::<FileGate>(vec![
+            family::<PathRefusal<ToChange>>(),
+            family::<ReachRefusal>(),
+        ]),
+        union::<RunNotRun>(vec![
+            family::<WaitEnd>(),
+            family::<ReachChanged<ReachRefusal>>(),
+            family::<ToolRefusal>(),
+        ]),
+        union::<ChangeNotRun>(vec![
+            family::<WaitEnd>(),
+            family::<ReachChanged<FileGate>>(),
+            family::<Stale>(),
+        ]),
+    ]
+}
+
+fn folder() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures")
+}
+
+struct Fixtures {
+    unions: Vec<Union>,
+    written: BTreeSet<String>,
+    rewritten: Vec<String>,
+    problems: Vec<String>,
+    found: BTreeMap<Cases, BTreeSet<String>>,
+}
+
+impl Fixtures {
+    fn new() -> Self {
+        Self {
+            unions: unions(),
+            written: BTreeSet::new(),
+            rewritten: Vec::new(),
+            problems: Vec::new(),
+            found: BTreeMap::new(),
+        }
+    }
+
+    /// Checks the arguments of a call.
+    fn args<T>(&mut self, name: &str, value: &T)
+    where
+        T: Serialize + DeserializeOwned + PartialEq + Debug,
+    {
+        let bytes = encode_positional(value).unwrap();
+        let name = format!("{name}.args");
+        self.check(&name, &bytes);
+        self.read_back(&name, value, decode_positional::<T>(&bytes));
+        let Value::Array(arguments) =
+            ciborium::from_reader::<Value, _>(bytes.as_slice())
+                .unwrap()
+        else {
+            panic!("{name} is not a list of arguments");
+        };
+        for argument in &arguments {
+            self.probe::<T>(&name, argument);
+        }
+    }
+
+    /// Checks an answer.
+    fn answer<T>(&mut self, name: &str, value: &T)
+    where
+        T: Serialize + DeserializeOwned + PartialEq + Debug,
+    {
+        let json = serde_json::to_value(value).unwrap();
+        let mut bytes = Vec::new();
+        ciborium::into_writer(&json, &mut bytes).unwrap();
+        let name = format!("{name}.answer");
+        self.check(&name, &bytes);
+        self.read_back(
+            &name,
+            value,
+            ciborium::from_reader::<T, _>(bytes.as_slice()),
+        );
+        self.probe::<T>(
+            &name,
+            &ciborium::from_reader::<Value, _>(bytes.as_slice())
+                .unwrap(),
+        );
+    }
+
+    fn read_back<T: PartialEq + Debug, E: Debug>(
+        &mut self,
+        name: &str,
+        value: &T,
+        read: Result<T, E>,
+    ) {
+        match read {
+            Ok(read) if read == *value => {}
+            Ok(read) => self.problems.push(format!(
+                "{name} reads back as {read:?}, not {value:?}"
+            )),
+            Err(error) => self.problems.push(format!(
+                "{name} does not read back: {error:?}"
+            )),
+        }
+    }
+
+    fn probe<T: DeserializeOwned>(
+        &mut self,
+        name: &str,
+        value: &Value,
+    ) {
+        if *value != Value::Null && holds_null(value) {
+            self.problems
+                .push(format!("{name} writes a field as null"));
+        }
+        let mut found = Found::default();
+        cases::found::<T>(name, value, &self.unions, &mut found);
+        self.problems.extend(found.problems);
+        for (cases, case) in found.cases {
+            self.found.entry(cases).or_default().insert(case);
+        }
+    }
+
+    fn check(&mut self, name: &str, bytes: &[u8]) {
+        self.written.insert(format!("{name}.cbor"));
+        let path = folder().join(format!("{name}.cbor"));
+        if std::fs::read(&path).ok().as_deref() == Some(bytes) {
+            return;
+        }
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, bytes).unwrap();
+        self.rewritten.push(name.to_owned());
+    }
+
+    fn remove_unwritten(&mut self) {
+        for file in files(&folder()) {
+            let name = file
+                .strip_prefix(folder())
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .to_owned();
+            if !self.written.contains(&name) {
+                std::fs::remove_file(&file).unwrap();
+                self.rewritten.push(format!("{name} (removed)"));
+            }
+        }
+    }
+
+    fn case_problems(&self) -> Vec<String> {
+        let mut problems = Vec::new();
+        let enums = enums();
+        for (at, cases) in enums.iter().enumerate() {
+            if let Some(name) =
+                cases.iter().find(|name| !is_snake_case(name))
+            {
+                problems.push(format!(
+                    "{name} of {cases:?} is not snake_case"
+                ));
+            }
+            if enums[..at].contains(cases) {
+                problems.push(format!(
+                    "two enums have the cases {cases:?}"
+                ));
+            }
+            let found = self.found.get(cases);
+            for case in *cases {
+                if !found.is_some_and(|found| found.contains(*case)) {
+                    problems.push(format!(
+                        "no fixture holds {case} of {cases:?}"
+                    ));
+                }
+            }
+        }
+        for cases in self.found.keys() {
+            if !enums.contains(cases) {
+                problems.push(format!(
+                    "the enum of {cases:?} is missing from enums()"
+                ));
+            }
+        }
+        for union in &self.unions {
+            for (at, first) in union.families.iter().enumerate() {
+                for second in &union.families[at + 1..] {
+                    for tag in first
+                        .cases
+                        .iter()
+                        .filter(|tag| second.cases.contains(tag))
+                    {
+                        problems.push(format!(
+                            "{} and {} of the union {} share the \
+                             type {tag}",
+                            first.name, second.name, union.name
+                        ));
+                    }
+                }
+            }
+        }
+        problems
+    }
+
+    fn assert_unchanged_and_covered(self) {
+        let mut problems = self.case_problems();
+        problems.extend(self.problems);
+        if !self.rewritten.is_empty() {
+            problems.push(format!(
+                "These messages' bytes changed, so their fixtures \
+                 under crates/hamlet_messages/fixtures are \
+                 rewritten; commit them: {}",
+                self.rewritten.join(", ")
+            ));
+        }
+        assert!(problems.is_empty(), "{}", problems.join("\n"));
+    }
+}
+
+fn files(folder: &Path) -> Vec<PathBuf> {
+    std::fs::read_dir(folder)
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .flat_map(|path| {
+            if path.is_dir() {
+                files(&path)
+            } else {
+                vec![path]
+            }
+        })
+        .collect()
+}
+
+fn holds_null(value: &Value) -> bool {
+    match value {
+        Value::Null => true,
+        Value::Array(items) => items.iter().any(holds_null),
+        Value::Map(entries) => {
+            entries.iter().any(|(_, item)| holds_null(item))
+        }
+        _ => false,
+    }
+}
+
+fn is_snake_case(name: &str) -> bool {
+    name.bytes()
+        .all(|byte| matches!(byte, b'a'..=b'z' | b'0'..=b'9' | b'_'))
+}
+
+#[test]
+fn every_message_and_every_case_matches_its_fixture() {
+    let mut fixtures = Fixtures::new();
+    the_workspaces_messages(&mut fixtures);
+    the_chiefs_answers(&mut fixtures);
+    the_answers_about_a_command(&mut fixtures);
+    the_reads(&mut fixtures);
+    the_changes(&mut fixtures);
+    the_realms_and_the_agents(&mut fixtures);
+    the_addresses(&mut fixtures);
+    the_errors(&mut fixtures);
+    fixtures.remove_unwritten();
+    fixtures.assert_unchanged_and_covered();
+}
+
+fn footing() -> Footing {
+    Footing {
+        project: Some(Project {
+            folder: "/work/project".into(),
+            mode: Mode::Manual,
+        }),
+        network: true,
+        trust: vec![Trust {
+            conversation: ConversationId("c1".into()),
+            edits: true,
+            commands: false,
+        }],
+        secrets: SecretsVersion(2),
+    }
+}
+
+fn set_reach(reach: Reach) -> SetReach {
+    SetReach {
+        agent: AGENT,
+        version: ReachVersion(3),
+        reach,
+    }
+}
+
+fn call(id: &str) -> CallId {
+    CallId(id.into())
+}
+
+fn the_workspaces_messages(fixtures: &mut Fixtures) {
+    fixtures.args(
+        "workspace/set_reach.agent",
+        &set_reach(Reach::Agent(footing())),
+    );
+    for (name, starter) in
+        [("worker", Some(AgentNumber(3))), ("chiefs_worker", None)]
+    {
+        fixtures.args(
+            &format!("workspace/set_reach.{name}"),
+            &set_reach(Reach::Worker {
+                starter,
+                footing: Footing {
+                    project: None,
+                    ..footing()
+                },
+            }),
+        );
+    }
+    fixtures
+        .args("workspace/set_reach.ended", &set_reach(Reach::Ended));
+    fixtures.args(
+        "workspace/set_reach.auto",
+        &set_reach(Reach::Agent(Footing {
+            project: Some(Project {
+                folder: "/work/project".into(),
+                mode: Mode::Auto,
+            }),
+            ..footing()
+        })),
+    );
+    fixtures.answer(
+        "workspace/set_reach.in_force",
+        &InForce {
+            version: ReachVersion(3),
+        },
+    );
+    let task = Some(RealmTask("task-1".into()));
+    fixtures.args(
+        "workspace/run",
+        &Run {
+            call: call("call-1"),
+            conversation: ConversationId("c1".into()),
+            realm_task: task.clone(),
+            program: Program::Script {
+                script: "echo hi".into(),
+                network: false,
+                timeout_ms: Some(30_000),
+            },
+        },
+    );
+    fixtures.args(
+        "workspace/run.unset",
+        &Run {
+            call: call("call-1"),
+            conversation: ConversationId("c1".into()),
+            realm_task: None,
+            program: Program::Script {
+                script: "echo hi".into(),
+                network: true,
+                timeout_ms: None,
+            },
+        },
+    );
+    fixtures.args(
+        "workspace/run.tool",
+        &Run {
+            call: call("call-1"),
+            conversation: ConversationId("c1".into()),
+            realm_task: task.clone(),
+            program: Program::Tool {
+                name: "word_count".into(),
+                arguments: r#"{"path":"/project/a.md"}"#.into(),
+            },
+        },
+    );
+    fixtures.args("workspace/list_tools", &ListTools);
+    fixtures.answer(
+        "workspace/list_tools",
+        &ToolList {
+            tools: vec![AddedTool {
+                name: "word_count".into(),
+                description: "Counts the words of a file".into(),
+                parameters: r#"{"type":"object","properties":{"path":{"type":"string"}}}"#.into(),
+            }],
+            faults: vec![Fault {
+                folder: "/realm/tools/broken".into(),
+                words: "manifest.json is not valid JSON".into(),
+            }],
+        },
+    );
+    fixtures.args(
+        "workspace/write_file",
+        &WriteFile {
+            call: call("call-2"),
+            conversation: ConversationId("c1".into()),
+            realm_task: None,
+            path: "/work/project/notes.md".into(),
+            content: "hello\n".into(),
+        },
+    );
+    fixtures.args(
+        "workspace/edit_file",
+        &EditFile {
+            call: call("call-3"),
+            conversation: ConversationId("c1".into()),
+            realm_task: task,
+            path: "/work/project/notes.md".into(),
+            edits: vec![Replace {
+                old: "hello".into(),
+                new: "goodbye".into(),
+            }],
+        },
+    );
+}
+
+/// The ends of a wait with no allow that a run, a write and a chief's
+/// answer each have a fixture of.
+fn wait_ends() -> [(&'static str, WaitEnd); 3] {
+    [
+        (
+            "chief_refused",
+            WaitEnd::ChiefRefused {
+                reason: Some("not on main".into()),
+            },
+        ),
+        (
+            "chief_refused.no_reason",
+            WaitEnd::ChiefRefused { reason: None },
+        ),
+        (
+            "lapsed",
+            WaitEnd::Lapsed {
+                lapse: Lapse::Rewound,
+            },
+        ),
+    ]
+}
+
+fn needs_more<G>() -> ReachChanged<G> {
+    ReachChanged::ReachNeeds {
+        since: ReachVersion(3),
+        now: ReachVersion(4),
+        needs: vec![Need::Network, Need::Edit],
+    }
+}
+
+fn refuses<G>(why: G) -> ReachChanged<G> {
+    ReachChanged::ReachRefuses {
+        since: ReachVersion(3),
+        now: ReachVersion(5),
+        why,
+    }
+}
+
+fn file_changed() -> Stale {
+    Stale::FileChanged {
+        path: "/work/project/notes.md".into(),
+        was: Hashed::Sha256 {
+            hash: Sha256([1; 32]),
+        },
+        now: Hashed::Absent,
+    }
+}
+
+fn outside_reach_to_change() -> PathRefusal<ToChange> {
+    PathRefusal::OutsideReach {
+        path: "/etc/hosts".into(),
+        access: ToChange::Change,
+    }
+}
+
+fn agent_filesystem<A>() -> PathRefusal<A> {
+    PathRefusal::AgentFilesystem {
+        path: "/realm/actors/agent/7.fs/notes.md".into(),
+    }
+}
+
+fn project_in_realm() -> ReachRefusal {
+    ReachRefusal::ProjectInRealm {
+        folder: "/realm/projects/site".into(),
+    }
+}
+
+fn not_absolute() -> InvalidPath {
+    InvalidPath::NotAbsolute {
+        path: "notes.md".into(),
+    }
+}
+
+fn tool_not_found() -> ToolRefusal {
+    ToolRefusal::NotFound {
+        name: "word_count".into(),
+    }
+}
+
+fn tool_arguments() -> ToolRefusal {
+    ToolRefusal::Arguments {
+        name: "word_count".into(),
+    }
+}
+
+fn the_chiefs_answers(fixtures: &mut Fixtures) {
+    for (name, answer) in [
+        ("allow", Answer::Allow),
+        (
+            "refuse",
+            Answer::Refuse {
+                reason: Some("not on main".into()),
+            },
+        ),
+        ("refuse.no_reason", Answer::Refuse { reason: None }),
+        (
+            "stopped",
+            Answer::Lapsed {
+                lapse: Lapse::Stopped,
+            },
+        ),
+        (
+            "ended",
+            Answer::Lapsed {
+                lapse: Lapse::Ended,
+            },
+        ),
+    ] {
+        fixtures.args(
+            &format!("workspace/chief_answer.{name}"),
+            &ChiefAnswer {
+                agent: AGENT,
+                call: call("call-1"),
+                answer,
+            },
+        );
+    }
+    let mut answers = vec![
+        ("taken".to_owned(), AnswerTaken::Taken),
+        ("no_wait".to_owned(), AnswerTaken::NoWait),
+    ];
+    let run_not_run = wait_ends()
+        .into_iter()
+        .map(|(name, why)| (name, RunNotRun::from(why)))
+        .chain([
+            ("reach_refuses", refuses(ReachRefusal::NoReach).into()),
+            ("reach_needs", needs_more().into()),
+            ("tool_not_found", tool_not_found().into()),
+        ]);
+    answers.extend(run_not_run.map(|(name, why)| {
+        (
+            format!("run_not_run.{name}"),
+            AnswerTaken::RunNotRun { why },
+        )
+    }));
+    let change_not_run = [
+        (
+            "lapsed",
+            ChangeNotRun::from(WaitEnd::Lapsed {
+                lapse: Lapse::Stopped,
+            }),
+        ),
+        (
+            "reach_refuses",
+            refuses(FileGate::from(outside_reach_to_change())).into(),
+        ),
+        ("reach_needs", needs_more().into()),
+        ("file_changed", file_changed().into()),
+    ];
+    answers.extend(change_not_run.into_iter().map(|(name, why)| {
+        (
+            format!("change_not_run.{name}"),
+            AnswerTaken::ChangeNotRun { why },
+        )
+    }));
+    for (name, taken) in answers {
+        fixtures.answer(
+            &format!("workspace/chief_answer.{name}"),
+            &taken,
+        );
+    }
+}
+
+fn command_end(exit: Exit) -> CommandEnd {
+    CommandEnd {
+        command: CommandId(4),
+        exit,
+        output: "hi\n".into(),
+        cut: None,
+        policy: "3f2a".into(),
+        took_ms: 12,
+    }
+}
+
+fn ran(end: CommandEnd) -> RunAnswer {
+    RunAnswer::Ended {
+        end: RunEnd::Ran(end),
+    }
+}
+
+fn the_answers_about_a_command(fixtures: &mut Fixtures) {
+    fixtures.answer(
+        "workspace/run.ended.ran",
+        &ran(command_end(Exit::Code { code: 0 })),
+    );
+    fixtures.answer(
+        "workspace/run.ended.ran.cut",
+        &ran(CommandEnd {
+            cut: Some(Cut {
+                total_bytes: 52_428_800,
+                total_lines: 1_048_576,
+                full_output: "/realm/actors/workspace/local.output/\
+                              7/4.log"
+                    .into(),
+            }),
+            ..command_end(Exit::Code { code: 0 })
+        }),
+    );
+    for (name, exit) in [
+        ("timed_out", Exit::TimedOut),
+        (
+            "failed",
+            Exit::Failed {
+                words: "bash: command not found".into(),
+            },
+        ),
+        ("cut_off", Exit::CutOff),
+        ("cancelled", Exit::Cancelled),
+    ] {
+        fixtures.answer(
+            &format!("workspace/run.ended.ran.{name}"),
+            &ran(command_end(exit)),
+        );
+    }
+    let not_run = wait_ends()
+        .into_iter()
+        .map(|(name, why)| (name, RunNotRun::from(why)))
+        .chain([
+            ("reach_refuses", refuses(project_in_realm()).into()),
+            ("reach_needs", needs_more().into()),
+            ("tool_not_found", tool_not_found().into()),
+            ("tool_arguments", tool_arguments().into()),
+        ]);
+    for (name, why) in not_run {
+        fixtures.answer(
+            &format!("workspace/run.ended.not_run.{name}"),
+            &RunAnswer::<RunRefusal>::Ended {
+                end: RunEnd::NotRun { why },
+            },
+        );
+    }
+    fixtures.answer(
+        "workspace/run.running",
+        &RunAnswer::<RunRefusal>::Running {
+            command: CommandId(4),
+        },
+    );
+    fixtures.answer(
+        "workspace/run.waits_for_chief",
+        &RunAnswer::<RunRefusal>::WaitsForChief {
+            needs: vec![Need::Network, Need::Command],
+        },
+    );
+    for (name, why) in [
+        (
+            "invalid_call_id",
+            RunRefusal::from(CallRefusal::InvalidId {
+                call: call("call 1"),
+            }),
+        ),
+        ("holds_secret", CallRefusal::HoldsSecret.into()),
+        ("script_too_long", InvalidProgram::ScriptTooLong.into()),
+        ("zero_timeout", InvalidProgram::ZeroTimeout.into()),
+        (
+            "arguments_too_long",
+            InvalidProgram::ArgumentsTooLong.into(),
+        ),
+        ("no_reach", ReachRefusal::NoReach.into()),
+        ("project_in_realm", project_in_realm().into()),
+        ("tool_not_found", tool_not_found().into()),
+        ("tool_arguments", tool_arguments().into()),
+    ] {
+        fixtures.answer(
+            &format!("workspace/run.refused.{name}"),
+            &RunAnswer::Refused { why },
+        );
+    }
+    fixtures.args(
+        "workspace/command_status",
+        &CommandStatus {
+            command: CommandId(4),
+        },
+    );
+    for (name, answer) in [
+        (
+            "refused.no_such_command",
+            RunAnswer::Refused {
+                why: StatusRefusal::NoSuchCommand {
+                    command: CommandId(9),
+                },
+            },
+        ),
+        (
+            "ended.ran",
+            RunAnswer::Ended {
+                end: RunEnd::Ran(command_end(Exit::Code { code: 0 })),
+            },
+        ),
+        (
+            "running",
+            RunAnswer::Running {
+                command: CommandId(4),
+            },
+        ),
+        (
+            "waits_for_chief",
+            RunAnswer::WaitsForChief {
+                needs: vec![Need::Command],
+            },
+        ),
+    ] {
+        fixtures.answer(
+            &format!("workspace/command_status.{name}"),
+            &answer,
+        );
+    }
+    for (name, which) in [
+        (
+            "one",
+            Which::One {
+                call: call("call-1"),
+            },
+        ),
+        (
+            "conversation",
+            Which::Conversation {
+                conversation: ConversationId("c1".into()),
+            },
+        ),
+        ("all", Which::All),
+    ] {
+        fixtures.args(
+            &format!("workspace/cancel.{name}"),
+            &Cancel {
+                agent: AGENT,
+                which,
+            },
+        );
+    }
+    fixtures.answer(
+        "workspace/cancel.cancelled",
+        &Cancelled {
+            commands: vec![CommandId(4), CommandId(5)],
+        },
+    );
+}
+
+fn the_reads(fixtures: &mut Fixtures) {
+    fixtures.args(
+        "workspace/read_file",
+        &ReadFile {
+            path: "/work/project/notes.md".into(),
+            offset: Some(10),
+            limit: Some(20),
+        },
+    );
+    fixtures.args(
+        "workspace/read_file.whole",
+        &ReadFile {
+            path: "/work/project/notes.md".into(),
+            offset: None,
+            limit: None,
+        },
+    );
+    fixtures.args(
+        "workspace/search",
+        &Search {
+            under: "/work/project".into(),
+            pattern: "fn main".into(),
+            name: Some("*.rs".into()),
+            ignore_case: true,
+        },
+    );
+    fixtures.args(
+        "workspace/find",
+        &Find {
+            under: "/work/project".into(),
+            name: None,
+        },
+    );
+    fixtures.answer(
+        "workspace/read_file.text",
+        &ReadAnswer::Text(Text {
+            text: "line 10\nline 11".into(),
+            notes: vec![Note {
+                severity: Severity::Info,
+                code: "truncated".into(),
+                message: "Showing lines 10-11 of 40. Use offset=12 \
+                          to continue."
+                    .into(),
+            }],
+            truncation: Some(Truncation {
+                by: Some(CutBy::Lines),
+                total_lines: 40,
+                total_bytes: 300,
+                output_lines: 2,
+                output_bytes: 15,
+                first_line_exceeds_limit: false,
+            }),
+        }),
+    );
+    fixtures.answer(
+        "workspace/read_file.text.whole",
+        &ReadAnswer::Text(Text {
+            text: "hello\n".into(),
+            notes: Vec::new(),
+            truncation: None,
+        }),
+    );
+    fixtures.answer(
+        "workspace/read_file.text.long_line",
+        &ReadAnswer::Text(Text {
+            text: r#"{"rows":[[1,2,3],[4,5,6],[7,8,9]"#.into(),
+            notes: vec![Note {
+                severity: Severity::Warn,
+                code: "truncated".into(),
+                message: "Line 1 is 120.0KB, exceeds the 50.0KB \
+                          limit; showing its first 50.0KB. Use \
+                          bash: sed -n '1p' /work/project/rows.json \
+                          | tail -c +51201"
+                    .into(),
+            }],
+            truncation: Some(Truncation {
+                by: Some(CutBy::Bytes),
+                total_lines: 1,
+                total_bytes: 122_880,
+                output_lines: 1,
+                output_bytes: 51_200,
+                first_line_exceeds_limit: true,
+            }),
+        }),
+    );
+    fixtures.answer(
+        "workspace/read_file.image",
+        &ReadAnswer::Image(Image {
+            mime: "image/gif".into(),
+            data: Base64(b"GIF89a".to_vec()),
+        }),
+    );
+    fixtures.answer(
+        "workspace/read_file.failed",
+        &ReadAnswer::Failed {
+            words: "ENOENT: no such file or directory, open \
+                    '/work/project/gone.md'"
+                .into(),
+        },
+    );
+    for (name, why) in [
+        ("not_absolute", ReadRefusal::from(not_absolute())),
+        (
+            "outside_reach",
+            PathRefusal::OutsideReach {
+                path: "/home/chief/.ssh/id_ed25519".into(),
+                access: ToRead::Read,
+            }
+            .into(),
+        ),
+        ("agent_filesystem", agent_filesystem::<ToRead>().into()),
+        ("no_reach", ReachRefusal::NoReach.into()),
+        ("project_in_realm", project_in_realm().into()),
+    ] {
+        fixtures.answer(
+            &format!("workspace/read_file.refused.{name}"),
+            &ReadAnswer::Refused { why },
+        );
+    }
+    fixtures.answer(
+        "workspace/search.text",
+        &SearchAnswer::Text(Text {
+            text: "/work/project/src/main.rs:1: fn main() {".into(),
+            notes: Vec::new(),
+            truncation: None,
+        }),
+    );
+    fixtures.answer(
+        "workspace/search.failed",
+        &SearchAnswer::Failed {
+            words: "regex parse error".into(),
+        },
+    );
+    fixtures.answer(
+        "workspace/find.refused.outside_reach",
+        &SearchAnswer::Refused {
+            why: PathRefusal::OutsideReach {
+                path: "/home/chief".into(),
+                access: ToRead::Read,
+            }
+            .into(),
+        },
+    );
+}
+
+fn changed(
+    created: bool,
+    hash: u8,
+    diff: Option<EditDiff>,
+) -> Change {
+    Change {
+        path: "/work/project/notes.md".into(),
+        created,
+        hash: Sha256([hash; 32]),
+        diff,
+    }
+}
+
+fn the_changes(fixtures: &mut Fixtures) {
+    fixtures.answer(
+        "workspace/write_file.ended.changed",
+        &ChangeAnswer::<WriteRefusal>::Ended {
+            end: ChangeEnd::Changed(changed(true, 7, None)),
+        },
+    );
+    let not_run = wait_ends()
+        .into_iter()
+        .map(|(name, why)| (name, ChangeNotRun::from(why)))
+        .chain([
+            (
+                "reach_refuses",
+                refuses(FileGate::from(outside_reach_to_change()))
+                    .into(),
+            ),
+            (
+                "reach_refuses.no_reach",
+                refuses(FileGate::from(ReachRefusal::NoReach)).into(),
+            ),
+            ("reach_needs", needs_more().into()),
+        ]);
+    for (name, why) in not_run {
+        fixtures.answer(
+            &format!("workspace/write_file.ended.not_run.{name}"),
+            &ChangeAnswer::<WriteRefusal>::Ended {
+                end: ChangeEnd::NotRun { why },
+            },
+        );
+    }
+    fixtures.answer(
+        "workspace/write_file.waits_for_chief",
+        &ChangeAnswer::<WriteRefusal>::WaitsForChief {
+            needs: vec![Need::Edit],
+        },
+    );
+    for (name, why) in [
+        (
+            "too_large",
+            WriteRefusal::from(InvalidContent::TooLarge {
+                bytes: 16 * 1024 * 1024 + 1,
+                limit: 16 * 1024 * 1024,
+            }),
+        ),
+        ("outside_reach", outside_reach_to_change().into()),
+        ("agent_filesystem", agent_filesystem::<ToChange>().into()),
+        ("project_in_realm", project_in_realm().into()),
+    ] {
+        fixtures.answer(
+            &format!("workspace/write_file.refused.{name}"),
+            &ChangeAnswer::Refused { why },
+        );
+    }
+    fixtures.answer(
+        "workspace/edit_file.ended.changed",
+        &ChangeAnswer::<ChangeRefusal>::Ended {
+            end: ChangeEnd::Changed(changed(
+                false,
+                8,
+                Some(EditDiff {
+                    diff: "- 1 hello\n+ 1 goodbye".into(),
+                    patch: "--- notes.md\n+++ notes.md\n@@ -1 +1 \
+                            @@\n-hello\n+goodbye\n"
+                        .into(),
+                    first_changed_line: Some(1),
+                }),
+            )),
+        },
+    );
+    fixtures.answer(
+        "workspace/edit_file.ended.failed",
+        &ChangeAnswer::<ChangeRefusal>::Ended {
+            end: ChangeEnd::Failed {
+                words: "Could not find the exact text in \
+                        /work/project/notes.md. The old text must \
+                        match exactly including all whitespace and \
+                        newlines."
+                    .into(),
+            },
+        },
+    );
+    fixtures.answer(
+        "workspace/edit_file.ended.not_run.file_changed",
+        &ChangeAnswer::<ChangeRefusal>::Ended {
+            end: ChangeEnd::NotRun {
+                why: file_changed().into(),
+            },
+        },
+    );
+    for (name, why) in [
+        (
+            "invalid_call_id",
+            ChangeRefusal::from(CallRefusal::InvalidId {
+                call: call(""),
+            }),
+        ),
+        ("holds_secret", CallRefusal::HoldsSecret.into()),
+        ("not_absolute", not_absolute().into()),
+        ("no_reach", ReachRefusal::NoReach.into()),
+    ] {
+        fixtures.answer(
+            &format!("workspace/edit_file.refused.{name}"),
+            &ChangeAnswer::Refused { why },
+        );
+    }
+}
+
+fn the_realms_and_the_agents(fixtures: &mut Fixtures) {
+    fixtures.args(
+        "realm/needs_chief",
+        &NeedsChief {
+            agent: AGENT,
+            call: call("call-1"),
+            conversation: ConversationId("conversation-1".into()),
+            realm_task: Some(RealmTask("task-9".into())),
+            needs: vec![Need::Edit],
+            subject: "/work/project/notes.md\nReplace:\nhello\nWith:\
+                      \ngoodbye"
+                .into(),
+            change: Some(EditDiff {
+                diff: "-1 hello\n+1 goodbye".into(),
+                patch: "--- notes.md\n+++ notes.md\n@@ -1 +1 \
+                        @@\n-hello\n+goodbye\n"
+                    .into(),
+                first_changed_line: Some(1),
+            }),
+            reach_version: ReachVersion(3),
+        },
+    );
+    fixtures.args(
+        "realm/needs_chief.command",
+        &NeedsChief {
+            agent: AGENT,
+            call: call("call-1"),
+            conversation: ConversationId("conversation-1".into()),
+            realm_task: None,
+            needs: vec![Need::Network, Need::Command],
+            subject: "curl https://example.com".into(),
+            change: None,
+            reach_version: ReachVersion(3),
+        },
+    );
+    fixtures.answer("realm/needs_chief", &());
+    fixtures.args("realm/secrets", &Secrets);
+    fixtures.answer(
+        "realm/secrets",
+        &SecretList {
+            version: SecretsVersion(2),
+            values: vec!["made-up-secret".into()],
+        },
+    );
+    for (name, id, outcome) in [
+        (
+            "run.ran",
+            "call-1",
+            Outcome::Run {
+                end: RunEnd::Ran(command_end(Exit::Code { code: 1 })),
+            },
+        ),
+        (
+            "run.not_run",
+            "call-1",
+            Outcome::Run {
+                end: RunEnd::NotRun {
+                    why: WaitEnd::Lapsed {
+                        lapse: Lapse::Ended,
+                    }
+                    .into(),
+                },
+            },
+        ),
+        (
+            "change.changed",
+            "call-2",
+            Outcome::Change {
+                end: ChangeEnd::Changed(changed(true, 7, None)),
+            },
+        ),
+        (
+            "change.failed",
+            "call-2",
+            Outcome::Change {
+                end: ChangeEnd::Failed {
+                    words: "EACCES: permission denied".into(),
+                },
+            },
+        ),
+        (
+            "change.not_run",
+            "call-3",
+            Outcome::Change {
+                end: ChangeEnd::NotRun {
+                    why: file_changed().into(),
+                },
+            },
+        ),
+    ] {
+        fixtures.args(
+            &format!("agent/finished.{name}"),
+            &Finished {
+                call: call(id),
+                outcome,
+            },
+        );
+    }
+    fixtures.answer("agent/finished", &());
+}
+
+fn the_addresses(fixtures: &mut Fixtures) {
+    fixtures
+        .answer("address/workspace", &Workspace.address().unwrap());
+    fixtures.answer("address/realm", &Realm.address().unwrap());
+    fixtures
+        .answer("address/agent", &Agent(AGENT).address().unwrap());
+}
+
+/// An error as its caller reads it with [`ActorError::extract`].
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+struct Seen {
+    group: String,
+    code: String,
+    message: String,
+    metadata: serde_json::Value,
+}
+
+impl Seen {
+    fn of(error: &anyhow::Error) -> Self {
+        let error = ActorError::extract(error);
+        Self {
+            group: error.group().to_owned(),
+            code: error.code().to_owned(),
+            message: error.message().to_owned(),
+            metadata: error.metadata().unwrap(),
+        }
+    }
+}
+
+fn the_errors(fixtures: &mut Fixtures) {
+    let realm = Caller::Actor(Realm.address().unwrap());
+    for (name, action, caller) in [
+        ("run.realm", Run::NAME, Some(realm)),
+        ("set_reach.client", SetReach::NAME, Some(Caller::Client)),
+        ("set_reach.program", SetReach::NAME, None),
+    ] {
+        fixtures.answer(
+            &format!("error/wrong_caller.{name}"),
+            &Seen::of(&wrong_caller(action, caller)),
+        );
+    }
+    fixtures.answer(
+        "error/id_reused.run",
+        &Seen::of(&id_reused(Run::NAME, &call("call-1"))),
+    );
+}
+
+/// A refusal of a changed file says what the file held and holds.
+#[test]
+fn a_changed_file_is_told_by_its_hashes() {
+    let refusal = Stale::FileChanged {
+        path: "/p/a.md".into(),
+        was: Hashed::Sha256 {
+            hash: Sha256([0xab; 32]),
+        },
+        now: Hashed::Absent,
+    };
+    assert_eq!(
+        refusal.to_string(),
+        format!(
+            "/p/a.md changed after the change was asked for: it \
+             held sha256 {} and now holds no file. Read it again \
+             and ask again",
+            "ab".repeat(32)
+        )
+    );
+}

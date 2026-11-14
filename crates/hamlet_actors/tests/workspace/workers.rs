@@ -6,18 +6,21 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use hamlet_messages::workspace::files::{
-    FileAnswer, ReadFile, WriteFile,
+    ReadAnswer, ReadFile, WriteFile,
 };
 use hamlet_messages::workspace::reach::{
-    Footing, Mode, Project, Reach, Refusal, SecretsVersion,
+    Footing, Mode, Project, Reach, SecretsVersion,
+};
+use hamlet_messages::workspace::refusal::{
+    PathRefusal, ReachRefusal, ToChange,
 };
 use hamlet_messages::workspace::{
-    AgentNumber, CallId, CallRefusal, ConversationId, Exit,
-    ReachAnswer, ReachVersion, RunAnswer,
+    AgentNumber, CallId, ConversationId, Exit, InForce, ReachVersion,
+    RunAnswer,
 };
 use hamlet_testing::Scratch;
 
-use super::changes::read;
+use super::changes::{read, refused};
 use super::files::{ask, project};
 use super::{AGENT, agent, agent_runs, done, host, realm_sets, run};
 
@@ -76,15 +79,28 @@ async fn a_workers_scratch_folder_lives_as_long_as_the_worker() {
     let removed = !scratch.exists();
     host.shutdown().await.unwrap();
 
-    assert_eq!(set, ReachAnswer::InForce(ReachVersion(1)));
+    assert_eq!(
+        set,
+        InForce {
+            version: ReachVersion(1)
+        }
+    );
     assert!(made, "no scratch folder at the worker's start");
     assert_eq!(mode, Some(0o700));
     assert_eq!(
         (first.exit, first.output),
-        (Exit::Code(0), format!("hi\n{}\n", scratch.display()))
+        (
+            Exit::Code { code: 0 },
+            format!("hi\n{}\n", scratch.display())
+        )
     );
-    assert_eq!(again.exit, Exit::Code(0));
-    assert_eq!(ended, ReachAnswer::InForce(ReachVersion(2)));
+    assert_eq!(again.exit, Exit::Code { code: 0 });
+    assert_eq!(
+        ended,
+        InForce {
+            version: ReachVersion(2)
+        }
+    );
     assert!(removed, "the scratch folder outlived the worker");
 }
 
@@ -148,7 +164,6 @@ async fn a_worker_reads_its_starters_files_and_changes_none() {
             &host,
             &agent(AGENT),
             &ReadFile {
-                agent: AGENT,
                 path: notes.clone(),
                 offset: None,
                 limit: None,
@@ -159,7 +174,6 @@ async fn a_worker_reads_its_starters_files_and_changes_none() {
             &host,
             &agent(AGENT),
             &WriteFile {
-                agent: AGENT,
                 call: CallId("w1".into()),
                 conversation: ConversationId("c1".into()),
                 realm_task: None,
@@ -173,23 +187,29 @@ async fn a_worker_reads_its_starters_files_and_changes_none() {
         let case = format!("with a project: {with_project}");
         assert_eq!(
             (reads.exit, reads.output.as_str()),
-            (Exit::Code(0), "remember"),
+            (Exit::Code { code: 0 }, "remember"),
             "{case}"
         );
-        assert_ne!(writes.exit, Exit::Code(0), "{case}: {writes:?}");
-        assert_ne!(other.exit, Exit::Code(0), "{case}: {other:?}");
+        assert_ne!(
+            writes.exit,
+            Exit::Code { code: 0 },
+            "{case}: {writes:?}"
+        );
+        assert_ne!(
+            other.exit,
+            Exit::Code { code: 0 },
+            "{case}: {other:?}"
+        );
         assert!(!other.output.contains("not-for-workers"), "{case}");
-        let FileAnswer::Text(text) = read_tool else {
+        let ReadAnswer::Text(text) = read_tool else {
             panic!("{case}: the read answered {read_tool:?}");
         };
         assert_eq!(text.text, "remember", "{case}");
         assert_eq!(
             write_tool,
-            hamlet_messages::workspace::files::ChangeAnswer::Refused(
-                CallRefusal::Reach(Refusal::AgentFilesystem {
-                    path: notes.clone()
-                })
-            ),
+            refused(PathRefusal::<ToChange>::AgentFilesystem {
+                path: notes.clone()
+            }),
             "{case}"
         );
         assert_eq!(read(&notes), "remember", "{case}");
@@ -235,6 +255,8 @@ async fn the_start_removes_the_folders_of_ended_workers() {
     assert!(kept, "a folder of no worker was removed");
     assert_eq!(
         after,
-        RunAnswer::Refused(CallRefusal::Reach(Refusal::NoReach))
+        RunAnswer::Refused {
+            why: ReachRefusal::NoReach.into()
+        }
     );
 }

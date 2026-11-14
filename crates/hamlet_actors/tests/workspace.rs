@@ -9,18 +9,22 @@ use std::time::Duration;
 use anyhow::Context;
 use hamlet_actor::{Action, Actor, Ctx, Handler, Registry};
 use hamlet_actor_core::{ActorConfig, ActorFactory};
+use hamlet_actor_error::ActorError;
 use hamlet_actors::workspace;
 use hamlet_host::{Address, Caller, Host, HostOptions, HostRef};
+use hamlet_messages::address::{self, Party};
 use hamlet_messages::agent::{Finished, Outcome};
 use hamlet_messages::realm::{NeedsChief, SecretList, Secrets};
 use hamlet_messages::workspace::reach::{
     Footing, Mode, Project, Reach, SecretsVersion,
 };
+use hamlet_messages::workspace::refusal::{
+    ReachRefusal, StatusRefusal,
+};
 use hamlet_messages::workspace::{
-    AgentNumber, CallId, CallRefusal, CallerRefusal, CommandEnd,
-    CommandId, CommandStatus, ConversationId, Exit, Program,
-    ReachAnswer, ReachVersion, RealmRefusal, RealmTask, Run,
-    RunAnswer, SetReach,
+    AgentNumber, CallId, CommandEnd, CommandId, CommandStatus,
+    ConversationId, Exit, InForce, Program, ReachVersion, RealmTask,
+    Run, RunAnswer, RunEnd, SetReach,
 };
 use hamlet_sandbox::Sandbox;
 use hamlet_testing::Scratch;
@@ -54,7 +58,14 @@ const AGENT: AgentNumber = AgentNumber(7);
 const SECRET: &str = "s3cr3t-value";
 
 /// The kinds that call the workspace in these tests, each a [`Peer`].
-const PEERS: [&str; 3] = ["realm", "agent", "other"];
+const PEERS: [&str; 3] =
+    [address::Realm::KIND, address::Agent::KIND, "other"];
+
+/// The error of a call from a caller its message does not admit.
+const WRONG_CALLER: &str = "message.wrong_caller";
+
+/// The error of a call whose id was given before to another request.
+const ID_REUSED: &str = "message.id_reused";
 
 #[derive(Default)]
 struct Peers {
@@ -109,14 +120,14 @@ impl Handler<Forward> for Peer {
         ctx: Ctx<Self>,
         forward: Forward,
     ) -> anyhow::Result<Vec<u8>> {
-        Host::call_from(
-            ctx.inner(),
-            &workspace_address(),
-            &forward.name,
-            forward.args,
-            Duration::from_secs(20),
-        )
-        .await
+        HostRef::of(ctx.inner())?
+            .call(
+                &workspace_address(),
+                &forward.name,
+                forward.args,
+                Duration::from_secs(20),
+            )
+            .await
     }
 }
 
@@ -191,22 +202,22 @@ fn peer(kind: &str) -> ActorFactory {
 }
 
 fn workspace_address() -> Address {
-    Address::new(workspace::KIND, workspace::MACHINE)
+    address::Workspace.address().unwrap()
 }
 
 fn realm() -> Address {
-    Address::new(workspace::REALM, workspace::REALM_KEY)
+    address::Realm.address().unwrap()
 }
 
 fn agent(number: AgentNumber) -> Address {
-    Address::new(workspace::AGENT, number.0.to_string())
+    address::Agent(number).address().unwrap()
 }
 
 /// A host on `dir` with the workspace and the callers' kinds, given
 /// `options`.
 fn open(dir: &Path, options: HostOptions) -> anyhow::Result<Host> {
     let mut kinds = HashMap::from([(
-        workspace::KIND.to_owned(),
+        address::Workspace::KIND.to_owned(),
         workspace::factory(),
     )]);
     for kind in PEERS {
@@ -232,9 +243,7 @@ async fn host_with(dir: &Path, peers: Arc<Peers>) -> Host {
         }));
     }
     let host = open(dir, options).unwrap();
-    host.get_or_start(workspace::KIND, workspace::MACHINE)
-        .await
-        .unwrap();
+    host.get_or_start(&workspace_address()).await.unwrap();
     host
 }
 
@@ -268,7 +277,7 @@ async fn call_as(
     name: &str,
     args: Vec<u8>,
 ) -> anyhow::Result<Vec<u8>> {
-    host.get_or_start(&from.kind, &from.key).await?;
+    host.get_or_start(from).await?;
     let forward = Forward {
         name: name.to_owned(),
         args,
@@ -289,12 +298,30 @@ fn decoded<T: serde::de::DeserializeOwned>(reply: &[u8]) -> T {
     ciborium::from_reader(reply).unwrap()
 }
 
+/// The `group.code` of the error a call failed with.
+fn error_code(reply: anyhow::Result<Vec<u8>>) -> String {
+    let error = ActorError::extract(&reply.unwrap_err());
+    format!("{}.{}", error.group(), error.code())
+}
+
+/// The `group.code` of the error the workspace failed `asked` with,
+/// called as the actor at `from`.
+async fn error_of<A: Action>(
+    host: &Host,
+    from: &Address,
+    asked: &A,
+) -> String {
+    let args =
+        hamlet_actor::action::encode_positional(asked).unwrap();
+    error_code(call_as(host, from, A::NAME, args).await)
+}
+
 /// Calls the workspace with a [`SetReach`] of agent 7, as the realm.
 async fn realm_sets(
     host: &Host,
     version: u64,
     reach: Reach,
-) -> ReachAnswer {
+) -> InForce {
     let reply = call_as(
         host,
         &realm(),
@@ -377,32 +404,40 @@ async fn an_older_reach_version_is_ignored() {
 
     assert_eq!(
         answers,
-        vec![ReachAnswer::InForce(ReachVersion(3)); 3]
+        vec![
+            InForce {
+                version: ReachVersion(3)
+            };
+            3
+        ]
     );
     assert_eq!(reach_rows(&dir), [(7, 3, reach(None))]);
 }
 
 /// an agent, another kind, a client and a call with no caller
-/// are each refused, leave no row, and change no reach. Their
-/// version 5 would outrank the realm's version 1 had any of them
-/// applied.
+/// each fail as a wrong caller, leave no row, and change no reach.
+/// Their version 5 would outrank the realm's version 1 had any of
+/// them applied.
 #[tokio::test(flavor = "multi_thread")]
 async fn only_the_realm_sets_a_reach() {
     let dir = Scratch::new("workspace-reach-not-realm");
     host(&dir).await.shutdown().await.unwrap();
     let before = rows_in_file(&dir);
     let host = host(&dir).await;
-    let mut answers = Vec::new();
-    for kind in ["agent", "other"] {
+    let mut errors = Vec::new();
+    for (kind, key) in [
+        (address::Agent::KIND, "7"),
+        (address::Realm::KIND, "other"),
+        ("other", "caller"),
+    ] {
         let reply = call_as(
             &host,
-            &Address::new(kind, "caller"),
+            &Address::new(kind, key).unwrap(),
             SetReach::NAME,
             set_reach(5, reach(Some("/"))),
         )
-        .await
-        .unwrap();
-        answers.push(decoded::<ReachAnswer>(&reply));
+        .await;
+        errors.push(error_code(reply));
     }
     let to = workspace_address();
     let client = host.call_for_client(
@@ -411,25 +446,27 @@ async fn only_the_realm_sets_a_reach() {
         set_reach(5, reach(Some("/"))),
         Duration::from_secs(10),
     );
-    answers.push(decoded(&client.await.unwrap()));
+    errors.push(error_code(client.await));
     let none = host.call(
         &to,
         SetReach::NAME,
         set_reach(5, reach(Some("/"))),
         Duration::from_secs(10),
     );
-    answers.push(decoded(&none.await.unwrap()));
+    errors.push(error_code(none.await));
     host.shutdown().await.unwrap();
     let after_refusals = rows_in_file(&dir);
     let host = self::host(&dir).await;
     let realm = realm_sets(&host, 1, reach(None)).await;
     host.shutdown().await.unwrap();
 
+    assert_eq!(errors, [WRONG_CALLER; 5]);
     assert_eq!(
-        answers,
-        vec![ReachAnswer::Refused(RealmRefusal::NotTheRealm); 4]
+        realm,
+        InForce {
+            version: ReachVersion(1)
+        }
     );
-    assert_eq!(realm, ReachAnswer::InForce(ReachVersion(1)));
     assert_eq!(reach_rows(&dir), [(7, 1, reach(None))]);
     assert_eq!(after_refusals, before, "a refusal left a row");
 }
@@ -441,8 +478,7 @@ async fn only_the_realm_sets_a_reach() {
 async fn the_workspace_does_not_start_without_a_sandbox() {
     let dir = Scratch::new("workspace-no-sandbox");
     let host = open(&dir, HostOptions::default()).unwrap();
-    let started =
-        host.get_or_start(workspace::KIND, workspace::MACHINE).await;
+    let started = host.get_or_start(&workspace_address()).await;
     host.shutdown().await.unwrap();
 
     assert!(started.is_err(), "the workspace started");
@@ -451,7 +487,6 @@ async fn the_workspace_does_not_start_without_a_sandbox() {
 /// A [`Run`] of `script` by agent 7, as its call `call`.
 fn run(call: &str, script: &str) -> Run {
     Run {
-        agent: AGENT,
         call: CallId(call.to_owned()),
         conversation: ConversationId("c1".to_owned()),
         realm_task: None,
@@ -485,17 +520,13 @@ async fn runs_as(
     decoded(&reply)
 }
 
-/// Asks the workspace, as agent `from`, how agent 7's `command`
-/// stands.
+/// Asks the workspace, as agent `from`, how its `command` stands.
 async fn status_as(
     host: &Host,
     from: AgentNumber,
     command: CommandId,
-) -> RunAnswer {
-    let status = CommandStatus {
-        agent: from,
-        command,
-    };
+) -> RunAnswer<StatusRefusal> {
+    let status = CommandStatus { command };
     let reply = call_as(
         host,
         &agent(from),
@@ -510,7 +541,9 @@ async fn status_as(
 /// The end of the command a [`Finished`] tells of.
 fn ran(finished: &Finished) -> &CommandEnd {
     match &finished.outcome {
-        Outcome::Ran(end) => end,
+        Outcome::Run {
+            end: RunEnd::Ran(end),
+        } => end,
         other => panic!("the agent was told {other:?}"),
     }
 }
@@ -575,10 +608,12 @@ fn files_holding(
     found
 }
 
-/// The end of a command that answered `Done`.
-fn done(answer: RunAnswer) -> CommandEnd {
+/// The end of a command that answered `Ended` with it.
+fn done<R: std::fmt::Debug>(answer: RunAnswer<R>) -> CommandEnd {
     match answer {
-        RunAnswer::Done(end) => end,
+        RunAnswer::Ended {
+            end: RunEnd::Ran(end),
+        } => end,
         other => panic!("the command answered {other:?}"),
     }
 }
@@ -611,7 +646,7 @@ async fn a_command_waits_for_the_secrets_list() {
 
     assert!(!started_early, "the command started before the list");
     assert_eq!(peers.fetched.load(Ordering::SeqCst), 1);
-    assert_eq!(end.exit, Exit::Code(0));
+    assert_eq!(end.exit, Exit::Code { code: 0 });
     assert_eq!(end.output, "the secret is [REDACTED]\n");
     assert!(fs.join("started").exists());
 }
@@ -659,7 +694,7 @@ async fn no_secret_reaches_the_workspaces_file() {
     );
     host.shutdown().await.unwrap();
 
-    assert_eq!(end.exit, Exit::Code(3));
+    assert_eq!(end.exit, Exit::Code { code: 3 });
     let mut searched = 0;
     for suffix in ["", "-wal", "-shm"] {
         let path = dir
@@ -679,7 +714,7 @@ async fn no_secret_reaches_the_workspaces_file() {
     assert!(searched > 0, "no file was searched");
 }
 
-/// A command that ends within the wait answers `Done`, and the agent
+/// A command that ends within the wait answers `Ended`, and the agent
 /// is called with nothing.
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
@@ -695,7 +730,7 @@ async fn a_command_that_ends_in_time_answers_done() {
 
     assert_eq!(
         (end.exit, end.output.as_str()),
-        (Exit::Code(0), "hi\n")
+        (Exit::Code { code: 0 }, "hi\n")
     );
     assert_eq!(told(&peers), []);
 }
@@ -720,8 +755,8 @@ async fn a_long_command_answers_running_then_finished() {
     told_within(&peers, 1, Duration::from_secs(5)).await;
     tokio::time::sleep(Duration::from_millis(300)).await;
     let after = status_as(&host, AGENT, command).await;
-    let agent_id =
-        host.get_or_start(workspace::AGENT, "7").await.unwrap();
+    let agent_id = agent(AgentNumber(7));
+    host.get_or_start(&agent_id).await.unwrap();
     host.shutdown().await.unwrap();
 
     assert!(answered_in < Duration::from_secs(1), "{answered_in:?}");
@@ -729,19 +764,25 @@ async fn a_long_command_answers_running_then_finished() {
     let told = told(&peers);
     assert_eq!(told.len(), 1, "{told:?}");
     let (to, finished) = &told[0];
-    assert_eq!(to, &agent_id);
+    assert_eq!(to, &agent_id.to_string());
     assert_eq!(finished.call, CallId("c1".into()));
     assert_eq!(ran(finished).command, command);
     assert_eq!(
         (&ran(finished).exit, ran(finished).output.as_str()),
-        (&Exit::Code(0), "late\n")
+        (&Exit::Code { code: 0 }, "late\n")
     );
-    assert_eq!(after, RunAnswer::Done(ran(finished).clone()));
+    assert_eq!(
+        after,
+        RunAnswer::Ended {
+            end: RunEnd::Ran(ran(finished).clone())
+        }
+    );
 }
 
 /// A repeat of a call that arrives while the first still waits gets
-/// the first's answer: `Done` for both when the command ends in time,
-/// `Running` for both when it does not, and then one `Finished`.
+/// the first's answer: `Ended` for both when the command ends in
+/// time, `Running` for both when it does not, and then one
+/// `Finished`.
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_repeat_within_the_wait_answers_as_the_first() {
@@ -769,7 +810,15 @@ async fn a_repeat_within_the_wait_answers_as_the_first() {
         host.shutdown().await.unwrap();
 
         assert_eq!(repeat, first, "wait {wait_ms} ms");
-        assert_eq!(matches!(first, RunAnswer::Done(_)), both_done);
+        assert_eq!(
+            matches!(
+                first,
+                RunAnswer::Ended {
+                    end: RunEnd::Ran(_)
+                }
+            ),
+            both_done
+        );
         assert_eq!(told(&peers).len(), usize::from(!both_done));
         assert_eq!(
             std::fs::read_to_string(fs.join("runs")).unwrap(),
@@ -779,7 +828,8 @@ async fn a_repeat_within_the_wait_answers_as_the_first() {
 }
 
 /// A repeat after the command ended answers its end from the row and
-/// runs nothing again; one with another request is refused.
+/// runs nothing again; one with another request fails with
+/// `message.id_reused` (M-E10).
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_repeat_answers_from_the_row_and_runs_nothing() {
@@ -794,25 +844,29 @@ async fn a_repeat_answers_from_the_row_and_runs_nothing() {
         realm_task: Some(RealmTask("task-2".into())),
         ..call.clone()
     };
-    let reused = agent_runs(&host, &other_task).await;
+    let reused = error_of(&host, &agent(AGENT), &other_task).await;
     host.shutdown().await.unwrap();
 
-    assert!(matches!(first, RunAnswer::Done(_)), "{first:?}");
-    assert_eq!(repeat, first);
-    assert_eq!(
-        reused,
-        RunAnswer::Refused(CallRefusal::CallReused(CallId(
-            "c1".into()
-        )))
+    assert!(
+        matches!(
+            first,
+            RunAnswer::Ended {
+                end: RunEnd::Ran(_)
+            }
+        ),
+        "{first:?}"
     );
+    assert_eq!(repeat, first);
+    assert_eq!(reused, ID_REUSED);
     assert_eq!(
         std::fs::read_to_string(fs.join("runs")).unwrap(),
         "x\n"
     );
 }
 
-/// an agent's call naming another agent is refused and runs
-/// nothing; a status asked for another agent's command finds none.
+/// A call runs for the agent the host stamped as its caller: agent
+/// 8, which has no reach, runs nothing; a status asked for another
+/// agent's command finds none.
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn the_agent_is_the_stamped_caller() {
@@ -822,7 +876,8 @@ async fn the_agent_is_the_stamped_caller() {
     let host = host_with(&dir, peers.clone()).await;
     realm_sets(&host, 1, reach(None)).await;
     let other = AgentNumber(8);
-    let named = runs_as(&host, other, &run("c1", "touch ran")).await;
+    let by_other =
+        runs_as(&host, other, &run("c1", "touch ran")).await;
     let command =
         running(&agent_runs(&host, &run("c2", "sleep 1")).await);
     let asked = status_as(&host, other, command).await;
@@ -830,18 +885,17 @@ async fn the_agent_is_the_stamped_caller() {
     host.shutdown().await.unwrap();
 
     assert_eq!(
-        named,
-        RunAnswer::Refused(CallRefusal::Caller(
-            CallerRefusal::NotTheCaller {
-                named: AGENT,
-                caller: other,
-            }
-        ))
+        by_other,
+        RunAnswer::Refused {
+            why: ReachRefusal::NoReach.into()
+        }
     );
     assert!(!fs.join("ran").exists());
     assert_eq!(
         asked,
-        RunAnswer::Refused(CallRefusal::NoSuchCommand(command))
+        RunAnswer::Refused {
+            why: StatusRefusal::NoSuchCommand { command }
+        }
     );
 }
 
@@ -866,16 +920,16 @@ async fn a_running_row_is_cut_off_at_the_next_start() {
     tokio::time::sleep(Duration::from_millis(1500)).await;
     again.shutdown().await.unwrap();
 
-    let cut_off = RunAnswer::Done(CommandEnd {
+    let cut_off = CommandEnd {
         command,
         exit: Exit::CutOff,
         output: String::new(),
         cut: None,
         policy: String::new(),
         took_ms: 0,
-    });
-    assert_eq!(status, cut_off);
-    assert_eq!(repeat, cut_off);
+    };
+    assert_eq!(done(status), cut_off);
+    assert_eq!(done(repeat), cut_off);
     assert!(!fs.join("late").exists(), "the command ran on");
     assert_eq!(told(&peers), []);
 }
@@ -920,7 +974,7 @@ async fn a_finished_to_an_agent_that_is_gone_is_dropped() {
 }
 
 /// A command that passes its time limit is killed whole and ends as
-/// timed out: answered `Done` when the limit comes within the wait,
+/// timed out: answered `Ended` when the limit comes within the wait,
 /// else `Running` and then one `Finished`.
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
@@ -945,8 +999,13 @@ async fn a_command_past_its_limit_ends_timed_out() {
         host.shutdown().await.unwrap();
 
         let end = match answer {
-            RunAnswer::Done(end) => {
-                assert!(in_the_answer, "answered Done past the wait");
+            RunAnswer::Ended {
+                end: RunEnd::Ran(end),
+            } => {
+                assert!(
+                    in_the_answer,
+                    "answered Ended past the wait"
+                );
                 assert_eq!(told(&peers), []);
                 end
             }
@@ -964,10 +1023,12 @@ async fn a_command_past_its_limit_ends_timed_out() {
     }
 }
 
-/// The end of `answer`, `Done` or told in one `Finished`.
+/// The end of `answer`, `Ended` or told in one `Finished`.
 async fn ended(peers: &Peers, answer: RunAnswer) -> CommandEnd {
     match answer {
-        RunAnswer::Done(end) => end,
+        RunAnswer::Ended {
+            end: RunEnd::Ran(end),
+        } => end,
         RunAnswer::Running { .. } => {
             told_within(peers, 1, Duration::from_secs(20)).await;
             ran(&told(peers).pop().expect("a Finished").1).clone()
@@ -997,7 +1058,7 @@ async fn output_past_the_tail_spills_to_a_file() {
 
     assert_eq!(short.cut, None);
     assert_eq!(short.output.lines().count(), 2000);
-    assert_eq!(long.exit, Exit::Code(0));
+    assert_eq!(long.exit, Exit::Code { code: 0 });
     let cut = long.cut.expect("the output was cut");
     let mut all =
         (1..=3000).map(|n| format!("{n}\n")).collect::<String>();
@@ -1078,7 +1139,7 @@ async fn a_command_reads_only_its_own_agents_spill() {
             seen.push((
                 version,
                 name,
-                end.exit == Exit::Code(0),
+                end.exit == Exit::Code { code: 0 },
                 end.output,
             ));
         }

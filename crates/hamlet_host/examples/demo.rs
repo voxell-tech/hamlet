@@ -74,7 +74,8 @@ use act::act;
 use anyhow::{Context, Result, anyhow, bail};
 use command::{number, print_reply, run, shown};
 use hamlet_actors::workspace;
-use hamlet_host::{Host, HostOptions};
+use hamlet_host::{Address, Host, HostOptions};
+use hamlet_messages::address::{self, Party};
 use hamlet_sandbox::{Isolation, Sandbox};
 use tokio::sync::mpsc;
 use tracing_subscriber::EnvFilter;
@@ -124,10 +125,14 @@ async fn demo() -> Result<()> {
         &kinds.iter().map(String::as_str).collect::<Vec<_>>(),
         sleep,
     );
+    factories.insert(
+        address::Workspace::KIND.to_owned(),
+        workspace::factory(),
+    );
     factories
-        .insert(workspace::KIND.to_owned(), workspace::factory());
-    factories.insert(workspace::REALM.to_owned(), realm::factory());
-    factories.insert(workspace::AGENT.to_owned(), agent::factory());
+        .insert(address::Realm::KIND.to_owned(), realm::factory());
+    factories
+        .insert(address::Agent::KIND.to_owned(), agent::factory());
     // The workspace does not start where there is no sandbox.
     let options = match Sandbox::open(Isolation::Sandboxed) {
         Ok(sandbox) => options.with_value(Arc::new(sandbox)),
@@ -219,8 +224,8 @@ async fn serve(
     print_began(host, host.boot().await?).await?;
     if loaded > 0 {
         for n in 1..=loaded {
-            host.get_or_start(&kinds[0], &format!("load-{n}"))
-                .await?;
+            let at = Address::new(&kinds[0], format!("load-{n}"))?;
+            host.get_or_start(&at).await?;
         }
         writeln!(std::io::stdout(), "loaded {loaded}")?;
     }
@@ -275,13 +280,13 @@ async fn stop_signal() {
 
 /// Prints the count of each actor whose start boot began, once the
 /// start ends. A start that failed is logged and printed as nothing.
-async fn print_began(host: &Host, began: Vec<String>) -> Result<()> {
-    for actor_id in began {
-        match act(host, &actor_id, "get", Vec::new()).await {
-            Ok(reply) => print_reply("boot ", &actor_id, reply)?,
+async fn print_began(host: &Host, began: Vec<Address>) -> Result<()> {
+    for at in began {
+        match act(host, &at, "get", Vec::new()).await {
+            Ok(reply) => print_reply("boot ", &at, reply)?,
             Err(error) => tracing::error!(
                 ?error,
-                actor_id,
+                actor_id = %at,
                 "the start boot began failed"
             ),
         }

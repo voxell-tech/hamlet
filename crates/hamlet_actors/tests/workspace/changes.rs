@@ -3,24 +3,34 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use hamlet_actor::Action;
+use hamlet_host::Host;
+use hamlet_messages::bytes;
 use hamlet_messages::workspace::files::{
-    Change, ChangeAnswer, EditFile, MOST_CONTENT, Replace, WriteFile,
+    Change, ChangeAnswer, ChangeEnd, EditFile, MOST_CONTENT, Replace,
+    WriteFile,
 };
 use hamlet_messages::workspace::reach::{
-    Access, Footing, Mode, Project, Reach, Refusal, SecretsVersion,
+    Footing, Mode, Project, Reach, SecretsVersion,
+};
+use hamlet_messages::workspace::refusal::{
+    InvalidContent, PathRefusal, ReachRefusal, ToChange,
 };
 use hamlet_messages::workspace::{
-    AgentNumber, CallId, CallRefusal, CallerRefusal, ConversationId,
-    RealmTask, RunAnswer,
+    AgentNumber, CallId, ConversationId, Program, RealmTask, Run,
+    RunAnswer, RunEnd,
 };
 use hamlet_testing::Scratch;
 use hamlet_testing::links::symlink;
 use rusqlite::Connection;
+use serde::Serialize;
+use serde::de::DeserializeOwned;
 use sha2::{Digest, Sha256};
 
 use super::files::{ask, project, working_in};
 use super::{
-    AGENT, Peers, SECRET, agent, agent_runs, filesystem, host_with,
+    AGENT, ID_REUSED, Peers, SECRET, WRONG_CALLER, agent, agent_runs,
+    call_as, decoded, error_code, error_of, filesystem, host_with,
     reach, realm, realm_sets, run,
 };
 
@@ -30,7 +40,6 @@ pub(super) fn write(
     content: &str,
 ) -> WriteFile {
     WriteFile {
-        agent: AGENT,
         call: CallId(call.to_owned()),
         conversation: ConversationId("c1".to_owned()),
         realm_task: None,
@@ -45,7 +54,6 @@ pub(super) fn edit(
     edits: &[(&str, &str)],
 ) -> EditFile {
     EditFile {
-        agent: AGENT,
         call: CallId(call.to_owned()),
         conversation: ConversationId("c1".to_owned()),
         realm_task: None,
@@ -60,15 +68,31 @@ pub(super) fn edit(
     }
 }
 
-pub(super) fn changed(answer: ChangeAnswer) -> Change {
+pub(super) fn changed<R: std::fmt::Debug>(
+    answer: ChangeAnswer<R>,
+) -> Change {
     match answer {
-        ChangeAnswer::Changed(change) => change,
+        ChangeAnswer::Ended {
+            end: ChangeEnd::Changed(change),
+        } => change,
         other => panic!("the change answered {other:?}"),
     }
 }
 
-pub(super) fn sha256(bytes: &[u8]) -> [u8; 32] {
-    Sha256::digest(bytes).into()
+/// A change refused with `why`.
+pub(super) fn refused<R, W: Into<R>>(why: W) -> ChangeAnswer<R> {
+    ChangeAnswer::Refused { why: why.into() }
+}
+
+/// A change that failed, in `words`.
+pub(super) fn failed<R>(words: String) -> ChangeAnswer<R> {
+    ChangeAnswer::Ended {
+        end: ChangeEnd::Failed { words },
+    }
+}
+
+pub(super) fn sha256(content: &[u8]) -> bytes::Sha256 {
+    bytes::Sha256(Sha256::digest(content).into())
 }
 
 pub(super) fn read(path: &Path) -> String {
@@ -172,13 +196,9 @@ async fn a_change_out_of_reach_names_the_path_and_writes_nothing() {
     let up = folder.join("../elsewhere/x");
     let full = elsewhere.join("x");
     let ours = own.join("x");
-    let outside = |path: PathBuf| {
-        ChangeAnswer::Refused(CallRefusal::Reach(
-            Refusal::OutsideReach {
-                path,
-                access: Access::Change,
-            },
-        ))
+    let outside = |path: PathBuf| PathRefusal::OutsideReach {
+        path,
+        access: ToChange::Change,
     };
 
     let by_up = ask(&host, &me, &write("w1", &up, "x")).await;
@@ -205,18 +225,18 @@ async fn a_change_out_of_reach_names_the_path_and_writes_nothing() {
     .await;
     host.shutdown().await.unwrap();
 
-    assert_eq!(by_up, outside(elsewhere.join("x")));
-    assert_eq!(by_full, outside(full));
+    assert_eq!(by_up, refused(outside(elsewhere.join("x"))));
+    assert_eq!(by_full, refused(outside(full)));
     assert_eq!(
         by_own,
-        ChangeAnswer::Refused(CallRefusal::Reach(
-            Refusal::AgentFilesystem { path: ours }
-        ))
+        refused(PathRefusal::<ToChange>::AgentFilesystem {
+            path: ours
+        })
     );
     for (answer, path) in
         [(&by_link, "out/sub/x"), (&by_mine, "mine/x")]
     {
-        assert_eq!(answer, &outside(folder.join(path)));
+        assert_eq!(answer, &refused(outside(folder.join(path))));
     }
     assert_eq!(
         std::fs::read_dir(&elsewhere).unwrap().count(),
@@ -226,7 +246,7 @@ async fn a_change_out_of_reach_names_the_path_and_writes_nothing() {
     assert_eq!(std::fs::read_dir(&own).unwrap().count(), 0);
     assert_eq!(
         by_raw,
-        ChangeAnswer::Failed(format!(
+        failed(format!(
             "Could not edit file: {}. Error code: invalid.",
             raw.display()
         ))
@@ -234,7 +254,7 @@ async fn a_change_out_of_reach_names_the_path_and_writes_nothing() {
     assert_eq!(std::fs::read(&raw).unwrap(), [0x61, 0xff, 0x0a]);
     assert_eq!(
         by_folder,
-        ChangeAnswer::Failed(format!(
+        failed(format!(
             "Could not edit file: {}. Path is not a file.",
             folder.join("sub").display()
         ))
@@ -255,7 +275,7 @@ async fn a_write_past_the_limit_is_refused_and_writes_nothing() {
     let large = folder.join("large.txt");
     let largest = folder.join("largest.txt");
 
-    let refused =
+    let too_large =
         ask(&host, &me, &write("w1", &large, &"x".repeat(most + 1)))
             .await;
     let wrote =
@@ -264,8 +284,8 @@ async fn a_write_past_the_limit_is_refused_and_writes_nothing() {
     host.shutdown().await.unwrap();
 
     assert_eq!(
-        refused,
-        ChangeAnswer::Refused(CallRefusal::TooLarge {
+        too_large,
+        refused(InvalidContent::TooLarge {
             bytes: MOST_CONTENT + 1,
             limit: MOST_CONTENT,
         })
@@ -292,7 +312,9 @@ pub(super) fn manual(folder: &Path) -> Reach {
     })
 }
 
-/// A change is for the agent the host stamped as the caller.
+/// A change is for the agent the host stamped as the caller: agent
+/// 8, which has no reach, changes nothing, and an actor that is not
+/// an agent fails as a wrong caller.
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_change_is_for_the_agent_that_called() {
@@ -302,30 +324,18 @@ async fn a_change_is_for_the_agent_that_called() {
     let host = working_in(&dir, &folder, Arc::default()).await;
     let asked = write("w1", &folder.join("a.md"), "b");
     let other = ask(&host, &agent(AgentNumber(8)), &asked).await;
-    let from_realm = ask(&host, &realm(), &asked).await;
+    let from_realm = error_of(&host, &realm(), &asked).await;
     host.shutdown().await.unwrap();
 
-    assert_eq!(
-        other,
-        ChangeAnswer::Refused(CallRefusal::Caller(
-            CallerRefusal::NotTheCaller {
-                named: AGENT,
-                caller: AgentNumber(8),
-            }
-        ))
-    );
-    assert_eq!(
-        from_realm,
-        ChangeAnswer::Refused(CallRefusal::Caller(
-            CallerRefusal::NotAnAgent
-        ))
-    );
+    assert_eq!(other, refused(ReachRefusal::NoReach));
+    assert_eq!(from_realm, WRONG_CALLER);
     assert_eq!(read(&folder.join("a.md")), "a");
 }
 
 /// A repeat of a change answers from its row and writes nothing
 /// again, also after a restart and after the file changed; the same
-/// id with another request, as another task, is refused.
+/// id with another request, as another task, fails with
+/// `message.id_reused` (M-E10).
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_repeat_of_a_change_answers_from_its_row() {
@@ -348,18 +358,13 @@ async fn a_repeat_of_a_change_answers_from_its_row() {
         realm_task: Some(RealmTask("task-2".into())),
         ..asked.clone()
     };
-    let reused = ask(&host, &me, &other_task).await;
+    let reused = error_of(&host, &me, &other_task).await;
     host.shutdown().await.unwrap();
 
     assert_eq!(changed(first.clone()).hash, sha256(b"b\n"));
     assert_eq!(repeat, first);
     assert_eq!(after_restart, first);
-    assert_eq!(
-        reused,
-        ChangeAnswer::Refused(CallRefusal::CallReused(CallId(
-            "e1".into()
-        )))
-    );
+    assert_eq!(reused, ID_REUSED);
     assert_eq!(read(&file), "theirs\n");
 }
 
@@ -394,8 +399,9 @@ async fn copies_of_a_change_called_at_once_write_once() {
 }
 
 /// A call id is one call's, whatever it does: a command's id reused
-/// by a change, and a change's by a command or by another change, is
-/// refused; and a start leaves a finished change's row.
+/// by a change, and a change's by a command or by another change,
+/// fails with `message.id_reused` (M-E10); and a start leaves a
+/// finished change's row.
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_call_id_is_one_calls_whatever_it_does() {
@@ -408,25 +414,218 @@ async fn a_call_id_is_one_calls_whatever_it_does() {
     let me = agent(AGENT);
     let ran = agent_runs(&host, &run("c1", "true")).await;
     let write_after_run =
-        ask(&host, &me, &write("c1", &file, "x")).await;
+        error_of(&host, &me, &write("c1", &file, "x")).await;
     let wrote = ask(&host, &me, &write("c2", &file, "y")).await;
-    let run_after_write = agent_runs(&host, &run("c2", "true")).await;
+    let run_after_write =
+        error_of(&host, &me, &run("c2", "true")).await;
     let edit_after_write =
-        ask(&host, &me, &edit("c2", &file, &[("y", "z")])).await;
+        error_of(&host, &me, &edit("c2", &file, &[("y", "z")])).await;
     host.shutdown().await.unwrap();
     let host = working_in(&dir, &folder, Arc::default()).await;
     let after_restart =
         ask(&host, &me, &write("c2", &file, "y")).await;
     host.shutdown().await.unwrap();
 
-    let reused =
-        |id: &str| CallRefusal::CallReused(CallId(id.to_owned()));
-    assert!(matches!(ran, RunAnswer::Done(_)), "{ran:?}");
-    assert_eq!(write_after_run, ChangeAnswer::Refused(reused("c1")));
-    assert_eq!(run_after_write, RunAnswer::Refused(reused("c2")));
-    assert_eq!(edit_after_write, ChangeAnswer::Refused(reused("c2")));
+    assert!(
+        matches!(
+            ran,
+            RunAnswer::Ended {
+                end: RunEnd::Ran(_)
+            }
+        ),
+        "{ran:?}"
+    );
+    assert_eq!(
+        [write_after_run, run_after_write, edit_after_write],
+        [ID_REUSED; 3]
+    );
     assert_eq!(after_restart, wrote);
     assert_eq!(read(&file), "y");
+}
+
+/// The answer `asked` gets as agent `from`: its `type` and the
+/// `type` of its `why` or its `end`, or the error it failed with.
+async fn answered<A>(
+    host: &Host,
+    from: AgentNumber,
+    asked: &A,
+) -> String
+where
+    A: Action + Serialize,
+    A::Output: Serialize + DeserializeOwned,
+{
+    let args =
+        hamlet_actor::action::encode_positional(asked).unwrap();
+    let reply = call_as(host, &agent(from), A::NAME, args).await;
+    if reply.is_err() {
+        return error_code(reply);
+    }
+    let answer =
+        serde_json::to_value(decoded::<A::Output>(&reply.unwrap()))
+            .unwrap();
+    let kind = |value: &serde_json::Value| {
+        value["type"].as_str().unwrap_or_default().to_owned()
+    };
+    let inner = answer.get("why").or_else(|| answer.get("end"));
+    match inner {
+        Some(inner) => format!("{} {}", kind(&answer), kind(inner)),
+        None => kind(&answer),
+    }
+}
+
+/// A refused call kept nothing, so its id is sent again with another
+/// request and weighed afresh, never failed with `message.id_reused`:
+/// one refusal of each family a run, a write and an edit can get.
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_refused_call_keeps_nothing_of_it() {
+    let dir = Scratch::new("workspace-refused-kept");
+    let own = filesystem(&dir);
+    let other = AgentNumber(8);
+    std::fs::create_dir_all(dir.join("actors/agent/8.fs")).unwrap();
+    let (_project, folder) = project(
+        "workspace-refused-kept-project",
+        &[("e1.md", "a"), ("e2.md", "a"), ("n3.md", "a")],
+    );
+    let (_elsewhere, elsewhere) =
+        project("workspace-refused-kept-elsewhere", &[]);
+    let host =
+        working_in(&dir, &folder, Arc::new(Peers::default())).await;
+    let at = |name: &str| folder.join(name);
+    let large =
+        "x".repeat(usize::try_from(MOST_CONTENT).unwrap() + 1);
+    let mut zero_timeout = run("r1", "true");
+    if let Program::Script { timeout_ms, .. } =
+        &mut zero_timeout.program
+    {
+        *timeout_ms = Some(0);
+    }
+    let no_tool = Run {
+        program: Program::Tool {
+            name: "nope".into(),
+            arguments: "{}".into(),
+        },
+        ..run("r2", "true")
+    };
+    let mut seen = Vec::new();
+    for (first, again) in [
+        (zero_timeout, run("r1", "true")),
+        (no_tool, run("r2", "true")),
+    ] {
+        seen.push(answered(&host, AGENT, &first).await);
+        seen.push(answered(&host, AGENT, &again).await);
+    }
+    for (first, again) in [
+        (
+            write("w1", Path::new("w1.md"), "x"),
+            write("w1", &at("w1.md"), "x"),
+        ),
+        (
+            write("w2", &elsewhere.join("x"), "x"),
+            write("w2", &at("w2.md"), "x"),
+        ),
+        (
+            write("w3", &at("w3.md"), &large),
+            write("w3", &at("w3.md"), "x"),
+        ),
+    ] {
+        seen.push(answered(&host, AGENT, &first).await);
+        seen.push(answered(&host, AGENT, &again).await);
+    }
+    let a_to_b = [("a", "b")];
+    for (first, again) in [
+        (
+            edit("e1", Path::new("e1.md"), &a_to_b),
+            edit("e1", &at("e1.md"), &a_to_b),
+        ),
+        (
+            edit("e2", &own.join("x"), &a_to_b),
+            edit("e2", &at("e2.md"), &a_to_b),
+        ),
+    ] {
+        seen.push(answered(&host, AGENT, &first).await);
+        seen.push(answered(&host, AGENT, &again).await);
+    }
+    let unreached = [
+        answered(&host, other, &run("n1", "true")).await,
+        answered(&host, other, &write("n2", &at("n2.md"), "x")).await,
+        answered(&host, other, &edit("n3", &at("n3.md"), &a_to_b))
+            .await,
+    ];
+    super::cancel::realm_sets_for(
+        &host,
+        other,
+        1,
+        reach(Some(folder.to_str().unwrap())),
+    )
+    .await;
+    seen.extend([
+        unreached[0].clone(),
+        answered(&host, other, &run("n1", "echo again")).await,
+        unreached[1].clone(),
+        answered(&host, other, &write("n2", &at("n2.md"), "y")).await,
+        unreached[2].clone(),
+        answered(
+            &host,
+            other,
+            &edit("n3", &at("n3.md"), &[("a", "c")]),
+        )
+        .await,
+    ]);
+    realm_sets(&host, 2, manual(&folder)).await;
+    let with_secret = format!("echo {SECRET}");
+    seen.extend([
+        answered(&host, AGENT, &run("s1", &with_secret)).await,
+        answered(&host, AGENT, &run("s1", "true")).await,
+        answered(&host, AGENT, &write("s2", &at("s2.md"), SECRET))
+            .await,
+        answered(&host, AGENT, &write("s2", &at("s2.md"), "x")).await,
+        answered(
+            &host,
+            AGENT,
+            &edit("s3", &at("e1.md"), &[("b", SECRET)]),
+        )
+        .await,
+        answered(
+            &host,
+            AGENT,
+            &edit("s3", &at("e1.md"), &[("b", "c")]),
+        )
+        .await,
+    ]);
+    host.shutdown().await.unwrap();
+
+    assert_eq!(
+        seen,
+        [
+            "refused zero_timeout",
+            "ended ran",
+            "refused tool_not_found",
+            "ended ran",
+            "refused not_absolute",
+            "ended changed",
+            "refused outside_reach",
+            "ended changed",
+            "refused too_large",
+            "ended changed",
+            "refused not_absolute",
+            "ended changed",
+            "refused agent_filesystem",
+            "ended changed",
+            "refused no_reach",
+            "ended ran",
+            "refused no_reach",
+            "ended changed",
+            "refused no_reach",
+            "ended changed",
+            "refused holds_secret",
+            "waits_for_chief",
+            "refused holds_secret",
+            "waits_for_chief",
+            "refused holds_secret",
+            "waits_for_chief",
+        ]
+    );
 }
 
 #[cfg(unix)]
@@ -472,7 +671,7 @@ async fn what_a_change_hands_back_is_scrubbed() {
     assert!(!diff.patch.contains(SECRET));
     assert_eq!(
         missing,
-        ChangeAnswer::Failed(format!(
+        failed(format!(
             "Could not edit file: {}. Error code: not_found.",
             folder.join("[REDACTED].md").display()
         ))
@@ -616,9 +815,11 @@ async fn large_writes_alone() {
     assert_eq!(read(&auto), "small");
     assert_eq!(
         waits,
-        ChangeAnswer::WaitsForChief(vec![
-            hamlet_messages::workspace::reach::Need::Edit,
-        ])
+        ChangeAnswer::WaitsForChief {
+            needs: vec![
+                hamlet_messages::workspace::reach::Need::Edit,
+            ]
+        }
     );
     let subject = peers.asked.lock().unwrap()[0].subject.clone();
     let shown = format!(

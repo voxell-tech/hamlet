@@ -8,6 +8,7 @@ pub mod fault;
 mod local;
 mod plain_sqlite;
 
-pub use directory::Address;
 pub use event::HostEvent;
-pub use local::{Caller, Host, HostOptions, HostRef, Values};
+/// The host's calls take an [`Address`] and stamp a [`Caller`].
+pub use hamlet_address::{Address, Caller, InvalidName};
+pub use local::{Host, HostOptions, HostRef, Values};

@@ -126,10 +126,11 @@ async fn main() -> Result<()> {
         HashMap::from([("counter".to_owned(), counter_factory())]),
     )?;
     host.boot().await?;
-    host.get_or_start("counter", "default").await?;
+    host.get_or_start(&Address::new("counter", "default")?)
+        .await?;
     let count = host
         .call(
-            &Address::new("counter", "default"),
+            &Address::new("counter", "default")?,
             "increment",
             encode_count(1)?,
             Duration::from_secs(60),

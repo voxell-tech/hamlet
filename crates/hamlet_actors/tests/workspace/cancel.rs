@@ -6,22 +6,32 @@ use std::time::{Duration, Instant};
 use hamlet_actor::Action;
 use hamlet_host::{Address, Host};
 use hamlet_messages::agent::Outcome;
-use hamlet_messages::workspace::reach::{Reach, Refusal};
+use hamlet_messages::workspace::files::{ChangeAnswer, ChangeEnd};
+use hamlet_messages::workspace::reach::Reach;
+use hamlet_messages::workspace::refusal::{ReachRefusal, WaitEnd};
 use hamlet_messages::workspace::{
-    AgentNumber, Answer, AnswerTaken, CallId, CallRefusal,
-    CallerRefusal, Cancel, CancelAnswer, ConversationId, Exit, Lapse,
-    ReachAnswer, ReachVersion, Run, RunAnswer, SetReach, Which,
+    AgentNumber, Answer, AnswerTaken, CallId, Cancel, Cancelled,
+    ConversationId, Exit, InForce, Lapse, ReachVersion, Run,
+    RunAnswer, RunEnd, SetReach, Which,
 };
 use hamlet_testing::Scratch;
 
-use super::changes::manual;
+use super::changes::{edit, manual, read, write};
 use super::files::{ask, project};
 use super::waits::{chief, waits};
 use super::{
-    AGENT, Leave, agent, agent_runs, answering_within, filesystem,
-    host_with, ran, reach, realm, realm_sets, run, running, runs_as,
-    status_as, told, told_within,
+    AGENT, Leave, WRONG_CALLER, agent, agent_runs, answering_within,
+    error_of, filesystem, host_with, ran, reach, realm, realm_sets,
+    run, running, runs_as, status_as, told, told_within,
 };
+
+/// A cancel of agent 7's commands of `which`.
+fn cancel(which: Which) -> Cancel {
+    Cancel {
+        agent: AGENT,
+        which,
+    }
+}
 
 /// Asks the workspace, as the actor at `from`, to end agent 7's
 /// commands of `which`.
@@ -29,20 +39,14 @@ async fn cancels(
     host: &Host,
     from: &Address,
     which: Which,
-) -> CancelAnswer {
-    ask(
-        host,
-        from,
-        &Cancel {
-            agent: AGENT,
-            which,
-        },
-    )
-    .await
+) -> Cancelled {
+    ask(host, from, &cancel(which)).await
 }
 
 fn one(call: &str) -> Which {
-    Which::One(CallId(call.to_owned()))
+    Which::One {
+        call: CallId(call.to_owned()),
+    }
 }
 
 /// A run of `script` as call `call` in the conversation
@@ -83,7 +87,12 @@ async fn a_cancel_ends_a_running_command_and_the_agent_is_told_once()
     let status = status_as(&host, AGENT, command).await;
     host.shutdown().await.unwrap();
 
-    assert_eq!(answer, CancelAnswer::Cancelled(vec![command]));
+    assert_eq!(
+        answer,
+        Cancelled {
+            commands: vec![command]
+        }
+    );
     assert!(took < Duration::from_secs(1), "{took:?}");
     let told = told(&peers);
     assert_eq!(told.len(), 1, "{told:?}");
@@ -94,11 +103,16 @@ async fn a_cancel_ends_a_running_command_and_the_agent_is_told_once()
         (&Exit::Cancelled, "started\n")
     );
     assert!(!fs.join("late").exists(), "the command ran on");
-    assert_eq!(status, RunAnswer::Done(end.clone()));
+    assert_eq!(
+        status,
+        RunAnswer::Ended {
+            end: RunEnd::Ran(end.clone())
+        }
+    );
 }
 
 /// A cancel while the call still waits for its command ends it, and
-/// the call answers `Done` as cancelled: the agent hears the end
+/// the call answers `Ended` as cancelled: the agent hears the end
 /// once, so it is not called.
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
@@ -123,11 +137,19 @@ async fn a_cancel_within_the_wait_answers_the_call() {
     tokio::time::sleep(Duration::from_millis(2000)).await;
     host.shutdown().await.unwrap();
 
-    let RunAnswer::Done(end) = answered else {
+    let RunAnswer::Ended {
+        end: RunEnd::Ran(end),
+    } = answered
+    else {
         panic!("the call answered {answered:?}");
     };
     assert_eq!(end.exit, Exit::Cancelled);
-    assert_eq!(answer, CancelAnswer::Cancelled(vec![end.command]));
+    assert_eq!(
+        answer,
+        Cancelled {
+            commands: vec![end.command]
+        }
+    );
     assert!(took < Duration::from_secs(1), "{took:?}");
     assert_eq!(told(&peers), []);
     assert!(!fs.join("late").exists(), "the command ran on");
@@ -159,7 +181,9 @@ async fn a_cancel_ends_a_conversations_commands_or_all() {
     let of_a = cancels(
         &host,
         &realm(),
-        Which::Conversation(ConversationId("a".into())),
+        Which::Conversation {
+            conversation: ConversationId("a".into()),
+        },
     )
     .await;
     let b_meanwhile = status_as(&host, AGENT, commands[2]).await;
@@ -167,10 +191,7 @@ async fn a_cancel_ends_a_conversations_commands_or_all() {
     told_within(&peers, 3, Duration::from_secs(3)).await;
     host.shutdown().await.unwrap();
 
-    let mut of_a = match of_a {
-        CancelAnswer::Cancelled(of_a) => of_a,
-        other => panic!("the cancel answered {other:?}"),
-    };
+    let mut of_a = of_a.commands;
     of_a.sort_by_key(|command| command.0);
     assert_eq!(of_a, commands[..2]);
     assert_eq!(
@@ -179,7 +200,12 @@ async fn a_cancel_ends_a_conversations_commands_or_all() {
             command: commands[2]
         }
     );
-    assert_eq!(all, CancelAnswer::Cancelled(vec![commands[2]]));
+    assert_eq!(
+        all,
+        Cancelled {
+            commands: vec![commands[2]]
+        }
+    );
     let told = told(&peers);
     assert_eq!(told.len(), 3, "{told:?}");
     assert!(
@@ -203,23 +229,31 @@ async fn a_cancel_of_nothing_does_nothing() {
     realm_sets(&host, 1, reach(None)).await;
     let before = cancels(&host, &realm(), Which::All).await;
     let unknown = cancels(&host, &agent(AGENT), one("nope")).await;
-    let RunAnswer::Done(end) =
-        agent_runs(&host, &run("c1", "echo hi")).await
+    let RunAnswer::Ended {
+        end: RunEnd::Ran(end),
+    } = agent_runs(&host, &run("c1", "echo hi")).await
     else {
-        panic!("echo did not answer Done");
+        panic!("echo did not answer Ended");
     };
     let ended = cancels(&host, &agent(AGENT), one("c1")).await;
     let status = status_as(&host, AGENT, end.command).await;
     tokio::time::sleep(Duration::from_millis(300)).await;
     host.shutdown().await.unwrap();
 
-    let none = CancelAnswer::Cancelled(Vec::new());
+    let none = Cancelled {
+        commands: Vec::new(),
+    };
     assert_eq!(
         [before, unknown, ended],
         [none.clone(), none.clone(), none]
     );
-    assert_eq!(end.exit, Exit::Code(0));
-    assert_eq!(status, RunAnswer::Done(end));
+    assert_eq!(end.exit, Exit::Code { code: 0 });
+    assert_eq!(
+        status,
+        RunAnswer::Ended {
+            end: RunEnd::Ran(end)
+        }
+    );
     assert_eq!(told(&peers), []);
 }
 
@@ -241,16 +275,22 @@ async fn a_cancel_after_a_restart_finds_nothing() {
     let status = status_as(&again, AGENT, command).await;
     again.shutdown().await.unwrap();
 
-    assert_eq!(answer, CancelAnswer::Cancelled(Vec::new()));
+    assert_eq!(
+        answer,
+        Cancelled {
+            commands: Vec::new()
+        }
+    );
     assert!(
-        matches!(&status, RunAnswer::Done(end) if end.exit == Exit::CutOff),
+        matches!(&status, RunAnswer::Ended { end: RunEnd::Ran(end) } if end.exit == Exit::CutOff),
         "{status:?}"
     );
     assert_eq!(told(&peers), []);
 }
 
 /// Only the realm and the agent named cancel its commands: another
-/// agent and another kind are refused, and the command runs on.
+/// agent and another kind fail as wrong callers, and the command
+/// runs on.
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_cancel_comes_from_the_realm_or_the_agent_it_names() {
@@ -262,27 +302,27 @@ async fn a_cancel_comes_from_the_realm_or_the_agent_it_names() {
     let command =
         running(&agent_runs(&host, &run("c1", "sleep 5")).await);
     let other = AgentNumber(8);
-    let by_other = cancels(&host, &agent(other), Which::All).await;
-    let by_a_stranger =
-        cancels(&host, &Address::new("other", "x"), Which::All).await;
+    let by_other =
+        error_of(&host, &agent(other), &cancel(Which::All)).await;
+    let by_a_stranger = error_of(
+        &host,
+        &Address::new("other", "x").unwrap(),
+        &cancel(Which::All),
+    )
+    .await;
     let meanwhile = status_as(&host, AGENT, command).await;
     let by_the_realm = cancels(&host, &realm(), Which::All).await;
     told_within(&peers, 1, Duration::from_secs(3)).await;
     host.shutdown().await.unwrap();
 
-    assert_eq!(
-        by_other,
-        CancelAnswer::Refused(CallerRefusal::NotTheCaller {
-            named: AGENT,
-            caller: other,
-        })
-    );
-    assert_eq!(
-        by_a_stranger,
-        CancelAnswer::Refused(CallerRefusal::NotAnAgent)
-    );
+    assert_eq!([by_other, by_a_stranger], [WRONG_CALLER; 2]);
     assert_eq!(meanwhile, RunAnswer::Running { command });
-    assert_eq!(by_the_realm, CancelAnswer::Cancelled(vec![command]));
+    assert_eq!(
+        by_the_realm,
+        Cancelled {
+            commands: vec![command]
+        }
+    );
 }
 
 /// Calls the workspace with a [`SetReach`] of agent `number`, as
@@ -292,7 +332,7 @@ pub(super) async fn realm_sets_for(
     number: AgentNumber,
     version: u64,
     reach: Reach,
-) -> ReachAnswer {
+) -> InForce {
     ask(
         host,
         &realm(),
@@ -324,10 +364,7 @@ async fn an_ended_reach_ends_the_agents_commands() {
     let command = running(
         &agent_runs(&host, &run("c1", "sleep 1.5; touch late")).await,
     );
-    let others = Run {
-        agent: other,
-        ..run("c1", "sleep 1.5; touch late")
-    };
+    let others = run("c1", "sleep 1.5; touch late");
     running(&runs_as(&host, other, &others).await);
 
     let asked = Instant::now();
@@ -336,10 +373,16 @@ async fn an_ended_reach_ends_the_agents_commands() {
     let after = agent_runs(&host, &run("c2", "touch after")).await;
     told_within(&peers, 2, Duration::from_secs(3)).await;
     tokio::time::sleep(Duration::from_millis(500)).await;
-    let seven = host.get_or_start(super::workspace::AGENT, "7").await;
+    let seven = agent(AgentNumber(7));
+    host.get_or_start(&seven).await.unwrap();
     host.shutdown().await.unwrap();
 
-    assert_eq!(ended, ReachAnswer::InForce(ReachVersion(2)));
+    assert_eq!(
+        ended,
+        InForce {
+            version: ReachVersion(2)
+        }
+    );
     assert!(took < Duration::from_secs(1), "{took:?}");
     assert!(
         !fs.join("late").exists(),
@@ -351,13 +394,15 @@ async fn an_ended_reach_ends_the_agents_commands() {
     );
     assert_eq!(
         after,
-        RunAnswer::Refused(CallRefusal::Reach(Refusal::NoReach))
+        RunAnswer::Refused {
+            why: ReachRefusal::NoReach.into()
+        }
     );
     assert!(!fs.join("after").exists());
     let told = told(&peers);
     let to_seven = told
         .iter()
-        .filter(|(to, _)| *to == seven.as_ref().unwrap().as_str())
+        .filter(|(to, _)| *to == seven.to_string())
         .map(|(_, finished)| (finished.call.clone(), ran(finished)))
         .collect::<Vec<_>>();
     assert_eq!(to_seven.len(), 1, "{told:?}");
@@ -369,46 +414,103 @@ async fn an_ended_reach_ends_the_agents_commands() {
 }
 
 /// an ended reach closes the agent's waits for a chief in the
-/// same change: the agent is told its call's wait lapsed, a chief's
-/// allow a moment later finds no wait and starts nothing, and a
-/// repeat of the call answers that it lapsed.
+/// same change, a command's and a change's alike (M-E7): the agent
+/// is told each call's wait lapsed, by its kind, a chief's allow a
+/// moment later finds no wait and starts nothing, and a repeat of
+/// the call answers that it lapsed.
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn an_ended_reach_closes_the_agents_waits() {
     let dir = Scratch::new("workspace-ended-waits");
     filesystem(&dir);
-    let (_project, folder) = project("workspace-ended-waits-p", &[]);
+    let (_project, folder) =
+        project("workspace-ended-waits-p", &[("a.md", "a")]);
     let peers = answering_within(2000);
     let host = host_with(&dir, peers.clone()).await;
     realm_sets(&host, 1, manual(&folder)).await;
     let call = run("c1", "touch marker");
+    let me = agent(AGENT);
+    let file = folder.join("a.md");
+    let asked_write = write("w1", &file, "b");
     let waiting = agent_runs(&host, &call).await;
+    let write_waits = ask(&host, &me, &asked_write).await;
+    let edit_waits =
+        ask(&host, &me, &edit("e1", &file, &[("a", "c")])).await;
 
     let ended = realm_sets(&host, 2, Reach::Ended).await;
     let allowed = chief(&host, "c1", Answer::Allow).await;
+    let write_allowed = chief(&host, "w1", Answer::Allow).await;
     let repeat = agent_runs(&host, &call).await;
-    told_within(&peers, 1, Duration::from_secs(3)).await;
+    let write_repeat = ask(&host, &me, &asked_write).await;
+    told_within(&peers, 3, Duration::from_secs(3)).await;
     tokio::time::sleep(Duration::from_millis(500)).await;
     host.shutdown().await.unwrap();
 
     assert!(
-        matches!(waiting, RunAnswer::WaitsForChief(_)),
+        matches!(waiting, RunAnswer::WaitsForChief { .. }),
         "{waiting:?}"
     );
-    assert_eq!(ended, ReachAnswer::InForce(ReachVersion(2)));
-    assert_eq!(allowed, AnswerTaken::NoWait);
+    assert!(
+        matches!(write_waits, ChangeAnswer::WaitsForChief { .. }),
+        "{write_waits:?}"
+    );
+    assert!(
+        matches!(edit_waits, ChangeAnswer::WaitsForChief { .. }),
+        "{edit_waits:?}"
+    );
+    assert_eq!(
+        ended,
+        InForce {
+            version: ReachVersion(2)
+        }
+    );
+    assert_eq!(
+        (allowed, write_allowed),
+        (AnswerTaken::NoWait, AnswerTaken::NoWait)
+    );
     assert_eq!(waits(&dir), 0);
-    let lapsed = CallRefusal::Lapsed(Lapse::Ended);
-    assert_eq!(repeat, RunAnswer::Refused(lapsed.clone()));
-    let told = told(&peers)
+    let lapse = WaitEnd::Lapsed {
+        lapse: Lapse::Ended,
+    };
+    let lapsed = RunEnd::NotRun {
+        why: lapse.clone().into(),
+    };
+    let change_lapsed = ChangeEnd::NotRun { why: lapse.into() };
+    assert_eq!(
+        repeat,
+        RunAnswer::Ended {
+            end: lapsed.clone()
+        }
+    );
+    assert_eq!(
+        write_repeat,
+        ChangeAnswer::Ended {
+            end: change_lapsed.clone()
+        }
+    );
+    let mut told = told(&peers)
         .into_iter()
         .map(|(_, finished)| (finished.call, finished.outcome))
         .collect::<Vec<_>>();
+    told.sort_by(|(a, _), (b, _)| a.0.cmp(&b.0));
     assert_eq!(
         told,
-        [(CallId("c1".into()), Outcome::NotRun(lapsed))]
+        [
+            (CallId("c1".into()), Outcome::Run { end: lapsed }),
+            (
+                CallId("e1".into()),
+                Outcome::Change {
+                    end: change_lapsed.clone()
+                }
+            ),
+            (
+                CallId("w1".into()),
+                Outcome::Change { end: change_lapsed }
+            ),
+        ]
     );
     assert!(!folder.join("marker").exists());
+    assert_eq!(read(&file), "a");
 }
 
 /// A chief's allow and the agent's end, called at once, never let a
@@ -431,7 +533,7 @@ async fn an_allow_racing_an_ended_reach_runs_nothing() {
         let script = format!("sleep 0.5; touch marker{round}");
         let waiting = agent_runs(&host, &run(&call, &script)).await;
         assert!(
-            matches!(waiting, RunAnswer::WaitsForChief(_)),
+            matches!(waiting, RunAnswer::WaitsForChief { .. }),
             "{waiting:?}"
         );
         let allow = {
@@ -450,12 +552,14 @@ async fn an_allow_racing_an_ended_reach_runs_nothing() {
         let allowed = allow.await.unwrap();
         assert_eq!(
             ended,
-            ReachAnswer::InForce(ReachVersion(version + 1))
+            InForce {
+                version: ReachVersion(version + 1)
+            }
         );
         assert!(
             matches!(
                 allowed,
-                AnswerTaken::Runs | AnswerTaken::NoWait
+                AnswerTaken::Taken | AnswerTaken::NoWait
             ),
             "round {round}: {allowed:?}"
         );
@@ -481,9 +585,16 @@ async fn an_allow_racing_an_ended_reach_runs_nothing() {
         assert!(
             matches!(
                 &finished.outcome,
-                Outcome::Ran(end) if end.exit == Exit::Cancelled
+                Outcome::Run { end: RunEnd::Ran(end) } if end.exit == Exit::Cancelled
             ) || finished.outcome
-                == Outcome::NotRun(CallRefusal::Lapsed(Lapse::Ended)),
+                == Outcome::Run {
+                    end: RunEnd::NotRun {
+                        why: WaitEnd::Lapsed {
+                            lapse: Lapse::Ended
+                        }
+                        .into()
+                    }
+                },
             "{finished:?}"
         );
     }
@@ -516,7 +627,12 @@ async fn the_notice_to_an_agent_that_is_gone_is_dropped() {
     let agent_file = dir.join("actors/agent/7.sqlite").exists();
     host.shutdown().await.unwrap();
 
-    assert_eq!(ended, ReachAnswer::InForce(ReachVersion(2)));
+    assert_eq!(
+        ended,
+        InForce {
+            version: ReachVersion(2)
+        }
+    );
     assert_eq!(waits(&dir), 0);
     assert_eq!(told(&peers), []);
     assert!(!agent_file, "the notice made the agent again");

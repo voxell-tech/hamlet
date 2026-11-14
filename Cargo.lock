@@ -4702,6 +4702,7 @@ dependencies = [
  "ciborium",
  "hamlet_actor",
  "hamlet_actor_core",
+ "hamlet_actor_error",
  "hamlet_host",
  "hamlet_messages",
  "hamlet_os",
@@ -4720,6 +4721,15 @@ dependencies = [
  "tracing",
  "unicode-normalization",
  "uuid",
+]
+
+[[package]]
+name = "hamlet_address"
+version = "0.1.0"
+dependencies = [
+ "ciborium",
+ "serde",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -4851,6 +4861,7 @@ dependencies = [
  "hamlet_actor_core",
  "hamlet_actor_error",
  "hamlet_actors",
+ "hamlet_address",
  "hamlet_host",
  "hamlet_messages",
  "hamlet_sandbox",
@@ -4877,11 +4888,16 @@ dependencies = [
 name = "hamlet_messages"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
+ "base64 0.22.1",
  "ciborium",
  "hamlet_actor",
+ "hamlet_actor_error",
+ "hamlet_address",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
+ "tracing",
 ]
 
 [[package]]
