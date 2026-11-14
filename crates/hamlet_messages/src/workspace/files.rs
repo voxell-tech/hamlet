@@ -129,8 +129,9 @@ pub struct Image {
     pub bytes: Vec<u8>,
 }
 
-/// The most bytes a [`WriteFile`]'s content holds: 16 MiB, the
-/// largest frame the link between two hosts carries.
+/// The most bytes a [`WriteFile`]'s content holds: 16 MiB, which
+/// bounds the request a write carries and the workspace keeps while
+/// it waits for a chief.
 pub const MOST_CONTENT: u64 = 16 * 1024 * 1024;
 
 /// Creates or replaces a whole file for an agent.
