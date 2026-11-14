@@ -1,3 +1,5 @@
+//! An actor's address, and who made a call, as a host stamps it.
+
 use std::fmt;
 
 use serde::{Deserialize, Serialize};
@@ -17,9 +19,7 @@ pub struct Address {
 }
 
 impl Address {
-    /// Refuses a kind or a key that is not plain: not empty, not
-    /// starting with `.`, at most 128 bytes, and only `a-z`, `0-9`,
-    /// `-`, `_` and `.`.
+    /// Refuses a kind or a key that is not [`plain`].
     pub fn new(
         kind: impl Into<String>,
         key: impl Into<String>,
@@ -78,8 +78,9 @@ impl InvalidName {
     }
 }
 
+/// What a name that [`plain`] checks names.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Named {
+pub enum Named {
     KindOrKey,
     Kind,
     Host,
@@ -95,10 +96,9 @@ impl fmt::Display for Named {
     }
 }
 
-pub(crate) fn plain(
-    name: &str,
-    what: Named,
-) -> Result<(), InvalidName> {
+/// Refuses `name` unless it is plain: not empty, not starting with
+/// `.`, at most 128 bytes, and only `a-z`, `0-9`, `-`, `_` and `.`.
+pub fn plain(name: &str, what: Named) -> Result<(), InvalidName> {
     let plain = !name.is_empty()
         && !name.starts_with('.')
         && name.len() <= 128

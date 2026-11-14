@@ -7,11 +7,11 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use hamlet_actor_core::{ActorContext, ActorLifecycle};
+use hamlet_address::{Address, Caller};
 
 use super::{
     HostInner, HostOptions, LocalHandle, Open, host_shut_down,
 };
-use crate::address::{Address, Caller};
 
 /// An actor's view of the host that runs it, from its `create` on:
 /// the realm folder, the values the program that opened the host gave

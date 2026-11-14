@@ -4723,6 +4723,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "hamlet_address"
+version = "0.1.0"
+dependencies = [
+ "ciborium",
+ "serde",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "hamlet_app"
 version = "0.1.0"
 dependencies = [
@@ -4851,6 +4860,7 @@ dependencies = [
  "hamlet_actor_core",
  "hamlet_actor_error",
  "hamlet_actors",
+ "hamlet_address",
  "hamlet_host",
  "hamlet_messages",
  "hamlet_sandbox",
@@ -4859,7 +4869,6 @@ dependencies = [
  "parking_lot",
  "rusqlite",
  "serde",
- "thiserror 2.0.21",
  "tokio",
  "tracing",
  "tracing-subscriber",

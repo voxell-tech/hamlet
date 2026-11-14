@@ -2,11 +2,11 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use hamlet_actor_error::ActorError;
+use hamlet_address::Address;
 
 use super::access::Stamp;
 use super::call::admit;
 use super::{Host, HostInner, Open};
-use crate::address::Address;
 use crate::directory::Place;
 
 /// A create of a key that holds an actor.

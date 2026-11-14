@@ -10,11 +10,11 @@ use anyhow::{Context, Result};
 use hamlet_actor_core::ActorFactory;
 use hamlet_actor_core::error::ActorRuntime;
 use hamlet_actor_core::host::ActionTimedOut;
+use hamlet_address::{Address, Caller};
 use tracing::Instrument;
 
 use super::access::Stamp;
 use super::{Host, HostInner, Open, actor_id, host_shut_down};
-use crate::address::{Address, Caller};
 use crate::directory::Place;
 
 impl Host {
