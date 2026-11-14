@@ -1,6 +1,4 @@
-//! Bytes as the messages carry them: as text. A message crosses the
-//! host through the JSON value model, which has no bytes, so a
-//! `Vec<u8>` would cross as a list of numbers.
+//! Bytes as the messages carry them: as text.
 
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;

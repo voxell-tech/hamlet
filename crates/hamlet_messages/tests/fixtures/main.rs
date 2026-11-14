@@ -2,9 +2,7 @@
 //! call's arguments are encoded as the authoring layer encodes them,
 //! and an answer as it encodes an action's output. A message whose
 //! bytes changed rewrites its fixture and fails once, so the change
-//! is committed with it. Every case of every enum in [`enums`] has a
-//! fixture, a fixture holds no enum missing from it, and no field is
-//! written as `null`.
+//! is committed with it.
 
 mod cases;
 
@@ -41,7 +39,6 @@ use self::cases::{Cases, named, tagged};
 
 const AGENT: AgentNumber = AgentNumber(7);
 
-/// Every enum a message holds, by its cases.
 fn enums() -> Vec<Cases> {
     vec![
         tagged::<ReachAnswer>(),
@@ -75,8 +72,6 @@ fn folder() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures")
 }
 
-/// The fixtures written so far, what changed on disk, and the enum
-/// cases they hold.
 #[derive(Default)]
 struct Fixtures {
     written: BTreeSet<String>,
@@ -151,9 +146,7 @@ impl Fixtures {
         self.rewritten.push(name.to_owned());
     }
 
-    /// Removes the fixtures no message wrote, then fails if a fixture
-    /// changed or an enum has a case no fixture holds.
-    fn finish(mut self) {
+    fn remove_unwritten(&mut self) {
         for file in files(&folder()) {
             let name = file
                 .strip_prefix(folder())
@@ -166,12 +159,11 @@ impl Fixtures {
                 self.rewritten.push(format!("{name} (removed)"));
             }
         }
+    }
+
+    fn case_problems(&self) -> Vec<String> {
+        let mut problems = Vec::new();
         let enums = enums();
-        let mut problems = self
-            .nulls
-            .iter()
-            .map(|name| format!("{name} writes a field as null"))
-            .collect::<Vec<_>>();
         for (at, cases) in enums.iter().enumerate() {
             if let Some(name) =
                 cases.iter().find(|name| !is_snake_case(name))
@@ -201,6 +193,16 @@ impl Fixtures {
                 ));
             }
         }
+        problems
+    }
+
+    fn assert_unchanged_and_covered(self) {
+        let mut problems = self.case_problems();
+        problems.extend(
+            self.nulls
+                .iter()
+                .map(|name| format!("{name} writes a field as null")),
+        );
         if !self.rewritten.is_empty() {
             problems.push(format!(
                 "These messages' bytes changed, so their fixtures \
@@ -213,7 +215,6 @@ impl Fixtures {
     }
 }
 
-/// The files under `folder`, at any depth.
 fn files(folder: &Path) -> Vec<PathBuf> {
     std::fs::read_dir(folder)
         .unwrap()
@@ -251,7 +252,8 @@ fn every_message_and_every_case_matches_its_fixture() {
     the_answers_about_a_command(&mut fixtures);
     the_reads(&mut fixtures);
     the_changes(&mut fixtures);
-    fixtures.finish();
+    fixtures.remove_unwritten();
+    fixtures.assert_unchanged_and_covered();
 }
 
 fn footing() -> Footing {

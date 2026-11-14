@@ -14,7 +14,6 @@ pub type Cases = &'static [&'static str];
 
 const UNKNOWN: &str = "?";
 
-/// The cases of an enum tagged by `type`.
 pub fn tagged<E: DeserializeOwned>() -> Cases {
     cases_of::<E>(&Value::Map(vec![(
         Value::Text("type".into()),
@@ -22,13 +21,12 @@ pub fn tagged<E: DeserializeOwned>() -> Cases {
     )]))
 }
 
-/// The cases of an enum of bare names.
 pub fn named<E: DeserializeOwned>() -> Cases {
     cases_of::<E>(&Value::Text(UNKNOWN.into()))
 }
 
 fn cases_of<E: DeserializeOwned>(probe: &Value) -> Cases {
-    match E::deserialize(Node(probe)) {
+    match E::deserialize(TaggedReader(probe)) {
         Err(Probed {
             cases: Some(cases), ..
         }) => cases,
@@ -40,14 +38,13 @@ fn cases_of<E: DeserializeOwned>(probe: &Value) -> Cases {
     }
 }
 
-/// Each enum case that `value`, the fixture `name` read as a `T`,
-/// holds: the enum's cases and the name of the one it holds. Fails on
-/// an enum that is neither tagged by `type` nor a bare name.
+/// Each enum case `value` holds when read as a `T`, with that enum's
+/// cases.
 pub fn found<T: DeserializeOwned>(
     name: &str,
     value: &Value,
 ) -> Vec<(Cases, String)> {
-    if let Err(error) = T::deserialize(Node(value)) {
+    if let Err(error) = T::deserialize(TaggedReader(value)) {
         panic!("{name} holds an enum not tagged by `type`: {error}");
     }
     let mut paths = Vec::new();
@@ -63,7 +60,7 @@ pub fn found<T: DeserializeOwned>(
         };
         if let Err(Probed {
             cases: Some(cases), ..
-        }) = T::deserialize(Node(&probe))
+        }) = T::deserialize(TaggedReader(&probe))
         {
             found.push((cases, name));
         }
@@ -71,7 +68,6 @@ pub fn found<T: DeserializeOwned>(
     found
 }
 
-/// The paths to every text that is a value, not a key.
 fn texts(
     value: &Value,
     path: &mut Vec<usize>,
@@ -100,8 +96,6 @@ fn at<'a>(value: &'a mut Value, path: &[usize]) -> &'a mut Value {
     })
 }
 
-/// A read's failure, with the cases of the enum that met an unknown
-/// one.
 #[derive(Debug, thiserror::Error)]
 #[error("{message}")]
 struct Probed {
@@ -125,10 +119,9 @@ impl de::Error for Probed {
     }
 }
 
-/// A fixture's value read as serde reads the JSON value model.
-struct Node<'a>(&'a Value);
+struct TaggedReader<'a>(&'a Value);
 
-impl<'de> de::Deserializer<'de> for Node<'_> {
+impl<'de> de::Deserializer<'de> for TaggedReader<'_> {
     type Error = Probed;
 
     fn deserialize_any<V: Visitor<'de>>(
@@ -151,17 +144,18 @@ impl<'de> de::Deserializer<'de> for Node<'_> {
             Value::Float(value) => visitor.visit_f64(*value),
             Value::Text(text) => visitor.visit_str(text),
             Value::Array(items) => {
-                let mut items =
-                    SeqDeserializer::new(items.iter().map(Node));
+                let mut items = SeqDeserializer::new(
+                    items.iter().map(TaggedReader),
+                );
                 let value = visitor.visit_seq(&mut items)?;
                 items.end()?;
                 Ok(value)
             }
             Value::Map(entries) => {
                 let mut entries = MapDeserializer::new(
-                    entries
-                        .iter()
-                        .map(|(key, item)| (Node(key), Node(item))),
+                    entries.iter().map(|(key, item)| {
+                        (TaggedReader(key), TaggedReader(item))
+                    }),
                 );
                 let value = visitor.visit_map(&mut entries)?;
                 entries.end()?;
@@ -214,7 +208,7 @@ impl<'de> de::Deserializer<'de> for Node<'_> {
     }
 }
 
-impl IntoDeserializer<'_, Probed> for Node<'_> {
+impl IntoDeserializer<'_, Probed> for TaggedReader<'_> {
     type Deserializer = Self;
 
     fn into_deserializer(self) -> Self {
