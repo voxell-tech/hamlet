@@ -203,6 +203,9 @@ impl Handler<Run> for Workspace {
             return Ok(RunAnswer::Refused(CallRefusal::Invalid(why)));
         }
         let request_hash = run::request_hash(&run)?;
+        // Read before the row is opened: past its commit, nothing
+        // returns before the command starts.
+        let leftovers = self.leftovers.of(i64::try_from(agent.0)?);
         let mut fetched = false;
         let opened = loop {
             let tx = ctx.sql().begin_transaction(None).await?;
@@ -256,7 +259,7 @@ impl Handler<Run> for Workspace {
             sandbox: self.sandbox,
             timeout,
             secrets: opened.secrets,
-            leftovers: self.leftovers.of(i64::try_from(agent.0)?),
+            leftovers,
         };
         self.clone().start(&ctx, agent, run.call, spec);
         Ok(waiters.answer(command).await)
