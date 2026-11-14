@@ -70,8 +70,7 @@ impl Directory {
     /// the host running the actor can do. Fails with
     /// `actor.not_registered` for a kind no host of the link holds.
     /// Fails with `actor.invalid_operation`, naming `operation`, for
-    /// a kind the other host runs: only a call and a create cross the
-    /// link.
+    /// a kind the other host runs.
     pub(crate) fn factory(
         &self,
         at: &Address,
@@ -93,8 +92,6 @@ pub(crate) fn not_registered(kind: &str) -> anyhow::Error {
     .build()
 }
 
-/// `actor.invalid_operation` for `operation` of an actor of `kind`,
-/// which the other host of the link runs.
 pub(crate) fn runs_in_the_other_host(
     operation: &str,
     kind: &str,

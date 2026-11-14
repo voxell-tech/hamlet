@@ -1,6 +1,4 @@
-//! Who each host of the link speaks for. The answering side vets a
-//! request with [`Side::vet`]; the asking side's `Port::may_ask` uses
-//! the same role half, [`Role::has_a_program`].
+//! The callers each host of the link speaks for.
 
 use std::collections::BTreeSet;
 
@@ -10,8 +8,7 @@ use crate::Caller;
 /// Which host of the link.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Role {
-    /// The host the program opened. It alone has a program and
-    /// clients.
+    /// The host the program opened.
     Rust,
     /// Its child.
     Node,
@@ -19,16 +16,14 @@ pub(crate) enum Role {
 
 impl Role {
     /// Whether a host of this role makes operations with no caller or
-    /// with a client's: only the Rust host has a program and clients.
+    /// with a client's.
     pub(crate) fn has_a_program(self) -> bool {
         self == Role::Rust
     }
 }
 
 /// The other host of the link: which of the two it is, and the kinds
-/// it runs (`ChildOptions.kinds` in the Rust host, which the hello
-/// must state; the welcome's in the Node host). Its port holds the
-/// one copy.
+/// it runs.
 #[derive(Clone, Debug)]
 pub(crate) struct Side {
     pub(crate) role: Role,
@@ -46,9 +41,7 @@ impl Side {
         }
     }
 
-    /// Whether this host makes operations for `caller`: an actor of
-    /// one of its kinds, and for the Rust host also its program
-    /// (none) and its program's clients.
+    /// Whether this host makes operations for `caller`.
     pub(crate) fn speaks_for(&self, caller: Option<&Caller>) -> bool {
         match caller {
             Some(Caller::Actor(from)) => {
@@ -58,8 +51,7 @@ impl Side {
         }
     }
 
-    /// The stamp `from` of a request this host wrote, checked. The
-    /// only way to a [`Vetted`].
+    /// The stamp `from` of a request this host wrote, checked.
     pub(crate) fn vet(
         &self,
         from: Option<Caller>,
@@ -72,9 +64,7 @@ impl Side {
     }
 }
 
-/// A caller the other host asked for and speaks for. Its field is
-/// private to this file, so one exists only through [`Side::vet`],
-/// and `Stamp::from_peer` takes nothing else.
+/// A caller the other host asked for and speaks for.
 pub(crate) struct Vetted(Option<Caller>);
 
 impl Vetted {
@@ -92,9 +82,6 @@ mod tests {
         Caller::Actor(Address::new(kind, "x").unwrap())
     }
 
-    /// The table of the sketch's point 4: each host speaks for the
-    /// actors of its own kinds, and only the Rust host for none and a
-    /// client.
     #[test]
     fn a_side_speaks_for_its_own_actors_and_only_the_rust_host_for_none_and_a_client()
      {

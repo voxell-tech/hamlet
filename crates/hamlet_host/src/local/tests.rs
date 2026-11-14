@@ -172,8 +172,6 @@ async fn an_ended_generations_handle_reaches_nothing_of_its_key_made_again()
     an_ended_generations_handle_reaches_nothing(true).await;
 }
 
-/// A kind that answers who called it, and gets or starts an actor as
-/// itself.
 struct Callee;
 
 #[derive(Serialize, Deserialize)]
@@ -231,8 +229,6 @@ fn at(kind: &str, key: &str) -> Address {
     Address::new(kind, key).unwrap()
 }
 
-/// A Rust host of the kinds `kinds`, each a [`Callee`], linked to a
-/// Node host that runs `agent`.
 fn linked(
     dir: &Path,
     kinds: &[&str],
@@ -259,15 +255,12 @@ fn linked(
     )
 }
 
-/// The stamp of `from`, an actor of the Node host, as the link vets
-/// it.
 fn vetted(from: &Address) -> Vetted {
     Side::new(Role::Node, ["agent".to_owned()])
         .vet(Some(Caller::Actor(from.clone())))
         .unwrap()
 }
 
-/// Calls `who` of the actor at `to` for `from`, as the link does.
 async fn who(
     inbound: &Inbound,
     from: &Address,
@@ -290,9 +283,6 @@ fn a_kind_both_hosts_hold_is_refused_at_open() {
     linked(&dir, &["realm"], Routes::Any).unwrap();
 }
 
-/// Boot reads the files of the host's own kinds alone: a file put by
-/// hand in a local kind's folder is reported, and one in the linked
-/// kind's folder is never read.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_linked_kind_is_never_locked_or_booted() {
     let dir = Scratch::new("host-linked-boot");

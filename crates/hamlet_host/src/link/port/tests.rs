@@ -28,7 +28,6 @@ fn reply(id: u64, output: &[u8]) -> Frame {
     }
 }
 
-/// The frames read from `input`, until it ends.
 fn frames(mut input: PipeReader) -> mpsc::UnboundedReceiver<Frame> {
     let (sender, frames) = mpsc::unbounded_channel();
     thread::spawn(move || {
@@ -39,7 +38,6 @@ fn frames(mut input: PipeReader) -> mpsc::UnboundedReceiver<Frame> {
     frames
 }
 
-/// Calls `slow` at `to` through `port`, in a task of its own.
 fn call(
     port: &Port,
     to: Address,
@@ -51,9 +49,6 @@ fn call(
     })
 }
 
-/// A port of role `ours`, on a host that runs no kind, with the
-/// pipe its session writes to. The other host runs `agent` when
-/// it is the Node host, and `realm` when it is the Rust host.
 struct Linked {
     port: Port,
     out: Writer,
@@ -124,16 +119,12 @@ impl Linked {
             .unwrap()
     }
 
-    /// Asserts that nothing was written since the last frame
-    /// read, by writing a frame behind it.
     async fn nothing_written(&mut self) {
         self.out.write(&Frame::Goodbye).await.unwrap();
         assert_eq!(self.next().await, Frame::Goodbye);
     }
 }
 
-/// The codes of a call and of a create with no caller, each of
-/// which fails.
 async fn asked(port: &Port, to: &Address) -> [String; 2] {
     let called = port
         .call(None, to, "who", Vec::new(), TEN_S)
@@ -197,7 +188,6 @@ async fn a_request_never_written_fails_with_link_down() {
     assert_eq!(asked(&rust.port, &agent).await, ["link.down"; 2]);
     rust.nothing_written().await;
 
-    // Ready, on a pipe whose writer has stopped.
     let (input, output) = io::pipe().unwrap();
     drop(input);
     let out =
@@ -214,8 +204,6 @@ async fn a_request_never_written_fails_with_link_down() {
     assert_eq!(asked(&broken, &agent).await, ["link.down"; 2]);
 }
 
-/// The session is cloned out before the link goes down, as a request
-/// that took it just then has it.
 #[tokio::test]
 async fn a_request_on_a_lost_session_fails_with_link_down() {
     let mut rust = Linked::ready(Role::Rust);
@@ -331,8 +319,6 @@ async fn the_state_follows_the_link() {
     assert!(!state.has_changed().unwrap());
 }
 
-/// The rows of the tables of who may write which frame that the
-/// other host's role decides.
 #[tokio::test]
 async fn a_frame_is_taken_only_from_the_host_that_may_write_it() {
     let out_of_turn = |taken| match taken {
@@ -372,8 +358,6 @@ async fn a_frame_is_taken_only_from_the_host_that_may_write_it() {
     ));
 }
 
-/// The link is only welcomed, and this host runs no kind, so each
-/// request it runs answers `actor.not_registered`.
 #[tokio::test]
 async fn a_peers_request_is_vetted_run_and_answered() {
     let mut rust = Linked::new(Role::Rust);

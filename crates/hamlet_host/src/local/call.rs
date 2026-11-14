@@ -133,8 +133,6 @@ impl HostInner {
         self.or_shut(called).instrument(span).await
     }
 
-    /// The call in this host: the actor started from its file within
-    /// `deadline`, then its action within what is left.
     async fn act(
         self: &Arc<Self>,
         stamp: &Stamp,
@@ -155,8 +153,6 @@ impl HostInner {
         generation.actor.action(params, name, args, left).await
     }
 
-    /// `work`, or `actor.stopping` at once when the host begins to
-    /// shut down.
     async fn or_shut<T>(
         &self,
         work: impl Future<Output = Result<T>>,

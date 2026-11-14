@@ -930,8 +930,7 @@ impl Host {
         Self::open_linked(dir, factories, options, None)
     }
 
-    /// [`Host::open_with`], for a host that the link's module opens
-    /// with a port to the other host.
+    /// [`Host::open_with`], with a port to the other host.
     pub(crate) fn open_linked(
         dir: &Path,
         factories: HashMap<String, ActorFactory>,

@@ -1,5 +1,3 @@
-//! What a frame is, and how it is read and written.
-//!
 //! A frame is the four bytes [`MAGIC`], its body's length as a
 //! big-endian `u32`, then the body: one [`Frame`] in CBOR, of at most
 //! [`FRAME_LIMIT`] bytes. A reader stops at the first frame that
@@ -59,11 +57,9 @@ pub enum Frame {
     Ready,
     /// The Rust host asks the Node host to shut down.
     Goodbye,
-    /// What a host asks of the actor at `to` in the other host, for
-    /// `from` as the asking host stamps it. `id` is the asking host's
-    /// own, and the [`Frame::Reply`] carries it back. Every operation
-    /// that crosses the link is one of these, so the stamp is
-    /// checked, and the answer carried, in one place.
+    /// A request to the actor at `to` in the other host, for `from`
+    /// as the asking host stamps it. `id` is the asking host's own,
+    /// and the [`Frame::Reply`] carries it back.
     Request {
         id: u64,
         from: Option<Caller>,
@@ -81,7 +77,7 @@ pub enum Frame {
     HostEvent(HostEvent),
 }
 
-/// What a host asks of an actor in the other host.
+/// An operation one host asks of an actor in the other.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Ask {
@@ -114,19 +110,6 @@ pub struct WireError {
 
 impl WireError {
     /// `error` as it crosses the link.
-    ///
-    /// When `error`'s chain holds an `ActorError` (the first one, as
-    /// `ActorError::extract` finds it), that error's group, code,
-    /// message and metadata cross. The metadata crosses as the raw
-    /// JSON text the error holds, not parsed.
-    ///
-    /// When the chain holds none, the error crosses as
-    /// `core.internal_error`, with the whole chain (`{error:#}`) as
-    /// the message and `{"error": "<Debug>"}` as the metadata, not
-    /// masked.
-    ///
-    /// The actor specifier and the `anyhow` context around a coded
-    /// error do not cross.
     pub(crate) fn of(error: &anyhow::Error) -> Self {
         let coded = error
             .chain()
@@ -152,10 +135,7 @@ impl WireError {
         }
     }
 
-    /// The error for the asking host's caller: a dynamic `ActorError`
-    /// with the same group, code, message and metadata, which
-    /// `ActorError::extract` and the bridge to JavaScript read as
-    /// they read any other.
+    /// The error for the asking host's caller.
     pub(crate) fn into_error(self) -> anyhow::Error {
         let Self {
             group,
@@ -193,8 +173,7 @@ pub enum Broken {
     /// The pipe failed.
     Io(io::Error),
     /// The other host asked for this caller, which it does not speak
-    /// for. A correct peer never does: its own link refuses that
-    /// before a frame is written.
+    /// for.
     Stamp(Option<Caller>),
     /// A frame the other host may not write, or not now, and what it
     /// was.
@@ -326,33 +305,23 @@ fn fill(
     Ok(filled)
 }
 
-/// The frames a [`Writer`] holds unwritten before a write waits, so a
-/// side that writes faster than its peer reads goes at the pipe's
-/// pace.
+/// The frames a [`Writer`] holds unwritten before a write waits.
 const QUEUE: usize = 16;
 
-/// What a [`Writer`]'s thread does when the pipe fails.
+/// The action of a [`Writer`]'s thread when the pipe fails.
 pub(crate) enum AtBreak {
-    /// Stop writing: the Rust host, whose reader sees the child end
-    /// and whose supervisor then ends the session.
     Close,
-    /// End this process at once: the Node host, which must not
-    /// outlive its link, and whose actors must not see it fail.
     EndProcess,
 }
 
 /// The one writer of a pipe: a thread that writes each frame whole,
-/// in the order they were queued. Every frame a side writes goes
-/// through it, the handshake's too, so two frames never interleave
-/// and a large frame to a slow peer blocks this thread, not a
-/// runtime's.
+/// in the order they were queued.
 #[derive(Clone)]
 pub(crate) struct Writer(mpsc::Sender<Vec<u8>>);
 
 impl Writer {
     /// Starts the thread named `thread`, which writes to `out` until
-    /// the last `Writer` drops, then closes the pipe. When a write
-    /// fails, it does as `at_break` says.
+    /// the last `Writer` drops, then closes the pipe.
     pub(crate) fn start(
         mut out: PipeWriter,
         thread: &str,
@@ -533,9 +502,6 @@ mod tests {
         assert_eq!(received, sent);
     }
 
-    /// The reader waits until this test's runtime tells it to read. A
-    /// write that held the runtime would keep it from telling: the
-    /// reader then reads anyway, so the test fails rather than hangs.
     #[tokio::test(flavor = "current_thread")]
     async fn a_large_frame_to_a_slow_reader_blocks_only_the_writer() {
         let (mut input, output) = io::pipe().unwrap();

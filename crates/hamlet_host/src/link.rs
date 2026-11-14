@@ -1,7 +1,6 @@
 //! The link between the Rust host and its Node child, over the
-//! child's pipe: the frames each side writes (`frame.rs`), who each
-//! side speaks for (`peer.rs`), and each host's port to the other
-//! (`port.rs`).
+//! child's pipe: the frames each side writes, who each side speaks
+//! for, and each host's port to the other.
 
 mod frame;
 mod peer;

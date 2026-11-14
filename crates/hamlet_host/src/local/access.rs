@@ -125,22 +125,21 @@ impl HostRef {
     }
 }
 
-/// Who an operation is for, as the host stamps it (none for the
-/// program, a client, or an actor), and where it entered this host.
-/// An actor's stamp is made only by `HostRef::current`, after its
-/// generation's check, and by [`Stamp::from_peer`], after the link's.
+/// The caller the host stamps on an operation (none for the program,
+/// a client, or an actor), and the operation's origin. An actor's
+/// stamp is made only by `HostRef::current`, after its generation's
+/// check, and by [`Stamp::from_peer`], after the link's.
 pub(crate) struct Stamp {
     caller: Option<Caller>,
     origin: Origin,
 }
 
-/// Where an operation entered this host.
+/// The host an operation entered from.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Origin {
     /// Here: the program, a client of it, or an actor of this host.
     Here,
-    /// In the other host of the link, which this host's link let in.
-    /// It runs here or fails: it never crosses the link again.
+    /// The other host of the link.
     Peer,
 }
 
@@ -157,8 +156,7 @@ impl Stamp {
         }
     }
 
-    /// The stamp of an operation the other host asked for. Takes only
-    /// what the link vetted.
+    /// The stamp of an operation the other host asked for.
     pub(crate) fn from_peer(from: Vetted) -> Self {
         Self {
             caller: from.into_caller(),
@@ -191,10 +189,7 @@ impl Stamp {
     }
 }
 
-/// The link's view of the host: what an operation the link let in
-/// reaches. It holds the host weakly, so the link never keeps the
-/// host open, and it names the runtime the host's actors run on,
-/// which is where a peer's operation runs.
+/// The link's view of the host.
 #[derive(Clone)]
 pub(crate) struct Inbound {
     host: Weak<HostInner>,
@@ -202,7 +197,6 @@ pub(crate) struct Inbound {
 }
 
 impl Inbound {
-    /// Fails outside a tokio runtime.
     pub(crate) fn of(host: &Host) -> Result<Self> {
         Ok(Self {
             host: Arc::downgrade(host.inner()),
@@ -217,8 +211,7 @@ impl Inbound {
         &self.runtime
     }
 
-    /// Runs a call the other host asked for, on the host's one call
-    /// path: the route check again, then this host's own actor.
+    /// Runs a call the other host asked for. Fails with
     /// `actor.stopping` once the host is gone.
     pub(crate) async fn call(
         &self,
@@ -233,8 +226,7 @@ impl Inbound {
             .await
     }
 
-    /// Runs a create the other host asked for, on the host's one
-    /// start path.
+    /// Runs a create the other host asked for.
     pub(crate) async fn create(
         &self,
         from: Vetted,
