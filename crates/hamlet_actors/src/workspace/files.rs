@@ -28,7 +28,7 @@ use hamlet_sandbox::scrub::scrub_text;
 
 pub(super) use self::change::{Paths, cut_off_changes};
 use super::reach::{self, Gate, Op, Placement, Purpose};
-use super::{Workspace, agent_of, caller, refused};
+use super::{Workspace, calling_agent};
 
 /// A file tool's call the gate let through: where it runs, and the
 /// secrets its answer is scrubbed of.
@@ -147,13 +147,9 @@ impl Workspace {
         path: &Path,
         action: &str,
     ) -> Result<Result<Passed, CallRefusal>> {
-        let caller = caller(ctx)?;
-        let agent = match agent_of(caller.as_ref(), named) {
+        let agent = match calling_agent(ctx, named, action)? {
             Ok(agent) => agent,
-            Err(refusal) => {
-                refused(caller.as_ref(), action, &refusal);
-                return Ok(Err(CallRefusal::Caller(refusal)));
-            }
+            Err(refusal) => return Ok(Err(refusal)),
         };
         if !is_absolute(&text(path)) {
             return Ok(Err(CallRefusal::Invalid(format!(

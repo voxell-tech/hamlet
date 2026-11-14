@@ -34,8 +34,8 @@ use super::{Gated, Passed};
 use crate::workspace::pending::{self, Pending, Rechecked, Wait};
 use crate::workspace::reach::{self, Op, Placement, Purpose};
 use crate::workspace::{
-    Workspace, agent_of, caller, calls, checked_call, read_only,
-    refused, tell, transact, transact_if,
+    Workspace, calling_agent, calls, checked_call, read_only, tell,
+    transact, transact_if,
 };
 
 /// The paths changes are at work on: one change at a time checks and
@@ -220,14 +220,10 @@ impl Workspace {
     ) -> Result<ChangeAnswer> {
         let request = Request::of(&pending)?;
         let action = request.asked.op();
-        let caller = caller(ctx)?;
-        let agent = match agent_of(caller.as_ref(), request.named) {
+        let agent = match calling_agent(ctx, request.named, action)? {
             Ok(agent) => agent,
             Err(refusal) => {
-                refused(caller.as_ref(), action, &refusal);
-                return Ok(ChangeAnswer::Refused(
-                    CallRefusal::Caller(refusal),
-                ));
+                return Ok(ChangeAnswer::Refused(refusal));
             }
         };
         let path = text(request.path);

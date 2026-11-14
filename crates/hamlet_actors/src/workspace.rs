@@ -282,15 +282,9 @@ impl Handler<Run> for Workspace {
         ctx: Ctx<Self>,
         run: Run,
     ) -> Result<RunAnswer> {
-        let caller = caller(&ctx)?;
-        let agent = match agent_of(caller.as_ref(), run.agent) {
+        let agent = match calling_agent(&ctx, run.agent, Run::NAME)? {
             Ok(agent) => agent,
-            Err(refusal) => {
-                refused(caller.as_ref(), Run::NAME, &refusal);
-                return Ok(RunAnswer::Refused(CallRefusal::Caller(
-                    refusal,
-                )));
-            }
+            Err(refusal) => return Ok(RunAnswer::Refused(refusal)),
         };
         if let Err(why) = checked(&run) {
             return Ok(RunAnswer::Refused(CallRefusal::Invalid(why)));
@@ -457,19 +451,13 @@ impl Handler<CommandStatus> for Workspace {
         ctx: Ctx<Self>,
         asked: CommandStatus,
     ) -> Result<RunAnswer> {
-        let caller = caller(&ctx)?;
-        let agent = match agent_of(caller.as_ref(), asked.agent) {
+        let agent = match calling_agent(
+            &ctx,
+            asked.agent,
+            CommandStatus::NAME,
+        )? {
             Ok(agent) => agent,
-            Err(refusal) => {
-                refused(
-                    caller.as_ref(),
-                    CommandStatus::NAME,
-                    &refusal,
-                );
-                return Ok(RunAnswer::Refused(CallRefusal::Caller(
-                    refusal,
-                )));
-            }
+            Err(refusal) => return Ok(RunAnswer::Refused(refusal)),
         };
         let row = read_only(&ctx, async |tx| {
             run::status(tx, agent, asked.command).await
@@ -985,6 +973,20 @@ fn caller(ctx: &Ctx<Workspace>) -> Result<Option<Caller>> {
 
 fn is_the_realm(caller: Option<&Caller>) -> bool {
     matches!(caller, Some(Caller::Actor(from)) if from.kind == REALM)
+}
+
+/// The agent of `ctx`'s call of an agent's tool, as [`agent_of`]
+/// finds it. A refusal is logged as one of `action`.
+fn calling_agent(
+    ctx: &Ctx<Workspace>,
+    named: AgentNumber,
+    action: &str,
+) -> Result<Result<AgentNumber, CallRefusal>> {
+    let caller = caller(ctx)?;
+    Ok(agent_of(caller.as_ref(), named).map_err(|refusal| {
+        refused(caller.as_ref(), action, &refusal);
+        CallRefusal::Caller(refusal)
+    }))
 }
 
 /// The agent a call of an agent's tool is for: the stamped caller,
