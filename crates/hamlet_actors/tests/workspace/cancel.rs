@@ -289,8 +289,12 @@ async fn a_cancel_comes_from_the_realm_or_the_agent_it_names() {
         running(&agent_runs(&host, &run("c1", "sleep 5")).await);
     let other = AgentNumber(8);
     let by_other = cancels(&host, &agent(other), Which::All).await;
-    let by_a_stranger =
-        cancels(&host, &Address::new("other", "x"), Which::All).await;
+    let by_a_stranger = cancels(
+        &host,
+        &Address::new("other", "x").unwrap(),
+        Which::All,
+    )
+    .await;
     let meanwhile = status_as(&host, AGENT, command).await;
     let by_the_realm = cancels(&host, &realm(), Which::All).await;
     told_within(&peers, 1, Duration::from_secs(3)).await;
@@ -371,7 +375,8 @@ async fn an_ended_reach_ends_the_agents_commands() {
     let after = agent_runs(&host, &run("c2", "touch after")).await;
     told_within(&peers, 2, Duration::from_secs(3)).await;
     tokio::time::sleep(Duration::from_millis(500)).await;
-    let seven = host.get_or_start(super::workspace::AGENT, "7").await;
+    let seven = agent(AgentNumber(7));
+    host.get_or_start(&seven).await.unwrap();
     host.shutdown().await.unwrap();
 
     assert_eq!(
@@ -401,7 +406,7 @@ async fn an_ended_reach_ends_the_agents_commands() {
     let told = told(&peers);
     let to_seven = told
         .iter()
-        .filter(|(to, _)| *to == seven.as_ref().unwrap().as_str())
+        .filter(|(to, _)| *to == seven.to_string())
         .map(|(_, finished)| (finished.call.clone(), ran(finished)))
         .collect::<Vec<_>>();
     assert_eq!(to_seven.len(), 1, "{told:?}");

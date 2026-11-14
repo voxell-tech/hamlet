@@ -20,7 +20,7 @@ use hamlet_actor::{Action, Actor, Ctx, Handler, Registry};
 use hamlet_actor_core::{
     ActorConfig, ActorFactory, SqliteTransaction,
 };
-use hamlet_host::{Address, Caller, Host, HostRef};
+use hamlet_host::{Address, Caller, HostRef};
 use hamlet_messages::agent::{Finished, Outcome};
 use hamlet_messages::realm::{NeedsChief, SecretList, Secrets};
 use hamlet_messages::workspace::files::{
@@ -241,10 +241,13 @@ impl Workspace {
     }
 
     async fn fetch_secrets(&self, ctx: &Ctx<Self>) -> Result<()> {
-        let answer =
-            call_actor(ctx, Address::new(REALM, REALM_KEY), &Secrets)
-                .await
-                .context("fetch the realm's secrets")?;
+        let answer = call_actor(
+            ctx,
+            Address::new(REALM, REALM_KEY)?,
+            &Secrets,
+        )
+        .await
+        .context("fetch the realm's secrets")?;
         let list =
             ciborium::from_reader::<SecretList, _>(answer.as_slice())
                 .context("decode the realm's secrets")?;
@@ -692,14 +695,9 @@ async fn call_actor<A: Action>(
     action: &A,
 ) -> Result<Vec<u8>> {
     let args = hamlet_actor::action::encode_positional(action)?;
-    Host::call_from(
-        ctx.inner(),
-        &to,
-        A::NAME,
-        args,
-        Duration::from_secs(10),
-    )
-    .await
+    HostRef::of(ctx.inner())?
+        .call(&to, A::NAME, args, Duration::from_secs(10))
+        .await
 }
 
 /// Calls `agent` with how its call `call` ended, once. A failed
@@ -711,10 +709,11 @@ async fn tell(
     outcome: Outcome,
 ) {
     let id = call.0.clone();
-    let to = Address::new(AGENT, agent.0.to_string());
-    if let Err(error) =
+    let told = async {
+        let to = Address::new(AGENT, agent.0.to_string())?;
         call_actor(ctx, to, &Finished { call, outcome }).await
-    {
+    };
+    if let Err(error) = told.await {
         tracing::warn!(
             ?error,
             agent = agent.0,
@@ -1014,7 +1013,7 @@ fn caller(ctx: &Ctx<Workspace>) -> Result<Option<Caller>> {
 }
 
 fn is_the_realm(caller: Option<&Caller>) -> bool {
-    matches!(caller, Some(Caller::Actor(from)) if from.kind == REALM)
+    matches!(caller, Some(Caller::Actor(from)) if from.kind() == REALM)
 }
 
 fn realm_calling(
@@ -1051,11 +1050,11 @@ pub fn agent_of(
     let Some(Caller::Actor(from)) = caller else {
         return Err(CallerRefusal::NotAnAgent);
     };
-    if from.kind != AGENT {
+    if from.kind() != AGENT {
         return Err(CallerRefusal::NotAnAgent);
     }
     let caller = from
-        .key
+        .key()
         .parse()
         .map(AgentNumber)
         .map_err(|_| CallerRefusal::NotAnAgent)?;
@@ -1074,13 +1073,8 @@ fn refused(
     action: &str,
     why: &impl std::fmt::Display,
 ) {
-    let caller = match caller {
-        Some(Caller::Actor(from)) => {
-            format!("{}/{}", from.kind, from.key)
-        }
-        Some(Caller::Client) => "client".to_owned(),
-        None => "none".to_owned(),
-    };
+    let caller =
+        caller.map_or_else(|| "none".to_owned(), ToString::to_string);
     tracing::warn!(%caller, action, %why, "refused a call");
 }
 
@@ -1091,7 +1085,7 @@ mod tests {
     use super::*;
 
     fn actor(kind: &str, key: &str) -> Option<Caller> {
-        Some(Caller::Actor(Address::new(kind, key)))
+        Some(Caller::Actor(Address::new(kind, key).unwrap()))
     }
 
     #[test]

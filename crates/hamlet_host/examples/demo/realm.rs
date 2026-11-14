@@ -31,7 +31,7 @@ use anyhow::{Context, Result, bail};
 use hamlet_actor::{Action, Actor, Ctx, Handler, Registry};
 use hamlet_actor_core::{ActorConfig, ActorFactory, BindParam};
 use hamlet_actors::workspace;
-use hamlet_host::{Address, Caller, Host};
+use hamlet_host::{Address, Caller, Host, HostRef};
 use hamlet_messages::realm::{NeedsChief, SecretList, Secrets};
 use hamlet_messages::workspace::reach::{
     Footing, Mode, Project, Reach, SecretsVersion, Trust,
@@ -103,14 +103,14 @@ impl Handler<Grant> for Realm {
         ctx: Ctx<Self>,
         Grant(set): Grant,
     ) -> Result<ReachAnswer> {
-        let reply = Host::call_from(
-            ctx.inner(),
-            &Address::new(workspace::KIND, workspace::MACHINE),
-            SetReach::NAME,
-            hamlet_actor::action::encode_positional(&set)?,
-            Duration::from_secs(10),
-        )
-        .await?;
+        let reply = HostRef::of(ctx.inner())?
+            .call(
+                &Address::new(workspace::KIND, workspace::MACHINE)?,
+                SetReach::NAME,
+                hamlet_actor::action::encode_positional(&set)?,
+                Duration::from_secs(10),
+            )
+            .await?;
         Ok(ciborium::from_reader(reply.as_slice())?)
     }
 }
@@ -121,14 +121,14 @@ impl Handler<Decide> for Realm {
         ctx: Ctx<Self>,
         Decide(answer): Decide,
     ) -> Result<AnswerTaken> {
-        let reply = Host::call_from(
-            ctx.inner(),
-            &Address::new(workspace::KIND, workspace::MACHINE),
-            ChiefAnswer::NAME,
-            hamlet_actor::action::encode_positional(&answer)?,
-            Duration::from_secs(10),
-        )
-        .await?;
+        let reply = HostRef::of(ctx.inner())?
+            .call(
+                &Address::new(workspace::KIND, workspace::MACHINE)?,
+                ChiefAnswer::NAME,
+                hamlet_actor::action::encode_positional(&answer)?,
+                Duration::from_secs(10),
+            )
+            .await?;
         Ok(ciborium::from_reader(reply.as_slice())?)
     }
 }
@@ -203,13 +203,19 @@ pub async fn run(host: &Host, words: &[String]) -> Result<()> {
         version: ReachVersion(version.parse()?),
         reach: parse_reach(rest)?,
     };
-    host.get_or_start(workspace::KIND, workspace::MACHINE)
-        .await?;
-    host.get_or_start(workspace::REALM, workspace::REALM_KEY)
-        .await?;
+    host.get_or_start(&Address::new(
+        workspace::KIND,
+        workspace::MACHINE,
+    )?)
+    .await?;
+    host.get_or_start(&Address::new(
+        workspace::REALM,
+        workspace::REALM_KEY,
+    )?)
+    .await?;
     let reply = host
         .call(
-            &Address::new(workspace::REALM, workspace::REALM_KEY),
+            &Address::new(workspace::REALM, workspace::REALM_KEY)?,
             Grant::NAME,
             hamlet_actor::action::encode_positional(&Grant(set))?,
             Duration::from_secs(20),
@@ -311,13 +317,19 @@ async fn answer_call(
         call: CallId(call.to_owned()),
         answer,
     });
-    host.get_or_start(workspace::KIND, workspace::MACHINE)
-        .await?;
-    host.get_or_start(workspace::REALM, workspace::REALM_KEY)
-        .await?;
+    host.get_or_start(&Address::new(
+        workspace::KIND,
+        workspace::MACHINE,
+    )?)
+    .await?;
+    host.get_or_start(&Address::new(
+        workspace::REALM,
+        workspace::REALM_KEY,
+    )?)
+    .await?;
     let reply = host
         .call(
-            &Address::new(workspace::REALM, workspace::REALM_KEY),
+            &Address::new(workspace::REALM, workspace::REALM_KEY)?,
             Decide::NAME,
             hamlet_actor::action::encode_positional(&decide)?,
             Duration::from_secs(20),

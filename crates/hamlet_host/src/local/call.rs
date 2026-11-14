@@ -7,42 +7,15 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
+use hamlet_actor_core::ActorFactory;
 use hamlet_actor_core::error::ActorRuntime;
 use hamlet_actor_core::host::ActionTimedOut;
-use hamlet_actor_core::{ActorContext, ActorFactory};
-use serde::{Deserialize, Serialize};
 use tracing::Instrument;
 
-use super::access::current;
-use super::{Host, HostInner, Open, host_shut_down};
-use crate::directory::Address;
-
-/// Who made a call, as the host stamps it. The callee reads it from
-/// its call's connection parameters, which are the CBOR of an
-/// `Option<Caller>`: a call that no actor and no client made carries
-/// none.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Caller {
-    /// The actor at this address.
-    Actor(Address),
-    /// A client of the program that opened the host.
-    Client,
-}
-
-impl std::fmt::Display for Caller {
-    fn fmt(
-        &self,
-        f: &mut std::fmt::Formatter<'_>,
-    ) -> std::fmt::Result {
-        match self {
-            Self::Actor(from) => {
-                write!(f, "{}/{}", from.kind, from.key)
-            }
-            Self::Client => f.write_str("client"),
-        }
-    }
-}
+use super::access::Stamp;
+use super::{Host, HostInner, Open, actor_id, host_shut_down};
+use crate::address::{Address, Caller};
+use crate::directory::Place;
 
 impl Host {
     /// Calls the action `name` of the actor at `to`, with no caller,
@@ -72,7 +45,9 @@ impl Host {
         args: Vec<u8>,
         deadline: Duration,
     ) -> Result<Vec<u8>> {
-        self.inner().call(None, to, name, args, deadline).await
+        self.inner()
+            .call(Stamp::PROGRAM, to, name, args, deadline)
+            .await
     }
 
     /// Calls as [`Host::call`] does, stamped with
@@ -86,62 +61,37 @@ impl Host {
         deadline: Duration,
     ) -> Result<Vec<u8>> {
         self.inner()
-            .call(Some(Caller::Client), to, name, args, deadline)
-            .await
-    }
-
-    /// Calls as [`Host::call`] does, from the actor whose context is
-    /// `ctx`, stamped with its address: an actor calls only as
-    /// itself. Fails at once with `actor.invalid_operation` for a
-    /// call to itself, which would wait for its own handler, and with
-    /// `actor.stopping` from a generation that has ended.
-    pub async fn call_from(
-        ctx: &ActorContext,
-        to: &Address,
-        name: &str,
-        args: Vec<u8>,
-        deadline: Duration,
-    ) -> Result<Vec<u8>> {
-        let running = current(ctx)?;
-        running
-            .host
-            .call(
-                Some(Caller::Actor(running.address()?)),
-                to,
-                name,
-                args,
-                deadline,
-            )
+            .call(Stamp::client(), to, name, args, deadline)
             .await
     }
 }
 
 impl HostInner {
-    /// Calls the action `name` of the actor at `to` for `caller`,
+    /// Calls the action `name` of the actor at `to` for `stamp`,
     /// stamped on the call's connection, as [`Host::call`] says.
-    async fn call(
+    pub(super) async fn call(
         self: &Arc<Self>,
-        caller: Option<Caller>,
+        stamp: Stamp,
         to: &Address,
         name: &str,
         args: Vec<u8>,
         deadline: Duration,
     ) -> Result<Vec<u8>> {
-        admit("call", caller.as_ref(), to)?;
-        let actor_id = self.located(&to.kind, &to.key)?;
-        let params = stamp(caller.as_ref())?;
+        admit("call", stamp.caller(), to)?;
+        let Place::Local(_) = self.locate(to)?;
+        let params = stamp.bytes()?;
         let span = tracing::debug_span!(
             "call",
-            actor_id,
+            actor_id = actor_id(to).as_str(),
             action = name,
-            caller = caller.as_ref().map(tracing::field::display)
+            caller = stamp.caller().map(tracing::field::display)
         );
         let mut shut = self.starts_end.subscribe();
         let call = async {
             let begun = Instant::now();
             let generation = tokio::time::timeout(
                 deadline,
-                self.ensure_started(&actor_id, &Open::Existing),
+                self.ensure_started(to, &Open::Existing),
             )
             .await
             .map_err(|_| ActionTimedOut.build())??;
@@ -172,24 +122,12 @@ pub(super) fn admit(
         Some(Caller::Actor(from)) if from == to => {
             Err(ActorRuntime::InvalidOperation {
                 operation: operation.to_owned(),
-                reason: format!(
-                    "the actor {}/{} is its own target",
-                    to.kind, to.key
-                ),
+                reason: format!("the actor {to} is its own target"),
             }
             .build())
         }
         _ => Ok(()),
     }
-}
-
-/// The connection parameters that stamp a call with `caller`: the
-/// CBOR of the `Option<Caller>`, so none is CBOR null.
-fn stamp(caller: Option<&Caller>) -> Result<Vec<u8>> {
-    let mut params = Vec::new();
-    ciborium::into_writer(&caller, &mut params)
-        .context("encode the caller's stamp")?;
-    Ok(params)
 }
 
 /// Fails for a kind that cannot read the stamp of an actor's call or
@@ -199,11 +137,7 @@ fn stamp(caller: Option<&Caller>) -> Result<Vec<u8>> {
 pub(super) fn check_kinds(
     factories: &HashMap<String, ActorFactory>,
 ) -> Result<()> {
-    let stamps =
-        [Caller::Client, Caller::Actor(Address::new("k", "k"))]
-            .iter()
-            .map(|caller| stamp(Some(caller)))
-            .collect::<Result<Vec<_>>>()?;
+    let stamps = Stamp::sample_bytes()?;
     for (kind, factory) in factories {
         for stamp in &stamps {
             factory.check_conn_params(stamp).with_context(|| {

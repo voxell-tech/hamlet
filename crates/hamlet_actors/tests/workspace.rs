@@ -109,14 +109,14 @@ impl Handler<Forward> for Peer {
         ctx: Ctx<Self>,
         forward: Forward,
     ) -> anyhow::Result<Vec<u8>> {
-        Host::call_from(
-            ctx.inner(),
-            &workspace_address(),
-            &forward.name,
-            forward.args,
-            Duration::from_secs(20),
-        )
-        .await
+        HostRef::of(ctx.inner())?
+            .call(
+                &workspace_address(),
+                &forward.name,
+                forward.args,
+                Duration::from_secs(20),
+            )
+            .await
     }
 }
 
@@ -191,15 +191,15 @@ fn peer(kind: &str) -> ActorFactory {
 }
 
 fn workspace_address() -> Address {
-    Address::new(workspace::KIND, workspace::MACHINE)
+    Address::new(workspace::KIND, workspace::MACHINE).unwrap()
 }
 
 fn realm() -> Address {
-    Address::new(workspace::REALM, workspace::REALM_KEY)
+    Address::new(workspace::REALM, workspace::REALM_KEY).unwrap()
 }
 
 fn agent(number: AgentNumber) -> Address {
-    Address::new(workspace::AGENT, number.0.to_string())
+    Address::new(workspace::AGENT, number.0.to_string()).unwrap()
 }
 
 /// A host on `dir` with the workspace and the callers' kinds, given
@@ -232,9 +232,7 @@ async fn host_with(dir: &Path, peers: Arc<Peers>) -> Host {
         }));
     }
     let host = open(dir, options).unwrap();
-    host.get_or_start(workspace::KIND, workspace::MACHINE)
-        .await
-        .unwrap();
+    host.get_or_start(&workspace_address()).await.unwrap();
     host
 }
 
@@ -268,7 +266,7 @@ async fn call_as(
     name: &str,
     args: Vec<u8>,
 ) -> anyhow::Result<Vec<u8>> {
-    host.get_or_start(&from.kind, &from.key).await?;
+    host.get_or_start(from).await?;
     let forward = Forward {
         name: name.to_owned(),
         args,
@@ -401,7 +399,7 @@ async fn only_the_realm_sets_a_reach() {
     for kind in ["agent", "other"] {
         let reply = call_as(
             &host,
-            &Address::new(kind, "caller"),
+            &Address::new(kind, "caller").unwrap(),
             SetReach::NAME,
             set_reach(5, reach(Some("/"))),
         )
@@ -456,8 +454,7 @@ async fn only_the_realm_sets_a_reach() {
 async fn the_workspace_does_not_start_without_a_sandbox() {
     let dir = Scratch::new("workspace-no-sandbox");
     let host = open(&dir, HostOptions::default()).unwrap();
-    let started =
-        host.get_or_start(workspace::KIND, workspace::MACHINE).await;
+    let started = host.get_or_start(&workspace_address()).await;
     host.shutdown().await.unwrap();
 
     assert!(started.is_err(), "the workspace started");
@@ -735,8 +732,8 @@ async fn a_long_command_answers_running_then_finished() {
     told_within(&peers, 1, Duration::from_secs(5)).await;
     tokio::time::sleep(Duration::from_millis(300)).await;
     let after = status_as(&host, AGENT, command).await;
-    let agent_id =
-        host.get_or_start(workspace::AGENT, "7").await.unwrap();
+    let agent_id = agent(AgentNumber(7));
+    host.get_or_start(&agent_id).await.unwrap();
     host.shutdown().await.unwrap();
 
     assert!(answered_in < Duration::from_secs(1), "{answered_in:?}");
@@ -744,7 +741,7 @@ async fn a_long_command_answers_running_then_finished() {
     let told = told(&peers);
     assert_eq!(told.len(), 1, "{told:?}");
     let (to, finished) = &told[0];
-    assert_eq!(to, &agent_id);
+    assert_eq!(to, &agent_id.to_string());
     assert_eq!(finished.call, CallId("c1".into()));
     assert_eq!(ran(finished).command, command);
     assert_eq!(
