@@ -1,3 +1,8 @@
+#![expect(
+    unsafe_code,
+    reason = "a session's leader is made between fork and exec"
+)]
+
 use std::io;
 use std::os::unix::process::ExitStatusExt;
 use std::process::{ExitStatus, Stdio};
@@ -139,10 +144,6 @@ pub(crate) fn spawn(
 /// Makes `spawn`'s process the leader of a session of its own, and so
 /// of a group whose id is its own: no terminal is left to its
 /// processes, and they stay in the group the leader's end kills.
-#[expect(
-    unsafe_code,
-    reason = "a session's leader is made between fork and exec"
-)]
 fn session(spawn: &mut tokio::process::Command) {
     // SAFETY: the child calls only setsid, which is
     // async-signal-safe, before exec, allocates nothing and touches
