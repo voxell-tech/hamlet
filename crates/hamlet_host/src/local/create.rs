@@ -65,7 +65,7 @@ impl Host {
     /// it. The reason stays in the error's metadata, as its `error`:
     /// `ActorError::extract(&error).metadata()`.
     ///
-    /// [`ActorError`]: hamlet_actor_error::ActorError
+    /// [`ActorError`]: struct@hamlet_actor_error::ActorError
     pub async fn create(
         &self,
         kind: &str,
