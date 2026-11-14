@@ -27,9 +27,7 @@ use hamlet_actor_core::{
     ActorContext, ActorEvent, ActorFactory, ActorStart, BindParam,
     ColumnValue, ShutdownKind,
 };
-use hamlet_host::{
-    Address, Caller, Cause, Host, HostEvent, HostOptions,
-};
+use hamlet_host::{Address, Caller, Host, HostEvent, HostOptions};
 use hamlet_testing::Scratch;
 use serde::{Deserialize, Serialize};
 use tokio::time::{Instant, sleep};
@@ -465,7 +463,6 @@ impl Handler<Pass> for Relay {
                 Nap::NAME,
                 Vec::new(),
                 Duration::from_millis(50),
-                Cause::root("test"),
             )
             .await?;
             anyhow::bail!("a call to `nap` ended");

@@ -3,7 +3,7 @@
 use std::time::Duration;
 
 use anyhow::{Context, Result};
-use hamlet_host::{Address, Cause, Host};
+use hamlet_host::{Address, Host};
 
 /// A call's deadline where the caller does not test it: longer than
 /// any kind's action timeout, which then decides.
@@ -20,12 +20,6 @@ pub async fn act(
         actor_id.split_once('/').with_context(|| {
             format!("`{actor_id}` is not <kind>/<key>")
         })?;
-    host.call(
-        &Address::new(kind, key),
-        action,
-        args,
-        DEADLINE,
-        Cause::root("demo"),
-    )
-    .await
+    host.call(&Address::new(kind, key), action, args, DEADLINE)
+        .await
 }

@@ -20,10 +20,12 @@ use hamlet_actor_core::{
     ColumnValue, ShutdownKind,
 };
 use hamlet_actor_error::ActorError;
-use hamlet_host::{Address, Cause, Host, HostEvent, HostOptions};
+use hamlet_host::{Address, Host, HostEvent, HostOptions};
 use hamlet_testing::Scratch;
+use logs::Logs;
 use parking_lot::Mutex;
 use rusqlite::{Connection, OpenFlags};
+use tracing_subscriber::filter::LevelFilter;
 
 #[path = "../examples/demo/act.rs"]
 mod act;
@@ -37,6 +39,8 @@ mod command;
 mod counter;
 #[path = "support/files.rs"]
 mod files;
+#[path = "support/logs.rs"]
+mod logs;
 
 fn factories() -> HashMap<String, ActorFactory> {
     counter::factories(&["counter"], counter::Sleep::WhenIdle)
@@ -1254,7 +1258,6 @@ async fn a_call_to_an_unknown_kind_fails_at_once_and_makes_no_file() {
             "get",
             Vec::new(),
             DEADLINE,
-            Cause::root("test"),
         ),
     )
     .await
@@ -1282,7 +1285,6 @@ async fn a_call_ends_at_its_deadline() {
             "nap",
             Vec::new(),
             Duration::from_millis(300),
-            Cause::root("test"),
         )
         .await
         .expect_err("the nap outlived the call's deadline");
@@ -1316,7 +1318,6 @@ async fn a_call_waiting_for_its_actors_stop_ends_at_its_deadline() {
             "get",
             Vec::new(),
             Duration::from_millis(300),
-            Cause::root("test"),
         )
         .await
         .expect_err("b's stop outlived the call's deadline");
@@ -1782,7 +1783,6 @@ async fn a_start_that_never_finishes_fails_at_its_deadline() {
                 "get",
                 Vec::new(),
                 Duration::from_secs(30),
-                Cause::root("test"),
             )
             .await
         }
@@ -2169,7 +2169,6 @@ async fn call_during_a_start(
                 "get",
                 Vec::new(),
                 Duration::from_secs(10),
-                Cause::root("test"),
             )
             .await
         }
@@ -2411,39 +2410,6 @@ async fn boot_returns_before_the_starts_it_begins() {
     host.shutdown().await.unwrap();
 }
 
-/// What is logged on the thread that made it, at WARN or above.
-#[derive(Clone, Default)]
-struct Logs(Arc<Mutex<Vec<u8>>>);
-
-impl std::io::Write for Logs {
-    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        self.0.lock().extend_from_slice(buf);
-        Ok(buf.len())
-    }
-
-    fn flush(&mut self) -> std::io::Result<()> {
-        Ok(())
-    }
-}
-
-impl Logs {
-    fn record(&self) -> tracing::subscriber::DefaultGuard {
-        use tracing_subscriber::util::SubscriberInitExt;
-
-        tracing_subscriber::fmt()
-            .with_max_level(
-                tracing_subscriber::filter::LevelFilter::WARN,
-            )
-            .with_ansi(false)
-            .with_writer({
-                let logs = self.clone();
-                move || logs.clone()
-            })
-            .finish()
-            .set_default()
-    }
-}
-
 /// Boot reads only the files of its own kinds. Another kind's
 /// file, which another process holds locked with a run a kill cut
 /// off, neither fails nor slows it, nor is logged, and nothing of
@@ -2468,7 +2434,7 @@ async fn boot_reads_only_the_files_of_its_kinds() {
 
     let host = Host::open(&dir, factories()).unwrap();
     let logs = Logs::default();
-    let logging = logs.record();
+    let logging = logs.record(LevelFilter::WARN);
     let began =
         tokio::time::timeout(Duration::from_secs(1), host.boot())
             .await
@@ -2476,7 +2442,7 @@ async fn boot_reads_only_the_files_of_its_kinds() {
             .unwrap();
     drop(logging);
     assert!(began.is_empty(), "{began:?}");
-    let logged = String::from_utf8(logs.0.lock().clone()).unwrap();
+    let logged = logs.text();
     assert!(logged.is_empty(), "{logged}");
     host.shutdown().await.unwrap();
     drop(host);
@@ -2555,11 +2521,11 @@ async fn boot_goes_past_a_file_it_cannot_read() {
     let host = Host::open(&dir, factories()).unwrap();
     let mut events = host.events();
     let logs = Logs::default();
-    let logging = logs.record();
+    let logging = logs.record(LevelFilter::WARN);
     let began = host.boot().await;
     drop(logging);
     assert_eq!(began.unwrap(), std::slice::from_ref(&id));
-    let logged = String::from_utf8(logs.0.lock().clone()).unwrap();
+    let logged = logs.text();
     assert_eq!(logged.matches("bad.sqlite").count(), 1, "{logged}");
     let event = events.try_recv().expect("no event for the file");
     assert!(
@@ -2892,7 +2858,6 @@ async fn a_call_to_a_busy_actor_ends_within_its_deadline() {
             "get",
             Vec::new(),
             Duration::from_millis(300),
-            Cause::root("test"),
         )
         .await;
     let took = begun.elapsed();
@@ -2962,15 +2927,9 @@ async fn a_key_or_kind_with_an_upper_case_letter_is_refused() {
             ),
             (
                 "call",
-                host.call(
-                    &at,
-                    "get",
-                    Vec::new(),
-                    DEADLINE,
-                    Cause::root("test"),
-                )
-                .await
-                .map(drop),
+                host.call(&at, "get", Vec::new(), DEADLINE)
+                    .await
+                    .map(drop),
             ),
             ("destroy", host.stop(&id, ShutdownKind::Destroy).await),
             (

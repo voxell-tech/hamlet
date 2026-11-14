@@ -17,10 +17,9 @@ use hamlet_actor::{
 use hamlet_actor_core::{
     ActorContext, ActorEvent, ActorFactory, ActorStart, ShutdownKind,
 };
-use hamlet_host::{
-    Address, Caller, Cause, Host, HostOptions, HostRef,
-};
+use hamlet_host::{Address, Caller, Host, HostOptions, HostRef};
 use hamlet_testing::Scratch;
+use logs::Logs;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
@@ -32,6 +31,8 @@ mod call;
 mod code;
 #[path = "support/files.rs"]
 mod files;
+#[path = "support/logs.rs"]
+mod logs;
 
 /// The kind `kind`, an actor of the trait API `A`, with a database.
 fn kind<A: Actor>(registry: &mut Registry, kind: &str) {
@@ -104,7 +105,6 @@ async fn an_actor_reaches_the_realm_folder_of_its_host() {
             Home::NAME,
             hamlet_actor::action::encode_positional(&Home).unwrap(),
             Duration::from_secs(10),
-            Cause::root("test"),
         )
         .await;
     host.shutdown().await.unwrap();
@@ -422,7 +422,6 @@ impl Handler<Ask> for Asker {
             &ask.name,
             ask.args,
             Duration::from_millis(ask.deadline_ms),
-            Cause::root("test"),
         ))
         .await)
     }
@@ -619,7 +618,6 @@ async fn the_callee_reads_who_called_whatever_the_arguments_say() {
         Who::NAME,
         args.clone(),
         Duration::from_secs(10),
-        Cause::root("test"),
     ))
     .await;
     let client = Outcome::of(host.call_for_client(
@@ -627,7 +625,6 @@ async fn the_callee_reads_who_called_whatever_the_arguments_say() {
         Who::NAME,
         args,
         Duration::from_secs(10),
-        Cause::root("test"),
     ))
     .await;
     host.shutdown().await.unwrap();
@@ -635,6 +632,49 @@ async fn the_callee_reads_who_called_whatever_the_arguments_say() {
     assert_eq!(
         client.reply::<Option<Caller>>(),
         Some(Caller::Client)
+    );
+}
+
+/// A call's log line names its caller, its target and its action:
+/// an actor's call its address, a client's `client`, and the
+/// embedder's call no caller.
+#[tokio::test]
+async fn a_calls_log_line_names_its_caller_target_and_action() {
+    let dir = Scratch::new("call-log");
+    let host = open_callers(&dir, Arc::default());
+    let callee = Address::new("callee", "x");
+    let a = Address::new("asker", "a");
+    make(&host, &[&callee, &a]).await;
+    let who = Who { claimed: None };
+    let args = hamlet_actor::action::encode_positional(&who).unwrap();
+    let deadline = Duration::from_secs(10);
+    let logs = Logs::default();
+    let logging =
+        logs.record(tracing_subscriber::filter::LevelFilter::DEBUG);
+    ask(&host, &a, &callee, &who, deadline).await;
+    host.call_for_client(&callee, Who::NAME, args.clone(), deadline)
+        .await
+        .unwrap();
+    host.call(&callee, Who::NAME, args, deadline).await.unwrap();
+    drop(logging);
+    host.shutdown().await.unwrap();
+    let logged = logs.text();
+    let calls = logged
+        .lines()
+        .filter(|line| line.ends_with(": new"))
+        .filter_map(|line| {
+            let span = &line[line.find("call{")?..];
+            Some(span[..=span.find('}')?].to_owned())
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        calls,
+        [
+            r#"call{actor_id="asker/a" action="ask"}"#,
+            r#"call{actor_id="callee/x" action="who" caller=asker/a}"#,
+            r#"call{actor_id="callee/x" action="who" caller=client}"#,
+            r#"call{actor_id="callee/x" action="who"}"#,
+        ]
     );
 }
 
@@ -653,17 +693,10 @@ async fn the_stamp_has_fixed_bytes() {
         let raw = raw.clone();
         async move {
             let deadline = Duration::from_secs(10);
-            let cause = Cause::root("test");
             match caller {
                 None => {
-                    host.call(
-                        &raw,
-                        "params",
-                        Vec::new(),
-                        deadline,
-                        cause,
-                    )
-                    .await
+                    host.call(&raw, "params", Vec::new(), deadline)
+                        .await
                 }
                 Some(_) => {
                     host.call_for_client(
@@ -671,7 +704,6 @@ async fn the_stamp_has_fixed_bytes() {
                         "params",
                         Vec::new(),
                         deadline,
-                        cause,
                     )
                     .await
                 }
@@ -778,17 +810,10 @@ async fn a_call_fails_at_once_when_its_host_begins_to_shut_down() {
         let raw = raw.clone();
         tokio::spawn(async move {
             let deadline = Duration::from_secs(60);
-            let cause = Cause::root("test");
             let result = match from {
                 None => {
-                    host.call(
-                        &raw,
-                        "hold",
-                        Vec::new(),
-                        deadline,
-                        cause,
-                    )
-                    .await
+                    host.call(&raw, "hold", Vec::new(), deadline)
+                        .await
                 }
                 Some(ctx) => {
                     Host::call_from(
@@ -797,7 +822,6 @@ async fn a_call_fails_at_once_when_its_host_begins_to_shut_down() {
                         "hold",
                         Vec::new(),
                         deadline,
-                        cause,
                     )
                     .await
                 }
@@ -888,7 +912,6 @@ impl Actor for SelfCaller {
             Ping::NAME,
             hamlet_actor::action::encode_positional(&Ping)?,
             Duration::from_secs(30),
-            Cause::root("test"),
         ))
         .await;
         HostRef::of(ctx.inner())?
@@ -974,7 +997,6 @@ async fn an_ended_generation_calls_nothing() {
                 Who::NAME,
                 args,
                 Duration::from_secs(10),
-                Cause::root("test"),
             ))
             .await,
         );
@@ -1085,7 +1107,6 @@ async fn calls_to(
         Who::NAME,
         args,
         Duration::from_secs(10),
-        Cause::root("test"),
     ))
     .await;
     let actor =
@@ -1152,13 +1173,7 @@ async fn a_get_or_start_that_waits_for_a_calls_start_makes_the_actor()
         })
         .unwrap();
         let (called, made) = tokio::join!(
-            host.call(
-                &to,
-                Who::NAME,
-                args,
-                Duration::from_secs(10),
-                Cause::root("test"),
-            ),
+            host.call(&to, Who::NAME, args, Duration::from_secs(10),),
             host.get_or_start("callee", &key),
         );
         if let Err(error) = &called {

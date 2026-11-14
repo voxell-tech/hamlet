@@ -189,8 +189,10 @@ Nothing else makes an actor.
 
 `local/call.rs` holds the calls: `call` calls an action
 of the actor at an `Address`, starting it from its file first, within
-the caller's deadline, and logs the call's `Cause`, the task it belongs
-to. A call to a key with no actor fails with `actor.not_found` and
+the caller's deadline, and logs the call with its caller, its target
+and its action. A call takes no cause: a call that belongs to a realm
+task carries that task in its own message. A call to a key with no
+actor fails with `actor.not_found` and
 makes no file. Each call carries its `Caller` as its connection's
 parameters: none
 for `call`, a client for `call_for_client`, and the calling actor's

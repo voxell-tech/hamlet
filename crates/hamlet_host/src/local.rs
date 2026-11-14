@@ -2375,7 +2375,6 @@ mod tests {
     use hamlet_testing::Scratch;
 
     use super::*;
-    use crate::cause::Cause;
 
     /// The kind `waker`, whose run handler sets the run wake deadline
     /// `wake_at` and then answers only lifecycle events.
@@ -2486,7 +2485,6 @@ mod tests {
                 name,
                 Vec::new(),
                 Duration::from_secs(600),
-                Cause::root("test"),
             )
         };
         call("increment").await.unwrap();
