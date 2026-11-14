@@ -2992,7 +2992,18 @@ async fn a_key_or_kind_with_an_upper_case_letter_is_refused() {
     .map(drop);
     assert_eq!(accepted, Vec::<String>::new());
     assert_eq!(counter::count(count).unwrap(), 1);
-    assert!(!any_file_of(&dir, "counter", "A"));
+    // By name: on a disk that ignores case, as macOS's, a file of `A`
+    // exists as soon as `a`'s does.
+    let names = std::fs::read_dir(dir.join("actors/counter"))
+        .unwrap()
+        .map(|entry| {
+            entry.unwrap().file_name().into_string().unwrap()
+        })
+        .collect::<Vec<_>>();
+    assert!(
+        names.iter().all(|name| !name.starts_with('A')),
+        "{names:?}"
+    );
     let error = opened.expect_err("a host with the kind `Counter`");
     assert!(
         format!("{error:#}").contains("is not a valid actor kind"),
