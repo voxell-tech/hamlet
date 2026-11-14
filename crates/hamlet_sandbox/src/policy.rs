@@ -58,6 +58,23 @@ impl Policy {
         }
         Ok(())
     }
+
+    /// Whether a command under this policy reads `path`, where the
+    /// system resolves it.
+    pub fn reads(&self, path: &Path) -> bool {
+        is_readable(self, &tmp_of(self), &canon_text(&text(path)))
+    }
+
+    /// Whether a command under this policy writes `path`, where the
+    /// system resolves it.
+    pub fn writes(&self, path: &Path) -> bool {
+        is_writable(
+            self,
+            &tmp_of(self),
+            &canon_text(&text(path)),
+            false,
+        )
+    }
 }
 
 /// A limit a command cannot run under.
@@ -260,14 +277,8 @@ pub(crate) fn temp_root() -> String {
 pub(crate) fn private_tmp(
     policy: &Policy,
 ) -> Result<String, SetupError> {
-    let mut digest = Sha256::new();
-    for each in &policy.rw {
-        digest.update(canon_text(&text(each)).as_bytes());
-        digest.update(b"\0");
-    }
-    let hex = format!("{:x}", digest.finalize());
     let root = temp_root();
-    let dir = path::join(&[root.as_str(), &hex[..16]]);
+    let dir = tmp_of(policy);
     directory_root(&root)?;
     directory_root(&dir)?;
     fs::create_dir_all(&dir)?;
@@ -278,6 +289,17 @@ pub(crate) fn private_tmp(
         fs::set_permissions(&dir, fs::Permissions::from_mode(0o700))?;
     }
     Ok(dir)
+}
+
+/// Where [`private_tmp`] puts `policy`'s temp folder.
+fn tmp_of(policy: &Policy) -> String {
+    let mut digest = Sha256::new();
+    for each in &policy.rw {
+        digest.update(canon_text(&text(each)).as_bytes());
+        digest.update(b"\0");
+    }
+    let hex = format!("{:x}", digest.finalize());
+    path::join(&[temp_root(), hex[..16].to_owned()])
 }
 
 /// The writable roots of a policy, including its private temp folder.

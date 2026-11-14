@@ -47,6 +47,9 @@ mod workers;
 #[path = "workspace/tools.rs"]
 mod tools;
 
+#[path = "workspace/realm_folder.rs"]
+mod realm_folder;
+
 const AGENT: AgentNumber = AgentNumber(7);
 
 /// The secret the stub realm holds.

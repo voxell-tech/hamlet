@@ -213,17 +213,11 @@ async fn a_change_out_of_reach_names_the_path_and_writes_nothing() {
             Refusal::AgentFilesystem { path: ours }
         ))
     );
+    // The gate weighs a path where its links lead.
     for (answer, path) in
         [(&by_link, "out/sub/x"), (&by_mine, "mine/x")]
     {
-        let path = folder.join(path);
-        assert_eq!(
-            answer,
-            &ChangeAnswer::Failed(format!(
-                "{} is out of this agent's reach to change",
-                path.display()
-            ))
-        );
+        assert_eq!(answer, &outside(folder.join(path)));
     }
     assert_eq!(
         std::fs::read_dir(&elsewhere).unwrap().count(),

@@ -297,9 +297,7 @@ fn needs(
                 return Err(Refusal::AgentFilesystem { path });
             }
             let policy = file_tool()?.policy;
-            if !is_in_any(&path, &policy.rw)
-                || is_in_any(&path, &policy.locked)
-            {
+            if !policy.writes(&path) {
                 return Err(Refusal::OutsideReach {
                     path,
                     access: Access::Change,
@@ -324,7 +322,7 @@ fn needs(
         }
         Op::Read { path } => {
             let path = normalized(path);
-            if is_readable(&path, &file_tool()?.policy) {
+            if file_tool()?.policy.reads(&path) {
                 Ok(Vec::new())
             } else if home.is_in_a_filesystem(&path) {
                 Err(Refusal::AgentFilesystem { path })
@@ -456,16 +454,6 @@ fn is_networked(script: &str) -> bool {
 /// real path again before it touches the file.
 fn normalized(path: &Path) -> PathBuf {
     PathBuf::from(normalize(&text(path)))
-}
-
-fn is_in_any(path: &Path, roots: &[PathBuf]) -> bool {
-    roots.iter().any(|root| is_within(path, root))
-}
-
-fn is_readable(path: &Path, policy: &Policy) -> bool {
-    is_in_any(path, &policy.ro)
-        || is_in_any(path, &policy.rw)
-        || (policy.open && !is_in_any(path, &policy.hidden))
 }
 
 #[cfg(test)]

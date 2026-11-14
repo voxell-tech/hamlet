@@ -271,24 +271,17 @@ async fn an_agent_never_writes_the_tools_folder() {
                 "{with_project}: {script}"
             );
         }
-        let [(_, direct), (_, linked)] = &changes[..] else {
-            unreachable!()
-        };
-        assert!(
-            matches!(
-                direct,
-                ChangeAnswer::Refused(CallRefusal::Reach(
-                    Refusal::OutsideReach { .. }
-                ))
-            ),
-            "{with_project}: {direct:?}"
-        );
-        // In a project, the gate weighs the path as written, and the
-        // sandbox follows the link and refuses it.
-        assert!(
-            !matches!(linked, ChangeAnswer::Changed(_)),
-            "{with_project}: {linked:?}"
-        );
+        for (path, answer) in &changes {
+            assert!(
+                matches!(
+                    answer,
+                    ChangeAnswer::Refused(CallRefusal::Reach(
+                        Refusal::OutsideReach { .. }
+                    ))
+                ),
+                "{with_project}: {path:?} {answer:?}"
+            );
+        }
         assert_eq!(read(&manifest), MANIFEST, "{with_project}");
         assert!(!dir.join("tools/new").exists(), "{with_project}");
     }
