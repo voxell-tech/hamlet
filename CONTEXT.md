@@ -228,9 +228,9 @@ state in a file of its own. Not the chief, agent or realm that makes a
 change, which the store's code calls `Actor`.
 
 **Set-aside timer**:
-An actor's one-shot timer that used up its tries without its action
-running to its end. The actor keeps it, and nothing runs it again until
-it is put back.
+An actor's one-shot timer that used up its tries without its handler's
+reply. The actor keeps it, and nothing runs it again until it is put
+back.
 _Avoid_: dead letter (a letter is what one agent sends another)
 
 ### Between agents
