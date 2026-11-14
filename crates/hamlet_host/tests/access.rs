@@ -10,6 +10,7 @@ use std::time::{Duration, Instant};
 use anyhow::Context as _;
 use call::call;
 use code::code;
+use files::any_file_of;
 use hamlet_actor::{
     Action, Actor, ActorConfig, Ctx, Handler, Registry,
 };
@@ -29,6 +30,8 @@ mod began;
 mod call;
 #[path = "support/code.rs"]
 mod code;
+#[path = "support/files.rs"]
+mod files;
 
 /// The kind `kind`, an actor of the trait API `A`, with a database.
 fn kind<A: Actor>(registry: &mut Registry, kind: &str) {
@@ -1068,17 +1071,6 @@ async fn a_kind_that_cannot_read_who_calls_it_is_refused_at_open() {
     assert!(!dir.join("actors").exists());
 }
 
-/// Whether any of the actor's files is in the folder: its file, its
-/// write-ahead file or its shared-memory file.
-fn has_files(dir: &Scratch, at: &Address) -> bool {
-    ["", "-wal", "-shm"].iter().any(|suffix| {
-        dir.join("actors")
-            .join(&at.kind)
-            .join(format!("{}.sqlite{suffix}", at.key))
-            .exists()
-    })
-}
-
 /// N1: the embedder's call and an actor's call to an actor that was
 /// to be made the same way fail.
 async fn calls_to(
@@ -1119,7 +1111,7 @@ async fn a_call_to_a_key_never_made_fails_and_leaves_no_file() {
             "{outcomes:?}"
         );
     }
-    assert!(!has_files(&dir, &never));
+    assert!(!any_file_of(&dir, &never.kind, &never.key));
 }
 
 /// N1: a call that comes after its callee was destroyed fails with
@@ -1141,7 +1133,7 @@ async fn a_call_after_a_destroy_fails_and_leaves_no_file() {
             "{outcomes:?}"
         );
     }
-    assert!(!has_files(&dir, &callee));
+    assert!(!any_file_of(&dir, &callee.kind, &callee.key));
 }
 
 /// N3: a start that finds no actor does not hand that to the starts

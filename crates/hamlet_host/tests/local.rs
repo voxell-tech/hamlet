@@ -4,7 +4,6 @@
 //! and the deadline of a start.
 
 use std::collections::HashMap;
-use std::future::Future;
 use std::mem::ManuallyDrop;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -2430,14 +2429,30 @@ impl std::io::Write for Logs {
     }
 }
 
+impl Logs {
+    fn record(&self) -> tracing::subscriber::DefaultGuard {
+        use tracing_subscriber::util::SubscriberInitExt;
+
+        tracing_subscriber::fmt()
+            .with_max_level(
+                tracing_subscriber::filter::LevelFilter::WARN,
+            )
+            .with_ansi(false)
+            .with_writer({
+                let logs = self.clone();
+                move || logs.clone()
+            })
+            .finish()
+            .set_default()
+    }
+}
+
 /// L1. Boot reads only the files of its own kinds. Another kind's
 /// file, which another process holds locked with a run a kill cut
 /// off, neither fails nor slows it, nor is logged, and nothing of
 /// that kind starts.
 #[tokio::test(flavor = "multi_thread")]
 async fn boot_reads_only_the_files_of_its_kinds() {
-    use tracing_subscriber::util::SubscriberInitExt;
-
     let dir = Scratch::new("host-boot-kinds");
     std::fs::create_dir_all(dir.join("actors/other")).unwrap();
     let held =
@@ -2456,15 +2471,7 @@ async fn boot_reads_only_the_files_of_its_kinds() {
 
     let host = Host::open(&dir, factories()).unwrap();
     let logs = Logs::default();
-    let logging = tracing_subscriber::fmt()
-        .with_max_level(tracing_subscriber::filter::LevelFilter::WARN)
-        .with_ansi(false)
-        .with_writer({
-            let logs = logs.clone();
-            move || logs.clone()
-        })
-        .finish()
-        .set_default();
+    let logging = logs.record();
     let began =
         tokio::time::timeout(Duration::from_secs(1), host.boot())
             .await
@@ -2534,8 +2541,6 @@ async fn hosts_of_different_names_share_a_folder() {
 /// was down starts and runs it.
 #[tokio::test(flavor = "multi_thread")]
 async fn boot_goes_past_a_file_it_cannot_read() {
-    use tracing_subscriber::util::SubscriberInitExt;
-
     let dir = Scratch::new("host-boot-unreadable");
     let host = Host::open(&dir, factories()).unwrap();
     let id = host.get_or_start("counter", "a").await.unwrap();
@@ -2553,15 +2558,7 @@ async fn boot_goes_past_a_file_it_cannot_read() {
     let host = Host::open(&dir, factories()).unwrap();
     let mut events = host.events();
     let logs = Logs::default();
-    let logging = tracing_subscriber::fmt()
-        .with_max_level(tracing_subscriber::filter::LevelFilter::WARN)
-        .with_ansi(false)
-        .with_writer({
-            let logs = logs.clone();
-            move || logs.clone()
-        })
-        .finish()
-        .set_default();
+    let logging = logs.record();
     let began = host.boot().await;
     drop(logging);
     assert_eq!(began.unwrap(), std::slice::from_ref(&id));
