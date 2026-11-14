@@ -6,8 +6,9 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use hamlet_messages::workspace::refusal::ToolRefusal;
 use hamlet_messages::workspace::{
-    AddedTool, CallRefusal, ConversationId, Program, Run, ToolList,
+    AddedTool, ConversationId, Fault, Program, Run, ToolList,
 };
 use hamlet_os::fs::path::{resolve, text};
 use hamlet_sandbox::{LimitError, Policy};
@@ -63,7 +64,7 @@ impl<'a> Ready<'a> {
     pub fn of(
         home: &RealmFolder,
         run: &'a Run,
-    ) -> Result<Self, CallRefusal> {
+    ) -> Result<Self, ToolRefusal> {
         let (name, arguments) = match &run.program {
             Program::Script {
                 script,
@@ -84,8 +85,8 @@ impl<'a> Ready<'a> {
             .0
             .into_iter()
             .find(|tool| tool.spec.name == *name)
-            .ok_or_else(|| CallRefusal::Invalid {
-                words: format!("Tool \"{name}\" not found"),
+            .ok_or_else(|| ToolRefusal::NotFound {
+                name: name.clone(),
             })?;
         let schema =
             serde_json::from_str::<Value>(&tool.spec.parameters)
@@ -101,8 +102,8 @@ impl<'a> Ready<'a> {
                     })
             });
         if !valid {
-            return Err(CallRefusal::Invalid {
-                words: format!("Validation failed for tool {name}"),
+            return Err(ToolRefusal::Arguments {
+                name: name.clone(),
             });
         }
         Ok(Self::Tool {
@@ -243,7 +244,7 @@ enum Unloaded {
 }
 
 /// The tools that load, in folder order, and why the others do not.
-fn load(home: &RealmFolder) -> (Vec<Tool>, Vec<String>) {
+fn load(home: &RealmFolder) -> (Vec<Tool>, Vec<Fault>) {
     let folder = home.tools();
     let mut tools = Vec::new();
     let mut faults = Vec::new();
@@ -251,7 +252,10 @@ fn load(home: &RealmFolder) -> (Vec<Tool>, Vec<String>) {
         Ok(entries) => entries,
         Err(error) => {
             if error.kind() != std::io::ErrorKind::NotFound {
-                faults.push(format!("{}: {error}", folder.display()));
+                faults.push(Fault {
+                    folder,
+                    words: error.to_string(),
+                });
             }
             return (tools, faults);
         }
@@ -290,8 +294,10 @@ fn load(home: &RealmFolder) -> (Vec<Tool>, Vec<String>) {
         match loaded {
             Ok(tool) => tools.push(tool),
             Err(unloaded) => {
-                faults
-                    .push(format!("{}: {unloaded}", path.display()));
+                faults.push(Fault {
+                    folder: path,
+                    words: unloaded.to_string(),
+                });
             }
         }
     }

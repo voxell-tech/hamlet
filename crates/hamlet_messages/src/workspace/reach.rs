@@ -1,5 +1,5 @@
 //! An agent's reach on a machine, as the realm sets it (C18 to C21,
-//! H11), and why a call does not pass it.
+//! H11). Why a call does not pass it is in [`super::refusal`].
 
 use std::path::PathBuf;
 
@@ -88,44 +88,32 @@ pub enum Need {
     Edit,
 }
 
-#[derive(
-    Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize,
-)]
-#[serde(rename_all = "snake_case")]
-pub enum Access {
-    Read,
-    Change,
+/// "the network", "a command", "an edit".
+impl std::fmt::Display for Need {
+    fn fmt(
+        &self,
+        f: &mut std::fmt::Formatter<'_>,
+    ) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Network => "the network",
+            Self::Command => "a command",
+            Self::Edit => "an edit",
+        })
+    }
 }
 
-/// A call the gate does not let run.
-#[derive(
-    Clone,
-    Debug,
-    PartialEq,
-    Eq,
-    Serialize,
-    Deserialize,
-    thiserror::Error,
-)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum Refusal {
-    #[error("{} is out of this agent's reach to {}", path.display(), match access {
-        Access::Read => "read",
-        Access::Change => "change",
-    })]
-    OutsideReach { path: PathBuf, access: Access },
-    /// Only the agent itself changes its filesystem, and only a
-    /// worker reads its starter's through the workspace.
-    #[error("{} is in an agent's filesystem", path.display())]
-    AgentFilesystem { path: PathBuf },
-    #[error("this agent has no reach on this machine")]
-    NoReach,
-    #[error(
-        "the folder this agent works on, {}, is in the realm's \
-         folder, where no agent's commands or file tools run",
-        folder.display()
-    )]
-    ProjectInRealm { folder: PathBuf },
+/// `needs` in words, the last two joined by "and": "the network and
+/// an edit".
+pub(crate) fn needs_words(needs: &[Need]) -> String {
+    let words =
+        needs.iter().map(ToString::to_string).collect::<Vec<_>>();
+    match words.split_last() {
+        None => String::new(),
+        Some((last, [])) => last.clone(),
+        Some((last, rest)) => {
+            format!("{} and {last}", rest.join(", "))
+        }
+    }
 }
 
 impl Reach {

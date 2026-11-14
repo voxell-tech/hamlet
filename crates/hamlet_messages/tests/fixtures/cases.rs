@@ -38,34 +38,194 @@ fn cases_of<E: DeserializeOwned>(probe: &Value) -> Cases {
     }
 }
 
-/// Each enum case `value` holds when read as a `T`, with that enum's
-/// cases.
+/// An untagged union of families, each tagged by `type`.
+pub struct Union {
+    pub name: String,
+    pub families: Vec<Family>,
+}
+
+/// A family of a [`Union`], and the probe of a value of it.
+pub struct Family {
+    pub name: String,
+    pub cases: Cases,
+    found: fn(&str, &Value, &[Union], &mut Found),
+}
+
+pub fn union<U>(families: Vec<Family>) -> Union {
+    Union {
+        name: short_name::<U>(),
+        families,
+    }
+}
+
+pub fn family<E: DeserializeOwned>() -> Family {
+    Family {
+        name: short_name::<E>(),
+        cases: tagged::<E>(),
+        found: found::<E>,
+    }
+}
+
+/// A type's name with no module paths, as serde and a reader name it.
+fn short_name<T>() -> String {
+    let mut name = String::new();
+    for letter in std::any::type_name::<T>().chars() {
+        name.push(letter);
+        if name.ends_with("::") {
+            name.truncate(name.len() - 2);
+            let kept = name
+                .trim_end_matches(|letter: char| {
+                    letter.is_alphanumeric() || letter == '_'
+                })
+                .len();
+            name.truncate(kept);
+        }
+    }
+    name
+}
+
+/// The enum cases fixtures hold, and what kept a case from being
+/// found.
+#[derive(Default)]
+pub struct Found {
+    pub cases: Vec<(Cases, String)>,
+    pub problems: Vec<String>,
+}
+
+/// Adds each enum case `value` holds when read as a `T`, with that
+/// enum's cases, to `found`. A case in a union is read as the family
+/// that has its `type`, since the union reports only that none of
+/// its families read it.
 pub fn found<T: DeserializeOwned>(
     name: &str,
     value: &Value,
-) -> Vec<(Cases, String)> {
+    unions: &[Union],
+    found: &mut Found,
+) {
     if let Err(error) = T::deserialize(TaggedReader(value)) {
-        panic!("{name} holds an enum not tagged by `type`: {error}");
+        found.problems.push(format!(
+            "{name} does not read as {}: {error}",
+            short_name::<T>()
+        ));
+        return;
     }
     let mut paths = Vec::new();
     texts(value, &mut Vec::new(), &mut paths);
-    let mut found = Vec::new();
+    let mut read_as_a_family = Vec::new();
     for path in paths {
         let mut probe = value.clone();
-        let Value::Text(name) = std::mem::replace(
+        let Value::Text(text) = std::mem::replace(
             at(&mut probe, &path),
             Value::Text(UNKNOWN.into()),
         ) else {
             unreachable!("a path leads to a text");
         };
-        if let Err(Probed {
-            cases: Some(cases), ..
-        }) = T::deserialize(TaggedReader(&probe))
-        {
-            found.push((cases, name));
+        match T::deserialize(TaggedReader(&probe)) {
+            Err(Probed {
+                cases: Some(cases), ..
+            }) => found.cases.push((cases, text)),
+            Err(Probed {
+                cases: None,
+                message,
+            }) if message.contains("untagged enum") => {
+                let Some(union) = unions.iter().find(|union| {
+                    message.ends_with(&format!(
+                        "untagged enum {}",
+                        union.name
+                    ))
+                }) else {
+                    found.problems.push(format!(
+                        "{name}: the union of \"{message}\" is \
+                         missing from unions()"
+                    ));
+                    continue;
+                };
+                let Some(position) = position(value, &path, union)
+                else {
+                    found.problems.push(format!(
+                        "{name}: no family of {} has a type around \
+                         {text}",
+                        union.name
+                    ));
+                    continue;
+                };
+                if !read_as_a_family.contains(&position) {
+                    in_union(
+                        name, value, &position, union, unions, found,
+                    );
+                    read_as_a_family.push(position);
+                }
+            }
+            Err(_) | Ok(_) => {}
         }
     }
-    found
+}
+
+/// The nearest map around `path` in `value` whose `type` is a case
+/// of a family of `union`.
+fn position(
+    value: &Value,
+    path: &[usize],
+    union: &Union,
+) -> Option<Vec<usize>> {
+    (0..path.len()).rev().map(|end| path[..end].to_vec()).find(
+        |position| {
+            tag(read_at(value, position)).is_some_and(|tag| {
+                union
+                    .families
+                    .iter()
+                    .any(|family| family.cases.contains(&tag))
+            })
+        },
+    )
+}
+
+/// Reads the union's value at `position` as the family that has its
+/// `type`.
+fn in_union(
+    name: &str,
+    value: &Value,
+    position: &[usize],
+    union: &Union,
+    unions: &[Union],
+    found: &mut Found,
+) {
+    let value = read_at(value, position);
+    let tag = tag(value).expect("a union's position has a type");
+    let owners = union
+        .families
+        .iter()
+        .filter(|family| family.cases.contains(&tag))
+        .collect::<Vec<_>>();
+    match owners.as_slice() {
+        [family] => (family.found)(
+            &format!("{name} at {position:?}"),
+            value,
+            unions,
+            found,
+        ),
+        owners => found.problems.push(format!(
+            "{name}: the type {tag} of {} is a case of {}",
+            union.name,
+            owners
+                .iter()
+                .map(|family| family.name.as_str())
+                .collect::<Vec<_>>()
+                .join(" and ")
+        )),
+    }
+}
+
+fn tag(value: &Value) -> Option<&str> {
+    let Value::Map(entries) = value else {
+        return None;
+    };
+    entries.iter().find_map(|(key, item)| match (key, item) {
+        (Value::Text(key), Value::Text(tag)) if key == "type" => {
+            Some(tag.as_str())
+        }
+        _ => None,
+    })
 }
 
 fn texts(
@@ -86,6 +246,14 @@ fn texts(
         texts(item, path, paths);
         path.pop();
     }
+}
+
+fn read_at<'a>(value: &'a Value, path: &[usize]) -> &'a Value {
+    path.iter().fold(value, |value, &index| match value {
+        Value::Array(items) => &items[index],
+        Value::Map(entries) => &entries[index].1,
+        _ => unreachable!("a path goes through lists and maps"),
+    })
 }
 
 fn at<'a>(value: &'a mut Value, path: &[usize]) -> &'a mut Value {

@@ -333,8 +333,12 @@ async fn answer_call(
         .await?;
     let mut out = std::io::stdout();
     match ciborium::from_reader(reply.as_slice())? {
-        AnswerTaken::Runs => writeln!(out, "answered/{call} 1")?,
-        AnswerTaken::NotRun { why } => {
+        AnswerTaken::Taken => writeln!(out, "answered/{call} 1")?,
+        AnswerTaken::RunNotRun { why } => {
+            tracing::warn!(%why, "agent {agent}'s call {call} did not run");
+            writeln!(out, "answered/{call}/not_run 0")?;
+        }
+        AnswerTaken::ChangeNotRun { why } => {
             tracing::warn!(%why, "agent {agent}'s call {call} did not run");
             writeln!(out, "answered/{call}/not_run 0")?;
         }

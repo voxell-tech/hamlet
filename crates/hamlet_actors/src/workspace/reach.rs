@@ -10,8 +10,10 @@ use std::path::{Path, PathBuf};
 use hamlet_actor_core::{BindParam, ColumnValue, SqliteTransaction};
 use hamlet_messages::address::LOCAL;
 use hamlet_messages::workspace::reach::{
-    Access, Footing, Mode, Need, Reach, Refusal, SecretsVersion,
-    Trust,
+    Footing, Mode, Need, Reach, SecretsVersion, Trust,
+};
+use hamlet_messages::workspace::refusal::{
+    PathRefusal, ReachRefusal, ReadRefusal, ToChange, ToRead,
 };
 use hamlet_messages::workspace::{
     AgentNumber, ConversationId, ReachVersion, SetReach,
@@ -230,10 +232,56 @@ pub enum Gate {
         network: Network,
     },
     NeedsChief(Vec<Need>),
-    Refuse(Refusal),
+    Refuse(Refused),
     /// The workspace's list of secrets is older than this version:
     /// fetch it from the realm, then pass the gate again.
     NeedsSecrets(SecretsVersion),
+}
+
+/// Why the gate refuses a call: the agent's reach, or the path a file
+/// call names, by its access.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Refused {
+    Reach(ReachRefusal),
+    Read(PathRefusal<ToRead>),
+    Change(PathRefusal<ToChange>),
+}
+
+impl Refused {
+    /// The refusal of a command or a tool, which names no path.
+    pub fn of_program(self) -> anyhow::Result<ReachRefusal> {
+        match self {
+            Self::Reach(why) => Ok(why),
+            Self::Read(_) | Self::Change(_) => {
+                anyhow::bail!("the gate refused a program by a path")
+            }
+        }
+    }
+
+    /// The refusal of a read, a search or a find.
+    pub fn of_read(self) -> anyhow::Result<ReadRefusal> {
+        match self {
+            Self::Reach(why) => Ok(why.into()),
+            Self::Read(why) => Ok(why.into()),
+            Self::Change(_) => {
+                anyhow::bail!("the gate refused a read as a change")
+            }
+        }
+    }
+
+    /// The refusal of a write or an edit.
+    pub fn of_change<R>(self) -> anyhow::Result<R>
+    where
+        R: From<ReachRefusal> + From<PathRefusal<ToChange>>,
+    {
+        match self {
+            Self::Reach(why) => Ok(why.into()),
+            Self::Change(why) => Ok(why.into()),
+            Self::Read(_) => {
+                anyhow::bail!("the gate refused a change as a read")
+            }
+        }
+    }
 }
 
 /// A program's access to the network, as the gate lets it run.
@@ -269,7 +317,7 @@ pub fn gate(
     let Some((reach, footing)) =
         reach.and_then(|reach| Some((reach, reach.footing()?)))
     else {
-        return Gate::Refuse(Refusal::NoReach);
+        return Gate::Refuse(Refused::Reach(ReachRefusal::NoReach));
     };
     let needs = match needs(home, agent, reach, footing, op) {
         Ok(needs) => needs,
@@ -302,17 +350,17 @@ fn needs(
     reach: &Reach,
     footing: &Footing,
     op: &Op<'_>,
-) -> Result<Vec<Need>, Refusal> {
+) -> Result<Vec<Need>, Refused> {
     if let Some(project) = &footing.project
         && home.has_inside(&project.folder)
     {
-        return Err(Refusal::ProjectInRealm {
+        return Err(Refused::Reach(ReachRefusal::ProjectInRealm {
             folder: project.folder.clone(),
-        });
+        }));
     }
     let file_tool = || {
         placement(home, agent, reach, Purpose::FileTool)
-            .ok_or(Refusal::NoReach)
+            .ok_or(Refused::Reach(ReachRefusal::NoReach))
     };
     match *op {
         Op::Command {
@@ -331,14 +379,18 @@ fn needs(
         Op::Change { conversation, path } => {
             let path = normalized(path);
             if home.is_in_a_filesystem(&path) {
-                return Err(Refusal::AgentFilesystem { path });
+                return Err(Refused::Change(
+                    PathRefusal::AgentFilesystem { path },
+                ));
             }
             let policy = file_tool()?.policy;
             if !policy.can_write(&path) {
-                return Err(Refusal::OutsideReach {
-                    path,
-                    access: Access::Change,
-                });
+                return Err(Refused::Change(
+                    PathRefusal::OutsideReach {
+                        path,
+                        access: ToChange::Change,
+                    },
+                ));
             }
             let in_manual_project =
                 footing.project.as_ref().is_some_and(|project| {
@@ -365,12 +417,14 @@ fn needs(
             if file_tool()?.policy.can_read(&path) {
                 Ok(Vec::new())
             } else if home.is_in_a_filesystem(&path) {
-                Err(Refusal::AgentFilesystem { path })
-            } else {
-                Err(Refusal::OutsideReach {
+                Err(Refused::Read(PathRefusal::AgentFilesystem {
                     path,
-                    access: Access::Read,
-                })
+                }))
+            } else {
+                Err(Refused::Read(PathRefusal::OutsideReach {
+                    path,
+                    access: ToRead::Read,
+                }))
             }
         }
     }
@@ -659,9 +713,11 @@ mod tests {
         ] {
             assert_eq!(
                 reads(path),
-                Gate::Refuse(Refusal::AgentFilesystem {
-                    path: path.into()
-                })
+                Gate::Refuse(Refused::Read(
+                    PathRefusal::AgentFilesystem {
+                        path: path.into()
+                    }
+                ))
             );
         }
     }
@@ -700,7 +756,9 @@ mod tests {
                 home().filesystem(agent).join("memory/notes.md");
             assert_eq!(
                 passed(&reach, &change(&talk, &path)),
-                Gate::Refuse(Refusal::AgentFilesystem { path })
+                Gate::Refuse(Refused::Change(
+                    PathRefusal::AgentFilesystem { path }
+                ))
             );
         }
     }
@@ -716,10 +774,12 @@ mod tests {
         {
             assert_eq!(
                 passed(&reach, &change(&talk, Path::new(path))),
-                Gate::Refuse(Refusal::OutsideReach {
-                    path: normalize(path).into(),
-                    access: Access::Change,
-                })
+                Gate::Refuse(Refused::Change(
+                    PathRefusal::OutsideReach {
+                        path: normalize(path).into(),
+                        access: ToChange::Change,
+                    }
+                ))
             );
         }
     }
@@ -831,7 +891,7 @@ mod tests {
         for reach in [None, Some(&Reach::Ended)] {
             assert_eq!(
                 gate(&home(), AGENT, reach, Some(V1), &op),
-                Gate::Refuse(Refusal::NoReach)
+                Gate::Refuse(Refused::Reach(ReachRefusal::NoReach))
             );
         }
         assert_eq!(
@@ -875,7 +935,9 @@ mod tests {
                 None,
                 &change(&talk, outside)
             ),
-            Gate::Refuse(Refusal::OutsideReach { .. })
+            Gate::Refuse(Refused::Change(
+                PathRefusal::OutsideReach { .. }
+            ))
         ));
         assert_eq!(
             gate(

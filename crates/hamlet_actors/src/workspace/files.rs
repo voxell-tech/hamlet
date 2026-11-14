@@ -17,18 +17,19 @@ use anyhow::{Context, Result};
 use hamlet_actor::{Ctx, Handler};
 use hamlet_messages::address::Agent;
 use hamlet_messages::sender::sender;
+use hamlet_messages::workspace::AgentNumber;
 use hamlet_messages::workspace::files::{
-    FileAnswer, Find, ReadFile, Search, Text,
+    Find, ReadAnswer, ReadFile, Search, SearchAnswer, Text,
 };
 use hamlet_messages::workspace::reach::{Need, Reach};
-use hamlet_messages::workspace::{AgentNumber, CallRefusal};
+use hamlet_messages::workspace::refusal::{InvalidPath, ReadRefusal};
 use hamlet_os::fs::path::{is_absolute, text};
 use hamlet_sandbox::Env;
 use hamlet_sandbox::scrub::scrub_text;
 
-pub(super) use self::change::{Paths, cut_off_changes};
-use super::reach::{self, Gate, Op, Placement, Purpose};
-use super::{Invalid, Weighing, Workspace, read_only};
+pub(super) use self::change::{EDIT, Paths, WRITE, cut_off_changes};
+use super::reach::{self, Gate, Op, Placement, Purpose, Refused};
+use super::{Weighing, Workspace, read_only};
 
 /// A file tool's call the gate let through: where it runs, and the
 /// secrets its answer is scrubbed of.
@@ -41,10 +42,10 @@ struct Passed {
 impl Passed {
     /// The answer of `work`, run off the runtime on the file tools'
     /// environment, with the secrets taken out.
-    async fn run(
+    async fn run<A: Answered>(
         self,
-        work: impl FnOnce(&Env) -> FileAnswer + Send + 'static,
-    ) -> Result<FileAnswer> {
+        work: impl FnOnce(&Env) -> A + Send + 'static,
+    ) -> Result<A> {
         let Self {
             placement,
             sandbox,
@@ -57,41 +58,84 @@ impl Passed {
                 sandbox,
             ) {
                 Ok(env) => work(&env),
-                Err(error) => FileAnswer::Failed {
-                    words: error.to_string(),
-                },
+                Err(error) => A::failed(error.to_string()),
             }
         })
         .await
         .context("a file tool's thread ended before it")?;
-        Ok(scrubbed(&secrets, answer))
+        Ok(answer.scrubbed(&secrets))
     }
 }
 
-/// `answer` with `secrets` taken out of every word (C32).
-fn scrubbed(secrets: &[String], answer: FileAnswer) -> FileAnswer {
-    let scrub = |words: &str| scrub_text(secrets, words);
-    match answer {
-        FileAnswer::Text(Text {
-            text,
-            mut notes,
-            truncation,
-        }) => {
-            for note in &mut notes {
-                note.code = scrub(&note.code);
-                note.message = scrub(&note.message);
+/// The answer of a read, a search or a find.
+trait Answered: Send + 'static {
+    fn failed(words: String) -> Self;
+    fn refused(why: ReadRefusal) -> Self;
+    /// The answer with `secrets` taken out of every word (C32).
+    fn scrubbed(self, secrets: &[String]) -> Self;
+}
+
+/// `text` with `secrets` taken out of every word.
+fn scrubbed_text(
+    secrets: &[String],
+    Text {
+        text,
+        mut notes,
+        truncation,
+    }: Text,
+) -> Text {
+    for note in &mut notes {
+        note.code = scrub_text(secrets, &note.code);
+        note.message = scrub_text(secrets, &note.message);
+    }
+    Text {
+        text: scrub_text(secrets, &text),
+        notes,
+        truncation,
+    }
+}
+
+impl Answered for ReadAnswer {
+    fn failed(words: String) -> Self {
+        Self::Failed { words }
+    }
+
+    fn refused(why: ReadRefusal) -> Self {
+        Self::Refused { why }
+    }
+
+    fn scrubbed(self, secrets: &[String]) -> Self {
+        match self {
+            Self::Text(text) => {
+                Self::Text(scrubbed_text(secrets, text))
             }
-            FileAnswer::Text(Text {
-                text: scrub(&text),
-                notes,
-                truncation,
-            })
+            Self::Failed { words } => Self::Failed {
+                words: scrub_text(secrets, &words),
+            },
+            image @ (Self::Image(_) | Self::Refused { .. }) => image,
         }
-        FileAnswer::Failed { words } => FileAnswer::Failed {
-            words: scrub(&words),
-        },
-        image @ (FileAnswer::Image(_)
-        | FileAnswer::Refused { .. }) => image,
+    }
+}
+
+impl Answered for SearchAnswer {
+    fn failed(words: String) -> Self {
+        Self::Failed { words }
+    }
+
+    fn refused(why: ReadRefusal) -> Self {
+        Self::Refused { why }
+    }
+
+    fn scrubbed(self, secrets: &[String]) -> Self {
+        match self {
+            Self::Text(text) => {
+                Self::Text(scrubbed_text(secrets, text))
+            }
+            Self::Failed { words } => Self::Failed {
+                words: scrub_text(secrets, &words),
+            },
+            refused @ Self::Refused { .. } => refused,
+        }
     }
 }
 
@@ -99,7 +143,7 @@ enum Gated {
     Pass(Passed),
     /// It waits for a chief to allow these.
     Chief(Passed, Vec<Need>),
-    Refused(CallRefusal),
+    Refused(Refused),
 }
 
 impl Workspace {
@@ -132,11 +176,7 @@ impl Workspace {
                 Gate::NeedsChief(needs) => {
                     Gated::Chief(passed()?, needs)
                 }
-                Gate::Refuse(refusal) => {
-                    Gated::Refused(CallRefusal::Reach {
-                        why: refusal,
-                    })
-                }
+                Gate::Refuse(refused) => Gated::Refused(refused),
                 Gate::NeedsSecrets(version) => {
                     return Ok(Weighing::NeedsSecrets(version));
                 }
@@ -144,22 +184,20 @@ impl Workspace {
         ))
     }
 
-    async fn read_tool(
+    async fn read_tool<A: Answered>(
         &self,
         ctx: &Ctx<Self>,
         agent: AgentNumber,
         path: &Path,
-        work: impl FnOnce(&Env) -> FileAnswer + Send + 'static,
-    ) -> Result<FileAnswer> {
+        work: impl FnOnce(&Env) -> A + Send + 'static,
+    ) -> Result<A> {
         if !is_absolute(&text(path)) {
-            return Ok(FileAnswer::Refused {
-                why: CallRefusal::Invalid {
-                    words: Invalid::NotAbsolute(
-                        path.display().to_string(),
-                    )
-                    .to_string(),
-                },
-            });
+            return Ok(A::refused(
+                InvalidPath::NotAbsolute {
+                    path: path.to_owned(),
+                }
+                .into(),
+            ));
         }
         let gated = self
             .weighed(ctx, move || async move {
@@ -175,8 +213,8 @@ impl Workspace {
             Gated::Chief(..) => {
                 anyhow::bail!("the gate asked a chief for a read")
             }
-            Gated::Refused(refusal) => {
-                Ok(FileAnswer::Refused { why: refusal })
+            Gated::Refused(refused) => {
+                Ok(A::refused(refused.of_read()?))
             }
         }
     }
@@ -187,12 +225,12 @@ impl Handler<ReadFile> for Workspace {
         self: Arc<Self>,
         ctx: Ctx<Self>,
         asked: ReadFile,
-    ) -> Result<FileAnswer> {
+    ) -> Result<ReadAnswer> {
         let Agent(agent) = sender::<ReadFile, _>(&ctx)?;
         let path = text(&asked.path);
         self.read_tool(&ctx, agent, &asked.path, move |env| {
             read::read(env, &path, asked.offset, asked.limit)
-                .unwrap_or_else(|error| FileAnswer::Failed {
+                .unwrap_or_else(|error| ReadAnswer::Failed {
                     words: error.message,
                 })
         })
@@ -205,7 +243,7 @@ impl Handler<Search> for Workspace {
         self: Arc<Self>,
         ctx: Ctx<Self>,
         asked: Search,
-    ) -> Result<FileAnswer> {
+    ) -> Result<SearchAnswer> {
         let Agent(agent) = sender::<Search, _>(&ctx)?;
         let under = text(&asked.under);
         self.read_tool(&ctx, agent, &asked.under, move |env| {
@@ -230,7 +268,7 @@ impl Handler<Find> for Workspace {
         self: Arc<Self>,
         ctx: Ctx<Self>,
         asked: Find,
-    ) -> Result<FileAnswer> {
+    ) -> Result<SearchAnswer> {
         let Agent(agent) = sender::<Find, _>(&ctx)?;
         let under = text(&asked.under);
         self.read_tool(&ctx, agent, &asked.under, move |env| {
@@ -241,14 +279,14 @@ impl Handler<Find> for Workspace {
 }
 
 /// The answer of a search or a find.
-fn listed(found: Result<String, walk::Failure>) -> FileAnswer {
+fn listed(found: Result<String, walk::Failure>) -> SearchAnswer {
     match found {
-        Ok(text) => FileAnswer::Text(Text {
+        Ok(text) => SearchAnswer::Text(Text {
             text,
             notes: Vec::new(),
             truncation: None,
         }),
-        Err(failure) => FileAnswer::Failed {
+        Err(failure) => SearchAnswer::Failed {
             words: failure.words(),
         },
     }

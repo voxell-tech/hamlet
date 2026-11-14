@@ -1,17 +1,28 @@
 //! The calls the `workspace` actor takes, and its answers.
+//!
+//! Every answer is built from the same few arms:
+//!
+//! - `ended { end }`: the call ended, and `end` says how. It is the
+//!   end [`crate::agent::Finished`] carries, and a repeat of the call
+//!   answers it again.
+//! - `running`, `waits_for_chief`: the call goes on, and the agent is
+//!   called with `Finished` when it ends.
+//! - `refused { why, words }`: the workspace kept nothing of the
+//!   call. `why` is one of the families of [`refusal`].
 
 pub mod files;
 pub mod reach;
+pub mod refusal;
 
 use std::path::PathBuf;
 
 use hamlet_actor::Action;
 use serde::{Deserialize, Serialize};
 
-use self::files::Hashed;
-use self::reach::{Need, Reach, Refusal};
-use crate::Message;
+use self::reach::{Need, Reach};
+use self::refusal::{ChangeNotRun, RunNotRun, RunRefusal};
 use crate::address::{Agent, Realm, Workspace};
+use crate::{Message, worded};
 
 /// The number in an agent actor's file name,
 /// `actors/agent/<n>.sqlite`, and its key.
@@ -128,14 +139,22 @@ pub enum Lapse {
     Ended,
 }
 
-/// The workspace's answer to a [`ChiefAnswer`].
+/// The workspace's answer to a [`ChiefAnswer`]. A wait that ended
+/// without the call running answers by the call's kind, with the
+/// `why` the agent is called with.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum AnswerTaken {
-    /// The call runs, and the agent is called with its end.
-    Runs,
-    /// The call does not run, and the agent is called with why.
-    NotRun { why: CallRefusal },
+    /// An allow was taken: the command started, or the change was
+    /// carried out. The agent is called with its end.
+    Taken,
+    /// A run did not run: a chief refused it, its wait lapsed, or
+    /// its allow no longer holds.
+    #[serde(serialize_with = "worded")]
+    RunNotRun { why: RunNotRun },
+    /// The same, for a write or an edit.
+    #[serde(serialize_with = "worded")]
+    ChangeNotRun { why: ChangeNotRun },
     /// The agent has no call waiting under this id: its wait ended
     /// before, and nothing changed.
     NoWait,
@@ -199,9 +218,8 @@ impl Message for ListTools {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ToolList {
     pub tools: Vec<AddedTool>,
-    /// The reason each folder of a tool that does not load is left
-    /// out.
-    pub faults: Vec<String>,
+    /// Each folder of a tool that does not load.
+    pub faults: Vec<Fault>,
 }
 
 /// A tool added by hand, as a model is offered it.
@@ -213,17 +231,33 @@ pub struct AddedTool {
     pub parameters: String,
 }
 
+/// A tool's folder that is left out of a [`ToolList`].
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Fault {
+    pub folder: PathBuf,
+    /// Why it does not load, in words.
+    pub words: String,
+}
+
 /// The workspace's id of a command, from 1.
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize,
 )]
 pub struct CommandId(pub u64);
 
-/// The workspace's answer to a [`Run`] and to a [`CommandStatus`].
+/// The workspace's answer to a [`Run`], and to a [`CommandStatus`]
+/// with `R` as [`refusal::StatusRefusal`]: how the call's command
+/// stands.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
-pub enum RunAnswer {
-    Done(CommandEnd),
+#[serde(bound(
+    serialize = "R: Serialize + std::fmt::Display",
+    deserialize = "R: Deserialize<'de>"
+))]
+pub enum RunAnswer<R = RunRefusal> {
+    Ended {
+        end: RunEnd,
+    },
     /// The command runs on, and the agent is called with
     /// [`crate::agent::Finished`] when it ends, unless the
     /// workspace's host stopped first.
@@ -235,9 +269,21 @@ pub enum RunAnswer {
     WaitsForChief {
         needs: Vec<Need>,
     },
+    #[serde(serialize_with = "worded")]
     Refused {
-        why: CallRefusal,
+        why: R,
     },
+}
+
+/// How a run ended.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum RunEnd {
+    /// Its command ended.
+    Ran(CommandEnd),
+    /// It waited for a chief and did not run.
+    #[serde(serialize_with = "worded")]
+    NotRun { why: RunNotRun },
 }
 
 /// A command's exit, and the end of what it printed.
@@ -320,103 +366,11 @@ pub struct CommandStatus {
 }
 
 impl Action for CommandStatus {
-    type Output = RunAnswer;
+    type Output = RunAnswer<refusal::StatusRefusal>;
     const NAME: &'static str = "command_status";
 }
 
 impl Message for CommandStatus {
     type To = Workspace;
     type From = Agent;
-}
-
-/// A call of an agent's tool the workspace does not carry out.
-#[derive(
-    Clone,
-    Debug,
-    PartialEq,
-    Eq,
-    Serialize,
-    Deserialize,
-    thiserror::Error,
-)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum CallRefusal {
-    #[error("{why}")]
-    Reach { why: Refusal },
-    /// The id was given before to a call with another request (S19).
-    #[error("the call id {} was used before for another request", call.0)]
-    CallReused { call: CallId },
-    /// A call that waits for a chief would keep one of the realm's
-    /// secrets in its text, which is never stored.
-    #[error(
-        "the call holds one of the realm's secrets, so it cannot \
-         wait for a chief"
-    )]
-    HoldsSecret,
-    #[error("a chief refused the call{}", reason.as_ref().map_or_else(String::new, |reason| format!(": {reason}")))]
-    ChiefRefused {
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        reason: Option<String>,
-    },
-    #[error("the call's wait for a chief lapsed: {}", match lapse {
-        Lapse::Stopped => "the turn was stopped",
-        Lapse::Rewound => "the conversation was taken back past it",
-        Lapse::Ended => "the agent ended",
-    })]
-    Lapsed { lapse: Lapse },
-    /// A chief allowed the call, but the reach changed while it
-    /// waited and no longer lets it run.
-    #[error(
-        "a chief allowed the call under reach version {}, but under \
-         version {} {why}",
-        since.0,
-        now.0
-    )]
-    ReachChanged {
-        since: ReachVersion,
-        now: ReachVersion,
-        why: Changed,
-    },
-    #[error("{words}")]
-    Invalid { words: String },
-    #[error("this agent has no command {}", command.0)]
-    NoSuchCommand { command: CommandId },
-    /// The file no longer holds what it held when the agent asked,
-    /// so the change was not made.
-    #[error(
-        "{} changed after the change was asked for: it held {was} and \
-         now holds {now}. Read it again and ask again",
-        path.display()
-    )]
-    FileChanged {
-        path: PathBuf,
-        was: Hashed,
-        now: Hashed,
-    },
-    /// A write's content is past [`files::MOST_CONTENT`].
-    #[error(
-        "the content is {bytes} bytes, more than the {limit} bytes \
-         a write may hold"
-    )]
-    TooLarge { bytes: u64, limit: u64 },
-}
-
-/// The reach in force's answer to a call a chief allowed under an
-/// older one.
-#[derive(
-    Clone,
-    Debug,
-    PartialEq,
-    Eq,
-    Serialize,
-    Deserialize,
-    thiserror::Error,
-)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum Changed {
-    #[error("it is refused: {why}")]
-    Refused { why: Refusal },
-    /// It needs what the chief was not asked for.
-    #[error("it needs {needs:?}, which the chief was not asked for")]
-    Needs { needs: Vec<Need> },
 }

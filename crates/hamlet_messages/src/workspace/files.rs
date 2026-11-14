@@ -10,10 +10,13 @@ use hamlet_actor::Action;
 use serde::{Deserialize, Serialize};
 
 use super::reach::Need;
-use super::{CallId, CallRefusal, ConversationId, RealmTask};
-use crate::Message;
+use super::refusal::{
+    ChangeNotRun, ChangeRefusal, ReadRefusal, WriteRefusal,
+};
+use super::{CallId, ConversationId, RealmTask};
 use crate::address::{Agent, Workspace};
 use crate::bytes::{Base64, Sha256};
+use crate::{Message, worded};
 
 /// Reads a file: a text file's lines, or an image.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -28,7 +31,7 @@ pub struct ReadFile {
 }
 
 impl Action for ReadFile {
-    type Output = FileAnswer;
+    type Output = ReadAnswer;
     const NAME: &'static str = "read_file";
 }
 
@@ -52,7 +55,7 @@ pub struct Search {
 }
 
 impl Action for Search {
-    type Output = FileAnswer;
+    type Output = SearchAnswer;
     const NAME: &'static str = "search";
 }
 
@@ -71,7 +74,7 @@ pub struct Find {
 }
 
 impl Action for Find {
-    type Output = FileAnswer;
+    type Output = SearchAnswer;
     const NAME: &'static str = "find";
 }
 
@@ -80,20 +83,36 @@ impl Message for Find {
     type From = Agent;
 }
 
-/// The workspace's answer to a [`ReadFile`], a [`Search`] or a
-/// [`Find`]. Every word in it has the realm's secrets taken out.
+/// The workspace's answer to a [`ReadFile`]. Every word in it has
+/// the realm's secrets taken out.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
-pub enum FileAnswer {
+pub enum ReadAnswer {
     Text(Text),
     Image(Image),
-    Refused {
-        why: CallRefusal,
-    },
-    /// The file could not be read, or the request could not be
-    /// carried out, in words for the model.
+    /// The file could not be read, in words for the model.
     Failed {
         words: String,
+    },
+    #[serde(serialize_with = "worded")]
+    Refused {
+        why: ReadRefusal,
+    },
+}
+
+/// The workspace's answer to a [`Search`] or a [`Find`]. Every word
+/// in it has the realm's secrets taken out.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum SearchAnswer {
+    Text(Text),
+    /// The search could not be carried out, in words for the model.
+    Failed {
+        words: String,
+    },
+    #[serde(serialize_with = "worded")]
+    Refused {
+        why: ReadRefusal,
     },
 }
 
@@ -174,7 +193,7 @@ pub struct WriteFile {
 }
 
 impl Action for WriteFile {
-    type Output = ChangeAnswer;
+    type Output = ChangeAnswer<WriteRefusal>;
     const NAME: &'static str = "write_file";
 }
 
@@ -212,23 +231,43 @@ pub struct Replace {
     pub new: String,
 }
 
-/// The workspace's answer to a [`WriteFile`] or an [`EditFile`].
-/// Every word in it has the realm's secrets taken out.
+/// The workspace's answer to an [`EditFile`], and to a [`WriteFile`]
+/// with `R` as [`WriteRefusal`]. Every word in it has the realm's
+/// secrets taken out.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
-pub enum ChangeAnswer {
-    Changed(Change),
+#[serde(bound(
+    serialize = "R: Serialize + std::fmt::Display",
+    deserialize = "R: Deserialize<'de>"
+))]
+pub enum ChangeAnswer<R = ChangeRefusal> {
+    Ended {
+        end: ChangeEnd,
+    },
     /// The change waits for a chief to allow it. The agent is called
     /// with [`crate::agent::Finished`] when the wait ends.
     WaitsForChief {
         needs: Vec<Need>,
     },
+    #[serde(serialize_with = "worded")]
     Refused {
-        why: CallRefusal,
+        why: R,
     },
+}
+
+/// How a change ended.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum ChangeEnd {
+    Changed(Change),
     /// The change could not be made, in words for the model.
     Failed {
         words: String,
+    },
+    /// The change was kept and not made.
+    #[serde(serialize_with = "worded")]
+    NotRun {
+        why: ChangeNotRun,
     },
 }
 

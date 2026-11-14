@@ -8,11 +8,13 @@ use std::time::Duration;
 
 use hamlet_messages::agent::Outcome;
 use hamlet_messages::workspace::files::ChangeAnswer;
-use hamlet_messages::workspace::reach::{Need, Refusal};
+use hamlet_messages::workspace::reach::Need;
+use hamlet_messages::workspace::refusal::{
+    PathRefusal, ToolRefusal, WriteRefusal,
+};
 use hamlet_messages::workspace::{
-    AddedTool, Answer, AnswerTaken, CallId, CallRefusal,
-    ConversationId, Exit, ListTools, Program, Run, RunAnswer,
-    ToolList,
+    AddedTool, Answer, AnswerTaken, CallId, ConversationId, Exit,
+    Fault, ListTools, Program, Run, RunAnswer, RunEnd, ToolList,
 };
 use hamlet_testing::Scratch;
 
@@ -88,17 +90,18 @@ async fn the_tools_added_by_hand_are_listed() {
             parameters: r#"{"properties":{"word":{"type":"string"}},"required":["word"],"type":"object"}"#.into(),
         }]
     );
-    assert_eq!(list.faults.len(), 2, "{:?}", list.faults);
-    assert!(
-        list.faults[0]
-            .ends_with("broken: manifest.json is not valid JSON"),
-        "{:?}",
-        list.faults
-    );
-    assert!(
-        list.faults[1].ends_with("shell: name 'bash' is reserved"),
-        "{:?}",
-        list.faults
+    assert_eq!(
+        list.faults,
+        [
+            Fault {
+                folder: dir.join("tools/broken"),
+                words: "manifest.json is not valid JSON".into(),
+            },
+            Fault {
+                folder: dir.join("tools/shell"),
+                words: "name 'bash' is reserved".into(),
+            },
+        ]
     );
 }
 
@@ -142,15 +145,17 @@ async fn a_tool_call_is_checked_against_its_manifest() {
     assert_eq!(
         missing,
         RunAnswer::Refused {
-            why: CallRefusal::Invalid {
-                words: "Tool \"nope\" not found".into()
+            why: ToolRefusal::NotFound {
+                name: "nope".into()
             }
+            .into()
         }
     );
     let invalid = RunAnswer::Refused {
-        why: CallRefusal::Invalid {
-            words: "Validation failed for tool echo_word".into(),
-        },
+        why: ToolRefusal::Arguments {
+            name: "echo_word".into(),
+        }
+        .into(),
     };
     assert_eq!(unnamed, invalid);
     assert_eq!(not_json, invalid);
@@ -177,7 +182,10 @@ async fn a_long_tool_answers_running_then_finished() {
     running(&answer);
     let told = told(&peers);
     assert_eq!(told.len(), 1, "{told:?}");
-    let Outcome::Ran(end) = &told[0].1.outcome else {
+    let Outcome::Run {
+        end: RunEnd::Ran(end),
+    } = &told[0].1.outcome
+    else {
         panic!("the agent was told {told:?}");
     };
     assert_eq!(
@@ -217,9 +225,12 @@ async fn a_tool_that_reaches_the_network_waits_for_a_chief() {
     assert_eq!((first, second), (waits.clone(), waits));
     let asked = peers.asked.lock().unwrap().clone();
     assert_eq!(asked[0].subject, r#"fetch {"url":"x"}"#);
-    assert_eq!(allowed, AnswerTaken::Runs);
+    assert_eq!(allowed, AnswerTaken::Taken);
     let told = told(&peers);
-    let Outcome::Ran(end) = &told[0].1.outcome else {
+    let Outcome::Run {
+        end: RunEnd::Ran(end),
+    } = &told[0].1.outcome
+    else {
         panic!("the agent was told {told:?}");
     };
     assert_eq!(
@@ -228,10 +239,11 @@ async fn a_tool_that_reaches_the_network_waits_for_a_chief() {
     );
     assert_eq!(
         gone,
-        AnswerTaken::NotRun {
-            why: CallRefusal::Invalid {
-                words: "Tool \"fetch\" not found".into()
+        AnswerTaken::RunNotRun {
+            why: ToolRefusal::NotFound {
+                name: "fetch".into()
             }
+            .into()
         }
     );
 }
@@ -275,7 +287,7 @@ async fn an_agent_never_writes_the_tools_folder() {
                 .enumerate()
         {
             let asked = write(&format!("w{n}"), path, "x");
-            let answer: ChangeAnswer =
+            let answer: ChangeAnswer<WriteRefusal> =
                 ask(&host, &agent(AGENT), &asked).await;
             changes.push((path.clone(), answer));
         }
@@ -292,9 +304,9 @@ async fn an_agent_never_writes_the_tools_folder() {
                 matches!(
                     answer,
                     ChangeAnswer::Refused {
-                        why: CallRefusal::Reach {
-                            why: Refusal::OutsideReach { .. }
-                        }
+                        why: WriteRefusal::Path(
+                            PathRefusal::OutsideReach { .. }
+                        )
                     }
                 ),
                 "{with_project}: {path:?} {answer:?}"

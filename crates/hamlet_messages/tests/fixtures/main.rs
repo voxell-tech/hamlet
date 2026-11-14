@@ -19,52 +19,118 @@ use hamlet_messages::address::{Agent, Party, Realm, Workspace};
 use hamlet_messages::agent::{Finished, Outcome};
 use hamlet_messages::bytes::{Base64, Sha256};
 use hamlet_messages::realm::{NeedsChief, SecretList, Secrets};
-use hamlet_messages::sender::wrong_caller;
+use hamlet_messages::sender::{id_reused, wrong_caller};
 use hamlet_messages::workspace::files::{
-    Change, ChangeAnswer, CutBy, EditDiff, EditFile, FileAnswer,
-    Find, Hashed, Image, Note, ReadFile, Replace, Search, Severity,
-    Text, Truncation, WriteFile,
+    Change, ChangeAnswer, ChangeEnd, CutBy, EditDiff, EditFile, Find,
+    Hashed, Image, Note, ReadAnswer, ReadFile, Replace, Search,
+    SearchAnswer, Severity, Text, Truncation, WriteFile,
 };
 use hamlet_messages::workspace::reach::{
-    Access, Footing, Mode, Need, Project, Reach, Refusal,
-    SecretsVersion, Trust,
+    Footing, Mode, Need, Project, Reach, SecretsVersion, Trust,
+};
+use hamlet_messages::workspace::refusal::{
+    CallRefusal, ChangeNotRun, ChangeRefusal, FileGate,
+    InvalidContent, InvalidPath, InvalidProgram, PathRefusal,
+    ReachChanged, ReachRefusal, ReadRefusal, RunNotRun, RunRefusal,
+    Stale, StatusRefusal, ToChange, ToRead, ToolRefusal, WaitEnd,
+    WriteRefusal,
 };
 use hamlet_messages::workspace::{
-    AddedTool, AgentNumber, Answer, AnswerTaken, CallId, CallRefusal,
-    Cancel, Cancelled, Changed, ChiefAnswer, CommandEnd, CommandId,
-    CommandStatus, ConversationId, Cut, Exit, InForce, Lapse,
-    ListTools, Program, ReachVersion, RealmTask, Run, RunAnswer,
+    AddedTool, AgentNumber, Answer, AnswerTaken, CallId, Cancel,
+    Cancelled, ChiefAnswer, CommandEnd, CommandId, CommandStatus,
+    ConversationId, Cut, Exit, Fault, InForce, Lapse, ListTools,
+    Program, ReachVersion, RealmTask, Run, RunAnswer, RunEnd,
     SetReach, ToolList, Which,
 };
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
-use self::cases::{Cases, named, tagged};
+use self::cases::{
+    Cases, Found, Union, family, named, tagged, union,
+};
 
 const AGENT: AgentNumber = AgentNumber(7);
 
+/// Every enum the fixtures hold. A generic enum is listed once: its
+/// cases are the same whatever it holds.
 fn enums() -> Vec<Cases> {
     vec![
         tagged::<Answer>(),
         tagged::<AnswerTaken>(),
         tagged::<Program>(),
         tagged::<RunAnswer>(),
+        tagged::<RunEnd>(),
         tagged::<Exit>(),
         tagged::<Which>(),
-        tagged::<CallRefusal>(),
-        tagged::<Changed>(),
         tagged::<Outcome>(),
         tagged::<Reach>(),
-        tagged::<Refusal>(),
-        tagged::<FileAnswer>(),
+        tagged::<ReadAnswer>(),
+        tagged::<SearchAnswer>(),
         tagged::<ChangeAnswer>(),
+        tagged::<ChangeEnd>(),
         tagged::<Hashed>(),
+        tagged::<CallRefusal>(),
+        tagged::<InvalidProgram>(),
+        tagged::<ToolRefusal>(),
+        tagged::<InvalidPath>(),
+        tagged::<PathRefusal<ToRead>>(),
+        tagged::<ReachRefusal>(),
+        tagged::<InvalidContent>(),
+        tagged::<StatusRefusal>(),
+        tagged::<WaitEnd>(),
+        tagged::<ReachChanged<ReachRefusal>>(),
+        tagged::<Stale>(),
         named::<Lapse>(),
         named::<Need>(),
         named::<Mode>(),
-        named::<Access>(),
+        named::<ToRead>(),
+        named::<ToChange>(),
         named::<Severity>(),
         named::<CutBy>(),
+    ]
+}
+
+/// Every untagged union, with its families.
+fn unions() -> Vec<Union> {
+    vec![
+        union::<RunRefusal>(vec![
+            family::<CallRefusal>(),
+            family::<InvalidProgram>(),
+            family::<ToolRefusal>(),
+            family::<ReachRefusal>(),
+        ]),
+        union::<ReadRefusal>(vec![
+            family::<InvalidPath>(),
+            family::<PathRefusal<ToRead>>(),
+            family::<ReachRefusal>(),
+        ]),
+        union::<ChangeRefusal>(vec![
+            family::<CallRefusal>(),
+            family::<InvalidPath>(),
+            family::<PathRefusal<ToChange>>(),
+            family::<ReachRefusal>(),
+        ]),
+        union::<WriteRefusal>(vec![
+            family::<CallRefusal>(),
+            family::<InvalidPath>(),
+            family::<PathRefusal<ToChange>>(),
+            family::<ReachRefusal>(),
+            family::<InvalidContent>(),
+        ]),
+        union::<FileGate>(vec![
+            family::<PathRefusal<ToChange>>(),
+            family::<ReachRefusal>(),
+        ]),
+        union::<RunNotRun>(vec![
+            family::<WaitEnd>(),
+            family::<ReachChanged<ReachRefusal>>(),
+            family::<ToolRefusal>(),
+        ]),
+        union::<ChangeNotRun>(vec![
+            family::<WaitEnd>(),
+            family::<ReachChanged<FileGate>>(),
+            family::<Stale>(),
+        ]),
     ]
 }
 
@@ -72,15 +138,25 @@ fn folder() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures")
 }
 
-#[derive(Default)]
 struct Fixtures {
+    unions: Vec<Union>,
     written: BTreeSet<String>,
     rewritten: Vec<String>,
-    nulls: Vec<String>,
+    problems: Vec<String>,
     found: BTreeMap<Cases, BTreeSet<String>>,
 }
 
 impl Fixtures {
+    fn new() -> Self {
+        Self {
+            unions: unions(),
+            written: BTreeSet::new(),
+            rewritten: Vec::new(),
+            problems: Vec::new(),
+            found: BTreeMap::new(),
+        }
+    }
+
     /// Checks the arguments of a call.
     fn args<T>(&mut self, name: &str, value: &T)
     where
@@ -89,8 +165,7 @@ impl Fixtures {
         let bytes = encode_positional(value).unwrap();
         let name = format!("{name}.args");
         self.check(&name, &bytes);
-        let read = decode_positional::<T>(&bytes).unwrap();
-        assert_eq!(&read, value, "{name} reads back");
+        self.read_back(&name, value, decode_positional::<T>(&bytes));
         let Value::Array(arguments) =
             ciborium::from_reader::<Value, _>(bytes.as_slice())
                 .unwrap()
@@ -112,14 +187,33 @@ impl Fixtures {
         ciborium::into_writer(&json, &mut bytes).unwrap();
         let name = format!("{name}.answer");
         self.check(&name, &bytes);
-        let read =
-            ciborium::from_reader::<T, _>(bytes.as_slice()).unwrap();
-        assert_eq!(&read, value, "{name} reads back");
+        self.read_back(
+            &name,
+            value,
+            ciborium::from_reader::<T, _>(bytes.as_slice()),
+        );
         self.probe::<T>(
             &name,
             &ciborium::from_reader::<Value, _>(bytes.as_slice())
                 .unwrap(),
         );
+    }
+
+    fn read_back<T: PartialEq + Debug, E: Debug>(
+        &mut self,
+        name: &str,
+        value: &T,
+        read: Result<T, E>,
+    ) {
+        match read {
+            Ok(read) if read == *value => {}
+            Ok(read) => self.problems.push(format!(
+                "{name} reads back as {read:?}, not {value:?}"
+            )),
+            Err(error) => self.problems.push(format!(
+                "{name} does not read back: {error:?}"
+            )),
+        }
     }
 
     fn probe<T: DeserializeOwned>(
@@ -128,9 +222,13 @@ impl Fixtures {
         value: &Value,
     ) {
         if *value != Value::Null && holds_null(value) {
-            self.nulls.push(name.to_owned());
+            self.problems
+                .push(format!("{name} writes a field as null"));
         }
-        for (cases, case) in cases::found::<T>(name, value) {
+        let mut found = Found::default();
+        cases::found::<T>(name, value, &self.unions, &mut found);
+        self.problems.extend(found.problems);
+        for (cases, case) in found.cases {
             self.found.entry(cases).or_default().insert(case);
         }
     }
@@ -193,16 +291,29 @@ impl Fixtures {
                 ));
             }
         }
+        for union in &self.unions {
+            for (at, first) in union.families.iter().enumerate() {
+                for second in &union.families[at + 1..] {
+                    for tag in first
+                        .cases
+                        .iter()
+                        .filter(|tag| second.cases.contains(tag))
+                    {
+                        problems.push(format!(
+                            "{} and {} of the union {} share the \
+                             type {tag}",
+                            first.name, second.name, union.name
+                        ));
+                    }
+                }
+            }
+        }
         problems
     }
 
     fn assert_unchanged_and_covered(self) {
         let mut problems = self.case_problems();
-        problems.extend(
-            self.nulls
-                .iter()
-                .map(|name| format!("{name} writes a field as null")),
-        );
+        problems.extend(self.problems);
         if !self.rewritten.is_empty() {
             problems.push(format!(
                 "These messages' bytes changed, so their fixtures \
@@ -247,13 +358,15 @@ fn is_snake_case(name: &str) -> bool {
 
 #[test]
 fn every_message_and_every_case_matches_its_fixture() {
-    let mut fixtures = Fixtures::default();
+    let mut fixtures = Fixtures::new();
     the_workspaces_messages(&mut fixtures);
+    the_chiefs_answers(&mut fixtures);
     the_answers_about_a_command(&mut fixtures);
     the_reads(&mut fixtures);
     the_changes(&mut fixtures);
+    the_realms_and_the_agents(&mut fixtures);
     the_addresses(&mut fixtures);
-    the_wrong_callers(&mut fixtures);
+    the_errors(&mut fixtures);
     fixtures.remove_unwritten();
     fixtures.assert_unchanged_and_covered();
 }
@@ -282,21 +395,29 @@ fn set_reach(reach: Reach) -> SetReach {
     }
 }
 
+fn call(id: &str) -> CallId {
+    CallId(id.into())
+}
+
 fn the_workspaces_messages(fixtures: &mut Fixtures) {
     fixtures.args(
         "workspace/set_reach.agent",
         &set_reach(Reach::Agent(footing())),
     );
-    fixtures.args(
-        "workspace/set_reach.worker",
-        &set_reach(Reach::Worker {
-            starter: Some(AgentNumber(3)),
-            footing: Footing {
-                project: None,
-                ..footing()
-            },
-        }),
-    );
+    for (name, starter) in
+        [("worker", Some(AgentNumber(3))), ("chiefs_worker", None)]
+    {
+        fixtures.args(
+            &format!("workspace/set_reach.{name}"),
+            &set_reach(Reach::Worker {
+                starter,
+                footing: Footing {
+                    project: None,
+                    ..footing()
+                },
+            }),
+        );
+    }
     fixtures
         .args("workspace/set_reach.ended", &set_reach(Reach::Ended));
     fixtures.args(
@@ -319,7 +440,7 @@ fn the_workspaces_messages(fixtures: &mut Fixtures) {
     fixtures.args(
         "workspace/run",
         &Run {
-            call: CallId("call-1".into()),
+            call: call("call-1"),
             conversation: ConversationId("c1".into()),
             realm_task: task.clone(),
             program: Program::Script {
@@ -330,9 +451,22 @@ fn the_workspaces_messages(fixtures: &mut Fixtures) {
         },
     );
     fixtures.args(
+        "workspace/run.unset",
+        &Run {
+            call: call("call-1"),
+            conversation: ConversationId("c1".into()),
+            realm_task: None,
+            program: Program::Script {
+                script: "echo hi".into(),
+                network: true,
+                timeout_ms: None,
+            },
+        },
+    );
+    fixtures.args(
         "workspace/run.tool",
         &Run {
-            call: CallId("call-1".into()),
+            call: call("call-1"),
             conversation: ConversationId("c1".into()),
             realm_task: task.clone(),
             program: Program::Tool {
@@ -350,16 +484,16 @@ fn the_workspaces_messages(fixtures: &mut Fixtures) {
                 description: "Counts the words of a file".into(),
                 parameters: r#"{"type":"object","properties":{"path":{"type":"string"}}}"#.into(),
             }],
-            faults: vec![
-                "/realm/tools/broken: manifest.json is not valid JSON"
-                    .into(),
-            ],
+            faults: vec![Fault {
+                folder: "/realm/tools/broken".into(),
+                words: "manifest.json is not valid JSON".into(),
+            }],
         },
     );
     fixtures.args(
         "workspace/write_file",
         &WriteFile {
-            call: CallId("call-2".into()),
+            call: call("call-2"),
             conversation: ConversationId("c1".into()),
             realm_task: None,
             path: "/work/project/notes.md".into(),
@@ -369,7 +503,7 @@ fn the_workspaces_messages(fixtures: &mut Fixtures) {
     fixtures.args(
         "workspace/edit_file",
         &EditFile {
-            call: CallId("call-3".into()),
+            call: call("call-3"),
             conversation: ConversationId("c1".into()),
             realm_task: task,
             path: "/work/project/notes.md".into(),
@@ -379,6 +513,170 @@ fn the_workspaces_messages(fixtures: &mut Fixtures) {
             }],
         },
     );
+}
+
+/// The ends of a wait with no allow that a run, a write and a chief's
+/// answer each have a fixture of.
+fn wait_ends() -> [(&'static str, WaitEnd); 3] {
+    [
+        (
+            "chief_refused",
+            WaitEnd::ChiefRefused {
+                reason: Some("not on main".into()),
+            },
+        ),
+        (
+            "chief_refused.no_reason",
+            WaitEnd::ChiefRefused { reason: None },
+        ),
+        (
+            "lapsed",
+            WaitEnd::Lapsed {
+                lapse: Lapse::Rewound,
+            },
+        ),
+    ]
+}
+
+fn needs_more<G>() -> ReachChanged<G> {
+    ReachChanged::ReachNeeds {
+        since: ReachVersion(3),
+        now: ReachVersion(4),
+        needs: vec![Need::Network, Need::Edit],
+    }
+}
+
+fn refuses<G>(why: G) -> ReachChanged<G> {
+    ReachChanged::ReachRefuses {
+        since: ReachVersion(3),
+        now: ReachVersion(5),
+        why,
+    }
+}
+
+fn file_changed() -> Stale {
+    Stale::FileChanged {
+        path: "/work/project/notes.md".into(),
+        was: Hashed::Sha256 {
+            hash: Sha256([1; 32]),
+        },
+        now: Hashed::Absent,
+    }
+}
+
+fn outside_reach_to_change() -> PathRefusal<ToChange> {
+    PathRefusal::OutsideReach {
+        path: "/etc/hosts".into(),
+        access: ToChange::Change,
+    }
+}
+
+fn agent_filesystem<A>() -> PathRefusal<A> {
+    PathRefusal::AgentFilesystem {
+        path: "/realm/actors/agent/7.fs/notes.md".into(),
+    }
+}
+
+fn project_in_realm() -> ReachRefusal {
+    ReachRefusal::ProjectInRealm {
+        folder: "/realm/projects/site".into(),
+    }
+}
+
+fn not_absolute() -> InvalidPath {
+    InvalidPath::NotAbsolute {
+        path: "notes.md".into(),
+    }
+}
+
+fn tool_not_found() -> ToolRefusal {
+    ToolRefusal::NotFound {
+        name: "word_count".into(),
+    }
+}
+
+fn tool_arguments() -> ToolRefusal {
+    ToolRefusal::Arguments {
+        name: "word_count".into(),
+    }
+}
+
+fn the_chiefs_answers(fixtures: &mut Fixtures) {
+    for (name, answer) in [
+        ("allow", Answer::Allow),
+        (
+            "refuse",
+            Answer::Refuse {
+                reason: Some("not on main".into()),
+            },
+        ),
+        ("refuse.no_reason", Answer::Refuse { reason: None }),
+        (
+            "stopped",
+            Answer::Lapsed {
+                lapse: Lapse::Stopped,
+            },
+        ),
+        (
+            "ended",
+            Answer::Lapsed {
+                lapse: Lapse::Ended,
+            },
+        ),
+    ] {
+        fixtures.args(
+            &format!("workspace/chief_answer.{name}"),
+            &ChiefAnswer {
+                agent: AGENT,
+                call: call("call-1"),
+                answer,
+            },
+        );
+    }
+    let mut answers = vec![
+        ("taken".to_owned(), AnswerTaken::Taken),
+        ("no_wait".to_owned(), AnswerTaken::NoWait),
+    ];
+    let run_not_run = wait_ends()
+        .into_iter()
+        .map(|(name, why)| (name, RunNotRun::from(why)))
+        .chain([
+            ("reach_refuses", refuses(ReachRefusal::NoReach).into()),
+            ("reach_needs", needs_more().into()),
+            ("tool_not_found", tool_not_found().into()),
+        ]);
+    answers.extend(run_not_run.map(|(name, why)| {
+        (
+            format!("run_not_run.{name}"),
+            AnswerTaken::RunNotRun { why },
+        )
+    }));
+    let change_not_run = [
+        (
+            "lapsed",
+            ChangeNotRun::from(WaitEnd::Lapsed {
+                lapse: Lapse::Stopped,
+            }),
+        ),
+        (
+            "reach_refuses",
+            refuses(FileGate::from(outside_reach_to_change())).into(),
+        ),
+        ("reach_needs", needs_more().into()),
+        ("file_changed", file_changed().into()),
+    ];
+    answers.extend(change_not_run.into_iter().map(|(name, why)| {
+        (
+            format!("change_not_run.{name}"),
+            AnswerTaken::ChangeNotRun { why },
+        )
+    }));
+    for (name, taken) in answers {
+        fixtures.answer(
+            &format!("workspace/chief_answer.{name}"),
+            &taken,
+        );
+    }
 }
 
 fn command_end(exit: Exit) -> CommandEnd {
@@ -392,14 +690,20 @@ fn command_end(exit: Exit) -> CommandEnd {
     }
 }
 
+fn ran(end: CommandEnd) -> RunAnswer {
+    RunAnswer::Ended {
+        end: RunEnd::Ran(end),
+    }
+}
+
 fn the_answers_about_a_command(fixtures: &mut Fixtures) {
     fixtures.answer(
-        "workspace/run.done",
-        &RunAnswer::Done(command_end(Exit::Code { code: 0 })),
+        "workspace/run.ended.ran",
+        &ran(command_end(Exit::Code { code: 0 })),
     );
     fixtures.answer(
-        "workspace/run.done.cut",
-        &RunAnswer::Done(CommandEnd {
+        "workspace/run.ended.ran.cut",
+        &ran(CommandEnd {
             cut: Some(Cut {
                 total_bytes: 52_428_800,
                 total_lines: 1_048_576,
@@ -410,81 +714,6 @@ fn the_answers_about_a_command(fixtures: &mut Fixtures) {
             ..command_end(Exit::Code { code: 0 })
         }),
     );
-    fixtures.answer(
-        "workspace/run.running",
-        &RunAnswer::Running {
-            command: CommandId(4),
-        },
-    );
-    fixtures.answer(
-        "workspace/run.waits_for_chief",
-        &RunAnswer::WaitsForChief {
-            needs: vec![Need::Network, Need::Command],
-        },
-    );
-    for (name, refusal) in [
-        (
-            "reach",
-            CallRefusal::Reach {
-                why: Refusal::OutsideReach {
-                    path: "/etc".into(),
-                    access: Access::Read,
-                },
-            },
-        ),
-        (
-            "reused",
-            CallRefusal::CallReused {
-                call: CallId("call-1".into()),
-            },
-        ),
-        ("holds_secret", CallRefusal::HoldsSecret),
-        (
-            "chief_refused",
-            CallRefusal::ChiefRefused {
-                reason: Some("not on main".into()),
-            },
-        ),
-        (
-            "lapsed",
-            CallRefusal::Lapsed {
-                lapse: Lapse::Rewound,
-            },
-        ),
-        (
-            "reach_changed",
-            CallRefusal::ReachChanged {
-                since: ReachVersion(3),
-                now: ReachVersion(4),
-                why: Changed::Needs {
-                    needs: vec![Need::Network],
-                },
-            },
-        ),
-        (
-            "reach_changed.refused",
-            CallRefusal::ReachChanged {
-                since: ReachVersion(3),
-                now: ReachVersion(5),
-                why: Changed::Refused {
-                    why: Refusal::NoReach,
-                },
-            },
-        ),
-        (
-            "invalid",
-            CallRefusal::Invalid {
-                words: "Invalid timeout: must be a positive number \
-                        of seconds"
-                    .into(),
-            },
-        ),
-    ] {
-        fixtures.answer(
-            &format!("workspace/run.refused.{name}"),
-            &RunAnswer::Refused { why: refusal },
-        );
-    }
     for (name, exit) in [
         ("timed_out", Exit::TimedOut),
         (
@@ -497,8 +726,61 @@ fn the_answers_about_a_command(fixtures: &mut Fixtures) {
         ("cancelled", Exit::Cancelled),
     ] {
         fixtures.answer(
-            &format!("workspace/run.done.{name}"),
-            &RunAnswer::Done(command_end(exit)),
+            &format!("workspace/run.ended.ran.{name}"),
+            &ran(command_end(exit)),
+        );
+    }
+    let not_run = wait_ends()
+        .into_iter()
+        .map(|(name, why)| (name, RunNotRun::from(why)))
+        .chain([
+            ("reach_refuses", refuses(project_in_realm()).into()),
+            ("reach_needs", needs_more().into()),
+            ("tool_not_found", tool_not_found().into()),
+            ("tool_arguments", tool_arguments().into()),
+        ]);
+    for (name, why) in not_run {
+        fixtures.answer(
+            &format!("workspace/run.ended.not_run.{name}"),
+            &RunAnswer::<RunRefusal>::Ended {
+                end: RunEnd::NotRun { why },
+            },
+        );
+    }
+    fixtures.answer(
+        "workspace/run.running",
+        &RunAnswer::<RunRefusal>::Running {
+            command: CommandId(4),
+        },
+    );
+    fixtures.answer(
+        "workspace/run.waits_for_chief",
+        &RunAnswer::<RunRefusal>::WaitsForChief {
+            needs: vec![Need::Network, Need::Command],
+        },
+    );
+    for (name, why) in [
+        (
+            "invalid_call_id",
+            RunRefusal::from(CallRefusal::InvalidId {
+                call: call("call 1"),
+            }),
+        ),
+        ("holds_secret", CallRefusal::HoldsSecret.into()),
+        ("script_too_long", InvalidProgram::ScriptTooLong.into()),
+        ("zero_timeout", InvalidProgram::ZeroTimeout.into()),
+        (
+            "arguments_too_long",
+            InvalidProgram::ArgumentsTooLong.into(),
+        ),
+        ("no_reach", ReachRefusal::NoReach.into()),
+        ("project_in_realm", project_in_realm().into()),
+        ("tool_not_found", tool_not_found().into()),
+        ("tool_arguments", tool_arguments().into()),
+    ] {
+        fixtures.answer(
+            &format!("workspace/run.refused.{name}"),
+            &RunAnswer::Refused { why },
         );
     }
     fixtures.args(
@@ -507,19 +789,44 @@ fn the_answers_about_a_command(fixtures: &mut Fixtures) {
             command: CommandId(4),
         },
     );
-    fixtures.answer(
-        "workspace/command_status.refused.no_such_command",
-        &RunAnswer::Refused {
-            why: CallRefusal::NoSuchCommand {
-                command: CommandId(9),
+    for (name, answer) in [
+        (
+            "refused.no_such_command",
+            RunAnswer::Refused {
+                why: StatusRefusal::NoSuchCommand {
+                    command: CommandId(9),
+                },
             },
-        },
-    );
+        ),
+        (
+            "ended.ran",
+            RunAnswer::Ended {
+                end: RunEnd::Ran(command_end(Exit::Code { code: 0 })),
+            },
+        ),
+        (
+            "running",
+            RunAnswer::Running {
+                command: CommandId(4),
+            },
+        ),
+        (
+            "waits_for_chief",
+            RunAnswer::WaitsForChief {
+                needs: vec![Need::Command],
+            },
+        ),
+    ] {
+        fixtures.answer(
+            &format!("workspace/command_status.{name}"),
+            &answer,
+        );
+    }
     for (name, which) in [
         (
             "one",
             Which::One {
-                call: CallId("call-1".into()),
+                call: call("call-1"),
             },
         ),
         (
@@ -544,115 +851,6 @@ fn the_answers_about_a_command(fixtures: &mut Fixtures) {
             commands: vec![CommandId(4), CommandId(5)],
         },
     );
-    fixtures.args(
-        "agent/finished",
-        &Finished {
-            call: CallId("call-1".into()),
-            outcome: Outcome::Ran(command_end(Exit::Code {
-                code: 1,
-            })),
-        },
-    );
-    fixtures.args(
-        "agent/finished.changed",
-        &Finished {
-            call: CallId("call-2".into()),
-            outcome: Outcome::Changed {
-                answer: ChangeAnswer::Changed(Change {
-                    path: "/work/project/notes.md".into(),
-                    created: true,
-                    hash: Sha256([7; 32]),
-                    diff: None,
-                }),
-            },
-        },
-    );
-    fixtures.args(
-        "agent/finished.not_run",
-        &Finished {
-            call: CallId("call-3".into()),
-            outcome: Outcome::NotRun {
-                why: CallRefusal::ChiefRefused { reason: None },
-            },
-        },
-    );
-    fixtures.args(
-        "realm/needs_chief",
-        &NeedsChief {
-            agent: AGENT,
-            call: CallId("call-1".into()),
-            conversation: ConversationId("conversation-1".into()),
-            realm_task: Some(RealmTask("task-9".into())),
-            needs: vec![Need::Edit],
-            subject: "/work/project/notes.md\nReplace:\nhello\nWith:\
-                      \ngoodbye"
-                .into(),
-            change: Some(EditDiff {
-                diff: "-1 hello\n+1 goodbye".into(),
-                patch: "--- notes.md\n+++ notes.md\n@@ -1 +1 \
-                        @@\n-hello\n+goodbye\n"
-                    .into(),
-                first_changed_line: Some(1),
-            }),
-            reach_version: ReachVersion(3),
-        },
-    );
-    fixtures.answer("realm/needs_chief", &());
-    for (name, answer) in [
-        ("allow", Answer::Allow),
-        (
-            "refuse",
-            Answer::Refuse {
-                reason: Some("not on main".into()),
-            },
-        ),
-        (
-            "stopped",
-            Answer::Lapsed {
-                lapse: Lapse::Stopped,
-            },
-        ),
-        (
-            "ended",
-            Answer::Lapsed {
-                lapse: Lapse::Ended,
-            },
-        ),
-    ] {
-        fixtures.args(
-            &format!("workspace/chief_answer.{name}"),
-            &ChiefAnswer {
-                agent: AGENT,
-                call: CallId("call-1".into()),
-                answer,
-            },
-        );
-    }
-    for (name, taken) in [
-        ("runs", AnswerTaken::Runs),
-        (
-            "not_run",
-            AnswerTaken::NotRun {
-                why: CallRefusal::Lapsed {
-                    lapse: Lapse::Stopped,
-                },
-            },
-        ),
-        ("no_wait", AnswerTaken::NoWait),
-    ] {
-        fixtures.answer(
-            &format!("workspace/chief_answer.{name}"),
-            &taken,
-        );
-    }
-    fixtures.args("realm/secrets", &Secrets);
-    fixtures.answer(
-        "realm/secrets",
-        &SecretList {
-            version: SecretsVersion(2),
-            values: vec!["made-up-secret".into()],
-        },
-    );
 }
 
 fn the_reads(fixtures: &mut Fixtures) {
@@ -662,6 +860,14 @@ fn the_reads(fixtures: &mut Fixtures) {
             path: "/work/project/notes.md".into(),
             offset: Some(10),
             limit: Some(20),
+        },
+    );
+    fixtures.args(
+        "workspace/read_file.whole",
+        &ReadFile {
+            path: "/work/project/notes.md".into(),
+            offset: None,
+            limit: None,
         },
     );
     fixtures.args(
@@ -682,7 +888,7 @@ fn the_reads(fixtures: &mut Fixtures) {
     );
     fixtures.answer(
         "workspace/read_file.text",
-        &FileAnswer::Text(Text {
+        &ReadAnswer::Text(Text {
             text: "line 10\nline 11".into(),
             notes: vec![Note {
                 severity: Severity::Info,
@@ -702,8 +908,16 @@ fn the_reads(fixtures: &mut Fixtures) {
         }),
     );
     fixtures.answer(
+        "workspace/read_file.text.whole",
+        &ReadAnswer::Text(Text {
+            text: "hello\n".into(),
+            notes: Vec::new(),
+            truncation: None,
+        }),
+    );
+    fixtures.answer(
         "workspace/read_file.text.long_line",
-        &FileAnswer::Text(Text {
+        &ReadAnswer::Text(Text {
             text: r#"{"rows":[[1,2,3],[4,5,6],[7,8,9]"#.into(),
             notes: vec![Note {
                 severity: Severity::Warn,
@@ -726,124 +940,283 @@ fn the_reads(fixtures: &mut Fixtures) {
     );
     fixtures.answer(
         "workspace/read_file.image",
-        &FileAnswer::Image(Image {
+        &ReadAnswer::Image(Image {
             mime: "image/gif".into(),
             data: Base64(b"GIF89a".to_vec()),
         }),
     );
     fixtures.answer(
-        "workspace/read_file.refused",
-        &FileAnswer::Refused {
-            why: CallRefusal::Reach {
-                why: Refusal::AgentFilesystem {
-                    path: "/realm/actors/agent/7.fs/notes.md".into(),
-                },
-            },
-        },
-    );
-    fixtures.answer(
         "workspace/read_file.failed",
-        &FileAnswer::Failed {
+        &ReadAnswer::Failed {
             words: "ENOENT: no such file or directory, open \
                     '/work/project/gone.md'"
                 .into(),
         },
     );
-}
-
-fn the_changes(fixtures: &mut Fixtures) {
-    let path = PathBuf::from("/work/project/notes.md");
+    for (name, why) in [
+        ("not_absolute", ReadRefusal::from(not_absolute())),
+        (
+            "outside_reach",
+            PathRefusal::OutsideReach {
+                path: "/home/chief/.ssh/id_ed25519".into(),
+                access: ToRead::Read,
+            }
+            .into(),
+        ),
+        ("agent_filesystem", agent_filesystem::<ToRead>().into()),
+        ("no_reach", ReachRefusal::NoReach.into()),
+        ("project_in_realm", project_in_realm().into()),
+    ] {
+        fixtures.answer(
+            &format!("workspace/read_file.refused.{name}"),
+            &ReadAnswer::Refused { why },
+        );
+    }
     fixtures.answer(
-        "workspace/write_file.changed",
-        &ChangeAnswer::Changed(Change {
-            path: path.clone(),
-            created: true,
-            hash: Sha256([7; 32]),
-            diff: None,
+        "workspace/search.text",
+        &SearchAnswer::Text(Text {
+            text: "/work/project/src/main.rs:1: fn main() {".into(),
+            notes: Vec::new(),
+            truncation: None,
         }),
     );
     fixtures.answer(
-        "workspace/edit_file.changed",
-        &ChangeAnswer::Changed(Change {
-            path: path.clone(),
-            created: false,
-            hash: Sha256([8; 32]),
-            diff: Some(EditDiff {
-                diff: "- 1 hello\n+ 1 goodbye".into(),
+        "workspace/search.failed",
+        &SearchAnswer::Failed {
+            words: "regex parse error".into(),
+        },
+    );
+    fixtures.answer(
+        "workspace/find.refused.outside_reach",
+        &SearchAnswer::Refused {
+            why: PathRefusal::OutsideReach {
+                path: "/home/chief".into(),
+                access: ToRead::Read,
+            }
+            .into(),
+        },
+    );
+}
+
+fn changed(
+    created: bool,
+    hash: u8,
+    diff: Option<EditDiff>,
+) -> Change {
+    Change {
+        path: "/work/project/notes.md".into(),
+        created,
+        hash: Sha256([hash; 32]),
+        diff,
+    }
+}
+
+fn the_changes(fixtures: &mut Fixtures) {
+    fixtures.answer(
+        "workspace/write_file.ended.changed",
+        &ChangeAnswer::<WriteRefusal>::Ended {
+            end: ChangeEnd::Changed(changed(true, 7, None)),
+        },
+    );
+    let not_run = wait_ends()
+        .into_iter()
+        .map(|(name, why)| (name, ChangeNotRun::from(why)))
+        .chain([
+            (
+                "reach_refuses",
+                refuses(FileGate::from(outside_reach_to_change()))
+                    .into(),
+            ),
+            (
+                "reach_refuses.no_reach",
+                refuses(FileGate::from(ReachRefusal::NoReach)).into(),
+            ),
+            ("reach_needs", needs_more().into()),
+        ]);
+    for (name, why) in not_run {
+        fixtures.answer(
+            &format!("workspace/write_file.ended.not_run.{name}"),
+            &ChangeAnswer::<WriteRefusal>::Ended {
+                end: ChangeEnd::NotRun { why },
+            },
+        );
+    }
+    fixtures.answer(
+        "workspace/write_file.waits_for_chief",
+        &ChangeAnswer::<WriteRefusal>::WaitsForChief {
+            needs: vec![Need::Edit],
+        },
+    );
+    for (name, why) in [
+        (
+            "too_large",
+            WriteRefusal::from(InvalidContent::TooLarge {
+                bytes: 16 * 1024 * 1024 + 1,
+                limit: 16 * 1024 * 1024,
+            }),
+        ),
+        ("outside_reach", outside_reach_to_change().into()),
+        ("agent_filesystem", agent_filesystem::<ToChange>().into()),
+        ("project_in_realm", project_in_realm().into()),
+    ] {
+        fixtures.answer(
+            &format!("workspace/write_file.refused.{name}"),
+            &ChangeAnswer::Refused { why },
+        );
+    }
+    fixtures.answer(
+        "workspace/edit_file.ended.changed",
+        &ChangeAnswer::<ChangeRefusal>::Ended {
+            end: ChangeEnd::Changed(changed(
+                false,
+                8,
+                Some(EditDiff {
+                    diff: "- 1 hello\n+ 1 goodbye".into(),
+                    patch: "--- notes.md\n+++ notes.md\n@@ -1 +1 \
+                            @@\n-hello\n+goodbye\n"
+                        .into(),
+                    first_changed_line: Some(1),
+                }),
+            )),
+        },
+    );
+    fixtures.answer(
+        "workspace/edit_file.ended.failed",
+        &ChangeAnswer::<ChangeRefusal>::Ended {
+            end: ChangeEnd::Failed {
+                words: "Could not find the exact text in \
+                        /work/project/notes.md. The old text must \
+                        match exactly including all whitespace and \
+                        newlines."
+                    .into(),
+            },
+        },
+    );
+    fixtures.answer(
+        "workspace/edit_file.ended.not_run.file_changed",
+        &ChangeAnswer::<ChangeRefusal>::Ended {
+            end: ChangeEnd::NotRun {
+                why: file_changed().into(),
+            },
+        },
+    );
+    for (name, why) in [
+        (
+            "invalid_call_id",
+            ChangeRefusal::from(CallRefusal::InvalidId {
+                call: call(""),
+            }),
+        ),
+        ("holds_secret", CallRefusal::HoldsSecret.into()),
+        ("not_absolute", not_absolute().into()),
+        ("no_reach", ReachRefusal::NoReach.into()),
+    ] {
+        fixtures.answer(
+            &format!("workspace/edit_file.refused.{name}"),
+            &ChangeAnswer::Refused { why },
+        );
+    }
+}
+
+fn the_realms_and_the_agents(fixtures: &mut Fixtures) {
+    fixtures.args(
+        "realm/needs_chief",
+        &NeedsChief {
+            agent: AGENT,
+            call: call("call-1"),
+            conversation: ConversationId("conversation-1".into()),
+            realm_task: Some(RealmTask("task-9".into())),
+            needs: vec![Need::Edit],
+            subject: "/work/project/notes.md\nReplace:\nhello\nWith:\
+                      \ngoodbye"
+                .into(),
+            change: Some(EditDiff {
+                diff: "-1 hello\n+1 goodbye".into(),
                 patch: "--- notes.md\n+++ notes.md\n@@ -1 +1 \
                         @@\n-hello\n+goodbye\n"
                     .into(),
                 first_changed_line: Some(1),
             }),
-        }),
+            reach_version: ReachVersion(3),
+        },
     );
+    fixtures.args(
+        "realm/needs_chief.command",
+        &NeedsChief {
+            agent: AGENT,
+            call: call("call-1"),
+            conversation: ConversationId("conversation-1".into()),
+            realm_task: None,
+            needs: vec![Need::Network, Need::Command],
+            subject: "curl https://example.com".into(),
+            change: None,
+            reach_version: ReachVersion(3),
+        },
+    );
+    fixtures.answer("realm/needs_chief", &());
+    fixtures.args("realm/secrets", &Secrets);
     fixtures.answer(
-        "workspace/edit_file.refused.file_changed",
-        &ChangeAnswer::Refused {
-            why: CallRefusal::FileChanged {
-                path: path.clone(),
-                was: Hashed::Sha256 {
-                    hash: Sha256([1; 32]),
+        "realm/secrets",
+        &SecretList {
+            version: SecretsVersion(2),
+            values: vec!["made-up-secret".into()],
+        },
+    );
+    for (name, id, outcome) in [
+        (
+            "run.ran",
+            "call-1",
+            Outcome::Run {
+                end: RunEnd::Ran(command_end(Exit::Code { code: 1 })),
+            },
+        ),
+        (
+            "run.not_run",
+            "call-1",
+            Outcome::Run {
+                end: RunEnd::NotRun {
+                    why: WaitEnd::Lapsed {
+                        lapse: Lapse::Ended,
+                    }
+                    .into(),
                 },
-                now: Hashed::Absent,
             },
-        },
-    );
-    fixtures.answer(
-        "workspace/write_file.refused.reach",
-        &ChangeAnswer::Refused {
-            why: CallRefusal::Reach {
-                why: Refusal::AgentFilesystem {
-                    path: "/realm/actors/agent/7.fs/notes.md".into(),
+        ),
+        (
+            "change.changed",
+            "call-2",
+            Outcome::Change {
+                end: ChangeEnd::Changed(changed(true, 7, None)),
+            },
+        ),
+        (
+            "change.failed",
+            "call-2",
+            Outcome::Change {
+                end: ChangeEnd::Failed {
+                    words: "EACCES: permission denied".into(),
                 },
             },
-        },
-    );
-    fixtures.answer(
-        "workspace/write_file.refused.outside_reach",
-        &ChangeAnswer::Refused {
-            why: CallRefusal::Reach {
-                why: Refusal::OutsideReach {
-                    path: "/etc/hosts".into(),
-                    access: Access::Change,
+        ),
+        (
+            "change.not_run",
+            "call-3",
+            Outcome::Change {
+                end: ChangeEnd::NotRun {
+                    why: file_changed().into(),
                 },
             },
-        },
-    );
-    fixtures.answer(
-        "workspace/write_file.refused.project_in_realm",
-        &ChangeAnswer::Refused {
-            why: CallRefusal::Reach {
-                why: Refusal::ProjectInRealm {
-                    folder: "/realm/projects/site".into(),
-                },
+        ),
+    ] {
+        fixtures.args(
+            &format!("agent/finished.{name}"),
+            &Finished {
+                call: call(id),
+                outcome,
             },
-        },
-    );
-    fixtures.answer(
-        "workspace/write_file.waits_for_chief",
-        &ChangeAnswer::WaitsForChief {
-            needs: vec![Need::Edit],
-        },
-    );
-    fixtures.answer(
-        "workspace/write_file.refused.too_large",
-        &ChangeAnswer::Refused {
-            why: CallRefusal::TooLarge {
-                bytes: 16 * 1024 * 1024 + 1,
-                limit: 16 * 1024 * 1024,
-            },
-        },
-    );
-    fixtures.answer(
-        "workspace/edit_file.failed",
-        &ChangeAnswer::Failed {
-            words: "Could not find the exact text in \
-                    /work/project/notes.md. The old text must match \
-                    exactly including all whitespace and newlines."
-                .into(),
-        },
-    );
+        );
+    }
+    fixtures.answer("agent/finished", &());
 }
 
 fn the_addresses(fixtures: &mut Fixtures) {
@@ -875,7 +1248,7 @@ impl Seen {
     }
 }
 
-fn the_wrong_callers(fixtures: &mut Fixtures) {
+fn the_errors(fixtures: &mut Fixtures) {
     let realm = Caller::Actor(Realm.address().unwrap());
     for (name, action, caller) in [
         ("run.realm", Run::NAME, Some(realm)),
@@ -887,12 +1260,16 @@ fn the_wrong_callers(fixtures: &mut Fixtures) {
             &Seen::of(&wrong_caller(action, caller)),
         );
     }
+    fixtures.answer(
+        "error/id_reused.run",
+        &Seen::of(&id_reused(Run::NAME, &call("call-1"))),
+    );
 }
 
 /// A refusal of a changed file says what the file held and holds.
 #[test]
 fn a_changed_file_is_told_by_its_hashes() {
-    let refusal = CallRefusal::FileChanged {
+    let refusal = Stale::FileChanged {
         path: "/p/a.md".into(),
         was: Hashed::Sha256 {
             hash: Sha256([0xab; 32]),

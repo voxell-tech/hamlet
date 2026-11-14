@@ -10,7 +10,7 @@ use serde::Serialize;
 
 use crate::Message;
 use crate::address::{Agent, LOCAL, Party, Realm, Workspace};
-use crate::workspace::AgentNumber;
+use crate::workspace::{AgentNumber, CallId};
 
 /// A kind of actor that sends a [`Message`].
 pub trait Sender: Sized {
@@ -99,6 +99,36 @@ pub struct WrongCaller {
     action: &'static str,
     #[serde(skip_serializing_if = "Stamp::is_none")]
     caller: Stamp,
+}
+
+/// Logs that `call`, an id of a call of `action`, was given before
+/// to another request, and builds the [`IdReused`] its call fails
+/// with.
+pub fn id_reused(
+    action: &'static str,
+    call: &CallId,
+) -> anyhow::Error {
+    tracing::warn!(action, call = call.0, "refused a reused call id");
+    IdReused {
+        action,
+        call: call.0.clone(),
+    }
+    .build()
+}
+
+/// The error of a call whose id was given before to a call with
+/// another request (S19).
+#[derive(Debug, ActorError, Serialize)]
+#[error(
+    "message",
+    "id_reused",
+    "The call id was used before for another request.",
+    "The call id {call} of '{action}' was used before for another \
+     request."
+)]
+pub struct IdReused {
+    action: &'static str,
+    call: String,
 }
 
 /// The host's stamp, absent for the program's own call.

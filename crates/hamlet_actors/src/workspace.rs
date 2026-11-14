@@ -25,15 +25,20 @@ use hamlet_messages::Message;
 use hamlet_messages::address::{self, Party};
 use hamlet_messages::agent::{Finished, Outcome};
 use hamlet_messages::realm::{NeedsChief, Secrets};
-use hamlet_messages::sender::{Sender, sender, wrong_caller};
+use hamlet_messages::sender::{
+    Sender, id_reused, sender, wrong_caller,
+};
 use hamlet_messages::workspace::files::{
     EditFile, Find, ReadFile, Search, WriteFile,
 };
 use hamlet_messages::workspace::reach::{Reach, SecretsVersion};
+use hamlet_messages::workspace::refusal::{
+    CallRefusal, InvalidProgram, RunRefusal, StatusRefusal, WaitEnd,
+};
 use hamlet_messages::workspace::{
-    AgentNumber, AnswerTaken, CallId, CallRefusal, Cancel, Cancelled,
-    ChiefAnswer, CommandId, CommandStatus, Exit, InForce, Lapse,
-    ListTools, Program, Run, RunAnswer, SetReach, ToolList, Which,
+    AgentNumber, AnswerTaken, CallId, Cancel, Cancelled, ChiefAnswer,
+    CommandId, CommandStatus, Exit, InForce, Lapse, ListTools,
+    Program, Run, RunAnswer, RunEnd, SetReach, ToolList, Which,
 };
 use hamlet_sandbox::{AllLeftovers, Sandbox};
 
@@ -287,12 +292,8 @@ impl Handler<Run> for Workspace {
         run: Run,
     ) -> Result<RunAnswer> {
         let address::Agent(agent) = sender::<Run, _>(&ctx)?;
-        if let Err(why) = checked(&run) {
-            return Ok(RunAnswer::Refused {
-                why: CallRefusal::Invalid {
-                    words: why.to_string(),
-                },
-            });
+        if let Some(why) = checked(&run) {
+            return Ok(RunAnswer::Refused { why });
         }
         let request_hash = calls::request_hash(&run)?;
         // Read before the row is opened: past its commit, nothing
@@ -395,7 +396,8 @@ impl Workspace {
         let ready = match tools::Ready::of(&self.home, run) {
             Ok(ready) => ready,
             Err(refusal) => {
-                return self.not_run(ctx, wait, refusal).await;
+                let why = pending::NotRun::Run(refusal.into());
+                return self.not_run(ctx, wait, why).await;
             }
         };
         let (reach, network, secrets) = match self
@@ -407,8 +409,13 @@ impl Workspace {
                 network,
                 secrets,
             } => (reach, network, secrets),
-            pending::Rechecked::Refused(refusal) => {
-                return self.not_run(ctx, wait, refusal).await;
+            pending::Rechecked::Changed(changed) => {
+                let changed = pending::changed(
+                    changed,
+                    reach::Refused::of_program,
+                )?;
+                let why = pending::NotRun::Run(changed.into());
+                return self.not_run(ctx, wait, why).await;
             }
         };
         let placement =
@@ -451,7 +458,7 @@ impl Workspace {
             leftovers,
         );
         self.clone().start(ctx, &running, spec);
-        Ok(AnswerTaken::Runs)
+        Ok(AnswerTaken::Taken)
     }
 }
 
@@ -460,7 +467,7 @@ impl Handler<CommandStatus> for Workspace {
         self: Arc<Self>,
         ctx: Ctx<Self>,
         asked: CommandStatus,
-    ) -> Result<RunAnswer> {
+    ) -> Result<RunAnswer<StatusRefusal>> {
         let address::Agent(agent) = sender::<CommandStatus, _>(&ctx)?;
         let row = read_only(&ctx, async |tx| {
             run::status(tx, agent, asked.command).await
@@ -468,7 +475,7 @@ impl Handler<CommandStatus> for Workspace {
         .await?;
         Ok(match row {
             None => RunAnswer::Refused {
-                why: CallRefusal::NoSuchCommand {
+                why: StatusRefusal::NoSuchCommand {
                     command: asked.command,
                 },
             },
@@ -540,7 +547,8 @@ impl Workspace {
             // wait for that call.
             self.ran(command);
             if let Some(end) = unheard {
-                tell(&ctx, agent, call, Outcome::Ran(end)).await;
+                let end = RunEnd::Ran(end);
+                tell(&ctx, agent, call, Outcome::Run { end }).await;
             }
         });
     }
@@ -732,13 +740,7 @@ impl Workspace {
     ) -> Result<Weighing<Decision>> {
         if let Some(call) = calls::find(tx, agent, &run.call).await? {
             if !call.is(run::OP, request_hash) {
-                return Ok(Weighing::Done(Decision::Answer(
-                    RunAnswer::Refused {
-                        why: CallRefusal::CallReused {
-                            call: run.call.clone(),
-                        },
-                    },
-                )));
+                return Err(id_reused(Run::NAME, &run.call));
             }
             let row = run::row_of(call)?;
             if let Some(waiters) = self.waiters(row.command) {
@@ -755,7 +757,9 @@ impl Workspace {
             Ok(ready) => ready,
             Err(refusal) => {
                 return Ok(Weighing::Done(Decision::Answer(
-                    RunAnswer::Refused { why: refusal },
+                    RunAnswer::Refused {
+                        why: refusal.into(),
+                    },
                 )));
             }
         };
@@ -773,10 +777,10 @@ impl Workspace {
             &op,
         ) {
             Gate::Run { network } => network,
-            Gate::Refuse(refusal) => {
+            Gate::Refuse(refused) => {
                 return Ok(Weighing::Done(Decision::Answer(
                     RunAnswer::Refused {
-                        why: CallRefusal::Reach { why: refusal },
+                        why: refused.of_program()?.into(),
                     },
                 )));
             }
@@ -799,7 +803,7 @@ impl Workspace {
                         Ok(notice) => Decision::AskChief(notice),
                         Err(refusal) => {
                             Decision::Answer(RunAnswer::Refused {
-                                why: refusal,
+                                why: refusal.into(),
                             })
                         }
                     },
@@ -844,74 +848,58 @@ impl Workspace {
 }
 
 /// The answer a command's row gives.
-fn answer_of(row: run::Row) -> RunAnswer {
+fn answer_of<R>(row: run::Row) -> RunAnswer<R> {
     match row.state {
         run::State::Running => RunAnswer::Running {
             command: row.command,
         },
-        run::State::Ended(end) => RunAnswer::Done(end),
-        run::State::CutOff => RunAnswer::Done(run::without_output(
-            row.command,
-            Exit::CutOff,
-        )),
+        run::State::Ended(end) => run::ended(end),
+        run::State::CutOff => {
+            run::ended(run::without_output(row.command, Exit::CutOff))
+        }
         run::State::Waiting(needs) => {
             RunAnswer::WaitsForChief { needs }
         }
-        run::State::Refused(refusal) => {
-            RunAnswer::Refused { why: refusal }
-        }
+        run::State::NotRun(why) => RunAnswer::Ended {
+            end: RunEnd::NotRun { why },
+        },
     }
 }
 
-#[derive(Debug, thiserror::Error)]
-enum Invalid {
-    #[error(
-        "Invalid call id: {0:?} is not 1 to 128 of A-Z, a-z, 0-9, \
-         '.', '_', ':' and '-'"
-    )]
-    CallId(String),
-    #[error("Invalid command: longer than 1 MiB")]
-    LongCommand,
-    #[error("Invalid timeout: must be a positive number of seconds")]
-    ZeroTimeout,
-    #[error("Invalid arguments: longer than 1 MiB")]
-    LongArguments,
-    #[error("{0} is not an absolute path")]
-    NotAbsolute(String),
-}
-
-fn checked(run: &Run) -> Result<(), Invalid> {
-    checked_call(&run.call)?;
-    match &run.program {
+/// What `run` is refused with before anything is kept of it.
+fn checked(run: &Run) -> Option<RunRefusal> {
+    if let Some(refusal) = checked_call(&run.call) {
+        return Some(refusal.into());
+    }
+    let invalid = match &run.program {
         Program::Script { script, .. }
             if script.len() > 1024 * 1024 =>
         {
-            Err(Invalid::LongCommand)
+            InvalidProgram::ScriptTooLong
         }
         Program::Script {
             timeout_ms: Some(0),
             ..
-        } => Err(Invalid::ZeroTimeout),
+        } => InvalidProgram::ZeroTimeout,
         Program::Tool { arguments, .. }
             if arguments.len() > 1024 * 1024 =>
         {
-            Err(Invalid::LongArguments)
+            InvalidProgram::ArgumentsTooLong
         }
-        Program::Script { .. } | Program::Tool { .. } => Ok(()),
-    }
+        Program::Script { .. } | Program::Tool { .. } => return None,
+    };
+    Some(invalid.into())
 }
 
-fn checked_call(call: &CallId) -> Result<(), Invalid> {
-    let call = &call.0;
-    if call.is_empty()
-        || call.len() > 128
-        || !call.bytes().all(|byte| {
+/// The refusal of `call`, when it is not a call id.
+fn checked_call(call: &CallId) -> Option<CallRefusal> {
+    let id = &call.0;
+    let valid = !id.is_empty()
+        && id.len() <= 128
+        && id.bytes().all(|byte| {
             byte.is_ascii_alphanumeric() || b"._:-".contains(&byte)
-        })
-    {
-        return Err(Invalid::CallId(call.clone()));
-    }
-    Ok(())
+        });
+    (!valid).then(|| CallRefusal::InvalidId { call: call.clone() })
 }
 
 impl Handler<SetReach> for Workspace {
@@ -957,7 +945,7 @@ impl Handler<SetReach> for Workspace {
     }
 }
 
-const LAPSED: CallRefusal = CallRefusal::Lapsed {
+const LAPSED: WaitEnd = WaitEnd::Lapsed {
     lapse: Lapse::Ended,
 };
 
@@ -971,7 +959,7 @@ impl Workspace {
         &self,
         ctx: &Ctx<Self>,
         agent: AgentNumber,
-        closed: Vec<CallId>,
+        closed: Vec<(CallId, pending::NotRun)>,
     ) -> Result<()> {
         self.cancel(ctx, agent, &Which::All).await;
         let owner = i64::try_from(agent.0)?;
@@ -979,14 +967,8 @@ impl Workspace {
         workers::remove(&self.home, agent).await;
         let task_ctx = ctx.clone();
         ctx.register_task(async move {
-            for call in closed {
-                tell(
-                    &task_ctx,
-                    agent,
-                    call,
-                    Outcome::NotRun { why: LAPSED },
-                )
-                .await;
+            for (call, why) in closed {
+                tell(&task_ctx, agent, call, why.outcome()).await;
             }
         });
         Ok(())

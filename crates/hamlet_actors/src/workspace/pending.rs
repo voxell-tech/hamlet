@@ -20,20 +20,24 @@ use hamlet_messages::agent::Outcome;
 use hamlet_messages::realm::NeedsChief;
 use hamlet_messages::sender::sender;
 use hamlet_messages::workspace::files::{
-    EditDiff, EditFile, Hashed, WriteFile,
+    ChangeEnd, EditDiff, EditFile, Hashed, WriteFile,
 };
 use hamlet_messages::workspace::reach::{Need, Reach};
+use hamlet_messages::workspace::refusal::{
+    CallRefusal, ChangeNotRun, ReachChanged, RunNotRun, WaitEnd,
+};
 use hamlet_messages::workspace::{
-    AgentNumber, Answer, AnswerTaken, CallId, CallRefusal, Changed,
-    ChiefAnswer, ReachVersion, Run,
+    AgentNumber, Answer, AnswerTaken, CallId, ChiefAnswer,
+    ReachVersion, Run, RunEnd,
 };
 use hamlet_sandbox::scrub::scrub_text;
 use serde::{Deserialize, Serialize};
 
-use super::reach::{self, Gate, Network, Op};
+use super::files::{EDIT, WRITE};
+use super::reach::{self, Gate, Network, Op, Refused};
 use super::{
-    CALL_WITHIN, Weighing, Workspace, call, calls, read_only, tell,
-    transact_if,
+    CALL_WITHIN, Weighing, Workspace, call, calls, read_only, run,
+    tell, transact_if,
 };
 
 /// One row per call that waits for a chief, beside its `calls` row.
@@ -55,6 +59,17 @@ pub(super) enum Pending {
     Run(Run),
     Write(WriteFile),
     Edit(EditFile),
+}
+
+impl Pending {
+    /// The op of its call, as the call's row holds it.
+    fn op(&self) -> &'static str {
+        match self {
+            Self::Run(_) => run::OP,
+            Self::Write(_) => WRITE,
+            Self::Edit(_) => EDIT,
+        }
+    }
 }
 
 /// A wait as it is stored.
@@ -291,14 +306,57 @@ pub(super) async fn settle(
     }
 }
 
-/// Ends every wait of `agent` with `refusal` in `tx`, as when its
-/// reach ended: a chief's answer that comes after finds no wait.
-/// Returns the calls whose waits it ended.
+/// Why a wait ended without its call running, by the call's kind.
+pub(super) enum NotRun {
+    Run(RunNotRun),
+    Change(ChangeNotRun),
+}
+
+impl NotRun {
+    /// `why` the wait of a call of `op` ended.
+    fn of(op: &str, why: WaitEnd) -> Result<Self> {
+        Ok(match op {
+            run::OP => Self::Run(why.into()),
+            WRITE | EDIT => Self::Change(why.into()),
+            other => bail!("a call of the op {other} waited"),
+        })
+    }
+
+    fn stored(&self) -> Result<Vec<u8>> {
+        match self {
+            Self::Run(why) => calls::cbor(why),
+            Self::Change(why) => calls::cbor(why),
+        }
+    }
+
+    /// The end the agent is told of.
+    pub(super) fn outcome(&self) -> Outcome {
+        match self {
+            Self::Run(why) => Outcome::Run {
+                end: RunEnd::NotRun { why: why.clone() },
+            },
+            Self::Change(why) => Outcome::Change {
+                end: ChangeEnd::NotRun { why: why.clone() },
+            },
+        }
+    }
+
+    fn taken(self) -> AnswerTaken {
+        match self {
+            Self::Run(why) => AnswerTaken::RunNotRun { why },
+            Self::Change(why) => AnswerTaken::ChangeNotRun { why },
+        }
+    }
+}
+
+/// Ends every wait of `agent` with `why` in `tx`, as when its reach
+/// ended: a chief's answer that comes after finds no wait. Returns
+/// the calls whose waits it ended, each with why by its kind.
 pub(super) async fn close(
     tx: &SqliteTransaction,
     agent: AgentNumber,
-    refusal: &CallRefusal,
-) -> Result<Vec<CallId>> {
+    why: &WaitEnd,
+) -> Result<Vec<(CallId, NotRun)>> {
     let agent = BindParam::Integer(i64::try_from(agent.0)?);
     tx.execute(
         "DELETE FROM waits WHERE agent = ?1",
@@ -309,10 +367,10 @@ pub(super) async fn close(
         .execute(
             "UPDATE calls SET state = 'refused', answer = ?2, \
              ended_at = ?3 WHERE agent = ?1 AND state = 'waiting' \
-             RETURNING call",
+             RETURNING call, op",
             Some(vec![
                 agent,
-                BindParam::Blob(calls::cbor(refusal)?),
+                BindParam::Blob(calls::cbor(why)?),
                 BindParam::Integer(calls::now_ms()?),
             ]),
         )
@@ -321,7 +379,10 @@ pub(super) async fn close(
         .rows
         .iter()
         .map(|row| match row.as_slice() {
-            [ColumnValue::Text(call)] => Ok(CallId(call.clone())),
+            [ColumnValue::Text(call), ColumnValue::Text(op)] => Ok((
+                CallId(call.clone()),
+                NotRun::of(op, why.clone())?,
+            )),
             other => bail!("a closed call's row is {other:?}"),
         })
         .collect()
@@ -333,7 +394,28 @@ pub(super) enum Rechecked {
         network: Network,
         secrets: Arc<Vec<String>>,
     },
-    Refused(CallRefusal),
+    Changed(ReachChanged<Refused>),
+}
+
+/// `changed` with the gate's refusal as `why` gives it.
+pub(super) fn changed<G>(
+    changed: ReachChanged<Refused>,
+    why: impl FnOnce(Refused) -> Result<G>,
+) -> Result<ReachChanged<G>> {
+    Ok(match changed {
+        ReachChanged::ReachRefuses {
+            since,
+            now,
+            why: refused,
+        } => ReachChanged::ReachRefuses {
+            since,
+            now,
+            why: why(refused)?,
+        },
+        ReachChanged::ReachNeeds { since, now, needs } => {
+            ReachChanged::ReachNeeds { since, now, needs }
+        }
+    })
 }
 
 impl Workspace {
@@ -365,30 +447,22 @@ impl Workspace {
         }
     }
 
-    /// Ends `wait` with `refusal`, and calls its agent with it.
+    /// Ends `wait` with `why`, and calls its agent with it.
     pub(super) async fn not_run(
         &self,
         ctx: &Ctx<Self>,
         wait: &Wait,
-        refusal: CallRefusal,
+        why: NotRun,
     ) -> Result<AnswerTaken> {
-        let answer = Some(calls::cbor(&refusal)?);
+        let answer = Some(why.stored()?);
         if settled(ctx, wait, "refused", answer, None)
             .await?
             .is_none()
         {
             return Ok(AnswerTaken::NoWait);
         }
-        tell(
-            ctx,
-            wait.agent,
-            wait.call.clone(),
-            Outcome::NotRun {
-                why: refusal.clone(),
-            },
-        )
-        .await;
-        Ok(AnswerTaken::NotRun { why: refusal })
+        tell(ctx, wait.agent, wait.call.clone(), why.outcome()).await;
+        Ok(why.taken())
     }
 
     /// Weighs `wait`, which a chief allowed, again under the reach in
@@ -407,13 +481,7 @@ impl Workspace {
             let (now, reach) = in_force
                 .context("a call waits for an agent with no reach")?;
             let (held, secrets) = self.held();
-            let changed = |why| {
-                Rechecked::Refused(CallRefusal::ReachChanged {
-                    since: wait.reach_version,
-                    now,
-                    why,
-                })
-            };
+            let since = wait.reach_version;
             Ok(Weighing::Done(
                 match reach::gate(
                     &self.home,
@@ -451,11 +519,19 @@ impl Workspace {
                         }
                     }
                     Gate::NeedsChief(needs) => {
-                        changed(Changed::Needs { needs })
+                        Rechecked::Changed(ReachChanged::ReachNeeds {
+                            since,
+                            now,
+                            needs,
+                        })
                     }
-                    Gate::Refuse(refusal) => {
-                        changed(Changed::Refused { why: refusal })
-                    }
+                    Gate::Refuse(why) => Rechecked::Changed(
+                        ReachChanged::ReachRefuses {
+                            since,
+                            now,
+                            why,
+                        },
+                    ),
                 },
             ))
         })
@@ -477,32 +553,25 @@ impl Handler<ChiefAnswer> for Workspace {
         let Some(wait) = wait else {
             return Ok(AnswerTaken::NoWait);
         };
-        match answered.answer {
+        let ended = match answered.answer {
             Answer::Refuse { reason } => {
-                self.not_run(
-                    &ctx,
-                    &wait,
-                    CallRefusal::ChiefRefused { reason },
-                )
-                .await
+                WaitEnd::ChiefRefused { reason }
             }
-            Answer::Lapsed { lapse } => {
-                self.not_run(
-                    &ctx,
-                    &wait,
-                    CallRefusal::Lapsed { lapse },
-                )
-                .await
-            }
+            Answer::Lapsed { lapse } => WaitEnd::Lapsed { lapse },
             Answer::Allow => match &wait.request {
                 Pending::Run(run) => {
-                    self.clone().grant_run(&ctx, &wait, run).await
+                    return self
+                        .clone()
+                        .grant_run(&ctx, &wait, run)
+                        .await;
                 }
                 Pending::Write(_) | Pending::Edit(_) => {
-                    self.grant_change(&ctx, &wait).await
+                    return self.grant_change(&ctx, &wait).await;
                 }
             },
-        }
+        };
+        let why = NotRun::of(wait.request.op(), ended)?;
+        self.not_run(&ctx, &wait, why).await
     }
 }
 

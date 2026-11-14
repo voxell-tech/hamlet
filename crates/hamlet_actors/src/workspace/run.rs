@@ -10,9 +10,10 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result, bail};
 use hamlet_actor_core::{BindParam, SqliteTransaction};
 use hamlet_messages::workspace::reach::Need;
+use hamlet_messages::workspace::refusal::RunNotRun;
 use hamlet_messages::workspace::{
-    AgentNumber, CallId, CallRefusal, CommandEnd, CommandId,
-    ConversationId, Exit, RunAnswer, Which,
+    AgentNumber, CallId, CommandEnd, CommandId, ConversationId, Exit,
+    RunAnswer, RunEnd, Which,
 };
 use hamlet_os::fs::path::text;
 use hamlet_sandbox::scrub::scrub_text;
@@ -40,8 +41,8 @@ pub(super) enum State {
     CutOff,
     /// It waits for a chief to allow what it needs.
     Waiting(Vec<Need>),
-    /// A chief refused it, or its wait lapsed.
-    Refused(CallRefusal),
+    /// It waited for a chief and did not run.
+    NotRun(RunNotRun),
 }
 
 /// The op of a command's row.
@@ -81,8 +82,8 @@ pub(super) fn row_of(call: Call) -> Result<Row> {
             ciborium::from_reader(needs.as_slice())
                 .context("decode what a command waits for")?,
         ),
-        ("refused", Some(refusal)) => State::Refused(
-            ciborium::from_reader(refusal.as_slice())
+        ("refused", Some(why)) => State::NotRun(
+            ciborium::from_reader(why.as_slice())
                 .context("decode why a command did not run")?,
         ),
         ("ended", Some(answer)) => State::Ended(
@@ -236,24 +237,24 @@ impl Waiters {
     }
 
     /// Waits for the end of `command` until the first call's wait is
-    /// over: `Done` with it, else `Running`.
-    pub(super) async fn answer(
+    /// over: `Ended` with it, else `Running`.
+    pub(super) async fn answer<R>(
         &self,
         command: CommandId,
-    ) -> RunAnswer {
+    ) -> RunAnswer<R> {
         let (tx, rx) = oneshot::channel();
         match &mut *self.lock() {
             Slot::Waiting(waiting) => waiting.push(tx),
             Slot::GaveUp => return RunAnswer::Running { command },
-            Slot::Ended(end) => return RunAnswer::Done(end.clone()),
+            Slot::Ended(end) => return ended(end.clone()),
         }
         match tokio::time::timeout_at(self.give_up_at, rx).await {
-            Ok(Ok(end)) => RunAnswer::Done(end),
+            Ok(Ok(end)) => ended(end),
             Ok(Err(_)) => RunAnswer::Running { command },
             Err(_) => {
                 let mut slot = self.lock();
                 match &*slot {
-                    Slot::Ended(end) => RunAnswer::Done(end.clone()),
+                    Slot::Ended(end) => ended(end.clone()),
                     Slot::Waiting(_) | Slot::GaveUp => {
                         *slot = Slot::GaveUp;
                         RunAnswer::Running { command }
@@ -288,6 +289,13 @@ impl Waiters {
 
     fn lock(&self) -> std::sync::MutexGuard<'_, Slot> {
         self.slot.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+}
+
+/// The answer of a command that ended.
+pub(super) fn ended<R>(end: CommandEnd) -> RunAnswer<R> {
+    RunAnswer::Ended {
+        end: RunEnd::Ran(end),
     }
 }
 

@@ -6,18 +6,21 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use hamlet_messages::workspace::files::{
-    FileAnswer, ReadFile, WriteFile,
+    ReadAnswer, ReadFile, WriteFile,
 };
 use hamlet_messages::workspace::reach::{
-    Footing, Mode, Project, Reach, Refusal, SecretsVersion,
+    Footing, Mode, Project, Reach, SecretsVersion,
+};
+use hamlet_messages::workspace::refusal::{
+    PathRefusal, ReachRefusal, ToChange,
 };
 use hamlet_messages::workspace::{
-    AgentNumber, CallId, CallRefusal, ConversationId, Exit, InForce,
-    ReachVersion, RunAnswer,
+    AgentNumber, CallId, ConversationId, Exit, InForce, ReachVersion,
+    RunAnswer,
 };
 use hamlet_testing::Scratch;
 
-use super::changes::read;
+use super::changes::{read, refused};
 use super::files::{ask, project};
 use super::{AGENT, agent, agent_runs, done, host, realm_sets, run};
 
@@ -198,15 +201,15 @@ async fn a_worker_reads_its_starters_files_and_changes_none() {
             "{case}: {other:?}"
         );
         assert!(!other.output.contains("not-for-workers"), "{case}");
-        let FileAnswer::Text(text) = read_tool else {
+        let ReadAnswer::Text(text) = read_tool else {
             panic!("{case}: the read answered {read_tool:?}");
         };
         assert_eq!(text.text, "remember", "{case}");
         assert_eq!(
             write_tool,
-            hamlet_messages::workspace::files::ChangeAnswer::Refused { why: CallRefusal::Reach { why: Refusal::AgentFilesystem {
-                    path: notes.clone()
-                } } },
+            refused(PathRefusal::<ToChange>::AgentFilesystem {
+                path: notes.clone()
+            }),
             "{case}"
         );
         assert_eq!(read(&notes), "remember", "{case}");
@@ -253,9 +256,7 @@ async fn the_start_removes_the_folders_of_ended_workers() {
     assert_eq!(
         after,
         RunAnswer::Refused {
-            why: CallRefusal::Reach {
-                why: Refusal::NoReach
-            }
+            why: ReachRefusal::NoReach.into()
         }
     );
 }
