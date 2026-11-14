@@ -51,10 +51,6 @@ use self::cases::{
 
 const AGENT: AgentNumber = AgentNumber(7);
 
-/// Every enum the fixtures hold. A generic enum is listed once: its
-/// cases are the same whatever it holds. Its forms are counted apart
-/// where one is a fixture's root or a union's family, and together
-/// anywhere else.
 fn enums() -> Vec<Cases> {
     vec![
         tagged::<Answer>(),
@@ -92,11 +88,9 @@ fn enums() -> Vec<Cases> {
     ]
 }
 
-/// A union and its families. The match is never run: it fails to
-/// compile when a family is missing, extra or of another type.
 macro_rules! union {
     ($union:ident { $($case:ident: $family:ty),+ $(,)? }) => {{
-        let _ = |union: $union| match union {
+        let _families_match_variants = |union: $union| match union {
             $($union::$case(family) => {
                 let _: $family = family;
             })+
@@ -105,7 +99,6 @@ macro_rules! union {
     }};
 }
 
-/// Every untagged union, with its families.
 fn unions() -> Vec<Union> {
     vec![
         union!(RunRefusal {
@@ -153,6 +146,12 @@ fn folder() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures")
 }
 
+/// An enum a fixture's root is: its cases and those found.
+struct Root {
+    cases: Cases,
+    found: BTreeSet<String>,
+}
+
 struct Fixtures {
     unions: Vec<Union>,
     written: BTreeSet<String>,
@@ -160,9 +159,7 @@ struct Fixtures {
     problems: Vec<String>,
     found: BTreeMap<Cases, BTreeSet<String>>,
     in_unions: BTreeSet<InUnion>,
-    /// Each enum a fixture's root is, by its name with its
-    /// parameters, with its cases and those found.
-    roots: BTreeMap<String, (Cases, BTreeSet<String>)>,
+    roots: BTreeMap<String, Root>,
 }
 
 impl Fixtures {
@@ -220,10 +217,6 @@ impl Fixtures {
         );
     }
 
-    /// Checks a type as a row keeps it, CBOR of the Rust type itself,
-    /// and returns the kept bytes. A stored fixture is added to and
-    /// never rewritten, so one that no longer reads back as `value`
-    /// fails.
     fn stored<T>(&mut self, name: &str, value: &T) -> Vec<u8>
     where
         T: Serialize + DeserializeOwned + PartialEq + Debug,
@@ -247,8 +240,6 @@ impl Fixtures {
         kept
     }
 
-    /// Checks a request a row keeps, also by its bytes: a repeat is
-    /// found by their hash.
     fn stored_request<T>(&mut self, name: &str, value: &T)
     where
         T: Serialize + DeserializeOwned + PartialEq + Debug,
@@ -299,8 +290,11 @@ impl Fixtures {
         {
             self.roots
                 .entry(cases::short_name::<T>())
-                .or_insert((cases, BTreeSet::new()))
-                .1
+                .or_insert(Root {
+                    cases,
+                    found: BTreeSet::new(),
+                })
+                .found
                 .insert(tag.to_owned());
         }
         for (cases, case) in found.cases {
@@ -359,11 +353,11 @@ impl Fixtures {
                 }
             }
         }
-        for (root, (cases, found)) in &self.roots {
-            for case in *cases {
-                if !found.contains(*case) {
+        for (name, root) in &self.roots {
+            for case in root.cases {
+                if !root.found.contains(*case) {
                     problems.push(format!(
-                        "no fixture's root is {case} of {root}"
+                        "no fixture's root is {case} of {name}"
                     ));
                 }
             }
@@ -622,7 +616,6 @@ fn asked_edit() -> EditFile {
     }
 }
 
-/// Each type as a row keeps it.
 fn the_stored_rows(fixtures: &mut Fixtures) {
     fixtures.stored("reach.agent", &Reach::Agent(footing()));
     fixtures.stored(
@@ -671,8 +664,6 @@ fn the_stored_rows(fixtures: &mut Fixtures) {
     );
 }
 
-/// The ends of a wait with no allow that a run, a write and a chief's
-/// answer each have a fixture of.
 fn wait_ends() -> [(&'static str, WaitEnd); 3] {
     [
         (
@@ -1416,7 +1407,6 @@ fn the_addresses(fixtures: &mut Fixtures) {
         .answer("address/agent", &Agent(AGENT).address().unwrap());
 }
 
-/// An error as its caller reads it with [`ActorError::extract`].
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 struct Seen {
     group: String,
@@ -1477,7 +1467,7 @@ fn a_changed_file_is_told_by_its_hashes() {
 }
 
 /// Each integer TypeScript writes reads up to 2^32 - 1 and fails
-/// from 2^32, which a JavaScript `number` writes as a float.
+/// from 2^32.
 #[test]
 fn an_integer_typescript_writes_is_a_u32() {
     fn reads<T: DeserializeOwned>(args: serde_json::Value) -> bool {

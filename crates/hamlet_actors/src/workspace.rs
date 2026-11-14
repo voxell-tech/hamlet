@@ -48,7 +48,6 @@ use self::reach::{Gate, Purpose, RealmFolder};
 const MOST_LINES: usize = 2000;
 const MOST_BYTES: usize = 50 * 1024;
 
-/// The longest the workspace waits for another actor's answer.
 const CALL_WITHIN: Duration = Duration::from_secs(10);
 
 /// The workspace's answer settings, given by its host as a value of
@@ -679,8 +678,6 @@ async fn read_only<T>(
     done
 }
 
-/// Calls `to` with `message` as the actor of `host`, and decodes its
-/// answer.
 async fn call<M: Message>(
     host: &HostRef,
     to: &M::To,
@@ -869,7 +866,6 @@ fn answer_of<R>(row: run::Row) -> RunAnswer<R> {
     }
 }
 
-/// What `run` is refused with before anything is kept of it.
 fn checked(run: &Run) -> Option<RunRefusal> {
     if let Some(refusal) = checked_call(&run.call) {
         return Some(refusal.into());
@@ -894,7 +890,6 @@ fn checked(run: &Run) -> Option<RunRefusal> {
     Some(invalid.into())
 }
 
-/// The refusal of `call`, when it is not a call id.
 fn checked_call(call: &CallId) -> Option<CallRefusal> {
     let id = &call.0;
     let valid = !id.is_empty()
@@ -999,7 +994,6 @@ mod tests {
         (M::NAME, args)
     }
 
-    /// One call of each action, whose arguments decode.
     fn every_action() -> Vec<(&'static str, Vec<u8>)> {
         let call = CallId("call-1".into());
         let conversation = ConversationId("c1".into());
@@ -1065,10 +1059,6 @@ mod tests {
         ]
     }
 
-    /// No workspace message is the program's own, so a call with no
-    /// caller reaches each handler's check and fails there, naming
-    /// the handler's own action. Which party a check admits is
-    /// tested per action in `tests/workspace/`.
     #[tokio::test(flavor = "multi_thread")]
     async fn every_action_refuses_a_caller_it_does_not_admit() {
         let actions = every_action();

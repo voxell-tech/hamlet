@@ -61,7 +61,6 @@ fn tool(call: &str, name: &str, arguments: &str) -> Run {
     }
 }
 
-/// Only an agent lists the tools, at the key its number writes.
 #[tokio::test(flavor = "multi_thread")]
 async fn only_an_agent_lists_the_tools() {
     let dir = Scratch::new("workspace-tools-caller");
@@ -114,8 +113,6 @@ async fn the_tools_added_by_hand_are_listed() {
     );
 }
 
-/// A tool folder whose name is not UTF-8 is a fault named in lossy
-/// text, and the other tools are still listed.
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_folder_whose_name_is_not_text_is_a_fault() {

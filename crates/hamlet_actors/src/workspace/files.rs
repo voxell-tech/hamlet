@@ -67,7 +67,6 @@ impl Passed {
     }
 }
 
-/// The answer of a read, a search or a find.
 trait Answered: Send + 'static {
     fn failed(words: String) -> Self;
     fn refused(why: ReadRefusal) -> Self;
@@ -75,7 +74,6 @@ trait Answered: Send + 'static {
     fn scrubbed(self, secrets: &[String]) -> Self;
 }
 
-/// `text` with `secrets` taken out of every word.
 fn scrubbed_text(
     secrets: &[String],
     Text {

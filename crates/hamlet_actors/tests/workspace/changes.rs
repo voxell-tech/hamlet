@@ -79,12 +79,10 @@ pub(super) fn changed<R: std::fmt::Debug>(
     }
 }
 
-/// A change refused with `why`.
 pub(super) fn refused<R, W: Into<R>>(why: W) -> ChangeAnswer<R> {
     ChangeAnswer::Refused { why: why.into() }
 }
 
-/// A change that failed, in `words`.
 pub(super) fn failed<R>(words: String) -> ChangeAnswer<R> {
     ChangeAnswer::Ended {
         end: ChangeEnd::Failed { words },
@@ -312,9 +310,7 @@ pub(super) fn manual(folder: &Path) -> Reach {
     })
 }
 
-/// A change is for the agent the host stamped as the caller: agent
-/// 8, which has no reach, changes nothing, and an actor that is not
-/// an agent fails as a wrong caller.
+/// A change is for the agent the host stamped as the caller.
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_change_is_for_the_agent_that_called() {
@@ -443,8 +439,6 @@ async fn a_call_id_is_one_calls_whatever_it_does() {
     assert_eq!(read(&file), "y");
 }
 
-/// The answer `asked` gets as agent `from`: its `type` and the
-/// `type` of its `why` or its `end`, or the error it failed with.
 async fn answered<A>(
     host: &Host,
     from: AgentNumber,
@@ -473,9 +467,6 @@ where
     }
 }
 
-/// A refused call kept nothing, so its id is sent again with another
-/// request and weighed afresh, never failed with `message.id_reused`:
-/// one refusal of each family a run, a write and an edit can get.
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_refused_call_keeps_nothing_of_it() {

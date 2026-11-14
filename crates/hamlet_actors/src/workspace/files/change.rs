@@ -126,7 +126,6 @@ async fn forget(tx: &SqliteTransaction, id: i64) -> Result<()> {
     Ok(())
 }
 
-/// The ops of a write and an edit, as a call's row holds them.
 pub(in crate::workspace) const WRITE: &str = "write";
 pub(in crate::workspace) const EDIT: &str = "edit";
 
@@ -143,7 +142,6 @@ impl Asked<'_> {
         }
     }
 
-    /// The name of the action that asked for it.
     fn action(&self) -> &'static str {
         match self {
             Self::Write(_) => WriteFile::NAME,
@@ -152,7 +150,6 @@ impl Asked<'_> {
     }
 }
 
-/// What a fresh change is refused with: a write's or an edit's.
 trait Refusal:
     From<CallRefusal>
     + From<InvalidPath>
@@ -195,8 +192,6 @@ impl<'a> Request<'a> {
         })
     }
 
-    /// What the change is refused with before anything is kept of
-    /// it: its call id, then its path.
     fn checked<R: Refusal>(&self) -> Option<R> {
         if let Some(refusal) = checked_call(self.call) {
             return Some(refusal.into());
@@ -273,8 +268,6 @@ enum Unplanned {
 }
 
 impl Workspace {
-    /// Carries out `request`, the change `pending` of `agent` that
-    /// passed its checks, or answers why not.
     async fn change<R: Refusal>(
         &self,
         ctx: &Ctx<Self>,
@@ -387,7 +380,7 @@ impl Workspace {
             if let Some(call) =
                 calls::find(tx, agent, request.call).await?
             {
-                return Ok(Err(found(call, request)?));
+                return Ok(Err(answer_of_racing_row(call, request)?));
             }
             Ok(pending::open(tx, secrets, opening).await?.map_err(
                 |why| ChangeAnswer::Refused { why: why.into() },
@@ -650,8 +643,6 @@ enum Row<R> {
     Unfinished { id: i64, temp: Option<String> },
 }
 
-/// What a change's row `call` answers `request`, a call with its id.
-/// A row of another request fails it with `message.id_reused`.
 fn answered<R>(
     call: calls::Call,
     request: &Request<'_>,
@@ -679,9 +670,7 @@ fn answered<R>(
     })
 }
 
-/// What the row `call` answers `request` when another change with
-/// its id is found while this one opens its own.
-fn found<R>(
+fn answer_of_racing_row<R>(
     call: calls::Call,
     request: &Request<'_>,
 ) -> Result<ChangeAnswer<R>> {
@@ -910,7 +899,7 @@ async fn open<R>(
     temp: &str,
 ) -> Result<Result<i64, ChangeAnswer<R>>> {
     if let Some(call) = calls::find(tx, agent, request.call).await? {
-        return Ok(Err(found(call, request)?));
+        return Ok(Err(answer_of_racing_row(call, request)?));
     }
     calls::insert(
         tx,
@@ -1022,8 +1011,6 @@ mod tests {
         }
     }
 
-    /// A path that is not absolute is named as the policy reads it,
-    /// with `/` between its names.
     #[cfg(windows)]
     #[test]
     fn a_relative_path_is_refused_in_the_policys_text() {

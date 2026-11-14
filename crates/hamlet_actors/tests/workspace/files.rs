@@ -68,7 +68,6 @@ fn find(under: &Path) -> Find {
     }
 }
 
-/// The answer of a read, a search or a find.
 trait Answered: std::fmt::Debug {
     fn text(self) -> Option<Text>;
 }

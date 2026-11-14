@@ -18,7 +18,6 @@ pub fn tagged<E: DeserializeOwned>() -> Cases {
     cases_of::<E>(&tag_probe())
 }
 
-/// `T`'s cases when it is an enum tagged by `type`.
 pub fn tagged_cases<T: DeserializeOwned>() -> Option<Cases> {
     match T::deserialize(TaggedReader(&tag_probe())) {
         Err(Probed {
@@ -52,13 +51,11 @@ fn cases_of<E: DeserializeOwned>(probe: &Value) -> Cases {
     }
 }
 
-/// An untagged union of families, each tagged by `type`.
 pub struct Union {
     pub name: String,
     pub families: Vec<Family>,
 }
 
-/// A family of a [`Union`], and the probe of a value of it.
 pub struct Family {
     pub name: String,
     pub cases: Cases,
@@ -80,7 +77,6 @@ pub fn family<E: DeserializeOwned>() -> Family {
     }
 }
 
-/// A type's name with no module paths, as serde and a reader name it.
 pub fn short_name<T>() -> String {
     let mut name = String::new();
     for letter in std::any::type_name::<T>().chars() {
@@ -98,8 +94,6 @@ pub fn short_name<T>() -> String {
     name
 }
 
-/// The enum cases fixtures hold, each case of a union's family also
-/// where the union holds it, and what kept a case from being found.
 #[derive(Default)]
 pub struct Found {
     pub cases: Vec<(Cases, String)>,
@@ -107,7 +101,6 @@ pub struct Found {
     pub problems: Vec<String>,
 }
 
-/// A case of a family, held where a union holds that family.
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct InUnion {
     pub union: String,
@@ -163,7 +156,8 @@ pub fn found<T: DeserializeOwned>(
                     ));
                     continue;
                 };
-                let Some(position) = position(value, &path, union)
+                let Some(position) =
+                    outermost_family_map(value, &path, union)
                 else {
                     found.problems.push(format!(
                         "{name}: no family of {} has a type around \
@@ -184,12 +178,7 @@ pub fn found<T: DeserializeOwned>(
     }
 }
 
-/// The outermost map around `path` in `value` whose `type` is a case
-/// of a family of `union`. A family's value can hold a map whose
-/// `type` is another family's case, so the nearest map is not the
-/// union's; a map above the union that shares a case is read as the
-/// family and fails loudly.
-fn position(
+fn outermost_family_map(
     value: &Value,
     path: &[usize],
     union: &Union,
@@ -206,8 +195,6 @@ fn position(
         })
 }
 
-/// Reads the union's value at `position` as the family that has its
-/// `type`.
 fn in_union(
     name: &str,
     value: &Value,

@@ -34,7 +34,6 @@ use super::{
     realm, realm_sets, run, status_as, told, told_within,
 };
 
-/// A change's answer that it waits for a chief to allow an edit.
 fn waits_for_an_edit<R>() -> ChangeAnswer<R> {
     ChangeAnswer::WaitsForChief {
         needs: vec![Need::Edit],
@@ -99,9 +98,8 @@ fn manual_with_network(folder: &Path) -> Reach {
 
 /// In manual mode a command waits for a chief: the call answers so,
 /// the realm is told once with the call's task and its words, and
-/// nothing runs. The wait keeps the call's own request, as the
-/// message's bytes. A repeat answers that it waits and tells no one;
-/// a repeat with another task is another request, which fails with
+/// nothing runs. A repeat answers that it waits and tells no one; a
+/// repeat with another task is another request, which fails with
 /// `message.id_reused` (M-E10).
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
@@ -202,9 +200,7 @@ async fn a_command_a_chief_allows_runs_and_the_agent_hears_its_end() {
 }
 
 /// A chief's refusal and a lapse each end their wait: nothing runs,
-/// the agent is told why once, and a repeat of the call answers it,
-/// as does the status of its row's command id, which the agent was
-/// never told.
+/// the agent is told why once, and a repeat of the call answers it.
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_refusal_and_a_lapse_end_the_wait_and_run_nothing() {

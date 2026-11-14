@@ -93,8 +93,7 @@ pub trait Message: Action {
 }
 
 /// Writes an answer's arm that holds the reason `why` as `why` and
-/// `words`, its `Display`. Named by the arm's `serialize_with`; the
-/// arm's derived `Deserialize` ignores `words`.
+/// `words`, its `Display`.
 pub fn worded<S, W>(why: &W, to: S) -> Result<S::Ok, S::Error>
 where
     S: Serializer,

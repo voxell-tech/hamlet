@@ -292,7 +292,6 @@ impl Waiters {
     }
 }
 
-/// The answer of a command that ended.
 pub(super) fn ended<R>(end: CommandEnd) -> RunAnswer<R> {
     RunAnswer::Ended {
         end: RunEnd::Ran(end),
