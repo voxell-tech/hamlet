@@ -91,6 +91,28 @@ pub(super) async fn apply(
     }
 }
 
+/// `agent`'s reach in force, in `tx`.
+pub(super) async fn read(
+    tx: &SqliteTransaction,
+    agent: AgentNumber,
+) -> anyhow::Result<Option<Reach>> {
+    let read = tx
+        .execute(
+            "SELECT body FROM reach WHERE agent = ?1",
+            Some(vec![BindParam::Integer(i64::try_from(agent.0)?)]),
+        )
+        .await?;
+    match read.rows.first().and_then(|row| row.first()) {
+        Some(ColumnValue::Blob(body)) => {
+            Ok(Some(ciborium::from_reader(body.as_slice())?))
+        }
+        None => Ok(None),
+        Some(other) => {
+            anyhow::bail!("agent {}'s reach is {other:?}", agent.0)
+        }
+    }
+}
+
 /// The realm folder, `HAMLET_HOME`, as an absolute normalized path.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RealmFolder(PathBuf);

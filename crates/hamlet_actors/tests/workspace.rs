@@ -2,19 +2,26 @@
 
 use std::collections::HashMap;
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use anyhow::Context;
 use hamlet_actor::{Action, Actor, Ctx, Handler, Registry};
 use hamlet_actor_core::{ActorConfig, ActorFactory};
 use hamlet_actors::workspace;
-use hamlet_host::{Address, Caller, Cause, Host, HostOptions};
+use hamlet_host::{
+    Address, Caller, Cause, Host, HostOptions, HostRef,
+};
+use hamlet_messages::agent::Finished;
+use hamlet_messages::realm::{SecretList, Secrets};
 use hamlet_messages::workspace::reach::{
     Footing, Mode, Project, Reach, SecretsVersion,
 };
 use hamlet_messages::workspace::{
-    AgentNumber, ReachAnswer, ReachRefusal, ReachVersion, SetReach,
+    AgentNumber, CallId, CommandEnd, ConversationId, Exit,
+    ReachAnswer, ReachRefusal, ReachVersion, Run, RunAnswer,
+    SetReach, Shell,
 };
 use hamlet_sandbox::Sandbox;
 use hamlet_testing::Scratch;
@@ -23,15 +30,30 @@ use serde::{Deserialize, Serialize};
 
 const AGENT: AgentNumber = AgentNumber(7);
 
-/// The kinds that call the workspace in these tests, each a
-/// [`Relay`].
-const CALLERS: [&str; 3] = ["realm", "agent", "other"];
+/// The secret the stub realm holds.
+const SECRET: &str = "s3cr3t-value";
 
-/// Calls the workspace as itself, with the action and arguments it is
-/// given.
-struct Relay;
+/// The kinds that call the workspace in these tests, each a [`Peer`].
+const PEERS: [&str; 3] = ["realm", "agent", "other"];
 
-/// What a [`Relay`] calls the workspace with.
+/// What the peers of one host share: the realm's secrets and how
+/// long it takes to answer for them, and what the agents were told.
+#[derive(Default)]
+struct Peers {
+    secrets_delay: Duration,
+    fetched: AtomicUsize,
+    told: Mutex<Vec<(String, Finished)>>,
+}
+
+/// Stands in for the realm and the agents: calls the workspace as
+/// itself, answers for the realm's secrets, and records what an agent
+/// is told.
+struct Peer {
+    peers: Arc<Peers>,
+    key: String,
+}
+
+/// What a [`Peer`] calls the workspace with.
 #[derive(Serialize, Deserialize)]
 struct Forward {
     name: String,
@@ -44,19 +66,25 @@ impl Action for Forward {
 }
 
 #[async_trait::async_trait]
-impl Actor for Relay {
+impl Actor for Peer {
     type Input = ();
-    type Actions = (Forward,);
+    type Actions = (Forward, Secrets, Finished);
     type Events = ();
     type ConnParams = Option<Caller>;
     type Action = ();
 
-    async fn create(_: &Ctx<Self>) -> anyhow::Result<Self> {
-        Ok(Self)
+    async fn create(ctx: &Ctx<Self>) -> anyhow::Result<Self> {
+        let peers = HostRef::of(ctx.inner())?
+            .value::<Peers>()
+            .context("the host holds the peers")?;
+        Ok(Self {
+            peers,
+            key: ctx.actor_id().to_owned(),
+        })
     }
 }
 
-impl Handler<Forward> for Relay {
+impl Handler<Forward> for Peer {
     async fn handle(
         self: Arc<Self>,
         ctx: Ctx<Self>,
@@ -67,17 +95,47 @@ impl Handler<Forward> for Relay {
             &workspace_address(),
             &forward.name,
             forward.args,
-            Duration::from_secs(10),
+            Duration::from_secs(20),
             Cause::root("test"),
         )
         .await
     }
 }
 
-fn relay(kind: &str) -> ActorFactory {
+impl Handler<Secrets> for Peer {
+    async fn handle(
+        self: Arc<Self>,
+        _: Ctx<Self>,
+        _: Secrets,
+    ) -> anyhow::Result<SecretList> {
+        tokio::time::sleep(self.peers.secrets_delay).await;
+        self.peers.fetched.fetch_add(1, Ordering::SeqCst);
+        Ok(SecretList {
+            version: SecretsVersion(1),
+            values: vec![SECRET.to_owned()],
+        })
+    }
+}
+
+impl Handler<Finished> for Peer {
+    async fn handle(
+        self: Arc<Self>,
+        _: Ctx<Self>,
+        finished: Finished,
+    ) -> anyhow::Result<()> {
+        self.peers
+            .told
+            .lock()
+            .unwrap()
+            .push((self.key.clone(), finished));
+        Ok(())
+    }
+}
+
+fn peer(kind: &str) -> ActorFactory {
     let mut registry = Registry::new();
     registry
-        .register_actor_with::<Relay>(kind, ActorConfig::default());
+        .register_actor_with::<Peer>(kind, ActorConfig::default());
     registry
         .into_factories()
         .remove(kind)
@@ -88,6 +146,14 @@ fn workspace_address() -> Address {
     Address::new(workspace::KIND, workspace::MACHINE)
 }
 
+fn realm() -> Address {
+    Address::new(workspace::REALM, workspace::REALM_KEY)
+}
+
+fn agent(number: AgentNumber) -> Address {
+    Address::new(workspace::AGENT, number.0.to_string())
+}
+
 /// A host on `dir` with the workspace and the callers' kinds, given
 /// `options`.
 fn open(dir: &Path, options: HostOptions) -> anyhow::Result<Host> {
@@ -95,18 +161,25 @@ fn open(dir: &Path, options: HostOptions) -> anyhow::Result<Host> {
         workspace::KIND.to_owned(),
         workspace::factory(),
     )]);
-    for kind in CALLERS {
-        kinds.insert(kind.to_owned(), relay(kind));
+    for kind in PEERS {
+        kinds.insert(kind.to_owned(), peer(kind));
     }
     Host::open_with(dir, kinds, options)
 }
 
 /// A host on `dir` with the workspace made, on the tests' sandbox.
 async fn host(dir: &Path) -> Host {
+    host_with(dir, Arc::default()).await
+}
+
+/// A host on `dir` with the workspace made, whose peers share
+/// `peers`.
+async fn host_with(dir: &Path, peers: Arc<Peers>) -> Host {
     let host = open(
         dir,
         HostOptions::default()
-            .with_value(Arc::new(Sandbox::testing())),
+            .with_value(Arc::new(Sandbox::testing()))
+            .with_value(peers),
     )
     .unwrap();
     host.get_or_start(workspace::KIND, workspace::MACHINE)
@@ -137,22 +210,22 @@ fn set_reach(version: u64, reach: Reach) -> Vec<u8> {
     hamlet_actor::action::encode_positional(&set).unwrap()
 }
 
-/// Calls the workspace's `name` with `args` as the actor
-/// `<kind>/caller`, made first if it has no file.
+/// Calls the workspace's `name` with `args` as the actor at `from`,
+/// made first if it has no file.
 async fn call_as(
     host: &Host,
-    kind: &str,
+    from: &Address,
     name: &str,
     args: Vec<u8>,
 ) -> anyhow::Result<Vec<u8>> {
-    host.get_or_start(kind, "caller").await?;
+    host.get_or_start(&from.kind, &from.key).await?;
     let forward = Forward {
         name: name.to_owned(),
         args,
     };
     let reply = host
         .call(
-            &Address::new(kind, "caller"),
+            from,
             Forward::NAME,
             hamlet_actor::action::encode_positional(&forward)?,
             Duration::from_secs(20),
@@ -160,7 +233,7 @@ async fn call_as(
         )
         .await?;
     ciborium::from_reader(reply.as_slice())
-        .context("decode the relay's reply")
+        .context("decode the peer's reply")
 }
 
 fn decoded<T: serde::de::DeserializeOwned>(reply: &[u8]) -> T {
@@ -175,7 +248,7 @@ async fn realm_sets(
 ) -> ReachAnswer {
     let reply = call_as(
         host,
-        "realm",
+        &realm(),
         SetReach::NAME,
         set_reach(version, reach),
     )
@@ -274,7 +347,7 @@ async fn only_the_realm_sets_a_reach() {
     for kind in ["agent", "other"] {
         let reply = call_as(
             &host,
-            kind,
+            &Address::new(kind, "caller"),
             SetReach::NAME,
             set_reach(5, reach(Some("/"))),
         )
@@ -326,4 +399,142 @@ async fn the_workspace_does_not_start_without_a_sandbox() {
     host.shutdown().await.unwrap();
 
     assert!(started.is_err(), "the workspace started");
+}
+
+/// A [`Run`] of `script` by agent 7, as its call `call`.
+fn run(call: &str, script: &str) -> Run {
+    Run {
+        agent: AGENT,
+        call: CallId(call.to_owned()),
+        conversation: ConversationId("c1".to_owned()),
+        realm_task: None,
+        shell: Shell::Bash,
+        script: script.to_owned(),
+        network: false,
+        timeout_ms: None,
+    }
+}
+
+/// Calls the workspace with `run`, as agent 7.
+async fn agent_runs(host: &Host, run: &Run) -> RunAnswer {
+    let reply = call_as(
+        host,
+        &agent(AGENT),
+        Run::NAME,
+        hamlet_actor::action::encode_positional(run).unwrap(),
+    )
+    .await
+    .unwrap();
+    decoded(&reply)
+}
+
+/// Agent 7's filesystem, made by hand as the agent would.
+fn filesystem(dir: &Path) -> std::path::PathBuf {
+    let fs = dir.join("actors/agent/7.fs");
+    std::fs::create_dir_all(&fs).unwrap();
+    fs
+}
+
+/// The end of a command that answered `Done`.
+fn done(answer: RunAnswer) -> CommandEnd {
+    match answer {
+        RunAnswer::Done(end) => end,
+        other => panic!("the command answered {other:?}"),
+    }
+}
+
+/// W3: no command starts while the workspace holds no list of the
+/// realm's secrets, as after every start. It calls the realm for it
+/// first, and takes the secret out of the command's output.
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_command_waits_for_the_secrets_list() {
+    let dir = Scratch::new("workspace-secrets-wait");
+    let fs = filesystem(&dir);
+    let peers = Arc::new(Peers {
+        secrets_delay: Duration::from_millis(1500),
+        ..Peers::default()
+    });
+    let host = host_with(&dir, peers.clone()).await;
+    realm_sets(&host, 1, reach(None)).await;
+    let script =
+        format!("touch started; echo the secret is {SECRET}");
+    let call = {
+        let host = host.clone();
+        let run = run("c1", &script);
+        tokio::spawn(async move { agent_runs(&host, &run).await })
+    };
+    tokio::time::sleep(Duration::from_millis(700)).await;
+    let started_early = fs.join("started").exists();
+    let end = done(call.await.unwrap());
+    host.shutdown().await.unwrap();
+
+    assert!(!started_early, "the command started before the list");
+    assert_eq!(peers.fetched.load(Ordering::SeqCst), 1);
+    assert_eq!(end.exit, Exit::Code(0));
+    assert_eq!(end.output, "the secret is [REDACTED]\n");
+    assert!(fs.join("started").exists());
+}
+
+/// W3: a host's restart forgets the list, so the first command after
+/// it calls the realm again.
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn the_list_is_fetched_again_after_a_restart() {
+    let dir = Scratch::new("workspace-secrets-restart");
+    filesystem(&dir);
+    let script = format!("echo {SECRET}");
+    let mut fetched = Vec::new();
+    let mut outputs = Vec::new();
+    for call in ["c1", "c2"] {
+        let peers = Arc::new(Peers::default());
+        let host = host_with(&dir, peers.clone()).await;
+        realm_sets(&host, 1, reach(None)).await;
+        outputs.push(
+            done(agent_runs(&host, &run(call, &script)).await).output,
+        );
+        host.shutdown().await.unwrap();
+        fetched.push(peers.fetched.load(Ordering::SeqCst));
+    }
+
+    assert_eq!(fetched, [1, 1]);
+    assert_eq!(outputs, ["[REDACTED]\n"; 2]);
+}
+
+/// W3: a secret a command printed is in no byte of the workspace's
+/// file, its write-ahead file or its shared-memory file.
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn no_secret_reaches_the_workspaces_file() {
+    let dir = Scratch::new("workspace-secrets-file");
+    filesystem(&dir);
+    let host = host(&dir).await;
+    realm_sets(&host, 1, reach(None)).await;
+    let end = done(
+        agent_runs(
+            &host,
+            &run("c1", &format!("echo {SECRET}; exit 3")),
+        )
+        .await,
+    );
+    host.shutdown().await.unwrap();
+
+    assert_eq!(end.exit, Exit::Code(3));
+    let mut searched = 0;
+    for suffix in ["", "-wal", "-shm"] {
+        let path = dir
+            .join(format!("actors/workspace/local.sqlite{suffix}"));
+        let Ok(bytes) = std::fs::read(&path) else {
+            continue;
+        };
+        searched += 1;
+        assert!(
+            !bytes
+                .windows(SECRET.len())
+                .any(|at| at == SECRET.as_bytes()),
+            "{} holds the secret",
+            path.display()
+        );
+    }
+    assert!(searched > 0, "no file was searched");
 }
