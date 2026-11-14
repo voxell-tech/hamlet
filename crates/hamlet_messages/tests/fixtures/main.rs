@@ -2,8 +2,9 @@
 //! call's arguments are encoded as the authoring layer encodes them,
 //! and an answer as it encodes an action's output. A message whose
 //! bytes changed rewrites its fixture and fails once, so the change
-//! is committed with it. Every case of every enum a message holds
-//! has a fixture, and no field is written as `null`.
+//! is committed with it. Every case of every enum in [`enums`] has a
+//! fixture, a fixture holds no enum missing from it, and no field is
+//! written as `null`.
 
 mod cases;
 
@@ -134,7 +135,7 @@ impl Fixtures {
         if *value != Value::Null && holds_null(value) {
             self.nulls.push(name.to_owned());
         }
-        for (cases, case) in cases::found::<T>(value) {
+        for (cases, case) in cases::found::<T>(name, value) {
             self.found.entry(cases).or_default().insert(case);
         }
     }
@@ -153,20 +154,16 @@ impl Fixtures {
     /// Removes the fixtures no message wrote, then fails if a fixture
     /// changed or an enum has a case no fixture holds.
     fn finish(mut self) {
-        for kind in std::fs::read_dir(folder()).unwrap() {
-            let kind = kind.unwrap().path();
-            for file in std::fs::read_dir(&kind).unwrap() {
-                let file = file.unwrap().path();
-                let name = file
-                    .strip_prefix(folder())
-                    .unwrap()
-                    .to_str()
-                    .unwrap()
-                    .to_owned();
-                if !self.written.contains(&name) {
-                    std::fs::remove_file(&file).unwrap();
-                    self.rewritten.push(format!("{name} (removed)"));
-                }
+        for file in files(&folder()) {
+            let name = file
+                .strip_prefix(folder())
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .to_owned();
+            if !self.written.contains(&name) {
+                std::fs::remove_file(&file).unwrap();
+                self.rewritten.push(format!("{name} (removed)"));
             }
         }
         let enums = enums();
@@ -214,6 +211,21 @@ impl Fixtures {
         }
         assert!(problems.is_empty(), "{}", problems.join("\n"));
     }
+}
+
+/// The files under `folder`, at any depth.
+fn files(folder: &Path) -> Vec<PathBuf> {
+    std::fs::read_dir(folder)
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .flat_map(|path| {
+            if path.is_dir() {
+                files(&path)
+            } else {
+                vec![path]
+            }
+        })
+        .collect()
 }
 
 fn holds_null(value: &Value) -> bool {

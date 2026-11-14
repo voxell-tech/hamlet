@@ -40,11 +40,16 @@ fn cases_of<E: DeserializeOwned>(probe: &Value) -> Cases {
     }
 }
 
-/// Each enum case that `value`, read as a `T`, holds: the enum's
-/// cases and the name of the one it holds.
+/// Each enum case that `value`, the fixture `name` read as a `T`,
+/// holds: the enum's cases and the name of the one it holds. Fails on
+/// an enum that is neither tagged by `type` nor a bare name.
 pub fn found<T: DeserializeOwned>(
+    name: &str,
     value: &Value,
 ) -> Vec<(Cases, String)> {
+    if let Err(error) = T::deserialize(Node(value)) {
+        panic!("{name} holds an enum not tagged by `type`: {error}");
+    }
     let mut paths = Vec::new();
     texts(value, &mut Vec::new(), &mut paths);
     let mut found = Vec::new();
@@ -97,7 +102,8 @@ fn at<'a>(value: &'a mut Value, path: &[usize]) -> &'a mut Value {
 
 /// A read's failure, with the cases of the enum that met an unknown
 /// one.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
+#[error("{message}")]
 struct Probed {
     cases: Option<Cases>,
     message: String,
@@ -118,17 +124,6 @@ impl de::Error for Probed {
         }
     }
 }
-
-impl Display for Probed {
-    fn fmt(
-        &self,
-        f: &mut std::fmt::Formatter<'_>,
-    ) -> std::fmt::Result {
-        f.write_str(&self.message)
-    }
-}
-
-impl std::error::Error for Probed {}
 
 /// A fixture's value read as serde reads the JSON value model.
 struct Node<'a>(&'a Value);
