@@ -61,9 +61,12 @@ impl Host {
     /// create, a call or any start that waited for it. The authoring
     /// layer hands the core only the error's [`ActorError`], and the
     /// message of an error with no code of its own is hidden unless
-    /// `HAMLET_ACTOR_EXPOSE_ERRORS=1`, so that a client never reads
-    /// it. The reason stays in the error's metadata, as its `error`:
-    /// `ActorError::extract(&error).metadata()`.
+    /// `HAMLET_ACTOR_EXPOSE_ERRORS=1`. The reason stays in the
+    /// error's metadata, as its `error`:
+    /// `ActorError::extract(&error).metadata()`. `ActorError`'s
+    /// `Serialize` writes that metadata, so code that sends the error
+    /// to a client sends the reason with it unless it drops the
+    /// metadata first.
     ///
     /// [`ActorError`]: struct@hamlet_actor_error::ActorError
     pub async fn create(
