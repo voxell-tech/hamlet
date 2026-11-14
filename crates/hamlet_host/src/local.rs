@@ -230,11 +230,12 @@ impl From<ShutdownKind> for Request {
 /// What the waiters of a `Reading`, `Starting`, `Stopping` or
 /// `Destroying` state await: the channel closes when the work that
 /// owns the state ends, and holds how a start failed, or that a stop
-/// missed its deadline.
+/// missed its deadline or failed to remove a destroyed actor's files.
 type Waiters = watch::Receiver<Option<Failed>>;
 
-/// How a start failed, or a stop missed its deadline, for each of its
-/// waiters to return.
+/// How a start failed, or a stop missed its deadline or failed to
+/// remove a destroyed actor's files, for each of its waiters to
+/// return.
 #[derive(Clone)]
 struct Failed {
     error: ActorError,
@@ -386,7 +387,8 @@ impl Owned {
     }
 
     /// Tells the waiters that the start this owns failed, or the stop
-    /// it owns missed its deadline, with `error`.
+    /// it owns missed its deadline or failed to remove the files of
+    /// the actor it destroyed, with `error`.
     fn fail(&self, error: &anyhow::Error) {
         self.wake.send_replace(Some(Failed::new(error)));
     }
@@ -504,10 +506,17 @@ impl Stop {
         drop(replaced);
         if destroyed {
             let path = actor_path(&host.dir, &owned.actor_id);
-            return tokio::task::spawn_blocking(move || {
+            let removed = tokio::task::spawn_blocking(move || {
                 destroy_file(&path)
             })
-            .await?;
+            .await
+            .map_err(anyhow::Error::from)
+            .flatten();
+            // A destroy that joined this stop answers it too.
+            if let Err(error) = &removed {
+                owned.fail(error);
+            }
+            return removed;
         }
         marked.map(|_| ()).context("mark the actor stopped")
     }
@@ -1169,7 +1178,9 @@ impl Host {
     /// same way. Fails for an id of no kind of this host, before
     /// anything reaches the folder, and a destroy of a stopped actor
     /// fails in a host that has shut down, which may no longer hold
-    /// the folder.
+    /// the folder. A destroy answers `Ok` only once the actor's files
+    /// are gone: a removal that fails fails the destroy and every
+    /// caller that waited for it, whichever stop removed them.
     ///
     /// A stop ends within [`HostOptions::stop_deadline`], whatever
     /// the actor does. An actor that does not stop by then is given

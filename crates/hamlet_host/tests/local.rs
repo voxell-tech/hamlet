@@ -2906,3 +2906,32 @@ async fn a_call_to_a_busy_actor_ends_within_its_deadline() {
     );
 }
 
+/// A destroy that joins a stop for a sleep answers what removing the
+/// actor's files came to, as a destroy that stops the actor itself
+/// does: here an error, since a folder stands where its shared-memory
+/// file goes, and a file's removal cannot remove a folder.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_destroy_that_joins_a_sleep_answers_the_removal_of_its_files()
+ {
+    let dir = Scratch::new("destroy-joins-sleep");
+    let (kinds, mut napping) = with_nappers();
+    let host = Host::open(&dir, kinds).unwrap();
+    let b = host.get_or_start("slow", "b").await.unwrap();
+    std::fs::create_dir(dir.join("actors/slow/b.sqlite-shm"))
+        .unwrap();
+    let nap = napping.nap(&host, &b).await;
+    let sleep = napping.stop(&host, &b, ShutdownKind::Sleep).await;
+    let destroyed = host.stop(&b, ShutdownKind::Destroy).await;
+    let slept = sleep.await.unwrap();
+    nap.await.unwrap().ok();
+    let left = any_file_of(&dir, "slow", "b");
+    host.shutdown().await.unwrap();
+    assert!(left, "the actor's files are gone");
+    let error = destroyed.expect_err("a destroy that left the files");
+    assert!(
+        format!("{error:#}").contains("b.sqlite-shm"),
+        "{error:#}"
+    );
+    slept.expect_err("a sleep the destroy took over");
+}
+
