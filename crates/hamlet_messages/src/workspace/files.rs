@@ -128,6 +128,10 @@ pub struct Image {
     pub bytes: Vec<u8>,
 }
 
+/// The most bytes a [`WriteFile`]'s content holds: 16 MiB, the
+/// largest frame the link between two hosts carries.
+pub const MOST_CONTENT: u64 = 16 * 1024 * 1024;
+
 /// Creates or replaces a whole file for an agent.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WriteFile {
@@ -137,6 +141,7 @@ pub struct WriteFile {
     /// `None` when no chief's instruction started the work.
     pub realm_task: Option<RealmTask>,
     pub path: PathBuf,
+    /// At most [`MOST_CONTENT`] bytes.
     pub content: String,
 }
 

@@ -391,6 +391,13 @@ fn the_changes_match_their_fixtures() {
         )),
     );
     fixtures.answer(
+        "workspace/write_file.refused.too_large",
+        &ChangeAnswer::Refused(CallRefusal::TooLarge {
+            bytes: 16 * 1024 * 1024 + 1,
+            limit: 16 * 1024 * 1024,
+        }),
+    );
+    fixtures.answer(
         "workspace/edit_file.failed",
         &ChangeAnswer::Failed(
             "Could not find the exact text in \

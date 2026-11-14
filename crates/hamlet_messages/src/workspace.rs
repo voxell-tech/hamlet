@@ -243,4 +243,10 @@ pub enum CallRefusal {
         was: Hashed,
         now: Hashed,
     },
+    /// A write's content is past [`files::MOST_CONTENT`].
+    #[error(
+        "the content is {bytes} bytes, more than the {limit} bytes \
+         a write may hold"
+    )]
+    TooLarge { bytes: u64, limit: u64 },
 }
