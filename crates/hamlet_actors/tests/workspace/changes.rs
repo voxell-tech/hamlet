@@ -7,8 +7,7 @@ use hamlet_messages::workspace::files::{
     Change, ChangeAnswer, EditFile, MOST_CONTENT, Replace, WriteFile,
 };
 use hamlet_messages::workspace::reach::{
-    Access, Footing, Mode, Need, Project, Reach, Refusal,
-    SecretsVersion,
+    Access, Footing, Mode, Project, Reach, Refusal, SecretsVersion,
 };
 use hamlet_messages::workspace::{
     AgentNumber, CallId, CallRefusal, CallerRefusal, ConversationId,
@@ -615,7 +614,12 @@ async fn large_writes_alone() {
 
     assert!(!changed(wrote).created);
     assert_eq!(read(&auto), "small");
-    assert_eq!(waits, ChangeAnswer::WaitsForChief(vec![Need::Edit]));
+    assert_eq!(
+        waits,
+        ChangeAnswer::WaitsForChief(vec![
+            hamlet_messages::workspace::reach::Need::Edit,
+        ])
+    );
     let subject = peers.asked.lock().unwrap()[0].subject.clone();
     let shown = format!(
         "{}\nReplace:\n{}\n[{} more characters]\nWith:\nsmall",
