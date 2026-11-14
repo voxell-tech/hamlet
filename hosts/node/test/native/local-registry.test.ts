@@ -101,6 +101,10 @@ test("a call never makes its target, and a create of a key that exists fails", a
             false,
         );
         await registry.create("counter", "a2", encode({ start: 0 }));
+        assert.equal(
+            existsSync(join(dir, "actors", "counter", "a2.sqlite")),
+            true,
+        );
         await failsWith(
             registry.create("counter", "a2", encode({ start: 5 })),
             "duplicate_key",
