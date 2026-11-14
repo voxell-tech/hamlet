@@ -20,6 +20,7 @@ use tokio::sync::{mpsc, oneshot, watch};
 use tokio::time::Instant;
 
 use crate::link::{self, Broken, Frame};
+use crate::route::Routes;
 
 /// The child's variable naming the realm folder it opens.
 pub(crate) const HOME: &str = "HAMLET_HOME";
@@ -75,6 +76,9 @@ pub struct ChildOptions {
     pub kinds: Vec<String>,
     /// The kinds the child must state in its hello.
     pub node_kinds: Vec<String>,
+    /// The Rust host's route table, which its welcome gives the
+    /// child.
+    pub routes: Routes,
 }
 
 /// The link's state, as the Rust host sees it.

@@ -7,6 +7,7 @@ use std::thread;
 use hamlet_host::link::{
     self, Broken, FRAME_LIMIT, Frame, PROTOCOL, WireError,
 };
+use hamlet_host::route::{CallerKind, Routes};
 use hamlet_host::{Address, Caller, HostEvent};
 use serde_bytes::ByteBuf;
 use serde_reflection::{Tracer, TracerConfig};
@@ -42,6 +43,10 @@ fn every_frame() -> Vec<Frame> {
             protocol: PROTOCOL,
             fingerprint: "f1".to_owned(),
             kinds: vec!["realm".to_owned(), "workspace".to_owned()],
+            routes: Routes::only(&[
+                (CallerKind::Actor("agent".to_owned()), &["realm"]),
+                (CallerKind::Client, &["realm", "agent"]),
+            ]),
         },
         Frame::Refused {
             reason: "another fingerprint".to_owned(),
@@ -89,6 +94,11 @@ fn every_frame() -> Vec<Frame> {
         Frame::HostEvent(HostEvent::UnreadableFile {
             actor: Address::new("agent", "a4"),
             error: "not a database".to_owned(),
+        }),
+        Frame::HostEvent(HostEvent::Refused {
+            from: Caller::Actor(Address::new("agent", "a1")),
+            to: Address::new("agent", "a2"),
+            action: Some("ping".to_owned()),
         }),
     ]
 }
@@ -194,6 +204,8 @@ fn shapes() -> String {
         .default_string_value(PROTOCOL.to_string());
     let mut tracer = Tracer::new(config);
     tracer.trace_simple_type::<Caller>().unwrap();
+    tracer.trace_simple_type::<CallerKind>().unwrap();
+    tracer.trace_simple_type::<Routes>().unwrap();
     tracer.trace_simple_type::<HostEvent>().unwrap();
     tracer
         .trace_simple_type::<Result<ByteBuf, WireError>>()
@@ -251,6 +263,7 @@ mod handshake {
 
     use hamlet_host::child::{ChildOptions, LinkState, Supervisor};
     use hamlet_host::link::{self, Frame, PROTOCOL};
+    use hamlet_host::route::Routes;
     use hamlet_testing::Scratch;
     use hamlet_testing::signals::{is_alive, kill};
     use tokio::io::{AsyncBufReadExt, BufReader};
@@ -304,6 +317,7 @@ mod handshake {
             home: home.to_str().unwrap().to_owned(),
             kinds: vec!["realm".to_owned()],
             node_kinds: vec!["agent".to_owned()],
+            routes: Routes::Any,
         }
     }
 
@@ -476,6 +490,7 @@ mod handshake {
                 protocol: PROTOCOL,
                 fingerprint: link::fingerprint().to_owned(),
                 kinds: vec!["realm".to_owned()],
+                routes: Routes::Any,
             },
         )
         .unwrap();

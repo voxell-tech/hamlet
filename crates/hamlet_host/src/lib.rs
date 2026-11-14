@@ -9,6 +9,7 @@ pub mod fault;
 pub mod link;
 mod local;
 mod plain_sqlite;
+pub mod route;
 
 pub use directory::Address;
 pub use event::HostEvent;

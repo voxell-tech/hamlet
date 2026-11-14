@@ -62,6 +62,7 @@ use self::create::DuplicateKey;
 use crate::directory::{Address, Directory, Place};
 use crate::event::HostEvent;
 use crate::plain_sqlite::{self, PlainSqlite};
+use crate::route::Routes;
 
 mod access;
 mod call;
@@ -624,6 +625,11 @@ pub struct HostOptions {
     /// What the host gives its actors, by type: none by default. See
     /// [`HostOptions::with_value`].
     pub values: Values,
+    /// The kinds each caller may reach by a call, a create or a
+    /// get-or-start. The host refuses any other with `actor.refused`
+    /// and reports it in [`HostEvent::Refused`]. An operation with
+    /// no caller is never refused. [`Routes::Any`] by default.
+    pub routes: Routes,
 }
 
 impl Default for HostOptions {
@@ -634,6 +640,7 @@ impl Default for HostOptions {
             start_retry: Duration::from_secs(30),
             name: "host".to_owned(),
             values: Values::default(),
+            routes: Routes::Any,
         }
     }
 }

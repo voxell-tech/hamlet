@@ -9,7 +9,7 @@ use hamlet_actor_core::ActorContext;
 use hamlet_actor_error::ActorError;
 
 use super::access::current;
-use super::call::{Caller, admit};
+use super::call::Caller;
 use super::{Host, HostInner, Open};
 use crate::directory::Address;
 
@@ -82,8 +82,9 @@ impl Host {
     /// for the actor whose context is `ctx`. The actor it makes is
     /// not told who made it. Fails at once with
     /// `actor.invalid_operation` for the actor's own key, which would
-    /// wait for its own start, and with `actor.stopping` from a
-    /// generation that has ended.
+    /// wait for its own start, with `actor.refused` for a kind the
+    /// route table does not let its kind reach, and with
+    /// `actor.stopping` from a generation that has ended.
     pub async fn create_from(
         ctx: &ActorContext,
         kind: &str,
@@ -125,8 +126,8 @@ impl HostInner {
 }
 
 /// The host of the actor whose context is `ctx`, for its `operation`
-/// of the actor of `kind` and `key`. Fails as [`admit`] does, and
-/// from a generation that has ended.
+/// of the actor of `kind` and `key`. Fails as [`HostInner::admit`]
+/// does, and from a generation that has ended.
 fn reach(
     ctx: &ActorContext,
     operation: &str,
@@ -134,8 +135,9 @@ fn reach(
     key: &str,
 ) -> Result<Arc<HostInner>> {
     let from = current(ctx)?;
-    admit(
+    from.host.admit(
         operation,
+        None,
         Some(&Caller::Actor(from.address()?)),
         &Address::new(kind, key),
     )?;

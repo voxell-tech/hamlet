@@ -19,6 +19,7 @@ use serde::{Deserialize, Serialize};
 use serde_bytes::ByteBuf;
 
 use crate::child::{self, ChildOptions};
+use crate::route::Routes;
 use crate::{Address, Caller, Host, HostEvent, HostOptions};
 
 /// The link protocol's version. A host refuses a peer whose version
@@ -64,11 +65,13 @@ pub enum Frame {
         pid: u32,
     },
     /// The Rust host takes the Node host's hello. It states its own
-    /// protocol, fingerprint and kinds.
+    /// protocol, fingerprint and kinds, and the route table the Node
+    /// host opens with.
     Welcome {
         protocol: Version,
         fingerprint: String,
         kinds: Vec<String>,
+        routes: Routes,
     },
     /// The Rust host refuses the Node host's hello, and says why. It
     /// then closes the pipe.
@@ -235,10 +238,11 @@ fn fill(
 }
 
 /// The Rust host's answer to a Node host's hello: a
-/// [`Frame::Welcome`] stating the Rust host's own kinds, or a
-/// [`Frame::Refused`] when the hello's protocol is not compatible
-/// with [`PROTOCOL`], its fingerprint is not [`fingerprint`], or its
-/// kinds are not the ones the Node host must hold.
+/// [`Frame::Welcome`] stating the Rust host's own kinds and routes,
+/// or a [`Frame::Refused`] when the hello's protocol is not
+/// compatible with [`PROTOCOL`], its fingerprint is not
+/// [`fingerprint`], or its kinds are not the ones the Node host must
+/// hold.
 pub(crate) fn answer(
     protocol: &Version,
     theirs: &str,
@@ -267,6 +271,7 @@ pub(crate) fn answer(
             protocol: PROTOCOL,
             fingerprint: fingerprint().to_owned(),
             kinds: options.kinds.clone(),
+            routes: options.routes.clone(),
         };
     };
     Frame::Refused { reason }
@@ -275,8 +280,9 @@ pub(crate) fn answer(
 /// Serves the Node host's half of the link, on the ends
 /// [`child::take_stdio`] took. Says hello with the kinds of
 /// `factories` before it opens any file. Once welcomed, opens the
-/// folder `HAMLET_HOME` as the host `node` with them, boots it, says
-/// it is ready, and at the goodbye shuts the host down and returns.
+/// folder `HAMLET_HOME` as the host `node` with them and the
+/// welcome's routes, boots it, says it is ready, and at the goodbye
+/// shuts the host down and returns.
 /// Fails with the Rust host's reason when it refuses the hello, and
 /// when the folder does not open or boot.
 pub async fn serve(
@@ -302,19 +308,20 @@ pub async fn serve(
             pid: std::process::id(),
         },
     )?;
-    match frames.recv().await {
-        Some(Frame::Welcome { .. }) => {}
+    let routes = match frames.recv().await {
+        Some(Frame::Welcome { routes, .. }) => routes,
         Some(Frame::Refused { reason }) => {
             bail!("the Rust host refused this Node host: {reason}")
         }
         Some(Frame::Goodbye) => return Ok(()),
         frame => bail!("the Rust host wrote {frame:?} out of turn"),
-    }
+    };
     let host = Host::open_with(
         Path::new(&home),
         factories,
         HostOptions {
             name: NODE.to_owned(),
+            routes,
             ..HostOptions::default()
         },
     )?;
