@@ -264,8 +264,8 @@ mod tests {
         }
     }
 
-    /// Idle work waits for the open transaction to commit, and runs
-    /// before the statements sent after the commit. At the close, it
+    /// Idle work waits for the open transaction to end, and runs
+    /// before the statements sent after it ends. At the close, it
     /// runs after the rollback of a transaction left open.
     #[tokio::test]
     async fn idle_work_waits_for_the_open_transaction() {

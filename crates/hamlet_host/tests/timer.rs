@@ -550,7 +550,7 @@ async fn starts_after(
     starts.load(Ordering::SeqCst)
 }
 
-/// M1. A one-shot whose handler drops its reply, without a panic, is
+/// A one-shot whose handler drops its reply, without a panic, is
 /// kept to be tried again. Each generation tries it once, and its
 /// idle stop leaves the past deadline that starts the next at once.
 /// The sixth finds it tried five times, sets it aside, and stops for
@@ -704,7 +704,7 @@ async fn count_in(sql: &SqliteDb, table: &str) -> Result<i64> {
     }
 }
 
-/// The third loop. From its second generation the actor's event loop
+/// From its second generation the actor's event loop
 /// panics before it reads the one-shot queued for it, so the one-shot
 /// is kept, and each crash stop leaves the past deadline that starts
 /// the next generation at once. Generations 2 to 6 each try it once.
@@ -796,7 +796,7 @@ const SWEEP_DUE_MS: u64 = 100;
 
 /// Starts one counter per step, `<prefix><n>`. Each schedules a
 /// one-shot `increment` and is stopped for `reason` at its own moment
-/// near the one-shot's due time, in steps of 100 µs from 3 ms before
+/// near the one-shot's due time, in steps of 100 us from 3 ms before
 /// to 3 ms after. Returns the actors' ids.
 async fn stop_each_near_its_due_time(
     host: &Host,
@@ -831,7 +831,7 @@ async fn stop_each_near_its_due_time(
     ids
 }
 
-/// A1. Each counter sleeps near the time its one-shot comes due,
+/// Each counter sleeps near the time its one-shot comes due,
 /// before, while or after it runs. However the stop and the one-shot
 /// fall, the one-shot runs once: a stop that comes first leaves a
 /// deadline that wakes the actor for it.
@@ -864,7 +864,7 @@ async fn a_sleep_near_the_due_time_keeps_the_timer() {
     );
 }
 
-/// A2. Each counter is destroyed near the time its one-shot comes
+/// Each counter is destroyed near the time its one-shot comes
 /// due. No timer brings a destroyed actor back.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn an_alarm_due_during_a_destroy_does_not_revive_it() {

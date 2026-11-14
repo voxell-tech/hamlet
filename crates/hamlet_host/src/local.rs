@@ -108,12 +108,14 @@ const ACTOR_TABLE: &str = "CREATE TABLE IF NOT EXISTS _hamlet_actor \
 ///
 /// | From | Event | To |
 /// |---|---|---|
-/// | absent | `get_or_start`, a create or a call, the host not shut | `Starting` |
+/// | absent | `get_or_start`, a create, a call, `Host::set_aside_timers` or `Host::rearm_timer`, the host not shut | `Starting` |
 /// | absent | boot reads its file, the host not shut | `Reading` |
-/// | `Reading` | boot found a run a kill cut off, or a deadline that has come | `Starting` |
-/// | `Reading` | boot found a deadline to come | `Stopped` |
-/// | `Reading` | boot found neither, or could not read the file | absent |
-/// | `Stopped` | `get_or_start` or a call, the host not shut | `Starting`, its timer aborted and its deadline kept for a failure |
+/// | `Reading` | boot found a run a kill cut off, or a deadline that has come, the host not shut | `Starting` |
+/// | `Reading` | boot found a deadline to come, the host not shut | `Stopped` |
+/// | `Reading` | boot found a run a kill cut off or a deadline, the host shut | absent, and boot fails |
+/// | `Reading` | boot found a destroy a kill cut off, and finished it or failed to | absent |
+/// | `Reading` | boot found none of these, or could not read the file | absent |
+/// | `Stopped` | `get_or_start`, a call, `Host::set_aside_timers` or `Host::rearm_timer`, the host not shut | `Starting`, its timer aborted and its deadline kept for a failure |
 /// | `Stopped` | its timer fires with the deadline the state holds | `Starting`, from the file it has |
 /// | `Stopped` | `Host::shutdown`, or the last `Host` dropped | absent, its timer aborted |
 /// | absent, `Stopped` | `Host::stop(Destroy)`, the host not shut | `Destroying`, with no generation, its timer aborted |
@@ -130,7 +132,7 @@ const ACTOR_TABLE: &str = "CREATE TABLE IF NOT EXISTS _hamlet_actor \
 /// | `Stopping` | its generation asks to sleep or reports a crash, or `Host::stop(Sleep)` | unchanged |
 /// | `Destroying` | any request | unchanged |
 /// | `Stopping` | the stop ended with a deadline, the host not shut | `Stopped`, its timer armed |
-/// | `Stopping`, `Destroying` | the generation did not stop within the stop deadline | `Stuck`, its file closed unmarked |
+/// | `Stopping`, `Destroying` | the generation did not stop within the stop deadline | `Stuck`, its file closed with its marks as they were |
 /// | `Stopping`, `Destroying` | the stop or the removal ended otherwise, however it ended | absent |
 /// | `Stuck` | any request | unchanged |
 /// | any | a request from a generation the state does not hold | unchanged |
@@ -248,7 +250,7 @@ impl Failed {
         }
     }
 
-    /// The failure, with the start's code.
+    /// The failure, with its code.
     fn to_error(&self) -> anyhow::Error {
         anyhow::Error::from(self.error.clone())
             .context(self.detail.clone())
@@ -272,7 +274,6 @@ impl Life {
         }
     }
 
-    /// Whether the state belongs to the generation of id `id`.
     fn is_generation(&self, id: u64) -> bool {
         match self {
             Self::Starting { generation, .. } => *generation == id,
@@ -282,8 +283,6 @@ impl Life {
         }
     }
 
-    /// What a waiter on this state awaits: the receiver closes when
-    /// the work that owns the state ends.
     fn waiters(&self) -> Option<&Waiters> {
         match self {
             Self::Stopped { .. } | Self::Running(_) | Self::Stuck => {
@@ -950,7 +949,6 @@ impl Host {
         })))))
     }
 
-    /// The host that every clone of this `Host` reaches.
     fn inner(&self) -> &Arc<HostInner> {
         &self.0.0
     }
@@ -1305,10 +1303,9 @@ impl HostInner {
     /// or whose stop missed its deadline, and in a host that has shut
     /// down, also when it shuts down during the wait: such a host
     /// starts no actor again, so a wait could only delay the failure.
-    /// Makes the actor only as `open` lets it: only `get_or_start`
-    /// and a create make one. A call, a timer and boot start an actor
-    /// from the file it has, and fail with `actor.not_found` for a
-    /// key that has none, making no file. For [`Open::New`], fails
+    /// Makes the actor only as `open` lets it. For
+    /// [`Open::Existing`], fails with `actor.not_found` for a key
+    /// that has no actor, and makes no file. For [`Open::New`], fails
     /// at once with `actor.duplicate_key` for an actor that is
     /// `Stopped`, `Running` or `Stopping`, and leaves it as it is.
     async fn ensure_started(
@@ -1320,7 +1317,6 @@ impl HostInner {
             Wait(Waiters),
             Start(Owned, u64, AtFailure),
         }
-        // Holds a time once the host has shut down.
         let mut shut = self.starts_end.subscribe();
         loop {
             let next = {
@@ -1359,9 +1355,9 @@ impl HostInner {
                         ));
                     }
                     Some(Life::Starting { woken, ready, .. }) => {
-                        // A create ends in a failure for a start that
-                        // ends well, so it answers nothing the
-                        // generation would run for.
+                        // A create fails once this start ends well,
+                        // so it must not cancel a sleep the
+                        // generation asked for.
                         if !matches!(open, Open::New(_)) {
                             *woken = true;
                         }
@@ -1374,8 +1370,6 @@ impl HostInner {
                     Some(Life::Stopped { .. }) | None => {
                         let (owned, generation, replaced) =
                             actors.begin_start(self, actor_id)?;
-                        // A failure keeps the deadline the actor
-                        // held.
                         let at_failure = match replaced {
                             Some(Life::Stopped {
                                 wake_at,
@@ -1760,15 +1754,12 @@ fn destroy_file(path: &Path) -> Result<()> {
 #[derive(Clone, Debug)]
 enum Open {
     /// Starts the actor the file holds, and fails with
-    /// [`Found::Nothing`] for none: a call's start, a timer's and
-    /// boot's.
+    /// [`Found::Nothing`] for none.
     Existing,
-    /// Starts the actor the file holds, made first if there is none:
-    /// `get_or_start`'s start.
+    /// Starts the actor the file holds, made first if there is none.
     OrCreate,
     /// Makes the actor, with this input kept in its row, and fails
-    /// with [`Found::Exists`] for one the file holds: a create's
-    /// start.
+    /// with [`Found::Exists`] for one the file holds.
     New(Vec<u8>),
 }
 
@@ -1954,13 +1945,9 @@ async fn start_actor(
     let generation = match started {
         Ok(generation) => generation,
         // A failed start keeps its running mark, so the next boot
-        // tries it again rather than leave an alarm it may not have
-        // stored; but a create's own start removes the actor it made.
-        // The core ends a start whose future was dropped at the
-        // deadline, and the close fences what it does meanwhile.
-        // A file whose thread still runs a statement stays locked
-        // until the statement ends: a start of the actor meanwhile
-        // waits for the lock, and fails if it outlasts that wait.
+        // tries it again rather than lose an alarm it may not have
+        // stored. The core ends a start whose future was dropped at
+        // the deadline, and the close fences what it does meanwhile.
         Err(error) => {
             let file = opened.lock().take();
             // The file is open only once the start's transaction

@@ -24,8 +24,9 @@ pub struct HostRef {
 }
 
 impl HostRef {
-    /// The host that runs the actor of `ctx`. Fails for an actor that
-    /// runs in no host of this crate, and once its host is gone.
+    /// The `HostRef` of the host that runs the actor of `ctx`. Fails
+    /// for an actor that runs in no host of this crate, and once its
+    /// host is gone.
     pub fn of(ctx: &ActorContext) -> Result<Self> {
         let host = running(ctx)?.host;
         Ok(Self {

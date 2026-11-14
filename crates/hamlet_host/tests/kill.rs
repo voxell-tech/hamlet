@@ -664,7 +664,7 @@ fn run_aborting_child(home: &Path, step: &str) -> Ended {
     Ended { status, lines }
 }
 
-/// M2. A one-shot whose handler aborts the process. The process that
+/// A one-shot whose handler aborts the process. The process that
 /// armed it and the first four boots after it each try it and die.
 /// The fifth boot finds it tried five times and sets it aside, with
 /// no outcome recorded, and its process stays up. The bystander

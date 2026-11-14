@@ -340,7 +340,7 @@ fn failed(made: anyhow::Result<String>) -> anyhow::Error {
     made.expect_err("the create was to fail")
 }
 
-/// K1: a create makes the actor and gives it its input, which its
+/// A create makes the actor and gives it its input, which its
 /// kind reads once: a start from its file after a sleep reads the
 /// same input, and creates nothing.
 #[tokio::test(flavor = "multi_thread")]
@@ -362,7 +362,7 @@ async fn a_create_makes_the_actor_with_its_input_read_once() {
     assert_eq!(made.started.load(Ordering::SeqCst), 2);
 }
 
-/// K1, K3: a create of a key that holds an actor fails with
+/// A create of a key that holds an actor fails with
 /// `actor.duplicate_key`, the actor running or asleep, and changes
 /// nothing: the actor keeps its input and its notes, and its kind
 /// creates nothing.
@@ -390,7 +390,7 @@ async fn a_create_of_a_key_that_holds_an_actor_fails_and_changes_nothing()
     assert_eq!(made.created.load(Ordering::SeqCst), 1);
 }
 
-/// K3: a create of an actor asleep with a timer fails with
+/// A create of an actor asleep with a timer fails with
 /// `actor.duplicate_key` and leaves the timer, which still fires and
 /// starts the actor though nothing calls it.
 #[tokio::test(flavor = "multi_thread")]
@@ -418,7 +418,7 @@ async fn a_create_of_an_actor_asleep_with_a_timer_leaves_the_timer() {
     assert_eq!(notes, ["first", "fired"]);
 }
 
-/// K1: of two creates of one key at once, one makes the actor, with
+/// Of two creates of one key at once, one makes the actor, with
 /// its input, and the other fails with `actor.duplicate_key`.
 #[tokio::test(flavor = "multi_thread")]
 async fn of_two_creates_of_one_key_at_once_one_makes_the_actor() {
@@ -607,7 +607,7 @@ async fn a_create_a_shutdown_cuts_off_leaves_no_actor() {
     assert_eq!(made.created.load(Ordering::SeqCst), 1);
 }
 
-/// K3, K4: a create of a key whose destroy is under way fails at once
+/// A create of a key whose destroy is under way fails at once
 /// with `actor.destroying`. Once the destroy ends, a create makes the
 /// actor anew from its own input, and none of the old data comes
 /// back.
@@ -644,7 +644,7 @@ async fn a_create_waits_out_no_destroy_and_brings_no_old_data_back() {
     assert_eq!(made.created.load(Ordering::SeqCst), 2);
 }
 
-/// K4: a create of a key whose file holds a destroy that a kill cut
+/// A create of a key whose file holds a destroy that a kill cut
 /// off finishes the destroy first, as boot would, and makes the actor
 /// anew from its own input: none of the old data comes back.
 #[tokio::test(flavor = "multi_thread")]

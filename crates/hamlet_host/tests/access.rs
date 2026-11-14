@@ -83,11 +83,11 @@ impl Handler<Home> for Here {
     }
 }
 
-/// P4's test of what the workspace needs (G4), its call and its
-/// assertion as P4 wrote them.
+/// An actor reads, through its [`HostRef`], the realm folder its host
+/// was opened on.
 #[tokio::test(flavor = "multi_thread")]
 async fn an_actor_reaches_the_realm_folder_of_its_host() {
-    let dir = Scratch::new("gap-home");
+    let dir = Scratch::new("access-home");
     let mut registry = Registry::new();
     registry.register_actor_with::<Here>(
         "here",
@@ -173,7 +173,7 @@ impl Handler<Read> for Reader {
     }
 }
 
-/// V1: the value an actor reads in `create` and in a handler is the
+/// The value an actor reads in `create` and in a handler is the
 /// one the embedder gave, and a type nobody gave reads as none.
 #[tokio::test(flavor = "multi_thread")]
 async fn an_actor_reads_its_hosts_values_in_create_and_in_a_handler()
@@ -239,7 +239,7 @@ fn keepers() -> std::collections::HashMap<String, ActorFactory> {
     registry.into_factories()
 }
 
-/// V2: an actor that keeps its [`HostRef`] does not keep its host:
+/// An actor that keeps its [`HostRef`] does not keep its host:
 /// once the last `Host` is dropped, a new host opens the folder.
 #[tokio::test(flavor = "multi_thread")]
 async fn an_actor_that_keeps_its_host_ref_does_not_keep_the_host() {
@@ -590,7 +590,7 @@ async fn make(host: &Host, at: &[&Address]) {
     }
 }
 
-/// C1: the callee reads the caller the host stamped, whatever the
+/// The callee reads the caller the host stamped, whatever the
 /// call's arguments say: each of two actors as itself, the embedder's
 /// call as none and a client's as a client.
 #[tokio::test(flavor = "multi_thread")]
@@ -638,7 +638,7 @@ async fn the_callee_reads_who_called_whatever_the_arguments_say() {
     );
 }
 
-/// C9: the stamp's bytes, which other hosts and other languages read:
+/// The stamp's bytes, which other hosts and other languages read:
 /// none is CBOR null, a client the text `client`, and an actor a map
 /// from `actor` to its address.
 #[tokio::test(flavor = "multi_thread")]
@@ -704,7 +704,7 @@ async fn the_stamp_has_fixed_bytes() {
     );
 }
 
-/// C2: an actor's call starts a callee that sleeps.
+/// An actor's call starts a callee that sleeps.
 #[tokio::test(flavor = "multi_thread")]
 async fn an_actors_call_starts_a_sleeping_callee() {
     let dir = Scratch::new("call-sleeping");
@@ -729,7 +729,7 @@ async fn an_actors_call_starts_a_sleeping_callee() {
     );
 }
 
-/// C3: an actor's call fails at its deadline, neither before it nor
+/// An actor's call fails at its deadline, neither before it nor
 /// long after.
 #[tokio::test(flavor = "multi_thread")]
 async fn an_actors_call_fails_at_its_deadline() {
@@ -755,7 +755,7 @@ async fn an_actors_call_fails_at_its_deadline() {
     assert!((300..2_000).contains(&outcome.ms), "{outcome:?}");
 }
 
-/// C3: when the host begins to shut down, a call whose action runs
+/// When the host begins to shut down, a call whose action runs
 /// fails at once with `actor.stopping`, the embedder's and an
 /// actor's, though the callee's stop takes seconds. Each call is
 /// awaited on a task of its own, outside any handler.
@@ -821,7 +821,7 @@ async fn a_call_fails_at_once_when_its_host_begins_to_shut_down() {
     shutdown.await.unwrap().unwrap();
 }
 
-/// C4: while one handler of an actor waits on its call, another
+/// While one handler of an actor waits on its call, another
 /// handler of that actor answers.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_handler_that_calls_does_not_hold_up_its_actor() {
@@ -912,7 +912,7 @@ impl Handler<Ping> for SelfCaller {
     }
 }
 
-/// C5: an actor that calls itself, here from its `create`, where a
+/// An actor that calls itself, here from its `create`, where a
 /// wait for itself would last until the call's deadline, fails at
 /// once with `actor.invalid_operation`, and its start goes on.
 #[tokio::test(flavor = "multi_thread")]
@@ -945,7 +945,7 @@ async fn an_actor_that_calls_itself_fails_at_once() {
     assert!(outcomes[0].ms < 1_000, "{outcomes:?}");
 }
 
-/// C6: the context of a generation that has ended calls nothing, also
+/// The context of a generation that has ended calls nothing, also
 /// once its key is made again. The running generation's calls as the
 /// actor.
 #[tokio::test(flavor = "multi_thread")]
@@ -1045,7 +1045,7 @@ impl Handler<Ping> for Unstamped {
     }
 }
 
-/// C8: a kind whose connection parameters cannot hold the stamp of
+/// A kind whose connection parameters cannot hold the stamp of
 /// an actor's call or a client's would refuse every such call. The
 /// host refuses it when it opens, naming it and what to declare, and
 /// leaves the folder as it was.
@@ -1071,7 +1071,7 @@ async fn a_kind_that_cannot_read_who_calls_it_is_refused_at_open() {
     assert!(!dir.join("actors").exists());
 }
 
-/// N1: the embedder's call and an actor's call to an actor that was
+/// The embedder's call and an actor's call to an actor that was
 /// to be made the same way fail.
 async fn calls_to(
     host: &Host,
@@ -1093,7 +1093,7 @@ async fn calls_to(
     [embedder, actor]
 }
 
-/// N1: a call, the embedder's or an actor's, to a key that was never
+/// A call, the embedder's or an actor's, to a key that was never
 /// made fails with `actor.not_found` and makes no file.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_call_to_a_key_never_made_fails_and_leaves_no_file() {
@@ -1114,7 +1114,7 @@ async fn a_call_to_a_key_never_made_fails_and_leaves_no_file() {
     assert!(!any_file_of(&dir, &never.kind, &never.key));
 }
 
-/// N1: a call that comes after its callee was destroyed fails with
+/// A call that comes after its callee was destroyed fails with
 /// `actor.not_found` and does not bring it back: no file is left.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_call_after_a_destroy_fails_and_leaves_no_file() {
@@ -1136,7 +1136,7 @@ async fn a_call_after_a_destroy_fails_and_leaves_no_file() {
     assert!(!any_file_of(&dir, &callee.kind, &callee.key));
 }
 
-/// N3: a start that finds no actor does not hand that to the starts
+/// A start that finds no actor does not hand that to the starts
 /// that wait for it. A `get_or_start` of a fresh key, begun as a call
 /// to it starts, makes it, whatever the call finds.
 #[tokio::test(flavor = "multi_thread")]

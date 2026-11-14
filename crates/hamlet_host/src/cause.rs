@@ -8,8 +8,7 @@ pub struct Cause {
 }
 
 impl Cause {
-    /// The cause of a call that no actor's call caused, such as a
-    /// client's call: its task alone.
+    /// The cause of a call that belongs to the task `task`.
     pub fn root(task: impl Into<String>) -> Self {
         Self { task: task.into() }
     }
