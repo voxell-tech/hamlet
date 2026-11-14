@@ -192,6 +192,12 @@ pub(crate) fn is_within_text(path: &str, parent: &str) -> bool {
         }
 }
 
+/// The real path of `path`, as a policy compares it: every link on
+/// the way followed, the part that does not exist yet as written.
+pub fn real_path(path: &Path) -> PathBuf {
+    PathBuf::from(canon_text(&text(path)))
+}
+
 /// The real path of `path`, where a file made at it lands, with each
 /// name in the case its volume keeps. Every symbolic link on the way
 /// is followed, also one whose chain ends at a missing file. The part

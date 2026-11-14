@@ -8,7 +8,7 @@ use hamlet_messages::workspace::files::{
     ChangeAnswer, FileAnswer, ReadFile,
 };
 use hamlet_messages::workspace::reach::{Access, Refusal};
-use hamlet_messages::workspace::{CallRefusal, RunAnswer};
+use hamlet_messages::workspace::{CallRefusal, Exit, RunAnswer};
 use hamlet_testing::Scratch;
 
 use super::changes::{read, write};
@@ -203,4 +203,89 @@ async fn a_project_in_the_realm_folder_is_refused() {
         assert_eq!(changes, ChangeAnswer::Refused(refusal), "{case}");
         assert_eq!(read(&notes), "notes", "{case}");
     }
+}
+
+/// A realm folder reached through a link works as one reached
+/// directly: an agent with a project folder runs its command and its
+/// file tools, and the realm's files stay out of its reach by either
+/// path.
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_realm_folder_reached_through_a_link_works() {
+    let scratch = Scratch::new("workspace-linked-realm");
+    let real = scratch.join("var/realm");
+    filesystem(&real);
+    let credentials = real.join("credentials.json");
+    std::fs::write(&credentials, CREDENTIALS).unwrap();
+    let dir = scratch.join("realm");
+    std::os::unix::fs::symlink(&real, &dir).unwrap();
+    let project = scratch.join("project");
+    std::fs::create_dir_all(&project).unwrap();
+    let note = project.join("note.md");
+    let host = host(&dir).await;
+    realm_sets(&host, 1, reach(project.to_str())).await;
+
+    let ran = agent_runs(
+        &host,
+        &run("c1", &format!("printf ran > {}", quoted(&note))),
+    )
+    .await;
+    let wrote: ChangeAnswer = ask(
+        &host,
+        &agent(AGENT),
+        &write("w1", &project.join("a.md"), "written"),
+    )
+    .await;
+    let read_back: FileAnswer =
+        ask(&host, &agent(AGENT), &reading(&project.join("a.md")))
+            .await;
+    let mut commands = Vec::new();
+    let mut reads = Vec::new();
+    for (n, path) in
+        [dir.join("credentials.json"), credentials.clone()]
+            .iter()
+            .enumerate()
+    {
+        let end = done(
+            agent_runs(
+                &host,
+                &run(
+                    &format!("r{n}"),
+                    &format!("cat {}", quoted(path)),
+                ),
+            )
+            .await,
+        );
+        commands.push(end.output);
+        let answer: FileAnswer =
+            ask(&host, &agent(AGENT), &reading(path)).await;
+        reads.push(answer);
+    }
+    host.shutdown().await.unwrap();
+
+    assert_eq!(done(ran).exit, Exit::Code(0));
+    assert_eq!(read(&note), "ran");
+    assert!(matches!(wrote, ChangeAnswer::Changed(_)), "{wrote:?}");
+    assert!(
+        matches!(
+            &read_back,
+            FileAnswer::Text(read) if read.text.contains("written")
+        ),
+        "{read_back:?}"
+    );
+    for output in &commands {
+        assert!(!output.contains(CREDENTIALS), "{output:?}");
+    }
+    for answer in &reads {
+        assert!(
+            matches!(
+                answer,
+                FileAnswer::Refused(CallRefusal::Reach(
+                    Refusal::OutsideReach { .. }
+                ))
+            ),
+            "{answer:?}"
+        );
+    }
+    assert_eq!(read(&credentials), CREDENTIALS);
 }

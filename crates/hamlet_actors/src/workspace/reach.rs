@@ -16,7 +16,9 @@ use hamlet_messages::workspace::{
     AgentNumber, ConversationId, ReachVersion, SetReach,
 };
 use hamlet_os::fs::path::{normalize, text};
-use hamlet_sandbox::{Policy, base_env, host_env, is_within};
+use hamlet_sandbox::{
+    Policy, base_env, host_env, is_within, real_path,
+};
 
 use super::MACHINE;
 
@@ -122,14 +124,13 @@ pub(super) async fn in_force(
     }
 }
 
-/// The realm folder, `HAMLET_HOME`, as an absolute normalized path.
+/// The realm folder, `HAMLET_HOME`, as its real path, links followed.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RealmFolder(PathBuf);
 
 impl RealmFolder {
     pub fn new(path: &Path) -> io::Result<Self> {
-        let absolute = std::path::absolute(path)?;
-        Ok(Self(PathBuf::from(normalize(&text(&absolute)))))
+        Ok(Self(real_path(&std::path::absolute(path)?)))
     }
 
     pub fn root(&self) -> &Path {

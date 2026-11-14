@@ -18,6 +18,7 @@ pub use self::env::{
 };
 pub use self::policy::{
     LimitError, Policy, SetupError, host_env, is_within, policy_hash,
+    real_path,
 };
 
 /// A command confined to a policy: the program to run and its whole
