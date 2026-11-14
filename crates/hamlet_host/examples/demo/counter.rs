@@ -22,8 +22,8 @@
 //!   the actor's event loop itself that long, in synchronous code, as
 //!   an actor stuck in a blocking call does, then replies with the
 //!   count. A stop of the actor waits for it.
-//! - `call` takes an actor's `<kind>/<key>` and calls its `called` as
-//!   this actor. It replies with that reply, then the call's time in
+//! - `call` takes the CBOR of an actor's address and calls its
+//!   `called` as this actor. It replies with that reply, then the call's time in
 //!   microseconds as a little-endian `u64`.
 //! - `called` adds one to the calls of its caller, as the host
 //!   stamped it, logs who called, and replies with how many calls it
