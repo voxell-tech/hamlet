@@ -349,7 +349,7 @@ fn the_reads_match_their_fixtures() {
 #[test]
 fn the_changes_match_their_fixtures() {
     let mut fixtures = Fixtures::default();
-    let path = std::path::PathBuf::from("/work/project/notes.md");
+    let path = PathBuf::from("/work/project/notes.md");
     fixtures.answer(
         "workspace/write_file.changed",
         &ChangeAnswer::Changed(Change {
