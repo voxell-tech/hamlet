@@ -50,7 +50,7 @@ impl Fixtures {
     {
         let bytes = encode_positional(value).unwrap();
         self.check(&format!("{name}.args"), &bytes);
-        let read: T = decode_positional(&bytes).unwrap();
+        let read = decode_positional::<T>(&bytes).unwrap();
         assert_eq!(&read, value, "{name} reads back");
     }
 
@@ -63,8 +63,8 @@ impl Fixtures {
         let mut bytes = Vec::new();
         ciborium::into_writer(&json, &mut bytes).unwrap();
         self.check(&format!("{name}.answer"), &bytes);
-        let read: T =
-            ciborium::from_reader(bytes.as_slice()).unwrap();
+        let read =
+            ciborium::from_reader::<T, _>(bytes.as_slice()).unwrap();
         assert_eq!(&read, value, "{name} reads back");
     }
 

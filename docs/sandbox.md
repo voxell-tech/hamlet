@@ -105,8 +105,8 @@ only the listed paths are reached, the environment is `base_env` with
 writable (C18). `net` is on only for a command the gate gave
 the network.
 
-The gate reads the same policies, through `Policy::reads` and
-`Policy::writes`, where the path's links lead: a read passes where the
+The gate reads the same policies, through `Policy::can_read` and
+`Policy::can_write`, where the path's links lead: a read passes where the
 file tools' policy reads, and a change where it writes and nothing
 locks the path.
 A change in an agent's filesystem is always refused, and a read there

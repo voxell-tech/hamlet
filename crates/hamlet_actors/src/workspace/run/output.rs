@@ -12,8 +12,7 @@ use crate::workspace::{MOST_BYTES, MOST_LINES};
 /// The most of a command's output a spill file holds.
 pub(super) const SPILL_CAP: u64 = 512 * 1024 * 1024;
 
-/// What a command printed, as it comes, its secrets already taken
-/// out.
+/// A command's output, as it comes, its secrets already taken out.
 pub(super) struct Output {
     tail: Tail,
     bytes: u64,
@@ -23,13 +22,14 @@ pub(super) struct Output {
     spill: Spill,
 }
 
-/// Where all of the output goes once it passes the tail's limits.
+/// The file all of the output goes to once it passes the tail's
+/// limits.
 struct Spill {
     path: PathBuf,
     cap: u64,
     file: Option<BufWriter<File>>,
     written: u64,
-    /// What was written ends a line, or nothing was.
+    /// Set when the bytes written end a line, or none were written.
     at_line_start: bool,
     dropped: bool,
     failed: Option<io::Error>,
@@ -303,10 +303,11 @@ mod tests {
 
     #[test]
     fn a_line_past_the_line_limit_opens_the_spill() {
-        let lines: Vec<String> =
-            (0..=MOST_LINES).map(|n| format!("{n}\n")).collect();
-        let chunks: Vec<&str> =
-            lines.iter().map(String::as_str).collect();
+        let lines = (0..=MOST_LINES)
+            .map(|n| format!("{n}\n"))
+            .collect::<Vec<_>>();
+        let chunks =
+            lines.iter().map(String::as_str).collect::<Vec<_>>();
         let (_, cut, file) = spilled(SPILL_CAP, &chunks);
         assert_eq!(cut.expect("a cut").total_lines, 2001);
         assert_eq!(file, lines.concat());

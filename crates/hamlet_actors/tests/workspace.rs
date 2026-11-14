@@ -56,17 +56,17 @@ const SECRET: &str = "s3cr3t-value";
 /// The kinds that call the workspace in these tests, each a [`Peer`].
 const PEERS: [&str; 3] = ["realm", "agent", "other"];
 
-/// What the peers of one host share: the realm's secrets and how
+/// The state the peers of one host share: the realm's secrets and how
 /// long it takes to answer for them, and what the agents were told.
 #[derive(Default)]
 struct Peers {
-    /// How long the workspace waits for a command before it answers
-    /// `Running`, when not its own 5 seconds.
+    /// The longest the workspace waits for a command before it
+    /// answers `Running`, when not its own 5 seconds.
     answer_within: Option<Duration>,
     secrets_delay: Duration,
     fetched: AtomicUsize,
     told: Mutex<Vec<(String, Finished)>>,
-    /// What the realm was told waits for a chief.
+    /// The waits for a chief the realm was told of.
     asked: Mutex<Vec<NeedsChief>>,
 }
 
@@ -78,7 +78,7 @@ struct Peer {
     key: String,
 }
 
-/// What a [`Peer`] calls the workspace with.
+/// The action name and arguments a [`Peer`] calls the workspace with.
 #[derive(Serialize, Deserialize)]
 struct Forward {
     name: String,
@@ -329,7 +329,7 @@ fn reach_rows(dir: &Path) -> Vec<(i64, i64, Reach)> {
         )
         .unwrap();
     read.query_map([], |row| {
-        let body: Vec<u8> = row.get(2)?;
+        let body = row.get::<_, Vec<u8>>(2)?;
         Ok((
             row.get(0)?,
             row.get(1)?,
@@ -344,14 +344,14 @@ fn reach_rows(dir: &Path) -> Vec<(i64, i64, Reach)> {
 /// The number of rows in every table of the workspace's file.
 fn rows_in_file(dir: &Path) -> i64 {
     let db = read_only(dir);
-    let tables: Vec<String> = db
+    let tables = db
         .prepare(
             "SELECT name FROM sqlite_master WHERE type = 'table'",
         )
         .unwrap()
         .query_map([], |row| row.get(0))
         .unwrap()
-        .collect::<Result<_, _>>()
+        .collect::<Result<Vec<String>, _>>()
         .unwrap();
     tables
         .iter()
@@ -513,7 +513,6 @@ async fn status_as(
     decoded(&reply)
 }
 
-/// What the agents were told, `(actor id, Finished)`.
 /// The end of the command a [`Finished`] tells of.
 fn ran(finished: &Finished) -> &CommandEnd {
     match &finished.outcome {
@@ -522,6 +521,7 @@ fn ran(finished: &Finished) -> &CommandEnd {
     }
 }
 
+/// Each [`Finished`] the agents were told, as `(actor id, Finished)`.
 fn told(peers: &Peers) -> Vec<(String, Finished)> {
     peers.told.lock().unwrap().clone()
 }
@@ -916,8 +916,8 @@ async fn a_finished_to_an_agent_that_is_gone_is_dropped() {
     assert_eq!(told(&peers), []);
     assert!(!agent_file, "the call made the agent again");
     let db = read_only(&dir);
-    let state: String = db
-        .query_row(
+    let state = db
+        .query_row::<String, _, _>(
             "SELECT state FROM calls WHERE id = ?1",
             [i64::try_from(command.0).unwrap()],
             |row| row.get(0),
@@ -1006,8 +1006,8 @@ async fn output_past_the_tail_spills_to_a_file() {
     assert_eq!(short.output.lines().count(), 2000);
     assert_eq!(long.exit, Exit::Code(0));
     let cut = long.cut.expect("the output was cut");
-    let mut all: String =
-        (1..=3000).map(|n| format!("{n}\n")).collect();
+    let mut all =
+        (1..=3000).map(|n| format!("{n}\n")).collect::<String>();
     all.push_str("[REDACTED]\n");
     assert_eq!(cut.total_bytes, all.len() as u64);
     assert_eq!(cut.total_lines, 3001);

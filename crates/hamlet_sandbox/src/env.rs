@@ -22,8 +22,9 @@ use tokio::time::Instant;
 
 use super::Sandbox;
 use super::policy::{
-    Policy, SetupError, canon_text, directory_root, fixed_roots,
-    is_readable, is_writable, policy_hash, private_tmp, temp_root,
+    Policy, Reach, SetupError, canon_text, directory_root,
+    fixed_roots, is_readable, is_writable, policy_hash, private_tmp,
+    temp_root,
 };
 use crate::scrub::Scrubber;
 
@@ -126,7 +127,8 @@ impl FileError {
     }
 }
 
-/// What a change would replace, as [`Env::read_for_change`] read it.
+/// The file a change would replace, as [`Env::read_for_change`] read
+/// it.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Current {
     /// The real path the change leads to.
@@ -136,7 +138,7 @@ pub struct Current {
     pub digest: Option<[u8; 32]>,
 }
 
-/// How [`Env::replace_file`] went.
+/// The outcome of [`Env::replace_file`].
 #[derive(Debug, PartialEq, Eq)]
 pub enum Replaced {
     /// The file holds the new content. It was not there before when
@@ -230,12 +232,6 @@ impl<'a> Launch<'a> {
             Self::Shell(argv) | Self::Program { argv, .. } => argv,
         }
     }
-}
-
-#[derive(Clone, Copy)]
-enum Reach {
-    Read,
-    Write,
 }
 
 impl Env {
@@ -551,10 +547,10 @@ impl Env {
             .map_err(|error| file_error(&error, "open", &at.resolved))
     }
 
-    /// What a change of `path` would replace: where the path leads,
-    /// and the digest of the regular file there, if any, whose bytes
-    /// go to `part` as they are read. Refused where the policy does
-    /// not let the path be changed.
+    /// Reads the file a change of `path` would replace: where the
+    /// path leads, and the digest of the regular file there, if any,
+    /// whose bytes go to `part` as they are read. Refused where the
+    /// policy does not let the path be changed.
     pub fn read_for_change(
         &self,
         path: &str,

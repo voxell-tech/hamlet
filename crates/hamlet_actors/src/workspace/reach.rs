@@ -170,7 +170,7 @@ impl RealmFolder {
         self.0.join("tools")
     }
 
-    fn holds(&self, path: &Path) -> bool {
+    fn has_inside(&self, path: &Path) -> bool {
         is_within(&real_path(path), &self.0)
     }
 
@@ -212,7 +212,7 @@ pub enum Op<'a> {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Gate {
     Run {
-        network: bool,
+        network: Network,
     },
     NeedsChief(Vec<Need>),
     Refuse(Refusal),
@@ -221,11 +221,18 @@ pub enum Gate {
     NeedsSecrets(SecretsVersion),
 }
 
-/// What a policy is for. An agent's commands write its filesystem;
-/// its file tools never do, since the agent writes it itself.
+/// A program's access to the network, as the gate lets it run.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Network {
+    On,
+    Off,
+}
+
+/// A policy's purpose. An agent's commands write its filesystem; its
+/// file tools never do, since the agent writes it itself.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Purpose {
-    Command { network: bool },
+    Command { network: Network },
     FileTool,
 }
 
@@ -258,18 +265,24 @@ pub fn gate(
         Gate::NeedsSecrets(footing.secrets)
     } else if needs.is_empty() {
         Gate::Run {
-            network: matches!(
+            network: if matches!(
                 op,
                 Op::Command { .. } | Op::Tool { .. }
-            ) && footing.network,
+            ) && footing.network
+            {
+                Network::On
+            } else {
+                Network::Off
+            },
         }
     } else {
         Gate::NeedsChief(needs)
     }
 }
 
-/// What `op` waits for a chief to allow, in H11's order, or why it
-/// may not run. `reach` is live, with `footing`.
+/// The needs `op` waits for a chief to allow, in H11's order, or the
+/// [`Refusal`] that keeps it from running. `reach` is live, with
+/// `footing`.
 fn needs(
     home: &RealmFolder,
     agent: AgentNumber,
@@ -278,7 +291,7 @@ fn needs(
     op: &Op<'_>,
 ) -> Result<Vec<Need>, Refusal> {
     if let Some(project) = &footing.project
-        && home.holds(&project.folder)
+        && home.has_inside(&project.folder)
     {
         return Err(Refusal::ProjectInRealm {
             folder: project.folder.clone(),
@@ -308,7 +321,7 @@ fn needs(
                 return Err(Refusal::AgentFilesystem { path });
             }
             let policy = file_tool()?.policy;
-            if !policy.writes(&path) {
+            if !policy.can_write(&path) {
                 return Err(Refusal::OutsideReach {
                     path,
                     access: Access::Change,
@@ -336,7 +349,7 @@ fn needs(
         }
         Op::Read { path } => {
             let path = normalized(path);
-            if file_tool()?.policy.reads(&path) {
+            if file_tool()?.policy.can_read(&path) {
                 Ok(Vec::new())
             } else if home.is_in_a_filesystem(&path) {
                 Err(Refusal::AgentFilesystem { path })
@@ -399,7 +412,10 @@ pub fn placement(
             }
         }
     };
-    policy.net = purpose == Purpose::Command { network: true };
+    policy.net = purpose
+        == Purpose::Command {
+            network: Network::On,
+        };
     // Never written by an agent, whatever root lies in them (C18).
     policy.locked = vec![home.library(), home.tools()];
     let cwd = footing
@@ -409,8 +425,8 @@ pub fn placement(
     Some(Placement { policy, cwd })
 }
 
-/// What a command or a tool added by hand in `conversation` waits
-/// for a chief to allow, given whether it reaches the network.
+/// The needs a command or a tool added by hand in `conversation`
+/// waits for a chief to allow, given whether it reaches the network.
 fn program_needs(
     footing: &Footing,
     conversation: &ConversationId,
@@ -531,7 +547,9 @@ mod tests {
             &home(),
             AGENT,
             reach,
-            Purpose::Command { network: false },
+            Purpose::Command {
+                network: Network::Off,
+            },
         )
         .unwrap()
     }
@@ -620,7 +638,9 @@ mod tests {
         };
         assert_eq!(
             reads("/realm/actors/agent/3.fs/memory/notes.md"),
-            Gate::Run { network: false }
+            Gate::Run {
+                network: Network::Off
+            }
         );
         for path in [
             "/realm/actors/agent/9.fs/memory/notes.md",
@@ -720,7 +740,9 @@ mod tests {
         );
         assert_eq!(
             passed(&auto, &command(&talk, "echo curly")),
-            Gate::Run { network: false }
+            Gate::Run {
+                network: Network::Off
+            }
         );
         let mut networked = footing(project(Mode::Auto));
         networked.network = true;
@@ -729,7 +751,9 @@ mod tests {
                 &Reach::Agent(networked),
                 &command(&talk, "git pull")
             ),
-            Gate::Run { network: true }
+            Gate::Run {
+                network: Network::On
+            }
         );
     }
 
@@ -748,7 +772,9 @@ mod tests {
         let (a, b) = (conversation("a"), conversation("b"));
         assert_eq!(
             passed(&reach, &change(&a, file)),
-            Gate::Run { network: false }
+            Gate::Run {
+                network: Network::Off
+            }
         );
         assert_eq!(
             passed(&reach, &change(&b, file)),
@@ -774,7 +800,9 @@ mod tests {
                 &reach,
                 &change(&talk, Path::new("/realm/workers/7/a"))
             ),
-            Gate::Run { network: false }
+            Gate::Run {
+                network: Network::Off
+            }
         );
         assert_eq!(
             passed(

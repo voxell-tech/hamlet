@@ -7,8 +7,8 @@ use serde::{Deserialize, Serialize};
 
 use super::{AgentNumber, ConversationId};
 
-/// What one agent's tool calls may touch on this machine, and when
-/// they wait for a chief.
+/// The places one agent's tool calls may touch on this machine, and
+/// when they wait for a chief.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Reach {
     Agent(Footing),
@@ -51,7 +51,7 @@ pub enum Mode {
     Auto,
 }
 
-/// What a chief allowed for the rest of one conversation.
+/// The acts a chief allowed for the rest of one conversation.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Trust {
     pub conversation: ConversationId,
@@ -73,7 +73,7 @@ pub struct Trust {
 )]
 pub struct SecretsVersion(pub u64);
 
-/// What a call waits for a chief to allow (H11).
+/// One thing a call waits for a chief to allow (H11).
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize,
 )]

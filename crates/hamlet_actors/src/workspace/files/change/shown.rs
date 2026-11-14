@@ -1,5 +1,5 @@
-//! What a chief is shown of a change: a text cut to its start, also
-//! one read in parts, as a large file a write replaces is.
+//! The part of a change a chief is shown: a text cut to its start,
+//! also one read in parts, as a large file a write replaces is.
 
 use hamlet_sandbox::scrub::Scrubber;
 

@@ -430,8 +430,8 @@ async fn a_call_id_is_one_calls_whatever_it_does() {
     assert_eq!(read(&file), "y");
 }
 
-/// What a change hands back has the realm's secrets taken out, and
-/// none reaches the workspace's file: an edit's diff shows the lines
+/// A change's answer has the realm's secrets taken out, and none
+/// reaches the workspace's file: an edit's diff shows the lines
 /// around the change, and a failure's words name the path.
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]

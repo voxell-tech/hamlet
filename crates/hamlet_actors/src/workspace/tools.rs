@@ -13,7 +13,7 @@ use hamlet_os::fs::path::{resolve, text};
 use hamlet_sandbox::{LimitError, Policy};
 use serde_json::{Value, json};
 
-use super::reach::{Op, Placement, RealmFolder};
+use super::reach::{Network, Op, Placement, RealmFolder};
 use super::run::{Exec, LONGEST};
 
 /// A tool that loaded, with the program it runs.
@@ -26,7 +26,7 @@ pub struct Tool {
 
 impl Tool {
     /// Whether its manifest reaches the network.
-    pub fn network(&self) -> bool {
+    pub fn has_network(&self) -> bool {
         self.policy.net
     }
 
@@ -35,11 +35,11 @@ impl Tool {
         Duration::from_secs(self.policy.limits.wall_secs)
     }
 
-    /// Where it runs: in its own folder, with its manifest's reach,
+    /// The place it runs: its own folder, with its manifest's reach,
     /// and the network only when the gate gave it.
-    pub fn placement(&self, network: bool) -> Placement {
+    pub fn placement(&self, network: Network) -> Placement {
         let mut policy = self.policy.clone();
-        policy.net &= network;
+        policy.net &= network == Network::On;
         Placement {
             policy,
             cwd: self.dir.clone(),
@@ -47,7 +47,7 @@ impl Tool {
     }
 }
 
-/// What a [`Run`] runs, its tool loaded when it names one.
+/// A [`Run`]'s program, its tool loaded when it names one.
 pub enum Ready<'a> {
     Script {
         script: &'a str,
@@ -129,12 +129,12 @@ impl<'a> Ready<'a> {
             },
             Self::Tool { tool, .. } => Op::Tool {
                 conversation,
-                network: tool.network(),
+                network: tool.has_network(),
             },
         }
     }
 
-    /// What the command's thread starts, and its time limit.
+    /// The [`Exec`] the command's thread starts, and its time limit.
     pub fn exec(self) -> (Exec, Duration) {
         match self {
             Self::Script {

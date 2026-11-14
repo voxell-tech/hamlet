@@ -113,7 +113,7 @@ pub enum Answer {
     Lapsed(Lapse),
 }
 
-/// Why a wait ended with no answer (H34).
+/// The reason a wait ended with no answer (H34).
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize,
 )]
@@ -170,7 +170,7 @@ pub struct Run {
     pub program: Program,
 }
 
-/// What a [`Run`] runs.
+/// The script or tool a [`Run`] runs.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Program {
     Script {
@@ -205,7 +205,8 @@ impl Action for ListTools {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ToolList {
     pub tools: Vec<AddedTool>,
-    /// Why each folder of a tool that does not load is left out.
+    /// The reason each folder of a tool that does not load is left
+    /// out.
     pub faults: Vec<String>,
 }
 
@@ -240,7 +241,7 @@ pub enum RunAnswer {
     Refused(CallRefusal),
 }
 
-/// How a command ended, and the end of what it printed.
+/// A command's exit, and the end of what it printed.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CommandEnd {
     pub command: CommandId,
@@ -254,7 +255,7 @@ pub struct CommandEnd {
     pub took_ms: u64,
 }
 
-/// What a command printed beyond the tail its end carries.
+/// The part of a command's output beyond the tail its end carries.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Cut {
     /// All it printed, the secrets taken out.
@@ -389,7 +390,7 @@ pub enum CallRefusal {
     TooLarge { bytes: u64, limit: u64 },
 }
 
-/// What the reach in force says of a call a chief allowed under an
+/// The reach in force's answer to a call a chief allowed under an
 /// older one.
 #[derive(
     Clone,

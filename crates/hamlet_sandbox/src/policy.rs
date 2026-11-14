@@ -62,7 +62,7 @@ impl Policy {
     /// Whether a command under this policy reads `path`, where the
     /// system resolves it.
     /// No temp folder counts: another policy can share one.
-    pub fn reads(&self, path: &Path) -> bool {
+    pub fn can_read(&self, path: &Path) -> bool {
         let real = canon_text(&text(path));
         !is_within_text(&real, &temp_root())
             && is_readable(self, &tmp_of(self), &real)
@@ -70,7 +70,7 @@ impl Policy {
 
     /// Whether a command under this policy writes `path`, where the
     /// system resolves it. No temp folder counts.
-    pub fn writes(&self, path: &Path) -> bool {
+    pub fn can_write(&self, path: &Path) -> bool {
         let real = canon_text(&text(path));
         !is_within_text(&real, &temp_root())
             && is_writable(self, &tmp_of(self), &real, false)
@@ -406,13 +406,20 @@ pub(crate) fn depth(path: &str) -> usize {
     names(&canon_text(path))
 }
 
+/// An access a path is weighed for.
+#[derive(Clone, Copy)]
+pub(crate) enum Reach {
+    Read,
+    Write,
+}
+
 /// A hidden root is compared without case, so that a volume that
 /// ignores case cannot carry a path past one.
 fn deciding(
     policy: &Policy,
     tmp: &str,
     real: &str,
-    reads: bool,
+    reach: Reach,
 ) -> Option<Grant> {
     let folded = real.to_lowercase();
     layers(policy, tmp)
@@ -424,7 +431,7 @@ fn deciding(
                 Grant::Hidden => {
                     is_within_text(&folded, &root.to_lowercase())
                 }
-                Grant::Read if !reads => false,
+                Grant::Read if matches!(reach, Reach::Write) => false,
                 Grant::Read | Grant::Write => {
                     is_within_text(real, root)
                 }
@@ -440,7 +447,7 @@ pub(crate) fn is_readable(
     tmp: &str,
     real: &str,
 ) -> bool {
-    match deciding(policy, tmp, real, true) {
+    match deciding(policy, tmp, real, Reach::Read) {
         Some(grant) => grant != Grant::Hidden,
         None => policy.open,
     }
@@ -455,7 +462,7 @@ pub(crate) fn is_writable(
     real: &str,
     moved: bool,
 ) -> bool {
-    deciding(policy, tmp, real, false) == Some(Grant::Write)
+    deciding(policy, tmp, real, Reach::Write) == Some(Grant::Write)
         && !is_locked(policy, real)
         && !(moved
             && fixed_roots(policy, tmp).iter().any(|root| {
@@ -502,8 +509,8 @@ mod tests {
     fn a_policy_reads_and_writes_no_temp_folder() {
         let policy = Policy::default();
         let file = path::join(&[tmp_of(&policy), "notes.md".into()]);
-        assert!(!policy.reads(Path::new(&file)));
-        assert!(!policy.writes(Path::new(&file)));
+        assert!(!policy.can_read(Path::new(&file)));
+        assert!(!policy.can_write(Path::new(&file)));
     }
 
     #[test]

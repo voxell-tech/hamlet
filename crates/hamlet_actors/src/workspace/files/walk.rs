@@ -70,6 +70,13 @@ impl Failure {
     }
 }
 
+/// Letter case in a search's pattern and lines.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum Case {
+    Matched,
+    Ignored,
+}
+
 /// The lines matching `pattern` in the text files under `under`. A
 /// pattern runs in linear time; a file over 1 MiB, one that is not
 /// UTF-8 and one holding NUL are passed over.
@@ -78,12 +85,12 @@ pub(super) fn search(
     under: &str,
     pattern: &str,
     name: Option<&str>,
-    ignore_case: bool,
+    case: Case,
 ) -> Result<String, Failure> {
     if pattern.is_empty() {
         return Err(Failure::PatternEmpty);
     }
-    let matches = compile(pattern, ignore_case)?;
+    let matches = compile(pattern, case)?;
     let (root, info) = reached(env, under)?;
     let walked = if info.kind == FileKind::Directory {
         walk(env, &root)
@@ -296,15 +303,15 @@ fn is_glob_match(pattern: &str, name: &str) -> bool {
     want[p..].iter().all(|c| *c == '*')
 }
 
-/// A test of a line against `pattern`. For `ignore_case` the pattern
-/// and the line are put in lower case, but for the letter that
-/// follows a backslash.
+/// A test of a line against `pattern`. For [`Case::Ignored`] the
+/// pattern and the line are put in lower case, but for the letter
+/// that follows a backslash.
 fn compile(
     pattern: &str,
-    ignore_case: bool,
+    case: Case,
 ) -> Result<impl Fn(&str) -> bool, Failure> {
     let mut source = pattern.to_owned();
-    if ignore_case {
+    if case == Case::Ignored {
         source.clear();
         let mut chars = pattern.chars().peekable();
         while let Some(c) = chars.next() {
@@ -334,7 +341,7 @@ fn compile(
         }
     })?;
     Ok(move |line: &str| {
-        if ignore_case {
+        if case == Case::Ignored {
             regex.is_match(&line.to_lowercase())
         } else {
             regex.is_match(line)
@@ -405,7 +412,8 @@ mod tests {
     /// a regular expression are refused in words that say which.
     #[test]
     fn a_bad_pattern_is_refused_and_said_why() {
-        let refused = |pattern| match compile(pattern, false) {
+        let refused = |pattern| match compile(pattern, Case::Matched)
+        {
             Ok(_) => panic!("{pattern} compiled"),
             Err(failure) => failure.words(),
         };
@@ -426,10 +434,11 @@ mod tests {
     /// backslash, so `\D` stays a non-digit.
     #[test]
     fn ignoring_case_keeps_an_escape() {
-        let matches = compile("HeLLo \\D+", true).ok().unwrap();
+        let matches =
+            compile("HeLLo \\D+", Case::Ignored).ok().unwrap();
         assert!(matches("say HELLO abc"));
         assert!(!matches("say hello 123"));
-        let exact = compile("HeLLo", false).ok().unwrap();
+        let exact = compile("HeLLo", Case::Matched).ok().unwrap();
         assert!(!exact("hello"));
     }
 

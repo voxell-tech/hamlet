@@ -67,12 +67,12 @@ pub(super) async fn sweep(
             return Err(error).context("read the workers' folder");
         }
     };
-    let workers: Vec<AgentNumber> = entries
+    let workers = entries
         .filter_map(|entry| {
             entry.ok()?.file_name().to_str()?.parse().ok()
         })
         .map(AgentNumber)
-        .collect();
+        .collect::<Vec<AgentNumber>>();
     let ended = super::read_only(ctx, async |tx| {
         let mut ended = Vec::new();
         for worker in workers {

@@ -355,11 +355,11 @@ async fn an_ended_reach_ends_the_agents_commands() {
     );
     assert!(!fs.join("after").exists());
     let told = told(&peers);
-    let to_seven: Vec<_> = told
+    let to_seven = told
         .iter()
         .filter(|(to, _)| *to == seven.as_ref().unwrap().as_str())
         .map(|(_, finished)| (finished.call.clone(), ran(finished)))
-        .collect();
+        .collect::<Vec<_>>();
     assert_eq!(to_seven.len(), 1, "{told:?}");
     assert_eq!(to_seven[0].0, CallId("c1".into()));
     assert_eq!(
@@ -400,10 +400,10 @@ async fn an_ended_reach_closes_the_agents_waits() {
     assert_eq!(waits(&dir), 0);
     let lapsed = CallRefusal::Lapsed(Lapse::Ended);
     assert_eq!(repeat, RunAnswer::Refused(lapsed.clone()));
-    let told: Vec<_> = told(&peers)
+    let told = told(&peers)
         .into_iter()
         .map(|(_, finished)| (finished.call, finished.outcome))
-        .collect();
+        .collect::<Vec<_>>();
     assert_eq!(
         told,
         [(CallId("c1".into()), Outcome::NotRun(lapsed))]
@@ -465,11 +465,11 @@ async fn an_allow_racing_an_ended_reach_runs_nothing() {
     tokio::time::sleep(Duration::from_millis(1000)).await;
     host.shutdown().await.unwrap();
 
-    let made: Vec<_> = (0..rounds)
+    let made = (0..rounds)
         .filter(|round| {
             folder.join(format!("marker{round}")).exists()
         })
-        .collect();
+        .collect::<Vec<_>>();
     assert_eq!(
         made,
         Vec::<u64>::new(),

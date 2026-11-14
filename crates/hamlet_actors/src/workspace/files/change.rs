@@ -115,7 +115,7 @@ async fn forget(tx: &SqliteTransaction, id: i64) -> Result<()> {
     Ok(())
 }
 
-/// What a change asks for.
+/// The text or the edits a change asks for.
 enum Asked<'a> {
     Write(&'a str),
     Edit(&'a [Replace]),
@@ -185,7 +185,7 @@ impl Handler<EditFile> for Workspace {
     }
 }
 
-/// What a change's row, its reach and its secrets come to.
+/// The outcome of a change's row, its reach and its secrets.
 enum Weighed {
     Answer(ChangeAnswer),
     Pass(Passed),
@@ -198,12 +198,12 @@ struct Planned {
     current: Current,
     content: Vec<u8>,
     diff: Option<EditDiff>,
-    /// What a chief is shown of the file a write replaces, where one
-    /// is there and a chief is asked.
+    /// The part of the file a write replaces that a chief is shown,
+    /// where one is there and a chief is asked.
     replaced: Option<String>,
 }
 
-/// Why a change has no plan.
+/// The reason a change has no plan.
 enum Unplanned {
     /// In words for the model.
     Failed(String),
@@ -268,8 +268,10 @@ impl Workspace {
             sandbox,
             &path,
             &request.asked,
-            None,
-            chief.as_ref().map(|_| secrets.as_slice()),
+            match chief {
+                Some(_) => Planning::ForChief(secrets.to_vec()),
+                None => Planning::Now,
+            },
         )
         .await?
         {
@@ -401,8 +403,7 @@ impl Workspace {
             self.sandbox,
             &path,
             &request.asked,
-            Some(was),
-            None,
+            Planning::Allowed(was),
         )
         .await?
         {
@@ -583,7 +584,7 @@ impl Workspace {
     }
 }
 
-/// What a change carries out once its row is written.
+/// The work a change carries out once its row is written.
 struct Carry {
     placement: Placement,
     sandbox: hamlet_sandbox::Sandbox,
@@ -602,7 +603,7 @@ fn temp_of(planned: &Planned) -> (String, String) {
     (temp_name, temp)
 }
 
-/// What a change's row answers a repeat of it.
+/// The answer a change's row gives a repeat of it.
 enum Row {
     Answer(ChangeAnswer),
     /// A change a failure cut off after its row was written, which no
@@ -613,7 +614,7 @@ enum Row {
     },
 }
 
-/// What the row `call` answers a change of `request`.
+/// The answer the row `call` gives a change of `request`.
 fn answered(call: calls::Call, request: &Request<'_>) -> Result<Row> {
     if !call.is(request.asked.op(), &request.request_hash) {
         return Ok(Row::Answer(ChangeAnswer::Refused(
@@ -679,58 +680,66 @@ fn words_of(
     }
 }
 
-/// What a change plans to write, copied out of the request for its
+/// A change's planned write, copied out of the request for its
 /// thread.
 enum PlannedAs {
-    Write {
-        content: Vec<u8>,
-        /// The secrets to take out of what a chief is shown of the
-        /// file it replaces, where a chief is asked.
-        shown: Option<Vec<String>>,
-    },
+    Write(Vec<u8>),
     Edit(Vec<Replace>),
 }
 
-/// [`plan`], off the runtime. `shown` is as [`PlannedAs::Write`]'s.
+/// When a change is planned.
+enum Planning {
+    /// It runs now.
+    Now,
+    /// A chief is asked about it, shown the file a write replaces
+    /// with these secrets taken out.
+    ForChief(Vec<String>),
+    /// A chief allowed it: the file must still hash to this.
+    Allowed(Hashed),
+}
+
+/// [`plan`], off the runtime.
 async fn planned(
     placement: Placement,
     sandbox: hamlet_sandbox::Sandbox,
     path: &str,
     asked: &Asked<'_>,
-    was: Option<Hashed>,
-    shown: Option<&[String]>,
+    planning: Planning,
 ) -> Result<Result<Planned, Unplanned>> {
     let path = path.to_owned();
     let asked = match *asked {
-        Asked::Write(content) => PlannedAs::Write {
-            content: content.as_bytes().to_vec(),
-            shown: shown.map(<[String]>::to_vec),
-        },
+        Asked::Write(content) => {
+            PlannedAs::Write(content.as_bytes().to_vec())
+        }
         Asked::Edit(edits) => PlannedAs::Edit(edits.to_vec()),
     };
     tokio::task::spawn_blocking(move || {
-        plan(&placement, sandbox, &path, asked, was)
+        plan(&placement, sandbox, &path, asked, &planning)
     })
     .await
     .context("a change's thread ended before it")
 }
 
 /// Reads what the change at `path` replaces, and works out what it
-/// writes, or says in words why it cannot. With `was`, the file must
-/// still hold what hashes to it. A write holds no more of the file it
-/// replaces than what a chief is shown; an edit holds all of it.
+/// writes, or says in words why it cannot. A write holds no more of
+/// the file it replaces than what a chief is shown; an edit holds all
+/// of it.
 fn plan(
     placement: &Placement,
     sandbox: hamlet_sandbox::Sandbox,
     path: &str,
     asked: PlannedAs,
-    was: Option<Hashed>,
+    planning: &Planning,
 ) -> Result<Planned, Unplanned> {
     let env = env(placement, sandbox);
     match asked {
-        PlannedAs::Write { content, shown } => {
-            let mut replaced =
-                shown.as_deref().map(shown::Replaced::new);
+        PlannedAs::Write(content) => {
+            let mut replaced = match planning {
+                Planning::ForChief(secrets) => {
+                    Some(shown::Replaced::new(secrets))
+                }
+                Planning::Now | Planning::Allowed(_) => None,
+            };
             let current = env.and_then(|env| {
                 env.read_for_change(path, &mut |part| {
                     if let Some(replaced) = &mut replaced {
@@ -738,7 +747,7 @@ fn plan(
                     }
                 })
             });
-            let current = still(current, was)?
+            let current = still(current, planning)?
                 .map_err(|error| Unplanned::Failed(error.message))?;
             Ok(Planned {
                 replaced: replaced
@@ -756,22 +765,23 @@ fn plan(
                     bytes.extend_from_slice(part);
                 })
             });
-            let current = still(current, was)?.map_err(|error| {
-                Unplanned::Failed(
-                    match error.code {
-                        // A folder, or another file that is not
-                        // regular.
-                        Code::IsDirectory | Code::Invalid => {
-                            CallError::NotAFile(path.to_owned())
+            let current =
+                still(current, planning)?.map_err(|error| {
+                    Unplanned::Failed(
+                        match error.code {
+                            // A folder, or another file that is not
+                            // regular.
+                            Code::IsDirectory | Code::Invalid => {
+                                CallError::NotAFile(path.to_owned())
+                            }
+                            code => CallError::Unedited {
+                                path: path.to_owned(),
+                                code,
+                            },
                         }
-                        code => CallError::Unedited {
-                            path: path.to_owned(),
-                            code,
-                        },
-                    }
-                    .to_string(),
-                )
-            })?;
+                        .to_string(),
+                    )
+                })?;
             let (content, diff) = edit::edited(
                 path,
                 current.digest.is_some().then_some(bytes),
@@ -788,21 +798,24 @@ fn plan(
     }
 }
 
-/// `current`, unless it was read and no longer hashes to `was`.
+/// `current`, unless a chief allowed the change and the file it read
+/// no longer hashes to what the chief was shown.
 fn still(
     current: Result<Current, FileError>,
-    was: Option<Hashed>,
+    planning: &Planning,
 ) -> Result<Result<Current, FileError>, Unplanned> {
-    if let (Some(was), Ok(current)) = (was, &current) {
+    if let (Planning::Allowed(was), Ok(current)) =
+        (planning, &current)
+    {
         let now = hashed(current.digest);
-        if now != was {
+        if now != *was {
             return Err(Unplanned::Changed { now });
         }
     }
     Ok(current)
 }
 
-/// What a file of `digest` hashes to, or [`Hashed::Absent`] for no
+/// The [`Hashed`] of a file of `digest`, or [`Hashed::Absent`] for no
 /// file.
 fn hashed(digest: Option<[u8; 32]>) -> Hashed {
     digest.map_or(Hashed::Absent, Hashed::Sha256)

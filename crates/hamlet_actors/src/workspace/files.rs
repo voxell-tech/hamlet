@@ -92,7 +92,7 @@ fn scrubbed(secrets: &[String], answer: FileAnswer) -> FileAnswer {
     }
 }
 
-/// What the gate makes of a file tool's call.
+/// The gate's answer to a file tool's call.
 enum Gated {
     Pass(Passed),
     /// It waits for a chief to allow these.
@@ -220,7 +220,11 @@ impl Handler<Search> for Workspace {
                     &under,
                     &asked.pattern,
                     asked.name.as_deref(),
-                    asked.ignore_case,
+                    if asked.ignore_case {
+                        walk::Case::Ignored
+                    } else {
+                        walk::Case::Matched
+                    },
                 ))
             },
         )

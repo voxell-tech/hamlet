@@ -27,13 +27,14 @@ use super::calls::{self, Call};
 
 mod output;
 
-/// How long a call waits for its command before it answers `Running`.
+/// The longest a call waits for its command before it answers
+/// `Running`.
 pub const ANSWER_WITHIN: Duration = Duration::from_secs(5);
 
 /// The longest a command runs (C16). A call may only shorten it.
 pub const LONGEST: Duration = Duration::from_secs(120);
 
-/// How a command's row stands.
+/// The state of a command's row.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum State {
     Running,
@@ -206,9 +207,9 @@ impl Running {
     }
 }
 
-/// Who hears a running command's end: the call that started it and
-/// every repeat of it that came while it waited, or the agent, called
-/// with `Finished`. Exactly one of the two hears it.
+/// The hearers of a running command's end: the call that started it
+/// and every repeat of it that came while it waited, or the agent,
+/// called with `Finished`. Exactly one of the two hears it.
 pub(super) struct Waiters {
     slot: Mutex<Slot>,
     /// When the call that started the command answers `Running`.
@@ -296,7 +297,7 @@ impl Waiters {
     }
 }
 
-/// What a command's thread starts.
+/// The program a command's thread starts.
 pub enum Exec {
     /// A script, in bash.
     Script(String),
@@ -317,7 +318,7 @@ pub struct Spec {
     pub timeout: Duration,
     pub secrets: Arc<Vec<String>>,
     pub leftovers: Leftovers,
-    /// Where its output spills.
+    /// The file its output spills to.
     pub output: PathBuf,
     /// Fired to end it as cancelled, also before it started.
     pub cancel: CancellationToken,

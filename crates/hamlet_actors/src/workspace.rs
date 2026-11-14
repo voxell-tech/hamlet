@@ -56,10 +56,10 @@ pub const AGENT: &str = "agent";
 const MOST_LINES: usize = 2000;
 const MOST_BYTES: usize = 50 * 1024;
 
-/// How the workspace answers, given by its host as a value of
+/// The workspace's answer settings, given by its host as a value of
 /// [`hamlet_host::HostOptions`]. Without one, it waits 5 seconds.
 pub struct Options {
-    /// How long a call waits for its command before it answers
+    /// The longest a call waits for its command before it answers
     /// `Running`.
     pub answer_within: Duration,
 }
@@ -87,10 +87,9 @@ struct Workspace {
     /// The realm's secrets, held in memory only: none after a
     /// start, so the first command fetches them.
     secrets: Mutex<Option<Held>>,
-    /// What commands left running under Seatbelt, ended with the
-    /// workspace.
+    /// The processes commands left running under Seatbelt, ended
+    /// with the workspace.
     leftovers: AllLeftovers,
-    /// How long a call waits for its command.
     answer_within: Duration,
     /// Each running command, until its end was heard.
     running: Mutex<HashMap<CommandId, run::Running>>,
@@ -193,7 +192,7 @@ impl Workspace {
         agent: AgentNumber,
         reach: &Reach,
         ready: &tools::Ready<'_>,
-        network: bool,
+        network: reach::Network,
     ) -> Result<reach::Placement> {
         match ready {
             tools::Ready::Script { .. } => self.placement(
@@ -219,10 +218,9 @@ impl Workspace {
         )
     }
 
-    /// What `weigh` comes to under a list of the realm's secrets as
-    /// new as the reach in force asks for. When it asks for a newer
-    /// list, the list is fetched from the realm, once, and `weigh`
-    /// runs again.
+    /// Runs `weigh` under a list of the realm's secrets as new as the
+    /// reach in force asks for. When it asks for a newer list, the
+    /// list is fetched from the realm, once, and `weigh` runs again.
     async fn weighed<T, W>(
         &self,
         ctx: &Ctx<Self>,
@@ -251,8 +249,8 @@ impl Workspace {
             call_actor(ctx, Address::new(REALM, REALM_KEY), &Secrets)
                 .await
                 .context("fetch the realm's secrets")?;
-        let list: SecretList =
-            ciborium::from_reader(answer.as_slice())
+        let list =
+            ciborium::from_reader::<SecretList, _>(answer.as_slice())
                 .context("decode the realm's secrets")?;
         let mut held = self
             .secrets
@@ -271,14 +269,14 @@ impl Workspace {
     }
 }
 
-/// What weighing a call came to, or the version of the realm's
+/// The outcome of weighing a call, or the version of the realm's
 /// secrets it needs first.
 enum Weighing<T> {
     Done(T),
     NeedsSecrets(SecretsVersion),
 }
 
-/// What the gate let a command do, once its row is open.
+/// A command as the gate let it run, once its row is open.
 struct Opened {
     running: run::Running,
     placement: reach::Placement,
@@ -599,14 +597,14 @@ impl Workspace {
         agent: AgentNumber,
         which: &Which,
     ) -> Vec<CommandId> {
-        let named: Vec<run::Running> = self
+        let named = self
             .running
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .values()
             .filter(|running| running.is(agent, which))
             .cloned()
-            .collect();
+            .collect::<Vec<run::Running>>();
         for running in &named {
             running.cancel.cancel();
         }
@@ -617,8 +615,10 @@ impl Workspace {
                 () = abort.cancelled() => {}
             }
         }
-        let mut commands: Vec<CommandId> =
-            named.iter().map(|running| running.command).collect();
+        let mut commands = named
+            .iter()
+            .map(|running| running.command)
+            .collect::<Vec<CommandId>>();
         commands.sort_by_key(|command| command.0);
         commands
     }
@@ -720,7 +720,7 @@ async fn tell(
     }
 }
 
-/// What a [`Run`]'s transaction comes to.
+/// The outcome of a [`Run`]'s transaction.
 enum Decision {
     Open(Opened),
     Answer(RunAnswer),
@@ -864,8 +864,8 @@ fn answer_of(row: run::Row) -> RunAnswer {
     }
 }
 
-/// Why a call is not a request the workspace takes, in the words of
-/// the server's tools.
+/// The reason a call is not a request the workspace takes, in the
+/// words of the server's tools.
 #[derive(Debug, thiserror::Error)]
 enum Invalid {
     #[error(
@@ -964,7 +964,7 @@ impl Handler<SetReach> for Workspace {
     }
 }
 
-/// Why the waits of an agent whose reach ended do not run.
+/// The refusal of the waits of an agent whose reach ended.
 const LAPSED: CallRefusal = CallRefusal::Lapsed(Lapse::Ended);
 
 impl Workspace {
@@ -994,7 +994,8 @@ impl Workspace {
     }
 }
 
-/// Who made the call the handler runs for, as the host stamped it.
+/// The caller of the call the handler runs for, as the host stamped
+/// it.
 fn caller(ctx: &Ctx<Workspace>) -> Result<Option<Caller>> {
     ctx.conn().context("the call has no connection")?.params()
 }

@@ -156,8 +156,8 @@ fn fuzzy(text: &str) -> String {
         .collect()
 }
 
-/// Where `old` is in `content`, exactly or else as [`fuzzy`] text,
-/// and how long the match is.
+/// The start and length of `old` in `content`, matched exactly or
+/// else as [`fuzzy`] text.
 fn find(content: &str, old: &str) -> Option<(usize, usize, bool)> {
     if let Some(at) = content.find(old) {
         return Some((at, old.len(), false));

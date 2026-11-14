@@ -28,7 +28,7 @@ use hamlet_messages::workspace::{
 use hamlet_sandbox::scrub::scrub_text;
 use serde::{Deserialize, Serialize};
 
-use super::reach::{self, Gate, Op};
+use super::reach::{self, Gate, Network, Op};
 use super::{
     REALM, REALM_KEY, Weighing, Workspace, call_actor, calls,
     read_only, realm_calling, tell, transact_if,
@@ -46,7 +46,7 @@ pub(super) const SCHEMA: &str = "CREATE TABLE IF NOT EXISTS waits (
 	base_hash BLOB,
 	PRIMARY KEY (agent, call)) STRICT";
 
-/// What a waiting call runs if a chief allows it: its own request,
+/// The request a waiting call runs if a chief allows it: its own,
 /// never what the workspace read for it.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub(super) enum Pending {
@@ -325,13 +325,13 @@ pub(super) async fn close(
         .collect()
 }
 
-/// What the reach in force makes of a call a chief allowed.
+/// The reach in force's answer to a call a chief allowed.
 pub(super) enum Rechecked {
     Pass {
         reach: Reach,
-        /// The command runs with the network: the reach gives it, or
-        /// the chief allowed it.
-        network: bool,
+        /// The command runs with the network where the reach gives
+        /// it, or the chief allowed it.
+        network: Network,
         secrets: Arc<Vec<String>>,
     },
     Refused(CallRefusal),
@@ -428,10 +428,15 @@ impl Workspace {
                     {
                         // The chief allowed the network, or the reach
                         // gives it now.
-                        let network = needs.contains(&Need::Network)
+                        let network = if needs
+                            .contains(&Need::Network)
                             || reach.footing().is_some_and(
                                 |footing| footing.network,
-                            );
+                            ) {
+                            Network::On
+                        } else {
+                            Network::Off
+                        };
                         Rechecked::Pass {
                             reach,
                             network,

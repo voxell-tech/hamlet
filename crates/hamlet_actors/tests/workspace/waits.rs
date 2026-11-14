@@ -64,7 +64,7 @@ pub(super) fn waits(dir: &Path) -> i64 {
         .unwrap()
 }
 
-/// How the outcomes the agent was told read.
+/// The outcomes the agent was told.
 fn outcomes(peers: &Peers) -> Vec<Outcome> {
     told(peers)
         .into_iter()

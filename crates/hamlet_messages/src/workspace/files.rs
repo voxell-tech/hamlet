@@ -75,7 +75,7 @@ pub enum FileAnswer {
     Failed(String),
 }
 
-/// What a read, a search or a find gives the model.
+/// The text a read, a search or a find gives the model.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Text {
     pub text: String,
@@ -101,7 +101,7 @@ pub enum Severity {
     Warn,
 }
 
-/// How a read was cut to its first lines.
+/// The cut of a read to its first lines.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Truncation {
     pub by: Option<CutBy>,
@@ -201,7 +201,7 @@ pub struct Change {
     pub diff: Option<EditDiff>,
 }
 
-/// What an edit changed, as pi shows it.
+/// An edit's change, as pi shows it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EditDiff {
     /// The changed lines, numbered, with a few lines around them.
@@ -212,7 +212,7 @@ pub struct EditDiff {
     pub first_changed_line: Option<u64>,
 }
 
-/// What a file held.
+/// A file's content, by its hash.
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize,
 )]

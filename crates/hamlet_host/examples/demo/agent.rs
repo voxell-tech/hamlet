@@ -300,7 +300,8 @@ async fn run_one(host: &Host, words: &[String]) -> Result<()> {
             Duration::from_secs(20),
         )
         .await?;
-    let reply: Vec<u8> = ciborium::from_reader(reply.as_slice())?;
+    let reply =
+        ciborium::from_reader::<Vec<u8>, _>(reply.as_slice())?;
     let mut out = std::io::stdout();
     if name == ReadFile::NAME {
         // The bytes it read, or 0 and a warning.
@@ -344,7 +345,8 @@ async fn run_one(host: &Host, words: &[String]) -> Result<()> {
         }
         return Ok(());
     }
-    let answer: RunAnswer = ciborium::from_reader(reply.as_slice())?;
+    let answer =
+        ciborium::from_reader::<RunAnswer, _>(reply.as_slice())?;
     match (answer, call) {
         (RunAnswer::Done(end), Some(call)) => {
             print_cut(call, &end)?;

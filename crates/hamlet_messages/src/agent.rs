@@ -22,7 +22,7 @@ impl Action for Finished {
     const NAME: &'static str = "finished";
 }
 
-/// How a call ended.
+/// The end of a call.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Outcome {
     /// Its command ended.
