@@ -57,9 +57,9 @@ use tokio::sync::{broadcast, oneshot, watch};
 use tokio::task::{AbortHandle, JoinHandle};
 
 pub use self::access::{HostRef, Values};
-pub use self::call::Caller;
 use self::create::DuplicateKey;
-use crate::directory::{Address, Directory, Place};
+use crate::address::{Address, Named, plain};
+use crate::directory::{Directory, Place};
 use crate::event::HostEvent;
 use crate::plain_sqlite::{self, PlainSqlite};
 
@@ -926,9 +926,9 @@ impl Host {
         factories: HashMap<String, ActorFactory>,
         options: HostOptions,
     ) -> Result<Self> {
-        plain(&options.name, "host name")?;
+        plain(&options.name, Named::Host)?;
         for kind in factories.keys() {
-            plain(kind, "actor kind")?;
+            plain(kind, Named::Kind)?;
         }
         call::check_kinds(&factories)?;
         std::fs::create_dir_all(dir.join("actors"))?;
@@ -1140,7 +1140,7 @@ impl Host {
         &self,
         at: &Address,
     ) -> Result<Vec<SetAsideTimer>> {
-        let actor_id = self.inner().located(&at.kind, &at.key)?;
+        let actor_id = self.inner().located(at.kind(), at.key())?;
         let generation = self
             .inner()
             .ensure_started(&actor_id, &Open::Existing)
@@ -1159,7 +1159,7 @@ impl Host {
         event_id: &str,
         due_at: i64,
     ) -> Result<bool> {
-        let actor_id = self.inner().located(&at.kind, &at.key)?;
+        let actor_id = self.inner().located(at.kind(), at.key())?;
         let generation = self
             .inner()
             .ensure_started(&actor_id, &Open::Existing)
@@ -1457,12 +1457,16 @@ impl Host {
                             .is_some_and(|ext| ext == "sqlite")
                     });
                 // Not an actor's file.
-                let Some((key, Ok(actor_id))) =
-                    key.map(|key| (key, actor_id(kind, key)))
+                let Some(Ok(actor)) =
+                    key.map(|key| Address::new(kind, key))
                 else {
                     continue;
                 };
-                found.push((actor_id, Address::new(kind, key), path));
+                found.push((
+                    actor_id(actor.kind(), actor.key())?,
+                    actor,
+                    path,
+                ));
             }
         }
         Ok(found)
@@ -1697,29 +1701,9 @@ fn retry_start(owned: &Owned, due: i64) {
 /// The id of the actor of `kind` and `key`, which names its file.
 fn actor_id(kind: &str, key: &str) -> Result<String> {
     for part in [kind, key] {
-        plain(part, "actor kind or key")?;
+        plain(part, Named::KindOrKey)?;
     }
     Ok(format!("{kind}/{key}"))
-}
-
-/// Fails unless `name`, a `what`, is plain.
-fn plain(name: &str, what: &str) -> Result<()> {
-    let plain = !name.is_empty()
-        && !name.starts_with('.')
-        && name.len() <= 128
-        && name.bytes().all(|byte| {
-            // With no upper-case letter, two names never name one
-            // file, also on a disk that ignores case.
-            byte.is_ascii_lowercase()
-                || byte.is_ascii_digit()
-                || matches!(byte, b'-' | b'_' | b'.')
-        });
-    ensure!(
-        plain,
-        "`{name}` is not a valid {what}: use lower-case letters, \
-         digits, `-`, `_` and `.`, and do not start with `.`"
-    );
-    Ok(())
 }
 
 fn actor_path(dir: &Path, actor_id: &str) -> PathBuf {
@@ -2333,11 +2317,14 @@ impl ActorHost for LocalHandle {
         let Some(host) = self.host.upgrade() else {
             return;
         };
-        let Some((kind, key)) = actor_id.split_once('/') else {
+        let Some(actor) = actor_id
+            .split_once('/')
+            .and_then(|(kind, key)| Address::new(kind, key).ok())
+        else {
             return;
         };
         let _ = host.events.send(HostEvent::TimerSetAside {
-            actor: Address::new(kind, key),
+            actor,
             event_id: timer.event_id.clone(),
             action: timer.action.clone(),
             due_at: timer.due_at,
@@ -2468,7 +2455,7 @@ mod tests {
             host.get_or_start("counter", "a").await.unwrap();
         }
         let next = running();
-        let counter_a = Address::new("counter", "a");
+        let counter_a = Address::new("counter", "a").unwrap();
         let call = |name: &'static str| {
             host.call(
                 &counter_a,

@@ -230,7 +230,7 @@ async fn call(ctx: &ActorContext, args: &[u8]) -> Result<Vec<u8>> {
     let begun = Instant::now();
     let mut reply = Host::call_from(
         ctx,
-        &Address::new(kind, key),
+        &Address::new(kind, key)?,
         "called",
         Vec::new(),
         CALL_DEADLINE,
@@ -249,7 +249,9 @@ async fn called(
 ) -> Result<i64> {
     let params = conn.map(ConnHandle::params).unwrap_or_default();
     let caller = match ciborium::from_reader(params.as_slice())? {
-        Some(Caller::Actor(at)) => format!("{}/{}", at.kind, at.key),
+        Some(Caller::Actor(at)) => {
+            format!("{}/{}", at.kind(), at.key())
+        }
         Some(Caller::Client) => "client".to_owned(),
         None => "none".to_owned(),
     };

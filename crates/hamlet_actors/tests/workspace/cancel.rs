@@ -263,8 +263,12 @@ async fn a_cancel_comes_from_the_realm_or_the_agent_it_names() {
         running(&agent_runs(&host, &run("c1", "sleep 5")).await);
     let other = AgentNumber(8);
     let by_other = cancels(&host, &agent(other), Which::All).await;
-    let by_a_stranger =
-        cancels(&host, &Address::new("other", "x"), Which::All).await;
+    let by_a_stranger = cancels(
+        &host,
+        &Address::new("other", "x").unwrap(),
+        Which::All,
+    )
+    .await;
     let meanwhile = status_as(&host, AGENT, command).await;
     let by_the_realm = cancels(&host, &realm(), Which::All).await;
     told_within(&peers, 1, Duration::from_secs(3)).await;

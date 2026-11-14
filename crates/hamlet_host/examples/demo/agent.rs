@@ -127,7 +127,7 @@ impl Handler<Ask> for Agent {
     ) -> Result<Vec<u8>> {
         Host::call_from(
             ctx.inner(),
-            &Address::new(workspace::KIND, workspace::MACHINE),
+            &Address::new(workspace::KIND, workspace::MACHINE)?,
             &ask.name,
             ask.args,
             Duration::from_secs(10),
@@ -294,7 +294,7 @@ async fn run_one(host: &Host, words: &[String]) -> Result<()> {
     };
     let reply = host
         .call(
-            &Address::new(workspace::AGENT, number),
+            &Address::new(workspace::AGENT, number)?,
             Ask::NAME,
             hamlet_actor::action::encode_positional(&ask)?,
             Duration::from_secs(20),

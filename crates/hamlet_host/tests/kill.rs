@@ -13,13 +13,16 @@ use std::process::{Command, ExitStatus, Stdio};
 use std::time::{Duration, Instant};
 
 use act::act;
+use at::at;
 use clock::now_ms;
 use hamlet_actor_core::ActorFactory;
-use hamlet_host::{Address, Host, HostEvent};
+use hamlet_host::{Host, HostEvent};
 use hamlet_testing::Scratch;
 
 #[path = "../examples/demo/act.rs"]
 mod act;
+#[path = "support/at.rs"]
+mod at;
 #[path = "support/clock.rs"]
 mod clock;
 #[path = "../examples/demo/counter.rs"]
@@ -526,7 +529,7 @@ fn aborting_child() {
     let runtime = tokio::runtime::Runtime::new().unwrap();
     runtime.block_on(async {
         let host = Host::open(Path::new(&home), factories()).unwrap();
-        let at = Address::new("counter", "a");
+        let at = at("counter", "a");
         match step.as_str() {
             "arm" => {
                 let k =

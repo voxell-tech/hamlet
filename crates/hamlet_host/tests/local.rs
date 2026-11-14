@@ -12,6 +12,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::Duration;
 
 use act::{DEADLINE, act};
+use at::at;
 use began::began;
 use code::code;
 use files::any_file_of;
@@ -29,6 +30,8 @@ use tracing_subscriber::filter::LevelFilter;
 
 #[path = "../examples/demo/act.rs"]
 mod act;
+#[path = "support/at.rs"]
+mod at;
 #[path = "support/began.rs"]
 mod began;
 #[path = "support/code.rs"]
@@ -1253,12 +1256,7 @@ async fn a_call_to_an_unknown_kind_fails_at_once_and_makes_no_file() {
     let host = Host::open(&dir, factories()).unwrap();
     let error = tokio::time::timeout(
         PROMPT,
-        host.call(
-            &Address::new("nobody", "a"),
-            "get",
-            Vec::new(),
-            DEADLINE,
-        ),
+        host.call(&at("nobody", "a"), "get", Vec::new(), DEADLINE),
     )
     .await
     .expect("the call to an unknown kind waited")
@@ -1281,7 +1279,7 @@ async fn a_call_ends_at_its_deadline() {
     let begun = tokio::time::Instant::now();
     let error = host
         .call(
-            &Address::new("slow", "b"),
+            &at("slow", "b"),
             "nap",
             Vec::new(),
             Duration::from_millis(300),
@@ -1314,7 +1312,7 @@ async fn a_call_waiting_for_its_actors_stop_ends_at_its_deadline() {
     let begun = tokio::time::Instant::now();
     let error = host
         .call(
-            &Address::new("slow", "b"),
+            &at("slow", "b"),
             "get",
             Vec::new(),
             Duration::from_millis(300),
@@ -1779,7 +1777,7 @@ async fn a_start_that_never_finishes_fails_at_its_deadline() {
         let host = host.clone();
         async move {
             host.call(
-                &Address::new("stuck", "a"),
+                &at("stuck", "a"),
                 "get",
                 Vec::new(),
                 Duration::from_secs(30),
@@ -2165,7 +2163,7 @@ async fn call_during_a_start(
         let host = host.clone();
         async move {
             host.call(
-                &Address::new("sleeper", "a"),
+                &at("sleeper", "a"),
                 "get",
                 Vec::new(),
                 Duration::from_secs(10),
@@ -2532,7 +2530,7 @@ async fn boot_goes_past_a_file_it_cannot_read() {
         matches!(
             &event,
             HostEvent::UnreadableFile { actor, .. }
-                if *actor == Address::new("counter", "bad")
+                if *actor == at("counter", "bad")
         ),
         "{event:?}"
     );
@@ -2801,7 +2799,7 @@ async fn a_start_finishes_the_destroy_its_file_holds() {
 
     host.get_or_start("counter", "made").await.unwrap();
     assert_eq!(call(&host, "counter/made", "get").await, 0);
-    let kept_out = Address::new("counter", "kept-out");
+    let kept_out = at("counter", "kept-out");
     let error = host
         .set_aside_timers(&kept_out)
         .await
@@ -2874,7 +2872,7 @@ async fn a_call_to_a_busy_actor_ends_within_its_deadline() {
     let begun = tokio::time::Instant::now();
     let called = host
         .call(
-            &Address::new("slow", "b"),
+            &at("slow", "b"),
             "get",
             Vec::new(),
             Duration::from_millis(300),
@@ -2923,7 +2921,10 @@ async fn a_destroy_that_joins_a_sleep_answers_the_removal_of_its_files()
 /// Each entry point refuses a key with an upper-case letter, as it
 /// refuses one with `/`, before anything reaches the folder: on a
 /// disk that ignores case, `counter/a` and `counter/A` would name one
-/// file. A host refuses to open with such a kind, or such a name.
+/// file. An address of such a key is neither built nor decoded, so
+/// no call reaches the host with it; inside an action's arguments,
+/// the decode of the arguments fails. A host refuses to open with
+/// such a kind, or such a name.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_key_or_kind_with_an_upper_case_letter_is_refused() {
     let dir = Scratch::new("upper-case-key");
@@ -2932,7 +2933,6 @@ async fn a_key_or_kind_with_an_upper_case_letter_is_refused() {
     act(&host, &a, "increment", Vec::new()).await.unwrap();
     let mut accepted = Vec::new();
     for key in ["A", "Ab", "a/b"] {
-        let at = Address::new("counter", key);
         let id = format!("counter/{key}");
         let entries = [
             (
@@ -2945,21 +2945,14 @@ async fn a_key_or_kind_with_an_upper_case_letter_is_refused() {
                     .await
                     .map(drop),
             ),
-            (
-                "call",
-                host.call(&at, "get", Vec::new(), DEADLINE)
-                    .await
-                    .map(drop),
-            ),
             ("destroy", host.stop(&id, ShutdownKind::Destroy).await),
             (
-                "set_aside_timers",
-                host.set_aside_timers(&at).await.map(drop),
+                "new",
+                Address::new("counter", key)
+                    .map(drop)
+                    .map_err(Into::into),
             ),
-            (
-                "rearm_timer",
-                host.rearm_timer(&at, "event", 0).await.map(drop),
-            ),
+            ("decode", decoded(&names(key)).map(drop)),
         ];
         for (entry, result) in entries {
             match result {
@@ -2972,6 +2965,13 @@ async fn a_key_or_kind_with_an_upper_case_letter_is_refused() {
                         .push(format!("{entry} {key}: {other:?}"));
                 }
             }
+        }
+        assert_eq!(
+            Address::new("counter", key).unwrap_err().name(),
+            key
+        );
+        if let Ok(to) = decoded_in_arguments(key) {
+            accepted.push(format!("arguments {key}: {to:?}"));
         }
     }
     let count = act(&host, &a, "get", Vec::new()).await.unwrap();
@@ -3014,4 +3014,45 @@ async fn a_key_or_kind_with_an_upper_case_letter_is_refused() {
         format!("{error:#}").contains("is not a valid host name"),
         "{error:#}"
     );
+}
+
+/// The two names of an address of the kind `counter` and `key`, as
+/// an `Address` is written.
+#[derive(serde::Serialize)]
+struct Names<'a> {
+    kind: &'a str,
+    key: &'a str,
+}
+
+fn names(key: &str) -> Names<'_> {
+    Names {
+        kind: "counter",
+        key,
+    }
+}
+
+/// Decodes `names` by itself, as an address.
+fn decoded(names: &Names) -> anyhow::Result<Address> {
+    let mut bytes = Vec::new();
+    ciborium::into_writer(names, &mut bytes)?;
+    Ok(ciborium::from_reader(bytes.as_slice())?)
+}
+
+/// Decodes, as an action's arguments with named fields, one address
+/// of the kind `counter` and `key`.
+fn decoded_in_arguments(key: &str) -> anyhow::Result<Address> {
+    #[derive(serde::Serialize)]
+    struct Args<'a> {
+        to: Names<'a>,
+    }
+    #[derive(serde::Deserialize)]
+    struct Decoded {
+        to: Address,
+    }
+    let args = hamlet_actor::action::encode_positional(&Args {
+        to: names(key),
+    })?;
+    let Decoded { to } =
+        hamlet_actor::action::decode_positional(&args)?;
+    Ok(to)
 }

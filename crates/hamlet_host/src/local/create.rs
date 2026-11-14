@@ -9,9 +9,9 @@ use hamlet_actor_core::ActorContext;
 use hamlet_actor_error::ActorError;
 
 use super::access::current;
-use super::call::{Caller, admit};
+use super::call::admit;
 use super::{Host, HostInner, Open};
-use crate::directory::Address;
+use crate::address::{Address, Caller};
 
 /// A create of a key that holds an actor.
 #[derive(ActorError)]
@@ -137,7 +137,7 @@ fn reach(
     admit(
         operation,
         Some(&Caller::Actor(from.address()?)),
-        &Address::new(kind, key),
+        &Address::new(kind, key)?,
     )?;
     Ok(from.host)
 }

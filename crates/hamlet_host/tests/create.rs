@@ -9,6 +9,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use anyhow::Context as _;
+use at::at;
 use began::began;
 use code::code;
 use files::any_file_of;
@@ -17,12 +18,14 @@ use hamlet_actor::{
 };
 use hamlet_actor_core::{ActorContext, ShutdownKind};
 use hamlet_actor_error::ActorError;
-use hamlet_host::{Address, Caller, Host, HostOptions, HostRef};
+use hamlet_host::{Caller, Host, HostOptions, HostRef};
 use hamlet_testing::Scratch;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use tokio::sync::Notify;
 
+#[path = "support/at.rs"]
+mod at;
 #[path = "support/began.rs"]
 mod began;
 #[path = "support/call.rs"]
@@ -332,7 +335,7 @@ async fn call<M: Action>(
 where
     M::Output: DeserializeOwned,
 {
-    call::call(host, &Address::new("made", key), action).await
+    call::call(host, &at("made", key), action).await
 }
 
 /// The error of `made`, which was to fail.
@@ -684,9 +687,7 @@ async fn ask(
         key: key.to_owned(),
         input,
     };
-    call::call(host, &Address::new("maker", from), &make)
-        .await
-        .unwrap()
+    call::call(host, &at("maker", from), &make).await.unwrap()
 }
 
 /// An actor makes another as the program does: a create gives the

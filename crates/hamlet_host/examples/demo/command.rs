@@ -22,7 +22,7 @@ pub async fn run(
         return calls(host, kinds, kind, &words[1..]).await;
     }
     let (command, at) = match words {
-        [command, key, ..] => (command.as_str(), address(kind, key)),
+        [command, key, ..] => (command.as_str(), address(kind, key)?),
         _ => bail!("a command takes an actor key"),
     };
     let id = id_of(&at);
@@ -60,13 +60,14 @@ pub async fn run(
             let to = address(
                 kind,
                 words.get(2).context("call takes <to>")?,
-            );
+            )?;
             let caller = make(host, kinds, &at).await?;
             let (n, micros) = call(host, &caller, &to).await?;
             writeln!(
                 out,
                 "call {caller} {}/{} {n} {micros}us",
-                to.kind, to.key
+                to.kind(),
+                to.key()
             )?;
             return Ok(());
         }
@@ -94,7 +95,7 @@ pub async fn run(
         }
         other => bail!("unknown command `{other}`"),
     };
-    let actor_id = host.get_or_start(&at.kind, &at.key).await?;
+    let actor_id = host.get_or_start(at.kind(), at.key()).await?;
     let mut reply = Vec::new();
     for _ in 0..times {
         reply = act(host, &actor_id, command, args.clone()).await?;
@@ -120,11 +121,11 @@ async fn calls(
         if word == "--count" {
             count = number(words.next())?;
         } else {
-            pair.push(address(kind, word));
+            pair.push(address(kind, word)?);
         }
     }
     let (from, to) = match pair.as_slice() {
-        [] => (address(kind, "a"), address(kind, "b")),
+        [] => (address(kind, "a")?, address(kind, "b")?),
         [from, to] => (from.clone(), to.clone()),
         _ => bail!("calls takes no actor, or <from> <to>"),
     };
@@ -154,8 +155,8 @@ async fn calls(
         std::io::stdout(),
         "calls {caller} {}/{} count={count} p50={}us p99={}us \
          from={last}",
-        to.kind,
-        to.key,
+        to.kind(),
+        to.key(),
         at(50),
         at(99)
     )?;
@@ -170,8 +171,8 @@ async fn make(
     kinds: &[String],
     at: &Address,
 ) -> Result<String> {
-    if kinds.contains(&at.kind) {
-        host.get_or_start(&at.kind, &at.key).await
+    if kinds.iter().any(|kind| kind == at.kind()) {
+        host.get_or_start(at.kind(), at.key()).await
     } else {
         Ok(id_of(at))
     }
@@ -207,15 +208,15 @@ pub fn print_reply(
 }
 
 /// The address a word names: `<kind>/<key>`, or `<key>` of `kind`.
-fn address(kind: &str, word: &str) -> Address {
-    match word.split_once('/') {
-        Some((kind, key)) => Address::new(kind, key),
-        None => Address::new(kind, word),
-    }
+fn address(kind: &str, word: &str) -> Result<Address> {
+    Ok(match word.split_once('/') {
+        Some((kind, key)) => Address::new(kind, key)?,
+        None => Address::new(kind, word)?,
+    })
 }
 
 fn id_of(at: &Address) -> String {
-    format!("{}/{}", at.kind, at.key)
+    format!("{}/{}", at.kind(), at.key())
 }
 
 /// `error` as the demo prints it, led by the `group.code` of the

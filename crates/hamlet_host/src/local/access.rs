@@ -11,7 +11,7 @@ use anyhow::{Context, Result};
 use hamlet_actor_core::{ActorContext, ActorLifecycle};
 
 use super::{HostInner, HostOptions, LocalHandle, host_shut_down};
-use crate::directory::Address;
+use crate::address::Address;
 
 /// What an actor reaches of the host that runs it, from its `create`
 /// on: the realm folder and the values the program that opened the
@@ -61,7 +61,7 @@ impl Running {
             self.actor_id.split_once('/').with_context(|| {
                 format!("actor id {} has no kind", self.actor_id)
             })?;
-        Ok(Address::new(kind, key))
+        Ok(Address::new(kind, key)?)
     }
 }
 

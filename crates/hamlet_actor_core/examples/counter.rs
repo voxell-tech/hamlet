@@ -129,7 +129,7 @@ async fn main() -> Result<()> {
     host.get_or_start("counter", "default").await?;
     let count = host
         .call(
-            &Address::new("counter", "default"),
+            &Address::new("counter", "default")?,
             "increment",
             encode_count(1)?,
             Duration::from_secs(60),

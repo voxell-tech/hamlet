@@ -105,7 +105,7 @@ impl Handler<Grant> for Realm {
     ) -> Result<ReachAnswer> {
         let reply = Host::call_from(
             ctx.inner(),
-            &Address::new(workspace::KIND, workspace::MACHINE),
+            &Address::new(workspace::KIND, workspace::MACHINE)?,
             SetReach::NAME,
             hamlet_actor::action::encode_positional(&set)?,
             Duration::from_secs(10),
@@ -123,7 +123,7 @@ impl Handler<Decide> for Realm {
     ) -> Result<AnswerTaken> {
         let reply = Host::call_from(
             ctx.inner(),
-            &Address::new(workspace::KIND, workspace::MACHINE),
+            &Address::new(workspace::KIND, workspace::MACHINE)?,
             ChiefAnswer::NAME,
             hamlet_actor::action::encode_positional(&answer)?,
             Duration::from_secs(10),
@@ -209,7 +209,7 @@ pub async fn run(host: &Host, words: &[String]) -> Result<()> {
         .await?;
     let reply = host
         .call(
-            &Address::new(workspace::REALM, workspace::REALM_KEY),
+            &Address::new(workspace::REALM, workspace::REALM_KEY)?,
             Grant::NAME,
             hamlet_actor::action::encode_positional(&Grant(set))?,
             Duration::from_secs(20),
@@ -311,7 +311,7 @@ async fn answer_call(
         .await?;
     let reply = host
         .call(
-            &Address::new(workspace::REALM, workspace::REALM_KEY),
+            &Address::new(workspace::REALM, workspace::REALM_KEY)?,
             Decide::NAME,
             hamlet_actor::action::encode_positional(&decide)?,
             Duration::from_secs(20),

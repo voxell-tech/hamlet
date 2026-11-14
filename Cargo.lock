@@ -4859,6 +4859,7 @@ dependencies = [
  "parking_lot",
  "rusqlite",
  "serde",
+ "thiserror 2.0.21",
  "tokio",
  "tracing",
  "tracing-subscriber",

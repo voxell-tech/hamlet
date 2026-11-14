@@ -10,39 +10,11 @@ use anyhow::{Context, Result};
 use hamlet_actor_core::error::ActorRuntime;
 use hamlet_actor_core::host::ActionTimedOut;
 use hamlet_actor_core::{ActorContext, ActorFactory};
-use serde::{Deserialize, Serialize};
 use tracing::Instrument;
 
 use super::access::current;
 use super::{Host, HostInner, Open, host_shut_down};
-use crate::directory::Address;
-
-/// Who made a call, as the host stamps it. The callee reads it from
-/// its call's connection parameters, which are the CBOR of an
-/// `Option<Caller>`: a call that no actor and no client made carries
-/// none.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Caller {
-    /// The actor at this address.
-    Actor(Address),
-    /// A client of the program that opened the host.
-    Client,
-}
-
-impl std::fmt::Display for Caller {
-    fn fmt(
-        &self,
-        f: &mut std::fmt::Formatter<'_>,
-    ) -> std::fmt::Result {
-        match self {
-            Self::Actor(from) => {
-                write!(f, "{}/{}", from.kind, from.key)
-            }
-            Self::Client => f.write_str("client"),
-        }
-    }
-}
+use crate::address::{Address, Caller};
 
 impl Host {
     /// Calls the action `name` of the actor at `to`, with no caller,
@@ -128,7 +100,7 @@ impl HostInner {
         deadline: Duration,
     ) -> Result<Vec<u8>> {
         admit("call", caller.as_ref(), to)?;
-        let actor_id = self.located(&to.kind, &to.key)?;
+        let actor_id = self.located(to.kind(), to.key())?;
         let params = stamp(caller.as_ref())?;
         let span = tracing::debug_span!(
             "call",
@@ -172,10 +144,7 @@ pub(super) fn admit(
         Some(Caller::Actor(from)) if from == to => {
             Err(ActorRuntime::InvalidOperation {
                 operation: operation.to_owned(),
-                reason: format!(
-                    "the actor {}/{} is its own target",
-                    to.kind, to.key
-                ),
+                reason: format!("the actor {to} is its own target"),
             }
             .build())
         }
@@ -200,7 +169,7 @@ pub(super) fn check_kinds(
     factories: &HashMap<String, ActorFactory>,
 ) -> Result<()> {
     let stamps =
-        [Caller::Client, Caller::Actor(Address::new("k", "k"))]
+        [Caller::Client, Caller::Actor(Address::new("k", "k")?)]
             .iter()
             .map(|caller| stamp(Some(caller)))
             .collect::<Result<Vec<_>>>()?;
@@ -216,4 +185,32 @@ pub(super) fn check_kinds(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The bytes the host wrote for each stamp before `Address` was
+    /// checked when built, and for the sample of an actor's stamp
+    /// that `check_kinds` gives each kind.
+    #[test]
+    fn a_stamp_has_the_bytes_it_had() {
+        let actor = |kind, key| {
+            Caller::Actor(Address::new(kind, key).unwrap())
+        };
+        assert_eq!(stamp(None).unwrap(), [0xf6]);
+        assert_eq!(
+            stamp(Some(&Caller::Client)).unwrap(),
+            b"\x66client"
+        );
+        assert_eq!(
+            stamp(Some(&actor("asker", "a"))).unwrap(),
+            b"\xa1\x65actor\xa2\x64kind\x65asker\x63key\x61a"
+        );
+        assert_eq!(
+            stamp(Some(&actor("k", "k"))).unwrap(),
+            b"\xa1\x65actor\xa2\x64kind\x61k\x63key\x61k"
+        );
+    }
 }

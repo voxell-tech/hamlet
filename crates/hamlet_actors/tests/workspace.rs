@@ -191,15 +191,15 @@ fn peer(kind: &str) -> ActorFactory {
 }
 
 fn workspace_address() -> Address {
-    Address::new(workspace::KIND, workspace::MACHINE)
+    Address::new(workspace::KIND, workspace::MACHINE).unwrap()
 }
 
 fn realm() -> Address {
-    Address::new(workspace::REALM, workspace::REALM_KEY)
+    Address::new(workspace::REALM, workspace::REALM_KEY).unwrap()
 }
 
 fn agent(number: AgentNumber) -> Address {
-    Address::new(workspace::AGENT, number.0.to_string())
+    Address::new(workspace::AGENT, number.0.to_string()).unwrap()
 }
 
 /// A host on `dir` with the workspace and the callers' kinds, given
@@ -268,7 +268,7 @@ async fn call_as(
     name: &str,
     args: Vec<u8>,
 ) -> anyhow::Result<Vec<u8>> {
-    host.get_or_start(&from.kind, &from.key).await?;
+    host.get_or_start(from.kind(), from.key()).await?;
     let forward = Forward {
         name: name.to_owned(),
         args,
@@ -396,7 +396,7 @@ async fn only_the_realm_sets_a_reach() {
     for kind in ["agent", "other"] {
         let reply = call_as(
             &host,
-            &Address::new(kind, "caller"),
+            &Address::new(kind, "caller").unwrap(),
             SetReach::NAME,
             set_reach(5, reach(Some("/"))),
         )

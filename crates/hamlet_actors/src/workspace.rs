@@ -241,10 +241,13 @@ impl Workspace {
     }
 
     async fn fetch_secrets(&self, ctx: &Ctx<Self>) -> Result<()> {
-        let answer =
-            call_actor(ctx, Address::new(REALM, REALM_KEY), &Secrets)
-                .await
-                .context("fetch the realm's secrets")?;
+        let answer = call_actor(
+            ctx,
+            Address::new(REALM, REALM_KEY)?,
+            &Secrets,
+        )
+        .await
+        .context("fetch the realm's secrets")?;
         let list =
             ciborium::from_reader::<SecretList, _>(answer.as_slice())
                 .context("decode the realm's secrets")?;
@@ -700,10 +703,11 @@ async fn tell(
     outcome: Outcome,
 ) {
     let id = call.0.clone();
-    let to = Address::new(AGENT, agent.0.to_string());
-    if let Err(error) =
+    let told = async {
+        let to = Address::new(AGENT, agent.0.to_string())?;
         call_actor(ctx, to, &Finished { call, outcome }).await
-    {
+    };
+    if let Err(error) = told.await {
         tracing::warn!(
             ?error,
             agent = agent.0,
@@ -986,7 +990,7 @@ fn caller(ctx: &Ctx<Workspace>) -> Result<Option<Caller>> {
 }
 
 fn is_the_realm(caller: Option<&Caller>) -> bool {
-    matches!(caller, Some(Caller::Actor(from)) if from.kind == REALM)
+    matches!(caller, Some(Caller::Actor(from)) if from.kind() == REALM)
 }
 
 fn realm_calling(
@@ -1023,11 +1027,11 @@ pub fn agent_of(
     let Some(Caller::Actor(from)) = caller else {
         return Err(CallerRefusal::NotAnAgent);
     };
-    if from.kind != AGENT {
+    if from.kind() != AGENT {
         return Err(CallerRefusal::NotAnAgent);
     }
     let caller = from
-        .key
+        .key()
         .parse()
         .map(AgentNumber)
         .map_err(|_| CallerRefusal::NotAnAgent)?;
@@ -1048,7 +1052,7 @@ fn refused(
 ) {
     let caller = match caller {
         Some(Caller::Actor(from)) => {
-            format!("{}/{}", from.kind, from.key)
+            format!("{}/{}", from.kind(), from.key())
         }
         Some(Caller::Client) => "client".to_owned(),
         None => "none".to_owned(),
@@ -1063,7 +1067,7 @@ mod tests {
     use super::*;
 
     fn actor(kind: &str, key: &str) -> Option<Caller> {
-        Some(Caller::Actor(Address::new(kind, key)))
+        Some(Caller::Actor(Address::new(kind, key).unwrap()))
     }
 
     #[test]

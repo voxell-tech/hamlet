@@ -14,6 +14,7 @@ use std::time::Duration;
 use act::act;
 use anyhow::{Context as _, Result};
 use async_trait::async_trait;
+use at::at;
 use clock::now_ms;
 use code::code;
 use hamlet_actor::{
@@ -27,13 +28,15 @@ use hamlet_actor_core::{
     ActorContext, ActorEvent, ActorFactory, ActorStart, BindParam,
     ColumnValue, ShutdownKind,
 };
-use hamlet_host::{Address, Caller, Host, HostEvent, HostOptions};
+use hamlet_host::{Caller, Host, HostEvent, HostOptions};
 use hamlet_testing::Scratch;
 use serde::{Deserialize, Serialize};
 use tokio::time::{Instant, sleep};
 
 #[path = "../examples/demo/act.rs"]
 mod act;
+#[path = "support/at.rs"]
+mod at;
 #[path = "support/clock.rs"]
 mod clock;
 #[path = "support/code.rs"]
@@ -459,7 +462,7 @@ impl Handler<Pass> for Relay {
         if code == "action_timed_out" {
             Host::call_from(
                 ctx.inner(),
-                &Address::new("relay", "callee"),
+                &at("relay", "callee"),
                 Nap::NAME,
                 Vec::new(),
                 Duration::from_millis(50),
@@ -565,10 +568,8 @@ async fn a_one_shot_whose_handler_returns_a_calls_error_runs_once() {
         let runs = fuse_runs(
             act(&host, id, "runs", Vec::new()).await.unwrap(),
         );
-        let set_aside = host
-            .set_aside_timers(&Address::new("relay", *code))
-            .await
-            .unwrap();
+        let set_aside =
+            host.set_aside_timers(&at("relay", code)).await.unwrap();
         ran.push((*code, runs, set_aside.len()));
     }
     host.shutdown().await.unwrap();
@@ -803,7 +804,7 @@ async fn a_one_shot_that_drops_its_reply_is_set_aside_after_five_runs()
 
     let host =
         Host::open(&dir, counters_that_sleep_soon(&starts)).unwrap();
-    let at = Address::new("counter", "a");
+    let at = at("counter", "a");
     let timers = host.set_aside_timers(&at).await.unwrap();
     let [timer] = &timers[..] else {
         panic!("set aside: {timers:?}");
@@ -961,7 +962,7 @@ async fn a_loop_that_panics_before_its_one_shot_sets_it_aside_after_five_starts(
     .execute("DELETE FROM poison", [])
     .unwrap();
     let host = Host::open(&dir, poisoned(&starts)).unwrap();
-    let at = Address::new("poison", "a");
+    let at = at("poison", "a");
     let timers = host.set_aside_timers(&at).await.unwrap();
     let [timer] = &timers[..] else {
         panic!("set aside: {timers:?}");
@@ -1650,10 +1651,8 @@ async fn a_one_shot_whose_handler_returns_an_error_runs_once() {
     runs_settle(&host, &id, "error", each_once(1)).await;
     host.stop(&id, ShutdownKind::Sleep).await.unwrap();
     runs_settle(&host, &id, "error", each_once(1)).await;
-    let set_aside = host
-        .set_aside_timers(&Address::new("timed", "a"))
-        .await
-        .unwrap();
+    let set_aside =
+        host.set_aside_timers(&at("timed", "a")).await.unwrap();
     assert!(set_aside.is_empty(), "{set_aside:?}");
     host.shutdown().await.unwrap();
 }

@@ -20,6 +20,6 @@ pub async fn act(
         actor_id.split_once('/').with_context(|| {
             format!("`{actor_id}` is not <kind>/<key>")
         })?;
-    host.call(&Address::new(kind, key), action, args, DEADLINE)
+    host.call(&Address::new(kind, key)?, action, args, DEADLINE)
         .await
 }
