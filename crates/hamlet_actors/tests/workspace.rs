@@ -20,9 +20,9 @@ use hamlet_messages::workspace::reach::{
 };
 use hamlet_messages::workspace::{
     AgentNumber, CallId, CallRefusal, CallerRefusal, CommandEnd,
-    CommandId, CommandStatus, ConversationId, Exit, ReachAnswer,
-    ReachVersion, RealmRefusal, RealmTask, Run, RunAnswer, SetReach,
-    Shell,
+    CommandId, CommandStatus, ConversationId, Exit, Program,
+    ReachAnswer, ReachVersion, RealmRefusal, RealmTask, Run,
+    RunAnswer, SetReach, Shell,
 };
 use hamlet_sandbox::Sandbox;
 use hamlet_testing::Scratch;
@@ -43,6 +43,9 @@ mod cancel;
 
 #[path = "workspace/workers.rs"]
 mod workers;
+
+#[path = "workspace/tools.rs"]
+mod tools;
 
 const AGENT: AgentNumber = AgentNumber(7);
 
@@ -461,10 +464,12 @@ fn run(call: &str, script: &str) -> Run {
         call: CallId(call.to_owned()),
         conversation: ConversationId("c1".to_owned()),
         realm_task: None,
-        shell: Shell::Bash,
-        script: script.to_owned(),
-        network: false,
-        timeout_ms: None,
+        program: Program::Script {
+            shell: Shell::Bash,
+            script: script.to_owned(),
+            network: false,
+            timeout_ms: None,
+        },
     }
 }
 
@@ -940,10 +945,12 @@ async fn a_command_past_its_limit_ends_timed_out() {
         let peers = answering_within(wait_ms);
         let host = host_with(&dir, peers.clone()).await;
         realm_sets(&host, 1, reach(None)).await;
-        let call = Run {
-            timeout_ms: Some(limit_ms),
-            ..run("c1", "(sleep 2; touch late) & sleep 2; touch late")
-        };
+        let mut call =
+            run("c1", "(sleep 2; touch late) & sleep 2; touch late");
+        if let Program::Script { timeout_ms, .. } = &mut call.program
+        {
+            *timeout_ms = Some(limit_ms);
+        }
         let answer = agent_runs(&host, &call).await;
         told_within(&peers, 1, Duration::from_secs(3)).await;
         tokio::time::sleep(Duration::from_millis(2500)).await;

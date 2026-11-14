@@ -297,10 +297,21 @@ impl Waiters {
     }
 }
 
+/// What a command's thread starts.
+pub enum Exec {
+    /// A script, in bash.
+    Script(String),
+    /// A tool added by hand, given `arguments` on its standard input.
+    Tool {
+        argv: Vec<String>,
+        arguments: String,
+    },
+}
+
 /// Everything a command's thread needs.
 pub struct Spec {
     pub command: CommandId,
-    pub script: String,
+    pub exec: Exec,
     pub cwd: PathBuf,
     pub policy: Policy,
     pub sandbox: Sandbox,
@@ -394,29 +405,62 @@ async fn ran(spec: Spec) -> CommandEnd {
         Err(error) => Exit::Failed(error.to_string()),
         Ok(env) => {
             policy_hash = env.policy_hash().to_owned();
-            let argv =
-                ["bash".to_owned(), "-c".to_owned(), spec.script];
-            let mut push = |text: &str| output.push(text);
-            let streamed = env.stream(
-                Launch::Shell(&argv),
-                spec.timeout,
-                &spec.secrets,
-                &spec.leftovers,
-                &mut push,
-            );
-            // A cancel fired before the first poll starts nothing;
-            // one fired later drops the stream, which kills the
-            // command's group.
-            tokio::select! {
-                biased;
-                () = spec.cancel.cancelled() => Exit::Cancelled,
-                ran = streamed => match ran {
-                    Ok(code) => Exit::Code(code),
-                    Err(ExecError::Timeout { .. }) => Exit::TimedOut,
-                    Err(
-                        ExecError::Spawn(why) | ExecError::Spill(why),
-                    ) => Exit::Failed(why),
-                },
+            let shell;
+            let input;
+            let launch = match &spec.exec {
+                Exec::Script(script) => {
+                    shell = [
+                        "bash".to_owned(),
+                        "-c".to_owned(),
+                        script.clone(),
+                    ];
+                    Ok(Launch::Shell(&shell))
+                }
+                Exec::Tool { argv, arguments } => {
+                    match env.create_temp_file().and_then(|file| {
+                        env.write_file(&file, arguments)?;
+                        Ok(file)
+                    }) {
+                        Ok(file) => {
+                            input = file;
+                            Ok(Launch::Program {
+                                argv,
+                                input: &input,
+                            })
+                        }
+                        Err(error) => Err(error.message),
+                    }
+                }
+            };
+            match launch {
+                Err(why) => Exit::Failed(why),
+                Ok(launch) => {
+                    let mut push = |text: &str| output.push(text);
+                    let streamed = env.stream(
+                        launch,
+                        spec.timeout,
+                        &spec.secrets,
+                        &spec.leftovers,
+                        &mut push,
+                    );
+                    // A cancel fired before the first poll starts
+                    // nothing; one fired later drops the stream,
+                    // which kills the command's group.
+                    tokio::select! {
+                        biased;
+                        () = spec.cancel.cancelled() => Exit::Cancelled,
+                        ran = streamed => match ran {
+                            Ok(code) => Exit::Code(code),
+                            Err(ExecError::Timeout { .. }) => {
+                                Exit::TimedOut
+                            }
+                            Err(
+                                ExecError::Spawn(why)
+                                | ExecError::Spill(why),
+                            ) => Exit::Failed(why),
+                        },
+                    }
+                }
             }
         }
     };
@@ -448,7 +492,7 @@ mod tests {
     fn spec(cwd: &std::path::Path, script: &str) -> Spec {
         Spec {
             command: CommandId(1),
-            script: script.to_owned(),
+            exec: Exec::Script(script.to_owned()),
             cwd: cwd.to_owned(),
             policy: Policy {
                 rw: vec![cwd.to_owned()],

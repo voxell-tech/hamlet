@@ -430,15 +430,20 @@ impl Workspace {
         let request = Request::of(&wait.request)?;
         let path = text(request.path);
         let held = self.paths.hold(&path).await;
-        let (reach, secrets) = match self.recheck(ctx, wait).await? {
-            Rechecked::Pass { reach, secrets, .. } => {
-                (reach, secrets)
-            }
-            Rechecked::Refused(refusal) => {
-                drop(held);
-                return self.not_run(ctx, wait, refusal).await;
-            }
+        let op = Op::Change {
+            conversation: request.conversation,
+            path: request.path,
         };
+        let (reach, secrets) =
+            match self.recheck(ctx, wait, &op).await? {
+                Rechecked::Pass { reach, secrets, .. } => {
+                    (reach, secrets)
+                }
+                Rechecked::Refused(refusal) => {
+                    drop(held);
+                    return self.not_run(ctx, wait, refusal).await;
+                }
+            };
         let placement =
             self.placement(wait.agent, &reach, Purpose::FileTool)?;
         let was =

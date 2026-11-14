@@ -7,6 +7,7 @@ mod files;
 mod pending;
 pub mod reach;
 mod run;
+mod tools;
 mod workers;
 
 use std::collections::HashMap;
@@ -26,12 +27,12 @@ use hamlet_messages::workspace::reach::{Reach, SecretsVersion};
 use hamlet_messages::workspace::{
     AgentNumber, AnswerTaken, CallId, CallRefusal, CallerRefusal,
     Cancel, CancelAnswer, ChiefAnswer, CommandEnd, CommandId,
-    CommandStatus, Exit, Lapse, ReachAnswer, RealmRefusal, Run,
-    RunAnswer, SetReach, Which,
+    CommandStatus, Exit, Lapse, ListTools, Program, ReachAnswer,
+    RealmRefusal, Run, RunAnswer, SetReach, ToolList, Which,
 };
 use hamlet_sandbox::{AllLeftovers, Sandbox};
 
-use self::reach::{Gate, Op, Purpose, RealmFolder};
+use self::reach::{Gate, Purpose, RealmFolder};
 
 pub const KIND: &str = "workspace";
 
@@ -108,6 +109,7 @@ impl Actor for Workspace {
         Run,
         CommandStatus,
         Cancel,
+        ListTools,
         ReadFile,
         Search,
         Find,
@@ -180,6 +182,28 @@ impl Workspace {
         Ok(placement)
     }
 
+    /// The policy `ready` runs under for `agent`, with the network
+    /// when `network`: a script's from the agent's reach, a tool's
+    /// from its manifest.
+    fn program_placement(
+        &self,
+        agent: AgentNumber,
+        reach: &Reach,
+        ready: &tools::Ready<'_>,
+        network: bool,
+    ) -> Result<reach::Placement> {
+        match ready {
+            tools::Ready::Script { .. } => self.placement(
+                agent,
+                reach,
+                Purpose::Command { network },
+            ),
+            tools::Ready::Tool { tool, .. } => {
+                Ok(tool.placement(network))
+            }
+        }
+    }
+
     /// The version of the secrets held, and the list.
     fn held(&self) -> (Option<SecretsVersion>, Arc<Vec<String>>) {
         let held = self
@@ -241,7 +265,18 @@ impl Workspace {
 struct Opened {
     running: run::Running,
     placement: reach::Placement,
+    exec: (run::Exec, Duration),
     secrets: Arc<Vec<String>>,
+}
+
+impl Handler<ListTools> for Workspace {
+    async fn handle(
+        self: Arc<Self>,
+        _: Ctx<Self>,
+        _: ListTools,
+    ) -> Result<ToolList> {
+        Ok(tools::list(&self.home))
+    }
 }
 
 impl Handler<Run> for Workspace {
@@ -308,7 +343,7 @@ impl Handler<Run> for Workspace {
         let running = opened.running;
         let spec = self.spec(
             &running,
-            &run,
+            opened.exec,
             opened.placement,
             opened.secrets,
             leftovers,
@@ -319,25 +354,23 @@ impl Handler<Run> for Workspace {
 }
 
 impl Workspace {
-    /// The command `running` of `run`, as its thread runs it.
+    /// The command `running`, which starts `exec` within its time
+    /// limit, as its thread runs it.
     fn spec(
         &self,
         running: &run::Running,
-        run: &Run,
+        (exec, timeout): (run::Exec, Duration),
         placement: reach::Placement,
         secrets: Arc<Vec<String>>,
         leftovers: hamlet_sandbox::Leftovers,
     ) -> run::Spec {
         run::Spec {
             command: running.command,
-            script: run.script.clone(),
+            exec,
             cwd: placement.cwd,
             policy: placement.policy,
             sandbox: self.sandbox,
-            timeout: run
-                .timeout_ms
-                .map_or(run::LONGEST, Duration::from_millis)
-                .min(run::LONGEST),
+            timeout,
             secrets,
             leftovers,
             output: self
@@ -358,22 +391,27 @@ impl Workspace {
     ) -> Result<AnswerTaken> {
         let agent = wait.agent;
         let leftovers = self.leftovers.of(i64::try_from(agent.0)?);
-        let (reach, network, secrets) =
-            match self.recheck(ctx, wait).await? {
-                pending::Rechecked::Pass {
-                    reach,
-                    network,
-                    secrets,
-                } => (reach, network, secrets),
-                pending::Rechecked::Refused(refusal) => {
-                    return self.not_run(ctx, wait, refusal).await;
-                }
-            };
-        let placement = self.placement(
-            agent,
-            &reach,
-            Purpose::Command { network },
-        )?;
+        let ready = match tools::Ready::of(&self.home, run) {
+            Ok(ready) => ready,
+            Err(refusal) => {
+                return self.not_run(ctx, wait, refusal).await;
+            }
+        };
+        let (reach, network, secrets) = match self
+            .recheck(ctx, wait, &ready.op(&run.conversation))
+            .await?
+        {
+            pending::Rechecked::Pass {
+                reach,
+                network,
+                secrets,
+            } => (reach, network, secrets),
+            pending::Rechecked::Refused(refusal) => {
+                return self.not_run(ctx, wait, refusal).await;
+            }
+        };
+        let placement =
+            self.program_placement(agent, &reach, &ready, network)?;
         let tx = ctx.sql().begin_transaction(None).await?;
         let settled =
             pending::settle(&tx, wait, "running", None, None).await;
@@ -404,8 +442,13 @@ impl Workspace {
             self.ran(command);
             return Err(error);
         }
-        let spec =
-            self.spec(&running, run, placement, secrets, leftovers);
+        let spec = self.spec(
+            &running,
+            ready.exec(),
+            placement,
+            secrets,
+            leftovers,
+        );
         self.clone().start(ctx, &running, spec);
         Ok(AnswerTaken::Runs)
     }
@@ -668,16 +711,20 @@ impl Workspace {
             }
             return Ok(Decision::Answer(answer_of(row)));
         }
+        let ready = match tools::Ready::of(&self.home, run) {
+            Ok(ready) => ready,
+            Err(refusal) => {
+                return Ok(Decision::Answer(RunAnswer::Refused(
+                    refusal,
+                )));
+            }
+        };
         let in_force = reach::in_force(tx, agent).await?;
         let reach_version =
             in_force.as_ref().map(|(version, _)| *version);
         let reach = in_force.map(|(_, reach)| reach);
         let (held, secrets) = self.held();
-        let op = Op::Command {
-            conversation: &run.conversation,
-            script: &run.script,
-            network: run.network,
-        };
+        let op = ready.op(&run.conversation);
         let network = match reach::gate(
             &self.home,
             agent,
@@ -701,7 +748,7 @@ impl Workspace {
                     reach_version: reach_version
                         .context("a chief is asked with no reach")?,
                     base_hash: None,
-                    words: run.script.clone(),
+                    words: tools::words(run),
                     change: None,
                 };
                 return Ok(
@@ -718,12 +765,13 @@ impl Workspace {
                 return Ok(Decision::Fetch(version));
             }
         };
-        let placement = self.placement(
+        let placement = self.program_placement(
             agent,
             reach
                 .as_ref()
                 .context("the gate passed a command with no reach")?,
-            Purpose::Command { network },
+            &ready,
+            network,
         )?;
         let command =
             run::open(tx, agent, &run.call, request_hash.to_vec())
@@ -745,6 +793,7 @@ impl Workspace {
         Ok(Decision::Open(Opened {
             running,
             placement,
+            exec: ready.exec(),
             secrets,
         }))
     }
@@ -769,15 +818,25 @@ fn answer_of(row: run::Row) -> RunAnswer {
 /// Why `run` is not a request the workspace takes, in today's words.
 fn checked(run: &Run) -> Result<(), String> {
     checked_call(&run.call)?;
-    if run.script.len() > 1024 * 1024 {
-        return Err("Invalid command: longer than 1 MiB".to_owned());
+    match &run.program {
+        Program::Script { script, .. }
+            if script.len() > 1024 * 1024 =>
+        {
+            Err("Invalid command: longer than 1 MiB".to_owned())
+        }
+        Program::Script {
+            timeout_ms: Some(0),
+            ..
+        } => Err("Invalid timeout: must be a positive number of \
+                  seconds"
+            .to_owned()),
+        Program::Tool { arguments, .. }
+            if arguments.len() > 1024 * 1024 =>
+        {
+            Err("Invalid arguments: longer than 1 MiB".to_owned())
+        }
+        Program::Script { .. } | Program::Tool { .. } => Ok(()),
     }
-    if run.timeout_ms == Some(0) {
-        return Err("Invalid timeout: must be a positive number of \
-                    seconds"
-            .to_owned());
-    }
-    Ok(())
 }
 
 /// Why `call` is not an id the workspace takes, in today's words.

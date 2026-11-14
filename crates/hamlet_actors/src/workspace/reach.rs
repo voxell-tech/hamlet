@@ -165,7 +165,7 @@ impl RealmFolder {
     }
 
     /// Tools a chief adds by hand (C17).
-    fn tools(&self) -> PathBuf {
+    pub fn tools(&self) -> PathBuf {
         self.0.join("tools")
     }
 
@@ -186,6 +186,12 @@ pub enum Op<'a> {
     Command {
         conversation: &'a ConversationId,
         script: &'a str,
+        network: bool,
+    },
+    /// A tool added by hand, whose manifest says whether it reaches
+    /// the network.
+    Tool {
+        conversation: &'a ConversationId,
         network: bool,
     },
     Change {
@@ -247,8 +253,10 @@ pub fn gate(
         Gate::NeedsSecrets(footing.secrets)
     } else if needs.is_empty() {
         Gate::Run {
-            network: matches!(op, Op::Command { .. })
-                && footing.network,
+            network: matches!(
+                op,
+                Op::Command { .. } | Op::Tool { .. }
+            ) && footing.network,
         }
     } else {
         Gate::NeedsChief(needs)
@@ -273,26 +281,24 @@ fn needs(
             conversation,
             script,
             network,
-        } => {
-            let mut needs = Vec::new();
-            if (network || is_networked(script)) && !footing.network {
-                needs.push(Need::Network);
-            }
-            if is_manual(footing)
-                && !trusts(footing, conversation, |trust| {
-                    trust.commands
-                })
-            {
-                needs.push(Need::Command);
-            }
-            Ok(needs)
-        }
+        } => Ok(program_needs(
+            footing,
+            conversation,
+            network || is_networked(script),
+        )),
+        Op::Tool {
+            conversation,
+            network,
+        } => Ok(program_needs(footing, conversation, network)),
         Op::Change { conversation, path } => {
             let path = normalized(path);
             if home.is_in_a_filesystem(&path) {
                 return Err(Refusal::AgentFilesystem { path });
             }
-            if !is_in_any(&path, &file_tool()?.policy.rw) {
+            let policy = file_tool()?.policy;
+            if !is_in_any(&path, &policy.rw)
+                || is_in_any(&path, &policy.locked)
+            {
                 return Err(Refusal::OutsideReach {
                     path,
                     access: Access::Change,
@@ -381,11 +387,33 @@ pub fn placement(
         }
     };
     policy.net = purpose == Purpose::Command { network: true };
+    // Read-only also inside a project folder that holds the realm's
+    // folder (C18).
+    policy.locked = vec![home.library(), home.tools()];
     let cwd = footing
         .project
         .as_ref()
         .map_or(own, |project| project.folder.clone());
     Some(Placement { policy, cwd })
+}
+
+/// What a command or a tool added by hand in `conversation` waits
+/// for a chief to allow, given whether it reaches the network.
+fn program_needs(
+    footing: &Footing,
+    conversation: &ConversationId,
+    network: bool,
+) -> Vec<Need> {
+    let mut needs = Vec::new();
+    if network && !footing.network {
+        needs.push(Need::Network);
+    }
+    if is_manual(footing)
+        && !trusts(footing, conversation, |trust| trust.commands)
+    {
+        needs.push(Need::Command);
+    }
+    needs
 }
 
 /// Whether the footing's project is in manual mode.

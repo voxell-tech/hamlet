@@ -58,25 +58,6 @@ pub(super) enum Pending {
     Edit(EditFile),
 }
 
-impl Pending {
-    /// The call as the gate weighs it.
-    pub(super) fn op(&self) -> Op<'_> {
-        match self {
-            Self::Run(run) => Op::Command {
-                conversation: &run.conversation,
-                script: &run.script,
-                network: run.network,
-            },
-            Self::Write(WriteFile {
-                conversation, path, ..
-            })
-            | Self::Edit(EditFile {
-                conversation, path, ..
-            }) => Op::Change { conversation, path },
-        }
-    }
-}
-
 /// A wait as it is stored.
 pub(super) struct Wait {
     pub agent: AgentNumber,
@@ -423,6 +404,7 @@ impl Workspace {
         &self,
         ctx: &Ctx<Self>,
         wait: &Wait,
+        op: &Op<'_>,
     ) -> Result<Rechecked> {
         let mut fetched = false;
         loop {
@@ -444,7 +426,7 @@ impl Workspace {
                 wait.agent,
                 Some(&reach),
                 held,
-                &wait.request.op(),
+                op,
             ) {
                 Gate::NeedsSecrets(version) => {
                     self.fetch_secrets(ctx, version, &mut fetched)

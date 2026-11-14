@@ -18,8 +18,10 @@ hamlet_messages.workspace = true
 hamlet_os.workspace = true
 hamlet_sandbox.workspace = true
 hamlet_workspace_wire.workspace = true
+jsonschema = { version = "0.33", default-features = false }
 regex.workspace = true
 serde.workspace = true
+serde_json.workspace = true
 sha2.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
