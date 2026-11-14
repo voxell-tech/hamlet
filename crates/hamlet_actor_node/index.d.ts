@@ -570,15 +570,32 @@ export declare class CoreRegistry {
      */
     start(dir: string): Promise<Array<string>>;
     /**
-     * Calls `action` on the actor of `kind` and `key`, starting it
-     * first if it is not running.
+     * Makes the actor of `kind` and `key` with `input`, the CBOR
+     * its kind's state is made from, and starts it. Fails with
+     * `actor.duplicate_key` when the key has an actor. Returns its
+     * id.
      */
-    action(
+    create(kind: string, key: string, input: Buffer): Promise<string>;
+    /**
+     * The actor of `kind` and `key`, made with no input when the key
+     * has none, and started. Returns its id. For tests: a host's own
+     * code makes an actor with `create`.
+     */
+    getOrStart(kind: string, key: string): Promise<string>;
+    /**
+     * Calls the action `name` of the actor of `kind` and `key`,
+     * started from its file first if it is not running, within
+     * the deadline, in milliseconds. A call never makes its actor:
+     * for a key with no actor it fails with `actor.not_found`.
+     */
+    call(
         kind: string,
         key: string,
-        action: string,
+        name: string,
         args: Buffer,
+        deadlineMs: number,
     ): Promise<Buffer>;
+    /** Shuts the host down: stops every actor and lets the folder go. */
     shutdown(): Promise<void>;
 }
 export declare class Queue {

@@ -5,9 +5,10 @@
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
+use std::time::Duration;
 
 use hamlet_actor_core::ActorFactory;
-use hamlet_host::Host;
+use hamlet_host::{Address, Cause, Host};
 use napi::bindgen_prelude::Buffer;
 use napi_derive::napi;
 use parking_lot::Mutex;
@@ -59,33 +60,71 @@ impl CoreRegistry {
         host.boot().await.map_err(napi_anyhow_error)
     }
 
-    /// Calls `action` on the actor of `kind` and `key`, starting it
-    /// first if it is not running.
+    /// Makes the actor of `kind` and `key` with `input`, the CBOR
+    /// its kind's state is made from, and starts it. Fails with
+    /// `actor.duplicate_key` when the key has an actor. Returns its
+    /// id.
     #[napi]
-    pub async fn action(
+    pub async fn create(
         &self,
         kind: String,
         key: String,
-        action: String,
-        args: Buffer,
-    ) -> napi::Result<Buffer> {
-        let host = self.host()?;
-        let actor_id = host
+        input: Buffer,
+    ) -> napi::Result<String> {
+        self.host()?
+            .create(&kind, &key, input.to_vec())
+            .await
+            .map_err(napi_anyhow_error)
+    }
+
+    /// The actor of `kind` and `key`, made with no input when the key
+    /// has none, and started. Returns its id. For tests: a host's own
+    /// code makes an actor with `create`.
+    #[napi]
+    pub async fn get_or_start(
+        &self,
+        kind: String,
+        key: String,
+    ) -> napi::Result<String> {
+        self.host()?
             .get_or_start(&kind, &key)
             .await
-            .map_err(napi_anyhow_error)?;
-        let output = host
-            .action(&actor_id, &action, args.to_vec())
+            .map_err(napi_anyhow_error)
+    }
+
+    /// Calls the action `name` of the actor of `kind` and `key`,
+    /// started from its file first if it is not running, within
+    /// the deadline, in milliseconds. A call never makes its actor:
+    /// for a key with no actor it fails with `actor.not_found`.
+    #[napi]
+    pub async fn call(
+        &self,
+        kind: String,
+        key: String,
+        name: String,
+        args: Buffer,
+        deadline_ms: u32,
+    ) -> napi::Result<Buffer> {
+        let output = self
+            .host()?
+            .call(
+                &Address::new(kind, key),
+                &name,
+                args.to_vec(),
+                Duration::from_millis(deadline_ms.into()),
+                Cause::root("node"),
+            )
             .await
             .map_err(napi_anyhow_error)?;
         Ok(output.into())
     }
 
+    /// Shuts the host down: stops every actor and lets the folder go.
     #[napi]
     pub async fn shutdown(&self) -> napi::Result<()> {
         let host = self.host.lock().take();
         if let Some(host) = host {
-            host.stop_all().await.map_err(napi_anyhow_error)?;
+            host.shutdown().await.map_err(napi_anyhow_error)?;
         }
         Ok(())
     }
