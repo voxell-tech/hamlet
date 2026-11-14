@@ -10,6 +10,7 @@ use anyhow::{Context, Result};
 use parking_lot::Mutex;
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
+use tracing::Instrument;
 
 use super::HostHandle;
 use super::dispatch::{
@@ -175,7 +176,8 @@ impl RunningActor {
     /// shorter of what is left and the kind's action timeout: past
     /// either, it fails with `actor.action_timed_out`. A connection
     /// whose opening outlasts the call closes once it opens, so the
-    /// actor sees it close as it saw it open.
+    /// actor sees it close as it saw it open. The opening logs in the
+    /// caller's span, as the rest of the call does.
     pub async fn action(
         &self,
         params: Vec<u8>,
@@ -185,17 +187,20 @@ impl RunningActor {
     ) -> Result<Vec<u8>> {
         let begun = crate::time::Instant::now();
         let ctx = self.ctx.clone();
-        let mut connect = RuntimeSpawner::spawn(async move {
-            let conn = ctx
-                .connect_conn_with_request(params, None, async {
-                    Ok::<Vec<u8>, anyhow::Error>(Vec::new())
-                })
-                .await?;
-            Ok::<_, anyhow::Error>((
-                conn.clone(),
-                DisconnectOnDrop::new(conn),
-            ))
-        });
+        let mut connect = RuntimeSpawner::spawn(
+            async move {
+                let conn = ctx
+                    .connect_conn_with_request(params, None, async {
+                        Ok::<Vec<u8>, anyhow::Error>(Vec::new())
+                    })
+                    .await?;
+                Ok::<_, anyhow::Error>((
+                    conn.clone(),
+                    DisconnectOnDrop::new(conn),
+                ))
+            }
+            .instrument(tracing::Span::current()),
+        );
         let (conn, request_connection) =
             crate::time::timeout(deadline, &mut connect)
                 .await

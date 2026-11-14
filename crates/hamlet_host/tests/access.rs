@@ -637,7 +637,8 @@ async fn the_callee_reads_who_called_whatever_the_arguments_say() {
 
 /// A call's log line names its caller, its target and its action:
 /// an actor's call its address, a client's `client`, and the
-/// embedder's call no caller.
+/// embedder's call no caller. What the call logs as it opens its
+/// connection carries that line too.
 #[tokio::test]
 async fn a_calls_log_line_names_its_caller_target_and_action() {
     let dir = Scratch::new("call-log");
@@ -675,6 +676,15 @@ async fn a_calls_log_line_names_its_caller_target_and_action() {
             r#"call{actor_id="callee/x" action="who" caller=client}"#,
             r#"call{actor_id="callee/x" action="who"}"#,
         ]
+    );
+    let opened = logged
+        .lines()
+        .filter(|line| line.contains("connection added"))
+        .collect::<Vec<_>>();
+    assert_eq!(opened.len(), 4, "{opened:#?}");
+    assert!(
+        opened.iter().all(|line| line.contains(" call{")),
+        "{opened:#?}"
     );
 }
 
