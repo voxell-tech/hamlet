@@ -534,7 +534,7 @@ impl Handler<ChiefAnswer> for Workspace {
         ctx: Ctx<Self>,
         answered: ChiefAnswer,
     ) -> Result<AnswerTaken> {
-        sender::<ChiefAnswer, _>(&ctx)?;
+        sender(&ctx, &answered)?;
         let wait = read_only(&ctx, async |tx| {
             find(tx, answered.agent, &answered.call).await
         })

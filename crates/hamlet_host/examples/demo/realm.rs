@@ -154,7 +154,7 @@ impl Handler<NeedsChief> for Realm {
         ctx: Ctx<Self>,
         asked: NeedsChief,
     ) -> Result<()> {
-        sender::<NeedsChief, _>(&ctx)?;
+        sender(&ctx, &asked)?;
         let needs = i64::try_from(asked.needs.len())?;
         ctx.sql()
             .execute(
@@ -189,9 +189,9 @@ impl Handler<Secrets> for Realm {
     async fn handle(
         self: Arc<Self>,
         ctx: Ctx<Self>,
-        _: Secrets,
+        asked: Secrets,
     ) -> Result<SecretList> {
-        sender::<Secrets, _>(&ctx)?;
+        sender(&ctx, &asked)?;
         Ok(SecretList {
             version: SecretsVersion(1),
             values: vec!["demo-secret-value".to_owned()],

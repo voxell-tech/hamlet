@@ -58,9 +58,9 @@ fn agent_at(key: &str) -> Option<AgentNumber> {
     (number.to_string() == key).then_some(AgentNumber(number))
 }
 
-/// The sender of the call of `M` that `ctx` handles, or the error of
+/// The sender of `message`, the call `ctx` handles, or the error of
 /// [`wrong_caller`].
-pub fn sender<M, A>(ctx: &Ctx<A>) -> Result<M::From>
+pub fn sender<M, A>(ctx: &Ctx<A>, _message: &M) -> Result<M::From>
 where
     M: Message,
     A: Actor<ConnParams = Option<Caller>>,

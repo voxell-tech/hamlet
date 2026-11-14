@@ -216,7 +216,7 @@ impl Handler<WriteFile> for Workspace {
         ctx: Ctx<Self>,
         asked: WriteFile,
     ) -> Result<ChangeAnswer<WriteRefusal>> {
-        let Agent(agent) = sender::<WriteFile, _>(&ctx)?;
+        let Agent(agent) = sender(&ctx, &asked)?;
         let bytes = u64::try_from(asked.content.len())?;
         let pending = Pending::Write(asked);
         let request = Request::of(&pending)?;
@@ -240,7 +240,7 @@ impl Handler<EditFile> for Workspace {
         ctx: Ctx<Self>,
         asked: EditFile,
     ) -> Result<ChangeAnswer> {
-        let Agent(agent) = sender::<EditFile, _>(&ctx)?;
+        let Agent(agent) = sender(&ctx, &asked)?;
         let pending = Pending::Edit(asked);
         let request = Request::of(&pending)?;
         if let Some(why) = request.checked::<ChangeRefusal>() {

@@ -278,9 +278,9 @@ impl Handler<ListTools> for Workspace {
     async fn handle(
         self: Arc<Self>,
         ctx: Ctx<Self>,
-        _: ListTools,
+        listed: ListTools,
     ) -> Result<ToolList> {
-        sender::<ListTools, _>(&ctx)?;
+        sender(&ctx, &listed)?;
         Ok(tools::list(&self.home))
     }
 }
@@ -291,7 +291,7 @@ impl Handler<Run> for Workspace {
         ctx: Ctx<Self>,
         run: Run,
     ) -> Result<RunAnswer> {
-        let address::Agent(agent) = sender::<Run, _>(&ctx)?;
+        let address::Agent(agent) = sender(&ctx, &run)?;
         if let Some(why) = checked(&run) {
             return Ok(RunAnswer::Refused { why });
         }
@@ -468,7 +468,7 @@ impl Handler<CommandStatus> for Workspace {
         ctx: Ctx<Self>,
         asked: CommandStatus,
     ) -> Result<RunAnswer<StatusRefusal>> {
-        let address::Agent(agent) = sender::<CommandStatus, _>(&ctx)?;
+        let address::Agent(agent) = sender(&ctx, &asked)?;
         let row = read_only(&ctx, async |tx| {
             run::status(tx, agent, asked.command).await
         })
@@ -908,7 +908,7 @@ impl Handler<SetReach> for Workspace {
         ctx: Ctx<Self>,
         set: SetReach,
     ) -> Result<InForce> {
-        sender::<SetReach, _>(&ctx)?;
+        sender(&ctx, &set)?;
         let (in_force, now, closed) = transact(&ctx, async |tx| {
             let in_force = reach::apply(tx, &set).await?;
             // The reach in force, not the call's: an ended reach
