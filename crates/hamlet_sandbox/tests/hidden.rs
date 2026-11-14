@@ -110,10 +110,17 @@ async fn breaks(env: &Env, realm: &Realm) -> Vec<String> {
         };
         let _ = env.write_file(&path.to_string_lossy(), "changed");
         kept(format!("a file write changed {path:?}"));
-        run(env, &format!("printf changed > {}", shown(path))).await;
+        let script =
+            format!("printf changed > {} && echo wrote", shown(path));
+        let wrote = run(env, &script).await;
         kept(format!("a command changed {path:?}"));
         run(env, &format!("rm -f {}", shown(path))).await;
         kept(format!("a command removed {path:?}"));
+        // Not even into an empty folder over it.
+        expect(
+            !wrote.contains("wrote"),
+            format!("a command's write of {path:?} succeeded"),
+        );
     }
     let agents = realm.root.join("actors/agent");
     let listed = run(env, &format!("ls {}", shown(&agents))).await;

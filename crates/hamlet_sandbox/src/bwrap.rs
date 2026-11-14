@@ -77,6 +77,7 @@ pub(super) fn command(
     // folder inside a write root. Of two at the same place the later
     // rank lies on top.
     let mut mounts = Vec::<(usize, u8, Vec<String>)>::new();
+    let mut covers = Vec::new();
     let mut mount = |path: &str, rank, words: &[&str]| {
         let words = words.iter().map(ToString::to_string).collect();
         mounts.push((depth(path), rank, words));
@@ -87,6 +88,7 @@ pub(super) fn command(
             // nothing to hide and cannot be mounted over.
             Grant::Nothing if is_dir(&path) => {
                 mount(&path, 0, &["--tmpfs", &path]);
+                covers.push(path);
             }
             Grant::Nothing => {}
             // A root that is missing has nothing to read, as under
@@ -123,6 +125,11 @@ pub(super) fn command(
     mounts.sort_by_key(|(depth, rank, _)| (*depth, *rank));
     for (_, _, words) in &mounts {
         push(&words.iter().map(String::as_str).collect::<Vec<_>>());
+    }
+    // Read-only once the roots inside it are mounted, so that a
+    // write there fails as it does under Seatbelt.
+    for path in &covers {
+        push(&["--remount-ro", path]);
     }
     push(&["--chdir", cwd, "--"]);
     args.extend(argv.iter().cloned());
