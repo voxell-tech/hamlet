@@ -237,3 +237,6 @@ jobs:
             target/debug/hamlet.exe
             target/debug/hamlet_server.exe
             target/debug/hamlet_app.exe
+      # The actor host and the actor crates, after the binaries are
+      # kept, so that a failure here keeps them.
+      - run: cargo test --locked --no-fail-fast -p hamlet_host -p hamlet_actor_core -p hamlet_actor -p hamlet_actor_client -p hamlet_actor_wire -p hamlet_actor_error -p hamlet_actor_error_macros
