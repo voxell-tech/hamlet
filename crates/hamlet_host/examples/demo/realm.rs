@@ -109,7 +109,7 @@ impl Handler<Grant> for Realm {
             &HostRef::of(ctx.inner())?,
             &address::Workspace,
             &set,
-            Duration::from_secs(10),
+            CALL_WITHIN,
         )
         .await
     }
@@ -125,11 +125,14 @@ impl Handler<Decide> for Realm {
             &HostRef::of(ctx.inner())?,
             &address::Workspace,
             &answer,
-            Duration::from_secs(10),
+            CALL_WITHIN,
         )
         .await
     }
 }
+
+/// The longest the realm waits for the workspace's answer.
+const CALL_WITHIN: Duration = Duration::from_secs(10);
 
 /// Calls `to` with `message` as the actor of `host`, and decodes its
 /// answer.

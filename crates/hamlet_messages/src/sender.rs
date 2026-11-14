@@ -80,8 +80,6 @@ pub fn wrong_caller(
     caller: Option<Caller>,
 ) -> anyhow::Error {
     let caller = Stamp(caller);
-    // A refusal leaves no row, so a caller refused again and again
-    // cannot fill the taker's file.
     tracing::warn!(%caller, action, "refused a call");
     WrongCaller { action, caller }.build()
 }

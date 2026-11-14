@@ -6,6 +6,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
+use hamlet_host::Address;
+use hamlet_messages::address::{self, Party};
 use hamlet_messages::agent::Outcome;
 use hamlet_messages::workspace::files::ChangeAnswer;
 use hamlet_messages::workspace::reach::Need;
@@ -58,14 +60,20 @@ fn tool(call: &str, name: &str, arguments: &str) -> Run {
     }
 }
 
-/// Only an agent lists the tools.
+/// Only an agent lists the tools, at the key its number writes.
 #[tokio::test(flavor = "multi_thread")]
 async fn only_an_agent_lists_the_tools() {
     let dir = Scratch::new("workspace-tools-caller");
     let host = host(&dir).await;
     let from_realm = error_of(&host, &realm(), &ListTools).await;
+    let from_padded_key = error_of(
+        &host,
+        &Address::new(address::Agent::KIND, "07").unwrap(),
+        &ListTools,
+    )
+    .await;
     host.shutdown().await.unwrap();
-    assert_eq!(from_realm, WRONG_CALLER);
+    assert_eq!([from_realm, from_padded_key], [WRONG_CALLER; 2]);
 }
 
 /// The tools that load are listed with what a model is offered; a

@@ -352,8 +352,9 @@ fails once, so the change is committed.
 The realm, the actor `realm/local`, sets each agent's reach
 (`SetReach`), answers calls that wait for a chief (`ChiefAnswer`) and
 may cancel any agent's commands. An agent, the actor `agent/<n>` keyed
-by its `AgentNumber`, calls for its own tools: `Run`, `CommandStatus`,
-`Cancel`, `ReadFile`, `Search`, `Find`, `WriteFile` and `EditFile`.
+by its `AgentNumber`, calls for its own tools: `ListTools`, `Run`,
+`CommandStatus`, `Cancel`, `ReadFile`, `Search`, `Find`, `WriteFile`
+and `EditFile`.
 Each message but `Cancel` is a `Message`, which names the party that
 takes it and the kind that sends it. A handler first reads its sender
 from the caller the host stamped, with `sender::sender`, and any other

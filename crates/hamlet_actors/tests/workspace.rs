@@ -425,10 +425,14 @@ async fn only_the_realm_sets_a_reach() {
     let before = rows_in_file(&dir);
     let host = host(&dir).await;
     let mut errors = Vec::new();
-    for kind in [address::Agent::KIND, "other"] {
+    for (kind, key) in [
+        (address::Agent::KIND, "7"),
+        (address::Realm::KIND, "other"),
+        ("other", "caller"),
+    ] {
         let reply = call_as(
             &host,
-            &Address::new(kind, "caller").unwrap(),
+            &Address::new(kind, key).unwrap(),
             SetReach::NAME,
             set_reach(5, reach(Some("/"))),
         )
@@ -456,7 +460,7 @@ async fn only_the_realm_sets_a_reach() {
     let realm = realm_sets(&host, 1, reach(None)).await;
     host.shutdown().await.unwrap();
 
-    assert_eq!(errors, [WRONG_CALLER; 4]);
+    assert_eq!(errors, [WRONG_CALLER; 5]);
     assert_eq!(
         realm,
         InForce {
