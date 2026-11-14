@@ -108,7 +108,10 @@ the network.
 The gate reads the same policies, through `Policy::can_read` and
 `Policy::can_write`, where the path's links lead: a read passes where the
 file tools' policy reads, and a change where it writes and nothing
-locks the path.
+locks the path. In manual mode a change waits for a chief when its
+real path, every link followed, lies in the project folder's real
+path. The realm's folder is kept as its real path, so one reached
+through a link is hidden as one reached directly.
 A change in an agent's filesystem is always refused, and a read there
 unless the policy reads it, as a worker reads its starter's.
 
