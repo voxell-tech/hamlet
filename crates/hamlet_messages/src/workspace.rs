@@ -32,7 +32,7 @@ pub struct CallId(pub String);
 pub struct ConversationId(pub String);
 
 /// The realm's task a call is made for, which counts a chief's
-/// refusals. Not the id of the call's own durable run.
+/// refusals.
 #[derive(
     Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize,
 )]
