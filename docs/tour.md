@@ -203,7 +203,10 @@ for `call`, a client for `call_for_client`, and the calling actor's
 address for `Host::call_from(&ctx, ...)`, which takes it from the
 actor's context. One check, `admit`, runs before every call reaches the
 directory, and before every create or get-or-start by an actor, and
-refuses an actor's call, create or get-or-start of itself. A call fails at once
+refuses an actor's call, create or get-or-start of itself, and any with
+a caller that the route table, `HostOptions::routes` from `route.rs`,
+does not allow: that fails with `actor.refused`, and the host reports it
+in `HostEvent::Refused` and its log. A call fails at once
 when its host begins to shut down. `Host::open` refuses a kind that
 cannot read the stamp: the authoring layer gives each factory the
 decode its connection preflight runs. `local/access.rs` gives an actor,
@@ -437,6 +440,7 @@ built-in ones.
 | An actor's lifecycle, schedules, state or SQL | `hamlet_actor_core/src/actor/`; [the actor runtime](#the-actor-runtime) |
 | Where actors' files are, deadlines and timers, shutdown, the folder lock | `hamlet_host/src/local.rs`, `plain_sqlite.rs` |
 | Calls between actors, and who made a call | `hamlet_host/src/local/call.rs` |
+| Which caller may call or make an actor of which kind | `hamlet_host/src/route.rs`; the check, `admit`, in `hamlet_host/src/local/call.rs` |
 | Making an actor with an input, or from another actor | `hamlet_host/src/local/create.rs` |
 | What an actor reaches of its host: the realm folder, the program's values | `hamlet_host/src/local/access.rs` |
 | Where each actor kind runs | `hamlet_host/src/directory.rs` |
