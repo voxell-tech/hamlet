@@ -451,7 +451,7 @@ impl ActorContext {
                     ]),
                 },
                 SqliteBatchStatement {
-                    sql: DISCARD_SET_ASIDE_SQL.to_owned(),
+                    sql: DELETE_SET_ASIDE_SQL.to_owned(),
                     params: Some(vec![BindParam::Text(
                         event_id.to_owned(),
                     )]),
