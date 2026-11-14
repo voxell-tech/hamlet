@@ -318,7 +318,7 @@ mod logs;
 /// The handshake, with a stand-in Node host as the child: the
 /// example `link_child`, built beside this test.
 mod handshake {
-    use std::collections::{BTreeMap, HashMap};
+    use std::collections::HashMap;
     use std::io::{Read, Write};
     #[cfg(unix)]
     use std::os::unix::process::ExitStatusExt;
@@ -332,7 +332,7 @@ mod handshake {
     use hamlet_host::link::{self, Frame, PROTOCOL};
     use hamlet_host::route::Routes;
     use hamlet_host::{Host, HostOptions};
-    use hamlet_os::process::{Command, Pipes, Tree};
+    use hamlet_os::process::Pipes;
     use hamlet_testing::Scratch;
     use hamlet_testing::signals::is_alive;
     #[cfg(unix)]
@@ -341,7 +341,7 @@ mod handshake {
     use tokio::sync::watch;
     use tracing_subscriber::filter::LevelFilter;
 
-    use super::linked::{self, stand_in};
+    use super::linked::{self, own_stand_in};
     use super::logs::Logs;
 
     /// How long a test waits for a child to be ready.
@@ -379,24 +379,6 @@ mod handshake {
             HostOptions::default(),
             child,
         )
-        .unwrap()
-    }
-
-    /// The stand-in, started by the test itself on `home`, with this
-    /// process as its Rust host.
-    fn own_stand_in(home: &Path, args: &[&str]) -> (Tree, Pipes) {
-        let mut argv = vec![stand_in().to_str().unwrap().to_owned()];
-        argv.extend(args.iter().map(|arg| (*arg).to_owned()));
-        let home = home.to_str().unwrap();
-        let env = BTreeMap::from([(
-            "HAMLET_HOME".to_owned(),
-            home.to_owned(),
-        )]);
-        Tree::spawn_bound(Command {
-            argv: &argv,
-            env: &env,
-            cwd: home,
-        })
         .unwrap()
     }
 

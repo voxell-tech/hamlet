@@ -1,9 +1,11 @@
 //! The stand-in Node host, the example `link_child`, as a host's
 //! child.
 
-use std::path::PathBuf;
+use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
 
 use hamlet_host::child::ChildOptions;
+use hamlet_os::process::{Command, Pipes, Tree};
 
 /// The stand-in, in the `examples` folder of the profile's folder,
 /// which holds the test at some depth: the depth differs between
@@ -35,4 +37,20 @@ pub fn child(args: &[&str]) -> ChildOptions {
         argv,
         kinds: vec!["agent".to_owned()],
     }
+}
+
+/// The stand-in, started by the test itself on `home`, with this
+/// process as its Rust host.
+pub fn own_stand_in(home: &Path, args: &[&str]) -> (Tree, Pipes) {
+    let mut argv = vec![stand_in().to_str().unwrap().to_owned()];
+    argv.extend(args.iter().map(|arg| (*arg).to_owned()));
+    let home = home.to_str().unwrap();
+    let env =
+        BTreeMap::from([("HAMLET_HOME".to_owned(), home.to_owned())]);
+    Tree::spawn_bound(Command {
+        argv: &argv,
+        env: &env,
+        cwd: home,
+    })
+    .unwrap()
 }
