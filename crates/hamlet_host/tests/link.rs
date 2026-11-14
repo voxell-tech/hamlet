@@ -535,7 +535,11 @@ mod handshake {
         }
         expected.sort_unstable();
         let names = std::fs::read_to_string(names).unwrap();
-        let mut names = names.lines().collect::<Vec<_>>();
+        let mut names = names
+            .lines()
+            // CoreFoundation sets it in each process that loads it.
+            .filter(|name| *name != "__CF_USER_TEXT_ENCODING")
+            .collect::<Vec<_>>();
         names.sort_unstable();
         assert_eq!(names, expected);
     }
