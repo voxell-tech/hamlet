@@ -284,3 +284,33 @@ async fn a_read_root_that_holds_the_hidden_folder_keeps_it_hidden() {
     }
     assert!(found.is_empty(), "{found:#?}");
 }
+
+/// The roots named through a link in their path, as when the realm
+/// folder is reached by one: the folder stays hidden by either name.
+/// A root that is itself a link is refused when the sandbox is set
+/// up.
+#[tokio::test]
+async fn a_hidden_folder_named_through_a_link_stays_hidden() {
+    let scratch = Scratch::new("sandbox-hidden-link");
+    let project = scratch.join("project");
+    let real = Realm::make(project.join("realm"));
+    let alias = scratch.join("alias");
+    symlink(fs::canonicalize(&project).unwrap(), &alias).unwrap();
+    let realm = Realm {
+        root: alias.join("realm"),
+    };
+    let env = Env::new(
+        &project.to_string_lossy(),
+        policy(&project, &realm),
+        Sandbox::testing(),
+    )
+    .unwrap();
+    let mut found = breaks(&env, &realm).await;
+    let read =
+        run(&env, &format!("cat {}", shown(&real.credentials())))
+            .await;
+    if read.contains(CREDENTIALS) {
+        found.push("a command read it by its real name".into());
+    }
+    assert!(found.is_empty(), "{found:#?}");
+}
