@@ -613,13 +613,13 @@ pub struct HostOptions {
     /// tried again, and a failure of it keeps the deadline the actor
     /// held.
     pub start_retry: Duration,
-    /// The host's name, a plain file name: `host` by default. The
-    /// host locks the folder with `<name>.lock`, so hosts of
-    /// different names open one folder at once, and a second host of
-    /// one name is refused. Hosts that share a folder run kinds of
-    /// their own: each host locks `actors/<kind>/.lock` for each of
-    /// its kinds, and a host given a kind another host holds is
-    /// refused.
+    /// The host's name, which takes what a kind takes (see
+    /// [`Host`]): `host` by default. The host locks the folder with
+    /// `<name>.lock`, so hosts of different names open one folder at
+    /// once, and a second host of one name is refused. Hosts that
+    /// share a folder run kinds of their own: each host locks
+    /// `actors/<kind>/.lock` for each of its kinds, and a host given
+    /// a kind another host holds is refused.
     pub name: String,
     /// What the host gives its actors, by type: none by default. See
     /// [`HostOptions::with_value`].
@@ -876,11 +876,15 @@ fn destroying(generation: Arc<Generation>, done: Waiters) -> Life {
     }
 }
 
-/// The actors of one realm folder, run in this process. When the last
-/// clone drops, the host starts no actor again, as after
-/// [`Host::shutdown`], and cancels the timers of stopped actors;
-/// their deadlines stay in their files for the next boot. Starts and
-/// stops under way end on their own, without a `Host`.
+/// The actors of one realm folder, run in this process. An actor is
+/// named by its kind and its key, which name its file
+/// `actors/<kind>/<key>.sqlite`: each takes lower-case letters,
+/// digits, `-`, `_` and `.`, and does not start with `.`. Every
+/// method refuses any other kind or key. When the last clone drops,
+/// the host starts no actor again, as after [`Host::shutdown`], and
+/// cancels the timers of stopped actors; their deadlines stay in
+/// their files for the next boot. Starts and stops under way end on
+/// their own, without a `Host`.
 #[derive(Clone)]
 pub struct Host(Arc<Handle>);
 
@@ -910,9 +914,9 @@ struct LocalHandle {
 impl Host {
     /// Takes the folder's lock and opens it, with each kind of
     /// `factories` running in this host, with the default
-    /// [`HostOptions`]. Fails when another host of the same name
-    /// holds the folder's lock, or another host holds one of the
-    /// kinds.
+    /// [`HostOptions`]. Fails when a kind is not a name [`Host`]
+    /// takes, another host of the same name holds the folder's lock,
+    /// or another host holds one of the kinds.
     pub fn open(
         dir: &Path,
         factories: HashMap<String, ActorFactory>,
@@ -927,6 +931,9 @@ impl Host {
         options: HostOptions,
     ) -> Result<Self> {
         plain(&options.name, "host name")?;
+        for kind in factories.keys() {
+            plain(kind, "actor kind")?;
+        }
         call::check_kinds(&factories)?;
         std::fs::create_dir_all(dir.join("actors"))?;
         let directory = Directory::local(factories);
@@ -1692,7 +1699,7 @@ fn retry_start(owned: &Owned, due: i64) {
 }
 
 /// The id of the actor of `kind` and `key`, which names its file.
-/// Both must be plain file names.
+/// Fails unless both are plain.
 fn actor_id(kind: &str, key: &str) -> Result<String> {
     for part in [kind, key] {
         plain(part, "actor kind or key")?;
@@ -1700,19 +1707,23 @@ fn actor_id(kind: &str, key: &str) -> Result<String> {
     Ok(format!("{kind}/{key}"))
 }
 
-/// Fails unless `name`, a `what`, is a plain file name.
+/// Fails unless `name`, a `what`, is plain: lower-case letters,
+/// digits, `-`, `_` and `.`, not starting with `.`. With no
+/// upper-case letter, two names never name one file, also on a disk
+/// that ignores case.
 fn plain(name: &str, what: &str) -> Result<()> {
     let plain = !name.is_empty()
         && !name.starts_with('.')
         && name.len() <= 128
         && name.bytes().all(|byte| {
-            byte.is_ascii_alphanumeric()
+            byte.is_ascii_lowercase()
+                || byte.is_ascii_digit()
                 || matches!(byte, b'-' | b'_' | b'.')
         });
     ensure!(
         plain,
-        "`{name}` is not a valid {what}: use letters, digits, `-`, \
-         `_` and `.`, and do not start with `.`"
+        "`{name}` is not a valid {what}: use lower-case letters, \
+         digits, `-`, `_` and `.`, and do not start with `.`"
     );
     Ok(())
 }

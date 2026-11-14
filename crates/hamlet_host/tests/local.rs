@@ -2935,3 +2935,93 @@ async fn a_destroy_that_joins_a_sleep_answers_the_removal_of_its_files()
     slept.expect_err("a sleep the destroy took over");
 }
 
+/// Each entry point refuses a key with an upper-case letter, as it
+/// refuses one with `/`, before anything reaches the folder: on a
+/// disk that ignores case, `counter/a` and `counter/A` would name one
+/// file. A host refuses to open with such a kind, or such a name.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_key_or_kind_with_an_upper_case_letter_is_refused() {
+    let dir = Scratch::new("upper-case-key");
+    let host = Host::open(&dir, factories()).unwrap();
+    let a = host.get_or_start("counter", "a").await.unwrap();
+    act(&host, &a, "increment", Vec::new()).await.unwrap();
+    let mut accepted = Vec::new();
+    for key in ["A", "Ab", "a/b"] {
+        let at = Address::new("counter", key);
+        let id = format!("counter/{key}");
+        let entries = [
+            (
+                "get_or_start",
+                host.get_or_start("counter", key).await.map(drop),
+            ),
+            (
+                "create",
+                host.create("counter", key, Vec::new())
+                    .await
+                    .map(drop),
+            ),
+            (
+                "call",
+                host.call(
+                    &at,
+                    "get",
+                    Vec::new(),
+                    DEADLINE,
+                    Cause::root("test"),
+                )
+                .await
+                .map(drop),
+            ),
+            ("destroy", host.stop(&id, ShutdownKind::Destroy).await),
+            (
+                "set_aside_timers",
+                host.set_aside_timers(&at).await.map(drop),
+            ),
+            (
+                "rearm_timer",
+                host.rearm_timer(&at, "event", 0).await.map(drop),
+            ),
+        ];
+        for (entry, result) in entries {
+            match result {
+                Err(error)
+                    if format!("{error:#}").contains(
+                        "is not a valid actor kind or key",
+                    ) => {}
+                other => {
+                    accepted
+                        .push(format!("{entry} {key}: {other:?}"));
+                }
+            }
+        }
+    }
+    let count = act(&host, &a, "get", Vec::new()).await.unwrap();
+    host.shutdown().await.unwrap();
+    drop(host);
+    let mut kinds = factories();
+    let counter = kinds.remove("counter").unwrap();
+    kinds.insert("Counter".to_owned(), counter);
+    let opened = Host::open(&dir, kinds).map(drop);
+    let named = Host::open_with(
+        &dir,
+        factories(),
+        HostOptions {
+            name: "Host".to_owned(),
+            ..HostOptions::default()
+        },
+    )
+    .map(drop);
+    assert_eq!(accepted, Vec::<String>::new());
+    assert_eq!(counter::count(count).unwrap(), 1);
+    assert!(!any_file_of(&dir, "counter", "A"));
+    let error = opened.expect_err("a host with the kind `Counter`");
+    assert!(
+        format!("{error:#}").contains("is not a valid actor kind"),
+        "{error:#}"
+    );
+    let error = named.expect_err("a host named `Host`");
+    assert!(
+        format!("{error:#}").contains("is not a valid host name"),
+        "{error:#}"
+    );
+}
