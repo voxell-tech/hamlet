@@ -124,8 +124,7 @@ pub(super) async fn end(
     tx: &SqliteTransaction,
     end: &CommandEnd,
 ) -> Result<()> {
-    let mut answer = Vec::new();
-    ciborium::into_writer(end, &mut answer)?;
+    let answer = calls::cbor(end)?;
     tx.execute(
         "UPDATE calls SET state = 'ended', answer = ?1, ended_at = \
          ?2 WHERE id = ?3 AND state = 'running'",

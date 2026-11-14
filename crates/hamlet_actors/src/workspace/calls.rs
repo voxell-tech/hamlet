@@ -51,9 +51,14 @@ impl Call {
 pub(super) fn request_hash(
     request: &impl Serialize,
 ) -> Result<Vec<u8>> {
+    Ok(Sha256::digest(cbor(request)?).to_vec())
+}
+
+/// `value` in CBOR, as a row keeps it.
+pub(super) fn cbor(value: &impl Serialize) -> Result<Vec<u8>> {
     let mut bytes = Vec::new();
-    ciborium::into_writer(request, &mut bytes)?;
-    Ok(Sha256::digest(&bytes).to_vec())
+    ciborium::into_writer(value, &mut bytes)?;
+    Ok(bytes)
 }
 
 const COLUMNS: &str = "id, op, request_hash, state, answer, temp";

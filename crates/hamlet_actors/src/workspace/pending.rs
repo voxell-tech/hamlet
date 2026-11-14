@@ -113,7 +113,7 @@ pub(super) async fn open(
             (call.clone(), conversation.clone(), realm_task.clone())
         }
     };
-    let request = cbor(&opening.request)?;
+    let request = calls::cbor(&opening.request)?;
     if holds_a_secret(secrets, &request) {
         tracing::warn!(
             agent = opening.agent.0,
@@ -137,7 +137,7 @@ pub(super) async fn open(
         opening.op,
         opening.request_hash,
         "waiting",
-        Some(cbor(&opening.needs)?),
+        Some(calls::cbor(&opening.needs)?),
         None,
     )
     .await?;
@@ -148,14 +148,14 @@ pub(super) async fn open(
         Some(vec![
             BindParam::Integer(i64::try_from(opening.agent.0)?),
             BindParam::Text(call.0.clone()),
-            BindParam::Blob(cbor(&opening.needs)?),
+            BindParam::Blob(calls::cbor(&opening.needs)?),
             BindParam::Text(subject.clone()),
             BindParam::Blob(request),
             BindParam::Integer(i64::try_from(
                 opening.reach_version.0,
             )?),
             match &opening.base_hash {
-                Some(hash) => BindParam::Blob(cbor(hash)?),
+                Some(hash) => BindParam::Blob(calls::cbor(hash)?),
                 None => BindParam::Null,
             },
             BindParam::Integer(calls::now_ms()?),
@@ -184,12 +184,6 @@ fn holds_a_secret(secrets: &[String], request: &[u8]) -> bool {
                 .windows(secret.len())
                 .any(|window| window == secret.as_bytes())
     })
-}
-
-fn cbor(value: &impl Serialize) -> Result<Vec<u8>> {
-    let mut bytes = Vec::new();
-    ciborium::into_writer(value, &mut bytes)?;
-    Ok(bytes)
 }
 
 /// The wait of `agent`'s call `call`, in `tx`.
@@ -308,7 +302,7 @@ pub(super) async fn close(
              RETURNING call",
             Some(vec![
                 agent,
-                BindParam::Blob(cbor(refusal)?),
+                BindParam::Blob(calls::cbor(refusal)?),
                 BindParam::Integer(calls::now_ms()?),
             ]),
         )
@@ -374,9 +368,14 @@ impl Workspace {
         refusal: CallRefusal,
     ) -> Result<AnswerTaken> {
         let tx = ctx.sql().begin_transaction(None).await?;
-        let settled =
-            settle(&tx, wait, "refused", Some(cbor(&refusal)?), None)
-                .await;
+        let settled = settle(
+            &tx,
+            wait,
+            "refused",
+            Some(calls::cbor(&refusal)?),
+            None,
+        )
+        .await;
         match settled {
             Ok(Some(_)) => tx.commit().await?,
             Ok(None) => {

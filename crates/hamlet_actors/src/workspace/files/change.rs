@@ -471,8 +471,7 @@ impl Workspace {
                 let answer = ChangeAnswer::Failed(scrub_text(
                     &secrets, &words,
                 ));
-                let mut bytes = Vec::new();
-                ciborium::into_writer(&answer, &mut bytes)?;
+                let bytes = calls::cbor(&answer)?;
                 let settled = self
                     .settled(
                         ctx,
@@ -904,8 +903,7 @@ async fn end(
     id: i64,
     answer: &ChangeAnswer,
 ) -> Result<()> {
-    let mut bytes = Vec::new();
-    ciborium::into_writer(answer, &mut bytes)?;
+    let bytes = calls::cbor(answer)?;
     tx.execute(
         "UPDATE calls SET state = 'ended', answer = ?1, temp = \
          NULL, ended_at = ?2 WHERE id = ?3",
@@ -1008,8 +1006,7 @@ mod tests {
             request_hash: vec![1],
         };
         let answer = ChangeAnswer::Failed("no".into());
-        let mut bytes = Vec::new();
-        ciborium::into_writer(&answer, &mut bytes).unwrap();
+        let bytes = calls::cbor(&answer).unwrap();
         let row =
             |op: &str, hash: u8, state: &str, answer| calls::Call {
                 id: 4,
