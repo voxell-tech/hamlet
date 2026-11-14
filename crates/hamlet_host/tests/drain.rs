@@ -8,12 +8,15 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
 
+use code::code;
 use hamlet_actor_core::actor::schedule::{
     ScheduleKind, ScheduledFireInfo,
 };
 use hamlet_actor_core::{ActorEvent, ActorEvents, Reply};
-use hamlet_actor_error::ActorError;
 use tokio::sync::{mpsc, oneshot};
+
+#[path = "support/code.rs"]
+mod code;
 
 /// The rounds of the race. Aimed as the test aims them, a send lands
 /// inside the drain in one round of a few hundred, or more often.
@@ -134,14 +137,11 @@ fn a_one_shot_sent_as_the_event_loop_panics_is_kept_and_answered_at_once()
             lead = (lead - 1).max(-MAX_LEAD);
         }
         match answer.try_recv() {
-            Ok(Err(error)) => {
-                let error = ActorError::extract(&error);
-                match (error.group(), error.code()) {
-                    ("actor", "dropped_reply") => {}
-                    ("actor", "panicked") => panicked += 1,
-                    other => panic!("answered {other:?}"),
-                }
-            }
+            Ok(Err(error)) => match code(&error).as_str() {
+                "actor.dropped_reply" => {}
+                "actor.panicked" => panicked += 1,
+                other => panic!("answered {other}"),
+            },
             Ok(Ok(_)) => panic!("answered as handled"),
             Err(oneshot::error::TryRecvError::Empty) => pending += 1,
             Err(oneshot::error::TryRecvError::Closed) => {

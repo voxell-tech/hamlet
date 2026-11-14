@@ -9,6 +9,8 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use anyhow::Context as _;
+use code::code;
+use files::any_file_of;
 use hamlet_actor::{
     Action, Actor, ActorConfig, ColumnValue, Ctx, Handler, Registry,
 };
@@ -17,9 +19,14 @@ use hamlet_host::{Address, Caller, Host, HostOptions, HostRef};
 use hamlet_testing::Scratch;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
-use support::code;
+use tokio::sync::Notify;
 
-mod support;
+#[path = "support/call.rs"]
+mod call;
+#[path = "support/code.rs"]
+mod code;
+#[path = "support/files.rs"]
+mod files;
 
 /// What the kind counts: the runs of `on_create`, which reads the
 /// input, and the starts that reached `create`.
@@ -32,8 +39,15 @@ struct Counts {
 /// Fails the next start of an actor, once.
 struct FailNext(AtomicBool);
 
-/// How long each destroy takes.
-struct SlowDestroy(Duration);
+/// How long each destroy takes. `began` is notified as each begins.
+struct SlowDestroy {
+    takes: Duration,
+    began: Notify,
+}
+
+/// Holds each start: it is told when the start begins, and the start
+/// then waits an hour.
+struct HeldStart(Notify);
 
 /// Writes its input as a note in `on_create`, and a note each time
 /// its timer fires.
@@ -96,6 +110,12 @@ impl Actor for Made {
         if fails {
             anyhow::bail!("this start fails");
         }
+        if let Some(held) =
+            HostRef::of(ctx.inner())?.value::<HeldStart>()
+        {
+            held.0.notify_one();
+            tokio::time::sleep(Duration::from_secs(3600)).await;
+        }
         counts(ctx)?.started.fetch_add(1, Ordering::SeqCst);
         Ok(Self)
     }
@@ -121,7 +141,8 @@ impl Actor for Made {
     ) -> anyhow::Result<()> {
         let slow = HostRef::of(ctx.inner())?.value::<SlowDestroy>();
         if let Some(slow) = slow {
-            tokio::time::sleep(slow.0).await;
+            slow.began.notify_one();
+            tokio::time::sleep(slow.takes).await;
         }
         Ok(())
     }
@@ -302,7 +323,7 @@ async fn call<M: Action>(
 where
     M::Output: DeserializeOwned,
 {
-    support::call(host, &Address::new("made", key), action).await
+    call::call(host, &Address::new("made", key), action).await
 }
 
 /// The error of `made`, which was to fail.
@@ -415,14 +436,6 @@ async fn of_two_creates_of_one_key_at_once_one_makes_the_actor() {
     assert_eq!(made.created.load(Ordering::SeqCst), 50);
 }
 
-/// Whether any of the three files of `made/<key>` is in `dir`.
-fn any_file(dir: &Scratch, key: &str) -> bool {
-    ["", "-wal", "-shm"].iter().any(|suffix| {
-        dir.join(format!("actors/made/{key}.sqlite{suffix}"))
-            .exists()
-    })
-}
-
 /// A create whose own first start fails leaves nothing of the actor:
 /// no file, a call fails with `actor.not_found`, and the key is free
 /// for a create that makes the actor from its own input. So for a
@@ -447,7 +460,10 @@ async fn a_create_whose_first_start_fails_leaves_no_actor() {
         fail.0.store(fails, Ordering::SeqCst);
         let first = failed(host.create("made", key, input).await);
         assert_ne!(code(&first), "actor.duplicate_key", "{first:#}");
-        assert!(!any_file(&dir, key), "{key}: a file is left");
+        assert!(
+            !any_file_of(&dir, "made", key),
+            "{key}: a file is left"
+        );
         let error = call(&host, key, &Input)
             .await
             .expect_err("a call to an actor whose create failed");
@@ -490,6 +506,50 @@ async fn a_create_that_fails_leaves_the_key_to_a_create_that_waited()
     assert_eq!(made.created.load(Ordering::SeqCst), 50);
 }
 
+/// A create whose start a shutdown cuts off fails with
+/// `actor.not_ready` and removes the actor it made, its files with
+/// it, so a create in the next host makes the actor from its own
+/// input.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_create_a_shutdown_cuts_off_leaves_no_actor() {
+    let dir = Scratch::new("create-shutdown");
+    let made = Arc::new(Counts::default());
+    let held = Arc::new(HeldStart(Notify::new()));
+    let host = open(
+        &dir,
+        HostOptions::default()
+            .with_value(made.clone())
+            .with_value(held.clone()),
+    );
+    let create = tokio::spawn({
+        let host = host.clone();
+        async move { host.create("made", "a", cbor("cut")).await }
+    });
+    held.0.notified().await;
+    tokio::time::timeout(Duration::from_secs(10), host.shutdown())
+        .await
+        .expect("the shutdown waited for the held start")
+        .unwrap();
+    let cut = failed(
+        tokio::time::timeout(Duration::from_secs(5), create)
+            .await
+            .expect("the create outlived the shutdown")
+            .unwrap(),
+    );
+    let left = any_file_of(&dir, "made", "a");
+    drop(host);
+
+    let host =
+        open(&dir, HostOptions::default().with_value(made.clone()));
+    host.create("made", "a", cbor("next")).await.unwrap();
+    let notes = call(&host, "a", &Notes).await.unwrap();
+    host.shutdown().await.unwrap();
+    assert_eq!(code(&cut), "actor.not_ready", "{cut:#}");
+    assert!(!left, "the cut-off create left a file");
+    assert_eq!(notes, ["next"]);
+    assert_eq!(made.created.load(Ordering::SeqCst), 1);
+}
+
 /// K3, K4: a create of a key whose destroy is under way fails at once
 /// with `actor.destroying`. Once the destroy ends, a create makes the
 /// actor anew from its own input, and none of the old data comes
@@ -498,18 +558,22 @@ async fn a_create_that_fails_leaves_the_key_to_a_create_that_waited()
 async fn a_create_waits_out_no_destroy_and_brings_no_old_data_back() {
     let dir = Scratch::new("create-destroying");
     let made = Arc::new(Counts::default());
+    let slow = Arc::new(SlowDestroy {
+        takes: Duration::from_secs(1),
+        began: Notify::new(),
+    });
     let host = open(
         &dir,
-        HostOptions::default().with_value(made.clone()).with_value(
-            Arc::new(SlowDestroy(Duration::from_secs(1))),
-        ),
+        HostOptions::default()
+            .with_value(made.clone())
+            .with_value(slow.clone()),
     );
     host.create("made", "a", cbor("old")).await.unwrap();
     let destroy = tokio::spawn({
         let host = host.clone();
         async move { host.stop("made/a", ShutdownKind::Destroy).await }
     });
-    tokio::time::sleep(Duration::from_millis(200)).await;
+    slow.began.notified().await;
     let begun = Instant::now();
     let during = failed(host.create("made", "a", cbor("new")).await);
     let waited = begun.elapsed();
@@ -563,7 +627,7 @@ async fn ask(
         key: key.to_owned(),
         input,
     };
-    support::call(host, &Address::new("maker", from), &make)
+    call::call(host, &Address::new("maker", from), &make)
         .await
         .unwrap()
 }

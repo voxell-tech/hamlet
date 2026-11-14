@@ -8,6 +8,8 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use anyhow::Context as _;
+use call::call;
+use code::code;
 use hamlet_actor::{
     Action, Actor, ActorConfig, Ctx, Handler, Registry,
 };
@@ -20,9 +22,11 @@ use hamlet_host::{
 use hamlet_testing::Scratch;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
-use support::{call, code};
 
-mod support;
+#[path = "support/call.rs"]
+mod call;
+#[path = "support/code.rs"]
+mod code;
 
 /// The kind `kind`, an actor of the trait API `A`, with a database.
 fn kind<A: Actor>(registry: &mut Registry, kind: &str) {
@@ -311,9 +315,10 @@ impl Handler<Who> for Callee {
 impl Handler<Hold> for Callee {
     async fn handle(
         self: Arc<Self>,
-        _: Ctx<Self>,
+        ctx: Ctx<Self>,
         Hold { ms }: Hold,
     ) -> anyhow::Result<()> {
+        Holds::begin(ctx.inner())?;
         tokio::time::sleep(Duration::from_millis(ms)).await;
         Ok(())
     }
@@ -439,7 +444,9 @@ fn raw() -> ActorFactory {
         },
         |start: ActorStart| {
             Box::pin(async move {
-                let mut events = start.events;
+                let ActorStart {
+                    ctx, mut events, ..
+                } = start;
                 while let Some(event) = events.recv().await {
                     match event {
                         ActorEvent::Action {
@@ -448,8 +455,10 @@ fn raw() -> ActorFactory {
                             reply,
                             ..
                         } => {
+                            let ctx = ctx.clone();
                             tokio::spawn(async move {
                                 if name == "hold" {
+                                    let _ = Holds::begin(&ctx);
                                     tokio::time::sleep(
                                         Duration::from_secs(60),
                                     )
@@ -501,17 +510,52 @@ fn raw() -> ActorFactory {
 /// The kinds `asker`, `callee` and `raw`, in a host that holds
 /// `contexts`.
 fn open_callers(dir: &Scratch, contexts: Arc<Contexts>) -> Host {
+    open_callers_with(
+        dir,
+        HostOptions::default().with_value(contexts),
+    )
+}
+
+/// The kinds `asker`, `callee` and `raw`, in a host of `options`.
+fn open_callers_with(dir: &Scratch, options: HostOptions) -> Host {
     let mut registry = Registry::new();
     kind::<Asker>(&mut registry, "asker");
     kind::<Callee>(&mut registry, "callee");
     let mut factories = registry.into_factories();
     factories.insert("raw".to_owned(), raw());
-    Host::open_with(
-        dir,
-        factories,
-        HostOptions::default().with_value(contexts),
-    )
-    .unwrap()
+    Host::open_with(dir, factories, options).unwrap()
+}
+
+/// Counts the holds that began, `hold` of [`raw`] and [`Hold`] of
+/// [`Callee`], in a host that holds it: each adds a permit as it
+/// begins.
+struct Holds(tokio::sync::Semaphore);
+
+impl Holds {
+    fn new() -> Arc<Self> {
+        Arc::new(Self(tokio::sync::Semaphore::new(0)))
+    }
+
+    /// Adds the permit of a hold that began, in a host that holds
+    /// [`Holds`].
+    fn begin(ctx: &ActorContext) -> anyhow::Result<()> {
+        if let Some(holds) = HostRef::of(ctx)?.value::<Self>() {
+            holds.0.add_permits(1);
+        }
+        Ok(())
+    }
+
+    /// Waits up to ten seconds for `n` holds to begin.
+    async fn began(&self, n: u32) {
+        tokio::time::timeout(
+            Duration::from_secs(10),
+            self.0.acquire_many(n),
+        )
+        .await
+        .expect("the holds did not begin")
+        .unwrap()
+        .forget();
+    }
 }
 
 /// Has the actor at `from` call `action` of the actor at `to`, within
@@ -718,7 +762,13 @@ async fn an_actors_call_fails_at_its_deadline() {
 async fn a_call_fails_at_once_when_its_host_begins_to_shut_down() {
     let dir = Scratch::new("call-shutdown");
     let contexts = Arc::new(Contexts::default());
-    let host = open_callers(&dir, contexts.clone());
+    let holds = Holds::new();
+    let host = open_callers_with(
+        &dir,
+        HostOptions::default()
+            .with_value(contexts.clone())
+            .with_value(holds.clone()),
+    );
     let raw = Address::new("raw", "x");
     make(&host, &[&raw, &Address::new("asker", "a")]).await;
     let ctx = contexts.0.lock().unwrap()[0].clone();
@@ -755,7 +805,7 @@ async fn a_call_fails_at_once_when_its_host_begins_to_shut_down() {
         })
     };
     let calls = [hold(None), hold(Some(ctx))];
-    tokio::time::sleep(Duration::from_millis(300)).await;
+    holds.began(2).await;
     let begun = Instant::now();
     let shutdown = tokio::spawn({
         let host = host.clone();
@@ -775,7 +825,11 @@ async fn a_call_fails_at_once_when_its_host_begins_to_shut_down() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_handler_that_calls_does_not_hold_up_its_actor() {
     let dir = Scratch::new("call-concurrent");
-    let host = open_callers(&dir, Arc::default());
+    let holds = Holds::new();
+    let host = open_callers_with(
+        &dir,
+        HostOptions::default().with_value(holds.clone()),
+    );
     let callee = Address::new("callee", "x");
     let a = Address::new("asker", "a");
     make(&host, &[&callee, &a]).await;
@@ -793,7 +847,7 @@ async fn a_handler_that_calls_does_not_hold_up_its_actor() {
             .await
         }
     });
-    tokio::time::sleep(Duration::from_millis(200)).await;
+    holds.began(1).await;
     let ping = Outcome::of(async {
         call(&host, &a, &Ping).await.map(|()| Vec::new())
     })

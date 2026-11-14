@@ -1,9 +1,8 @@
-//! What the tests of `access.rs` and `create.rs` share.
+//! A call from the program to an actor of the authoring layer.
 
 use std::time::Duration;
 
 use hamlet_actor::Action;
-use hamlet_actor_error::ActorError;
 use hamlet_host::{Address, Cause, Host};
 use serde::de::DeserializeOwned;
 
@@ -27,10 +26,4 @@ where
         )
         .await?;
     Ok(ciborium::from_reader(reply.as_slice())?)
-}
-
-/// The error's `group.code`, as `actor.duplicate_key`.
-pub fn code(error: &anyhow::Error) -> String {
-    let error = ActorError::extract(error);
-    format!("{}.{}", error.group(), error.code())
 }

@@ -14,6 +14,7 @@ use std::time::Duration;
 use act::act;
 use anyhow::{Context as _, Result};
 use async_trait::async_trait;
+use code::code;
 use hamlet_actor::{
     Action, Actor, ActorConfig, Ctx, Handler, Registry,
 };
@@ -25,7 +26,6 @@ use hamlet_actor_core::{
     ActorContext, ActorEvent, ActorFactory, ActorStart, BindParam,
     ColumnValue, ShutdownKind,
 };
-use hamlet_actor_error::ActorError;
 use hamlet_host::{Address, Caller, Host, HostEvent, HostOptions};
 use hamlet_testing::Scratch;
 use serde::{Deserialize, Serialize};
@@ -33,6 +33,8 @@ use tokio::time::{Instant, sleep};
 
 #[path = "../examples/demo/act.rs"]
 mod act;
+#[path = "support/code.rs"]
+mod code;
 #[path = "../examples/demo/counter.rs"]
 mod counter;
 
@@ -904,8 +906,7 @@ async fn a_timer_does_not_make_a_file_that_is_gone() {
         else {
             break;
         };
-        let code = ActorError::extract(&error);
-        assert_eq!(code.code(), "duplicate_key", "{error:#}");
+        assert_eq!(code(&error), "actor.duplicate_key", "{error:#}");
         assert!(Instant::now() < deadline, "the key stayed taken");
         sleep(Duration::from_millis(20)).await;
     }
@@ -1135,8 +1136,7 @@ async fn a_calls_failed_start_keeps_the_deadline_its_actor_held() {
             .create("counter", "a", Vec::new())
             .await
             .unwrap_err();
-        let error = ActorError::extract(&error);
-        if error.code() == "duplicate_key" {
+        if code(&error) == "actor.duplicate_key" {
             break;
         }
         assert!(Instant::now() < deadline, "the start never ended");
