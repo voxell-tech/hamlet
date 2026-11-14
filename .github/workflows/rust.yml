@@ -9,11 +9,11 @@ permissions:
   contents: read
 
 # A new push to a pull request cancels that pull request's older run.
-# On main a run in progress is never cancelled: a newer push waits for
-# it, and replaces a push to main that is still waiting.
+# Each run on main is a group of its own, so none is cancelled or kept
+# waiting.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+  group: ${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && github.run_id || github.ref }}
+  cancel-in-progress: true
 
 # No debug info and no incremental build: with them the runner has too
 # little room to link every test and example, and the linker is killed.
@@ -21,10 +21,12 @@ env:
   CARGO_PROFILE_DEV_DEBUG: 0
   CARGO_PROFILE_TEST_DEBUG: 0
   CARGO_INCREMENTAL: 0
+  WINDOWS_SERVER_TESTS: -p hamlet_os -p hamlet_server
+  WINDOWS_HOST_TESTS: -p hamlet_host -p hamlet_actor_core -p hamlet_actor -p hamlet_actor_client -p hamlet_actor_wire -p hamlet_actor_error -p hamlet_actor_error_macros
 
 # Stable is the toolchain rust-toolchain.toml names, which a bare
 # `rustup toolchain install` installs. Formatting uses the latest
-# nightly. The Linux and macOS jobs run `cargo xtask`
+# nightly. The full Linux and macOS jobs run `cargo xtask`
 # steps by name, which pass --locked to cargo since GitHub sets CI.
 jobs:
   format:
@@ -195,7 +197,7 @@ jobs:
         with:
           node-version-file: harnesses/pi/.nvmrc
       - run: npm ci --prefix harnesses/pi
-      - run: cargo test --locked -p hamlet_os -p hamlet_server
+      - run: cargo test --locked ${{ env.WINDOWS_SERVER_TESTS }}
       - run: cargo build --locked -p hamlet_cli -p hamlet_server -p hamlet_app
       # The CLI starts a server in insecure mode in the foreground and
       # in the background, reports it and stops it. The window is a
@@ -238,3 +240,54 @@ jobs:
             target/debug/hamlet.exe
             target/debug/hamlet_server.exe
             target/debug/hamlet_app.exe
+      # After the upload, so the binaries are kept when these tests fail.
+      - run: cargo test --locked --no-fail-fast ${{ env.WINDOWS_HOST_TESTS }}
+
+  test-changed:
+    if: github.event_name == 'pull_request'
+    name: test-changed-${{ matrix.system }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - system: macos
+            runner: macos-latest
+          - system: windows
+            runner: windows-latest
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          submodules: recursive
+          # The merge commit and its parents: the first is the base.
+          fetch-depth: 2
+      # On the full job's toolchain, so its cache is found: macOS's
+      # image's stable can lag the rust-version, and install reuses it.
+      - if: matrix.system == 'macos'
+        run: rustup update stable
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: test
+          save-if: false
+      - shell: bash
+        run: |
+          set -eu
+          changed=$(git diff --name-only HEAD^1 HEAD -- crates)
+          packages=
+          for crate in $(echo "$changed" | cut -d/ -f2 | sort -u); do
+            [ -f "crates/$crate/Cargo.toml" ] || continue
+            if [ "$RUNNER_OS" = Windows ]; then
+              case " $WINDOWS_SERVER_TESTS $WINDOWS_HOST_TESTS " in
+                *" -p $crate "*) ;;
+                *) continue ;;
+              esac
+            fi
+            packages="$packages -p $crate"
+          done
+          if [ -z "$packages" ]; then
+            echo "The pull request changes no crate."
+            exit 0
+          fi
+          cargo test --locked --no-fail-fast $packages

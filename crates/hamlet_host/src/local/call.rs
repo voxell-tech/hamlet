@@ -7,41 +7,33 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
+use hamlet_actor_core::ActorFactory;
 use hamlet_actor_core::error::ActorRuntime;
 use hamlet_actor_core::host::ActionTimedOut;
-use hamlet_actor_core::{ActorContext, ActorFactory};
-use serde::{Deserialize, Serialize};
+use hamlet_actor_error::ActorError;
+use serde::Serialize;
 use tracing::Instrument;
 
-use super::access::current;
-use super::{Host, HostInner, Open, host_shut_down};
-use crate::directory::Address;
+use super::access::{Origin, Stamp};
+use super::{Host, HostInner, Open, actor_id, host_shut_down};
+use crate::address::{Address, Caller};
+use crate::directory::Place;
+use crate::event::HostEvent;
+use crate::route::{CallerKind, Operation};
 
-/// Who made a call, as the host stamps it. The callee reads it from
-/// its call's connection parameters, which are the CBOR of an
-/// `Option<Caller>`: a call that no actor and no client made carries
-/// none.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Caller {
-    /// The actor at this address.
-    Actor(Address),
-    /// A client of the program that opened the host.
-    Client,
-}
-
-impl std::fmt::Display for Caller {
-    fn fmt(
-        &self,
-        f: &mut std::fmt::Formatter<'_>,
-    ) -> std::fmt::Result {
-        match self {
-            Self::Actor(from) => {
-                write!(f, "{}/{}", from.kind, from.key)
-            }
-            Self::Client => f.write_str("client"),
-        }
-    }
+/// An operation the route table does not let its caller make.
+#[derive(ActorError, Serialize)]
+#[error(
+    "actor",
+    "refused",
+    "Actor operation is refused.",
+    "Actor operation '{operation}' is refused: {from} may not reach \
+     the kind '{to}'."
+)]
+struct Refused {
+    operation: String,
+    from: CallerKind,
+    to: String,
 }
 
 impl Host {
@@ -72,7 +64,9 @@ impl Host {
         args: Vec<u8>,
         deadline: Duration,
     ) -> Result<Vec<u8>> {
-        self.inner().call(None, to, name, args, deadline).await
+        self.inner()
+            .call(Stamp::PROGRAM, to, name, args, deadline)
+            .await
     }
 
     /// Calls as [`Host::call`] does, stamped with
@@ -86,110 +80,141 @@ impl Host {
         deadline: Duration,
     ) -> Result<Vec<u8>> {
         self.inner()
-            .call(Some(Caller::Client), to, name, args, deadline)
-            .await
-    }
-
-    /// Calls as [`Host::call`] does, from the actor whose context is
-    /// `ctx`, stamped with its address: an actor calls only as
-    /// itself. Fails at once with `actor.invalid_operation` for a
-    /// call to itself, which would wait for its own handler, and with
-    /// `actor.stopping` from a generation that has ended.
-    pub async fn call_from(
-        ctx: &ActorContext,
-        to: &Address,
-        name: &str,
-        args: Vec<u8>,
-        deadline: Duration,
-    ) -> Result<Vec<u8>> {
-        let running = current(ctx)?;
-        running
-            .host
-            .call(
-                Some(Caller::Actor(running.address()?)),
-                to,
-                name,
-                args,
-                deadline,
-            )
+            .call(Stamp::client(), to, name, args, deadline)
             .await
     }
 }
 
 impl HostInner {
-    /// Calls the action `name` of the actor at `to` for `caller`,
+    /// Calls the action `name` of the actor at `to` for `stamp`,
     /// stamped on the call's connection, as [`Host::call`] says.
-    async fn call(
+    pub(super) async fn call(
         self: &Arc<Self>,
-        caller: Option<Caller>,
+        stamp: Stamp,
         to: &Address,
         name: &str,
         args: Vec<u8>,
         deadline: Duration,
     ) -> Result<Vec<u8>> {
-        admit("call", caller.as_ref(), to)?;
-        let actor_id = self.located(&to.kind, &to.key)?;
-        let params = stamp(caller.as_ref())?;
+        self.admit(
+            Operation::Call {
+                action: name.to_owned(),
+            },
+            stamp.caller(),
+            to,
+        )?;
+        let place = self.locate(to)?;
         let span = tracing::debug_span!(
             "call",
-            actor_id,
+            actor_id = actor_id(to).as_str(),
             action = name,
-            caller = caller.as_ref().map(tracing::field::display)
+            caller = stamp.caller().map(tracing::field::display)
         );
-        let mut shut = self.starts_end.subscribe();
-        let call = async {
-            let begun = Instant::now();
-            let generation = tokio::time::timeout(
-                deadline,
-                self.ensure_started(&actor_id, &Open::Existing),
-            )
-            .await
-            .map_err(|_| ActionTimedOut.build())??;
-            let left = deadline.saturating_sub(begun.elapsed());
-            generation.actor.action(params, name, args, left).await
-        };
-        async {
-            tokio::select! {
-                called = call => called,
-                _ = shut.wait_for(Option::is_some) => {
-                    Err(host_shut_down())
+        let called = async {
+            match (place, stamp.origin()) {
+                (Place::Local(_), _) => {
+                    self.act(&stamp, to, name, args, deadline).await
+                }
+                (Place::Linked(port), Origin::Here) => {
+                    port.call(
+                        stamp.caller(),
+                        to,
+                        name,
+                        args,
+                        deadline,
+                    )
+                    .await
+                }
+                (Place::Linked(_), Origin::Peer) => {
+                    todo!(
+                        "U5, the host unit: a peer's call of its \
+                         own kind"
+                    )
                 }
             }
-        }
-        .instrument(span)
+        };
+        self.or_shut(called).instrument(span).await
+    }
+
+    /// The call in this host: the actor started from its file within
+    /// `deadline`, then its action within what is left.
+    async fn act(
+        self: &Arc<Self>,
+        stamp: &Stamp,
+        to: &Address,
+        name: &str,
+        args: Vec<u8>,
+        deadline: Duration,
+    ) -> Result<Vec<u8>> {
+        let params = stamp.bytes()?;
+        let begun = Instant::now();
+        let generation = tokio::time::timeout(
+            deadline,
+            self.ensure_started(to, &Open::Existing),
+        )
         .await
+        .map_err(|_| ActionTimedOut.build())??;
+        let left = deadline.saturating_sub(begun.elapsed());
+        generation.actor.action(params, name, args, left).await
     }
-}
 
-/// Refuses an actor's `operation` of itself, which would wait for its
-/// own handler or its own start.
-pub(super) fn admit(
-    operation: &str,
-    caller: Option<&Caller>,
-    to: &Address,
-) -> Result<()> {
-    match caller {
-        Some(Caller::Actor(from)) if from == to => {
-            Err(ActorRuntime::InvalidOperation {
-                operation: operation.to_owned(),
-                reason: format!(
-                    "the actor {}/{} is its own target",
-                    to.kind, to.key
-                ),
-            }
-            .build())
+    /// `work`, or `actor.stopping` at once when the host begins to
+    /// shut down.
+    async fn or_shut<T>(
+        &self,
+        work: impl Future<Output = Result<T>>,
+    ) -> Result<T> {
+        let mut shut = self.starts_end.subscribe();
+        tokio::select! {
+            done = work => done,
+            _ = shut.wait_for(Option::is_some) => Err(host_shut_down()),
         }
-        _ => Ok(()),
     }
-}
 
-/// The connection parameters that stamp a call with `caller`: the
-/// CBOR of the `Option<Caller>`, so none is CBOR null.
-fn stamp(caller: Option<&Caller>) -> Result<Vec<u8>> {
-    let mut params = Vec::new();
-    ciborium::into_writer(&caller, &mut params)
-        .context("encode the caller's stamp")?;
-    Ok(params)
+    /// Refuses an actor's `operation` of itself, which would wait for
+    /// its own handler or its own start, and reports and refuses an
+    /// operation the route table does not let its caller make.
+    pub(super) fn admit(
+        &self,
+        operation: Operation,
+        caller: Option<&Caller>,
+        to: &Address,
+    ) -> Result<()> {
+        let Some(from) = caller else {
+            return Ok(());
+        };
+        if let Caller::Actor(actor) = from
+            && actor == to
+        {
+            return Err(ActorRuntime::InvalidOperation {
+                operation: operation.to_string(),
+                reason: format!("the actor {to} is its own target"),
+            }
+            .build());
+        }
+        if self.options.routes.allows(from, to.kind()) {
+            return Ok(());
+        }
+        tracing::warn!(
+            caller = %from,
+            actor_id = actor_id(to).as_str(),
+            ?operation,
+            "the host refused an operation its route table does not \
+             allow"
+        );
+        let refused = Refused {
+            operation: operation.to_string(),
+            from: CallerKind::of(from),
+            to: to.kind().to_owned(),
+        }
+        .build();
+        let _ = self.events.send(HostEvent::Refused {
+            from: from.clone(),
+            to: to.clone(),
+            operation,
+        });
+        Err(refused)
+    }
 }
 
 /// Fails for a kind that cannot read the stamp of an actor's call or
@@ -199,11 +224,7 @@ fn stamp(caller: Option<&Caller>) -> Result<Vec<u8>> {
 pub(super) fn check_kinds(
     factories: &HashMap<String, ActorFactory>,
 ) -> Result<()> {
-    let stamps =
-        [Caller::Client, Caller::Actor(Address::new("k", "k"))]
-            .iter()
-            .map(|caller| stamp(Some(caller)))
-            .collect::<Result<Vec<_>>>()?;
+    let stamps = Stamp::sample_bytes()?;
     for (kind, factory) in factories {
         for stamp in &stamps {
             factory.check_conn_params(stamp).with_context(|| {

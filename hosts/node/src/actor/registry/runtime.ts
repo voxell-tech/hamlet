@@ -1,0 +1,749 @@
+// This file was changed for Hamlet. See NOTICE in this package.
+import type { WorkflowSpan } from "../actor/config.ts";
+import type {
+    ActorInvocationSpanContext,
+    ActorInvocationTraceContext,
+} from "../common/actor-telemetry-context.ts";
+import type {
+    SqliteNativeMetrics,
+    SqliteProfilingOptions,
+} from "../common/database/config.ts";
+
+declare const handleBrand: unique symbol;
+
+type OpaqueHandle<Name extends string> = {
+    readonly [handleBrand]: Name;
+};
+
+export type RegistryHandle = OpaqueHandle<"registry">;
+export type ActorFactoryHandle = OpaqueHandle<"actorFactory">;
+export type ActorContextHandle = OpaqueHandle<"actorContext">;
+export type ConnHandle = OpaqueHandle<"conn">;
+export type WebSocketHandle = OpaqueHandle<"webSocket">;
+export type CancellationTokenHandle = OpaqueHandle<"cancellationToken">;
+export type ActorStateTransactionHandle = OpaqueHandle<"actorStateTransaction">;
+export type SqliteTransactionHandle = OpaqueHandle<"sqliteTransaction">;
+
+export type RuntimeBytes = Uint8Array;
+
+export interface RuntimeActorKeySegment {
+    kind: string;
+    stringValue?: string;
+    numberValue?: number;
+}
+
+/** One individual actor fork behind an actor, as the runtime reports it. */
+export interface RuntimeForkLink {
+    actorId: string;
+    key: RuntimeActorKeySegment[];
+    forkedAt: number;
+}
+
+/** Resolves correlation at operation time so retained clients cannot freeze stale context. */
+export type CurrentActorInvocation = () =>
+    | ActorInvocationTraceContext
+    | undefined;
+
+/** One open call from an actor out to another actor. */
+export interface RuntimeOutboundCall {
+    /**
+     * W3C context of the call's own span, to send to the callee so it parents to
+     * the call. Absent when tracing is disabled.
+     */
+    readonly span?: ActorInvocationSpanContext | undefined;
+    /**
+     * Records the call's outcome. `error` is the failure encoded the way the
+     * bridge encodes errors, so a structured error keeps its group and code.
+     */
+    finish(error?: string): void;
+}
+
+/**
+ * Opens the span covering one call out to another actor, or returns `undefined`
+ * outside an invocation or on a runtime without invocation telemetry. Callers
+ * send their own context when it returns nothing.
+ */
+export type StartCallSpan = (
+    actorName: string,
+    actionName: string,
+) => RuntimeOutboundCall | undefined;
+
+export interface RuntimeHttpRequest {
+    method: string;
+    uri: string;
+    headers?: Record<string, string>;
+    body?: RuntimeBytes;
+}
+
+export interface RuntimeHttpResponse {
+    status?: number;
+    headers?: Record<string, string>;
+    body?: RuntimeBytes;
+    stream?: boolean;
+}
+
+export interface RuntimeStateDeltaPayload {
+    state?: RuntimeBytes | undefined;
+    connHibernation: Array<{
+        connId: string;
+        bytes: RuntimeBytes;
+    }>;
+    connHibernationRemoved: string[];
+}
+
+export interface RuntimeWorkflowKvWrite {
+    key: RuntimeBytes;
+    value: RuntimeBytes;
+}
+
+export interface RuntimeRequestSaveOpts {
+    immediate?: boolean;
+    maxWaitMs?: number;
+}
+
+export interface RuntimeInspectorSnapshot {
+    stateRevision: number;
+    connectionsRevision: number;
+    queueRevision: number;
+    activeConnections: number;
+    queueSize: number;
+    connectedClients: number;
+}
+
+export interface RuntimeQueueMessage {
+    id(): bigint;
+    name(): string;
+    body(): RuntimeBytes;
+    createdAt(): number;
+    isCompletable(): boolean;
+    complete(response?: RuntimeBytes | undefined | null): Promise<void>;
+}
+
+export interface RuntimeQueueInspectMessage {
+    id: number;
+    name: string;
+    createdAtMs: number;
+}
+
+export interface RuntimeQueueSendResult {
+    status: string;
+    response?: RuntimeBytes;
+}
+
+export interface RuntimeScheduledEventInfo {
+    id: string;
+    action: string;
+    args: RuntimeBytes;
+    runAt: number;
+}
+
+export interface RuntimeCronJobInfo {
+    name: string;
+    kind: "cron" | "every";
+    action: string;
+    args: RuntimeBytes;
+    nextRunAt: number;
+    lastRunAt?: number;
+    expression?: string;
+    timezone?: string;
+    intervalMs?: number;
+    maxHistory: number;
+}
+
+export interface RuntimeScheduleErrorInfo {
+    group: string;
+    code: string;
+    message: string;
+    metadata?: unknown;
+}
+
+export interface RuntimeCronFire {
+    action: string;
+    scheduledAt: number;
+    firedAt: number;
+    finishedAt?: number;
+    result: "running" | "ok" | "error" | "skipped";
+    error?: RuntimeScheduleErrorInfo;
+}
+
+export interface RuntimeScheduledFireInfo {
+    kind: "at" | "cron" | "every";
+    id: string;
+    name?: string;
+    scheduledAt: number;
+    firedAt: number;
+}
+
+export interface RuntimeQueueNextBatchOptions {
+    names?: string[];
+    count?: number;
+    timeoutMs?: number;
+    completable?: boolean;
+}
+
+export interface RuntimeQueueWaitOptions {
+    timeoutMs?: number;
+    completable?: boolean;
+}
+
+export interface RuntimeQueueEnqueueAndWaitOptions {
+    timeoutMs?: number;
+}
+
+export interface RuntimeQueueTryNextBatchOptions {
+    names?: string[];
+    count?: number;
+    completable?: boolean;
+}
+
+export interface RuntimeKvListOptions {
+    reverse?: boolean;
+    limit?: number;
+}
+
+export interface RuntimeKvEntry {
+    key: RuntimeBytes;
+    value: RuntimeBytes;
+}
+
+type RuntimeSqlBindNoValues = {
+    intValue?: never;
+    floatValue?: never;
+    textValue?: never;
+    blobValue?: never;
+};
+
+export type RuntimeSqlBindParam =
+    | ({ kind: "null" } & RuntimeSqlBindNoValues)
+    | {
+          kind: "int";
+          intValue: number;
+          floatValue?: never;
+          textValue?: never;
+          blobValue?: never;
+      }
+    | {
+          kind: "float";
+          intValue?: never;
+          floatValue: number;
+          textValue?: never;
+          blobValue?: never;
+      }
+    | {
+          kind: "text";
+          intValue?: never;
+          floatValue?: never;
+          textValue: string;
+          blobValue?: never;
+      }
+    | {
+          kind: "blob";
+          intValue?: never;
+          floatValue?: never;
+          textValue?: never;
+          blobValue: RuntimeBytes;
+      };
+
+export type RuntimeSqlBindParams = RuntimeSqlBindParam[] | null;
+
+export interface RuntimeSqlQueryResult {
+    columns: string[];
+    rows: unknown[][];
+}
+
+export type RuntimeSqlExecResult = RuntimeSqlQueryResult;
+
+export interface RuntimeSqlExecuteResult extends RuntimeSqlQueryResult {
+    changes: number;
+    lastInsertRowId?: number | null;
+}
+
+export interface RuntimeSqlBatchStatement {
+    sql: string;
+    params?: RuntimeSqlBindParams;
+}
+
+export function normalizeRuntimeSqlExecuteResult(
+    result: RuntimeSqlQueryResult & {
+        changes: number;
+        lastInsertRowId?: number | null;
+    },
+): RuntimeSqlExecuteResult {
+    return result;
+}
+
+export interface RuntimeSqlRunResult {
+    changes: number;
+}
+
+export interface RuntimeSqlDatabase {
+    exec(sql: string): Promise<RuntimeSqlExecResult>;
+    execute(
+        sql: string,
+        params?: RuntimeSqlBindParams,
+    ): Promise<RuntimeSqlExecuteResult>;
+    executeBatch(
+        statements: RuntimeSqlBatchStatement[],
+    ): Promise<RuntimeSqlExecuteResult[]>;
+    query(
+        sql: string,
+        params?: RuntimeSqlBindParams,
+    ): Promise<RuntimeSqlQueryResult>;
+    run(
+        sql: string,
+        params?: RuntimeSqlBindParams,
+    ): Promise<RuntimeSqlRunResult>;
+    beginTransaction(
+        timeoutMs?: number,
+        name?: string,
+    ): Promise<RuntimeSqlTransactionDatabase>;
+    metrics?(): SqliteNativeMetrics | null;
+    takeLastKvError?(): string | null;
+    close(): Promise<void>;
+}
+
+export interface RuntimeSqlTransactionDatabase {
+    exec(sql: string): Promise<RuntimeSqlExecResult>;
+    execute(
+        sql: string,
+        params?: RuntimeSqlBindParams,
+    ): Promise<RuntimeSqlExecuteResult>;
+    commit(): Promise<void>;
+    rollback(): Promise<void>;
+}
+
+/** Sample rates for the traces an actor starts, in the shape core takes. */
+export interface RuntimeActorTracingConfig {
+    sampler?: number;
+    /** Keyed by flattened, dot-separated action name. */
+    actions?: Record<string, number>;
+}
+
+export interface RuntimeActorConfig {
+    name?: string;
+    icon?: string;
+    hasDatabase?: boolean;
+    remoteSqlite?: boolean;
+    sqliteProfiling?: SqliteProfilingOptions;
+    tracing?: RuntimeActorTracingConfig;
+    hasState?: boolean;
+    canHibernateWebsocket?: boolean;
+    stateSaveIntervalMs?: number;
+    createStateTimeoutMs?: number;
+    onCreateTimeoutMs?: number;
+    createVarsTimeoutMs?: number;
+    createConnStateTimeoutMs?: number;
+    onBeforeConnectTimeoutMs?: number;
+    onConnectTimeoutMs?: number;
+    onMigrateTimeoutMs?: number;
+    onWakeTimeoutMs?: number;
+    onBeforeActorStartTimeoutMs?: number;
+    actionTimeoutMs?: number;
+    onRequestTimeoutMs?: number;
+    sleepTimeoutMs?: number;
+    noSleep?: boolean;
+    sleepGracePeriodMs?: number;
+    connectionLivenessTimeoutMs?: number;
+    connectionLivenessIntervalMs?: number;
+    maxQueueSize?: number;
+    maxSchedules?: number;
+    maxQueueMessageSize?: number;
+    maxIncomingMessageSize?: number;
+    maxOutgoingMessageSize?: number;
+    preloadMaxWorkflowBytes?: number;
+    preloadMaxConnectionsBytes?: number;
+    actions?: Array<{ name: string }>;
+    inspectorTabs?: Array<RuntimeInspectorTabEntry>;
+}
+
+export interface RuntimeInspectorTabEntry {
+    id: string;
+    /** Required for custom entries; omitted for built-in hides. */
+    label?: string;
+    /**
+     * Required for custom entries — absolute path to the source directory.
+     * Resolved on the TS side before being handed to the runtime.
+     */
+    source?: string;
+    /** Optional icon id for custom entries. */
+    icon?: string;
+    /** Set to true for built-in hide entries. */
+    hidden?: boolean;
+}
+
+export type RuntimeWebSocketEvent =
+    | {
+          kind: "message";
+          data: string | RuntimeBytes;
+          binary: boolean;
+          messageIndex?: number;
+      }
+    | {
+          kind: "close";
+          code: number;
+          reason: string;
+          wasClean: boolean;
+      };
+
+export interface CoreRuntime {
+    createRegistry(): RegistryHandle;
+    registerActor(
+        registry: RegistryHandle,
+        name: string,
+        factory: ActorFactoryHandle,
+    ): void;
+    shutdownRegistry(registry: RegistryHandle): Promise<void>;
+    shutdownTelemetry?(): Promise<void>;
+    createActorFactory(
+        callbacks: object,
+        config?: RuntimeActorConfig | undefined | null,
+    ): ActorFactoryHandle;
+
+    createCancellationToken(): CancellationTokenHandle;
+    cancellationTokenAborted(token: CancellationTokenHandle): boolean;
+    cancelCancellationToken(token: CancellationTokenHandle): void;
+    /**
+     * Calls `callback` once when `token` is cancelled. Returns a release
+     * function that drops the registration without calling `callback`; call it
+     * once cancellation no longer matters so the native listener is freed.
+     */
+    onCancellationTokenCancelled(
+        token: CancellationTokenHandle,
+        callback: (...args: unknown[]) => unknown,
+    ): () => void;
+
+    actorState(ctx: ActorContextHandle): RuntimeBytes;
+    actorBeginOnStateChange(ctx: ActorContextHandle): void;
+    actorEndOnStateChange(ctx: ActorContextHandle): void;
+    actorSetAlarm(
+        ctx: ActorContextHandle,
+        timestampMs?: number | undefined | null,
+    ): void;
+    actorSetRunWakeAt(
+        ctx: ActorContextHandle,
+        timestampMs?: number | undefined | null,
+    ): Promise<void>;
+    actorRequestSave(
+        ctx: ActorContextHandle,
+        opts?: RuntimeRequestSaveOpts | undefined | null,
+    ): void;
+    actorRequestSaveAndWait(
+        ctx: ActorContextHandle,
+        opts?: RuntimeRequestSaveOpts | undefined | null,
+    ): Promise<void>;
+    actorInspectorSnapshot(ctx: ActorContextHandle): RuntimeInspectorSnapshot;
+    actorDecodeInspectorRequest(
+        ctx: ActorContextHandle,
+        bytes: RuntimeBytes,
+        advertisedVersion: number,
+    ): RuntimeBytes;
+    actorEncodeInspectorResponse(
+        ctx: ActorContextHandle,
+        bytes: RuntimeBytes,
+        targetVersion: number,
+    ): RuntimeBytes;
+    actorVerifyInspectorAuth(
+        ctx: ActorContextHandle,
+        bearerToken?: string | undefined | null,
+    ): Promise<void>;
+    actorQueueHibernationRemoval(ctx: ActorContextHandle, connId: string): void;
+    actorTakePendingHibernationChanges(ctx: ActorContextHandle): string[];
+    actorDirtyHibernatableConns(ctx: ActorContextHandle): ConnHandle[];
+    actorSaveStateAndWorkflowBatch(
+        ctx: ActorContextHandle,
+        writes: RuntimeWorkflowKvWrite[],
+    ): Promise<void>;
+    actorId(ctx: ActorContextHandle): string;
+    /**
+     * Runs one actor callback with `ctx` as the current invocation: operations
+     * on retained handles for the same actor resolve to it, and its Core span
+     * is the active OpenTelemetry span for the duration of `run`. Only actions,
+     * raw requests, and queue dispatch run this way; other callbacks have no
+     * invocation span.
+     */
+    runWithActorInvocationContext<T>(ctx: ActorContextHandle, run: () => T): T;
+    /**
+     * Correlation of the invocation currently executing for this actor, or
+     * `undefined` outside an invocation or after it finished. A sampled-out
+     * invocation can still expose valid span context for propagation.
+     */
+    actorInvocationTraceContext(
+        ctx: ActorContextHandle,
+    ): ActorInvocationTraceContext | undefined;
+    /**
+     * Opens the span covering one call this actor makes to another actor. See
+     * `StartCallSpan` for when this returns nothing.
+     */
+    startCallSpan(
+        ctx: ActorContextHandle,
+        actorName: string,
+        actionName: string,
+    ): RuntimeOutboundCall | undefined;
+    /** Backs `ActorRun.startWorkflowSpan`. */
+    startWorkflowSpan(ctx: ActorContextHandle): Promise<WorkflowSpan>;
+    /** Backs `ActorRun.runOutsideWorkflowSpan`. */
+    runOutsideActorInvocationContext<T>(run: () => T): T;
+    /** Identity of the invocation the caller runs in, usable as a cache key. */
+    currentInvocationScope(): object | undefined;
+    actorName(ctx: ActorContextHandle): string;
+    actorKey(ctx: ActorContextHandle): RuntimeActorKeySegment[];
+    /** The individual actor forks behind the actor, oldest first. */
+    actorForkChain(ctx: ActorContextHandle): RuntimeForkLink[];
+    actorRegion(ctx: ActorContextHandle): string;
+    /** The name of the namespace the actor runs in. */
+    actorNamespace(ctx: ActorContextHandle): string;
+    actorSleep(ctx: ActorContextHandle): void;
+    actorDestroy(ctx: ActorContextHandle): void;
+    actorAbortSignal(ctx: ActorContextHandle): AbortSignal;
+    actorConns(ctx: ActorContextHandle): ConnHandle[];
+    actorConnectConn(
+        ctx: ActorContextHandle,
+        params: RuntimeBytes,
+        request?: RuntimeHttpRequest | undefined | null,
+    ): Promise<ConnHandle>;
+    actorBroadcast(
+        ctx: ActorContextHandle,
+        name: string,
+        args: RuntimeBytes,
+    ): void;
+    actorWaitUntil(ctx: ActorContextHandle, promise: Promise<unknown>): void;
+    actorWaitForTrackedShutdownWork(ctx: ActorContextHandle): Promise<boolean>;
+    actorWaitForTrackedShutdownWorkUnbounded(
+        ctx: ActorContextHandle,
+    ): Promise<void>;
+    actorKeepAwake(ctx: ActorContextHandle, promise: Promise<unknown>): void;
+    actorBeginKeepAwake(ctx: ActorContextHandle): number;
+    actorEndKeepAwake(ctx: ActorContextHandle, regionId: number): void;
+    actorRegisterTask(ctx: ActorContextHandle, promise: Promise<unknown>): void;
+    actorRuntimeState(ctx: ActorContextHandle): object;
+    actorClearRuntimeState(ctx: ActorContextHandle): void;
+    actorRestartRunHandler(ctx: ActorContextHandle): void;
+    actorBeginWebsocketCallback(ctx: ActorContextHandle): number;
+    actorEndWebsocketCallback(ctx: ActorContextHandle, regionId: number): void;
+
+    actorKvGet(
+        ctx: ActorContextHandle,
+        key: RuntimeBytes,
+    ): Promise<RuntimeBytes | null>;
+    actorKvPut(
+        ctx: ActorContextHandle,
+        key: RuntimeBytes,
+        value: RuntimeBytes,
+    ): Promise<void>;
+    actorKvDelete(ctx: ActorContextHandle, key: RuntimeBytes): Promise<void>;
+    actorKvDeleteRange(
+        ctx: ActorContextHandle,
+        start: RuntimeBytes,
+        end: RuntimeBytes,
+    ): Promise<void>;
+    actorKvListPrefix(
+        ctx: ActorContextHandle,
+        prefix: RuntimeBytes,
+        options?: RuntimeKvListOptions | undefined | null,
+    ): Promise<RuntimeKvEntry[]>;
+    actorKvListRange(
+        ctx: ActorContextHandle,
+        start: RuntimeBytes,
+        end: RuntimeBytes,
+        options?: RuntimeKvListOptions | undefined | null,
+    ): Promise<RuntimeKvEntry[]>;
+    actorKvBatchGet(
+        ctx: ActorContextHandle,
+        keys: RuntimeBytes[],
+    ): Promise<Array<RuntimeBytes | undefined | null>>;
+    actorKvBatchPut(
+        ctx: ActorContextHandle,
+        entries: RuntimeKvEntry[],
+    ): Promise<void>;
+    actorKvBatchDelete(
+        ctx: ActorContextHandle,
+        keys: RuntimeBytes[],
+    ): Promise<void>;
+
+    actorSqlExec(
+        ctx: ActorContextHandle,
+        sql: string,
+    ): Promise<RuntimeSqlExecResult>;
+    actorSqlExecute(
+        ctx: ActorContextHandle,
+        sql: string,
+        params?: RuntimeSqlBindParams,
+    ): Promise<RuntimeSqlExecuteResult>;
+    actorSqlExecuteBatch(
+        ctx: ActorContextHandle,
+        statements: RuntimeSqlBatchStatement[],
+    ): Promise<RuntimeSqlExecuteResult[]>;
+    actorSqlBeginTransaction(
+        ctx: ActorContextHandle,
+        timeoutMs?: number,
+        name?: string,
+    ): Promise<SqliteTransactionHandle>;
+    actorSqlTransactionExec(
+        transaction: SqliteTransactionHandle,
+        sql: string,
+    ): Promise<RuntimeSqlExecResult>;
+    actorSqlTransactionExecute(
+        transaction: SqliteTransactionHandle,
+        sql: string,
+        params?: RuntimeSqlBindParams,
+    ): Promise<RuntimeSqlExecuteResult>;
+    actorSqlTransactionCommit(
+        transaction: SqliteTransactionHandle,
+    ): Promise<void>;
+    actorSqlTransactionRollback(
+        transaction: SqliteTransactionHandle,
+    ): Promise<void>;
+    actorBeginStateTransaction(
+        ctx: ActorContextHandle,
+        timeoutMs?: number,
+    ): Promise<ActorStateTransactionHandle>;
+    actorStateTransactionExecute(
+        transaction: ActorStateTransactionHandle,
+        sql: string,
+        params?: RuntimeSqlBindParams,
+    ): Promise<RuntimeSqlExecuteResult>;
+    actorStateTransactionCommit(
+        transaction: ActorStateTransactionHandle,
+        payload: RuntimeStateDeltaPayload,
+    ): Promise<void>;
+    actorStateTransactionRollback(
+        transaction: ActorStateTransactionHandle,
+    ): Promise<void>;
+    actorSqlQuery(
+        ctx: ActorContextHandle,
+        sql: string,
+        params?: RuntimeSqlBindParams,
+    ): Promise<RuntimeSqlQueryResult>;
+    actorSqlRun(
+        ctx: ActorContextHandle,
+        sql: string,
+        params?: RuntimeSqlBindParams,
+    ): Promise<RuntimeSqlRunResult>;
+    actorSqlMetrics(ctx: ActorContextHandle): SqliteNativeMetrics | null;
+    actorSqlTakeLastKvError(ctx: ActorContextHandle): string | null;
+    actorSqlClose(ctx: ActorContextHandle): Promise<void>;
+
+    actorQueueSend(
+        ctx: ActorContextHandle,
+        name: string,
+        body: RuntimeBytes,
+    ): Promise<RuntimeQueueMessage>;
+    actorQueueNextBatch(
+        ctx: ActorContextHandle,
+        options?: RuntimeQueueNextBatchOptions | undefined | null,
+        signal?: CancellationTokenHandle | undefined | null,
+    ): Promise<RuntimeQueueMessage[]>;
+    actorQueueWaitForNames(
+        ctx: ActorContextHandle,
+        names: string[],
+        options?: RuntimeQueueWaitOptions | undefined | null,
+        signal?: CancellationTokenHandle | undefined | null,
+    ): Promise<RuntimeQueueMessage>;
+    actorQueueWaitForNamesAvailable(
+        ctx: ActorContextHandle,
+        names: string[],
+        options?: RuntimeQueueWaitOptions | undefined | null,
+        signal?: CancellationTokenHandle | undefined | null,
+    ): Promise<void>;
+    actorQueueCompletePersisted(
+        ctx: ActorContextHandle,
+        messageId: bigint,
+        expectedName: string,
+        response?: RuntimeBytes | undefined | null,
+    ): Promise<boolean>;
+    actorQueueEnqueueAndWait(
+        ctx: ActorContextHandle,
+        name: string,
+        body: RuntimeBytes,
+        options?: RuntimeQueueEnqueueAndWaitOptions | undefined | null,
+        signal?: CancellationTokenHandle | undefined | null,
+    ): Promise<RuntimeBytes | null>;
+    actorQueueTryNextBatch(
+        ctx: ActorContextHandle,
+        options?: RuntimeQueueTryNextBatchOptions | undefined | null,
+    ): RuntimeQueueMessage[];
+    actorQueueMaxSize(ctx: ActorContextHandle): number;
+    actorQueueInspectMessages(
+        ctx: ActorContextHandle,
+    ): Promise<RuntimeQueueInspectMessage[]>;
+    actorQueueReset(ctx: ActorContextHandle): Promise<void>;
+
+    actorScheduleAfter(
+        ctx: ActorContextHandle,
+        durationMs: number,
+        actionName: string,
+        args: RuntimeBytes,
+    ): Promise<string>;
+    actorScheduleAt(
+        ctx: ActorContextHandle,
+        timestampMs: number,
+        actionName: string,
+        args: RuntimeBytes,
+    ): Promise<string>;
+    actorScheduleCancel(ctx: ActorContextHandle, id: string): Promise<boolean>;
+    actorScheduleGet(
+        ctx: ActorContextHandle,
+        id: string,
+    ): Promise<RuntimeScheduledEventInfo | undefined>;
+    actorScheduleList(
+        ctx: ActorContextHandle,
+    ): Promise<RuntimeScheduledEventInfo[]>;
+    actorCronSet(
+        ctx: ActorContextHandle,
+        name: string,
+        expression: string,
+        timezone: string | undefined,
+        actionName: string,
+        args: RuntimeBytes,
+        maxHistory: number | undefined,
+    ): Promise<void>;
+    actorCronEvery(
+        ctx: ActorContextHandle,
+        name: string,
+        intervalMs: number,
+        actionName: string,
+        args: RuntimeBytes,
+        maxHistory: number | undefined,
+    ): Promise<void>;
+    actorCronGet(
+        ctx: ActorContextHandle,
+        name: string,
+    ): Promise<RuntimeCronJobInfo | undefined>;
+    actorCronList(ctx: ActorContextHandle): Promise<RuntimeCronJobInfo[]>;
+    actorCronDelete(ctx: ActorContextHandle, name: string): Promise<boolean>;
+    actorCronHistory(
+        ctx: ActorContextHandle,
+        name: string,
+        limit: number | undefined,
+    ): Promise<RuntimeCronFire[]>;
+
+    connId(conn: ConnHandle): string;
+    connParams(conn: ConnHandle): RuntimeBytes;
+    connState(conn: ConnHandle): RuntimeBytes;
+    connSetState(conn: ConnHandle, state: RuntimeBytes): void;
+    connIsHibernatable(conn: ConnHandle): boolean;
+    connSend(conn: ConnHandle, name: string, args: RuntimeBytes): void;
+    connDisconnect(
+        conn: ConnHandle,
+        reason?: string | undefined | null,
+    ): Promise<void>;
+
+    webSocketSend(
+        ws: WebSocketHandle,
+        data: RuntimeBytes,
+        binary: boolean,
+    ): void;
+    webSocketClose(
+        ws: WebSocketHandle,
+        code?: number | undefined | null,
+        reason?: string | undefined | null,
+    ): Promise<void>;
+    webSocketSetEventCallback(
+        ws: WebSocketHandle,
+        callback: (event: RuntimeWebSocketEvent) => void,
+    ): void;
+}
+
+export interface RuntimeBundle {
+    runtime: CoreRuntime;
+}

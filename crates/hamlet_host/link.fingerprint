@@ -1,0 +1,4 @@
+# The link protocol's version and a sha256 of the shapes of its frames
+# with that version, written by `cargo test -p hamlet_host`. Do not edit.
+v 0.1.0
+sha256 c2b0957fecb4399fc70bfd678239f5d8b8820ddffb11769583af9ddaece0538f

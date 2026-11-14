@@ -741,8 +741,8 @@ impl Env {
                 argv: &confined.argv,
                 env: &confined.env,
                 cwd: &self.cwd,
-                stdin,
             },
+            stdin,
             limits,
         )
         .map_err(|error| {

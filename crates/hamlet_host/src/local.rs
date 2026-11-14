@@ -35,7 +35,7 @@ use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Arc, Weak};
 use std::time::Duration;
 
-use anyhow::{Context, Result, anyhow, bail, ensure};
+use anyhow::{Context, Result, bail, ensure};
 use hamlet_actor_core::actor::schedule::{
     RUN_WAKE_AT_META_KEY, SetAsideTimer, decode_run_wake_at,
 };
@@ -56,12 +56,16 @@ use rusqlite::{Connection, OptionalExtension};
 use tokio::sync::{broadcast, oneshot, watch};
 use tokio::task::{AbortHandle, JoinHandle};
 
+pub(crate) use self::access::Inbound;
+use self::access::Stamp;
 pub use self::access::{HostRef, Values};
-pub use self::call::Caller;
 use self::create::DuplicateKey;
-use crate::directory::{Address, Directory, Place};
+use crate::address::{Address, Named, plain};
+use crate::directory::{Directory, Place};
 use crate::event::HostEvent;
+use crate::link::Port;
 use crate::plain_sqlite::{self, PlainSqlite};
+use crate::route::Routes;
 
 mod access;
 mod call;
@@ -368,18 +372,18 @@ impl Generation {
 /// then wakes the state's waiters.
 struct Owned {
     host: Arc<HostInner>,
-    actor_id: String,
+    at: Address,
     /// Wakes the waiters when it drops, after [`Drop::drop`].
     wake: watch::Sender<Option<Failed>>,
     waiters: Waiters,
 }
 
 impl Owned {
-    fn new(host: &Arc<HostInner>, actor_id: &str) -> Self {
+    fn new(host: &Arc<HostInner>, at: &Address) -> Self {
         let (wake, waiters) = watch::channel(None);
         Self {
             host: host.clone(),
-            actor_id: actor_id.to_owned(),
+            at: at.clone(),
             wake,
             waiters,
         }
@@ -402,9 +406,9 @@ impl Drop for Owned {
             let mut actors = self.host.actors.lock();
             actors
                 .lives
-                .get(&self.actor_id)
+                .get(&self.at)
                 .is_some_and(|life| self.owns(life))
-                .then(|| actors.lives.remove(&self.actor_id))
+                .then(|| actors.lives.remove(&self.at))
         };
         // Dropped after the lock: it may hold the generation's last
         // reference.
@@ -447,17 +451,15 @@ impl Stop {
             None => Some(Ok(None)),
         };
         let Some(marked) = marked else {
-            let error = stop_missed(&owned.actor_id, &host.options);
+            let error = stop_missed(&owned.at, &host.options);
             let replaced = {
                 let mut actors = host.actors.lock();
                 let owns = actors
                     .lives
-                    .get(&owned.actor_id)
+                    .get(&owned.at)
                     .is_some_and(|life| owned.owns(life));
                 owns.then(|| {
-                    actors
-                        .lives
-                        .insert(owned.actor_id.clone(), Life::Stuck)
+                    actors.lives.insert(owned.at.clone(), Life::Stuck)
                 })
             };
             drop(replaced);
@@ -474,7 +476,7 @@ impl Stop {
             let mut actors = host.actors.lock();
             let destroying = actors
                 .lives
-                .get(&owned.actor_id)
+                .get(&owned.at)
                 .filter(|life| owned.owns(life))
                 .map(|life| matches!(life, Life::Destroying { .. }));
             match (destroying, wake_at) {
@@ -482,26 +484,22 @@ impl Stop {
                 (Some(false), Some(wake_at)) if !actors.shut => (
                     false,
                     actors.lives.insert(
-                        owned.actor_id.clone(),
+                        owned.at.clone(),
                         Life::Stopped {
                             wake_at,
-                            timer: arm(
-                                host,
-                                &owned.actor_id,
-                                wake_at,
-                            ),
+                            timer: arm(host, &owned.at, wake_at),
                         },
                     ),
                 ),
                 (Some(false), _) => {
-                    (false, actors.lives.remove(&owned.actor_id))
+                    (false, actors.lives.remove(&owned.at))
                 }
                 (None, _) => (false, None),
             }
         };
         drop(replaced);
         if destroyed {
-            let path = actor_path(&host.dir, &owned.actor_id);
+            let path = actor_path(&host.dir, &owned.at);
             let removed = tokio::task::spawn_blocking(move || {
                 destroy_file(&path)
             })
@@ -520,12 +518,12 @@ impl Stop {
     /// Runs the stop on a task of its own and logs its error. The
     /// actor itself asked for it, so no caller waits.
     fn spawn_logged(self) {
-        let actor_id = self.owned.actor_id.clone();
+        let at = self.owned.at.clone();
         tokio::spawn(async move {
             if let Err(error) = self.run().await {
                 tracing::error!(
                     ?error,
-                    actor_id,
+                    actor_id = %at,
                     "host failed to stop actor"
                 );
             }
@@ -620,6 +618,11 @@ pub struct HostOptions {
     /// What the host gives its actors, by type: none by default. See
     /// [`HostOptions::with_value`].
     pub values: Values,
+    /// The kinds each caller may reach by a call, a create or a
+    /// get-or-start. The host refuses any other with `actor.refused`
+    /// and reports it in [`HostEvent::Refused`]. An operation with
+    /// no caller is never refused. [`Routes::Any`] by default.
+    pub routes: Routes,
 }
 
 impl Default for HostOptions {
@@ -630,14 +633,15 @@ impl Default for HostOptions {
             start_retry: Duration::from_secs(30),
             name: "host".to_owned(),
             values: Values::default(),
+            routes: Routes::Any,
         }
     }
 }
 
 /// The host's actors, and whether it has shut down.
 struct Actors {
-    /// Each actor that is not stopped with no deadline, by id.
-    lives: HashMap<String, Life>,
+    /// Each actor that is not stopped with no deadline.
+    lives: HashMap<Address, Life>,
     /// Set by [`Host::shutdown`], or when the last [`Host`] drops.
     /// From then on no transition adds a state: the host starts no
     /// actor and arms no timer.
@@ -656,15 +660,15 @@ impl Actors {
     fn begin_start(
         &mut self,
         host: &Arc<HostInner>,
-        actor_id: &str,
+        at: &Address,
     ) -> Result<(Owned, u64, Option<Life>)> {
         if self.shut {
             return Err(host_shut_down());
         }
-        let owned = Owned::new(host, actor_id);
+        let owned = Owned::new(host, at);
         self.generations += 1;
         let replaced = self.lives.insert(
-            actor_id.to_owned(),
+            at.clone(),
             Life::Starting {
                 generation: self.generations,
                 request: None,
@@ -710,7 +714,7 @@ impl HostInner {
     /// with `actor.not_ready` at either of the last two.
     async fn within_start_deadline<T>(
         &self,
-        actor_id: &str,
+        at: &Address,
         start: impl Future<Output = Result<T>>,
     ) -> Result<T> {
         let deadline =
@@ -734,7 +738,7 @@ impl HostInner {
                         ),
                     };
                     return Err(ActorLifecycle::NotReady.build().context(
-                        format!("the start of {actor_id} ended: {why}"),
+                        format!("the start of {at} ended: {why}"),
                     ));
                 }
                 Ok(()) = end.changed() => {}
@@ -749,7 +753,7 @@ impl HostInner {
     /// or absent begins too, unless the host has shut down.
     fn ask_stop(
         self: &Arc<Self>,
-        actor_id: &str,
+        at: &Address,
         generation: Option<u64>,
         request: Request,
     ) -> Option<Stop> {
@@ -758,7 +762,7 @@ impl HostInner {
         let actors = &mut *actors;
         let Some(life) = actors
             .lives
-            .get_mut(actor_id)
+            .get_mut(at)
             .filter(|life| !matches!(life, Life::Stopped { .. }))
         else {
             if generation.is_some()
@@ -767,9 +771,9 @@ impl HostInner {
             {
                 return None;
             }
-            let owned = Owned::new(self, actor_id);
+            let owned = Owned::new(self, at);
             let replaced = actors.lives.insert(
-                actor_id.to_owned(),
+                at.clone(),
                 Life::Destroying {
                     generation: None,
                     done: owned.waiters.clone(),
@@ -798,7 +802,7 @@ impl HostInner {
             }
             Life::Running(running) => {
                 let generation = running.clone();
-                let owned = Owned::new(self, actor_id);
+                let owned = Owned::new(self, at);
                 *life = stopping(&owned, generation.clone(), reason);
                 Some(Stop {
                     owned,
@@ -828,15 +832,12 @@ fn host_shut_down() -> anyhow::Error {
         .context("the host has shut down")
 }
 
-/// What a stop of the actor `actor_id` that missed the stop deadline
+/// What a stop of the actor at `at` that missed the stop deadline
 /// answers, and every later start or stop of that actor in the host.
-fn stop_missed(
-    actor_id: &str,
-    options: &HostOptions,
-) -> anyhow::Error {
+fn stop_missed(at: &Address, options: &HostOptions) -> anyhow::Error {
     ActorLifecycle::ShutdownTimeout.build().context(format!(
-        "actor {actor_id} did not stop within {:?}, and this host \
-         starts it no more",
+        "actor {at} did not stop within {:?}, and this host starts \
+         it no more",
         options.stop_deadline
     ))
 }
@@ -900,7 +901,7 @@ impl Drop for Handle {
 /// requests act only while the map holds that generation.
 struct LocalHandle {
     host: Weak<HostInner>,
-    actor_id: String,
+    at: Address,
     /// The generation's id, as [`Generation::id`].
     generation: u64,
     file: PlainSqlite,
@@ -926,13 +927,24 @@ impl Host {
         factories: HashMap<String, ActorFactory>,
         options: HostOptions,
     ) -> Result<Self> {
-        plain(&options.name, "host name")?;
+        Self::open_linked(dir, factories, options, None)
+    }
+
+    /// [`Host::open_with`], for a host that the link's module opens
+    /// with a port to the other host.
+    pub(crate) fn open_linked(
+        dir: &Path,
+        factories: HashMap<String, ActorFactory>,
+        options: HostOptions,
+        linked: Option<Port>,
+    ) -> Result<Self> {
+        plain(&options.name, Named::Host)?;
         for kind in factories.keys() {
-            plain(kind, "actor kind")?;
+            plain(kind, Named::Kind)?;
         }
         call::check_kinds(&factories)?;
         std::fs::create_dir_all(dir.join("actors"))?;
-        let directory = Directory::local(factories);
+        let directory = Directory::new(factories, linked)?;
         let mut locks = vec![FolderLock::take(
             &dir.join(format!("{}.lock", options.name)),
         )?];
@@ -978,13 +990,13 @@ impl Host {
     /// for it. A start of an actor whose file boot reads waits for
     /// the read. Fails at once in a host that has shut down, which
     /// may no longer hold the folder: it reads no file.
-    pub async fn boot(&self) -> Result<Vec<String>> {
+    pub async fn boot(&self) -> Result<Vec<Address>> {
         let host = self.inner();
         if host.actors.lock().shut {
             return Err(host_shut_down());
         }
         let mut began = Vec::new();
-        for (actor_id, actor, path) in self.actor_files()? {
+        for (at, path) in self.actor_files()? {
             // While boot reads the file, a start of the actor waits.
             let reading = {
                 let mut actors = host.actors.lock();
@@ -993,12 +1005,12 @@ impl Host {
                 }
                 // A running actor holds its file, and a stopped one
                 // has its timer.
-                if actors.lives.contains_key(&actor_id) {
+                if actors.lives.contains_key(&at) {
                     continue;
                 }
-                let reading = Owned::new(host, &actor_id);
+                let reading = Owned::new(host, &at);
                 actors.lives.insert(
-                    actor_id.clone(),
+                    at.clone(),
                     Life::Reading {
                         done: reading.waiters.clone(),
                     },
@@ -1022,7 +1034,7 @@ impl Host {
                     );
                     let _ =
                         host.events.send(HostEvent::UnreadableFile {
-                            actor,
+                            actor: at,
                             error,
                         });
                     continue;
@@ -1031,12 +1043,12 @@ impl Host {
             if destroyed {
                 match destroy_file(&path) {
                     Ok(()) => tracing::info!(
-                        actor_id,
+                        actor_id = %at,
                         "boot finished a destroy that a kill cut off"
                     ),
                     Err(error) => tracing::error!(
                         ?error,
-                        actor_id,
+                        actor_id = %at,
                         "boot could not finish a destroy that a \
                          kill cut off"
                     ),
@@ -1054,9 +1066,9 @@ impl Host {
                         if actors.shut {
                             return Err(host_shut_down());
                         }
-                        let timer = arm(host, &actor_id, wake_at);
+                        let timer = arm(host, &at, wake_at);
                         actors.lives.insert(
-                            actor_id,
+                            at,
                             Life::Stopped { wake_at, timer },
                         );
                         continue;
@@ -1065,11 +1077,11 @@ impl Host {
                     None => continue,
                 };
                 let (owned, generation, _) =
-                    actors.begin_start(host, &actor_id)?;
+                    actors.begin_start(host, &at)?;
                 (owned, generation, due)
             };
             drop(reading);
-            began.push(actor_id.clone());
+            began.push(at.clone());
             tokio::spawn(async move {
                 let started = if cut_off {
                     start_actor(
@@ -1085,7 +1097,7 @@ impl Host {
                 if let Err(error) = started {
                     tracing::error!(
                         ?error,
-                        actor_id,
+                        actor_id = %at,
                         "host failed to start an actor at boot"
                     );
                 }
@@ -1094,35 +1106,36 @@ impl Host {
         Ok(began)
     }
 
-    /// The actor for `kind` and `key`, started if it is not running.
-    /// Returns its id.
-    pub async fn get_or_start(
-        &self,
-        kind: &str,
-        key: &str,
-    ) -> Result<String> {
-        self.inner().start_by_key(kind, key, Open::OrCreate).await
+    /// Starts the actor at `at` unless it runs, made first with no
+    /// input if its file holds none.
+    pub async fn get_or_start(&self, at: &Address) -> Result<()> {
+        self.inner().start(Stamp::PROGRAM, at, Open::OrCreate).await
     }
 }
 
 impl HostInner {
-    /// The id of the actor of `kind` and `key`. Fails for a kind the
-    /// directory does not hold, before anything reaches the folder.
-    fn located(&self, kind: &str, key: &str) -> Result<String> {
-        let Place::Local(_) = self.directory.place(kind)?;
-        actor_id(kind, key)
+    fn locate(&self, at: &Address) -> Result<&Place> {
+        self.directory.place(at.kind())
+    }
+
+    fn runs(&self, at: &Address, generation: u64) -> bool {
+        self.actors
+            .lock()
+            .lives
+            .get(at)
+            .is_some_and(|life| life.is_generation(generation))
     }
 }
 
 impl Host {
     /// Whether the actor holds its file: from the end of its start
     /// until its stop closed the file.
-    pub fn is_running(&self, actor_id: &str) -> bool {
+    pub fn is_running(&self, at: &Address) -> bool {
         self.inner()
             .actors
             .lock()
             .lives
-            .get(actor_id)
+            .get(at)
             .is_some_and(|life| life.loaded().is_some())
     }
 
@@ -1140,11 +1153,9 @@ impl Host {
         &self,
         at: &Address,
     ) -> Result<Vec<SetAsideTimer>> {
-        let actor_id = self.inner().located(&at.kind, &at.key)?;
-        let generation = self
-            .inner()
-            .ensure_started(&actor_id, &Open::Existing)
-            .await?;
+        self.inner().directory.factory(at, "set_aside_timers")?;
+        let generation =
+            self.inner().ensure_started(at, &Open::Existing).await?;
         generation.actor.context().set_aside_timers().await
     }
 
@@ -1159,11 +1170,9 @@ impl Host {
         event_id: &str,
         due_at: i64,
     ) -> Result<bool> {
-        let actor_id = self.inner().located(&at.kind, &at.key)?;
-        let generation = self
-            .inner()
-            .ensure_started(&actor_id, &Open::Existing)
-            .await?;
+        self.inner().directory.factory(at, "rearm_timer")?;
+        let generation =
+            self.inner().ensure_started(at, &Open::Existing).await?;
         generation
             .actor
             .context()
@@ -1178,7 +1187,7 @@ impl Host {
     /// it a destroy. A sleep leaves a stopped actor as it is, its
     /// file and its timer with it; a destroy removes its files and
     /// cancels its timer, and one repeated after it ended ends the
-    /// same way. Fails for an id of no kind of this host, before
+    /// same way. Fails for an actor of no kind of this host, before
     /// anything reaches the folder, and a destroy of a stopped actor
     /// fails in a host that has shut down, which may no longer hold
     /// the folder. A destroy answers `Ok` only once the actor's files
@@ -1200,24 +1209,19 @@ impl Host {
     /// exits without dropping its runtime.
     pub async fn stop(
         &self,
-        actor_id: &str,
+        at: &Address,
         reason: ShutdownKind,
     ) -> Result<()> {
-        let (kind, key) =
-            actor_id.split_once('/').with_context(|| {
-                format!("`{actor_id}` is not kind/key")
-            })?;
         let host = self.inner();
-        host.located(kind, key)?;
+        host.directory.factory(at, "stop")?;
         loop {
-            if let Some(stop) =
-                host.ask_stop(actor_id, None, reason.into())
+            if let Some(stop) = host.ask_stop(at, None, reason.into())
             {
                 return tokio::spawn(stop.run()).await?;
             }
             let (mut waiters, ask_again) = {
                 let actors = host.actors.lock();
-                match actors.lives.get(actor_id) {
+                match actors.lives.get(at) {
                     None | Some(Life::Stopped { .. }) => match reason
                     {
                         ShutdownKind::Sleep => return Ok(()),
@@ -1238,10 +1242,7 @@ impl Host {
                         | Life::Destroying { done, .. },
                     ) => (done.clone(), false),
                     Some(Life::Stuck) => {
-                        return Err(stop_missed(
-                            actor_id,
-                            &host.options,
-                        ));
+                        return Err(stop_missed(at, &host.options));
                     }
                 }
             };
@@ -1270,7 +1271,7 @@ impl Host {
     pub async fn shutdown(&self) -> Result<()> {
         self.inner().shut_down();
         // No state is added once the host is shut.
-        let ids = self
+        let addresses = self
             .inner()
             .actors
             .lock()
@@ -1278,23 +1279,23 @@ impl Host {
             .keys()
             .cloned()
             .collect::<Vec<_>>();
-        let stops = ids
+        let stops = addresses
             .into_iter()
-            .map(|actor_id| {
+            .map(|at| {
                 let host = self.clone();
-                let stopping = actor_id.clone();
+                let stopping = at.clone();
                 let stop = tokio::spawn(async move {
                     host.stop(&stopping, ShutdownKind::Sleep).await
                 });
-                (actor_id, stop)
+                (at, stop)
             })
             .collect::<Vec<_>>();
         let mut failed = Vec::new();
-        for (actor_id, stop) in stops {
+        for (at, stop) in stops {
             if let Err(error) =
                 stop.await.map_err(anyhow::Error::from).flatten()
             {
-                failed.push(format!("{actor_id}: {error:#}"));
+                failed.push(format!("{at}: {error:#}"));
             }
         }
         // The host opens no file again. A file only a stop that
@@ -1324,7 +1325,7 @@ impl HostInner {
     /// `Stopped`, `Running` or `Stopping`, and leaves it as it is.
     async fn ensure_started(
         self: &Arc<Self>,
-        actor_id: &str,
+        at: &Address,
         open: &Open,
     ) -> Result<Arc<Generation>> {
         enum Next {
@@ -1338,7 +1339,7 @@ impl HostInner {
                 if actors.shut {
                     return Err(host_shut_down());
                 }
-                let life = actors.lives.get_mut(actor_id);
+                let life = actors.lives.get_mut(at);
                 if matches!(open, Open::New(_))
                     && matches!(
                         life,
@@ -1349,7 +1350,7 @@ impl HostInner {
                         )
                     )
                 {
-                    return Err(Found::Exists.to_error(actor_id));
+                    return Err(Found::Exists.to_error(at));
                 }
                 match life {
                     Some(Life::Running(generation)) => {
@@ -1359,14 +1360,11 @@ impl HostInner {
                         return Err(ActorLifecycle::Destroying
                             .build()
                             .context(format!(
-                                "actor {actor_id} is being destroyed"
+                                "actor {at} is being destroyed"
                             )));
                     }
                     Some(Life::Stuck) => {
-                        return Err(stop_missed(
-                            actor_id,
-                            &self.options,
-                        ));
+                        return Err(stop_missed(at, &self.options));
                     }
                     Some(Life::Starting { woken, ready, .. }) => {
                         // A create fails once this start ends well,
@@ -1383,7 +1381,7 @@ impl HostInner {
                     ) => Next::Wait(waiters.clone()),
                     Some(Life::Stopped { .. }) | None => {
                         let (owned, generation, replaced) =
-                            actors.begin_start(self, actor_id)?;
+                            actors.begin_start(self, at)?;
                         let at_failure = match replaced {
                             Some(Life::Stopped {
                                 wake_at,
@@ -1425,10 +1423,10 @@ impl HostInner {
 }
 
 impl Host {
-    /// The id, the address and the path of each actor file of this
+    /// The address and the path of each actor file of this
     /// host's kinds. Another kind's folder is never read, since
     /// another host may run it.
-    fn actor_files(&self) -> Result<Vec<(String, Address, PathBuf)>> {
+    fn actor_files(&self) -> Result<Vec<(Address, PathBuf)>> {
         let host = self.inner();
         let mut found = Vec::new();
         for kind in host.directory.local_kinds() {
@@ -1457,12 +1455,12 @@ impl Host {
                             .is_some_and(|ext| ext == "sqlite")
                     });
                 // Not an actor's file.
-                let Some((key, Ok(actor_id))) =
-                    key.map(|key| (key, actor_id(kind, key)))
+                let Some(Ok(at)) =
+                    key.map(|key| Address::new(kind, key))
                 else {
                     continue;
                 };
-                found.push((actor_id, Address::new(kind, key), path));
+                found.push((at, path));
             }
         }
         Ok(found)
@@ -1580,11 +1578,11 @@ fn mark_destroyed(conn: &Connection) -> Result<()> {
 /// handle that aborts it.
 fn arm(
     host: &Arc<HostInner>,
-    actor_id: &str,
+    at: &Address,
     wake_at: i64,
 ) -> AbortHandle {
     let host = Arc::downgrade(host);
-    let actor_id = actor_id.to_owned();
+    let at = at.clone();
     tokio::spawn(async move {
         let delay = u64::try_from(wake_at.saturating_sub(now_ms()))
             .unwrap_or(0);
@@ -1592,10 +1590,10 @@ fn arm(
         let Some(host) = host.upgrade() else {
             return;
         };
-        if let Err(error) = wake(&host, &actor_id, wake_at).await {
+        if let Err(error) = wake(&host, &at, wake_at).await {
             tracing::error!(
                 ?error,
-                actor_id,
+                actor_id = %at,
                 "host timer failed to start actor"
             );
         }
@@ -1608,13 +1606,13 @@ fn arm(
 /// file, and never starts an actor in any other state.
 async fn wake(
     host: &Arc<HostInner>,
-    actor_id: &str,
+    at: &Address,
     wake_at: i64,
 ) -> Result<()> {
     let (owned, generation) = {
         let mut actors = host.actors.lock();
         if !matches!(
-            actors.lives.get(actor_id),
+            actors.lives.get(at),
             Some(Life::Stopped { wake_at: stopped, .. })
                 if *stopped == wake_at
         ) {
@@ -1622,8 +1620,7 @@ async fn wake(
         }
         // Replaces the state that holds this timer's own handle;
         // dropping a handle does not abort its task.
-        let (owned, generation, _) =
-            actors.begin_start(host, actor_id)?;
+        let (owned, generation, _) = actors.begin_start(host, at)?;
         (owned, generation)
     };
     start_when_due(owned, generation, wake_at).await.map(|_| ())
@@ -1659,18 +1656,16 @@ fn retry_start(owned: &Owned, due: i64) {
     let replaced = {
         let mut actors = host.actors.lock();
         let retry = !actors.shut
-            && actors.lives.get(&owned.actor_id).is_some_and(
-                |life| {
-                    owned.owns(life)
-                        && !matches!(
-                            life,
-                            Life::Starting {
-                                request: Some(Request::Destroy),
-                                ..
-                            }
-                        )
-                },
-            );
+            && actors.lives.get(&owned.at).is_some_and(|life| {
+                owned.owns(life)
+                    && !matches!(
+                        life,
+                        Life::Starting {
+                            request: Some(Request::Destroy),
+                            ..
+                        }
+                    )
+            });
         retry.then(|| {
             let now = now_ms();
             let after =
@@ -1682,10 +1677,10 @@ fn retry_start(owned: &Owned, due: i64) {
                 now.saturating_add(after)
             };
             actors.lives.insert(
-                owned.actor_id.clone(),
+                owned.at.clone(),
                 Life::Stopped {
                     wake_at,
-                    timer: arm(host, &owned.actor_id, wake_at),
+                    timer: arm(host, &owned.at, wake_at),
                 },
             )
         })
@@ -1694,36 +1689,16 @@ fn retry_start(owned: &Owned, due: i64) {
     drop(replaced);
 }
 
-/// The id of the actor of `kind` and `key`, which names its file.
-fn actor_id(kind: &str, key: &str) -> Result<String> {
-    for part in [kind, key] {
-        plain(part, "actor kind or key")?;
-    }
-    Ok(format!("{kind}/{key}"))
+/// The core's id of the actor at `at`. The host makes the id only
+/// here.
+fn actor_id(at: &Address) -> String {
+    at.to_string()
 }
 
-/// Fails unless `name`, a `what`, is plain.
-fn plain(name: &str, what: &str) -> Result<()> {
-    let plain = !name.is_empty()
-        && !name.starts_with('.')
-        && name.len() <= 128
-        && name.bytes().all(|byte| {
-            // With no upper-case letter, two names never name one
-            // file, also on a disk that ignores case.
-            byte.is_ascii_lowercase()
-                || byte.is_ascii_digit()
-                || matches!(byte, b'-' | b'_' | b'.')
-        });
-    ensure!(
-        plain,
-        "`{name}` is not a valid {what}: use lower-case letters, \
-         digits, `-`, `_` and `.`, and do not start with `.`"
-    );
-    Ok(())
-}
-
-fn actor_path(dir: &Path, actor_id: &str) -> PathBuf {
-    dir.join("actors").join(format!("{actor_id}.sqlite"))
+fn actor_path(dir: &Path, at: &Address) -> PathBuf {
+    dir.join("actors")
+        .join(at.kind())
+        .join(format!("{}.sqlite", at.key()))
 }
 
 /// Removes the actor's files at `path`. It stores the destroy in the
@@ -1813,17 +1788,17 @@ impl std::error::Error for Found {}
 
 impl Found {
     /// What the start that found it answers its caller.
-    fn to_error(&self, actor_id: &str) -> anyhow::Error {
+    fn to_error(&self, at: &Address) -> anyhow::Error {
         match self {
             Self::Nothing => ActorRuntime::NotFound {
                 resource: "actor".to_owned(),
-                id: actor_id.to_owned(),
+                id: actor_id(at),
             }
             .build()
-            .context(format!("the actor {actor_id} does not exist")),
+            .context(format!("the actor {at} does not exist")),
             Self::Exists => DuplicateKey
                 .build()
-                .context(format!("the actor {actor_id} exists")),
+                .context(format!("the actor {at} exists")),
         }
     }
 }
@@ -1841,15 +1816,14 @@ impl Found {
 /// its start gave it up.
 fn open_actor_file(
     dir: &Path,
-    kind: &str,
-    key: &str,
+    at: &Address,
     open: &Open,
     claim: &OpenClaim,
 ) -> Result<(PlainSqlite, Bumped)> {
     if open.makes() {
-        std::fs::create_dir_all(dir.join("actors").join(kind))?;
+        std::fs::create_dir_all(dir.join("actors").join(at.kind()))?;
     }
-    let path = actor_path(dir, &format!("{kind}/{key}"));
+    let path = actor_path(dir, at);
     // Runs twice at most: the second open finds no file to destroy.
     loop {
         if !path.try_exists()? {
@@ -1859,11 +1833,14 @@ fn open_actor_file(
             claim.claim_write()?;
         }
         let mut conn = plain_sqlite::open(&path, open.makes())?;
-        let bumped =
-            bump_generation(&mut conn, kind, key, open, claim)
-                .with_context(|| {
-                    format!("start {}", path.display())
-                })?;
+        let bumped = bump_generation(
+            &mut conn,
+            at.kind(),
+            at.key(),
+            open,
+            claim,
+        )
+        .with_context(|| format!("start {}", path.display()))?;
         if let Some(bumped) = bumped {
             return Ok((PlainSqlite::serve(conn)?, bumped));
         }
@@ -2020,16 +1997,16 @@ async fn start_actor(
     at_failure: AtFailure,
 ) -> Result<Arc<Generation>> {
     let host = owned.host.clone();
-    let actor_id = owned.actor_id.clone();
+    let at = owned.at.clone();
     let creates = matches!(open, Open::New(_));
     let mut opening = None;
     let opened = Mutex::new(None);
     let started = host
         .within_start_deadline(
-            &actor_id,
+            &at,
             start_generation(
                 &host,
-                &actor_id,
+                &at,
                 id,
                 open,
                 &mut opening,
@@ -2057,9 +2034,9 @@ async fn start_actor(
             };
             // Not told to the waiters: each reads the map again.
             if let Some(found) = error.downcast_ref::<Found>() {
-                return Err(found.to_error(&actor_id));
+                return Err(found.to_error(&at));
             }
-            if made && closed && unmake(&host, &actor_id).await {
+            if made && closed && unmake(&host, &at).await {
                 return Err(error);
             }
             if let AtFailure::Retry { due } = at_failure {
@@ -2072,7 +2049,7 @@ async fn start_actor(
     let stop = {
         let mut actors = host.actors.lock();
         let Some(Life::Starting { request, woken, .. }) =
-            actors.lives.get(&actor_id)
+            actors.lives.get(&at)
         else {
             unreachable!(
                 "only its start moves an actor out of Starting"
@@ -2085,17 +2062,16 @@ async fn start_actor(
                 if request.is_some() {
                     generation.actor.cancel_sleep();
                 }
-                actors.lives.insert(
-                    actor_id,
-                    Life::Running(generation.clone()),
-                );
+                actors
+                    .lives
+                    .insert(at, Life::Running(generation.clone()));
                 None
             }
             (Some(request), _) => {
                 let reason = request.reason();
-                let owned = Owned::new(&host, &actor_id);
+                let owned = Owned::new(&host, &at);
                 actors.lives.insert(
-                    actor_id,
+                    at,
                     stopping(&owned, generation.clone(), reason),
                 );
                 Some(Stop {
@@ -2139,8 +2115,8 @@ async fn close_within_grace(file: &PlainSqlite) -> bool {
 /// Removes the actor that a create's own start made and could not
 /// start, with its files, so the key is free again. Answers whether
 /// it did: a failure is logged, and leaves the actor made.
-async fn unmake(host: &HostInner, actor_id: &str) -> bool {
-    let path = actor_path(&host.dir, actor_id);
+async fn unmake(host: &HostInner, at: &Address) -> bool {
+    let path = actor_path(&host.dir, at);
     let removed =
         tokio::task::spawn_blocking(move || destroy_file(&path))
             .await
@@ -2149,7 +2125,7 @@ async fn unmake(host: &HostInner, actor_id: &str) -> bool {
     if let Err(error) = &removed {
         tracing::warn!(
             ?error,
-            actor_id,
+            actor_id = %at,
             "host failed to remove an actor its create could not \
              start"
         );
@@ -2162,23 +2138,19 @@ async fn unmake(host: &HostInner, actor_id: &str) -> bool {
 /// file in `opened` once it is open.
 async fn start_generation(
     host: &Arc<HostInner>,
-    actor_id: &str,
+    at: &Address,
     id: u64,
     open: Open,
     opening: &mut Option<Opening>,
     opened: &Mutex<Option<PlainSqlite>>,
 ) -> Result<Arc<Generation>> {
-    let (kind, key) = actor_id
-        .split_once('/')
-        .ok_or_else(|| anyhow!("actor id {actor_id} has no kind"))?;
-    let Place::Local(factory) = host.directory.place(kind)?;
-    let factory = factory.clone();
+    let factory = host.directory.factory(at, "start")?.clone();
     let claim = Arc::new(OpenClaim::default());
     let task = tokio::task::spawn_blocking({
         let dir = host.dir.clone();
-        let (kind, key) = (kind.to_owned(), key.to_owned());
+        let at = at.clone();
         let claim = claim.clone();
-        move || open_actor_file(&dir, &kind, &key, &open, &claim)
+        move || open_actor_file(&dir, &at, &open, &claim)
     });
     let (task, _) = opening.insert((task, claim));
     let result = task.await;
@@ -2187,14 +2159,14 @@ async fn start_generation(
     *opened.lock() = Some(file.clone());
     let alarm = Arc::new(Mutex::new(None));
     let actor = RunningActor::start(StartRequest {
-        actor_id: actor_id.to_owned(),
-        name: kind.to_owned(),
-        key: vec![ActorKeySegment::String(key.to_owned())],
+        actor_id: actor_id(at),
+        name: at.kind().to_owned(),
+        key: vec![ActorKeySegment::String(at.key().to_owned())],
         generation: bumped.generation,
         factory,
         handle: Arc::new(LocalHandle {
             host: Arc::downgrade(host),
-            actor_id: actor_id.to_owned(),
+            at: at.clone(),
             generation: id,
             file: file.clone(),
             alarm: alarm.clone(),
@@ -2216,11 +2188,7 @@ impl LocalHandle {
     /// has ended does nothing.
     fn ask_stop(&self, request: Request) {
         if let Some(stop) = self.host.upgrade().and_then(|host| {
-            host.ask_stop(
-                &self.actor_id,
-                Some(self.generation),
-                request,
-            )
+            host.ask_stop(&self.at, Some(self.generation), request)
         }) {
             stop.spawn_logged();
         }
@@ -2333,11 +2301,8 @@ impl ActorHost for LocalHandle {
         let Some(host) = self.host.upgrade() else {
             return;
         };
-        let Some((kind, key)) = actor_id.split_once('/') else {
-            return;
-        };
         let _ = host.events.send(HostEvent::TimerSetAside {
-            actor: Address::new(kind, key),
+            actor: self.at.clone(),
             event_id: timer.event_id.clone(),
             action: timer.action.clone(),
             due_at: timer.due_at,
@@ -2413,16 +2378,17 @@ mod tests {
 
         let wake_at = now_ms() + 600_000;
         let host = Host::open(&dir, waker(wake_at)).unwrap();
-        let id = host.get_or_start("waker", "a").await.unwrap();
-        host.stop(&id, ShutdownKind::Sleep).await.unwrap();
+        let a = Address::new("waker", "a").unwrap();
+        host.get_or_start(&a).await.unwrap();
+        host.stop(&a, ShutdownKind::Sleep).await.unwrap();
         assert!(matches!(
-            host.inner().actors.lock().lives.get(&id),
+            host.inner().actors.lock().lives.get(&a),
             Some(Life::Stopped { wake_at: stopped, .. })
                 if *stopped == wake_at
         ));
         drop(host);
-        let file = plain_sqlite::open(&actor_path(&dir, &id), false)
-            .unwrap();
+        let file =
+            plain_sqlite::open(&actor_path(&dir, &a), false).unwrap();
         assert_eq!(mark_stopped(&file, None).unwrap(), Some(wake_at));
     }
 
@@ -2444,9 +2410,11 @@ mod tests {
             ),
         )
         .unwrap();
-        let id = host.get_or_start("counter", "a").await.unwrap();
+        let counter_a = Address::new("counter", "a").unwrap();
+        host.get_or_start(&counter_a).await.unwrap();
+        let id = actor_id(&counter_a);
         let running = || {
-            host.inner().actors.lock().lives[&id]
+            host.inner().actors.lock().lives[&counter_a]
                 .loaded()
                 .unwrap()
                 .clone()
@@ -2455,20 +2423,21 @@ mod tests {
             let generation = running();
             LocalHandle {
                 host: Arc::downgrade(host.inner()),
-                actor_id: id.clone(),
+                at: counter_a.clone(),
                 generation: generation.id,
                 file: generation.file.clone(),
                 alarm: generation.alarm.clone(),
             }
         };
-        host.stop(&id, ShutdownKind::Sleep).await.unwrap();
-        host.get_or_start("counter", "a").await.unwrap();
+        host.stop(&counter_a, ShutdownKind::Sleep).await.unwrap();
+        host.get_or_start(&counter_a).await.unwrap();
         if made_again {
-            host.stop(&id, ShutdownKind::Destroy).await.unwrap();
-            host.get_or_start("counter", "a").await.unwrap();
+            host.stop(&counter_a, ShutdownKind::Destroy)
+                .await
+                .unwrap();
+            host.get_or_start(&counter_a).await.unwrap();
         }
         let next = running();
-        let counter_a = Address::new("counter", "a");
         let call = |name: &'static str| {
             host.call(
                 &counter_a,
@@ -2504,7 +2473,7 @@ mod tests {
         );
 
         assert!(matches!(
-            host.inner().actors.lock().lives.get(&id),
+            host.inner().actors.lock().lives.get(&counter_a),
             Some(Life::Running(generation))
                 if Arc::ptr_eq(generation, &next)
                     && generation.alarm.lock().is_none()

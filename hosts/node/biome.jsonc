@@ -1,0 +1,38 @@
+{
+    "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
+    "files": {
+        "includes": ["src/**", "test/**", "*.json", "*.jsonc"]
+    },
+    "formatter": {
+        "indentStyle": "space",
+        "indentWidth": 4,
+        "lineWidth": 80
+    },
+    "linter": {
+        "rules": {
+            "preset": "recommended"
+        }
+    },
+    "overrides": [
+        {
+            // The actor layer is ported code: the reference project turns
+            // noExplicitAny off for it too, and most of its explicit any
+            // are generic arguments where unknown does not type-check.
+            "includes": ["src/actor/**"],
+            "linter": {
+                "rules": {
+                    "suspicious": {
+                        "noExplicitAny": "off"
+                    }
+                }
+            }
+        }
+    ],
+    "assist": {
+        "actions": {
+            "source": {
+                "organizeImports": "on"
+            }
+        }
+    }
+}

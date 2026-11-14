@@ -8,6 +8,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use anyhow::Context as _;
+use at::at;
 use call::call;
 use code::code;
 use files::any_file_of;
@@ -23,6 +24,8 @@ use logs::Logs;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
+#[path = "support/at.rs"]
+mod at;
 #[path = "support/began.rs"]
 mod began;
 #[path = "support/call.rs"]
@@ -98,10 +101,10 @@ async fn an_actor_reaches_the_realm_folder_of_its_host() {
         },
     );
     let host = Host::open(&dir, registry.into_factories()).unwrap();
-    host.get_or_start("here", "one").await.unwrap();
+    host.get_or_start(&at("here", "one")).await.unwrap();
     let reply = host
         .call(
-            &Address::new("here", "one"),
+            &at("here", "one"),
             Home::NAME,
             hamlet_actor::action::encode_positional(&Home).unwrap(),
             Duration::from_secs(10),
@@ -188,8 +191,8 @@ async fn an_actor_reads_its_hosts_values_in_create_and_in_a_handler()
         HostOptions::default().with_value(tally.clone()),
     )
     .unwrap();
-    host.get_or_start("reader", "a").await.unwrap();
-    let read = call(&host, &Address::new("reader", "a"), &Read).await;
+    host.get_or_start(&at("reader", "a")).await.unwrap();
+    let read = call(&host, &at("reader", "a"), &Read).await;
     host.shutdown().await.unwrap();
     assert_eq!(read.unwrap(), (true, false));
     assert_eq!(tally.0.load(Ordering::SeqCst), 2);
@@ -245,10 +248,8 @@ fn keepers() -> std::collections::HashMap<String, ActorFactory> {
 async fn an_actor_that_keeps_its_host_ref_does_not_keep_the_host() {
     let dir = Scratch::new("access-keeper");
     let host = Host::open(&dir, keepers()).unwrap();
-    host.get_or_start("keeper", "a").await.unwrap();
-    call(&host, &Address::new("keeper", "a"), &Ping)
-        .await
-        .unwrap();
+    host.get_or_start(&at("keeper", "a")).await.unwrap();
+    call(&host, &at("keeper", "a"), &Ping).await.unwrap();
     drop(host);
     let deadline =
         tokio::time::Instant::now() + Duration::from_secs(2);
@@ -416,13 +417,16 @@ impl Handler<Ask> for Asker {
         ctx: Ctx<Self>,
         ask: Ask,
     ) -> anyhow::Result<Outcome> {
-        Ok(Outcome::of(Host::call_from(
-            ctx.inner(),
-            &ask.to,
-            &ask.name,
-            ask.args,
-            Duration::from_millis(ask.deadline_ms),
-        ))
+        Ok(Outcome::of(async {
+            HostRef::of(ctx.inner())?
+                .call(
+                    &ask.to,
+                    &ask.name,
+                    ask.args,
+                    Duration::from_millis(ask.deadline_ms),
+                )
+                .await
+        })
         .await)
     }
 }
@@ -585,7 +589,7 @@ async fn ask<M: Action>(
 /// Makes each actor of `at`.
 async fn make(host: &Host, at: &[&Address]) {
     for at in at {
-        host.get_or_start(&at.kind, &at.key).await.unwrap();
+        host.get_or_start(at).await.unwrap();
     }
 }
 
@@ -596,12 +600,11 @@ async fn make(host: &Host, at: &[&Address]) {
 async fn the_callee_reads_who_called_whatever_the_arguments_say() {
     let dir = Scratch::new("call-who");
     let host = open_callers(&dir, Arc::default());
-    let callee = Address::new("callee", "x");
-    let (a, b) =
-        (Address::new("asker", "a"), Address::new("asker", "b"));
+    let callee = at("callee", "x");
+    let (a, b) = (at("asker", "a"), at("asker", "b"));
     make(&host, &[&callee, &a, &b]).await;
     let who = Who {
-        claimed: Some(Caller::Actor(Address::new("asker", "z"))),
+        claimed: Some(Caller::Actor(at("asker", "z"))),
     };
     for from in [&a, &b] {
         let outcome =
@@ -643,8 +646,8 @@ async fn the_callee_reads_who_called_whatever_the_arguments_say() {
 async fn a_calls_log_line_names_its_caller_target_and_action() {
     let dir = Scratch::new("call-log");
     let host = open_callers(&dir, Arc::default());
-    let callee = Address::new("callee", "x");
-    let a = Address::new("asker", "a");
+    let callee = at("callee", "x");
+    let a = at("asker", "a");
     make(&host, &[&callee, &a]).await;
     let who = Who { claimed: None };
     let args = hamlet_actor::action::encode_positional(&who).unwrap();
@@ -688,6 +691,21 @@ async fn a_calls_log_line_names_its_caller_target_and_action() {
     );
 }
 
+#[test]
+fn an_address_in_an_actions_arguments_has_fixed_bytes() {
+    let args = hamlet_actor::action::encode_positional(&Ask {
+        to: at("raw", "x"),
+        name: "params".to_owned(),
+        args: Vec::new(),
+        deadline_ms: 10_000,
+    })
+    .unwrap();
+    assert_eq!(
+        args,
+        b"\x81\xa4\x64args\x80\x6bdeadline_ms\x19\x27\x10\x64name\x66params\x62to\xa2\x63key\x61x\x64kind\x63raw"
+    );
+}
+
 /// The stamp's bytes, which other hosts and other languages read:
 /// none is CBOR null, a client the text `client`, and an actor a map
 /// from `actor` to its address.
@@ -695,8 +713,8 @@ async fn a_calls_log_line_names_its_caller_target_and_action() {
 async fn the_stamp_has_fixed_bytes() {
     let dir = Scratch::new("call-stamp");
     let host = open_callers(&dir, Arc::default());
-    let raw = Address::new("raw", "x");
-    let a = Address::new("asker", "a");
+    let raw = at("raw", "x");
+    let a = at("asker", "a");
     make(&host, &[&raw, &a]).await;
     let params = |caller: Option<Caller>| {
         let host = host.clone();
@@ -751,11 +769,11 @@ async fn the_stamp_has_fixed_bytes() {
 async fn an_actors_call_starts_a_sleeping_callee() {
     let dir = Scratch::new("call-sleeping");
     let host = open_callers(&dir, Arc::default());
-    let callee = Address::new("callee", "x");
-    let a = Address::new("asker", "a");
+    let callee = at("callee", "x");
+    let a = at("asker", "a");
     make(&host, &[&callee, &a]).await;
-    host.stop("callee/x", ShutdownKind::Sleep).await.unwrap();
-    assert!(!host.is_running("callee/x"));
+    host.stop(&callee, ShutdownKind::Sleep).await.unwrap();
+    assert!(!host.is_running(&callee));
     let outcome = ask(
         &host,
         &a,
@@ -777,8 +795,8 @@ async fn an_actors_call_starts_a_sleeping_callee() {
 async fn an_actors_call_fails_at_its_deadline() {
     let dir = Scratch::new("call-deadline");
     let host = open_callers(&dir, Arc::default());
-    let callee = Address::new("callee", "x");
-    let a = Address::new("asker", "a");
+    let callee = at("callee", "x");
+    let a = at("asker", "a");
     make(&host, &[&callee, &a]).await;
     let outcome = ask(
         &host,
@@ -812,8 +830,8 @@ async fn a_call_fails_at_once_when_its_host_begins_to_shut_down() {
             .with_value(contexts.clone())
             .with_value(holds.clone()),
     );
-    let raw = Address::new("raw", "x");
-    make(&host, &[&raw, &Address::new("asker", "a")]).await;
+    let raw = at("raw", "x");
+    make(&host, &[&raw, &at("asker", "a")]).await;
     let ctx = contexts.0.lock().unwrap()[0].clone();
     let hold = |from: Option<ActorContext>| {
         let host = host.clone();
@@ -826,13 +844,11 @@ async fn a_call_fails_at_once_when_its_host_begins_to_shut_down() {
                         .await
                 }
                 Some(ctx) => {
-                    Host::call_from(
-                        &ctx,
-                        &raw,
-                        "hold",
-                        Vec::new(),
-                        deadline,
-                    )
+                    async {
+                        HostRef::of(&ctx)?
+                            .call(&raw, "hold", Vec::new(), deadline)
+                            .await
+                    }
                     .await
                 }
             };
@@ -865,8 +881,8 @@ async fn a_handler_that_calls_does_not_hold_up_its_actor() {
         &dir,
         HostOptions::default().with_value(holds.clone()),
     );
-    let callee = Address::new("callee", "x");
-    let a = Address::new("asker", "a");
+    let callee = at("callee", "x");
+    let a = at("asker", "a");
     make(&host, &[&callee, &a]).await;
     let waiting = tokio::spawn({
         let host = host.clone();
@@ -911,14 +927,9 @@ impl Actor for SelfCaller {
     type Action = ();
 
     async fn create(ctx: &Ctx<Self>) -> anyhow::Result<Self> {
-        let (kind, key) = ctx
-            .inner()
-            .actor_id()
-            .split_once('/')
-            .context("the actor id has no kind")?;
-        let outcome = Outcome::of(Host::call_from(
-            ctx.inner(),
-            &Address::new(kind, key),
+        let host = HostRef::of(ctx.inner())?;
+        let outcome = Outcome::of(host.call(
+            host.own_address(),
             Ping::NAME,
             hamlet_actor::action::encode_positional(&Ping)?,
             Duration::from_secs(30),
@@ -962,10 +973,10 @@ async fn an_actor_that_calls_itself_fails_at_once() {
     .unwrap();
     let started = tokio::time::timeout(
         Duration::from_secs(5),
-        host.get_or_start("self", "a"),
+        host.get_or_start(&at("self", "a")),
     )
     .await;
-    let ping = call(&host, &Address::new("self", "a"), &Ping).await;
+    let ping = call(&host, &at("self", "a"), &Ping).await;
     host.shutdown().await.unwrap();
     started.expect("the start waited for its own call").unwrap();
     ping.unwrap();
@@ -978,20 +989,18 @@ async fn an_actor_that_calls_itself_fails_at_once() {
     assert!(outcomes[0].ms < 1_000, "{outcomes:?}");
 }
 
-/// The context of a generation that has ended calls nothing, also
-/// once its key is made again. The running generation's calls as the
-/// actor.
 #[tokio::test(flavor = "multi_thread")]
-async fn an_ended_generation_calls_nothing() {
+async fn an_ended_generation_calls_and_makes_nothing() {
     let dir = Scratch::new("call-ended");
     let contexts = Arc::new(Contexts::default());
     let host = open_callers(&dir, contexts.clone());
-    let callee = Address::new("callee", "x");
-    let a = Address::new("asker", "a");
+    let callee = at("callee", "x");
+    let a = at("asker", "a");
     make(&host, &[&callee, &a]).await;
-    host.stop("asker/a", ShutdownKind::Sleep).await.unwrap();
+    let kept = HostRef::of(&contexts.0.lock().unwrap()[0]).unwrap();
+    host.stop(&a, ShutdownKind::Sleep).await.unwrap();
     make(&host, &[&a]).await;
-    host.stop("asker/a", ShutdownKind::Destroy).await.unwrap();
+    host.stop(&a, ShutdownKind::Destroy).await.unwrap();
     make(&host, &[&a]).await;
     let contexts = contexts.0.lock().unwrap().clone();
     let mut outcomes = Vec::new();
@@ -1001,17 +1010,43 @@ async fn an_ended_generation_calls_nothing() {
         })
         .unwrap();
         outcomes.push(
-            Outcome::of(Host::call_from(
-                ctx,
-                &callee,
-                Who::NAME,
-                args,
-                Duration::from_secs(10),
-            ))
+            Outcome::of(async {
+                HostRef::of(ctx)?
+                    .call(
+                        &callee,
+                        Who::NAME,
+                        args,
+                        Duration::from_secs(10),
+                    )
+                    .await
+            })
             .await,
         );
     }
+    let mut made = vec![
+        kept.call(
+            &callee,
+            Who::NAME,
+            Vec::new(),
+            Duration::from_secs(10),
+        )
+        .await
+        .map(drop),
+        kept.get_or_start(&at("callee", "z")).await,
+    ];
+    for ctx in &contexts[..2] {
+        let view = HostRef::of(ctx).unwrap();
+        assert_eq!(view.own_address(), &a);
+        made.push(view.create(&at("callee", "y"), Vec::new()).await);
+        made.push(view.get_or_start(&at("callee", "z")).await);
+    }
     host.shutdown().await.unwrap();
+    for ended in &made {
+        let error = ended.as_ref().unwrap_err();
+        assert_eq!(code(error), "actor.stopping", "{error:#}");
+    }
+    assert!(!any_file_of(&dir, "callee", "y"));
+    assert!(!any_file_of(&dir, "callee", "z"));
     assert_eq!(outcomes.len(), 3);
     for ended in &outcomes[..2] {
         assert_eq!(
@@ -1032,12 +1067,12 @@ async fn an_ended_generation_calls_nothing() {
 async fn an_actors_call_to_an_unknown_kind_fails_at_once() {
     let dir = Scratch::new("call-unknown");
     let host = open_callers(&dir, Arc::default());
-    let a = Address::new("asker", "a");
+    let a = at("asker", "a");
     make(&host, &[&a]).await;
     let outcome = ask(
         &host,
         &a,
-        &Address::new("nobody", "x"),
+        &at("nobody", "x"),
         &Ping,
         Duration::from_secs(30),
     )
@@ -1130,9 +1165,9 @@ async fn calls_to(
 async fn a_call_to_a_key_never_made_fails_and_leaves_no_file() {
     let dir = Scratch::new("call-never-made");
     let host = open_callers(&dir, Arc::default());
-    let a = Address::new("asker", "a");
+    let a = at("asker", "a");
     make(&host, &[&a]).await;
-    let never = Address::new("callee", "never");
+    let never = at("callee", "never");
     let outcomes = calls_to(&host, &a, &never).await;
     host.shutdown().await.unwrap();
     for outcome in &outcomes {
@@ -1142,7 +1177,7 @@ async fn a_call_to_a_key_never_made_fails_and_leaves_no_file() {
             "{outcomes:?}"
         );
     }
-    assert!(!any_file_of(&dir, &never.kind, &never.key));
+    assert!(!any_file_of(&dir, never.kind(), never.key()));
 }
 
 /// A call that comes after its callee was destroyed fails with
@@ -1151,10 +1186,10 @@ async fn a_call_to_a_key_never_made_fails_and_leaves_no_file() {
 async fn a_call_after_a_destroy_fails_and_leaves_no_file() {
     let dir = Scratch::new("call-destroyed");
     let host = open_callers(&dir, Arc::default());
-    let a = Address::new("asker", "a");
-    let callee = Address::new("callee", "x");
+    let a = at("asker", "a");
+    let callee = at("callee", "x");
     make(&host, &[&a, &callee]).await;
-    host.stop("callee/x", ShutdownKind::Destroy).await.unwrap();
+    host.stop(&callee, ShutdownKind::Destroy).await.unwrap();
     let outcomes = calls_to(&host, &a, &callee).await;
     host.shutdown().await.unwrap();
     for outcome in &outcomes {
@@ -1164,7 +1199,7 @@ async fn a_call_after_a_destroy_fails_and_leaves_no_file() {
             "{outcomes:?}"
         );
     }
-    assert!(!any_file_of(&dir, &callee.kind, &callee.key));
+    assert!(!any_file_of(&dir, callee.kind(), callee.key()));
 }
 
 /// A start that finds no actor does not hand that to the starts
@@ -1177,14 +1212,14 @@ async fn a_get_or_start_that_waits_for_a_calls_start_makes_the_actor()
     let host = open_callers(&dir, Arc::default());
     for round in 0..100 {
         let key = format!("k{round}");
-        let to = Address::new("callee", &key);
+        let to = at("callee", &key);
         let args = hamlet_actor::action::encode_positional(&Who {
             claimed: None,
         })
         .unwrap();
         let (called, made) = tokio::join!(
             host.call(&to, Who::NAME, args, Duration::from_secs(10)),
-            host.get_or_start("callee", &key),
+            host.get_or_start(&to),
         );
         if let Err(error) = &called {
             assert_eq!(code(error), "actor.not_found", "{error:#}");

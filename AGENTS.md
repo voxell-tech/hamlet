@@ -141,15 +141,19 @@ fetches it itself. Nothing inside it changes. `cargo xtask check` runs
 every check a commit needs, as nine steps in this order, each of which
 `cargo xtask <step>` runs alone and CI calls by name: `format`
 (rustfmt's check on the workspace and on xtask), `clippy` (with
-`-D warnings` on both), `cross` (clippy on `hamlet_os` for
+`-D warnings` on both), `cross` (clippy on `hamlet_os` and on the
+native module for Node, `hamlet_actor_node`, for
 `x86_64-pc-windows-gnu`, the target `rust-toolchain.toml` installs, with
-no C compiler), `deny` (`cargo deny check`), `test`
+no C compiler and without bundled SQLite), `deny` (`cargo deny check`), `test`
 (`cargo build --all-targets`, then `cargo test`, doc tests included),
 `acceptance` and `harness` (the two suites below), `doc` (`cargo doc`
 with `-D warnings` and every feature, except that `hamlet_actor_core` is
 documented on its own at its default features, because its
 `native-runtime` and `wasm-runtime` features exclude each other) and
-`node` (pi's checks). `deny` needs cargo-deny:
+`node` (pi's checks, then the Node host's checks and tests, then a
+debug build of `hamlet_actor_node` and the Node host's tests that load
+it).
+`deny` needs cargo-deny:
 `cargo install --locked cargo-deny`. `deny.toml` holds the allowed
 licences and the ignored advisories, each with its reason. With `CI`
 set, as on GitHub, the steps pass `--locked` to cargo. `cargo xtask fmt`
@@ -176,6 +180,30 @@ a commit too. `cargo xtask node` runs both; by hand, in that folder:
 npm run check   # TypeScript and Biome
 npm test
 ```
+
+`hosts/node/` is the Node package of the Node host, with the TypeScript
+actor layer in `src/actor/`. Install it with `npm ci --prefix hosts/node`
+and the same Node version. Its TypeScript and Biome check and its tests,
+on Node's own test runner, must be clean before a commit too. The tests
+in `test/native/` load the native module, so `npm test` leaves them out
+and `npm run test:native` runs them. `cargo xtask node` runs all three
+after pi's: it builds the module, copies the library into
+`crates/hamlet_actor_node/` under the name its `index.js` loads (on
+Linux x64, `actor-node.linux-x64-gnu.node`), builds `hamlet_os`'s example
+`bound`, which the native tests start Node through, then runs them.
+By hand, on Linux:
+
+```sh
+npm run check --prefix hosts/node
+npm test --prefix hosts/node
+cargo build -p hamlet_actor_node
+cp target/debug/libhamlet_actor_node.so crates/hamlet_actor_node/actor-node.linux-x64-gnu.node
+cargo build -p hamlet_os --example bound
+npm run test:native --prefix hosts/node
+```
+
+The native tests load whatever library is at that name, so build and
+copy again after the crate changes.
 
 The acceptance suite in `crates/hamlet_acceptance` starts real server
 processes on scratch realms and drives them through the client protocol, so plain

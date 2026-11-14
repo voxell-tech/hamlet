@@ -3,16 +3,25 @@
 //! nothing it starts runs outside the job, and ending the job ends
 //! all of it.
 
-#![expect(unsafe_code, reason = "the Win32 job and thread calls")]
+#![expect(
+    unsafe_code,
+    reason = "the Win32 job, process, thread and handle calls"
+)]
 
+use std::fs::File;
+use std::io::{self, PipeWriter, Write as _};
+use std::iter;
 use std::os::windows::io::{
-    AsRawHandle as _, BorrowedHandle, HandleOrInvalid, HandleOrNull,
+    AsHandle as _, AsRawHandle as _, BorrowedHandle,
+    FromRawHandle as _, HandleOrInvalid, HandleOrNull,
     IntoRawHandle as _, OwnedHandle, RawHandle,
 };
 use std::process::{ExitStatus, Stdio};
-use std::{io, iter};
 
 use tokio::process::{Child, ChildStderr, ChildStdout};
+use windows_sys::Win32::Foundation::{
+    DUPLICATE_SAME_ACCESS, DuplicateHandle,
+};
 use windows_sys::Win32::System::Diagnostics::ToolHelp::{
     CreateToolhelp32Snapshot, TH32CS_SNAPTHREAD, THREADENTRY32,
     Thread32First, Thread32Next,
@@ -28,13 +37,14 @@ use windows_sys::Win32::System::JobObjects::{
     QueryInformationJobObject, SetInformationJobObject,
     TerminateJobObject,
 };
+use windows_sys::Win32::System::Pipes::PeekNamedPipe;
 use windows_sys::Win32::System::Threading::{
     CREATE_NO_WINDOW, CREATE_SUSPENDED, GetCurrentProcess,
     OpenProcess, OpenThread, PROCESS_SYNCHRONIZE, ResumeThread,
-    THREAD_SUSPEND_RESUME, WaitForSingleObject,
+    THREAD_SUSPEND_RESUME, TerminateProcess, WaitForSingleObject,
 };
 
-use crate::process::{Command, Limits};
+use crate::process::{Command, Ends, Limits, Preamble, no_ends};
 
 /// A command's job and the leader it was started with.
 pub(crate) struct Group {
@@ -45,7 +55,7 @@ pub(crate) struct Group {
     /// The leader's own handle, which tokio closes once it has
     /// waited for it. Held, it keeps the leader's id from another
     /// process.
-    _holds_id: OwnedHandle,
+    holds_id: OwnedHandle,
 }
 
 impl Group {
@@ -194,6 +204,7 @@ fn limits_of(
 
 pub(crate) fn spawn(
     command: Command<'_>,
+    stdin: Stdio,
     limits: &Limits,
 ) -> io::Result<(Group, ChildStdout, ChildStderr)> {
     let mut info = limits_of(
@@ -208,46 +219,101 @@ pub(crate) fn spawn(
             .unwrap_or(i64::MAX);
     basic.ActiveProcessLimit =
         u32::try_from(limits.max_procs).unwrap_or(u32::MAX);
-    let job = Job::new(&info)?;
-    let mut spawn = tokio::process::Command::new(&command.argv[0]);
+    let mut spawn = command.program();
     spawn
-        .args(&command.argv[1..])
-        .env_clear()
-        .envs(command.env)
-        .current_dir(command.cwd)
-        .stdin(command.stdin)
+        .stdin(stdin)
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        // A leader that fails to join its job is dropped suspended,
-        // and killed.
-        .kill_on_drop(true)
-        .creation_flags(CREATE_SUSPENDED | CREATE_NO_WINDOW);
-    let mut leader = spawn.spawn()?;
-    let (Some(leader_id), Some(handle)) =
-        (leader.id(), leader.raw_handle())
-    else {
-        unreachable!("a leader that has not run has not exited");
-    };
-    // SAFETY: the handle is the leader's, open while `leader` lives.
-    let holds_id = unsafe { BorrowedHandle::borrow_raw(handle) }
-        .try_clone_to_owned()?;
-    job.assign(handle)?;
-    resume(leader_id)?;
+        .stderr(Stdio::piped());
+    let mut group = Suspended::start(spawn, &info)?.resume()?;
     let (Some(stdout), Some(stderr)) =
-        (leader.stdout.take(), leader.stderr.take())
+        (group.leader.stdout.take(), group.leader.stderr.take())
     else {
         unreachable!("both outputs are piped");
     };
-    Ok((
-        Group {
+    Ok((group, stdout, stderr))
+}
+
+pub(crate) fn spawn_bound(
+    spawn: tokio::process::Command,
+    mut told: PipeWriter,
+    ends: Ends,
+) -> io::Result<Group> {
+    let leader = Suspended::start(
+        spawn,
+        &limits_of(
+            JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+                | JOB_OBJECT_LIMIT_DIE_ON_UNHANDLED_EXCEPTION,
+        ),
+    )?;
+    told.write_all(
+        &Preamble {
+            input: leader.give(ends.input.into())?,
+            output: leader.give(ends.output.into())?,
+            key: leader.0.leader_id.into(),
+        }
+        .encode(),
+    )?;
+    drop(told);
+    leader.resume()
+}
+
+struct Suspended(Group);
+
+impl Suspended {
+    fn start(
+        mut spawn: tokio::process::Command,
+        info: &JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
+    ) -> io::Result<Self> {
+        let job = Job::new(info)?;
+        spawn.creation_flags(CREATE_SUSPENDED | CREATE_NO_WINDOW);
+        let leader = spawn.spawn()?;
+        let (Some(leader_id), Some(handle)) =
+            (leader.id(), leader.raw_handle())
+        else {
+            unreachable!("a leader that has not run has not exited");
+        };
+        // SAFETY: the handle is the leader's, open while `leader`
+        // lives.
+        let holds_id = unsafe { BorrowedHandle::borrow_raw(handle) }
+            .try_clone_to_owned()?;
+        job.assign(handle)?;
+        Ok(Self(Group {
             job,
             leader,
             leader_id,
-            _holds_id: holds_id,
-        },
-        stdout,
-        stderr,
-    ))
+            holds_id,
+        }))
+    }
+
+    /// Gives the leader its own handle to what `end` is, which the
+    /// processes it starts do not inherit, and returns its value
+    /// there. This process keeps no copy.
+    fn give(&self, end: OwnedHandle) -> io::Result<u64> {
+        let mut given = std::ptr::null_mut();
+        // SAFETY: both process handles and `end` are open for the
+        // call, which writes only `given`. The leader's handle, from
+        // its creation, has every access.
+        let done = unsafe {
+            DuplicateHandle(
+                GetCurrentProcess(),
+                end.as_raw_handle(),
+                self.0.holds_id.as_raw_handle(),
+                &raw mut given,
+                0,
+                0,
+                DUPLICATE_SAME_ACCESS,
+            )
+        };
+        if done == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(given as usize as u64)
+    }
+
+    fn resume(self) -> io::Result<Group> {
+        resume(self.0.leader_id)?;
+        Ok(self.0)
+    }
 }
 
 /// Resumes the threads of the suspended process `id`. Neither std
@@ -340,4 +406,62 @@ pub(crate) fn unenforced(
 
 pub(crate) fn is_executable(path: &str) -> bool {
     std::fs::metadata(path).is_ok_and(|meta| meta.is_file())
+}
+
+/// A copy of this process's standard input, and the bytes waiting on
+/// it now. Fails when it is not a pipe.
+pub(crate) fn standard_input() -> io::Result<(File, u64)> {
+    let stdin = io::stdin();
+    let mut waiting = 0;
+    // SAFETY: the call reads no byte and writes only `waiting`.
+    let done = unsafe {
+        PeekNamedPipe(
+            stdin.as_raw_handle(),
+            std::ptr::null_mut(),
+            0,
+            std::ptr::null_mut(),
+            &raw mut waiting,
+            std::ptr::null_mut(),
+        )
+    };
+    if done == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok((
+        File::from(stdin.as_handle().try_clone_to_owned()?),
+        waiting.into(),
+    ))
+}
+
+pub(crate) fn take_ends(preamble: &Preamble) -> io::Result<Ends> {
+    if preamble.key != u64::from(std::process::id()) {
+        return Err(no_ends());
+    }
+    let handle = |value: u64| {
+        usize::try_from(value)
+            .map(|value| value as RawHandle)
+            .map_err(io::Error::other)
+    };
+    let (input, output) =
+        (handle(preamble.input)?, handle(preamble.output)?);
+    // SAFETY: the parent made both for this process alone before it
+    // ran, and the preamble that names them is read once, so nothing
+    // else owns them.
+    let (input, output) = unsafe {
+        (
+            OwnedHandle::from_raw_handle(input),
+            OwnedHandle::from_raw_handle(output),
+        )
+    };
+    Ok(Ends {
+        input: input.into(),
+        output: output.into(),
+    })
+}
+
+pub(crate) fn end_now() -> ! {
+    // SAFETY: GetCurrentProcess returns a pseudo handle that is
+    // always valid.
+    unsafe { TerminateProcess(GetCurrentProcess(), 1) };
+    std::process::abort()
 }
