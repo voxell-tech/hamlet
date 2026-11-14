@@ -1740,7 +1740,7 @@ mod moved_tests {
         );
         ctx.set_schedule_time_for_tests(BASE_TIME);
         let host = TestHost::new_for_tests();
-        let event_id = set_aside_one(&ctx, &host).await;
+        set_aside_one(&ctx, &host).await;
 
         let error =
             ctx.at(BASE_TIME, "other", &[]).await.unwrap_err();
@@ -1751,8 +1751,6 @@ mod moved_tests {
                 "max_schedules_exceeded".to_owned()
             )
         );
-        assert!(ctx.discard_set_aside(&event_id).await.unwrap());
-        ctx.at(BASE_TIME, "other", &[]).await.unwrap();
     }
 
     #[tokio::test]
@@ -1812,23 +1810,6 @@ mod moved_tests {
         assert_eq!(dispatches.len(), 1);
         assert_eq!(dispatches[0].event_id, event_id);
         assert_eq!(one_shot_tries(&ctx).await, vec![(1, None)]);
-    }
-
-    #[tokio::test]
-    async fn a_discarded_one_shot_is_gone() {
-        let ctx = context("actor-set-aside-discard");
-        let host = TestHost::new_for_tests();
-        let event_id = set_aside_one(&ctx, &host).await;
-
-        assert!(ctx.discard_set_aside(&event_id).await.unwrap());
-        assert!(ctx.set_aside_timers().await.unwrap().is_empty());
-        assert!(!ctx.discard_set_aside(&event_id).await.unwrap());
-        assert!(
-            !ctx.rearm_set_aside(&event_id, BASE_TIME).await.unwrap()
-        );
-        assert!(
-            ctx.list_scheduled_events().await.unwrap().is_empty()
-        );
     }
 
     #[tokio::test]

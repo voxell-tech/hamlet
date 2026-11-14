@@ -59,8 +59,10 @@ const CLAIM_ONE_SHOT_BATCH_SIZE: usize = 128;
 /// drain that finds a one-shot with this many tries runs nothing for
 /// it: it moves the row to `_actor_schedule_set_aside`, logs an
 /// error and tells the host through `ActorHost::timer_set_aside`.
-/// Nothing wakes the actor for that timer again until
-/// [`ActorContext::rearm_set_aside`] puts it back.
+/// Nothing wakes the actor for that timer again. It leaves that table
+/// only by a re-arm that succeeds, [`ActorContext::rearm_set_aside`],
+/// which puts it back, or by the actor's destroy, which removes its
+/// file.
 ///
 /// So a timer can be set aside without its action ever having run,
 /// when its actor failed five starts in a row: each start claimed it
@@ -194,7 +196,9 @@ pub(crate) struct DueScheduleDispatch {
     pub trace_context: IncomingTraceContext,
 }
 
-/// A one-shot set aside after its last try, as it was then.
+/// A one-shot set aside after its last try, as it was then. It stays
+/// set aside until a re-arm that succeeds puts it back, or its
+/// actor's destroy removes it. See [`MAX_ONE_SHOT_TRIES`].
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SetAsideTimer {
     pub event_id: String,
@@ -463,28 +467,6 @@ impl ActorContext {
             self.sync_alarm().await?;
         }
         Ok(rearmed)
-    }
-
-    /// Deletes the set-aside one-shot `event_id`. Returns false when
-    /// no one-shot is set aside under that id.
-    pub async fn discard_set_aside(
-        &self,
-        event_id: &str,
-    ) -> Result<bool> {
-        let _mutation = self.0.schedule_mutation_lock.lock().await;
-        let result = self
-            .sql()
-            .execute(
-                DISCARD_SET_ASIDE_SQL,
-                Some(vec![BindParam::Text(event_id.to_owned())]),
-            )
-            .await
-            .context("discard set-aside one-shot schedule")?;
-        let removed = result.changes > 0;
-        if removed {
-            self.record_schedules_updated();
-        }
-        Ok(removed)
     }
 
     pub async fn cron_set(
