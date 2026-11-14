@@ -20,7 +20,7 @@ use hamlet_actor::{Action, Actor, Ctx, Handler, Registry};
 use hamlet_actor_core::{
     ActorConfig, ActorFactory, SqliteTransaction,
 };
-use hamlet_host::{Address, Caller, Host, HostRef};
+use hamlet_host::{Address, Caller, HostRef};
 use hamlet_messages::agent::{Finished, Outcome};
 use hamlet_messages::realm::{NeedsChief, SecretList, Secrets};
 use hamlet_messages::workspace::files::{
@@ -684,14 +684,9 @@ async fn call_actor<A: Action>(
     action: &A,
 ) -> Result<Vec<u8>> {
     let args = hamlet_actor::action::encode_positional(action)?;
-    Host::call_from(
-        ctx.inner(),
-        &to,
-        A::NAME,
-        args,
-        Duration::from_secs(10),
-    )
-    .await
+    HostRef::of(ctx.inner())?
+        .call(&to, A::NAME, args, Duration::from_secs(10))
+        .await
 }
 
 /// Calls `agent` with how its call `call` ended, once. A failed
@@ -1050,13 +1045,8 @@ fn refused(
     action: &str,
     why: &impl std::fmt::Display,
 ) {
-    let caller = match caller {
-        Some(Caller::Actor(from)) => {
-            format!("{}/{}", from.kind(), from.key())
-        }
-        Some(Caller::Client) => "client".to_owned(),
-        None => "none".to_owned(),
-    };
+    let caller =
+        caller.map_or_else(|| "none".to_owned(), ToString::to_string);
     tracing::warn!(%caller, action, %why, "refused a call");
 }
 

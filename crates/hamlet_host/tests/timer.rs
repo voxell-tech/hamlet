@@ -28,7 +28,9 @@ use hamlet_actor_core::{
     ActorContext, ActorEvent, ActorFactory, ActorStart, BindParam,
     ColumnValue, ShutdownKind,
 };
-use hamlet_host::{Address, Caller, Host, HostEvent, HostOptions};
+use hamlet_host::{
+    Address, Caller, Host, HostEvent, HostOptions, HostRef,
+};
 use hamlet_testing::Scratch;
 use serde::{Deserialize, Serialize};
 use tokio::time::{Instant, sleep};
@@ -458,11 +460,10 @@ impl Handler<Pass> for Relay {
         _: Pass,
     ) -> Result<()> {
         ctx.sql().execute(&add_one("runs"), None).await?;
-        let (_, code) =
-            ctx.actor_id().split_once('/').context("an actor id")?;
+        let host = HostRef::of(ctx.inner())?;
+        let code = host.own_address().key();
         if code == "action_timed_out" {
-            Host::call_from(
-                ctx.inner(),
+            host.call(
                 &at("relay", "callee"),
                 Nap::NAME,
                 Vec::new(),

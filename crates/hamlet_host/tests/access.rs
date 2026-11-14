@@ -417,13 +417,16 @@ impl Handler<Ask> for Asker {
         ctx: Ctx<Self>,
         ask: Ask,
     ) -> anyhow::Result<Outcome> {
-        Ok(Outcome::of(Host::call_from(
-            ctx.inner(),
-            &ask.to,
-            &ask.name,
-            ask.args,
-            Duration::from_millis(ask.deadline_ms),
-        ))
+        Ok(Outcome::of(async {
+            HostRef::of(ctx.inner())?
+                .call(
+                    &ask.to,
+                    &ask.name,
+                    ask.args,
+                    Duration::from_millis(ask.deadline_ms),
+                )
+                .await
+        })
         .await)
     }
 }
@@ -843,13 +846,11 @@ async fn a_call_fails_at_once_when_its_host_begins_to_shut_down() {
                         .await
                 }
                 Some(ctx) => {
-                    Host::call_from(
-                        &ctx,
-                        &raw,
-                        "hold",
-                        Vec::new(),
-                        deadline,
-                    )
+                    async {
+                        HostRef::of(&ctx)?
+                            .call(&raw, "hold", Vec::new(), deadline)
+                            .await
+                    }
                     .await
                 }
             };
@@ -928,14 +929,9 @@ impl Actor for SelfCaller {
     type Action = ();
 
     async fn create(ctx: &Ctx<Self>) -> anyhow::Result<Self> {
-        let (kind, key) = ctx
-            .inner()
-            .actor_id()
-            .split_once('/')
-            .context("the actor id has no kind")?;
-        let outcome = Outcome::of(Host::call_from(
-            ctx.inner(),
-            &at(kind, key),
+        let host = HostRef::of(ctx.inner())?;
+        let outcome = Outcome::of(host.call(
+            host.own_address(),
             Ping::NAME,
             hamlet_actor::action::encode_positional(&Ping)?,
             Duration::from_secs(30),
@@ -995,9 +991,10 @@ async fn an_actor_that_calls_itself_fails_at_once() {
     assert!(outcomes[0].ms < 1_000, "{outcomes:?}");
 }
 
-/// The context of a generation that has ended calls nothing, also
-/// once its key is made again. The running generation's calls as the
-/// actor.
+/// The view of a generation that has ended calls, creates and starts
+/// nothing, also once its key is made again, and also when it is
+/// built after the generation ended. The running generation's view
+/// calls as the actor.
 #[tokio::test(flavor = "multi_thread")]
 async fn an_ended_generation_calls_nothing() {
     let dir = Scratch::new("call-ended");
@@ -1018,17 +1015,33 @@ async fn an_ended_generation_calls_nothing() {
         })
         .unwrap();
         outcomes.push(
-            Outcome::of(Host::call_from(
-                ctx,
-                &callee,
-                Who::NAME,
-                args,
-                Duration::from_secs(10),
-            ))
+            Outcome::of(async {
+                HostRef::of(ctx)?
+                    .call(
+                        &callee,
+                        Who::NAME,
+                        args,
+                        Duration::from_secs(10),
+                    )
+                    .await
+            })
             .await,
         );
     }
+    let mut made = Vec::new();
+    for ctx in &contexts[..2] {
+        let view = HostRef::of(ctx).unwrap();
+        assert_eq!(view.own_address(), &a);
+        made.push(view.create(&at("callee", "y"), Vec::new()).await);
+        made.push(view.get_or_start(&at("callee", "z")).await);
+    }
     host.shutdown().await.unwrap();
+    for ended in &made {
+        let error = ended.as_ref().unwrap_err();
+        assert_eq!(code(error), "actor.stopping", "{error:#}");
+    }
+    assert!(!any_file_of(&dir, "callee", "y"));
+    assert!(!any_file_of(&dir, "callee", "z"));
     assert_eq!(outcomes.len(), 3);
     for ended in &outcomes[..2] {
         assert_eq!(

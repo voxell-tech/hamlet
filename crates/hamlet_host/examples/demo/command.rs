@@ -176,7 +176,8 @@ async fn call(
     caller: &Address,
     to: &Address,
 ) -> Result<(i64, u64)> {
-    let target = to.to_string().into_bytes();
+    let mut target = Vec::new();
+    ciborium::into_writer(to, &mut target)?;
     let reply = act(host, caller, "call", target).await?;
     let (n, micros) = reply
         .split_first_chunk::<8>()

@@ -125,14 +125,14 @@ impl Handler<Ask> for Agent {
         ctx: Ctx<Self>,
         ask: Ask,
     ) -> Result<Vec<u8>> {
-        Host::call_from(
-            ctx.inner(),
-            &Address::new(workspace::KIND, workspace::MACHINE)?,
-            &ask.name,
-            ask.args,
-            Duration::from_secs(10),
-        )
-        .await
+        HostRef::of(ctx.inner())?
+            .call(
+                &Address::new(workspace::KIND, workspace::MACHINE)?,
+                &ask.name,
+                ask.args,
+                Duration::from_secs(10),
+            )
+            .await
     }
 }
 

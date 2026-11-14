@@ -51,7 +51,7 @@ use hamlet_actor_core::{
     ActorConfig, ActorContext, ActorEvent, ActorFactory, ActorStart,
     BindParam, ColumnValue, ConnHandle,
 };
-use hamlet_host::{Address, Caller, Host};
+use hamlet_host::{Address, Caller, HostRef};
 
 /// How long a counter's call to another may take.
 const CALL_DEADLINE: Duration = Duration::from_secs(60);
@@ -219,23 +219,15 @@ async fn action(
     Ok(count.to_le_bytes().to_vec())
 }
 
-/// Calls the `called` action of the actor whose `<kind>/<key>` is
-/// `args`, as the actor of `ctx`. Replies with that reply, then the
+/// Calls the `called` action of the actor whose address `args` holds
+/// in CBOR, as the actor of `ctx`. Replies with that reply, then the
 /// call's time in microseconds.
 async fn call(ctx: &ActorContext, args: &[u8]) -> Result<Vec<u8>> {
-    let to = std::str::from_utf8(args)?;
-    let (kind, key) = to
-        .split_once('/')
-        .ok_or_else(|| anyhow!("`{to}` is not <kind>/<key>"))?;
+    let to: Address = ciborium::from_reader(args)?;
     let begun = Instant::now();
-    let mut reply = Host::call_from(
-        ctx,
-        &Address::new(kind, key)?,
-        "called",
-        Vec::new(),
-        CALL_DEADLINE,
-    )
-    .await?;
+    let mut reply = HostRef::of(ctx)?
+        .call(&to, "called", Vec::new(), CALL_DEADLINE)
+        .await?;
     let micros = u64::try_from(begun.elapsed().as_micros())?;
     reply.extend_from_slice(&micros.to_le_bytes());
     Ok(reply)
@@ -248,13 +240,11 @@ async fn called(
     conn: Option<&ConnHandle>,
 ) -> Result<i64> {
     let params = conn.map(ConnHandle::params).unwrap_or_default();
-    let caller = match ciborium::from_reader(params.as_slice())? {
-        Some(Caller::Actor(at)) => {
-            format!("{}/{}", at.kind(), at.key())
-        }
-        Some(Caller::Client) => "client".to_owned(),
-        None => "none".to_owned(),
-    };
+    let caller: Option<Caller> =
+        ciborium::from_reader(params.as_slice())?;
+    let caller = caller
+        .as_ref()
+        .map_or_else(|| "none".to_owned(), ToString::to_string);
     tracing::info!(actor = ctx.actor_id(), caller, "called");
     let result = ctx
         .sql()

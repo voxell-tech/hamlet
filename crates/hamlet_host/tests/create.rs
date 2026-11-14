@@ -18,7 +18,7 @@ use hamlet_actor::{
 };
 use hamlet_actor_core::{ActorContext, ShutdownKind};
 use hamlet_actor_error::ActorError;
-use hamlet_host::{Caller, Host, HostOptions, HostRef};
+use hamlet_host::{Address, Caller, Host, HostOptions, HostRef};
 use hamlet_testing::Scratch;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -223,8 +223,7 @@ struct Maker;
 /// a get-or-start without one. Answers the failure's `group.code`.
 #[derive(Serialize, Deserialize)]
 struct Make {
-    kind: String,
-    key: String,
+    to: Address,
     input: Option<Vec<u8>>,
 }
 
@@ -243,19 +242,21 @@ struct MakeSelf(Mutex<Vec<(Option<String>, Duration)>>);
 #[derive(Default)]
 struct Contexts(Mutex<Vec<ActorContext>>);
 
-/// Makes the actor of `kind` and `key` from the actor of `ctx`, as
-/// [`Make`] says.
+/// Makes the actor at `to` from the actor of `ctx`, as [`Make`]
+/// says.
 async fn make(
     ctx: &ActorContext,
-    kind: &str,
-    key: &str,
+    to: &Address,
     input: Option<Vec<u8>>,
 ) -> Option<String> {
-    let made = match input {
-        Some(input) => Host::create_from(ctx, kind, key, input).await,
-        None => Host::get_or_start_from(ctx, kind, key).await,
+    let made = async {
+        let host = HostRef::of(ctx)?;
+        match input {
+            Some(input) => host.create(to, input).await,
+            None => host.get_or_start(to).await,
+        }
     };
-    made.err().map(|error| code(&error))
+    made.await.err().map(|error| code(&error))
 }
 
 #[async_trait::async_trait]
@@ -272,15 +273,11 @@ impl Actor for Maker {
             contexts.0.lock().unwrap().push(ctx.inner().clone());
         }
         if let Some(made) = host.value::<MakeSelf>() {
-            let (kind, key) = ctx
-                .inner()
-                .actor_id()
-                .split_once('/')
-                .context("the actor id has no kind")?;
             for input in [Some(cbor("self")), None] {
                 let begun = Instant::now();
                 let outcome =
-                    make(ctx.inner(), kind, key, input).await;
+                    make(ctx.inner(), host.own_address(), input)
+                        .await;
                 made.0
                     .lock()
                     .unwrap()
@@ -297,13 +294,7 @@ impl Handler<Make> for Maker {
         ctx: Ctx<Self>,
         make_it: Make,
     ) -> anyhow::Result<Option<String>> {
-        Ok(make(
-            ctx.inner(),
-            &make_it.kind,
-            &make_it.key,
-            make_it.input,
-        )
-        .await)
+        Ok(make(ctx.inner(), &make_it.to, make_it.input).await)
     }
 }
 
@@ -697,8 +688,7 @@ async fn ask(
     input: Option<Vec<u8>>,
 ) -> Option<String> {
     let make = Make {
-        kind: kind.to_owned(),
-        key: key.to_owned(),
+        to: at(kind, key),
         input,
     };
     call::call(host, &at("maker", from), &make).await.unwrap()
@@ -790,8 +780,8 @@ async fn an_ended_generation_makes_nothing() {
     for (n, ctx) in contexts.iter().enumerate() {
         let key = format!("k{n}");
         outcomes.push((
-            make(ctx, "made", &key, Some(cbor("x"))).await,
-            make(ctx, "maker", &key, None).await,
+            make(ctx, &at("made", &key), Some(cbor("x"))).await,
+            make(ctx, &at("maker", &key), None).await,
         ));
     }
     let ended_made = dir.join("actors/maker/k0.sqlite").exists();

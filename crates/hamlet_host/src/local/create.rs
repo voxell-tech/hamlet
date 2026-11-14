@@ -1,17 +1,16 @@
-//! The explicit create of an actor, with its input, and an actor's
-//! create and get-or-start of another actor. Only a create and
-//! `get_or_start` make an actor, and only a create gives it an input.
+//! The explicit create of an actor, with its input, and the one path
+//! of every create and get-or-start. Only a create and `get_or_start`
+//! make an actor, and only a create gives it an input.
 
 use std::sync::Arc;
 
 use anyhow::Result;
-use hamlet_actor_core::ActorContext;
 use hamlet_actor_error::ActorError;
 
-use super::access::current;
+use super::access::Stamp;
 use super::call::admit;
-use super::{Host, HostInner, Open, actor_id};
-use crate::address::{Address, Caller};
+use super::{Host, HostInner, Open};
+use crate::address::Address;
 use crate::directory::Place;
 
 /// A create of a key that holds an actor.
@@ -75,63 +74,28 @@ impl Host {
         at: &Address,
         input: Vec<u8>,
     ) -> Result<()> {
-        self.inner().start(at, Open::New(input)).await
-    }
-
-    /// Makes the actor of `kind` and `key` as [`Host::create`] does,
-    /// for the actor whose context is `ctx`. The actor it makes is
-    /// not told who made it. Fails at once with
-    /// `actor.invalid_operation` for the actor's own key, which would
-    /// wait for its own start, and with `actor.stopping` from a
-    /// generation that has ended.
-    pub async fn create_from(
-        ctx: &ActorContext,
-        kind: &str,
-        key: &str,
-        input: Vec<u8>,
-    ) -> Result<String> {
-        let (host, at) = reach(ctx, "create", kind, key)?;
-        host.start(&at, Open::New(input)).await?;
-        Ok(actor_id(&at))
-    }
-
-    /// The actor for `kind` and `key`, as [`Host::get_or_start`]
-    /// answers it, for the actor whose context is `ctx`. Fails as
-    /// [`Host::create_from`] does.
-    pub async fn get_or_start_from(
-        ctx: &ActorContext,
-        kind: &str,
-        key: &str,
-    ) -> Result<String> {
-        let (host, at) = reach(ctx, "get_or_start", kind, key)?;
-        host.start(&at, Open::OrCreate).await?;
-        Ok(actor_id(&at))
+        self.inner()
+            .start(Stamp::PROGRAM, at, Open::New(input))
+            .await
     }
 }
 
 impl HostInner {
-    /// Starts the actor at `at` as `open` lets it.
+    /// Starts the actor at `at` for `stamp`, as `open` lets it: a
+    /// create when `open` makes the actor with its input, else a
+    /// get-or-start.
     pub(super) async fn start(
         self: &Arc<Self>,
+        stamp: Stamp,
         at: &Address,
         open: Open,
     ) -> Result<()> {
+        let operation = match open {
+            Open::New(_) => "create",
+            Open::OrCreate | Open::Existing => "get_or_start",
+        };
+        admit(operation, stamp.caller(), at)?;
         let Place::Local(_) = self.locate(at)?;
         self.ensure_started(at, &open).await.map(drop)
     }
-}
-
-/// The host of the actor whose context is `ctx`, and the address of
-/// `kind` and `key`, for its `operation` of that actor. Fails as
-/// [`admit`] does, and from a generation that has ended.
-fn reach(
-    ctx: &ActorContext,
-    operation: &str,
-    kind: &str,
-    key: &str,
-) -> Result<(Arc<HostInner>, Address)> {
-    let from = current(ctx)?;
-    let at = Address::new(kind, key)?;
-    admit(operation, Some(&Caller::Actor(from.at)), &at)?;
-    Ok((from.host, at))
 }

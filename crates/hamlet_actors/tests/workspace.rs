@@ -109,14 +109,14 @@ impl Handler<Forward> for Peer {
         ctx: Ctx<Self>,
         forward: Forward,
     ) -> anyhow::Result<Vec<u8>> {
-        Host::call_from(
-            ctx.inner(),
-            &workspace_address(),
-            &forward.name,
-            forward.args,
-            Duration::from_secs(20),
-        )
-        .await
+        HostRef::of(ctx.inner())?
+            .call(
+                &workspace_address(),
+                &forward.name,
+                forward.args,
+                Duration::from_secs(20),
+            )
+            .await
     }
 }
 

@@ -56,6 +56,7 @@ use rusqlite::{Connection, OptionalExtension};
 use tokio::sync::{broadcast, oneshot, watch};
 use tokio::task::{AbortHandle, JoinHandle};
 
+use self::access::Stamp;
 pub use self::access::{HostRef, Values};
 use self::create::DuplicateKey;
 use crate::address::{Address, Named, plain};
@@ -1088,7 +1089,7 @@ impl Host {
     /// The actor at `at`, started if it is not running, made with no
     /// input if it has none.
     pub async fn get_or_start(&self, at: &Address) -> Result<()> {
-        self.inner().start(at, Open::OrCreate).await
+        self.inner().start(Stamp::PROGRAM, at, Open::OrCreate).await
     }
 }
 
@@ -1097,6 +1098,16 @@ impl HostInner {
     /// does not hold, before anything reaches the folder.
     fn locate(&self, at: &Address) -> Result<&Place> {
         self.directory.place(at.kind())
+    }
+
+    /// Whether the host runs generation `generation` of the actor at
+    /// `at`, from its start on.
+    fn runs(&self, at: &Address, generation: u64) -> bool {
+        self.actors
+            .lock()
+            .lives
+            .get(at)
+            .is_some_and(|life| life.is_generation(generation))
     }
 }
 
