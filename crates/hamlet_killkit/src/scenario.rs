@@ -341,9 +341,9 @@ pub const SCENARIOS: &[Scenario] = &[
         name: "workspace-command",
         about: "kill the host while a command of the workspace \
                 runs, after it answered Running; the command's \
-                process is gone, and after each restart its row \
-                reads cut off, a status by its id answers cut off, \
-                and the agent was told nothing",
+                process is gone under bubblewrap, and after each \
+                restart its row reads cut off, a status by its id \
+                answers cut off, and the agent was told nothing",
         setup: &["realm reach 1 1"],
         trigger: "agent 1 run c1 sleep 8; touch late",
         trigger_replies: true,

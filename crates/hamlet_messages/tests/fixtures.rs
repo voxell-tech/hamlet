@@ -2,7 +2,7 @@
 //! call's arguments are encoded as the authoring layer encodes them,
 //! and an answer as it encodes an action's output. A message whose
 //! bytes changed rewrites its fixture and fails once, so the change
-//! is committed and the Node host's tests read it.
+//! is committed with it.
 
 use std::fmt::Debug;
 use std::path::{Path, PathBuf};

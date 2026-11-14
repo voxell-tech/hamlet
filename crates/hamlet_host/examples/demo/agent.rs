@@ -5,6 +5,11 @@
 //! demo agent <n> run <call> <script ...>
 //!                    run a script in agent <n>'s filesystem, as its
 //!                    call <call>
+//! demo agent <n> tool <call> <name> <json ...>
+//!                    run the tool added by hand <name> with the
+//!                    arguments <json>, as agent <n>'s call <call>
+//! demo agent <n> read <path>
+//!                    read a file as agent <n>, printing its bytes
 //! demo agent <n> status <command>
 //!                    ask how agent <n>'s command stands
 //! demo agent <n> write <call> <path> <content ...>

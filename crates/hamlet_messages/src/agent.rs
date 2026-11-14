@@ -9,7 +9,8 @@ use crate::workspace::{CallId, CallRefusal, CommandEnd};
 
 /// Tells the agent how a call ended that the workspace answered
 /// `Running` or `WaitsForChief` for. Called by the workspace once,
-/// when it ends.
+/// when it ends, unless the workspace's host stopped first. A call
+/// that fails is not made again.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Finished {
     pub call: CallId,

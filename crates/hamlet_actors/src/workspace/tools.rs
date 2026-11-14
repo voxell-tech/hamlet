@@ -134,9 +134,7 @@ impl<'a> Ready<'a> {
             },
         }
     }
-}
 
-impl Ready<'_> {
     /// What the command's thread starts, and its time limit.
     pub fn exec(self) -> (Exec, Duration) {
         match self {

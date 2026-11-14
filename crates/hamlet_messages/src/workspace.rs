@@ -251,7 +251,8 @@ pub struct CommandId(pub u64);
 pub enum RunAnswer {
     Done(CommandEnd),
     /// The command runs on, and the agent is called with
-    /// [`crate::agent::Finished`] when it ends.
+    /// [`crate::agent::Finished`] when it ends, unless the
+    /// workspace's host stopped first.
     Running {
         command: CommandId,
     },
