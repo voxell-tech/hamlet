@@ -4,20 +4,6 @@
 //! once with its words. An answer holds a union of the families its
 //! action can send and of no other. A union lists families, never
 //! another union, so a reader switches on one `type`.
-//!
-//! | Family | Sent for |
-//! |---|---|
-//! | [`CallRefusal`] | run, write, edit |
-//! | [`InvalidProgram`] | run |
-//! | [`ToolRefusal`] | run, and a run a chief allowed |
-//! | [`InvalidPath`] | read, search, find, write, edit |
-//! | [`PathRefusal`] | the same, and a change a chief allowed |
-//! | [`ReachRefusal`] | every call the gate weighs |
-//! | [`InvalidContent`] | write |
-//! | [`StatusRefusal`] | command status |
-//! | [`WaitEnd`] | a wait for a chief that ended with no allow |
-//! | [`ReachChanged`] | an allow the reach in force no longer lets run |
-//! | [`Stale`] | a change, asked directly or allowed |
 
 use std::fmt::Display;
 use std::path::PathBuf;

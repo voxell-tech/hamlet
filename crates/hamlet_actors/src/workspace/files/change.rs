@@ -201,11 +201,9 @@ impl<'a> Request<'a> {
         if let Some(refusal) = checked_call(self.call) {
             return Some(refusal.into());
         }
-        (!is_absolute(&text(self.path))).then(|| {
-            InvalidPath::NotAbsolute {
-                path: self.path.to_owned(),
-            }
-            .into()
+        let path = text(self.path);
+        (!is_absolute(&path)).then(|| {
+            InvalidPath::NotAbsolute { path: path.into() }.into()
         })
     }
 }
@@ -284,7 +282,6 @@ impl Workspace {
         pending: &Pending,
         request: &Request<'_>,
     ) -> Result<ChangeAnswer<R>> {
-        let action = request.asked.op();
         let path = text(request.path);
         let held = self.paths.hold(&path).await;
         let weighed = self
@@ -331,7 +328,6 @@ impl Workspace {
         if let Some((needs, reach_version)) = chief {
             let opening = pending::Opening {
                 agent,
-                op: action,
                 request_hash: request.request_hash.clone(),
                 needs,
                 reach_version,
@@ -428,10 +424,10 @@ impl Workspace {
                 Rechecked::Pass { reach, secrets, .. } => {
                     (reach, secrets)
                 }
-                Rechecked::Changed(changed) => {
+                Rechecked::Changed(gated) => {
                     drop(held);
                     let changed = pending::changed(
-                        changed,
+                        gated,
                         Refused::of_change::<FileGate>,
                     )?;
                     let why = NotRun::Change(changed.into());
@@ -1024,6 +1020,27 @@ mod tests {
             diff: None,
             replaced: None,
         }
+    }
+
+    /// A path that is not absolute is named as the policy reads it,
+    /// with `/` between its names.
+    #[cfg(windows)]
+    #[test]
+    fn a_relative_path_is_refused_in_the_policys_text() {
+        let call = CallId("w1".into());
+        let conversation = ConversationId("c1".into());
+        let request = Request {
+            call: &call,
+            conversation: &conversation,
+            path: Path::new(r"notes\a.md"),
+            asked: Asked::Write("new"),
+            request_hash: vec![1],
+        };
+        let refused = request.checked::<WriteRefusal>().unwrap();
+        assert_eq!(
+            refused.to_string(),
+            "notes/a.md is not an absolute path"
+        );
     }
 
     /// A change's row answers a repeat of it once it ended. One that

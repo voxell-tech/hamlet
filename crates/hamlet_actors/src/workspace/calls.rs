@@ -75,7 +75,7 @@ pub(super) async fn find(
                  call = ?2"
             ),
             Some(vec![
-                BindParam::Integer(i64::try_from(agent.0)?),
+                BindParam::Integer(i64::from(agent.0)),
                 BindParam::Text(call.0.clone()),
             ]),
         )
@@ -97,7 +97,7 @@ pub(super) async fn by_id(
                  id = ?2 AND op = ?3"
             ),
             Some(vec![
-                BindParam::Integer(i64::try_from(agent.0)?),
+                BindParam::Integer(i64::from(agent.0)),
                 BindParam::Integer(id),
                 BindParam::Text(op.to_owned()),
             ]),
@@ -153,7 +153,7 @@ pub(super) async fn insert(
              state, answer, temp, opened_at) VALUES (?1, ?2, ?3, \
              ?4, ?5, ?6, ?7, ?8)",
             Some(vec![
-                BindParam::Integer(i64::try_from(agent.0)?),
+                BindParam::Integer(i64::from(agent.0)),
                 BindParam::Text(call.0.clone()),
                 BindParam::Text(op.to_owned()),
                 BindParam::Blob(request_hash),

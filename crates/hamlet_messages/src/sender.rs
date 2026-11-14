@@ -54,7 +54,7 @@ fn is_local<P: Party>(caller: Option<&Caller>) -> bool {
 /// The agent at `key`, which its number writes back exactly: one key
 /// per agent.
 fn agent_at(key: &str) -> Option<AgentNumber> {
-    let number = key.parse::<u64>().ok()?;
+    let number = key.parse::<u32>().ok()?;
     (number.to_string() == key).then_some(AgentNumber(number))
 }
 
@@ -172,7 +172,7 @@ mod tests {
             Some(Workspace)
         );
         assert_eq!(Realm::of(realm.as_ref()), Some(Realm));
-        for number in [0, 7, u64::MAX] {
+        for number in [0, 7, u32::MAX] {
             let agent = Agent(AgentNumber(number));
             let caller = actor(agent.address().unwrap());
             assert_eq!(Agent::of(caller.as_ref()), Some(agent));

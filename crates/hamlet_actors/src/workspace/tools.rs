@@ -75,7 +75,9 @@ impl<'a> Ready<'a> {
                     script,
                     network: *network,
                     timeout: timeout_ms
-                        .map_or(LONGEST, Duration::from_millis)
+                        .map_or(LONGEST, |ms| {
+                            Duration::from_millis(ms.into())
+                        })
                         .min(LONGEST),
                 });
             }

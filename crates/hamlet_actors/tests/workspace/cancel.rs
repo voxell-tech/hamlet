@@ -1,5 +1,5 @@
-//! Ending an agent's commands: a cancel from the realm or the agent,
-//! and an agent whose reach ended.
+//! Ending an agent's commands: the agent's own cancel, the realm's
+//! cancel of an agent, and an agent whose reach ended.
 
 use std::time::{Duration, Instant};
 
@@ -10,9 +10,9 @@ use hamlet_messages::workspace::files::{ChangeAnswer, ChangeEnd};
 use hamlet_messages::workspace::reach::Reach;
 use hamlet_messages::workspace::refusal::{ReachRefusal, WaitEnd};
 use hamlet_messages::workspace::{
-    AgentNumber, Answer, AnswerTaken, CallId, Cancel, Cancelled,
-    ConversationId, Exit, InForce, Lapse, ReachVersion, Run,
-    RunAnswer, RunEnd, SetReach, Which,
+    AgentNumber, Answer, AnswerTaken, CallId, Cancel, CancelAgent,
+    Cancelled, ConversationId, Exit, InForce, Lapse, ReachVersion,
+    Run, RunAnswer, RunEnd, SetReach, Which,
 };
 use hamlet_testing::Scratch;
 
@@ -25,22 +25,23 @@ use super::{
     run, running, runs_as, status_as, told, told_within,
 };
 
-/// A cancel of agent 7's commands of `which`.
-fn cancel(which: Which) -> Cancel {
-    Cancel {
+/// The realm's cancel of agent 7's commands of `which`.
+fn cancel_agent(which: Which) -> CancelAgent {
+    CancelAgent {
         agent: AGENT,
         which,
     }
 }
 
-/// Asks the workspace, as the actor at `from`, to end agent 7's
-/// commands of `which`.
-async fn cancels(
-    host: &Host,
-    from: &Address,
-    which: Which,
-) -> Cancelled {
-    ask(host, from, &cancel(which)).await
+/// Asks the workspace, as agent 7, to end its commands of `which`.
+async fn agent_cancels(host: &Host, which: Which) -> Cancelled {
+    ask(host, &agent(AGENT), &Cancel { which }).await
+}
+
+/// Asks the workspace, as the realm, to end agent 7's commands of
+/// `which`.
+async fn realm_cancels(host: &Host, which: Which) -> Cancelled {
+    ask(host, &realm(), &cancel_agent(which)).await
 }
 
 fn one(call: &str) -> Which {
@@ -80,7 +81,7 @@ async fn a_cancel_ends_a_running_command_and_the_agent_is_told_once()
     );
 
     let asked = Instant::now();
-    let answer = cancels(&host, &agent(AGENT), one("c1")).await;
+    let answer = agent_cancels(&host, one("c1")).await;
     let took = asked.elapsed();
     told_within(&peers, 1, Duration::from_secs(3)).await;
     tokio::time::sleep(Duration::from_millis(2500)).await;
@@ -131,7 +132,7 @@ async fn a_cancel_within_the_wait_answers_the_call() {
     tokio::time::sleep(Duration::from_millis(500)).await;
 
     let asked = Instant::now();
-    let answer = cancels(&host, &realm(), Which::All).await;
+    let answer = realm_cancels(&host, Which::All).await;
     let answered = call.await.unwrap();
     let took = asked.elapsed();
     tokio::time::sleep(Duration::from_millis(2000)).await;
@@ -178,16 +179,15 @@ async fn a_cancel_ends_a_conversations_commands_or_all() {
         ));
     }
 
-    let of_a = cancels(
+    let of_a = realm_cancels(
         &host,
-        &realm(),
         Which::Conversation {
             conversation: ConversationId("a".into()),
         },
     )
     .await;
     let b_meanwhile = status_as(&host, AGENT, commands[2]).await;
-    let all = cancels(&host, &agent(AGENT), Which::All).await;
+    let all = agent_cancels(&host, Which::All).await;
     told_within(&peers, 3, Duration::from_secs(3)).await;
     host.shutdown().await.unwrap();
 
@@ -227,15 +227,15 @@ async fn a_cancel_of_nothing_does_nothing() {
     let peers = answering_within(2000);
     let host = host_with(&dir, peers.clone()).await;
     realm_sets(&host, 1, reach(None)).await;
-    let before = cancels(&host, &realm(), Which::All).await;
-    let unknown = cancels(&host, &agent(AGENT), one("nope")).await;
+    let before = realm_cancels(&host, Which::All).await;
+    let unknown = agent_cancels(&host, one("nope")).await;
     let RunAnswer::Ended {
         end: RunEnd::Ran(end),
     } = agent_runs(&host, &run("c1", "echo hi")).await
     else {
         panic!("echo did not answer Ended");
     };
-    let ended = cancels(&host, &agent(AGENT), one("c1")).await;
+    let ended = agent_cancels(&host, one("c1")).await;
     let status = status_as(&host, AGENT, end.command).await;
     tokio::time::sleep(Duration::from_millis(300)).await;
     host.shutdown().await.unwrap();
@@ -271,7 +271,7 @@ async fn a_cancel_after_a_restart_finds_nothing() {
         running(&agent_runs(&host, &run("c1", "sleep 30")).await);
     host.shutdown().await.unwrap();
     let again = host_with(&dir, peers.clone()).await;
-    let answer = cancels(&again, &realm(), Which::All).await;
+    let answer = realm_cancels(&again, Which::All).await;
     let status = status_as(&again, AGENT, command).await;
     again.shutdown().await.unwrap();
 
@@ -288,12 +288,14 @@ async fn a_cancel_after_a_restart_finds_nothing() {
     assert_eq!(told(&peers), []);
 }
 
-/// Only the realm and the agent named cancel its commands: another
-/// agent and another kind fail as wrong callers, and the command
-/// runs on.
+/// An agent's cancel ends only its own commands, and only the realm
+/// cancels another agent's: an agent and another kind sending
+/// `cancel_agent`, or another kind sending `cancel`, fail as wrong
+/// callers, and the command runs on.
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
-async fn a_cancel_comes_from_the_realm_or_the_agent_it_names() {
+async fn a_cancel_ends_the_callers_commands_or_the_realm_names_them()
+{
     let dir = Scratch::new("workspace-cancel-caller");
     filesystem(&dir);
     let peers = answering_within(200);
@@ -301,21 +303,25 @@ async fn a_cancel_comes_from_the_realm_or_the_agent_it_names() {
     realm_sets(&host, 1, reach(None)).await;
     let command =
         running(&agent_runs(&host, &run("c1", "sleep 5")).await);
-    let other = AgentNumber(8);
+    let other = agent(AgentNumber(8));
+    let stranger = Address::new("other", "x").unwrap();
     let by_other =
-        error_of(&host, &agent(other), &cancel(Which::All)).await;
-    let by_a_stranger = error_of(
-        &host,
-        &Address::new("other", "x").unwrap(),
-        &cancel(Which::All),
-    )
-    .await;
+        ask(&host, &other, &Cancel { which: Which::All }).await;
+    let refused = [
+        error_of(&host, &other, &cancel_agent(Which::All)).await,
+        error_of(&host, &agent(AGENT), &cancel_agent(Which::All))
+            .await,
+        error_of(&host, &stranger, &cancel_agent(Which::All)).await,
+        error_of(&host, &stranger, &Cancel { which: Which::All })
+            .await,
+    ];
     let meanwhile = status_as(&host, AGENT, command).await;
-    let by_the_realm = cancels(&host, &realm(), Which::All).await;
+    let by_the_realm = realm_cancels(&host, Which::All).await;
     told_within(&peers, 1, Duration::from_secs(3)).await;
     host.shutdown().await.unwrap();
 
-    assert_eq!([by_other, by_a_stranger], [WRONG_CALLER; 2]);
+    assert_eq!(by_other, Cancelled { commands: vec![] });
+    assert_eq!(refused, [WRONG_CALLER; 4]);
     assert_eq!(meanwhile, RunAnswer::Running { command });
     assert_eq!(
         by_the_realm,

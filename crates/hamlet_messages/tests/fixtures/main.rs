@@ -37,22 +37,24 @@ use hamlet_messages::workspace::refusal::{
 };
 use hamlet_messages::workspace::{
     AddedTool, AgentNumber, Answer, AnswerTaken, CallId, Cancel,
-    Cancelled, ChiefAnswer, CommandEnd, CommandId, CommandStatus,
-    ConversationId, Cut, Exit, Fault, InForce, Lapse, ListTools,
-    Program, ReachVersion, RealmTask, Run, RunAnswer, RunEnd,
-    SetReach, ToolList, Which,
+    CancelAgent, Cancelled, ChiefAnswer, CommandEnd, CommandId,
+    CommandStatus, ConversationId, Cut, Exit, Fault, InForce, Lapse,
+    ListTools, Program, ReachVersion, RealmTask, Run, RunAnswer,
+    RunEnd, SetReach, ToolList, Which,
 };
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 use self::cases::{
-    Cases, Found, Union, family, named, tagged, union,
+    Cases, Found, InUnion, Union, family, named, tagged, union,
 };
 
 const AGENT: AgentNumber = AgentNumber(7);
 
 /// Every enum the fixtures hold. A generic enum is listed once: its
-/// cases are the same whatever it holds.
+/// cases are the same whatever it holds. Its forms are counted apart
+/// where one is a fixture's root or a union's family, and together
+/// anywhere else.
 fn enums() -> Vec<Cases> {
     vec![
         tagged::<Answer>(),
@@ -90,47 +92,60 @@ fn enums() -> Vec<Cases> {
     ]
 }
 
+/// A union and its families. The match is never run: it fails to
+/// compile when a family is missing, extra or of another type.
+macro_rules! union {
+    ($union:ident { $($case:ident: $family:ty),+ $(,)? }) => {{
+        let _ = |union: $union| match union {
+            $($union::$case(family) => {
+                let _: $family = family;
+            })+
+        };
+        union::<$union>(vec![$(family::<$family>()),+])
+    }};
+}
+
 /// Every untagged union, with its families.
 fn unions() -> Vec<Union> {
     vec![
-        union::<RunRefusal>(vec![
-            family::<CallRefusal>(),
-            family::<InvalidProgram>(),
-            family::<ToolRefusal>(),
-            family::<ReachRefusal>(),
-        ]),
-        union::<ReadRefusal>(vec![
-            family::<InvalidPath>(),
-            family::<PathRefusal<ToRead>>(),
-            family::<ReachRefusal>(),
-        ]),
-        union::<ChangeRefusal>(vec![
-            family::<CallRefusal>(),
-            family::<InvalidPath>(),
-            family::<PathRefusal<ToChange>>(),
-            family::<ReachRefusal>(),
-        ]),
-        union::<WriteRefusal>(vec![
-            family::<CallRefusal>(),
-            family::<InvalidPath>(),
-            family::<PathRefusal<ToChange>>(),
-            family::<ReachRefusal>(),
-            family::<InvalidContent>(),
-        ]),
-        union::<FileGate>(vec![
-            family::<PathRefusal<ToChange>>(),
-            family::<ReachRefusal>(),
-        ]),
-        union::<RunNotRun>(vec![
-            family::<WaitEnd>(),
-            family::<ReachChanged<ReachRefusal>>(),
-            family::<ToolRefusal>(),
-        ]),
-        union::<ChangeNotRun>(vec![
-            family::<WaitEnd>(),
-            family::<ReachChanged<FileGate>>(),
-            family::<Stale>(),
-        ]),
+        union!(RunRefusal {
+            Call: CallRefusal,
+            Program: InvalidProgram,
+            Tool: ToolRefusal,
+            Reach: ReachRefusal,
+        }),
+        union!(ReadRefusal {
+            Invalid: InvalidPath,
+            Path: PathRefusal<ToRead>,
+            Reach: ReachRefusal,
+        }),
+        union!(ChangeRefusal {
+            Call: CallRefusal,
+            Invalid: InvalidPath,
+            Path: PathRefusal<ToChange>,
+            Reach: ReachRefusal,
+        }),
+        union!(WriteRefusal {
+            Call: CallRefusal,
+            Invalid: InvalidPath,
+            Path: PathRefusal<ToChange>,
+            Reach: ReachRefusal,
+            Content: InvalidContent,
+        }),
+        union!(FileGate {
+            Path: PathRefusal<ToChange>,
+            Reach: ReachRefusal,
+        }),
+        union!(RunNotRun {
+            Wait: WaitEnd,
+            Reach: ReachChanged<ReachRefusal>,
+            Tool: ToolRefusal,
+        }),
+        union!(ChangeNotRun {
+            Wait: WaitEnd,
+            Reach: ReachChanged<FileGate>,
+            Stale: Stale,
+        }),
     ]
 }
 
@@ -144,6 +159,10 @@ struct Fixtures {
     rewritten: Vec<String>,
     problems: Vec<String>,
     found: BTreeMap<Cases, BTreeSet<String>>,
+    in_unions: BTreeSet<InUnion>,
+    /// Each enum a fixture's root is, by its name with its
+    /// parameters, with its cases and those found.
+    roots: BTreeMap<String, (Cases, BTreeSet<String>)>,
 }
 
 impl Fixtures {
@@ -154,6 +173,8 @@ impl Fixtures {
             rewritten: Vec::new(),
             problems: Vec::new(),
             found: BTreeMap::new(),
+            in_unions: BTreeSet::new(),
+            roots: BTreeMap::new(),
         }
     }
 
@@ -199,6 +220,50 @@ impl Fixtures {
         );
     }
 
+    /// Checks a type as a row keeps it, CBOR of the Rust type itself,
+    /// and returns the kept bytes. A stored fixture is added to and
+    /// never rewritten, so one that no longer reads back as `value`
+    /// fails.
+    fn stored<T>(&mut self, name: &str, value: &T) -> Vec<u8>
+    where
+        T: Serialize + DeserializeOwned + PartialEq + Debug,
+    {
+        let name = format!("stored/{name}");
+        self.written.insert(format!("{name}.cbor"));
+        let mut bytes = Vec::new();
+        ciborium::into_writer(value, &mut bytes).unwrap();
+        let path = folder().join(format!("{name}.cbor"));
+        let Ok(kept) = std::fs::read(&path) else {
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(&path, &bytes).unwrap();
+            self.rewritten.push(format!("{name} (new)"));
+            return bytes;
+        };
+        self.read_back(
+            &name,
+            value,
+            ciborium::from_reader::<T, _>(kept.as_slice()),
+        );
+        kept
+    }
+
+    /// Checks a request a row keeps, also by its bytes: a repeat is
+    /// found by their hash.
+    fn stored_request<T>(&mut self, name: &str, value: &T)
+    where
+        T: Serialize + DeserializeOwned + PartialEq + Debug,
+    {
+        let kept = self.stored(name, value);
+        let mut bytes = Vec::new();
+        ciborium::into_writer(value, &mut bytes).unwrap();
+        if kept != bytes {
+            self.problems.push(format!(
+                "stored/{name}'s bytes changed, so a kept call's \
+                 repeat would not match"
+            ));
+        }
+    }
+
     fn read_back<T: PartialEq + Debug, E: Debug>(
         &mut self,
         name: &str,
@@ -228,6 +293,16 @@ impl Fixtures {
         let mut found = Found::default();
         cases::found::<T>(name, value, &self.unions, &mut found);
         self.problems.extend(found.problems);
+        self.in_unions.extend(found.in_unions);
+        if let (Some(cases), Some(tag)) =
+            (cases::tagged_cases::<T>(), cases::tag(value))
+        {
+            self.roots
+                .entry(cases::short_name::<T>())
+                .or_insert((cases, BTreeSet::new()))
+                .1
+                .insert(tag.to_owned());
+        }
         for (cases, case) in found.cases {
             self.found.entry(cases).or_default().insert(case);
         }
@@ -284,6 +359,15 @@ impl Fixtures {
                 }
             }
         }
+        for (root, (cases, found)) in &self.roots {
+            for case in *cases {
+                if !found.contains(*case) {
+                    problems.push(format!(
+                        "no fixture's root is {case} of {root}"
+                    ));
+                }
+            }
+        }
         for cases in self.found.keys() {
             if !enums.contains(cases) {
                 problems.push(format!(
@@ -292,6 +376,22 @@ impl Fixtures {
             }
         }
         for union in &self.unions {
+            for family in &union.families {
+                for case in family.cases {
+                    let held = InUnion {
+                        union: union.name.clone(),
+                        family: family.name.clone(),
+                        case: (*case).to_owned(),
+                    };
+                    if !self.in_unions.contains(&held) {
+                        problems.push(format!(
+                            "no fixture holds {case} of {} in the \
+                             union {}",
+                            family.name, union.name
+                        ));
+                    }
+                }
+            }
             for (at, first) in union.families.iter().enumerate() {
                 for second in &union.families[at + 1..] {
                     for tag in first
@@ -367,6 +467,7 @@ fn every_message_and_every_case_matches_its_fixture() {
     the_realms_and_the_agents(&mut fixtures);
     the_addresses(&mut fixtures);
     the_errors(&mut fixtures);
+    the_stored_rows(&mut fixtures);
     fixtures.remove_unwritten();
     fixtures.assert_unchanged_and_covered();
 }
@@ -436,20 +537,7 @@ fn the_workspaces_messages(fixtures: &mut Fixtures) {
             version: ReachVersion(3),
         },
     );
-    let task = Some(RealmTask("task-1".into()));
-    fixtures.args(
-        "workspace/run",
-        &Run {
-            call: call("call-1"),
-            conversation: ConversationId("c1".into()),
-            realm_task: task.clone(),
-            program: Program::Script {
-                script: "echo hi".into(),
-                network: false,
-                timeout_ms: Some(30_000),
-            },
-        },
-    );
+    fixtures.args("workspace/run", &asked_run());
     fixtures.args(
         "workspace/run.unset",
         &Run {
@@ -468,7 +556,7 @@ fn the_workspaces_messages(fixtures: &mut Fixtures) {
         &Run {
             call: call("call-1"),
             conversation: ConversationId("c1".into()),
-            realm_task: task.clone(),
+            realm_task: task(),
             program: Program::Tool {
                 name: "word_count".into(),
                 arguments: r#"{"path":"/project/a.md"}"#.into(),
@@ -490,28 +578,96 @@ fn the_workspaces_messages(fixtures: &mut Fixtures) {
             }],
         },
     );
-    fixtures.args(
-        "workspace/write_file",
-        &WriteFile {
-            call: call("call-2"),
-            conversation: ConversationId("c1".into()),
-            realm_task: None,
-            path: "/work/project/notes.md".into(),
-            content: "hello\n".into(),
+    fixtures.args("workspace/write_file", &asked_write());
+    fixtures.args("workspace/edit_file", &asked_edit());
+}
+
+fn task() -> Option<RealmTask> {
+    Some(RealmTask("task-1".into()))
+}
+
+fn asked_run() -> Run {
+    Run {
+        call: call("call-1"),
+        conversation: ConversationId("c1".into()),
+        realm_task: task(),
+        program: Program::Script {
+            script: "echo hi".into(),
+            network: false,
+            timeout_ms: Some(30_000),
+        },
+    }
+}
+
+fn asked_write() -> WriteFile {
+    WriteFile {
+        call: call("call-2"),
+        conversation: ConversationId("c1".into()),
+        realm_task: None,
+        path: "/work/project/notes.md".into(),
+        content: "hello\n".into(),
+    }
+}
+
+fn asked_edit() -> EditFile {
+    EditFile {
+        call: call("call-3"),
+        conversation: ConversationId("c1".into()),
+        realm_task: task(),
+        path: "/work/project/notes.md".into(),
+        edits: vec![Replace {
+            old: "hello".into(),
+            new: "goodbye".into(),
+        }],
+    }
+}
+
+/// Each type as a row keeps it.
+fn the_stored_rows(fixtures: &mut Fixtures) {
+    fixtures.stored("reach.agent", &Reach::Agent(footing()));
+    fixtures.stored(
+        "reach.worker",
+        &Reach::Worker {
+            starter: None,
+            footing: Footing {
+                project: None,
+                ..footing()
+            },
         },
     );
-    fixtures.args(
-        "workspace/edit_file",
-        &EditFile {
-            call: call("call-3"),
-            conversation: ConversationId("c1".into()),
-            realm_task: task,
-            path: "/work/project/notes.md".into(),
-            edits: vec![Replace {
-                old: "hello".into(),
-                new: "goodbye".into(),
-            }],
+    fixtures.stored("reach.ended", &Reach::Ended);
+    fixtures.stored_request("request.run", &asked_run());
+    fixtures.stored_request("request.write_file", &asked_write());
+    fixtures.stored_request("request.edit_file", &asked_edit());
+    fixtures.stored("needs", &vec![Need::Network, Need::Command]);
+    fixtures.stored("hashed.absent", &Hashed::Absent);
+    fixtures.stored(
+        "hashed.sha256",
+        &Hashed::Sha256 {
+            hash: Sha256([1; 32]),
         },
+    );
+    fixtures
+        .stored("end.command", &command_end(Exit::Code { code: 0 }));
+    fixtures.stored(
+        "end.run_not_run",
+        &RunNotRun::from(WaitEnd::Lapsed {
+            lapse: Lapse::Ended,
+        }),
+    );
+    fixtures.stored(
+        "end.change.changed",
+        &ChangeEnd::Changed(changed(true, 7, None)),
+    );
+    fixtures.stored(
+        "end.change.not_run",
+        &ChangeEnd::NotRun {
+            why: file_changed().into(),
+        },
+    );
+    fixtures.stored(
+        "end.change_not_run",
+        &ChangeNotRun::from(WaitEnd::ChiefRefused { reason: None }),
     );
 }
 
@@ -839,12 +995,18 @@ fn the_answers_about_a_command(fixtures: &mut Fixtures) {
     ] {
         fixtures.args(
             &format!("workspace/cancel.{name}"),
-            &Cancel {
-                agent: AGENT,
-                which,
-            },
+            &Cancel { which },
         );
     }
+    fixtures.args(
+        "workspace/cancel_agent.conversation",
+        &CancelAgent {
+            agent: AGENT,
+            which: Which::Conversation {
+                conversation: ConversationId("c1".into()),
+            },
+        },
+    );
     fixtures.answer(
         "workspace/cancel.cancelled",
         &Cancelled {
@@ -1031,6 +1193,17 @@ fn the_changes(fixtures: &mut Fixtures) {
                 "reach_refuses.no_reach",
                 refuses(FileGate::from(ReachRefusal::NoReach)).into(),
             ),
+            (
+                "reach_refuses.agent_filesystem",
+                refuses(FileGate::from(
+                    agent_filesystem::<ToChange>(),
+                ))
+                .into(),
+            ),
+            (
+                "reach_refuses.project_in_realm",
+                refuses(FileGate::from(project_in_realm())).into(),
+            ),
             ("reach_needs", needs_more().into()),
         ]);
     for (name, why) in not_run {
@@ -1058,6 +1231,13 @@ fn the_changes(fixtures: &mut Fixtures) {
         ("outside_reach", outside_reach_to_change().into()),
         ("agent_filesystem", agent_filesystem::<ToChange>().into()),
         ("project_in_realm", project_in_realm().into()),
+        (
+            "invalid_call_id",
+            CallRefusal::InvalidId { call: call("") }.into(),
+        ),
+        ("holds_secret", CallRefusal::HoldsSecret.into()),
+        ("not_absolute", not_absolute().into()),
+        ("no_reach", ReachRefusal::NoReach.into()),
     ] {
         fixtures.answer(
             &format!("workspace/write_file.refused.{name}"),
@@ -1093,6 +1273,12 @@ fn the_changes(fixtures: &mut Fixtures) {
         },
     );
     fixtures.answer(
+        "workspace/edit_file.waits_for_chief",
+        &ChangeAnswer::<ChangeRefusal>::WaitsForChief {
+            needs: vec![Need::Edit],
+        },
+    );
+    fixtures.answer(
         "workspace/edit_file.ended.not_run.file_changed",
         &ChangeAnswer::<ChangeRefusal>::Ended {
             end: ChangeEnd::NotRun {
@@ -1110,6 +1296,9 @@ fn the_changes(fixtures: &mut Fixtures) {
         ("holds_secret", CallRefusal::HoldsSecret.into()),
         ("not_absolute", not_absolute().into()),
         ("no_reach", ReachRefusal::NoReach.into()),
+        ("outside_reach", outside_reach_to_change().into()),
+        ("agent_filesystem", agent_filesystem::<ToChange>().into()),
+        ("project_in_realm", project_in_realm().into()),
     ] {
         fixtures.answer(
             &format!("workspace/edit_file.refused.{name}"),
@@ -1285,4 +1474,38 @@ fn a_changed_file_is_told_by_its_hashes() {
             "ab".repeat(32)
         )
     );
+}
+
+/// Each integer TypeScript writes reads up to 2^32 - 1 and fails
+/// from 2^32, which a JavaScript `number` writes as a float.
+#[test]
+fn an_integer_typescript_writes_is_a_u32() {
+    fn reads<T: DeserializeOwned>(args: serde_json::Value) -> bool {
+        let args = encode_positional(&args).unwrap();
+        decode_positional::<T>(&args).is_ok()
+    }
+    let read = |number| serde_json::json!({"path": "/a", "offset": number, "limit": number});
+    let script = |number| {
+        serde_json::json!({
+            "call": "c", "conversation": "c",
+            "program": {"type": "script", "script": "true",
+                        "network": false, "timeout_ms": number}
+        })
+    };
+    let status = |number| serde_json::json!({"command": number});
+    let cancel = |number| serde_json::json!({"agent": number, "which": {"type": "all"}});
+    for (number, fits) in
+        [(u64::from(u32::MAX), true), (1 << 32, false)]
+    {
+        assert_eq!(
+            [
+                reads::<ReadFile>(read(number)),
+                reads::<Run>(script(number)),
+                reads::<CommandStatus>(status(number)),
+                reads::<CancelAgent>(cancel(number)),
+            ],
+            [fits; 4],
+            "{number}"
+        );
+    }
 }

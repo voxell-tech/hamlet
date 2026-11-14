@@ -60,7 +60,7 @@ pub(super) async fn status(
     agent: AgentNumber,
     command: CommandId,
 ) -> Result<Option<Row>> {
-    let id = i64::try_from(command.0)?;
+    let id = i64::from(command.0);
     calls::by_id(tx, agent, id, OP)
         .await?
         .map(row_of)
@@ -74,7 +74,7 @@ pub(super) const CUT_OFF: &str =
 
 /// A command's row, from its call's.
 pub(super) fn row_of(call: Call) -> Result<Row> {
-    let command = CommandId(u64::try_from(call.id)?);
+    let command = CommandId(u32::try_from(call.id)?);
     let state = match (call.state.as_str(), call.answer) {
         ("running", _) => State::Running,
         ("cut_off", _) => State::CutOff,
@@ -115,7 +115,7 @@ pub(super) async fn open(
         None,
     )
     .await?;
-    Ok(CommandId(u64::try_from(id)?))
+    Ok(CommandId(u32::try_from(id)?))
 }
 
 /// Records how a running command ended, in `tx`.
@@ -130,7 +130,7 @@ pub(super) async fn end(
         Some(vec![
             BindParam::Blob(answer),
             BindParam::Integer(calls::now_ms()?),
-            BindParam::Integer(i64::try_from(end.command.0)?),
+            BindParam::Integer(i64::from(end.command.0)),
         ]),
     )
     .await?;

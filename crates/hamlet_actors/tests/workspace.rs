@@ -966,7 +966,7 @@ async fn a_finished_to_an_agent_that_is_gone_is_dropped() {
     let state = db
         .query_row::<String, _, _>(
             "SELECT state FROM calls WHERE id = ?1",
-            [i64::try_from(command.0).unwrap()],
+            [i64::from(command.0)],
             |row| row.get(0),
         )
         .unwrap();

@@ -28,6 +28,48 @@
 //! `fixtures/` holds the bytes of each one as the host carries it,
 //! so a host in another language can check its shapes against them.
 //! A change to a shape rewrites its fixture and fails the test once.
+//! `fixtures/error/` holds each error in the test's own form,
+//! `{group, code, message, metadata}`, not the form of
+//! `ActorError`'s serde: no wire between hosts carries an error yet.
+//!
+//! # How a message may change
+//!
+//! An actor keeps messages in its file as CBOR of the Rust type
+//! itself, and `fixtures/stored/` holds each type a row keeps. The
+//! workspace keeps an agent's [`workspace::reach::Reach`]; the
+//! request of a call that waits for a chief ([`workspace::Run`],
+//! [`workspace::files::WriteFile`], [`workspace::files::EditFile`]),
+//! what it needs and the [`workspace::files::Hashed`] it read; and a
+//! call's end ([`workspace::CommandEnd`],
+//! [`workspace::files::ChangeEnd`],
+//! [`workspace::refusal::RunNotRun`],
+//! [`workspace::refusal::ChangeNotRun`]). A repeat of a call that
+//! carries an id is matched by the SHA-256 of its request's stored
+//! bytes.
+//!
+//! Until Hamlet's first release a message may change in any way. The
+//! change rewrites its fixtures, and a folder written before it is
+//! not read after it: there is no migration. From the first release:
+//!
+//! 1. A struct grows only by a field that may be absent, an `Option`
+//!    skipped when it is `None`. An older row then reads as `None`,
+//!    and a request without the field keeps its stored bytes, so its
+//!    repeat still matches.
+//! 2. An enum grows only by a new case. A reader fails on a `type` it
+//!    does not know; the Rust host and the Node host ship as one
+//!    install, so a reader is never older than its writer.
+//! 3. No field or case is renamed, removed or given another type, and
+//!    the fields of a request keep their order: each of these changes
+//!    a row's bytes or a request's hash. A message that must change
+//!    so becomes a new action under a new name, and the old one is
+//!    kept while a row can hold it.
+//! 4. A stored fixture is added to, never rewritten. Rewriting one is
+//!    a migration, and needs the code that reads the old rows in the
+//!    same change. A stored answer is checked by the value it reads
+//!    as, so a change of words rewrites none; a stored request is
+//!    also checked by its bytes.
+//!
+//! There is one set of types: what a row keeps is the message.
 
 pub mod address;
 pub mod agent;

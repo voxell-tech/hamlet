@@ -187,7 +187,7 @@ impl Handler<Finished> for Agent {
                  (?1, ?2, ?3)",
                 Some(vec![
                     BindParam::Text(call.clone()),
-                    BindParam::Integer(i64::try_from(command)?),
+                    BindParam::Integer(i64::from(command)),
                     BindParam::Text(format!("{word} {code}")),
                 ]),
             )
