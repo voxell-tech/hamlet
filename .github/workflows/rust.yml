@@ -9,7 +9,8 @@ permissions:
   contents: read
 
 # A new push to a pull request cancels that pull request's older run.
-# A run on main is never cancelled.
+# On main a run in progress is never cancelled: a newer push waits for
+# it, and replaces a push to main that is still waiting.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
