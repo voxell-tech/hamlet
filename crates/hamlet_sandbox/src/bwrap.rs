@@ -78,8 +78,22 @@ pub(super) fn command(
     // rank lies on top.
     let mut mounts = Vec::<(usize, u8, Vec<String>)>::new();
     let mut covers = Vec::new();
-    let mut mount = |path: &str, rank, words: &[&str]| {
-        let words = words.iter().map(ToString::to_string).collect();
+    // With the machine open its links are there, and an older
+    // bubblewrap cannot mount through one, so each mount lands where
+    // its root really is. Closed, only the mounts are there.
+    let place = |path: &str| {
+        if policy.open {
+            canon_text(path)
+        } else {
+            path.to_owned()
+        }
+    };
+    let mut mount = |path: &str, rank, flag: &str, bind: bool| {
+        let mut words = vec![flag.to_owned()];
+        if bind {
+            words.push(path.to_owned());
+        }
+        words.push(place(path));
         mounts.push((depth(path), rank, words));
     };
     for Layer { path, real, grant } in layers(policy, tmp) {
@@ -87,22 +101,22 @@ pub(super) fn command(
             // An empty folder over it. One that is missing has
             // nothing to hide and cannot be mounted over.
             Grant::Nothing if is_dir(&path) => {
-                mount(&path, 0, &["--tmpfs", &path]);
-                covers.push(path);
+                mount(&path, 0, "--tmpfs", false);
+                covers.push(place(&path));
             }
             Grant::Nothing => {}
             // A root that is missing has nothing to read, as under
             // Seatbelt, and stops no command.
             Grant::Read => {
-                mount(&path, 1, &["--ro-bind-try", &path, &path]);
+                mount(&path, 1, "--ro-bind-try", true);
             }
             // A locked path's mount lies under deeper ones, so a
             // write root inside one is bound read-only itself.
             Grant::Write if is_locked(policy, &real) => {
-                mount(&path, 2, &["--ro-bind", &path, &path]);
+                mount(&path, 2, "--ro-bind", true);
             }
             Grant::Write => {
-                mount(&path, 2, &["--bind", &path, &path]);
+                mount(&path, 2, "--bind", true);
             }
         }
     }
@@ -119,13 +133,13 @@ pub(super) fn command(
             && !writes.contains(path)
             && is_writable(policy, tmp, &canon_text(path), false)
         {
-            mount(path, 3, &["--bind", path, path]);
+            mount(path, 3, "--bind", true);
         }
     }
     for path in &policy.locked {
         let path = text(path);
         if is_readable(policy, tmp, &canon_text(&path)) {
-            mount(&path, 4, &["--ro-bind-try", &path, &path]);
+            mount(&path, 4, "--ro-bind-try", true);
         }
     }
     mounts.sort_by_key(|(depth, rank, _)| (*depth, *rank));
@@ -142,4 +156,51 @@ pub(super) fn command(
     let mut env = policy.env.clone();
     env.insert("TMPDIR".into(), tmp.to_owned());
     Confined { argv: args, env }
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use std::fs;
+
+    use hamlet_testing::Scratch;
+
+    use super::*;
+    use crate::policy::temp_root;
+
+    /// With the machine open, no mount lands on a path through a
+    /// link: an older bubblewrap cannot make one there, and every
+    /// command would fail.
+    #[test]
+    fn an_open_policys_mounts_land_past_links() {
+        let scratch = Scratch::new("bwrap-links");
+        let project = scratch.join("project");
+        fs::create_dir_all(project.join("realm/library")).unwrap();
+        let alias = scratch.join("alias");
+        std::os::unix::fs::symlink(&project, &alias).unwrap();
+        let policy = Policy {
+            ro: vec![alias.join("realm/library")],
+            rw: vec![alias.clone()],
+            open: true,
+            hidden: vec![alias.join("realm")],
+            locked: vec![alias.join("realm/library")],
+            ..Policy::default()
+        };
+        let tmp =
+            hamlet_os::fs::path::join(&[temp_root(), "house".into()]);
+        let argv = command(&policy, &["true".into()], "/", &tmp).argv;
+        let mut through = Vec::new();
+        for (i, word) in argv.iter().enumerate() {
+            let at = match word.as_str() {
+                "--tmpfs" | "--remount-ro" => &argv[i + 1],
+                "--bind" | "--ro-bind" | "--ro-bind-try" => {
+                    &argv[i + 2]
+                }
+                _ => continue,
+            };
+            if *at != canon_text(at) {
+                through.push(format!("{word} {at}"));
+            }
+        }
+        assert!(through.is_empty(), "{through:#?}");
+    }
 }
