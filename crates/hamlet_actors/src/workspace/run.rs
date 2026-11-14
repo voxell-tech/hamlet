@@ -21,15 +21,15 @@ use sha2::{Digest, Sha256};
 use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 
+use self::output::{Output, SPILL_CAP};
+
+mod output;
+
 /// How long a call waits for its command before it answers `Running`.
 pub const ANSWER_WITHIN: Duration = Duration::from_secs(5);
 
 /// The longest a command runs (C16). A call may only shorten it.
 pub const LONGEST: Duration = Duration::from_secs(120);
-
-/// The most lines and bytes of a command's output kept (C16).
-const TAIL_LINES: usize = 2000;
-const TAIL_BYTES: usize = 50 * 1024;
 
 /// One row per call that changes something, by the agent and the
 /// id it gave the call. A command's id is its row's.
@@ -194,6 +194,7 @@ pub(super) fn without_output(
         command,
         exit,
         output: String::new(),
+        cut: None,
         policy: String::new(),
         took_ms: 0,
     }
@@ -295,6 +296,8 @@ pub struct Spec {
     pub timeout: Duration,
     pub secrets: Arc<Vec<String>>,
     pub leftovers: Leftovers,
+    /// Where its output spills.
+    pub output: PathBuf,
 }
 
 /// Starts `spec`'s command on a thread of its own. The receiver gets
@@ -368,7 +371,7 @@ fn start_on(
 /// Runs `spec`'s command to its end.
 async fn ran(spec: Spec) -> CommandEnd {
     let started = Instant::now();
-    let mut tail = Tail::default();
+    let mut output = Output::new(spec.output, SPILL_CAP);
     let mut policy_hash = String::new();
     let exit = match Env::private(
         &text(&spec.cwd),
@@ -381,16 +384,16 @@ async fn ran(spec: Spec) -> CommandEnd {
             let argv =
                 ["bash".to_owned(), "-c".to_owned(), spec.script];
             let ran = env
-                .exec(
+                .stream(
                     Launch::Shell(&argv),
                     spec.timeout,
                     &spec.secrets,
                     &spec.leftovers,
-                    &mut |text| tail.push(text),
+                    &mut |text| output.push(text),
                 )
                 .await;
             match ran {
-                Ok(ran) => Exit::Code(ran.exit_code),
+                Ok(code) => Exit::Code(code),
                 Err(ExecError::Timeout { .. }) => Exit::TimedOut,
                 Err(
                     ExecError::Spawn(why) | ExecError::Spill(why),
@@ -398,69 +401,23 @@ async fn ran(spec: Spec) -> CommandEnd {
             }
         }
     };
-    let exit = match exit {
-        Exit::Failed(why) => {
-            Exit::Failed(scrub_text(&spec.secrets, &why))
-        }
-        exit => exit,
+    let (tail, cut) = output.finish();
+    let (exit, cut) = match (exit, cut) {
+        (Exit::Failed(why), cut) => (
+            Exit::Failed(scrub_text(&spec.secrets, &why)),
+            cut.ok().flatten(),
+        ),
+        (_, Err(why)) => (Exit::Failed(why), None),
+        (exit, Ok(cut)) => (exit, cut),
     };
     CommandEnd {
         command: spec.command,
         exit,
-        output: tail.text(),
+        output: tail,
+        cut,
         policy: policy_hash,
         took_ms: u64::try_from(started.elapsed().as_millis())
             .unwrap_or(u64::MAX),
-    }
-}
-
-/// The running output of a command, of which its last lines are kept.
-// Copied from the server's `truncate::Tail`, deleted with it.
-#[derive(Default)]
-struct Tail {
-    kept: String,
-}
-
-impl Tail {
-    fn push(&mut self, text: &str) {
-        self.kept.push_str(text);
-        if self.kept.len() > 4 * TAIL_BYTES {
-            self.kept = self.text();
-        }
-    }
-
-    /// The last [`TAIL_LINES`] lines within [`TAIL_BYTES`], a line
-    /// cut by the byte limit dropped whole when a newline follows it,
-    /// and without the control characters that break display; tabs
-    /// and newlines stay.
-    fn text(&self) -> String {
-        let kept = self.kept.as_str();
-        let body = kept.strip_suffix('\n').unwrap_or(kept);
-        let mut start = body
-            .rmatch_indices('\n')
-            .nth(TAIL_LINES - 1)
-            .map_or(0, |(at, _)| at + 1);
-        if kept.len() - start > TAIL_BYTES {
-            let mut from = kept.len() - TAIL_BYTES;
-            while !kept.is_char_boundary(from) {
-                from += 1;
-            }
-            start = match kept[from..].find('\n') {
-                Some(at) if from + at + 1 < kept.len() => {
-                    from + at + 1
-                }
-                _ => from,
-            };
-        }
-        kept[start..]
-            .chars()
-            .filter(|&c| {
-                !matches!(
-                    c,
-                    '\0'..='\u{8}' | '\u{b}'..='\u{1f}' | '\u{fff9}'..='\u{fffb}'
-                )
-            })
-            .collect()
     }
 }
 
@@ -483,6 +440,7 @@ mod tests {
             timeout: Duration::from_secs(10),
             secrets: Arc::default(),
             leftovers: hamlet_sandbox::AllLeftovers::default().of(1),
+            output: cwd.join("output.log"),
         }
     }
 
@@ -558,22 +516,5 @@ mod tests {
             seen,
             [(Exit::Code(0), true), (Exit::Code(128 + 9), false)]
         );
-    }
-
-    #[test]
-    fn the_tail_keeps_the_last_lines_within_the_limits() {
-        let mut tail = Tail::default();
-        for n in 0..300_000 {
-            tail.push(&format!("{n}\n"));
-        }
-        let kept = tail.text();
-        assert!(kept.starts_with("298000\n"), "{}", &kept[..20]);
-        assert!(kept.ends_with("299999\n"));
-        let mut wide = Tail::default();
-        wide.push(&format!("{}\nend", "x".repeat(60 * 1024)));
-        assert_eq!(wide.text(), "end");
-        let mut long = Tail::default();
-        long.push(&"\u{e9}".repeat(30 * 1024));
-        assert_eq!(long.text().len(), TAIL_BYTES);
     }
 }

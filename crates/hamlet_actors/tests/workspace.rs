@@ -816,6 +816,7 @@ async fn a_running_row_is_cut_off_at_the_next_start() {
         command,
         exit: Exit::CutOff,
         output: String::new(),
+        cut: None,
         policy: String::new(),
         took_ms: 0,
     });
@@ -905,5 +906,140 @@ async fn a_command_past_its_limit_ends_timed_out() {
         };
         assert_eq!(end.exit, Exit::TimedOut, "limit {limit_ms} ms");
         assert!(!fs.join("late").exists(), "the command ran on");
+    }
+}
+
+/// The end of `answer`, `Done` or told in one `Finished`.
+async fn ended(peers: &Peers, answer: RunAnswer) -> CommandEnd {
+    match answer {
+        RunAnswer::Done(end) => end,
+        RunAnswer::Running { .. } => {
+            told_within(peers, 1, Duration::from_secs(20)).await;
+            told(peers).pop().expect("a Finished").1.end
+        }
+        other => panic!("the command answered {other:?}"),
+    }
+}
+
+/// Output past the tail's limits goes whole, scrubbed, to the spill
+/// file the end names; the end carries only the tail. Output within
+/// them leaves no file.
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn output_past_the_tail_spills_to_a_file() {
+    let dir = Scratch::new("workspace-spill");
+    filesystem(&dir);
+    let peers = Arc::new(Peers::default());
+    let host = host_with(&dir, peers.clone()).await;
+    realm_sets(&host, 1, reach(None)).await;
+    let short =
+        done(agent_runs(&host, &run("c1", "seq 1 2000")).await);
+    let script = format!("seq 1 3000; echo {SECRET}");
+    let long =
+        ended(&peers, agent_runs(&host, &run("c2", &script)).await)
+            .await;
+    host.shutdown().await.unwrap();
+
+    assert_eq!(short.cut, None);
+    assert_eq!(short.output.lines().count(), 2000);
+    assert_eq!(long.exit, Exit::Code(0));
+    let cut = long.cut.expect("the output was cut");
+    let mut all: String =
+        (1..=3000).map(|n| format!("{n}\n")).collect();
+    all.push_str("[REDACTED]\n");
+    assert_eq!(cut.total_bytes, all.len() as u64);
+    assert_eq!(cut.total_lines, 3001);
+    assert_eq!(
+        cut.full_output,
+        dir.join(format!(
+            "actors/workspace/local.output/7/{}.log",
+            long.command.0
+        ))
+    );
+    assert_eq!(
+        std::fs::read_to_string(&cut.full_output).unwrap(),
+        all
+    );
+    assert!(
+        long.output.starts_with("1002\n"),
+        "{}",
+        &long.output[..9]
+    );
+    assert!(long.output.ends_with("3000\n[REDACTED]\n"));
+    let spilled =
+        std::fs::read_dir(cut.full_output.parent().unwrap())
+            .unwrap()
+            .count();
+    assert_eq!(spilled, 1, "output within the tail left a file");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = std::fs::metadata(&cut.full_output)
+            .unwrap()
+            .permissions()
+            .mode();
+        assert_eq!(mode & 0o777, 0o600);
+    }
+}
+
+/// An agent's commands can read its own spilled output and no other
+/// agent's, with a project and without.
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_command_reads_only_its_own_agents_spill() {
+    let dir = Scratch::new("workspace-spill-reach");
+    filesystem(&dir);
+    let project = dir.join("project");
+    std::fs::create_dir_all(&project).unwrap();
+    let other = dir.join("actors/workspace/local.output/8");
+    std::fs::create_dir_all(&other).unwrap();
+    std::fs::write(other.join("1.log"), "theirs\n").unwrap();
+    let host = host(&dir).await;
+    let spilled = done(
+        agent_runs(&host, &{
+            realm_sets(&host, 1, reach(None)).await;
+            run("c1", "seq 1 3000")
+        })
+        .await,
+    );
+    let own = spilled.cut.expect("the output was cut").full_output;
+    let mut seen = Vec::new();
+    for (version, footing) in [
+        (1, reach(None)),
+        (2, reach(Some(project.to_str().unwrap()))),
+    ] {
+        realm_sets(&host, version, footing).await;
+        for (name, path) in
+            [("own", own.clone()), ("other", other.join("1.log"))]
+        {
+            let script = format!("tail -n 1 {}", path.display());
+            let end = done(
+                agent_runs(
+                    &host,
+                    &run(&format!("{name}-{version}"), &script),
+                )
+                .await,
+            );
+            seen.push((
+                version,
+                name,
+                end.exit == Exit::Code(0),
+                end.output,
+            ));
+        }
+    }
+    host.shutdown().await.unwrap();
+
+    for (version, name, read, output) in seen {
+        match name {
+            "own" => assert!(
+                read && output == "3000\n",
+                "version {version}: {output}"
+            ),
+            _ => assert!(
+                !read && !output.contains("theirs"),
+                "version {version}: {output}"
+            ),
+        }
     }
 }

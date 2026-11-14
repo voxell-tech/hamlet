@@ -260,6 +260,10 @@ impl Handler<Run> for Workspace {
             timeout,
             secrets: opened.secrets,
             leftovers,
+            output: self
+                .home
+                .spill(agent)
+                .join(format!("{}.log", command.0)),
         };
         self.clone().start(&ctx, agent, run.call, spec);
         Ok(waiters.answer(command).await)
