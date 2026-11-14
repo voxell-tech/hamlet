@@ -7,6 +7,7 @@ mod files;
 mod pending;
 pub mod reach;
 mod run;
+mod workers;
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, PoisonError};
@@ -135,8 +136,10 @@ impl Actor for Workspace {
             ))
             .await?;
         files::cut_off_changes(ctx).await?;
+        let home = RealmFolder::new(host.folder())?;
+        workers::sweep(ctx, &home).await?;
         Ok(Self {
-            home: RealmFolder::new(host.folder())?,
+            home,
             sandbox,
             secrets: Mutex::new(None),
             leftovers: AllLeftovers::default(),
@@ -158,6 +161,25 @@ impl Drop for Workspace {
 }
 
 impl Workspace {
+    /// The placement of `agent`'s call of `purpose` under `reach`.
+    /// A worker's scratch folder is made first when it is missing, as
+    /// after a kill between its reach and its folder.
+    fn placement(
+        &self,
+        agent: AgentNumber,
+        reach: &Reach,
+        purpose: Purpose,
+    ) -> Result<reach::Placement> {
+        let placement =
+            reach::placement(&self.home, agent, reach, purpose)
+                .context("the gate passed a call with no reach")?;
+        if matches!(reach, Reach::Worker { .. }) {
+            workers::make(&self.home, agent)
+                .context("make a worker's scratch folder")?;
+        }
+        Ok(placement)
+    }
+
     /// The version of the secrets held, and the list.
     fn held(&self) -> (Option<SecretsVersion>, Arc<Vec<String>>) {
         let held = self
@@ -347,13 +369,11 @@ impl Workspace {
                     return self.not_run(ctx, wait, refusal).await;
                 }
             };
-        let placement = reach::placement(
-            &self.home,
+        let placement = self.placement(
             agent,
             &reach,
             Purpose::Command { network },
-        )
-        .context("the gate passed a command with no reach")?;
+        )?;
         let tx = ctx.sql().begin_transaction(None).await?;
         let settled =
             pending::settle(&tx, wait, "running", None, None).await;
@@ -698,17 +718,13 @@ impl Workspace {
                 return Ok(Decision::Fetch(version));
             }
         };
-        let placement = reach
-            .as_ref()
-            .and_then(|reach| {
-                reach::placement(
-                    &self.home,
-                    agent,
-                    reach,
-                    Purpose::Command { network },
-                )
-            })
-            .context("the gate passed a command with no reach")?;
+        let placement = self.placement(
+            agent,
+            reach
+                .as_ref()
+                .context("the gate passed a command with no reach")?,
+            Purpose::Command { network },
+        )?;
         let command =
             run::open(tx, agent, &run.call, request_hash.to_vec())
                 .await?;
@@ -799,17 +815,16 @@ impl Handler<SetReach> for Workspace {
             // The reach in force, not the call's: an ended reach
             // repeated under its version with another body stays
             // ended.
-            let closed = if reach::read(&tx, set.agent).await?
-                == Some(Reach::Ended)
-            {
-                Some(pending::close(&tx, set.agent, &LAPSED).await?)
+            let now = reach::read(&tx, set.agent).await?;
+            let closed = if now == Some(Reach::Ended) {
+                pending::close(&tx, set.agent, &LAPSED).await?
             } else {
-                None
+                Vec::new()
             };
-            anyhow::Ok((in_force, closed))
+            anyhow::Ok((in_force, now, closed))
         }
         .await;
-        let (in_force, closed) = match applied {
+        let (in_force, now, closed) = match applied {
             Ok(applied) => applied,
             Err(error) => {
                 tx.rollback().await?;
@@ -817,8 +832,23 @@ impl Handler<SetReach> for Workspace {
             }
         };
         tx.commit().await?;
-        if let Some(closed) = closed {
-            self.end_agent(&ctx, set.agent, closed).await?;
+        match now {
+            Some(Reach::Ended) => {
+                self.end_agent(&ctx, set.agent, closed).await?;
+            }
+            Some(Reach::Worker { .. }) => {
+                if let Err(error) =
+                    workers::make(&self.home, set.agent)
+                {
+                    // Its first call makes it again.
+                    tracing::warn!(
+                        ?error,
+                        worker = set.agent.0,
+                        "make a worker's scratch folder"
+                    );
+                }
+            }
+            Some(Reach::Agent(_)) | None => {}
         }
         Ok(ReachAnswer::InForce(in_force))
     }
@@ -829,9 +859,10 @@ const LAPSED: CallRefusal = CallRefusal::Lapsed(Lapse::Ended);
 
 impl Workspace {
     /// Ends what `agent`, whose reach ended, has running (W4): its
-    /// commands, and what they left under Seatbelt. Its waits in
-    /// `closed` ended with the reach, and the agent is told of each
-    /// apart from this call, which a gone agent would hold up.
+    /// commands, what they left under Seatbelt, and then its scratch
+    /// folder when it was a worker. Its waits in `closed` ended with
+    /// the reach, and the agent is told of each apart from this call,
+    /// which a gone agent would hold up.
     async fn end_agent(
         &self,
         ctx: &Ctx<Self>,
@@ -841,6 +872,7 @@ impl Workspace {
         self.cancel(ctx, agent, &Which::All).await;
         let owner = i64::try_from(agent.0)?;
         self.leftovers.end(|of| of == owner);
+        workers::remove(&self.home, agent).await;
         let task_ctx = ctx.clone();
         ctx.register_task(async move {
             for call in closed {

@@ -439,13 +439,8 @@ impl Workspace {
                 return self.not_run(ctx, wait, refusal).await;
             }
         };
-        let placement = reach::placement(
-            &self.home,
-            wait.agent,
-            &reach,
-            Purpose::FileTool,
-        )
-        .context("the gate passed a change with no reach")?;
+        let placement =
+            self.placement(wait.agent, &reach, Purpose::FileTool)?;
         let was =
             wait.base_hash.context("a change waits with no hash")?;
         let planned = match planned(

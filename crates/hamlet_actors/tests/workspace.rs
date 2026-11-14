@@ -41,6 +41,9 @@ mod waits;
 #[path = "workspace/cancel.rs"]
 mod cancel;
 
+#[path = "workspace/workers.rs"]
+mod workers;
+
 const AGENT: AgentNumber = AgentNumber(7);
 
 /// The secret the stub realm holds.

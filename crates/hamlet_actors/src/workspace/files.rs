@@ -118,18 +118,13 @@ impl Workspace {
         let (held, secrets) = self.held();
         let passed = || -> Result<Passed> {
             Ok(Passed {
-                placement: reach
-                    .and_then(|reach| {
-                        reach::placement(
-                            &self.home,
-                            agent,
-                            reach,
-                            Purpose::FileTool,
-                        )
-                    })
-                    .context(
+                placement: self.placement(
+                    agent,
+                    reach.context(
                         "the gate passed a file tool with no reach",
                     )?,
+                    Purpose::FileTool,
+                )?,
                 sandbox: self.sandbox,
                 secrets: secrets.clone(),
             })

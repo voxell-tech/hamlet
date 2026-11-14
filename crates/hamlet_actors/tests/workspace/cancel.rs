@@ -286,8 +286,9 @@ async fn a_cancel_comes_from_the_realm_or_the_agent_it_names() {
     assert_eq!(by_the_realm, CancelAnswer::Cancelled(vec![command]));
 }
 
-/// The arguments of a [`SetReach`] of agent `number`.
-async fn realm_sets_for(
+/// Calls the workspace with a [`SetReach`] of agent `number`, as
+/// the realm.
+pub(super) async fn realm_sets_for(
     host: &Host,
     number: AgentNumber,
     version: u64,

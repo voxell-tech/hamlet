@@ -142,9 +142,14 @@ impl RealmFolder {
         self.0.join("actors/agent").join(format!("{}.fs", agent.0))
     }
 
+    /// `workers/`, which holds the workers' scratch folders.
+    pub fn workers(&self) -> PathBuf {
+        self.0.join("workers")
+    }
+
     /// `workers/<n>/`, a worker's scratch folder.
     pub fn scratch(&self, worker: AgentNumber) -> PathBuf {
-        self.0.join("workers").join(worker.0.to_string())
+        self.workers().join(worker.0.to_string())
     }
 
     /// The folder of `agent`'s spilled command output.
