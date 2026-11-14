@@ -403,8 +403,7 @@ pub fn placement(
         }
     };
     policy.net = purpose == Purpose::Command { network: true };
-    // Read-only also inside a project folder that holds the realm's
-    // folder (C18).
+    // Never written by an agent, whatever root lies in them (C18).
     policy.locked = vec![home.library(), home.tools()];
     let cwd = footing
         .project

@@ -101,8 +101,8 @@ realm's folder or lies inside it, also through a link, is refused with
 `ProjectInRealm`, and nothing runs. Without one,
 only the listed paths are reached, the environment is `base_env` with
 `HOME` at the own place, and the call works there. `library/` and
-`tools/` are `locked`, so they stay read-only also inside a folder that
-holds the realm's (C18). `net` is on only for a command the gate gave
+`tools/` are also `locked`, so no write root inside them makes them
+writable (C18). `net` is on only for a command the gate gave
 the network.
 
 The gate reads the same policies, through `Policy::reads` and
