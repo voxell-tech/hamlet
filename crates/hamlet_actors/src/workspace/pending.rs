@@ -41,11 +41,9 @@ pub(super) const SCHEMA: &str = "CREATE TABLE IF NOT EXISTS waits (
 	agent INTEGER NOT NULL,
 	call TEXT NOT NULL,
 	needs BLOB NOT NULL,
-	subject TEXT NOT NULL,
 	request BLOB NOT NULL,
 	reach_version INTEGER NOT NULL,
 	base_hash BLOB,
-	opened_at INTEGER NOT NULL,
 	PRIMARY KEY (agent, call)) STRICT";
 
 /// What a waiting call runs if a chief allows it: its own request,
@@ -141,14 +139,12 @@ pub(super) async fn open(
     )
     .await?;
     tx.execute(
-        "INSERT INTO waits (agent, call, needs, subject, request, \
-         reach_version, base_hash, opened_at) VALUES (?1, ?2, ?3, \
-         ?4, ?5, ?6, ?7, ?8)",
+        "INSERT INTO waits (agent, call, needs, request, \
+         reach_version, base_hash) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
         Some(vec![
             BindParam::Integer(i64::try_from(opening.agent.0)?),
             BindParam::Text(call.0.clone()),
             BindParam::Blob(calls::cbor(&opening.needs)?),
-            BindParam::Text(subject.clone()),
             BindParam::Blob(request),
             BindParam::Integer(i64::try_from(
                 opening.reach_version.0,
@@ -157,7 +153,6 @@ pub(super) async fn open(
                 Some(hash) => BindParam::Blob(calls::cbor(hash)?),
                 None => BindParam::Null,
             },
-            BindParam::Integer(calls::now_ms()?),
         ]),
     )
     .await?;
