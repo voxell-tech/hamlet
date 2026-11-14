@@ -18,6 +18,8 @@
 //! end, the agent keeps it in its `finished` table and prints
 //! `finished/<call> <exit code>`. An end with no exit code prints the
 //! code 0 after the name of its end, as in `done/<call>/timed_out 0`.
+//! An end whose output was cut first prints `cut/<call> <bytes>`, the
+//! size of all the command printed, kept in the file the end names.
 
 use std::io::Write;
 use std::sync::Arc;
@@ -32,8 +34,8 @@ use hamlet_actors::workspace;
 use hamlet_host::{Address, Caller, Cause, Host, HostRef};
 use hamlet_messages::agent::Finished;
 use hamlet_messages::workspace::{
-    AgentNumber, CallId, CommandId, CommandStatus, ConversationId,
-    Exit, Run, RunAnswer, Shell,
+    AgentNumber, CallId, CommandEnd, CommandId, CommandStatus,
+    ConversationId, Exit, Run, RunAnswer, Shell,
 };
 
 /// The kind `agent`.
@@ -133,6 +135,7 @@ impl Handler<Finished> for Agent {
                 ]),
             )
             .await?;
+        print_cut(&finished.call.0, &finished.end)?;
         writeln!(
             std::io::stdout(),
             "finished/{}{word} {code}",
@@ -197,6 +200,7 @@ pub async fn run(host: &Host, words: &[String]) -> Result<()> {
     let mut out = std::io::stdout();
     match (answer, call) {
         (RunAnswer::Done(end), Some(call)) => {
+            print_cut(call, &end)?;
             let (word, code) = exit_word(&end.exit);
             writeln!(out, "done/{call}{word} {code}")?;
         }
@@ -233,4 +237,16 @@ fn exit_word(exit: &Exit) -> (&'static str, i64) {
         Exit::Failed(_) => ("/failed", 0),
         Exit::CutOff => ("/cut_off", 0),
     }
+}
+
+/// Prints `cut/<call> <bytes>` when `end`'s output was cut.
+fn print_cut(call: &str, end: &CommandEnd) -> Result<()> {
+    if let Some(cut) = &end.cut {
+        writeln!(
+            std::io::stdout(),
+            "cut/{call} {}",
+            cut.total_bytes
+        )?;
+    }
+    Ok(())
 }
