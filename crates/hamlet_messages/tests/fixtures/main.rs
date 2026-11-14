@@ -52,7 +52,8 @@ use self::cases::{
 const AGENT: AgentNumber = AgentNumber(7);
 
 /// Every enum the fixtures hold. A generic enum is listed once: its
-/// cases are the same whatever it holds.
+/// cases are the same whatever it holds. Each of its forms is a
+/// family of a union, and counted there.
 fn enums() -> Vec<Cases> {
     vec![
         tagged::<Answer>(),
@@ -90,47 +91,60 @@ fn enums() -> Vec<Cases> {
     ]
 }
 
+/// A union and its families. The match is never run: it fails to
+/// compile when a family is missing, extra or of another type.
+macro_rules! union {
+    ($union:ident { $($case:ident: $family:ty),+ $(,)? }) => {{
+        let _ = |union: $union| match union {
+            $($union::$case(family) => {
+                let _: $family = family;
+            })+
+        };
+        union::<$union>(vec![$(family::<$family>()),+])
+    }};
+}
+
 /// Every untagged union, with its families.
 fn unions() -> Vec<Union> {
     vec![
-        union::<RunRefusal>(vec![
-            family::<CallRefusal>(),
-            family::<InvalidProgram>(),
-            family::<ToolRefusal>(),
-            family::<ReachRefusal>(),
-        ]),
-        union::<ReadRefusal>(vec![
-            family::<InvalidPath>(),
-            family::<PathRefusal<ToRead>>(),
-            family::<ReachRefusal>(),
-        ]),
-        union::<ChangeRefusal>(vec![
-            family::<CallRefusal>(),
-            family::<InvalidPath>(),
-            family::<PathRefusal<ToChange>>(),
-            family::<ReachRefusal>(),
-        ]),
-        union::<WriteRefusal>(vec![
-            family::<CallRefusal>(),
-            family::<InvalidPath>(),
-            family::<PathRefusal<ToChange>>(),
-            family::<ReachRefusal>(),
-            family::<InvalidContent>(),
-        ]),
-        union::<FileGate>(vec![
-            family::<PathRefusal<ToChange>>(),
-            family::<ReachRefusal>(),
-        ]),
-        union::<RunNotRun>(vec![
-            family::<WaitEnd>(),
-            family::<ReachChanged<ReachRefusal>>(),
-            family::<ToolRefusal>(),
-        ]),
-        union::<ChangeNotRun>(vec![
-            family::<WaitEnd>(),
-            family::<ReachChanged<FileGate>>(),
-            family::<Stale>(),
-        ]),
+        union!(RunRefusal {
+            Call: CallRefusal,
+            Program: InvalidProgram,
+            Tool: ToolRefusal,
+            Reach: ReachRefusal,
+        }),
+        union!(ReadRefusal {
+            Invalid: InvalidPath,
+            Path: PathRefusal<ToRead>,
+            Reach: ReachRefusal,
+        }),
+        union!(ChangeRefusal {
+            Call: CallRefusal,
+            Invalid: InvalidPath,
+            Path: PathRefusal<ToChange>,
+            Reach: ReachRefusal,
+        }),
+        union!(WriteRefusal {
+            Call: CallRefusal,
+            Invalid: InvalidPath,
+            Path: PathRefusal<ToChange>,
+            Reach: ReachRefusal,
+            Content: InvalidContent,
+        }),
+        union!(FileGate {
+            Path: PathRefusal<ToChange>,
+            Reach: ReachRefusal,
+        }),
+        union!(RunNotRun {
+            Wait: WaitEnd,
+            Reach: ReachChanged<ReachRefusal>,
+            Tool: ToolRefusal,
+        }),
+        union!(ChangeNotRun {
+            Wait: WaitEnd,
+            Reach: ReachChanged<FileGate>,
+            Stale: Stale,
+        }),
     ]
 }
 
@@ -144,6 +158,7 @@ struct Fixtures {
     rewritten: Vec<String>,
     problems: Vec<String>,
     found: BTreeMap<Cases, BTreeSet<String>>,
+    in_unions: BTreeSet<(String, String, String)>,
 }
 
 impl Fixtures {
@@ -154,6 +169,7 @@ impl Fixtures {
             rewritten: Vec::new(),
             problems: Vec::new(),
             found: BTreeMap::new(),
+            in_unions: BTreeSet::new(),
         }
     }
 
@@ -228,6 +244,7 @@ impl Fixtures {
         let mut found = Found::default();
         cases::found::<T>(name, value, &self.unions, &mut found);
         self.problems.extend(found.problems);
+        self.in_unions.extend(found.in_unions);
         for (cases, case) in found.cases {
             self.found.entry(cases).or_default().insert(case);
         }
@@ -292,6 +309,22 @@ impl Fixtures {
             }
         }
         for union in &self.unions {
+            for family in &union.families {
+                for case in family.cases {
+                    let held = (
+                        union.name.clone(),
+                        family.name.clone(),
+                        (*case).to_owned(),
+                    );
+                    if !self.in_unions.contains(&held) {
+                        problems.push(format!(
+                            "no fixture holds {case} of {} in the \
+                             union {}",
+                            family.name, union.name
+                        ));
+                    }
+                }
+            }
             for (at, first) in union.families.iter().enumerate() {
                 for second in &union.families[at + 1..] {
                     for tag in first
@@ -1031,6 +1064,17 @@ fn the_changes(fixtures: &mut Fixtures) {
                 "reach_refuses.no_reach",
                 refuses(FileGate::from(ReachRefusal::NoReach)).into(),
             ),
+            (
+                "reach_refuses.agent_filesystem",
+                refuses(FileGate::from(
+                    agent_filesystem::<ToChange>(),
+                ))
+                .into(),
+            ),
+            (
+                "reach_refuses.project_in_realm",
+                refuses(FileGate::from(project_in_realm())).into(),
+            ),
             ("reach_needs", needs_more().into()),
         ]);
     for (name, why) in not_run {
@@ -1058,6 +1102,13 @@ fn the_changes(fixtures: &mut Fixtures) {
         ("outside_reach", outside_reach_to_change().into()),
         ("agent_filesystem", agent_filesystem::<ToChange>().into()),
         ("project_in_realm", project_in_realm().into()),
+        (
+            "invalid_call_id",
+            CallRefusal::InvalidId { call: call("") }.into(),
+        ),
+        ("holds_secret", CallRefusal::HoldsSecret.into()),
+        ("not_absolute", not_absolute().into()),
+        ("no_reach", ReachRefusal::NoReach.into()),
     ] {
         fixtures.answer(
             &format!("workspace/write_file.refused.{name}"),
@@ -1110,6 +1161,9 @@ fn the_changes(fixtures: &mut Fixtures) {
         ("holds_secret", CallRefusal::HoldsSecret.into()),
         ("not_absolute", not_absolute().into()),
         ("no_reach", ReachRefusal::NoReach.into()),
+        ("outside_reach", outside_reach_to_change().into()),
+        ("agent_filesystem", agent_filesystem::<ToChange>().into()),
+        ("project_in_realm", project_in_realm().into()),
     ] {
         fixtures.answer(
             &format!("workspace/edit_file.refused.{name}"),

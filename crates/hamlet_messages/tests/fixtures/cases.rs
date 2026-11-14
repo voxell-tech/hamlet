@@ -84,11 +84,12 @@ fn short_name<T>() -> String {
     name
 }
 
-/// The enum cases fixtures hold, and what kept a case from being
-/// found.
+/// The enum cases fixtures hold, each case of a union's family also
+/// as `(union, family, case)`, and what kept a case from being found.
 #[derive(Default)]
 pub struct Found {
     pub cases: Vec<(Cases, String)>,
+    pub in_unions: Vec<(String, String, String)>,
     pub problems: Vec<String>,
 }
 
@@ -198,12 +199,19 @@ fn in_union(
         .filter(|family| family.cases.contains(&tag))
         .collect::<Vec<_>>();
     match owners.as_slice() {
-        [family] => (family.found)(
-            &format!("{name} at {position:?}"),
-            value,
-            unions,
-            found,
-        ),
+        [family] => {
+            found.in_unions.push((
+                union.name.clone(),
+                family.name.clone(),
+                tag.to_owned(),
+            ));
+            (family.found)(
+                &format!("{name} at {position:?}"),
+                value,
+                unions,
+                found,
+            );
+        }
         owners => found.problems.push(format!(
             "{name}: the type {tag} of {} is a case of {}",
             union.name,
