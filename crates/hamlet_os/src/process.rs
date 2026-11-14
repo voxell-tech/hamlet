@@ -49,9 +49,7 @@ pub struct Command<'a> {
 /// released, it kills them.
 pub struct Tree(Option<sys::Group>);
 
-/// What a tree's processes are held to.
 enum Hold<'a> {
-    /// The limits of its command.
     Limited(
         #[cfg_attr(
             unix,
@@ -62,7 +60,6 @@ enum Hold<'a> {
         )]
         &'a Limits,
     ),
-    /// The life of this process.
     Bound,
 }
 
@@ -80,9 +77,10 @@ impl Tree {
     }
 
     /// Starts `command` as a tree of its own, with both outputs
-    /// piped and no limits. On Windows the tree ends when this
-    /// process exits, however it exits. On Unix nothing here binds it
-    /// to this process.
+    /// piped and no limits, for a child that ends with this process.
+    /// On Windows the tree's job ends it when this process exits,
+    /// however it exits. On Unix the child binds itself, with
+    /// [`end_with_parent`].
     pub fn spawn_bound(
         command: Command<'_>,
     ) -> io::Result<(Self, ChildStdout, ChildStderr)> {
@@ -178,9 +176,8 @@ pub fn take_stdio() -> io::Result<(File, File)> {
 /// On Linux, sets this process's parent-death signal to SIGKILL,
 /// which holds while the calling thread lives. Then, on every Unix,
 /// kills this process now if its parent is not `parent`. Only Linux
-/// has the signal. On Windows it checks nothing: the job a parent's
-/// [`Tree::spawn_bound`] puts this process in ends it with that
-/// parent.
+/// has the signal. On Windows it does nothing: a parent that started
+/// this process with [`Tree::spawn_bound`] ends it on exit.
 pub fn end_with_parent(parent: u32) -> io::Result<()> {
     sys::end_with_parent(parent)
 }
@@ -411,7 +408,6 @@ mod tests {
         assert!(is_gone(pid).await, "{pid}");
     }
 
-    /// Set in the copy of this test that holds the tree.
     const HOLDER: &str = "HAMLET_TEST_BOUND_HOLDER";
 
     #[tokio::test]
@@ -427,7 +423,6 @@ mod tests {
             {
                 println!("{pid}");
             }
-            // Kept, not ended: only this process's exit ends it.
             std::mem::forget(tree);
             return;
         }

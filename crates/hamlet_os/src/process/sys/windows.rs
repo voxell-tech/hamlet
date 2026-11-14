@@ -368,17 +368,17 @@ pub(crate) fn take_stdio() -> io::Result<(File, File)> {
         File::from(stdin.as_handle().try_clone_to_owned()?),
         File::from(stdout.as_handle().try_clone_to_owned()?),
     );
-    // Read first: each call returns the handle set at the time.
+    // Before SetStdHandle: std reads these through GetStdHandle on
+    // each call.
     let (input, output) =
         (stdin.as_raw_handle(), stdout.as_raw_handle());
     let errors = io::stderr().as_raw_handle();
-    // Left open: it is this process's standard input from now on.
-    let nothing = File::open("NUL")?.into_raw_handle();
+    let null_input = File::open("NUL")?.into_raw_handle();
     // SAFETY: the calls only store or flag handles this process
     // holds, and close none.
     let done = unsafe {
         SetStdHandle(STD_OUTPUT_HANDLE, errors) != 0
-            && SetStdHandle(STD_INPUT_HANDLE, nothing) != 0
+            && SetStdHandle(STD_INPUT_HANDLE, null_input) != 0
             && SetHandleInformation(input, HANDLE_FLAG_INHERIT, 0)
                 != 0
             && SetHandleInformation(output, HANDLE_FLAG_INHERIT, 0)
@@ -395,8 +395,8 @@ pub(crate) fn end_with_parent(_parent: u32) -> io::Result<()> {
 }
 
 pub(crate) fn end_now() -> ! {
-    // SAFETY: the call only reads the constant that names this
-    // process.
+    // SAFETY: GetCurrentProcess returns a pseudo handle that is
+    // always valid.
     unsafe { TerminateProcess(GetCurrentProcess(), 1) };
     std::process::abort()
 }
