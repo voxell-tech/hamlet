@@ -18,7 +18,9 @@ use hamlet_actor::{Action, Ctx, Handler};
 use hamlet_messages::workspace::files::{
     FileAnswer, Find, ReadFile, Search, Text,
 };
-use hamlet_messages::workspace::reach::{Reach, SecretsVersion};
+use hamlet_messages::workspace::reach::{
+    Need, Reach, SecretsVersion,
+};
 use hamlet_messages::workspace::{AgentNumber, CallRefusal};
 use hamlet_os::fs::path::{is_absolute, text};
 use hamlet_sandbox::Env;
@@ -96,6 +98,8 @@ fn scrubbed(secrets: &[String], answer: FileAnswer) -> FileAnswer {
 /// What the gate makes of a file tool's call.
 enum Gated {
     Pass(Passed),
+    /// It waits for a chief to allow these.
+    Chief(Passed, Vec<Need>),
     Refused(CallRefusal),
     /// The secrets held are older than this version.
     Fetch(SecretsVersion),
@@ -112,8 +116,8 @@ impl Workspace {
         op: &Op<'_>,
     ) -> Result<Gated> {
         let (held, secrets) = self.held();
-        Ok(match reach::gate(&self.home, agent, reach, held, op) {
-            Gate::Run { .. } => Gated::Pass(Passed {
+        let passed = || -> Result<Passed> {
+            Ok(Passed {
                 placement: reach
                     .and_then(|reach| {
                         reach::placement(
@@ -127,13 +131,14 @@ impl Workspace {
                         "the gate passed a file tool with no reach",
                     )?,
                 sandbox: self.sandbox,
-                secrets,
-            }),
+                secrets: secrets.clone(),
+            })
+        };
+        Ok(match reach::gate(&self.home, agent, reach, held, op) {
+            Gate::Run { .. } => Gated::Pass(passed()?),
+            Gate::NeedsChief(needs) => Gated::Chief(passed()?, needs),
             Gate::Refuse(refusal) => {
                 Gated::Refused(CallRefusal::Reach(refusal))
-            }
-            Gate::NeedsChief(needs) => {
-                Gated::Refused(CallRefusal::NeedsChief(needs))
             }
             Gate::NeedsSecrets(version) => Gated::Fetch(version),
         })
@@ -173,6 +178,9 @@ impl Workspace {
                 &Op::Read { path },
             )? {
                 Gated::Pass(reading) => return Ok(Ok(reading)),
+                Gated::Chief(..) => {
+                    anyhow::bail!("the gate asked a chief for a read")
+                }
                 Gated::Refused(refusal) => return Ok(Err(refusal)),
                 Gated::Fetch(version) => {
                     self.fetch_secrets(ctx, version, &mut fetched)

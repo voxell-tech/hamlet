@@ -71,10 +71,11 @@ impl Action for SetReach {
 pub enum ReachAnswer {
     /// The agent's version in force after the call.
     InForce(ReachVersion),
-    Refused(ReachRefusal),
+    Refused(RealmRefusal),
 }
 
-/// A [`SetReach`] the workspace does not take.
+/// A call only the realm makes, which the workspace does not take
+/// from this caller.
 #[derive(
     Clone,
     Debug,
@@ -84,9 +85,71 @@ pub enum ReachAnswer {
     Deserialize,
     thiserror::Error,
 )]
-pub enum ReachRefusal {
-    #[error("only the realm sets a reach")]
+pub enum RealmRefusal {
+    #[error("only the realm makes this call")]
     NotTheRealm,
+}
+
+/// A chief's answer to a call that waits for one, or the end of the
+/// wait (H11, H34). Called by the realm. For an answer that allows
+/// more than once, the realm sets the reach first and has its answer
+/// before it calls: the workspace takes the scope from the reach, not
+/// from here.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ChiefAnswer {
+    pub agent: AgentNumber,
+    pub call: CallId,
+    pub answer: Answer,
+}
+
+impl Action for ChiefAnswer {
+    type Output = AnswerTaken;
+    const NAME: &'static str = "chief_answer";
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Answer {
+    Allow(Scope),
+    Refuse { reason: Option<String> },
+    Lapsed(Lapse),
+}
+
+/// How long a chief allows what a call needs (H11).
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize,
+)]
+pub enum Scope {
+    Once,
+    /// Edits or commands for the rest of the agent's conversation.
+    Conversation,
+    /// Until taken back or the agent ends.
+    Always,
+}
+
+/// Why a wait ended with no answer (H34).
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize,
+)]
+pub enum Lapse {
+    /// A chief stopped the agent's turn.
+    Stopped,
+    /// The conversation was taken back past the call.
+    Rewound,
+    /// The agent ended.
+    Ended,
+}
+
+/// The workspace's answer to a [`ChiefAnswer`].
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AnswerTaken {
+    /// The call runs, and the agent is called with its end.
+    Runs,
+    /// The call does not run, and the agent is called with why.
+    NotRun(CallRefusal),
+    /// The agent has no call waiting under this id: its wait ended
+    /// before, and nothing changed.
+    NoWait,
+    Refused(RealmRefusal),
 }
 
 /// A call of an agent's tool from a caller it is not for (W2).
@@ -153,6 +216,9 @@ pub enum RunAnswer {
     Running {
         command: CommandId,
     },
+    /// The call waits for a chief to allow what it needs. The agent
+    /// is called with [`crate::agent::Finished`] when the wait ends.
+    WaitsForChief(Vec<Need>),
     Refused(CallRefusal),
 }
 
@@ -222,11 +288,34 @@ pub enum CallRefusal {
     /// The id was given before to a call with another request (S19).
     #[error("the call id {} was used before for another request", .0.0)]
     CallReused(CallId),
+    /// A call that waits for a chief would keep one of the realm's
+    /// secrets in its text, which is never stored.
     #[error(
-        "this call needs a chief to allow {0:?}, and the workspace \
-         runs only what needs no chief"
+        "the call holds one of the realm's secrets, so it cannot \
+         wait for a chief"
     )]
-    NeedsChief(Vec<Need>),
+    HoldsSecret,
+    #[error("a chief refused the call{}", reason.as_ref().map_or_else(String::new, |reason| format!(": {reason}")))]
+    ChiefRefused { reason: Option<String> },
+    #[error("the call's wait for a chief lapsed: {}", match .0 {
+        Lapse::Stopped => "the turn was stopped",
+        Lapse::Rewound => "the conversation was taken back past it",
+        Lapse::Ended => "the agent ended",
+    })]
+    Lapsed(Lapse),
+    /// A chief allowed the call, but the reach changed while it
+    /// waited and no longer lets it run.
+    #[error(
+        "a chief allowed the call under reach version {}, but under \
+         version {} {why}",
+        since.0,
+        now.0
+    )]
+    ReachChanged {
+        since: ReachVersion,
+        now: ReachVersion,
+        why: Changed,
+    },
     #[error("{0}")]
     Invalid(String),
     #[error("this agent has no command {}", .0.0)]
@@ -249,4 +338,23 @@ pub enum CallRefusal {
          a write may hold"
     )]
     TooLarge { bytes: u64, limit: u64 },
+}
+
+/// What the reach in force says of a call a chief allowed under an
+/// older one.
+#[derive(
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    Serialize,
+    Deserialize,
+    thiserror::Error,
+)]
+pub enum Changed {
+    #[error("it is refused: {0}")]
+    Refused(Refusal),
+    /// It needs what the chief was not asked for.
+    #[error("it needs {0:?}, which the chief was not asked for")]
+    Needs(Vec<Need>),
 }

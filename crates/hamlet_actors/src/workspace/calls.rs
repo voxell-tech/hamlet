@@ -4,7 +4,7 @@
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
 use hamlet_actor_core::{BindParam, ColumnValue, SqliteTransaction};
 use hamlet_messages::workspace::{AgentNumber, CallId};
 use serde::Serialize;
@@ -12,7 +12,10 @@ use sha2::{Digest, Sha256};
 
 /// One row per call. A command's id is its row's. A change records
 /// the path of the new file it is about to make in `temp` until it
-/// ends.
+/// ends. A call that waits for a chief is `waiting`, its `answer` the
+/// CBOR list of what it needs, and its request is in `waits`; one
+/// that a chief refused, or whose wait lapsed, is `refused`, its
+/// `answer` the CBOR refusal.
 pub(super) const SCHEMA: &str = "CREATE TABLE IF NOT EXISTS calls (
 	id INTEGER PRIMARY KEY AUTOINCREMENT,
 	agent INTEGER NOT NULL,
@@ -125,6 +128,43 @@ fn read_row(row: &[ColumnValue]) -> Result<Call> {
             _ => None,
         },
     })
+}
+
+/// Records `agent`'s call `call` of `op`, in `state`, in `tx`.
+/// Returns its row's id.
+#[expect(clippy::too_many_arguments, reason = "a row's columns")]
+pub(super) async fn insert(
+    tx: &SqliteTransaction,
+    agent: AgentNumber,
+    call: &CallId,
+    op: &str,
+    request_hash: Vec<u8>,
+    state: &str,
+    answer: Option<Vec<u8>>,
+    temp: Option<&str>,
+) -> Result<i64> {
+    let inserted = tx
+        .execute(
+            "INSERT INTO calls (agent, call, op, request_hash, \
+             state, answer, temp, opened_at) VALUES (?1, ?2, ?3, \
+             ?4, ?5, ?6, ?7, ?8)",
+            Some(vec![
+                BindParam::Integer(i64::try_from(agent.0)?),
+                BindParam::Text(call.0.clone()),
+                BindParam::Text(op.to_owned()),
+                BindParam::Blob(request_hash),
+                BindParam::Text(state.to_owned()),
+                answer.map_or(BindParam::Null, BindParam::Blob),
+                temp.map_or(BindParam::Null, |temp| {
+                    BindParam::Text(temp.to_owned())
+                }),
+                BindParam::Integer(now_ms()?),
+            ]),
+        )
+        .await?;
+    inserted
+        .last_insert_row_id
+        .context("the insert of a call gave no id")
 }
 
 pub(super) fn now_ms() -> Result<i64> {

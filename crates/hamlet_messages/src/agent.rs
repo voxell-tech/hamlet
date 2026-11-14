@@ -4,17 +4,31 @@
 use hamlet_actor::Action;
 use serde::{Deserialize, Serialize};
 
-use crate::workspace::{CallId, CommandEnd};
+use crate::workspace::files::ChangeAnswer;
+use crate::workspace::{CallId, CallRefusal, CommandEnd};
 
-/// Tells the agent how a command ended that the workspace answered
-/// `Running` for. Called by the workspace once, when it ends.
+/// Tells the agent how a call ended that the workspace answered
+/// `Running` or `WaitsForChief` for. Called by the workspace once,
+/// when it ends.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Finished {
     pub call: CallId,
-    pub end: CommandEnd,
+    pub outcome: Outcome,
 }
 
 impl Action for Finished {
     type Output = ();
     const NAME: &'static str = "finished";
+}
+
+/// How a call ended.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Outcome {
+    /// Its command ended.
+    Ran(CommandEnd),
+    /// Its change, which a chief allowed, was carried out or failed.
+    Changed(ChangeAnswer),
+    /// It did not run: a chief refused it, its wait lapsed, or what
+    /// the chief allowed no longer holds.
+    NotRun(CallRefusal),
 }

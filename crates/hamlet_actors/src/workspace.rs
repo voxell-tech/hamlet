@@ -4,6 +4,7 @@
 
 mod calls;
 mod files;
+mod pending;
 pub mod reach;
 mod run;
 
@@ -15,16 +16,16 @@ use anyhow::{Context, Result, bail};
 use hamlet_actor::{Action, Actor, Ctx, Handler, Registry};
 use hamlet_actor_core::{ActorConfig, ActorFactory};
 use hamlet_host::{Address, Caller, Cause, Host, HostRef};
-use hamlet_messages::agent::Finished;
-use hamlet_messages::realm::{SecretList, Secrets};
+use hamlet_messages::agent::{Finished, Outcome};
+use hamlet_messages::realm::{NeedsChief, SecretList, Secrets};
 use hamlet_messages::workspace::files::{
     EditFile, Find, ReadFile, Search, WriteFile,
 };
 use hamlet_messages::workspace::reach::SecretsVersion;
 use hamlet_messages::workspace::{
-    AgentNumber, CallId, CallRefusal, CallerRefusal, CommandEnd,
-    CommandId, CommandStatus, Exit, ReachAnswer, ReachRefusal, Run,
-    RunAnswer, SetReach,
+    AgentNumber, AnswerTaken, CallId, CallRefusal, CallerRefusal,
+    ChiefAnswer, CommandEnd, CommandId, CommandStatus, Exit,
+    ReachAnswer, RealmRefusal, Run, RunAnswer, SetReach,
 };
 use hamlet_sandbox::{AllLeftovers, Sandbox};
 
@@ -109,6 +110,7 @@ impl Actor for Workspace {
         Find,
         WriteFile,
         EditFile,
+        ChiefAnswer,
     );
     type Events = ();
     type ConnParams = Option<Caller>;
@@ -123,9 +125,10 @@ impl Actor for Workspace {
         // one is told.
         ctx.sql()
             .exec(format!(
-                "{};{};{}",
+                "{};{};{};{}",
                 reach::SCHEMA,
                 calls::SCHEMA,
+                pending::SCHEMA,
                 run::CUT_OFF
             ))
             .await?;
@@ -262,6 +265,12 @@ impl Handler<Run> for Workspace {
                     tx.rollback().await?;
                     return Ok(waiters.answer(command).await);
                 }
+                Ok(Decision::AskChief(notice)) => {
+                    tx.commit().await?;
+                    let needs = notice.needs.clone();
+                    self.ask_chief(&ctx, notice).await;
+                    return Ok(RunAnswer::WaitsForChief(needs));
+                }
                 Ok(Decision::Fetch(version)) => {
                     tx.rollback().await?;
                     self.fetch_secrets(&ctx, version, &mut fetched)
@@ -273,28 +282,107 @@ impl Handler<Run> for Workspace {
                 }
             }
         };
-        let timeout = run
-            .timeout_ms
-            .map_or(run::LONGEST, Duration::from_millis)
-            .min(run::LONGEST);
         let command = opened.command;
         let waiters = opened.waiters.clone();
-        let spec = run::Spec {
+        let spec = self.spec(
+            agent,
             command,
-            script: run.script,
-            cwd: opened.placement.cwd,
-            policy: opened.placement.policy,
+            &run,
+            opened.placement,
+            opened.secrets,
+            leftovers,
+        );
+        self.clone().start(&ctx, agent, run.call, spec);
+        Ok(waiters.answer(command).await)
+    }
+}
+
+impl Workspace {
+    /// The command `command` of `run`, for `agent`, as its thread
+    /// runs it.
+    fn spec(
+        &self,
+        agent: AgentNumber,
+        command: CommandId,
+        run: &Run,
+        placement: reach::Placement,
+        secrets: Arc<Vec<String>>,
+        leftovers: hamlet_sandbox::Leftovers,
+    ) -> run::Spec {
+        run::Spec {
+            command,
+            script: run.script.clone(),
+            cwd: placement.cwd,
+            policy: placement.policy,
             sandbox: self.sandbox,
-            timeout,
-            secrets: opened.secrets,
+            timeout: run
+                .timeout_ms
+                .map_or(run::LONGEST, Duration::from_millis)
+                .min(run::LONGEST),
+            secrets,
             leftovers,
             output: self
                 .home
                 .spill(agent)
                 .join(format!("{}.log", command.0)),
+        }
+    }
+
+    /// Runs `run`, whose `wait` a chief allowed, when the reach in
+    /// force still lets it. The agent is called with its end.
+    async fn grant_run(
+        self: Arc<Self>,
+        ctx: &Ctx<Self>,
+        wait: &pending::Wait,
+        run: &Run,
+    ) -> Result<AnswerTaken> {
+        let agent = wait.agent;
+        let leftovers = self.leftovers.of(i64::try_from(agent.0)?);
+        let (reach, network, secrets) =
+            match self.recheck(ctx, wait).await? {
+                pending::Rechecked::Pass {
+                    reach,
+                    network,
+                    secrets,
+                } => (reach, network, secrets),
+                pending::Rechecked::Refused(refusal) => {
+                    return self.not_run(ctx, wait, refusal).await;
+                }
+            };
+        let placement = reach::placement(
+            &self.home,
+            agent,
+            &reach,
+            Purpose::Command { network },
+        )
+        .context("the gate passed a command with no reach")?;
+        let tx = ctx.sql().begin_transaction(None).await?;
+        let settled =
+            pending::settle(&tx, wait, "running", None, None).await;
+        let command = match settled {
+            Ok(Some(id)) => CommandId(u64::try_from(id)?),
+            Ok(None) => {
+                tx.rollback().await?;
+                return Ok(AnswerTaken::NoWait);
+            }
+            Err(error) => {
+                tx.rollback().await?;
+                return Err(error);
+            }
         };
-        self.clone().start(&ctx, agent, run.call, spec);
-        Ok(waiters.answer(command).await)
+        // No call waits for it: the agent hears its end.
+        self.running
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(command, run::Waiters::given_up());
+        if let Err(error) = tx.commit().await {
+            self.ran(command);
+            return Err(error);
+        }
+        let spec = self
+            .spec(agent, command, run, placement, secrets, leftovers);
+        self.clone().start(ctx, agent, run.call.clone(), spec);
+        Ok(AnswerTaken::Runs)
     }
 }
 
@@ -384,7 +472,7 @@ impl Workspace {
             let unheard = waiters.ended(end);
             self.ran(command);
             if let Some(end) = unheard {
-                tell(&ctx, agent, call, end).await;
+                tell(&ctx, agent, call, Outcome::Ran(end)).await;
             }
         });
     }
@@ -422,20 +510,20 @@ async fn record(
     tx.commit().await
 }
 
-/// Calls `agent` with the end of its call `call`, once. A failed
+/// Calls `agent` with how its call `call` ended, once. A failed
 /// call, as to an agent that no longer exists, is logged and dropped.
 async fn tell(
     ctx: &Ctx<Workspace>,
     agent: AgentNumber,
     call: CallId,
-    end: CommandEnd,
+    outcome: Outcome,
 ) {
-    let command = end.command;
+    let id = call.0.clone();
     let told = async {
         let args =
             hamlet_actor::action::encode_positional(&Finished {
                 call,
-                end,
+                outcome,
             })?;
         Host::call_from(
             ctx.inner(),
@@ -451,8 +539,8 @@ async fn tell(
         tracing::warn!(
             ?error,
             agent = agent.0,
-            command = command.0,
-            "dropped a command's end the agent was not told"
+            call = id,
+            "dropped the end of a call the agent was not told"
         );
     }
 }
@@ -466,6 +554,8 @@ enum Decision {
     Wait(CommandId, Arc<run::Waiters>),
     /// The secrets held are older than this version.
     Fetch(SecretsVersion),
+    /// The call waits for a chief: commit, then tell the realm.
+    AskChief(NeedsChief),
 }
 
 impl Workspace {
@@ -490,7 +580,10 @@ impl Workspace {
             }
             return Ok(Decision::Answer(answer_of(row)));
         }
-        let reach = reach::read(tx, agent).await?;
+        let in_force = reach::in_force(tx, agent).await?;
+        let reach_version =
+            in_force.as_ref().map(|(version, _)| *version);
+        let reach = in_force.map(|(_, reach)| reach);
         let (held, secrets) = self.held();
         let op = Op::Command {
             conversation: &run.conversation,
@@ -511,9 +604,27 @@ impl Workspace {
                 )));
             }
             Gate::NeedsChief(needs) => {
-                return Ok(Decision::Answer(RunAnswer::Refused(
-                    CallRefusal::NeedsChief(needs),
-                )));
+                let opening = pending::Opening {
+                    agent,
+                    op: run::OP,
+                    request_hash: request_hash.to_vec(),
+                    needs,
+                    request: pending::Pending::Run(run.clone()),
+                    reach_version: reach_version
+                        .context("a chief is asked with no reach")?,
+                    base_hash: None,
+                    words: run.script.clone(),
+                    change: None,
+                };
+                return Ok(
+                    match pending::open(tx, &secrets, opening).await?
+                    {
+                        Ok(notice) => Decision::AskChief(notice),
+                        Err(refusal) => Decision::Answer(
+                            RunAnswer::Refused(refusal),
+                        ),
+                    },
+                );
             }
             Gate::NeedsSecrets(version) => {
                 return Ok(Decision::Fetch(version));
@@ -560,6 +671,8 @@ fn answer_of(row: run::Row) -> RunAnswer {
             row.command,
             Exit::CutOff,
         )),
+        run::State::Waiting(needs) => RunAnswer::WaitsForChief(needs),
+        run::State::Refused(refusal) => RunAnswer::Refused(refusal),
     }
 }
 
@@ -602,7 +715,7 @@ impl Handler<SetReach> for Workspace {
     ) -> Result<ReachAnswer> {
         let caller = caller(&ctx)?;
         if !is_the_realm(caller.as_ref()) {
-            let refusal = ReachRefusal::NotTheRealm;
+            let refusal = RealmRefusal::NotTheRealm;
             refused(caller.as_ref(), SetReach::NAME, &refusal);
             return Ok(ReachAnswer::Refused(refusal));
         }

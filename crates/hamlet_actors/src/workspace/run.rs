@@ -9,8 +9,10 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
 use hamlet_actor_core::{BindParam, SqliteTransaction};
+use hamlet_messages::workspace::reach::Need;
 use hamlet_messages::workspace::{
-    AgentNumber, CallId, CommandEnd, CommandId, Exit, RunAnswer,
+    AgentNumber, CallId, CallRefusal, CommandEnd, CommandId, Exit,
+    RunAnswer,
 };
 use hamlet_os::fs::path::text;
 use hamlet_sandbox::scrub::scrub_text;
@@ -38,6 +40,10 @@ pub(super) enum State {
     Ended(CommandEnd),
     /// The workspace's host stopped while it ran.
     CutOff,
+    /// It waits for a chief to allow what it needs.
+    Waiting(Vec<Need>),
+    /// A chief refused it, or its wait lapsed.
+    Refused(CallRefusal),
 }
 
 /// The op of a command's row.
@@ -73,6 +79,14 @@ pub(super) fn row_of(call: Call) -> Result<Row> {
     let state = match (call.state.as_str(), call.answer) {
         ("running", _) => State::Running,
         ("cut_off", _) => State::CutOff,
+        ("waiting", Some(needs)) => State::Waiting(
+            ciborium::from_reader(needs.as_slice())
+                .context("decode what a command waits for")?,
+        ),
+        ("refused", Some(refusal)) => State::Refused(
+            ciborium::from_reader(refusal.as_slice())
+                .context("decode why a command did not run")?,
+        ),
         ("ended", Some(answer)) => State::Ended(
             ciborium::from_reader(answer.as_slice())
                 .context("decode a command's end")?,
@@ -91,23 +105,17 @@ pub(super) async fn open(
     call: &CallId,
     request_hash: Vec<u8>,
 ) -> Result<CommandId> {
-    let opened = tx
-        .execute(
-            "INSERT INTO calls (agent, call, op, request_hash, \
-             state, opened_at) VALUES (?1, ?2, ?3, ?4, 'running', \
-             ?5)",
-            Some(vec![
-                BindParam::Integer(i64::try_from(agent.0)?),
-                BindParam::Text(call.0.clone()),
-                BindParam::Text(OP.to_owned()),
-                BindParam::Blob(request_hash),
-                BindParam::Integer(calls::now_ms()?),
-            ]),
-        )
-        .await?;
-    let id = opened
-        .last_insert_row_id
-        .context("the insert of a command gave no id")?;
+    let id = calls::insert(
+        tx,
+        agent,
+        call,
+        OP,
+        request_hash,
+        "running",
+        None,
+        None,
+    )
+    .await?;
     Ok(CommandId(u64::try_from(id)?))
 }
 
@@ -169,6 +177,15 @@ impl Waiters {
         Arc::new(Self {
             slot: Mutex::new(Slot::Waiting(Vec::new())),
             give_up_at: tokio::time::Instant::now() + within,
+        })
+    }
+
+    /// Waiters of a command no call waits for, whose end the agent
+    /// hears.
+    pub(super) fn given_up() -> Arc<Self> {
+        Arc::new(Self {
+            slot: Mutex::new(Slot::GaveUp),
+            give_up_at: tokio::time::Instant::now(),
         })
     }
 

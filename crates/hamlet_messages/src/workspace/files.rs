@@ -9,6 +9,7 @@ use std::path::PathBuf;
 use hamlet_actor::Action;
 use serde::{Deserialize, Serialize};
 
+use super::reach::Need;
 use super::{
     AgentNumber, CallId, CallRefusal, ConversationId, RealmTask,
 };
@@ -179,6 +180,9 @@ pub struct Replace {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ChangeAnswer {
     Changed(Change),
+    /// The change waits for a chief to allow it. The agent is called
+    /// with [`crate::agent::Finished`] when the wait ends.
+    WaitsForChief(Vec<Need>),
     Refused(CallRefusal),
     /// The change could not be made, in words for the model.
     Failed(String),

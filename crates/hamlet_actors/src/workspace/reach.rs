@@ -94,16 +94,27 @@ pub(super) async fn read(
     tx: &SqliteTransaction,
     agent: AgentNumber,
 ) -> anyhow::Result<Option<Reach>> {
+    Ok(in_force(tx, agent).await?.map(|(_, reach)| reach))
+}
+
+/// `agent`'s reach in force and its version, in `tx`.
+pub(super) async fn in_force(
+    tx: &SqliteTransaction,
+    agent: AgentNumber,
+) -> anyhow::Result<Option<(ReachVersion, Reach)>> {
     let read = tx
         .execute(
-            "SELECT body FROM reach WHERE agent = ?1",
+            "SELECT version, body FROM reach WHERE agent = ?1",
             Some(vec![BindParam::Integer(i64::try_from(agent.0)?)]),
         )
         .await?;
-    match read.rows.first().and_then(|row| row.first()) {
-        Some(ColumnValue::Blob(body)) => {
-            Ok(Some(ciborium::from_reader(body.as_slice())?))
-        }
+    match read.rows.first().map(Vec::as_slice) {
+        Some(
+            [ColumnValue::Integer(version), ColumnValue::Blob(body)],
+        ) => Ok(Some((
+            ReachVersion(u64::try_from(*version)?),
+            ciborium::from_reader(body.as_slice())?,
+        ))),
         None => Ok(None),
         Some(other) => {
             anyhow::bail!("agent {}'s reach is {other:?}", agent.0)

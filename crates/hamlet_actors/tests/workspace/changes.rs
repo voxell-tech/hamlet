@@ -7,8 +7,7 @@ use hamlet_messages::workspace::files::{
     Change, ChangeAnswer, EditFile, MOST_CONTENT, Replace, WriteFile,
 };
 use hamlet_messages::workspace::reach::{
-    Access, Footing, Mode, Need, Project, Reach, Refusal,
-    SecretsVersion,
+    Access, Footing, Mode, Project, Reach, Refusal, SecretsVersion,
 };
 use hamlet_messages::workspace::{
     AgentNumber, CallId, CallRefusal, CallerRefusal, ConversationId,
@@ -25,7 +24,11 @@ use super::{
     reach, realm, realm_sets, run,
 };
 
-fn write(call: &str, path: &Path, content: &str) -> WriteFile {
+pub(super) fn write(
+    call: &str,
+    path: &Path,
+    content: &str,
+) -> WriteFile {
     WriteFile {
         agent: AGENT,
         call: CallId(call.to_owned()),
@@ -36,7 +39,11 @@ fn write(call: &str, path: &Path, content: &str) -> WriteFile {
     }
 }
 
-fn edit(call: &str, path: &Path, edits: &[(&str, &str)]) -> EditFile {
+pub(super) fn edit(
+    call: &str,
+    path: &Path,
+    edits: &[(&str, &str)],
+) -> EditFile {
     EditFile {
         agent: AGENT,
         call: CallId(call.to_owned()),
@@ -53,18 +60,18 @@ fn edit(call: &str, path: &Path, edits: &[(&str, &str)]) -> EditFile {
     }
 }
 
-fn changed(answer: ChangeAnswer) -> Change {
+pub(super) fn changed(answer: ChangeAnswer) -> Change {
     match answer {
         ChangeAnswer::Changed(change) => change,
         other => panic!("the change answered {other:?}"),
     }
 }
 
-fn sha256(bytes: &[u8]) -> [u8; 32] {
+pub(super) fn sha256(bytes: &[u8]) -> [u8; 32] {
     Sha256::digest(bytes).into()
 }
 
-fn read(path: &Path) -> String {
+pub(super) fn read(path: &Path) -> String {
     std::fs::read_to_string(path).unwrap()
 }
 
@@ -279,7 +286,7 @@ async fn a_write_past_the_limit_is_refused_and_writes_nothing() {
 
 /// Agent 7's reach on `folder` in manual mode, trusting no
 /// conversation.
-fn manual(folder: &Path) -> Reach {
+pub(super) fn manual(folder: &Path) -> Reach {
     Reach::Agent(Footing {
         project: Some(Project {
             folder: folder.to_owned(),
@@ -289,36 +296,6 @@ fn manual(folder: &Path) -> Reach {
         trust: Vec::new(),
         secrets: SecretsVersion(1),
     })
-}
-
-/// In manual mode a change in the project needs a chief, and the
-/// workspace answers so and writes nothing.
-#[cfg(unix)]
-#[tokio::test(flavor = "multi_thread")]
-async fn a_change_that_needs_a_chief_says_so() {
-    let dir = Scratch::new("workspace-change-chief");
-    let (_project, folder) =
-        project("workspace-change-chief-project", &[("a.md", "a")]);
-    let host = host_with(&dir, Arc::default()).await;
-    realm_sets(&host, 1, manual(&folder)).await;
-    let me = agent(AGENT);
-    let wrote =
-        ask(&host, &me, &write("w1", &folder.join("a.md"), "b"))
-            .await;
-    let edited = ask(
-        &host,
-        &me,
-        &edit("e1", &folder.join("a.md"), &[("a", "b")]),
-    )
-    .await;
-    host.shutdown().await.unwrap();
-
-    let needs = ChangeAnswer::Refused(CallRefusal::NeedsChief(vec![
-        Need::Edit,
-    ]));
-    assert_eq!(wrote, needs);
-    assert_eq!(edited, needs);
-    assert_eq!(read(&folder.join("a.md")), "a");
 }
 
 /// A change is for the agent the host stamped as the caller.

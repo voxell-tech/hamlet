@@ -24,7 +24,13 @@
 //! size of all the command printed, kept in the file the end names.
 //! `write` prints `changed/<call> 1` when it made the file and
 //! `changed/<call> 0` when it replaced one, or `refused/<call> 1` or
-//! `failed/<call> 1` and logs why.
+//! `failed/<call> 1` and logs why. A call that waits for a chief
+//! prints `waits/<call> <needs>`, how many things it needs. When the
+//! wait ends, the agent is called with how the call ended: a command
+//! prints `finished/<call> <exit code>` as above, a change
+//! `finished/<call>/changed <created>`, `finished/<call>/refused 1`
+//! or `finished/<call>/failed 1`, and a call that did not run
+//! `finished/<call>/not_run 1`; each logs why.
 
 use std::io::Write;
 use std::sync::Arc;
@@ -37,7 +43,7 @@ use hamlet_actor_core::{
 };
 use hamlet_actors::workspace;
 use hamlet_host::{Address, Caller, Cause, Host, HostRef};
-use hamlet_messages::agent::Finished;
+use hamlet_messages::agent::{Finished, Outcome};
 use hamlet_messages::workspace::files::{ChangeAnswer, WriteFile};
 use hamlet_messages::workspace::{
     AgentNumber, CallId, CommandEnd, CommandId, CommandStatus,
@@ -127,26 +133,45 @@ impl Handler<Finished> for Agent {
         ctx: Ctx<Self>,
         finished: Finished,
     ) -> Result<()> {
-        let (word, code) = exit_word(&finished.end.exit);
+        let call = &finished.call.0;
+        let (command, word, code) = match &finished.outcome {
+            Outcome::Ran(end) => {
+                print_cut(call, end)?;
+                let (word, code) = exit_word(&end.exit);
+                (end.command.0, word, code)
+            }
+            Outcome::Changed(ChangeAnswer::Changed(change)) => {
+                (0, "/changed", i64::from(change.created))
+            }
+            Outcome::Changed(ChangeAnswer::Refused(why))
+            | Outcome::NotRun(why) => {
+                tracing::warn!(%why, "agent's call {call} did not change or run");
+                let word = match &finished.outcome {
+                    Outcome::NotRun(_) => "/not_run",
+                    _ => "/refused",
+                };
+                (0, word, 1)
+            }
+            Outcome::Changed(ChangeAnswer::Failed(words)) => {
+                tracing::warn!(%words, "agent's call {call} failed");
+                (0, "/failed", 1)
+            }
+            Outcome::Changed(ChangeAnswer::WaitsForChief(_)) => {
+                bail!("a change ended as waiting")
+            }
+        };
         ctx.sql()
             .execute(
                 "INSERT INTO finished (call, command, exit) VALUES \
                  (?1, ?2, ?3)",
                 Some(vec![
-                    BindParam::Text(finished.call.0.clone()),
-                    BindParam::Integer(i64::try_from(
-                        finished.end.command.0,
-                    )?),
+                    BindParam::Text(call.clone()),
+                    BindParam::Integer(i64::try_from(command)?),
                     BindParam::Text(format!("{word} {code}")),
                 ]),
             )
             .await?;
-        print_cut(&finished.call.0, &finished.end)?;
-        writeln!(
-            std::io::stdout(),
-            "finished/{}{word} {code}",
-            finished.call.0
-        )?;
+        writeln!(std::io::stdout(), "finished/{call}{word} {code}")?;
         Ok(())
     }
 }
@@ -234,6 +259,9 @@ pub async fn run(host: &Host, words: &[String]) -> Result<()> {
                 tracing::warn!(%words, "agent {number}'s write failed");
                 writeln!(out, "failed/{call} 1")?;
             }
+            ChangeAnswer::WaitsForChief(needs) => {
+                writeln!(out, "waits/{call} {}", needs.len())?;
+            }
         }
         return Ok(());
     }
@@ -258,6 +286,11 @@ pub async fn run(host: &Host, words: &[String]) -> Result<()> {
         }
         (RunAnswer::Running { command }, None) => {
             writeln!(out, "status/{}/running 0", command.0)?;
+        }
+        (RunAnswer::WaitsForChief(needs), call) => {
+            let name =
+                call.map_or_else(|| rest.join("/"), Clone::clone);
+            writeln!(out, "waits/{name} {}", needs.len())?;
         }
         (RunAnswer::Refused(refusal), call) => {
             let name =

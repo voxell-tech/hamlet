@@ -13,15 +13,15 @@ use hamlet_actors::workspace;
 use hamlet_host::{
     Address, Caller, Cause, Host, HostOptions, HostRef,
 };
-use hamlet_messages::agent::Finished;
-use hamlet_messages::realm::{SecretList, Secrets};
+use hamlet_messages::agent::{Finished, Outcome};
+use hamlet_messages::realm::{NeedsChief, SecretList, Secrets};
 use hamlet_messages::workspace::reach::{
     Footing, Mode, Project, Reach, SecretsVersion,
 };
 use hamlet_messages::workspace::{
     AgentNumber, CallId, CallRefusal, CallerRefusal, CommandEnd,
     CommandId, CommandStatus, ConversationId, Exit, ReachAnswer,
-    ReachRefusal, ReachVersion, RealmTask, Run, RunAnswer, SetReach,
+    ReachVersion, RealmRefusal, RealmTask, Run, RunAnswer, SetReach,
     Shell,
 };
 use hamlet_sandbox::Sandbox;
@@ -34,6 +34,9 @@ mod files;
 
 #[path = "workspace/changes.rs"]
 mod changes;
+
+#[path = "workspace/waits.rs"]
+mod waits;
 
 const AGENT: AgentNumber = AgentNumber(7);
 
@@ -53,6 +56,8 @@ struct Peers {
     secrets_delay: Duration,
     fetched: AtomicUsize,
     told: Mutex<Vec<(String, Finished)>>,
+    /// What the realm was told waits for a chief.
+    asked: Mutex<Vec<NeedsChief>>,
 }
 
 /// Stands in for the realm and the agents: calls the workspace as
@@ -78,7 +83,7 @@ impl Action for Forward {
 #[async_trait::async_trait]
 impl Actor for Peer {
     type Input = ();
-    type Actions = (Forward, Secrets, Finished, Leave);
+    type Actions = (Forward, Secrets, Finished, NeedsChief, Leave);
     type Events = ();
     type ConnParams = Option<Caller>;
     type Action = ();
@@ -138,6 +143,17 @@ impl Handler<Finished> for Peer {
             .lock()
             .unwrap()
             .push((self.key.clone(), finished));
+        Ok(())
+    }
+}
+
+impl Handler<NeedsChief> for Peer {
+    async fn handle(
+        self: Arc<Self>,
+        _: Ctx<Self>,
+        asked: NeedsChief,
+    ) -> anyhow::Result<()> {
+        self.peers.asked.lock().unwrap().push(asked);
         Ok(())
     }
 }
@@ -411,7 +427,7 @@ async fn only_the_realm_sets_a_reach() {
 
     assert_eq!(
         answers,
-        vec![ReachAnswer::Refused(ReachRefusal::NotTheRealm); 4]
+        vec![ReachAnswer::Refused(RealmRefusal::NotTheRealm); 4]
     );
     assert_eq!(realm, ReachAnswer::InForce(ReachVersion(1)));
     assert_eq!(reach_rows(&dir), [(7, 1, reach(None))]);
@@ -491,6 +507,14 @@ async fn status_as(
 }
 
 /// What the agents were told, `(actor id, Finished)`.
+/// The end of the command a [`Finished`] tells of.
+fn ran(finished: &Finished) -> &CommandEnd {
+    match &finished.outcome {
+        Outcome::Ran(end) => end,
+        other => panic!("the agent was told {other:?}"),
+    }
+}
+
 fn told(peers: &Peers) -> Vec<(String, Finished)> {
     peers.told.lock().unwrap().clone()
 }
@@ -707,12 +731,12 @@ async fn a_long_command_answers_running_then_finished() {
     let (to, finished) = &told[0];
     assert_eq!(to, &agent_id);
     assert_eq!(finished.call, CallId("c1".into()));
-    assert_eq!(finished.end.command, command);
+    assert_eq!(ran(finished).command, command);
     assert_eq!(
-        (&finished.end.exit, finished.end.output.as_str()),
+        (&ran(finished).exit, ran(finished).output.as_str()),
         (&Exit::Code(0), "late\n")
     );
-    assert_eq!(after, RunAnswer::Done(finished.end.clone()));
+    assert_eq!(after, RunAnswer::Done(ran(finished).clone()));
 }
 
 /// A repeat of a call that arrives while the first still waits gets
@@ -929,8 +953,8 @@ async fn a_command_past_its_limit_ends_timed_out() {
                 assert!(!in_the_answer, "answered Running in time");
                 let told = told(&peers);
                 assert_eq!(told.len(), 1, "{told:?}");
-                assert_eq!(told[0].1.end.command, command);
-                told[0].1.end.clone()
+                assert_eq!(ran(&told[0].1).command, command);
+                ran(&told[0].1).clone()
             }
             other => panic!("the command answered {other:?}"),
         };
@@ -945,7 +969,7 @@ async fn ended(peers: &Peers, answer: RunAnswer) -> CommandEnd {
         RunAnswer::Done(end) => end,
         RunAnswer::Running { .. } => {
             told_within(peers, 1, Duration::from_secs(20)).await;
-            told(peers).pop().expect("a Finished").1.end
+            ran(&told(peers).pop().expect("a Finished").1).clone()
         }
         other => panic!("the command answered {other:?}"),
     }

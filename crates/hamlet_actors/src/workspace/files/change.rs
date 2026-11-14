@@ -9,15 +9,18 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::{Arc, Mutex, PoisonError};
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use hamlet_actor::{Ctx, Handler};
 use hamlet_actor_core::{BindParam, ColumnValue, SqliteTransaction};
+use hamlet_messages::agent::Outcome;
 use hamlet_messages::workspace::files::{
     Change, ChangeAnswer, EditDiff, EditFile, Hashed, MOST_CONTENT,
     Replace, WriteFile,
 };
+use hamlet_messages::workspace::reach::Need;
 use hamlet_messages::workspace::{
-    AgentNumber, CallId, CallRefusal, ConversationId,
+    AgentNumber, AnswerTaken, CallId, CallRefusal, ConversationId,
+    ReachVersion,
 };
 use hamlet_os::fs::path::{self, is_absolute, normalize, text};
 use hamlet_sandbox::scrub::scrub_text;
@@ -28,9 +31,10 @@ use tokio::sync::OwnedMutexGuard;
 
 use super::edit::{self, CallError};
 use super::{Gated, Passed};
-use crate::workspace::reach::{self, Op, Placement};
+use crate::workspace::pending::{self, Pending, Rechecked, Wait};
+use crate::workspace::reach::{self, Op, Placement, Purpose};
 use crate::workspace::{
-    Workspace, agent_of, caller, calls, checked_call, refused,
+    Workspace, agent_of, caller, calls, checked_call, refused, tell,
 };
 
 /// The paths changes are at work on: one change at a time checks and
@@ -138,24 +142,38 @@ struct Request<'a> {
     request_hash: Vec<u8>,
 }
 
+impl<'a> Request<'a> {
+    /// The change `pending` asks for.
+    fn of(pending: &'a Pending) -> Result<Self> {
+        Ok(match pending {
+            Pending::Write(asked) => Self {
+                named: asked.agent,
+                call: &asked.call,
+                conversation: &asked.conversation,
+                path: &asked.path,
+                asked: Asked::Write(&asked.content),
+                request_hash: calls::request_hash(asked)?,
+            },
+            Pending::Edit(asked) => Self {
+                named: asked.agent,
+                call: &asked.call,
+                conversation: &asked.conversation,
+                path: &asked.path,
+                asked: Asked::Edit(&asked.edits),
+                request_hash: calls::request_hash(asked)?,
+            },
+            Pending::Run(_) => bail!("a command is not a change"),
+        })
+    }
+}
+
 impl Handler<WriteFile> for Workspace {
     async fn handle(
         self: Arc<Self>,
         ctx: Ctx<Self>,
         asked: WriteFile,
     ) -> Result<ChangeAnswer> {
-        self.change(
-            &ctx,
-            Request {
-                named: asked.agent,
-                call: &asked.call,
-                conversation: &asked.conversation,
-                path: &asked.path,
-                asked: Asked::Write(&asked.content),
-                request_hash: calls::request_hash(&asked)?,
-            },
-        )
-        .await
+        self.change(&ctx, Pending::Write(asked)).await
     }
 }
 
@@ -165,18 +183,7 @@ impl Handler<EditFile> for Workspace {
         ctx: Ctx<Self>,
         asked: EditFile,
     ) -> Result<ChangeAnswer> {
-        self.change(
-            &ctx,
-            Request {
-                named: asked.agent,
-                call: &asked.call,
-                conversation: &asked.conversation,
-                path: &asked.path,
-                asked: Asked::Edit(&asked.edits),
-                request_hash: calls::request_hash(&asked)?,
-            },
-        )
-        .await
+        self.change(&ctx, Pending::Edit(asked)).await
     }
 }
 
@@ -191,6 +198,8 @@ enum Weighed {
     },
     Fetch(hamlet_messages::workspace::reach::SecretsVersion),
     Pass(Passed),
+    /// It waits for a chief to allow these, under this reach.
+    Chief(Passed, Vec<Need>, ReachVersion),
 }
 
 /// The file a change read, and what it would write over it.
@@ -200,12 +209,21 @@ struct Planned {
     diff: Option<EditDiff>,
 }
 
+/// Why a change has no plan.
+enum Unplanned {
+    /// In words for the model.
+    Failed(String),
+    /// The file no longer holds what a chief was shown.
+    Changed { now: Hashed },
+}
+
 impl Workspace {
     async fn change(
         &self,
         ctx: &Ctx<Self>,
-        request: Request<'_>,
+        pending: Pending,
     ) -> Result<ChangeAnswer> {
+        let request = Request::of(&pending)?;
         let action = request.asked.op();
         let caller = caller(ctx)?;
         let agent = match agent_of(caller.as_ref(), request.named) {
@@ -240,7 +258,7 @@ impl Workspace {
         }
         let held = self.paths.hold(&path).await;
         let mut fetched = false;
-        let passed = loop {
+        let (passed, chief) = loop {
             match self.weigh(ctx, agent, &request).await? {
                 Weighed::Answer(answer) => return Ok(answer),
                 // Also the row of a first copy that was dropped
@@ -264,7 +282,10 @@ impl Workspace {
                     self.fetch_secrets(ctx, version, &mut fetched)
                         .await?;
                 }
-                Weighed::Pass(passed) => break passed,
+                Weighed::Pass(passed) => break (passed, None),
+                Weighed::Chief(passed, needs, version) => {
+                    break (passed, Some((needs, version)));
+                }
             }
         };
         let Passed {
@@ -272,35 +293,46 @@ impl Workspace {
             sandbox,
             secrets,
         } = passed;
-        let planned = {
-            let placement = placement.clone();
-            let path = path.clone();
-            let asked = match request.asked {
-                Asked::Write(content) => {
-                    PlannedAs::Write(content.as_bytes().to_vec())
-                }
-                Asked::Edit(edits) => PlannedAs::Edit(edits.to_vec()),
-            };
-            tokio::task::spawn_blocking(move || {
-                plan(&placement, sandbox, &path, asked)
-            })
-            .await
-            .context("a change's thread ended before it")?
-        };
-        let planned = match planned {
+        let planned = match planned(
+            placement.clone(),
+            sandbox,
+            &path,
+            &request.asked,
+            None,
+        )
+        .await?
+        {
             Ok(planned) => planned,
-            Err(words) => {
+            Err(Unplanned::Failed(words)) => {
                 return Ok(ChangeAnswer::Failed(scrub_text(
                     &secrets, &words,
                 )));
             }
+            Err(Unplanned::Changed { .. }) => {
+                bail!("a change with nothing to match changed")
+            }
         };
-        let temp_name =
-            format!(".hamlet-{}.new", uuid::Uuid::new_v4());
-        let temp = path::join(&[
-            path::dirname(&planned.current.real).as_str(),
-            &temp_name,
-        ]);
+        if let Some((needs, reach_version)) = chief {
+            let opening = pending::Opening {
+                agent,
+                op: action,
+                request_hash: request.request_hash.clone(),
+                needs,
+                reach_version,
+                base_hash: Some(hashed(
+                    planned.current.bytes.as_deref(),
+                )),
+                words: words_of(&path, &request.asked, &planned),
+                change: planned.diff,
+                request: pending.clone(),
+            };
+            return self
+                .wait_for_chief(
+                    ctx, &request, &secrets, opening, held,
+                )
+                .await;
+        }
+        let (temp_name, temp) = temp_of(&planned);
         let tx = ctx.sql().begin_transaction(None).await?;
         let opened = open(&tx, agent, &request, &temp).await;
         let id = match opened {
@@ -317,10 +349,230 @@ impl Workspace {
                 return Err(error);
             }
         };
+        self.carry_out(
+            ctx,
+            id,
+            &request,
+            Carry {
+                placement,
+                sandbox,
+                secrets,
+                planned,
+                temp_name,
+            },
+            held,
+        )
+        .await
+    }
+
+    /// Opens the wait of `opening`, a change of `request`, while its
+    /// path is `held`, and tells the realm once the path is let go.
+    async fn wait_for_chief(
+        &self,
+        ctx: &Ctx<Self>,
+        request: &Request<'_>,
+        secrets: &[String],
+        opening: pending::Opening,
+        held: OwnedMutexGuard<()>,
+    ) -> Result<ChangeAnswer> {
+        let agent = opening.agent;
+        let tx = ctx.sql().begin_transaction(None).await?;
+        let opened = async {
+            if let Some(call) =
+                calls::find(&tx, agent, request.call).await?
+            {
+                return Ok(Err(match answered(call, request)? {
+                    Weighed::Answer(answer) => answer,
+                    _ => ChangeAnswer::Failed(
+                        "another change with this call id is at work"
+                            .into(),
+                    ),
+                }));
+            }
+            Ok(pending::open(&tx, secrets, opening)
+                .await?
+                .map_err(ChangeAnswer::Refused))
+        }
+        .await;
+        let notice = match opened {
+            Ok(Ok(notice)) => {
+                tx.commit().await?;
+                notice
+            }
+            Ok(Err(answer)) => {
+                tx.rollback().await?;
+                return Ok(answer);
+            }
+            Err(error) => {
+                tx.rollback().await?;
+                return Err(error);
+            }
+        };
+        drop(held);
+        let needs = notice.needs.clone();
+        self.ask_chief(ctx, notice).await;
+        Ok(ChangeAnswer::WaitsForChief(needs))
+    }
+
+    /// Carries out the change of `wait`, which a chief allowed, when
+    /// the reach in force still lets it and the file still holds what
+    /// the chief was shown. The agent is called with its answer.
+    pub(in crate::workspace) async fn grant_change(
+        &self,
+        ctx: &Ctx<Self>,
+        wait: &Wait,
+    ) -> Result<AnswerTaken> {
+        let request = Request::of(&wait.request)?;
+        let path = text(request.path);
+        let held = self.paths.hold(&path).await;
+        let (reach, secrets) = match self.recheck(ctx, wait).await? {
+            Rechecked::Pass { reach, secrets, .. } => {
+                (reach, secrets)
+            }
+            Rechecked::Refused(refusal) => {
+                drop(held);
+                return self.not_run(ctx, wait, refusal).await;
+            }
+        };
+        let placement = reach::placement(
+            &self.home,
+            wait.agent,
+            &reach,
+            Purpose::FileTool,
+        )
+        .context("the gate passed a change with no reach")?;
+        let was =
+            wait.base_hash.context("a change waits with no hash")?;
+        let planned = match planned(
+            placement.clone(),
+            self.sandbox,
+            &path,
+            &request.asked,
+            Some(was),
+        )
+        .await?
+        {
+            Ok(planned) => planned,
+            Err(Unplanned::Changed { now }) => {
+                drop(held);
+                let refusal = CallRefusal::FileChanged {
+                    path: request.path.to_owned(),
+                    was,
+                    now,
+                };
+                return self.not_run(ctx, wait, refusal).await;
+            }
+            Err(Unplanned::Failed(words)) => {
+                let answer = ChangeAnswer::Failed(scrub_text(
+                    &secrets, &words,
+                ));
+                let mut bytes = Vec::new();
+                ciborium::into_writer(&answer, &mut bytes)?;
+                let settled = self
+                    .settled(
+                        ctx,
+                        wait,
+                        "ended",
+                        Some(bytes),
+                        None,
+                        held,
+                    )
+                    .await?;
+                if settled.is_none() {
+                    return Ok(AnswerTaken::NoWait);
+                }
+                tell(
+                    ctx,
+                    wait.agent,
+                    wait.call.clone(),
+                    Outcome::Changed(answer),
+                )
+                .await;
+                return Ok(AnswerTaken::Runs);
+            }
+        };
+        let (temp_name, temp) = temp_of(&planned);
+        let Some((id, held)) = self
+            .settled(ctx, wait, "changing", None, Some(&temp), held)
+            .await?
+        else {
+            return Ok(AnswerTaken::NoWait);
+        };
+        let answer = self
+            .carry_out(
+                ctx,
+                id,
+                &request,
+                Carry {
+                    placement,
+                    sandbox: self.sandbox,
+                    secrets,
+                    planned,
+                    temp_name,
+                },
+                held,
+            )
+            .await?;
+        tell(
+            ctx,
+            wait.agent,
+            wait.call.clone(),
+            Outcome::Changed(answer),
+        )
+        .await;
+        Ok(AnswerTaken::Runs)
+    }
+
+    /// Settles `wait` as `state` in a transaction of its own while
+    /// its path is `held`. Returns its row's id and the path, or
+    /// `None` when another answer ended the wait first.
+    async fn settled(
+        &self,
+        ctx: &Ctx<Self>,
+        wait: &Wait,
+        state: &str,
+        answer: Option<Vec<u8>>,
+        temp: Option<&str>,
+        held: OwnedMutexGuard<()>,
+    ) -> Result<Option<(i64, OwnedMutexGuard<()>)>> {
+        let tx = ctx.sql().begin_transaction(None).await?;
+        match pending::settle(&tx, wait, state, answer, temp).await {
+            Ok(Some(id)) => {
+                tx.commit().await?;
+                Ok(Some((id, held)))
+            }
+            Ok(None) => {
+                tx.rollback().await?;
+                Ok(None)
+            }
+            Err(error) => {
+                tx.rollback().await?;
+                Err(error)
+            }
+        }
+    }
+
+    /// Replaces the file of `request`, whose row `id` was written,
+    /// as `carry` plans, records its answer and lets go of the path.
+    async fn carry_out(
+        &self,
+        ctx: &Ctx<Self>,
+        id: i64,
+        request: &Request<'_>,
+        carry: Carry,
+        held: OwnedMutexGuard<()>,
+    ) -> Result<ChangeAnswer> {
+        let Carry {
+            placement,
+            sandbox,
+            secrets,
+            planned,
+            temp_name,
+        } = carry;
         // The guard goes with the replace, so the path stays held
         // until it is done even if this call is dropped meanwhile.
         let (replaced, held, planned) = {
-            let path = path.clone();
+            let path = text(request.path);
             tokio::task::spawn_blocking(move || {
                 let replaced =
                     env(&placement, sandbox).and_then(|env| {
@@ -355,23 +607,51 @@ impl Workspace {
     ) -> Result<Weighed> {
         let tx = ctx.sql().begin_transaction(None).await?;
         let found = calls::find(&tx, agent, request.call).await;
-        let reach = reach::read(&tx, agent).await;
+        let in_force = reach::in_force(&tx, agent).await;
         tx.rollback().await?;
         if let Some(call) = found? {
             return answered(call, request);
         }
+        let in_force = in_force?;
         let op = Op::Change {
             conversation: request.conversation,
             path: request.path,
         };
-        Ok(match self.gated(agent, reach?.as_ref(), &op)? {
+        let reach = in_force.as_ref().map(|(_, reach)| reach);
+        Ok(match self.gated(agent, reach, &op)? {
             Gated::Pass(passed) => Weighed::Pass(passed),
+            Gated::Chief(passed, needs) => Weighed::Chief(
+                passed,
+                needs,
+                in_force
+                    .map(|(version, _)| version)
+                    .context("a chief is asked with no reach")?,
+            ),
             Gated::Refused(refusal) => {
                 Weighed::Answer(ChangeAnswer::Refused(refusal))
             }
             Gated::Fetch(version) => Weighed::Fetch(version),
         })
     }
+}
+
+/// What a change carries out once its row is written.
+struct Carry {
+    placement: Placement,
+    sandbox: hamlet_sandbox::Sandbox,
+    secrets: Arc<Vec<String>>,
+    planned: Planned,
+    temp_name: String,
+}
+
+/// The name of the new file `planned` writes, and its path.
+fn temp_of(planned: &Planned) -> (String, String) {
+    let temp_name = format!(".hamlet-{}.new", uuid::Uuid::new_v4());
+    let temp = path::join(&[
+        path::dirname(&planned.current.real).as_str(),
+        &temp_name,
+    ]);
+    (temp_name, temp)
 }
 
 /// What the row `call` answers a change of `request`.
@@ -384,16 +664,58 @@ fn answered(
             CallRefusal::CallReused(request.call.clone()),
         )));
     }
-    Ok(match (call.state.as_str(), call.answer) {
-        ("ended", Some(answer)) => Weighed::Answer(
-            ciborium::from_reader(answer.as_slice())
-                .context("decode a change's answer")?,
-        ),
-        _ => Weighed::Unfinished {
+    Ok(match call.state.as_str() {
+        "ended" => Weighed::Answer(decoded("answer", call.answer)?),
+        "waiting" => Weighed::Answer(ChangeAnswer::WaitsForChief(
+            decoded("needs", call.answer)?,
+        )),
+        "refused" => Weighed::Answer(ChangeAnswer::Refused(decoded(
+            "refusal",
+            call.answer,
+        )?)),
+        "changing" => Weighed::Unfinished {
             id: call.id,
             temp: call.temp,
         },
+        state => bail!("a change has the state {state}"),
     })
+}
+
+/// The `what` a change's row holds in `bytes`.
+fn decoded<T: serde::de::DeserializeOwned>(
+    what: &str,
+    bytes: Option<Vec<u8>>,
+) -> Result<T> {
+    let bytes = bytes
+        .with_context(|| format!("a change's row has no {what}"))?;
+    ciborium::from_reader(bytes.as_slice())
+        .with_context(|| format!("decode a change's {what}"))
+}
+
+/// The change of `asked` at `path`, as `planned`, in words for a
+/// chief, as today's petition words it.
+fn words_of(
+    path: &str,
+    asked: &Asked<'_>,
+    planned: &Planned,
+) -> String {
+    match (asked, &planned.current.bytes) {
+        (Asked::Write(content), None) => {
+            format!("{path}\nA new file:\n{content}")
+        }
+        (Asked::Write(content), Some(old)) => format!(
+            "{path}\nReplace:\n{}\nWith:\n{content}",
+            String::from_utf8_lossy(old)
+        ),
+        (Asked::Edit(edits), _) => {
+            edits.iter().fold(path.to_owned(), |words, edit| {
+                format!(
+                    "{words}\nReplace:\n{}\nWith:\n{}",
+                    edit.old, edit.new
+                )
+            })
+        }
+    }
 }
 
 /// What a change plans to write, copied out of the request for its
@@ -403,39 +725,75 @@ enum PlannedAs {
     Edit(Vec<Replace>),
 }
 
+/// [`plan`], off the runtime.
+async fn planned(
+    placement: Placement,
+    sandbox: hamlet_sandbox::Sandbox,
+    path: &str,
+    asked: &Asked<'_>,
+    was: Option<Hashed>,
+) -> Result<Result<Planned, Unplanned>> {
+    let path = path.to_owned();
+    let asked = match *asked {
+        Asked::Write(content) => {
+            PlannedAs::Write(content.as_bytes().to_vec())
+        }
+        Asked::Edit(edits) => PlannedAs::Edit(edits.to_vec()),
+    };
+    tokio::task::spawn_blocking(move || {
+        plan(&placement, sandbox, &path, asked, was)
+    })
+    .await
+    .context("a change's thread ended before it")
+}
+
 /// Reads what the change at `path` replaces, and works out what it
-/// writes, or says in words why it cannot.
+/// writes, or says in words why it cannot. With `was`, the file must
+/// still hold what hashes to it.
 fn plan(
     placement: &Placement,
     sandbox: hamlet_sandbox::Sandbox,
     path: &str,
     asked: PlannedAs,
-) -> Result<Planned, String> {
+    was: Option<Hashed>,
+) -> Result<Planned, Unplanned> {
     let current = env(placement, sandbox)
         .and_then(|env| env.read_for_change(path));
+    if let (Some(was), Ok(current)) = (was, &current) {
+        let now = hashed(current.bytes.as_deref());
+        if now != was {
+            return Err(Unplanned::Changed { now });
+        }
+    }
     match asked {
         PlannedAs::Write(content) => Ok(Planned {
-            current: current.map_err(|error| error.message)?,
+            current: current
+                .map_err(|error| Unplanned::Failed(error.message))?,
             content,
             diff: None,
         }),
         PlannedAs::Edit(edits) => {
             let current = current.map_err(|error| {
-                match error.code {
-                    // A folder, or another file that is not regular.
-                    Code::IsDirectory | Code::Invalid => {
-                        CallError::NotAFile(path.to_owned())
+                Unplanned::Failed(
+                    match error.code {
+                        // A folder, or another file that is not
+                        // regular.
+                        Code::IsDirectory | Code::Invalid => {
+                            CallError::NotAFile(path.to_owned())
+                        }
+                        code => CallError::Unedited {
+                            path: path.to_owned(),
+                            code,
+                        },
                     }
-                    code => CallError::Unedited {
-                        path: path.to_owned(),
-                        code,
-                    },
-                }
-                .to_string()
+                    .to_string(),
+                )
             })?;
             let (content, diff) =
                 edit::edited(path, current.bytes.clone(), &edits)
-                    .map_err(|error| error.to_string())?;
+                    .map_err(|error| {
+                        Unplanned::Failed(error.to_string())
+                    })?;
             Ok(Planned {
                 current,
                 content: content.into_bytes(),
@@ -443,6 +801,13 @@ fn plan(
             })
         }
     }
+}
+
+/// What `bytes` hash to, or [`Hashed::Absent`] for no file.
+fn hashed(bytes: Option<&[u8]>) -> Hashed {
+    bytes.map_or(Hashed::Absent, |bytes| {
+        Hashed::Sha256(Sha256::digest(bytes).into())
+    })
 }
 
 /// Replaces the file at `path` with what `planned` writes, through
@@ -492,24 +857,18 @@ async fn open(
             ),
         }));
     }
-    let opened = tx
-        .execute(
-            "INSERT INTO calls (agent, call, op, request_hash, \
-             state, temp, opened_at) VALUES (?1, ?2, ?3, ?4, \
-             'changing', ?5, ?6)",
-            Some(vec![
-                BindParam::Integer(i64::try_from(agent.0)?),
-                BindParam::Text(request.call.0.clone()),
-                BindParam::Text(request.asked.op().to_owned()),
-                BindParam::Blob(request.request_hash.clone()),
-                BindParam::Text(temp.to_owned()),
-                BindParam::Integer(calls::now_ms()?),
-            ]),
-        )
-        .await?;
-    Ok(Ok(opened
-        .last_insert_row_id
-        .context("the insert of a change gave no id")?))
+    calls::insert(
+        tx,
+        agent,
+        request.call,
+        request.asked.op(),
+        request.request_hash.clone(),
+        "changing",
+        None,
+        Some(temp),
+    )
+    .await
+    .map(Ok)
 }
 
 /// Records the answer of the change `id`, in `tx`.
@@ -541,11 +900,6 @@ fn outcome(
     planned: Planned,
     replaced: Result<Replaced, FileError>,
 ) -> ChangeAnswer {
-    let hashed = |bytes: Option<&[u8]>| {
-        bytes.map_or(Hashed::Absent, |bytes| {
-            Hashed::Sha256(Sha256::digest(bytes).into())
-        })
-    };
     match replaced {
         Ok(Replaced::Done { created }) => {
             ChangeAnswer::Changed(Change {
@@ -591,7 +945,8 @@ fn scrubbed(
         ChangeAnswer::Failed(words) => {
             ChangeAnswer::Failed(scrub(&words))
         }
-        refused @ ChangeAnswer::Refused(_) => refused,
+        unchanged @ (ChangeAnswer::Refused(_)
+        | ChangeAnswer::WaitsForChief(_)) => unchanged,
     }
 }
 

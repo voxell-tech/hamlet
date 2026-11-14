@@ -8,8 +8,8 @@ use std::fmt::Debug;
 use std::path::{Path, PathBuf};
 
 use hamlet_actor::action::{decode_positional, encode_positional};
-use hamlet_messages::agent::Finished;
-use hamlet_messages::realm::{SecretList, Secrets};
+use hamlet_messages::agent::{Finished, Outcome};
+use hamlet_messages::realm::{NeedsChief, SecretList, Secrets};
 use hamlet_messages::workspace::files::{
     Change, ChangeAnswer, CutBy, EditDiff, EditFile, FileAnswer,
     Find, Hashed, Image, Note, ReadFile, Replace, Search, Severity,
@@ -20,10 +20,10 @@ use hamlet_messages::workspace::reach::{
     Trust,
 };
 use hamlet_messages::workspace::{
-    AgentNumber, CallId, CallRefusal, CommandEnd, CommandId,
-    CommandStatus, ConversationId, Cut, Exit, ReachAnswer,
-    ReachRefusal, ReachVersion, RealmTask, Run, RunAnswer, SetReach,
-    Shell,
+    AgentNumber, Answer, AnswerTaken, CallId, CallRefusal, Changed,
+    ChiefAnswer, CommandEnd, CommandId, CommandStatus,
+    ConversationId, Cut, Exit, Lapse, ReachAnswer, ReachVersion,
+    RealmRefusal, RealmTask, Run, RunAnswer, Scope, SetReach, Shell,
 };
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -139,7 +139,7 @@ fn the_workspaces_messages_match_their_fixtures() {
     );
     fixtures.answer(
         "workspace/set_reach.refused",
-        &ReachAnswer::Refused(ReachRefusal::NotTheRealm),
+        &ReachAnswer::Refused(RealmRefusal::NotTheRealm),
     );
     let task = Some(RealmTask("task-1".into()));
     fixtures.args(
@@ -219,6 +219,10 @@ fn the_answers_about_a_command_match_their_fixtures() {
             command: CommandId(4),
         },
     );
+    fixtures.answer(
+        "workspace/run.waits_for_chief",
+        &RunAnswer::WaitsForChief(vec![Need::Network, Need::Command]),
+    );
     for (name, refusal) in [
         (
             "reach",
@@ -229,7 +233,30 @@ fn the_answers_about_a_command_match_their_fixtures() {
             }),
         ),
         ("reused", CallRefusal::CallReused(CallId("call-1".into()))),
-        ("needs_chief", CallRefusal::NeedsChief(vec![Need::Network])),
+        ("holds_secret", CallRefusal::HoldsSecret),
+        (
+            "chief_refused",
+            CallRefusal::ChiefRefused {
+                reason: Some("not on main".into()),
+            },
+        ),
+        ("lapsed", CallRefusal::Lapsed(Lapse::Rewound)),
+        (
+            "reach_changed",
+            CallRefusal::ReachChanged {
+                since: ReachVersion(3),
+                now: ReachVersion(4),
+                why: Changed::Needs(vec![Need::Network]),
+            },
+        ),
+        (
+            "reach_changed.refused",
+            CallRefusal::ReachChanged {
+                since: ReachVersion(3),
+                now: ReachVersion(5),
+                why: Changed::Refused(Refusal::NoReach),
+            },
+        ),
     ] {
         fixtures.answer(
             &format!("workspace/run.refused.{name}"),
@@ -257,9 +284,90 @@ fn the_answers_about_a_command_match_their_fixtures() {
         "agent/finished",
         &Finished {
             call: CallId("call-1".into()),
-            end: command_end(Exit::Code(1)),
+            outcome: Outcome::Ran(command_end(Exit::Code(1))),
         },
     );
+    fixtures.args(
+        "agent/finished.changed",
+        &Finished {
+            call: CallId("call-2".into()),
+            outcome: Outcome::Changed(ChangeAnswer::Changed(
+                Change {
+                    path: "/work/project/notes.md".into(),
+                    created: true,
+                    hash: [7; 32],
+                    diff: None,
+                },
+            )),
+        },
+    );
+    fixtures.args(
+        "agent/finished.not_run",
+        &Finished {
+            call: CallId("call-3".into()),
+            outcome: Outcome::NotRun(CallRefusal::ChiefRefused {
+                reason: None,
+            }),
+        },
+    );
+    fixtures.args(
+        "realm/needs_chief",
+        &NeedsChief {
+            agent: AGENT,
+            call: CallId("call-1".into()),
+            conversation: ConversationId("conversation-1".into()),
+            realm_task: Some(RealmTask("task-9".into())),
+            needs: vec![Need::Edit],
+            subject: "/work/project/notes.md\nReplace:\nhello\nWith:\
+                      \ngoodbye"
+                .into(),
+            change: Some(EditDiff {
+                diff: "-1 hello\n+1 goodbye".into(),
+                patch: "--- notes.md\n+++ notes.md\n@@ -1 +1 \
+                        @@\n-hello\n+goodbye\n"
+                    .into(),
+                first_changed_line: Some(1),
+            }),
+            reach_version: ReachVersion(3),
+        },
+    );
+    fixtures.answer("realm/needs_chief", &());
+    for (name, answer) in [
+        ("once", Answer::Allow(Scope::Once)),
+        ("conversation", Answer::Allow(Scope::Conversation)),
+        ("always", Answer::Allow(Scope::Always)),
+        (
+            "refuse",
+            Answer::Refuse {
+                reason: Some("not on main".into()),
+            },
+        ),
+        ("stopped", Answer::Lapsed(Lapse::Stopped)),
+        ("ended", Answer::Lapsed(Lapse::Ended)),
+    ] {
+        fixtures.args(
+            &format!("workspace/chief_answer.{name}"),
+            &ChiefAnswer {
+                agent: AGENT,
+                call: CallId("call-1".into()),
+                answer,
+            },
+        );
+    }
+    for (name, taken) in [
+        ("runs", AnswerTaken::Runs),
+        (
+            "not_run",
+            AnswerTaken::NotRun(CallRefusal::Lapsed(Lapse::Stopped)),
+        ),
+        ("no_wait", AnswerTaken::NoWait),
+        ("refused", AnswerTaken::Refused(RealmRefusal::NotTheRealm)),
+    ] {
+        fixtures.answer(
+            &format!("workspace/chief_answer.{name}"),
+            &taken,
+        );
+    }
     fixtures.args("realm/secrets", &Secrets);
     fixtures.answer(
         "realm/secrets",
@@ -389,6 +497,10 @@ fn the_changes_match_their_fixtures() {
                 path: "/realm/actors/agent/7.fs/notes.md".into(),
             },
         )),
+    );
+    fixtures.answer(
+        "workspace/write_file.waits_for_chief",
+        &ChangeAnswer::WaitsForChief(vec![Need::Edit]),
     );
     fixtures.answer(
         "workspace/write_file.refused.too_large",
