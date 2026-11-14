@@ -421,9 +421,11 @@ impl Workspace {
             self.program_placement(agent, &reach, &ready, network)?;
         let tx = ctx.sql().begin_transaction(None).await?;
         let settled =
-            pending::settle(&tx, wait, "running", None, None).await;
+            pending::settle(&tx, wait, "running", None, None)
+                .await
+                .and_then(|id| id.map(run::command_id).transpose());
         let command = match settled {
-            Ok(Some(id)) => run::command_id(id)?,
+            Ok(Some(command)) => command,
             Ok(None) => {
                 tx.rollback().await?;
                 return Ok(AnswerTaken::NoWait);

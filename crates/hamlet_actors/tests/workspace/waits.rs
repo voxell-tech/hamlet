@@ -587,6 +587,14 @@ async fn a_command_whose_row_id_is_no_command_id_does_not_wait() {
     host.shutdown().await.unwrap();
 
     assert!(answered.is_err(), "{answered:?}");
+    assert_eq!(
+        read_only(&dir)
+            .query_row("SELECT count(*) FROM calls", [], |row| {
+                row.get::<_, i64>(0)
+            })
+            .unwrap(),
+        0
+    );
     assert_eq!(waits(&dir), 0);
     assert_eq!(asked(&peers), []);
 }
