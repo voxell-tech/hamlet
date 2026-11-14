@@ -791,7 +791,6 @@ impl Workspace {
             Gate::NeedsChief(needs) => {
                 let opening = pending::Opening {
                     agent,
-                    op: run::OP,
                     request_hash: request_hash.to_vec(),
                     needs,
                     request: pending::Pending::Run(run.clone()),

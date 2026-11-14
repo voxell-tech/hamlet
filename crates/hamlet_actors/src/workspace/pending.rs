@@ -31,7 +31,6 @@ use hamlet_messages::workspace::{
     ReachVersion, Run, RunEnd,
 };
 use hamlet_sandbox::scrub::scrub_text;
-use serde::{Deserialize, Serialize};
 
 use super::files::{EDIT, WRITE};
 use super::reach::{self, Gate, Network, Op, Refused};
@@ -53,12 +52,42 @@ pub(super) const SCHEMA: &str = "CREATE TABLE IF NOT EXISTS waits (
 	PRIMARY KEY (agent, call)) STRICT";
 
 /// The request a waiting call runs if a chief allows it: its own,
-/// never what the workspace read for it.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+/// never what the workspace read for it. It is kept as the message's
+/// own bytes, and read back by its call's `op`.
+#[derive(Clone, Debug)]
 pub(super) enum Pending {
     Run(Run),
     Write(WriteFile),
     Edit(EditFile),
+}
+
+impl Pending {
+    /// The `op` of its call's row.
+    fn op(&self) -> &'static str {
+        match self {
+            Self::Run(_) => run::OP,
+            Self::Write(_) => WRITE,
+            Self::Edit(_) => EDIT,
+        }
+    }
+
+    fn cbor(&self) -> Result<Vec<u8>> {
+        match self {
+            Self::Run(run) => calls::cbor(run),
+            Self::Write(write) => calls::cbor(write),
+            Self::Edit(edit) => calls::cbor(edit),
+        }
+    }
+
+    /// The request `bytes` keep, of a call whose row's `op` is `op`.
+    fn read(op: &str, bytes: &[u8]) -> Result<Self> {
+        Ok(match op {
+            run::OP => Self::Run(ciborium::from_reader(bytes)?),
+            WRITE => Self::Write(ciborium::from_reader(bytes)?),
+            EDIT => Self::Edit(ciborium::from_reader(bytes)?),
+            _ => bail!("a wait of the op {op}"),
+        })
+    }
 }
 
 /// A wait as it is stored.
@@ -74,7 +103,6 @@ pub(super) struct Wait {
 /// A wait to open, and what the realm is told of it.
 pub(super) struct Opening {
     pub agent: AgentNumber,
-    pub op: &'static str,
     pub request_hash: Vec<u8>,
     pub needs: Vec<Need>,
     pub request: Pending,
@@ -116,7 +144,7 @@ pub(super) async fn open(
             (call.clone(), conversation.clone(), realm_task.clone())
         }
     };
-    let request = calls::cbor(&opening.request)?;
+    let request = opening.request.cbor()?;
     if holds_a_secret(secrets, &request) {
         tracing::warn!(
             agent = opening.agent.0,
@@ -137,7 +165,7 @@ pub(super) async fn open(
         tx,
         opening.agent,
         &call,
-        opening.op,
+        opening.request.op(),
         opening.request_hash,
         "waiting",
         Some(calls::cbor(&opening.needs)?),
@@ -194,8 +222,9 @@ pub(super) async fn find(
 ) -> Result<Option<Wait>> {
     let read = tx
         .execute(
-            "SELECT needs, request, reach_version, base_hash FROM \
-             waits WHERE agent = ?1 AND call = ?2",
+            "SELECT calls.op, needs, request, reach_version, \
+             base_hash FROM waits JOIN calls USING (agent, call) \
+             WHERE agent = ?1 AND call = ?2",
             Some(vec![
                 BindParam::Integer(i64::from(agent.0)),
                 BindParam::Text(call.0.clone()),
@@ -206,6 +235,7 @@ pub(super) async fn find(
         return Ok(None);
     };
     let [
+        ColumnValue::Text(op),
         ColumnValue::Blob(needs),
         ColumnValue::Blob(request),
         ColumnValue::Integer(reach_version),
@@ -218,7 +248,7 @@ pub(super) async fn find(
         agent,
         call: call.clone(),
         needs: ciborium::from_reader(needs.as_slice())?,
-        request: ciborium::from_reader(request.as_slice())?,
+        request: Pending::read(op, request)?,
         reach_version: ReachVersion(u64::try_from(*reach_version)?),
         base_hash: match base_hash {
             ColumnValue::Blob(hash) => {

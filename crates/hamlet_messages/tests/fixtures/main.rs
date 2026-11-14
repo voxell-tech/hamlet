@@ -215,6 +215,50 @@ impl Fixtures {
         );
     }
 
+    /// Checks a type as a row keeps it, CBOR of the Rust type itself,
+    /// and returns the kept bytes. A stored fixture is added to and
+    /// never rewritten, so one that no longer reads back as `value`
+    /// fails.
+    fn stored<T>(&mut self, name: &str, value: &T) -> Vec<u8>
+    where
+        T: Serialize + DeserializeOwned + PartialEq + Debug,
+    {
+        let name = format!("stored/{name}");
+        self.written.insert(format!("{name}.cbor"));
+        let mut bytes = Vec::new();
+        ciborium::into_writer(value, &mut bytes).unwrap();
+        let path = folder().join(format!("{name}.cbor"));
+        let Ok(kept) = std::fs::read(&path) else {
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(&path, &bytes).unwrap();
+            self.rewritten.push(format!("{name} (new)"));
+            return bytes;
+        };
+        self.read_back(
+            &name,
+            value,
+            ciborium::from_reader::<T, _>(kept.as_slice()),
+        );
+        kept
+    }
+
+    /// Checks a request a row keeps, also by its bytes: a repeat is
+    /// found by their hash.
+    fn stored_request<T>(&mut self, name: &str, value: &T)
+    where
+        T: Serialize + DeserializeOwned + PartialEq + Debug,
+    {
+        let kept = self.stored(name, value);
+        let mut bytes = Vec::new();
+        ciborium::into_writer(value, &mut bytes).unwrap();
+        if kept != bytes {
+            self.problems.push(format!(
+                "stored/{name}'s bytes changed, so a kept call's \
+                 repeat would not match"
+            ));
+        }
+    }
+
     fn read_back<T: PartialEq + Debug, E: Debug>(
         &mut self,
         name: &str,
@@ -400,6 +444,7 @@ fn every_message_and_every_case_matches_its_fixture() {
     the_realms_and_the_agents(&mut fixtures);
     the_addresses(&mut fixtures);
     the_errors(&mut fixtures);
+    the_stored_rows(&mut fixtures);
     fixtures.remove_unwritten();
     fixtures.assert_unchanged_and_covered();
 }
@@ -469,20 +514,7 @@ fn the_workspaces_messages(fixtures: &mut Fixtures) {
             version: ReachVersion(3),
         },
     );
-    let task = Some(RealmTask("task-1".into()));
-    fixtures.args(
-        "workspace/run",
-        &Run {
-            call: call("call-1"),
-            conversation: ConversationId("c1".into()),
-            realm_task: task.clone(),
-            program: Program::Script {
-                script: "echo hi".into(),
-                network: false,
-                timeout_ms: Some(30_000),
-            },
-        },
-    );
+    fixtures.args("workspace/run", &asked_run());
     fixtures.args(
         "workspace/run.unset",
         &Run {
@@ -501,7 +533,7 @@ fn the_workspaces_messages(fixtures: &mut Fixtures) {
         &Run {
             call: call("call-1"),
             conversation: ConversationId("c1".into()),
-            realm_task: task.clone(),
+            realm_task: task(),
             program: Program::Tool {
                 name: "word_count".into(),
                 arguments: r#"{"path":"/project/a.md"}"#.into(),
@@ -523,28 +555,96 @@ fn the_workspaces_messages(fixtures: &mut Fixtures) {
             }],
         },
     );
-    fixtures.args(
-        "workspace/write_file",
-        &WriteFile {
-            call: call("call-2"),
-            conversation: ConversationId("c1".into()),
-            realm_task: None,
-            path: "/work/project/notes.md".into(),
-            content: "hello\n".into(),
+    fixtures.args("workspace/write_file", &asked_write());
+    fixtures.args("workspace/edit_file", &asked_edit());
+}
+
+fn task() -> Option<RealmTask> {
+    Some(RealmTask("task-1".into()))
+}
+
+fn asked_run() -> Run {
+    Run {
+        call: call("call-1"),
+        conversation: ConversationId("c1".into()),
+        realm_task: task(),
+        program: Program::Script {
+            script: "echo hi".into(),
+            network: false,
+            timeout_ms: Some(30_000),
+        },
+    }
+}
+
+fn asked_write() -> WriteFile {
+    WriteFile {
+        call: call("call-2"),
+        conversation: ConversationId("c1".into()),
+        realm_task: None,
+        path: "/work/project/notes.md".into(),
+        content: "hello\n".into(),
+    }
+}
+
+fn asked_edit() -> EditFile {
+    EditFile {
+        call: call("call-3"),
+        conversation: ConversationId("c1".into()),
+        realm_task: task(),
+        path: "/work/project/notes.md".into(),
+        edits: vec![Replace {
+            old: "hello".into(),
+            new: "goodbye".into(),
+        }],
+    }
+}
+
+/// Each type as a row keeps it.
+fn the_stored_rows(fixtures: &mut Fixtures) {
+    fixtures.stored("reach.agent", &Reach::Agent(footing()));
+    fixtures.stored(
+        "reach.worker",
+        &Reach::Worker {
+            starter: None,
+            footing: Footing {
+                project: None,
+                ..footing()
+            },
         },
     );
-    fixtures.args(
-        "workspace/edit_file",
-        &EditFile {
-            call: call("call-3"),
-            conversation: ConversationId("c1".into()),
-            realm_task: task,
-            path: "/work/project/notes.md".into(),
-            edits: vec![Replace {
-                old: "hello".into(),
-                new: "goodbye".into(),
-            }],
+    fixtures.stored("reach.ended", &Reach::Ended);
+    fixtures.stored_request("request.run", &asked_run());
+    fixtures.stored_request("request.write_file", &asked_write());
+    fixtures.stored_request("request.edit_file", &asked_edit());
+    fixtures.stored("needs", &vec![Need::Network, Need::Command]);
+    fixtures.stored("hashed.absent", &Hashed::Absent);
+    fixtures.stored(
+        "hashed.sha256",
+        &Hashed::Sha256 {
+            hash: Sha256([1; 32]),
         },
+    );
+    fixtures
+        .stored("end.command", &command_end(Exit::Code { code: 0 }));
+    fixtures.stored(
+        "end.run_not_run",
+        &RunNotRun::from(WaitEnd::Lapsed {
+            lapse: Lapse::Ended,
+        }),
+    );
+    fixtures.stored(
+        "end.change.changed",
+        &ChangeEnd::Changed(changed(true, 7, None)),
+    );
+    fixtures.stored(
+        "end.change.not_run",
+        &ChangeEnd::NotRun {
+            why: file_changed().into(),
+        },
+    );
+    fixtures.stored(
+        "end.change_not_run",
+        &ChangeNotRun::from(WaitEnd::ChiefRefused { reason: None }),
     );
 }
 

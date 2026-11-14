@@ -21,8 +21,8 @@ use hamlet_messages::workspace::refusal::{
 };
 use hamlet_messages::workspace::{
     Answer, AnswerTaken, CallId, ChiefAnswer, CommandId,
-    ConversationId, Exit, Lapse, ReachVersion, RealmTask, RunAnswer,
-    RunEnd,
+    ConversationId, Exit, Lapse, ReachVersion, RealmTask, Run,
+    RunAnswer, RunEnd,
 };
 use hamlet_testing::Scratch;
 
@@ -99,8 +99,9 @@ fn manual_with_network(folder: &Path) -> Reach {
 
 /// In manual mode a command waits for a chief: the call answers so,
 /// the realm is told once with the call's task and its words, and
-/// nothing runs. A repeat answers that it waits and tells no one; a
-/// repeat with another task is another request, which fails with
+/// nothing runs. The wait keeps the call's own request, as the
+/// message's bytes. A repeat answers that it waits and tells no one;
+/// a repeat with another task is another request, which fails with
 /// `message.id_reused` (M-E10).
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
@@ -144,6 +145,13 @@ async fn a_command_that_needs_a_chief_waits_and_the_realm_is_told() {
     );
     assert!(!folder.join("marker").exists());
     assert_eq!(waits(&dir), 1);
+    let kept: Vec<u8> = read_only(&dir)
+        .query_row("SELECT request FROM waits", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(
+        ciborium::from_reader::<Run, _>(kept.as_slice()).unwrap(),
+        asked_run
+    );
     assert_eq!(told(&peers), []);
 }
 

@@ -282,7 +282,6 @@ impl Workspace {
         pending: &Pending,
         request: &Request<'_>,
     ) -> Result<ChangeAnswer<R>> {
-        let action = request.asked.op();
         let path = text(request.path);
         let held = self.paths.hold(&path).await;
         let weighed = self
@@ -329,7 +328,6 @@ impl Workspace {
         if let Some((needs, reach_version)) = chief {
             let opening = pending::Opening {
                 agent,
-                op: action,
                 request_hash: request.request_hash.clone(),
                 needs,
                 reach_version,
