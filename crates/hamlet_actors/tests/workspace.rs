@@ -19,9 +19,10 @@ use hamlet_messages::workspace::reach::{
     Footing, Mode, Project, Reach, SecretsVersion,
 };
 use hamlet_messages::workspace::{
-    AgentNumber, CallId, CommandEnd, ConversationId, Exit,
-    ReachAnswer, ReachRefusal, ReachVersion, Run, RunAnswer,
-    SetReach, Shell,
+    AgentNumber, CallId, CallRefusal, CallerRefusal, CommandEnd,
+    CommandId, CommandStatus, ConversationId, Exit, ReachAnswer,
+    ReachRefusal, ReachVersion, RealmTask, Run, RunAnswer, SetReach,
+    Shell,
 };
 use hamlet_sandbox::Sandbox;
 use hamlet_testing::Scratch;
@@ -40,6 +41,9 @@ const PEERS: [&str; 3] = ["realm", "agent", "other"];
 /// long it takes to answer for them, and what the agents were told.
 #[derive(Default)]
 struct Peers {
+    /// How long the workspace waits for a command before it answers
+    /// `Running`, when not its own 5 seconds.
+    answer_within: Option<Duration>,
     secrets_delay: Duration,
     fetched: AtomicUsize,
     told: Mutex<Vec<(String, Finished)>>,
@@ -68,7 +72,7 @@ impl Action for Forward {
 #[async_trait::async_trait]
 impl Actor for Peer {
     type Input = ();
-    type Actions = (Forward, Secrets, Finished);
+    type Actions = (Forward, Secrets, Finished, Leave);
     type Events = ();
     type ConnParams = Option<Caller>;
     type Action = ();
@@ -132,6 +136,25 @@ impl Handler<Finished> for Peer {
     }
 }
 
+/// Asks a peer to destroy itself.
+#[derive(Serialize, Deserialize)]
+struct Leave;
+
+impl Action for Leave {
+    type Output = ();
+    const NAME: &'static str = "leave";
+}
+
+impl Handler<Leave> for Peer {
+    async fn handle(
+        self: Arc<Self>,
+        ctx: Ctx<Self>,
+        _: Leave,
+    ) -> anyhow::Result<()> {
+        ctx.destroy()
+    }
+}
+
 fn peer(kind: &str) -> ActorFactory {
     let mut registry = Registry::new();
     registry
@@ -175,13 +198,15 @@ async fn host(dir: &Path) -> Host {
 /// A host on `dir` with the workspace made, whose peers share
 /// `peers`.
 async fn host_with(dir: &Path, peers: Arc<Peers>) -> Host {
-    let host = open(
-        dir,
-        HostOptions::default()
-            .with_value(Arc::new(Sandbox::testing()))
-            .with_value(peers),
-    )
-    .unwrap();
+    let mut options = HostOptions::default()
+        .with_value(Arc::new(Sandbox::testing()))
+        .with_value(peers.clone());
+    if let Some(answer_within) = peers.answer_within {
+        options = options.with_value(Arc::new(workspace::Options {
+            answer_within,
+        }));
+    }
+    let host = open(dir, options).unwrap();
     host.get_or_start(workspace::KIND, workspace::MACHINE)
         .await
         .unwrap();
@@ -417,15 +442,76 @@ fn run(call: &str, script: &str) -> Run {
 
 /// Calls the workspace with `run`, as agent 7.
 async fn agent_runs(host: &Host, run: &Run) -> RunAnswer {
+    runs_as(host, AGENT, run).await
+}
+
+/// Calls the workspace with `run`, as agent `from`.
+async fn runs_as(
+    host: &Host,
+    from: AgentNumber,
+    run: &Run,
+) -> RunAnswer {
     let reply = call_as(
         host,
-        &agent(AGENT),
+        &agent(from),
         Run::NAME,
         hamlet_actor::action::encode_positional(run).unwrap(),
     )
     .await
     .unwrap();
     decoded(&reply)
+}
+
+/// Asks the workspace, as agent `from`, how agent 7's `command`
+/// stands.
+async fn status_as(
+    host: &Host,
+    from: AgentNumber,
+    command: CommandId,
+) -> RunAnswer {
+    let status = CommandStatus {
+        agent: from,
+        command,
+    };
+    let reply = call_as(
+        host,
+        &agent(from),
+        CommandStatus::NAME,
+        hamlet_actor::action::encode_positional(&status).unwrap(),
+    )
+    .await
+    .unwrap();
+    decoded(&reply)
+}
+
+/// What the agents were told, `(actor id, Finished)`.
+fn told(peers: &Peers) -> Vec<(String, Finished)> {
+    peers.told.lock().unwrap().clone()
+}
+
+/// Waits up to `within` for the agents to have been told `n` things.
+async fn told_within(peers: &Peers, n: usize, within: Duration) {
+    let until = tokio::time::Instant::now() + within;
+    while told(peers).len() < n && tokio::time::Instant::now() < until
+    {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
+/// The command a call answered `Running` for.
+fn running(answer: &RunAnswer) -> CommandId {
+    match answer {
+        RunAnswer::Running { command } => *command,
+        other => panic!("the command answered {other:?}"),
+    }
+}
+
+/// Peers whose workspace answers `Running` after `ms`.
+fn answering_within(ms: u64) -> Arc<Peers> {
+    Arc::new(Peers {
+        answer_within: Some(Duration::from_millis(ms)),
+        ..Peers::default()
+    })
 }
 
 /// Agent 7's filesystem, made by hand as the agent would.
@@ -537,4 +623,244 @@ async fn no_secret_reaches_the_workspaces_file() {
         );
     }
     assert!(searched > 0, "no file was searched");
+}
+
+/// A command that ends within the wait answers `Done`, and the agent
+/// is called with nothing.
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_command_that_ends_in_time_answers_done() {
+    let dir = Scratch::new("workspace-done");
+    filesystem(&dir);
+    let peers = Arc::new(Peers::default());
+    let host = host_with(&dir, peers.clone()).await;
+    realm_sets(&host, 1, reach(None)).await;
+    let end = done(agent_runs(&host, &run("c1", "echo hi")).await);
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    host.shutdown().await.unwrap();
+
+    assert_eq!(
+        (end.exit, end.output.as_str()),
+        (Exit::Code(0), "hi\n")
+    );
+    assert_eq!(told(&peers), []);
+}
+
+/// A command that runs past the wait answers `Running` with its id,
+/// and the agent is called with its end once, when it ends. Its
+/// status then answers that end.
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_long_command_answers_running_then_finished() {
+    let dir = Scratch::new("workspace-running");
+    filesystem(&dir);
+    let peers = answering_within(300);
+    let host = host_with(&dir, peers.clone()).await;
+    realm_sets(&host, 1, reach(None)).await;
+    let asked = std::time::Instant::now();
+    let answer =
+        agent_runs(&host, &run("c1", "sleep 1; echo late")).await;
+    let answered_in = asked.elapsed();
+    let command = running(&answer);
+    let while_running = status_as(&host, AGENT, command).await;
+    told_within(&peers, 1, Duration::from_secs(5)).await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let after = status_as(&host, AGENT, command).await;
+    let agent_id =
+        host.get_or_start(workspace::AGENT, "7").await.unwrap();
+    host.shutdown().await.unwrap();
+
+    assert!(answered_in < Duration::from_secs(1), "{answered_in:?}");
+    assert_eq!(while_running, RunAnswer::Running { command });
+    let told = told(&peers);
+    assert_eq!(told.len(), 1, "{told:?}");
+    let (to, finished) = &told[0];
+    assert_eq!(to, &agent_id);
+    assert_eq!(finished.call, CallId("c1".into()));
+    assert_eq!(finished.end.command, command);
+    assert_eq!(
+        (&finished.end.exit, finished.end.output.as_str()),
+        (&Exit::Code(0), "late\n")
+    );
+    assert_eq!(after, RunAnswer::Done(finished.end.clone()));
+}
+
+/// A repeat of a call that arrives while the first still waits gets
+/// the first's answer: `Done` for both when the command ends in time,
+/// `Running` for both when it does not, and then one `Finished`.
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_repeat_within_the_wait_answers_as_the_first() {
+    for (wait_ms, script, both_done) in [
+        (2000, "sleep 0.6; echo x >> runs", true),
+        (400, "sleep 1.2; echo x >> runs", false),
+    ] {
+        let dir = Scratch::new("workspace-repeat-waiting");
+        let fs = filesystem(&dir);
+        let peers = answering_within(wait_ms);
+        let host = host_with(&dir, peers.clone()).await;
+        realm_sets(&host, 1, reach(None)).await;
+        let call = run("c1", script);
+        let first = {
+            let (host, call) = (host.clone(), call.clone());
+            tokio::spawn(
+                async move { agent_runs(&host, &call).await },
+            )
+        };
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        let repeat = agent_runs(&host, &call).await;
+        let first = first.await.unwrap();
+        told_within(&peers, 1, Duration::from_secs(3)).await;
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        host.shutdown().await.unwrap();
+
+        assert_eq!(repeat, first, "wait {wait_ms} ms");
+        assert_eq!(matches!(first, RunAnswer::Done(_)), both_done);
+        assert_eq!(told(&peers).len(), usize::from(!both_done));
+        assert_eq!(
+            std::fs::read_to_string(fs.join("runs")).unwrap(),
+            "x\n"
+        );
+    }
+}
+
+/// A repeat after the command ended answers its end from the row and
+/// runs nothing again; one with another request is refused (W1).
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_repeat_answers_from_the_row_and_runs_nothing() {
+    let dir = Scratch::new("workspace-repeat");
+    let fs = filesystem(&dir);
+    let host = host(&dir).await;
+    realm_sets(&host, 1, reach(None)).await;
+    let call = run("c1", "echo x >> runs; echo ran");
+    let first = agent_runs(&host, &call).await;
+    let repeat = agent_runs(&host, &call).await;
+    let other_task = Run {
+        realm_task: Some(RealmTask("task-2".into())),
+        ..call.clone()
+    };
+    let reused = agent_runs(&host, &other_task).await;
+    host.shutdown().await.unwrap();
+
+    assert!(matches!(first, RunAnswer::Done(_)), "{first:?}");
+    assert_eq!(repeat, first);
+    assert_eq!(
+        reused,
+        RunAnswer::Refused(CallRefusal::CallReused(CallId(
+            "c1".into()
+        )))
+    );
+    assert_eq!(
+        std::fs::read_to_string(fs.join("runs")).unwrap(),
+        "x\n"
+    );
+}
+
+/// W2: an agent's call naming another agent is refused and runs
+/// nothing; a status asked for another agent's command finds none.
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn the_agent_is_the_stamped_caller() {
+    let dir = Scratch::new("workspace-stamped");
+    let fs = filesystem(&dir);
+    let peers = answering_within(200);
+    let host = host_with(&dir, peers.clone()).await;
+    realm_sets(&host, 1, reach(None)).await;
+    let other = AgentNumber(8);
+    let named = runs_as(&host, other, &run("c1", "touch ran")).await;
+    let command =
+        running(&agent_runs(&host, &run("c2", "sleep 1")).await);
+    let asked = status_as(&host, other, command).await;
+    told_within(&peers, 1, Duration::from_secs(5)).await;
+    host.shutdown().await.unwrap();
+
+    assert_eq!(
+        named,
+        RunAnswer::Refused(CallRefusal::Caller(
+            CallerRefusal::NotTheCaller {
+                named: AGENT,
+                caller: other,
+            }
+        ))
+    );
+    assert!(!fs.join("ran").exists());
+    assert_eq!(
+        asked,
+        RunAnswer::Refused(CallRefusal::NoSuchCommand(command))
+    );
+}
+
+/// A command the workspace's host stopped under is gone, and at the
+/// next start its row reads cut off; the workspace calls no one.
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_running_row_is_cut_off_at_the_next_start() {
+    let dir = Scratch::new("workspace-cut-off");
+    let fs = filesystem(&dir);
+    let peers = answering_within(200);
+    let host = host_with(&dir, peers.clone()).await;
+    realm_sets(&host, 1, reach(None)).await;
+    let command = running(
+        &agent_runs(&host, &run("c1", "sleep 1; touch late")).await,
+    );
+    host.shutdown().await.unwrap();
+    let again = host_with(&dir, peers.clone()).await;
+    let status = status_as(&again, AGENT, command).await;
+    let repeat =
+        agent_runs(&again, &run("c1", "sleep 1; touch late")).await;
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+    again.shutdown().await.unwrap();
+
+    let cut_off = RunAnswer::Done(CommandEnd {
+        command,
+        exit: Exit::CutOff,
+        output: String::new(),
+        policy: String::new(),
+        took_ms: 0,
+    });
+    assert_eq!(status, cut_off);
+    assert_eq!(repeat, cut_off);
+    assert!(!fs.join("late").exists(), "the command ran on");
+    assert_eq!(told(&peers), []);
+}
+
+/// A call does not make its target: `Finished` to an agent that was
+/// destroyed fails, the workspace drops it, and the row keeps the
+/// end.
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_finished_to_an_agent_that_is_gone_is_dropped() {
+    let dir = Scratch::new("workspace-agent-gone");
+    filesystem(&dir);
+    let peers = answering_within(200);
+    let host = host_with(&dir, peers.clone()).await;
+    realm_sets(&host, 1, reach(None)).await;
+    let command = running(
+        &agent_runs(&host, &run("c1", "sleep 0.8; echo end")).await,
+    );
+    host.call(
+        &agent(AGENT),
+        Leave::NAME,
+        hamlet_actor::action::encode_positional(&Leave).unwrap(),
+        Duration::from_secs(10),
+        Cause::root("test"),
+    )
+    .await
+    .unwrap();
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+    let agent_file = dir.join("actors/agent/7.sqlite").exists();
+    host.shutdown().await.unwrap();
+
+    assert_eq!(told(&peers), []);
+    assert!(!agent_file, "the call made the agent again");
+    let db = read_only(&dir);
+    let state: String = db
+        .query_row(
+            "SELECT state FROM calls WHERE id = ?1",
+            [i64::try_from(command.0).unwrap()],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(state, "ended");
 }

@@ -3,13 +3,13 @@
 //! lives until the command ends.
 
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, bail};
 use hamlet_actor_core::{BindParam, ColumnValue, SqliteTransaction};
 use hamlet_messages::workspace::{
-    AgentNumber, CallId, CommandEnd, CommandId, Exit, Run,
+    AgentNumber, CallId, CommandEnd, CommandId, Exit, Run, RunAnswer,
 };
 use hamlet_os::fs::path::text;
 use hamlet_sandbox::scrub::scrub_text;
@@ -19,6 +19,9 @@ use hamlet_sandbox::{
 use sha2::{Digest, Sha256};
 use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
+
+/// How long a call waits for its command before it answers `Running`.
+pub const ANSWER_WITHIN: Duration = Duration::from_secs(5);
 
 /// The longest a command runs (C16). A call may only shorten it.
 pub const LONGEST: Duration = Duration::from_secs(120);
@@ -63,6 +66,30 @@ pub(super) fn request_hash(run: &Run) -> Result<Vec<u8>> {
     ciborium::into_writer(run, &mut bytes)?;
     Ok(Sha256::digest(&bytes).to_vec())
 }
+
+/// The row of `agent`'s command `command`, in `tx`.
+pub(super) async fn status(
+    tx: &SqliteTransaction,
+    agent: AgentNumber,
+    command: CommandId,
+) -> Result<Option<Row>> {
+    let read = tx
+        .execute(
+            "SELECT id, request_hash, state, answer FROM calls \
+             WHERE agent = ?1 AND id = ?2 AND op = 'run'",
+            Some(vec![
+                BindParam::Integer(i64::try_from(agent.0)?),
+                BindParam::Integer(i64::try_from(command.0)?),
+            ]),
+        )
+        .await?;
+    read.rows.first().map(|row| read_row(row)).transpose()
+}
+
+/// Marks every command still running as cut off: the host they ran
+/// under stopped.
+pub(super) const CUT_OFF: &str =
+    "UPDATE calls SET state = 'cut_off' WHERE state = 'running'";
 
 /// The row of `agent`'s call `call`, in `tx`.
 pub(super) async fn find(
@@ -156,11 +183,15 @@ pub(super) async fn end(
     Ok(())
 }
 
-/// The end the agent hears for a command that was cut off.
-pub(super) fn cut_off(command: CommandId) -> CommandEnd {
+/// The end of a command that printed nothing: one that was cut off,
+/// or never ran.
+pub(super) fn without_output(
+    command: CommandId,
+    exit: Exit,
+) -> CommandEnd {
     CommandEnd {
         command,
-        exit: Exit::CutOff,
+        exit,
         output: String::new(),
         policy: String::new(),
         took_ms: 0,
@@ -170,6 +201,87 @@ pub(super) fn cut_off(command: CommandId) -> CommandEnd {
 fn now_ms() -> Result<i64> {
     let now = SystemTime::now().duration_since(UNIX_EPOCH)?;
     Ok(i64::try_from(now.as_millis())?)
+}
+
+/// Who hears a running command's end: the call that started it and
+/// every repeat of it that came while it waited, or the agent, called
+/// with `Finished`. Exactly one of the two hears it.
+pub(super) struct Waiters {
+    slot: Mutex<Slot>,
+    /// When the call that started the command answers `Running`.
+    give_up_at: tokio::time::Instant,
+}
+
+enum Slot {
+    Waiting(Vec<oneshot::Sender<CommandEnd>>),
+    /// The calls answered `Running`, so the agent hears the end.
+    GaveUp,
+    /// The calls heard the end.
+    Ended(CommandEnd),
+}
+
+impl Waiters {
+    pub(super) fn new(within: Duration) -> Arc<Self> {
+        Arc::new(Self {
+            slot: Mutex::new(Slot::Waiting(Vec::new())),
+            give_up_at: tokio::time::Instant::now() + within,
+        })
+    }
+
+    /// Waits for the end of `command` until the first call's wait is
+    /// over: `Done` with it, else `Running`.
+    pub(super) async fn answer(
+        &self,
+        command: CommandId,
+    ) -> RunAnswer {
+        let (tx, rx) = oneshot::channel();
+        match &mut *self.lock() {
+            Slot::Waiting(waiting) => waiting.push(tx),
+            Slot::GaveUp => return RunAnswer::Running { command },
+            Slot::Ended(end) => return RunAnswer::Done(end.clone()),
+        }
+        match tokio::time::timeout_at(self.give_up_at, rx).await {
+            Ok(Ok(end)) => RunAnswer::Done(end),
+            Ok(Err(_)) => RunAnswer::Running { command },
+            Err(_) => {
+                let mut slot = self.lock();
+                match &*slot {
+                    Slot::Ended(end) => RunAnswer::Done(end.clone()),
+                    Slot::Waiting(_) | Slot::GaveUp => {
+                        *slot = Slot::GaveUp;
+                        RunAnswer::Running { command }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Gives the calls waiting the end, or returns it, for the agent,
+    /// when they answered `Running`.
+    pub(super) fn ended(
+        &self,
+        end: CommandEnd,
+    ) -> Option<CommandEnd> {
+        let mut slot = self.lock();
+        match std::mem::replace(&mut *slot, Slot::GaveUp) {
+            Slot::Waiting(waiting) => {
+                for tx in waiting {
+                    let _ = tx.send(end.clone());
+                }
+                *slot = Slot::Ended(end);
+                None
+            }
+            Slot::GaveUp => Some(end),
+            Slot::Ended(first) => {
+                *slot = Slot::Ended(first);
+                None
+            }
+        }
+    }
+
+    fn lock(&self) -> std::sync::MutexGuard<'_, Slot> {
+        self.slot.lock().unwrap_or_else(PoisonError::into_inner)
+    }
 }
 
 /// Everything a command's thread needs.
@@ -185,7 +297,8 @@ pub struct Spec {
 }
 
 /// Starts `spec`'s command on a thread of its own. The receiver gets
-/// its end, or nothing when `abort` fired first, which kills it.
+/// its end, or nothing when `abort` fired first, which kills it, or
+/// when the thread could not run it.
 ///
 /// On Linux the sandbox dies with the thread that started it
 /// (`--die-with-parent` is `PR_SET_PDEATHSIG`, which follows the
@@ -194,14 +307,22 @@ pub struct Spec {
 pub fn start(
     spec: Spec,
     abort: CancellationToken,
-) -> std::io::Result<oneshot::Receiver<CommandEnd>> {
+) -> oneshot::Receiver<CommandEnd> {
     let (tx, rx) = oneshot::channel();
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()?;
-    std::thread::Builder::new()
+    let spawned = std::thread::Builder::new()
         .name(format!("command-{}", spec.command.0))
         .spawn(move || {
+            let runtime =
+                tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build();
+            let runtime = match runtime {
+                Ok(runtime) => runtime,
+                Err(error) => {
+                    tracing::warn!(%error, "a command's runtime");
+                    return;
+                }
+            };
             runtime.block_on(async {
                 tokio::select! {
                     end = ran(spec) => {
@@ -210,8 +331,11 @@ pub fn start(
                     () = abort.cancelled() => {}
                 }
             });
-        })?;
-    Ok(rx)
+        });
+    if let Err(error) = spawned {
+        tracing::warn!(%error, "a command's thread");
+    }
+    rx
 }
 
 /// Runs `spec`'s command to its end.
@@ -315,6 +439,75 @@ impl Tail {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// On Linux the sandbox dies with the thread that started it:
+    /// a command started from a thread that then exits is killed,
+    /// while one whose thread lives reaches its end. So `start` gives
+    /// each command a thread of its own. Both runs drive the command
+    /// on one runtime, so only the starting thread's exit differs.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_command_dies_with_the_thread_that_started_it() {
+        use std::task::{Context, Poll, Waker};
+
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(1)
+            .enable_all()
+            .build()
+            .unwrap();
+        let mut seen = Vec::new();
+        for thread_exits in [false, true] {
+            let scratch =
+                hamlet_testing::Scratch::new("command-thread");
+            let cwd = scratch.join("work");
+            std::fs::create_dir_all(&cwd).unwrap();
+            let spec = Spec {
+                command: CommandId(1),
+                script: "sleep 1; touch marker".to_owned(),
+                cwd: cwd.clone(),
+                policy: Policy {
+                    rw: vec![cwd.clone()],
+                    env: hamlet_sandbox::base_env(),
+                    ..Policy::default()
+                },
+                sandbox: Sandbox::testing(),
+                timeout: Duration::from_secs(10),
+                secrets: Arc::default(),
+                leftovers: hamlet_sandbox::AllLeftovers::default()
+                    .of(1),
+            };
+            let handle = runtime.handle().clone();
+            let (moved, arrived) = std::sync::mpsc::channel();
+            let (done, release) = std::sync::mpsc::channel::<()>();
+            let starter = std::thread::spawn(move || {
+                let _entered = handle.enter();
+                let mut command = Box::pin(ran(spec));
+                // Its first poll starts the sandbox, from this
+                // thread.
+                let poll = command
+                    .as_mut()
+                    .poll(&mut Context::from_waker(Waker::noop()));
+                assert!(matches!(poll, Poll::Pending));
+                moved.send(command).unwrap();
+                if thread_exits {
+                    // Long enough for the sandbox to tie itself to
+                    // this thread, which it does as it starts.
+                    std::thread::sleep(Duration::from_millis(500));
+                } else {
+                    let _ = release.recv();
+                }
+            });
+            let command = arrived.recv().unwrap();
+            let end = runtime.block_on(command);
+            drop(done);
+            starter.join().unwrap();
+            seen.push((end.exit, cwd.join("marker").exists()));
+        }
+        assert_eq!(
+            seen,
+            [(Exit::Code(0), true), (Exit::Code(128 + 9), false)]
+        );
+    }
 
     #[test]
     fn the_tail_keeps_the_last_lines_within_the_limits() {
