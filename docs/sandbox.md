@@ -93,16 +93,22 @@ agent's file tools never write its filesystem. With a folder, the
 policy is `open`: the machine is readable but the realm's folder, which
 is `hidden`, and the environment is the chief's own (`host_env`), so the
 project's tools are found; the call works in the folder. A folder
-that holds the realm's folder shows it again, since bubblewrap binds the
-writable folders after it covers the hidden ones. Without one,
+that holds the realm's folder, at any depth, keeps it hidden: of the
+roots that hold a path, the deepest decides, so the realm's folder
+inside the project stays hidden and the own place, `library/` and
+`tools/` inside the realm's folder stay granted. A folder that is the
+realm's folder or lies inside it, also through a link, is refused with
+`ProjectInRealm`, and nothing runs. Without one,
 only the listed paths are reached, the environment is `base_env` with
 `HOME` at the own place, and the call works there. `library/` and
 `tools/` are `locked`, so they stay read-only also inside a folder that
 holds the realm's (C18). `net` is on only for a command the gate gave
 the network.
 
-The gate reads the same policies: a read passes where the file tools'
-policy reads, and a change where it writes and nothing locks the path.
+The gate reads the same policies, through `Policy::reads` and
+`Policy::writes`, where the path's links lead: a read passes where the
+file tools' policy reads, and a change where it writes and nothing
+locks the path.
 A change in an agent's filesystem is always refused, and a read there
 unless the policy reads it, as a worker reads its starter's.
 
