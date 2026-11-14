@@ -23,6 +23,8 @@ use hamlet_testing::Scratch;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
+#[path = "support/began.rs"]
+mod began;
 #[path = "support/call.rs"]
 mod call;
 #[path = "support/code.rs"]
@@ -545,16 +547,12 @@ impl Holds {
         Ok(())
     }
 
-    /// Waits up to ten seconds for `n` holds to begin.
+    /// Waits for `n` holds to begin.
     async fn began(&self, n: u32) {
-        tokio::time::timeout(
-            Duration::from_secs(10),
-            self.0.acquire_many(n),
-        )
-        .await
-        .expect("the holds did not begin")
-        .unwrap()
-        .forget();
+        began::began("the holds", self.0.acquire_many(n))
+            .await
+            .unwrap()
+            .forget();
     }
 }
 

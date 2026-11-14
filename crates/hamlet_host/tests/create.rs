@@ -9,6 +9,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use anyhow::Context as _;
+use began::began;
 use code::code;
 use files::any_file_of;
 use hamlet_actor::{
@@ -21,6 +22,8 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use tokio::sync::Notify;
 
+#[path = "support/began.rs"]
+mod began;
 #[path = "support/call.rs"]
 mod call;
 #[path = "support/code.rs"]
@@ -525,7 +528,7 @@ async fn a_create_a_shutdown_cuts_off_leaves_no_actor() {
         let host = host.clone();
         async move { host.create("made", "a", cbor("cut")).await }
     });
-    held.0.notified().await;
+    began("the held start", held.0.notified()).await;
     tokio::time::timeout(Duration::from_secs(10), host.shutdown())
         .await
         .expect("the shutdown waited for the held start")
@@ -573,7 +576,7 @@ async fn a_create_waits_out_no_destroy_and_brings_no_old_data_back() {
         let host = host.clone();
         async move { host.stop("made/a", ShutdownKind::Destroy).await }
     });
-    slow.began.notified().await;
+    began("the destroy", slow.began.notified()).await;
     let begun = Instant::now();
     let during = failed(host.create("made", "a", cbor("new")).await);
     let waited = begun.elapsed();
