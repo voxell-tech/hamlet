@@ -44,7 +44,9 @@ use hamlet_actor_core::{
 use hamlet_actors::workspace;
 use hamlet_host::{Address, Caller, Cause, Host, HostRef};
 use hamlet_messages::agent::{Finished, Outcome};
-use hamlet_messages::workspace::files::{ChangeAnswer, WriteFile};
+use hamlet_messages::workspace::files::{
+    ChangeAnswer, FileAnswer, ReadFile, WriteFile,
+};
 use hamlet_messages::workspace::{
     AgentNumber, CallId, CommandEnd, CommandId, CommandStatus,
     ConversationId, Exit, Program, Run, RunAnswer, Shell,
@@ -200,6 +202,31 @@ pub async fn run(host: &Host, words: &[String]) -> Result<()> {
             let args = hamlet_actor::action::encode_positional(&run)?;
             (Run::NAME, args, Some(call))
         }
+        ("tool", [call, tool, arguments @ ..]) => {
+            let run = Run {
+                agent,
+                call: CallId(call.clone()),
+                conversation,
+                realm_task: None,
+                program: Program::Tool {
+                    name: tool.clone(),
+                    arguments: arguments.join(" "),
+                },
+            };
+            let args = hamlet_actor::action::encode_positional(&run)?;
+            (Run::NAME, args, Some(call))
+        }
+        ("read", [path]) => {
+            let read = ReadFile {
+                agent,
+                path: path.into(),
+                offset: None,
+                limit: None,
+            };
+            let args =
+                hamlet_actor::action::encode_positional(&read)?;
+            (ReadFile::NAME, args, None)
+        }
         ("status", [command]) => {
             let status = CommandStatus {
                 agent,
@@ -223,7 +250,8 @@ pub async fn run(host: &Host, words: &[String]) -> Result<()> {
             (WriteFile::NAME, args, Some(call))
         }
         _ => bail!(
-            "usage: demo agent <n> run <call> <script ...> | status \
+            "usage: demo agent <n> run <call> <script ...> | tool \
+             <call> <name> <json ...> | read <path> | status \
              <command> | write <call> <path> <content ...>"
         ),
     };
@@ -245,6 +273,26 @@ pub async fn run(host: &Host, words: &[String]) -> Result<()> {
         .await?;
     let reply: Vec<u8> = ciborium::from_reader(reply.as_slice())?;
     let mut out = std::io::stdout();
+    if name == ReadFile::NAME {
+        // The bytes it read, or 0 and a warning.
+        match ciborium::from_reader(reply.as_slice())? {
+            FileAnswer::Text(text) => {
+                writeln!(out, "read {}", text.text.len())?;
+            }
+            FileAnswer::Image(image) => {
+                writeln!(out, "read {}", image.bytes.len())?;
+            }
+            FileAnswer::Refused(refusal) => {
+                tracing::warn!(%refusal, "the workspace refused agent {number}");
+                writeln!(out, "read 0")?;
+            }
+            FileAnswer::Failed(words) => {
+                tracing::warn!(%words, "agent {number}'s read failed");
+                writeln!(out, "read 0")?;
+            }
+        }
+        return Ok(());
+    }
     if name == WriteFile::NAME {
         let call = call.map_or("", String::as_str);
         match ciborium::from_reader(reply.as_slice())? {
