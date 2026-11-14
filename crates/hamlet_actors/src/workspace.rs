@@ -5,11 +5,10 @@
 pub mod reach;
 
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result};
 use hamlet_actor::{Action, Actor, Ctx, Handler, Registry};
-use hamlet_actor_core::{ActorConfig, ActorFactory, BindParam};
+use hamlet_actor_core::{ActorConfig, ActorFactory};
 use hamlet_host::{Caller, HostRef};
 use hamlet_messages::workspace::{
     AgentNumber, CallerRefusal, ReachAnswer, ReachRefusal, SetReach,
@@ -26,14 +25,6 @@ pub const REALM: &str = "realm";
 
 /// The kind of an agent, keyed by its [`AgentNumber`].
 pub const AGENT: &str = "agent";
-
-/// Callers the workspace refused, so that one can be found later.
-const SCHEMA: &str = "CREATE TABLE IF NOT EXISTS refusals (
-	id INTEGER PRIMARY KEY,
-	caller TEXT NOT NULL,
-	action TEXT NOT NULL,
-	why TEXT NOT NULL,
-	at INTEGER NOT NULL) STRICT";
 
 /// The workspace's kind. Its host gives it the [`Sandbox`] its
 /// commands run in, as a value of [`hamlet_host::HostOptions`].
@@ -66,9 +57,7 @@ impl Actor for Workspace {
         HostRef::of(ctx.inner())?
             .value::<Sandbox>()
             .context("the host gave the workspace no sandbox")?;
-        ctx.sql()
-            .exec(format!("{SCHEMA};{}", reach::SCHEMA))
-            .await?;
+        ctx.sql().exec(reach::SCHEMA).await?;
         Ok(Self)
     }
 }
@@ -82,8 +71,7 @@ impl Handler<SetReach> for Workspace {
         let caller = caller(&ctx)?;
         if !is_the_realm(caller.as_ref()) {
             let refusal = ReachRefusal::NotTheRealm;
-            refused(&ctx, caller.as_ref(), SetReach::NAME, &refusal)
-                .await?;
+            refused(caller.as_ref(), SetReach::NAME, &refusal);
             return Ok(ReachAnswer::Refused(refusal));
         }
         let tx = ctx.sql().begin_transaction(None).await?;
@@ -126,13 +114,14 @@ pub fn agent_of(
     }
 }
 
-/// Records that `caller` was refused `action`, and why.
-async fn refused(
-    ctx: &Ctx<Workspace>,
+/// Logs that `caller` was refused `action`, and why. A refusal
+/// leaves no row, so a caller refused again and again cannot fill
+/// the workspace's file.
+fn refused(
     caller: Option<&Caller>,
     action: &str,
     why: &impl std::fmt::Display,
-) -> Result<()> {
+) {
     let caller = match caller {
         Some(Caller::Actor(from)) => {
             format!("{}/{}", from.kind, from.key)
@@ -140,20 +129,7 @@ async fn refused(
         Some(Caller::Client) => "client".to_owned(),
         None => "none".to_owned(),
     };
-    let now = SystemTime::now().duration_since(UNIX_EPOCH)?;
-    ctx.sql()
-        .execute(
-            "INSERT INTO refusals (caller, action, why, at) VALUES \
-             (?1, ?2, ?3, ?4)",
-            Some(vec![
-                BindParam::Text(caller),
-                BindParam::Text(action.to_owned()),
-                BindParam::Text(why.to_string()),
-                BindParam::Integer(i64::try_from(now.as_millis())?),
-            ]),
-        )
-        .await?;
-    Ok(())
+    tracing::warn!(%caller, action, %why, "refused a call");
 }
 
 #[cfg(test)]

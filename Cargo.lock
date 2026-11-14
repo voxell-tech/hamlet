@@ -4710,6 +4710,7 @@ dependencies = [
  "rusqlite",
  "serde",
  "tokio",
+ "tracing",
 ]
 
 [[package]]

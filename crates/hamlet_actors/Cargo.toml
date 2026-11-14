@@ -17,6 +17,7 @@ hamlet_host.workspace = true
 hamlet_messages.workspace = true
 hamlet_os.workspace = true
 hamlet_sandbox.workspace = true
+tracing.workspace = true
 
 [dev-dependencies]
 serde.workspace = true

@@ -213,16 +213,29 @@ fn reach_rows(dir: &Path) -> Vec<(i64, i64, Reach)> {
     .unwrap()
 }
 
-/// The workspace's record of refused callers, `(caller, action)`.
-fn refusals(dir: &Path) -> Vec<(String, String)> {
+/// The number of rows in every table of the workspace's file.
+fn rows_in_file(dir: &Path) -> i64 {
     let db = read_only(dir);
-    let mut read = db
-        .prepare("SELECT caller, action FROM refusals ORDER BY id")
-        .unwrap();
-    read.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+    let tables: Vec<String> = db
+        .prepare(
+            "SELECT name FROM sqlite_master WHERE type = 'table'",
+        )
+        .unwrap()
+        .query_map([], |row| row.get(0))
         .unwrap()
         .collect::<Result<_, _>>()
-        .unwrap()
+        .unwrap();
+    tables
+        .iter()
+        .map(|table| {
+            db.query_row(
+                &format!("SELECT count(*) FROM \"{table}\""),
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap()
+        })
+        .sum()
 }
 
 /// Version 3, then 2, then 3 again with another body: version 3's
@@ -248,11 +261,14 @@ async fn an_older_reach_version_is_ignored() {
 }
 
 /// W2: an agent, another kind, a client and a call with no caller
-/// are each refused, recorded, and change no reach. Their version 5
-/// would outrank the realm's version 1 had any of them applied.
+/// are each refused, leave no row, and change no reach. Their
+/// version 5 would outrank the realm's version 1 had any of them
+/// applied.
 #[tokio::test(flavor = "multi_thread")]
 async fn only_the_realm_sets_a_reach() {
     let dir = Scratch::new("workspace-reach-not-realm");
+    host(&dir).await.shutdown().await.unwrap();
+    let before = rows_in_file(&dir);
     let host = host(&dir).await;
     let mut answers = Vec::new();
     for kind in ["agent", "other"] {
@@ -283,6 +299,9 @@ async fn only_the_realm_sets_a_reach() {
         Cause::root("test"),
     );
     answers.push(decoded(&none.await.unwrap()));
+    host.shutdown().await.unwrap();
+    let after_refusals = rows_in_file(&dir);
+    let host = self::host(&dir).await;
     let realm = realm_sets(&host, 1, reach(None)).await;
     host.shutdown().await.unwrap();
 
@@ -292,17 +311,7 @@ async fn only_the_realm_sets_a_reach() {
     );
     assert_eq!(realm, ReachAnswer::InForce(ReachVersion(1)));
     assert_eq!(reach_rows(&dir), [(7, 1, reach(None))]);
-    let refused =
-        |caller: &str| (caller.to_owned(), SetReach::NAME.to_owned());
-    assert_eq!(
-        refusals(&dir),
-        [
-            refused("agent/caller"),
-            refused("other/caller"),
-            refused("client"),
-            refused("none"),
-        ]
-    );
+    assert_eq!(after_refusals, before, "a refusal left a row");
 }
 
 /// The workspace runs commands only under the sandbox its host was
