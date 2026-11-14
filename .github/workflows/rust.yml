@@ -240,3 +240,49 @@ jobs:
             target/debug/hamlet_app.exe
       # After the upload, so the binaries are kept when these tests fail.
       - run: cargo test --locked --no-fail-fast -p hamlet_host -p hamlet_actor_core -p hamlet_actor -p hamlet_actor_client -p hamlet_actor_wire -p hamlet_actor_error -p hamlet_actor_error_macros
+
+  # The tests of the crates a pull request changes, on macOS and
+  # Windows, beside the full jobs: an answer in minutes for code that
+  # differs by system.
+  test-changed:
+    if: github.event_name == 'pull_request'
+    name: test-changed-${{ matrix.system }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - system: macos
+            runner: macos-latest
+          - system: windows
+            runner: windows-latest
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          # vendor/fynix is a submodule.
+          submodules: recursive
+          # The merge commit and its parents: the first is the base.
+          fetch-depth: 2
+      # The image's stable can lag the rust-version, and install reuses it.
+      - run: rustup update stable
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: test
+          save-if: false
+      - shell: bash
+        run: |
+          set -eu
+          changed=$(git diff --name-only HEAD^1 HEAD -- crates)
+          packages=
+          for crate in $(echo "$changed" | cut -d/ -f2 | sort -u); do
+            if [ -f "crates/$crate/Cargo.toml" ]; then
+              packages="$packages -p $crate"
+            fi
+          done
+          if [ -z "$packages" ]; then
+            echo "The pull request changes no crate."
+            exit 0
+          fi
+          cargo test --locked --no-fail-fast $packages
