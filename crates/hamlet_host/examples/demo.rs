@@ -1,6 +1,12 @@
 //! A host that runs counter actors in the realm folder `HAMLET_HOME`.
 //!
 //! ```text
+//! demo [--name <name>] [--kind <kind>]... <command> ...
+//!
+//! --name <name>                 the host's name, `host` by default
+//! --kind <kind>                 a counter kind the host runs, as many
+//!                               as given, `counter` by default
+//!
 //! demo increment <key> [times]  add one per time, each in a transaction
 //! demo get <key>                print the count
 //! demo schedule <key> <ms> [<action>]
@@ -10,9 +16,14 @@
 //! demo destroy <key>            ask the actor to destroy itself
 //! demo block <key> <ms>         block the actor's event loop <ms> in
 //!                               synchronous code
-//! demo timers <kind>/<key>      print the actor's set-aside timers
-//! demo rearm <kind>/<key> <event_id>
-//!                               put a set-aside timer back, due now
+//! demo call <key> <to>          have the counter <key> call the actor
+//!                               <to> as itself
+//! demo calls [<key> <to>] [--count <n>]
+//!                               have the counter <key>, `a` by
+//!                               default, call the counter <to>, `b` by
+//!                               default, <n> times, 1000 by default
+//! demo timers <key>             print the actor's set-aside timers
+//! demo rearm <key> <event_id>   put a set-aside timer back, due now
 //! demo boot <ms>                boot, wait <ms>, print what booting started
 //! demo serve [<n>]              boot, start <n> counters that never
 //!                               sleep, then run one command per line
@@ -21,15 +32,20 @@
 //!                               demo/realm.rs
 //! ```
 //!
-//! A command on a counter makes it first if it has none. Each command
-//! prints `counter/<key> <count>`, the count the actor replied with.
-//! Booting prints `boot counter/<key> <count>` for each
-//! actor it started, once its start ends. `timers` prints `timer
+//! A `<key>` names a counter of the first kind, and `<kind>/<key>` an
+//! actor of any kind. A command on a counter makes it first if it has
+//! none. Each command prints `<kind>/<key> <count>`, the count the
+//! actor replied with. Booting prints `boot <kind>/<key> <count>` for
+//! each actor it started, once its start ends. `timers` prints `timer
 //! <kind>/<key> <event_id> <action> due=<ms> tries=<n> error=<code>`
 //! for each timer, and `rearm` prints `rearm <kind>/<key> <event_id>
-//! <true|false>`. Warnings and errors go to standard error. The
-//! demo exits once its host has shut down, also when an actor it
-//! could not stop still blocks a thread.
+//! <true|false>`. `call` prints `call <from> <to> <n> <us>us`, where
+//! `<n>` counts the calls `<to>` had from `<from>`, and `calls`
+//! prints `calls <from> <to> count=<n> p50=<us>us p99=<us>us
+//! from=<n>`, the times of the calls measured in the calling counter.
+//! A counter that is called logs its caller. Logs go to standard
+//! error. The demo exits once its host has shut down, also when an
+//! actor it could not stop still blocks a thread.
 
 #[path = "demo/act.rs"]
 mod act;
@@ -40,18 +56,19 @@ mod counter;
 #[path = "demo/realm.rs"]
 mod realm;
 
-use std::io::Write;
+use std::io::{IsTerminal, Write};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
 use act::act;
-use anyhow::{Context, Result, anyhow};
-use command::{number, print_reply};
+use anyhow::{Context, Result, anyhow, bail};
+use command::{number, print_reply, run};
 use hamlet_actors::workspace;
 use hamlet_host::{Host, HostOptions};
 use hamlet_sandbox::{Isolation, Sandbox};
 use tokio::sync::mpsc;
+use tracing_subscriber::EnvFilter;
 
 #[tokio::main]
 async fn main() {
@@ -69,13 +86,15 @@ async fn main() {
 
 async fn demo() -> Result<()> {
     tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::WARN)
+        .with_env_filter(EnvFilter::new("warn,demo=info"))
+        .with_ansi(std::io::stderr().is_terminal())
         .with_writer(std::io::stderr)
         .init();
     let home = std::env::var_os("HAMLET_HOME")
         .map(PathBuf::from)
         .context("set HAMLET_HOME to the realm folder")?;
     let args: Vec<String> = std::env::args().skip(1).collect();
+    let (options, kinds, args) = options(&args)?;
     let command = args.first().map(String::as_str);
     let loaded = match command {
         Some("serve") => {
@@ -88,17 +107,23 @@ async fn demo() -> Result<()> {
     } else {
         counter::Sleep::WhenIdle
     };
-    let mut kinds = counter::factories(sleep);
-    kinds.insert(workspace::KIND.to_owned(), workspace::factory());
-    kinds.insert(workspace::REALM.to_owned(), realm::factory());
+    let mut factories = counter::factories(
+        &kinds.iter().map(String::as_str).collect::<Vec<_>>(),
+        sleep,
+    );
+    factories
+        .insert(workspace::KIND.to_owned(), workspace::factory());
+    factories.insert(workspace::REALM.to_owned(), realm::factory());
     // The workspace does not start where there is no sandbox.
-    let mut options = HostOptions::default();
-    if let Ok(sandbox) = Sandbox::open(Isolation::Sandboxed) {
-        options = options.with_value(Arc::new(sandbox));
-    }
-    let host = Host::open_with(&home, kinds, options)?;
+    let options = match Sandbox::open(Isolation::Sandboxed) {
+        Ok(sandbox) => options.with_value(Arc::new(sandbox)),
+        Err(_) => options,
+    };
+    let host = Host::open_with(&home, factories, options)?;
     let result = match command {
-        Some("serve") => serve(&host, loaded.unwrap_or(0)).await,
+        Some("serve") => {
+            serve(&host, &kinds, loaded.unwrap_or(0)).await
+        }
         Some("boot") => {
             let ms = number(args.get(1))?;
             let began = host.boot().await?;
@@ -107,37 +132,77 @@ async fn demo() -> Result<()> {
         }
         Some(_) => {
             host.boot().await?;
-            run_line(&host, &args).await
+            run_line(&host, &kinds, args).await
         }
         None => Err(anyhow!(
-            "usage: demo \
-             increment|get|schedule|sleep|destroy|block|timers|rearm|\
-             boot|serve ..."
+            "usage: demo [--name <name>] [--kind <kind>]... \
+             increment|get|schedule|sleep|destroy|block|call|calls|\
+             timers|rearm|boot|serve ..."
         )),
     };
     host.shutdown().await?;
     result
 }
 
-/// Runs one command line split into words: the stub realm's, or a
-/// counter's.
-async fn run_line(host: &Host, words: &[String]) -> Result<()> {
+/// Runs one command line split into words: the stub realm's, or one
+/// for the counters of `kinds`.
+async fn run_line(
+    host: &Host,
+    kinds: &[String],
+    words: &[String],
+) -> Result<()> {
     match words.split_first() {
         Some((first, rest)) if first == "realm" => {
             realm::run(host, rest).await
         }
-        _ => command::run(host, words).await,
+        _ => run(host, kinds, words).await,
     }
 }
 
-/// Boots, starts `loaded` counters, then runs each line of stdin as
-/// a command until stdin ends or the process gets SIGTERM or Ctrl-C,
-/// also while a command runs.
-async fn serve(host: &Host, loaded: u64) -> Result<()> {
+/// The host's options and its counter kinds, read from the options
+/// before the command, and the words from the command on.
+fn options(
+    args: &[String],
+) -> Result<(HostOptions, Vec<String>, &[String])> {
+    let mut options = HostOptions::default();
+    let mut kinds = Vec::new();
+    let mut rest = args;
+    loop {
+        match rest {
+            [option, value, more @ ..] if option == "--name" => {
+                options.name.clone_from(value);
+                rest = more;
+            }
+            [option, value, more @ ..] if option == "--kind" => {
+                kinds.push(value.clone());
+                rest = more;
+            }
+            [option, ..] if option.starts_with("--") => {
+                bail!(
+                    "`{option}` is not an option, or lacks its value"
+                )
+            }
+            _ => break,
+        }
+    }
+    if kinds.is_empty() {
+        kinds.push("counter".to_owned());
+    }
+    Ok((options, kinds, rest))
+}
+
+/// Boots, starts `loaded` counters of the first of `kinds`, then runs
+/// each line of stdin as a command until stdin ends or the process
+/// gets SIGTERM or Ctrl-C, also while a command runs.
+async fn serve(
+    host: &Host,
+    kinds: &[String],
+    loaded: u64,
+) -> Result<()> {
     print_began(host, host.boot().await?).await?;
     if loaded > 0 {
         for n in 1..=loaded {
-            host.get_or_start("counter", &format!("load-{n}"))
+            host.get_or_start(&kinds[0], &format!("load-{n}"))
                 .await?;
         }
         writeln!(std::io::stdout(), "loaded {loaded}")?;
@@ -167,7 +232,7 @@ async fn serve(host: &Host, loaded: u64) -> Result<()> {
             continue;
         }
         let ran = tokio::select! {
-            ran = run_line(host, &words) => ran,
+            ran = run_line(host, kinds, &words) => ran,
             () = &mut stop => return Ok(()),
         };
         if let Err(error) = ran {

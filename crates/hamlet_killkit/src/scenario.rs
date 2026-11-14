@@ -173,6 +173,76 @@ const KEY_MADE_ANEW: &[Expect] = &[
     },
 ];
 
+/// Boot started each of the five counters a kill left running, with
+/// no call, and each read its last acknowledged count.
+const FIVE_STARTED_AT_BOOT: &[Expect] = &[
+    Expect {
+        value: "boot counter/a",
+        is: Is::Acked("counter/a", 0),
+    },
+    Expect {
+        value: "boot counter/b",
+        is: Is::Acked("counter/b", 0),
+    },
+    Expect {
+        value: "boot counter/c",
+        is: Is::Acked("counter/c", 0),
+    },
+    Expect {
+        value: "boot counter/d",
+        is: Is::Acked("counter/d", 0),
+    },
+    Expect {
+        value: "boot counter/e",
+        is: Is::Acked("counter/e", 0),
+    },
+];
+
+/// The first restart stopped them cleanly: the next boot starts
+/// none, and each still reads its last acknowledged count.
+const FIVE_LEFT_STOPPED: &[Expect] = &[
+    Expect {
+        value: "boot counter/a",
+        is: Is::Absent,
+    },
+    Expect {
+        value: "boot counter/b",
+        is: Is::Absent,
+    },
+    Expect {
+        value: "boot counter/c",
+        is: Is::Absent,
+    },
+    Expect {
+        value: "boot counter/d",
+        is: Is::Absent,
+    },
+    Expect {
+        value: "boot counter/e",
+        is: Is::Absent,
+    },
+    Expect {
+        value: "counter/a",
+        is: Is::Acked("counter/a", 0),
+    },
+    Expect {
+        value: "counter/b",
+        is: Is::Acked("counter/b", 0),
+    },
+    Expect {
+        value: "counter/c",
+        is: Is::Acked("counter/c", 0),
+    },
+    Expect {
+        value: "counter/d",
+        is: Is::Acked("counter/d", 0),
+    },
+    Expect {
+        value: "counter/e",
+        is: Is::Acked("counter/e", 0),
+    },
+];
+
 pub const SCENARIOS: &[Scenario] = &[
     Scenario {
         name: "counter-transaction",
@@ -221,5 +291,32 @@ pub const SCENARIOS: &[Scenario] = &[
         restart: [&[], &["get a"]],
         probes: &[A_FILES],
         expect: [DESTROY_FINISHED, KEY_MADE_ANEW],
+    },
+    Scenario {
+        name: "boot-running",
+        about: "kill at a random time while five counters run, each \
+                after its acknowledged increments; the first \
+                restart's boot starts all five with no call, each \
+                reading its last acknowledged count, and the second \
+                starts none",
+        setup: &[
+            "increment a 1",
+            "increment b 2",
+            "increment c 3",
+            "increment d 4",
+        ],
+        trigger: "increment e 5",
+        trigger_replies: true,
+        kill: Kill::After {
+            min_ms: 50,
+            max_ms: 500,
+        },
+        down_ms: 0,
+        restart: [
+            &[],
+            &["get a", "get b", "get c", "get d", "get e"],
+        ],
+        probes: &[],
+        expect: [FIVE_STARTED_AT_BOOT, FIVE_LEFT_STOPPED],
     },
 ];

@@ -23,7 +23,7 @@ mod act;
 mod counter;
 
 fn factories() -> HashMap<String, ActorFactory> {
-    counter::factories(counter::Sleep::WhenIdle)
+    counter::factories(&["counter"], counter::Sleep::WhenIdle)
 }
 
 /// The realm folder the child host opens. Unset, the child test does

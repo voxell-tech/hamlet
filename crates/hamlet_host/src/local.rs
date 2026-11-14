@@ -2339,7 +2339,10 @@ mod tests {
         let dir = Scratch::new("host-ended-handle");
         let host = Host::open(
             &dir,
-            counter::factories(counter::Sleep::WhenIdle),
+            counter::factories(
+                &["counter"],
+                counter::Sleep::WhenIdle,
+            ),
         )
         .unwrap();
         let id = host.get_or_start("counter", "a").await.unwrap();

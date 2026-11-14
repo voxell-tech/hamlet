@@ -3,26 +3,35 @@
 use std::io::Write;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, bail, ensure};
 use hamlet_host::{Address, Host};
 
 use crate::act::act;
 use crate::counter;
 
-/// Runs one command line split into words.
-pub async fn run(host: &Host, words: &[String]) -> Result<()> {
-    let (command, key) = match words {
-        [command, key, ..] => (command.as_str(), key.as_str()),
+/// Runs one command line split into words, on a host of the counter
+/// kinds `kinds`. A key with no kind names a counter of the first.
+pub async fn run(
+    host: &Host,
+    kinds: &[String],
+    words: &[String],
+) -> Result<()> {
+    let kind = kinds.first().context("the demo runs no kind")?;
+    if words.first().is_some_and(|word| word == "calls") {
+        return calls(host, kinds, &words[1..]).await;
+    }
+    let (command, at) = match words {
+        [command, key, ..] => (command.as_str(), address(kind, key)),
         _ => bail!("a command takes an actor key"),
     };
+    let id = format!("{}/{}", at.kind, at.key);
     let mut out = std::io::stdout();
     match command {
         "timers" => {
-            let at = address(key)?;
             for timer in host.set_aside_timers(&at).await? {
                 writeln!(
                     out,
-                    "timer {key} {} {} due={} tries={} error={}",
+                    "timer {id} {} {} due={} tries={} error={}",
                     timer.event_id,
                     timer.action,
                     timer.due_at,
@@ -38,12 +47,27 @@ pub async fn run(host: &Host, words: &[String]) -> Result<()> {
             let now = SystemTime::now().duration_since(UNIX_EPOCH)?;
             let rearmed = host
                 .rearm_timer(
-                    &address(key)?,
+                    &at,
                     event_id,
                     i64::try_from(now.as_millis())?,
                 )
                 .await?;
-            writeln!(out, "rearm {key} {event_id} {rearmed}")?;
+            writeln!(out, "rearm {id} {event_id} {rearmed}")?;
+            return Ok(());
+        }
+        "call" => {
+            let to = address(
+                kind,
+                words.get(2).context("call takes <to>")?,
+            );
+            let caller = make(host, kinds, &at).await?;
+            make(host, kinds, &to).await?;
+            let (n, micros) = call(host, &caller, &to).await?;
+            writeln!(
+                out,
+                "call {caller} {}/{} {n} {micros}us",
+                to.kind, to.key
+            )?;
             return Ok(());
         }
         _ => {}
@@ -66,12 +90,105 @@ pub async fn run(host: &Host, words: &[String]) -> Result<()> {
         }
         other => bail!("unknown command `{other}`"),
     };
-    let actor_id = host.get_or_start("counter", key).await?;
+    let actor_id = host.get_or_start(&at.kind, &at.key).await?;
     let mut reply = Vec::new();
     for _ in 0..times {
         reply = act(host, &actor_id, command, args.clone()).await?;
     }
     print_reply("", &actor_id, reply)
+}
+
+/// Has the counter `[<from> <to>]`, `a` and `b` by default, call the
+/// other `--count <n>` times, 1000 by default, each a call of its
+/// own, and prints the calls' times and how many calls `<to>` had
+/// from `<from>`. Fails as soon as a call reads another caller's
+/// count.
+async fn calls(
+    host: &Host,
+    kinds: &[String],
+    words: &[String],
+) -> Result<()> {
+    let kind = kinds.first().context("the demo runs no kind")?;
+    let mut pair = Vec::new();
+    let mut count = 1000;
+    let mut words = words.iter();
+    while let Some(word) = words.next() {
+        if word == "--count" {
+            count = number(words.next())?;
+        } else {
+            pair.push(address(kind, word));
+        }
+    }
+    let (from, to) = match pair.as_slice() {
+        [] => (address(kind, "a"), address(kind, "b")),
+        [from, to] => (from.clone(), to.clone()),
+        _ => bail!("calls takes no actor, or <from> <to>"),
+    };
+    ensure!(count > 0, "calls takes a count above 0");
+    let caller = make(host, kinds, &from).await?;
+    make(host, kinds, &to).await?;
+    let mut micros = Vec::new();
+    let mut first = None;
+    let mut last = 0;
+    for done in 0..count {
+        let (n, took) = call(host, &caller, &to).await?;
+        let want =
+            first.get_or_insert(n).saturating_add_unsigned(done);
+        ensure!(
+            n == want,
+            "call {done} read {n} calls from {caller}, not {want}"
+        );
+        micros.push(took);
+        last = n;
+    }
+    micros.sort_unstable();
+    let at = |percent: usize| {
+        let rank = (micros.len() * percent).div_ceil(100);
+        micros[rank.saturating_sub(1)]
+    };
+    writeln!(
+        std::io::stdout(),
+        "calls {caller} {}/{} count={count} p50={}us p99={}us \
+         from={last}",
+        to.kind,
+        to.key,
+        at(50),
+        at(99)
+    )?;
+    Ok(())
+}
+
+/// Starts the actor at `at`, made if it has none, when its kind is
+/// one of `kinds`, and returns its id. An actor of any other kind is
+/// left for the call to it to find, or not.
+async fn make(
+    host: &Host,
+    kinds: &[String],
+    at: &Address,
+) -> Result<String> {
+    if kinds.contains(&at.kind) {
+        host.get_or_start(&at.kind, &at.key).await
+    } else {
+        Ok(format!("{}/{}", at.kind, at.key))
+    }
+}
+
+/// Has the counter `caller` call the actor at `to`, and answers how
+/// many calls `to` had from it and the call's time in microseconds.
+async fn call(
+    host: &Host,
+    caller: &str,
+    to: &Address,
+) -> Result<(i64, u64)> {
+    let target = format!("{}/{}", to.kind, to.key).into_bytes();
+    let reply = act(host, caller, "call", target).await?;
+    let (n, micros) = reply
+        .split_first_chunk::<8>()
+        .and_then(|(n, micros)| Some((n, micros.first_chunk::<8>()?)))
+        .context(
+            "the counter's call replied with no count and time",
+        )?;
+    Ok((i64::from_le_bytes(*n), u64::from_le_bytes(*micros)))
 }
 
 /// Prints the count a counter replied with.
@@ -85,12 +202,12 @@ pub fn print_reply(
     Ok(())
 }
 
-/// The address a `<kind>/<key>` word names.
-fn address(word: &str) -> Result<Address> {
-    let (kind, key) = word
-        .split_once('/')
-        .with_context(|| format!("`{word}` is not <kind>/<key>"))?;
-    Ok(Address::new(kind, key))
+/// The address a word names: `<kind>/<key>`, or `<key>` of `kind`.
+fn address(kind: &str, word: &str) -> Address {
+    match word.split_once('/') {
+        Some((kind, key)) => Address::new(kind, key),
+        None => Address::new(kind, word),
+    }
 }
 
 pub fn number(word: Option<&String>) -> Result<u64> {
