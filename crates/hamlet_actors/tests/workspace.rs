@@ -1059,7 +1059,8 @@ async fn output_past_the_tail_spills_to_a_file() {
 async fn a_command_reads_only_its_own_agents_spill() {
     let dir = Scratch::new("workspace-spill-reach");
     filesystem(&dir);
-    let (_project, project) = files::project("workspace-spill-p", &[]);
+    let (_project, project) =
+        files::project("workspace-spill-p", &[]);
     let other = dir.join("actors/workspace/local.output/8");
     std::fs::create_dir_all(&other).unwrap();
     std::fs::write(other.join("1.log"), "theirs\n").unwrap();
