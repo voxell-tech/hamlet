@@ -6,7 +6,8 @@ use hamlet_os::fs::path::{self, text};
 
 use super::Confined;
 use super::policy::{
-    Policy, above_roots, canon_text, fixed_roots, temp_root,
+    Grant, Layer, Policy, above_roots, canon_text, fixed_roots,
+    layers,
 };
 
 pub(super) const SANDBOX_EXEC: &str = "/usr/bin/sandbox-exec";
@@ -121,7 +122,8 @@ impl Profile {
     /// Adds `rule` once for each of `paths` as written and once as it
     /// really is, with `{}` standing for the parameter's name.
     fn rules(&mut self, kind: &str, rule: &str, paths: &[String]) {
-        for (i, path) in paths.iter().enumerate() {
+        for path in paths {
+            let i = self.params.len();
             for (suffix, value) in
                 [("", path.clone()), ("_REAL", canon_text(path))]
             {
@@ -166,30 +168,26 @@ fn profile(policy: &Policy, tmp: &str) -> Profile {
     );
     if policy.open {
         out.sbpl.push_str("(allow file-read*)\n");
-        // Another house's temp dir is as private as the house.
-        let mut hidden = texts(&policy.hidden);
-        hidden.push(temp_root());
-        out.rules(
-            "HIDDEN",
-            r#"(deny file-read* file-write* (subpath (param "{}")))"#,
-            &hidden,
-        );
     }
-    out.rules(
-        "TMP",
-        r#"(allow file-read* file-write* (subpath (param "{}")))"#,
-        &[tmp.to_owned()],
-    );
-    out.rules(
-        "RO",
-        r#"(allow file-read* (subpath (param "{}")))"#,
-        &texts(&policy.ro),
-    );
-    out.rules(
-        "RW",
-        r#"(allow file-read* file-write* (subpath (param "{}")))"#,
-        &texts(&policy.rw),
-    );
+    // Of two rules that match, the later one decides, so each root
+    // comes after the roots that hold it: the deepest root decides,
+    // also for a hidden folder inside a granted one.
+    for Layer { path, grant } in layers(policy, tmp) {
+        let (kind, rule) = match grant {
+            Grant::Nothing => (
+                "HIDDEN",
+                r#"(deny file-read* file-write* (subpath (param "{}")))"#,
+            ),
+            Grant::Read => {
+                ("RO", r#"(allow file-read* (subpath (param "{}")))"#)
+            }
+            Grant::Write => (
+                "RW",
+                r#"(allow file-read* file-write* (subpath (param "{}")))"#,
+            ),
+        };
+        out.rules(kind, rule, &[path]);
+    }
     out.rules(
         "ROOTS",
         r#"(deny file-write-unlink file-write-create (literal (param "{}")))"#,
@@ -228,4 +226,117 @@ pub(super) fn command(
     let mut env = policy.env.clone();
     env.insert("TMPDIR".into(), tmp.to_owned());
     Confined { argv: args, env }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+
+    use super::*;
+    use crate::policy::{is_within_text, temp_root};
+
+    /// Whether `profile` lets `op`, `file-read*` or `file-write*`,
+    /// reach `real` by its rules with a path, as Seatbelt decides:
+    /// the last rule that matches.
+    fn allows(profile: &Profile, op: &str, real: &str) -> bool {
+        let params = profile
+            .params
+            .iter()
+            .cloned()
+            .collect::<BTreeMap<_, _>>();
+        let mut allowed = false;
+        for line in profile.sbpl.lines() {
+            let allow = line.starts_with("(allow");
+            if !(allow || line.starts_with("(deny"))
+                || !line.contains(op)
+            {
+                continue;
+            }
+            let matches = match line.split("(param \"").nth(1) {
+                None => line == format!("(allow {op})"),
+                Some(rest) => {
+                    let root =
+                        &params[rest.split('"').next().unwrap()];
+                    if line.contains("(subpath") {
+                        is_within_text(real, root)
+                    } else {
+                        real == root
+                    }
+                }
+            };
+            if matches {
+                allowed = allow;
+            }
+        }
+        allowed
+    }
+
+    /// A hidden folder inside a write root or a read root stays
+    /// hidden, but for the roots inside it (C18).
+    #[test]
+    fn the_deepest_root_decides_a_path() {
+        let tmp = path::join(&[temp_root(), "house".into()]);
+        let project = Policy {
+            ro: vec!["/project/realm/library".into()],
+            rw: vec![
+                "/project".into(),
+                "/project/realm/actors/agent/1.fs".into(),
+            ],
+            open: true,
+            hidden: vec!["/project/realm".into()],
+            locked: vec!["/project/realm/library".into()],
+            ..Policy::default()
+        };
+        let closed = Policy {
+            ro: vec!["/shared".into()],
+            rw: vec!["/shared/realm/actors/agent/1.fs".into()],
+            hidden: vec!["/shared/realm".into()],
+            ..Policy::default()
+        };
+        let mut wrong = Vec::new();
+        for (policy, path, reads, writes) in [
+            (
+                &project,
+                "/project/realm/credentials.json",
+                false,
+                false,
+            ),
+            (
+                &project,
+                "/project/realm/actors/agent/3.fs/a",
+                false,
+                false,
+            ),
+            (
+                &project,
+                "/project/realm/actors/agent/1.fs/a",
+                true,
+                true,
+            ),
+            (&project, "/project/realm/library/book", true, false),
+            (&project, "/project/notes.md", true, true),
+            (&project, "/elsewhere/notes.md", true, false),
+            (&closed, "/shared/realm/credentials.json", false, false),
+            (
+                &closed,
+                "/shared/realm/actors/agent/1.fs/a",
+                true,
+                true,
+            ),
+            (&closed, "/shared/notes.md", true, false),
+            (&closed, "/elsewhere/notes.md", false, false),
+        ] {
+            let profile = profile(policy, &tmp);
+            let found = (
+                allows(&profile, "file-read*", path),
+                allows(&profile, "file-write*", path),
+            );
+            if found != (reads, writes) {
+                wrong.push(format!(
+                    "{path}: read and write {found:?}"
+                ));
+            }
+        }
+        assert!(wrong.is_empty(), "{wrong:#?}");
+    }
 }

@@ -22,8 +22,9 @@ pub struct Policy {
     pub rw: Vec<PathBuf>,
     /// The whole machine can be read, but for `hidden`.
     pub open: bool,
-    /// Paths that stay unreadable when `open`. A path of `ro` or
-    /// `rw` inside one is still granted.
+    /// Paths that stay unreadable and unwritable, also inside a path
+    /// of `ro` or `rw`. A path of `ro` or `rw` inside one is still
+    /// granted: of the roots that hold a path, the deepest decides.
     pub hidden: Vec<PathBuf>,
     /// Paths inside `rw` that cannot be written, renamed or removed.
     pub locked: Vec<PathBuf>,
@@ -302,20 +303,102 @@ pub(crate) fn fixed_roots(policy: &Policy, tmp: &str) -> Vec<String> {
     roots
 }
 
-fn is_in_any(path: &str, paths: &[String]) -> bool {
-    paths
-        .iter()
-        .any(|each| is_within_text(path, &canon_text(each)))
+/// True when the deepest write or hidden root of `policy` that holds
+/// `real`, a path without links, is a write root. A locked path is
+/// still granted.
+pub(crate) fn is_granted_writes(
+    policy: &Policy,
+    tmp: &str,
+    real: &str,
+) -> bool {
+    deciding(policy, tmp, real, false) == Some(Grant::Write)
 }
 
-/// True when `path` lies in any of `paths`, compared without case. A
-/// refusal uses it, so that a volume that ignores case cannot carry a
-/// path past one.
-fn is_in_any_folded(path: &str, paths: &[String]) -> bool {
-    let folded = path.to_lowercase();
-    paths.iter().any(|each| {
-        is_within_text(&folded, &canon_text(each).to_lowercase())
+/// True when `real`, a path without links, lies in a locked path,
+/// compared without case as a hidden root is.
+fn is_locked(policy: &Policy, real: &str) -> bool {
+    let folded = real.to_lowercase();
+    policy.locked.iter().any(|each| {
+        is_within_text(
+            &folded,
+            &canon_text(&text(each)).to_lowercase(),
+        )
     })
+}
+
+/// What a root of a policy grants inside it. Of two roots at the
+/// same place, the greater grant holds.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum Grant {
+    /// Nothing: a hidden root.
+    Nothing,
+    Read,
+    Write,
+}
+
+/// A root of a policy, as written, and what it grants.
+pub(crate) struct Layer {
+    pub path: String,
+    pub grant: Grant,
+}
+
+/// The roots of `policy` with `tmp` as its temp folder, each before
+/// the roots inside it, so that laid down in this order the deepest
+/// root that holds a path decides it. Another house's temp folder is
+/// as private as the house, so the folder of them all is hidden.
+pub(crate) fn layers(policy: &Policy, tmp: &str) -> Vec<Layer> {
+    let mut hidden =
+        policy.hidden.iter().map(|p| text(p)).collect::<Vec<_>>();
+    hidden.push(temp_root());
+    let with = |grant, paths: Vec<String>| {
+        paths.into_iter().map(move |path| Layer { path, grant })
+    };
+    let mut layers = with(Grant::Nothing, hidden)
+        .chain(with(
+            Grant::Read,
+            policy.ro.iter().map(|p| text(p)).collect(),
+        ))
+        .chain(with(Grant::Write, write_roots(policy, tmp)))
+        .collect::<Vec<_>>();
+    layers.sort_by_key(|layer| (depth(&layer.path), layer.grant));
+    layers
+}
+
+/// How many names deep `path` really lies, past its links.
+pub(crate) fn depth(path: &str) -> usize {
+    canon_text(path)
+        .split('/')
+        .filter(|name| !name.is_empty())
+        .count()
+}
+
+/// The grant of the deepest root of `policy` that holds `real`, a
+/// path without links, or `None` when no root does. Read roots count
+/// only with `reads`. A hidden root is compared without case, so that
+/// a volume that ignores case cannot carry a path past one.
+fn deciding(
+    policy: &Policy,
+    tmp: &str,
+    real: &str,
+    reads: bool,
+) -> Option<Grant> {
+    let folded = real.to_lowercase();
+    layers(policy, tmp)
+        .into_iter()
+        .rev()
+        .find(|layer| {
+            let root = canon_text(&layer.path);
+            match layer.grant {
+                Grant::Nothing => {
+                    is_within_text(&folded, &root.to_lowercase())
+                }
+                Grant::Read if !reads => false,
+                Grant::Read | Grant::Write => {
+                    is_within_text(real, &root)
+                }
+            }
+        })
+        .map(|layer| layer.grant)
 }
 
 /// True when `policy` lets a command with `tmp` as its temp folder
@@ -325,16 +408,10 @@ pub(crate) fn is_readable(
     tmp: &str,
     real: &str,
 ) -> bool {
-    let mut granted =
-        policy.ro.iter().map(|p| text(p)).collect::<Vec<_>>();
-    granted.extend(write_roots(policy, tmp));
-    if is_in_any(real, &granted) {
-        return true;
+    match deciding(policy, tmp, real, true) {
+        Some(grant) => grant != Grant::Nothing,
+        None => policy.open,
     }
-    let mut closed =
-        policy.hidden.iter().map(|p| text(p)).collect::<Vec<_>>();
-    closed.push(temp_root());
-    policy.open && !is_in_any_folded(real, &closed)
 }
 
 /// True when `policy` lets a command with `tmp` as its temp folder
@@ -346,10 +423,8 @@ pub(crate) fn is_writable(
     real: &str,
     moved: bool,
 ) -> bool {
-    let locked =
-        policy.locked.iter().map(|p| text(p)).collect::<Vec<_>>();
-    is_in_any(real, &write_roots(policy, tmp))
-        && !is_in_any_folded(real, &locked)
+    is_granted_writes(policy, tmp, real)
+        && !is_locked(policy, real)
         && !(moved
             && fixed_roots(policy, tmp).iter().any(|root| {
                 is_within_text(

@@ -7,8 +7,9 @@ use hamlet_os::fs::path::text;
 
 use super::Confined;
 use super::policy::{
-    Policy, above_roots, fixed_roots, is_dir, is_within_text,
-    temp_root, write_roots,
+    Grant, Layer, Policy, above_roots, canon_text, depth,
+    fixed_roots, is_dir, is_granted_writes, is_readable, layers,
+    write_roots,
 };
 
 /// Where Homebrew installs on Linux.
@@ -71,44 +72,57 @@ pub(super) fn command(
     if !policy.open {
         push(&["--tmpfs", "/tmp"]);
     }
-    if policy.open {
-        // An empty folder over each. One that is missing has nothing
-        // to hide and cannot be mounted over.
-        let mut hidden =
-            policy.hidden.iter().map(|p| text(p)).collect::<Vec<_>>();
-        hidden.push(temp_root());
-        for path in hidden.iter().filter(|path| is_dir(path)) {
-            push(&["--tmpfs", path]);
+    // Each mount at its depth, so that a deeper one lies over the
+    // ones that hold it: the deepest root decides, also for a hidden
+    // folder inside a write root. Of two at the same place the later
+    // rank lies on top.
+    let mut mounts = Vec::<(usize, u8, Vec<String>)>::new();
+    let mut mount = |path: &str, rank, words: &[&str]| {
+        let words = words.iter().map(ToString::to_string).collect();
+        mounts.push((depth(path), rank, words));
+    };
+    for Layer { path, grant } in layers(policy, tmp) {
+        match grant {
+            // An empty folder over it. One that is missing has
+            // nothing to hide and cannot be mounted over.
+            Grant::Nothing if is_dir(&path) => {
+                mount(&path, 0, &["--tmpfs", &path]);
+            }
+            Grant::Nothing => {}
+            // A root that is missing has nothing to read, as under
+            // Seatbelt, and stops no command.
+            Grant::Read => {
+                mount(&path, 1, &["--ro-bind-try", &path, &path]);
+            }
+            Grant::Write => {
+                mount(&path, 2, &["--bind", &path, &path]);
+            }
         }
     }
-    // A root that is missing has nothing to read, as under Seatbelt,
-    // and stops no command.
-    for path in &policy.ro {
-        let path = text(path);
-        push(&["--ro-bind-try", &path, &path]);
-    }
-    let writes = write_roots(policy, tmp);
-    for path in &writes {
-        push(&["--bind", path, path]);
-    }
     // Mount points keep roots and their writable ancestors in place.
-    let mut seen = BTreeSet::new();
+    // One under a hidden root is in its empty folder and needs none.
+    let writes = write_roots(policy, tmp);
     let mut points = above_roots(policy, tmp);
     points.extend(fixed_roots(policy, tmp));
+    let mut seen = BTreeSet::new();
     points.retain(|path| seen.insert(path.clone()));
-    points.sort_by_key(String::len);
     for path in &points {
         if Path::new(path).exists()
-            && writes
-                .iter()
-                .any(|rw| path != rw && is_within_text(path, rw))
+            && !writes.contains(path)
+            && is_granted_writes(policy, tmp, &canon_text(path))
         {
-            push(&["--bind", path, path]);
+            mount(path, 3, &["--bind", path, path]);
         }
     }
     for path in &policy.locked {
         let path = text(path);
-        push(&["--ro-bind-try", &path, &path]);
+        if is_readable(policy, tmp, &canon_text(&path)) {
+            mount(&path, 4, &["--ro-bind-try", &path, &path]);
+        }
+    }
+    mounts.sort_by_key(|(depth, rank, _)| (*depth, *rank));
+    for (_, _, words) in &mounts {
+        push(&words.iter().map(String::as_str).collect::<Vec<_>>());
     }
     push(&["--chdir", cwd, "--"]);
     args.extend(argv.iter().cloned());
