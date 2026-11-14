@@ -1,5 +1,7 @@
 //! A stand-in for the realm: the actor `realm/local`, which sets
-//! agents' reach on the workspace by calling it as itself.
+//! agents' reach on the workspace by calling it as itself, and
+//! answers the workspace's call for its secrets with one made-up
+//! secret, `demo-secret-value`, of version 1.
 //!
 //! ```text
 //! demo realm reach <n> <version> [project=<path>] [mode=manual|auto]
@@ -20,15 +22,13 @@ use hamlet_actor::{Action, Actor, Ctx, Handler, Registry};
 use hamlet_actor_core::{ActorConfig, ActorFactory};
 use hamlet_actors::workspace;
 use hamlet_host::{Address, Caller, Cause, Host};
+use hamlet_messages::realm::{SecretList, Secrets};
 use hamlet_messages::workspace::reach::{
     Footing, Mode, Project, Reach, SecretsVersion, Trust,
 };
 use hamlet_messages::workspace::{
     AgentNumber, ConversationId, ReachAnswer, ReachVersion, SetReach,
 };
-
-/// The realm's key.
-const KEY: &str = "local";
 
 /// The kind `realm`.
 pub fn factory() -> ActorFactory {
@@ -57,7 +57,7 @@ impl Action for Grant {
 #[async_trait::async_trait]
 impl Actor for Realm {
     type Input = ();
-    type Actions = (Grant,);
+    type Actions = (Grant, Secrets);
     type Events = ();
     type ConnParams = Option<Caller>;
     type Action = ();
@@ -86,6 +86,19 @@ impl Handler<Grant> for Realm {
     }
 }
 
+impl Handler<Secrets> for Realm {
+    async fn handle(
+        self: Arc<Self>,
+        _: Ctx<Self>,
+        _: Secrets,
+    ) -> Result<SecretList> {
+        Ok(SecretList {
+            version: SecretsVersion(1),
+            values: vec!["demo-secret-value".to_owned()],
+        })
+    }
+}
+
 /// Runs `demo realm <words>`.
 pub async fn run(host: &Host, words: &[String]) -> Result<()> {
     let [verb, agent, version, rest @ ..] = words else {
@@ -101,10 +114,11 @@ pub async fn run(host: &Host, words: &[String]) -> Result<()> {
     };
     host.get_or_start(workspace::KIND, workspace::MACHINE)
         .await?;
-    host.get_or_start(workspace::REALM, KEY).await?;
+    host.get_or_start(workspace::REALM, workspace::REALM_KEY)
+        .await?;
     let reply = host
         .call(
-            &Address::new(workspace::REALM, KEY),
+            &Address::new(workspace::REALM, workspace::REALM_KEY),
             Grant::NAME,
             hamlet_actor::action::encode_positional(&Grant(set))?,
             Duration::from_secs(20),
