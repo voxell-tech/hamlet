@@ -12,10 +12,12 @@ anyhow.workspace = true
 ciborium.workspace = true
 hamlet_actor_core.workspace = true
 hamlet_actor_error.workspace = true
+hamlet_protocol.workspace = true
 hamlet_sqlite.workspace = true
 parking_lot.workspace = true
 rusqlite.workspace = true
 serde.workspace = true
+serde_bytes.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 
@@ -29,6 +31,9 @@ hamlet_actor.workspace = true
 # The crate's own tests and examples run with its fault points.
 hamlet_host = { workspace = true, features = ["faults"] }
 hamlet_testing.workspace = true
+serde-reflection.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
 tracing-subscriber.workspace = true
 
 [lints]

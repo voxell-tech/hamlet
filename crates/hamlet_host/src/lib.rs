@@ -6,6 +6,7 @@ mod cause;
 mod directory;
 mod event;
 pub mod fault;
+pub mod link;
 mod local;
 mod plain_sqlite;
 

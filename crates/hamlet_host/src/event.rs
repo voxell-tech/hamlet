@@ -2,10 +2,13 @@
 //!
 //! [`Host::events`]: crate::Host::events
 
+use serde::{Deserialize, Serialize};
+
 use crate::Address;
 
 /// Something that happened to an actor of the host.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum HostEvent {
     /// The one-shot timer `event_id` of the actor at `actor` failed
     /// its last try, the `tries`-th, and is set aside: its actor is
