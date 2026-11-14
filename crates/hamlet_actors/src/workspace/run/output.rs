@@ -12,7 +12,6 @@ use crate::workspace::{MOST_BYTES, MOST_LINES};
 /// The most of a command's output a spill file holds.
 pub(super) const SPILL_CAP: u64 = 512 * 1024 * 1024;
 
-/// A command's output, as it comes, its secrets already taken out.
 pub(super) struct Output {
     tail: Tail,
     bytes: u64,
@@ -22,14 +21,11 @@ pub(super) struct Output {
     spill: Spill,
 }
 
-/// The file all of the output goes to once it passes the tail's
-/// limits.
 struct Spill {
     path: PathBuf,
     cap: u64,
     file: Option<BufWriter<File>>,
     written: u64,
-    /// Set when the bytes written end a line, or none were written.
     at_line_start: bool,
     dropped: bool,
     failed: Option<io::Error>,
@@ -102,7 +98,6 @@ impl Output {
     }
 }
 
-/// A command's full output that could not be saved.
 #[derive(Debug, thiserror::Error)]
 #[error(
     "The command ran but its full output could not be saved: {0}. \

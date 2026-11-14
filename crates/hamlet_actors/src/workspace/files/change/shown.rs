@@ -1,22 +1,13 @@
-//! The part of a change a chief is shown: a text cut to its start,
-//! also one read in parts, as a large file a write replaces is.
-
 use hamlet_sandbox::scrub::Scrubber;
 
-/// The characters of a text a chief is shown.
 const SHOWN: usize = 2000;
 
-// Copied from the server's `oversight/gate.rs` `cut`.
-/// `text` cut to its first 2000 characters, saying how many more
-/// there were.
 pub(super) fn cut(text: &str) -> String {
     let mut head = Head::default();
     head.push(text);
     head.shown()
 }
 
-/// The first [`SHOWN`] characters of a text that arrives in parts,
-/// and a count of the rest.
 #[derive(Default)]
 struct Head {
     text: String,
@@ -43,9 +34,6 @@ impl Head {
     }
 }
 
-/// The text of a file read in parts, as [`cut`] shows it after
-/// [`String::from_utf8_lossy`] and the secrets taken out, without
-/// holding more of it than its start.
 pub(super) struct Replaced {
     /// The start of a character the last part cut in two.
     pending: Vec<u8>,
@@ -105,8 +93,6 @@ mod tests {
 
     use super::*;
 
-    /// A text read in parts, cut anywhere, a character or a secret
-    /// among them, shows as the whole text does.
     #[test]
     fn a_text_in_parts_shows_as_the_whole_does() {
         let secrets = vec!["s3cr3t".to_owned()];

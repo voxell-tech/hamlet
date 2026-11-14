@@ -115,7 +115,6 @@ async fn forget(tx: &SqliteTransaction, id: i64) -> Result<()> {
     Ok(())
 }
 
-/// The text or the edits a change asks for.
 enum Asked<'a> {
     Write(&'a str),
     Edit(&'a [Replace]),
@@ -185,7 +184,6 @@ impl Handler<EditFile> for Workspace {
     }
 }
 
-/// The outcome of a change's row, its reach and its secrets.
 enum Weighed {
     Answer(ChangeAnswer),
     Pass(Passed),
@@ -203,7 +201,6 @@ struct Planned {
     replaced: Option<String>,
 }
 
-/// The reason a change has no plan.
 enum Unplanned {
     /// In words for the model.
     Failed(String),
@@ -269,7 +266,9 @@ impl Workspace {
             &path,
             &request.asked,
             match chief {
-                Some(_) => Planning::ForChief(secrets.to_vec()),
+                Some(_) => Planning::ForChief {
+                    secrets: secrets.to_vec(),
+                },
                 None => Planning::Now,
             },
         )
@@ -403,7 +402,7 @@ impl Workspace {
             self.sandbox,
             &path,
             &request.asked,
-            Planning::Allowed(was),
+            Planning::Allowed { was },
         )
         .await?
         {
@@ -584,7 +583,6 @@ impl Workspace {
     }
 }
 
-/// The work a change carries out once its row is written.
 struct Carry {
     placement: Placement,
     sandbox: hamlet_sandbox::Sandbox,
@@ -603,18 +601,11 @@ fn temp_of(planned: &Planned) -> (String, String) {
     (temp_name, temp)
 }
 
-/// The answer a change's row gives a repeat of it.
 enum Row {
     Answer(ChangeAnswer),
-    /// A change a failure cut off after its row was written, which no
-    /// one is at work on.
-    Unfinished {
-        id: i64,
-        temp: Option<String>,
-    },
+    Unfinished { id: i64, temp: Option<String> },
 }
 
-/// The answer the row `call` gives a change of `request`.
 fn answered(call: calls::Call, request: &Request<'_>) -> Result<Row> {
     if !call.is(request.asked.op(), &request.request_hash) {
         return Ok(Row::Answer(ChangeAnswer::Refused(
@@ -680,22 +671,15 @@ fn words_of(
     }
 }
 
-/// A change's planned write, copied out of the request for its
-/// thread.
 enum PlannedAs {
     Write(Vec<u8>),
     Edit(Vec<Replace>),
 }
 
-/// When a change is planned.
 enum Planning {
-    /// It runs now.
     Now,
-    /// A chief is asked about it, shown the file a write replaces
-    /// with these secrets taken out.
-    ForChief(Vec<String>),
-    /// A chief allowed it: the file must still hash to this.
-    Allowed(Hashed),
+    ForChief { secrets: Vec<String> },
+    Allowed { was: Hashed },
 }
 
 /// [`plan`], off the runtime.
@@ -721,9 +705,7 @@ async fn planned(
 }
 
 /// Reads what the change at `path` replaces, and works out what it
-/// writes, or says in words why it cannot. A write holds no more of
-/// the file it replaces than what a chief is shown; an edit holds all
-/// of it.
+/// writes, or says in words why it cannot.
 fn plan(
     placement: &Placement,
     sandbox: hamlet_sandbox::Sandbox,
@@ -735,10 +717,10 @@ fn plan(
     match asked {
         PlannedAs::Write(content) => {
             let mut replaced = match planning {
-                Planning::ForChief(secrets) => {
+                Planning::ForChief { secrets } => {
                     Some(shown::Replaced::new(secrets))
                 }
-                Planning::Now | Planning::Allowed(_) => None,
+                Planning::Now | Planning::Allowed { .. } => None,
             };
             let current = env.and_then(|env| {
                 env.read_for_change(path, &mut |part| {
@@ -804,7 +786,7 @@ fn still(
     current: Result<Current, FileError>,
     planning: &Planning,
 ) -> Result<Result<Current, FileError>, Unplanned> {
-    if let (Planning::Allowed(was), Ok(current)) =
+    if let (Planning::Allowed { was }, Ok(current)) =
         (planning, &current)
     {
         let now = hashed(current.digest);
@@ -815,8 +797,6 @@ fn still(
     Ok(current)
 }
 
-/// The [`Hashed`] of a file of `digest`, or [`Hashed::Absent`] for no
-/// file.
 fn hashed(digest: Option<[u8; 32]>) -> Hashed {
     digest.map_or(Hashed::Absent, Hashed::Sha256)
 }

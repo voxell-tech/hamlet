@@ -56,17 +56,12 @@ const SECRET: &str = "s3cr3t-value";
 /// The kinds that call the workspace in these tests, each a [`Peer`].
 const PEERS: [&str; 3] = ["realm", "agent", "other"];
 
-/// The state the peers of one host share: the realm's secrets and how
-/// long it takes to answer for them, and what the agents were told.
 #[derive(Default)]
 struct Peers {
-    /// The longest the workspace waits for a command before it
-    /// answers `Running`, when not its own 5 seconds.
     answer_within: Option<Duration>,
     secrets_delay: Duration,
     fetched: AtomicUsize,
     told: Mutex<Vec<(String, Finished)>>,
-    /// The waits for a chief the realm was told of.
     asked: Mutex<Vec<NeedsChief>>,
 }
 
@@ -78,7 +73,6 @@ struct Peer {
     key: String,
 }
 
-/// The action name and arguments a [`Peer`] calls the workspace with.
 #[derive(Serialize, Deserialize)]
 struct Forward {
     name: String,
@@ -521,7 +515,6 @@ fn ran(finished: &Finished) -> &CommandEnd {
     }
 }
 
-/// Each [`Finished`] the agents were told, as `(actor id, Finished)`.
 fn told(peers: &Peers) -> Vec<(String, Finished)> {
     peers.told.lock().unwrap().clone()
 }

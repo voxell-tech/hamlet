@@ -406,9 +406,8 @@ pub(crate) fn depth(path: &str) -> usize {
     names(&canon_text(path))
 }
 
-/// An access a path is weighed for.
 #[derive(Clone, Copy)]
-pub(crate) enum Reach {
+pub(crate) enum Access {
     Read,
     Write,
 }
@@ -419,7 +418,7 @@ fn deciding(
     policy: &Policy,
     tmp: &str,
     real: &str,
-    reach: Reach,
+    access: Access,
 ) -> Option<Grant> {
     let folded = real.to_lowercase();
     layers(policy, tmp)
@@ -431,7 +430,9 @@ fn deciding(
                 Grant::Hidden => {
                     is_within_text(&folded, &root.to_lowercase())
                 }
-                Grant::Read if matches!(reach, Reach::Write) => false,
+                Grant::Read if matches!(access, Access::Write) => {
+                    false
+                }
                 Grant::Read | Grant::Write => {
                     is_within_text(real, root)
                 }
@@ -447,7 +448,7 @@ pub(crate) fn is_readable(
     tmp: &str,
     real: &str,
 ) -> bool {
-    match deciding(policy, tmp, real, Reach::Read) {
+    match deciding(policy, tmp, real, Access::Read) {
         Some(grant) => grant != Grant::Hidden,
         None => policy.open,
     }
@@ -462,7 +463,7 @@ pub(crate) fn is_writable(
     real: &str,
     moved: bool,
 ) -> bool {
-    deciding(policy, tmp, real, Reach::Write) == Some(Grant::Write)
+    deciding(policy, tmp, real, Access::Write) == Some(Grant::Write)
         && !is_locked(policy, real)
         && !(moved
             && fixed_roots(policy, tmp).iter().any(|root| {

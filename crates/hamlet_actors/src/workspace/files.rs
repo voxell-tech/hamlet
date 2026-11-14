@@ -92,7 +92,6 @@ fn scrubbed(secrets: &[String], answer: FileAnswer) -> FileAnswer {
     }
 }
 
-/// The gate's answer to a file tool's call.
 enum Gated {
     Pass(Passed),
     /// It waits for a chief to allow these.

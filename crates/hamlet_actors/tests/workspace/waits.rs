@@ -64,7 +64,6 @@ pub(super) fn waits(dir: &Path) -> i64 {
         .unwrap()
 }
 
-/// The outcomes the agent was told.
 fn outcomes(peers: &Peers) -> Vec<Outcome> {
     told(peers)
         .into_iter()
@@ -598,10 +597,6 @@ async fn a_chief_is_shown_each_text_of_a_change_cut() {
     );
 }
 
-/// In manual mode a change waits for a chief by the path it really
-/// writes, however its path or the project's is spelled: through a
-/// link to the project's folder, by the real path of a project set
-/// through a link, or through `/proc/self/root`.
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_change_waits_however_its_path_is_spelled() {

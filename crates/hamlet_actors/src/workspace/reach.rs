@@ -228,8 +228,7 @@ pub enum Network {
     Off,
 }
 
-/// A policy's purpose. An agent's commands write its filesystem; its
-/// file tools never do, since the agent writes it itself.
+/// A policy's purpose.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Purpose {
     Command { network: Network },
@@ -280,9 +279,8 @@ pub fn gate(
     }
 }
 
-/// The needs `op` waits for a chief to allow, in H11's order, or the
-/// [`Refusal`] that keeps it from running. `reach` is live, with
-/// `footing`.
+/// The needs `op` waits for a chief to allow, in H11's order. `reach`
+/// is live, with `footing`.
 fn needs(
     home: &RealmFolder,
     agent: AgentNumber,
@@ -425,8 +423,6 @@ pub fn placement(
     Some(Placement { policy, cwd })
 }
 
-/// The needs a command or a tool added by hand in `conversation`
-/// waits for a chief to allow, given whether it reaches the network.
 fn program_needs(
     footing: &Footing,
     conversation: &ConversationId,

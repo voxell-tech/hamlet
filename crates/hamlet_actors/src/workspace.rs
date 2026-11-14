@@ -87,8 +87,6 @@ struct Workspace {
     /// The realm's secrets, held in memory only: none after a
     /// start, so the first command fetches them.
     secrets: Mutex<Option<Held>>,
-    /// The processes commands left running under Seatbelt, ended
-    /// with the workspace.
     leftovers: AllLeftovers,
     answer_within: Duration,
     /// Each running command, until its end was heard.
@@ -242,8 +240,6 @@ impl Workspace {
         }
     }
 
-    /// Calls the realm for its secrets, and holds them when they are
-    /// newer than the ones held.
     async fn fetch_secrets(&self, ctx: &Ctx<Self>) -> Result<()> {
         let answer =
             call_actor(ctx, Address::new(REALM, REALM_KEY), &Secrets)
@@ -269,14 +265,11 @@ impl Workspace {
     }
 }
 
-/// The outcome of weighing a call, or the version of the realm's
-/// secrets it needs first.
 enum Weighing<T> {
     Done(T),
     NeedsSecrets(SecretsVersion),
 }
 
-/// A command as the gate let it run, once its row is open.
 struct Opened {
     running: run::Running,
     placement: reach::Placement,
@@ -720,7 +713,6 @@ async fn tell(
     }
 }
 
-/// The outcome of a [`Run`]'s transaction.
 enum Decision {
     Open(Opened),
     Answer(RunAnswer),
@@ -864,8 +856,6 @@ fn answer_of(row: run::Row) -> RunAnswer {
     }
 }
 
-/// The reason a call is not a request the workspace takes, in the
-/// words of the server's tools.
 #[derive(Debug, thiserror::Error)]
 enum Invalid {
     #[error(
@@ -883,7 +873,6 @@ enum Invalid {
     NotAbsolute(String),
 }
 
-/// Refuses `run` where it is not a request the workspace takes.
 fn checked(run: &Run) -> Result<(), Invalid> {
     checked_call(&run.call)?;
     match &run.program {
@@ -905,7 +894,6 @@ fn checked(run: &Run) -> Result<(), Invalid> {
     }
 }
 
-/// Refuses `call` where it is not an id the workspace takes.
 fn checked_call(call: &CallId) -> Result<(), Invalid> {
     let call = &call.0;
     if call.is_empty()
@@ -964,7 +952,6 @@ impl Handler<SetReach> for Workspace {
     }
 }
 
-/// The refusal of the waits of an agent whose reach ended.
 const LAPSED: CallRefusal = CallRefusal::Lapsed(Lapse::Ended);
 
 impl Workspace {
@@ -994,8 +981,6 @@ impl Workspace {
     }
 }
 
-/// The caller of the call the handler runs for, as the host stamped
-/// it.
 fn caller(ctx: &Ctx<Workspace>) -> Result<Option<Caller>> {
     ctx.conn().context("the call has no connection")?.params()
 }

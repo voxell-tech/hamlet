@@ -430,9 +430,6 @@ async fn a_call_id_is_one_calls_whatever_it_does() {
     assert_eq!(read(&file), "y");
 }
 
-/// A change's answer has the realm's secrets taken out, and none
-/// reaches the workspace's file: an edit's diff shows the lines
-/// around the change, and a failure's words name the path.
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn what_a_change_hands_back_is_scrubbed() {
@@ -545,7 +542,6 @@ async fn a_change_cut_off_by_a_kill_is_gone_at_the_next_start() {
     assert_eq!(read(&folder.join("a.md")), "b");
 }
 
-/// The size of the files the large writes replace.
 #[cfg(target_os = "linux")]
 const LARGE: u64 = 384 << 20;
 
@@ -561,9 +557,8 @@ fn peak_kib() -> u64 {
         .expect("a peak in /proc/self/status")
 }
 
-/// A write over a large file holds little of the old file in memory,
-/// also in manual mode, where a chief is shown its start. Run in a
-/// process of its own, so that no other test raises the peak.
+// Run in a process of its own, so that no other test raises the
+// peak.
 #[cfg(target_os = "linux")]
 #[test]
 fn a_write_over_a_large_file_keeps_little_of_it_in_memory() {
@@ -592,9 +587,6 @@ fn a_write_over_a_large_file_keeps_little_of_it_in_memory() {
     assert!(peak < MOST_KIB, "the host's peak was {peak} KiB");
 }
 
-/// The writes
-/// [`a_write_over_a_large_file_keeps_little_of_it_in_memory`]
-/// measures.
 #[cfg(target_os = "linux")]
 #[ignore = "a_write_over_a_large_file_keeps_little_of_it_in_memory \
             runs it alone"]

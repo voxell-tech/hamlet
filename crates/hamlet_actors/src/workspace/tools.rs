@@ -35,8 +35,6 @@ impl Tool {
         Duration::from_secs(self.policy.limits.wall_secs)
     }
 
-    /// The place it runs: its own folder, with its manifest's reach,
-    /// and the network only when the gate gave it.
     pub fn placement(&self, network: Network) -> Placement {
         let mut policy = self.policy.clone();
         policy.net &= network == Network::On;
@@ -47,7 +45,6 @@ impl Tool {
     }
 }
 
-/// A [`Run`]'s program, its tool loaded when it names one.
 pub enum Ready<'a> {
     Script {
         script: &'a str,
@@ -134,7 +131,6 @@ impl<'a> Ready<'a> {
         }
     }
 
-    /// The [`Exec`] the command's thread starts, and its time limit.
     pub fn exec(self) -> (Exec, Duration) {
         match self {
             Self::Script {

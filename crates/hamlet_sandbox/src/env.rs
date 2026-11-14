@@ -22,7 +22,7 @@ use tokio::time::Instant;
 
 use super::Sandbox;
 use super::policy::{
-    Policy, Reach, SetupError, canon_text, directory_root,
+    Access, Policy, SetupError, canon_text, directory_root,
     fixed_roots, is_readable, is_writable, policy_hash, private_tmp,
     temp_root,
 };
@@ -352,7 +352,7 @@ impl Env {
     fn reach(
         &self,
         path: &str,
-        reach: Reach,
+        access: Access,
         follow: Follow,
     ) -> Result<Reached, FileError> {
         if let Some(refusal) = self.root_refusal() {
@@ -371,12 +371,12 @@ impl Env {
                     described(SystemError::LOOP, "open", &resolved)
                 }
             })?;
-        let (allowed, verb) = match reach {
-            Reach::Read => (
+        let (allowed, verb) = match access {
+            Access::Read => (
                 is_readable(&self.policy, &self.tmp, &reached.real),
                 "read",
             ),
-            Reach::Write => (
+            Access::Write => (
                 is_writable(
                     &self.policy,
                     &self.tmp,
@@ -402,7 +402,7 @@ impl Env {
         &self,
         path: &str,
     ) -> Result<FileInfo, FileError> {
-        let at = self.reach(path, Reach::Read, Follow::NotLast)?;
+        let at = self.reach(path, Access::Read, Follow::NotLast)?;
         let stat = at.stat().map_err(|error| {
             file_error(&error, "lstat", &at.resolved)
         })?;
@@ -423,7 +423,7 @@ impl Env {
         &self,
         path: &str,
     ) -> Result<Vec<FileInfo>, FileError> {
-        let at = self.reach(path, Reach::Read, Follow::Last)?;
+        let at = self.reach(path, Access::Read, Follow::Last)?;
         let scandir = |error: &io::Error| {
             file_error(error, "scandir", &at.resolved)
         };
@@ -456,7 +456,7 @@ impl Env {
         &self,
         path: &str,
     ) -> Result<String, FileError> {
-        let at = self.reach(path, Reach::Read, Follow::Last)?;
+        let at = self.reach(path, Access::Read, Follow::Last)?;
         at.stat().map(|_| at.real.clone()).map_err(|error| {
             file_error(&error, "realpath", &at.resolved)
         })
@@ -479,7 +479,7 @@ impl Env {
         &self,
         path: &str,
     ) -> Result<(fs::File, String), FileError> {
-        let at = self.reach(path, Reach::Read, Follow::Last)?;
+        let at = self.reach(path, Access::Read, Follow::Last)?;
         let file = at.file(Open::Read).map_err(|error| {
             if error.kind() == ErrorKind::IsADirectory {
                 FileError::new(
@@ -531,7 +531,7 @@ impl Env {
         content: &str,
         how: Open,
     ) -> Result<(), FileError> {
-        let mut at = self.reach(path, Reach::Write, Follow::Last)?;
+        let mut at = self.reach(path, Access::Write, Follow::Last)?;
         at.make_folders().map_err(|error| {
             file_error(
                 &error,
@@ -556,7 +556,7 @@ impl Env {
         path: &str,
         part: &mut impl FnMut(&[u8]),
     ) -> Result<Current, FileError> {
-        let at = self.reach(path, Reach::Write, Follow::Last)?;
+        let at = self.reach(path, Access::Write, Follow::Last)?;
         let digest = digest(&at, part)?;
         Ok(Current {
             real: at.real,
@@ -578,7 +578,7 @@ impl Env {
         was: Option<&[u8; 32]>,
         content: &[u8],
     ) -> Result<Replaced, FileError> {
-        let mut at = self.reach(path, Reach::Write, Follow::Last)?;
+        let mut at = self.reach(path, Access::Write, Follow::Last)?;
         if at.real != real {
             return Err(FileError::new(
                 Code::PermissionDenied,

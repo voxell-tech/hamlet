@@ -70,7 +70,6 @@ impl Failure {
     }
 }
 
-/// Letter case in a search's pattern and lines.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum Case {
     Matched,

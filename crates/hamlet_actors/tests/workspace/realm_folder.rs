@@ -205,10 +205,6 @@ async fn a_project_in_the_realm_folder_is_refused() {
     }
 }
 
-/// A realm folder reached through a link works as one reached
-/// directly: an agent with a project folder runs its command and its
-/// file tools, and the realm's files stay out of its reach by either
-/// path.
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_realm_folder_reached_through_a_link_works() {

@@ -27,14 +27,11 @@ use super::calls::{self, Call};
 
 mod output;
 
-/// The longest a call waits for its command before it answers
-/// `Running`.
 pub const ANSWER_WITHIN: Duration = Duration::from_secs(5);
 
 /// The longest a command runs (C16). A call may only shorten it.
 pub const LONGEST: Duration = Duration::from_secs(120);
 
-/// The state of a command's row.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum State {
     Running,
@@ -207,9 +204,6 @@ impl Running {
     }
 }
 
-/// The hearers of a running command's end: the call that started it
-/// and every repeat of it that came while it waited, or the agent,
-/// called with `Finished`. Exactly one of the two hears it.
 pub(super) struct Waiters {
     slot: Mutex<Slot>,
     /// When the call that started the command answers `Running`.
@@ -297,7 +291,6 @@ impl Waiters {
     }
 }
 
-/// The program a command's thread starts.
 pub enum Exec {
     /// A script, in bash.
     Script(String),

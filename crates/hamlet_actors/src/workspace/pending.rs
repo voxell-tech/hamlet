@@ -325,12 +325,9 @@ pub(super) async fn close(
         .collect()
 }
 
-/// The reach in force's answer to a call a chief allowed.
 pub(super) enum Rechecked {
     Pass {
         reach: Reach,
-        /// The command runs with the network where the reach gives
-        /// it, or the chief allowed it.
         network: Network,
         secrets: Arc<Vec<String>>,
     },
@@ -426,8 +423,6 @@ impl Workspace {
                             wait.needs.contains(need)
                         }) =>
                     {
-                        // The chief allowed the network, or the reach
-                        // gives it now.
                         let network = if needs
                             .contains(&Need::Network)
                             || reach.footing().is_some_and(
