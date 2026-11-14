@@ -1,6 +1,6 @@
 //! The Node host as the Rust host's child process: the Rust host's
 //! [`Supervisor`], which starts, watches, ends and restarts it, and
-//! the child's own hold on the link's ends, [`take_stdio`].
+//! the child's own hold on the link's ends, [`take_link`].
 //!
 //! A child has ended here once it has exited and its process group
 //! is killed. tokio reaps its process after that.
@@ -44,7 +44,7 @@ const READY_DEADLINE: Duration = Duration::from_secs(120);
 /// How long a child has to exit after the goodbye.
 const EXIT_DEADLINE: Duration = Duration::from_secs(15);
 
-/// The link's ends in the Node host, from [`take_stdio`] until
+/// The link's ends in the Node host, from [`take_link`] until
 /// [`link::serve`] takes them.
 static ENDS: Mutex<Option<Ends>> = Mutex::new(None);
 
@@ -409,7 +409,7 @@ pub(crate) struct Ends {
 /// started it. From then on the process is killed when the Rust host
 /// is gone or the link's input ends. Fails when no [`Supervisor`]
 /// started this process, or when it has taken the ends already.
-pub fn take_stdio() -> io::Result<()> {
+pub fn take_link() -> io::Result<()> {
     let process::Ends { input, output } = process::Ends::take()?;
     let (frames, received) = mpsc::unbounded_channel();
     thread::Builder::new()
@@ -436,7 +436,7 @@ fn read_input(
     process::end_now()
 }
 
-/// The link's ends [`take_stdio`] took, once.
+/// The link's ends [`take_link`] took, once.
 pub(crate) fn take_ends() -> Option<Ends> {
     ENDS.lock().take()
 }

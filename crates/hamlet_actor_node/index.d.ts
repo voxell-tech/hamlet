@@ -235,7 +235,7 @@ export interface JsHttpResponse {
  * is gone or the link's input ends. Fails when no Rust host started
  * this process, or when it has taken the ends already.
  */
-export declare function takeStdio(): void;
+export declare function takeLink(): void;
 export interface JsQueueNextOptions {
     names?: Array<string>;
     timeoutMs?: number;

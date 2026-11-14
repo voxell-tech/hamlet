@@ -278,7 +278,7 @@ pub(crate) fn answer(
 }
 
 /// Serves the Node host's half of the link, on the ends
-/// [`child::take_stdio`] took. Says hello with the kinds of
+/// [`child::take_link`] took. Says hello with the kinds of
 /// `factories` before it opens any file. Once welcomed, opens the
 /// folder `HAMLET_HOME` as the host `node` with them and the
 /// welcome's routes, boots it, says it is ready, and at the goodbye
@@ -292,7 +292,7 @@ pub async fn serve(
         mut frames,
         mut output,
     } = child::take_ends().context(
-        "the link's ends are not taken: call take_stdio first, and \
+        "the link's ends are not taken: call take_link first, and \
          serve the link once",
     )?;
     let home = std::env::var_os(child::HOME)

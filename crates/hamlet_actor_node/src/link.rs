@@ -9,7 +9,7 @@ use crate::napi_anyhow_error;
 /// is gone or the link's input ends. Fails when no Rust host started
 /// this process, or when it has taken the ends already.
 #[napi]
-pub fn take_stdio() -> napi::Result<()> {
-    hamlet_host::child::take_stdio()
+pub fn take_link() -> napi::Result<()> {
+    hamlet_host::child::take_link()
         .map_err(|error| napi_anyhow_error(error.into()))
 }

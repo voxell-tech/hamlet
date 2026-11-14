@@ -22,7 +22,7 @@ const BOUND = join(
 
 /** A Node host that takes the link's ends, then uses stdout and stdin as any code would. */
 const CHILD = `
-require("@hamlet/actor-node").takeStdio();
+require("@hamlet/actor-node").takeLink();
 process.stdout.write("written to stdout\\n");
 console.log("logged");
 let read = "";
@@ -36,7 +36,7 @@ process.stdin.on("end", () => {
 
 /** A Node host that takes the link's ends, says so with its pid on stderr, and stays alive. */
 const HELD = `
-require("@hamlet/actor-node").takeStdio();
+require("@hamlet/actor-node").takeLink();
 process.stderr.write(\`taken \${process.pid}\\n\`);
 setInterval(() => {}, 1_000);
 `;
@@ -51,7 +51,7 @@ function isAlive(pid: number): boolean {
     }
 }
 
-test("takeStdio leaves stdout to the link and stdin to nothing", async () => {
+test("takeLink keeps what Node writes to stdout off the link, and stdin empty", async () => {
     const child = spawn(BOUND, [process.execPath, "-e", CHILD], {
         cwd: HOST,
         env: { PATH: process.env.PATH },

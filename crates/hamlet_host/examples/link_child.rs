@@ -71,7 +71,7 @@ fn main() -> Result<()> {
     match mode {
         Mode::Serve => {
             let copy = stray.then(stdout_copy).transpose()?;
-            child::take_stdio()?;
+            child::take_link()?;
             if let Some(mut copy) = copy {
                 copy.write_all(b"stray\n")?;
             }
@@ -80,7 +80,7 @@ fn main() -> Result<()> {
                 .block_on(link::serve(factories()))
         }
         Mode::Hold => {
-            child::take_stdio()?;
+            child::take_link()?;
             record_start(starts.as_deref())?;
             loop {
                 std::thread::park();
