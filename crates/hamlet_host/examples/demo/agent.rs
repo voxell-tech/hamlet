@@ -278,6 +278,7 @@ pub async fn run(host: &Host, words: &[String]) -> Result<()> {
                 Exit::CutOff => ("cut_off", 0),
                 Exit::TimedOut => ("timed_out", 0),
                 Exit::Failed(_) => ("failed", 0),
+                Exit::Cancelled => ("cancelled", 0),
             };
             writeln!(out, "status/{}/{state} {code}", end.command.0)?;
         }
@@ -309,6 +310,7 @@ fn exit_word(exit: &Exit) -> (&'static str, i64) {
         Exit::TimedOut => ("/timed_out", 0),
         Exit::Failed(_) => ("/failed", 0),
         Exit::CutOff => ("/cut_off", 0),
+        Exit::Cancelled => ("/cancelled", 0),
     }
 }
 

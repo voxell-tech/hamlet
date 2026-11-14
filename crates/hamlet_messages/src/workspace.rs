@@ -256,6 +256,37 @@ pub enum Exit {
     Failed(String),
     /// The workspace's host stopped or was killed while it ran.
     CutOff,
+    /// A [`Cancel`] ended it, or its agent's reach ended.
+    Cancelled,
+}
+
+/// Ends the named running commands of an agent, each as
+/// [`Exit::Cancelled`]. Called by the realm, or by the agent named.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Cancel {
+    pub agent: AgentNumber,
+    pub which: Which,
+}
+
+impl Action for Cancel {
+    type Output = CancelAnswer;
+    const NAME: &'static str = "cancel";
+}
+
+/// The calls whose commands a [`Cancel`] ends.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Which {
+    One(CallId),
+    Conversation(ConversationId),
+    All,
+}
+
+/// The workspace's answer to a [`Cancel`].
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CancelAnswer {
+    /// The commands it ended, none when none of them ran.
+    Cancelled(Vec<CommandId>),
+    Refused(CallerRefusal),
 }
 
 /// Asks how a command of the calling agent stands.

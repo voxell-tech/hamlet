@@ -20,10 +20,11 @@ use hamlet_messages::workspace::reach::{
     Trust,
 };
 use hamlet_messages::workspace::{
-    AgentNumber, Answer, AnswerTaken, CallId, CallRefusal, Changed,
-    ChiefAnswer, CommandEnd, CommandId, CommandStatus,
-    ConversationId, Cut, Exit, Lapse, ReachAnswer, ReachVersion,
-    RealmRefusal, RealmTask, Run, RunAnswer, Scope, SetReach, Shell,
+    AgentNumber, Answer, AnswerTaken, CallId, CallRefusal,
+    CallerRefusal, Cancel, CancelAnswer, Changed, ChiefAnswer,
+    CommandEnd, CommandId, CommandStatus, ConversationId, Cut, Exit,
+    Lapse, ReachAnswer, ReachVersion, RealmRefusal, RealmTask, Run,
+    RunAnswer, Scope, SetReach, Shell, Which,
 };
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -267,6 +268,7 @@ fn the_answers_about_a_command_match_their_fixtures() {
         ("timed_out", Exit::TimedOut),
         ("failed", Exit::Failed("bash: command not found".into())),
         ("cut_off", Exit::CutOff),
+        ("cancelled", Exit::Cancelled),
     ] {
         fixtures.answer(
             &format!("workspace/run.done.{name}"),
@@ -279,6 +281,33 @@ fn the_answers_about_a_command_match_their_fixtures() {
             agent: AGENT,
             command: CommandId(4),
         },
+    );
+    for (name, which) in [
+        ("one", Which::One(CallId("call-1".into()))),
+        (
+            "conversation",
+            Which::Conversation(ConversationId("c1".into())),
+        ),
+        ("all", Which::All),
+    ] {
+        fixtures.args(
+            &format!("workspace/cancel.{name}"),
+            &Cancel {
+                agent: AGENT,
+                which,
+            },
+        );
+    }
+    fixtures.answer(
+        "workspace/cancel.cancelled",
+        &CancelAnswer::Cancelled(vec![CommandId(4), CommandId(5)]),
+    );
+    fixtures.answer(
+        "workspace/cancel.refused",
+        &CancelAnswer::Refused(CallerRefusal::NotTheCaller {
+            named: AGENT,
+            caller: AgentNumber(8),
+        }),
     );
     fixtures.args(
         "agent/finished",
