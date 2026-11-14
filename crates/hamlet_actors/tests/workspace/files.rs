@@ -294,3 +294,28 @@ async fn what_a_read_hands_back_is_scrubbed() {
         "{missing:?}"
     );
 }
+
+/// The realm's shared folders a file tool may read, such as
+/// `library/` and the agent's own spilled output, are read through
+/// the workspace although the rest of the realm folder is hidden.
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_read_reaches_the_realms_shared_folders() {
+    let dir = Scratch::new("workspace-files-shared");
+    let (_project, folder) =
+        project("workspace-files-shared-project", &[("a.md", "a")]);
+    let book = dir.join("library/book.md");
+    std::fs::create_dir_all(book.parent().unwrap()).unwrap();
+    std::fs::write(&book, "a book\n").unwrap();
+    let spill = dir.join("actors/workspace/local.output/7/1.log");
+    std::fs::create_dir_all(spill.parent().unwrap()).unwrap();
+    std::fs::write(&spill, "all it printed\n").unwrap();
+    let host = working_in(&dir, &folder, Arc::default()).await;
+    let me = agent(AGENT);
+    let read_book = ask(&host, &me, &read_file(&book)).await;
+    let read_spill = ask(&host, &me, &read_file(&spill)).await;
+    host.shutdown().await.unwrap();
+
+    assert_eq!(text(read_book).text, "a book\n");
+    assert_eq!(text(read_spill).text, "all it printed\n");
+}
