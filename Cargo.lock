@@ -3143,6 +3143,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "00d174d5400e5e8fd687ad1049e2f578285fa914201b1af7e8b112a4546bd826"
 
 [[package]]
+name = "erased-discriminant"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c1a6df962265a53221f29081896c412ef325c17fa7d638cd9578febe53d3c82c"
+dependencies = [
+ "typeid",
+]
+
+[[package]]
 name = "erased-serde"
 version = "0.4.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4874,11 +4883,16 @@ dependencies = [
  "hamlet_actor_core",
  "hamlet_actor_error",
  "hamlet_host",
+ "hamlet_protocol",
  "hamlet_sqlite",
  "hamlet_testing",
  "parking_lot",
  "rusqlite",
  "serde",
+ "serde-reflection",
+ "serde_bytes",
+ "serde_json",
+ "sha2",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -8360,12 +8374,36 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde-reflection"
+version = "0.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "68fb2363ca88876b3e16442b02dde5305646fd50df297c79a4b54fc5f5cf51d4"
+dependencies = [
+ "erased-discriminant",
+ "once_cell",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+ "typeid",
+]
+
+[[package]]
 name = "serde_bare"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "51c55386eed0f1ae957b091dc2ca8122f287b60c79c774cbe3d5f2b69fded660"
 dependencies = [
  "serde",
+]
+
+[[package]]
+name = "serde_bytes"
+version = "0.11.19"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a5d440709e79d88e51ac01c4b72fc6cb7314017bb7da9eeff678aa94c10e3ea8"
+dependencies = [
+ "serde",
+ "serde_core",
 ]
 
 [[package]]
