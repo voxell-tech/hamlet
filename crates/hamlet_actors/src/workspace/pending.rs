@@ -373,10 +373,12 @@ impl Workspace {
             ctx,
             wait.agent,
             wait.call.clone(),
-            Outcome::NotRun(refusal.clone()),
+            Outcome::NotRun {
+                why: refusal.clone(),
+            },
         )
         .await;
-        Ok(AnswerTaken::NotRun(refusal))
+        Ok(AnswerTaken::NotRun { why: refusal })
     }
 
     /// Weighs `wait`, which a chief allowed, again under the reach in
@@ -439,10 +441,10 @@ impl Workspace {
                         }
                     }
                     Gate::NeedsChief(needs) => {
-                        changed(Changed::Needs(needs))
+                        changed(Changed::Needs { needs })
                     }
                     Gate::Refuse(refusal) => {
-                        changed(Changed::Refused(refusal))
+                        changed(Changed::Refused { why: refusal })
                     }
                 },
             ))
@@ -459,7 +461,7 @@ impl Handler<ChiefAnswer> for Workspace {
     ) -> Result<AnswerTaken> {
         if let Err(refusal) = realm_calling(&ctx, ChiefAnswer::NAME)?
         {
-            return Ok(AnswerTaken::Refused(refusal));
+            return Ok(AnswerTaken::Refused { why: refusal });
         }
         let wait = read_only(&ctx, async |tx| {
             find(tx, answered.agent, &answered.call).await
@@ -477,9 +479,13 @@ impl Handler<ChiefAnswer> for Workspace {
                 )
                 .await
             }
-            Answer::Lapsed(lapse) => {
-                self.not_run(&ctx, &wait, CallRefusal::Lapsed(lapse))
-                    .await
+            Answer::Lapsed { lapse } => {
+                self.not_run(
+                    &ctx,
+                    &wait,
+                    CallRefusal::Lapsed { lapse },
+                )
+                .await
             }
             Answer::Allow => match &wait.request {
                 Pending::Run(run) => {

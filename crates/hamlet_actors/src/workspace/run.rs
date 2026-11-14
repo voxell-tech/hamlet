@@ -195,8 +195,8 @@ impl Running {
     ) -> bool {
         self.agent == agent
             && match which {
-                Which::One(call) => self.call == *call,
-                Which::Conversation(conversation) => {
+                Which::One { call } => self.call == *call,
+                Which::Conversation { conversation } => {
                     self.conversation == *conversation
                 }
                 Which::All => true,
@@ -354,9 +354,9 @@ fn start_on(
     let failed = move |why: io::Error| {
         without_output(
             command,
-            Exit::Failed(format!(
-                "the command could not start: {why}"
-            )),
+            Exit::Failed {
+                words: format!("the command could not start: {why}"),
+            },
         )
     };
     let thread_tx = tx.clone();
@@ -395,7 +395,9 @@ async fn ran(spec: Spec) -> CommandEnd {
         spec.policy,
         spec.sandbox,
     ) {
-        Err(error) => Exit::Failed(error.to_string()),
+        Err(error) => Exit::Failed {
+            words: error.to_string(),
+        },
         Ok(env) => {
             policy_hash = env.policy_hash().to_owned();
             let shell;
@@ -426,7 +428,7 @@ async fn ran(spec: Spec) -> CommandEnd {
                 }
             };
             match launch {
-                Err(why) => Exit::Failed(why),
+                Err(why) => Exit::Failed { words: why },
                 Ok(launch) => {
                     let mut push = |text: &str| output.push(text);
                     let streamed = env.stream(
@@ -443,14 +445,14 @@ async fn ran(spec: Spec) -> CommandEnd {
                         biased;
                         () = spec.cancel.cancelled() => Exit::Cancelled,
                         ran = streamed => match ran {
-                            Ok(code) => Exit::Code(code),
+                            Ok(code) => Exit::Code { code },
                             Err(ExecError::Timeout { .. }) => {
                                 Exit::TimedOut
                             }
                             Err(
                                 ExecError::Spawn(why)
                                 | ExecError::Spill(why),
-                            ) => Exit::Failed(why),
+                            ) => Exit::Failed { words: why },
                         },
                     }
                 }
@@ -459,11 +461,18 @@ async fn ran(spec: Spec) -> CommandEnd {
     };
     let (tail, cut) = output.finish();
     let (exit, cut) = match (exit, cut) {
-        (Exit::Failed(why), cut) => (
-            Exit::Failed(scrub_text(&spec.secrets, &why)),
+        (Exit::Failed { words: why }, cut) => (
+            Exit::Failed {
+                words: scrub_text(&spec.secrets, &why),
+            },
             cut.ok().flatten(),
         ),
-        (_, Err(why)) => (Exit::Failed(why.to_string()), None),
+        (_, Err(why)) => (
+            Exit::Failed {
+                words: why.to_string(),
+            },
+            None,
+        ),
         (exit, Ok(cut)) => (exit, cut),
     };
     CommandEnd {
@@ -536,9 +545,10 @@ mod tests {
         let end = ended.await.expect("an end");
         assert_eq!(
             end.exit,
-            Exit::Failed(
-                "the command could not start: no threads left".into()
-            )
+            Exit::Failed {
+                words: "the command could not start: no threads left"
+                    .into()
+            }
         );
     }
 
@@ -593,7 +603,10 @@ mod tests {
         }
         assert_eq!(
             seen,
-            [(Exit::Code(0), true), (Exit::Code(128 + 9), false)]
+            [
+                (Exit::Code { code: 0 }, true),
+                (Exit::Code { code: 128 + 9 }, false)
+            ]
         );
     }
 }

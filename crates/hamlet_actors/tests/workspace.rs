@@ -377,7 +377,12 @@ async fn an_older_reach_version_is_ignored() {
 
     assert_eq!(
         answers,
-        vec![ReachAnswer::InForce(ReachVersion(3)); 3]
+        vec![
+            ReachAnswer::InForce {
+                version: ReachVersion(3)
+            };
+            3
+        ]
     );
     assert_eq!(reach_rows(&dir), [(7, 3, reach(None))]);
 }
@@ -427,9 +432,19 @@ async fn only_the_realm_sets_a_reach() {
 
     assert_eq!(
         answers,
-        vec![ReachAnswer::Refused(RealmRefusal::NotTheRealm); 4]
+        vec![
+            ReachAnswer::Refused {
+                why: RealmRefusal::NotTheRealm
+            };
+            4
+        ]
     );
-    assert_eq!(realm, ReachAnswer::InForce(ReachVersion(1)));
+    assert_eq!(
+        realm,
+        ReachAnswer::InForce {
+            version: ReachVersion(1)
+        }
+    );
     assert_eq!(reach_rows(&dir), [(7, 1, reach(None))]);
     assert_eq!(after_refusals, before, "a refusal left a row");
 }
@@ -611,7 +626,7 @@ async fn a_command_waits_for_the_secrets_list() {
 
     assert!(!started_early, "the command started before the list");
     assert_eq!(peers.fetched.load(Ordering::SeqCst), 1);
-    assert_eq!(end.exit, Exit::Code(0));
+    assert_eq!(end.exit, Exit::Code { code: 0 });
     assert_eq!(end.output, "the secret is [REDACTED]\n");
     assert!(fs.join("started").exists());
 }
@@ -659,7 +674,7 @@ async fn no_secret_reaches_the_workspaces_file() {
     );
     host.shutdown().await.unwrap();
 
-    assert_eq!(end.exit, Exit::Code(3));
+    assert_eq!(end.exit, Exit::Code { code: 3 });
     let mut searched = 0;
     for suffix in ["", "-wal", "-shm"] {
         let path = dir
@@ -695,7 +710,7 @@ async fn a_command_that_ends_in_time_answers_done() {
 
     assert_eq!(
         (end.exit, end.output.as_str()),
-        (Exit::Code(0), "hi\n")
+        (Exit::Code { code: 0 }, "hi\n")
     );
     assert_eq!(told(&peers), []);
 }
@@ -734,7 +749,7 @@ async fn a_long_command_answers_running_then_finished() {
     assert_eq!(ran(finished).command, command);
     assert_eq!(
         (&ran(finished).exit, ran(finished).output.as_str()),
-        (&Exit::Code(0), "late\n")
+        (&Exit::Code { code: 0 }, "late\n")
     );
     assert_eq!(after, RunAnswer::Done(ran(finished).clone()));
 }
@@ -801,9 +816,11 @@ async fn a_repeat_answers_from_the_row_and_runs_nothing() {
     assert_eq!(repeat, first);
     assert_eq!(
         reused,
-        RunAnswer::Refused(CallRefusal::CallReused(CallId(
-            "c1".into()
-        )))
+        RunAnswer::Refused {
+            why: CallRefusal::CallReused {
+                call: CallId("c1".into())
+            }
+        }
     );
     assert_eq!(
         std::fs::read_to_string(fs.join("runs")).unwrap(),
@@ -831,17 +848,21 @@ async fn the_agent_is_the_stamped_caller() {
 
     assert_eq!(
         named,
-        RunAnswer::Refused(CallRefusal::Caller(
-            CallerRefusal::NotTheCaller {
-                named: AGENT,
-                caller: other,
+        RunAnswer::Refused {
+            why: CallRefusal::Caller {
+                why: CallerRefusal::NotTheCaller {
+                    named: AGENT,
+                    caller: other,
+                }
             }
-        ))
+        }
     );
     assert!(!fs.join("ran").exists());
     assert_eq!(
         asked,
-        RunAnswer::Refused(CallRefusal::NoSuchCommand(command))
+        RunAnswer::Refused {
+            why: CallRefusal::NoSuchCommand { command }
+        }
     );
 }
 
@@ -997,7 +1018,7 @@ async fn output_past_the_tail_spills_to_a_file() {
 
     assert_eq!(short.cut, None);
     assert_eq!(short.output.lines().count(), 2000);
-    assert_eq!(long.exit, Exit::Code(0));
+    assert_eq!(long.exit, Exit::Code { code: 0 });
     let cut = long.cut.expect("the output was cut");
     let mut all =
         (1..=3000).map(|n| format!("{n}\n")).collect::<String>();
@@ -1078,7 +1099,7 @@ async fn a_command_reads_only_its_own_agents_spill() {
             seen.push((
                 version,
                 name,
-                end.exit == Exit::Code(0),
+                end.exit == Exit::Code { code: 0 },
                 end.output,
             ));
         }

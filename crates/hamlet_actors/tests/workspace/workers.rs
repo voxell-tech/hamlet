@@ -76,15 +76,28 @@ async fn a_workers_scratch_folder_lives_as_long_as_the_worker() {
     let removed = !scratch.exists();
     host.shutdown().await.unwrap();
 
-    assert_eq!(set, ReachAnswer::InForce(ReachVersion(1)));
+    assert_eq!(
+        set,
+        ReachAnswer::InForce {
+            version: ReachVersion(1)
+        }
+    );
     assert!(made, "no scratch folder at the worker's start");
     assert_eq!(mode, Some(0o700));
     assert_eq!(
         (first.exit, first.output),
-        (Exit::Code(0), format!("hi\n{}\n", scratch.display()))
+        (
+            Exit::Code { code: 0 },
+            format!("hi\n{}\n", scratch.display())
+        )
     );
-    assert_eq!(again.exit, Exit::Code(0));
-    assert_eq!(ended, ReachAnswer::InForce(ReachVersion(2)));
+    assert_eq!(again.exit, Exit::Code { code: 0 });
+    assert_eq!(
+        ended,
+        ReachAnswer::InForce {
+            version: ReachVersion(2)
+        }
+    );
     assert!(removed, "the scratch folder outlived the worker");
 }
 
@@ -173,11 +186,19 @@ async fn a_worker_reads_its_starters_files_and_changes_none() {
         let case = format!("with a project: {with_project}");
         assert_eq!(
             (reads.exit, reads.output.as_str()),
-            (Exit::Code(0), "remember"),
+            (Exit::Code { code: 0 }, "remember"),
             "{case}"
         );
-        assert_ne!(writes.exit, Exit::Code(0), "{case}: {writes:?}");
-        assert_ne!(other.exit, Exit::Code(0), "{case}: {other:?}");
+        assert_ne!(
+            writes.exit,
+            Exit::Code { code: 0 },
+            "{case}: {writes:?}"
+        );
+        assert_ne!(
+            other.exit,
+            Exit::Code { code: 0 },
+            "{case}: {other:?}"
+        );
         assert!(!other.output.contains("not-for-workers"), "{case}");
         let FileAnswer::Text(text) = read_tool else {
             panic!("{case}: the read answered {read_tool:?}");
@@ -185,11 +206,9 @@ async fn a_worker_reads_its_starters_files_and_changes_none() {
         assert_eq!(text.text, "remember", "{case}");
         assert_eq!(
             write_tool,
-            hamlet_messages::workspace::files::ChangeAnswer::Refused(
-                CallRefusal::Reach(Refusal::AgentFilesystem {
+            hamlet_messages::workspace::files::ChangeAnswer::Refused { why: CallRefusal::Reach { why: Refusal::AgentFilesystem {
                     path: notes.clone()
-                })
-            ),
+                } } },
             "{case}"
         );
         assert_eq!(read(&notes), "remember", "{case}");
@@ -235,6 +254,10 @@ async fn the_start_removes_the_folders_of_ended_workers() {
     assert!(kept, "a folder of no worker was removed");
     assert_eq!(
         after,
-        RunAnswer::Refused(CallRefusal::Reach(Refusal::NoReach))
+        RunAnswer::Refused {
+            why: CallRefusal::Reach {
+                why: Refusal::NoReach
+            }
+        }
     );
 }

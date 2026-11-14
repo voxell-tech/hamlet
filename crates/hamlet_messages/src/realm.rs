@@ -50,6 +50,7 @@ pub struct NeedsChief {
     pub call: CallId,
     pub conversation: ConversationId,
     /// The realm's task of the call, as the call carried it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub realm_task: Option<RealmTask>,
     pub needs: Vec<Need>,
     /// The call in words for the chief, the secrets taken out: a
@@ -57,6 +58,7 @@ pub struct NeedsChief {
     /// to 2000 characters.
     pub subject: String,
     /// An edit's change, the secrets taken out.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub change: Option<EditDiff>,
     /// The agent's reach the call was weighed under.
     pub reach_version: ReachVersion,

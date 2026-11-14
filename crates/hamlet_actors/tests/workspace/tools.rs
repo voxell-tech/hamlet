@@ -110,7 +110,7 @@ async fn a_tool_added_by_hand_runs_as_a_command() {
     let again = agent_runs(&host, &call).await;
     host.shutdown().await.unwrap();
     let end = done(first.clone());
-    assert_eq!(end.exit, Exit::Code(0), "{end:?}");
+    assert_eq!(end.exit, Exit::Code { code: 0 }, "{end:?}");
     assert!(end.output.starts_with(r#"{"word":"hi "#), "{end:?}");
     assert!(!end.output.contains(SECRET), "{end:?}");
     assert_eq!(again, first);
@@ -132,13 +132,17 @@ async fn a_tool_call_is_checked_against_its_manifest() {
     host.shutdown().await.unwrap();
     assert_eq!(
         missing,
-        RunAnswer::Refused(CallRefusal::Invalid(
-            "Tool \"nope\" not found".into()
-        ))
+        RunAnswer::Refused {
+            why: CallRefusal::Invalid {
+                words: "Tool \"nope\" not found".into()
+            }
+        }
     );
-    let invalid = RunAnswer::Refused(CallRefusal::Invalid(
-        "Validation failed for tool echo_word".into(),
-    ));
+    let invalid = RunAnswer::Refused {
+        why: CallRefusal::Invalid {
+            words: "Validation failed for tool echo_word".into(),
+        },
+    };
     assert_eq!(unnamed, invalid);
     assert_eq!(not_json, invalid);
 }
@@ -169,7 +173,7 @@ async fn a_long_tool_answers_running_then_finished() {
     };
     assert_eq!(
         (&end.exit, end.output.as_str()),
-        (&Exit::Code(0), "late\n")
+        (&Exit::Code { code: 0 }, "late\n")
     );
 }
 
@@ -198,7 +202,9 @@ async fn a_tool_that_reaches_the_network_waits_for_a_chief() {
     std::fs::remove_dir_all(dir.join("tools/fetch")).unwrap();
     let gone = chief(&host, "t2", Answer::Allow).await;
     host.shutdown().await.unwrap();
-    let waits = RunAnswer::WaitsForChief(vec![Need::Network]);
+    let waits = RunAnswer::WaitsForChief {
+        needs: vec![Need::Network],
+    };
     assert_eq!((first, second), (waits.clone(), waits));
     let asked = peers.asked.lock().unwrap().clone();
     assert_eq!(asked[0].subject, r#"fetch {"url":"x"}"#);
@@ -209,13 +215,15 @@ async fn a_tool_that_reaches_the_network_waits_for_a_chief() {
     };
     assert_eq!(
         (&end.exit, end.output.as_str()),
-        (&Exit::Code(0), r#"{"url":"x"}"#)
+        (&Exit::Code { code: 0 }, r#"{"url":"x"}"#)
     );
     assert_eq!(
         gone,
-        AnswerTaken::NotRun(CallRefusal::Invalid(
-            "Tool \"fetch\" not found".into()
-        ))
+        AnswerTaken::NotRun {
+            why: CallRefusal::Invalid {
+                words: "Tool \"fetch\" not found".into()
+            }
+        }
     );
 }
 
@@ -266,7 +274,7 @@ async fn an_agent_never_writes_the_tools_folder() {
         for (script, exit) in &ran {
             assert_ne!(
                 exit,
-                &Exit::Code(0),
+                &Exit::Code { code: 0 },
                 "{with_project}: {script}"
             );
         }
@@ -274,9 +282,11 @@ async fn an_agent_never_writes_the_tools_folder() {
             assert!(
                 matches!(
                     answer,
-                    ChangeAnswer::Refused(CallRefusal::Reach(
-                        Refusal::OutsideReach { .. }
-                    ))
+                    ChangeAnswer::Refused {
+                        why: CallRefusal::Reach {
+                            why: Refusal::OutsideReach { .. }
+                        }
+                    }
                 ),
                 "{with_project}: {path:?} {answer:?}"
             );
@@ -304,7 +314,7 @@ async fn a_tool_never_writes_the_tools_folder() {
     let end =
         done(agent_runs(&host, &tool("t1", "rewrite", "{}")).await);
     host.shutdown().await.unwrap();
-    assert_ne!(end.exit, Exit::Code(0), "{end:?}");
+    assert_ne!(end.exit, Exit::Code { code: 0 }, "{end:?}");
     assert_eq!(read(&path), manifest);
     assert!(!dir.join("tools/new").exists());
 }

@@ -55,10 +55,13 @@ pub(super) fn read(
             .unwrap_or(usize::MAX)
     });
     if start >= total {
-        return Ok(FileAnswer::Failed(format!(
-            "Offset {} is beyond end of file ({total} lines total)",
-            offset.unwrap_or(0)
-        )));
+        return Ok(FileAnswer::Failed {
+            words: format!(
+                "Offset {} is beyond end of file ({total} lines \
+                 total)",
+                offset.unwrap_or(0)
+            ),
+        });
     }
     let end = limit.map(|limit| {
         start

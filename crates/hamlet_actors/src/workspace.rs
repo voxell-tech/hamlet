@@ -295,12 +295,16 @@ impl Handler<Run> for Workspace {
     ) -> Result<RunAnswer> {
         let agent = match calling_agent(&ctx, run.agent, Run::NAME)? {
             Ok(agent) => agent,
-            Err(refusal) => return Ok(RunAnswer::Refused(refusal)),
+            Err(refusal) => {
+                return Ok(RunAnswer::Refused { why: refusal });
+            }
         };
         if let Err(why) = checked(&run) {
-            return Ok(RunAnswer::Refused(CallRefusal::Invalid(
-                why.to_string(),
-            )));
+            return Ok(RunAnswer::Refused {
+                why: CallRefusal::Invalid {
+                    words: why.to_string(),
+                },
+            });
         }
         let request_hash = calls::request_hash(&run)?;
         // Read before the row is opened: past its commit, nothing
@@ -346,7 +350,7 @@ impl Handler<Run> for Workspace {
             Decision::AskChief(notice) => {
                 let needs = notice.needs.clone();
                 self.ask_chief(ctx, notice).await;
-                return Ok(RunAnswer::WaitsForChief(needs));
+                return Ok(RunAnswer::WaitsForChief { needs });
             }
         };
         let running = opened.running;
@@ -475,16 +479,20 @@ impl Handler<CommandStatus> for Workspace {
             CommandStatus::NAME,
         )? {
             Ok(agent) => agent,
-            Err(refusal) => return Ok(RunAnswer::Refused(refusal)),
+            Err(refusal) => {
+                return Ok(RunAnswer::Refused { why: refusal });
+            }
         };
         let row = read_only(&ctx, async |tx| {
             run::status(tx, agent, asked.command).await
         })
         .await?;
         Ok(match row {
-            None => RunAnswer::Refused(CallRefusal::NoSuchCommand(
-                asked.command,
-            )),
+            None => RunAnswer::Refused {
+                why: CallRefusal::NoSuchCommand {
+                    command: asked.command,
+                },
+            },
             Some(row) if self.waiters(row.command).is_some() => {
                 RunAnswer::Running {
                     command: row.command,
@@ -529,9 +537,10 @@ impl Workspace {
                 // Its thread panicked.
                 Err(_) => run::without_output(
                     command,
-                    Exit::Failed(
-                        "the command's thread ended before it".into(),
-                    ),
+                    Exit::Failed {
+                        words: "the command's thread ended before it"
+                            .into(),
+                    },
                 ),
             };
             if let Err(error) =
@@ -629,11 +638,13 @@ impl Handler<Cancel> for Workspace {
                 agent_of(caller.as_ref(), cancel.agent)
         {
             refused(caller.as_ref(), Cancel::NAME, &refusal);
-            return Ok(CancelAnswer::Refused(refusal));
+            return Ok(CancelAnswer::Refused { why: refusal });
         }
-        Ok(CancelAnswer::Cancelled(
-            self.cancel(&ctx, cancel.agent, &cancel.which).await,
-        ))
+        Ok(CancelAnswer::Cancelled {
+            commands: self
+                .cancel(&ctx, cancel.agent, &cancel.which)
+                .await,
+        })
     }
 }
 
@@ -736,9 +747,11 @@ impl Workspace {
         if let Some(call) = calls::find(tx, agent, &run.call).await? {
             if !call.is(run::OP, request_hash) {
                 return Ok(Weighing::Done(Decision::Answer(
-                    RunAnswer::Refused(CallRefusal::CallReused(
-                        run.call.clone(),
-                    )),
+                    RunAnswer::Refused {
+                        why: CallRefusal::CallReused {
+                            call: run.call.clone(),
+                        },
+                    },
                 )));
             }
             let row = run::row_of(call)?;
@@ -756,7 +769,7 @@ impl Workspace {
             Ok(ready) => ready,
             Err(refusal) => {
                 return Ok(Weighing::Done(Decision::Answer(
-                    RunAnswer::Refused(refusal),
+                    RunAnswer::Refused { why: refusal },
                 )));
             }
         };
@@ -776,7 +789,9 @@ impl Workspace {
             Gate::Run { network } => network,
             Gate::Refuse(refusal) => {
                 return Ok(Weighing::Done(Decision::Answer(
-                    RunAnswer::Refused(CallRefusal::Reach(refusal)),
+                    RunAnswer::Refused {
+                        why: CallRefusal::Reach { why: refusal },
+                    },
                 )));
             }
             Gate::NeedsChief(needs) => {
@@ -796,9 +811,11 @@ impl Workspace {
                     match pending::open(tx, &secrets, opening).await?
                     {
                         Ok(notice) => Decision::AskChief(notice),
-                        Err(refusal) => Decision::Answer(
-                            RunAnswer::Refused(refusal),
-                        ),
+                        Err(refusal) => {
+                            Decision::Answer(RunAnswer::Refused {
+                                why: refusal,
+                            })
+                        }
                     },
                 ));
             }
@@ -851,8 +868,12 @@ fn answer_of(row: run::Row) -> RunAnswer {
             row.command,
             Exit::CutOff,
         )),
-        run::State::Waiting(needs) => RunAnswer::WaitsForChief(needs),
-        run::State::Refused(refusal) => RunAnswer::Refused(refusal),
+        run::State::Waiting(needs) => {
+            RunAnswer::WaitsForChief { needs }
+        }
+        run::State::Refused(refusal) => {
+            RunAnswer::Refused { why: refusal }
+        }
     }
 }
 
@@ -914,7 +935,7 @@ impl Handler<SetReach> for Workspace {
         set: SetReach,
     ) -> Result<ReachAnswer> {
         if let Err(refusal) = realm_calling(&ctx, SetReach::NAME)? {
-            return Ok(ReachAnswer::Refused(refusal));
+            return Ok(ReachAnswer::Refused { why: refusal });
         }
         let (in_force, now, closed) = transact(&ctx, async |tx| {
             let in_force = reach::apply(tx, &set).await?;
@@ -948,11 +969,13 @@ impl Handler<SetReach> for Workspace {
             }
             Some(Reach::Agent(_)) | None => {}
         }
-        Ok(ReachAnswer::InForce(in_force))
+        Ok(ReachAnswer::InForce { version: in_force })
     }
 }
 
-const LAPSED: CallRefusal = CallRefusal::Lapsed(Lapse::Ended);
+const LAPSED: CallRefusal = CallRefusal::Lapsed {
+    lapse: Lapse::Ended,
+};
 
 impl Workspace {
     /// Ends what `agent`, whose reach ended, has running: its
@@ -973,8 +996,13 @@ impl Workspace {
         let task_ctx = ctx.clone();
         ctx.register_task(async move {
             for call in closed {
-                tell(&task_ctx, agent, call, Outcome::NotRun(LAPSED))
-                    .await;
+                tell(
+                    &task_ctx,
+                    agent,
+                    call,
+                    Outcome::NotRun { why: LAPSED },
+                )
+                .await;
             }
         });
         Ok(())
@@ -1010,7 +1038,7 @@ fn calling_agent(
     let caller = caller(ctx)?;
     Ok(agent_of(caller.as_ref(), named).map_err(|refusal| {
         refused(caller.as_ref(), action, &refusal);
-        CallRefusal::Caller(refusal)
+        CallRefusal::Caller { why: refusal }
     }))
 }
 

@@ -217,10 +217,10 @@ pub async fn run(host: &Host, words: &[String]) -> Result<()> {
         .await?;
     let mut out = std::io::stdout();
     match ciborium::from_reader(reply.as_slice())? {
-        ReachAnswer::InForce(in_force) => {
+        ReachAnswer::InForce { version: in_force } => {
             writeln!(out, "reach/{agent} {}", in_force.0)?;
         }
-        ReachAnswer::Refused(refusal) => {
+        ReachAnswer::Refused { why: refusal } => {
             writeln!(out, "reach/{agent} refused: {refusal}")?;
         }
     }
@@ -294,9 +294,15 @@ async fn answer_call(
         _ => match answer {
             "allow" => Answer::Allow,
             "refuse" => Answer::Refuse { reason: None },
-            "stopped" => Answer::Lapsed(Lapse::Stopped),
-            "rewound" => Answer::Lapsed(Lapse::Rewound),
-            "ended" => Answer::Lapsed(Lapse::Ended),
+            "stopped" => Answer::Lapsed {
+                lapse: Lapse::Stopped,
+            },
+            "rewound" => Answer::Lapsed {
+                lapse: Lapse::Rewound,
+            },
+            "ended" => Answer::Lapsed {
+                lapse: Lapse::Ended,
+            },
             _ => bail!("`{answer}` is not an answer"),
         },
     };
@@ -320,14 +326,14 @@ async fn answer_call(
     let mut out = std::io::stdout();
     match ciborium::from_reader(reply.as_slice())? {
         AnswerTaken::Runs => writeln!(out, "answered/{call} 1")?,
-        AnswerTaken::NotRun(why) => {
+        AnswerTaken::NotRun { why } => {
             tracing::warn!(%why, "agent {agent}'s call {call} did not run");
             writeln!(out, "answered/{call}/not_run 0")?;
         }
         AnswerTaken::NoWait => {
             writeln!(out, "answered/{call}/no_wait 0")?;
         }
-        AnswerTaken::Refused(why) => {
+        AnswerTaken::Refused { why } => {
             tracing::warn!(%why, "the workspace refused the realm");
             writeln!(out, "answered/{call}/refused 0")?;
         }

@@ -24,12 +24,13 @@ impl Action for Finished {
 
 /// The end of a call.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
 pub enum Outcome {
     /// Its command ended.
     Ran(CommandEnd),
     /// Its change, which a chief allowed, was carried out or failed.
-    Changed(ChangeAnswer),
+    Changed { answer: ChangeAnswer },
     /// It did not run: a chief refused it, its wait lapsed, or what
     /// the chief allowed no longer holds.
-    NotRun(CallRefusal),
+    NotRun { why: CallRefusal },
 }

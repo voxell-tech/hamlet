@@ -220,7 +220,7 @@ impl Workspace {
         let agent = match calling_agent(ctx, request.named, action)? {
             Ok(agent) => agent,
             Err(refusal) => {
-                return Ok(ChangeAnswer::Refused(refusal));
+                return Ok(ChangeAnswer::Refused { why: refusal });
             }
         };
         let path = text(request.path);
@@ -229,19 +229,21 @@ impl Workspace {
                 .then_some(())
                 .ok_or_else(|| Invalid::NotAbsolute(path.clone()))
         }) {
-            return Ok(ChangeAnswer::Refused(CallRefusal::Invalid(
-                why.to_string(),
-            )));
+            return Ok(ChangeAnswer::Refused {
+                why: CallRefusal::Invalid {
+                    words: why.to_string(),
+                },
+            });
         }
         if let Asked::Write(content) = request.asked {
             let bytes = u64::try_from(content.len())?;
             if bytes > MOST_CONTENT {
-                return Ok(ChangeAnswer::Refused(
-                    CallRefusal::TooLarge {
+                return Ok(ChangeAnswer::Refused {
+                    why: CallRefusal::TooLarge {
                         bytes,
                         limit: MOST_CONTENT,
                     },
-                ));
+                });
             }
         }
         let held = self.paths.hold(&path).await;
@@ -277,9 +279,9 @@ impl Workspace {
         {
             Ok(planned) => planned,
             Err(Unplanned::Failed(words)) => {
-                return Ok(ChangeAnswer::Failed(scrub_text(
-                    &secrets, &words,
-                )));
+                return Ok(ChangeAnswer::Failed {
+                    words: scrub_text(&secrets, &words),
+                });
             }
             Err(Unplanned::Changed { .. }) => {
                 bail!("a change with nothing to match changed")
@@ -348,15 +350,16 @@ impl Workspace {
             {
                 return Ok(Err(match answered(call, request)? {
                     Row::Answer(answer) => answer,
-                    Row::Unfinished { .. } => ChangeAnswer::Failed(
-                        "another change with this call id is at work"
+                    Row::Unfinished { .. } => ChangeAnswer::Failed {
+                        words: "another change with this call id is \
+                                at work"
                             .into(),
-                    ),
+                    },
                 }));
             }
             Ok(pending::open(tx, secrets, opening)
                 .await?
-                .map_err(ChangeAnswer::Refused))
+                .map_err(|why| ChangeAnswer::Refused { why }))
         })
         .await?;
         let notice = match opened {
@@ -366,7 +369,7 @@ impl Workspace {
         drop(held);
         let needs = notice.needs.clone();
         self.ask_chief(ctx, notice).await;
-        Ok(ChangeAnswer::WaitsForChief(needs))
+        Ok(ChangeAnswer::WaitsForChief { needs })
     }
 
     /// Carries out the change of `wait`, which a chief allowed, when
@@ -418,9 +421,9 @@ impl Workspace {
                 return self.not_run(ctx, wait, refusal).await;
             }
             Err(Unplanned::Failed(words)) => {
-                let answer = ChangeAnswer::Failed(scrub_text(
-                    &secrets, &words,
-                ));
+                let answer = ChangeAnswer::Failed {
+                    words: scrub_text(&secrets, &words),
+                };
                 let bytes = Some(calls::cbor(&answer)?);
                 if pending::settled(ctx, wait, "ended", bytes, None)
                     .await?
@@ -432,7 +435,7 @@ impl Workspace {
                     ctx,
                     wait.agent,
                     wait.call.clone(),
-                    Outcome::Changed(answer),
+                    Outcome::Changed { answer },
                 )
                 .await;
                 return Ok(AnswerTaken::Runs);
@@ -469,7 +472,7 @@ impl Workspace {
             ctx,
             wait.agent,
             wait.call.clone(),
-            Outcome::Changed(answer),
+            Outcome::Changed { answer },
         )
         .await;
         Ok(AnswerTaken::Runs)
@@ -577,7 +580,9 @@ impl Workspace {
                         .context("a chief is asked with no reach")?,
                 ),
                 Gated::Refused(refusal) => {
-                    Weighed::Answer(ChangeAnswer::Refused(refusal))
+                    Weighed::Answer(ChangeAnswer::Refused {
+                        why: refusal,
+                    })
                 }
             }));
         }
@@ -609,19 +614,20 @@ enum Row {
 
 fn answered(call: calls::Call, request: &Request<'_>) -> Result<Row> {
     if !call.is(request.asked.op(), &request.request_hash) {
-        return Ok(Row::Answer(ChangeAnswer::Refused(
-            CallRefusal::CallReused(request.call.clone()),
-        )));
+        return Ok(Row::Answer(ChangeAnswer::Refused {
+            why: CallRefusal::CallReused {
+                call: request.call.clone(),
+            },
+        }));
     }
     Ok(match call.state.as_str() {
         "ended" => Row::Answer(decoded("answer", call.answer)?),
-        "waiting" => Row::Answer(ChangeAnswer::WaitsForChief(
-            decoded("needs", call.answer)?,
-        )),
-        "refused" => Row::Answer(ChangeAnswer::Refused(decoded(
-            "refusal",
-            call.answer,
-        )?)),
+        "waiting" => Row::Answer(ChangeAnswer::WaitsForChief {
+            needs: decoded("needs", call.answer)?,
+        }),
+        "refused" => Row::Answer(ChangeAnswer::Refused {
+            why: decoded("refusal", call.answer)?,
+        }),
         "changing" => Row::Unfinished {
             id: call.id,
             temp: call.temp,
@@ -846,9 +852,10 @@ async fn open(
     if let Some(call) = calls::find(tx, agent, request.call).await? {
         return Ok(Err(match answered(call, request)? {
             Row::Answer(answer) => answer,
-            Row::Unfinished { .. } => ChangeAnswer::Failed(
-                "another change with this call id is at work".into(),
-            ),
+            Row::Unfinished { .. } => ChangeAnswer::Failed {
+                words: "another change with this call id is at work"
+                    .into(),
+            },
         }));
     }
     calls::insert(
@@ -904,21 +911,23 @@ fn outcome(
                 diff: planned.diff,
             })
         }
-        Ok(Replaced::Changed(now)) => {
-            ChangeAnswer::Refused(CallRefusal::FileChanged {
+        Ok(Replaced::Changed(now)) => ChangeAnswer::Refused {
+            why: CallRefusal::FileChanged {
                 path: path.to_owned(),
                 was: hashed(planned.current.digest),
                 now: hashed(now),
-            })
-        }
-        Err(error) => ChangeAnswer::Failed(match asked {
-            Asked::Write(_) => error.message,
-            Asked::Edit(_) => CallError::Unedited {
-                path: text(path),
-                code: error.code,
-            }
-            .to_string(),
-        }),
+            },
+        },
+        Err(error) => ChangeAnswer::Failed {
+            words: match asked {
+                Asked::Write(_) => error.message,
+                Asked::Edit(_) => CallError::Unedited {
+                    path: text(path),
+                    code: error.code,
+                }
+                .to_string(),
+            },
+        },
     }
 }
 
@@ -936,11 +945,11 @@ fn scrubbed(
             }
             ChangeAnswer::Changed(change)
         }
-        ChangeAnswer::Failed(words) => {
-            ChangeAnswer::Failed(scrub(&words))
-        }
-        unchanged @ (ChangeAnswer::Refused(_)
-        | ChangeAnswer::WaitsForChief(_)) => unchanged,
+        ChangeAnswer::Failed { words } => ChangeAnswer::Failed {
+            words: scrub(&words),
+        },
+        unchanged @ (ChangeAnswer::Refused { .. }
+        | ChangeAnswer::WaitsForChief { .. }) => unchanged,
     }
 }
 
@@ -976,7 +985,7 @@ mod tests {
             asked: Asked::Write("new"),
             request_hash: vec![1],
         };
-        let answer = ChangeAnswer::Failed("no".into());
+        let answer = ChangeAnswer::Failed { words: "no".into() };
         let bytes = calls::cbor(&answer).unwrap();
         let row =
             |op: &str, hash: u8, state: &str, answer| calls::Call {
@@ -1009,9 +1018,9 @@ mod tests {
         for refused in [other, a_run] {
             assert!(matches!(
                 refused.unwrap(),
-                Row::Answer(ChangeAnswer::Refused(
-                    CallRefusal::CallReused(_)
-                ))
+                Row::Answer(ChangeAnswer::Refused {
+                    why: CallRefusal::CallReused { .. }
+                })
             ));
         }
     }
@@ -1078,23 +1087,27 @@ mod tests {
         };
         assert_eq!(
             refused,
-            ChangeAnswer::Refused(CallRefusal::FileChanged {
-                path: "/p/a.md".into(),
-                was: old,
-                now: Hashed::Sha256 {
-                    hash: bytes::Sha256(
-                        Sha256::digest(b"theirs").into()
-                    ),
-                },
-            })
+            ChangeAnswer::Refused {
+                why: CallRefusal::FileChanged {
+                    path: "/p/a.md".into(),
+                    was: old,
+                    now: Hashed::Sha256 {
+                        hash: bytes::Sha256(
+                            Sha256::digest(b"theirs").into()
+                        ),
+                    },
+                }
+            }
         );
         assert_eq!(
             gone,
-            ChangeAnswer::Refused(CallRefusal::FileChanged {
-                path: "/p/a.md".into(),
-                was: old,
-                now: Hashed::Absent,
-            })
+            ChangeAnswer::Refused {
+                why: CallRefusal::FileChanged {
+                    path: "/p/a.md".into(),
+                    was: old,
+                    now: Hashed::Absent,
+                }
+            }
         );
     }
 
@@ -1122,17 +1135,18 @@ mod tests {
 
         assert_eq!(
             wrote,
-            ChangeAnswer::Failed(
-                "EACCES: permission denied, open '/p/a.md'".into()
-            )
+            ChangeAnswer::Failed {
+                words: "EACCES: permission denied, open '/p/a.md'"
+                    .into()
+            }
         );
         assert_eq!(
             edited,
-            ChangeAnswer::Failed(
-                "Could not edit file: /p/a.md. Error code: \
-                 permission_denied."
+            ChangeAnswer::Failed {
+                words: "Could not edit file: /p/a.md. Error code: \
+                        permission_denied."
                     .into()
-            )
+            }
         );
     }
 }

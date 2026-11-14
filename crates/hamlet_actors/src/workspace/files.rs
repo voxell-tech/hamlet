@@ -55,7 +55,9 @@ impl Passed {
                 sandbox,
             ) {
                 Ok(env) => work(&env),
-                Err(error) => FileAnswer::Failed(error.to_string()),
+                Err(error) => FileAnswer::Failed {
+                    words: error.to_string(),
+                },
             }
         })
         .await
@@ -83,12 +85,11 @@ fn scrubbed(secrets: &[String], answer: FileAnswer) -> FileAnswer {
                 truncation,
             })
         }
-        FileAnswer::Failed(words) => {
-            FileAnswer::Failed(scrub(&words))
-        }
-        image @ (FileAnswer::Image(_) | FileAnswer::Refused(_)) => {
-            image
-        }
+        FileAnswer::Failed { words } => FileAnswer::Failed {
+            words: scrub(&words),
+        },
+        image @ (FileAnswer::Image(_)
+        | FileAnswer::Refused { .. }) => image,
     }
 }
 
@@ -130,7 +131,9 @@ impl Workspace {
                     Gated::Chief(passed()?, needs)
                 }
                 Gate::Refuse(refusal) => {
-                    Gated::Refused(CallRefusal::Reach(refusal))
+                    Gated::Refused(CallRefusal::Reach {
+                        why: refusal,
+                    })
                 }
                 Gate::NeedsSecrets(version) => {
                     return Ok(Weighing::NeedsSecrets(version));
@@ -149,13 +152,19 @@ impl Workspace {
     ) -> Result<FileAnswer> {
         let agent = match calling_agent(ctx, named, action)? {
             Ok(agent) => agent,
-            Err(refusal) => return Ok(FileAnswer::Refused(refusal)),
+            Err(refusal) => {
+                return Ok(FileAnswer::Refused { why: refusal });
+            }
         };
         if !is_absolute(&text(path)) {
-            return Ok(FileAnswer::Refused(CallRefusal::Invalid(
-                Invalid::NotAbsolute(path.display().to_string())
+            return Ok(FileAnswer::Refused {
+                why: CallRefusal::Invalid {
+                    words: Invalid::NotAbsolute(
+                        path.display().to_string(),
+                    )
                     .to_string(),
-            )));
+                },
+            });
         }
         let gated = self
             .weighed(ctx, move || async move {
@@ -172,7 +181,7 @@ impl Workspace {
                 anyhow::bail!("the gate asked a chief for a read")
             }
             Gated::Refused(refusal) => {
-                Ok(FileAnswer::Refused(refusal))
+                Ok(FileAnswer::Refused { why: refusal })
             }
         }
     }
@@ -192,8 +201,8 @@ impl Handler<ReadFile> for Workspace {
             ReadFile::NAME,
             move |env| {
                 read::read(env, &path, asked.offset, asked.limit)
-                    .unwrap_or_else(|error| {
-                        FileAnswer::Failed(error.message)
+                    .unwrap_or_else(|error| FileAnswer::Failed {
+                        words: error.message,
                     })
             },
         )
@@ -259,6 +268,8 @@ fn listed(found: Result<String, walk::Failure>) -> FileAnswer {
             notes: Vec::new(),
             truncation: None,
         }),
-        Err(failure) => FileAnswer::Failed(failure.words()),
+        Err(failure) => FileAnswer::Failed {
+            words: failure.words(),
+        },
     }
 }

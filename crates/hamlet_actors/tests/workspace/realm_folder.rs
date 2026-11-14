@@ -114,34 +114,42 @@ async fn a_project_that_holds_the_realm_folder_reaches_none_of_it() {
         assert_eq!(
             reads,
             [
-                FileAnswer::Refused(CallRefusal::Reach(
-                    Refusal::OutsideReach {
-                        path: credentials.clone(),
-                        access: Access::Read,
+                FileAnswer::Refused {
+                    why: CallRefusal::Reach {
+                        why: Refusal::OutsideReach {
+                            path: credentials.clone(),
+                            access: Access::Read,
+                        }
                     }
-                )),
-                FileAnswer::Refused(CallRefusal::Reach(
-                    Refusal::AgentFilesystem {
-                        path: notes.clone()
+                },
+                FileAnswer::Refused {
+                    why: CallRefusal::Reach {
+                        why: Refusal::AgentFilesystem {
+                            path: notes.clone()
+                        }
                     }
-                )),
+                },
             ],
             "{inside}"
         );
         assert_eq!(
             changes,
             [
-                ChangeAnswer::Refused(CallRefusal::Reach(
-                    Refusal::OutsideReach {
-                        path: credentials.clone(),
-                        access: Access::Change,
+                ChangeAnswer::Refused {
+                    why: CallRefusal::Reach {
+                        why: Refusal::OutsideReach {
+                            path: credentials.clone(),
+                            access: Access::Change,
+                        }
                     }
-                )),
-                ChangeAnswer::Refused(CallRefusal::Reach(
-                    Refusal::AgentFilesystem {
-                        path: notes.clone()
+                },
+                ChangeAnswer::Refused {
+                    why: CallRefusal::Reach {
+                        why: Refusal::AgentFilesystem {
+                            path: notes.clone()
+                        }
                     }
-                )),
+                },
             ],
             "{inside}"
         );
@@ -169,9 +177,11 @@ async fn a_project_in_the_realm_folder_is_refused() {
     {
         let host = host(&dir).await;
         realm_sets(&host, n as u64 + 1, reach(folder.to_str())).await;
-        let refusal = CallRefusal::Reach(Refusal::ProjectInRealm {
-            folder: folder.clone(),
-        });
+        let refusal = CallRefusal::Reach {
+            why: Refusal::ProjectInRealm {
+                folder: folder.clone(),
+            },
+        };
         let ran = agent_runs(
             &host,
             &run(
@@ -192,15 +202,23 @@ async fn a_project_in_the_realm_folder_is_refused() {
         let case = folder.display();
         assert_eq!(
             ran,
-            RunAnswer::Refused(refusal.clone()),
+            RunAnswer::Refused {
+                why: refusal.clone()
+            },
             "{case}"
         );
         assert_eq!(
             reads,
-            FileAnswer::Refused(refusal.clone()),
+            FileAnswer::Refused {
+                why: refusal.clone()
+            },
             "{case}"
         );
-        assert_eq!(changes, ChangeAnswer::Refused(refusal), "{case}");
+        assert_eq!(
+            changes,
+            ChangeAnswer::Refused { why: refusal },
+            "{case}"
+        );
         assert_eq!(read(&notes), "notes", "{case}");
     }
 }
@@ -262,7 +280,7 @@ async fn a_realm_folder_reached_through_a_link_works() {
     }
     host.shutdown().await.unwrap();
 
-    assert_eq!(done(ran).exit, Exit::Code(0));
+    assert_eq!(done(ran).exit, Exit::Code { code: 0 });
     assert_eq!(read(&note), "ran");
     assert!(matches!(wrote, ChangeAnswer::Changed(_)), "{wrote:?}");
     assert!(
@@ -274,9 +292,11 @@ async fn a_realm_folder_reached_through_a_link_works() {
     );
     assert_eq!(
         into_own,
-        ChangeAnswer::Refused(CallRefusal::Reach(
-            Refusal::AgentFilesystem { path: own }
-        ))
+        ChangeAnswer::Refused {
+            why: CallRefusal::Reach {
+                why: Refusal::AgentFilesystem { path: own }
+            }
+        }
     );
     for output in &commands {
         assert!(!output.contains(CREDENTIALS), "{output:?}");
@@ -285,9 +305,11 @@ async fn a_realm_folder_reached_through_a_link_works() {
         assert!(
             matches!(
                 answer,
-                FileAnswer::Refused(CallRefusal::Reach(
-                    Refusal::OutsideReach { .. }
-                ))
+                FileAnswer::Refused {
+                    why: CallRefusal::Reach {
+                        why: Refusal::OutsideReach { .. }
+                    }
+                }
             ),
             "{answer:?}"
         );
