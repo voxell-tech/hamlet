@@ -278,9 +278,9 @@ impl Handler<ListTools> for Workspace {
     async fn handle(
         self: Arc<Self>,
         ctx: Ctx<Self>,
-        _: ListTools,
+        listed: ListTools,
     ) -> Result<ToolList> {
-        sender::<ListTools, _>(&ctx)?;
+        sender(&ctx, &listed)?;
         Ok(tools::list(&self.home))
     }
 }
@@ -291,7 +291,7 @@ impl Handler<Run> for Workspace {
         ctx: Ctx<Self>,
         run: Run,
     ) -> Result<RunAnswer> {
-        let address::Agent(agent) = sender::<Run, _>(&ctx)?;
+        let address::Agent(agent) = sender(&ctx, &run)?;
         if let Some(why) = checked(&run) {
             return Ok(RunAnswer::Refused { why });
         }
@@ -468,7 +468,7 @@ impl Handler<CommandStatus> for Workspace {
         ctx: Ctx<Self>,
         asked: CommandStatus,
     ) -> Result<RunAnswer<StatusRefusal>> {
-        let address::Agent(agent) = sender::<CommandStatus, _>(&ctx)?;
+        let address::Agent(agent) = sender(&ctx, &asked)?;
         let row = read_only(&ctx, async |tx| {
             run::status(tx, agent, asked.command).await
         })
@@ -908,7 +908,7 @@ impl Handler<SetReach> for Workspace {
         ctx: Ctx<Self>,
         set: SetReach,
     ) -> Result<InForce> {
-        sender::<SetReach, _>(&ctx)?;
+        sender(&ctx, &set)?;
         let (in_force, now, closed) = transact(&ctx, async |tx| {
             let in_force = reach::apply(tx, &set).await?;
             // The reach in force, not the call's: an ended reach
@@ -972,5 +972,135 @@ impl Workspace {
             }
         });
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeSet;
+
+    use hamlet_actor::ActionSet;
+    use hamlet_actor_error::ActorError;
+    use hamlet_host::{Host, HostOptions};
+    use hamlet_messages::workspace::reach::Reach;
+    use hamlet_messages::workspace::{
+        Answer, CallId, ConversationId, ReachVersion,
+    };
+    use hamlet_testing::Scratch;
+
+    use super::*;
+
+    fn row<M: Action>(message: &M) -> (&'static str, Vec<u8>) {
+        let args =
+            hamlet_actor::action::encode_positional(message).unwrap();
+        (M::NAME, args)
+    }
+
+    /// One call of each action, whose arguments decode.
+    fn every_action() -> Vec<(&'static str, Vec<u8>)> {
+        let call = CallId("call-1".into());
+        let conversation = ConversationId("c1".into());
+        vec![
+            row(&SetReach {
+                agent: AgentNumber(7),
+                version: ReachVersion(1),
+                reach: Reach::Ended,
+            }),
+            row(&Run {
+                call: call.clone(),
+                conversation: conversation.clone(),
+                realm_task: None,
+                program: Program::Script {
+                    script: "true".into(),
+                    network: false,
+                    timeout_ms: None,
+                },
+            }),
+            row(&CommandStatus {
+                command: CommandId(1),
+            }),
+            row(&Cancel {
+                agent: AgentNumber(7),
+                which: Which::All,
+            }),
+            row(&ListTools),
+            row(&ReadFile {
+                path: "/a".into(),
+                offset: None,
+                limit: None,
+            }),
+            row(&Search {
+                under: "/".into(),
+                pattern: "a".into(),
+                name: None,
+                ignore_case: false,
+            }),
+            row(&Find {
+                under: "/".into(),
+                name: None,
+            }),
+            row(&WriteFile {
+                call: call.clone(),
+                conversation: conversation.clone(),
+                realm_task: None,
+                path: "/a".into(),
+                content: String::new(),
+            }),
+            row(&EditFile {
+                call: call.clone(),
+                conversation,
+                realm_task: None,
+                path: "/a".into(),
+                edits: Vec::new(),
+            }),
+            row(&ChiefAnswer {
+                agent: AgentNumber(7),
+                call,
+                answer: Answer::Allow,
+            }),
+        ]
+    }
+
+    /// No workspace message is the program's own, so a call with no
+    /// caller reaches each handler's check and fails there.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn every_action_refuses_a_caller_it_does_not_admit() {
+        let actions = every_action();
+        let rows = actions
+            .iter()
+            .map(|(name, _)| *name)
+            .collect::<BTreeSet<_>>();
+        let taken = <<Workspace as Actor>::Actions as ActionSet<
+            Workspace,
+        >>::entries()
+        .into_iter()
+        .map(|entry| entry.name)
+        .collect::<BTreeSet<_>>();
+        assert_eq!(rows, taken, "one row for each action");
+
+        let dir = Scratch::new("workspace-every-action-caller");
+        let host = Host::open_with(
+            &dir,
+            HashMap::from([(
+                address::Workspace::KIND.to_owned(),
+                factory(),
+            )]),
+            HostOptions::default()
+                .with_value(Arc::new(Sandbox::testing())),
+        )
+        .unwrap();
+        let workspace = address::Workspace.address().unwrap();
+        host.get_or_start(&workspace).await.unwrap();
+        for (name, args) in actions {
+            let error = host
+                .call(&workspace, name, args, Duration::from_secs(20))
+                .await
+                .expect_err(name);
+            let error = ActorError::extract(&error);
+            assert_eq!(
+                (name, error.group(), error.code()),
+                (name, "message", "wrong_caller")
+            );
+        }
     }
 }

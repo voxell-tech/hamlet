@@ -226,7 +226,7 @@ impl Handler<ReadFile> for Workspace {
         ctx: Ctx<Self>,
         asked: ReadFile,
     ) -> Result<ReadAnswer> {
-        let Agent(agent) = sender::<ReadFile, _>(&ctx)?;
+        let Agent(agent) = sender(&ctx, &asked)?;
         let path = text(&asked.path);
         self.read_tool(&ctx, agent, &asked.path, move |env| {
             read::read(env, &path, asked.offset, asked.limit)
@@ -244,7 +244,7 @@ impl Handler<Search> for Workspace {
         ctx: Ctx<Self>,
         asked: Search,
     ) -> Result<SearchAnswer> {
-        let Agent(agent) = sender::<Search, _>(&ctx)?;
+        let Agent(agent) = sender(&ctx, &asked)?;
         let under = text(&asked.under);
         self.read_tool(&ctx, agent, &asked.under, move |env| {
             listed(walk::search(
@@ -269,7 +269,7 @@ impl Handler<Find> for Workspace {
         ctx: Ctx<Self>,
         asked: Find,
     ) -> Result<SearchAnswer> {
-        let Agent(agent) = sender::<Find, _>(&ctx)?;
+        let Agent(agent) = sender(&ctx, &asked)?;
         let under = text(&asked.under);
         self.read_tool(&ctx, agent, &asked.under, move |env| {
             listed(walk::find(env, &under, asked.name.as_deref()))

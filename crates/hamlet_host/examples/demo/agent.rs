@@ -149,7 +149,7 @@ impl Handler<Finished> for Agent {
         ctx: Ctx<Self>,
         finished: Finished,
     ) -> Result<()> {
-        sender::<Finished, _>(&ctx)?;
+        sender(&ctx, &finished)?;
         let call = &finished.call.0;
         let (command, word, code) = match &finished.outcome {
             Outcome::Run {
