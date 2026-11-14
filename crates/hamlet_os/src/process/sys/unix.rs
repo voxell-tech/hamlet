@@ -417,6 +417,11 @@ fn watch_parent() -> io::Result<()> {
 }
 
 pub(crate) fn end_now() -> ! {
-    let _ = kill_process(getpid(), Signal::KILL);
-    std::process::abort()
+    if kill_process(getpid(), Signal::KILL).is_err() {
+        std::process::abort();
+    }
+    // macOS can deliver the signal after this call returns.
+    loop {
+        std::thread::park();
+    }
 }
