@@ -162,8 +162,19 @@ _Avoid_: team, project, town
 
 **Workspace**:
 Where agents' tools run: this machine, or a remote one the chief chooses in
-Settings.
+Settings. On the actor host it is one actor per machine.
 _Avoid_: sandbox, lodge
+
+**Reach**:
+What one agent's tool calls may touch on a machine, and which of them
+wait for a chief: the folder its hamlet works on and its mode, the
+network, and trust. Only the realm sets it, each time as a newer version.
+_Avoid_: permissions
+
+**Agent's filesystem**:
+An agent's own folder on the actor host, which only the agent changes and
+its workers read. Its commands work there when its hamlet has no folder.
+_Avoid_: lodge (a lodge is a hire's checkout on the server), home
 
 **Sandbox**:
 What holds an agent's commands to the reach the spec gives them, on the
@@ -218,8 +229,8 @@ _Avoid_: task (a task is an agent's work)
 ### Actors
 
 **Actor runtime**:
-What runs actors: the `hamlet_actor*` crates, and `hamlet_host`, the host
-that runs them in one process.
+What runs actors: the `hamlet_actor` and `hamlet_actor_*` crates, and
+`hamlet_host`, the host that runs them in one process.
 _Avoid_: runtime (a runtime is one running harness)
 
 **Actor**:
