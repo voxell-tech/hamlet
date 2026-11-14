@@ -36,7 +36,7 @@ async fn host_with(dir: &Path, peers: Arc<Peers>) -> Host {
 }
 
 /// Answers agent 7's call `call` as the realm, with `answer`.
-async fn chief(
+pub(super) async fn chief(
     host: &Host,
     call: &str,
     answer: Answer,
@@ -58,7 +58,7 @@ fn asked(peers: &Peers) -> Vec<NeedsChief> {
 }
 
 /// The workspace's rows of waits.
-fn waits(dir: &Path) -> i64 {
+pub(super) fn waits(dir: &Path) -> i64 {
     read_only(dir)
         .query_row("SELECT count(*) FROM waits", [], |row| row.get(0))
         .unwrap()

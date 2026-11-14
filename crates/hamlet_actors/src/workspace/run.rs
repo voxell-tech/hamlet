@@ -11,8 +11,8 @@ use anyhow::{Context, Result, bail};
 use hamlet_actor_core::{BindParam, SqliteTransaction};
 use hamlet_messages::workspace::reach::Need;
 use hamlet_messages::workspace::{
-    AgentNumber, CallId, CallRefusal, CommandEnd, CommandId, Exit,
-    RunAnswer,
+    AgentNumber, CallId, CallRefusal, CommandEnd, CommandId,
+    ConversationId, Exit, RunAnswer, Which,
 };
 use hamlet_os::fs::path::text;
 use hamlet_sandbox::scrub::scrub_text;
@@ -155,6 +155,58 @@ pub(super) fn without_output(
     }
 }
 
+/// A command while it runs, as a cancel finds it.
+#[derive(Clone)]
+pub(super) struct Running {
+    pub command: CommandId,
+    pub agent: AgentNumber,
+    pub call: CallId,
+    pub conversation: ConversationId,
+    pub waiters: Arc<Waiters>,
+    /// Fired to end it as cancelled.
+    pub cancel: CancellationToken,
+    /// Fired once its end is recorded, or the host stops.
+    pub stopped: CancellationToken,
+}
+
+impl Running {
+    /// `agent`'s command `command`, started by its call `call` in
+    /// `conversation`, whose end `waiters` hear.
+    pub(super) fn new(
+        command: CommandId,
+        agent: AgentNumber,
+        call: CallId,
+        conversation: ConversationId,
+        waiters: Arc<Waiters>,
+    ) -> Self {
+        Self {
+            command,
+            agent,
+            call,
+            conversation,
+            waiters,
+            cancel: CancellationToken::new(),
+            stopped: CancellationToken::new(),
+        }
+    }
+
+    /// Whether it is a command of `agent` that `which` names.
+    pub(super) fn is(
+        &self,
+        agent: AgentNumber,
+        which: &Which,
+    ) -> bool {
+        self.agent == agent
+            && match which {
+                Which::One(call) => self.call == *call,
+                Which::Conversation(conversation) => {
+                    self.conversation == *conversation
+                }
+                Which::All => true,
+            }
+    }
+}
+
 /// Who hears a running command's end: the call that started it and
 /// every repeat of it that came while it waited, or the agent, called
 /// with `Finished`. Exactly one of the two hears it.
@@ -257,6 +309,8 @@ pub struct Spec {
     pub leftovers: Leftovers,
     /// Where its output spills.
     pub output: PathBuf,
+    /// Fired to end it as cancelled, also before it started.
+    pub cancel: CancellationToken,
 }
 
 /// Starts `spec`'s command on a thread of its own. The receiver gets
@@ -342,21 +396,27 @@ async fn ran(spec: Spec) -> CommandEnd {
             policy_hash = env.policy_hash().to_owned();
             let argv =
                 ["bash".to_owned(), "-c".to_owned(), spec.script];
-            let ran = env
-                .stream(
-                    Launch::Shell(&argv),
-                    spec.timeout,
-                    &spec.secrets,
-                    &spec.leftovers,
-                    &mut |text| output.push(text),
-                )
-                .await;
-            match ran {
-                Ok(code) => Exit::Code(code),
-                Err(ExecError::Timeout { .. }) => Exit::TimedOut,
-                Err(
-                    ExecError::Spawn(why) | ExecError::Spill(why),
-                ) => Exit::Failed(why),
+            let mut push = |text: &str| output.push(text);
+            let streamed = env.stream(
+                Launch::Shell(&argv),
+                spec.timeout,
+                &spec.secrets,
+                &spec.leftovers,
+                &mut push,
+            );
+            // A cancel fired before the first poll starts nothing;
+            // one fired later drops the stream, which kills the
+            // command's group.
+            tokio::select! {
+                biased;
+                () = spec.cancel.cancelled() => Exit::Cancelled,
+                ran = streamed => match ran {
+                    Ok(code) => Exit::Code(code),
+                    Err(ExecError::Timeout { .. }) => Exit::TimedOut,
+                    Err(
+                        ExecError::Spawn(why) | ExecError::Spill(why),
+                    ) => Exit::Failed(why),
+                },
             }
         }
     };
@@ -400,7 +460,30 @@ mod tests {
             secrets: Arc::default(),
             leftovers: hamlet_sandbox::AllLeftovers::default().of(1),
             output: cwd.join("output.log"),
+            cancel: CancellationToken::new(),
         }
+    }
+
+    /// A command cancelled before its thread starts it never runs,
+    /// as when its agent's reach ended between the gate and the
+    /// start, and ends as cancelled.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_command_cancelled_before_it_starts_never_runs() {
+        let scratch =
+            hamlet_testing::Scratch::new("command-cancelled");
+        let cwd = scratch.join("work");
+        std::fs::create_dir_all(&cwd).unwrap();
+        let spec = spec(&cwd, "touch marker");
+        spec.cancel.cancel();
+
+        let end = start(spec, CancellationToken::new())
+            .await
+            .expect("an end");
+        tokio::time::sleep(Duration::from_millis(300)).await;
+
+        assert_eq!(end.exit, Exit::Cancelled);
+        assert!(!cwd.join("marker").exists(), "the command ran");
     }
 
     /// A command whose thread cannot be made ends as failed, and

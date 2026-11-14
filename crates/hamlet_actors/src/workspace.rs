@@ -21,11 +21,12 @@ use hamlet_messages::realm::{NeedsChief, SecretList, Secrets};
 use hamlet_messages::workspace::files::{
     EditFile, Find, ReadFile, Search, WriteFile,
 };
-use hamlet_messages::workspace::reach::SecretsVersion;
+use hamlet_messages::workspace::reach::{Reach, SecretsVersion};
 use hamlet_messages::workspace::{
     AgentNumber, AnswerTaken, CallId, CallRefusal, CallerRefusal,
-    ChiefAnswer, CommandEnd, CommandId, CommandStatus, Exit,
-    ReachAnswer, RealmRefusal, Run, RunAnswer, SetReach,
+    Cancel, CancelAnswer, ChiefAnswer, CommandEnd, CommandId,
+    CommandStatus, Exit, Lapse, ReachAnswer, RealmRefusal, Run,
+    RunAnswer, SetReach, Which,
 };
 use hamlet_sandbox::{AllLeftovers, Sandbox};
 
@@ -86,8 +87,8 @@ struct Workspace {
     leftovers: AllLeftovers,
     /// How long a call waits for its command.
     answer_within: Duration,
-    /// Who hears each running command's end, until it ended.
-    running: Mutex<HashMap<CommandId, Arc<run::Waiters>>>,
+    /// Each running command, until its end was heard.
+    running: Mutex<HashMap<CommandId, run::Running>>,
     /// The paths a change is at work on.
     paths: files::Paths,
 }
@@ -105,6 +106,7 @@ impl Actor for Workspace {
         SetReach,
         Run,
         CommandStatus,
+        Cancel,
         ReadFile,
         Search,
         Find,
@@ -215,10 +217,9 @@ impl Workspace {
 
 /// What the gate let a command do, once its row is open.
 struct Opened {
-    command: CommandId,
+    running: run::Running,
     placement: reach::Placement,
     secrets: Arc<Vec<String>>,
-    waiters: Arc<run::Waiters>,
 }
 
 impl Handler<Run> for Workspace {
@@ -252,7 +253,7 @@ impl Handler<Run> for Workspace {
             match decided {
                 Ok(Decision::Open(opened)) => {
                     if let Err(error) = tx.commit().await {
-                        self.ran(opened.command);
+                        self.ran(opened.running.command);
                         return Err(error);
                     }
                     break opened;
@@ -282,35 +283,31 @@ impl Handler<Run> for Workspace {
                 }
             }
         };
-        let command = opened.command;
-        let waiters = opened.waiters.clone();
+        let running = opened.running;
         let spec = self.spec(
-            agent,
-            command,
+            &running,
             &run,
             opened.placement,
             opened.secrets,
             leftovers,
         );
-        self.clone().start(&ctx, agent, run.call, spec);
-        Ok(waiters.answer(command).await)
+        self.clone().start(&ctx, &running, spec);
+        Ok(running.waiters.answer(running.command).await)
     }
 }
 
 impl Workspace {
-    /// The command `command` of `run`, for `agent`, as its thread
-    /// runs it.
+    /// The command `running` of `run`, as its thread runs it.
     fn spec(
         &self,
-        agent: AgentNumber,
-        command: CommandId,
+        running: &run::Running,
         run: &Run,
         placement: reach::Placement,
         secrets: Arc<Vec<String>>,
         leftovers: hamlet_sandbox::Leftovers,
     ) -> run::Spec {
         run::Spec {
-            command,
+            command: running.command,
             script: run.script.clone(),
             cwd: placement.cwd,
             policy: placement.policy,
@@ -323,8 +320,9 @@ impl Workspace {
             leftovers,
             output: self
                 .home
-                .spill(agent)
-                .join(format!("{}.log", command.0)),
+                .spill(running.agent)
+                .join(format!("{}.log", running.command.0)),
+            cancel: running.cancel.clone(),
         }
     }
 
@@ -371,17 +369,24 @@ impl Workspace {
             }
         };
         // No call waits for it: the agent hears its end.
+        let running = run::Running::new(
+            command,
+            agent,
+            run.call.clone(),
+            run.conversation.clone(),
+            run::Waiters::given_up(),
+        );
         self.running
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
-            .insert(command, run::Waiters::given_up());
+            .insert(command, running.clone());
         if let Err(error) = tx.commit().await {
             self.ran(command);
             return Err(error);
         }
-        let spec = self
-            .spec(agent, command, run, placement, secrets, leftovers);
-        self.clone().start(ctx, agent, run.call.clone(), spec);
+        let spec =
+            self.spec(&running, run, placement, secrets, leftovers);
+        self.clone().start(ctx, &running, spec);
         Ok(AnswerTaken::Runs)
     }
 }
@@ -426,17 +431,17 @@ impl Handler<CommandStatus> for Workspace {
 impl Workspace {
     /// Starts the command of `spec`, whose row was just committed,
     /// and a task that records its end and has it heard: by the calls
-    /// waiting for it, else by `agent`, called with `Finished`.
+    /// waiting for it, else by its agent, called with `Finished`.
     /// Nothing between the commit and this awaits, so a row is never
     /// left running with no process while the host runs.
     fn start(
         self: Arc<Self>,
         ctx: &Ctx<Self>,
-        agent: AgentNumber,
-        call: CallId,
+        running: &run::Running,
         spec: run::Spec,
     ) {
-        let command = spec.command;
+        let (command, agent) = (running.command, running.agent);
+        let call = running.call.clone();
         let abort = ctx.abort_signal();
         let ended = run::start(spec, abort.clone());
         // The actor stays awake while a command runs, so its end is
@@ -450,7 +455,10 @@ impl Workspace {
                 Ok(end) => end,
                 // The host stops: the next start marks the row cut
                 // off.
-                Err(_) if abort.is_cancelled() => return,
+                Err(_) if abort.is_cancelled() => {
+                    self.ran(command);
+                    return;
+                }
                 // Its thread panicked.
                 Err(_) => run::without_output(
                     command,
@@ -470,6 +478,8 @@ impl Workspace {
                 return;
             };
             let unheard = waiters.ended(end);
+            // Stopped before the agent is told, so a cancel need not
+            // wait for that call.
             self.ran(command);
             if let Some(end) = unheard {
                 tell(&ctx, agent, call, Outcome::Ran(end)).await;
@@ -485,15 +495,73 @@ impl Workspace {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .get(&command)
-            .cloned()
+            .map(|running| running.waiters.clone())
     }
 
-    /// Forgets the waiters of `command`, whose end was heard.
+    /// Forgets `command`, whose end is recorded or never will be,
+    /// and lets go whoever waits for it to stop.
     fn ran(&self, command: CommandId) {
-        self.running
+        let running = self
+            .running
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .remove(&command);
+        if let Some(running) = running {
+            running.stopped.cancel();
+        }
+    }
+
+    /// Ends `agent`'s running commands that `which` names, as
+    /// cancelled, and waits until each has stopped. Returns their
+    /// ids, none when none ran.
+    async fn cancel(
+        &self,
+        ctx: &Ctx<Self>,
+        agent: AgentNumber,
+        which: &Which,
+    ) -> Vec<CommandId> {
+        let named: Vec<run::Running> = self
+            .running
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .values()
+            .filter(|running| running.is(agent, which))
+            .cloned()
+            .collect();
+        for running in &named {
+            running.cancel.cancel();
+        }
+        let abort = ctx.abort_signal();
+        for running in &named {
+            tokio::select! {
+                () = running.stopped.cancelled() => {}
+                () = abort.cancelled() => {}
+            }
+        }
+        let mut commands: Vec<CommandId> =
+            named.iter().map(|running| running.command).collect();
+        commands.sort_by_key(|command| command.0);
+        commands
+    }
+}
+
+impl Handler<Cancel> for Workspace {
+    async fn handle(
+        self: Arc<Self>,
+        ctx: Ctx<Self>,
+        cancel: Cancel,
+    ) -> Result<CancelAnswer> {
+        let caller = caller(&ctx)?;
+        if !is_the_realm(caller.as_ref())
+            && let Err(refusal) =
+                agent_of(caller.as_ref(), cancel.agent)
+        {
+            refused(caller.as_ref(), Cancel::NAME, &refusal);
+            return Ok(CancelAnswer::Refused(refusal));
+        }
+        Ok(CancelAnswer::Cancelled(
+            self.cancel(&ctx, cancel.agent, &cancel.which).await,
+        ))
     }
 }
 
@@ -645,17 +713,23 @@ impl Workspace {
             run::open(tx, agent, &run.call, request_hash.to_vec())
                 .await?;
         // Before the commit, so a repeat that finds the row finds who
-        // waits for it.
-        let waiters = run::Waiters::new(self.answer_within);
+        // waits for it, and a reach that ends after the commit finds
+        // the command to cancel.
+        let running = run::Running::new(
+            command,
+            agent,
+            run.call.clone(),
+            run.conversation.clone(),
+            run::Waiters::new(self.answer_within),
+        );
         self.running
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
-            .insert(command, waiters.clone());
+            .insert(command, running.clone());
         Ok(Decision::Open(Opened {
-            command,
+            running,
             placement,
             secrets,
-            waiters,
         }))
     }
 }
@@ -720,9 +794,61 @@ impl Handler<SetReach> for Workspace {
             return Ok(ReachAnswer::Refused(refusal));
         }
         let tx = ctx.sql().begin_transaction(None).await?;
-        let in_force = reach::apply(&tx, &set).await?;
+        let applied = async {
+            let in_force = reach::apply(&tx, &set).await?;
+            // The reach in force, not the call's: an ended reach
+            // repeated under its version with another body stays
+            // ended.
+            let closed = if reach::read(&tx, set.agent).await?
+                == Some(Reach::Ended)
+            {
+                Some(pending::close(&tx, set.agent, &LAPSED).await?)
+            } else {
+                None
+            };
+            anyhow::Ok((in_force, closed))
+        }
+        .await;
+        let (in_force, closed) = match applied {
+            Ok(applied) => applied,
+            Err(error) => {
+                tx.rollback().await?;
+                return Err(error);
+            }
+        };
         tx.commit().await?;
+        if let Some(closed) = closed {
+            self.end_agent(&ctx, set.agent, closed).await?;
+        }
         Ok(ReachAnswer::InForce(in_force))
+    }
+}
+
+/// Why the waits of an agent whose reach ended do not run.
+const LAPSED: CallRefusal = CallRefusal::Lapsed(Lapse::Ended);
+
+impl Workspace {
+    /// Ends what `agent`, whose reach ended, has running (W4): its
+    /// commands, and what they left under Seatbelt. Its waits in
+    /// `closed` ended with the reach, and the agent is told of each
+    /// apart from this call, which a gone agent would hold up.
+    async fn end_agent(
+        &self,
+        ctx: &Ctx<Self>,
+        agent: AgentNumber,
+        closed: Vec<CallId>,
+    ) -> Result<()> {
+        self.cancel(ctx, agent, &Which::All).await;
+        let owner = i64::try_from(agent.0)?;
+        self.leftovers.end(|of| of == owner);
+        let task_ctx = ctx.clone();
+        ctx.register_task(async move {
+            for call in closed {
+                tell(&task_ctx, agent, call, Outcome::NotRun(LAPSED))
+                    .await;
+            }
+        });
+        Ok(())
     }
 }
 

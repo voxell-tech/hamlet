@@ -306,6 +306,42 @@ pub(super) async fn settle(
     }
 }
 
+/// Ends every wait of `agent` with `refusal` in `tx`, as when its
+/// reach ended: a chief's answer that comes after finds no wait.
+/// Returns the calls whose waits it ended.
+pub(super) async fn close(
+    tx: &SqliteTransaction,
+    agent: AgentNumber,
+    refusal: &CallRefusal,
+) -> Result<Vec<CallId>> {
+    let agent = BindParam::Integer(i64::try_from(agent.0)?);
+    tx.execute(
+        "DELETE FROM waits WHERE agent = ?1",
+        Some(vec![agent.clone()]),
+    )
+    .await?;
+    let closed = tx
+        .execute(
+            "UPDATE calls SET state = 'refused', answer = ?2, \
+             ended_at = ?3 WHERE agent = ?1 AND state = 'waiting' \
+             RETURNING call",
+            Some(vec![
+                agent,
+                BindParam::Blob(cbor(refusal)?),
+                BindParam::Integer(calls::now_ms()?),
+            ]),
+        )
+        .await?;
+    closed
+        .rows
+        .iter()
+        .map(|row| match row.as_slice() {
+            [ColumnValue::Text(call)] => Ok(CallId(call.clone())),
+            other => bail!("a closed call's row is {other:?}"),
+        })
+        .collect()
+}
+
 /// What the reach in force makes of a call a chief allowed.
 pub(super) enum Rechecked {
     Pass {
