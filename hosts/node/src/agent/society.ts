@@ -47,9 +47,6 @@ interface Definition<N extends SocietyTool> {
 /** Today's words for an address (`crates/hamlet_server/src/calls/society.rs`). */
 const ADDRESS =
     "An agent's address: `hand`, `mayor`, `mayor@<hamlet id>`, `hire#<id>` or `worker#<id>`.";
-/** The addresses `named` reads, for the words of one it cannot. */
-const NAMED =
-    "An agent's address: `hand`, `mayor`, `mayor@<hamlet id>` or `hire#<number>`.";
 const PATHS = {
     type: "array",
     items: { type: "string" },
@@ -72,7 +69,10 @@ const names = { type: "array", items: { type: "string" } };
  * Read as today's server reads it (an `i64`), or `undefined` when the act's
  * `u32` cannot carry it.
  */
-function numberOf(kind: "hire" | "scholar", text: string): number | undefined {
+function numberOf(
+    kind: "hire" | "worker" | "scholar",
+    text: string,
+): number | undefined {
     const found = new RegExp(`^${kind}#([+-]?)([0-9]+)$`).exec(text);
     const digits = found?.[2];
     if (digits === undefined) return undefined;
@@ -100,9 +100,9 @@ function named(given: string): Named | Invalid {
             ? { invalid: `\`${address}\` is not an address` }
             : { type: "mayor_of", hamlet };
     }
-    const agent = numberOf("hire", address);
+    const agent = numberOf("hire", address) ?? numberOf("worker", address);
     if (agent !== undefined) return { type: "agent", agent };
-    return { invalid: `\`${address}\` is not an address. ${NAMED}` };
+    return { invalid: `\`${address}\` is not an address` };
 }
 
 /**
@@ -240,25 +240,33 @@ const TOOLS: { readonly [N in SocietyTool]: Definition<N> } = {
         ),
         act: (args: {
             scholar?: string;
+            name?: string;
             purpose: string;
             under?: string;
             hamlet?: string;
         }) => {
+            // In the order of today's checks (`calls/society.rs`, `hire`).
+            const given = present(args.under);
+            const under = given === undefined ? undefined : named(given);
+            if (under !== undefined && "invalid" in under) return under;
+            if (
+                present(args.scholar) !== undefined &&
+                present(args.name) !== undefined
+            ) {
+                return {
+                    invalid:
+                        "Give `scholar` to hire one of the city, or `name` for a blank agent, not both.",
+                };
+            }
             const profile = profileOf(args.scholar);
             if (typeof profile === "object") return profile;
             const hamlet = present(args.hamlet);
-            const under = present(args.under);
-            const rest = {
+            return {
                 purpose: args.purpose,
                 ...(hamlet === undefined ? {} : { hamlet }),
                 ...(profile === undefined ? {} : { profile }),
+                ...(under === undefined ? {} : { under }),
             };
-            return under === undefined
-                ? rest
-                : withNamed({ under }, (named) => ({
-                      ...rest,
-                      under: named.under,
-                  }));
         },
         said: (answer) =>
             `Hired \`hire#${answer.agent}\`. It is still being hired.`,

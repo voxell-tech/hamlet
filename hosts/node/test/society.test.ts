@@ -288,7 +288,7 @@ test("tell carries t<task id> and the turn's task, and a refusal's words are the
         [
             "Sent.",
             "you have no road to `hire#12`; ask your lead for one with request_road",
-            "`nobody` is not an address. An agent's address: `hand`, `mayor`, `mayor@<hamlet id>` or `hire#<number>`.",
+            "`nobody` is not an address",
         ],
     );
     await agent.stop();
@@ -523,8 +523,9 @@ test("every one of today's parameters leaves as a field of its act, but those no
         request_road: { to: "hire#4", reason: "We share a file." },
         found_hamlet: { name: "Mill", scholar: "scholar#2", purpose: "Grind" },
         seat_mayor: { hire: "hire#4", reason: "Cy leads now." },
+        // `scholar` and `name` are refused together, as today; the scholar
+        // form is the scholar address test's.
         hire: {
-            scholar: "scholar#3",
             name: "Cy",
             purpose: "Dig",
             under: "hire#4",
@@ -612,7 +613,6 @@ test("every one of today's parameters leaves as a field of its act, but those no
             hire: Array(2).fill({
                 purpose: "Dig",
                 hamlet: "h1",
-                profile: 3,
                 under: four,
             }),
             end: [{ hire: four, why: "Done." }],
@@ -684,6 +684,39 @@ test("a scholar's address is read as today's server reads it, and one it cannot 
     await agent.stop();
 });
 
+test("hire with both `scholar` and `name` is refused in today's words, and nothing is sent", async (t) => {
+    const { calls, sent } = fakeCalls({
+        realm: { hire: () => ({ type: "hired", agent: 22 }) },
+    });
+    const agent = await wakeAgent(t, {
+        calls,
+        responses: [
+            toolCall(
+                "hire",
+                { scholar: "scholar#3", name: "Ada", purpose: "Dig" },
+                "c1",
+            ),
+            toolCall(
+                "hire",
+                { scholar: "scholar#3", name: " ", purpose: "Dig" },
+                "c2",
+            ),
+            fauxAssistantMessage("Done."),
+        ],
+    });
+    await agent.actions.submit(agent.by(from.realm), line("input-1", "Hire."));
+    await agent.idle();
+
+    assert.deepEqual(acts(sent, "hire"), [{ purpose: "Dig", profile: 3 }]);
+    assert.deepEqual(
+        (await agent.entries())
+            .filter((entry) => entry.kind === "pi.tool-result")
+            .map((entry) => entry.text)[0],
+        "Give `scholar` to hire one of the city, or `name` for a blank agent, not both.",
+    );
+    await agent.stop();
+});
+
 async function seatAndHire(
     t: Parameters<typeof wakeAgent>[0],
     hires: string[],
@@ -738,8 +771,8 @@ test("an address's number is read as today's server reads it, where the act can 
         "hire#0",
         "hire#-0",
         "hire#4294967295",
+        "worker#3",
     ];
-    // `worker#3` is an address today, but the act has no worker.
     const refused = [
         "mayor@",
         "hire#",
@@ -747,7 +780,8 @@ test("an address's number is read as today's server reads it, where the act can 
         "hire#4294967296",
         "hire#0x10",
         "hire#1e3",
-        "worker#3",
+        "worker#",
+        "helper#3",
     ];
     const { seat, hire, results } = await seatAndHire(
         t,
@@ -761,21 +795,17 @@ test("an address's number is read as today's server reads it, where the act can 
         seated(0),
         seated(0),
         seated(4294967295),
+        seated(3),
     ]);
     assert.deepEqual(hire, [
         { purpose: "Dig", profile: 7 },
         { purpose: "Dig", profile: 0 },
         { purpose: "Dig", profile: 3 },
     ]);
-    assert.deepEqual(results.slice(read.length, read.length + refused.length), [
-        "`mayor@` is not an address",
-        ...refused
-            .slice(1)
-            .map(
-                (address) =>
-                    `\`${address}\` is not an address. An agent's address: \`hand\`, \`mayor\`, \`mayor@<hamlet id>\` or \`hire#<number>\`.`,
-            ),
-    ]);
+    assert.deepEqual(
+        results.slice(read.length, read.length + refused.length),
+        refused.map((address) => `\`${address}\` is not an address`),
+    );
     assert.equal(results.at(-1), "`scholar#-3` is not an address");
 });
 
