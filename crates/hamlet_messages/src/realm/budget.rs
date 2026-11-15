@@ -3,10 +3,11 @@
 use hamlet_actor::Action;
 use serde::{Deserialize, Serialize};
 
+use super::oversight::Hold;
 use super::{ChiefRequest, Done, HamletId, HamletRefusal, Standing};
-use crate::Message;
 use crate::address::{Agent, Realm};
-use crate::workspace::{CallId, RealmTask};
+use crate::workspace::{AgentNumber, CallId, RealmTask};
+use crate::{Message, worded};
 
 /// The hamlet or the realm a task's spending is charged to.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -74,6 +75,8 @@ pub enum SpendRefusal {
     Standing(Standing),
     #[error("{0}")]
     Budget(Budget),
+    #[error("{0}")]
+    Held(Hold),
 }
 
 #[derive(
@@ -109,6 +112,17 @@ pub enum Budget {
         spent_ms: u64,
         budget_ms: u64,
     },
+    #[error(
+        "the allowance of `hire#{}` has run out: {spent_micros} of \
+         {allowance_micros} millionths of a dollar spent; its lead or \
+         a chief can raise it",
+        hire.0
+    )]
+    OverAllowance {
+        hire: AgentNumber,
+        spent_micros: u64,
+        allowance_micros: u64,
+    },
 }
 
 /// Charges one model call to `task`'s payer. A repeat with the same
@@ -120,6 +134,8 @@ pub struct Charge {
     pub task: RealmTask,
     pub micros: u32,
     pub took_ms: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tokens: Option<u32>,
 }
 
 impl Action for Charge {
@@ -141,4 +157,44 @@ pub struct ResetBudget {
 impl ChiefRequest for ResetBudget {
     const NAME: &'static str = "chief_reset_budget";
     type Answer = Done<HamletRefusal>;
+}
+
+/// Opens a task of the caller's own for a turn no line or letter
+/// started (H12).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OpenTask {
+    pub turn: TaskTurn,
+}
+
+/// The turn a task is opened for.
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum TaskTurn {
+    /// A chief's `/retry`.
+    Retry,
+    Reflection,
+}
+
+impl Action for OpenTask {
+    type Output = TaskOpened;
+    const NAME: &'static str = "open_task";
+}
+
+impl Message for OpenTask {
+    type To = Realm;
+    type From = Agent;
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum TaskOpened {
+    Opened {
+        task: RealmTask,
+    },
+    #[serde(serialize_with = "worded")]
+    Refused {
+        why: Standing,
+    },
 }

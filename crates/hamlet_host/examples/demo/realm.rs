@@ -509,6 +509,8 @@ impl Actor for StandInAgent {
         let kind = match input.kind {
             AgentKind::Hand => "hand",
             AgentKind::Hire => "hire",
+            AgentKind::Worker => "worker",
+            AgentKind::Errand => "errand",
         };
         ctx.sql()
             .execute(
@@ -533,6 +535,12 @@ impl Handler<Submit> for StandInAgent {
         sender(&ctx, &submit)?;
         let (kind, text, from, letter) = match &submit.input {
             Input::Line { text, .. } => ("line", text, None, None),
+            Input::Notice { text, .. } => {
+                ("notice", text, None, None)
+            }
+            Input::WorkerAnswer { text, .. } => {
+                ("worker_answer", text, None, None)
+            }
             Input::Letter { from, text } => {
                 ("letter", text, Some(from), None)
             }
@@ -916,6 +924,7 @@ async fn as_chief(host: &Host, words: &[String]) -> Result<()> {
                 under: None,
                 profile: None,
                 purpose: Some(purpose.join(" ")),
+                name: None,
             };
             let tool = tool(call, hire);
             match forward(
@@ -1070,6 +1079,7 @@ async fn as_agent(
                 text: text.join(" "),
                 conversation: ConversationId(CONVERSATION.to_owned()),
                 task: None,
+                paths: Vec::new(),
             };
             match forward(host, me, Peer::Realm, &tool(call, ask))
                 .await?
@@ -1297,6 +1307,7 @@ async fn tell(
         to,
         text,
         task: None,
+        paths: Vec::new(),
     };
     forward(host, me, Peer::Realm, &tool(call, tell)).await
 }
@@ -1327,6 +1338,7 @@ async fn charge(
         task,
         micros,
         took_ms: 1,
+        tokens: None,
     };
     forward(host, me, Peer::Realm, &charge).await
 }

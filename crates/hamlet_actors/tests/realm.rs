@@ -639,6 +639,7 @@ fn hire(under: Option<Named>) -> Hire {
         under,
         profile: None,
         purpose: Some("Check the links".to_owned()),
+        name: None,
     }
 }
 
@@ -718,6 +719,7 @@ fn tell(to: Named, text: &str) -> Tell {
         to,
         text: text.to_owned(),
         task: None,
+        paths: Vec::new(),
     }
 }
 

@@ -43,6 +43,50 @@ use crate::{Message, worded};
 )]
 pub struct AgentNumber(pub u32);
 
+/// The first agent number of an errand: an errand `n` is
+/// `agent/<2^31 + n>`, outside the count of the realm's tree.
+const FIRST_ERRAND: u32 = 1 << 31;
+
+impl AgentNumber {
+    /// What the number names. The one place a number is told from an
+    /// errand's.
+    pub fn numbered(self) -> Numbered {
+        match self.0.checked_sub(FIRST_ERRAND) {
+            Some(n) => Numbered::Errand(ErrandNumber(n)),
+            None => Numbered::Tree(self),
+        }
+    }
+}
+
+/// An agent number, as [`AgentNumber::numbered`] reads it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Numbered {
+    /// The Hand, a hire or a worker.
+    Tree(AgentNumber),
+    Errand(ErrandNumber),
+}
+
+/// An errand's own number, from 0.
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash,
+)]
+pub struct ErrandNumber(u32);
+
+impl ErrandNumber {
+    /// `None` past the last errand, `2^31 - 1`.
+    pub fn new(n: u32) -> Option<Self> {
+        (n < FIRST_ERRAND).then_some(Self(n))
+    }
+
+    pub fn get(self) -> u32 {
+        self.0
+    }
+
+    pub fn agent(self) -> AgentNumber {
+        AgentNumber(FIRST_ERRAND + self.0)
+    }
+}
+
 /// The id an agent gives a tool call. A repeat of the call carries
 /// the same id.
 #[derive(
@@ -409,4 +453,25 @@ impl Action for CommandStatus {
 impl Message for CommandStatus {
     type To = Workspace;
     type From = Agent;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{AgentNumber, ErrandNumber, Numbered};
+
+    #[test]
+    fn an_errand_is_numbered_from_two_to_the_thirty_one() {
+        let last_of_the_tree = AgentNumber((1 << 31) - 1);
+        assert_eq!(
+            last_of_the_tree.numbered(),
+            Numbered::Tree(last_of_the_tree)
+        );
+        let first = ErrandNumber::new(0).unwrap();
+        assert_eq!(first.agent(), AgentNumber(1 << 31));
+        assert_eq!(first.agent().numbered(), Numbered::Errand(first));
+        let last = ErrandNumber::new((1 << 31) - 1).unwrap();
+        assert_eq!(last.agent(), AgentNumber(u32::MAX));
+        assert_eq!(last.agent().numbered(), Numbered::Errand(last));
+        assert_eq!(ErrandNumber::new(1 << 31), None);
+    }
 }

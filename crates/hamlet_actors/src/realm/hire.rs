@@ -84,6 +84,7 @@ pub(super) async fn run(
                     .await?
                     .on_the_wire(),
                 place: place::of(&rows, agent).await?,
+                brief: None,
             };
             cx.peers().create(&Agent(agent), &input).await?;
         }

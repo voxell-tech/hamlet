@@ -7,7 +7,7 @@ use hamlet_actor::BindParam;
 use hamlet_messages::agent::AgentKind;
 use hamlet_messages::realm::{
     Done, End, EndRefusal, HamletId, Hire, HireAnswer, HireRefusal,
-    HowEnded, Named, ProfileId, Refusable, Seat, SeatRefusal,
+    HowEnded, Named, OnlyAHire, ProfileId, Refusable, Seat,
 };
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::AgentNumber;
@@ -245,7 +245,7 @@ impl<By: Lead> Act<By> for End {
 }
 
 impl<By: RealmWide> Act<By> for Seat {
-    type Output = Done<SeatRefusal>;
+    type Output = Done<OnlyAHire>;
     type Loaded = Option<Lineage>;
     type Done = ();
 
@@ -264,14 +264,14 @@ impl<By: RealmWide> Act<By> for Seat {
     ) -> Decision<(), Self::Output> {
         let refuse = |why| Decision::Answer(Done::refused(why));
         let Some(lineage) = lineage else {
-            return refuse(SeatRefusal::NoSuchAgent);
+            return refuse(OnlyAHire::NoSuchAgent);
         };
         let hire = lineage.agent.agent;
         let Some(hamlet) = &lineage.hamlet else {
-            return refuse(SeatRefusal::NotAHire);
+            return refuse(OnlyAHire::NotAHire);
         };
         if let Status::Ended(left) = &lineage.agent.status {
-            return refuse(SeatRefusal::Left {
+            return refuse(OnlyAHire::Left {
                 hire,
                 left: left.clone(),
             });
@@ -482,6 +482,7 @@ mod tests {
             hire: Named::Agent {
                 agent: AgentNumber(5),
             },
+            why: None,
         }
     }
 
@@ -543,6 +544,7 @@ mod tests {
             under: None,
             profile: None,
             purpose: purpose.map(str::to_owned),
+            name: None,
         }
     }
 
@@ -708,10 +710,10 @@ mod tests {
         let refused = |why| Decision::Answer(Done::Refused { why });
         let (left, how) = left_5();
 
-        assert_eq!(decide(hand()), refused(SeatRefusal::NotAHire));
+        assert_eq!(decide(hand()), refused(OnlyAHire::NotAHire));
         assert_eq!(
             decide(left),
-            refused(SeatRefusal::Left {
+            refused(OnlyAHire::Left {
                 hire: AgentNumber(5),
                 left: how,
             })

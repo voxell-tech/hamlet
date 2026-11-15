@@ -193,6 +193,7 @@ async fn a_burst_of_charges_moves_the_world_only_forward() {
             task: task.clone(),
             micros: 7,
             took_ms: 1,
+            tokens: None,
         };
         let forward = Forward {
             name: Charge::NAME.to_owned(),

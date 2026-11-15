@@ -153,6 +153,7 @@ async fn a_letter_or_a_question_as_the_first_message_gives_the_purpose()
         text: "Mind the barn?\nsoon".to_owned(),
         conversation: ConversationId("c1".to_owned()),
         task: None,
+        paths: Vec::new(),
     };
 
     let told = realm
@@ -300,6 +301,7 @@ async fn an_answer_reaches_the_asker_once() {
         text: "why?".to_owned(),
         conversation: conversation.clone(),
         task: Some(task.clone()),
+        paths: Vec::new(),
     };
     let asked = realm.tool(MAYOR, &tool("a1", ask)).await.unwrap();
     let question = seen_submits(&realm, THREE, 1).await.remove(0);

@@ -5,7 +5,7 @@ use anyhow::Result;
 use hamlet_actor::BindParam;
 use hamlet_messages::agent::AgentKind;
 use hamlet_messages::realm::{
-    Done, Refusable, SetTools, SocietyTool, ToolsRefusal,
+    Done, OnlyAHire, Refusable, SetTools, SocietyTool,
 };
 use hamlet_messages::workspace::AgentNumber;
 
@@ -47,7 +47,7 @@ pub(in crate::realm) async fn off_for(
 }
 
 impl<By: Lead> Act<By> for SetTools {
-    type Output = Done<By::Why<ToolsRefusal>>;
+    type Output = Done<By::Why<OnlyAHire>>;
     type Loaded = Option<Lineage>;
     type Done = ();
 
@@ -67,17 +67,17 @@ impl<By: Lead> Act<By> for SetTools {
         let refuse =
             |why| Decision::Answer(Done::refused(By::refused(why)));
         let Some(lineage) = lineage else {
-            return refuse(ToolsRefusal::NoSuchAgent);
+            return refuse(OnlyAHire::NoSuchAgent);
         };
         if lineage.agent.kind == AgentKind::Hand {
-            return refuse(ToolsRefusal::NotAHire);
+            return refuse(OnlyAHire::NotAHire);
         }
         let hire = lineage.agent.agent;
         if let Err(not_a_lead) = by.leads(&lineage, hire) {
             return Decision::Answer(Done::refused(not_a_lead));
         }
         if let Status::Ended(_) = lineage.agent.status {
-            return refuse(ToolsRefusal::NotAHire);
+            return refuse(OnlyAHire::NotAHire);
         }
         Decision::Change(
             Decided::new(())

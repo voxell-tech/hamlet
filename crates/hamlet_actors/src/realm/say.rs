@@ -94,6 +94,7 @@ impl Act<Client> for Say {
                         text: self.0.text.clone(),
                         images: self.0.images.clone(),
                         files: self.0.files.clone(),
+                        note: None,
                     },
                 },
             })

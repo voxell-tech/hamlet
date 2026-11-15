@@ -5,9 +5,9 @@ use hamlet_messages::realm::world::{RoadSeen, Seen};
 use hamlet_messages::realm::{
     AgentRefusal, Asked, Done, End, FoundAnswer, Gate, HamletId,
     Hire, HowEnded, LayRefusal, LayRoad, LeadRefusal, Left,
-    LetterRefusal, Named, Rank, RequestRoad, RequestRoadRefusal,
-    SetTier, SetTools, SocietyTool, TakeUpRefusal, TakeUpRoad, Tier,
-    TierRefusal, ToolsRefusal,
+    LetterRefusal, Named, OnlyAHire, Rank, RequestRoad,
+    RequestRoadRefusal, SetTier, SetTools, SocietyTool,
+    TakeUpRefusal, TakeUpRoad, Tier, TierRefusal,
 };
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::AgentNumber;
@@ -22,13 +22,17 @@ use super::{
 fn request_road(to: AgentNumber) -> RequestRoad {
     RequestRoad {
         to: self::to(to),
-        why: "to report the well".to_owned(),
+        why: Some("to report the well".to_owned()),
         task: None,
     }
 }
 
 fn lay(a: AgentNumber, b: AgentNumber) -> LayRoad {
-    LayRoad { a: to(a), b: to(b) }
+    LayRoad {
+        a: to(a),
+        b: to(b),
+        why: None,
+    }
 }
 
 fn tools(off: &[SocietyTool], on: &[SocietyTool]) -> SetTools {
@@ -36,6 +40,7 @@ fn tools(off: &[SocietyTool], on: &[SocietyTool]) -> SetTools {
         hire: to(THREE),
         off: off.to_vec(),
         on: on.to_vec(),
+        why: None,
     }
 }
 
@@ -259,13 +264,13 @@ async fn a_mayors_tools_are_set_by_the_chief_and_the_hand() {
     assert_eq!(
         hand_by_hand,
         Done::Refused {
-            why: LeadRefusal::Act(ToolsRefusal::NotAHire)
+            why: LeadRefusal::Act(OnlyAHire::NotAHire)
         }
     );
     assert_eq!(
         hand_by_chief,
         Done::Refused {
-            why: ToolsRefusal::NotAHire
+            why: OnlyAHire::NotAHire
         }
     );
     realm.host.shutdown().await.unwrap();
@@ -279,7 +284,7 @@ async fn a_road_is_asked_for_by_a_letter_to_the_lead() {
     let (realm, _) = hamlet_with(2).await;
     let request = |to: Named| RequestRoad {
         to,
-        why: "to share the notes".to_owned(),
+        why: Some("to share the notes".to_owned()),
         task: None,
     };
     let ask = async |by, call, to| {
@@ -420,6 +425,7 @@ async fn a_road_taken_up_carries_no_letter_and_is_charged_again() {
     let take_up = TakeUpRoad {
         a: to(FOUR),
         b: to(THREE),
+        why: None,
     };
 
     realm
@@ -492,6 +498,7 @@ async fn a_road_joins_two_hires_of_one_hamlet_under_its_layer() {
     let to_hand = chief(LayRoad {
         a: Named::Hand,
         b: to(THREE),
+        why: None,
     })
     .await;
     let across = chief(lay(THREE, AgentNumber(5))).await;
@@ -574,6 +581,7 @@ async fn a_hamlet_holds_its_most_laid_roads() {
             act: TakeUpRoad {
                 a: to(AgentNumber(100)),
                 b: to(AgentNumber(101)),
+                why: None,
             },
         })
         .await

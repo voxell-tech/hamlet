@@ -5,6 +5,7 @@
 //! is committed with it.
 
 mod cases;
+mod chat;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Debug;
@@ -88,6 +89,7 @@ fn enums() -> Vec<Cases> {
     ]
     .into_iter()
     .chain(realm::enums())
+    .chain(chat::enums())
     .collect()
 }
 
@@ -602,6 +604,7 @@ fn every_message_and_every_case_matches_its_fixture() {
     the_errors(&mut fixtures);
     the_stored_rows(&mut fixtures);
     realm::the_realms_messages(&mut fixtures);
+    chat::the_agents_chat(&mut fixtures);
     fixtures.remove_unwritten();
     fixtures.assert_unchanged_and_covered();
 }

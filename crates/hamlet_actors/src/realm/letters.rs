@@ -491,6 +491,7 @@ mod tests {
             },
             text: "hi".into(),
             task: None,
+            paths: Vec::new(),
         }
     }
 
@@ -537,6 +538,7 @@ mod tests {
             text: "Why the well?".into(),
             conversation: ConversationId("c".into()),
             task: None,
+            paths: Vec::new(),
         };
 
         let Decision::Change(decided) = ask.decide(&sender(), letter)

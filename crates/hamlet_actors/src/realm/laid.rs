@@ -431,8 +431,10 @@ impl Act<Agent> for RequestRoad {
         } else {
             format!("`hire#{}`", to.agent.0)
         };
-        let text =
-            format!("I ask for a road to {named}: {}", self.why);
+        let text = format!(
+            "I ask for a road to {named}: {}",
+            self.why.as_deref().unwrap_or_default()
+        );
         let written = letters::Written {
             kind: letters::Kind::Letter,
             text: &text,

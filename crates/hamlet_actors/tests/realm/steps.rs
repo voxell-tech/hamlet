@@ -120,6 +120,7 @@ async fn a_hire_goes_live_through_its_steps() {
                     roads: vec![Hand::NUMBER],
                     tools_off: Vec::new(),
                 },
+                brief: None,
             }],
             fills: vec![Fill {
                 profile: BLANK,

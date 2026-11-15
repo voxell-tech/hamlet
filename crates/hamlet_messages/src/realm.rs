@@ -1,8 +1,16 @@
 //! The calls the `realm` actor takes, and its answers.
 
 pub mod budget;
+pub mod choices;
 pub mod client;
+pub mod documents;
+pub mod hamlets;
+pub mod models;
+pub mod oversight;
+pub mod workers;
 pub mod world;
+
+use std::path::PathBuf;
 
 use hamlet_actor::Action;
 use hamlet_protocol::client::RequestId;
@@ -242,6 +250,10 @@ pub enum Standing {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         why: Option<String>,
     },
+    /// The caller is no agent of the realm's tree, such as an
+    /// errand.
+    #[error("you are not an agent of the realm's tree")]
+    NotAMember,
 }
 
 /// A tool a lead turned off for the caller (C16).
@@ -258,6 +270,13 @@ pub enum Standing {
 pub enum Gate {
     #[error("your lead turned off the tool `{tool}` for you")]
     ToolOff { tool: SocietyTool },
+    /// The act did not run, and the realm keeps the request for a
+    /// chief: it runs if one allows it, and the caller is told.
+    #[error(
+        "a chief must allow this; it runs when one does, and you \
+         are told"
+    )]
+    Reserved { wait: world::WaitId },
 }
 
 /// An act that needs a lead's powers over the hire it names (H41).
@@ -417,6 +436,15 @@ pub enum HowEnded {
     ByALead { lead: AgentNumber },
     #[error("ended by the Hand")]
     ByTheHand,
+    /// A worker answered its starter.
+    #[error("answered")]
+    Answered,
+    /// A worker's turn failed.
+    #[error("its turn failed")]
+    Failed,
+    /// A worker ended with its starter.
+    #[error("stopped with its starter")]
+    Stopped,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -482,6 +510,8 @@ pub enum FoundRefusal {
     EmptyName,
     #[error("there is no `profile#{}`", profile.0)]
     NoSuchProfile { profile: ProfileId },
+    #[error("say what it is for")]
+    NoPurpose,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -498,6 +528,9 @@ pub struct Hire {
     pub profile: Option<ProfileId>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub purpose: Option<String>,
+    /// A blank hire's name; absent with a profile.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
 }
 
 impl ChiefRequest for Hire {
@@ -603,19 +636,23 @@ pub enum EndRefusal {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Seat {
     pub hire: Named,
+    /// Why, for the record.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub why: Option<String>,
 }
 
 impl ChiefRequest for Seat {
     const NAME: &'static str = "chief_seat";
-    type Answer = Done<SeatRefusal>;
+    type Answer = Done<OnlyAHire>;
 }
 
 /// Only the Hand calls it.
 impl ToolCall for Seat {
     const TOOL: SocietyTool = SocietyTool::Seat;
-    type Answer = Done<SeatRefusal>;
+    type Answer = Done<OnlyAHire>;
 }
 
+/// The refusal of an act whose subject is a living hire.
 #[derive(
     Clone,
     Debug,
@@ -626,10 +663,10 @@ impl ToolCall for Seat {
     thiserror::Error,
 )]
 #[serde(tag = "type", rename_all = "snake_case")]
-pub enum SeatRefusal {
+pub enum OnlyAHire {
     #[error("no agent is at that address")]
     NoSuchAgent,
-    #[error("only a hire can be a mayor")]
+    #[error("that is not a hire")]
     NotAHire,
     #[error("`hire#{}` has left: {left}", hire.0)]
     Left { hire: AgentNumber, left: Left },
@@ -643,6 +680,16 @@ pub struct Tell {
     /// for the receiver's turn; absent for a turn that has none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub task: Option<RealmTask>,
+    /// Files or folders to send with it, in the sender's
+    /// filesystem or its hamlet's folder.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub paths: Vec<Enclosed>,
+}
+
+/// A file or a folder a letter sends.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Enclosed {
+    pub path: PathBuf,
 }
 
 impl ToolCall for Tell {
@@ -659,6 +706,10 @@ pub struct Ask {
     pub conversation: ConversationId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub task: Option<RealmTask>,
+    /// Files or folders to send with it, in the sender's
+    /// filesystem or its hamlet's folder.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub paths: Vec<Enclosed>,
 }
 
 impl ToolCall for Ask {
@@ -730,6 +781,9 @@ pub enum ReplyRefusal {
 pub struct LayRoad {
     pub a: Named,
     pub b: Named,
+    /// Why, for the record.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub why: Option<String>,
 }
 
 impl ChiefRequest for LayRoad {
@@ -769,6 +823,9 @@ pub enum LayRefusal {
 pub struct TakeUpRoad {
     pub a: Named,
     pub b: Named,
+    /// Why, for the record.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub why: Option<String>,
 }
 
 impl ChiefRequest for TakeUpRoad {
@@ -803,7 +860,8 @@ pub enum TakeUpRefusal {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RequestRoad {
     pub to: Named,
-    pub why: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub why: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub task: Option<RealmTask>,
 }
@@ -839,33 +897,19 @@ pub struct SetTools {
     pub off: Vec<SocietyTool>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub on: Vec<SocietyTool>,
+    /// Why, for the record.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub why: Option<String>,
 }
 
 impl ChiefRequest for SetTools {
     const NAME: &'static str = "chief_set_tools";
-    type Answer = Done<ToolsRefusal>;
+    type Answer = Done<OnlyAHire>;
 }
 
 impl ToolCall for SetTools {
     const TOOL: SocietyTool = SocietyTool::SetTools;
-    type Answer = Done<LeadRefusal<ToolsRefusal>>;
-}
-
-#[derive(
-    Clone,
-    Debug,
-    PartialEq,
-    Eq,
-    Serialize,
-    Deserialize,
-    thiserror::Error,
-)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum ToolsRefusal {
-    #[error("no agent is at that address")]
-    NoSuchAgent,
-    #[error("only a hire's tools are turned off")]
-    NotAHire,
+    type Answer = Done<LeadRefusal<OnlyAHire>>;
 }
 
 /// Raises or lowers a hamlet's tier (H6).
@@ -913,8 +957,7 @@ impl ChiefRequest for SetLimits {
     type Answer = Done<HamletRefusal>;
 }
 
-/// The refusal of a chief's act whose one condition is that the
-/// hamlet it names exists.
+/// The refusal of a chief's act on a hamlet.
 #[derive(
     Clone,
     Debug,
@@ -928,4 +971,6 @@ impl ChiefRequest for SetLimits {
 pub enum HamletRefusal {
     #[error("there is no such hamlet")]
     NoSuchHamlet,
+    #[error("there is no folder `{}` here", path.display())]
+    NoSuchFolder { path: PathBuf },
 }

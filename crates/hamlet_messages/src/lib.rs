@@ -20,9 +20,11 @@
 //!   written by [`worded`] and ignored when read.
 //! - A union of families is untagged, and no two of its families
 //!   share a case's `type`.
-//! - An answer `refused` means the taker kept nothing of the request,
-//!   so an id that was only ever refused may be sent again with
-//!   another request.
+//! - An answer `refused` means the act did not run and, unless its
+//!   reason is [`realm::Gate::Reserved`], which keeps the request for
+//!   a chief, that the taker kept nothing of the request, so an id
+//!   that was only ever refused may be sent again with another
+//!   request.
 //!
 //! A taker checks a call in this order:
 //!

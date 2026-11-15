@@ -49,6 +49,7 @@ fn charge(
         task: task.clone(),
         micros,
         took_ms: ms,
+        tokens: None,
     }
 }
 

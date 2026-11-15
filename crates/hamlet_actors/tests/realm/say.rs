@@ -57,6 +57,7 @@ async fn a_repeated_say_opens_one_task_and_submits_again() {
             text: "build the mill".to_owned(),
             images: Vec::new(),
             files: Vec::new(),
+            note: None,
         },
     };
     assert_eq!(submits_to(&realm, MAYOR), [submit.clone(), submit]);
