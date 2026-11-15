@@ -106,13 +106,13 @@ pub(super) struct Rows<'a> {
 
 enum Source<'a> {
     Transaction(&'a handle::Statements),
-    Statements(&'a Ctx<Realm>),
+    Outside(&'a Ctx<Realm>),
 }
 
 impl<'a> Rows<'a> {
     pub fn outside(ctx: &'a Ctx<Realm>) -> Result<Self> {
         Ok(Self {
-            source: Source::Statements(ctx),
+            source: Source::Outside(ctx),
             at: At::now()?,
         })
     }
@@ -124,10 +124,10 @@ impl<'a> Rows<'a> {
     ) -> Result<Vec<Vec<ColumnValue>>> {
         read_only(sql)?;
         Ok(match self.source {
-            Source::Transaction(tx) => {
-                tx.execute(sql, params).await?.rows
+            Source::Transaction(statements) => {
+                statements.execute(sql, params).await?.rows
             }
-            Source::Statements(ctx) => {
+            Source::Outside(ctx) => {
                 ctx.sql().query(sql, Some(params)).await?.rows
             }
         })
@@ -290,7 +290,7 @@ fn read_only(sql: &str) -> Result<()> {
 }
 
 pub(super) struct Writer<'a> {
-    tx: &'a handle::Statements,
+    statements: &'a handle::Statements,
     at: At,
 }
 
@@ -301,13 +301,13 @@ impl Writer<'_> {
         params: Vec<BindParam>,
     ) -> Result<u64> {
         Ok(u64::try_from(
-            self.tx.execute(sql, params).await?.changes,
+            self.statements.execute(sql, params).await?.changes,
         )?)
     }
 
     pub fn rows(&self) -> Rows<'_> {
         Rows {
-            source: Source::Transaction(self.tx),
+            source: Source::Transaction(self.statements),
             at: self.at,
         }
     }
@@ -429,7 +429,7 @@ impl Transaction {
         write: Write<'_, D>,
     ) -> Result<Vec<Push>> {
         let writer = Writer {
-            tx: &self.statements,
+            statements: &self.statements,
             at: self.at,
         };
         let written = async {
