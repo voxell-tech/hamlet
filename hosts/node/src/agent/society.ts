@@ -92,10 +92,12 @@ const U32_MAX = 2 ** 32 - 1;
  * carry it.
  */
 function numberOf(kind: "hire" | "scholar", text: string): number | undefined {
-    const found = new RegExp(`^${kind}#([+-]?[0-9]+)$`).exec(text);
-    if (found?.[1] === undefined) return undefined;
-    const number = Number(found[1]);
-    return number >= 0 && number <= U32_MAX ? number : undefined;
+    const found = new RegExp(`^${kind}#([+-]?)([0-9]+)$`).exec(text);
+    const digits = found?.[2];
+    if (digits === undefined) return undefined;
+    if (found?.[1] === "-" && /[1-9]/.test(digits)) return undefined;
+    const number = Number(digits);
+    return number <= U32_MAX ? number : undefined;
 }
 
 /** `text` trimmed, or `undefined` when nothing is left: today's server reads an empty parameter as one left out. */

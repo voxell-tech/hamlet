@@ -742,7 +742,13 @@ test("an address is trimmed, as today's server trims it", async (t) => {
 });
 
 test("an address's number is read as today's server reads it, where the act can carry it", async (t) => {
-    const read = ["hire#007", "hire#+3", "hire#0", "hire#4294967295"];
+    const read = [
+        "hire#007",
+        "hire#+3",
+        "hire#0",
+        "hire#-0",
+        "hire#4294967295",
+    ];
     // `worker#3` is an address today, but the act has no worker.
     const refused = [
         "mayor@",
@@ -762,6 +768,7 @@ test("an address's number is read as today's server reads it, where the act can 
     assert.deepEqual(seat, [
         seated(7),
         seated(3),
+        seated(0),
         seated(0),
         seated(4294967295),
     ]);
