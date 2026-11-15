@@ -159,7 +159,6 @@ impl Cx<'_> {
         Rows::outside(self.ctx)
     }
 
-    #[expect(dead_code, reason = "U3 calls it")]
     pub fn peers(&self) -> &Peers {
         &self.realm.peers
     }

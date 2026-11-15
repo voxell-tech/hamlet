@@ -1,11 +1,5 @@
 //! The one way from the realm to another actor.
 
-#![expect(
-    dead_code,
-    reason = "the scaffold: U3's steps call these, and the \
-              integrator removes this"
-)]
-
 use std::time::Duration;
 
 use anyhow::Result;

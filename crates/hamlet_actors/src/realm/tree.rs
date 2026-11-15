@@ -59,7 +59,6 @@ impl Lineage {
             })
     }
 
-    #[cfg_attr(not(test), expect(dead_code, reason = "U4 calls it"))]
     pub fn is_mayor(&self) -> bool {
         self.hamlet
             .as_ref()
@@ -256,7 +255,6 @@ pub(super) async fn fresh_profile(
 }
 
 /// The profile `agent` was hired from: the Hand's is 1.
-#[cfg_attr(not(test), expect(dead_code, reason = "U3 calls it"))]
 pub(super) async fn profile_of(
     rows: &Rows<'_>,
     agent: AgentNumber,
@@ -273,7 +271,6 @@ pub(super) async fn profile_of(
     .with_context(|| format!("agent {} has no hire row", agent.0))
 }
 
-#[cfg_attr(not(test), expect(dead_code, reason = "U3 calls it"))]
 pub(super) async fn kind_of(
     rows: &Rows<'_>,
     agent: AgentNumber,
@@ -308,10 +305,6 @@ pub(super) enum Change {
         purpose: Option<String>,
     },
     /// The agent is live.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "U3 makes a hire live with it")
-    )]
     Live { agent: AgentNumber },
     /// A hire's purpose, when it has none.
     #[cfg_attr(

@@ -1,19 +1,17 @@
 //! The road rule: which agents have a road between them (H3, H14,
 //! H30).
 
-#![expect(
-    unused_variables,
-    dead_code,
-    reason = "the scaffold: U3 fills this file"
-)]
+use std::collections::BTreeSet;
 
-use anyhow::Result;
+use anyhow::{Context as _, Result};
 use hamlet_messages::address::Agent;
 use hamlet_messages::realm::{HamletId, Named};
+use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::AgentNumber;
 
 use super::change::Rows;
-use super::tree::Status;
+use super::tree::{self, Lineage, Status};
+use super::{chiefs, laid};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Way {
@@ -41,23 +39,105 @@ pub(super) struct Ends {
 }
 
 impl Ends {
+    #[expect(dead_code, reason = "U6 and U11 call it")]
     pub fn way(&self) -> Option<Way> {
-        todo!()
+        way(&self.from, self.to.as_ref()?, self.laid)
     }
 }
 
+/// The way between `a` and `b`, whatever their status.
+fn way(a: &End, b: &End, laid: bool) -> Option<Way> {
+    let is_hand = |end: &End| end.agent == Hand::NUMBER;
+    if a.lead == Some(b.agent)
+        || b.lead == Some(a.agent)
+        || (is_hand(a) && b.is_mayor)
+        || (is_hand(b) && a.is_mayor)
+    {
+        Some(Way::Tree)
+    } else if a.is_mayor && b.is_mayor {
+        Some(Way::Mayors)
+    } else if laid {
+        Some(Way::Laid)
+    } else {
+        None
+    }
+}
+
+#[expect(dead_code, reason = "U6 and U11 call it")]
 pub(super) async fn ends(
     rows: &Rows<'_>,
     from: &Agent,
     to: &Named,
 ) -> Result<Ends> {
-    todo!()
+    let from = end(&lineage(rows, from.0).await?);
+    let Some(to) =
+        tree::resolve(rows, from.hamlet.as_ref(), to).await?
+    else {
+        return Ok(Ends {
+            from,
+            to: None,
+            laid: false,
+        });
+    };
+    Ok(Ends {
+        laid: laid::between(rows, from.agent, to).await?,
+        to: Some(end(&lineage(rows, to).await?)),
+        from,
+    })
 }
 
-/// Every agent `agent` has a road to, with the way.
+/// Every agent `agent` has a road to, with the way. A road's other
+/// end is live.
 pub(super) async fn of(
     rows: &Rows<'_>,
     agent: AgentNumber,
 ) -> Result<Vec<(AgentNumber, Way)>> {
-    todo!()
+    let own = lineage(rows, agent).await?;
+    let laid = laid::of(rows, agent).await?;
+    let mut others = own
+        .agent
+        .lead
+        .into_iter()
+        .chain(own.hires.iter().map(|hire| hire.agent))
+        .chain(laid.iter().copied())
+        .collect::<BTreeSet<_>>();
+    let own = end(&own);
+    if own.agent == Hand::NUMBER || own.is_mayor {
+        others.extend(chiefs::mayors(rows).await?);
+        others.insert(Hand::NUMBER);
+    }
+    others.remove(&agent);
+    let mut roads = Vec::new();
+    for other in others {
+        let other = end(&lineage(rows, other).await?);
+        let laid = laid.contains(&other.agent);
+        if let (Status::Live, Some(way)) =
+            (&other.status, way(&own, &other, laid))
+        {
+            roads.push((other.agent, way));
+        }
+    }
+    Ok(roads)
+}
+
+async fn lineage(
+    rows: &Rows<'_>,
+    agent: AgentNumber,
+) -> Result<Lineage> {
+    tree::lineage(rows, agent)
+        .await?
+        .with_context(|| format!("agent {} has no row", agent.0))
+}
+
+fn end(lineage: &Lineage) -> End {
+    End {
+        agent: lineage.agent.agent,
+        status: lineage.agent.status.clone(),
+        lead: lineage.agent.lead,
+        hamlet: lineage
+            .hamlet
+            .as_ref()
+            .map(|hamlet| hamlet.id.clone()),
+        is_mayor: lineage.is_mayor(),
+    }
 }

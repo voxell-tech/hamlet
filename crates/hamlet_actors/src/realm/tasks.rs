@@ -15,10 +15,6 @@ use super::change::{self, Affected, Rows, Writer, number};
 pub(super) struct TaskId(u64);
 
 impl TaskId {
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "U3 and U5 call it")
-    )]
     pub fn on_the_wire(self) -> RealmTask {
         RealmTask(self.0.to_string())
     }
@@ -120,7 +116,6 @@ pub(super) async fn fresh(rows: &Rows<'_>) -> Result<TaskId> {
     Ok(TaskId(rows.next_id("task").await?))
 }
 
-#[cfg_attr(not(test), expect(dead_code, reason = "U3 calls it"))]
 pub(super) async fn standing(
     rows: &Rows<'_>,
     agent: AgentNumber,
