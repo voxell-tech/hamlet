@@ -1,25 +1,16 @@
-use hamlet_messages::realm::client::{Answer, AnswerRefusal};
+use hamlet_messages::realm::client::AnswerRefusal;
 use hamlet_messages::realm::{
     Asked, Done, End, HireAnswer, Named, SecretList, Secrets,
 };
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::reach::SecretsVersion;
 use hamlet_messages::workspace::{self, AgentNumber, ChiefAnswer};
-use hamlet_protocol::client::{self as protocol, Choice, RequestId};
+use hamlet_protocol::client::{Choice, RequestId};
 
 use super::{
-    Realm, chief_hires, error_code, founded, hire, needs, until,
+    Realm, answer, chief_hires, error_code, founded, hire, needs,
+    until,
 };
-
-fn answer(wait: &str, choice: Choice, text: Option<&str>) -> Answer {
-    Answer(protocol::Answer {
-        choice,
-        id: RequestId::new(),
-        picks: None,
-        text: text.map(str::to_owned),
-        wait: wait.to_owned(),
-    })
-}
 
 fn nothing_waits(wait: &str) -> Done<AnswerRefusal> {
     Done::Refused {

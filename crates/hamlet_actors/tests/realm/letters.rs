@@ -13,12 +13,10 @@ use hamlet_messages::workspace::{AgentNumber, ConversationId};
 use hamlet_protocol::client::RequestId;
 
 use super::{
-    Callee, MAYOR, Realm, Seen, error_code, found, founded,
+    Callee, MAYOR, Realm, Seen, THREE, error_code, found, founded,
     hamlet_with, hires, purpose_of, say, standing, submits_to, tool,
     until,
 };
-
-const THREE: AgentNumber = AgentNumber(3);
 
 fn to(agent: AgentNumber) -> Named {
     Named::Agent { agent }

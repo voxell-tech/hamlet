@@ -3,22 +3,20 @@ use std::time::{Duration, Instant};
 use hamlet_actor::Action as _;
 use hamlet_messages::address;
 use hamlet_messages::realm::budget::{Charge, Payer};
-use hamlet_messages::realm::client::{Answer, ReadWorld};
+use hamlet_messages::realm::client::ReadWorld;
 use hamlet_messages::realm::world::{
     AgentSeen, ReachSeen, Revision, Seen, Status, WaitId, WaitSeen,
 };
 use hamlet_messages::realm::{Done, End, Named};
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::{AgentNumber, CallId, ReachVersion};
-use hamlet_protocol::client::{self as protocol, Choice, RequestId};
+use hamlet_protocol::client::Choice;
 use tokio::task::JoinSet;
 
 use super::{
-    Callee, DEADLINE, Forward, MAYOR, Realm, call, decoded, founded,
-    hamlet_with, needs, standing, tool, until,
+    Callee, DEADLINE, Forward, MAYOR, Realm, THREE, answer, call,
+    decoded, founded, hamlet_with, needs, standing, tool, until,
 };
-
-const HIRE: AgentNumber = AgentNumber(3);
 
 /// Reads the world until `holds` holds for it.
 pub(super) async fn seen_until(
@@ -51,7 +49,7 @@ async fn end_the_hire(realm: &Realm) {
             &tool(
                 "e1",
                 End {
-                    hire: Named::Agent { agent: HIRE },
+                    hire: Named::Agent { agent: THREE },
                     why: None,
                 },
             ),
@@ -135,7 +133,7 @@ async fn the_revision_survives_a_restart() {
         }]
     );
     assert_eq!(
-        agent(&before, HIRE).map(|hire| &hire.reach),
+        agent(&before, THREE).map(|hire| &hire.reach),
         Some(&ReachSeen::Pending {
             applied: Some(ReachVersion(1)),
             wanted: ReachVersion(2),
@@ -157,21 +155,21 @@ async fn a_revoke_shows_pending_until_the_workspace_answers() {
     realm.seen.release(Callee::SetReach);
     let applied =
         seen_until(&realm, "the end's reach applied", |seen| {
-            agent(seen, HIRE).is_some_and(|hire| {
+            agent(seen, THREE).is_some_and(|hire| {
                 matches!(hire.reach, ReachSeen::Applied { .. })
             })
         })
         .await;
 
     assert_eq!(
-        agent(&pending, HIRE).map(|hire| &hire.reach),
+        agent(&pending, THREE).map(|hire| &hire.reach),
         Some(&ReachSeen::Pending {
             applied: Some(ReachVersion(1)),
             wanted: ReachVersion(2),
         })
     );
     assert_eq!(
-        agent(&applied, HIRE).map(|hire| &hire.reach),
+        agent(&applied, THREE).map(|hire| &hire.reach),
         Some(&ReachSeen::Applied {
             version: ReachVersion(2)
         })
@@ -255,16 +253,8 @@ async fn an_answered_wait_leaves_the_world() {
         .await
         .unwrap();
     let open = realm.ask(&ReadWorld).await.unwrap();
-    let allowed = realm
-        .ask(&Answer(protocol::Answer {
-            choice: Choice::Allow,
-            id: RequestId::new(),
-            picks: None,
-            text: None,
-            wait: "1".to_owned(),
-        }))
-        .await
-        .unwrap();
+    let allowed =
+        realm.ask(&answer("1", Choice::Allow, None)).await.unwrap();
     let answered = realm.ask(&ReadWorld).await.unwrap();
 
     assert_eq!(allowed, Done::Done);

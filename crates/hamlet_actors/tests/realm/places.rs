@@ -5,11 +5,9 @@ use hamlet_messages::workspace::AgentNumber;
 use hamlet_protocol::client::RequestId;
 
 use super::{
-    Callee, MAYOR, Realm, chief_hires, found, hamlet_with, hire,
-    hired, tool, until,
+    Callee, MAYOR, Realm, THREE, chief_hires, found, hamlet_with,
+    hire, hired, tool, until,
 };
-
-const THREE: AgentNumber = AgentNumber(3);
 
 /// The places `agent` was created with and then sent, as (version,
 /// hires).

@@ -24,7 +24,7 @@ use hamlet_messages::agent::{
     AgentInput, Fill, Place, PlaceVersion, Submit,
 };
 use hamlet_messages::profile::Branch;
-use hamlet_messages::realm::client::Say;
+use hamlet_messages::realm::client::{Answer, Say};
 use hamlet_messages::realm::world::{ReachSeen, Status};
 use hamlet_messages::realm::{
     Asked, Found, FoundAnswer, HamletId, Hire, HireAnswer,
@@ -36,7 +36,9 @@ use hamlet_messages::workspace::{
     AgentNumber, AnswerTaken, CallId, ChiefAnswer, ConversationId,
     InForce, ReachVersion, RealmTask, SetReach,
 };
-use hamlet_protocol::client::{self as protocol, AgentId, RequestId};
+use hamlet_protocol::client::{
+    self as protocol, AgentId, Choice, RequestId,
+};
 use hamlet_testing::Scratch;
 use rusqlite::{Connection, OpenFlags};
 use serde::de::DeserializeOwned;
@@ -71,6 +73,8 @@ mod writers;
 const DEADLINE: Duration = Duration::from_secs(20);
 
 const MAYOR: AgentNumber = AgentNumber(2);
+
+const THREE: AgentNumber = AgentNumber(3);
 
 /// A call of the realm's that a test can hold or fail.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -693,6 +697,16 @@ fn needs(agent: AgentNumber, call: &str) -> NeedsChief {
         change: None,
         reach_version: ReachVersion(1),
     }
+}
+
+fn answer(wait: &str, choice: Choice, text: Option<&str>) -> Answer {
+    Answer(protocol::Answer {
+        choice,
+        id: RequestId::new(),
+        picks: None,
+        text: text.map(str::to_owned),
+        wait: wait.to_owned(),
+    })
 }
 
 fn say(id: &RequestId, to: AgentNumber, text: &str) -> Say {

@@ -24,7 +24,8 @@ use super::world::Part;
 use super::{Realm, tree};
 
 /// The wait a client names: its number, as the client reads it,
-/// with or without a leading `#`. `None` for a number no row holds.
+/// with or without a leading `#`. `None` for a number no row can
+/// have.
 fn named(wait: &str) -> Option<WaitId> {
     let n = wait.trim_start_matches('#').parse::<i64>().ok()?;
     u64::try_from(n).ok().map(WaitId)
@@ -155,6 +156,8 @@ pub(super) async fn deliver(
         .await?
         .with_context(|| format!("wait {} has no row", wait.0))?;
     let answer = match choice.as_deref() {
+        // The workspace hears only allow or refuse, so an allow kept
+        // as always acts once.
         Some("allow") => workspace::Answer::Allow,
         Some("refuse") => workspace::Answer::Refuse { reason },
         other => bail!(
