@@ -18,13 +18,9 @@ use super::files::project;
 use super::waits::chief;
 use super::{
     AGENT, Peers, agent_runs, done, ended, filesystem, host,
-    host_with, ran, reach, realm_sets, run, told, told_within,
+    host_with, ran, reach, realm_sets, run, saved_output, told,
+    told_within,
 };
-
-/// The folder of `agent`'s saved output in the realm folder `dir`.
-fn saved(dir: &Path, agent: AgentNumber) -> PathBuf {
-    dir.join(format!("actors/workspace/local.output/{}", agent.0))
-}
 
 /// The files in `folder`, once it holds `n` of them, waiting up to
 /// ten seconds.
@@ -58,7 +54,7 @@ fn spawn_run(host: &Host, run: Run) -> JoinHandle<RunAnswer> {
 async fn an_ended_reach_removes_its_saved_output() {
     let dir = Scratch::new("workspace-output-ended");
     filesystem(&dir);
-    let others = saved(&dir, AgentNumber(8)).join("1.log");
+    let others = saved_output(&dir, AgentNumber(8)).join("1.log");
     std::fs::create_dir_all(others.parent().unwrap()).unwrap();
     std::fs::write(&others, "theirs\n").unwrap();
     let host = host(&dir).await;
@@ -68,9 +64,9 @@ async fn an_ended_reach_removes_its_saved_output() {
         &host,
         run("c2", "seq 1 3000; while :; do echo x; sleep 0.05; done"),
     );
-    let before = files_in(&saved(&dir, AGENT), 2).await.len();
+    let before = files_in(&saved_output(&dir, AGENT), 2).await.len();
     realm_sets(&host, 2, Reach::Ended).await;
-    let after = saved(&dir, AGENT).exists();
+    let after = saved_output(&dir, AGENT).exists();
     let stopped = done(writing.await.unwrap());
     host.shutdown().await.unwrap();
 
@@ -101,7 +97,7 @@ async fn the_oldest_finished_output_goes_first() {
             "seq 1 2001; while [ ! -e go ]; do sleep 0.05; done",
         ),
     );
-    let waiting_file = files_in(&saved(&dir, AGENT), 1)
+    let waiting_file = files_in(&saved_output(&dir, AGENT), 1)
         .await
         .pop()
         .expect("the waiting command saved its output");

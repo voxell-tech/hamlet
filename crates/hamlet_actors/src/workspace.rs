@@ -10,7 +10,6 @@ mod run;
 mod tools;
 mod workers;
 
-use std::collections::HashMap;
 use std::convert::Infallible;
 use std::io;
 use std::path::PathBuf;
@@ -99,10 +98,9 @@ struct Workspace {
     leftovers: AllLeftovers,
     answer_within: Duration,
     saved_output: u64,
-    /// Each running command, until its end was heard. Shared with
-    /// the commands' threads, which keep the saved output of these
-    /// when they make room for their own.
-    running: Arc<Mutex<HashMap<CommandId, run::Running>>>,
+    /// Shared with the commands' threads, which keep the saved
+    /// output of these when they make room for their own.
+    running: run::RunningCommands,
     /// The paths a change is at work on.
     paths: files::Paths,
 }
@@ -390,7 +388,7 @@ impl Workspace {
             timeout,
             secrets,
             leftovers,
-            output: run::output::Saved {
+            output: run::Saved {
                 folder: self.home.spill(running.agent),
                 command: running.command,
                 limit: self.saved_output,
@@ -1006,7 +1004,7 @@ impl Workspace {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeSet;
+    use std::collections::{BTreeSet, HashMap};
 
     use hamlet_actor::ActionSet;
     use hamlet_actor_error::ActorError;

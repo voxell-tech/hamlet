@@ -2,16 +2,15 @@
 //! the tail's limits, all of it in a spill file the agent may read,
 //! in the agent's folder of saved output, kept under a limit.
 
-use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::fs::{DirBuilder, File, OpenOptions};
 use std::io::{self, BufWriter, Write};
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::PoisonError;
 
 use hamlet_messages::workspace::{CommandId, Cut};
 
-use super::Running;
+use super::RunningCommands;
 use crate::workspace::{MOST_BYTES, MOST_LINES};
 
 /// The most of a command's output a spill file holds.
@@ -26,14 +25,13 @@ pub(super) struct Output {
     spill: Spill,
 }
 
-/// Where a command's output is saved: `<command>.log` in its agent's
-/// folder.
+/// A command's saved output: `<command>.log` in its agent's folder.
 pub struct Saved {
     pub folder: PathBuf,
     pub command: CommandId,
     pub limit: u64,
     /// The commands running, whose files stay.
-    pub running: Arc<Mutex<HashMap<CommandId, Running>>>,
+    pub running: RunningCommands,
 }
 
 struct Spill {
@@ -354,7 +352,7 @@ mod tests {
             folder,
             command: CommandId(1),
             limit: u64::MAX,
-            running: Arc::default(),
+            running: RunningCommands::default(),
         }
     }
 

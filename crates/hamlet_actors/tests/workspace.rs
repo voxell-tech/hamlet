@@ -580,6 +580,14 @@ fn answering_within(ms: u64) -> Arc<Peers> {
     })
 }
 
+/// The folder of `agent`'s saved output in the realm folder `dir`.
+fn saved_output(
+    dir: &Path,
+    agent: AgentNumber,
+) -> std::path::PathBuf {
+    dir.join(format!("actors/workspace/local.output/{}", agent.0))
+}
+
 /// Agent 7's filesystem, made by hand as the agent would.
 fn filesystem(dir: &Path) -> std::path::PathBuf {
     let fs = dir.join("actors/agent/7.fs");
@@ -1070,10 +1078,8 @@ async fn output_past_the_tail_spills_to_a_file() {
     assert_eq!(cut.total_lines, 3001);
     assert_eq!(
         cut.full_output,
-        dir.join(format!(
-            "actors/workspace/local.output/7/{}.log",
-            long.command.0
-        ))
+        saved_output(&dir, AGENT)
+            .join(format!("{}.log", long.command.0))
     );
     assert_eq!(
         std::fs::read_to_string(&cut.full_output).unwrap(),
@@ -1110,7 +1116,7 @@ async fn a_command_reads_only_its_own_agents_spill() {
     filesystem(&dir);
     let (_project, project) =
         files::project("workspace-spill-p", &[]);
-    let other = dir.join("actors/workspace/local.output/8");
+    let other = saved_output(&dir, AgentNumber(8));
     std::fs::create_dir_all(&other).unwrap();
     std::fs::write(other.join("1.log"), "theirs\n").unwrap();
     let host = host(&dir).await;
