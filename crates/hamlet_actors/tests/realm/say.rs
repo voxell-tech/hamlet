@@ -1,14 +1,135 @@
-#[tokio::test]
-#[ignore = "the scaffold: U5 fills it"]
-async fn a_repeated_say_opens_one_task_and_submits_again() {
-    // say twice with one id: one task; two Submits with one InputId.
-    todo!()
+use std::time::Duration;
+
+use hamlet_actors::realm;
+use hamlet_messages::agent::InputId;
+use hamlet_messages::realm::client::{Say, SayAnswer, SayRefusal};
+use hamlet_messages::sender::Hand;
+use hamlet_messages::workspace::AgentNumber;
+use hamlet_protocol::client::{self as protocol, AgentId, RequestId};
+
+use super::{Callee, MAYOR, Realm, Seen, error_code, founded, until};
+
+fn say(id: &RequestId, to: AgentNumber, text: &str) -> Say {
+    Say(protocol::Say {
+        files: Vec::new(),
+        id: id.clone(),
+        images: Vec::new(),
+        text: text.to_owned(),
+        to: AgentId(u64::from(to.0)),
+    })
 }
 
-#[tokio::test]
-#[ignore = "the scaffold: U5 fills it"]
+fn submits_to(realm: &Realm, agent: AgentNumber) -> Vec<InputId> {
+    realm
+        .seen
+        .submits
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|(to, _)| *to == agent)
+        .map(|(_, submit)| submit.id.clone())
+        .collect()
+}
+
+/// Holds the branch, then founds a hamlet whose mayor's drive waits
+/// on it.
+async fn mayor_held_at_its_branch(realm: &Realm) {
+    realm.live(Hand::NUMBER).await;
+    realm.seen.hold(Callee::Branch);
+    founded(realm).await;
+    until("the mayor's drive waits on the held branch", || {
+        realm.seen.held.receiver_count() > 0
+    })
+    .await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_repeated_say_opens_one_task_and_submits_again() {
+    // say twice with one id: one task; two Submits with one InputId.
+    // The same id with another text is refused as reused.
+    let realm = Realm::start().await;
+    realm.live(Hand::NUMBER).await;
+    founded(&realm).await;
+    realm.live(MAYOR).await;
+    let id = RequestId::new();
+    let line = say(&id, MAYOR, "build the mill");
+
+    let first = realm.ask(&line).await.unwrap();
+    let again = realm.ask(&line).await.unwrap();
+    let other = realm.ask(&say(&id, MAYOR, "build the barn")).await;
+    let tasks = realm
+        .rows(|db| {
+            db.prepare(
+                "SELECT id FROM task WHERE agent = 2 AND origin = \
+                 'chief'",
+            )?
+            .query_map([], |row| row.get::<_, i64>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()
+        })
+        .await;
+
+    let SayAnswer::Taken { task } = &first else {
+        panic!("the mayor takes the line: {first:?}");
+    };
+    assert_eq!(again, first);
+    assert_eq!(error_code(other), "message.id_reused");
+    assert_eq!(tasks.len(), 1);
+    assert_eq!(task.0, tasks[0].to_string());
+    let input = InputId(id.as_str().to_owned());
+    assert_eq!(submits_to(&realm, MAYOR), [input.clone(), input]);
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn a_say_to_a_hiring_hire_waits_for_its_steps() {
-    // a profile slow to branch; say to the hire: answered Taken once
-    // it is live; with a wait shorter than the delay, StillHiring.
-    todo!()
+    // hold the mayor's branch; say to it while `hiring`; release
+    // while the say waits: `Taken` once it is live. With a wait
+    // shorter than the hold, `StillHiring`, and nothing submitted.
+    let wait = |hiring_wait| Some(realm::Options { hiring_wait });
+    let realm = Realm::start_with(
+        wait(Duration::from_secs(10)),
+        Seen::default(),
+    )
+    .await;
+    mayor_held_at_its_branch(&realm).await;
+    let line = say(&RequestId::new(), MAYOR, "build the mill");
+
+    let (answer, submitted_while_held) =
+        tokio::join!(realm.ask(&line), async {
+            tokio::time::sleep(Duration::from_millis(300)).await;
+            let submitted = !submits_to(&realm, MAYOR).is_empty();
+            realm.seen.release(Callee::Branch);
+            submitted
+        });
+    let answer = answer.unwrap();
+
+    assert!(!submitted_while_held, "the say waits for the steps");
+    assert!(
+        matches!(answer, SayAnswer::Taken { .. }),
+        "the mayor takes the line once live: {answer:?}"
+    );
+    assert_eq!(submits_to(&realm, MAYOR).len(), 1);
+    realm.host.shutdown().await.unwrap();
+
+    let realm = Realm::start_with(
+        wait(Duration::from_millis(200)),
+        Seen::default(),
+    )
+    .await;
+    mayor_held_at_its_branch(&realm).await;
+
+    let answer = realm
+        .ask(&say(&RequestId::new(), MAYOR, "build the mill"))
+        .await
+        .unwrap();
+    realm.seen.release(Callee::Branch);
+
+    assert_eq!(
+        answer,
+        SayAnswer::Refused {
+            why: SayRefusal::StillHiring { agent: MAYOR }
+        }
+    );
+    assert!(submits_to(&realm, MAYOR).is_empty());
+    realm.host.shutdown().await.unwrap();
 }

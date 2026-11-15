@@ -31,13 +31,6 @@ impl TaskId {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(super) enum Origin {
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "U5 opens a chief's task with it"
-        )
-    )]
     Chief,
     /// The task that pays for an agent's turns no line started.
     Standing,
@@ -45,10 +38,6 @@ pub(super) enum Origin {
 
 #[derive(Debug, PartialEq)]
 pub(super) enum Change {
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "U5 opens tasks with it")
-    )]
     Open {
         task: TaskId,
         origin: Origin,
@@ -111,7 +100,6 @@ async fn open(
     Ok(Affected::default())
 }
 
-#[cfg_attr(not(test), expect(dead_code, reason = "U5 calls it"))]
 pub(super) async fn fresh(rows: &Rows<'_>) -> Result<TaskId> {
     Ok(TaskId(rows.next_id("task").await?))
 }

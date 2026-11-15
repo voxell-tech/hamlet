@@ -306,10 +306,6 @@ pub(super) enum Change {
     /// The agent is live.
     Live { agent: AgentNumber },
     /// A hire's purpose, when it has none.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "U5 sets a purpose with it")
-    )]
     Purpose { hire: AgentNumber, text: String },
     /// The agent ends, and its hires go to its lead.
     End {
