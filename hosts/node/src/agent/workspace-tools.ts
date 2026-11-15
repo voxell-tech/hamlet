@@ -25,6 +25,8 @@ import {
     type Need,
     type Outcome,
     type Program,
+    type ReadAnswer,
+    type Refused,
     type RunEnd,
     type Text,
     WORKSPACE,
@@ -55,7 +57,6 @@ export type FileCall<N extends FileTool> = FileToolArgs[N] & {
     readonly path: string;
 };
 
-/** How a file tool works out its answer. */
 export type Execute<Args> = (
     args: Args,
     api: ToolExecutionApi,
@@ -237,9 +238,36 @@ function ran(end: RunEnd): ToolExecutionResult {
 
 function changed(end: ChangeEnd): ToolExecutionResult {
     if (end.type !== "changed") return failed(end.words);
+    return changeWords(end.path, end.created, end.diff?.diff);
+}
+
+/** The words of a write or an edit that changed the file at `path`. */
+export function changeWords(
+    path: string,
+    created: boolean,
+    diff?: string,
+): ToolExecutionResult {
     return words(
-        `${end.created ? "Created" : "Changed"} ${end.path}.${end.diff === undefined ? "" : `\n${end.diff.diff}`}`,
+        `${created ? "Created" : "Changed"} ${path}.${diff === undefined ? "" : `\n${diff}`}`,
     );
+}
+
+/** The result of a read, from what the workspace answers for it. */
+export function readResult(
+    answer: Exclude<ReadAnswer, Refused>,
+): ToolExecutionResult {
+    switch (answer.type) {
+        case "text":
+            return shown(answer);
+        case "image":
+            return {
+                output: [
+                    { type: "image", data: answer.data, mimeType: answer.mime },
+                ],
+            };
+        case "failed":
+            return failed(answer.words);
+    }
 }
 
 /**
@@ -272,24 +300,7 @@ function read(peers: Peers): ToolRegistration {
                 path: args.path,
                 ...omitUndefined({ offset: args.offset, limit: args.limit }),
             },
-            (answer) => {
-                switch (answer.type) {
-                    case "text":
-                        return shown(answer);
-                    case "image":
-                        return {
-                            output: [
-                                {
-                                    type: "image",
-                                    data: answer.data,
-                                    mimeType: answer.mime,
-                                },
-                            ],
-                        };
-                    case "failed":
-                        return failed(answer.words);
-                }
-            },
+            readResult,
         ),
     );
 }

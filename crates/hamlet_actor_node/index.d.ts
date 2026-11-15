@@ -522,7 +522,11 @@ export declare class AgentFolder {
     /** The folder's absolute path, with `/` between names. */
     get path(): string;
     read(path: string): Promise<Buffer>;
-    write(path: string, bytes: Buffer): Promise<void>;
+    /**
+     * Writes the file whole, and answers whether nothing was there
+     * before.
+     */
+    write(path: string, bytes: Buffer): Promise<boolean>;
     /**
      * The names in the folder at `path`, sorted. Names that are
      * neither a file, a folder nor a link are left out.

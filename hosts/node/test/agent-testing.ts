@@ -133,15 +133,17 @@ export function fakeFiles(files: Record<string, string>): AgentFilesystem & {
                 : ok(new TextEncoder().encode(text));
         },
         write: async (path, content) => {
+            const created = files[path] === undefined;
             files[path] =
                 typeof content === "string"
                     ? content
                     : new TextDecoder().decode(content);
-            return ok(undefined);
+            return ok({ created });
         },
         edit: async (path, changes) => {
-            let text = files[path];
-            if (text === undefined) return err(missing(path));
+            const before = files[path];
+            if (before === undefined) return err(missing(path));
+            let text = before;
             for (const change of changes) {
                 if (!text.includes(change.old)) {
                     return err(
@@ -156,7 +158,7 @@ export function fakeFiles(files: Record<string, string>): AgentFilesystem & {
             }
             files[path] = text;
             edits += 1;
-            return ok(undefined);
+            return ok({ before, after: text });
         },
         list: async () => ok([]),
         search: async () => ok({ found: [], more: false, capped: false }),

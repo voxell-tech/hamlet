@@ -17,6 +17,7 @@
  */
 import { isAbsolute } from "node:path";
 import type { Context } from "@earendil-works/chord/context";
+import { generateDiffString } from "@earendil-works/pi-coding-agent";
 import {
     defineExtension,
     type Extension,
@@ -32,13 +33,16 @@ import {
     type Found,
     LOOKED,
 } from "./filesystem.ts";
+import type { Note, ReadAnswer, Refused } from "./messages.ts";
 import { failed, type Peers, unknownOutcome, words } from "./turn.ts";
 import {
+    changeWords,
     type Execute,
     editsOf,
     type FileCall,
     type FileTool,
     type FileToolArgs,
+    readResult,
 } from "./workspace-tools.ts";
 
 /**
@@ -79,7 +83,9 @@ function routes(peers: Peers): {
         read: async (args, _api, context) => {
             const file = await files.read(args.path, context);
             return file.ok
-                ? words(linesOf(file.value, args.offset, args.limit))
+                ? readResult(
+                      readOf(args.path, file.value, args.offset, args.limit),
+                  )
                 : failed(file.error.message);
         },
         edit: async (args, api, context) => {
@@ -96,7 +102,14 @@ function routes(peers: Peers): {
                 context,
             );
             return edited.ok
-                ? words(`Changed ${args.path}.`)
+                ? changeWords(
+                      args.path,
+                      false,
+                      generateDiffString(
+                          edited.value.before,
+                          edited.value.after,
+                      ).diff,
+                  )
                 : failed(edited.error.message);
         },
         write: (args, _api, context) => written(files, args, context),
@@ -138,11 +151,151 @@ export function ownFiles(peers: Peers): Extension {
 /** The memo an own edit leaves before it runs. */
 const EDIT_BEGAN = "hamlet.own-edit.began";
 
-/** The text of `bytes` from line `offset`, at most `limit` lines, cut as the workspace cuts a read. */
-function linesOf(bytes: Uint8Array, offset?: number, limit?: number): string {
+/** The most lines and bytes a read gives, as the workspace's (`crates/hamlet_actors/src/workspace.rs:48-49`). */
+const MOST_LINES = 2000;
+const MOST_BYTES = 50 * 1024;
+
+/**
+ * What the workspace answers for a read of `bytes`: an image as it is, or
+ * its lines from `offset`, at most `limit` of them and within the limits,
+ * with a note on what was left out. Ported from
+ * `crates/hamlet_actors/src/workspace/files/read.rs`.
+ */
+function readOf(
+    path: string,
+    bytes: Uint8Array,
+    offset?: number,
+    limit?: number,
+): Exclude<ReadAnswer, Refused> {
+    const mime = imageOf(bytes);
+    if (mime !== undefined) {
+        return {
+            type: "image",
+            mime,
+            data: Buffer.from(bytes).toString("base64"),
+        };
+    }
+    // TextDecoder drops a leading BOM and replaces bytes that are not UTF-8.
     const lines = new TextDecoder().decode(bytes).split("\n");
-    const from = Math.max(0, (offset ?? 1) - 1);
-    return lines.slice(from, from + (limit ?? 2000)).join("\n");
+    const total = lines.length;
+    const start = Math.max(0, (offset ?? 0) - 1);
+    if (start >= total) {
+        return {
+            type: "failed",
+            words: `Offset ${offset ?? 0} is beyond end of file (${total} lines total)`,
+        };
+    }
+    const end = limit === undefined ? total : Math.min(start + limit, total);
+    const selected = lines.slice(start, end);
+    const head = truncateHead(selected.join("\n"));
+    const first = start + 1;
+    const text = (shown: string, ...notes: Note[]) =>
+        ({ type: "text", text: shown, notes }) as const;
+    if (head.firstLineTooLong) {
+        const line = Buffer.from(selected[0] ?? "");
+        const cut = characterEnd(line, MOST_BYTES);
+        return text(line.subarray(0, cut).toString(), {
+            severity: "warn",
+            code: "truncated",
+            message: `Line ${first} is ${formatSize(line.length)}, exceeds the ${formatSize(MOST_BYTES)} limit; showing its first ${formatSize(cut)}. Use bash: sed -n '${first}p' ${path} | tail -c +${cut + 1}`,
+        });
+    }
+    if (head.by !== undefined) {
+        const last = first + head.lines - 1;
+        const why =
+            head.by === "lines" ? "" : ` (${formatSize(MOST_BYTES)} limit)`;
+        return text(head.text, {
+            severity: "info",
+            code: "truncated",
+            message: `Showing lines ${first}-${last} of ${total}${why}. Use offset=${last + 1} to continue.`,
+        });
+    }
+    if (end < total) {
+        return text(head.text, {
+            severity: "info",
+            code: "",
+            message: `${total - end} more lines in file. Use offset=${end + 1} to continue.`,
+        });
+    }
+    return text(head.text);
+}
+
+/** The first whole lines of `content` within the limits, and how it was cut. */
+function truncateHead(content: string): {
+    readonly text: string;
+    readonly lines: number;
+    readonly by?: "lines" | "bytes";
+    readonly firstLineTooLong?: true;
+} {
+    const lines = content === "" ? [] : content.split("\n");
+    if (content.endsWith("\n")) lines.pop();
+    if (
+        lines.length <= MOST_LINES &&
+        Buffer.byteLength(content) <= MOST_BYTES
+    ) {
+        return { text: content, lines: lines.length };
+    }
+    if (Buffer.byteLength(lines[0] ?? "") > MOST_BYTES) {
+        return { text: "", lines: 0, by: "bytes", firstLineTooLong: true };
+    }
+    const kept: string[] = [];
+    let bytes = 0;
+    let by: "lines" | "bytes" = "lines";
+    for (const line of lines.slice(0, MOST_LINES)) {
+        const size = Buffer.byteLength(line) + (kept.length > 0 ? 1 : 0);
+        if (bytes + size > MOST_BYTES) {
+            by = "bytes";
+            break;
+        }
+        kept.push(line);
+        bytes += size;
+    }
+    // Without a byte break, only omitted lines prove the line limit was
+    // reached.
+    if (by !== "bytes" && kept.length === lines.length) by = "bytes";
+    return { text: kept.join("\n"), lines: kept.length, by };
+}
+
+/** `bytes` as pi writes a size, rounding a half up. */
+function formatSize(bytes: number): string {
+    const tenths = (unit: number) => {
+        const count = Math.floor((bytes * 10 + unit / 2) / unit);
+        return `${Math.floor(count / 10)}.${count % 10}`;
+    };
+    if (bytes < 1024) return `${bytes}B`;
+    if (bytes < 1024 * 1024) return `${tenths(1024)}KB`;
+    return `${tenths(1024 * 1024)}MB`;
+}
+
+/** The last character boundary at or before `index`. */
+function characterEnd(bytes: Uint8Array, index: number): number {
+    let end = index;
+    while (end > 0 && ((bytes[end] ?? 0) & 0xc0) === 0x80) end--;
+    return end;
+}
+
+/** The type of image `bytes` begin as, if it is one a model takes. */
+function imageOf(bytes: Uint8Array): string | undefined {
+    const at = (offset: number, ...want: number[]) =>
+        want.every((byte, index) => bytes[offset + index] === byte);
+    const ascii = (text: string) => [...text].map((c) => c.charCodeAt(0));
+    if (at(0, 0xff, 0xd8, 0xff)) {
+        return bytes[3] === 0xf7 ? undefined : "image/jpeg";
+    }
+    if (at(0, 0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a)) {
+        const header =
+            bytes.length >= 16 &&
+            at(8, 0, 0, 0, 13) &&
+            at(12, ...ascii("IHDR"));
+        return header ? "image/png" : undefined;
+    }
+    if (at(0, ...ascii("GIF87a")) || at(0, ...ascii("GIF89a"))) {
+        return "image/gif";
+    }
+    if (at(0, ...ascii("RIFF")) && at(8, ...ascii("WEBP"))) {
+        return "image/webp";
+    }
+    return undefined;
 }
 
 async function written(
@@ -151,7 +304,9 @@ async function written(
     context: Context,
 ): Promise<ToolExecutionResult> {
     const done = await files.write(args.path, args.content, context);
-    return done.ok ? words(`Wrote ${args.path}.`) : failed(done.error.message);
+    return done.ok
+        ? changeWords(args.path, done.value.created)
+        : failed(done.error.message);
 }
 
 async function searched(

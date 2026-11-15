@@ -95,15 +95,21 @@ impl AgentFolder {
             .map(Buffer::from)
     }
 
+    /// Writes the file whole, and answers whether nothing was there
+    /// before.
     #[napi]
     pub async fn write(
         &self,
         path: String,
         bytes: Buffer,
-    ) -> napi::Result<()> {
+    ) -> napi::Result<bool> {
         let bytes = bytes.to_vec();
-        blocking(&self.0, move |folder| folder.write(&path, &bytes))
-            .await
+        blocking(&self.0, move |folder| {
+            let created = folder.stat(&path).is_err();
+            folder.write(&path, &bytes)?;
+            Ok(created)
+        })
+        .await
     }
 
     /// The names in the folder at `path`, sorted. Names that are

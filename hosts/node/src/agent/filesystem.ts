@@ -62,18 +62,26 @@ export interface AgentFilesystem {
         path: string,
         context: Context,
     ): Promise<Result<Uint8Array, FileError>>;
-    /** Writes the file whole, making its folders. A link there is replaced, not written through. */
+    /**
+     * Writes the file whole, making its folders, and answers whether nothing
+     * was there before. A link there is replaced, not written through.
+     */
     write(
         path: string,
         content: string | Uint8Array,
         context: Context,
-    ): Promise<Result<void, FileError>>;
-    /** Makes every edit of `edits` in the UTF-8 text of the file at once. */
+    ): Promise<Result<{ readonly created: boolean }, FileError>>;
+    /**
+     * Makes every edit of `edits` in the UTF-8 text of the file at once, and
+     * answers the text before and after.
+     */
     edit(
         path: string,
         edits: readonly Edit[],
         context: Context,
-    ): Promise<Result<void, FileError>>;
+    ): Promise<
+        Result<{ readonly before: string; readonly after: string }, FileError>
+    >;
     /** The names in one folder, sorted. */
     list(
         path: string,
@@ -169,14 +177,15 @@ export function openAgentFilesystem(
                 async () => new Uint8Array(await folder.read(path)),
             ),
         write: (path, content, context) =>
-            call(path, context, () => folder.write(path, Buffer.from(content))),
+            call(path, context, async () => ({
+                created: await folder.write(path, Buffer.from(content)),
+            })),
         edit: (path, edits, context) =>
             call(path, context, async () => {
-                const text = utf8(await folder.read(path), path);
-                await folder.write(
-                    path,
-                    Buffer.from(edited(text, edits, path)),
-                );
+                const before = utf8(await folder.read(path), path);
+                const after = edited(before, edits, path);
+                await folder.write(path, Buffer.from(after));
+                return { before, after };
             }),
         list: (path, context) =>
             call(path, context, async () =>
@@ -215,13 +224,13 @@ export function openAgentFilesystem(
                 );
             }),
         copy: (from, to, context) =>
-            call(from, context, async () =>
-                folder.write(to, await folder.read(from)),
-            ),
+            call(from, context, async () => {
+                await folder.write(to, await folder.read(from));
+            }),
     };
 }
 
-/** `items` cut at `FOUND`: one more than it says there were more. */
+/** `items` cut at `FOUND`. As today's, a cut walk that also found more says only the more. */
 function bounded<T>(items: T[], capped: boolean): Found<T> {
     const more = items.length > FOUND;
     return { found: items.slice(0, FOUND), more, capped: capped && !more };

@@ -62,7 +62,9 @@ test("a filesystem read gives a file's bytes, by a relative or an absolute path"
 test("a filesystem write makes the file and its folders, then reads back", async (t) => {
     const { filesystem } = await planted(t);
     const wrote = await filesystem.write("memory/new/today.md", "new", context);
-    assert.ok(wrote.ok);
+    assert.deepEqual(wrote.ok && wrote.value, { created: true });
+    const again = await filesystem.write("memory/new/today.md", "new", context);
+    assert.deepEqual(again.ok && again.value, { created: false });
     assert.equal(
         readFileSync(join(filesystem.root, "memory/new/today.md"), "utf8"),
         "new",
