@@ -191,14 +191,14 @@ actor layer in `src/actor/`. Install it with `npm ci --prefix hosts/node`
 and the same Node version. Its TypeScript and Biome check and its tests,
 on Node's own test runner, must be clean before a commit too. The tests
 in `test/native/` load the native module, so `npm test` leaves them out
-and `npm run test:native` runs them. `cargo xtask node` runs all three
+and `npm run test:native` runs them; those in `test/link/` drive
+`demo --link` and the Node host's entry `src/main.ts`, and
+`npm run test:link` runs them. `cargo xtask node` runs all four
 after pi's: it builds the module, copies the library into
 `crates/hamlet_actor_node/` under the name its `index.js` loads (on
 Linux x64, `actor-node.linux-x64-gnu.node`), builds `hamlet_os`'s example
 `bound`, which the native tests start Node through, then runs them, and
-last builds the demo and runs `npm run test:link`, the tests in
-`test/link/` that drive `demo --link` and the Node host's entry
-`src/main.ts`.
+last builds the demo and runs the link tests.
 By hand, on Linux:
 
 ```sh
