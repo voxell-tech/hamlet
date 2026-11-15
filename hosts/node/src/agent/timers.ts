@@ -1,6 +1,132 @@
-/** U11 fills this file. Until then no `wake`. */
-import { defineExtension, type Extension } from "@earendil-works/pi-durable";
+/**
+ * `wake`: the agent sets itself a timer.
+ *
+ * A timer is a pi-durable background task of the conversation. It sleeps
+ * until its time, then admits one input and ends in the same commit.
+ * pi-durable keeps the sleep, so the agent keeps no timer of its own, and
+ * the wrapper keeps one host alarm for the earliest one,
+ * `c.schedule.at(earliest, "pi.wake")`.
+ *
+ * It needs no peer: it is built from nothing.
+ */
+import {
+    defineExtension,
+    defineTask,
+    defineTool,
+    type Extension,
+} from "@earendil-works/pi-durable";
+import { callOf, draftOf, words } from "./turn.ts";
 
+/** What a timer keeps: the call that set it, its time, and what to say when it fires. */
+type WakeInput = { call: string; at: number; note: string };
+
+const KIND = "hamlet.wake";
+
+/**
+ * The timer. Its second phase admits the input and ends the task in one
+ * commit, under the request id `w<task id>@<at>`, so a phase that a kill
+ * cut off admits once when it runs again.
+ */
+const Wake = defineTask<
+    WakeInput,
+    { phase: "sleep" } | { phase: "admit" },
+    null
+>({
+    name: KIND,
+    version: 1,
+    initial: () => ({ phase: "sleep" }),
+    phases: {
+        sleep: (task, runtime, context) =>
+            runtime.sleepUntil(task.input.at, { phase: "admit" }, context),
+        admit: async (task, runtime, context) => {
+            const conversation = await runtime.conversation(
+                runtime.conversationId,
+                context,
+            );
+            await runtime.commit(async (tx) => {
+                await conversation?.submit(
+                    tx,
+                    draftOf({
+                        kind: "wake",
+                        id: `w${task.id}@${task.input.at}`,
+                        content: `Your timer fired: ${task.input.note}`,
+                    }),
+                );
+                return {
+                    status: "terminal",
+                    outcome: { status: "completed", result: null },
+                };
+            }, context);
+        },
+    },
+    abort: (_task, runtime, context) =>
+        runtime.commit(
+            () => ({ status: "terminal", outcome: { status: "aborted" } }),
+            context,
+        ),
+});
+
+/** The extension `hamlet.timers`: the tool `wake` and its task. */
 export function timers(): Extension {
-    return defineExtension({ name: "hamlet.timers" });
+    return defineExtension({
+        name: "hamlet.timers",
+        tasks: [Wake],
+        tools: [
+            defineTool({
+                name: "wake",
+                description:
+                    "Set a timer. When it fires you get a new input holding your note. It does not hold your turn.",
+                parameters: {
+                    type: "object",
+                    required: ["in_seconds", "note"],
+                    properties: {
+                        in_seconds: {
+                            type: "number",
+                            description: "How long from now, in seconds.",
+                        },
+                        note: {
+                            type: "string",
+                            description: "What to remind yourself of.",
+                        },
+                    },
+                },
+                replay: "safe",
+                execute: async (
+                    args: { in_seconds: number; note: string },
+                    api,
+                    context,
+                ) => {
+                    // One commit finds the timer this call made, or makes it. A rerun
+                    // finds it, so one call makes one timer (grounding 9c).
+                    const call = callOf(api);
+                    const at = await api.commit(async (tx) => {
+                        const set = await tx.scanTasks(
+                            { conversationId: api.conversationId, kind: KIND },
+                            1000,
+                        );
+                        const mine = set.items.find(
+                            (task) => (task.input as WakeInput).call === call,
+                        );
+                        if (mine !== undefined)
+                            return (mine.input as WakeInput).at;
+                        const at =
+                            api.now() + Math.round(args.in_seconds * 1000);
+                        await tx.createTask(
+                            Wake,
+                            { call, at, note: args.note },
+                            {
+                                ownership: { kind: "conversation" },
+                                conversationId: api.conversationId,
+                                background: true,
+                            },
+                        );
+                        return at;
+                    }, context);
+                    return words(
+                        `A timer is set for ${new Date(at).toISOString()}.`,
+                    );
+                },
+            }),
+        ],
+    });
 }
