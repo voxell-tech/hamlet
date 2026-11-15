@@ -215,6 +215,48 @@ async fn an_end_moves_the_children_and_drops_the_reach() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn a_repeated_end_sends_the_end_again() {
+    // the workspace fails the end's SetReach once; the same End
+    // again sends it, with no restart.
+    let realm = Realm::start().await;
+    realm.live(Hand::NUMBER).await;
+    founded(&realm).await;
+    let hired_3 = realm.tool(MAYOR, &tool("h1", hire(None))).await;
+    realm.reach_held(MAYOR).await;
+    realm.reach_held(AgentNumber(3)).await;
+    realm
+        .seen
+        .fail_once
+        .lock()
+        .unwrap()
+        .insert(Callee::SetReach);
+    let end_3 = tool("e1", end(3));
+
+    let ended = realm.tool(MAYOR, &end_3).await.unwrap();
+    until("the workspace fails the end once", || {
+        !realm
+            .seen
+            .fail_once
+            .lock()
+            .unwrap()
+            .contains(&Callee::SetReach)
+    })
+    .await;
+    let after_the_failure =
+        ended_in_workspace(&realm, AgentNumber(3));
+    let again = realm.tool(MAYOR, &end_3).await.unwrap();
+    until("the workspace holds the end of agent 3", || {
+        ended_in_workspace(&realm, AgentNumber(3))
+    })
+    .await;
+
+    assert_eq!(hired_3.unwrap(), hired(3));
+    assert_eq!([ended, again], [Done::Done, Done::Done]);
+    assert!(!after_the_failure);
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn an_end_of_a_hire_still_hiring_closes_its_steps() {
     // hold the branch; mayor 2 hires 3; the chief ends 3; release:
     // the workspace holds 3's end, `agent/3` is never made, and its
