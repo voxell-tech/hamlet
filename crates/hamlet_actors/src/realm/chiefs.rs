@@ -104,7 +104,6 @@ pub(super) enum Change {
         hamlet: HamletId,
         mayor: AgentNumber,
     },
-    #[expect(dead_code, reason = "U11 sets a tier with it")]
     Tier {
         hamlet: HamletId,
         tier: Tier,

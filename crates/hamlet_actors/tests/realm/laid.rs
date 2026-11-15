@@ -4,7 +4,8 @@ use hamlet_messages::realm::{
     AgentRefusal, Asked, Done, End, FoundAnswer, Gate, HamletId,
     Hire, HireAnswer, LayRefusal, LayRoad, LeadRefusal,
     LetterRefusal, Named, Rank, RequestRoad, RequestRoadRefusal,
-    SetTools, SocietyTool, TakeUpRoad, Tell, ToolsRefusal,
+    SetTier, SetTools, SocietyTool, TakeUpRoad, Tell, Tier,
+    TierRefusal, ToolsRefusal,
 };
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::AgentNumber;
@@ -409,5 +410,60 @@ async fn a_road_joins_two_hires_of_one_hamlet_under_its_layer() {
     assert_eq!(ended, Done::Done);
     assert_eq!(seen.roads, []);
     assert_eq!(road_charges(&realm).await, 0);
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_tier_below_the_living_hires_is_refused() {
+    // the chief raises the hamlet to a hundred, and the world shows
+    // it. With 51 living hires, the mayor among them, lowering it to
+    // fifty is `TooSmall`. No hamlet is `NoSuchHamlet`.
+    let (realm, hamlet) = hamlet_with(0).await;
+    let set = async |hamlet: &HamletId, tier| {
+        realm
+            .ask(&Asked {
+                id: RequestId::new(),
+                act: SetTier {
+                    hamlet: hamlet.clone(),
+                    tier,
+                },
+            })
+            .await
+            .unwrap()
+    };
+
+    let raised = set(&hamlet, Tier::Hundred).await;
+    world::seen_until(&realm, "a hundred", |seen| {
+        seen.hamlets.iter().any(|shown| shown.tier == Tier::Hundred)
+    })
+    .await;
+    realm
+        .write(&format!(
+            "WITH RECURSIVE n(i) AS (SELECT 100 UNION ALL SELECT i \
+             + 1 FROM n WHERE i < 149) INSERT INTO agent (id, kind, \
+             status, at) SELECT i, 'hire', 'live', 0 FROM n; WITH \
+             RECURSIVE n(i) AS (SELECT 100 UNION ALL SELECT i + 1 \
+             FROM n WHERE i < 149) INSERT INTO hire (agent, hamlet, \
+             profile, lead) SELECT i, '{}', 1, 2 FROM n;",
+            hamlet.0
+        ))
+        .await;
+    let lowered = set(&hamlet, Tier::Fifty).await;
+    let missing =
+        set(&HamletId("none".to_owned()), Tier::Fifty).await;
+
+    assert_eq!(raised, Done::Done);
+    assert_eq!(
+        lowered,
+        Done::Refused {
+            why: TierRefusal::TooSmall { living: 51 }
+        }
+    );
+    assert_eq!(
+        missing,
+        Done::Refused {
+            why: TierRefusal::NoSuchHamlet
+        }
+    );
     realm.host.shutdown().await.unwrap();
 }

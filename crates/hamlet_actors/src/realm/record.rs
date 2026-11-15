@@ -50,10 +50,6 @@ pub(super) enum Entry {
         hire: AgentNumber,
         by: By,
     },
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "U11 records it")
-    )]
     Tier {
         hamlet: HamletId,
         tier: Tier,
