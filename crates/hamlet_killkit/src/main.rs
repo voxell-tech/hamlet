@@ -371,10 +371,14 @@ fn run_once(
                 .with_context(|| format!("probe {}", probe.name))
         })
         .transpose()?;
-    std::thread::sleep(
-        (sent + Duration::from_millis(scenario.down_ms))
-            .saturating_duration_since(Instant::now()),
-    );
+    let down = (sent + Duration::from_millis(scenario.down_ms))
+        .saturating_duration_since(Instant::now());
+    let to_due = due.map_or(Duration::ZERO, |due| {
+        Duration::from_millis(
+            (due + 1 - unix_ms()).max(0).unsigned_abs(),
+        )
+    });
+    std::thread::sleep(down.max(to_due));
     let past_due = due.map(|due| unix_ms() - due);
     if let Some(past_due) = past_due {
         ensure!(

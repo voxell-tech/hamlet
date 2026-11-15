@@ -523,12 +523,7 @@ impl Stop {
         drop(replaced);
         if destroyed {
             let path = actor_path(&host.dir, &owned.at);
-            let removed = tokio::task::spawn_blocking(move || {
-                destroy_file(&path)
-            })
-            .await
-            .map_err(anyhow::Error::from)
-            .flatten();
+            let removed = destroy_file_off_runtime(path).await;
             // A destroy that joined this stop answers it too.
             if let Err(error) = &removed {
                 owned.fail(error);
@@ -1074,7 +1069,7 @@ impl Host {
                 }
             };
             if destroyed {
-                match destroy_file(&path) {
+                match destroy_file_off_runtime(path).await {
                     Ok(()) => tracing::info!(
                         actor_id = %at,
                         "boot finished a destroy that a kill cut off"
@@ -1775,6 +1770,15 @@ fn destroy_file(path: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Runs [`destroy_file`] on a blocking thread, where a removal that
+/// Windows refuses waits.
+async fn destroy_file_off_runtime(path: PathBuf) -> Result<()> {
+    tokio::task::spawn_blocking(move || destroy_file(&path))
+        .await
+        .map_err(anyhow::Error::from)
+        .flatten()
+}
+
 fn remove_by(file: &Path, deadline: Instant) -> std::io::Result<()> {
     loop {
         match std::fs::remove_file(file) {
@@ -2184,12 +2188,8 @@ async fn close_within_grace(file: &PlainSqlite) -> bool {
 /// start, with its files, so the key is free again. Answers whether
 /// it did: a failure is logged, and leaves the actor made.
 async fn unmake(host: &HostInner, at: &Address) -> bool {
-    let path = actor_path(&host.dir, at);
     let removed =
-        tokio::task::spawn_blocking(move || destroy_file(&path))
-            .await
-            .map_err(anyhow::Error::from)
-            .flatten();
+        destroy_file_off_runtime(actor_path(&host.dir, at)).await;
     if let Err(error) = &removed {
         tracing::warn!(
             ?error,

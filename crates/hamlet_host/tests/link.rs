@@ -552,6 +552,7 @@ mod handshake {
         );
         let starts = wait_for_starts(&record, 4).await;
         supervisor.shutdown().await;
+        assert!(starts[1].1 - starts[0].1 < 1800, "{starts:?}");
         let gaps =
             starts.windows(2).map(|pair| pair[1].1 - pair[0].1);
         for (gap, least) in gaps.zip([1000, 2000, 4000]) {
