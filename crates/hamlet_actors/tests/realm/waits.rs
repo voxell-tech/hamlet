@@ -1,15 +1,26 @@
+use std::time::Duration;
+
+use hamlet_messages::agent::Input;
+use hamlet_messages::realm::budget::{Payer, ResetBudget};
 use hamlet_messages::realm::client::AnswerRefusal;
+use hamlet_messages::realm::models::{Cause, TurnFailed};
+use hamlet_messages::realm::oversight::{Lapse, LapseReason};
 use hamlet_messages::realm::{
-    Asked, Done, End, HireAnswer, Named, SecretList, Secrets,
+    Asked, Done, End, HireAnswer, Limit, Named, NeedsChief,
+    SecretList, Secrets, SetLimits,
 };
 use hamlet_messages::sender::Hand;
-use hamlet_messages::workspace::reach::SecretsVersion;
-use hamlet_messages::workspace::{self, AgentNumber, ChiefAnswer};
+use hamlet_messages::workspace::reach::{
+    Footing, Need, SecretsVersion,
+};
+use hamlet_messages::workspace::{
+    self, AgentNumber, ChiefAnswer, ConversationId, RealmTask,
+};
 use hamlet_protocol::client::{Choice, RequestId};
 
 use super::{
-    Realm, answer, chief_hires, error_code, founded, hire, needs,
-    until,
+    Callee, MAYOR, Realm, answer, chief_hires, error_code, founded,
+    hamlet_with, hire, needs, say, seen_submits, standing, until,
 };
 
 fn nothing_waits(wait: &str) -> Done<AnswerRefusal> {
@@ -188,6 +199,671 @@ async fn the_secrets_are_version_1_with_no_value() {
             version: SecretsVersion(1),
             values: Vec::new(),
         }
+    );
+    realm.host.shutdown().await.unwrap();
+}
+
+const HAND: AgentNumber = Hand::NUMBER;
+
+const PAST_THE_COUNT: &str =
+    "the chief has refused 3 requests this turn and will not be \
+     asked again in it. Stop and report what you could not do.";
+
+/// The Hand's call `call`, needing `need`, in `conversation`.
+fn asked(
+    call: &str,
+    need: Need,
+    task: Option<&RealmTask>,
+    conversation: &str,
+) -> NeedsChief {
+    NeedsChief {
+        conversation: ConversationId(conversation.to_owned()),
+        realm_task: task.cloned(),
+        needs: vec![need],
+        subject: format!("run {call}"),
+        ..needs(HAND, call)
+    }
+}
+
+fn failed(task: &RealmTask, cause: Cause) -> TurnFailed {
+    TurnFailed {
+        task: task.clone(),
+        conversation: ConversationId("c".to_owned()),
+        words: "the model fell over".to_owned(),
+        cause,
+    }
+}
+
+fn lapse(conversation: Option<&str>, why: LapseReason) -> Lapse {
+    Lapse {
+        conversation: conversation.map(|conversation| {
+            ConversationId(conversation.to_owned())
+        }),
+        why,
+    }
+}
+
+fn lapsed(call: &str, lapse: workspace::Lapse) -> ChiefAnswer {
+    ChiefAnswer {
+        agent: HAND,
+        call: needs(HAND, call).call,
+        answer: workspace::Answer::Lapsed { lapse },
+    }
+}
+
+fn refused_unasked(call: &str, words: &str) -> ChiefAnswer {
+    ChiefAnswer {
+        agent: HAND,
+        call: needs(HAND, call).call,
+        answer: workspace::Answer::Refuse {
+            reason: Some(words.to_owned()),
+        },
+    }
+}
+
+/// The task of a chief's line to `agent`.
+async fn chief_task(realm: &Realm, agent: AgentNumber) -> RealmTask {
+    let line = say(&RequestId::new(), agent, "go");
+    realm.ask(&line).await.unwrap();
+    let submits = seen_submits(realm, agent, 1).await;
+    submits[0].task.clone().expect("a line carries its task")
+}
+
+/// The footing of the last reach the workspace took for `agent`.
+fn footing(realm: &Realm, agent: AgentNumber) -> Footing {
+    realm
+        .seen
+        .reaches
+        .lock()
+        .unwrap()
+        .iter()
+        .rfind(|set| set.agent == agent)
+        .and_then(|set| set.reach.footing().cloned())
+        .expect("the workspace holds a living reach")
+}
+
+async fn kinds_of(realm: &Realm) -> Vec<(String, bool)> {
+    realm
+        .rows(|db| {
+            db.prepare(
+                "SELECT kind, closed_at IS NULL FROM wait ORDER BY \
+                 id",
+            )?
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+            .collect()
+        })
+        .await
+}
+
+async fn ruling_of(realm: &Realm, wait: i64) -> Option<String> {
+    realm
+        .rows(|db| {
+            db.query_row(
+                "SELECT ruling FROM wait WHERE id = ?1",
+                [wait],
+                |row| row.get(0),
+            )
+        })
+        .await
+}
+
+async fn kept_reaches(realm: &Realm) -> (i64, i64) {
+    realm
+        .rows(|db| {
+            db.query_row(
+                "SELECT (SELECT count(*) FROM grant), (SELECT \
+                 count(*) FROM trust)",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+        })
+        .await
+}
+
+/// The first `count` notices `agent` was given, with their
+/// conversations.
+async fn notices(
+    realm: &Realm,
+    agent: AgentNumber,
+    count: usize,
+) -> Vec<(String, Option<String>)> {
+    seen_submits(realm, agent, count)
+        .await
+        .into_iter()
+        .filter_map(|submit| match submit.input {
+            Input::Notice { text, conversation } => {
+                Some((text, conversation.map(|c| c.0)))
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+fn not_offered() -> Done<AnswerRefusal> {
+    Done::Refused {
+        why: AnswerRefusal::NotOffered,
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_always_on_the_network_writes_a_grant_before_the_answer() {
+    // a network wait of the Hand, while the workspace holds its
+    // set_reach. The chief answers always: Done, and nothing reaches
+    // the workspace while the Hand's new reach waits; once it is
+    // taken, the reach gives the network and the workspace gets
+    // Allow.
+    let realm = Realm::start().await;
+    realm.live(HAND).await;
+    let network = asked("c1", Need::Network, None, "c");
+    realm.call_as_workspace(&network).await.unwrap();
+    assert!(!footing(&realm, HAND).network);
+    realm.seen.hold(Callee::SetReach);
+
+    let always =
+        realm.ask(&answer("1", Choice::Always, None)).await.unwrap();
+    until("the Hand's new reach waits", || {
+        realm.seen.is_waiting(Callee::SetReach, HAND)
+    })
+    .await;
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    let early = chief_answers(&realm);
+    realm.seen.release(Callee::SetReach);
+    until("the workspace has the chief's answer", || {
+        !chief_answers(&realm).is_empty()
+    })
+    .await;
+
+    assert_eq!(always, Done::Done);
+    assert!(early.is_empty(), "answered before the reach: {early:?}");
+    assert!(footing(&realm, HAND).network);
+    assert_eq!(
+        chief_answers(&realm),
+        [ChiefAnswer {
+            agent: HAND,
+            call: network.call,
+            answer: workspace::Answer::Allow,
+        }]
+    );
+    assert_eq!(kept_reaches(&realm).await, (1, 0));
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_always_is_refused_where_today_refuses_it() {
+    // a failed turn's wait and a question's wait offer no always:
+    // each is refused NotOffered and stays open, and nothing is
+    // granted or trusted. The fault is then dismissed.
+    let realm = Realm::start().await;
+    realm.live(HAND).await;
+    let task = standing(&realm, HAND);
+    realm
+        .tool(HAND, &failed(&task, Cause::Model))
+        .await
+        .unwrap();
+    realm
+        .write(&format!(
+            "INSERT INTO wait (agent, kind, conversation, at) \
+             VALUES ({}, 'question', 'c', 0)",
+            HAND.0
+        ))
+        .await;
+
+    let fault =
+        realm.ask(&answer("1", Choice::Always, None)).await.unwrap();
+    let question =
+        realm.ask(&answer("2", Choice::Always, None)).await.unwrap();
+    let open = waits_of(&realm, HAND).await;
+    let dismissed = realm
+        .ask(&answer("1", Choice::Dismiss, None))
+        .await
+        .unwrap();
+
+    assert_eq!((fault, question), (not_offered(), not_offered()));
+    assert_eq!(open, [(1, true, None), (2, true, None)]);
+    assert_eq!(dismissed, Done::Done);
+    assert_eq!(
+        waits_of(&realm, HAND).await,
+        [(1, false, Some("dismiss".to_owned())), (2, true, None)]
+    );
+    assert_eq!(kept_reaches(&realm).await, (0, 0));
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn past_the_count_a_tool_wait_is_refused_unasked() {
+    // a hamlet whose limits allow 2 refusals. Its mayor's two
+    // commands on a chief's task are refused by the chief; a third on
+    // that task is refused at once with today's words, its wait kept
+    // closed; one on no task still waits.
+    let (realm, hamlet) = hamlet_with(0).await;
+    let limited = realm
+        .ask(&Asked {
+            id: RequestId::new(),
+            act: SetLimits {
+                hamlet: Some(hamlet),
+                budget: Vec::new(),
+                limits: vec![Limit::Refusals { most: 2 }],
+            },
+        })
+        .await
+        .unwrap();
+    let task = chief_task(&realm, MAYOR).await;
+    let mayors = |call: &str, task: Option<&RealmTask>| NeedsChief {
+        agent: MAYOR,
+        ..asked(call, Need::Command, task, "c")
+    };
+    for n in 1..=2 {
+        realm
+            .call_as_workspace(&mayors(&format!("c{n}"), Some(&task)))
+            .await
+            .unwrap();
+        realm
+            .ask(&answer(&n.to_string(), Choice::Deny, Some("no")))
+            .await
+            .unwrap();
+    }
+
+    realm
+        .call_as_workspace(&mayors("c3", Some(&task)))
+        .await
+        .unwrap();
+    realm.call_as_workspace(&mayors("c4", None)).await.unwrap();
+    until("the workspace has three answers", || {
+        chief_answers(&realm).len() == 3
+    })
+    .await;
+
+    assert_eq!(limited, Done::Done);
+    assert_eq!(
+        chief_answers(&realm)[2],
+        ChiefAnswer {
+            agent: MAYOR,
+            ..refused_unasked(
+                "c3",
+                "the chief has refused 2 requests this turn and \
+                 will not be asked again in it. Stop and report \
+                 what you could not do."
+            )
+        }
+    );
+    let refused = Some("refuse".to_owned());
+    assert_eq!(
+        waits_of(&realm, MAYOR).await,
+        [
+            (1, false, refused.clone()),
+            (2, false, refused),
+            (3, false, Some("unasked".to_owned())),
+            (4, true, None),
+        ]
+    );
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_lapse_closes_the_conversations_waits() {
+    // two waits in conversation c, one in d, and a failed turn in c.
+    // A lapse of c as stopped closes the three of c and tells the
+    // workspace of its two tool waits; the wait in d stays open until
+    // a lapse of all, as rewound.
+    let realm = Realm::start().await;
+    realm.live(HAND).await;
+    let task = standing(&realm, HAND);
+    for (call, conversation) in
+        [("c1", "c"), ("c2", "c"), ("c3", "d")]
+    {
+        realm
+            .call_as_workspace(&asked(
+                call,
+                Need::Command,
+                None,
+                conversation,
+            ))
+            .await
+            .unwrap();
+    }
+    realm
+        .tool(HAND, &failed(&task, Cause::Model))
+        .await
+        .unwrap();
+
+    realm
+        .tool(HAND, &lapse(Some("c"), LapseReason::Stopped))
+        .await
+        .unwrap();
+    until("the workspace has two answers", || {
+        chief_answers(&realm).len() == 2
+    })
+    .await;
+    let after_c = waits_of(&realm, HAND).await;
+    realm
+        .tool(HAND, &lapse(None, LapseReason::Rewound))
+        .await
+        .unwrap();
+    until("the workspace has three answers", || {
+        chief_answers(&realm).len() == 3
+    })
+    .await;
+
+    let closed = Some("lapsed".to_owned());
+    assert_eq!(
+        after_c,
+        [
+            (1, false, closed.clone()),
+            (2, false, closed.clone()),
+            (3, true, None),
+            (4, false, closed),
+        ]
+    );
+    assert_eq!(
+        chief_answers(&realm),
+        [
+            lapsed("c1", workspace::Lapse::Stopped),
+            lapsed("c2", workspace::Lapse::Stopped),
+            lapsed("c3", workspace::Lapse::Rewound),
+        ]
+    );
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_resumed_lapse_drops_the_conversations_trust() {
+    // the chief answers always to a command in conversation c: the
+    // Hand's reach trusts c with commands. A lapse of c as resumed
+    // pushes a reach without that trust and leaves a wait in c open.
+    let realm = Realm::start().await;
+    realm.live(HAND).await;
+    realm
+        .call_as_workspace(&asked("c1", Need::Command, None, "c"))
+        .await
+        .unwrap();
+    realm.ask(&answer("1", Choice::Always, None)).await.unwrap();
+    until("the workspace has the chief's answer", || {
+        !chief_answers(&realm).is_empty()
+    })
+    .await;
+    let trusted = footing(&realm, HAND).trust;
+    realm
+        .call_as_workspace(&asked("c2", Need::Command, None, "c"))
+        .await
+        .unwrap();
+
+    realm
+        .tool(HAND, &lapse(Some("c"), LapseReason::Resumed))
+        .await
+        .unwrap();
+    until("the Hand's reach trusts nothing", || {
+        footing(&realm, HAND).trust.is_empty()
+    })
+    .await;
+
+    assert_eq!(trusted.len(), 1);
+    assert!(trusted[0].commands && !trusted[0].edits, "{trusted:?}");
+    assert_eq!(
+        trusted[0].conversation,
+        ConversationId("c".to_owned())
+    );
+    assert_eq!(
+        waits_of(&realm, HAND).await,
+        [(1, false, Some("allow".to_owned())), (2, true, None)]
+    );
+    assert_eq!(chief_answers(&realm).len(), 1);
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn two_faults_open_two_waits() {
+    let realm = Realm::start().await;
+    realm.live(HAND).await;
+    let task = standing(&realm, HAND);
+    let fault = failed(&task, Cause::Model);
+
+    realm.tool(HAND, &fault).await.unwrap();
+    realm.tool(HAND, &fault).await.unwrap();
+
+    let open = ("fault".to_owned(), true);
+    assert_eq!(kinds_of(&realm).await, [open.clone(), open]);
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_reset_budget_closes_the_budget_faults() {
+    // a failed turn for the budget and one for the model, both on the
+    // Hand's task, which the realm pays. A reset of a hamlet's budget
+    // closes neither; a reset of the realm's closes the budget's wait
+    // and leaves the model's open.
+    let realm = Realm::start().await;
+    realm.live(HAND).await;
+    let hamlet = founded(&realm).await;
+    let task = standing(&realm, HAND);
+    realm
+        .tool(HAND, &failed(&task, Cause::Budget))
+        .await
+        .unwrap();
+    realm
+        .tool(HAND, &failed(&task, Cause::Model))
+        .await
+        .unwrap();
+
+    let reset = async |payer| {
+        realm
+            .ask(&Asked {
+                id: RequestId::new(),
+                act: ResetBudget { payer },
+            })
+            .await
+            .unwrap()
+    };
+
+    assert_eq!(reset(Payer::Hamlet { hamlet }).await, Done::Done);
+    assert_eq!(
+        waits_of(&realm, HAND).await,
+        [(1, true, None), (2, true, None)]
+    );
+    assert_eq!(reset(Payer::Realm).await, Done::Done);
+    assert_eq!(
+        waits_of(&realm, HAND).await,
+        [(1, false, Some("dismiss".to_owned())), (2, true, None)]
+    );
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_chiefs_text_with_an_allow_is_kept() {
+    let realm = Realm::start().await;
+    realm.live(HAND).await;
+    realm
+        .call_as_workspace(&asked("c1", Need::Command, None, "c"))
+        .await
+        .unwrap();
+
+    let allowed = realm
+        .ask(&answer("1", Choice::Allow, Some(" mind the cache ")))
+        .await
+        .unwrap();
+    until("the workspace has the chief's answer", || {
+        !chief_answers(&realm).is_empty()
+    })
+    .await;
+
+    assert_eq!(allowed, Done::Done);
+    assert_eq!(
+        chief_answers(&realm)[0].answer,
+        workspace::Answer::Allow
+    );
+    assert_eq!(
+        ruling_of(&realm, 1).await.as_deref(),
+        Some("mind the cache")
+    );
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_ruling_on_a_question_or_an_objection_is_a_notice() {
+    // two questions, two objections and a reserved act of the Hand's,
+    // in conversation c. A reply, a dismiss, a go with words, a
+    // withdraw and a deny each give the Hand a notice in c, in
+    // today's words; a reply with no words is refused.
+    let realm = Realm::start().await;
+    realm.live(HAND).await;
+    realm
+        .write(&format!(
+            "INSERT INTO wait (agent, kind, conversation, at) \
+             VALUES ({0}, 'question', 'c', 0), ({0}, 'question', \
+             'c', 0), ({0}, 'objection', 'c', 0), ({0}, \
+             'objection', 'c', 0), ({0}, 'reserved', 'c', 0)",
+            HAND.0
+        ))
+        .await;
+
+    let empty = realm
+        .ask(&answer("1", Choice::Reply, Some(" ")))
+        .await
+        .unwrap();
+    for (wait, choice, text) in [
+        ("1", Choice::Reply, Some("plant oats")),
+        ("2", Choice::Dismiss, None),
+        ("3", Choice::Go, Some("carry on")),
+        ("4", Choice::Withdraw, None),
+        ("5", Choice::Deny, None),
+    ] {
+        let ruled =
+            realm.ask(&answer(wait, choice, text)).await.unwrap();
+        assert_eq!(ruled, Done::Done);
+    }
+
+    assert_eq!(empty, not_offered());
+    let mut told = notices(&realm, HAND, 5)
+        .await
+        .into_iter()
+        .map(|(text, conversation)| {
+            assert_eq!(conversation.as_deref(), Some("c"));
+            text
+        })
+        .collect::<Vec<_>>();
+    told.sort();
+    assert_eq!(
+        told,
+        [
+            "The chief answers: plant oats",
+            "The chief did not answer; go on with what you know.",
+            "The chief rules: go on with the instruction. The chief \
+             says: carry on",
+            "The chief withdrew the instruction. Stop working on it.",
+            "the chief refused it: no reason given",
+        ]
+    );
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_request_the_chief_refused_is_refused_again_unasked() {
+    // on a chief's task the Hand is refused a command with no reason,
+    // and a network call. The same command again, and any network
+    // call, are refused at once with today's words; another command
+    // still waits.
+    let realm = Realm::start().await;
+    realm.live(HAND).await;
+    let task = chief_task(&realm, HAND).await;
+    let command = |call: &str, subject: &str| NeedsChief {
+        subject: subject.to_owned(),
+        ..asked(call, Need::Command, Some(&task), "c")
+    };
+    realm
+        .call_as_workspace(&command("c1", "make clean"))
+        .await
+        .unwrap();
+    realm.ask(&answer("1", Choice::Deny, None)).await.unwrap();
+    realm
+        .call_as_workspace(&asked(
+            "c2",
+            Need::Network,
+            Some(&task),
+            "c",
+        ))
+        .await
+        .unwrap();
+    realm
+        .ask(&answer("2", Choice::Deny, Some("stay offline")))
+        .await
+        .unwrap();
+
+    for asked in [
+        command("c3", "make clean"),
+        asked("c4", Need::Network, Some(&task), "c"),
+        command("c5", "make all"),
+    ] {
+        realm.call_as_workspace(&asked).await.unwrap();
+    }
+    until("the workspace has four answers", || {
+        chief_answers(&realm).len() == 4
+    })
+    .await;
+
+    assert_eq!(
+        chief_answers(&realm)[2..],
+        [
+            refused_unasked(
+                "c3",
+                "the chief already refused this in this turn (no \
+                 reason given). Do not ask again: go on without it, \
+                 or report that you could not."
+            ),
+            refused_unasked(
+                "c4",
+                "the chief already refused this in this turn (stay \
+                 offline). Do not ask again: go on without it, or \
+                 report that you could not."
+            ),
+        ]
+    );
+    let open = waits_of(&realm, HAND).await;
+    assert_eq!(open[4], (5, true, None));
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_refusal_that_reaches_the_count_closes_the_tasks_other_waits()
+ {
+    // four commands wait on a chief's task, and one on no task. The
+    // chief refuses three: the fourth of the task closes refused
+    // unasked and the workspace is told; the one on no task waits.
+    let realm = Realm::start().await;
+    realm.live(HAND).await;
+    let task = chief_task(&realm, HAND).await;
+    for n in 1..=4 {
+        realm
+            .call_as_workspace(&asked(
+                &format!("c{n}"),
+                Need::Command,
+                Some(&task),
+                "c",
+            ))
+            .await
+            .unwrap();
+    }
+    realm
+        .call_as_workspace(&asked("c5", Need::Command, None, "c"))
+        .await
+        .unwrap();
+
+    for wait in ["1", "2", "3"] {
+        realm.ask(&answer(wait, Choice::Deny, None)).await.unwrap();
+    }
+    until("the workspace has four answers", || {
+        chief_answers(&realm).len() == 4
+    })
+    .await;
+
+    assert!(
+        chief_answers(&realm)
+            .contains(&refused_unasked("c4", PAST_THE_COUNT)),
+        "{:?}",
+        chief_answers(&realm)
+    );
+    let waits = waits_of(&realm, HAND).await;
+    assert_eq!(
+        waits[3..],
+        [(4, false, Some("unasked".to_owned())), (5, true, None)]
     );
     realm.host.shutdown().await.unwrap();
 }
