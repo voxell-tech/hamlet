@@ -159,16 +159,30 @@ impl Cx<'_> {
         &self.realm.peers
     }
 
-    /// Commits `changes` before the step's call, and makes the pushes
-    /// they set off, waiting for each.
+    /// Commits `changes` before the step's call, and makes every push
+    /// they set off, waiting for each. A push that fails is logged,
+    /// and fails the step once the others are made.
     pub async fn commit(
         &self,
         changes: Vec<change::Change>,
     ) -> Result<()> {
+        let mut failed = 0;
         for made in
             change::commit(self.realm, self.ctx, changes).await?
         {
-            calls::push(self.realm, self.ctx, made).await?;
+            let shown = format!("{made:?}");
+            if let Err(error) =
+                calls::push(self.realm, self.ctx, made).await
+            {
+                tracing::warn!(
+                    push = shown,
+                    "a push failed: {error:#}"
+                );
+                failed += 1;
+            }
+        }
+        if failed > 0 {
+            bail!("{failed} of the commit's pushes failed");
         }
         Ok(())
     }

@@ -1,18 +1,13 @@
-use std::path::PathBuf;
-
-use hamlet_actor_core::ShutdownKind;
-use hamlet_messages::address::{self, Party as _};
-use hamlet_messages::agent::{Place, PlaceVersion};
+use hamlet_messages::agent::Place;
 use hamlet_messages::realm::{
-    Asked, Done, End, HamletId, Hire, HireAnswer, HireRefusal, Named,
+    Asked, Done, End, FoundAnswer, HamletId, Hire, HireAnswer,
+    HireRefusal, Named,
 };
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::AgentNumber;
 use hamlet_protocol::client::RequestId;
 
-use super::{
-    Callee, DEADLINE, MAYOR, Realm, error_code, founded, tool, until,
-};
+use super::{Callee, MAYOR, Realm, found, founded, tool, until};
 
 const THREE: AgentNumber = AgentNumber(3);
 
@@ -79,44 +74,21 @@ async fn places_reach(
     .await;
 }
 
-/// The files of `agent`'s actor, moved aside with the actor stopped,
-/// so that a call to it fails as a stand-in's failure would.
-struct Aside {
-    files: Vec<(PathBuf, PathBuf)>,
-}
-
-impl Aside {
-    async fn take(realm: &Realm, agent: AgentNumber) -> Self {
-        let at = address::Agent(agent).address().unwrap();
-        realm.host.stop(&at, ShutdownKind::Sleep).await.unwrap();
-        let name = format!("{}.sqlite", at.key());
-        let files = std::fs::read_dir(
-            realm.scratch.join("actors").join(at.kind()),
-        )
+/// Whether `agent` was sent a place with a road to `to`.
+fn sent_a_road(
+    realm: &Realm,
+    agent: AgentNumber,
+    to: AgentNumber,
+) -> bool {
+    realm
+        .seen
+        .places
+        .lock()
         .unwrap()
-        .map(|entry| entry.unwrap().path())
-        .filter(|path| {
-            path.file_name()
-                .and_then(|file| file.to_str())
-                .is_some_and(|file| file.starts_with(&name))
+        .iter()
+        .any(|(sent, place)| {
+            *sent == agent && place.roads.contains(&to)
         })
-        .map(|path| {
-            let mut aside = path.clone().into_os_string();
-            aside.push(".aside");
-            let aside = PathBuf::from(aside);
-            std::fs::rename(&path, &aside).unwrap();
-            (path, aside)
-        })
-        .collect::<Vec<_>>();
-        assert!(!files.is_empty(), "agent {} has a file", agent.0);
-        Self { files }
-    }
-
-    fn put_back(self) {
-        for (path, aside) in self.files {
-            std::fs::rename(aside, path).unwrap();
-        }
-    }
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -163,46 +135,74 @@ async fn a_place_follows_the_tree() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_place_the_agent_fails_to_take_is_not_sent_again() {
-    // the mayor's actor cannot be reached while hire 3 goes live: the
-    // realm still answers, and the mayor gets nothing. Reached again,
-    // the next change (hire 4, held at `Fill`) sends it one place,
-    // newer than the two it missed and holding 3.
+    // the mayor fails the place hire 3's `Hire` moved, with 3's fill
+    // held: the realm still answers. The mayor gets nothing more
+    // until 3 is live, and then the place of that change, holding 3.
     let realm = Realm::start().await;
     realm.live(Hand::NUMBER).await;
     let hamlet = founded(&realm).await;
     realm.live(MAYOR).await;
-    let aside = Aside::take(&realm, MAYOR).await;
-    let unreached = realm
-        .host
-        .call(
-            &address::Agent(MAYOR).address().unwrap(),
-            "place",
-            hamlet_actor::action::encode_positional(&Place {
-                version: PlaceVersion(0),
-                lead: None,
-                hires: Vec::new(),
-                roads: Vec::new(),
-                tools_off: Vec::new(),
-            })
-            .unwrap(),
-            DEADLINE,
-        )
-        .await;
+    until("the Hand has its road to the mayor", || {
+        sent_a_road(&realm, Hand::NUMBER, MAYOR)
+    })
+    .await;
+    realm.seen.hold(Callee::Fill);
+    realm.seen.fail_once.lock().unwrap().insert(Callee::Place);
 
     let hired_3 = chief_hires(&realm, &hamlet).await;
-    realm.live(THREE).await;
+    until("the mayor fails a place", || {
+        realm.seen.fail_once.lock().unwrap().is_empty()
+    })
+    .await;
     let missed = places_of(&realm, MAYOR);
-    aside.put_back();
-    realm.seen.hold(Callee::Fill);
-    let hired_4 = chief_hires(&realm, &hamlet).await;
-    places_reach(&realm, MAYOR, 2).await;
-    let sent = places_of(&realm, MAYOR);
     realm.seen.release(Callee::Fill);
+    realm.live(THREE).await;
+    places_reach(&realm, MAYOR, 2).await;
 
-    assert_eq!(error_code(unreached), "actor.not_found");
     assert_eq!(hired_3, hired(3));
     assert_eq!(missed, [(1, vec![])]);
-    assert_eq!(hired_4, hired(4));
-    assert_eq!(sent, [(1, vec![]), (4, vec![3])]);
+    assert_eq!(places_of(&realm, MAYOR), [(1, vec![]), (3, vec![3])]);
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_failed_place_at_a_step_leaves_the_others_sent() {
+    // Pond's mayor 3 goes live with the first place its step pushes,
+    // the Hand's, failing: mayor 2 is still sent its road to 3.
+    let realm = Realm::start().await;
+    realm.live(Hand::NUMBER).await;
+    founded(&realm).await;
+    realm.live(MAYOR).await;
+    until("the Hand has its road to the mayor", || {
+        sent_a_road(&realm, Hand::NUMBER, MAYOR)
+    })
+    .await;
+    let before = [Hand::NUMBER, MAYOR]
+        .map(|agent| places_of(&realm, agent).len());
+    realm.seen.hold(Callee::Fill);
+    let pond = realm
+        .ask(&Asked {
+            id: RequestId::new(),
+            act: found("Pond"),
+        })
+        .await
+        .unwrap();
+    places_reach(&realm, Hand::NUMBER, before[0] + 1).await;
+    places_reach(&realm, MAYOR, before[1] + 1).await;
+
+    realm.seen.fail_once.lock().unwrap().insert(Callee::Place);
+    realm.seen.release(Callee::Fill);
+    realm.live(THREE).await;
+    until("mayor 2 has its road to 3", || {
+        sent_a_road(&realm, MAYOR, THREE)
+    })
+    .await;
+
+    assert!(matches!(
+        pond,
+        FoundAnswer::Founded { mayor: THREE, .. }
+    ));
+    assert!(realm.seen.fail_once.lock().unwrap().is_empty());
+    assert!(!sent_a_road(&realm, Hand::NUMBER, THREE));
     realm.host.shutdown().await.unwrap();
 }

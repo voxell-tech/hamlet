@@ -76,6 +76,7 @@ enum Callee {
     Branch,
     Create,
     Fill,
+    Place,
     SetReach,
     Submit,
 }
@@ -213,6 +214,7 @@ impl Handler<Place> for AgentStandIn {
         _: Ctx<Self>,
         place: Place,
     ) -> anyhow::Result<()> {
+        self.seen.called(Callee::Place).await?;
         self.seen.places.lock().unwrap().push((self.agent, place));
         Ok(())
     }
