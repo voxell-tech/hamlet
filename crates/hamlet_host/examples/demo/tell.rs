@@ -1,5 +1,3 @@
-//! The program's `tell` through the stub realm, and its answer.
-
 use std::time::Duration;
 
 use hamlet_actor::Action;
