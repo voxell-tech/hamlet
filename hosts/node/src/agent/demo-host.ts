@@ -1,0 +1,194 @@
+/**
+ * The Node host of `demo --link` with `HAMLET_DEMO_AGENT=pi`: `node
+ * src/agent/demo-host.ts`, started by the demo's Rust host as its bound
+ * child. It serves one kind, `agent`, as the real agent actor on a faux
+ * model, until the Rust host's goodbye, and exits 0, or 1 when it could not.
+ *
+ * The model answers by the last message it is given. After a tool's result
+ * it ends the turn with that result's words, prefixed `Done: `. An input
+ * whose words start as a row of `LINES` says gets that tool call, and any
+ * other input the answer `Heard: <its words>`.
+ *
+ * | Input | Tool call |
+ * |---|---|
+ * | `run: <script>` | `bash` running the script |
+ * | `tell <n>: <text>` | `tell` to `hire#<n>` |
+ * | `wake <seconds>: <note>` | `wake` |
+ * | `write <path>: <content>` | `write` |
+ * | `edit <path>: <old> -> <new>` | `edit` |
+ * | `die in edit <path>: <old> -> <new>` | `edit`, inside which this process kills itself once the edit is marked begun, before the file is written |
+ *
+ * It keeps its pid in `PID_FILE` in the realm folder, which a demo command
+ * prints, so a kill test can tell this process from the next one.
+ */
+
+// Only Node's own modules and the native module are imported before the
+// take, as in `src/main.ts`.
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
+import type {
+    AssistantMessage,
+    FauxProviderHandle,
+    FauxResponseFactory,
+    Message,
+    Models,
+    ToolCall,
+} from "@earendil-works/pi-ai";
+import { takeLink } from "@hamlet/actor-node";
+import type { AgentFilesystem } from "./filesystem.ts";
+
+const NO_LINK =
+    "this process has no link to a Rust host. The demo's Rust host starts it itself, with nothing between them: set HAMLET_NODE to the Node executable itself.";
+
+/** The file in the realm folder that holds this process's pid. */
+const PID_FILE = "demo-node.pid";
+
+function fail(words: string): never {
+    console.error(`hamlet demo agent host: ${words}`);
+    process.exit(1);
+}
+
+try {
+    takeLink();
+} catch {
+    fail(NO_LINK);
+}
+
+const home = process.env.HAMLET_HOME;
+if (home === undefined) fail("HAMLET_HOME names no realm folder");
+writeFileSync(join(home, PID_FILE), `${process.pid}\n`);
+
+const [{ serveLink }, { agentActor }, { openAgentFilesystem }, ai] =
+    await Promise.all([
+        import("../actor/registry/link.ts"),
+        import("./actor.ts"),
+        import("./filesystem.ts"),
+        import("@earendil-works/pi-ai"),
+    ]);
+
+/** The paths of own edits that kill this process, which `die in edit` adds. */
+const dying = new Set<string>();
+
+/** One form of input that asks for a tool: the tool, and its arguments from the form's groups. */
+interface Line {
+    readonly form: RegExp;
+    readonly tool: string;
+    readonly args: (...groups: string[]) => ToolCall["arguments"];
+}
+
+const LINES: readonly Line[] = [
+    {
+        form: /^run: (.+)$/s,
+        tool: "bash",
+        args: (script) => ({ command: script }),
+    },
+    {
+        form: /^tell ([1-9][0-9]*): (.+)$/s,
+        tool: "tell",
+        args: (n, text) => ({ to: `hire#${n}`, text }),
+    },
+    {
+        form: /^wake ([0-9]+(?:\.[0-9]+)?): (.+)$/s,
+        tool: "wake",
+        args: (seconds, note) => ({ in_seconds: Number(seconds), note }),
+    },
+    {
+        form: /^write (\S+): (.*)$/s,
+        tool: "write",
+        args: (path, content) => ({ path, content }),
+    },
+    {
+        // An optional group that did not match is `undefined`.
+        form: /^(die in )?edit (\S+): (.+?) -> (.*)$/s,
+        tool: "edit",
+        args: (dies, path, oldText, newText) => {
+            if (dies !== undefined) dying.add(path);
+            return { path, edits: [{ oldText, newText }] };
+        },
+    },
+];
+
+/** The words of a message, its images left out. */
+function wordsOf(message: Message): string {
+    const content = message.content;
+    if (typeof content === "string") return content;
+    return content
+        .map((block) => (block.type === "text" ? block.text : ""))
+        .join("");
+}
+
+/** The model's answer to the transcript whose last message is `last`. */
+const answer: FauxResponseFactory = (context): AssistantMessage => {
+    const last = context.messages.at(-1);
+    if (last === undefined) return ai.fauxAssistantMessage("Heard nothing.");
+    const words = wordsOf(last);
+    if (last.role !== "user") return ai.fauxAssistantMessage(`Done: ${words}`);
+    for (const line of LINES) {
+        const found = line.form.exec(words);
+        if (found === null) continue;
+        return ai.fauxAssistantMessage(
+            ai.fauxToolCall(line.tool, line.args(...found.slice(1))),
+            { stopReason: "toolUse" },
+        );
+    }
+    return ai.fauxAssistantMessage(`Heard: ${words}`);
+};
+
+/**
+ * `models` with `answer` queued before each request. The faux provider takes
+ * a step off its queue when a request starts and runs it later, so a step
+ * that queued the next one itself would leave none after a request that
+ * never ran it.
+ */
+function answering(models: Models, faux: FauxProviderHandle): Models {
+    const queued = new Set<PropertyKey>([
+        "stream",
+        "streamSimple",
+        "complete",
+        "completeSimple",
+    ]);
+    return new Proxy(models, {
+        get(target, key, receiver) {
+            const value: unknown = Reflect.get(target, key, receiver);
+            if (typeof value !== "function") return value;
+            if (!queued.has(key)) return value.bind(target);
+            return (...args: unknown[]) => {
+                if (faux.getPendingResponseCount() === 0) {
+                    faux.appendResponses([answer]);
+                }
+                return value.apply(target, args);
+            };
+        },
+    });
+}
+
+/** `files` whose `edit` kills this process for a path `die in edit` named. */
+function dyingIn(files: AgentFilesystem): AgentFilesystem {
+    return {
+        ...files,
+        edit: (path, edits, context) => {
+            if (!dying.delete(path)) return files.edit(path, edits, context);
+            process.kill(process.pid, "SIGKILL");
+            // The signal may land after `kill` returns: nothing is written before it.
+            return new Promise(() => {});
+        },
+    };
+}
+
+const faux = ai.fauxProvider();
+const models = ai.createModels();
+models.setProvider(faux.provider);
+const { provider, id } = faux.getModel();
+
+const agent = agentActor({
+    models: answering(models, faux),
+    model: `${provider}/${id}`,
+    files: (n) => dyingIn(openAgentFilesystem(home, n)),
+});
+
+try {
+    await serveLink({ agent });
+} catch (error) {
+    fail(error instanceof Error ? error.message : String(error));
+}
+process.exit(0);
