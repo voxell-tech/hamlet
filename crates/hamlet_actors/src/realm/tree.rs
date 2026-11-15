@@ -630,6 +630,21 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
+    async fn a_hire_is_made_of_the_profile_named_else_a_blank_one() {
+        let started = Started::new().await;
+        let rows = started.rows();
+        let of = async |named| made_of(&rows, named).await.unwrap();
+
+        assert_eq!(of(None).await, Ok(Of::Blank(ProfileId(2))));
+        assert_eq!(
+            of(Some(HAND_PROFILE)).await,
+            Ok(Of::Profile(HAND_PROFILE))
+        );
+        assert_eq!(of(Some(ProfileId(9))).await, Err(ProfileId(9)));
+        started.stop().await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
     async fn a_hire_goes_live_and_keeps_its_first_purpose() {
         let started = Started::new().await;
         let hamlet = HamletId("h".to_owned());
