@@ -1,23 +1,16 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { join } from "node:path";
 import { test } from "node:test";
 import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { CoreRegistry } from "@hamlet/actor-node";
+import { example } from "../link/support.ts";
 
 /** The Node host's folder, where `@hamlet/actor-node` resolves. */
 const HOST = fileURLToPath(new URL("../..", import.meta.url));
 
-const ROOT = fileURLToPath(new URL("../../../..", import.meta.url));
-
-const BOUND = join(
-    process.env.CARGO_TARGET_DIR ?? join(ROOT, "target"),
-    "debug",
-    "examples",
-    process.platform === "win32" ? "bound.exe" : "bound",
-);
+const BOUND = example("bound");
 
 const CHILD = `
 require("@hamlet/actor-node").takeLink();
