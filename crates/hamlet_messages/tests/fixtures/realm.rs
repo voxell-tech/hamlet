@@ -316,6 +316,10 @@ fn the_founding_and_the_hires(fixtures: &mut Fixtures) {
             ("no_such_hamlet", HireRefusal::NoSuchHamlet),
             ("no_such_agent", HireRefusal::NoSuchAgent),
             (
+                "other_hamlet",
+                HireRefusal::OtherHamlet { lead: MAYOR },
+            ),
+            (
                 "lead_left",
                 HireRefusal::LeadLeft {
                     lead: HIRE,
@@ -347,7 +351,13 @@ fn the_founding_and_the_hires(fixtures: &mut Fixtures) {
         fixtures,
         "realm/hire",
         [("hired", HireAnswer::Hired { agent: HIRE })],
-        by_a_lead(SocietyTool::Hire, hire_refusals()),
+        by_a_lead(
+            SocietyTool::Hire,
+            hire_refusals()
+                .into_iter()
+                .chain([("no_purpose", HireRefusal::NoPurpose)])
+                .collect(),
+        ),
     );
     fixtures.args(
         "realm/chief_end",

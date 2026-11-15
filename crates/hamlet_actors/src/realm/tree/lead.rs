@@ -112,15 +112,27 @@ impl<By: Lead> Act<By> for Hire {
             });
         };
         let lead = under.agent.agent;
-        let Some(hamlet) = under.hamlet.as_ref().filter(|hamlet| {
-            named.as_ref().is_none_or(|named| *named == hamlet.id)
-        }) else {
+        let Some(hamlet) = under.hamlet.as_ref() else {
             return refuse(HireRefusal::NoSuchAgent);
         };
         if by.by() != record::By::Agent(lead)
             && let Err(not_a_lead) = by.leads(&under, lead)
         {
             return Decision::Answer(HireAnswer::refused(not_a_lead));
+        }
+        let purpose = self
+            .purpose
+            .as_deref()
+            .map(str::trim)
+            .filter(|purpose| !purpose.is_empty())
+            .map(str::to_owned);
+        if purpose.is_none()
+            && caller(by).is_some_and(|agent| agent != Hand::NUMBER)
+        {
+            return refuse(HireRefusal::NoPurpose);
+        }
+        if named.as_ref().is_some_and(|named| *named != hamlet.id) {
+            return refuse(HireRefusal::OtherHamlet { lead });
         }
         if let Status::Ended(left) = &under.agent.status {
             return refuse(HireRefusal::LeadLeft {
@@ -150,7 +162,7 @@ impl<By: Lead> Act<By> for Hire {
                     hamlet: hamlet.id.clone(),
                     lead: Some(lead),
                     of,
-                    purpose: self.purpose.clone(),
+                    purpose: purpose.clone(),
                 })
                 .change(tasks::Change::Standing {
                     agent,
@@ -162,7 +174,7 @@ impl<By: Lead> Act<By> for Hire {
                 .record(record::Entry::Hired {
                     hire: agent,
                     by: by.by(),
-                    why: self.purpose.clone(),
+                    why: purpose,
                 }),
         )
     }
@@ -509,39 +521,25 @@ mod tests {
     #[test]
     fn a_hire_refuses_a_lead_elsewhere_a_full_hamlet_and_a_missing_profile()
      {
-        let hire = Hire {
-            hamlet: None,
-            under: None,
-            profile: None,
-            purpose: None,
-        };
+        let hire = hire_for(None);
         let decide = |hiring| hire.decide(&Client, hiring);
         let refused =
             |why| Decision::Answer(HireAnswer::refused(why));
-        let under_5 = || Hiring {
-            hamlet: Joining::Unnamed,
-            under: Some(lineage_of_5()),
-            living: 3,
-            of: Ok(Of::Blank(ProfileId(6))),
-            agent: AgentNumber(6),
-        };
-        let elsewhere = Hiring {
-            hamlet: Joining::Hamlet(HamletId("k".to_owned())),
-            ..under_5()
-        };
         let full = Hiring {
             living: 50,
-            ..under_5()
+            ..under_5("h")
         };
         let missing = Hiring {
             of: Err(ProfileId(9)),
-            ..under_5()
+            ..under_5("h")
         };
 
-        assert!(matches!(decide(under_5()), Decision::Change(_)));
+        assert!(matches!(decide(under_5("h")), Decision::Change(_)));
         assert_eq!(
-            decide(elsewhere),
-            refused(HireRefusal::NoSuchAgent)
+            decide(under_5("k")),
+            refused(HireRefusal::OtherHamlet {
+                lead: AgentNumber(5)
+            })
         );
         assert_eq!(
             decide(full),
@@ -554,6 +552,119 @@ mod tests {
             decide(missing),
             refused(HireRefusal::NoSuchProfile {
                 profile: ProfileId(9)
+            })
+        );
+    }
+
+    fn under_5(hamlet: &str) -> Hiring {
+        Hiring {
+            hamlet: Joining::Hamlet(HamletId(hamlet.to_owned())),
+            under: Some(lineage_of_5()),
+            living: 3,
+            of: Ok(Of::Blank(ProfileId(6))),
+            agent: AgentNumber(6),
+        }
+    }
+
+    fn hire_for(purpose: Option<&str>) -> Hire {
+        Hire {
+            hamlet: None,
+            under: None,
+            profile: None,
+            purpose: purpose.map(str::to_owned),
+        }
+    }
+
+    #[test]
+    fn an_agents_hire_says_what_it_is_for() {
+        let by_3 =
+            |purpose| hire_for(purpose).decide(&by(3), under_5("h"));
+        let no_purpose = Decision::Answer(HireAnswer::Refused {
+            why: LeadRefusal::Act(HireRefusal::NoPurpose),
+        });
+
+        for purpose in [None, Some(""), Some(" \n ")] {
+            assert_eq!(by_3(purpose), no_purpose, "{purpose:?}");
+        }
+        assert!(matches!(by_3(Some("dig")), Decision::Change(_)));
+        let by_the_hand = hire_for(None).decide(&by(1), under_5("h"));
+        assert!(matches!(by_the_hand, Decision::Change(_)));
+        let by_the_chief =
+            hire_for(None).decide(&Client, under_5("h"));
+        assert!(matches!(by_the_chief, Decision::Change(_)));
+    }
+
+    #[test]
+    fn a_blank_purpose_is_kept_as_none_and_a_purpose_trimmed() {
+        let kept = |purpose| {
+            let Decision::Change(decided) =
+                hire_for(purpose).decide(&Client, under_5("h"))
+            else {
+                panic!("the chief hires under 5");
+            };
+            decided.changes.into_iter().find_map(
+                |change| match change {
+                    change::Change::Tree(Change::Hire {
+                        purpose,
+                        ..
+                    }) => Some(purpose),
+                    _ => None,
+                },
+            )
+        };
+
+        assert_eq!(kept(Some("  ")), Some(None));
+        assert_eq!(
+            kept(Some(" dig \n")),
+            Some(Some("dig".to_owned()))
+        );
+    }
+
+    #[test]
+    fn a_hire_under_the_hand_names_no_agent() {
+        let under_the_hand = || Hiring {
+            under: Some(hand()),
+            ..under_5("h")
+        };
+        let hire = hire_for(Some("dig"));
+
+        assert_eq!(
+            hire.decide(&Client, under_the_hand()),
+            Decision::Answer(HireAnswer::refused(
+                HireRefusal::NoSuchAgent
+            ))
+        );
+        for agent in [1, 3] {
+            assert_eq!(
+                hire.decide(&by(agent), under_the_hand()),
+                Decision::Answer(HireAnswer::Refused {
+                    why: LeadRefusal::Act(HireRefusal::NoSuchAgent)
+                }),
+                "by {agent}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_agent_not_leading_a_lead_elsewhere_hears_its_rank_first() {
+        let hire = hire_for(Some("dig"));
+        let decide = |agent| hire.decide(&by(agent), under_5("k"));
+        let other = HireRefusal::OtherHamlet {
+            lead: AgentNumber(5),
+        };
+
+        assert_eq!(
+            decide(4),
+            Decision::Answer(HireAnswer::Refused {
+                why: LeadRefusal::Rank(Rank::NotALead {
+                    hire: AgentNumber(5)
+                })
+            })
+        );
+        assert_eq!(
+            decide(1),
+            Decision::Answer(HireAnswer::Refused {
+                why: LeadRefusal::Act(other)
             })
         );
     }
