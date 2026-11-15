@@ -25,10 +25,6 @@ use super::{chiefs, secrets, settings, tree};
 /// Each raises the reach of its agent and of the agent's living
 /// workers, when it changes a row.
 #[derive(Debug, PartialEq)]
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "U2 commits a grant and a trust")
-)]
 pub(super) enum Change {
     /// `agent` may use `permission` until a chief revokes it.
     Grant {

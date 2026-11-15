@@ -1,34 +1,52 @@
-//! The waits for a chief: the `wait` table, `NeedsChief` and the
-//! chief's `Answer` (H11, H34).
+//! The waits for a chief: the `wait` table, `NeedsChief`,
+//! `TurnFailed`, `Lapse` and the chief's `Answer` (H10, H11, H34).
 
 use std::sync::Arc;
 
 use anyhow::{Context as _, Result, bail};
 use hamlet_actor::{BindParam, Ctx};
 use hamlet_messages::address::{Agent, Workspace};
+use hamlet_messages::agent::{Input, InputId, Submit};
 use hamlet_messages::realm::budget::Payer;
 use hamlet_messages::realm::client::{Answer, AnswerRefusal};
-use hamlet_messages::realm::models::TurnFailed;
-use hamlet_messages::realm::oversight::Lapse;
+use hamlet_messages::realm::models::{Cause, TurnFailed};
+use hamlet_messages::realm::oversight::{
+    Lapse, LapseReason, Permission,
+};
 use hamlet_messages::realm::world::WaitId;
 use hamlet_messages::realm::{Done, NeedsChief};
 use hamlet_messages::sender::Client;
+use hamlet_messages::workspace::reach::Need;
 use hamlet_messages::workspace::{
-    self, AgentNumber, CallId, ChiefAnswer,
+    self, AgentNumber, CallId, ChiefAnswer, ConversationId,
 };
 use hamlet_protocol::client as protocol;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
-use super::act::{Act, Decided, Decision, Unbuilt};
+use super::act::{Act, Decided, Decision};
 use super::calls::{Calls, Delivery, Made};
 use super::change::{self, Affected, Rows, Writer, number};
 use super::peer::When;
+use super::tasks::TaskId;
 use super::world::Part;
-use super::{Realm, tree};
+use super::{Realm, oversight, tree};
 
 fn named(wait: &str) -> Option<WaitId> {
     let n = wait.trim_start_matches('#').parse::<i64>().ok()?;
     u64::try_from(n).ok().map(WaitId)
+}
+
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize,
+)]
+#[serde(rename_all = "snake_case")]
+pub(super) enum Kind {
+    Tool,
+    Question,
+    Objection,
+    Reserved,
+    Send,
+    Fault,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -41,18 +59,77 @@ pub(super) enum Scope {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum Choice {
     Allow(Scope),
-    Refuse { reason: Option<String> },
+    Refuse,
+    Reply,
+    Dismiss,
+    Go,
+    Withdraw,
+    Lapsed(workspace::Lapse),
+}
+
+impl Choice {
+    /// The `choice`, `scope` and `reason` columns.
+    fn columns(&self) -> Result<[BindParam; 3]> {
+        let (choice, scope, reason) = match self {
+            Self::Allow(scope) => {
+                ("allow", Some(change::case_name(scope)?), None)
+            }
+            Self::Refuse => ("refuse", None, None),
+            Self::Reply => ("reply", None, None),
+            Self::Dismiss => ("dismiss", None, None),
+            Self::Go => ("go", None, None),
+            Self::Withdraw => ("withdraw", None, None),
+            Self::Lapsed(lapse) => {
+                ("lapsed", None, Some(change::case_name(lapse)?))
+            }
+        };
+        Ok([
+            BindParam::Text(choice.to_owned()),
+            text(scope),
+            text(reason),
+        ])
+    }
+}
+
+fn text(text: Option<String>) -> BindParam {
+    text.map_or(BindParam::Null, BindParam::Text)
+}
+
+/// A wait of a kind other than a tool's.
+#[derive(Debug, PartialEq)]
+pub(super) struct Raised {
+    pub agent: AgentNumber,
+    pub kind: Kind,
+    pub task: Option<TaskId>,
+    pub conversation: Option<ConversationId>,
+    /// The words a chief reads.
+    pub subject: String,
+    /// The kind's own detail, as CBOR.
+    pub detail: Vec<u8>,
 }
 
 #[derive(Debug, PartialEq)]
 pub(super) enum Change {
-    /// A wait opens, once per (agent, call).
+    /// A tool wait opens, once per (agent, call).
     Open {
         asked: NeedsChief,
     },
+    /// A tool wait past its agent's count is kept as `wait`, closed
+    /// at once.
+    Unasked {
+        wait: WaitId,
+        asked: NeedsChief,
+        words: String,
+    },
+    Raise {
+        wait: WaitId,
+        raised: Raised,
+    },
+    /// `text` is the chief's.
     Close {
         wait: WaitId,
         choice: Choice,
+        text: Option<String>,
     },
     /// Every open wait of an agent that ended closes, as lapsed.
     Lapse {
@@ -66,9 +143,15 @@ pub(super) async fn apply(
     change: Change,
 ) -> Result<Affected> {
     let changed = match change {
-        Change::Open { asked } => open(writer, asked).await?,
-        Change::Close { wait, choice } => {
-            close(writer, wait, choice).await?
+        Change::Open { asked } => open(writer, None, asked).await?,
+        Change::Unasked { wait, asked, words } => {
+            open(writer, Some((wait, words)), asked).await?
+        }
+        Change::Raise { wait, raised } => {
+            raise(writer, wait, raised).await?
+        }
+        Change::Close { wait, choice, text } => {
+            close(writer, wait, &choice, text).await?
         }
         Change::Lapse { agent } => lapse(writer, agent).await?,
     };
@@ -79,46 +162,100 @@ pub(super) async fn apply(
     })
 }
 
-async fn open(writer: &Writer<'_>, asked: NeedsChief) -> Result<u64> {
+/// A tool wait: open, or kept as `unasked`'s wait, closed with its
+/// words.
+async fn open(
+    writer: &Writer<'_>,
+    unasked: Option<(WaitId, String)>,
+    asked: NeedsChief,
+) -> Result<u64> {
+    let at = BindParam::Integer(writer.at().0);
+    let (wait, choice, reason, closed_at) = match unasked {
+        Some((wait, words)) => (
+            change::integer(wait.0)?,
+            BindParam::Text("unasked".to_owned()),
+            BindParam::Text(words),
+            at.clone(),
+        ),
+        None => (
+            BindParam::Null,
+            BindParam::Null,
+            BindParam::Null,
+            BindParam::Null,
+        ),
+    };
     writer
         .execute(
-            "INSERT INTO wait (agent, call, subject, needs, \
-             reach_version, at) VALUES (?1, ?2, ?3, ?4, ?5, ?6) ON \
-             CONFLICT (agent, call) DO NOTHING",
+            "INSERT INTO wait (id, agent, kind, task, conversation, \
+             call, subject, needs, reach_version, choice, reason, \
+             closed_at, at) VALUES (?1, ?2, 'tool', ?3, ?4, ?5, ?6, \
+             ?7, ?8, ?9, ?10, ?11, ?12) ON CONFLICT (agent, call) \
+             DO NOTHING",
             vec![
+                wait,
                 number(asked.agent),
+                task_column(
+                    asked.realm_task.as_ref().and_then(TaskId::of),
+                )?,
+                BindParam::Text(asked.conversation.0),
                 BindParam::Text(asked.call.0),
                 BindParam::Text(asked.subject),
                 BindParam::Text(serde_json::to_string(&asked.needs)?),
                 change::integer(asked.reach_version.0)?,
+                choice,
+                reason,
+                closed_at,
+                at,
+            ],
+        )
+        .await
+}
+
+async fn raise(
+    writer: &Writer<'_>,
+    wait: WaitId,
+    raised: Raised,
+) -> Result<u64> {
+    writer
+        .execute(
+            "INSERT INTO wait (id, agent, kind, task, conversation, \
+             subject, detail, at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, \
+             ?7, ?8)",
+            vec![
+                change::integer(wait.0)?,
+                number(raised.agent),
+                BindParam::Text(change::case_name(&raised.kind)?),
+                task_column(raised.task)?,
+                text(raised.conversation.map(|c| c.0)),
+                BindParam::Text(raised.subject),
+                BindParam::Blob(raised.detail),
                 BindParam::Integer(writer.at().0),
             ],
         )
         .await
 }
 
+fn task_column(task: Option<TaskId>) -> Result<BindParam> {
+    task.map_or(Ok(BindParam::Null), TaskId::column)
+}
+
 async fn close(
     writer: &Writer<'_>,
     wait: WaitId,
-    choice: Choice,
+    choice: &Choice,
+    ruling: Option<String>,
 ) -> Result<u64> {
-    let (choice, scope, reason) = match choice {
-        Choice::Allow(scope) => ("allow", Some(scope), None),
-        Choice::Refuse { reason } => ("refuse", None, reason),
-    };
+    let [choice, scope, reason] = choice.columns()?;
     writer
         .execute(
             "UPDATE wait SET choice = ?1, scope = ?2, reason = ?3, \
-             closed_at = ?4 WHERE id = ?5 AND closed_at IS NULL",
+             ruling = ?4, closed_at = ?5 WHERE id = ?6 AND \
+             closed_at IS NULL",
             vec![
-                BindParam::Text(choice.to_owned()),
-                match scope {
-                    Some(scope) => {
-                        BindParam::Text(change::case_name(&scope)?)
-                    }
-                    None => BindParam::Null,
-                },
-                reason.map_or(BindParam::Null, BindParam::Text),
+                choice,
+                scope,
+                reason,
+                text(ruling),
                 BindParam::Integer(writer.at().0),
                 change::integer(wait.0)?,
             ],
@@ -139,25 +276,77 @@ async fn lapse(
         .await
 }
 
-/// Calls the workspace with the chief's answer to `wait`, from its
-/// row: allow or refuse.
+/// The id the next wait opened in this transaction takes.
+pub(super) async fn next(rows: &Rows<'_>) -> Result<WaitId> {
+    Ok(WaitId(rows.next_id("wait").await?))
+}
+
+/// Whom a closed wait is told to.
+#[derive(Debug, Default, Serialize, Deserialize)]
+pub(super) struct Told {
+    /// The tool waits whose answer goes to the workspace.
+    workspace: Vec<WaitId>,
+    /// The wait whose notice goes to its agent.
+    notice: Option<WaitId>,
+    /// The task whose held letters go on.
+    held: Option<TaskId>,
+}
+
+impl Told {
+    fn workspace(wait: WaitId) -> Self {
+        Self {
+            workspace: vec![wait],
+            ..Self::default()
+        }
+    }
+
+    fn calls(&self) -> Calls {
+        let answers =
+            self.workspace.iter().copied().map(Delivery::ChiefAnswer);
+        let notice = self.notice.map(Delivery::Notice);
+        let held = self.held.map(Delivery::Held);
+        Calls {
+            before_answer: Vec::new(),
+            after_answer: answers.chain(notice).chain(held).collect(),
+        }
+    }
+}
+
+/// Calls the workspace with the answer to the tool wait `wait`, from
+/// its row: allow, refuse or lapsed.
 pub(super) async fn deliver(
     realm: &Arc<Realm>,
     ctx: &Ctx<Realm>,
     wait: WaitId,
 ) -> Result<()> {
-    let (agent, call, choice, reason) = Rows::outside(ctx)?
-        .row::<(u32, String, Option<String>, Option<String>)>(
-            "SELECT agent, call, choice, reason FROM wait WHERE id \
-             = ?1",
+    let (agent, call, choice, ruling, reason) = Rows::outside(ctx)?
+        .row::<(
+            u32,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+        )>(
+            "SELECT agent, call, choice, ruling, reason FROM wait \
+             WHERE id = ?1",
             vec![change::integer(wait.0)?],
         )
         .await?
         .with_context(|| format!("wait {} has no row", wait.0))?;
-    let answer = match choice.as_deref() {
-        Some("allow") => workspace::Answer::Allow,
-        Some("refuse") => workspace::Answer::Refuse { reason },
-        other => bail!(
+    let call =
+        call.with_context(|| format!("wait {} has no call", wait.0))?;
+    let answer = match (choice.as_deref(), reason) {
+        (Some("allow"), _) => workspace::Answer::Allow,
+        (Some("refuse"), _) => {
+            workspace::Answer::Refuse { reason: ruling }
+        }
+        (Some("unasked"), reason) => {
+            workspace::Answer::Refuse { reason }
+        }
+        (Some("lapsed"), Some(lapse)) => workspace::Answer::Lapsed {
+            lapse: change::from_case_name(lapse)?,
+        },
+        (other, _) => bail!(
             "wait {} holds no chief's answer: {other:?}",
             wait.0
         ),
@@ -177,45 +366,190 @@ pub(super) async fn deliver(
     Ok(())
 }
 
-/// Delivers the notice that closed `wait` to its agent.
+/// Delivers the notice that closed `wait` to its agent, under the
+/// wait's task.
 pub(super) async fn notice(
-    _realm: &Arc<Realm>,
-    _ctx: &Ctx<Realm>,
+    realm: &Arc<Realm>,
+    ctx: &Ctx<Realm>,
     wait: WaitId,
 ) -> Result<()> {
-    bail!(
-        "not built yet: U2, so {:?} is not made",
-        Delivery::Notice(wait)
-    )
+    let (agent, kind, choice, ruling, task, conversation) =
+        Rows::outside(ctx)?
+            .row::<(
+                u32,
+                String,
+                Option<String>,
+                Option<String>,
+                Option<TaskId>,
+                Option<String>,
+            )>(
+                "SELECT agent, kind, choice, ruling, task, \
+                 conversation FROM wait WHERE id = ?1",
+                vec![change::integer(wait.0)?],
+            )
+            .await?
+            .with_context(|| format!("wait {} has no row", wait.0))?;
+    let says = ruling.as_ref().map_or_else(String::new, |ruling| {
+        format!(" The chief says: {ruling}")
+    });
+    let text = match (
+        change::from_case_name::<Kind>(kind)?,
+        choice.as_deref(),
+    ) {
+        (Kind::Question, Some("reply")) => format!(
+            "The chief answers: {}",
+            ruling.unwrap_or_default()
+        ),
+        (Kind::Question, Some("dismiss")) => {
+            "The chief did not answer; go on with what you know."
+                .to_owned()
+        }
+        (Kind::Objection, Some("go")) => {
+            format!(
+                "The chief rules: go on with the instruction.{says}"
+            )
+        }
+        (Kind::Objection, Some("withdraw")) => format!(
+            "The chief withdrew the instruction. Stop working on \
+             it.{says}"
+        ),
+        (Kind::Reserved | Kind::Send, Some("refuse")) => format!(
+            "the chief refused it: {}",
+            ruling.as_deref().unwrap_or("no reason given")
+        ),
+        (kind, choice) => bail!(
+            "wait {} of kind {kind:?} closed {choice:?} has no \
+             notice",
+            wait.0
+        ),
+    };
+    realm
+        .peers
+        .call(
+            &Agent(AgentNumber(agent)),
+            &Submit {
+                id: InputId(format!("wait/{}", wait.0)),
+                task: task.map(TaskId::on_the_wire),
+                input: Input::Notice {
+                    text,
+                    conversation: conversation.map(ConversationId),
+                },
+            },
+            When::AfterAnswer,
+        )
+        .await
 }
 
 /// The changes that close `payer`'s open budget faults when a chief
 /// resets its budget.
 pub(super) async fn budget_faults(
-    _rows: &Rows<'_>,
-    _payer: &Payer,
+    rows: &Rows<'_>,
+    payer: &Payer,
 ) -> Result<Vec<change::Change>> {
-    Ok(Vec::new())
+    let faults = rows
+        .rows::<(u64, Vec<u8>)>(
+            "SELECT wait.id, wait.detail FROM wait JOIN task ON \
+             task.id = wait.task WHERE wait.kind = 'fault' AND \
+             wait.closed_at IS NULL AND task.payer = ?1 ORDER BY \
+             wait.id",
+            vec![BindParam::Text(serde_json::to_string(payer)?)],
+        )
+        .await?;
+    let mut closes = Vec::new();
+    for (wait, detail) in faults {
+        if ciborium::from_reader::<Cause, _>(detail.as_slice())?
+            == Cause::Budget
+        {
+            closes.push(
+                Change::Close {
+                    wait: WaitId(wait),
+                    choice: Choice::Dismiss,
+                    text: None,
+                }
+                .into(),
+            );
+        }
+    }
+    Ok(closes)
+}
+
+/// The most refusals a chief gives `agent` on one task before the
+/// realm refuses unasked.
+async fn most_refusals(
+    rows: &Rows<'_>,
+    agent: AgentNumber,
+) -> Result<u32> {
+    let hamlet = tree::lineage(rows, agent)
+        .await?
+        .and_then(|lineage| lineage.hamlet);
+    Ok(hamlet
+        .map(|hamlet| hamlet.limits)
+        .unwrap_or_default()
+        .asking
+        .refusals)
 }
 
 pub(super) enum Asker {
     Ended,
-    NotEnded,
+    /// Its call already has a wait.
+    Known,
+    Asks,
+    PastTheCount {
+        wait: WaitId,
+        words: String,
+    },
 }
 
 impl Act<Workspace> for NeedsChief {
     type Output = ();
     type Loaded = Asker;
-    type Done = ();
+    type Done = Told;
 
     async fn load(
         &self,
         _by: &Workspace,
         rows: &Rows<'_>,
     ) -> Result<Asker> {
-        Ok(match tree::left(rows, self.agent).await? {
-            Some(_) => Asker::Ended,
-            None => Asker::NotEnded,
+        if tree::left(rows, self.agent).await?.is_some() {
+            return Ok(Asker::Ended);
+        }
+        let known = rows
+            .value::<bool>(
+                "SELECT EXISTS (SELECT 1 FROM wait WHERE agent = ?1 \
+                 AND call = ?2)",
+                vec![
+                    number(self.agent),
+                    BindParam::Text(self.call.0.clone()),
+                ],
+            )
+            .await?
+            .unwrap_or(false);
+        if known {
+            return Ok(Asker::Known);
+        }
+        let Some(task) =
+            self.realm_task.as_ref().and_then(TaskId::of)
+        else {
+            return Ok(Asker::Asks);
+        };
+        let refused = rows
+            .value::<u32>(
+                "SELECT count(*) FROM wait WHERE agent = ?1 AND \
+                 task = ?2 AND kind = 'tool' AND choice = 'refuse'",
+                vec![number(self.agent), task.column()?],
+            )
+            .await?
+            .unwrap_or(0);
+        if refused < most_refusals(rows, self.agent).await? {
+            return Ok(Asker::Asks);
+        }
+        Ok(Asker::PastTheCount {
+            wait: next(rows).await?,
+            words: format!(
+                "the chief has refused {refused} requests this turn \
+                 and will not be asked again in it. Stop and report \
+                 what you could not do."
+            ),
         })
     }
 
@@ -223,132 +557,339 @@ impl Act<Workspace> for NeedsChief {
         &self,
         _by: &Workspace,
         asker: Asker,
-    ) -> Decision<(), ()> {
-        if let Asker::Ended = asker {
-            return Decision::Answer(());
+    ) -> Decision<Told, ()> {
+        match asker {
+            Asker::Ended | Asker::Known => Decision::Answer(()),
+            Asker::Asks => Decision::Change(
+                Decided::new(Told::default()).change(Change::Open {
+                    asked: self.clone(),
+                }),
+            ),
+            Asker::PastTheCount { wait, words } => Decision::Change(
+                Decided::new(Told::workspace(wait)).change(
+                    Change::Unasked {
+                        wait,
+                        asked: self.clone(),
+                        words,
+                    },
+                ),
+            ),
         }
-        Decision::Change(Decided::new(()).change(Change::Open {
-            asked: self.clone(),
-        }))
     }
 
-    fn answer(&self, (): (), _made: &Made) {}
+    fn deliveries(&self, _by: &Workspace, told: &Told) -> Calls {
+        told.calls()
+    }
+
+    fn answer(&self, _told: Told, _made: &Made) {}
+}
+
+/// The open wait a chief answers.
+pub(super) struct Waiting {
+    wait: WaitId,
+    agent: AgentNumber,
+    kind: Kind,
+    task: Option<TaskId>,
+    conversation: Option<ConversationId>,
+    needs: Vec<Need>,
+}
+
+impl Waiting {
+    /// `choice` as this wait takes it, `None` where it is not
+    /// offered.
+    fn takes(
+        &self,
+        choice: &protocol::Choice,
+        text: Option<&str>,
+    ) -> Option<Choice> {
+        use protocol::Choice as Chief;
+        Some(match (self.kind, choice) {
+            (
+                Kind::Tool | Kind::Reserved | Kind::Send,
+                Chief::Allow,
+            ) => Choice::Allow(Scope::Once),
+            (Kind::Tool, Chief::Always) if !self.needs.is_empty() => {
+                Choice::Allow(Scope::Always)
+            }
+            (
+                Kind::Tool | Kind::Reserved | Kind::Send,
+                Chief::Deny,
+            ) => Choice::Refuse,
+            (Kind::Question, Chief::Reply) if text.is_some() => {
+                Choice::Reply
+            }
+            (Kind::Question | Kind::Fault, Chief::Dismiss) => {
+                Choice::Dismiss
+            }
+            (Kind::Objection, Chief::Go) => Choice::Go,
+            (Kind::Objection, Chief::Withdraw) => Choice::Withdraw,
+            _ => return None,
+        })
+    }
+
+    /// What an always on this tool wait keeps: a grant of the
+    /// network, else a trust for its conversation.
+    fn lasting(&self) -> Option<oversight::Change> {
+        if self.needs.contains(&Need::Network) {
+            return Some(oversight::Change::Grant {
+                agent: self.agent,
+                permission: Permission::Network,
+            });
+        }
+        Some(oversight::Change::Trust {
+            agent: self.agent,
+            conversation: self.conversation.clone()?,
+            edits: self.needs.contains(&Need::Edit),
+            commands: self.needs.contains(&Need::Command),
+        })
+    }
+
+    fn told(&self, choice: &Choice) -> Told {
+        let notice = Some(self.wait);
+        match (self.kind, choice) {
+            (Kind::Tool, _) => Told::workspace(self.wait),
+            (Kind::Objection, Choice::Go) => Told {
+                notice,
+                held: self.task,
+                ..Told::default()
+            },
+            (Kind::Question | Kind::Objection, _)
+            | (Kind::Reserved | Kind::Send, Choice::Refuse) => Told {
+                notice,
+                ..Told::default()
+            },
+            _ => Told::default(),
+        }
+    }
 }
 
 impl Act<Client> for Answer {
     type Output = Done<AnswerRefusal>;
-    type Loaded = Option<WaitId>;
-    type Done = WaitId;
+    type Loaded = Option<Waiting>;
+    type Done = Told;
 
     async fn load(
         &self,
         _by: &Client,
         rows: &Rows<'_>,
-    ) -> Result<Option<WaitId>> {
+    ) -> Result<Option<Waiting>> {
         let Some(wait) = named(&self.0.wait) else {
             return Ok(None);
         };
-        Ok(rows
-            .value::<u64>(
-                "SELECT id FROM wait WHERE id = ?1 AND closed_at IS \
-                 NULL",
+        let Some((agent, kind, task, conversation, needs)) = rows
+            .row::<(
+                u32,
+                String,
+                Option<TaskId>,
+                Option<String>,
+                Option<String>,
+            )>(
+                "SELECT agent, kind, task, conversation, needs FROM \
+                 wait WHERE id = ?1 AND closed_at IS NULL",
                 vec![change::integer(wait.0)?],
             )
             .await?
-            .map(WaitId))
+        else {
+            return Ok(None);
+        };
+        let kind = change::from_case_name::<Kind>(kind)?;
+        if let (
+            Kind::Reserved | Kind::Send,
+            protocol::Choice::Allow,
+        ) = (kind, &self.0.choice)
+        {
+            bail!(
+                "not built yet: U4 and U13, so the {kind:?} wait {} \
+                 is not allowed",
+                wait.0
+            );
+        }
+        Ok(Some(Waiting {
+            wait,
+            agent: AgentNumber(agent),
+            kind,
+            task,
+            conversation: conversation.map(ConversationId),
+            needs: needs
+                .map(|needs| serde_json::from_str(&needs))
+                .transpose()?
+                .unwrap_or_default(),
+        }))
     }
 
     fn decide(
         &self,
         _by: &Client,
-        open: Option<WaitId>,
-    ) -> Decision<WaitId, Self::Output> {
+        open: Option<Waiting>,
+    ) -> Decision<Told, Self::Output> {
         let refuse = |why| Decision::Answer(Done::Refused { why });
-        let Some(wait) = open else {
+        let Some(open) = open else {
             return refuse(AnswerRefusal::NothingWaits {
                 wait: self.0.wait.clone(),
             });
         };
-        let choice = match (&self.0.choice, &self.0.picks) {
-            (protocol::Choice::Allow, None) => {
-                Choice::Allow(Scope::Once)
-            }
-            (protocol::Choice::Always, None) => {
-                Choice::Allow(Scope::Always)
-            }
-            (protocol::Choice::Deny, None) => Choice::Refuse {
-                reason: self
-                    .0
-                    .text
-                    .as_deref()
-                    .map(str::trim)
-                    .filter(|text| !text.is_empty())
-                    .map(str::to_owned),
-            },
-            _ => return refuse(AnswerRefusal::NotOffered),
+        let text = self
+            .0
+            .text
+            .as_deref()
+            .map(str::trim)
+            .filter(|text| !text.is_empty());
+        let choice = match &self.0.picks {
+            None => open.takes(&self.0.choice, text),
+            Some(_) => None,
         };
-        Decision::Change(
-            Decided::new(wait).change(Change::Close { wait, choice }),
-        )
+        let Some(choice) = choice else {
+            return refuse(AnswerRefusal::NotOffered);
+        };
+        let mut decided = Decided::new(open.told(&choice));
+        if choice == Choice::Allow(Scope::Always)
+            && let Some(lasting) = open.lasting()
+        {
+            decided = decided.change(lasting);
+        }
+        Decision::Change(decided.change(Change::Close {
+            wait: open.wait,
+            choice,
+            text: text.map(str::to_owned),
+        }))
     }
 
-    fn deliveries(&self, _by: &Client, wait: &WaitId) -> Calls {
-        Calls::after_answer(Delivery::ChiefAnswer(*wait))
+    fn deliveries(&self, _by: &Client, told: &Told) -> Calls {
+        told.calls()
     }
 
-    fn answer(&self, _wait: WaitId, _made: &Made) -> Self::Output {
+    fn answer(&self, _told: Told, _made: &Made) -> Self::Output {
         Done::Done
     }
 }
 
 impl Act<Agent> for TurnFailed {
     type Output = ();
-    type Loaded = Unbuilt;
-    type Done = Unbuilt;
+    /// The fault's wait with its cause as CBOR; `None` for an agent
+    /// that ended.
+    type Loaded = Option<(WaitId, Vec<u8>)>;
+    type Done = ();
 
     async fn load(
         &self,
-        _by: &Agent,
-        _rows: &Rows<'_>,
-    ) -> Result<Unbuilt> {
-        bail!("not built yet: U2")
+        by: &Agent,
+        rows: &Rows<'_>,
+    ) -> Result<Option<(WaitId, Vec<u8>)>> {
+        if tree::left(rows, by.0).await?.is_some() {
+            return Ok(None);
+        }
+        let mut cause = Vec::new();
+        ciborium::into_writer(&self.cause, &mut cause)?;
+        Ok(Some((next(rows).await?, cause)))
     }
 
     fn decide(
         &self,
-        _by: &Agent,
-        loaded: Unbuilt,
-    ) -> Decision<Unbuilt, ()> {
-        match loaded {}
+        by: &Agent,
+        fault: Option<(WaitId, Vec<u8>)>,
+    ) -> Decision<(), ()> {
+        let Some((wait, cause)) = fault else {
+            return Decision::Answer(());
+        };
+        Decision::Change(Decided::new(()).change(Change::Raise {
+            wait,
+            raised: Raised {
+                agent: by.0,
+                kind: Kind::Fault,
+                task: TaskId::of(&self.task),
+                conversation: Some(self.conversation.clone()),
+                subject: self.words.clone(),
+                detail: cause,
+            },
+        }))
     }
 
-    fn answer(&self, done: Unbuilt, _made: &Made) {
-        match done {}
+    fn answer(&self, (): (), _made: &Made) {}
+}
+
+/// The lapse the workspace is told for `why`. A resume closes no
+/// wait.
+fn lapse_of(why: LapseReason) -> Option<workspace::Lapse> {
+    match why {
+        LapseReason::Stopped => Some(workspace::Lapse::Stopped),
+        LapseReason::Rewound => Some(workspace::Lapse::Rewound),
+        LapseReason::Ended => Some(workspace::Lapse::Ended),
+        LapseReason::Resumed => None,
     }
 }
 
 impl Act<Agent> for Lapse {
     type Output = ();
-    type Loaded = Unbuilt;
-    type Done = Unbuilt;
+    /// The agent's open waits that lapse, with their kinds.
+    type Loaded = Vec<(WaitId, Kind)>;
+    type Done = Told;
 
     async fn load(
         &self,
-        _by: &Agent,
-        _rows: &Rows<'_>,
-    ) -> Result<Unbuilt> {
-        bail!("not built yet: U2")
+        by: &Agent,
+        rows: &Rows<'_>,
+    ) -> Result<Vec<(WaitId, Kind)>> {
+        if lapse_of(self.why).is_none() {
+            return Ok(Vec::new());
+        }
+        let conversation =
+            text(self.conversation.clone().map(|c| c.0));
+        rows.rows::<(u64, String)>(
+            "SELECT id, kind FROM wait WHERE agent = ?1 AND \
+             closed_at IS NULL AND (?2 IS NULL OR conversation = \
+             ?2) ORDER BY id",
+            vec![number(by.0), conversation],
+        )
+        .await?
+        .into_iter()
+        .map(|(wait, kind)| {
+            Ok((WaitId(wait), change::from_case_name(kind)?))
+        })
+        .collect()
     }
 
     fn decide(
         &self,
-        _by: &Agent,
-        loaded: Unbuilt,
-    ) -> Decision<Unbuilt, ()> {
-        match loaded {}
+        by: &Agent,
+        open: Vec<(WaitId, Kind)>,
+    ) -> Decision<Told, ()> {
+        let Some(lapse) = lapse_of(self.why) else {
+            let Some(conversation) = self.conversation.clone() else {
+                return Decision::Answer(());
+            };
+            return Decision::Change(
+                Decided::new(Told::default()).change(
+                    oversight::Change::DropTrust {
+                        agent: by.0,
+                        conversation,
+                    },
+                ),
+            );
+        };
+        if open.is_empty() {
+            return Decision::Answer(());
+        }
+        let mut decided = Decided::new(Told {
+            workspace: open
+                .iter()
+                .filter(|(_, kind)| *kind == Kind::Tool)
+                .map(|(wait, _)| *wait)
+                .collect(),
+            ..Told::default()
+        });
+        for (wait, _) in open {
+            decided = decided.change(Change::Close {
+                wait,
+                choice: Choice::Lapsed(lapse),
+                text: None,
+            });
+        }
+        Decision::Change(decided)
     }
 
-    fn answer(&self, done: Unbuilt, _made: &Made) {
-        match done {}
+    fn deliveries(&self, _by: &Agent, told: &Told) -> Calls {
+        told.calls()
     }
+
+    fn answer(&self, _told: Told, _made: &Made) {}
 }
