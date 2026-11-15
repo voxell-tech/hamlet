@@ -1,12 +1,6 @@
 //! The realm through a host, called as a client and as agents, with
 //! stand-ins for the actors it calls.
 
-#![expect(
-    dead_code,
-    reason = "the scaffold: the tests of U2 to U11 call these, and \
-              the integrator removes this"
-)]
-
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::str::FromStr;
