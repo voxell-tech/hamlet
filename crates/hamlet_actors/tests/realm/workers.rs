@@ -11,13 +11,13 @@ use hamlet_messages::realm::{
     AgentRefusal, Asked, Done, End, HamletId, HowEnded, Left,
     SetTools, ToolName,
 };
-use hamlet_messages::workspace::AgentNumber;
 use hamlet_messages::workspace::reach::Reach;
+use hamlet_messages::workspace::{AgentNumber, RealmTask};
 use hamlet_protocol::client::RequestId;
 
 use super::{
-    Callee, DEADLINE, FOUR, MAYOR, Realm, THREE, hamlet_with,
-    seen_submits, standing, to, tool, until, world,
+    Callee, DEADLINE, FOUR, MAYOR, Realm, THREE, hamlet_with, needs,
+    say, seen_submits, standing, to, tool, until, world,
 };
 
 fn start(brief: &str) -> StartWorker {
@@ -464,4 +464,153 @@ async fn a_brief_and_a_hamlet_are_checked() {
             why: WorkerRefusal::NoSuchHamlet,
         }
     );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_worker_runs_and_answers_on_the_task_it_is_given() {
+    let (realm, _) = hamlet_with(1).await;
+    realm
+        .ask(&say(&RequestId::new(), THREE, "count the files"))
+        .await
+        .unwrap();
+    let line = seen_submits(&realm, THREE, 1).await.remove(0).task;
+    let line = line.expect("a chief's line has a task");
+    assert_ne!(line, standing(&realm, THREE));
+
+    for (call, task) in [
+        ("on the line", Some(line.clone())),
+        ("unknown", Some(RealmTask("999".to_owned()))),
+    ] {
+        let answer = realm
+            .tool(
+                THREE,
+                &tool(
+                    call,
+                    StartWorker {
+                        task,
+                        ..start("count the files")
+                    },
+                ),
+            )
+            .await
+            .unwrap();
+        assert!(
+            matches!(answer, Started::Started { .. }),
+            "{answer:?}"
+        );
+    }
+
+    assert_eq!(made_until(&realm, FOUR).await.task, line);
+    let five = AgentNumber(5);
+    assert_eq!(
+        made_until(&realm, five).await.task,
+        standing(&realm, THREE),
+        "a task the realm does not hold falls back to the standing \
+         one"
+    );
+    realm.tool(FOUR, &answered("3 files")).await.unwrap();
+    until("hire#3 hears worker#4", || {
+        !worker_answers(&realm).is_empty()
+    })
+    .await;
+    assert_eq!(worker_answers(&realm)[0].1.task, Some(line));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_blank_answer_says_none_was_given() {
+    let (realm, _) = hamlet_with(1).await;
+    started_by_three(&realm, "w").await;
+    made_until(&realm, FOUR).await;
+
+    realm.tool(FOUR, &answered("  ")).await.unwrap();
+    until("hire#3 hears worker#4", || {
+        !worker_answers(&realm).is_empty()
+    })
+    .await;
+
+    let answers = worker_answers(&realm);
+    assert!(
+        matches!(
+            &answers[0].1.input,
+            Input::WorkerAnswer { text, .. } if text == "It gave no answer."
+        ),
+        "{answers:?}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_workers_end_lapses_its_waits() {
+    let (realm, _) = hamlet_with(1).await;
+    started_by_three(&realm, "w").await;
+    made_until(&realm, FOUR).await;
+    realm.call_as_workspace(&needs(FOUR, "c1")).await.unwrap();
+    world::seen_until(&realm, "worker#4 waits for a chief", |seen| {
+        seen.waits.iter().any(|wait| wait.agent == FOUR)
+    })
+    .await;
+
+    realm.tool(FOUR, &answered("done")).await.unwrap();
+
+    world::seen_until(&realm, "worker#4's wait lapsed", |seen| {
+        seen.waits.iter().all(|wait| wait.agent != FOUR)
+    })
+    .await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_chief_ends_a_worker_and_its_answer_is_dropped() {
+    let (realm, _) = hamlet_with(1).await;
+    started_by_three(&realm, "w").await;
+    made_until(&realm, FOUR).await;
+
+    let ended = realm
+        .ask(&Asked {
+            id: RequestId::new(),
+            act: End {
+                hire: to(FOUR),
+                why: None,
+            },
+        })
+        .await
+        .unwrap();
+
+    assert_eq!(ended, Done::Done);
+    ended_until(&realm, FOUR, HowEnded::ByTheChief).await;
+    realm.tool(FOUR, &answered("late")).await.unwrap();
+    settled().await;
+    assert_eq!(worker_answers(&realm), []);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_worker_ended_before_its_step_is_never_made() {
+    let (realm, _) = hamlet_with(1).await;
+    realm.seen.fail_once(Callee::SetReach, FOUR);
+    started_by_three(&realm, "w").await;
+    until("the workspace failed the worker's reach once", || {
+        realm.seen.has_failed(Callee::SetReach, FOUR)
+    })
+    .await;
+    let ended = realm
+        .tool(
+            MAYOR,
+            &tool(
+                "end",
+                End {
+                    hire: to(THREE),
+                    why: None,
+                },
+            ),
+        )
+        .await
+        .unwrap();
+    assert_eq!(ended, Done::Done);
+
+    let realm = realm.restart().await;
+
+    let begun = Instant::now();
+    while !step_closed(&realm).await {
+        assert!(begun.elapsed() < DEADLINE, "never: the step closes");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert!(made(&realm, FOUR).is_empty());
 }

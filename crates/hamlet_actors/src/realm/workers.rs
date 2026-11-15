@@ -31,7 +31,8 @@ use super::tasks::{self, Origin, TaskId};
 use super::{Realm, chiefs, place, tree, versions, waits};
 
 /// The built-in tools a worker may be given, as today's catalogue
-/// names them (`hamlet_server/src/work/tools.rs`).
+/// names them: its file tools and its shells
+/// (`hamlet_server/src/work/tools.rs:575-577`).
 const BUILT_IN: [&str; 7] = [
     "read",
     "write",
