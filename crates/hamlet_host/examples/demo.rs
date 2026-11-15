@@ -46,6 +46,8 @@
 //!                               demo/realm.rs
 //! demo agent ...                the stub agent's commands, in
 //!                               demo/agent.rs
+//! demo watch <n> <event>        follow <event> of agent <n> as a
+//!                               client, in demo/watch.rs
 //! ```
 //!
 //! A `<key>` names a counter of the first counter kind, and
@@ -82,6 +84,8 @@ mod kinds;
 mod link;
 #[path = "demo/realm.rs"]
 mod realm;
+#[path = "demo/watch.rs"]
+mod watch;
 
 use std::io::{IsTerminal, Write};
 use std::path::PathBuf;
@@ -176,8 +180,8 @@ async fn demo() -> Result<()> {
         None => Err(anyhow!(
             "usage: demo [--name <name>] [--kind <kind>]... [--link] \
              increment|get|schedule|sleep|destroy|block|call|calls|\
-             timers|rearm|boot|serve|realm|agent|link|make|tell|heard \
-             ..."
+             timers|rearm|boot|serve|realm|agent|link|make|tell|heard|\
+             watch ..."
         )),
     };
     demo.shutdown().await?;
@@ -227,7 +231,8 @@ struct Start {
 }
 
 /// Runs one command line split into words: the stub realm's, a stub
-/// agent's, one of the Node host's, or one for the counters.
+/// agent's, a client's `watch`, one of the Node host's, or one for
+/// the counters.
 async fn run_line(demo: &Demo, words: &[String]) -> Result<()> {
     match words.split_first() {
         Some((first, rest)) if first == "realm" => {
@@ -235,6 +240,9 @@ async fn run_line(demo: &Demo, words: &[String]) -> Result<()> {
         }
         Some((first, rest)) if first == "agent" => {
             agent::run(&demo.host, rest).await
+        }
+        Some((first, rest)) if first == "watch" => {
+            watch::run(&demo.host, rest).await
         }
         Some((first, rest))
             if link::COMMANDS.contains(&first.as_str()) =>

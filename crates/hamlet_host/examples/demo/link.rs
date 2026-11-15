@@ -114,6 +114,10 @@ pub fn open(
 fn routes() -> Routes {
     Routes::only(&[
         (
+            CallerKind::Client,
+            &[address::Realm::KIND, address::Agent::KIND],
+        ),
+        (
             CallerKind::Actor(address::Realm::KIND.to_owned()),
             &[address::Agent::KIND],
         ),
@@ -184,7 +188,7 @@ pub async fn run(
     }
 }
 
-fn agent(n: &str) -> Result<Address> {
+pub fn agent(n: &str) -> Result<Address> {
     Ok(address::Agent(AgentNumber(n.parse()?)).address()?)
 }
 
@@ -240,19 +244,9 @@ async fn tell(
         answer = match realm::ask(host, &tell).await {
             Ok(answer) => answer,
             Err(error) => {
-                let Some(found) = actor_error(&error)
-                    .filter(|found| found.group() != "link")
-                else {
+                let Some(shown) = failure(&error) else {
                     return Err(error);
                 };
-                let shown = serde_json::json!({
-                    "error": {
-                        "group": found.group(),
-                        "code": found.code(),
-                        "message": found.message(),
-                        "metadata": found.metadata(),
-                    },
-                });
                 writeln!(std::io::stdout(), "{at}/{action} {shown}")?;
                 return Ok(());
             }
@@ -265,6 +259,22 @@ async fn tell(
     };
     writeln!(std::io::stdout(), "{at}/{action} {value}")?;
     Ok(())
+}
+
+/// The actor's error `error` holds first, as `tell` prints a call
+/// that failed, or `None` where it holds none or one of the group
+/// `link`.
+pub fn failure(error: &anyhow::Error) -> Option<serde_json::Value> {
+    let found =
+        actor_error(error).filter(|found| found.group() != "link")?;
+    Some(serde_json::json!({
+        "error": {
+            "group": found.group(),
+            "code": found.code(),
+            "message": found.message(),
+            "metadata": found.metadata(),
+        },
+    }))
 }
 
 /// Prints how many jobs the realm heard `agent` resumed, once it
