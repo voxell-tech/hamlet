@@ -38,21 +38,19 @@ function start(files: AgentFilesystem): string {
     return files.root;
 }
 
-/**
- * A path is found own before it is normalised, so one that climbs out of
- * the root stays own and the adapter refuses it. An own path is then
- * normalised, as today's `footing` does.
- */
+/** A path is own when it normalises, as today's `footing` does, into the root. */
 function reached(
     files: AgentFilesystem,
     path: string | undefined,
 ): { readonly own: boolean; readonly path: string } {
     const from = start(files);
-    const absolute =
-        path === undefined ? from : isAbsolute(path) ? path : `${from}/${path}`;
-    const own =
-        absolute === files.root || absolute.startsWith(`${files.root}/`);
-    return { own, path: own ? posix.normalize(absolute) : absolute };
+    const normal = posix.normalize(
+        path === undefined ? from : isAbsolute(path) ? path : `${from}/${path}`,
+    );
+    return {
+        own: normal === files.root || normal.startsWith(`${files.root}/`),
+        path: normal,
+    };
 }
 
 function routes(peers: Peers): {
@@ -304,7 +302,7 @@ async function searched(
             ...found.value,
             found: found.value.found.map(
                 (match) =>
-                    `${shown(files, match.path)}:${match.line}: ${clipped(match.text)}`,
+                    `${shown(files, match.path)}:${match.line}: ${match.text}`,
             ),
         },
         "no match",
@@ -316,17 +314,6 @@ function shown(files: AgentFilesystem, path: string): string {
     const under = path.startsWith(from) ? path.slice(from.length) : "";
     // Today's `shown` (`walk.rs`) gives whole a name that begins with `..`.
     return under === "" || under.startsWith("..") ? path : under;
-}
-
-const LINE_WIDTH = 300;
-
-/** `line` as today's search shows it (`crates/hamlet_server/src/work/tools/search.rs`). */
-function clipped(line: string): string {
-    // `trimEnd` takes exactly pi's spaces.
-    const characters = [...line.trimEnd()];
-    return characters.length > LINE_WIDTH
-        ? `${characters.slice(0, LINE_WIDTH).join("")}...`
-        : characters.join("");
 }
 
 async function found(
@@ -345,9 +332,14 @@ async function found(
         return words(names.length === 0 ? "(empty)" : names.join("\n"));
     }
     const matched = await files.find(args.name, args.path, context);
-    return matched.ok
-        ? reported(matched.value, "no file by that name")
-        : failed(matched.error.message);
+    if (!matched.ok) return failed(matched.error.message);
+    return reported(
+        {
+            ...matched.value,
+            found: matched.value.found.map((path) => shown(files, path)),
+        },
+        "no file by that name",
+    );
 }
 
 /** Today's words (`crates/hamlet_server/src/work/tools/walk.rs`). */

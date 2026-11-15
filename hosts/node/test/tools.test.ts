@@ -259,7 +259,7 @@ test("an own search gives the adapter its name, and a search or a find answers i
     assert.deepEqual(await results(agent), [
         "memory/plan.md:1: the plan",
         "no match",
-        `${md}\n[more than 100. Narrow it with \`path\` or \`name\`]`,
+        "memory/plan.md\n[more than 100. Narrow it with `path` or `name`]",
         "no file by that name\n[stopped after 20000 files. Narrow it with `path`]",
         "a/\nb",
     ]);
@@ -498,6 +498,78 @@ test("an own write and edit name their path as today does, without `.` parts or 
         patch?.split("\n").slice(0, 2).join("\n"),
         `--- ${path}\n+++ ${path}`,
     );
+    await agent.stop();
+});
+
+test("a path is own when it normalises into the agent's root, as today's `footing` decides", async (t) => {
+    const own: Record<string, string> = {};
+    const outside = "/realm/actors/agent/x";
+    const { calls, sent } = fakeCalls({
+        workspace: {
+            write_file: () => ({
+                type: "ended",
+                end: {
+                    type: "changed",
+                    path: outside,
+                    created: true,
+                    hash: "1f",
+                },
+            }),
+        },
+    });
+    const agent = await wakeAgent(t, {
+        calls,
+        files: fakeFiles(own),
+        responses: [
+            toolCall(
+                "write",
+                { path: `/tmp/..${ROOT}/memory/x`, content: "in" },
+                "c1",
+            ),
+            toolCall(
+                "write",
+                { path: `${ROOT}/a/../../x`, content: "out" },
+                "c2",
+            ),
+            fauxAssistantMessage("Written."),
+        ],
+    });
+    await agent.actions.submit(agent.by(from.realm), line("input-1", "Write."));
+    await agent.idle();
+
+    const [inside, out] = await toolResults(agent);
+    assert.equal(inside?.output, `Successfully wrote to ${ROOT}/memory/x`);
+    assert.deepEqual(own, { [`${ROOT}/memory/x`]: "in" });
+    assert.equal(out?.output, `Successfully wrote to ${outside}`);
+    assert.deepEqual(
+        named(sent, "write_file").map(
+            (write) => (write.message as { path: string }).path,
+        ),
+        [outside],
+    );
+    await agent.stop();
+});
+
+test("bash refuses a timeout of 0 or below in today's words before it calls anything", async (t) => {
+    const { calls, sent } = fakeCalls({});
+    const agent = await wakeAgent(t, {
+        calls,
+        responses: [
+            toolCall("bash", { command: "ls", timeout: 0 }, "c1"),
+            toolCall("bash", { command: "ls", timeout: -1 }, "c2"),
+            fauxAssistantMessage("Refused."),
+        ],
+    });
+    await agent.actions.submit(agent.by(from.realm), line("input-1", "List."));
+    await agent.idle();
+
+    const refusal = {
+        output: "Error: Invalid timeout: must be a finite number of seconds. Inspect the output before trying again, or tell the chief.",
+        isError: true,
+        diagnostics: [],
+    };
+    assert.deepEqual(await toolResults(agent), [refusal, refusal]);
+    assert.deepEqual(named(sent, "run"), []);
     await agent.stop();
 });
 

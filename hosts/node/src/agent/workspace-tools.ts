@@ -309,9 +309,7 @@ function ranNow(end: RunEnd, program: Program): ToolExecutionResult {
             };
         case "failed":
             return script
-                ? failed(
-                      `${end.output}Error: ${end.exit.words}. Inspect the output before trying again, or tell the chief.`,
-                  )
+                ? scriptFailed(end.output, end.exit.words)
                 : thrown("tool_error", end.exit.words);
         case "cut_off":
             return interrupted(script ? "bash" : program.name);
@@ -435,25 +433,39 @@ async function run(
     );
 }
 
+/** A script that failed after `output`, in today's words (`shell.rs`, `fail`). */
+function scriptFailed(output: string, reason: string): ToolExecutionResult {
+    return failed(
+        `${output}Error: ${reason}. Inspect the output before trying again, or tell the chief.`,
+    );
+}
+
 function bash(peers: Peers): ToolRegistration {
     return defineTool({
         name: "bash",
         ...BASH,
         replay: "safe",
         outputLimits: { retain: "tail" },
-        execute: (
+        execute: async (
             args: { command: string; timeout?: number; network?: boolean },
             api,
             context,
-        ) =>
-            run(peers, api, context, {
+        ) => {
+            if (args.timeout !== undefined && args.timeout <= 0) {
+                return scriptFailed(
+                    "",
+                    "Invalid timeout: must be a finite number of seconds",
+                );
+            }
+            return run(peers, api, context, {
                 type: "script",
                 script: args.command,
                 network: args.network ?? false,
                 ...(args.timeout === undefined
                     ? {}
                     : { timeout_ms: u32(args.timeout * 1000) }),
-            }),
+            });
+        },
     });
 }
 

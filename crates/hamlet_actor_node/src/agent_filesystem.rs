@@ -10,13 +10,28 @@ use std::sync::Arc;
 use hamlet_os::fs::{Folder, Kind, Outside, system_error};
 use napi::bindgen_prelude::Buffer;
 use napi_derive::napi;
-use regex::{Regex, RegexBuilder};
+use regex::Regex;
 
 /// The largest file a search reads, in bytes.
 const LARGEST: u64 = 1024 * 1024;
 
-/// The most characters of a matching line a search gives.
-const WIDTH: usize = 1024;
+/// The most characters of a matching line a search shows, as today's;
+/// a longer line ends in `...` there.
+const WIDTH: usize = 300;
+
+/// The folders a walk does not go into below where it starts, as
+/// today's (`crates/hamlet_server/src/work/tools/walk.rs`).
+const SKIPPED: [&str; 9] = [
+    ".git",
+    ".hamlet",
+    "target",
+    "node_modules",
+    "dist",
+    "build",
+    ".venv",
+    "__pycache__",
+    ".next",
+];
 
 /// One name in a folder, a link itself rather than what it names.
 #[napi(object)]
@@ -48,6 +63,7 @@ pub struct FolderFiles {
 pub struct FolderMatch {
     pub path: String,
     pub line: u32,
+    /// The line as today's search shows it.
     pub text: String,
 }
 
@@ -146,7 +162,8 @@ impl AgentFolder {
     /// most `most` names looked at, or only those `name` matches. In
     /// `name`, `*` stands for any run of characters and `?` for one;
     /// with a `/` in it, it is matched against the file's path from
-    /// `path` rather than its name. No link is followed.
+    /// `path` rather than its name. No link is followed, and no
+    /// folder today's walk skips is gone into.
     #[napi]
     pub async fn files(
         &self,
@@ -156,7 +173,8 @@ impl AgentFolder {
     ) -> napi::Result<FolderFiles> {
         let name = name.as_deref().map(Name::new).transpose()?;
         blocking(&self.0, move |folder| {
-            let walked = folder.files(&path, most as usize)?;
+            let walked =
+                folder.files(&path, most as usize, &SKIPPED)?;
             let start = walked.start;
             Ok(FolderFiles {
                 files: walked
@@ -191,13 +209,17 @@ impl AgentFolder {
         most: u32,
         looked: u32,
     ) -> napi::Result<FolderMatches> {
-        let regex = RegexBuilder::new(&pattern)
-            .case_insensitive(ignore_case)
-            .build()
+        let source = if ignore_case {
+            lowered(&pattern)
+        } else {
+            pattern
+        };
+        let regex = Regex::new(&source)
             .map_err(|error| failure("EINVAL", &error.to_string()))?;
         let name = name.as_deref().map(Name::new).transpose()?;
         blocking(&self.0, move |folder| {
-            let walked = folder.files(&path, looked as usize)?;
+            let walked =
+                folder.files(&path, looked as usize, &SKIPPED)?;
             let mut matches = Vec::new();
             for file in walked.files {
                 if file.size > LARGEST
@@ -215,7 +237,12 @@ impl AgentFolder {
                     continue;
                 }
                 for (index, line) in text.lines().enumerate() {
-                    if !regex.is_match(line) {
+                    let matched = if ignore_case {
+                        regex.is_match(&line.to_lowercase())
+                    } else {
+                        regex.is_match(line)
+                    };
+                    if !matched {
                         continue;
                     }
                     if matches.len() == most as usize {
@@ -228,7 +255,7 @@ impl AgentFolder {
                         path: file.path.clone(),
                         line: u32::try_from(index + 1)
                             .unwrap_or(u32::MAX),
-                        text: line.chars().take(WIDTH).collect(),
+                        text: shown(line),
                     });
                 }
             }
@@ -238,6 +265,37 @@ impl AgentFolder {
             })
         })
         .await
+    }
+}
+
+/// `pattern` lowercased as today's case-insensitive search does
+/// (`crates/hamlet_server/src/work/tools/search.rs`, `compile`): all
+/// but the character after each `\`.
+fn lowered(pattern: &str) -> String {
+    let mut source = String::new();
+    let mut chars = pattern.chars().peekable();
+    while let Some(c) = chars.next() {
+        match chars.peek() {
+            Some(&next) if c == '\\' => {
+                source.push(c);
+                source.push(next);
+                chars.next();
+            }
+            _ => source.extend(c.to_lowercase()),
+        }
+    }
+    source
+}
+
+/// `line` with pi's spaces taken from its end, then cut at [`WIDTH`]
+/// characters, as today's search shows it.
+fn shown(line: &str) -> String {
+    let line = line.trim_end_matches(|c: char| {
+        (c.is_whitespace() && c != '\u{85}') || c == '\u{feff}'
+    });
+    match line.char_indices().nth(WIDTH) {
+        Some((end, _)) => format!("{}...", &line[..end]),
+        None => line.to_owned(),
     }
 }
 

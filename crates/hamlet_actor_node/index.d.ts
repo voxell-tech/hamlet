@@ -218,6 +218,7 @@ export interface FolderFiles {
 export interface FolderMatch {
     path: string;
     line: number;
+    /** The line as today's search shows it. */
     text: string;
 }
 export interface FolderMatches {
@@ -537,7 +538,8 @@ export declare class AgentFolder {
      * most `most` names looked at, or only those `name` matches. In
      * `name`, `*` stands for any run of characters and `?` for one;
      * with a `/` in it, it is matched against the file's path from
-     * `path` rather than its name. No link is followed.
+     * `path` rather than its name. No link is followed, and no
+     * folder today's walk skips is gone into.
      */
     files(
         path: string,

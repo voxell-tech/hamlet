@@ -231,11 +231,12 @@ impl Folder {
     /// Every regular file with one name at or below `given`, by its
     /// path from this folder, after at most `most` names looked at. A
     /// link is neither followed nor given, nor is a name that is not
-    /// UTF-8.
+    /// UTF-8, nor anything in a folder below `given` named in `skip`.
     pub fn files(
         &self,
         given: &str,
         most: usize,
+        skip: &[&str],
     ) -> io::Result<Walked> {
         let start = self.relative(given)?;
         let mut walked = Walked {
@@ -279,6 +280,7 @@ impl Folder {
                 continue;
             };
             match stat.kind {
+                Kind::Directory if skip.contains(&text) => {}
                 // A folder swapped for a link meanwhile is passed.
                 Kind::Directory => {
                     if let Ok(child) = dir.child(&name) {
@@ -431,7 +433,7 @@ mod tests {
             let refused = folder.write(given, b"x").unwrap_err();
             assert!(Outside::is(&refused), "{given}: {refused}");
             assert!(folder.list(given).is_err(), "{given}");
-            assert!(folder.files(given, 10).is_err(), "{given}");
+            assert!(folder.files(given, 10, &[]).is_err(), "{given}");
         }
         assert!(folder.write("../made", b"x").is_err());
         assert!(folder.read("memory/notes.md\0").is_err());
@@ -461,13 +463,13 @@ mod tests {
         }
         assert!(folder.write("skills/out/new", b"x").is_err());
         assert!(folder.list("skills/out").is_err());
-        assert!(folder.files("skills/out", 10).is_err());
+        assert!(folder.files("skills/out", 10, &[]).is_err());
         assert!(folder.make_folder("skills/out/new").is_err());
 
         let skills = folder.list("skills").unwrap();
         assert_eq!(skills.len(), 1);
         assert_eq!(skills[0].stat.kind, Kind::Link);
-        let walked = folder.files("", 100).unwrap();
+        let walked = folder.files("", 100, &[]).unwrap();
         assert_eq!(
             walked.files,
             [Found {
@@ -494,7 +496,7 @@ mod tests {
         assert!(
             matches!(refused.get_ref(), Some(inner) if inner.is::<NotLone>())
         );
-        let walked = folder.files("memory", 100).unwrap();
+        let walked = folder.files("memory", 100, &[]).unwrap();
         assert_eq!(walked.files.len(), 1);
         assert_eq!(walked.files[0].path, "memory/notes.md");
         folder.write("memory/twin", b"mine").unwrap();
@@ -514,7 +516,7 @@ mod tests {
         for at in ["a", "b", "c", "d"] {
             folder.write(&format!("inbox/{at}"), b"x").unwrap();
         }
-        let walked = folder.files("inbox", 3).unwrap();
+        let walked = folder.files("inbox", 3, &[]).unwrap();
         assert!(walked.capped);
         assert_eq!(walked.start, "inbox");
         assert_eq!(
@@ -525,7 +527,7 @@ mod tests {
                 .collect::<Vec<_>>(),
             ["inbox/a", "inbox/b", "inbox/c"]
         );
-        let walked = folder.files("memory/notes.md", 3).unwrap();
+        let walked = folder.files("memory/notes.md", 3, &[]).unwrap();
         assert!(!walked.capped);
         assert_eq!(walked.files.len(), 1);
     }
@@ -578,7 +580,7 @@ mod tests {
                         .all(|listed| listed.name != "secret")
                 );
             }
-            if let Ok(walked) = folder.files("memory", 10_000) {
+            if let Ok(walked) = folder.files("memory", 10_000, &[]) {
                 assert!(
                     walked
                         .files
@@ -613,7 +615,10 @@ mod tests {
             folder.list("skills").unwrap()[0].stat.kind,
             Kind::Link
         );
-        assert_eq!(folder.files("", 100).unwrap().files.len(), 1);
+        assert_eq!(
+            folder.files("", 100, &[]).unwrap().files.len(),
+            1
+        );
         outside_is_untouched(&scratch);
     }
 }
