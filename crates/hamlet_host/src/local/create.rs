@@ -41,14 +41,14 @@ impl Host {
     /// free for another create. Two things leave the actor made, to
     /// start or destroy as any other, and the create returns the
     /// start's failure all the same. One is a statement of that start
-    /// that still holds the file past the close's grace, a second:
-    /// the create does not wait for it, and until it ends a start or
-    /// a create of the key cannot open the file and fails at its
-    /// start deadline. The other is a removal of the files that
-    /// fails, as on Windows when another handle, a scanner's say,
-    /// holds one for more than a second. In both, a create of the
-    /// key then fails with `actor.duplicate_key`, and the next boot
-    /// starts the actor, since its file stays marked running. A
+    /// that still holds the file past the close's grace: the create
+    /// does not wait for it, and until it ends a start or a create of
+    /// the key cannot open the file and fails at its start deadline.
+    /// The other is a removal of the files that fails, as on Windows
+    /// when another handle holds one past the removal's grace. In
+    /// both, a create of the key then fails with
+    /// `actor.duplicate_key`, and the next boot starts the actor,
+    /// since its file stays marked running. A
     /// create that waited for another create's start that failed
     /// then makes the actor itself, unless that start left the actor
     /// made, when it fails with that start's error, as one that

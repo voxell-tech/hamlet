@@ -399,12 +399,11 @@ fn run_once(
         for line in lines {
             host.send(line)?;
         }
-        // Its children are counted once its Node host is ready and
-        // has said its pid.
         let (mut printed, children) = match scenario.demo {
             Demo::Local => (Vec::new(), Vec::new()),
             Demo::Linked { pid } => {
-                (host.lines_through(pid)?, children(host.child.id())?)
+                let printed = host.lines_through(pid)?;
+                (printed, children(host.child.id())?)
             }
         };
         printed.extend(host.finish()?);
@@ -591,7 +590,6 @@ fn has_ended(_pid: u32) -> Result<bool> {
     )
 }
 
-/// The processes whose parent is the process `parent`.
 #[cfg(target_os = "linux")]
 fn children(parent: u32) -> Result<Vec<u32>> {
     let mut children = Vec::new();
@@ -629,8 +627,6 @@ fn children(_parent: u32) -> Result<Vec<u32>> {
     bail!("the kit counts a demo host's children only on Linux")
 }
 
-/// The wall clock in Unix milliseconds, the clock a one-shot's due
-/// time is stored on.
 fn unix_ms() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

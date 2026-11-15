@@ -1747,9 +1747,7 @@ fn actor_path(dir: &Path, at: &Address) -> PathBuf {
 /// removes the write-ahead file and the shared-memory file, then the
 /// file itself, so that no write-ahead file outlives its file and
 /// joins one made later at that path. A file already missing is
-/// passed over, so a destroy repeated ends the same way. A removal
-/// that Windows refuses because another handle holds the file is
-/// tried again for [`REMOVE_GRACE`] in all.
+/// passed over, so a destroy repeated ends the same way.
 fn destroy_file(path: &Path) -> Result<()> {
     if path.exists() {
         let conn = plain_sqlite::open(path, false)?;
@@ -1777,8 +1775,6 @@ fn destroy_file(path: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Removes `file`, passing over a missing one, and tries again until
-/// `deadline` while another handle holds it.
 fn remove_by(file: &Path, deadline: Instant) -> std::io::Result<()> {
     loop {
         match std::fs::remove_file(file) {
@@ -1798,9 +1794,9 @@ fn remove_by(file: &Path, deadline: Instant) -> std::io::Result<()> {
 }
 
 /// Whether Windows refused a removal because another handle holds
-/// the file, a scanner's say: `ERROR_SHARING_VIOLATION` (32) when it
-/// does not share the deletion, `ERROR_ACCESS_DENIED` (5) while an
-/// earlier deletion of the file waits for it to close.
+/// the file: `ERROR_SHARING_VIOLATION` (32) when it does not share
+/// the deletion, `ERROR_ACCESS_DENIED` (5) while an earlier deletion
+/// of the file waits for it to close.
 fn held(error: &std::io::Error) -> bool {
     cfg!(windows) && matches!(error.raw_os_error(), Some(32 | 5))
 }

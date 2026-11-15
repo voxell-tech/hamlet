@@ -536,8 +536,6 @@ mod handshake {
         assert_eq!(read.lines().next(), Some("refused"), "{read:?}");
     }
 
-    /// A child that ends at once, refused here, is started four times
-    /// in seven seconds at most, not once a second.
     #[tokio::test]
     async fn a_refused_child_is_followed_by_a_new_one_after_pauses_that_double()
      {

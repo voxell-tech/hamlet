@@ -445,9 +445,6 @@ async fn a_peers_request_for_a_kind_of_its_own_is_not_sent_back() {
     host.shutdown().await.unwrap();
 }
 
-/// Windows refuses to remove a file that another handle holds open
-/// without sharing its deletion, as a scanner may hold a file just
-/// written. A destroy outlasts such a handle while it is brief.
 #[cfg(windows)]
 #[test]
 fn a_file_another_handle_holds_for_a_moment_is_still_removed() {

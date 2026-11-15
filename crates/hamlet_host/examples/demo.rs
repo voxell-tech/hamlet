@@ -104,6 +104,7 @@ use act::act;
 use anyhow::{Context, Result, anyhow, bail};
 use command::{counter_kind, number, print_reply, run, shown};
 use hamlet_host::{Address, Host, HostOptions};
+use hamlet_messages::address::{Party, Workspace};
 use hamlet_sandbox::{Isolation, Sandbox};
 use parking_lot::Mutex;
 use tokio::sync::mpsc;
@@ -151,8 +152,10 @@ async fn demo() -> Result<()> {
     } else {
         counter::Sleep::WhenIdle
     };
-    let factories =
-        kinds::factories(&start.kinds, start.realm_actor, sleep);
+    let mut factories = kinds::factories(&start.kinds, sleep);
+    if start.realm_actor {
+        factories.extend(realm::actor_kinds());
+    }
     // The workspace does not start where there is no sandbox.
     let options = match Sandbox::open(Isolation::Sandboxed) {
         Ok(sandbox) => start.options.with_value(Arc::new(sandbox)),
@@ -248,7 +251,6 @@ struct Start {
     kinds: Vec<String>,
     /// Whether the host runs the agents in a Node child.
     link: bool,
-    /// Whether the host runs the realm actor.
     realm_actor: bool,
 }
 
@@ -319,6 +321,12 @@ fn options(args: &[String]) -> Result<(Start, &[String])> {
         let default = if link { kinds::LINKED } else { kinds::LOCAL };
         kinds =
             default.iter().map(|kind| (*kind).to_owned()).collect();
+    }
+    // The realm actor calls the workspace.
+    if realm_actor
+        && !kinds.iter().any(|kind| kind == Workspace::KIND)
+    {
+        kinds.push(Workspace::KIND.to_owned());
     }
     Ok((
         Start {

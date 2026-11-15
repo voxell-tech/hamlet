@@ -39,8 +39,7 @@ const ENVIRONMENT: &[(&str, Value)] = &[
 /// and after a child that stayed ready for [`STEADY`].
 const RESTART: Duration = Duration::from_secs(1);
 
-/// The longest pause between two children. Each child that ends
-/// before it stayed ready for [`STEADY`] doubles the pause up to it.
+/// The longest pause between two children.
 const RESTART_CAP: Duration = Duration::from_secs(60);
 
 /// How long a child stays ready for the pause after it to go back to
@@ -132,11 +131,8 @@ struct Supervised {
 
 /// Keeps one Node child running, from a thread of its own. A child
 /// that exits, breaks the link, misses a deadline of the handshake or
-/// is refused is killed with its tree and followed by a new one, for
-/// as long as the supervisor runs. The new one starts a second later
-/// at first. Each child that ends before it stayed ready for a minute
-/// doubles that pause, up to a minute, and one that stayed ready for
-/// a minute brings it back to a second.
+/// is refused is killed with its tree and followed by a new one after
+/// a pause, for as long as the supervisor runs.
 ///
 /// Dropped, it stops: its thread sees the drop and shuts the running
 /// child down as [`Supervisor::shutdown`] does, and the drop does not
@@ -212,7 +208,6 @@ struct Running {
     /// What each read of the child's output gave: its frames, then
     /// its end or the break of the link.
     frames: mpsc::UnboundedReceiver<Result<Option<Frame>, Broken>>,
-    /// When the child said it is ready.
     ready_at: Option<Instant>,
 }
 
@@ -258,8 +253,6 @@ async fn supervise(
 struct Pause(Duration);
 
 impl Pause {
-    /// The pause after a child ended: [`RESTART`] if it was `steady`,
-    /// else this one. The next is twice it, up to [`RESTART_CAP`].
     fn after(&mut self, steady: bool) -> Duration {
         let pause = if steady { RESTART } else { self.0 };
         self.0 = (pause * 2).min(RESTART_CAP);

@@ -547,8 +547,6 @@ async fn a_failed_start_tells_each_caller_why() {
 /// Of two creates of one key at once, one with an input the kind
 /// cannot read, the other makes the actor, also when it waited for
 /// the failed one's start: that start tells its waiters nothing.
-/// A failure shows what the host logged, which names the reason the
-/// failed start left the actor made.
 #[test]
 fn a_create_that_fails_leaves_the_key_to_a_create_that_waited() {
     let logs = Logs::default();
@@ -583,8 +581,6 @@ fn a_create_that_fails_leaves_the_key_to_a_create_that_waited() {
     });
 }
 
-/// A runtime of several threads, each of which logs to `logs` what
-/// is logged at `level` or above.
 fn logged_runtime(
     logs: &Logs,
     level: LevelFilter,

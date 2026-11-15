@@ -22,7 +22,6 @@ const FIRED: Probe = Probe {
     read: Read::Sql("SELECT COUNT(*) FROM fired"),
 };
 
-/// When the agent's one-shot is due.
 const DUE: Probe = Probe {
     name: "agent.due",
     file: "actors/agent/1.sqlite",
