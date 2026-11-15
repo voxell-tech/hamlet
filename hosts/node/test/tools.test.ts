@@ -158,33 +158,58 @@ test("a path that only begins with the root's name goes to the workspace", async
     await agent.stop();
 });
 
-test("an own search keeps only the files whose name matches", async (t) => {
+test("an own search gives the adapter its name, and a search or a find answers in today's words", async (t) => {
     const fake = fakeFiles({});
-    const md = `${fake.root}/memory/plan.md`;
-    const txt = `${fake.root}/memory/plan.txt`;
+    const md = `${ROOT}/memory/plan.md`;
+    const named: (string | undefined)[] = [];
     const files = Object.assign(Object.create(fake) as typeof fake, {
-        search: async () =>
-            ok({
-                found: [md, txt].map((path) => ({
-                    path,
-                    line: 1,
-                    text: "the plan",
-                })),
+        search: async (
+            _pattern: string,
+            _path: string,
+            options?: { name?: string },
+        ) => {
+            named.push(options?.name);
+            return ok({
+                found:
+                    options?.name === "*.md"
+                        ? [{ path: md, line: 1, text: "the plan" }]
+                        : [],
+                more: false,
                 capped: false,
-            }),
+            });
+        },
         find: async (glob: string) =>
-            ok({ found: glob === "*.md" ? [md] : [], capped: false }),
+            ok(
+                glob === "*.md"
+                    ? { found: [md], more: true, capped: false }
+                    : { found: [], more: false, capped: true },
+            ),
+        list: async () =>
+            ok([
+                {
+                    name: "b",
+                    path: `${ROOT}/b`,
+                    kind: "file" as const,
+                    size: 1,
+                },
+                {
+                    name: "a",
+                    path: `${ROOT}/a`,
+                    kind: "directory" as const,
+                    size: 0,
+                },
+            ]),
     });
     const { calls } = fakeCalls({});
     const agent = await wakeAgent(t, {
         calls,
         files,
         responses: [
-            toolCall("search", {
-                pattern: "plan",
-                path: files.root,
-                name: "*.md",
-            }),
+            toolCall("search", { pattern: "plan", name: "*.md" }, "c1"),
+            toolCall("search", { pattern: "plan", name: "*.rs" }, "c2"),
+            toolCall("find", { name: "*.md" }, "c3"),
+            toolCall("find", { name: "*.txt" }, "c4"),
+            toolCall("find", { path: "memory" }, "c5"),
             fauxAssistantMessage("Found it."),
         ],
     });
@@ -194,11 +219,14 @@ test("an own search keeps only the files whose name matches", async (t) => {
     );
     await agent.idle();
 
-    assert.equal(
-        (await agent.entries()).find((entry) => entry.kind === "pi.tool-result")
-            ?.text,
+    assert.deepEqual(named, ["*.md", "*.rs"]);
+    assert.deepEqual(await results(agent), [
         `${md}:1: the plan`,
-    );
+        "no match",
+        `${md}\n[more than 100. Narrow it with \`path\` or \`name\`]`,
+        "no file by that name\n[stopped after 20000 files. Narrow it with `path`]",
+        "a/\nb",
+    ]);
     await agent.stop();
 });
 

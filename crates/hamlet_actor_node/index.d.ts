@@ -210,8 +210,6 @@ export interface FolderFile {
     size: number;
 }
 export interface FolderFiles {
-    /** The path from the agent's filesystem the walk started at. */
-    start: string;
     files: Array<FolderFile>;
     /** The walk stopped at its bound. */
     capped: boolean;
@@ -224,7 +222,7 @@ export interface FolderMatch {
 }
 export interface FolderMatches {
     matches: Array<FolderMatch>;
-    /** The search stopped at a bound. */
+    /** The walk stopped at its bound before the search found `most`. */
     capped: boolean;
 }
 export interface JsBindParam {
@@ -532,20 +530,28 @@ export declare class AgentFolder {
     list(path: string): Promise<Array<FolderEntry>>;
     /**
      * Every regular file with one name at or below `path`, after at
-     * most `most` names looked at. No link is followed.
+     * most `most` names looked at, or only those `name` matches. In
+     * `name`, `*` stands for any run of characters and `?` for one;
+     * with a `/` in it, it is matched against the file's path from
+     * `path` rather than its name. No link is followed.
      */
-    files(path: string, most: number): Promise<FolderFiles>;
+    files(
+        path: string,
+        most: number,
+        name?: string | undefined | null,
+    ): Promise<FolderFiles>;
     /**
      * The lines that match `pattern`, a regular expression that runs
-     * in linear time, in the text files at or below `path`, up to
-     * `most` of them, after at most `looked` names. A file over 1
-     * MiB, one that is not UTF-8 and one holding NUL are passed
-     * over.
+     * in linear time, in the text files at or below `path` that
+     * `name` matches as in `files`, up to `most` of them, after at
+     * most `looked` names. A file over 1 MiB, one that is not UTF-8
+     * and one holding NUL are passed over.
      */
     search(
         path: string,
         pattern: string,
         ignoreCase: boolean,
+        name: string | undefined | null,
         most: number,
         looked: number,
     ): Promise<FolderMatches>;

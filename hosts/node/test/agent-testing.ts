@@ -159,8 +159,8 @@ export function fakeFiles(files: Record<string, string>): AgentFilesystem & {
             return ok(undefined);
         },
         list: async () => ok([]),
-        search: async () => ok({ found: [], capped: false }),
-        find: async () => ok({ found: [], capped: false }),
+        search: async () => ok({ found: [], more: false, capped: false }),
+        find: async () => ok({ found: [], more: false, capped: false }),
         copy: async () => ok(undefined),
     };
 }

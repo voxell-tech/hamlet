@@ -25,7 +25,13 @@ import {
     type ToolRegistration,
     type Wrap,
 } from "@earendil-works/pi-durable";
-import type { AgentFilesystem } from "./filesystem.ts";
+import { omitUndefined } from "../actor/common/utils.ts";
+import {
+    type AgentFilesystem,
+    FOUND,
+    type Found,
+    LOOKED,
+} from "./filesystem.ts";
 import { failed, type Peers, unknownOutcome, words } from "./turn.ts";
 import {
     type Execute,
@@ -153,27 +159,25 @@ async function searched(
     args: FileCall<"search">,
     context: Context,
 ): Promise<ToolExecutionResult> {
-    const { path } = args;
-    let named: Set<string> | undefined;
-    if (args.name !== undefined) {
-        const matched = await files.find(args.name, path, context);
-        if (!matched.ok) return failed(matched.error.message);
-        named = new Set(matched.value.found);
-    }
     const found = await files.search(
         args.pattern,
-        path,
-        args.ignore_case === undefined
-            ? undefined
-            : { ignoreCase: args.ignore_case },
+        args.path,
+        omitUndefined({
+            ignoreCase: args.ignore_case,
+            // As today's: an empty name is no name.
+            name: args.name || undefined,
+        }),
         context,
     );
     if (!found.ok) return failed(found.error.message);
-    return words(
-        found.value.found
-            .filter((match) => named?.has(match.path) ?? true)
-            .map((match) => `${match.path}:${match.line}: ${match.text}`)
-            .join("\n"),
+    return reported(
+        {
+            ...found.value,
+            found: found.value.found.map(
+                (match) => `${match.path}:${match.line}: ${match.text}`,
+            ),
+        },
+        "no match",
     );
 }
 
@@ -182,15 +186,33 @@ async function found(
     args: FileCall<"find">,
     context: Context,
 ): Promise<ToolExecutionResult> {
-    const { path } = args;
-    if (args.name === undefined) {
-        const listed = await files.list(path, context);
-        return listed.ok
-            ? words(listed.value.map((entry) => entry.name).join("\n"))
-            : failed(listed.error.message);
+    if (!args.name) {
+        const listed = await files.list(args.path, context);
+        if (!listed.ok) return failed(listed.error.message);
+        const names = listed.value
+            .map((entry) =>
+                entry.kind === "directory" ? `${entry.name}/` : entry.name,
+            )
+            .sort();
+        return words(names.length === 0 ? "(empty)" : names.join("\n"));
     }
-    const matched = await files.find(args.name, path, context);
+    const matched = await files.find(args.name, args.path, context);
     return matched.ok
-        ? words(matched.value.found.join("\n"))
+        ? reported(matched.value, "no file by that name")
         : failed(matched.error.message);
+}
+
+/**
+ * What a search or a find found, in today's words
+ * (`crates/hamlet_server/src/work/tools/walk.rs:121-141`).
+ */
+function reported(found: Found<string>, none: string): ToolExecutionResult {
+    const lines = found.found.length === 0 ? [none] : [...found.found];
+    if (found.more) {
+        lines.push(`[more than ${FOUND}. Narrow it with \`path\` or \`name\`]`);
+    }
+    if (found.capped) {
+        lines.push(`[stopped after ${LOOKED} files. Narrow it with \`path\`]`);
+    }
+    return words(lines.join("\n"));
 }

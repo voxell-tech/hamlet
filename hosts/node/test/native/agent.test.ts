@@ -115,6 +115,7 @@ test("search and find never follow a link", async (t) => {
             `${filesystem.root}/memory/notes.md`,
             `${filesystem.root}/skills/a/SKILL.md`,
         ],
+        more: false,
         capped: false,
     });
     const byPath = await filesystem.find("a/*.md", "skills", context);
@@ -130,6 +131,7 @@ test("search and find never follow a link", async (t) => {
                 text: "SECRET word",
             },
         ],
+        more: false,
         capped: false,
     });
     const listed = await filesystem.list("skills", context);
@@ -166,4 +168,51 @@ test("an edit replaces text found once, and a copy stays inside", async (t) => {
     assert.ok(
         !(await filesystem.copy("memory/notes.md", "../copy.md", context)).ok,
     );
+});
+
+test("a search with a name looks only in the files the name matches, before its bound", async (t) => {
+    const { filesystem } = await planted(t);
+    const many = Array.from({ length: 120 }, () => "hit").join("\n");
+    for (const path of ["memory/a.txt", "memory/z.txt"]) {
+        assert.ok((await filesystem.write(path, many, context)).ok);
+    }
+    assert.ok((await filesystem.write("memory/m.md", "one hit", context)).ok);
+    const searched = await filesystem.search(
+        "hit",
+        "",
+        { name: "*.md" },
+        context,
+    );
+    assert.deepEqual(searched.ok && searched.value, {
+        found: [
+            {
+                path: `${filesystem.root}/memory/m.md`,
+                line: 1,
+                text: "one hit",
+            },
+        ],
+        more: false,
+        capped: false,
+    });
+});
+
+test("a path the file tools join to the root through `.` or `..` is read inside it or refused", async (t) => {
+    const { outside, filesystem } = await planted(t);
+    const read = await filesystem.read(
+        `${filesystem.root}/./memory/notes.md`,
+        context,
+    );
+    assert.equal(read.ok && decoder.decode(read.value), "notes");
+    const listed = await filesystem.list(`${filesystem.root}/.`, context);
+    assert.deepEqual(listed.ok && listed.value.map((entry) => entry.name), [
+        "inbox",
+        "memory",
+        "skills",
+    ]);
+    const climbed = await filesystem.read(
+        `${filesystem.root}/../../../outside/secret`,
+        context,
+    );
+    assert.equal(climbed.ok ? "read" : climbed.error.code, "permission_denied");
+    outsideIsUntouched(outside);
 });
