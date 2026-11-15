@@ -53,25 +53,16 @@ pub(super) async fn hamlet(
     rows: &Rows<'_>,
     id: &HamletId,
 ) -> Result<Option<Hamlet>> {
-    let at = || vec![BindParam::Text(id.0.clone())];
-    let Some((mayor, tier, limits, mode)) = rows
-        .row::<(u32, String, String, String)>(
-            "SELECT mayor, tier, limits, mode FROM hamlet WHERE id \
-             = ?1",
-            at(),
+    let Some((mayor, tier, limits, folder, mode)) = rows
+        .row::<(u32, String, String, Option<String>, String)>(
+            "SELECT mayor, tier, limits, folder, mode FROM hamlet \
+             WHERE id = ?1",
+            vec![BindParam::Text(id.0.clone())],
         )
         .await?
     else {
         return Ok(None);
     };
-    // `Rows::row` reads four columns at most.
-    let folder = rows
-        .value::<Option<String>>(
-            "SELECT folder FROM hamlet WHERE id = ?1",
-            at(),
-        )
-        .await?
-        .flatten();
     Ok(Some(Hamlet {
         id: id.clone(),
         mayor: AgentNumber(mayor),
