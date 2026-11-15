@@ -146,7 +146,9 @@ impl Actor for Realm {
     }
 
     async fn on_start(self: Arc<Self>, ctx: Ctx<Self>) -> Result<()> {
-        steps::drive_undone(&self, &ctx).await
+        let rows = change::Rows::outside(&ctx)?;
+        steps::undone(&rows, &self.drives).await?.start(&self, &ctx);
+        Ok(())
     }
 }
 

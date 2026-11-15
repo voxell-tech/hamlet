@@ -347,28 +347,26 @@ impl Drives {
     }
 }
 
-/// Starts a drive of every open row with a step left.
-pub(super) async fn drive_undone(
-    realm: &Arc<Realm>,
-    ctx: &Ctx<Realm>,
-) -> Result<()> {
-    let open = Rows::outside(ctx)?
+/// The entries of every open row, for the realm's start to drive.
+pub(super) async fn undone(
+    rows: &Rows<'_>,
+    drives: &Drives,
+) -> Result<Reserved> {
+    let open = rows
         .rows::<(String, u64)>(
             "SELECT kind, n FROM step WHERE closed = 0",
             Vec::new(),
         )
-        .await?;
-    for (kind, n) in open {
-        realm.drives.start(
-            realm,
-            ctx,
-            StepId {
+        .await?
+        .into_iter()
+        .map(|(kind, n)| {
+            Ok(StepId {
                 kind: change::named(kind)?,
                 n,
-            },
-        );
-    }
-    Ok(())
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
+    Ok(drives.take(&open))
 }
 
 #[cfg(test)]
