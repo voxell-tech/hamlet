@@ -345,7 +345,11 @@ fn options(args: &[String]) -> Result<(Start, &[String])> {
         }
     }
     if link && realm_actor {
-        bail!("--link and --realm-actor do not go together");
+        bail!(
+            "--link and --realm-actor do not go together: the Node \
+             host and the realm actor's stand-in agent would both \
+             run the kind `agent`"
+        );
     }
     if kinds.is_empty() {
         let default = if link { kinds::LINKED } else { kinds::LOCAL };
