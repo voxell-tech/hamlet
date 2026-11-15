@@ -9,24 +9,36 @@ use hamlet_actor::Action;
 use hamlet_host::Host;
 use hamlet_messages::agent::Outcome;
 use hamlet_messages::realm::NeedsChief;
-use hamlet_messages::workspace::files::{ChangeAnswer, Hashed};
+use hamlet_messages::workspace::files::{
+    ChangeAnswer, ChangeEnd, Hashed,
+};
 use hamlet_messages::workspace::reach::{
-    Access, Footing, Mode, Need, Project, Reach, Refusal,
-    SecretsVersion,
+    Footing, Mode, Need, Project, Reach, SecretsVersion,
+};
+use hamlet_messages::workspace::refusal::{
+    CallRefusal, ChangeNotRun, PathRefusal, ReachChanged, RunNotRun,
+    Stale, ToChange, WaitEnd, WriteRefusal,
 };
 use hamlet_messages::workspace::{
-    Answer, AnswerTaken, CallId, CallRefusal, Changed, ChiefAnswer,
-    ConversationId, Exit, Lapse, ReachVersion, RealmRefusal,
-    RealmTask, RunAnswer,
+    Answer, AnswerTaken, CallId, ChiefAnswer, CommandId,
+    ConversationId, Exit, Lapse, ReachVersion, RealmTask, Run,
+    RunAnswer, RunEnd,
 };
 use hamlet_testing::Scratch;
 
-use super::changes::{changed, edit, manual, read, sha256, write};
+use super::changes::{edit, manual, read, sha256, write};
 use super::files::{ask, project};
 use super::{
-    AGENT, Leave, Peers, SECRET, agent, agent_runs, files_holding,
-    filesystem, read_only, realm, realm_sets, run, told, told_within,
+    AGENT, ID_REUSED, Leave, Peers, SECRET, WRONG_CALLER, agent,
+    agent_runs, call_as, error_of, files_holding, filesystem,
+    read_only, realm, realm_sets, run, status_as, told, told_within,
 };
+
+fn waits_for_an_edit<R>() -> ChangeAnswer<R> {
+    ChangeAnswer::WaitsForChief {
+        needs: vec![Need::Edit],
+    }
+}
 
 /// A host on `dir` whose peers share `peers`, with agent 7's
 /// filesystem made, as the agent makes it.
@@ -87,7 +99,8 @@ fn manual_with_network(folder: &Path) -> Reach {
 /// In manual mode a command waits for a chief: the call answers so,
 /// the realm is told once with the call's task and its words, and
 /// nothing runs. A repeat answers that it waits and tells no one; a
-/// repeat with another task is another request.
+/// repeat with another task is another request, which fails with
+/// `message.id_reused` (M-E10).
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_command_that_needs_a_chief_waits_and_the_realm_is_told() {
@@ -103,18 +116,18 @@ async fn a_command_that_needs_a_chief_waits_and_the_realm_is_told() {
     let again = agent_runs(&host, &asked_run).await;
     let mut other_task = asked_run.clone();
     other_task.realm_task = Some(RealmTask("task-2".into()));
-    let reused = agent_runs(&host, &other_task).await;
+    let reused = error_of(&host, &agent(AGENT), &other_task).await;
     tokio::time::sleep(Duration::from_millis(300)).await;
     host.shutdown().await.unwrap();
 
-    assert_eq!(first, RunAnswer::WaitsForChief(vec![Need::Command]));
-    assert_eq!(again, first);
     assert_eq!(
-        reused,
-        RunAnswer::Refused(CallRefusal::CallReused(CallId(
-            "c1".into()
-        )))
+        first,
+        RunAnswer::WaitsForChief {
+            needs: vec![Need::Command]
+        }
     );
+    assert_eq!(again, first);
+    assert_eq!(reused, ID_REUSED);
     assert_eq!(
         asked(&peers),
         [NeedsChief {
@@ -130,6 +143,15 @@ async fn a_command_that_needs_a_chief_waits_and_the_realm_is_told() {
     );
     assert!(!folder.join("marker").exists());
     assert_eq!(waits(&dir), 1);
+    let kept = read_only(&dir)
+        .query_row("SELECT request FROM waits", [], |row| {
+            row.get::<_, Vec<u8>>(0)
+        })
+        .unwrap();
+    assert_eq!(
+        ciborium::from_reader::<Run, _>(kept.as_slice()).unwrap(),
+        asked_run
+    );
     assert_eq!(told(&peers), []);
 }
 
@@ -154,17 +176,27 @@ async fn a_command_a_chief_allows_runs_and_the_agent_hears_its_end() {
     tokio::time::sleep(Duration::from_millis(300)).await;
     host.shutdown().await.unwrap();
 
-    assert_eq!(taken, AnswerTaken::Runs);
+    assert_eq!(taken, AnswerTaken::Taken);
     assert_eq!(again, AnswerTaken::NoWait);
     let outcomes = outcomes(&peers);
-    let [Outcome::Ran(end)] = outcomes.as_slice() else {
+    let [
+        Outcome::Run {
+            end: RunEnd::Ran(end),
+        },
+    ] = outcomes.as_slice()
+    else {
         panic!("the agent was told {outcomes:?}");
     };
     assert_eq!(
         (&end.exit, end.output.as_str()),
-        (&Exit::Code(0), "made\n")
+        (&Exit::Code { code: 0 }, "made\n")
     );
-    assert_eq!(repeat, RunAnswer::Done(end.clone()));
+    assert_eq!(
+        repeat,
+        RunAnswer::Ended {
+            end: RunEnd::Ran(end.clone())
+        }
+    );
     assert!(folder.join("marker").exists());
     assert_eq!(waits(&dir), 0);
 }
@@ -190,37 +222,80 @@ async fn a_refusal_and_a_lapse_end_the_wait_and_run_nothing() {
         },
     )
     .await;
-    let lapsed =
-        chief(&host, "c2", Answer::Lapsed(Lapse::Rewound)).await;
+    let lapsed = chief(
+        &host,
+        "c2",
+        Answer::Lapsed {
+            lapse: Lapse::Rewound,
+        },
+    )
+    .await;
     told_within(&peers, 2, Duration::from_secs(5)).await;
     let repeat = agent_runs(&host, &run("c1", "touch one")).await;
+    let status = status_as(&host, AGENT, CommandId(1)).await;
     host.shutdown().await.unwrap();
 
-    let by_chief = CallRefusal::ChiefRefused {
+    let by_chief = RunNotRun::from(WaitEnd::ChiefRefused {
         reason: Some("not now".into()),
-    };
-    let by_lapse = CallRefusal::Lapsed(Lapse::Rewound);
-    assert_eq!(refused, AnswerTaken::NotRun(by_chief.clone()));
-    assert_eq!(lapsed, AnswerTaken::NotRun(by_lapse.clone()));
+    });
+    let by_lapse = RunNotRun::from(WaitEnd::Lapsed {
+        lapse: Lapse::Rewound,
+    });
+    assert_eq!(
+        refused,
+        AnswerTaken::RunNotRun {
+            why: by_chief.clone()
+        }
+    );
+    assert_eq!(
+        lapsed,
+        AnswerTaken::RunNotRun {
+            why: by_lapse.clone()
+        }
+    );
+    let not_run = |why| RunEnd::NotRun { why };
     assert_eq!(
         outcomes(&peers),
         [
-            Outcome::NotRun(by_chief.clone()),
-            Outcome::NotRun(by_lapse)
+            Outcome::Run {
+                end: not_run(by_chief.clone())
+            },
+            Outcome::Run {
+                end: not_run(by_lapse)
+            }
         ]
     );
-    assert_eq!(repeat, RunAnswer::Refused(by_chief));
+    assert_eq!(
+        repeat,
+        RunAnswer::Ended {
+            end: not_run(by_chief.clone())
+        }
+    );
+    let c1: i64 = read_only(&dir)
+        .query_row(
+            "SELECT id FROM calls WHERE call = 'c1'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(c1, 1);
+    assert_eq!(
+        status,
+        RunAnswer::Ended {
+            end: not_run(by_chief)
+        }
+    );
     assert!(!folder.join("one").exists());
     assert!(!folder.join("two").exists());
     assert_eq!(waits(&dir), 0);
 }
 
-/// A pending operation is refused after a revoke: a change whose
+/// A pending operation does not run after a revoke: a change whose
 /// project was taken out of the reach, and a command whose network
-/// was taken back, each with both versions and why. Neither runs.
+/// was taken back, each with both versions and why.
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
-async fn a_pending_operation_is_refused_after_a_revoke() {
+async fn a_pending_operation_does_not_run_after_a_revoke() {
     let dir = Scratch::new("workspace-wait-revoke");
     let (_project, folder) =
         project("workspace-wait-revoke-p", &[("a.md", "a")]);
@@ -241,24 +316,40 @@ async fn a_pending_operation_is_refused_after_a_revoke() {
     told_within(&peers, 2, Duration::from_secs(5)).await;
     host.shutdown().await.unwrap();
 
-    let moved = CallRefusal::ReachChanged {
+    let moved = ChangeNotRun::from(ReachChanged::ReachRefuses {
         since: ReachVersion(1),
         now: ReachVersion(3),
-        why: Changed::Refused(Refusal::OutsideReach {
+        why: PathRefusal::OutsideReach {
             path: file.clone(),
-            access: Access::Change,
-        }),
-    };
-    let no_network = CallRefusal::ReachChanged {
+            access: ToChange::Change,
+        }
+        .into(),
+    });
+    let no_network = RunNotRun::from(ReachChanged::ReachNeeds {
         since: ReachVersion(1),
         now: ReachVersion(3),
-        why: Changed::Needs(vec![Need::Network, Need::Command]),
-    };
-    assert_eq!(change, AnswerTaken::NotRun(moved.clone()));
-    assert_eq!(command, AnswerTaken::NotRun(no_network.clone()));
+        needs: vec![Need::Network, Need::Command],
+    });
+    assert_eq!(
+        change,
+        AnswerTaken::ChangeNotRun { why: moved.clone() }
+    );
+    assert_eq!(
+        command,
+        AnswerTaken::RunNotRun {
+            why: no_network.clone()
+        }
+    );
     assert_eq!(
         outcomes(&peers),
-        [Outcome::NotRun(moved), Outcome::NotRun(no_network)]
+        [
+            Outcome::Change {
+                end: ChangeEnd::NotRun { why: moved }
+            },
+            Outcome::Run {
+                end: RunEnd::NotRun { why: no_network }
+            }
+        ]
     );
     assert_eq!(read(&file), "a");
     assert!(!folder.join("fetched").exists());
@@ -290,8 +381,8 @@ async fn a_change_waits_and_is_carried_out_when_allowed() {
     told_within(&peers, 2, Duration::from_secs(5)).await;
     host.shutdown().await.unwrap();
 
-    let waits_for = ChangeAnswer::WaitsForChief(vec![Need::Edit]);
-    assert_eq!((edited, wrote), (waits_for.clone(), waits_for));
+    assert_eq!(edited, waits_for_an_edit());
+    assert_eq!(wrote, waits_for_an_edit());
     assert_eq!(unchanged, "one\ntwo\n");
     let asked = asked(&peers);
     assert_eq!(
@@ -309,26 +400,32 @@ async fn a_change_waits_and_is_carried_out_when_allowed() {
     assert_eq!(asked[1].change, None);
     assert_eq!(
         (edit_taken, write_taken),
-        (AnswerTaken::Runs, AnswerTaken::Runs)
+        (AnswerTaken::Taken, AnswerTaken::Taken)
     );
     let outcomes = outcomes(&peers);
-    let [Outcome::Changed(edit), Outcome::Changed(write)] =
-        outcomes.as_slice()
+    let [
+        Outcome::Change {
+            end: ChangeEnd::Changed(edit),
+        },
+        Outcome::Change {
+            end: ChangeEnd::Changed(write),
+        },
+    ] = outcomes.as_slice()
     else {
         panic!("the agent was told {outcomes:?}");
     };
-    assert_eq!(changed(edit.clone()).hash, sha256(b"one\n2\n"));
-    assert!(changed(write.clone()).created);
+    assert_eq!(edit.hash, sha256(b"one\n2\n"));
+    assert!(write.created);
     assert_eq!(read(&file), "one\n2\n");
     assert_eq!(read(&made), "hi");
 }
 
 /// A file written while a change of it waits is left as the other
-/// writer left it when a chief allows the change, which is refused
-/// with what the file held and what it holds.
+/// writer left it when a chief allows the change, which is not run,
+/// with what the file held and what it holds (M-E9).
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
-async fn a_change_to_a_file_changed_meanwhile_is_refused() {
+async fn a_change_to_a_file_changed_meanwhile_is_not_run() {
     let dir = Scratch::new("workspace-wait-stale-file");
     let (_project, folder) =
         project("workspace-wait-stale-file-p", &[("a.md", "a")]);
@@ -343,13 +440,23 @@ async fn a_change_to_a_file_changed_meanwhile_is_refused() {
     told_within(&peers, 1, Duration::from_secs(5)).await;
     host.shutdown().await.unwrap();
 
-    let refusal = CallRefusal::FileChanged {
+    let stale = ChangeNotRun::from(Stale::FileChanged {
         path: file.clone(),
-        was: Hashed::Sha256(sha256(b"a")),
-        now: Hashed::Sha256(sha256(b"theirs")),
-    };
-    assert_eq!(taken, AnswerTaken::NotRun(refusal.clone()));
-    assert_eq!(outcomes(&peers), [Outcome::NotRun(refusal)]);
+        was: Hashed::Sha256 { hash: sha256(b"a") },
+        now: Hashed::Sha256 {
+            hash: sha256(b"theirs"),
+        },
+    });
+    assert_eq!(
+        taken,
+        AnswerTaken::ChangeNotRun { why: stale.clone() }
+    );
+    assert_eq!(
+        outcomes(&peers),
+        [Outcome::Change {
+            end: ChangeEnd::NotRun { why: stale }
+        }]
+    );
     assert_eq!(read(&file), "theirs");
 }
 
@@ -382,13 +489,20 @@ async fn no_secret_is_kept_or_shown_for_a_wait() {
             .await;
     host.shutdown().await.unwrap();
 
-    assert_eq!(script, RunAnswer::Refused(CallRefusal::HoldsSecret));
+    assert_eq!(
+        script,
+        RunAnswer::Refused {
+            why: CallRefusal::HoldsSecret.into()
+        }
+    );
     assert_eq!(
         content,
-        ChangeAnswer::Refused(CallRefusal::HoldsSecret)
+        ChangeAnswer::Refused {
+            why: CallRefusal::HoldsSecret.into()
+        }
     );
-    let waits_for = ChangeAnswer::WaitsForChief(vec![Need::Edit]);
-    assert_eq!((over, edited), (waits_for.clone(), waits_for));
+    assert_eq!(over, waits_for_an_edit());
+    assert_eq!(edited, waits_for_an_edit());
     let asked = asked(&peers);
     assert_eq!(asked.len(), 2);
     for asked in &asked {
@@ -409,8 +523,8 @@ async fn no_secret_is_kept_or_shown_for_a_wait() {
     assert_eq!(waits(&dir), 2);
 }
 
-/// Only the realm answers a wait: an agent's answer is refused and
-/// the wait stays.
+/// Only the realm answers a wait: an agent's answer fails as a wrong
+/// caller and the wait stays.
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn only_the_realm_answers_a_wait() {
@@ -421,7 +535,7 @@ async fn only_the_realm_answers_a_wait() {
     realm_sets(&host, 1, manual(&folder)).await;
     agent_runs(&host, &run("c1", "touch marker")).await;
 
-    let taken: AnswerTaken = ask(
+    let taken = error_of(
         &host,
         &agent(AGENT),
         &ChiefAnswer {
@@ -434,12 +548,55 @@ async fn only_the_realm_answers_a_wait() {
     tokio::time::sleep(Duration::from_millis(300)).await;
     host.shutdown().await.unwrap();
 
-    assert_eq!(
-        taken,
-        AnswerTaken::Refused(RealmRefusal::NotTheRealm)
-    );
+    assert_eq!(taken, WRONG_CALLER);
     assert_eq!(waits(&dir), 1);
     assert!(!folder.join("marker").exists());
+}
+
+/// A command's id is its row's id, so a command whose row id passes
+/// a `u32` fails before it waits, and nothing of it is kept.
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_command_whose_row_id_is_no_command_id_does_not_wait() {
+    let dir = Scratch::new("workspace-wait-row-id");
+    let (_project, folder) = project("workspace-wait-row-id-p", &[]);
+    let peers = Arc::new(Peers::default());
+    let host = host_with(&dir, peers.clone()).await;
+    realm_sets(&host, 1, manual(&folder)).await;
+    host.shutdown().await.unwrap();
+    rusqlite::Connection::open(
+        dir.join("actors/workspace/local.sqlite"),
+    )
+    .unwrap()
+    .execute_batch(
+        "DELETE FROM sqlite_sequence WHERE name = 'calls'; INSERT \
+         INTO sqlite_sequence (name, seq) VALUES ('calls', \
+         4294967295)",
+    )
+    .unwrap();
+
+    let host = host_with(&dir, peers.clone()).await;
+    let answered = call_as(
+        &host,
+        &agent(AGENT),
+        Run::NAME,
+        hamlet_actor::action::encode_positional(&run("c1", "true"))
+            .unwrap(),
+    )
+    .await;
+    host.shutdown().await.unwrap();
+
+    assert!(answered.is_err(), "{answered:?}");
+    assert_eq!(
+        read_only(&dir)
+            .query_row("SELECT count(*) FROM calls", [], |row| {
+                row.get::<_, i64>(0)
+            })
+            .unwrap(),
+        0
+    );
+    assert_eq!(waits(&dir), 0);
+    assert_eq!(asked(&peers), []);
 }
 
 /// A wait stays through a restart, and nothing of it ran. Allowed
@@ -464,15 +621,20 @@ async fn a_wait_stays_through_a_restart() {
     told_within(&peers, 1, Duration::from_secs(10)).await;
     host.shutdown().await.unwrap();
 
-    assert_eq!(repeat, RunAnswer::WaitsForChief(vec![Need::Command]));
-    assert_eq!(taken, AnswerTaken::Runs);
+    assert_eq!(
+        repeat,
+        RunAnswer::WaitsForChief {
+            needs: vec![Need::Command]
+        }
+    );
+    assert_eq!(taken, AnswerTaken::Taken);
     assert_eq!(
         peers.fetched.load(std::sync::atomic::Ordering::SeqCst),
         fetched_before + 1
     );
     assert!(matches!(
         outcomes(&peers).as_slice(),
-        [Outcome::Ran(end)] if end.exit == Exit::Code(0)
+        [Outcome::Run { end: RunEnd::Ran(end) }] if end.exit == Exit::Code { code: 0 }
     ));
     assert!(folder.join("marker").exists());
 }
@@ -502,7 +664,9 @@ async fn a_wait_the_realm_was_not_told_of_stays() {
     let repeat = agent_runs(&host, &run("c2", "touch two")).await;
     host.shutdown().await.unwrap();
 
-    let waits_for = RunAnswer::WaitsForChief(vec![Need::Command]);
+    let waits_for = RunAnswer::WaitsForChief {
+        needs: vec![Need::Command],
+    };
     assert_eq!((first, repeat), (waits_for.clone(), waits_for));
     assert_eq!(
         asked(&peers)
@@ -550,23 +714,30 @@ async fn a_granted_command_runs_under_the_reach_in_force() {
 
     assert_eq!(
         fetches,
-        RunAnswer::WaitsForChief(vec![Need::Network, Need::Command])
+        RunAnswer::WaitsForChief {
+            needs: vec![Need::Network, Need::Command]
+        }
     );
-    let RunAnswer::Done(plain) = plain else {
+    let RunAnswer::Ended {
+        end: RunEnd::Ran(plain),
+    } = plain
+    else {
         panic!("a trusted command answered {plain:?}");
     };
     let policies = outcomes(&peers)
         .into_iter()
         .map(|outcome| match outcome {
-            Outcome::Ran(end) => (end.exit, end.policy),
+            Outcome::Run {
+                end: RunEnd::Ran(end),
+            } => (end.exit, end.policy),
             other => panic!("the agent was told {other:?}"),
         })
         .collect::<Vec<_>>();
     assert_eq!(
         policies,
         [
-            (Exit::Code(0), plain.policy.clone()),
-            (Exit::Code(0), plain.policy)
+            (Exit::Code { code: 0 }, plain.policy.clone()),
+            (Exit::Code { code: 0 }, plain.policy)
         ]
     );
 }
@@ -626,7 +797,7 @@ async fn a_change_waits_however_its_path_is_spelled() {
     let mut answers = Vec::new();
     for (n, (folder, path)) in cases.iter().enumerate() {
         realm_sets(&host, n as u64 + 1, manual(folder)).await;
-        let answer: ChangeAnswer = ask(
+        let answer: ChangeAnswer<WriteRefusal> = ask(
             &host,
             &agent(AGENT),
             &write(&format!("w{n}"), path, "unasked"),
@@ -636,10 +807,9 @@ async fn a_change_waits_however_its_path_is_spelled() {
     }
     host.shutdown().await.unwrap();
 
-    let waits_for = ChangeAnswer::WaitsForChief(vec![Need::Edit]);
     let all_wait = answers
         .iter()
-        .map(|(path, _)| (path.clone(), waits_for.clone()))
+        .map(|(path, _)| (path.clone(), waits_for_an_edit()))
         .collect::<Vec<_>>();
     assert_eq!(answers, all_wait);
     assert_eq!(std::fs::read_dir(&real).unwrap().count(), 0);

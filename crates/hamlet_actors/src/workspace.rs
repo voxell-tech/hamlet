@@ -5,7 +5,7 @@
 mod calls;
 mod files;
 mod pending;
-pub mod reach;
+mod reach;
 mod run;
 mod tools;
 mod workers;
@@ -20,41 +20,35 @@ use hamlet_actor::{Action, Actor, Ctx, Handler, Registry};
 use hamlet_actor_core::{
     ActorConfig, ActorFactory, SqliteTransaction,
 };
-use hamlet_host::{Address, Caller, HostRef};
+use hamlet_host::{Caller, HostRef};
+use hamlet_messages::Message;
+use hamlet_messages::address::{self, Party};
 use hamlet_messages::agent::{Finished, Outcome};
-use hamlet_messages::realm::{NeedsChief, SecretList, Secrets};
+use hamlet_messages::realm::{NeedsChief, Secrets};
+use hamlet_messages::sender::{id_reused, sender};
 use hamlet_messages::workspace::files::{
     EditFile, Find, ReadFile, Search, WriteFile,
 };
 use hamlet_messages::workspace::reach::{Reach, SecretsVersion};
+use hamlet_messages::workspace::refusal::{
+    CallRefusal, InvalidProgram, RunRefusal, StatusRefusal, WaitEnd,
+};
 use hamlet_messages::workspace::{
-    AgentNumber, AnswerTaken, CallId, CallRefusal, CallerRefusal,
-    Cancel, CancelAnswer, ChiefAnswer, CommandId, CommandStatus,
-    Exit, Lapse, ListTools, Program, ReachAnswer, RealmRefusal, Run,
-    RunAnswer, SetReach, ToolList, Which,
+    AgentNumber, AnswerTaken, CallId, Cancel, CancelAgent, Cancelled,
+    ChiefAnswer, CommandId, CommandStatus, Exit, InForce, Lapse,
+    ListTools, Program, Run, RunAnswer, RunEnd, SetReach, ToolList,
+    Which,
 };
 use hamlet_sandbox::{AllLeftovers, Sandbox};
 
 use self::reach::{Gate, Purpose, RealmFolder};
 
-pub const KIND: &str = "workspace";
-
-/// The workspace's key.
-pub const MACHINE: &str = "local";
-
-/// The kind of the realm, the only caller that sets a reach.
-pub const REALM: &str = "realm";
-
-/// The realm's key.
-pub const REALM_KEY: &str = "local";
-
-/// The kind of an agent, keyed by its [`AgentNumber`].
-pub const AGENT: &str = "agent";
-
 /// The most lines and bytes of a command's output or a file handed
 /// to an agent at once (C16).
 const MOST_LINES: usize = 2000;
 const MOST_BYTES: usize = 50 * 1024;
+
+const CALL_WITHIN: Duration = Duration::from_secs(10);
 
 /// The workspace's answer settings, given by its host as a value of
 /// [`hamlet_host::HostOptions`]. Without one, it waits 5 seconds.
@@ -69,7 +63,7 @@ pub struct Options {
 pub fn factory() -> ActorFactory {
     let mut registry = Registry::new();
     registry.register_actor_with::<Workspace>(
-        KIND,
+        address::Workspace::KIND,
         ActorConfig {
             has_database: true,
             ..ActorConfig::default()
@@ -77,7 +71,7 @@ pub fn factory() -> ActorFactory {
     );
     registry
         .into_factories()
-        .remove(KIND)
+        .remove(address::Workspace::KIND)
         .expect("the registry holds the kind it registered")
 }
 
@@ -108,6 +102,7 @@ impl Actor for Workspace {
         SetReach,
         Run,
         CommandStatus,
+        CancelAgent,
         Cancel,
         ListTools,
         ReadFile,
@@ -241,16 +236,14 @@ impl Workspace {
     }
 
     async fn fetch_secrets(&self, ctx: &Ctx<Self>) -> Result<()> {
-        let answer = call_actor(
-            ctx,
-            Address::new(REALM, REALM_KEY)?,
+        let list = call(
+            &HostRef::of(ctx.inner())?,
+            &address::Realm,
             &Secrets,
+            CALL_WITHIN,
         )
         .await
         .context("fetch the realm's secrets")?;
-        let list =
-            ciborium::from_reader::<SecretList, _>(answer.as_slice())
-                .context("decode the realm's secrets")?;
         let mut held = self
             .secrets
             .lock()
@@ -283,9 +276,10 @@ struct Opened {
 impl Handler<ListTools> for Workspace {
     async fn handle(
         self: Arc<Self>,
-        _: Ctx<Self>,
-        _: ListTools,
+        ctx: Ctx<Self>,
+        listed: ListTools,
     ) -> Result<ToolList> {
+        sender(&ctx, &listed)?;
         Ok(tools::list(&self.home))
     }
 }
@@ -296,19 +290,14 @@ impl Handler<Run> for Workspace {
         ctx: Ctx<Self>,
         run: Run,
     ) -> Result<RunAnswer> {
-        let agent = match calling_agent(&ctx, run.agent, Run::NAME)? {
-            Ok(agent) => agent,
-            Err(refusal) => return Ok(RunAnswer::Refused(refusal)),
-        };
-        if let Err(why) = checked(&run) {
-            return Ok(RunAnswer::Refused(CallRefusal::Invalid(
-                why.to_string(),
-            )));
+        let address::Agent(agent) = sender(&ctx, &run)?;
+        if let Some(why) = checked(&run) {
+            return Ok(RunAnswer::Refused { why });
         }
         let request_hash = calls::request_hash(&run)?;
         // Read before the row is opened: past its commit, nothing
         // returns before the command starts.
-        let leftovers = self.leftovers.of(i64::try_from(agent.0)?);
+        let leftovers = self.leftovers.of(i64::from(agent.0));
         let (this, ctx, run) = (&*self, &ctx, &run);
         let request_hash = &request_hash;
         let decision = self
@@ -349,7 +338,7 @@ impl Handler<Run> for Workspace {
             Decision::AskChief(notice) => {
                 let needs = notice.needs.clone();
                 self.ask_chief(ctx, notice).await;
-                return Ok(RunAnswer::WaitsForChief(needs));
+                return Ok(RunAnswer::WaitsForChief { needs });
             }
         };
         let running = opened.running;
@@ -402,11 +391,12 @@ impl Workspace {
         run: &Run,
     ) -> Result<AnswerTaken> {
         let agent = wait.agent;
-        let leftovers = self.leftovers.of(i64::try_from(agent.0)?);
+        let leftovers = self.leftovers.of(i64::from(agent.0));
         let ready = match tools::Ready::of(&self.home, run) {
             Ok(ready) => ready,
             Err(refusal) => {
-                return self.not_run(ctx, wait, refusal).await;
+                let why = pending::NotRun::Run(refusal.into());
+                return self.not_run(ctx, wait, why).await;
             }
         };
         let (reach, network, secrets) = match self
@@ -418,17 +408,24 @@ impl Workspace {
                 network,
                 secrets,
             } => (reach, network, secrets),
-            pending::Rechecked::Refused(refusal) => {
-                return self.not_run(ctx, wait, refusal).await;
+            pending::Rechecked::Changed(gated) => {
+                let changed = pending::changed(
+                    gated,
+                    reach::Refused::of_program,
+                )?;
+                let why = pending::NotRun::Run(changed.into());
+                return self.not_run(ctx, wait, why).await;
             }
         };
         let placement =
             self.program_placement(agent, &reach, &ready, network)?;
         let tx = ctx.sql().begin_transaction(None).await?;
         let settled =
-            pending::settle(&tx, wait, "running", None, None).await;
+            pending::settle(&tx, wait, "running", None, None)
+                .await
+                .and_then(|id| id.map(run::command_id).transpose());
         let command = match settled {
-            Ok(Some(id)) => CommandId(u64::try_from(id)?),
+            Ok(Some(command)) => command,
             Ok(None) => {
                 tx.rollback().await?;
                 return Ok(AnswerTaken::NoWait);
@@ -462,7 +459,7 @@ impl Workspace {
             leftovers,
         );
         self.clone().start(ctx, &running, spec);
-        Ok(AnswerTaken::Runs)
+        Ok(AnswerTaken::Taken)
     }
 }
 
@@ -471,23 +468,18 @@ impl Handler<CommandStatus> for Workspace {
         self: Arc<Self>,
         ctx: Ctx<Self>,
         asked: CommandStatus,
-    ) -> Result<RunAnswer> {
-        let agent = match calling_agent(
-            &ctx,
-            asked.agent,
-            CommandStatus::NAME,
-        )? {
-            Ok(agent) => agent,
-            Err(refusal) => return Ok(RunAnswer::Refused(refusal)),
-        };
+    ) -> Result<RunAnswer<StatusRefusal>> {
+        let address::Agent(agent) = sender(&ctx, &asked)?;
         let row = read_only(&ctx, async |tx| {
             run::status(tx, agent, asked.command).await
         })
         .await?;
         Ok(match row {
-            None => RunAnswer::Refused(CallRefusal::NoSuchCommand(
-                asked.command,
-            )),
+            None => RunAnswer::Refused {
+                why: StatusRefusal::NoSuchCommand {
+                    command: asked.command,
+                },
+            },
             Some(row) if self.waiters(row.command).is_some() => {
                 RunAnswer::Running {
                     command: row.command,
@@ -532,9 +524,10 @@ impl Workspace {
                 // Its thread panicked.
                 Err(_) => run::without_output(
                     command,
-                    Exit::Failed(
-                        "the command's thread ended before it".into(),
-                    ),
+                    Exit::Failed {
+                        words: "the command's thread ended before it"
+                            .into(),
+                    },
                 ),
             };
             if let Err(error) =
@@ -555,7 +548,8 @@ impl Workspace {
             // wait for that call.
             self.ran(command);
             if let Some(end) = unheard {
-                tell(&ctx, agent, call, Outcome::Ran(end)).await;
+                let end = RunEnd::Ran(end);
+                tell(&ctx, agent, call, Outcome::Run { end }).await;
             }
         });
     }
@@ -620,23 +614,31 @@ impl Workspace {
     }
 }
 
+impl Handler<CancelAgent> for Workspace {
+    async fn handle(
+        self: Arc<Self>,
+        ctx: Ctx<Self>,
+        cancel: CancelAgent,
+    ) -> Result<Cancelled> {
+        sender(&ctx, &cancel)?;
+        Ok(Cancelled {
+            commands: self
+                .cancel(&ctx, cancel.agent, &cancel.which)
+                .await,
+        })
+    }
+}
+
 impl Handler<Cancel> for Workspace {
     async fn handle(
         self: Arc<Self>,
         ctx: Ctx<Self>,
         cancel: Cancel,
-    ) -> Result<CancelAnswer> {
-        let caller = caller(&ctx)?;
-        if !is_the_realm(caller.as_ref())
-            && let Err(refusal) =
-                agent_of(caller.as_ref(), cancel.agent)
-        {
-            refused(caller.as_ref(), Cancel::NAME, &refusal);
-            return Ok(CancelAnswer::Refused(refusal));
-        }
-        Ok(CancelAnswer::Cancelled(
-            self.cancel(&ctx, cancel.agent, &cancel.which).await,
-        ))
+    ) -> Result<Cancelled> {
+        let address::Agent(agent) = sender(&ctx, &cancel)?;
+        Ok(Cancelled {
+            commands: self.cancel(&ctx, agent, &cancel.which).await,
+        })
     }
 }
 
@@ -678,35 +680,42 @@ async fn read_only<T>(
     done
 }
 
-async fn call_actor<A: Action>(
-    ctx: &Ctx<Workspace>,
-    to: Address,
-    action: &A,
-) -> Result<Vec<u8>> {
-    let args = hamlet_actor::action::encode_positional(action)?;
-    HostRef::of(ctx.inner())?
-        .call(&to, A::NAME, args, Duration::from_secs(10))
-        .await
+async fn call<M: Message>(
+    host: &HostRef,
+    to: &M::To,
+    message: &M,
+    deadline: Duration,
+) -> Result<M::Output> {
+    let args = hamlet_actor::action::encode_positional(message)?;
+    let answer =
+        host.call(&to.address()?, M::NAME, args, deadline).await?;
+    ciborium::from_reader(answer.as_slice())
+        .with_context(|| format!("decode the answer to {}", M::NAME))
 }
 
-/// Calls `agent` with how its call `call` ended, once. A failed
-/// call, as to an agent that no longer exists, is logged and dropped.
+/// Calls `agent` with how its call `id` ended, once. A failed call,
+/// as to an agent that no longer exists, is logged and dropped.
 async fn tell(
     ctx: &Ctx<Workspace>,
     agent: AgentNumber,
-    call: CallId,
+    id: CallId,
     outcome: Outcome,
 ) {
-    let id = call.0.clone();
+    let shown = id.0.clone();
     let told = async {
-        let to = Address::new(AGENT, agent.0.to_string())?;
-        call_actor(ctx, to, &Finished { call, outcome }).await
+        call(
+            &HostRef::of(ctx.inner())?,
+            &address::Agent(agent),
+            &Finished { call: id, outcome },
+            CALL_WITHIN,
+        )
+        .await
     };
     if let Err(error) = told.await {
         tracing::warn!(
             ?error,
             agent = agent.0,
-            call = id,
+            call = shown,
             "dropped the end of a call the agent was not told"
         );
     }
@@ -734,11 +743,7 @@ impl Workspace {
     ) -> Result<Weighing<Decision>> {
         if let Some(call) = calls::find(tx, agent, &run.call).await? {
             if !call.is(run::OP, request_hash) {
-                return Ok(Weighing::Done(Decision::Answer(
-                    RunAnswer::Refused(CallRefusal::CallReused(
-                        run.call.clone(),
-                    )),
-                )));
+                return Err(id_reused(Run::NAME, &run.call));
             }
             let row = run::row_of(call)?;
             if let Some(waiters) = self.waiters(row.command) {
@@ -755,7 +760,9 @@ impl Workspace {
             Ok(ready) => ready,
             Err(refusal) => {
                 return Ok(Weighing::Done(Decision::Answer(
-                    RunAnswer::Refused(refusal),
+                    RunAnswer::Refused {
+                        why: refusal.into(),
+                    },
                 )));
             }
         };
@@ -773,15 +780,16 @@ impl Workspace {
             &op,
         ) {
             Gate::Run { network } => network,
-            Gate::Refuse(refusal) => {
+            Gate::Refuse(refused) => {
                 return Ok(Weighing::Done(Decision::Answer(
-                    RunAnswer::Refused(CallRefusal::Reach(refusal)),
+                    RunAnswer::Refused {
+                        why: refused.of_program()?.into(),
+                    },
                 )));
             }
             Gate::NeedsChief(needs) => {
                 let opening = pending::Opening {
                     agent,
-                    op: run::OP,
                     request_hash: request_hash.to_vec(),
                     needs,
                     request: pending::Pending::Run(run.clone()),
@@ -795,9 +803,11 @@ impl Workspace {
                     match pending::open(tx, &secrets, opening).await?
                     {
                         Ok(notice) => Decision::AskChief(notice),
-                        Err(refusal) => Decision::Answer(
-                            RunAnswer::Refused(refusal),
-                        ),
+                        Err(refusal) => {
+                            Decision::Answer(RunAnswer::Refused {
+                                why: refusal.into(),
+                            })
+                        }
                     },
                 ));
             }
@@ -840,70 +850,56 @@ impl Workspace {
 }
 
 /// The answer a command's row gives.
-fn answer_of(row: run::Row) -> RunAnswer {
+fn answer_of<R>(row: run::Row) -> RunAnswer<R> {
     match row.state {
         run::State::Running => RunAnswer::Running {
             command: row.command,
         },
-        run::State::Ended(end) => RunAnswer::Done(end),
-        run::State::CutOff => RunAnswer::Done(run::without_output(
-            row.command,
-            Exit::CutOff,
-        )),
-        run::State::Waiting(needs) => RunAnswer::WaitsForChief(needs),
-        run::State::Refused(refusal) => RunAnswer::Refused(refusal),
+        run::State::Ended(end) => run::ended(end),
+        run::State::CutOff => {
+            run::ended(run::without_output(row.command, Exit::CutOff))
+        }
+        run::State::Waiting(needs) => {
+            RunAnswer::WaitsForChief { needs }
+        }
+        run::State::NotRun(why) => RunAnswer::Ended {
+            end: RunEnd::NotRun { why },
+        },
     }
 }
 
-#[derive(Debug, thiserror::Error)]
-enum Invalid {
-    #[error(
-        "Invalid call id: {0:?} is not 1 to 128 of A-Z, a-z, 0-9, \
-         '.', '_', ':' and '-'"
-    )]
-    CallId(String),
-    #[error("Invalid command: longer than 1 MiB")]
-    LongCommand,
-    #[error("Invalid timeout: must be a positive number of seconds")]
-    ZeroTimeout,
-    #[error("Invalid arguments: longer than 1 MiB")]
-    LongArguments,
-    #[error("{0} is not an absolute path")]
-    NotAbsolute(String),
-}
-
-fn checked(run: &Run) -> Result<(), Invalid> {
-    checked_call(&run.call)?;
-    match &run.program {
+fn checked(run: &Run) -> Option<RunRefusal> {
+    if let Some(refusal) = checked_call(&run.call) {
+        return Some(refusal.into());
+    }
+    let invalid = match &run.program {
         Program::Script { script, .. }
             if script.len() > 1024 * 1024 =>
         {
-            Err(Invalid::LongCommand)
+            InvalidProgram::ScriptTooLong
         }
         Program::Script {
             timeout_ms: Some(0),
             ..
-        } => Err(Invalid::ZeroTimeout),
+        } => InvalidProgram::ZeroTimeout,
         Program::Tool { arguments, .. }
             if arguments.len() > 1024 * 1024 =>
         {
-            Err(Invalid::LongArguments)
+            InvalidProgram::ArgumentsTooLong
         }
-        Program::Script { .. } | Program::Tool { .. } => Ok(()),
-    }
+        Program::Script { .. } | Program::Tool { .. } => return None,
+    };
+    Some(invalid.into())
 }
 
-fn checked_call(call: &CallId) -> Result<(), Invalid> {
-    let call = &call.0;
-    if call.is_empty()
-        || call.len() > 128
-        || !call.bytes().all(|byte| {
+fn checked_call(call: &CallId) -> Option<CallRefusal> {
+    let id = &call.0;
+    let valid = !id.is_empty()
+        && id.len() <= 128
+        && id.bytes().all(|byte| {
             byte.is_ascii_alphanumeric() || b"._:-".contains(&byte)
-        })
-    {
-        return Err(Invalid::CallId(call.clone()));
-    }
-    Ok(())
+        });
+    (!valid).then(|| CallRefusal::InvalidId { call: call.clone() })
 }
 
 impl Handler<SetReach> for Workspace {
@@ -911,10 +907,8 @@ impl Handler<SetReach> for Workspace {
         self: Arc<Self>,
         ctx: Ctx<Self>,
         set: SetReach,
-    ) -> Result<ReachAnswer> {
-        if let Err(refusal) = realm_calling(&ctx, SetReach::NAME)? {
-            return Ok(ReachAnswer::Refused(refusal));
-        }
+    ) -> Result<InForce> {
+        sender(&ctx, &set)?;
         let (in_force, now, closed) = transact(&ctx, async |tx| {
             let in_force = reach::apply(tx, &set).await?;
             // The reach in force, not the call's: an ended reach
@@ -947,11 +941,13 @@ impl Handler<SetReach> for Workspace {
             }
             Some(Reach::Agent(_)) | None => {}
         }
-        Ok(ReachAnswer::InForce(in_force))
+        Ok(InForce { version: in_force })
     }
 }
 
-const LAPSED: CallRefusal = CallRefusal::Lapsed(Lapse::Ended);
+const LAPSED: WaitEnd = WaitEnd::Lapsed {
+    lapse: Lapse::Ended,
+};
 
 impl Workspace {
     /// Ends what `agent`, whose reach ended, has running: its
@@ -963,134 +959,150 @@ impl Workspace {
         &self,
         ctx: &Ctx<Self>,
         agent: AgentNumber,
-        closed: Vec<CallId>,
+        closed: Vec<(CallId, pending::NotRun)>,
     ) -> Result<()> {
         self.cancel(ctx, agent, &Which::All).await;
-        let owner = i64::try_from(agent.0)?;
+        let owner = i64::from(agent.0);
         self.leftovers.end(|of| of == owner);
         workers::remove(&self.home, agent).await;
         let task_ctx = ctx.clone();
         ctx.register_task(async move {
-            for call in closed {
-                tell(&task_ctx, agent, call, Outcome::NotRun(LAPSED))
-                    .await;
+            for (call, why) in closed {
+                tell(&task_ctx, agent, call, why.outcome()).await;
             }
         });
         Ok(())
     }
 }
 
-fn caller(ctx: &Ctx<Workspace>) -> Result<Option<Caller>> {
-    ctx.conn().context("the call has no connection")?.params()
-}
-
-fn is_the_realm(caller: Option<&Caller>) -> bool {
-    matches!(caller, Some(Caller::Actor(from)) if from.kind() == REALM)
-}
-
-fn realm_calling(
-    ctx: &Ctx<Workspace>,
-    action: &str,
-) -> Result<Result<(), RealmRefusal>> {
-    let caller = caller(ctx)?;
-    if is_the_realm(caller.as_ref()) {
-        return Ok(Ok(()));
-    }
-    let refusal = RealmRefusal::NotTheRealm;
-    refused(caller.as_ref(), action, &refusal);
-    Ok(Err(refusal))
-}
-
-fn calling_agent(
-    ctx: &Ctx<Workspace>,
-    named: AgentNumber,
-    action: &str,
-) -> Result<Result<AgentNumber, CallRefusal>> {
-    let caller = caller(ctx)?;
-    Ok(agent_of(caller.as_ref(), named).map_err(|refusal| {
-        refused(caller.as_ref(), action, &refusal);
-        CallRefusal::Caller(refusal)
-    }))
-}
-
-/// The agent a call of an agent's tool is for: the stamped caller,
-/// which must be an agent and the one the request names.
-pub fn agent_of(
-    caller: Option<&Caller>,
-    named: AgentNumber,
-) -> Result<AgentNumber, CallerRefusal> {
-    let Some(Caller::Actor(from)) = caller else {
-        return Err(CallerRefusal::NotAnAgent);
-    };
-    if from.kind() != AGENT {
-        return Err(CallerRefusal::NotAnAgent);
-    }
-    let caller = from
-        .key()
-        .parse()
-        .map(AgentNumber)
-        .map_err(|_| CallerRefusal::NotAnAgent)?;
-    if caller == named {
-        Ok(caller)
-    } else {
-        Err(CallerRefusal::NotTheCaller { named, caller })
-    }
-}
-
-/// Logs that `caller` was refused `action`, and why. A refusal
-/// leaves no row, so a caller refused again and again cannot fill
-/// the workspace's file.
-fn refused(
-    caller: Option<&Caller>,
-    action: &str,
-    why: &impl std::fmt::Display,
-) {
-    let caller =
-        caller.map_or_else(|| "none".to_owned(), ToString::to_string);
-    tracing::warn!(%caller, action, %why, "refused a call");
-}
-
 #[cfg(test)]
 mod tests {
-    use hamlet_host::Address;
+    use std::collections::BTreeSet;
+
+    use hamlet_actor::ActionSet;
+    use hamlet_actor_error::ActorError;
+    use hamlet_host::{Host, HostOptions};
+    use hamlet_messages::workspace::reach::Reach;
+    use hamlet_messages::workspace::{
+        Answer, CallId, ConversationId, ReachVersion,
+    };
+    use hamlet_testing::Scratch;
 
     use super::*;
 
-    fn actor(kind: &str, key: &str) -> Option<Caller> {
-        Some(Caller::Actor(Address::new(kind, key).unwrap()))
+    fn row<M: Message>(message: &M) -> (&'static str, Vec<u8>) {
+        let args =
+            hamlet_actor::action::encode_positional(message).unwrap();
+        (M::NAME, args)
     }
 
-    #[test]
-    fn a_call_is_for_the_agent_that_made_it() {
-        assert_eq!(
-            agent_of(actor(AGENT, "7").as_ref(), AgentNumber(7)),
-            Ok(AgentNumber(7))
-        );
+    fn every_action() -> Vec<(&'static str, Vec<u8>)> {
+        let call = CallId("call-1".into());
+        let conversation = ConversationId("c1".into());
+        vec![
+            row(&SetReach {
+                agent: AgentNumber(7),
+                version: ReachVersion(1),
+                reach: Reach::Ended,
+            }),
+            row(&Run {
+                call: call.clone(),
+                conversation: conversation.clone(),
+                realm_task: None,
+                program: Program::Script {
+                    script: "true".into(),
+                    network: false,
+                    timeout_ms: None,
+                },
+            }),
+            row(&CommandStatus {
+                command: CommandId(1),
+            }),
+            row(&CancelAgent {
+                agent: AgentNumber(7),
+                which: Which::All,
+            }),
+            row(&Cancel { which: Which::All }),
+            row(&ListTools),
+            row(&ReadFile {
+                path: "/a".into(),
+                offset: None,
+                limit: None,
+            }),
+            row(&Search {
+                under: "/".into(),
+                pattern: "a".into(),
+                name: None,
+                ignore_case: false,
+            }),
+            row(&Find {
+                under: "/".into(),
+                name: None,
+            }),
+            row(&WriteFile {
+                call: call.clone(),
+                conversation: conversation.clone(),
+                realm_task: None,
+                path: "/a".into(),
+                content: String::new(),
+            }),
+            row(&EditFile {
+                call: call.clone(),
+                conversation,
+                realm_task: None,
+                path: "/a".into(),
+                edits: Vec::new(),
+            }),
+            row(&ChiefAnswer {
+                agent: AgentNumber(7),
+                call,
+                answer: Answer::Allow,
+            }),
+        ]
     }
 
-    #[test]
-    fn an_agent_that_names_another_is_refused() {
-        assert_eq!(
-            agent_of(actor(AGENT, "8").as_ref(), AgentNumber(7)),
-            Err(CallerRefusal::NotTheCaller {
-                named: AgentNumber(7),
-                caller: AgentNumber(8),
-            })
-        );
-    }
+    #[tokio::test(flavor = "multi_thread")]
+    async fn every_action_refuses_a_caller_it_does_not_admit() {
+        let actions = every_action();
+        let rows = actions
+            .iter()
+            .map(|(name, _)| *name)
+            .collect::<BTreeSet<_>>();
+        let taken = <<Workspace as Actor>::Actions as ActionSet<
+            Workspace,
+        >>::entries()
+        .into_iter()
+        .map(|entry| entry.name)
+        .collect::<BTreeSet<_>>();
+        assert_eq!(rows, taken, "one row for each action");
 
-    #[test]
-    fn only_an_agent_calls_for_its_tools() {
-        for caller in [
-            actor(REALM, "7"),
-            actor(AGENT, "hand"),
-            Some(Caller::Client),
-            None,
-        ] {
+        let dir = Scratch::new("workspace-every-action-caller");
+        let host = Host::open_with(
+            &dir,
+            HashMap::from([(
+                address::Workspace::KIND.to_owned(),
+                factory(),
+            )]),
+            HostOptions::default()
+                .with_value(Arc::new(Sandbox::testing())),
+        )
+        .unwrap();
+        let workspace = address::Workspace.address().unwrap();
+        host.get_or_start(&workspace).await.unwrap();
+        for (name, args) in actions {
+            let error = host
+                .call(&workspace, name, args, Duration::from_secs(20))
+                .await
+                .expect_err(name);
+            let error = ActorError::extract(&error);
             assert_eq!(
-                agent_of(caller.as_ref(), AgentNumber(7)),
-                Err(CallerRefusal::NotAnAgent),
-                "{caller:?}"
+                (error.group(), error.code(), error.metadata()),
+                (
+                    "message",
+                    "wrong_caller",
+                    Some(serde_json::json!({ "action": name }))
+                ),
+                "{name}"
             );
         }
     }

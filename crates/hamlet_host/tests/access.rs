@@ -18,6 +18,7 @@ use hamlet_actor::{
 use hamlet_actor_core::{
     ActorContext, ActorEvent, ActorFactory, ActorStart, ShutdownKind,
 };
+use hamlet_actor_error::ActorError;
 use hamlet_host::{Address, Caller, Host, HostOptions, HostRef};
 use hamlet_testing::Scratch;
 use logs::Logs;
@@ -295,10 +296,53 @@ impl Action for Hold {
     const NAME: &'static str = "hold";
 }
 
+#[derive(Serialize, Deserialize)]
+struct Refuse;
+
+impl Action for Refuse {
+    type Output = ();
+    const NAME: &'static str = "refuse";
+}
+
+#[derive(Debug, ActorError, Serialize)]
+#[error(
+    "message",
+    "wrong_caller",
+    "The caller may not send this message.",
+    "{caller} may not send '{action}'."
+)]
+struct Refusal {
+    action: &'static str,
+    #[serde(skip_serializing_if = "Stamp::is_none")]
+    caller: Stamp,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(transparent)]
+struct Stamp(Option<Caller>);
+
+impl Stamp {
+    fn is_none(&self) -> bool {
+        self.0.is_none()
+    }
+}
+
+impl std::fmt::Display for Stamp {
+    fn fmt(
+        &self,
+        f: &mut std::fmt::Formatter<'_>,
+    ) -> std::fmt::Result {
+        match &self.0 {
+            Some(caller) => caller.fmt(f),
+            None => f.write_str("a call with no caller"),
+        }
+    }
+}
+
 #[async_trait::async_trait]
 impl Actor for Callee {
     type Input = ();
-    type Actions = (Who, Hold);
+    type Actions = (Who, Hold, Refuse);
     type Events = ();
     type ConnParams = Option<Caller>;
     type Action = ();
@@ -315,6 +359,24 @@ impl Handler<Who> for Callee {
         _: Who,
     ) -> anyhow::Result<Option<Caller>> {
         ctx.conn().context("the call has no connection")?.params()
+    }
+}
+
+impl Handler<Refuse> for Callee {
+    async fn handle(
+        self: Arc<Self>,
+        ctx: Ctx<Self>,
+        _: Refuse,
+    ) -> anyhow::Result<()> {
+        let caller = ctx
+            .conn()
+            .context("the call has no connection")?
+            .params()?;
+        Err(Refusal {
+            action: Refuse::NAME,
+            caller: Stamp(caller),
+        }
+        .build())
     }
 }
 
@@ -336,6 +398,8 @@ impl Handler<Hold> for Callee {
 struct Outcome {
     reply: Option<Vec<u8>>,
     error: Option<String>,
+    message: Option<String>,
+    metadata: Option<String>,
     ms: u64,
 }
 
@@ -350,13 +414,22 @@ impl Outcome {
             Ok(reply) => Self {
                 reply: Some(reply),
                 error: None,
+                message: None,
+                metadata: None,
                 ms,
             },
-            Err(error) => Self {
-                reply: None,
-                error: Some(code(&error)),
-                ms,
-            },
+            Err(error) => {
+                let coded = ActorError::extract(&error);
+                Self {
+                    reply: None,
+                    error: Some(code(&error)),
+                    message: Some(coded.message().to_owned()),
+                    metadata: coded
+                        .metadata()
+                        .map(|metadata| metadata.to_string()),
+                    ms,
+                }
+            }
         }
     }
 
@@ -635,6 +708,68 @@ async fn the_callee_reads_who_called_whatever_the_arguments_say() {
     assert_eq!(
         client.reply::<Option<Caller>>(),
         Some(Caller::Client)
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_coded_error_reaches_each_caller_whole() {
+    let dir = Scratch::new("call-coded-error");
+    let host = open_callers(&dir, Arc::default());
+    let (callee, a) = (at("callee", "x"), at("asker", "a"));
+    make(&host, &[&callee, &a]).await;
+    let deadline = Duration::from_secs(10);
+    let by_actor = ask(&host, &a, &callee, &Refuse, deadline).await;
+    let args =
+        hamlet_actor::action::encode_positional(&Refuse).unwrap();
+    let by_program = Outcome::of(host.call(
+        &callee,
+        Refuse::NAME,
+        args.clone(),
+        deadline,
+    ))
+    .await;
+    let by_client = Outcome::of(host.call_for_client(
+        &callee,
+        Refuse::NAME,
+        args,
+        deadline,
+    ))
+    .await;
+    host.shutdown().await.unwrap();
+    let seen = |outcome: &Outcome| {
+        (
+            outcome.error.clone(),
+            outcome.message.clone(),
+            outcome.metadata.clone(),
+        )
+    };
+    let refused = |message: &str, metadata: &str| {
+        (
+            Some("message.wrong_caller".to_owned()),
+            Some(message.to_owned()),
+            Some(metadata.to_owned()),
+        )
+    };
+    assert_eq!(
+        seen(&by_actor),
+        refused(
+            "asker/a may not send 'refuse'.",
+            r#"{"action":"refuse","caller":{"actor":{"key":"a","kind":"asker"}}}"#,
+        )
+    );
+    assert_eq!(
+        seen(&by_program),
+        refused(
+            "a call with no caller may not send 'refuse'.",
+            r#"{"action":"refuse"}"#,
+        )
+    );
+    assert_eq!(
+        seen(&by_client),
+        refused(
+            "client may not send 'refuse'.",
+            r#"{"action":"refuse","caller":"client"}"#,
+        )
     );
 }
 

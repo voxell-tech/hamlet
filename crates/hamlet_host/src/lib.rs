@@ -2,7 +2,6 @@
 //! file under the realm folder, on the host trait of
 //! `hamlet_actor_core`.
 
-mod address;
 pub mod child;
 mod directory;
 mod event;
@@ -14,6 +13,7 @@ pub mod route;
 #[cfg(test)]
 mod testing;
 
-pub use address::{Address, Caller, InvalidName};
 pub use event::HostEvent;
+/// The host's calls take an [`Address`] and stamp a [`Caller`].
+pub use hamlet_address::{Address, Caller, InvalidName};
 pub use local::{Host, HostOptions, HostRef, Values};

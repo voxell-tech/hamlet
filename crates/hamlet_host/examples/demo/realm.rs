@@ -16,12 +16,11 @@
 //! ```
 //!
 //! `reach` prints `reach/<n> <v>`, the version in force the workspace
-//! answered with, or `reach/<n> refused: <why>`. A wait the workspace
-//! tells of prints `waits/<n>/<call> <needs>`, how many things it
-//! needs, and logs its subject. `answer` prints `answered/<call> 1`
-//! when the call runs, and else `answered/<call>/not_run 0`,
-//! `answered/<call>/no_wait 0` or `answered/<call>/refused 0`,
-//! logging why.
+//! answered with. A wait the workspace tells of prints
+//! `waits/<n>/<call> <needs>`, how many things it needs, and logs its
+//! subject. `answer` prints `answered/<call> 1` when the call runs,
+//! and else `answered/<call>/not_run 0`, logging why, or
+//! `answered/<call>/no_wait 0`.
 
 use std::io::Write;
 use std::sync::Arc;
@@ -30,22 +29,24 @@ use std::time::Duration;
 use anyhow::{Context, Result, bail};
 use hamlet_actor::{Action, Actor, Ctx, Handler, Registry};
 use hamlet_actor_core::{ActorConfig, ActorFactory, BindParam};
-use hamlet_actors::workspace;
-use hamlet_host::{Address, Caller, Host, HostRef};
+use hamlet_host::{Caller, Host, HostRef};
+use hamlet_messages::Message;
+use hamlet_messages::address::{self, Party};
 use hamlet_messages::realm::{NeedsChief, SecretList, Secrets};
+use hamlet_messages::sender::sender;
 use hamlet_messages::workspace::reach::{
     Footing, Mode, Project, Reach, SecretsVersion, Trust,
 };
 use hamlet_messages::workspace::{
     AgentNumber, Answer, AnswerTaken, CallId, ChiefAnswer,
-    ConversationId, Lapse, ReachAnswer, ReachVersion, SetReach,
+    ConversationId, InForce, Lapse, ReachVersion, SetReach,
 };
 
 /// The kind `realm`.
 pub fn factory() -> ActorFactory {
     let mut registry = Registry::new();
     registry.register_actor_with::<Realm>(
-        workspace::REALM,
+        address::Realm::KIND,
         ActorConfig {
             has_database: true,
             ..ActorConfig::default()
@@ -53,22 +54,24 @@ pub fn factory() -> ActorFactory {
     );
     registry
         .into_factories()
-        .remove(workspace::REALM)
+        .remove(address::Realm::KIND)
         .expect("the registry holds the kind it registered")
 }
 
 struct Realm;
 
 /// Asks the realm to set an agent's reach on the workspace.
+/// The program's own action, so it checks no sender.
 #[derive(serde::Serialize, serde::Deserialize)]
 struct Grant(SetReach);
 
 impl Action for Grant {
-    type Output = ReachAnswer;
+    type Output = InForce;
     const NAME: &'static str = "grant";
 }
 
 /// Asks the realm to answer a call that waits for a chief.
+/// The program's own action, so it checks no sender.
 #[derive(serde::Serialize, serde::Deserialize)]
 struct Decide(ChiefAnswer);
 
@@ -102,16 +105,14 @@ impl Handler<Grant> for Realm {
         self: Arc<Self>,
         ctx: Ctx<Self>,
         Grant(set): Grant,
-    ) -> Result<ReachAnswer> {
-        let reply = HostRef::of(ctx.inner())?
-            .call(
-                &Address::new(workspace::KIND, workspace::MACHINE)?,
-                SetReach::NAME,
-                hamlet_actor::action::encode_positional(&set)?,
-                Duration::from_secs(10),
-            )
-            .await?;
-        Ok(ciborium::from_reader(reply.as_slice())?)
+    ) -> Result<InForce> {
+        call(
+            &HostRef::of(ctx.inner())?,
+            &address::Workspace,
+            &set,
+            CALL_WITHIN,
+        )
+        .await
     }
 }
 
@@ -121,16 +122,28 @@ impl Handler<Decide> for Realm {
         ctx: Ctx<Self>,
         Decide(answer): Decide,
     ) -> Result<AnswerTaken> {
-        let reply = HostRef::of(ctx.inner())?
-            .call(
-                &Address::new(workspace::KIND, workspace::MACHINE)?,
-                ChiefAnswer::NAME,
-                hamlet_actor::action::encode_positional(&answer)?,
-                Duration::from_secs(10),
-            )
-            .await?;
-        Ok(ciborium::from_reader(reply.as_slice())?)
+        call(
+            &HostRef::of(ctx.inner())?,
+            &address::Workspace,
+            &answer,
+            CALL_WITHIN,
+        )
+        .await
     }
+}
+
+const CALL_WITHIN: Duration = Duration::from_secs(10);
+
+async fn call<M: Message>(
+    host: &HostRef,
+    to: &M::To,
+    message: &M,
+    deadline: Duration,
+) -> Result<M::Output> {
+    let args = hamlet_actor::action::encode_positional(message)?;
+    let answer =
+        host.call(&to.address()?, M::NAME, args, deadline).await?;
+    Ok(ciborium::from_reader(answer.as_slice())?)
 }
 
 impl Handler<NeedsChief> for Realm {
@@ -139,13 +152,14 @@ impl Handler<NeedsChief> for Realm {
         ctx: Ctx<Self>,
         asked: NeedsChief,
     ) -> Result<()> {
+        sender(&ctx, &asked)?;
         let needs = i64::try_from(asked.needs.len())?;
         ctx.sql()
             .execute(
                 "INSERT INTO waits (agent, call, needs, subject) \
                  VALUES (?1, ?2, ?3, ?4)",
                 Some(vec![
-                    BindParam::Integer(i64::try_from(asked.agent.0)?),
+                    BindParam::Integer(i64::from(asked.agent.0)),
                     BindParam::Text(asked.call.0.clone()),
                     BindParam::Integer(needs),
                     BindParam::Text(asked.subject.clone()),
@@ -172,9 +186,10 @@ impl Handler<NeedsChief> for Realm {
 impl Handler<Secrets> for Realm {
     async fn handle(
         self: Arc<Self>,
-        _: Ctx<Self>,
-        _: Secrets,
+        ctx: Ctx<Self>,
+        asked: Secrets,
     ) -> Result<SecretList> {
+        sender(&ctx, &asked)?;
         Ok(SecretList {
             version: SecretsVersion(1),
             values: vec!["demo-secret-value".to_owned()],
@@ -203,33 +218,23 @@ pub async fn run(host: &Host, words: &[String]) -> Result<()> {
         version: ReachVersion(version.parse()?),
         reach: parse_reach(rest)?,
     };
-    host.get_or_start(&Address::new(
-        workspace::KIND,
-        workspace::MACHINE,
-    )?)
-    .await?;
-    host.get_or_start(&Address::new(
-        workspace::REALM,
-        workspace::REALM_KEY,
-    )?)
-    .await?;
+    host.get_or_start(&address::Workspace.address()?).await?;
+    host.get_or_start(&address::Realm.address()?).await?;
     let reply = host
         .call(
-            &Address::new(workspace::REALM, workspace::REALM_KEY)?,
+            &address::Realm.address()?,
             Grant::NAME,
             hamlet_actor::action::encode_positional(&Grant(set))?,
             Duration::from_secs(20),
         )
         .await?;
-    let mut out = std::io::stdout();
-    match ciborium::from_reader(reply.as_slice())? {
-        ReachAnswer::InForce(in_force) => {
-            writeln!(out, "reach/{agent} {}", in_force.0)?;
-        }
-        ReachAnswer::Refused(refusal) => {
-            writeln!(out, "reach/{agent} refused: {refusal}")?;
-        }
-    }
+    let in_force =
+        ciborium::from_reader::<InForce, _>(reply.as_slice())?;
+    writeln!(
+        std::io::stdout(),
+        "reach/{agent} {}",
+        in_force.version.0
+    )?;
     Ok(())
 }
 
@@ -300,9 +305,15 @@ async fn answer_call(
         _ => match answer {
             "allow" => Answer::Allow,
             "refuse" => Answer::Refuse { reason: None },
-            "stopped" => Answer::Lapsed(Lapse::Stopped),
-            "rewound" => Answer::Lapsed(Lapse::Rewound),
-            "ended" => Answer::Lapsed(Lapse::Ended),
+            "stopped" => Answer::Lapsed {
+                lapse: Lapse::Stopped,
+            },
+            "rewound" => Answer::Lapsed {
+                lapse: Lapse::Rewound,
+            },
+            "ended" => Answer::Lapsed {
+                lapse: Lapse::Ended,
+            },
             _ => bail!("`{answer}` is not an answer"),
         },
     };
@@ -311,19 +322,11 @@ async fn answer_call(
         call: CallId(call.to_owned()),
         answer,
     });
-    host.get_or_start(&Address::new(
-        workspace::KIND,
-        workspace::MACHINE,
-    )?)
-    .await?;
-    host.get_or_start(&Address::new(
-        workspace::REALM,
-        workspace::REALM_KEY,
-    )?)
-    .await?;
+    host.get_or_start(&address::Workspace.address()?).await?;
+    host.get_or_start(&address::Realm.address()?).await?;
     let reply = host
         .call(
-            &Address::new(workspace::REALM, workspace::REALM_KEY)?,
+            &address::Realm.address()?,
             Decide::NAME,
             hamlet_actor::action::encode_positional(&decide)?,
             Duration::from_secs(20),
@@ -331,17 +334,17 @@ async fn answer_call(
         .await?;
     let mut out = std::io::stdout();
     match ciborium::from_reader(reply.as_slice())? {
-        AnswerTaken::Runs => writeln!(out, "answered/{call} 1")?,
-        AnswerTaken::NotRun(why) => {
+        AnswerTaken::Taken => writeln!(out, "answered/{call} 1")?,
+        AnswerTaken::RunNotRun { why } => {
+            tracing::warn!(%why, "agent {agent}'s call {call} did not run");
+            writeln!(out, "answered/{call}/not_run 0")?;
+        }
+        AnswerTaken::ChangeNotRun { why } => {
             tracing::warn!(%why, "agent {agent}'s call {call} did not run");
             writeln!(out, "answered/{call}/not_run 0")?;
         }
         AnswerTaken::NoWait => {
             writeln!(out, "answered/{call}/no_wait 0")?;
-        }
-        AnswerTaken::Refused(why) => {
-            tracing::warn!(%why, "the workspace refused the realm");
-            writeln!(out, "answered/{call}/refused 0")?;
         }
     }
     Ok(())

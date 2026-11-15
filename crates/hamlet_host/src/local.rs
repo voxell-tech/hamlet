@@ -51,6 +51,7 @@ use hamlet_actor_core::{
     ShutdownKind,
 };
 use hamlet_actor_error::ActorError;
+use hamlet_address::{Address, Named, plain};
 use parking_lot::Mutex;
 use rusqlite::{Connection, OptionalExtension};
 use tokio::sync::{broadcast, oneshot, watch};
@@ -59,7 +60,6 @@ use tokio::task::{AbortHandle, JoinHandle};
 pub use self::access::{HostRef, Values};
 pub(crate) use self::access::{Inbound, Origin, Stamp};
 use self::create::DuplicateKey;
-use crate::address::{Address, Named, plain};
 use crate::directory::{Directory, Place};
 use crate::event::HostEvent;
 use crate::link::Port;

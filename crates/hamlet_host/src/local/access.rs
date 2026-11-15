@@ -7,11 +7,11 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use hamlet_actor_core::{ActorContext, ActorLifecycle};
+use hamlet_address::{Address, Caller};
 
 use super::{
     Host, HostInner, HostOptions, LocalHandle, Open, host_shut_down,
 };
-use crate::address::{Address, Caller};
 use crate::event::HostEvent;
 use crate::link::Vetted;
 

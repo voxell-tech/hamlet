@@ -3,6 +3,8 @@
 use hamlet_actor::Action;
 use serde::{Deserialize, Serialize};
 
+use crate::Message;
+use crate::address::{Realm, Workspace};
 use crate::workspace::files::EditDiff;
 use crate::workspace::reach::{Need, SecretsVersion};
 use crate::workspace::{
@@ -17,6 +19,11 @@ pub struct Secrets;
 impl Action for Secrets {
     type Output = SecretList;
     const NAME: &'static str = "secrets";
+}
+
+impl Message for Secrets {
+    type To = Realm;
+    type From = Workspace;
 }
 
 /// The realm's secrets of one version: the values the workspace takes
@@ -50,6 +57,7 @@ pub struct NeedsChief {
     pub call: CallId,
     pub conversation: ConversationId,
     /// The realm's task of the call, as the call carried it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub realm_task: Option<RealmTask>,
     pub needs: Vec<Need>,
     /// The call in words for the chief, the secrets taken out: a
@@ -57,6 +65,7 @@ pub struct NeedsChief {
     /// to 2000 characters.
     pub subject: String,
     /// An edit's change, the secrets taken out.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub change: Option<EditDiff>,
     /// The agent's reach the call was weighed under.
     pub reach_version: ReachVersion,
@@ -65,4 +74,9 @@ pub struct NeedsChief {
 impl Action for NeedsChief {
     type Output = ();
     const NAME: &'static str = "needs_chief";
+}
+
+impl Message for NeedsChief {
+    type To = Realm;
+    type From = Workspace;
 }

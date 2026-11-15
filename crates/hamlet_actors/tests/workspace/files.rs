@@ -6,21 +6,21 @@ use std::sync::atomic::Ordering;
 
 use hamlet_actor::Action;
 use hamlet_host::{Address, Host};
+use hamlet_messages::workspace::AgentNumber;
 use hamlet_messages::workspace::files::{
-    CutBy, FileAnswer, Find, ReadFile, Search, Severity, Text,
-    Truncation,
+    CutBy, Find, ReadAnswer, ReadFile, Search, SearchAnswer,
+    Severity, Text, Truncation,
 };
-use hamlet_messages::workspace::reach::{Access, Refusal};
-use hamlet_messages::workspace::{
-    AgentNumber, CallRefusal, CallerRefusal,
+use hamlet_messages::workspace::refusal::{
+    PathRefusal, ReachRefusal, ReadRefusal, ToRead,
 };
 use hamlet_testing::Scratch;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
 use super::{
-    AGENT, Peers, SECRET, agent, call_as, decoded, host_with, reach,
-    realm, realm_sets, rows_in_file,
+    AGENT, Peers, SECRET, WRONG_CALLER, agent, call_as, decoded,
+    error_of, host_with, reach, realm, realm_sets, rows_in_file,
 };
 
 /// Calls the workspace with `asked`, as the actor at `from`.
@@ -46,7 +46,6 @@ where
 
 fn read_file(path: &Path) -> ReadFile {
     ReadFile {
-        agent: AGENT,
         path: path.to_owned(),
         offset: None,
         limit: None,
@@ -55,7 +54,6 @@ fn read_file(path: &Path) -> ReadFile {
 
 fn search(under: &Path, pattern: &str) -> Search {
     Search {
-        agent: AGENT,
         under: under.to_owned(),
         pattern: pattern.to_owned(),
         name: None,
@@ -65,17 +63,38 @@ fn search(under: &Path, pattern: &str) -> Search {
 
 fn find(under: &Path) -> Find {
     Find {
-        agent: AGENT,
         under: under.to_owned(),
         name: None,
     }
 }
 
-fn text(answer: FileAnswer) -> Text {
-    match answer {
-        FileAnswer::Text(text) => text,
-        other => panic!("the call answered {other:?}"),
+trait Answered: std::fmt::Debug {
+    fn text(self) -> Option<Text>;
+}
+
+impl Answered for ReadAnswer {
+    fn text(self) -> Option<Text> {
+        match self {
+            Self::Text(text) => Some(text),
+            _ => None,
+        }
     }
+}
+
+impl Answered for SearchAnswer {
+    fn text(self) -> Option<Text> {
+        match self {
+            Self::Text(text) => Some(text),
+            _ => None,
+        }
+    }
+}
+
+fn text(answer: impl Answered) -> Text {
+    let shown = format!("{answer:?}");
+    answer
+        .text()
+        .unwrap_or_else(|| panic!("the call answered {shown}"))
 }
 
 /// A project folder outside the realm folder, holding `files`.
@@ -151,7 +170,7 @@ async fn the_file_tools_read_the_project() {
     assert_eq!(found.text, "src/main.rs:1: fn main() {}");
     assert_eq!(listed.text, "notes.md\nsrc/");
     assert!(
-        matches!(&missing, FileAnswer::Failed(words) if words.contains("ENOENT")),
+        matches!(&missing, ReadAnswer::Failed { words } if words.contains("ENOENT")),
         "{missing:?}"
     );
 }
@@ -207,10 +226,11 @@ async fn a_long_file_is_read_in_parts_saying_where_to_go_on() {
     );
     assert_eq!(
         past,
-        FileAnswer::Failed(
-            "Offset 2600 is beyond end of file (2500 lines total)"
+        ReadAnswer::Failed {
+            words: "Offset 2600 is beyond end of file (2500 lines \
+                    total)"
                 .into()
-        )
+        }
     );
 }
 
@@ -282,15 +302,16 @@ async fn a_read_outside_the_reach_names_the_path() {
     host.shutdown().await.unwrap();
 
     for (path, read, searched, found) in answers {
-        let refused = FileAnswer::Refused(CallRefusal::Reach(
-            Refusal::OutsideReach {
-                path,
-                access: Access::Read,
-            },
-        ));
-        assert_eq!(read, refused);
-        assert_eq!(searched, refused);
-        assert_eq!(found, refused);
+        let why = ReadRefusal::from(PathRefusal::OutsideReach {
+            path,
+            access: ToRead::Read,
+        });
+        assert_eq!(read, ReadAnswer::Refused { why: why.clone() });
+        assert_eq!(
+            searched,
+            SearchAnswer::Refused { why: why.clone() }
+        );
+        assert_eq!(found, SearchAnswer::Refused { why });
     }
 }
 
@@ -310,15 +331,18 @@ async fn an_agents_filesystem_is_not_the_workspaces_to_read() {
 
     assert_eq!(
         read,
-        FileAnswer::Refused(CallRefusal::Reach(
-            Refusal::AgentFilesystem { path: notes }
-        ))
+        ReadAnswer::Refused {
+            why: PathRefusal::<ToRead>::AgentFilesystem {
+                path: notes
+            }
+            .into()
+        }
     );
 }
 
-/// A file tool is for the agent the host stamped as the caller: an
-/// agent naming another and an actor that is not an agent are
-/// refused.
+/// A file tool is for the agent the host stamped as the caller:
+/// agent 8, which has no reach, reads nothing, and an actor that is
+/// not an agent fails as a wrong caller.
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_read_is_for_the_agent_that_called() {
@@ -328,24 +352,16 @@ async fn a_read_is_for_the_agent_that_called() {
     let host = working_in(&dir, &folder, Arc::default()).await;
     let asked = read_file(&folder.join("a.md"));
     let other = ask(&host, &agent(AgentNumber(8)), &asked).await;
-    let from_realm = ask(&host, &realm(), &asked).await;
+    let from_realm = error_of(&host, &realm(), &asked).await;
     host.shutdown().await.unwrap();
 
     assert_eq!(
         other,
-        FileAnswer::Refused(CallRefusal::Caller(
-            CallerRefusal::NotTheCaller {
-                named: AGENT,
-                caller: AgentNumber(8),
-            }
-        ))
+        ReadAnswer::Refused {
+            why: ReachRefusal::NoReach.into()
+        }
     );
-    assert_eq!(
-        from_realm,
-        FileAnswer::Refused(CallRefusal::Caller(
-            CallerRefusal::NotAnAgent
-        ))
-    );
+    assert_eq!(from_realm, WRONG_CALLER);
 }
 
 /// A read, a search and a find change nothing, so they leave no row.
@@ -400,7 +416,7 @@ async fn what_a_read_hands_back_is_scrubbed() {
     assert_eq!(found.text, "[REDACTED].md:1: key = [REDACTED]");
     assert_eq!(listed.text, "[REDACTED].md");
     assert!(
-        matches!(&missing, FileAnswer::Failed(words) if words.contains("[REDACTED]/x")),
+        matches!(&missing, ReadAnswer::Failed { words } if words.contains("[REDACTED]/x")),
         "{missing:?}"
     );
 }

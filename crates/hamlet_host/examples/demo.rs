@@ -75,6 +75,7 @@ use anyhow::{Context, Result, anyhow, bail};
 use command::{number, print_reply, run, shown};
 use hamlet_actors::workspace;
 use hamlet_host::{Address, Host, HostOptions};
+use hamlet_messages::address::{self, Party};
 use hamlet_sandbox::{Isolation, Sandbox};
 use tokio::sync::mpsc;
 use tracing_subscriber::EnvFilter;
@@ -124,10 +125,14 @@ async fn demo() -> Result<()> {
         &kinds.iter().map(String::as_str).collect::<Vec<_>>(),
         sleep,
     );
+    factories.insert(
+        address::Workspace::KIND.to_owned(),
+        workspace::factory(),
+    );
     factories
-        .insert(workspace::KIND.to_owned(), workspace::factory());
-    factories.insert(workspace::REALM.to_owned(), realm::factory());
-    factories.insert(workspace::AGENT.to_owned(), agent::factory());
+        .insert(address::Realm::KIND.to_owned(), realm::factory());
+    factories
+        .insert(address::Agent::KIND.to_owned(), agent::factory());
     // The workspace does not start where there is no sandbox.
     let options = match Sandbox::open(Isolation::Sandboxed) {
         Ok(sandbox) => options.with_value(Arc::new(sandbox)),

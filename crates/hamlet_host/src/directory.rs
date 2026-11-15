@@ -6,8 +6,8 @@ use std::sync::Arc;
 use anyhow::{Result, bail};
 use hamlet_actor_core::ActorFactory;
 use hamlet_actor_core::error::ActorRuntime;
+use hamlet_address::{Address, Named, plain};
 
-use crate::address::{Address, Named, plain};
 use crate::link::Port;
 
 /// Where the actors of one kind run.

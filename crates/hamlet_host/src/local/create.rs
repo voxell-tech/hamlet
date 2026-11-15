@@ -2,10 +2,10 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use hamlet_actor_error::ActorError;
+use hamlet_address::Address;
 
 use super::access::{Origin, Stamp};
 use super::{Host, HostInner, Open};
-use crate::address::Address;
 use crate::directory::{
     Place, not_registered, runs_in_the_other_host,
 };

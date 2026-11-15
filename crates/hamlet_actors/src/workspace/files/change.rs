@@ -10,17 +10,24 @@ use std::path::Path;
 use std::sync::{Arc, Mutex, PoisonError};
 
 use anyhow::{Context, Result, bail};
-use hamlet_actor::{Ctx, Handler};
+use hamlet_actor::{Action as _, Ctx, Handler};
 use hamlet_actor_core::{BindParam, ColumnValue, SqliteTransaction};
+use hamlet_messages::address::Agent;
 use hamlet_messages::agent::Outcome;
+use hamlet_messages::bytes;
+use hamlet_messages::sender::{id_reused, sender};
 use hamlet_messages::workspace::files::{
-    Change, ChangeAnswer, EditDiff, EditFile, Hashed, MOST_CONTENT,
-    Replace, WriteFile,
+    Change, ChangeAnswer, ChangeEnd, EditDiff, EditFile, Hashed,
+    MOST_CONTENT, Replace, WriteFile,
 };
 use hamlet_messages::workspace::reach::Need;
+use hamlet_messages::workspace::refusal::{
+    CallRefusal, ChangeRefusal, FileGate, InvalidContent,
+    InvalidPath, PathRefusal, ReachRefusal, Stale, ToChange,
+    WriteRefusal,
+};
 use hamlet_messages::workspace::{
-    AgentNumber, AnswerTaken, CallId, CallRefusal, ConversationId,
-    ReachVersion,
+    AgentNumber, AnswerTaken, CallId, ConversationId, ReachVersion,
 };
 use hamlet_os::fs::path::{self, is_absolute, normalize, text};
 use hamlet_sandbox::scrub::scrub_text;
@@ -32,11 +39,15 @@ use tokio::sync::OwnedMutexGuard;
 use self::shown::cut;
 use super::edit::{self, CallError};
 use super::{Gated, Passed};
-use crate::workspace::pending::{self, Pending, Rechecked, Wait};
-use crate::workspace::reach::{self, Op, Placement, Purpose};
+use crate::workspace::pending::{
+    self, NotRun, Pending, Rechecked, Wait,
+};
+use crate::workspace::reach::{
+    self, Op, Placement, Purpose, Refused,
+};
 use crate::workspace::{
-    Invalid, Weighing, Workspace, calling_agent, calls, checked_call,
-    read_only, tell, transact, transact_if,
+    Weighing, Workspace, calls, checked_call, read_only, tell,
+    transact, transact_if,
 };
 
 mod shown;
@@ -115,6 +126,9 @@ async fn forget(tx: &SqliteTransaction, id: i64) -> Result<()> {
     Ok(())
 }
 
+pub(in crate::workspace) const WRITE: &str = "write";
+pub(in crate::workspace) const EDIT: &str = "edit";
+
 enum Asked<'a> {
     Write(&'a str),
     Edit(&'a [Replace]),
@@ -123,15 +137,32 @@ enum Asked<'a> {
 impl Asked<'_> {
     fn op(&self) -> &'static str {
         match self {
-            Self::Write(_) => "write",
-            Self::Edit(_) => "edit",
+            Self::Write(_) => WRITE,
+            Self::Edit(_) => EDIT,
+        }
+    }
+
+    fn action(&self) -> &'static str {
+        match self {
+            Self::Write(_) => WriteFile::NAME,
+            Self::Edit(_) => EditFile::NAME,
         }
     }
 }
 
+trait Refusal:
+    From<CallRefusal>
+    + From<InvalidPath>
+    + From<PathRefusal<ToChange>>
+    + From<ReachRefusal>
+{
+}
+
+impl Refusal for WriteRefusal {}
+impl Refusal for ChangeRefusal {}
+
 /// A change as the handler weighs it.
 struct Request<'a> {
-    named: AgentNumber,
     call: &'a CallId,
     conversation: &'a ConversationId,
     path: &'a Path,
@@ -144,7 +175,6 @@ impl<'a> Request<'a> {
     fn of(pending: &'a Pending) -> Result<Self> {
         Ok(match pending {
             Pending::Write(asked) => Self {
-                named: asked.agent,
                 call: &asked.call,
                 conversation: &asked.conversation,
                 path: &asked.path,
@@ -152,7 +182,6 @@ impl<'a> Request<'a> {
                 request_hash: calls::request_hash(asked)?,
             },
             Pending::Edit(asked) => Self {
-                named: asked.agent,
                 call: &asked.call,
                 conversation: &asked.conversation,
                 path: &asked.path,
@@ -162,6 +191,16 @@ impl<'a> Request<'a> {
             Pending::Run(_) => bail!("a command is not a change"),
         })
     }
+
+    fn checked<R: Refusal>(&self) -> Option<R> {
+        if let Some(refusal) = checked_call(self.call) {
+            return Some(refusal.into());
+        }
+        let path = text(self.path);
+        (!is_absolute(&path)).then(|| {
+            InvalidPath::NotAbsolute { path: path.into() }.into()
+        })
+    }
 }
 
 impl Handler<WriteFile> for Workspace {
@@ -169,8 +208,22 @@ impl Handler<WriteFile> for Workspace {
         self: Arc<Self>,
         ctx: Ctx<Self>,
         asked: WriteFile,
-    ) -> Result<ChangeAnswer> {
-        self.change(&ctx, Pending::Write(asked)).await
+    ) -> Result<ChangeAnswer<WriteRefusal>> {
+        let Agent(agent) = sender(&ctx, &asked)?;
+        let bytes = u64::try_from(asked.content.len())?;
+        let pending = Pending::Write(asked);
+        let request = Request::of(&pending)?;
+        if let Some(why) = request.checked::<WriteRefusal>() {
+            return Ok(ChangeAnswer::Refused { why });
+        }
+        if bytes > MOST_CONTENT {
+            let why = InvalidContent::TooLarge {
+                bytes,
+                limit: MOST_CONTENT,
+            };
+            return Ok(ChangeAnswer::Refused { why: why.into() });
+        }
+        self.change(&ctx, agent, &pending, &request).await
     }
 }
 
@@ -180,12 +233,18 @@ impl Handler<EditFile> for Workspace {
         ctx: Ctx<Self>,
         asked: EditFile,
     ) -> Result<ChangeAnswer> {
-        self.change(&ctx, Pending::Edit(asked)).await
+        let Agent(agent) = sender(&ctx, &asked)?;
+        let pending = Pending::Edit(asked);
+        let request = Request::of(&pending)?;
+        if let Some(why) = request.checked::<ChangeRefusal>() {
+            return Ok(ChangeAnswer::Refused { why });
+        }
+        self.change(&ctx, agent, &pending, &request).await
     }
 }
 
-enum Weighed {
-    Answer(ChangeAnswer),
+enum Weighed<R> {
+    Answer(ChangeAnswer<R>),
     Pass(Passed),
     /// It waits for a chief to allow these, under this reach.
     Chief(Passed, Vec<Need>, ReachVersion),
@@ -209,42 +268,15 @@ enum Unplanned {
 }
 
 impl Workspace {
-    async fn change(
+    async fn change<R: Refusal>(
         &self,
         ctx: &Ctx<Self>,
-        pending: Pending,
-    ) -> Result<ChangeAnswer> {
-        let request = Request::of(&pending)?;
-        let action = request.asked.op();
-        let agent = match calling_agent(ctx, request.named, action)? {
-            Ok(agent) => agent,
-            Err(refusal) => {
-                return Ok(ChangeAnswer::Refused(refusal));
-            }
-        };
+        agent: AgentNumber,
+        pending: &Pending,
+        request: &Request<'_>,
+    ) -> Result<ChangeAnswer<R>> {
         let path = text(request.path);
-        if let Err(why) = checked_call(request.call).and_then(|()| {
-            is_absolute(&path)
-                .then_some(())
-                .ok_or_else(|| Invalid::NotAbsolute(path.clone()))
-        }) {
-            return Ok(ChangeAnswer::Refused(CallRefusal::Invalid(
-                why.to_string(),
-            )));
-        }
-        if let Asked::Write(content) = request.asked {
-            let bytes = u64::try_from(content.len())?;
-            if bytes > MOST_CONTENT {
-                return Ok(ChangeAnswer::Refused(
-                    CallRefusal::TooLarge {
-                        bytes,
-                        limit: MOST_CONTENT,
-                    },
-                ));
-            }
-        }
         let held = self.paths.hold(&path).await;
-        let request = &request;
         let weighed = self
             .weighed(ctx, move || self.weigh(ctx, agent, request))
             .await?;
@@ -276,9 +308,11 @@ impl Workspace {
         {
             Ok(planned) => planned,
             Err(Unplanned::Failed(words)) => {
-                return Ok(ChangeAnswer::Failed(scrub_text(
-                    &secrets, &words,
-                )));
+                return Ok(ChangeAnswer::Ended {
+                    end: ChangeEnd::Failed {
+                        words: scrub_text(&secrets, &words),
+                    },
+                });
             }
             Err(Unplanned::Changed { .. }) => {
                 bail!("a change with nothing to match changed")
@@ -287,7 +321,6 @@ impl Workspace {
         if let Some((needs, reach_version)) = chief {
             let opening = pending::Opening {
                 agent,
-                op: action,
                 request_hash: request.request_hash.clone(),
                 needs,
                 reach_version,
@@ -314,48 +347,44 @@ impl Workspace {
             Ok(id) => id,
             Err(answer) => return Ok(answer),
         };
-        self.carry_out(
-            ctx,
-            id,
-            request,
-            Carry {
-                placement,
-                sandbox,
-                secrets,
-                planned,
-                temp_name,
-            },
-            held,
-        )
-        .await
+        let end = self
+            .carry_out(
+                ctx,
+                id,
+                request,
+                Carry {
+                    placement,
+                    sandbox,
+                    secrets,
+                    planned,
+                    temp_name,
+                },
+                held,
+            )
+            .await?;
+        Ok(ChangeAnswer::Ended { end })
     }
 
     /// Opens the wait of `opening`, a change of `request`, while its
     /// path is `held`, and tells the realm once the path is let go.
-    async fn wait_for_chief(
+    async fn wait_for_chief<R: Refusal>(
         &self,
         ctx: &Ctx<Self>,
         request: &Request<'_>,
         secrets: &[String],
         opening: pending::Opening,
         held: OwnedMutexGuard<()>,
-    ) -> Result<ChangeAnswer> {
+    ) -> Result<ChangeAnswer<R>> {
         let agent = opening.agent;
         let opened = transact_if(ctx, async |tx| {
             if let Some(call) =
                 calls::find(tx, agent, request.call).await?
             {
-                return Ok(Err(match answered(call, request)? {
-                    Row::Answer(answer) => answer,
-                    Row::Unfinished { .. } => ChangeAnswer::Failed(
-                        "another change with this call id is at work"
-                            .into(),
-                    ),
-                }));
+                return Ok(Err(answer_of_racing_row(call, request)?));
             }
-            Ok(pending::open(tx, secrets, opening)
-                .await?
-                .map_err(ChangeAnswer::Refused))
+            Ok(pending::open(tx, secrets, opening).await?.map_err(
+                |why| ChangeAnswer::Refused { why: why.into() },
+            ))
         })
         .await?;
         let notice = match opened {
@@ -365,7 +394,7 @@ impl Workspace {
         drop(held);
         let needs = notice.needs.clone();
         self.ask_chief(ctx, notice).await;
-        Ok(ChangeAnswer::WaitsForChief(needs))
+        Ok(ChangeAnswer::WaitsForChief { needs })
     }
 
     /// Carries out the change of `wait`, which a chief allowed, when
@@ -388,9 +417,14 @@ impl Workspace {
                 Rechecked::Pass { reach, secrets, .. } => {
                     (reach, secrets)
                 }
-                Rechecked::Refused(refusal) => {
+                Rechecked::Changed(gated) => {
                     drop(held);
-                    return self.not_run(ctx, wait, refusal).await;
+                    let changed = pending::changed(
+                        gated,
+                        Refused::of_change::<FileGate>,
+                    )?;
+                    let why = NotRun::Change(changed.into());
+                    return self.not_run(ctx, wait, why).await;
                 }
             };
         let placement =
@@ -409,18 +443,19 @@ impl Workspace {
             Ok(planned) => planned,
             Err(Unplanned::Changed { now }) => {
                 drop(held);
-                let refusal = CallRefusal::FileChanged {
+                let stale = Stale::FileChanged {
                     path: request.path.to_owned(),
                     was,
                     now,
                 };
-                return self.not_run(ctx, wait, refusal).await;
+                let why = NotRun::Change(stale.into());
+                return self.not_run(ctx, wait, why).await;
             }
             Err(Unplanned::Failed(words)) => {
-                let answer = ChangeAnswer::Failed(scrub_text(
-                    &secrets, &words,
-                ));
-                let bytes = Some(calls::cbor(&answer)?);
+                let end = ChangeEnd::Failed {
+                    words: scrub_text(&secrets, &words),
+                };
+                let bytes = Some(calls::cbor(&end)?);
                 if pending::settled(ctx, wait, "ended", bytes, None)
                     .await?
                     .is_none()
@@ -431,10 +466,10 @@ impl Workspace {
                     ctx,
                     wait.agent,
                     wait.call.clone(),
-                    Outcome::Changed(answer),
+                    Outcome::Change { end },
                 )
                 .await;
-                return Ok(AnswerTaken::Runs);
+                return Ok(AnswerTaken::Taken);
             }
         };
         let (temp_name, temp) = temp_of(&planned);
@@ -449,7 +484,7 @@ impl Workspace {
         else {
             return Ok(AnswerTaken::NoWait);
         };
-        let answer = self
+        let end = self
             .carry_out(
                 ctx,
                 id,
@@ -468,14 +503,14 @@ impl Workspace {
             ctx,
             wait.agent,
             wait.call.clone(),
-            Outcome::Changed(answer),
+            Outcome::Change { end },
         )
         .await;
-        Ok(AnswerTaken::Runs)
+        Ok(AnswerTaken::Taken)
     }
 
     /// Replaces the file of `request`, whose row `id` was written,
-    /// as `carry` plans, records its answer and lets go of the path.
+    /// as `carry` plans, records its end and lets go of the path.
     async fn carry_out(
         &self,
         ctx: &Ctx<Self>,
@@ -483,7 +518,7 @@ impl Workspace {
         request: &Request<'_>,
         carry: Carry,
         held: OwnedMutexGuard<()>,
-    ) -> Result<ChangeAnswer> {
+    ) -> Result<ChangeEnd> {
         let Carry {
             placement,
             sandbox,
@@ -505,23 +540,23 @@ impl Workspace {
             .await
             .context("a change's thread ended before it")?
         };
-        let answer = scrubbed(
+        let ended = scrubbed(
             &secrets,
             outcome(request.path, &request.asked, planned, replaced),
         );
-        transact(ctx, async |tx| end(tx, id, &answer).await).await?;
+        transact(ctx, async |tx| end(tx, id, &ended).await).await?;
         drop(held);
-        Ok(answer)
+        Ok(ended)
     }
 
     /// Answers a repeat of `request` from its row, or passes it
     /// through the gate with `agent`'s reach.
-    async fn weigh(
+    async fn weigh<R: Refusal>(
         &self,
         ctx: &Ctx<Self>,
         agent: AgentNumber,
         request: &Request<'_>,
-    ) -> Result<Weighing<Weighed>> {
+    ) -> Result<Weighing<Weighed<R>>> {
         loop {
             let (found, in_force) = read_only(ctx, async |tx| {
                 let found =
@@ -575,8 +610,10 @@ impl Workspace {
                         .map(|(version, _)| version)
                         .context("a chief is asked with no reach")?,
                 ),
-                Gated::Refused(refusal) => {
-                    Weighed::Answer(ChangeAnswer::Refused(refusal))
+                Gated::Refused(refused) => {
+                    Weighed::Answer(ChangeAnswer::Refused {
+                        why: refused.of_change()?,
+                    })
                 }
             }));
         }
@@ -601,31 +638,50 @@ fn temp_of(planned: &Planned) -> (String, String) {
     (temp_name, temp)
 }
 
-enum Row {
-    Answer(ChangeAnswer),
+enum Row<R> {
+    Answer(ChangeAnswer<R>),
     Unfinished { id: i64, temp: Option<String> },
 }
 
-fn answered(call: calls::Call, request: &Request<'_>) -> Result<Row> {
+fn answered<R>(
+    call: calls::Call,
+    request: &Request<'_>,
+) -> Result<Row<R>> {
     if !call.is(request.asked.op(), &request.request_hash) {
-        return Ok(Row::Answer(ChangeAnswer::Refused(
-            CallRefusal::CallReused(request.call.clone()),
-        )));
+        return Err(id_reused(request.asked.action(), request.call));
     }
     Ok(match call.state.as_str() {
-        "ended" => Row::Answer(decoded("answer", call.answer)?),
-        "waiting" => Row::Answer(ChangeAnswer::WaitsForChief(
-            decoded("needs", call.answer)?,
-        )),
-        "refused" => Row::Answer(ChangeAnswer::Refused(decoded(
-            "refusal",
-            call.answer,
-        )?)),
+        "ended" => Row::Answer(ChangeAnswer::Ended {
+            end: decoded("end", call.answer)?,
+        }),
+        "waiting" => Row::Answer(ChangeAnswer::WaitsForChief {
+            needs: decoded("needs", call.answer)?,
+        }),
+        "refused" => Row::Answer(ChangeAnswer::Ended {
+            end: ChangeEnd::NotRun {
+                why: decoded("not_run", call.answer)?,
+            },
+        }),
         "changing" => Row::Unfinished {
             id: call.id,
             temp: call.temp,
         },
         state => bail!("a change has the state {state}"),
+    })
+}
+
+fn answer_of_racing_row<R>(
+    call: calls::Call,
+    request: &Request<'_>,
+) -> Result<ChangeAnswer<R>> {
+    Ok(match answered(call, request)? {
+        Row::Answer(answer) => answer,
+        Row::Unfinished { .. } => ChangeAnswer::Ended {
+            end: ChangeEnd::Failed {
+                words: "another change with this call id is at work"
+                    .into(),
+            },
+        },
     })
 }
 
@@ -798,7 +854,9 @@ fn still(
 }
 
 fn hashed(digest: Option<[u8; 32]>) -> Hashed {
-    digest.map_or(Hashed::Absent, Hashed::Sha256)
+    digest.map_or(Hashed::Absent, |digest| Hashed::Sha256 {
+        hash: bytes::Sha256(digest),
+    })
 }
 
 /// Replaces the file at `path` with what `planned` writes, through
@@ -834,19 +892,14 @@ fn env(
 /// Records `request` of `agent` as a change at work that is about to
 /// make the new file `temp`, in `tx`, or answers it from the row a
 /// change with its id wrote meanwhile.
-async fn open(
+async fn open<R>(
     tx: &SqliteTransaction,
     agent: AgentNumber,
     request: &Request<'_>,
     temp: &str,
-) -> Result<Result<i64, ChangeAnswer>> {
+) -> Result<Result<i64, ChangeAnswer<R>>> {
     if let Some(call) = calls::find(tx, agent, request.call).await? {
-        return Ok(Err(match answered(call, request)? {
-            Row::Answer(answer) => answer,
-            Row::Unfinished { .. } => ChangeAnswer::Failed(
-                "another change with this call id is at work".into(),
-            ),
-        }));
+        return Ok(Err(answer_of_racing_row(call, request)?));
     }
     calls::insert(
         tx,
@@ -862,13 +915,13 @@ async fn open(
     .map(Ok)
 }
 
-/// Records the answer of the change `id`, in `tx`.
+/// Records the end of the change `id`, in `tx`.
 async fn end(
     tx: &SqliteTransaction,
     id: i64,
-    answer: &ChangeAnswer,
+    ended: &ChangeEnd,
 ) -> Result<()> {
-    let bytes = calls::cbor(answer)?;
+    let bytes = calls::cbor(ended)?;
     tx.execute(
         "UPDATE calls SET state = 'ended', answer = ?1, temp = \
          NULL, ended_at = ?2 WHERE id = ?3",
@@ -882,65 +935,68 @@ async fn end(
     Ok(())
 }
 
-/// The answer of a change of `path` that planned `planned` and was
+/// The end of a change of `path` that planned `planned` and was
 /// `replaced`.
 fn outcome(
     path: &Path,
     asked: &Asked<'_>,
     planned: Planned,
     replaced: Result<Replaced, FileError>,
-) -> ChangeAnswer {
+) -> ChangeEnd {
     match replaced {
         Ok(Replaced::Done { created }) => {
-            ChangeAnswer::Changed(Change {
+            ChangeEnd::Changed(Change {
                 path: path.to_owned(),
                 created,
-                hash: Sha256::digest(&planned.content).into(),
+                hash: bytes::Sha256(
+                    Sha256::digest(&planned.content).into(),
+                ),
                 diff: planned.diff,
             })
         }
-        Ok(Replaced::Changed(now)) => {
-            ChangeAnswer::Refused(CallRefusal::FileChanged {
+        Ok(Replaced::Changed(now)) => ChangeEnd::NotRun {
+            why: Stale::FileChanged {
                 path: path.to_owned(),
                 was: hashed(planned.current.digest),
                 now: hashed(now),
-            })
-        }
-        Err(error) => ChangeAnswer::Failed(match asked {
-            Asked::Write(_) => error.message,
-            Asked::Edit(_) => CallError::Unedited {
-                path: text(path),
-                code: error.code,
             }
-            .to_string(),
-        }),
+            .into(),
+        },
+        Err(error) => ChangeEnd::Failed {
+            words: match asked {
+                Asked::Write(_) => error.message,
+                Asked::Edit(_) => CallError::Unedited {
+                    path: text(path),
+                    code: error.code,
+                }
+                .to_string(),
+            },
+        },
     }
 }
 
-/// `answer` with `secrets` taken out of every word (C32).
-fn scrubbed(
-    secrets: &[String],
-    answer: ChangeAnswer,
-) -> ChangeAnswer {
+/// `ended` with `secrets` taken out of every word (C32).
+fn scrubbed(secrets: &[String], ended: ChangeEnd) -> ChangeEnd {
     let scrub = |words: &str| scrub_text(secrets, words);
-    match answer {
-        ChangeAnswer::Changed(mut change) => {
+    match ended {
+        ChangeEnd::Changed(mut change) => {
             if let Some(diff) = &mut change.diff {
                 diff.diff = scrub(&diff.diff);
                 diff.patch = scrub(&diff.patch);
             }
-            ChangeAnswer::Changed(change)
+            ChangeEnd::Changed(change)
         }
-        ChangeAnswer::Failed(words) => {
-            ChangeAnswer::Failed(scrub(&words))
-        }
-        unchanged @ (ChangeAnswer::Refused(_)
-        | ChangeAnswer::WaitsForChief(_)) => unchanged,
+        ChangeEnd::Failed { words } => ChangeEnd::Failed {
+            words: scrub(&words),
+        },
+        not_run @ ChangeEnd::NotRun { .. } => not_run,
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use hamlet_actor_error::ActorError;
+
     use super::*;
 
     fn planned(was: Option<&[u8]>) -> Planned {
@@ -955,24 +1011,42 @@ mod tests {
         }
     }
 
+    #[cfg(windows)]
+    #[test]
+    fn a_relative_path_is_refused_in_the_policys_text() {
+        let call = CallId("w1".into());
+        let conversation = ConversationId("c1".into());
+        let request = Request {
+            call: &call,
+            conversation: &conversation,
+            path: Path::new(r"notes\a.md"),
+            asked: Asked::Write("new"),
+            request_hash: vec![1],
+        };
+        let refused = request.checked::<WriteRefusal>().unwrap();
+        assert_eq!(
+            refused.to_string(),
+            "notes/a.md is not an absolute path"
+        );
+    }
+
     /// A change's row answers a repeat of it once it ended. One that
     /// did not end, as a failure after its row leaves it, is cut off
-    /// so the repeat runs afresh; a row of another request refuses
-    /// it.
+    /// so the repeat runs afresh; a row of another request fails it
+    /// with `message.id_reused` (M-E10).
     #[test]
     fn a_row_answers_a_repeat_or_is_cut_off() {
         let call = CallId("w1".into());
         let conversation = ConversationId("c1".into());
         let request = Request {
-            named: AgentNumber(7),
             call: &call,
             conversation: &conversation,
             path: Path::new("/p/a.md"),
             asked: Asked::Write("new"),
             request_hash: vec![1],
         };
-        let answer = ChangeAnswer::Failed("no".into());
-        let bytes = calls::cbor(&answer).unwrap();
+        let end = ChangeEnd::Failed { words: "no".into() };
+        let bytes = calls::cbor(&end).unwrap();
         let row =
             |op: &str, hash: u8, state: &str, answer| calls::Call {
                 id: 4,
@@ -983,31 +1057,31 @@ mod tests {
                 temp: Some("/p/.hamlet-x.new".into()),
             };
 
-        let ended =
-            answered(row("write", 1, "ended", Some(bytes)), &request);
-        let unfinished =
-            answered(row("write", 1, "changing", None), &request);
-        let other =
-            answered(row("write", 2, "changing", None), &request);
-        let a_run =
-            answered(row("run", 1, "running", None), &request);
+        let answered =
+            |call| answered::<ChangeRefusal>(call, &request);
+        let ended = answered(row("write", 1, "ended", Some(bytes)));
+        let unfinished = answered(row("write", 1, "changing", None));
+        let other = answered(row("write", 2, "changing", None));
+        let a_run = answered(row("run", 1, "running", None));
 
         assert!(matches!(
             ended.unwrap(),
-            Row::Answer(given) if given == answer
+            Row::Answer(ChangeAnswer::Ended { end: given }) if given == end
         ));
         assert!(matches!(
             unfinished.unwrap(),
             Row::Unfinished { id: 4, temp: Some(temp) }
                 if temp == "/p/.hamlet-x.new"
         ));
-        for refused in [other, a_run] {
-            assert!(matches!(
-                refused.unwrap(),
-                Row::Answer(ChangeAnswer::Refused(
-                    CallRefusal::CallReused(_)
-                ))
-            ));
+        for reused in [other, a_run] {
+            let Err(error) = reused else {
+                panic!("a reused id was answered");
+            };
+            let error = ActorError::extract(&error);
+            assert_eq!(
+                (error.group(), error.code()),
+                ("message", "id_reused")
+            );
         }
     }
 
@@ -1049,10 +1123,10 @@ mod tests {
         assert_eq!(std::fs::read(&file).unwrap(), b"theirs");
     }
 
-    /// A file that no longer held what the change read is refused
-    /// with what it held and what it holds.
+    /// A file that no longer held what the change read is not
+    /// changed, with what it held and what it holds.
     #[test]
-    fn a_file_that_changed_is_refused_with_both_hashes() {
+    fn a_file_that_changed_is_not_changed_with_both_hashes() {
         let refused = outcome(
             Path::new("/p/a.md"),
             &Asked::Write("new"),
@@ -1068,22 +1142,34 @@ mod tests {
             Ok(Replaced::Changed(None)),
         );
 
-        let old = Hashed::Sha256(Sha256::digest(b"old").into());
+        let old = Hashed::Sha256 {
+            hash: bytes::Sha256(Sha256::digest(b"old").into()),
+        };
         assert_eq!(
             refused,
-            ChangeAnswer::Refused(CallRefusal::FileChanged {
-                path: "/p/a.md".into(),
-                was: old,
-                now: Hashed::Sha256(Sha256::digest(b"theirs").into()),
-            })
+            ChangeEnd::NotRun {
+                why: Stale::FileChanged {
+                    path: "/p/a.md".into(),
+                    was: old,
+                    now: Hashed::Sha256 {
+                        hash: bytes::Sha256(
+                            Sha256::digest(b"theirs").into()
+                        ),
+                    },
+                }
+                .into()
+            }
         );
         assert_eq!(
             gone,
-            ChangeAnswer::Refused(CallRefusal::FileChanged {
-                path: "/p/a.md".into(),
-                was: old,
-                now: Hashed::Absent,
-            })
+            ChangeEnd::NotRun {
+                why: Stale::FileChanged {
+                    path: "/p/a.md".into(),
+                    was: old,
+                    now: Hashed::Absent,
+                }
+                .into()
+            }
         );
     }
 
@@ -1111,17 +1197,18 @@ mod tests {
 
         assert_eq!(
             wrote,
-            ChangeAnswer::Failed(
-                "EACCES: permission denied, open '/p/a.md'".into()
-            )
+            ChangeEnd::Failed {
+                words: "EACCES: permission denied, open '/p/a.md'"
+                    .into()
+            }
         );
         assert_eq!(
             edited,
-            ChangeAnswer::Failed(
-                "Could not edit file: /p/a.md. Error code: \
-                 permission_denied."
+            ChangeEnd::Failed {
+                words: "Could not edit file: /p/a.md. Error code: \
+                        permission_denied."
                     .into()
-            )
+            }
         );
     }
 }

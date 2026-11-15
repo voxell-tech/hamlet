@@ -6,23 +6,28 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
+use hamlet_host::Address;
+use hamlet_messages::address::{self, Party};
 use hamlet_messages::agent::Outcome;
 use hamlet_messages::workspace::files::ChangeAnswer;
-use hamlet_messages::workspace::reach::{Need, Refusal};
-use hamlet_messages::workspace::{
-    AddedTool, Answer, AnswerTaken, CallId, CallRefusal,
-    ConversationId, Exit, ListTools, Program, Run, RunAnswer,
-    ToolList,
+use hamlet_messages::workspace::reach::Need;
+use hamlet_messages::workspace::refusal::{
+    PathRefusal, ToolRefusal, WriteRefusal,
 };
+use hamlet_messages::workspace::{
+    AddedTool, Answer, AnswerTaken, CallId, ConversationId, Exit,
+    Fault, ListTools, Program, Run, RunAnswer, RunEnd, ToolList,
+};
+use hamlet_os::fs::path::text;
 use hamlet_testing::Scratch;
 
 use super::changes::{read, write};
 use super::files::ask;
 use super::waits::chief;
 use super::{
-    AGENT, Peers, SECRET, agent, agent_runs, answering_within, done,
-    filesystem, host, host_with, reach, realm_sets, run, running,
-    told, told_within,
+    AGENT, Peers, SECRET, WRONG_CALLER, agent, agent_runs,
+    answering_within, done, error_of, filesystem, host, host_with,
+    reach, realm, realm_sets, run, running, told, told_within,
 };
 
 const MANIFEST: &str = r#"{
@@ -46,7 +51,6 @@ fn add_tool(dir: &Path, folder: &str, manifest: &str) -> PathBuf {
 
 fn tool(call: &str, name: &str, arguments: &str) -> Run {
     Run {
-        agent: AGENT,
         call: CallId(call.to_owned()),
         conversation: ConversationId("c1".to_owned()),
         realm_task: None,
@@ -55,6 +59,21 @@ fn tool(call: &str, name: &str, arguments: &str) -> Run {
             arguments: arguments.to_owned(),
         },
     }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn only_an_agent_lists_the_tools() {
+    let dir = Scratch::new("workspace-tools-caller");
+    let host = host(&dir).await;
+    let from_realm = error_of(&host, &realm(), &ListTools).await;
+    let from_padded_key = error_of(
+        &host,
+        &Address::new(address::Agent::KIND, "07").unwrap(),
+        &ListTools,
+    )
+    .await;
+    host.shutdown().await.unwrap();
+    assert_eq!([from_realm, from_padded_key], [WRONG_CALLER; 2]);
 }
 
 /// The tools that load are listed with what a model is offered; a
@@ -79,17 +98,40 @@ async fn the_tools_added_by_hand_are_listed() {
             parameters: r#"{"properties":{"word":{"type":"string"}},"required":["word"],"type":"object"}"#.into(),
         }]
     );
-    assert_eq!(list.faults.len(), 2, "{:?}", list.faults);
-    assert!(
-        list.faults[0]
-            .ends_with("broken: manifest.json is not valid JSON"),
-        "{:?}",
-        list.faults
+    assert_eq!(
+        list.faults,
+        [
+            Fault {
+                folder: text(&dir.join("tools/broken")),
+                words: "manifest.json is not valid JSON".into(),
+            },
+            Fault {
+                folder: text(&dir.join("tools/shell")),
+                words: "name 'bash' is reserved".into(),
+            },
+        ]
     );
+}
+
+/// Linux only: macOS refuses a file name that is not UTF-8.
+#[cfg(target_os = "linux")]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_folder_whose_name_is_not_text_is_a_fault() {
+    use std::os::unix::ffi::OsStrExt as _;
+
+    let dir = Scratch::new("workspace-tools-not-text");
+    add_tool(&dir, "a-echo", MANIFEST);
+    let odd = std::ffi::OsStr::from_bytes(b"bad\xff");
+    std::fs::create_dir_all(dir.join("tools").join(odd)).unwrap();
+    let host = host(&dir).await;
+    let list: ToolList = ask(&host, &agent(AGENT), &ListTools).await;
+    host.shutdown().await.unwrap();
+    assert_eq!(list.tools.len(), 1);
+    assert_eq!(list.faults.len(), 1);
     assert!(
-        list.faults[1].ends_with("shell: name 'bash' is reserved"),
+        list.faults[0].folder.ends_with("tools/bad\u{fffd}"),
         "{:?}",
-        list.faults
+        list.faults[0]
     );
 }
 
@@ -110,7 +152,7 @@ async fn a_tool_added_by_hand_runs_as_a_command() {
     let again = agent_runs(&host, &call).await;
     host.shutdown().await.unwrap();
     let end = done(first.clone());
-    assert_eq!(end.exit, Exit::Code(0), "{end:?}");
+    assert_eq!(end.exit, Exit::Code { code: 0 }, "{end:?}");
     assert!(end.output.starts_with(r#"{"word":"hi "#), "{end:?}");
     assert!(!end.output.contains(SECRET), "{end:?}");
     assert_eq!(again, first);
@@ -132,13 +174,19 @@ async fn a_tool_call_is_checked_against_its_manifest() {
     host.shutdown().await.unwrap();
     assert_eq!(
         missing,
-        RunAnswer::Refused(CallRefusal::Invalid(
-            "Tool \"nope\" not found".into()
-        ))
+        RunAnswer::Refused {
+            why: ToolRefusal::NotFound {
+                name: "nope".into()
+            }
+            .into()
+        }
     );
-    let invalid = RunAnswer::Refused(CallRefusal::Invalid(
-        "Validation failed for tool echo_word".into(),
-    ));
+    let invalid = RunAnswer::Refused {
+        why: ToolRefusal::Arguments {
+            name: "echo_word".into(),
+        }
+        .into(),
+    };
     assert_eq!(unnamed, invalid);
     assert_eq!(not_json, invalid);
 }
@@ -164,12 +212,15 @@ async fn a_long_tool_answers_running_then_finished() {
     running(&answer);
     let told = told(&peers);
     assert_eq!(told.len(), 1, "{told:?}");
-    let Outcome::Ran(end) = &told[0].1.outcome else {
+    let Outcome::Run {
+        end: RunEnd::Ran(end),
+    } = &told[0].1.outcome
+    else {
         panic!("the agent was told {told:?}");
     };
     assert_eq!(
         (&end.exit, end.output.as_str()),
-        (&Exit::Code(0), "late\n")
+        (&Exit::Code { code: 0 }, "late\n")
     );
 }
 
@@ -198,24 +249,32 @@ async fn a_tool_that_reaches_the_network_waits_for_a_chief() {
     std::fs::remove_dir_all(dir.join("tools/fetch")).unwrap();
     let gone = chief(&host, "t2", Answer::Allow).await;
     host.shutdown().await.unwrap();
-    let waits = RunAnswer::WaitsForChief(vec![Need::Network]);
+    let waits = RunAnswer::WaitsForChief {
+        needs: vec![Need::Network],
+    };
     assert_eq!((first, second), (waits.clone(), waits));
     let asked = peers.asked.lock().unwrap().clone();
     assert_eq!(asked[0].subject, r#"fetch {"url":"x"}"#);
-    assert_eq!(allowed, AnswerTaken::Runs);
+    assert_eq!(allowed, AnswerTaken::Taken);
     let told = told(&peers);
-    let Outcome::Ran(end) = &told[0].1.outcome else {
+    let Outcome::Run {
+        end: RunEnd::Ran(end),
+    } = &told[0].1.outcome
+    else {
         panic!("the agent was told {told:?}");
     };
     assert_eq!(
         (&end.exit, end.output.as_str()),
-        (&Exit::Code(0), r#"{"url":"x"}"#)
+        (&Exit::Code { code: 0 }, r#"{"url":"x"}"#)
     );
     assert_eq!(
         gone,
-        AnswerTaken::NotRun(CallRefusal::Invalid(
-            "Tool \"fetch\" not found".into()
-        ))
+        AnswerTaken::RunNotRun {
+            why: ToolRefusal::NotFound {
+                name: "fetch".into()
+            }
+            .into()
+        }
     );
 }
 
@@ -258,7 +317,7 @@ async fn an_agent_never_writes_the_tools_folder() {
                 .enumerate()
         {
             let asked = write(&format!("w{n}"), path, "x");
-            let answer: ChangeAnswer =
+            let answer: ChangeAnswer<WriteRefusal> =
                 ask(&host, &agent(AGENT), &asked).await;
             changes.push((path.clone(), answer));
         }
@@ -266,7 +325,7 @@ async fn an_agent_never_writes_the_tools_folder() {
         for (script, exit) in &ran {
             assert_ne!(
                 exit,
-                &Exit::Code(0),
+                &Exit::Code { code: 0 },
                 "{with_project}: {script}"
             );
         }
@@ -274,9 +333,11 @@ async fn an_agent_never_writes_the_tools_folder() {
             assert!(
                 matches!(
                     answer,
-                    ChangeAnswer::Refused(CallRefusal::Reach(
-                        Refusal::OutsideReach { .. }
-                    ))
+                    ChangeAnswer::Refused {
+                        why: WriteRefusal::Path(
+                            PathRefusal::OutsideReach { .. }
+                        )
+                    }
                 ),
                 "{with_project}: {path:?} {answer:?}"
             );
@@ -304,7 +365,7 @@ async fn a_tool_never_writes_the_tools_folder() {
     let end =
         done(agent_runs(&host, &tool("t1", "rewrite", "{}")).await);
     host.shutdown().await.unwrap();
-    assert_ne!(end.exit, Exit::Code(0), "{end:?}");
+    assert_ne!(end.exit, Exit::Code { code: 0 }, "{end:?}");
     assert_eq!(read(&path), manifest);
     assert!(!dir.join("tools/new").exists());
 }

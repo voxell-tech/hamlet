@@ -10,9 +10,10 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result, bail};
 use hamlet_actor_core::{BindParam, SqliteTransaction};
 use hamlet_messages::workspace::reach::Need;
+use hamlet_messages::workspace::refusal::RunNotRun;
 use hamlet_messages::workspace::{
-    AgentNumber, CallId, CallRefusal, CommandEnd, CommandId,
-    ConversationId, Exit, RunAnswer, Which,
+    AgentNumber, CallId, CommandEnd, CommandId, ConversationId, Exit,
+    RunAnswer, RunEnd, Which,
 };
 use hamlet_os::fs::path::text;
 use hamlet_sandbox::scrub::scrub_text;
@@ -40,8 +41,8 @@ pub(super) enum State {
     CutOff,
     /// It waits for a chief to allow what it needs.
     Waiting(Vec<Need>),
-    /// A chief refused it, or its wait lapsed.
-    Refused(CallRefusal),
+    /// It waited for a chief and did not run.
+    NotRun(RunNotRun),
 }
 
 /// The op of a command's row.
@@ -59,7 +60,7 @@ pub(super) async fn status(
     agent: AgentNumber,
     command: CommandId,
 ) -> Result<Option<Row>> {
-    let id = i64::try_from(command.0)?;
+    let id = i64::from(command.0);
     calls::by_id(tx, agent, id, OP)
         .await?
         .map(row_of)
@@ -73,7 +74,7 @@ pub(super) const CUT_OFF: &str =
 
 /// A command's row, from its call's.
 pub(super) fn row_of(call: Call) -> Result<Row> {
-    let command = CommandId(u64::try_from(call.id)?);
+    let command = command_id(call.id)?;
     let state = match (call.state.as_str(), call.answer) {
         ("running", _) => State::Running,
         ("cut_off", _) => State::CutOff,
@@ -81,8 +82,8 @@ pub(super) fn row_of(call: Call) -> Result<Row> {
             ciborium::from_reader(needs.as_slice())
                 .context("decode what a command waits for")?,
         ),
-        ("refused", Some(refusal)) => State::Refused(
-            ciborium::from_reader(refusal.as_slice())
+        ("refused", Some(why)) => State::NotRun(
+            ciborium::from_reader(why.as_slice())
                 .context("decode why a command did not run")?,
         ),
         ("ended", Some(answer)) => State::Ended(
@@ -114,7 +115,13 @@ pub(super) async fn open(
         None,
     )
     .await?;
-    Ok(CommandId(u64::try_from(id)?))
+    command_id(id)
+}
+
+/// The command of the call whose row id is `row`, which fits in a
+/// `u32` or the command is not started.
+pub(super) fn command_id(row: i64) -> Result<CommandId> {
+    Ok(CommandId(u32::try_from(row)?))
 }
 
 /// Records how a running command ended, in `tx`.
@@ -129,7 +136,7 @@ pub(super) async fn end(
         Some(vec![
             BindParam::Blob(answer),
             BindParam::Integer(calls::now_ms()?),
-            BindParam::Integer(i64::try_from(end.command.0)?),
+            BindParam::Integer(i64::from(end.command.0)),
         ]),
     )
     .await?;
@@ -195,8 +202,8 @@ impl Running {
     ) -> bool {
         self.agent == agent
             && match which {
-                Which::One(call) => self.call == *call,
-                Which::Conversation(conversation) => {
+                Which::One { call } => self.call == *call,
+                Which::Conversation { conversation } => {
                     self.conversation == *conversation
                 }
                 Which::All => true,
@@ -236,24 +243,24 @@ impl Waiters {
     }
 
     /// Waits for the end of `command` until the first call's wait is
-    /// over: `Done` with it, else `Running`.
-    pub(super) async fn answer(
+    /// over: `Ended` with it, else `Running`.
+    pub(super) async fn answer<R>(
         &self,
         command: CommandId,
-    ) -> RunAnswer {
+    ) -> RunAnswer<R> {
         let (tx, rx) = oneshot::channel();
         match &mut *self.lock() {
             Slot::Waiting(waiting) => waiting.push(tx),
             Slot::GaveUp => return RunAnswer::Running { command },
-            Slot::Ended(end) => return RunAnswer::Done(end.clone()),
+            Slot::Ended(end) => return ended(end.clone()),
         }
         match tokio::time::timeout_at(self.give_up_at, rx).await {
-            Ok(Ok(end)) => RunAnswer::Done(end),
+            Ok(Ok(end)) => ended(end),
             Ok(Err(_)) => RunAnswer::Running { command },
             Err(_) => {
                 let mut slot = self.lock();
                 match &*slot {
-                    Slot::Ended(end) => RunAnswer::Done(end.clone()),
+                    Slot::Ended(end) => ended(end.clone()),
                     Slot::Waiting(_) | Slot::GaveUp => {
                         *slot = Slot::GaveUp;
                         RunAnswer::Running { command }
@@ -288,6 +295,12 @@ impl Waiters {
 
     fn lock(&self) -> std::sync::MutexGuard<'_, Slot> {
         self.slot.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+}
+
+pub(super) fn ended<R>(end: CommandEnd) -> RunAnswer<R> {
+    RunAnswer::Ended {
+        end: RunEnd::Ran(end),
     }
 }
 
@@ -354,9 +367,9 @@ fn start_on(
     let failed = move |why: io::Error| {
         without_output(
             command,
-            Exit::Failed(format!(
-                "the command could not start: {why}"
-            )),
+            Exit::Failed {
+                words: format!("the command could not start: {why}"),
+            },
         )
     };
     let thread_tx = tx.clone();
@@ -395,7 +408,9 @@ async fn ran(spec: Spec) -> CommandEnd {
         spec.policy,
         spec.sandbox,
     ) {
-        Err(error) => Exit::Failed(error.to_string()),
+        Err(error) => Exit::Failed {
+            words: error.to_string(),
+        },
         Ok(env) => {
             policy_hash = env.policy_hash().to_owned();
             let shell;
@@ -426,7 +441,7 @@ async fn ran(spec: Spec) -> CommandEnd {
                 }
             };
             match launch {
-                Err(why) => Exit::Failed(why),
+                Err(why) => Exit::Failed { words: why },
                 Ok(launch) => {
                     let mut push = |text: &str| output.push(text);
                     let streamed = env.stream(
@@ -443,14 +458,14 @@ async fn ran(spec: Spec) -> CommandEnd {
                         biased;
                         () = spec.cancel.cancelled() => Exit::Cancelled,
                         ran = streamed => match ran {
-                            Ok(code) => Exit::Code(code),
+                            Ok(code) => Exit::Code { code },
                             Err(ExecError::Timeout { .. }) => {
                                 Exit::TimedOut
                             }
                             Err(
                                 ExecError::Spawn(why)
                                 | ExecError::Spill(why),
-                            ) => Exit::Failed(why),
+                            ) => Exit::Failed { words: why },
                         },
                     }
                 }
@@ -459,11 +474,18 @@ async fn ran(spec: Spec) -> CommandEnd {
     };
     let (tail, cut) = output.finish();
     let (exit, cut) = match (exit, cut) {
-        (Exit::Failed(why), cut) => (
-            Exit::Failed(scrub_text(&spec.secrets, &why)),
+        (Exit::Failed { words: why }, cut) => (
+            Exit::Failed {
+                words: scrub_text(&spec.secrets, &why),
+            },
             cut.ok().flatten(),
         ),
-        (_, Err(why)) => (Exit::Failed(why.to_string()), None),
+        (_, Err(why)) => (
+            Exit::Failed {
+                words: why.to_string(),
+            },
+            None,
+        ),
         (exit, Ok(cut)) => (exit, cut),
     };
     CommandEnd {
@@ -536,9 +558,10 @@ mod tests {
         let end = ended.await.expect("an end");
         assert_eq!(
             end.exit,
-            Exit::Failed(
-                "the command could not start: no threads left".into()
-            )
+            Exit::Failed {
+                words: "the command could not start: no threads left"
+                    .into()
+            }
         );
     }
 
@@ -593,7 +616,10 @@ mod tests {
         }
         assert_eq!(
             seen,
-            [(Exit::Code(0), true), (Exit::Code(128 + 9), false)]
+            [
+                (Exit::Code { code: 0 }, true),
+                (Exit::Code { code: 128 + 9 }, false)
+            ]
         );
     }
 }

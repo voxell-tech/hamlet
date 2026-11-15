@@ -1,8 +1,9 @@
 //! A read of a file: a text file's first lines within the limits,
 //! with remarks on what was left out, or an image as it is.
 
+use hamlet_messages::bytes::Base64;
 use hamlet_messages::workspace::files::{
-    CutBy, FileAnswer, Image, Note, Severity, Text, Truncation,
+    CutBy, Image, Note, ReadAnswer, Severity, Text, Truncation,
 };
 use hamlet_sandbox::{Env, FileError};
 use unicode_normalization::UnicodeNormalization;
@@ -17,7 +18,7 @@ pub(super) fn read(
     path: &str,
     offset: Option<u64>,
     limit: Option<u64>,
-) -> Result<FileAnswer, FileError> {
+) -> Result<ReadAnswer, FileError> {
     let decomposed = path.nfd().collect::<String>();
     let variants = [
         path.to_owned(),
@@ -40,9 +41,9 @@ pub(super) fn read(
     }
     let bytes = env.read_file(&absolute)?;
     if let Some(mime) = image(&bytes) {
-        return Ok(FileAnswer::Image(Image {
+        return Ok(ReadAnswer::Image(Image {
             mime: mime.to_owned(),
-            bytes,
+            data: Base64(bytes),
         }));
     }
     let text = String::from_utf8_lossy(&bytes);
@@ -54,10 +55,13 @@ pub(super) fn read(
             .unwrap_or(usize::MAX)
     });
     if start >= total {
-        return Ok(FileAnswer::Failed(format!(
-            "Offset {} is beyond end of file ({total} lines total)",
-            offset.unwrap_or(0)
-        )));
+        return Ok(ReadAnswer::Failed {
+            words: format!(
+                "Offset {} is beyond end of file ({total} lines \
+                 total)",
+                offset.unwrap_or(0)
+            ),
+        });
     }
     let end = limit.map(|limit| {
         start
@@ -125,7 +129,7 @@ pub(super) fn read(
             ),
         });
     }
-    Ok(FileAnswer::Text(out))
+    Ok(ReadAnswer::Text(out))
 }
 
 /// The type of image `bytes` begin as, if it is one a model takes.

@@ -11,12 +11,12 @@ use hamlet_actor_core::ActorFactory;
 use hamlet_actor_core::error::ActorRuntime;
 use hamlet_actor_core::host::ActionTimedOut;
 use hamlet_actor_error::ActorError;
+use hamlet_address::{Address, Caller};
 use serde::Serialize;
 use tracing::Instrument;
 
 use super::access::{Origin, Stamp};
 use super::{Host, HostInner, Open, actor_id, host_shut_down};
-use crate::address::{Address, Caller};
 use crate::directory::{Place, not_registered};
 use crate::event::HostEvent;
 use crate::route::{CallerKind, Operation};
