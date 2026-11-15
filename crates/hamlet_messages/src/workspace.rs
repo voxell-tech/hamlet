@@ -8,7 +8,8 @@
 //!   planned, as an edit whose text is not found: the workspace kept
 //!   nothing of it.
 //! - `running`, `waits_for_chief`: the call goes on, and the agent is
-//!   called with `Finished` when it ends.
+//!   called with `Finished` when it ends, unless the workspace's host
+//!   stops first.
 //! - `refused { why, words }`: the workspace kept nothing of the
 //!   call. `why` is one of the families of [`refusal`].
 
@@ -147,9 +148,8 @@ pub enum Lapse {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum AnswerTaken {
-    /// The allow was taken, and the workspace goes on with the call.
-    /// The call's end reaches the agent in
-    /// [`crate::agent::Finished`].
+    /// The allow was taken, and the workspace goes on with the call
+    /// as with one that answered `running`.
     Taken,
     /// A run did not run: a chief refused it, its wait lapsed, or
     /// its allow no longer holds.

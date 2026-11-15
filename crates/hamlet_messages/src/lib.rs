@@ -49,8 +49,9 @@
 //! # How a message may change
 //!
 //! An actor keeps messages in its file as CBOR of the Rust type
-//! itself, and `fixtures/stored/` holds each case of each type a
-//! row keeps. The workspace keeps an agent's
+//! itself. `fixtures/stored/` holds each case of each enum that a
+//! type a row keeps holds in a stored or a message fixture. The
+//! workspace keeps an agent's
 //! [`workspace::reach::Reach`]; the request of a call that waits for
 //! a chief ([`workspace::Run`],
 //! [`workspace::files::WriteFile`], [`workspace::files::EditFile`]),
