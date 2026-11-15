@@ -1,0 +1,319 @@
+import assert from "node:assert/strict";
+import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
+import { test } from "node:test";
+import {
+    type FauxResponseStep,
+    fauxAssistantMessage,
+} from "@earendil-works/pi-ai";
+import {
+    ActorError,
+    Address,
+    actor,
+    type CallOptions,
+    type Calls,
+} from "../../src/actor/actor/mod.ts";
+import type { JsonCompatValue } from "../../src/actor/common/encoding.ts";
+import { agentActor } from "../../src/agent/actor.ts";
+import type {
+    AgentActions,
+    AgentInput,
+    Finished,
+    Submit,
+} from "../../src/agent/messages.ts";
+import { fakeFiles } from "../agent-testing.ts";
+import { fauxModels } from "../testing.ts";
+import { eventually, inFolder, startLocalHost } from "./support.ts";
+
+const CALL: CallOptions = { deadlineMs: 10_000 };
+
+/** The realm's deadline on a call to an agent. */
+const REALM_DEADLINE_MS = 4_000;
+
+type AgentAction = keyof AgentActions | "pi.wake";
+
+/** What a stand-in got from its call to an agent, and how long the call took. */
+type Got = (
+    | { readonly answer: unknown }
+    | { readonly error: { readonly group: string; readonly code: string } }
+) & { readonly ms: number };
+
+/** Calls `agent/<n>`'s `name` with `message` as the caller `c` is, under the realm's deadline. */
+async function send(
+    c: Calls,
+    n: number,
+    name: AgentAction,
+    message: unknown,
+): Promise<Got> {
+    const to = Address.of<Record<AgentAction, (message: unknown) => unknown>>(
+        "agent",
+        String(n),
+    );
+    const start = performance.now();
+    try {
+        const answer = await c.call(to, name, [message], {
+            deadlineMs: REALM_DEADLINE_MS,
+        });
+        return { answer, ms: performance.now() - start };
+    } catch (error) {
+        if (!(error instanceof ActorError)) throw error;
+        return {
+            error: { group: error.group, code: error.code },
+            ms: performance.now() - start,
+        };
+    }
+}
+
+/** The realm, `realm/local`: it sends as itself, allows every model request and takes every charge. */
+const realm = actor({
+    actions: {
+        send,
+        may_spend: () => ({ type: "done" }),
+        charge: () => null,
+    },
+});
+
+/** The workspace, `workspace/local`: it sends as itself and adds no tools. */
+const workspace = actor({
+    actions: {
+        send,
+        list_tools: () => ({ tools: [], faults: [] }),
+    },
+});
+
+const HAND: AgentInput = {
+    kind: "hand",
+    task: "standing-1",
+    place: { version: 1, hires: [], roads: [], tools_off: [] },
+};
+
+function line(id: string, text: string): Submit {
+    return { id, input: { type: "line", text } };
+}
+
+/**
+ * The kinds of one host: the agent on faux models answering `responses`,
+ * beside the stand-ins. `opened` counts the agent's `onCreate`s and
+ * `onWake`s, the only callers of `files`.
+ */
+function kindsAnswering(responses: FauxResponseStep[]) {
+    const { faux, models, model } = fauxModels();
+    faux.setResponses(responses);
+    const files = { opened: 0 };
+    const agent = agentActor({
+        models,
+        model,
+        files: () => {
+            files.opened += 1;
+            return fakeFiles({});
+        },
+    });
+    return { files, kinds: { agent, realm, workspace } };
+}
+
+/** A host with the realm, the workspace and agent 1 created. */
+async function startWithAgent(
+    dir: string,
+    kinds: ReturnType<typeof kindsAnswering>["kinds"],
+) {
+    const host = await startLocalHost(dir, kinds);
+    await host.create(host.at("realm", "local"));
+    await host.create(host.at("workspace", "local"));
+    await host.create(
+        host.at("agent", "1"),
+        HAND as unknown as JsonCompatValue,
+    );
+    return host;
+}
+
+/** What agent 1's file holds, read once its host is shut down. */
+function agentFile(dir: string) {
+    const database = new DatabaseSync(
+        join(dir, "actors", "agent", "1.sqlite"),
+        { readOnly: true },
+    );
+    try {
+        return {
+            submissions: database
+                .prepare(
+                    "SELECT request_id ->> '$' AS request FROM pi_submissions ORDER BY id",
+                )
+                .all()
+                .map((row) => row.request),
+            replies: database
+                .prepare(
+                    "SELECT record FROM pi_entries WHERE record ->> '$.kind' = 'pi.assistant' ORDER BY id",
+                )
+                .all()
+                .map((row) => row.record),
+        };
+    } finally {
+        database.close();
+    }
+}
+
+const ENDED: Finished = {
+    call: "t999",
+    outcome: {
+        type: "run",
+        end: { type: "not_run", why: { type: "denied" }, words: "Not run." },
+    },
+};
+
+test("every agent action answers null to its caller across the host", async () => {
+    await inFolder(async (dir) => {
+        const { kinds } = kindsAnswering([
+            fauxAssistantMessage("Done."),
+            fauxAssistantMessage("Done."),
+        ]);
+        const host = await startWithAgent(dir, kinds);
+        const r = host.at("realm", "local");
+        const w = host.at("workspace", "local");
+
+        const answers = {
+            submit: await host.call(
+                r,
+                "send",
+                [1, "submit", line("s1", "Hello.")],
+                CALL,
+            ),
+            place: await host.call(
+                r,
+                "send",
+                [1, "place", { ...HAND.place, version: 2 }],
+                CALL,
+            ),
+            fill: await host.call(
+                r,
+                "send",
+                [1, "fill", { profile: 3, branch: "main" }],
+                CALL,
+            ),
+            finished: await host.call(w, "send", [1, "finished", ENDED], CALL),
+        };
+        const alarm = await host.call(
+            host.at("agent", "1") as unknown as Address<{
+                "pi.wake"(): unknown;
+            }>,
+            "pi.wake",
+            [],
+            CALL,
+        );
+        await host.shutdown();
+
+        for (const [name, got] of Object.entries(answers)) {
+            assert.ok("answer" in got, `${name}: ${JSON.stringify(got)}`);
+            assert.equal(got.answer, null, name);
+        }
+        assert.equal(alarm, null, "pi.wake");
+    });
+});
+
+test("a wrong caller across the host gets message.wrong_caller, and nothing is admitted", async () => {
+    await inFolder(async (dir) => {
+        const { kinds } = kindsAnswering([fauxAssistantMessage("Done.")]);
+        const host = await startWithAgent(dir, kinds);
+        const r = host.at("realm", "local");
+        const w = host.at("workspace", "local");
+
+        const refused = [
+            await host.call(
+                w,
+                "send",
+                [1, "submit", line("from-workspace", "Hi.")],
+                CALL,
+            ),
+            await host.call(r, "send", [1, "finished", ENDED], CALL),
+            await host.call(r, "send", [1, "pi.wake", {}], CALL),
+        ];
+        await assert.rejects(
+            host.call(
+                host.at("agent", "1") as unknown as Address<
+                    Pick<AgentActions, "submit">
+                >,
+                "submit",
+                [line("from-no-one", "Hi.")],
+                CALL,
+            ),
+            (error) =>
+                error instanceof ActorError &&
+                error.group === "message" &&
+                error.code === "wrong_caller",
+        );
+        const admitted = await host.call(
+            r,
+            "send",
+            [1, "submit", line("from-realm", "Hi.")],
+            CALL,
+        );
+        await host.shutdown();
+
+        for (const got of refused) {
+            assert.partialDeepStrictEqual(got, {
+                error: { group: "message", code: "wrong_caller" },
+            });
+        }
+        assert.partialDeepStrictEqual(admitted, { answer: null });
+        assert.deepEqual(agentFile(dir).submissions, ["from-realm"]);
+    });
+});
+
+test("submit wakes a sleeping agent within 4 s", async (t) => {
+    await inFolder(async (dir) => {
+        const { files, kinds } = kindsAnswering([
+            fauxAssistantMessage("Done."),
+        ]);
+        await (await startWithAgent(dir, kinds)).shutdown();
+        const asleep = files.opened;
+
+        const host = await startLocalHost(dir, kinds);
+        await host.getOrStart(host.at("realm", "local"));
+        assert.equal(files.opened, asleep, "the reopened host woke no agent");
+        const got = await host.call(
+            host.at("realm", "local"),
+            "send",
+            [1, "submit", line("after-restart", "Hello again.")],
+            CALL,
+        );
+        const woken = files.opened - asleep;
+        await host.shutdown();
+
+        t.diagnostic(`submit to a sleeping agent took ${got.ms.toFixed(0)} ms`);
+        assert.partialDeepStrictEqual(got, { answer: null });
+        assert.ok(got.ms < REALM_DEADLINE_MS, `${got.ms} ms`);
+        assert.equal(woken, 1, "the submit woke the agent");
+    });
+});
+
+test("the faux model's reply reaches the conversation after the submit", async () => {
+    await inFolder(async (dir) => {
+        const seen: unknown[][] = [];
+        const { kinds } = kindsAnswering([
+            fauxAssistantMessage("Paris."),
+            (context) => {
+                seen.push(context.messages);
+                return fauxAssistantMessage("Noted.");
+            },
+        ]);
+        const host = await startWithAgent(dir, kinds);
+        const r = host.at("realm", "local");
+
+        for (const [id, text] of [
+            ["q1", "What is the capital of France?"],
+            ["q2", "Thank you."],
+        ] as const) {
+            assert.partialDeepStrictEqual(
+                await host.call(r, "send", [1, "submit", line(id, text)], CALL),
+                { answer: null },
+            );
+        }
+        await eventually(
+            async () => seen.length,
+            (count) => count > 0,
+        );
+        await host.shutdown();
+
+        assert.match(JSON.stringify(seen[0]), /Paris\./);
+        assert.match(JSON.stringify(agentFile(dir).replies), /Paris\./);
+    });
+});
