@@ -18,6 +18,7 @@ import {
     openOnWake,
     PI_RUNTIME,
     type PiContext,
+    resumeDueSleeps,
 } from "../src/pi/runtime.ts";
 import { migratePiTables } from "../src/pi/storage.ts";
 import {
@@ -118,17 +119,33 @@ test("a timer with no date sets nothing and arms no alarm, and the model is told
     );
 });
 
-function generation(database: RawAccess): PiContext {
-    return {
-        actorId: "agent-1",
-        db: database,
-        vars: { [PI_RUNTIME]: createPiRuntime() },
-        conns: new Map(),
-        log: { warn: () => {}, error: () => {} },
-        keepAwake: (promise: Promise<unknown>) => promise,
-        schedule: { at: async () => {} },
-        abortSignal: new AbortController().signal,
-    } as unknown as PiContext;
+/**
+ * Stands in for the host of one `pi()` actor on `database`, and returns its
+ * next generation. As the host's, an alarm outlives the generation that set
+ * it, and calls `pi.wake` on the open one only once the wall clock has
+ * reached its time (`hamlet_actor_core`'s schedule takes only what is due).
+ */
+function host(database: RawAccess): () => PiContext {
+    let open: PiContext | undefined;
+    const alarm = (at: number) => {
+        const left = at - Date.now();
+        // The host keeps an alarm in its database, so it holds no process open.
+        if (left > 0) setTimeout(alarm, left, at).unref();
+        else if (open !== undefined) void resumeDueSleeps(open);
+    };
+    return () => {
+        open = {
+            actorId: "agent-1",
+            db: database,
+            vars: { [PI_RUNTIME]: createPiRuntime() },
+            conns: new Map(),
+            log: { warn: () => {}, error: () => {} },
+            keepAwake: (promise: Promise<unknown>) => promise,
+            schedule: { at: async (at: number) => alarm(at) },
+            abortSignal: new AbortController().signal,
+        } as unknown as PiContext;
+        return open;
+    };
 }
 
 /**
@@ -157,8 +174,9 @@ async function cutOffAndResumed(
         fauxAssistantMessage("woke again"),
     ]);
     const options = { registry, models, model };
+    const generation = host(database);
 
-    const first = generation(database);
+    const first = generation();
     const firstHarness = await openOnWake(first, options);
     firstHarness.resume();
     const root = await firstHarness.root(context);
@@ -179,7 +197,7 @@ async function cutOffAndResumed(
     );
     await closeHarness(first, { reason: "destroy" });
 
-    const second = generation(database);
+    const second = generation();
     const secondHarness = await openOnWake(second, options);
     secondHarness.resume();
     const root2 = await secondHarness.root(context);
@@ -251,6 +269,46 @@ function untilAborted(signal: AbortSignal | undefined): Promise<never> {
         signal?.addEventListener("abort", () => reject(new Error("cut off"))),
     );
 }
+
+test("a timer whose in-process wake comes early is admitted by the host's alarm", {
+    timeout: 30_000,
+}, async (t) => {
+    // Node can fire a timer before `Date.now()` reaches its time; here each
+    // long one fires 50 ms early.
+    const onTime = globalThis.setTimeout;
+    t.mock.method(
+        globalThis,
+        "setTimeout",
+        (callback: () => void, ms = 0, ...args: unknown[]) =>
+            onTime(callback, ms >= 1_000 ? ms - 50 : ms, ...args),
+    );
+    const database = plainDatabase(scratchFile(t));
+    await migratePiTables(database);
+    const registry = createRegistry();
+    registry.install(timers());
+    const { faux, models, model } = fauxModels();
+    faux.setResponses([
+        toolCall("wake", { in_seconds: 1.5, note: "check" }),
+        fauxAssistantMessage("set"),
+        fauxAssistantMessage("woke"),
+    ]);
+    const c = host(database)();
+    const harness = await openOnWake(c, { registry, models, model });
+    harness.resume();
+    const root = await harness.root(context);
+    await root.submit(
+        { type: "input", content: "Wake me.", requestId: "r1" },
+        context,
+    );
+    await until(
+        async () =>
+            (await root.entries({}, 200, undefined, context)).items.some(
+                (entry) => entry.kind === "hamlet.wake",
+            ),
+        10_000,
+    );
+    await closeHarness(c, { reason: "destroy" });
+});
 
 test("a wake cut off after it set its timer sets no second one on its rerun, and the timer admits once", {
     timeout: 30_000,
