@@ -27,29 +27,6 @@ pub(super) fn make(
     builder.create(home.scratch(worker))
 }
 
-/// Removes `worker`'s scratch folder and all in it. A failure is
-/// logged: the next start sweeps the folder.
-pub(super) async fn remove(home: &RealmFolder, worker: AgentNumber) {
-    let folder = home.scratch(worker);
-    let removed = tokio::task::spawn_blocking(move || {
-        std::fs::remove_dir_all(&folder)
-    })
-    .await;
-    let error = match removed {
-        Ok(Ok(())) => return,
-        Ok(Err(error)) if error.kind() == io::ErrorKind::NotFound => {
-            return;
-        }
-        Ok(Err(error)) => error.to_string(),
-        Err(error) => error.to_string(),
-    };
-    tracing::warn!(
-        %error,
-        worker = worker.0,
-        "remove a worker's scratch folder"
-    );
-}
-
 /// Removes the scratch folder of every worker whose reach ended, as a
 /// kill before its removal leaves it. A folder of a worker whose
 /// reach lives stays, and so does one of no agent the workspace
@@ -84,7 +61,7 @@ pub(super) async fn sweep(
     })
     .await?;
     for worker in ended {
-        remove(home, worker).await;
+        super::remove_folder(home.scratch(worker)).await;
     }
     Ok(())
 }

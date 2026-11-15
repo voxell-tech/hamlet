@@ -21,6 +21,7 @@ use serde::de::DeserializeOwned;
 use super::{
     AGENT, Peers, SECRET, WRONG_CALLER, agent, call_as, decoded,
     error_of, host_with, reach, realm, realm_sets, rows_in_file,
+    saved_output,
 };
 
 /// Calls the workspace with `asked`, as the actor at `from`.
@@ -433,7 +434,7 @@ async fn a_read_reaches_the_realms_shared_folders() {
     let book = dir.join("library/book.md");
     std::fs::create_dir_all(book.parent().unwrap()).unwrap();
     std::fs::write(&book, "a book\n").unwrap();
-    let spill = dir.join("actors/workspace/local.output/7/1.log");
+    let spill = saved_output(&dir, AGENT).join("1.log");
     std::fs::create_dir_all(spill.parent().unwrap()).unwrap();
     std::fs::write(&spill, "all it printed\n").unwrap();
     let host = working_in(&dir, &folder, Arc::default()).await;

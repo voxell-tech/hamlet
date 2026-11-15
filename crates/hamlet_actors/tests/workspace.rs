@@ -52,6 +52,9 @@ mod tools;
 #[path = "workspace/realm_folder.rs"]
 mod realm_folder;
 
+#[path = "workspace/output.rs"]
+mod output;
+
 const AGENT: AgentNumber = AgentNumber(7);
 
 /// The secret the stub realm holds.
@@ -68,6 +71,7 @@ const ID_REUSED: &str = "message.id_reused";
 #[derive(Default)]
 struct Peers {
     answer_within: Option<Duration>,
+    saved_output: Option<u64>,
     secrets_delay: Duration,
     fetched: AtomicUsize,
     told: Mutex<Vec<(String, Finished)>>,
@@ -232,14 +236,18 @@ async fn host(dir: &Path) -> Host {
 /// A host on `dir` with the workspace made, whose peers share
 /// `peers`.
 async fn host_with(dir: &Path, peers: Arc<Peers>) -> Host {
-    let mut options = HostOptions::default()
+    let default = workspace::Options::default();
+    let options = HostOptions::default()
         .with_value(Arc::new(Sandbox::testing()))
-        .with_value(peers.clone());
-    if let Some(answer_within) = peers.answer_within {
-        options = options.with_value(Arc::new(workspace::Options {
-            answer_within,
+        .with_value(peers.clone())
+        .with_value(Arc::new(workspace::Options {
+            answer_within: peers
+                .answer_within
+                .unwrap_or(default.answer_within),
+            saved_output: peers
+                .saved_output
+                .unwrap_or(default.saved_output),
         }));
-    }
     let host = open(dir, options).unwrap();
     host.get_or_start(&workspace_address()).await.unwrap();
     host
@@ -570,6 +578,14 @@ fn answering_within(ms: u64) -> Arc<Peers> {
         answer_within: Some(Duration::from_millis(ms)),
         ..Peers::default()
     })
+}
+
+/// The folder of `agent`'s saved output in the realm folder `dir`.
+fn saved_output(
+    dir: &Path,
+    agent: AgentNumber,
+) -> std::path::PathBuf {
+    dir.join(format!("actors/workspace/local.output/{}", agent.0))
 }
 
 /// Agent 7's filesystem, made by hand as the agent would.
@@ -1062,10 +1078,8 @@ async fn output_past_the_tail_spills_to_a_file() {
     assert_eq!(cut.total_lines, 3001);
     assert_eq!(
         cut.full_output,
-        dir.join(format!(
-            "actors/workspace/local.output/7/{}.log",
-            long.command.0
-        ))
+        saved_output(&dir, AGENT)
+            .join(format!("{}.log", long.command.0))
     );
     assert_eq!(
         std::fs::read_to_string(&cut.full_output).unwrap(),
@@ -1102,7 +1116,7 @@ async fn a_command_reads_only_its_own_agents_spill() {
     filesystem(&dir);
     let (_project, project) =
         files::project("workspace-spill-p", &[]);
-    let other = dir.join("actors/workspace/local.output/8");
+    let other = saved_output(&dir, AgentNumber(8));
     std::fs::create_dir_all(&other).unwrap();
     std::fs::write(other.join("1.log"), "theirs\n").unwrap();
     let host = host(&dir).await;
