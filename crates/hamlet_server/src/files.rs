@@ -20,9 +20,9 @@ use sha2::{Digest, Sha256};
 use crate::clients::check::reply;
 use crate::clients::connection::UploadOf;
 use crate::core::Core;
-use crate::deadline::AddDeadline;
 use crate::realm::Realm;
 use crate::society::refusal::Refusal;
+use crate::timers::AddTimer;
 
 /// The time a file nothing uses is kept, and the time between the
 /// realm's sweeps for such files.

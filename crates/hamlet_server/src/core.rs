@@ -2,7 +2,7 @@
 //! the handlers of the server's inputs reach. Every change of an
 //! input is made in its one transaction, and what it needs woken
 //! after, the jobs, the runtimes and the clients, is left for
-//! [`crate::apply::Apply`] once it is kept.
+//! [`crate::after_input::AfterInput`] once it is kept.
 
 use std::collections::{BTreeMap, HashMap};
 
@@ -15,27 +15,27 @@ use hamlet_protocol::client as protocol;
 use hamlet_protocol::runtime::{self, ServerMessage, ToolSpec};
 use hamlet_store::ids::{Actor, AgentId, ConversationId};
 
-use crate::apply::{Changed, InputEnded, Wake};
-use crate::calls::looks::Looks;
-use crate::calls::{Calls, Runs};
+use crate::after_input::{InputEffects, InputEnded, WakeHeldCall};
+use crate::background::BackgroundWork;
+use crate::calls::looks::LookFindings;
+use crate::calls::{Calls, ToolRuns};
 use crate::change::{Change, Done, Touched};
 use crate::clients::connection::UploadOf;
 use crate::clients::fold::Fold;
-use crate::clients::{Clients, Connections, Watcher};
+use crate::clients::{Clients, Connections, ConversationWatcher};
 use crate::clock;
 use crate::commands::Deeds;
 use crate::credentials::Credentials;
 use crate::files::FileUpload;
 use crate::images::sent::ImageUpload;
-use crate::knowledge::runner::Writing;
-use crate::later::Later;
+use crate::knowledge::runner::RepositoryWriteLock;
 use crate::providers::Providers;
 use crate::realm::Realm;
 use crate::talk::activity::Activity;
 use crate::talk::inputs::Resend;
 use crate::talk::leases::Authority;
 use crate::talk::runtimes::Runtimes;
-use crate::talk::sync::Fitting;
+use crate::talk::sync::ImageFitting;
 use crate::talk::{Env, conversations, prompt, sync};
 use crate::work::added::Manifest;
 use crate::work::tools::shell::Shells;
@@ -51,7 +51,7 @@ pub(crate) fn plugin(app: &mut bevy_app::App) {
         .init_resource::<ToolFaults>()
         .init_resource::<Catalogue>()
         .init_resource::<Lodged>()
-        .add_message::<Unpushed>()
+        .add_message::<UnpushedLodge>()
         .init_resource::<Moving>();
 }
 
@@ -143,7 +143,7 @@ holder! {
 /// A lodge whose remote copy is owed a push, by its agent, which the
 /// runner makes before the next input.
 #[derive(Message)]
-pub(crate) struct Unpushed(pub AgentId);
+pub(crate) struct UnpushedLodge(pub AgentId);
 holder! {
     /// The progress of moving the lodges to the chosen workspace.
     #[derive(Default)]
@@ -153,7 +153,7 @@ holder! {
 /// The tools a model may be offered, and what runs the built-in ones
 /// on this machine.
 #[derive(SystemParam)]
-pub(crate) struct Tooling<'w> {
+pub(crate) struct ModelTools<'w> {
     pub sandbox: Res<'w, Confined>,
     /// This machine's shells, which the agents' commands run in.
     pub shells: Res<'w, Shells>,
@@ -166,10 +166,10 @@ pub(crate) struct Tooling<'w> {
 /// The remote workspace the agents' tools run in, and how its copies
 /// of the lodges stand.
 #[derive(SystemParam)]
-pub(crate) struct Remote<'w> {
+pub(crate) struct RemoteWorkspace<'w> {
     pub workspace: Res<'w, Workspace>,
     pub lodged: ResMut<'w, Lodged>,
-    pub unpushed: ResMut<'w, Messages<Unpushed>>,
+    pub unpushed: ResMut<'w, Messages<UnpushedLodge>>,
     pub moving: ResMut<'w, Moving>,
 }
 
@@ -201,11 +201,11 @@ pub(crate) struct Core<'w, 's> {
     pub credentials: ResMut<'w, Credentials>,
     pub clients: ResMut<'w, Clients>,
     pub live: ResMut<'w, Lives>,
-    pub tools: Tooling<'w>,
+    pub tools: ModelTools<'w>,
     /// The changes the input left for the runner to follow up.
-    pub changed: ResMut<'w, Changed>,
+    pub changed: ResMut<'w, InputEffects>,
     /// The held calls to wake once the input's changes are sent.
-    pub wakes: MessageWriter<'w, Wake>,
+    pub wakes: MessageWriter<'w, WakeHeldCall>,
     /// The runtimes' inputs that ended, followed once kept.
     pub ended: MessageWriter<'w, InputEnded>,
     /// The chief's commands.
@@ -215,22 +215,22 @@ pub(crate) struct Core<'w, 's> {
     pub uploads: Uploads<'w, 's>,
     pub calls: ResMut<'w, Calls>,
     /// The tool runs in progress, one entity each.
-    pub runs: Runs<'w, 's>,
+    pub runs: ToolRuns<'w, 's>,
     /// The images of inputs being fitted to their models.
-    pub fitting: Fitting<'w, 's>,
+    pub fitting: ImageFitting<'w, 's>,
     /// The model catalogue and what waits on the providers.
     pub providers: ResMut<'w, Providers>,
     /// The runtimes' leases on the providers' credentials.
     pub leases: ResMut<'w, Authority>,
-    pub remote: Remote<'w>,
+    pub remote: RemoteWorkspace<'w>,
     /// The tasks off the loop and their results.
-    pub later: ResMut<'w, Later>,
+    pub later: ResMut<'w, BackgroundWork>,
     /// The findings of looks off the loop, for the calls that wait
     /// on them.
-    pub looks: Looks<'w, 's>,
+    pub looks: LookFindings<'w, 's>,
     /// Held while anything writes the realm's repositories and
     /// lodges.
-    pub writing: Res<'w, Writing>,
+    pub writing: Res<'w, RepositoryWriteLock>,
 }
 
 /// A conversation's transcript and activity, as kept and as running.
@@ -279,19 +279,20 @@ impl Core<'_, '_> {
         Ok(made)
     }
 
-    /// Leaves what a change touched for [`crate::apply::Apply`] to
-    /// follow up once the input is kept.
+    /// Leaves what a change touched for
+    /// [`crate::after_input::AfterInput`] to follow up once the input
+    /// is kept.
     fn after(&mut self, touched: &Touched) {
-        self.changed.committed = true;
-        self.changed.jobs |= touched.jobs;
-        self.changed.reshaped |=
+        self.changed.change_kept = true;
+        self.changed.jobs_kept |= touched.jobs;
+        self.changed.agents_or_hamlets_changed |=
             !touched.agents.is_empty() || !touched.hamlets.is_empty();
     }
 
     /// Owes the clients the realm's state, sent once the input is
     /// kept: for what changed outside a change, such as a setting.
     pub(crate) fn publish(&mut self) {
-        self.changed.republish = true;
+        self.changed.state_changed_outside_change = true;
     }
 
     /// The prompt of `conversation`'s next call, with no secret in
@@ -350,7 +351,7 @@ impl Core<'_, '_> {
     /// Sends `operations` to each of `watching`.
     fn send_turn(
         &mut self,
-        watching: Vec<Watcher>,
+        watching: Vec<ConversationWatcher>,
         operations: Vec<protocol::TranscriptOperation>,
     ) -> Result<()> {
         for watch in watching {
@@ -411,7 +412,7 @@ impl Core<'_, '_> {
         resend: Resend,
     ) -> Result<()> {
         let images = self.realm.layout().images();
-        let mut owed = sync::Owed {
+        let mut owed = sync::RuntimeDues {
             db: self.realm.store().connection(),
             env: &self.env,
             runtimes: &mut self.runtimes,

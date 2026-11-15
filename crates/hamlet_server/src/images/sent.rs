@@ -11,10 +11,10 @@ use hamlet_protocol::client::{
 
 use super::kept::Images;
 use super::{MOST_BYTES, capitalised};
+use crate::background::BackgroundResult;
 use crate::clients::check::{failed, fault, reply};
 use crate::clients::connection::UploadOf;
 use crate::core::Core;
-use crate::later::Finished;
 use crate::society::refusal::Refusal;
 
 /// The most images one connection sends at once.
@@ -179,7 +179,7 @@ impl Core<'_, '_> {
                 Ok(Err(error)) => fault(Some(&id), failed(error)),
                 Err(panic) => fault(Some(&id), failed(panic)),
             };
-            Finished::Reply { client, message }
+            BackgroundResult::Reply { client, message }
         });
     }
 }

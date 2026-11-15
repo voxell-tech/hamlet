@@ -17,13 +17,13 @@ use hamlet_store::ids::AgentId;
 
 use super::lodges::{self, Synced};
 use super::{Policy, Session, Transport, workspace_of};
+use crate::background::BackgroundResult;
 use crate::clients::check::reply;
-use crate::core::{Core, Remote, Unpushed};
+use crate::core::{Core, RemoteWorkspace, UnpushedLodge};
 use crate::diagnostic::{Secrets, tell};
 use crate::jobs::Job;
 use crate::knowledge;
-use crate::knowledge::runner::Writing;
-use crate::later::Finished;
+use crate::knowledge::runner::RepositoryWriteLock;
 use crate::realm::Realm;
 use crate::society::refusal::Refusal;
 use crate::society::{agents, hamlets, hires};
@@ -42,7 +42,7 @@ pub(crate) struct Lodging {
     session: Session,
     path: PathBuf,
     copy: RemoteCopy,
-    writing: Writing,
+    writing: RepositoryWriteLock,
 }
 
 impl Lodging {
@@ -115,7 +115,7 @@ fn session_in(
     )
 }
 
-impl Remote<'_> {
+impl RemoteWorkspace<'_> {
     /// The session of `agent`'s tools in the remote workspace, when
     /// the realm works in one.
     pub(crate) fn session(
@@ -135,7 +135,7 @@ impl Remote<'_> {
     pub(crate) fn lodging(
         &mut self,
         realm: &mut Realm,
-        writing: &Writing,
+        writing: &RepositoryWriteLock,
         agent: AgentId,
     ) -> Result<Option<Lodging>> {
         let layout = realm.layout().clone();
@@ -164,7 +164,7 @@ impl Remote<'_> {
         }
         for job in done {
             self.unpushed.write_batch(
-                job.lodges(db).into_iter().map(Unpushed),
+                job.lodges(db).into_iter().map(UnpushedLodge),
             );
         }
     }
@@ -175,13 +175,13 @@ impl Remote<'_> {
     pub(crate) fn push_owed(
         &mut self,
         realm: &mut Realm,
-        writing: &Writing,
+        writing: &RepositoryWriteLock,
         secrets: &[String],
     ) -> Result<()> {
         let unpushed = self
             .unpushed
             .drain()
-            .map(|Unpushed(agent)| agent)
+            .map(|UnpushedLodge(agent)| agent)
             .collect::<BTreeSet<_>>();
         for agent in unpushed {
             let Some(lodging) =
@@ -255,14 +255,14 @@ impl Core<'_, '_> {
         }
         let of = i64::try_from(moves.len())?;
         self.remote.moving.0 = Some(progress(0, of, Stage::Copying));
-        self.changed.republish = true;
+        self.changed.state_changed_outside_change = true;
         let secrets = self.credentials.secrets();
         let id = id.clone();
         self.later.spawn_many(move |report| async move {
             let mut failed = None;
             for (done, lodging) in moves.into_iter().enumerate() {
                 let done = i64::try_from(done).unwrap_or(of);
-                report.send(Finished::Moving {
+                report.send(BackgroundResult::Moving {
                     progress: progress(done, of, Stage::Copying),
                     answer: None,
                 });
@@ -283,7 +283,7 @@ impl Core<'_, '_> {
                 None => Ok(last.text.clone()),
                 Some(error) => Err(Refusal::MoveFailed { error }),
             };
-            report.send(Finished::Moving {
+            report.send(BackgroundResult::Moving {
                 progress: last,
                 answer: Some((client, reply(&id, answer))),
             });

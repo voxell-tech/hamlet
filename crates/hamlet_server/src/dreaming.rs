@@ -10,7 +10,6 @@ use hamlet_store::ids::{Actor, AgentId, DreamId, ScholarId};
 
 use crate::change::Done;
 use crate::core::Core;
-use crate::deadline::AddDeadline;
 use crate::knowledge::{self, dreaming};
 use crate::society::dreams::{self, DreamKind, Outcome};
 use crate::society::refusal::Refusal;
@@ -20,6 +19,7 @@ use crate::talk::inputs::{self, InputKind, Keep};
 use crate::talk::marks::Mark;
 use crate::talk::tasks::{self, Origin};
 use crate::talk::{models, runtimes};
+use crate::timers::AddTimer;
 
 /// The least time between two dreams of one hire.
 const HIRE_REST: i64 = 6 * 3_600_000;

@@ -398,7 +398,7 @@ impl Core<'_, '_> {
             hamlet_store::commit(self.realm.store().connection())?;
             crate::fault::point("carried");
         } else {
-            self.changed.fault = Some("carried");
+            self.changed.crash_test_fault_point = Some("carried");
         }
         Ok(made)
     }

@@ -28,18 +28,18 @@ pub(crate) struct Runner {
 }
 
 /// The longest the runner waits for the database while it holds
-/// [`Writing`]. The loop may hold the write lock while it waits for
-/// `Writing`, so the runner gives up soon and its job runs again
-/// later.
+/// [`RepositoryWriteLock`]. The loop may hold the write lock while
+/// it waits for `RepositoryWriteLock`, so the runner gives up soon
+/// and its job runs again later.
 const BUSY: Duration = Duration::from_millis(250);
 
 /// Held while a job runs, so that the loop and the runner never write
 /// the realm's repositories and lodges at once. The runner holds it
 /// for one job at a time.
 #[derive(Resource, Clone, Default)]
-pub(crate) struct Writing(Arc<Mutex<()>>);
+pub(crate) struct RepositoryWriteLock(Arc<Mutex<()>>);
 
-impl Writing {
+impl RepositoryWriteLock {
     /// Holds it until the guard drops; a holder that panicked let it
     /// go.
     pub fn hold(&self) -> MutexGuard<'_, ()> {
@@ -52,7 +52,7 @@ impl Writing {
 pub(crate) fn run_due(
     db: &mut hamlet_store::Db,
     layout: &Layout,
-    writing: &Writing,
+    writing: &RepositoryWriteLock,
 ) -> Result<Vec<Job>> {
     let mut done = Vec::new();
     // A job may keep jobs of its own, which run in the next pass.
@@ -74,7 +74,7 @@ impl Runner {
     pub fn start(
         layout: &Layout,
         worked: UnboundedSender<Vec<Job>>,
-        writing: Writing,
+        writing: RepositoryWriteLock,
     ) -> Result<Self> {
         let mut store = open(layout)?;
         let layout = layout.clone();

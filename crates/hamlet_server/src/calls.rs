@@ -35,11 +35,11 @@ use tokio::task::AbortHandle;
 use self::held::State;
 use self::looks::Look;
 use self::objections::OBJECTING;
+use crate::background::{BackgroundResult, RunAgainRequest};
 use crate::core::Core;
 use crate::images::Limits;
 use crate::images::fitting::kept_pictures;
 use crate::knowledge::CHARACTER;
-use crate::later::{Again, Finished};
 use crate::oversight::gate::{Asked, Session};
 use crate::oversight::{self, Raise, Ruling, WaitKind};
 use crate::talk::conversations::{Conversation, Kind};
@@ -66,7 +66,7 @@ const NO_CHIEF: &str =
 
 /// The channel of ended tool runs.
 pub(crate) fn plugin(app: &mut bevy_app::App) {
-    let ran = crate::server::arriving::<Ran>(app);
+    let ran = crate::server::input_channel::<Ran>(app);
     app.insert_resource(Calls { ran });
 }
 
@@ -102,7 +102,7 @@ pub(crate) struct Ran {
 }
 
 /// The result of carrying out a call now.
-enum Carried {
+enum CallOutcome {
     /// Its outcome, to keep and answer.
     Done(Outcome),
     /// The answer its runtime gets while it cannot finish yet.
@@ -130,7 +130,7 @@ pub(crate) struct Calls {
 /// ends or its turn is stopped. Its task stops with it.
 #[derive(Component)]
 #[component(on_remove = stopped)]
-pub(crate) struct Running {
+pub(crate) struct ToolRun {
     call: CallId,
     replies: Vec<Reply>,
     pub conversation: ConversationId,
@@ -142,11 +142,13 @@ pub(crate) struct Running {
 /// The work of a run not started yet: it starts once the input that
 /// asked for it is kept, so a failed input runs nothing.
 #[derive(Component)]
-pub(crate) struct Starting(Mutex<Option<BoxFuture<'static, ()>>>);
+pub(crate) struct UnstartedToolRun(
+    Mutex<Option<BoxFuture<'static, ()>>>,
+);
 
 /// Starts the work of every run its input kept.
 pub(crate) fn start(
-    mut runs: Query<(Entity, &mut Running, &mut Starting)>,
+    mut runs: Query<(Entity, &mut ToolRun, &mut UnstartedToolRun)>,
     mut commands: Commands,
 ) {
     for (entity, mut running, mut starting) in &mut runs {
@@ -158,12 +160,12 @@ pub(crate) fn start(
         if let Some(work) = work {
             running.abort = Some(tokio::spawn(work).abort_handle());
         }
-        commands.entity(entity).remove::<Starting>();
+        commands.entity(entity).remove::<UnstartedToolRun>();
     }
 }
 
 /// The replies and request an ended run still owes.
-struct Ended {
+struct EndedToolRun {
     replies: Vec<Reply>,
     request: Request,
 }
@@ -171,7 +173,7 @@ struct Ended {
 /// A run's entity went: its task, if still running, stops.
 fn stopped(world: DeferredWorld, context: HookContext) {
     if let Some(abort) = world
-        .get::<Running>(context.entity)
+        .get::<ToolRun>(context.entity)
         .and_then(|running| running.abort.as_ref())
     {
         abort.abort();
@@ -179,8 +181,8 @@ fn stopped(world: DeferredWorld, context: HookContext) {
 }
 
 /// Every tool run in progress.
-pub(crate) type Runs<'w, 's> =
-    Query<'w, 's, (Entity, &'static mut Running)>;
+pub(crate) type ToolRuns<'w, 's> =
+    Query<'w, 's, (Entity, &'static mut ToolRun)>;
 
 impl Calls {
     /// The run of `work` for `call`, to spawn; it starts once its
@@ -192,21 +194,21 @@ impl Calls {
         reply: Reply,
         request: Request,
         work: impl Future<Output = Outcome> + Send + 'static,
-    ) -> (Running, Starting) {
+    ) -> (ToolRun, UnstartedToolRun) {
         let ran = self.ran.clone();
         let id = call.clone();
         let work = async move {
             let outcome = work.await;
             let _ = ran.send(Ran { call: id, outcome });
         };
-        let running = Running {
+        let running = ToolRun {
             call,
             replies: vec![reply],
             conversation,
             request,
             abort: None,
         };
-        (running, Starting(Mutex::new(Some(Box::pin(work)))))
+        (running, UnstartedToolRun(Mutex::new(Some(Box::pin(work)))))
     }
 }
 
@@ -548,14 +550,14 @@ impl Core<'_, '_> {
         again: RuntimeMessage,
     ) {
         let secrets = self.credentials.secrets();
-        let again = Again {
+        let again = RunAgainRequest {
             from,
             generation: self.runtimes.generation(from).unwrap_or(0),
             message: again,
         };
         let id = call.call.clone();
         self.later.spawn(async move {
-            Finished::Looked {
+            BackgroundResult::Looked {
                 call: id,
                 found: look.run(secrets).await,
                 again,
@@ -600,7 +602,7 @@ impl Core<'_, '_> {
             return Ok(());
         }
         match self.carry_out(&call, &reply, from, again)? {
-            Carried::Done(outcome) => {
+            CallOutcome::Done(outcome) => {
                 let db = self.realm.store().connection();
                 marker::settle(
                     db,
@@ -616,10 +618,10 @@ impl Core<'_, '_> {
                     Answer::Result(outcome),
                 );
             }
-            Carried::Answer(answer) => {
+            CallOutcome::Answer(answer) => {
                 self.tell_call(&reply, &asked.key, answer);
             }
-            Carried::Later => {}
+            CallOutcome::Later => {}
         }
         Ok(())
     }
@@ -667,10 +669,10 @@ impl Core<'_, '_> {
         reply: &Reply,
         from: Entity,
         again: RuntimeMessage,
-    ) -> Result<Carried> {
+    ) -> Result<CallOutcome> {
         let tool = call.tool;
         if !is_offered(&call.conversation, tool)? {
-            return Ok(Carried::Done(unavailable(tool)));
+            return Ok(CallOutcome::Done(unavailable(tool)));
         }
         if let Some(chief @ (Society::AskChief | Society::Object)) =
             call.society
@@ -681,40 +683,40 @@ impl Core<'_, '_> {
                 self.ask_chief(call)?
             };
             return Ok(match ruled {
-                Ok(outcome) => Carried::Done(outcome),
-                Err(answer) => Carried::Answer(answer),
+                Ok(outcome) => CallOutcome::Done(outcome),
+                Err(answer) => CallOutcome::Answer(answer),
             });
         }
         if self.is_withdrawn(call)? {
-            return Ok(Carried::Done(refused(held::WITHDRAWN)));
+            return Ok(CallOutcome::Done(refused(held::WITHDRAWN)));
         }
         if self.is_objecting(call)? {
-            return Ok(Carried::Answer(Answer::Waiting(
+            return Ok(CallOutcome::Answer(Answer::Waiting(
                 OBJECTING.into(),
             )));
         }
         Ok(match self.decide(call)? {
             Decision::Look(look) => {
                 self.look(call, look, from, again);
-                Carried::Later
+                CallOutcome::Later
             }
             Decision::Block(words) => {
-                Carried::Answer(Answer::Refusal(words))
+                CallOutcome::Answer(Answer::Refusal(words))
             }
             Decision::Wait(words) => {
-                Carried::Answer(Answer::Waiting(words.into()))
+                CallOutcome::Answer(Answer::Waiting(words.into()))
             }
             Decision::Run { net } => match call.society {
                 Some(society) => match self.society(call, society)? {
                     society::Step::Done(outcome) => {
-                        Carried::Done(outcome)
+                        CallOutcome::Done(outcome)
                     }
                     society::Step::Wait(words) => {
-                        Carried::Answer(Answer::Waiting(words))
+                        CallOutcome::Answer(Answer::Waiting(words))
                     }
                     society::Step::Look(look) => {
                         self.look(call, look, from, again);
-                        Carried::Later
+                        CallOutcome::Later
                     }
                 },
                 None => {
@@ -725,8 +727,8 @@ impl Core<'_, '_> {
                         request,
                         Network::of(net),
                     )? {
-                        Some(outcome) => Carried::Done(outcome),
-                        None => Carried::Later,
+                        Some(outcome) => CallOutcome::Done(outcome),
+                        None => CallOutcome::Later,
                     }
                 }
             },
@@ -903,7 +905,7 @@ impl Core<'_, '_> {
         else {
             return Ok(());
         };
-        let running = Ended {
+        let running = EndedToolRun {
             replies: std::mem::take(&mut found.replies),
             request: found.request.clone(),
         };

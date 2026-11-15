@@ -185,23 +185,25 @@ the chief typed and for what is about the open chat or the whole realm.
 What differs from the window:
 
 - **The runner runs inputs, not frames.** `server.rs` sleeps until an
-  input comes and runs it; the `Apply` schedule (`apply.rs`) runs once
-  after it. The `Start` schedule (`start.rs`) runs once before the first
-  input. There is no `Main` schedule, so nothing runs that an input or
-  a timer did not ask for, and messages are turned over by `Apply`'s last
-  step instead of by a frame.
+  input comes and runs it; the `AfterInput` schedule
+  (`after_input.rs`) runs once after it. The `ServerStartup` schedule
+  (`startup.rs`) runs once before the first input. There is no `Main`
+  schedule, so nothing runs that an input or a timer did not ask for,
+  and messages are turned over by `AfterInput`'s last step instead of
+  by a frame.
 - **A handler is a one-shot system, and never awaits.**
   `world.run_system_cached_with` runs the system for a runtime message or
   a client request; a command's system is registered with its usage
-  (`AddCommands`), and a timer's with when it is due (`AddDeadline`).
-  What awaits runs on a task (`later.rs`), whose result is an input.
+  (`AddCommands`), and a timer's with when it is due (`AddTimer`).
+  What awaits runs on a task (`background.rs`), whose result is an
+  input.
 - **An input is one transaction.** `Core::change` and `attempt` make
   their changes in the input's transaction, which the runner commits at
   its end. What an input sets off goes out only after: queue a runtime's
   line with `Runtimes::send`, a client's message with `Connections::send`,
-  and write what follows as a message `Apply` reads, as `InputEnded` is.
-  A tool run is spawned with its work in `Starting`, which `Apply`
-  starts.
+  and write what follows as a message `AfterInput` reads, as
+  `InputEnded` is. A tool run is spawned with its work in
+  `UnstartedToolRun`, which `AfterInput` starts.
 - **The database is the truth.** An entity stands only for what lives in
   the process: a connection with what its client watches and is owed,
   an upload, a tool run, a runtime and the lines sent to it. A decision inside a transaction reads the database,
@@ -213,10 +215,11 @@ What differs from the window:
   back and drops what it queued; it never panics.
 - **`Core` gathers the realm's live state** as one `SystemParam`, which
   older handlers take whole. Parts of it are params of their own
-  (`Tooling`, `Remote`, `Uploads`) that a narrower system takes alone. A
+  (`ModelTools`, `RemoteWorkspace`, `Uploads`) that a narrower system
+  takes alone. A
   new system takes only the resources and queries it reads.
 - **Each area's plugin inserts its own resources.** One whose tasks send
-  results back gets the sender from `server::arriving`, and the runner
+  results back gets the sender from `server::input_channel`, and the runner
   takes in what arrives as inputs.
 
 ## Failing

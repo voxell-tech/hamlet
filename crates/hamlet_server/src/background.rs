@@ -20,12 +20,13 @@ use crate::calls::looks::Found;
 
 /// The channel tasks send their results through, as inputs.
 pub(crate) fn plugin(app: &mut bevy_app::App) {
-    let done = crate::server::arriving::<Finished>(app);
-    app.insert_resource(Later::new(done));
+    let finished =
+        crate::server::input_channel::<BackgroundResult>(app);
+    app.insert_resource(BackgroundWork::new(finished));
 }
 
 /// A task's result.
-pub(crate) enum Finished {
+pub(crate) enum BackgroundResult {
     /// A message for a client, such as an image it asked to read.
     Reply { client: u64, message: ServerMessage },
     /// The progress of moving the lodges, and the answer once it is
@@ -39,13 +40,13 @@ pub(crate) enum Finished {
     Looked {
         call: CallId,
         found: Found,
-        again: Again,
+        again: RunAgainRequest,
     },
 }
 
 /// A runtime's request to run again: the runtime, the process that
 /// asked, and the message.
-pub(crate) struct Again {
+pub(crate) struct RunAgainRequest {
     pub from: bevy_ecs::entity::Entity,
     pub generation: u64,
     pub message: RuntimeMessage,
@@ -55,33 +56,37 @@ pub(crate) struct Again {
 /// finished with. A task starts once its input is kept, so a failed
 /// input sets none off.
 #[derive(Resource)]
-pub(crate) struct Later {
-    done: UnboundedSender<Finished>,
+pub(crate) struct BackgroundWork {
+    finished_sender: UnboundedSender<BackgroundResult>,
     /// Reached only through `&mut`; the lock makes it `Sync`.
-    queued: Mutex<Vec<BoxFuture<'static, ()>>>,
+    queued_futures: Mutex<Vec<BoxFuture<'static, ()>>>,
 }
 
 /// A task's way to send more than one result.
 #[derive(Clone)]
-pub(crate) struct Report(UnboundedSender<Finished>);
+pub(crate) struct BackgroundReporter(
+    UnboundedSender<BackgroundResult>,
+);
 
-impl Report {
-    pub fn send(&self, finished: Finished) {
+impl BackgroundReporter {
+    pub fn send(&self, finished: BackgroundResult) {
         // The loop is gone only as the server stops.
         let _ = self.0.send(finished);
     }
 }
 
-impl Later {
-    pub fn new(done: UnboundedSender<Finished>) -> Self {
+impl BackgroundWork {
+    pub fn new(
+        finished_sender: UnboundedSender<BackgroundResult>,
+    ) -> Self {
         Self {
-            done,
-            queued: Mutex::new(Vec::new()),
+            finished_sender,
+            queued_futures: Mutex::new(Vec::new()),
         }
     }
 
     fn queued(&mut self) -> &mut Vec<BoxFuture<'static, ()>> {
-        self.queued
+        self.queued_futures
             .get_mut()
             .unwrap_or_else(PoisonError::into_inner)
     }
@@ -90,9 +95,9 @@ impl Later {
     /// finishes with is an input.
     pub fn spawn(
         &mut self,
-        work: impl Future<Output = Finished> + Send + 'static,
+        work: impl Future<Output = BackgroundResult> + Send + 'static,
     ) {
-        let done = self.done.clone();
+        let done = self.finished_sender.clone();
         self.queued().push(Box::pin(async move {
             let _ = done.send(work.await);
         }));
@@ -102,11 +107,11 @@ impl Later {
     /// which reports as it goes.
     pub fn spawn_many<Work>(
         &mut self,
-        make: impl FnOnce(Report) -> Work,
+        make: impl FnOnce(BackgroundReporter) -> Work,
     ) where
         Work: Future<Output = ()> + Send + 'static,
     {
-        let report = Report(self.done.clone());
+        let report = BackgroundReporter(self.finished_sender.clone());
         self.queued().push(Box::pin(make(report)));
     }
 
@@ -124,6 +129,6 @@ impl Later {
 }
 
 /// Starts the tasks the kept input asked for.
-pub(crate) fn start(mut later: ResMut<Later>) {
+pub(crate) fn start(mut later: ResMut<BackgroundWork>) {
     later.start();
 }

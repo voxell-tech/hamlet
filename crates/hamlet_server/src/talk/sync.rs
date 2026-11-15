@@ -28,12 +28,12 @@ use crate::providers::Providers;
 
 /// The fitting of images, whose results come back as inputs.
 pub(crate) fn plugin(app: &mut bevy_app::App) {
-    let done = crate::server::arriving::<Fitted>(app);
+    let done = crate::server::input_channel::<FittedImages>(app);
     app.insert_resource(FittedSender(done));
 }
 
 /// The images of one input, fitted to its model.
-pub(crate) struct Fitted {
+pub(crate) struct FittedImages {
     pub conversation: ConversationId,
     pub request: String,
     pub pictures: Vec<Picture>,
@@ -41,7 +41,7 @@ pub(crate) struct Fitted {
 
 /// The sender that brings fitted images back as inputs.
 #[derive(Resource)]
-pub(crate) struct FittedSender(UnboundedSender<Fitted>);
+pub(crate) struct FittedSender(UnboundedSender<FittedImages>);
 
 /// An input whose images are being fitted, or were and are not sent
 /// yet: an entity until they are.
@@ -54,15 +54,15 @@ pub(crate) struct FittingImages {
 
 /// The inputs whose images are fitted, as the flushes reach them.
 #[derive(SystemParam)]
-pub(crate) struct Fitting<'w, 's> {
+pub(crate) struct ImageFitting<'w, 's> {
     done: Res<'w, FittedSender>,
     list: Query<'w, 's, (Entity, &'static mut FittingImages)>,
     commands: Commands<'w, 's>,
 }
 
-impl Fitting<'_, '_> {
+impl ImageFitting<'_, '_> {
     /// Keeps `fitted` for the next flush to send.
-    pub fn fitted(&mut self, fitted: Fitted) {
+    pub fn fitted(&mut self, fitted: FittedImages) {
         if let Some((_, mut found)) =
             self.list.iter_mut().find(|(_, found)| {
                 found.conversation == fitted.conversation
@@ -135,7 +135,7 @@ impl Fitting<'_, '_> {
                 );
                 Vec::new()
             });
-            let _ = done.send(Fitted {
+            let _ = done.send(FittedImages {
                 conversation,
                 request,
                 pictures,
@@ -146,12 +146,12 @@ impl Fitting<'_, '_> {
 }
 
 /// The state a flush reaches.
-pub(crate) struct Owed<'a, 'w, 's, 'v, 't> {
+pub(crate) struct RuntimeDues<'a, 'w, 's, 'v, 't> {
     pub db: &'a mut Db,
     pub env: &'a Env,
     pub runtimes: &'a mut Runtimes<'w, 's>,
     pub providers: &'a Providers,
-    pub fitting: &'a mut Fitting<'v, 't>,
+    pub fitting: &'a mut ImageFitting<'v, 't>,
     /// The folder the images are kept in.
     pub images: &'a Path,
 }
@@ -159,11 +159,11 @@ pub(crate) struct Owed<'a, 'w, 's, 'v, 't> {
 /// Sends the runtime `to` what it is owed, and the inputs `resend`
 /// names.
 pub(crate) fn flush(
-    owed: &mut Owed<'_, '_, '_, '_, '_>,
+    owed: &mut RuntimeDues<'_, '_, '_, '_, '_>,
     to: Entity,
     resend: Resend,
 ) -> Result<()> {
-    let Owed {
+    let RuntimeDues {
         db,
         env,
         runtimes,

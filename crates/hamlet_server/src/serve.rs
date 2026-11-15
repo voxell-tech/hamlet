@@ -212,7 +212,8 @@ async fn serve(app: App, options: Options) -> Result<()> {
         () = signals.next() => Ok(()),
     };
     shutdown.send_replace(true);
-    let mut tasks = std::mem::take(&mut server.core()?.clients.tasks);
+    let mut tasks =
+        std::mem::take(&mut server.core()?.clients.connection_tasks);
     let drained =
         async { while tasks.join_next().await.is_some() {} };
     tokio::select! {

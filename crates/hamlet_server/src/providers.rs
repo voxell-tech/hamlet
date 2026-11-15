@@ -29,11 +29,11 @@ use crate::change::Done;
 use crate::clients::check::reply;
 use crate::core::Core;
 use crate::credentials::write_whole;
-use crate::deadline::AddDeadline;
 use crate::layout::Layout;
 use crate::settings::Settings;
 use crate::society::agents::Effort;
 use crate::society::refusal::Refusal;
+use crate::timers::AddTimer;
 
 mod listing;
 
@@ -47,7 +47,7 @@ const LOCAL_RATE: f64 = 0.1;
 pub(crate) const FAUX: &str = "faux";
 
 pub(crate) fn plugin(app: &mut bevy_app::App) {
-    app.add_deadline(expiry_due, expire);
+    app.add_timer(expiry_due, expire);
 }
 
 /// The soonest a request to the providers runs out of time.

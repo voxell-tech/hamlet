@@ -11,23 +11,23 @@ use bevy_ecs::system::{IntoSystem, SystemId};
 use bevy_ecs::world::World;
 
 /// The system a timer runs when it is due.
-pub(crate) type Fire = SystemId<(), Result<()>>;
+pub(crate) type TimerSystem = SystemId<(), Result<()>>;
 
 /// A timer's next due time.
-enum When {
+enum TimerDueTime {
     /// As a system of its area says; none when nothing waits.
-    Asked(SystemId<(), Option<Instant>>),
+    AskedOfSystem(SystemId<(), Option<Instant>>),
     /// Every period, from the server's start.
     Every { period: Duration, next: Instant },
 }
 
 #[derive(Resource, Default)]
-pub(crate) struct Deadlines(Vec<(When, Fire)>);
+pub(crate) struct Timers(Vec<(TimerDueTime, TimerSystem)>);
 
 /// Adds timers to an app.
-pub(crate) trait AddDeadline {
+pub(crate) trait AddTimer {
     /// Runs `fire` when `due` says.
-    fn add_deadline<M, N>(
+    fn add_timer<M, N>(
         &mut self,
         due: impl IntoSystem<(), Option<Instant>, M> + 'static,
         fire: impl IntoSystem<(), Result<()>, N> + 'static,
@@ -41,8 +41,8 @@ pub(crate) trait AddDeadline {
     ) -> &mut Self;
 }
 
-impl AddDeadline for App {
-    fn add_deadline<M, N>(
+impl AddTimer for App {
+    fn add_timer<M, N>(
         &mut self,
         due: impl IntoSystem<(), Option<Instant>, M> + 'static,
         fire: impl IntoSystem<(), Result<()>, N> + 'static,
@@ -51,9 +51,9 @@ impl AddDeadline for App {
         let due = world.register_system(due);
         let fire = world.register_system(fire);
         world
-            .get_resource_or_init::<Deadlines>()
+            .get_resource_or_init::<Timers>()
             .0
-            .push((When::Asked(due), fire));
+            .push((TimerDueTime::AskedOfSystem(due), fire));
         self
     }
 
@@ -66,24 +66,28 @@ impl AddDeadline for App {
         let fire = world.register_system(fire);
         let next = Instant::now() + period;
         world
-            .get_resource_or_init::<Deadlines>()
+            .get_resource_or_init::<Timers>()
             .0
-            .push((When::Every { period, next }, fire));
+            .push((TimerDueTime::Every { period, next }, fire));
         self
     }
 }
 
 /// Each timer's due time, as the world says now.
-fn whens(world: &mut World) -> Result<Vec<(Option<Instant>, Fire)>> {
+fn whens(
+    world: &mut World,
+) -> Result<Vec<(Option<Instant>, TimerSystem)>> {
     let timers = world
-        .get_resource::<Deadlines>()
-        .map(|deadlines| {
-            deadlines
+        .get_resource::<Timers>()
+        .map(|timers| {
+            timers
                 .0
                 .iter()
                 .map(|(when, fire)| match when {
-                    When::Asked(due) => (Some(*due), None, *fire),
-                    When::Every { next, .. } => {
+                    TimerDueTime::AskedOfSystem(due) => {
+                        (Some(*due), None, *fire)
+                    }
+                    TimerDueTime::Every { next, .. } => {
                         (None, Some(*next), *fire)
                     }
                 })
@@ -114,16 +118,15 @@ pub(crate) fn next(world: &mut World) -> Result<Option<Instant>> {
 pub(crate) fn due(
     world: &mut World,
     now: Instant,
-) -> Result<Vec<Fire>> {
+) -> Result<Vec<TimerSystem>> {
     let due = whens(world)?
         .into_iter()
         .filter(|(at, _)| at.is_some_and(|at| at <= now))
         .map(|(_, fire)| fire)
         .collect::<Vec<_>>();
-    if let Some(mut deadlines) = world.get_resource_mut::<Deadlines>()
-    {
-        for (when, fire) in &mut deadlines.0 {
-            if let When::Every { period, next } = when
+    if let Some(mut timers) = world.get_resource_mut::<Timers>() {
+        for (when, fire) in &mut timers.0 {
+            if let TimerDueTime::Every { period, next } = when
                 && due.contains(fire)
             {
                 *next = now + *period;

@@ -21,13 +21,13 @@ use hamlet_store::schema::runtime;
 use tokio::sync::mpsc::UnboundedSender;
 
 use super::process::{Launch, Pi, Process, Received};
-use crate::deadline::AddDeadline;
 use crate::layout::Layout;
 use crate::realm::Realm;
+use crate::timers::AddTimer;
 
 pub(crate) fn plugin(app: &mut bevy_app::App) {
     app.init_resource::<super::leases::Authority>()
-        .add_deadline(restart_due, start);
+        .add_timer(restart_due, start);
 }
 
 /// The soonest a failed runtime starts again.
@@ -35,7 +35,7 @@ fn restart_due(runtimes: Query<&Runtime>) -> Option<Instant> {
     runtimes
         .iter()
         .filter(|r| r.phase == Phase::Down)
-        .filter_map(|r| r.again_at)
+        .filter_map(|r| r.restart_at)
         .min()
 }
 
@@ -83,37 +83,37 @@ pub(crate) struct Runtime {
     pub id: String,
     pub phase: Phase,
     process: Option<Process>,
-    generation: u64,
-    failures: u32,
+    process_generation: u64,
+    consecutive_failures: u32,
     ready_at: Option<Instant>,
-    again_at: Option<Instant>,
+    restart_at: Option<Instant>,
 }
 
 /// A line to a runtime, an entity from the input that sends it until
 /// it is written, and a request's until its reply. It appears once
 /// the input's commands apply: no input reads back a line it sent.
 #[derive(Component)]
-pub(crate) struct Line {
+pub(crate) struct RuntimeLine {
     /// The count of lines sent before it and with it, which is the
     /// order they are written in.
-    number: u64,
-    id: String,
+    send_order: u64,
+    line_id: String,
     /// The line's text, until it is written once the input is kept.
-    text: Option<String>,
+    unwritten_text: Option<String>,
     /// What a request's reply answers, until it comes.
-    pending: Option<Pending>,
+    awaited_reply: Option<Pending>,
 }
 
 /// The runtime a line goes to.
 #[derive(Component)]
-#[relationship(relationship_target = Lines)]
-pub(crate) struct LineTo(pub Entity);
+#[relationship(relationship_target = RuntimeLines)]
+pub(crate) struct SentToRuntime(pub Entity);
 
 /// The lines to a runtime not written or not answered yet, which go
 /// with it.
 #[derive(Component)]
-#[relationship_target(relationship = LineTo, linked_spawn)]
-pub(crate) struct Lines(Vec<Entity>);
+#[relationship_target(relationship = SentToRuntime, linked_spawn)]
+pub(crate) struct RuntimeLines(Vec<Entity>);
 
 /// The purpose of a request to a runtime, kept until its reply.
 #[derive(Clone, Debug, PartialEq)]
@@ -130,13 +130,17 @@ pub(crate) enum Pending {
 #[derive(Resource)]
 pub(crate) struct Harness {
     pi: Pi,
-    sent: u64,
-    lines: UnboundedSender<Received>,
+    lines_sent: u64,
+    received_lines_sender: UnboundedSender<Received>,
 }
 
 impl Harness {
     pub fn new(pi: Pi, lines: UnboundedSender<Received>) -> Self {
-        Self { pi, sent: 0, lines }
+        Self {
+            pi,
+            lines_sent: 0,
+            received_lines_sender: lines,
+        }
     }
 }
 
@@ -168,10 +172,13 @@ pub(crate) struct Runtimes<'w, 's> {
     list: Query<
         'w,
         's,
-        (Entity, &'static mut Runtime, Option<&'static Lines>),
+        (Entity, &'static mut Runtime, Option<&'static RuntimeLines>),
     >,
-    lines:
-        Query<'w, 's, (Entity, &'static LineTo, &'static mut Line)>,
+    lines: Query<
+        'w,
+        's,
+        (Entity, &'static SentToRuntime, &'static mut RuntimeLine),
+    >,
     commands: Commands<'w, 's>,
 }
 
@@ -223,10 +230,10 @@ impl Runtimes<'_, '_> {
                     id,
                     phase: Phase::Down,
                     process: None,
-                    generation: 0,
-                    failures: 0,
+                    process_generation: 0,
+                    consecutive_failures: 0,
                     ready_at: None,
-                    again_at: None,
+                    restart_at: None,
                 };
                 launch(
                     &self.harness,
@@ -241,7 +248,7 @@ impl Runtimes<'_, '_> {
             let (_, mut runtime, _) = self.list.get_mut(entity)?;
             if runtime.phase == Phase::Down
                 && runtime
-                    .again_at
+                    .restart_at
                     .is_none_or(|at| at <= Instant::now())
             {
                 launch(
@@ -259,7 +266,9 @@ impl Runtimes<'_, '_> {
     /// The count of times `runtime` was started, which tells its
     /// processes apart.
     pub fn generation(&self, runtime: Entity) -> Option<u64> {
-        self.get(runtime).ok().map(|runtime| runtime.generation)
+        self.get(runtime)
+            .ok()
+            .map(|runtime| runtime.process_generation)
     }
 
     /// The currency of `received`: it came from the process running
@@ -367,22 +376,24 @@ impl Runtimes<'_, '_> {
         else {
             return;
         };
-        self.commands.entity(entity).despawn_related::<Lines>();
+        self.commands
+            .entity(entity)
+            .despawn_related::<RuntimeLines>();
         runtime.process = None;
         if matches!(runtime.phase, Phase::Refused(_)) {
             return;
         }
         if runtime.ready_at.is_some_and(|at| at.elapsed() >= SETTLED)
         {
-            runtime.failures = 0;
+            runtime.consecutive_failures = 0;
         }
         let wait = FIRST_WAIT
-            .saturating_mul(1 << runtime.failures.min(16))
+            .saturating_mul(1 << runtime.consecutive_failures.min(16))
             .min(MOST_WAIT);
-        runtime.failures += 1;
+        runtime.consecutive_failures += 1;
         runtime.phase = Phase::Down;
         runtime.ready_at = None;
-        runtime.again_at = Some(Instant::now() + wait);
+        runtime.restart_at = Some(Instant::now() + wait);
     }
 
     /// Sends the message `make` builds from the version and a new id,
@@ -404,20 +415,20 @@ impl Runtimes<'_, '_> {
         pending: Option<Pending>,
         make: impl FnOnce(Version, String) -> ServerMessage,
     ) -> String {
-        self.harness.sent += 1;
-        let number = self.harness.sent;
+        self.harness.lines_sent += 1;
+        let number = self.harness.lines_sent;
         let id = format!("s{number}");
         let message = make(VERSION, id.clone());
         let text = serde_json::to_string(&message)
             .expect("a server message is JSON");
         if self.list.contains(runtime) {
             self.commands.spawn((
-                LineTo(runtime),
-                Line {
-                    number,
-                    id: id.clone(),
-                    text: Some(text),
-                    pending,
+                SentToRuntime(runtime),
+                RuntimeLine {
+                    send_order: number,
+                    line_id: id.clone(),
+                    unwritten_text: Some(text),
+                    awaited_reply: pending,
                 },
             ));
         }
@@ -432,9 +443,9 @@ impl Runtimes<'_, '_> {
             .lines
             .iter_mut()
             .filter_map(|(line, to, mut found)| {
-                let text = found.text.take()?;
-                let done = found.pending.is_none();
-                Some((found.number, line, to.0, text, done))
+                let text = found.unwritten_text.take()?;
+                let done = found.awaited_reply.is_none();
+                Some((found.send_order, line, to.0, text, done))
             })
             .collect::<Vec<_>>();
         unsent.sort_unstable_by_key(|(number, ..)| *number);
@@ -458,7 +469,7 @@ impl Runtimes<'_, '_> {
     /// among them, which nothing will answer.
     pub fn discard(&mut self) {
         for (line, _, found) in &self.lines {
-            if found.text.is_some() {
+            if found.unwritten_text.is_some() {
                 self.commands.entity(line).despawn();
             }
         }
@@ -496,9 +507,10 @@ impl Runtimes<'_, '_> {
     ) -> Option<(Entity, Pending)> {
         let (line, to, mut found) =
             self.lines.iter_mut().find(|(.., found)| {
-                found.id == request_id && found.pending.is_some()
+                found.line_id == request_id
+                    && found.awaited_reply.is_some()
             })?;
-        let pending = found.pending.take()?;
+        let pending = found.awaited_reply.take()?;
         self.commands.entity(line).despawn();
         Some((to.0, pending))
     }
@@ -513,7 +525,7 @@ impl Runtimes<'_, '_> {
         };
         lines.iter().any(|line| {
             self.lines.get(line).is_ok_and(|(.., found)| {
-                found.pending.as_ref() == Some(pending)
+                found.awaited_reply.as_ref() == Some(pending)
             })
         })
     }
@@ -538,7 +550,7 @@ fn launch(
     layout: &Layout,
     fresh: bool,
 ) -> Result<()> {
-    runtime.generation += 1;
+    runtime.process_generation += 1;
     let folder = layout.harnesses().join(&runtime.id);
     std::fs::create_dir_all(&folder)?;
     let store = Pi::store(&folder);
@@ -550,8 +562,8 @@ fn launch(
             fresh,
         },
         entity,
-        runtime.generation,
-        harness.lines.clone(),
+        runtime.process_generation,
+        harness.received_lines_sender.clone(),
     )?;
     runtime.process = Some(process);
     runtime.phase = Phase::Starting;

@@ -1,8 +1,9 @@
 //! The Hamlet server: the realm, its society, and its agents'
 //! conversations and work.
 
-mod apply;
+mod after_input;
 mod attached;
+mod background;
 mod calls;
 mod change;
 mod claim;
@@ -11,7 +12,6 @@ mod clock;
 mod commands;
 mod core;
 mod credentials;
-mod deadline;
 mod diagnostic;
 mod dreaming;
 mod fault;
@@ -20,7 +20,6 @@ mod images;
 mod inbox;
 mod jobs;
 mod knowledge;
-mod later;
 mod layout;
 mod oversight;
 mod providers;
@@ -30,10 +29,11 @@ mod server;
 mod settings;
 mod society;
 mod spend;
-mod start;
+mod startup;
 mod talk;
 #[cfg(test)]
 mod testing;
 mod text;
+mod timers;
 mod work;
 mod workspace;

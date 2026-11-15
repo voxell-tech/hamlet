@@ -7,7 +7,7 @@ use hamlet_store::Db;
 use hamlet_store::ids::{Actor, AgentId, OfferId, ScholarId};
 
 use super::folder::{Folder, remove_folder};
-use super::runner::Writing;
+use super::runner::RepositoryWriteLock;
 use super::{CHARACTER, branch, lodging, outside_git};
 use crate::jobs::{Fork, Job};
 use crate::layout::Layout;
@@ -23,7 +23,7 @@ const MOST_WAIT: i64 = 300_000;
 pub(crate) fn due(
     db: &mut Db,
     layout: &Layout,
-    writing: &Writing,
+    writing: &RepositoryWriteLock,
     now: i64,
 ) -> Result<Vec<Job>> {
     let jobs = hamlet_store::job::due(db, now)?;

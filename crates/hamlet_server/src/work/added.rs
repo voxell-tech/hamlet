@@ -19,8 +19,8 @@ use serde::Deserialize;
 use serde_json::{Map, Value, json};
 use tokio::sync::mpsc::UnboundedSender;
 
-use crate::apply::Changed;
-use crate::core::{Catalogue, Tooling};
+use crate::after_input::InputEffects;
+use crate::core::{Catalogue, ModelTools};
 use crate::diagnostic::{Secrets, tell};
 use crate::realm::Realm;
 use crate::talk::runtimes::Runtimes;
@@ -89,9 +89,9 @@ pub(crate) fn watch(
 /// narrowed to it once the input is kept.
 pub(crate) fn reload(
     realm: Res<Realm>,
-    mut tools: Tooling,
+    mut tools: ModelTools,
     mut runtimes: Runtimes,
-    mut changed: ResMut<Changed>,
+    mut changed: ResMut<InputEffects>,
 ) -> anyhow::Result<()> {
     let (added, faults) = load(realm.layout().root());
     for fault in faults.iter().filter(|f| !tools.faults.contains(f)) {
@@ -104,12 +104,12 @@ pub(crate) fn reload(
     tools.added.0 = added;
     tools.faults.0 = faults;
     // The prompt names the tools that did not load.
-    changed.republish = true;
+    changed.state_changed_outside_change = true;
     if catalogue == tools.catalogue.0 {
         return Ok(());
     }
     tools.catalogue.0 = catalogue;
-    changed.reshaped = true;
+    changed.agents_or_hamlets_changed = true;
     for runtime in runtimes.all() {
         if runtimes.is_ready(runtime) {
             let tools = tools.catalogue.0.clone();

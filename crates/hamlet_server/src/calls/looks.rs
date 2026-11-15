@@ -31,7 +31,7 @@ pub(crate) type Copy = (String, Vec<ImageId>);
 /// A call whose looks found something: an entity until the call is
 /// settled, with a component for each finding.
 #[derive(Component)]
-pub(crate) struct Looked(CallId);
+pub(crate) struct CallWithLooks(CallId);
 
 /// The files a parcel would send, as measured.
 #[derive(Component)]
@@ -47,13 +47,13 @@ pub(crate) struct Copied(Result<Copy, Refusal>);
 
 /// The findings of the looks, as the handlers reach them.
 #[derive(SystemParam)]
-pub(crate) struct Looks<'w, 's> {
+pub(crate) struct LookFindings<'w, 's> {
     list: Query<
         'w,
         's,
         (
             Entity,
-            &'static Looked,
+            &'static CallWithLooks,
             Option<&'static Measured>,
             Option<&'static Previewed>,
             Option<&'static Copied>,
@@ -62,7 +62,7 @@ pub(crate) struct Looks<'w, 's> {
     commands: Commands<'w, 's>,
 }
 
-impl Looks<'_, '_> {
+impl LookFindings<'_, '_> {
     fn of(
         &self,
         call: &CallId,
@@ -111,7 +111,7 @@ impl Looks<'_, '_> {
     ) -> Option<AgentId> {
         let entity = match self.of(&call) {
             Some((entity, ..)) => entity,
-            None => self.commands.spawn(Looked(call)).id(),
+            None => self.commands.spawn(CallWithLooks(call)).id(),
         };
         let mut entity = self.commands.entity(entity);
         match found {

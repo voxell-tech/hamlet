@@ -21,7 +21,7 @@ use super::leases::Authority;
 use super::runtimes::{Pending, Runtimes};
 use super::turns::{self, Admission};
 use super::{conversations, items, verdicts};
-use crate::apply::Changed;
+use crate::after_input::InputEffects;
 use crate::clock;
 use crate::core::Core;
 use crate::credentials::Credentials;
@@ -31,7 +31,7 @@ use crate::realm::Realm;
 
 /// A message of a runtime, with the runtime it came from, as a
 /// system's input.
-type Heard<M> = In<(Entity, M)>;
+type RuntimeMessageInput<M> = In<(Entity, M)>;
 
 /// Runs the system for `message` from the runtime `from`.
 pub(crate) fn hear(
@@ -82,7 +82,7 @@ pub(crate) fn hear(
 /// The permission check of a tool call, made before it is kept as
 /// begun.
 fn allow(
-    In((from, asked)): Heard<runtime::Allow>,
+    In((from, asked)): RuntimeMessageInput<runtime::Allow>,
     mut core: Core,
 ) -> Result<()> {
     core.allow_call(from, asked)
@@ -90,7 +90,7 @@ fn allow(
 
 /// A tool call carried out, once under its key.
 fn operation(
-    In((from, asked)): Heard<runtime::Operation>,
+    In((from, asked)): RuntimeMessageInput<runtime::Operation>,
     mut core: Core,
 ) -> Result<()> {
     core.operation(from, asked)
@@ -129,7 +129,7 @@ pub(crate) fn awaited(message: &RuntimeMessage) -> Option<String> {
 /// A runtime started: taken on and sent what it is owed, or refused
 /// for good (S24).
 fn hello(
-    In((from, hello)): Heard<runtime::Hello>,
+    In((from, hello)): RuntimeMessageInput<runtime::Hello>,
     mut core: Core,
 ) -> Result<()> {
     let refusal = core.runtimes.hello(
@@ -170,12 +170,12 @@ fn hello(
 
 /// A conversation was made or forked: its handle is kept.
 fn created(
-    In((from, created)): Heard<runtime::Created>,
+    In((from, created)): RuntimeMessageInput<runtime::Created>,
     mut realm: ResMut<Realm>,
     mut runtimes: Runtimes,
-    mut changed: ResMut<Changed>,
+    mut changed: ResMut<InputEffects>,
 ) -> Result<()> {
-    changed.answered = true;
+    changed.runtime_answered = true;
     if let Some((_, Pending::Create(conversation))) =
         runtimes.reply(&created.re)
     {
@@ -194,10 +194,10 @@ fn created(
 
 /// An input was admitted, and may have ended there.
 fn admitted(
-    In((_, admitted)): Heard<runtime::Admitted>,
+    In((_, admitted)): RuntimeMessageInput<runtime::Admitted>,
     mut core: Core,
 ) -> Result<()> {
-    core.changed.answered = true;
+    core.changed.runtime_answered = true;
     let Some((_, Pending::Submit(conversation, request))) =
         core.runtimes.reply(&admitted.re)
     else {
@@ -227,7 +227,7 @@ fn admitted(
 
 /// An input admitted before ended.
 fn settled(
-    In((from, settled)): Heard<runtime::Settled>,
+    In((from, settled)): RuntimeMessageInput<runtime::Settled>,
     mut core: Core,
 ) -> Result<()> {
     let runtime = core.runtimes.id(from)?;
@@ -254,7 +254,7 @@ fn settled(
 
 /// An item of a transcript was kept, once, and its watchers see it.
 fn kept(
-    In((from, kept)): Heard<runtime::Kept>,
+    In((from, kept)): RuntimeMessageInput<runtime::Kept>,
     mut core: Core,
 ) -> Result<()> {
     let runtime = core.runtimes.id(from)?;
@@ -279,7 +279,7 @@ fn kept(
 
 /// A turn's current doing, for its watchers and the realm's state.
 fn live(
-    In((from, running)): Heard<runtime::Live>,
+    In((from, running)): RuntimeMessageInput<runtime::Live>,
     mut core: Core,
 ) -> Result<()> {
     let runtime = core.runtimes.id(from)?;
@@ -306,12 +306,12 @@ fn live(
 
 /// A cancel was acknowledged: later inputs may go to the runtime.
 fn cancelled(
-    In((_, cancelled)): Heard<runtime::Cancelled>,
+    In((_, cancelled)): RuntimeMessageInput<runtime::Cancelled>,
     mut realm: ResMut<Realm>,
     mut runtimes: Runtimes,
-    mut changed: ResMut<Changed>,
+    mut changed: ResMut<InputEffects>,
 ) -> Result<()> {
-    changed.answered = true;
+    changed.runtime_answered = true;
     if let Some((_, Pending::Cancel(conversation))) =
         runtimes.reply(&cancelled.re)
     {
@@ -326,12 +326,12 @@ fn cancelled(
 
 /// A conversation's tools were told.
 fn configured(
-    In((_, configured)): Heard<runtime::Configured>,
+    In((_, configured)): RuntimeMessageInput<runtime::Configured>,
     mut realm: ResMut<Realm>,
     mut runtimes: Runtimes,
-    mut changed: ResMut<Changed>,
+    mut changed: ResMut<InputEffects>,
 ) -> Result<()> {
-    changed.answered = true;
+    changed.runtime_answered = true;
     if let Some((_, Pending::Configure(conversation, told))) =
         runtimes.reply(&configured.re)
     {
@@ -347,7 +347,7 @@ fn configured(
 /// The prompt of a conversation's next call, or what it waits for
 /// first.
 fn prompt(
-    In((from, asked)): Heard<runtime::Prompt>,
+    In((from, asked)): RuntimeMessageInput<runtime::Prompt>,
     mut core: Core,
 ) -> Result<()> {
     let runtime = core.runtimes.id(from)?;
@@ -384,7 +384,7 @@ fn prompt(
 /// The ruling on a model call: it goes on or stops, and with which
 /// model and credential.
 fn attempt(
-    In((from, asked)): Heard<runtime::Attempt>,
+    In((from, asked)): RuntimeMessageInput<runtime::Attempt>,
     mut core: Core,
 ) -> Result<()> {
     let runtime = core.runtimes.id(from)?;
@@ -455,7 +455,7 @@ fn attempt(
 
 /// A model call's usage, charged once.
 fn usage(
-    In((from, report)): Heard<runtime::UsageReport>,
+    In((from, report)): RuntimeMessageInput<runtime::UsageReport>,
     mut core: Core,
 ) -> Result<()> {
     let runtime = core.runtimes.id(from)?;
@@ -480,7 +480,7 @@ fn usage(
 
 /// A turn's answer, ruled on.
 fn yielded(
-    In((from, answer)): Heard<runtime::Yield>,
+    In((from, answer)): RuntimeMessageInput<runtime::Yield>,
     mut core: Core,
 ) -> Result<()> {
     let runtime = core.runtimes.id(from)?;
@@ -506,7 +506,7 @@ fn yielded(
 
 /// A value given back with every secret taken out.
 fn scrub(
-    In((from, asked)): Heard<runtime::Scrub>,
+    In((from, asked)): RuntimeMessageInput<runtime::Scrub>,
     credentials: Res<Credentials>,
     mut runtimes: Runtimes,
 ) -> Result<()> {
@@ -526,7 +526,7 @@ fn scrub(
 
 /// A message of the server's the runtime could not handle.
 fn error(
-    In((from, error)): Heard<ProtocolError>,
+    In((from, error)): RuntimeMessageInput<ProtocolError>,
     credentials: Res<Credentials>,
     runtimes: Runtimes,
 ) -> Result<()> {
@@ -539,7 +539,9 @@ fn error(
 
 /// A credential asked for, answered once the leases let it through.
 fn credential_request(
-    In((from, request)): Heard<runtime::CredentialRequest>,
+    In((from, request)): RuntimeMessageInput<
+        runtime::CredentialRequest,
+    >,
     mut leases: ResMut<Authority>,
 ) -> Result<()> {
     leases.request(from, request);
@@ -547,14 +549,14 @@ fn credential_request(
 }
 
 fn provider_result(
-    In((from, result)): Heard<runtime::ProviderResult>,
+    In((from, result)): RuntimeMessageInput<runtime::ProviderResult>,
     mut core: Core,
 ) -> Result<()> {
     core.provider_result(Some(from), result)
 }
 
 fn provider_event(
-    In((from, event)): Heard<runtime::ProviderEvent>,
+    In((from, event)): RuntimeMessageInput<runtime::ProviderEvent>,
     mut core: Core,
 ) -> Result<()> {
     core.provider_event(from, event)

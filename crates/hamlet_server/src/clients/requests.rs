@@ -16,7 +16,7 @@ use hamlet_store::ids::{Actor, AgentId, ConversationId};
 use super::check::{fault, reply};
 use super::connection::Connection;
 use super::fold::Fold;
-use super::{Owed, changes};
+use super::{OwedReply, changes};
 use crate::change::Done;
 use crate::core::{Core, Live};
 use crate::society::agents::{self, AgentKind, Effort};
@@ -80,7 +80,7 @@ impl Core<'_, '_> {
             return Ok(None);
         }
         let welcomed = found.welcomed;
-        let message = match self.clients.check.parse(text) {
+        let message = match self.clients.protocol_schema.parse(text) {
             Ok(message) => message,
             Err(failed) => {
                 let message = ServerMessage::Fault(failed);
@@ -121,7 +121,7 @@ impl Core<'_, '_> {
                     found.welcomed = true;
                 }
                 let state = self.compose()?;
-                self.clients.sent = Some(state.clone());
+                self.clients.last_sent_state = Some(state.clone());
                 self.answer(client, ServerMessage::State(state))?;
                 Ok(None)
             }
@@ -189,7 +189,7 @@ impl Core<'_, '_> {
         })?;
         self.connections.owe(
             client,
-            Owed {
+            OwedReply {
                 id: say.id,
                 conversation: said.conversation,
                 request: said.request,
@@ -523,35 +523,35 @@ impl Core<'_, '_> {
     /// was sent last.
     pub(crate) fn send_state(&mut self) -> Result<()> {
         if !self.connections.is_any_welcomed() {
-            self.clients.sent = None;
+            self.clients.last_sent_state = None;
             return Ok(());
         }
         let state = self.compose()?;
         let message = match self
             .clients
-            .sent
+            .last_sent_state
             .as_ref()
             .and_then(|old| changes(old, &state))
         {
             Some(updates) if updates.is_empty() => return Ok(()),
             Some(updates) => {
-                self.clients.revision += 1;
+                self.clients.state_revision += 1;
                 ServerMessage::Change(protocol::Changes {
                     changes: updates,
-                    epoch: self.clients.epoch,
-                    revision: self.clients.revision,
+                    epoch: self.clients.state_epoch,
+                    revision: self.clients.state_revision,
                 })
             }
             None => {
-                self.clients.epoch = crate::clock::now();
-                self.clients.revision = 0;
+                self.clients.state_epoch = crate::clock::now();
+                self.clients.state_revision = 0;
                 let mut whole = state.clone();
-                whole.epoch = self.clients.epoch;
+                whole.epoch = self.clients.state_epoch;
                 whole.revision = 0;
                 ServerMessage::State(whole)
             }
         };
-        self.clients.sent = Some(state);
+        self.clients.last_sent_state = Some(state);
         self.connections.broadcast(&self.credentials, &message)
     }
 
@@ -622,8 +622,8 @@ impl Core<'_, '_> {
         super::state::compose(
             db,
             &sources,
-            self.clients.epoch,
-            self.clients.revision,
+            self.clients.state_epoch,
+            self.clients.state_revision,
             crate::clock::now(),
         )
     }

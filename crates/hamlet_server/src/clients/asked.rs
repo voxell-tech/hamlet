@@ -17,7 +17,7 @@ use crate::core::Core;
 use crate::society::refusal::Refusal;
 
 /// A request of the client with an id, as a system's input.
-type Asked<M> = In<(u64, M)>;
+type ClientRequestInput<M> = In<(u64, M)>;
 
 /// Runs the system for `message` from `client`.
 pub(crate) fn ask(
@@ -70,7 +70,7 @@ pub(crate) fn ask(
 
 /// A sign-in's start, answer or cancel.
 fn login(
-    In((client, login)): Asked<protocol::Login>,
+    In((client, login)): ClientRequestInput<protocol::Login>,
     mut core: Core,
 ) -> Result<()> {
     core.login(client, &login)
@@ -78,7 +78,7 @@ fn login(
 
 /// A try of the chosen model or of the connection.
 fn check(
-    In((client, check)): Asked<protocol::Check>,
+    In((client, check)): ClientRequestInput<protocol::Check>,
     mut core: Core,
 ) -> Result<()> {
     core.check(client, &check)
@@ -86,7 +86,7 @@ fn check(
 
 /// A read of the model catalogue.
 fn read_models(
-    In((client, (id, refresh))): Asked<(
+    In((client, (id, refresh))): ClientRequestInput<(
         protocol::RequestId,
         Option<bool>,
     )>,
@@ -97,21 +97,21 @@ fn read_models(
 
 /// A chief's line to an agent.
 fn say(
-    In((client, say)): Asked<protocol::Say>,
+    In((client, say)): ClientRequestInput<protocol::Say>,
     mut core: Core,
 ) -> Result<()> {
     core.say(client, say)
 }
 
 fn read(
-    In((client, read)): Asked<protocol::Read>,
+    In((client, read)): ClientRequestInput<protocol::Read>,
     mut core: Core,
 ) -> Result<()> {
     core.read(client, read)
 }
 
 fn move_lodges(
-    In((client, asked)): Asked<protocol::MoveLodges>,
+    In((client, asked)): ClientRequestInput<protocol::MoveLodges>,
     mut core: Core,
 ) -> Result<()> {
     core.move_lodges(client, &asked.id)
@@ -144,7 +144,7 @@ where
 }
 
 fn hello(
-    In((client, ())): Asked<()>,
+    In((client, ())): ClientRequestInput<()>,
     mut connections: Connections,
 ) -> Result<()> {
     connections.send(
@@ -156,7 +156,7 @@ fn hello(
 
 /// A chat watched from now on, with its last page.
 fn open(
-    In((client, open)): Asked<protocol::Open>,
+    In((client, open)): ClientRequestInput<protocol::Open>,
     mut core: Core,
 ) -> Result<()> {
     let conversation = match core.watch_target(&open.chat)? {
@@ -177,7 +177,7 @@ fn open(
 }
 
 fn close(
-    In((client, close)): Asked<protocol::Close>,
+    In((client, close)): ClientRequestInput<protocol::Close>,
     mut connections: Connections,
 ) -> Result<()> {
     connections.unwatch(client, &close.chat);
@@ -185,7 +185,7 @@ fn close(
 }
 
 fn new(
-    In((client, new)): Asked<protocol::New>,
+    In((client, new)): ClientRequestInput<protocol::New>,
     mut core: Core,
 ) -> Result<()> {
     let Some(agent) = core.reached(client, &new.id, new.to.0)? else {
@@ -196,7 +196,7 @@ fn new(
 }
 
 fn resume(
-    In((client, resume)): Asked<protocol::Resume>,
+    In((client, resume)): ClientRequestInput<protocol::Resume>,
     mut core: Core,
 ) -> Result<()> {
     let Some(agent) =
@@ -209,7 +209,7 @@ fn resume(
 }
 
 fn retry(
-    In((client, retry)): Asked<protocol::Retry>,
+    In((client, retry)): ClientRequestInput<protocol::Retry>,
     mut core: Core,
 ) -> Result<()> {
     let Some(agent) = core.reached(client, &retry.id, retry.to.0)?
@@ -221,7 +221,7 @@ fn retry(
 }
 
 fn stop(
-    In((client, stop)): Asked<protocol::Stop>,
+    In((client, stop)): ClientRequestInput<protocol::Stop>,
     mut core: Core,
 ) -> Result<()> {
     let targets = match stop.agent {
@@ -240,7 +240,7 @@ fn stop(
 }
 
 fn edit(
-    In((client, edit)): Asked<protocol::Edit>,
+    In((client, edit)): ClientRequestInput<protocol::Edit>,
     mut core: Core,
 ) -> Result<()> {
     core.edit(client, edit)
@@ -248,7 +248,7 @@ fn edit(
 
 /// A chief's answer to what waits.
 fn answer(
-    In((client, answer)): Asked<protocol::Answer>,
+    In((client, answer)): ClientRequestInput<protocol::Answer>,
     mut core: Core,
 ) -> Result<()> {
     let words = core.answer_wait(
@@ -261,7 +261,7 @@ fn answer(
 }
 
 fn put_image(
-    In((client, put)): Asked<protocol::PutImage>,
+    In((client, put)): ClientRequestInput<protocol::PutImage>,
     mut core: Core,
 ) -> Result<()> {
     let answer = core.put_image(client, put);
@@ -269,7 +269,7 @@ fn put_image(
 }
 
 fn put_image_part(
-    In((client, part)): Asked<protocol::PutImagePart>,
+    In((client, part)): ClientRequestInput<protocol::PutImagePart>,
     mut core: Core,
 ) -> Result<()> {
     let answer = core.put_image_part(client, part)?;
@@ -277,7 +277,7 @@ fn put_image_part(
 }
 
 fn put_file(
-    In((client, put)): Asked<protocol::PutFile>,
+    In((client, put)): ClientRequestInput<protocol::PutFile>,
     mut core: Core,
 ) -> Result<()> {
     let answer = core.put_file(client, put)?;
@@ -285,7 +285,7 @@ fn put_file(
 }
 
 fn put_file_part(
-    In((client, part)): Asked<protocol::PutFilePart>,
+    In((client, part)): ClientRequestInput<protocol::PutFilePart>,
     mut core: Core,
 ) -> Result<()> {
     let answer = core.put_file_part(client, part)?;
@@ -295,7 +295,7 @@ fn put_file_part(
 /// The chief's chat taken back to before one of its lines, which is
 /// given back to be said again.
 fn rewind(
-    In((client, rewind)): Asked<protocol::Rewind>,
+    In((client, rewind)): ClientRequestInput<protocol::Rewind>,
     mut core: Core,
 ) -> Result<()> {
     if rewind.chat.from.is_some() || rewind.chat.past.is_some() {

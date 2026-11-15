@@ -14,7 +14,7 @@ use hamlet_store::schema::document;
 
 use super::check::reply;
 use crate::change::{Done, done, refuse};
-use crate::core::{Core, Unpushed};
+use crate::core::{Core, UnpushedLodge};
 use crate::jobs::{self, Job};
 use crate::knowledge::folder::Folder;
 use crate::knowledge::library::field;
@@ -218,7 +218,7 @@ impl Core<'_, '_> {
                 folder.write(path, text.as_bytes(), false)?;
             }
         }
-        self.remote.unpushed.write(Unpushed(agent));
+        self.remote.unpushed.write(UnpushedLodge(agent));
         let by = Actor::Chief(self.realm.chief());
         self.change(by, |cx, _| {
             jobs::add(cx, &Job::Commit { hire: agent })?;

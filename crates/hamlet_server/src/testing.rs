@@ -71,7 +71,8 @@ impl Realm {
     pub fn work(&mut self) {
         let layout = self.layout();
         let at = self.at;
-        let writing = crate::knowledge::runner::Writing::default();
+        let writing =
+            crate::knowledge::runner::RepositoryWriteLock::default();
         crate::knowledge::run::due(self.db(), &layout, &writing, at)
             .unwrap();
         let left =

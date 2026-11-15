@@ -17,13 +17,13 @@ run that ended, a task that finished, the jobs runner's pass, a change to
 the tools added by hand, a timer that is due) and runs that input alone,
 then sleeps again. Nothing runs on a tick. A timer is added by its area
 as a system that says when it is next due, or as a period, with the
-system that runs then (`deadline.rs`).
+system that runs then (`timers.rs`).
 
 **One input, one transaction, then what follows.** Every change an input
 makes is in its one transaction, kept at its end. What it sets off waits
 for that: the lines to the runtimes and the messages to the clients are
 queued, a tool run is spawned as an entity whose task starts later, and
-an input that ended in a runtime is written as a message. The `Apply`
+an input that ended in a runtime is written as a message. The `AfterInput`
 schedule then runs once, in a declared order: the ended inputs are
 triggered for their observers, which follow them; tools are narrowed to
 each role; those changes are kept; the jobs the kept changes left run;

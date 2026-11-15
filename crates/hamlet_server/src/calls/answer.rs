@@ -6,7 +6,7 @@ use hamlet_protocol::client::{Choice, Permission, Pick};
 use hamlet_store::ids::{Actor, ChiefId, WaitId};
 
 use super::{chat_session, held};
-use crate::apply::Wake;
+use crate::after_input::WakeHeldCall;
 use crate::change::Change;
 use crate::core::Core;
 use crate::oversight::gate::{self, Asked};
@@ -288,7 +288,7 @@ impl Core<'_, '_> {
                 );
             }
             // What the objection held may go to its runtime now.
-            self.changed.answered = true;
+            self.changed.runtime_answered = true;
         }
         Ok(Ok(format!(
             "Answered /{ruling}: {}",
@@ -335,7 +335,7 @@ impl Core<'_, '_> {
     /// so asking again may get further, once the input's changes are
     /// sent.
     pub(crate) fn wake_call(&mut self, runtime: &str, key: &str) {
-        self.wakes.write(Wake {
+        self.wakes.write(WakeHeldCall {
             runtime: runtime.to_owned(),
             key: key.to_owned(),
         });
