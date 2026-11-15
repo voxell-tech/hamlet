@@ -288,8 +288,18 @@ impl Drop for Reserved {
 }
 
 impl Drives {
+    /// Takes the entry of each of `rows` that no drive holds, while
+    /// the transaction that begins them is open.
+    pub fn reserve(
+        &self,
+        rows: &[StepId],
+        _open: &change::Transaction,
+    ) -> Reserved {
+        self.take(rows)
+    }
+
     /// Takes the entry of each of `rows` that no drive holds.
-    pub fn reserve(&self, rows: &[StepId]) -> Reserved {
+    fn take(&self, rows: &[StepId]) -> Reserved {
         let mut running = self
             .running
             .lock()
@@ -317,7 +327,7 @@ impl Drives {
         ctx: &Ctx<Realm>,
         row: StepId,
     ) {
-        self.reserve(&[row]).start(realm, ctx);
+        self.take(&[row]).start(realm, ctx);
     }
 
     /// Waits until `row`'s drive ends, at most `within`, and at once
@@ -413,8 +423,8 @@ mod tests {
     #[test]
     fn a_reservation_dropped_unstarted_gives_its_rows_back() {
         let drives = Drives::default();
-        drop(drives.reserve(&[ROW]));
-        assert_eq!(drives.reserve(&[ROW]).rows.len(), 1);
+        drop(drives.take(&[ROW]));
+        assert_eq!(drives.take(&[ROW]).rows.len(), 1);
     }
 
     #[tokio::test]
@@ -427,7 +437,7 @@ mod tests {
         .await
         .expect("no drive runs, so the wait ends at once");
 
-        let reserved = drives.reserve(&[ROW]);
+        let reserved = drives.take(&[ROW]);
         let waiting = drives.finished(ROW, Duration::from_secs(60));
         drop(reserved);
         tokio::time::timeout(Duration::from_secs(1), waiting)

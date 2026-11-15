@@ -429,7 +429,7 @@ impl Transaction {
         }
         .await;
         let (affected, revision, pushes) = written?;
-        let reserved = realm.drives.reserve(&affected.begun);
+        let reserved = realm.drives.reserve(&affected.begun, &self);
         // A commit that fails rolls back by itself.
         self.is_open = false;
         self.tx.commit().await?;
