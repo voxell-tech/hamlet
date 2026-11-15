@@ -98,8 +98,6 @@ struct Workspace {
     leftovers: AllLeftovers,
     answer_within: Duration,
     saved_output: u64,
-    /// Shared with the commands' threads, which keep the saved
-    /// output of these when they make room for their own.
     running: run::RunningCommands,
     /// The paths a change is at work on.
     paths: files::Paths,
@@ -696,8 +694,6 @@ async fn read_only<T>(
     done
 }
 
-/// Removes `folder` and all in it, off the runtime. A failure is
-/// logged.
 async fn remove_folder(folder: PathBuf) {
     let removed = tokio::task::spawn_blocking({
         let folder = folder.clone();

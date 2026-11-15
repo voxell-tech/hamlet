@@ -161,7 +161,6 @@ pub(super) fn without_output(
     }
 }
 
-/// Each running command by id, until its end is heard.
 pub(super) type RunningCommands =
     Arc<Mutex<HashMap<CommandId, Running>>>;
 
@@ -330,7 +329,6 @@ pub struct Spec {
     pub timeout: Duration,
     pub secrets: Arc<Vec<String>>,
     pub leftovers: Leftovers,
-    /// The file its output is saved to once it passes the tail.
     pub output: Saved,
     /// Fired to end it as cancelled, also before it started.
     pub cancel: CancellationToken,

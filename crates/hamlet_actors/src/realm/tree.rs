@@ -63,10 +63,7 @@ impl Lineage {
             })
     }
 
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "U3, U4 and U6 call it")
-    )]
+    #[cfg_attr(not(test), expect(dead_code, reason = "U4 calls it"))]
     pub fn is_mayor(&self) -> bool {
         self.hamlet
             .as_ref()
@@ -164,7 +161,7 @@ async fn member(
     };
     Ok(Some(Member {
         agent,
-        kind: change::named(kind)?,
+        kind: change::from_case_name(kind)?,
         status,
         lead: lead.map(AgentNumber),
         has_purpose,
@@ -303,7 +300,7 @@ pub(super) async fn kind_of(
         )
         .await?
         .with_context(|| format!("agent {} has no row", agent.0))?;
-    change::named(kind)
+    change::from_case_name(kind)
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -383,8 +380,7 @@ pub(super) async fn apply(
     }
 }
 
-/// The `profile` of the Hand's own row.
-const HAND_PROFILE: ProfileId = ProfileId(1);
+pub(super) const HAND_PROFILE: ProfileId = ProfileId(1);
 
 async fn hand(writer: &Writer<'_>) -> Result<Affected> {
     writer
@@ -394,7 +390,7 @@ async fn hand(writer: &Writer<'_>) -> Result<Affected> {
         )
         .await?;
     new_agent(writer, Hand::NUMBER, AgentKind::Hand).await?;
-    moved(writer, Hand::NUMBER, None).await
+    places_showing(writer, Hand::NUMBER, None).await
 }
 
 async fn hire(
@@ -432,7 +428,7 @@ async fn hire(
             ],
         )
         .await?;
-    moved(writer, agent, lead).await
+    places_showing(writer, agent, lead).await
 }
 
 async fn new_agent(
@@ -446,7 +442,7 @@ async fn new_agent(
              ?2, 'hiring', ?3)",
             vec![
                 number(agent),
-                BindParam::Text(change::name(&kind)?),
+                BindParam::Text(change::case_name(&kind)?),
                 BindParam::Integer(writer.at().0),
             ],
         )
@@ -454,9 +450,7 @@ async fn new_agent(
     Ok(())
 }
 
-/// The places that show `agent`, which a change to its row moves: its
-/// lead's, or with no lead the Hand's and the mayors'.
-async fn moved(
+async fn places_showing(
     writer: &Writer<'_>,
     agent: AgentNumber,
     lead: Option<AgentNumber>,
@@ -499,7 +493,7 @@ async fn live(
         )
         .await?
         .flatten();
-    moved(writer, agent, lead.map(AgentNumber)).await
+    places_showing(writer, agent, lead.map(AgentNumber)).await
 }
 
 async fn purpose(

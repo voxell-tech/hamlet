@@ -1,6 +1,3 @@
-//! An agent's saved command output: gone when its reach ends, and
-//! kept under a limit while the agent lives.
-
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
@@ -22,8 +19,6 @@ use super::{
     told_within,
 };
 
-/// The files in `folder`, once it holds `n` of them, waiting up to
-/// ten seconds.
 async fn files_in(folder: &Path, n: usize) -> Vec<PathBuf> {
     let until = tokio::time::Instant::now() + Duration::from_secs(10);
     loop {
@@ -41,14 +36,11 @@ async fn files_in(folder: &Path, n: usize) -> Vec<PathBuf> {
     }
 }
 
-/// Calls the workspace with `run`, as agent 7, without waiting.
 fn spawn_run(host: &Host, run: Run) -> JoinHandle<RunAnswer> {
     let host = host.clone();
     tokio::spawn(async move { agent_runs(&host, &run).await })
 }
 
-/// When agent 7's reach ends, its saved output goes, also the file
-/// of a command still writing to it then. Agent 8's stays.
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn an_ended_reach_removes_its_saved_output() {
@@ -76,9 +68,6 @@ async fn an_ended_reach_removes_its_saved_output() {
     assert_eq!(std::fs::read_to_string(&others).unwrap(), "theirs\n");
 }
 
-/// Past the limit, a command that saves its output first removes the
-/// file of the oldest command that finished, and never the file of
-/// one still running, though it is older.
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn the_oldest_finished_output_goes_first() {
@@ -103,7 +92,6 @@ async fn the_oldest_finished_output_goes_first() {
         .expect("the waiting command saved its output");
     let mut saved_files = Vec::new();
     for call in ["a", "b", "c"] {
-        // 60,000 bytes each: two fit under the limit, three do not.
         let end = done(
             agent_runs(&host, &run(call, "yes | head -n 30000"))
                 .await,
@@ -130,9 +118,6 @@ async fn the_oldest_finished_output_goes_first() {
     );
 }
 
-/// A command a chief allows late keeps the id its wait was given, yet
-/// its output is as old as its run: past the limit, the output of the
-/// command that ran first goes.
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn output_is_as_old_as_its_run() {
@@ -146,7 +131,6 @@ async fn output_is_as_old_as_its_run() {
     });
     let host = host_with(&dir, peers.clone()).await;
     realm_sets(&host, 1, manual(&folder)).await;
-    // 60,000 bytes each: three are past the limit, two are under it.
     let script = "yes | head -n 30000";
     agent_runs(&host, &run("late", script)).await;
     for (ran_before, call) in

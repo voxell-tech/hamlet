@@ -580,7 +580,6 @@ fn answering_within(ms: u64) -> Arc<Peers> {
     })
 }
 
-/// The folder of `agent`'s saved output in the realm folder `dir`.
 fn saved_output(
     dir: &Path,
     agent: AgentNumber,

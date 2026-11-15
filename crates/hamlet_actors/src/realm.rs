@@ -157,7 +157,6 @@ fn not_built(unit: &str) -> anyhow::Error {
     anyhow::anyhow!("the scaffold: {unit} fills this")
 }
 
-/// A realm on a host, for the tests of the realm's modules.
 #[cfg(test)]
 mod testing {
     use std::sync::Arc;
@@ -166,7 +165,7 @@ mod testing {
     use hamlet_actor_core::ActorConfig;
     use hamlet_host::{Host, HostOptions};
     use hamlet_messages::address::{self, Party as _};
-    use hamlet_messages::realm::{HamletId, ProfileId, Tier};
+    use hamlet_messages::realm::{HamletId, Tier};
     use hamlet_messages::workspace::AgentNumber;
     use hamlet_testing::Scratch;
     use tokio::sync::mpsc;
@@ -174,8 +173,6 @@ mod testing {
     use super::change::{self, Rows};
     use super::{Realm, chiefs, tree};
 
-    /// A started realm, past its first start, and a second value of
-    /// its state over the same context.
     pub(super) struct Started {
         pub realm: Arc<Realm>,
         pub ctx: Ctx<Realm>,
@@ -239,7 +236,6 @@ mod testing {
             Ok(())
         }
 
-        /// Founds `hamlet`, of tier fifty, with `mayor` as its mayor.
         pub async fn found(
             &self,
             hamlet: &HamletId,
@@ -256,8 +252,6 @@ mod testing {
             self.hire(hamlet, mayor, None).await;
         }
 
-        /// Hires `agent` into `hamlet` under `lead`, of the Hand's
-        /// profile.
         pub async fn hire(
             &self,
             hamlet: &HamletId,
@@ -268,7 +262,7 @@ mod testing {
                 agent,
                 hamlet: hamlet.clone(),
                 lead,
-                of: tree::Of::Profile(ProfileId(1)),
+                of: tree::Of::Profile(tree::HAND_PROFILE),
                 purpose: None,
             })
             .await

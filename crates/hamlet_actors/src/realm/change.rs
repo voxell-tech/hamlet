@@ -70,7 +70,6 @@ pub(super) struct Affected {
 }
 
 impl Affected {
-    /// A change a client sees in `parts`, and nothing else.
     pub fn seen(
         parts: impl IntoIterator<Item = world::Part>,
     ) -> Self {
@@ -146,7 +145,6 @@ impl<'a> Rows<'a> {
             .collect()
     }
 
-    /// The first row `sql` finds.
     pub async fn row<T: Columns>(
         &self,
         sql: &str,
@@ -155,7 +153,6 @@ impl<'a> Rows<'a> {
         Ok(self.rows(sql, params).await?.into_iter().next())
     }
 
-    /// The one column of each row `sql` finds.
     pub async fn values<T: Column>(
         &self,
         sql: &str,
@@ -165,7 +162,6 @@ impl<'a> Rows<'a> {
         Ok(rows.into_iter().map(|(value,)| value).collect())
     }
 
-    /// The one column of the first row `sql` finds.
     pub async fn value<T: Column>(
         &self,
         sql: &str,
@@ -174,7 +170,6 @@ impl<'a> Rows<'a> {
         Ok(self.row::<(T,)>(sql, params).await?.map(|(value,)| value))
     }
 
-    /// The id after the highest of `table`, 1 for an empty one.
     pub async fn next_id(&self, table: &str) -> Result<u64> {
         let highest = self
             .value::<Option<u64>>(
@@ -191,7 +186,6 @@ impl<'a> Rows<'a> {
     }
 }
 
-/// A Rust value of one column.
 pub(super) trait Column: Sized {
     fn of(value: &ColumnValue) -> Result<Self>;
 }
@@ -250,7 +244,6 @@ impl<T: Column> Column for Option<T> {
     }
 }
 
-/// A Rust value of one row.
 pub(super) trait Columns: Sized {
     fn of(row: &[ColumnValue]) -> Result<Self>;
 }
@@ -270,21 +263,20 @@ macro_rules! columns {
 
 columns!((A a), (A a, B b), (A a, B b, C c), (A a, B b, C c, D d));
 
-/// An agent's number as a statement's parameter.
 pub(super) fn number(agent: AgentNumber) -> BindParam {
     BindParam::Integer(i64::from(agent.0))
 }
 
-/// The serde name of an enum's case, as a column holds it.
-pub(super) fn name(case: &impl Serialize) -> Result<String> {
+pub(super) fn case_name(case: &impl Serialize) -> Result<String> {
     match serde_json::to_value(case)? {
         serde_json::Value::String(name) => Ok(name),
         other => bail!("{other} is no case's name"),
     }
 }
 
-/// The case of `T` a column names.
-pub(super) fn named<T: DeserializeOwned>(name: String) -> Result<T> {
+pub(super) fn from_case_name<T: DeserializeOwned>(
+    name: String,
+) -> Result<T> {
     Ok(serde_json::from_value(serde_json::Value::String(name))?)
 }
 
@@ -325,8 +317,6 @@ impl Writer<'_> {
     }
 }
 
-/// A transaction of the realm's file, rolled back when dropped
-/// before its commit.
 pub(super) struct Transaction {
     tx: SqliteTransaction,
     at: At,
@@ -434,7 +424,6 @@ impl Transaction {
         self.is_open = false;
         self.tx.commit().await?;
         reserved.start(realm, &self.ctx);
-        // Only a repeat pushes the drives this starts.
         pushes.retain(|push| !matches!(push, Push::Drive(_)));
         if let Some(revision) = revision {
             realm.world.refresh(&self.ctx, revision, &affected).await;

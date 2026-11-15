@@ -114,7 +114,6 @@ async fn a_found_from_an_agent_that_is_not_the_hand_is_refused() {
     // tool ByHand<Tool<Found>> as agent 2: `message.wrong_caller`.
     let realm = Realm::start().await;
 
-    // The Hand's form has the wire name of the agent's `Tool<Found>`.
     let called = realm
         .tool(
             AgentNumber(2),

@@ -1,6 +1,5 @@
 //! A command's output: the tail its end carries and, once it passes
-//! the tail's limits, all of it in a spill file the agent may read,
-//! in the agent's folder of saved output, kept under a limit.
+//! the tail's limits, all of it in a spill file the agent may read.
 
 use std::ffi::OsStr;
 use std::fs::{DirBuilder, File, OpenOptions};
@@ -25,12 +24,10 @@ pub(super) struct Output {
     spill: Spill,
 }
 
-/// A command's saved output: `<command>.log` in its agent's folder.
 pub struct Saved {
     pub folder: PathBuf,
     pub command: CommandId,
     pub limit: u64,
-    /// The commands running, whose files stay.
     pub running: RunningCommands,
 }
 
@@ -45,8 +42,6 @@ struct Spill {
 }
 
 impl Output {
-    /// Output that spills to `saved`'s file, keeping at most `cap`
-    /// bytes there.
     pub(super) fn new(saved: Saved, cap: u64) -> Self {
         Self {
             tail: Tail::default(),
@@ -209,10 +204,8 @@ impl Saved {
         self.folder.join(format!("{}.log", self.command.0))
     }
 
-    /// Removes the folder's files of finished commands, the least
-    /// recently written first and then the lowest command id, until
-    /// the rest is under the limit. A file that cannot be removed, as
-    /// one another process holds open on Windows, stays.
+    /// A file that cannot be removed, as one another process holds
+    /// open on Windows, stays.
     fn make_room(&self) {
         let listed = match std::fs::read_dir(&self.folder) {
             Ok(listed) => listed,
@@ -238,9 +231,6 @@ impl Saved {
             .collect::<Vec<_>>();
         let mut total =
             files.iter().map(|(.., len, _)| len).sum::<u64>();
-        // Read after the listing: a listed file's command was running
-        // before its file was made, so one that is not now has ended
-        // and closed its file.
         let mut finished = {
             let running = self
                 .running
@@ -276,7 +266,6 @@ impl Saved {
     }
 }
 
-/// The command whose saved output is the file `name`.
 fn command_of(name: &OsStr) -> Option<CommandId> {
     let number = name.to_str()?.strip_suffix(".log")?;
     number.parse().ok().map(CommandId)
@@ -346,7 +335,6 @@ impl Tail {
 mod tests {
     use super::*;
 
-    /// Command 1's output, saved in `folder`.
     fn saved(folder: PathBuf) -> Saved {
         Saved {
             folder,

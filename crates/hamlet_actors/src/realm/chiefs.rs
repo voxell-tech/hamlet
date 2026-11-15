@@ -22,7 +22,6 @@ use super::change::{self, Affected, Rows, Writer, number};
 use super::world::Part;
 use super::{hire, record, steps, tasks, tree};
 
-/// The version of `schema.sql` the realm's row is written with.
 const SCHEMA_VERSION: i64 = 1;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -59,7 +58,7 @@ pub(super) async fn hamlet(
         Ok(Hamlet {
             id: id.clone(),
             mayor: AgentNumber(mayor),
-            tier: change::named(tier)?,
+            tier: change::from_case_name(tier)?,
             limits: limits::Limits::of_row(&limits)?,
         })
     })
@@ -165,8 +164,8 @@ async fn found(
                 BindParam::Text(hamlet.0.clone()),
                 BindParam::Text(name),
                 number(mayor),
-                BindParam::Text(change::name(&tier)?),
-                BindParam::Text(change::name(&Mode::Manual)?),
+                BindParam::Text(change::case_name(&tier)?),
+                BindParam::Text(change::case_name(&Mode::Manual)?),
                 BindParam::Text(limits::new_hamlet()?),
                 BindParam::Integer(writer.at().0),
             ],
@@ -224,7 +223,6 @@ pub(super) async fn first_start(
 }
 
 pub(super) struct Founding {
-    /// The mayor's profile, when the act names one the realm holds.
     profile: Option<tree::Profile>,
     hamlet: HamletId,
     mayor: AgentNumber,

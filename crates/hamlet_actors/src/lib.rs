@@ -19,7 +19,6 @@ fn cbor(value: &impl Serialize) -> Result<Vec<u8>> {
     Ok(bytes)
 }
 
-/// The hash of `request` that a repeat of its call must match.
 fn request_hash(request: &impl Serialize) -> Result<[u8; 32]> {
     Ok(Sha256::digest(cbor(request)?).into())
 }

@@ -89,10 +89,9 @@ async fn begin(writer: &Writer<'_>, row: StepId) -> Result<Affected> {
     })
 }
 
-/// The row's key as `?1` and `?2`.
 fn key(row: StepId) -> Result<Vec<BindParam>> {
     Ok(vec![
-        BindParam::Text(change::name(&row.kind)?),
+        BindParam::Text(change::case_name(&row.kind)?),
         BindParam::Integer(i64::try_from(row.n)?),
     ])
 }
@@ -247,8 +246,6 @@ pub(super) struct Drives {
     running: Arc<Mutex<HashMap<StepId, watch::Receiver<()>>>>,
 }
 
-/// The entries of rows about to be committed. Dropped unstarted, it
-/// gives them back.
 #[must_use]
 pub(super) struct Reserved {
     rows: Vec<(StepId, watch::Sender<()>)>,
@@ -268,7 +265,6 @@ impl Reserved {
                     .lock()
                     .unwrap_or_else(PoisonError::into_inner)
                     .remove(&row);
-                // Wakes each waiter of `finished`.
                 drop(ended);
             });
         }
@@ -288,8 +284,6 @@ impl Drop for Reserved {
 }
 
 impl Drives {
-    /// Takes the entry of each of `rows` that no drive holds, while
-    /// the transaction that begins them is open.
     pub fn reserve(
         &self,
         rows: &[StepId],
@@ -347,7 +341,6 @@ impl Drives {
     }
 }
 
-/// The entries of every open row, for the realm's start to drive.
 pub(super) async fn undone(
     rows: &Rows<'_>,
     drives: &Drives,
@@ -361,7 +354,7 @@ pub(super) async fn undone(
         .into_iter()
         .map(|(kind, n)| {
             Ok(StepId {
-                kind: change::named(kind)?,
+                kind: change::from_case_name(kind)?,
                 n,
             })
         })

@@ -33,7 +33,7 @@ fn each_table_has_one_writer() {
             .to_string_lossy()
             .replace('\\', "/");
         let text = std::fs::read_to_string(&file).unwrap();
-        let code = code(&text);
+        let code = without_test_items(&text);
         let allowed = WRITERS
             .iter()
             .find(|(name, _)| *name == module)
@@ -51,8 +51,7 @@ fn each_table_has_one_writer() {
     );
 }
 
-/// `text` without its test items, whose SQL is data.
-fn code(text: &str) -> String {
+fn without_test_items(text: &str) -> String {
     let mut code = String::new();
     let mut rest = text;
     while let Some(at) = rest.find("#[cfg(test)]") {
@@ -61,7 +60,7 @@ fn code(text: &str) -> String {
         let end = match (item.find(';'), item.find('{')) {
             (Some(semi), Some(open)) if semi < open => semi + 1,
             (Some(semi), None) => semi + 1,
-            (_, Some(open)) => open + block(&item[open..]),
+            (_, Some(open)) => open + block_len(&item[open..]),
             (None, None) => item.len(),
         };
         rest = &item[end..];
@@ -69,8 +68,7 @@ fn code(text: &str) -> String {
     code + rest
 }
 
-/// The length of the braced block `text` opens, through its close.
-fn block(text: &str) -> usize {
+fn block_len(text: &str) -> usize {
     let mut depth = 0;
     for (i, c) in text.char_indices() {
         match c {
@@ -154,5 +152,5 @@ fn the_scan_skips_only_test_items() {
          \"DELETE FROM step\"; }\n#[cfg(test)]\nmod testing { fn \
          f() { if true { \"UPDATE hire SET n = 1\"; } } }\nconst B: \
          &str = \"DELETE FROM task\";\n#[cfg(test)]\nmod tests;\n";
-    assert_eq!(written(&code(text)), ["agent", "task"]);
+    assert_eq!(written(&without_test_items(text)), ["agent", "task"]);
 }

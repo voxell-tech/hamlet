@@ -141,8 +141,6 @@ pub(super) async fn reach(
     }))
 }
 
-/// 1 until the place first moves: the version an agent is created
-/// with.
 pub(super) async fn place(
     rows: &Rows<'_>,
     agent: AgentNumber,
@@ -153,8 +151,11 @@ pub(super) async fn place(
             vec![number(agent)],
         )
         .await?
-        .unwrap_or(1))
+        .unwrap_or(FIRST_PLACE))
 }
+
+/// The version of the place an agent is created with.
+const FIRST_PLACE: u64 = 1;
 
 pub(super) async fn revision(rows: &Rows<'_>) -> Result<Revision> {
     Ok(Revision(

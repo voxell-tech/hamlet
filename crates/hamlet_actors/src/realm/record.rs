@@ -144,7 +144,7 @@ pub(super) async fn write(
                     fields.other.map_or(BindParam::Null, number),
                     fields
                         .tier
-                        .map(|tier| change::name(&tier))
+                        .map(|tier| change::case_name(&tier))
                         .transpose()?
                         .map_or(BindParam::Null, BindParam::Text),
                     BindParam::Text(by.name()),
@@ -159,8 +159,6 @@ pub(super) async fn write(
     Ok(())
 }
 
-/// The columns of a decision's row besides its kind and its decider.
-/// A row with no hamlet takes its agent's.
 #[derive(Default)]
 struct Fields {
     hamlet: Option<HamletId>,

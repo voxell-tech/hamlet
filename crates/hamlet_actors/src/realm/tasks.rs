@@ -83,10 +83,8 @@ pub(super) async fn apply(
     }
 }
 
-/// The id a task is written under.
 enum Id {
     Given(TaskId),
-    /// The next of the table's ids.
     Next,
 }
 
@@ -107,7 +105,7 @@ async fn open(
              (?1, ?2, ?3, ?4, ?5)",
             vec![
                 id,
-                BindParam::Text(change::name(&origin)?),
+                BindParam::Text(change::case_name(&origin)?),
                 number(agent),
                 BindParam::Text(serde_json::to_string(&payer)?),
                 BindParam::Integer(writer.at().0),
@@ -131,7 +129,7 @@ pub(super) async fn standing(
         "SELECT id FROM task WHERE agent = ?1 AND origin = ?2",
         vec![
             number(agent),
-            BindParam::Text(change::name(&Origin::Standing)?),
+            BindParam::Text(change::case_name(&Origin::Standing)?),
         ],
     )
     .await?
