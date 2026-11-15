@@ -22,13 +22,9 @@ use super::super::{
 };
 use super::{Change, Lineage, Member, Of, Status};
 
-/// The hamlet a hire joins, as the call gives it.
 enum Joining {
-    /// The calling hire's hamlet, else the one named.
     Hamlet(HamletId),
-    /// The one named is missing.
     Missing,
-    /// The caller is not a hire and names no hamlet.
     Unnamed,
 }
 
@@ -43,9 +39,7 @@ impl Joining {
 
 pub(in crate::realm) struct Hiring {
     hamlet: Joining,
-    /// The lead named, else the calling hire, else the mayor.
     under: Option<Lineage>,
-    /// How many living hires the lead's hamlet holds.
     living: u32,
     of: Result<Of, ProfileId>,
     agent: AgentNumber,
@@ -118,8 +112,6 @@ impl<By: Lead> Act<By> for Hire {
             });
         };
         let lead = under.agent.agent;
-        // The hire joins its lead's hamlet, which is the one named
-        // when there is one; the Hand leads in none.
         let Some(hamlet) = under.hamlet.as_ref().filter(|hamlet| {
             named.as_ref().is_none_or(|named| *named == hamlet.id)
         }) else {
@@ -184,7 +176,6 @@ impl<By: Lead> Act<By> for Hire {
     }
 }
 
-/// The calling agent, when an agent calls.
 fn caller(by: &impl Decider) -> Option<AgentNumber> {
     match by.by() {
         record::By::Agent(agent) => Some(agent),
@@ -192,7 +183,6 @@ fn caller(by: &impl Decider) -> Option<AgentNumber> {
     }
 }
 
-/// The hamlet of `caller` when it is a hire.
 async fn own_hamlet(
     rows: &Rows<'_>,
     caller: Option<AgentNumber>,
@@ -251,8 +241,6 @@ impl<By: Lead> Act<By> for End {
                     why: self.why.clone(),
                 })
                 .change(waits::Change::Lapse { agent: hire })
-                // No later drive makes it live when it is still
-                // being hired.
                 .change(steps::Change::Close {
                     row: hire::row(hire),
                 })
@@ -269,8 +257,6 @@ impl<By: Lead> Act<By> for End {
     }
 }
 
-/// The lineage of the agent `named` names, reading `Mayor` as
-/// `hamlet`'s.
 async fn named_lineage(
     rows: &Rows<'_>,
     hamlet: Option<&HamletId>,
@@ -319,7 +305,6 @@ impl<By: RealmWide> Act<By> for Seat {
         }
         Decision::Change(
             Decided::new(())
-                // First: it reads the old mayor from the hamlet.
                 .change(Change::Seat { mayor: hire })
                 .change(chiefs::Change::Mayor {
                     hamlet: hamlet.id.clone(),
@@ -334,8 +319,6 @@ impl<By: RealmWide> Act<By> for Seat {
     }
 }
 
-/// Reports its reach as moved (to `Ended`), and the places of its
-/// lead, of the moved hires and of the agents it had a road to.
 pub(in crate::realm) async fn end(
     writer: &Writer<'_>,
     agent: AgentNumber,
@@ -379,7 +362,6 @@ pub(in crate::realm) async fn end(
     })
 }
 
-/// The agents of `members` that have not ended.
 fn living_agents(members: &[Member]) -> Vec<AgentNumber> {
     members
         .iter()
@@ -402,10 +384,6 @@ async fn set_lead(
     Ok(())
 }
 
-/// Puts the old mayor and its living hires under `mayor`, before the
-/// hamlet names it. Reports the places of the two mayors, of the
-/// hires that moved, of `mayor`'s old lead, and of the Hand and the
-/// other mayors.
 pub(in crate::realm) async fn seat(
     writer: &Writer<'_>,
     mayor: AgentNumber,
@@ -445,8 +423,8 @@ mod tests {
     use crate::realm::testing::Started;
     use crate::realm::{change, versions};
 
-    /// The lineage of hire 5 in one hamlet: the Hand 1, the mayor 2,
-    /// hire 3 under it, and 5 under 3, still hiring.
+    /// The lineage of hire 5 in one hamlet: the mayor 2, hire 3 under
+    /// it, and 5 under 3.
     fn lineage_of_5() -> Lineage {
         let member = |agent, lead: Option<u32>, status| Member {
             agent: AgentNumber(agent),
@@ -662,7 +640,6 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn a_seat_puts_the_old_mayor_and_its_hires_under_the_new_one()
      {
-        // hamlet h: mayor 2, its hires 3 and 4, and 5 under 3.
         let started = Started::new().await;
         let hamlet = HamletId("h".to_owned());
         started.found(&hamlet, AgentNumber(2)).await;

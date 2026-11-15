@@ -47,7 +47,6 @@ fn not_a_lead<R>(agent: u32) -> LeadRefusal<R> {
     })
 }
 
-/// Whether the workspace stand-in was sent `agent`'s end.
 fn ended_in_workspace(realm: &Realm, agent: AgentNumber) -> bool {
     realm
         .seen
@@ -271,7 +270,6 @@ async fn an_end_of_a_hire_still_hiring_closes_its_steps() {
             .any(|(_, branch)| branch.name == "hires/3")
     })
     .await;
-    // Room for a step after the branch.
     tokio::time::sleep(Duration::from_millis(500)).await;
     let three = AgentNumber(3);
     let made_3 = realm
@@ -360,8 +358,6 @@ async fn a_repeated_hire_hires_once() {
             ),
         )
         .await;
-    // A repeat while the failed drive still holds the row drives
-    // nothing, so repeat until one does.
     let mut again = Vec::new();
     while !realm.holds_reach(AgentNumber(3)) {
         again.push(realm.tool(MAYOR, &call).await.unwrap());

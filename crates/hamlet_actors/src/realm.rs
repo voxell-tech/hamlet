@@ -238,8 +238,6 @@ mod testing {
             Ok(())
         }
 
-        /// What `read` gives on its own task, outside a transaction,
-        /// while `writes` commit in one beside it.
         pub async fn race<T, R>(
             &self,
             read: impl FnOnce(Ctx<Realm>) -> R,

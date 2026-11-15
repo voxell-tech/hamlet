@@ -66,7 +66,6 @@ mod writers;
 
 const DEADLINE: Duration = Duration::from_secs(20);
 
-/// The first hamlet's mayor, the agent hired after the Hand.
 const MAYOR: AgentNumber = AgentNumber(2);
 
 /// A call of the realm's that a test can hold or fail.
@@ -589,7 +588,6 @@ fn found(name: &str) -> Found {
     }
 }
 
-/// Founds `Mill` as the chief.
 async fn founded(realm: &Realm) -> HamletId {
     let answer = realm
         .ask(&Asked {

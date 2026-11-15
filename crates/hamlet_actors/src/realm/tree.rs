@@ -112,7 +112,6 @@ pub(super) async fn lineage(
     }))
 }
 
-/// The hamlet of `agent` when it is a hire.
 async fn hamlet_of(
     rows: &Rows<'_>,
     agent: AgentNumber,
@@ -238,8 +237,6 @@ pub(super) async fn fresh(rows: &Rows<'_>) -> Result<AgentNumber> {
     Ok(AgentNumber(u32::try_from(rows.next_id("agent").await?)?))
 }
 
-/// The profile a new hire is made of: the one `named`, else a new
-/// blank one. `Err` is the one named when it is missing.
 pub(super) async fn made_of(
     rows: &Rows<'_>,
     named: Option<ProfileId>,
