@@ -1,16 +1,20 @@
 //! The `task` table: what a chief's line or an agent's standing is
 //! charged to (H12, C31).
 
-use anyhow::{Context as _, Result, bail};
+use anyhow::{Context as _, Result};
 use hamlet_actor::{BindParam, ColumnValue};
 use hamlet_messages::address::Agent;
-use hamlet_messages::realm::budget::{OpenTask, Payer, TaskOpened};
+use hamlet_messages::realm::budget::{
+    OpenTask, Payer, TaskOpened, TaskTurn,
+};
+use hamlet_messages::realm::{Left, Standing};
 use hamlet_messages::workspace::{AgentNumber, RealmTask};
 use serde::{Deserialize, Serialize};
 
-use super::act::{Act, Decision, Unbuilt};
+use super::act::{Act, Decided, Decision};
 use super::calls::Made;
 use super::change::{self, Affected, Column, Rows, Writer, number};
+use super::tree;
 
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize,
@@ -46,6 +50,17 @@ pub(super) enum Origin {
     Chief,
     /// The task that pays for an agent's turns no line started.
     Standing,
+    Retry,
+    Reflection,
+}
+
+impl From<TaskTurn> for Origin {
+    fn from(turn: TaskTurn) -> Self {
+        match turn {
+            TaskTurn::Retry => Self::Retry,
+            TaskTurn::Reflection => Self::Reflection,
+        }
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -120,18 +135,27 @@ pub(super) async fn standing(
     rows: &Rows<'_>,
     agent: AgentNumber,
 ) -> Result<TaskId> {
-    rows.value(
-        "SELECT id FROM task WHERE agent = ?1 AND origin = ?2",
-        vec![
-            number(agent),
-            BindParam::Text(change::case_name(&Origin::Standing)?),
-        ],
-    )
-    .await?
-    .map(TaskId)
-    .with_context(|| {
+    standing_of(rows, agent).await?.with_context(|| {
         format!("agent {} has no standing task", agent.0)
     })
+}
+
+async fn standing_of(
+    rows: &Rows<'_>,
+    agent: AgentNumber,
+) -> Result<Option<TaskId>> {
+    Ok(rows
+        .value(
+            "SELECT id FROM task WHERE agent = ?1 AND origin = ?2",
+            vec![
+                number(agent),
+                BindParam::Text(change::case_name(
+                    &Origin::Standing,
+                )?),
+            ],
+        )
+        .await?
+        .map(TaskId))
 }
 
 /// `None` for a task the realm does not hold.
@@ -148,29 +172,72 @@ pub(super) async fn payer(
     .transpose()
 }
 
+/// `None` for a task the realm does not hold.
+pub(super) async fn payer_of(
+    rows: &Rows<'_>,
+    task: &RealmTask,
+) -> Result<Option<Payer>> {
+    match TaskId::of(task) {
+        Some(task) => payer(rows, task).await,
+        None => Ok(None),
+    }
+}
+
+/// Who pays for what `agent` does on its own account: its standing
+/// task's payer. `None` for an agent with no standing task.
+pub(super) async fn own_payer(
+    rows: &Rows<'_>,
+    agent: AgentNumber,
+) -> Result<Option<Payer>> {
+    match standing_of(rows, agent).await? {
+        Some(task) => payer(rows, task).await,
+        None => Ok(None),
+    }
+}
+
 impl Act<Agent> for OpenTask {
     type Output = TaskOpened;
-    type Loaded = Unbuilt;
-    type Done = Unbuilt;
+    type Loaded = Result<(TaskId, Payer), Standing>;
+    type Done = TaskId;
 
     async fn load(
         &self,
-        _by: &Agent,
-        _rows: &Rows<'_>,
-    ) -> Result<Unbuilt> {
-        bail!("not built yet: U8")
+        by: &Agent,
+        rows: &Rows<'_>,
+    ) -> Result<Result<(TaskId, Payer), Standing>> {
+        if let Some(Left { how, why }) =
+            tree::left(rows, by.0).await?
+        {
+            return Ok(Err(Standing::YouLeft { how, why }));
+        }
+        let Some(payer) = own_payer(rows, by.0).await? else {
+            return Ok(Err(Standing::NotAMember));
+        };
+        Ok(Ok((fresh(rows).await?, payer)))
     }
 
     fn decide(
         &self,
-        _by: &Agent,
-        loaded: Unbuilt,
-    ) -> Decision<Unbuilt, Self::Output> {
-        match loaded {}
+        by: &Agent,
+        opening: Result<(TaskId, Payer), Standing>,
+    ) -> Decision<TaskId, Self::Output> {
+        match opening {
+            Ok((task, payer)) => Decision::Change(
+                Decided::new(task).change(Change::Open {
+                    task,
+                    origin: self.turn.into(),
+                    agent: by.0,
+                    payer,
+                }),
+            ),
+            Err(why) => Decision::Answer(TaskOpened::Refused { why }),
+        }
     }
 
-    fn answer(&self, done: Unbuilt, _made: &Made) -> Self::Output {
-        match done {}
+    fn answer(&self, task: TaskId, _made: &Made) -> Self::Output {
+        TaskOpened::Opened {
+            task: task.on_the_wire(),
+        }
     }
 }
 
