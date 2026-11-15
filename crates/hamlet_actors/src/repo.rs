@@ -39,7 +39,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, ensure};
 use hamlet_actor::{Actor, Ctx, SqliteDb};
 use hamlet_host::{Address, Caller, HostRef};
 use hamlet_messages::address::Party;
@@ -315,22 +315,31 @@ where
     M: Changes,
     M::From: Send + Sync + 'static,
 {
-    /// Checks the id now, so that the action may call other actors
-    /// before it writes. A repeat gets its kept answer, and a reused
-    /// id fails, before any of those calls is made.
-    pub async fn fresh(self) -> Result<Checked<A, M>> {
+    /// Admits the caller and checks the id now, so that the action
+    /// may call other actors before it writes. A repeat gets its kept
+    /// answer, and a reused id fails, before any of those calls is
+    /// made.
+    pub async fn fresh(self) -> Result<Checked<A, M>>
+    where
+        M: Clone,
+        M::From: Clone,
+    {
         let folder =
             self.owner.repo().folder.clone().read_owned().await;
         let (db, runtime) =
             (self.ctx.sql().clone(), Handle::current());
         let key =
             marker::Key::of(&self.asked.caller, &self.asked.message)?;
+        let asked = self.asked.clone();
         let kept = tokio::task::spawn_blocking(move || {
             let sql = UnitSql::new(db, runtime);
-            let kept = match &key {
-                Some(key) => marker::find::<M>(&sql, key),
-                None => Ok(None),
-            };
+            let kept =
+                known::<A, M>(&sql, &asked).and_then(
+                    |_| match &key {
+                        Some(key) => marker::find::<M>(&sql, key),
+                        None => Ok(None),
+                    },
+                );
             sql.rollback();
             drop(folder);
             kept
@@ -738,7 +747,14 @@ where
                 ends: false,
             });
         }
-        End::Kept(answer) => answer,
+        End::Kept(answer) => {
+            ensure!(
+                !is_refused(&answer)?,
+                "{} wrote and then answered refused",
+                M::NAME
+            );
+            answer
+        }
     };
     if ended.ends {
         held.erase()?;
@@ -757,6 +773,19 @@ where
         answer,
         told,
         ends: ended.ends,
+    })
+}
+
+/// Whether `answer` is its family's `refused` arm.
+fn is_refused<T: serde::Serialize>(answer: &T) -> Result<bool> {
+    let refused = ciborium::Value::Text("refused".into());
+    Ok(match ciborium::Value::serialized(answer)? {
+        ciborium::Value::Map(fields) => {
+            fields.iter().any(|(name, value)| {
+                name.as_text() == Some("type") && *value == refused
+            })
+        }
+        _ => false,
     })
 }
 

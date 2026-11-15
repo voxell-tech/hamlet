@@ -23,6 +23,7 @@ fn is_version_name(version: &str) -> bool {
         && !version.contains("..")
         && !version.ends_with('.')
         && !version.ends_with(".lock")
+        && version != "HEAD"
 }
 
 impl Takes<Tag> for Profile {
@@ -145,6 +146,7 @@ mod tests {
             "x.lock",
             "a/b",
             "v 1",
+            "HEAD",
             &"v".repeat(33),
         ] {
             assert!(!is_version_name(bad), "{bad:?}");
@@ -152,6 +154,46 @@ mod tests {
         for good in ["v1", "1.0", "v1.0-rc2", &"v".repeat(32)] {
             assert!(is_version_name(good), "{good:?}");
         }
+    }
+
+    #[test]
+    fn a_unit_that_wrote_cannot_answer_refused() {
+        let dir = Scratch::new("profile-write-then-refuse");
+        let mut profile = Hostless::profile(&dir, "Careful.");
+        let realm = Caller::Actor(Realm.address().unwrap());
+        let asked = |version: &str| Tag {
+            id: RequestId::new(),
+            version: VersionName(version.into()),
+            at: None,
+            note: String::new(),
+            by: Who::Chief { chief: 3 },
+        };
+        let first = asked("v1");
+        let wrote = profile.once::<Profile, Tag, _>(
+            realm.clone(),
+            first.clone(),
+            |unit| {
+                let main = unit.git()?.tip(MAIN)?.unwrap();
+                let writer = unit.write();
+                writer.writes()?.tag("v1", main, "", By::Chief(3))?;
+                writer.kept(TagAnswer::Refused {
+                    why: TagRefusal::NoSuchCommit,
+                })
+            },
+        );
+        assert!(wrote.is_err());
+
+        let again = Tag {
+            version: VersionName("v2".into()),
+            ..first
+        };
+        let (answer, _) = profile
+            .once::<Profile, Tag, _>(realm, again, tag)
+            .unwrap();
+        assert!(
+            matches!(answer, TagAnswer::Tagged { .. }),
+            "{answer:?}"
+        );
     }
 
     #[test]

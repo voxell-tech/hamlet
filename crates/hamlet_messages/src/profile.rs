@@ -421,7 +421,8 @@ message!(Erase, "erase", Realm => Profile, Done<DreamOpen>, |erase| {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Cursor {
     pub commit: CommitId,
-    /// The file, counted in path order, and the byte within it.
+    /// The item of the fill, counting its removed paths first and
+    /// then its files in path order, and the byte within that file.
     pub file: u32,
     pub offset: u32,
 }

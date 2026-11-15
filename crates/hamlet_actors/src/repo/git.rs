@@ -846,6 +846,46 @@ mod tests {
         .unwrap();
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn a_checkout_keeps_whether_a_file_runs() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let dir = Scratch::new("repo-checkout-runs");
+        let held = folder(&dir).open(2000).unwrap();
+        let base = tip(&held, MAIN);
+        let run = Change::WriteExecutable {
+            path: "run.sh".into(),
+            bytes: b"echo".to_vec(),
+        };
+        let at = held
+            .writes()
+            .unwrap()
+            .commit(MAIN, Some(base), &[run], "run", By::Chief(1))
+            .unwrap();
+        let under = Path::new("dreams/1/main");
+        let file = dir.join(under).join("run.sh");
+        held.check_out(at, under, &|_| false).unwrap();
+        assert!(
+            held.changes(under, at, &|_| false).unwrap().is_empty()
+        );
+
+        std::fs::set_permissions(
+            &file,
+            std::fs::Permissions::from_mode(0o600),
+        )
+        .unwrap();
+        assert_eq!(
+            held.changes(under, at, &|_| false).unwrap(),
+            [write("run.sh", "echo")]
+        );
+
+        held.check_out(at, under, &|_| false).unwrap();
+        assert!(
+            held.changes(under, at, &|_| false).unwrap().is_empty()
+        );
+    }
+
     #[test]
     fn a_checkout_holds_the_commit_but_what_it_skips() {
         let dir = Scratch::new("repo-git-folder");
