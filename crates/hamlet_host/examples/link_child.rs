@@ -5,7 +5,8 @@
 //! ```text
 //! link_child [--env <file>] [--starts <file>] [--stray] [--frames <file>]
 //!            [--protocol <version> | --hold | --welcomed
-//!             | --ask-early <file> | --forge <stamp> | --silent]
+//!             | --ask-early <file> | --forge <stamp> | --silent
+//!             | --end-subscription | --ask-subscribe]
 //!
 //! --env <file>          write the names of its environment's
 //!                       variables to <file>, one to a line
@@ -30,6 +31,10 @@
 //!                       `who` as <stamp>: `none`, `client` or
 //!                       `<kind>/<key>`
 //! --silent              by hand, get to Ready, then answer nothing
+//! --end-subscription    by hand, get to Ready, answer the first
+//!                       subscribe, then end it with `actor.destroyed`
+//! --ask-subscribe       by hand, get to Ready, then subscribe to
+//!                       `realm/r`'s `ticked` as `agent/a`
 //! ```
 
 use std::collections::HashMap;
@@ -37,21 +42,32 @@ use std::fs::{File, OpenOptions};
 use std::io::{self, PipeReader, PipeWriter, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, SystemTime};
 
 use anyhow::{Context, Result, bail};
 use hamlet_actor::action::encode_positional;
-use hamlet_actor::{Actor, ActorConfig, Ctx, Handler, Registry};
+use hamlet_actor::{
+    Actor, ActorConfig, BindParam, ColumnValue, ConnCtx, Ctx, Event,
+    Handler, Registry, SqliteDb,
+};
 use hamlet_actor_core::ActorFactory;
 use hamlet_host::link::{self, Ask, Frame, PROTOCOL, WireError};
 use hamlet_host::{Address, Caller, HostRef, child};
 use hamlet_os::process::{self, Ends};
 use hamlet_protocol::Version;
+use serde_bytes::ByteBuf;
 
 #[path = "../tests/support/actions.rs"]
 mod actions;
+#[path = "../tests/support/ticks.rs"]
+mod ticks;
 
 use actions::{Exit, Fail, Input, Relay, Seen, Slow, Started, Who};
+use ticks::{
+    Close, Count, Crash, Destroy, Hang, SECRET, SLOW, Sleep, Tick,
+    Ticked, Watchers, forbidden,
+};
 
 /// The one kind the stand-in holds.
 const KIND: &str = "agent";
@@ -71,6 +87,8 @@ enum Part {
     AskEarly(PathBuf),
     Forge(Option<Caller>),
     Silent,
+    EndSubscription,
+    AskSubscribe,
 }
 
 fn main() -> Result<()> {
@@ -100,6 +118,12 @@ fn main() -> Result<()> {
                 mode = Mode::ByHand(Part::Forge(stamp(&value()?)?));
             }
             "--silent" => mode = Mode::ByHand(Part::Silent),
+            "--end-subscription" => {
+                mode = Mode::ByHand(Part::EndSubscription);
+            }
+            "--ask-subscribe" => {
+                mode = Mode::ByHand(Part::AskSubscribe);
+            }
             _ => bail!("unknown argument {arg}"),
         }
     }
@@ -228,14 +252,27 @@ impl Reader {
         Ok(Some(frame))
     }
 
-    fn hold(&mut self) -> Result<()> {
+    /// Reads until `wanted` takes a frame, or `None` at the Rust
+    /// host's goodbye.
+    fn until<T>(
+        &mut self,
+        wanted: impl Fn(Frame) -> Option<T>,
+    ) -> Result<Option<T>> {
         loop {
             match self.next()? {
-                Some(Frame::Goodbye) => return Ok(()),
-                Some(_) => {}
+                Some(Frame::Goodbye) => return Ok(None),
+                Some(frame) => {
+                    if let Some(taken) = wanted(frame) {
+                        return Ok(Some(taken));
+                    }
+                }
                 None => process::end_now(),
             }
         }
+    }
+
+    fn hold(&mut self) -> Result<()> {
+        self.until(|_| None::<()>).map(drop)
     }
 }
 
@@ -258,11 +295,61 @@ fn by_hand(
         }
         Part::Forge(stamp) => {
             link::write(&mut output, &Frame::Ready)?;
-            link::write(&mut output, &ask_who(stamp)?)?;
+            link::write(&mut output, &ask_realm(stamp, who()?)?)?;
         }
         Part::Silent => link::write(&mut output, &Frame::Ready)?,
+        Part::EndSubscription => {
+            link::write(&mut output, &Frame::Ready)?;
+            let subscribe = |frame| match frame {
+                Frame::Request {
+                    id,
+                    ask: Ask::Subscribe { .. },
+                    ..
+                } => Some(id),
+                _ => None,
+            };
+            let Some(sub) = reader.until(subscribe)? else {
+                return Ok(());
+            };
+            end_subscription(&mut output, sub)?;
+        }
+        Part::AskSubscribe => {
+            link::write(&mut output, &Frame::Ready)?;
+            let agent = Caller::Actor(Address::new(KIND, "a")?);
+            let subscribe = Ask::Subscribe {
+                event: Ticked::NAME.to_owned(),
+            };
+            link::write(
+                &mut output,
+                &ask_realm(Some(agent), subscribe)?,
+            )?;
+        }
     }
     reader.hold()
+}
+
+/// Answers the subscribe `sub`, then ends it.
+fn end_subscription(output: &mut PipeWriter, sub: u64) -> Result<()> {
+    link::write(
+        output,
+        &Frame::Reply {
+            id: sub,
+            result: Ok(ByteBuf::new()),
+        },
+    )?;
+    link::write(
+        output,
+        &Frame::SubscriptionEnded {
+            sub,
+            error: WireError {
+                group: "actor".to_owned(),
+                code: "destroyed".to_owned(),
+                message: "Actor was destroyed.".to_owned(),
+                metadata: None,
+            },
+        },
+    )?;
+    Ok(())
 }
 
 fn ask_early(
@@ -271,7 +358,7 @@ fn ask_early(
     answer: &Path,
 ) -> Result<()> {
     let agent = Caller::Actor(Address::new(KIND, "a")?);
-    link::write(output, &ask_who(Some(agent))?)?;
+    link::write(output, &ask_realm(Some(agent), who()?)?)?;
     let reply = loop {
         match reader.next()? {
             Some(Frame::Reply { id: 0, result }) => break result,
@@ -290,16 +377,20 @@ fn ask_early(
     Ok(())
 }
 
-fn ask_who(from: Option<Caller>) -> Result<Frame> {
+fn ask_realm(from: Option<Caller>, ask: Ask) -> Result<Frame> {
     Ok(Frame::Request {
         id: 0,
         from,
         to: Address::new("realm", "r")?,
-        ask: Ask::Call {
-            name: "who".to_owned(),
-            args: Vec::new(),
-            deadline_ms: u64::try_from(DEADLINE.as_millis())?,
-        },
+        ask,
+    })
+}
+
+fn who() -> Result<Ask> {
+    Ok(Ask::Call {
+        name: "who".to_owned(),
+        args: Vec::new(),
+        deadline_ms: u64::try_from(DEADLINE.as_millis())?,
     })
 }
 
@@ -318,17 +409,41 @@ fn factories() -> HashMap<String, ActorFactory> {
 struct Agent {
     input: Option<Address>,
     started: Option<Seen>,
+    /// The next sleep hook waits for ever.
+    hang: AtomicBool,
 }
 
 #[async_trait::async_trait]
 impl Actor for Agent {
     type Input = Option<Address>;
-    type Actions = (Who, Input, Started, Relay, Fail, Slow, Exit);
-    type Events = ();
+    type Actions = (
+        Who,
+        Input,
+        Started,
+        Relay,
+        Fail,
+        Slow,
+        Exit,
+        Tick,
+        Count,
+        Sleep,
+        Destroy,
+        Crash,
+        Close,
+        Hang,
+        Watchers,
+    );
+    type Events = (Ticked,);
     type ConnParams = Option<Caller>;
     type Action = ();
 
     async fn create(ctx: &Ctx<Self>) -> Result<Self> {
+        ctx.sql()
+            .exec(
+                "CREATE TABLE IF NOT EXISTS ticks (id INTEGER \
+                 PRIMARY KEY CHECK (id = 0), n INTEGER NOT NULL)",
+            )
+            .await?;
         let input = ctx.input()?;
         let started = match &input {
             Some(note) => Some(Seen::of_call(
@@ -343,8 +458,55 @@ impl Actor for Agent {
             )),
             None => None,
         };
-        Ok(Self { input, started })
+        Ok(Self {
+            input,
+            started,
+            hang: AtomicBool::new(false),
+        })
     }
+
+    async fn on_subscribe(
+        self: Arc<Self>,
+        _: Ctx<Self>,
+        _: ConnCtx<Self>,
+        event: String,
+    ) -> Result<()> {
+        match event.as_str() {
+            SECRET => Err(forbidden().into_error()),
+            SLOW => {
+                tokio::time::sleep(Duration::from_millis(300)).await;
+                Ok(())
+            }
+            _ => Ok(()),
+        }
+    }
+
+    async fn on_sleep(self: Arc<Self>, _: Ctx<Self>) -> Result<()> {
+        if self.hang.load(Ordering::SeqCst) {
+            std::future::pending::<()>().await;
+        }
+        Ok(())
+    }
+}
+
+/// The count of ticks, as `sql` holds it.
+async fn count(sql: &SqliteDb) -> Result<u64> {
+    let result = sql
+        .execute(
+            "SELECT n FROM ticks WHERE id = ?",
+            Some(vec![BindParam::Integer(0)]),
+        )
+        .await?;
+    Ok(match result.rows.first().and_then(|row| row.first()) {
+        Some(ColumnValue::Integer(n)) => u64::try_from(*n)?,
+        _ => 0,
+    })
+}
+
+/// Whether a connection of the agent is not the call's own.
+fn other(ctx: &Ctx<Agent>) -> impl Fn(&ConnCtx<Agent>) -> bool {
+    let own = ctx.conn().map(|conn| conn.id().to_owned());
+    move |conn| Some(conn.id()) != own.as_deref()
 }
 
 impl Handler<Who> for Agent {
@@ -415,5 +577,98 @@ impl Handler<Exit> for Agent {
         _: Exit,
     ) -> Result<()> {
         process::end_now()
+    }
+}
+
+impl Handler<Tick> for Agent {
+    async fn handle(
+        self: Arc<Self>,
+        ctx: Ctx<Self>,
+        tick: Tick,
+    ) -> Result<u64> {
+        ctx.sql()
+            .execute(
+                "INSERT INTO ticks (id, n) VALUES (0, 1) ON \
+                 CONFLICT (id) DO UPDATE SET n = n + 1",
+                None,
+            )
+            .await?;
+        let n = count(ctx.sql()).await?;
+        ctx.emit(Ticked(n, "x".repeat(tick.pad)))?;
+        Ok(n)
+    }
+}
+
+impl Handler<Count> for Agent {
+    async fn handle(
+        self: Arc<Self>,
+        ctx: Ctx<Self>,
+        _: Count,
+    ) -> Result<u64> {
+        count(ctx.sql()).await
+    }
+}
+
+impl Handler<Sleep> for Agent {
+    async fn handle(
+        self: Arc<Self>,
+        ctx: Ctx<Self>,
+        _: Sleep,
+    ) -> Result<()> {
+        ctx.sleep()
+    }
+}
+
+impl Handler<Destroy> for Agent {
+    async fn handle(
+        self: Arc<Self>,
+        ctx: Ctx<Self>,
+        _: Destroy,
+    ) -> Result<()> {
+        ctx.destroy()
+    }
+}
+
+impl Handler<Crash> for Agent {
+    async fn handle(
+        self: Arc<Self>,
+        ctx: Ctx<Self>,
+        _: Crash,
+    ) -> Result<()> {
+        ctx.stop_with_error("the agent crashed")
+    }
+}
+
+impl Handler<Close> for Agent {
+    async fn handle(
+        self: Arc<Self>,
+        ctx: Ctx<Self>,
+        _: Close,
+    ) -> Result<()> {
+        ctx.disconnect_conns(other(&ctx)).await
+    }
+}
+
+impl Handler<Hang> for Agent {
+    async fn handle(
+        self: Arc<Self>,
+        _: Ctx<Self>,
+        _: Hang,
+    ) -> Result<()> {
+        self.hang.store(true, Ordering::SeqCst);
+        Ok(())
+    }
+}
+
+impl Handler<Watchers> for Agent {
+    async fn handle(
+        self: Arc<Self>,
+        ctx: Ctx<Self>,
+        _: Watchers,
+    ) -> Result<Vec<Option<Caller>>> {
+        ctx.conns()
+            .filter(other(&ctx))
+            .map(|conn| conn.params())
+            .collect()
     }
 }
