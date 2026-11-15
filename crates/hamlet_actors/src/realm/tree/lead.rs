@@ -120,11 +120,13 @@ impl<By: Lead> Act<By> for Hire {
         {
             return Decision::Answer(HireAnswer::refused(not_a_lead));
         }
-        let says_why = self
+        let purpose = self
             .purpose
             .as_deref()
-            .is_some_and(|purpose| !purpose.trim().is_empty());
-        if !says_why
+            .map(str::trim)
+            .filter(|purpose| !purpose.is_empty())
+            .map(str::to_owned);
+        if purpose.is_none()
             && caller(by).is_some_and(|agent| agent != Hand::NUMBER)
         {
             return refuse(HireRefusal::NoPurpose);
@@ -160,7 +162,7 @@ impl<By: Lead> Act<By> for Hire {
                     hamlet: hamlet.id.clone(),
                     lead: Some(lead),
                     of,
-                    purpose: self.purpose.clone(),
+                    purpose: purpose.clone(),
                 })
                 .change(tasks::Change::Standing {
                     agent,
@@ -172,7 +174,7 @@ impl<By: Lead> Act<By> for Hire {
                 .record(record::Entry::Hired {
                     hire: agent,
                     by: by.by(),
-                    why: self.purpose.clone(),
+                    why: purpose,
                 }),
         )
     }
@@ -590,6 +592,32 @@ mod tests {
         let by_the_chief =
             hire_for(None).decide(&Client, under_5("h"));
         assert!(matches!(by_the_chief, Decision::Change(_)));
+    }
+
+    #[test]
+    fn a_blank_purpose_is_kept_as_none_and_a_purpose_trimmed() {
+        let kept = |purpose| {
+            let Decision::Change(decided) =
+                hire_for(purpose).decide(&Client, under_5("h"))
+            else {
+                panic!("the chief hires under 5");
+            };
+            decided.changes.into_iter().find_map(
+                |change| match change {
+                    change::Change::Tree(Change::Hire {
+                        purpose,
+                        ..
+                    }) => Some(purpose),
+                    _ => None,
+                },
+            )
+        };
+
+        assert_eq!(kept(Some("  ")), Some(None));
+        assert_eq!(
+            kept(Some(" dig \n")),
+            Some(Some("dig".to_owned()))
+        );
     }
 
     #[test]

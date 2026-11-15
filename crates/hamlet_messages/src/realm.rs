@@ -558,7 +558,7 @@ pub enum HireRefusal {
     Full { hamlet: HamletId, most: u32 },
     #[error("there is no `profile#{}`", profile.0)]
     NoSuchProfile { profile: ProfileId },
-    /// An agent's hire only: a chief may leave the purpose out (H40).
+    /// Never a chief's: a chief may leave the purpose out (H40).
     #[error("say what it is for")]
     NoPurpose,
 }
