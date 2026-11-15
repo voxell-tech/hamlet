@@ -35,7 +35,7 @@ export interface Demo {
      * Rejects when the demo exits first.
      */
     ask(line: string): Promise<string>;
-    /** What the demo and its Node host have written to standard error. */
+    /** Everything the demo and its Node host have written to standard error. */
     stderr(): string;
     /** Waits until standard error holds `pattern`. */
     logged(pattern: RegExp): Promise<void>;

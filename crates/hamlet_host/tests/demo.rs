@@ -1,6 +1,3 @@
-//! The demo's hosts, started as its lanes and the kill kit start
-//! them.
-
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Output, Stdio};
@@ -12,8 +9,6 @@ use hamlet_testing::{Scratch, names_in, strip_overrides};
 /// How long a test waits for a line of the demo.
 const PATIENCE: Duration = Duration::from_secs(30);
 
-/// The demo, in the `examples` folder of the profile's folder, which
-/// holds the test at some depth.
 fn demo() -> PathBuf {
     let exe = std::env::current_exe().unwrap();
     exe.ancestors()
@@ -105,7 +100,6 @@ impl Drop for Serve {
     }
 }
 
-/// The actor host's live lane 5.
 #[test]
 fn two_demo_hosts_with_kinds_of_their_own_share_a_folder_and_a_third_of_one_name_is_refused()
  {
@@ -136,8 +130,6 @@ fn two_demo_hosts_with_kinds_of_their_own_share_a_folder_and_a_third_of_one_name
     assert_eq!(names_in(&home.join("actors")), ["alpha", "beta"]);
 }
 
-/// What the workspace's lanes and the kit's `workspace-command` row
-/// start: a demo with no option.
 #[test]
 fn a_demo_host_with_no_kind_runs_the_counter_the_workspace_and_both_stand_ins()
  {

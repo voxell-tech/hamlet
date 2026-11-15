@@ -182,10 +182,8 @@ async fn demo() -> Result<()> {
     result
 }
 
-/// A demo host, as its commands use it.
 pub struct Demo {
     pub host: Host,
-    /// The Node host, in a demo started with `--link`.
     pub link: Option<link::Link>,
     /// The counter kinds the host runs.
     counters: Vec<String>,
@@ -209,7 +207,6 @@ impl Demo {
         }
     }
 
-    /// Shuts the Node host down, then the host.
     async fn shutdown(self) -> Result<()> {
         if let Some(link) = self.link {
             link.shutdown().await;
@@ -218,7 +215,7 @@ impl Demo {
     }
 }
 
-/// What the options before the command ask for.
+/// The options before the command.
 struct Start {
     options: HostOptions,
     /// The kinds the host runs, in the order given.
@@ -246,8 +243,8 @@ async fn run_line(demo: &Demo, words: &[String]) -> Result<()> {
     }
 }
 
-/// What the options before the command ask for, and the words from
-/// the command on.
+/// The options before the command, and the words from the command
+/// on.
 fn options(args: &[String]) -> Result<(Start, &[String])> {
     let mut options = HostOptions::default();
     let mut kinds = Vec::new();
@@ -300,9 +297,6 @@ async fn serve(demo: &Demo, loaded: u64) -> Result<()> {
     // One for the whole of serve, so no signal falls between two
     // waits.
     let mut stop = std::pin::pin!(stop_signal());
-    // A line, or stdin's end, before the Node host is ready would
-    // meet `link.down`, or say goodbye to a Node host that has not
-    // booted.
     demo.ready(&mut stop).await?;
     if loaded > 0 {
         let kind = counter_kind(&demo.counters)?;

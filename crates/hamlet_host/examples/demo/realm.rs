@@ -143,7 +143,6 @@ impl Action for Heard {
     const NAME: &'static str = "heard";
 }
 
-/// How long the realm's call for [`Tell`] may take.
 const TELL_WITHIN: Duration = Duration::from_secs(30);
 
 /// How long the program's call of the realm may take: longer than
@@ -229,7 +228,6 @@ impl Handler<Tell> for Realm {
         let answer = HostRef::of(ctx.inner())?
             .call(&tell.to, &tell.name, tell.args, TELL_WITHIN)
             .await?;
-        // The other actor has answered, and the realm has not.
         hamlet_host::fault::point(&format!("told/{}", tell.name));
         Ok(answer)
     }

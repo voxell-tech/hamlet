@@ -19,7 +19,6 @@ const CALL: CallOptions = { deadlineMs: 10_000 };
 
 const REALM = Address.of("realm", "local");
 
-/** How often `fired` reads its table while it waits. */
 const FIRED_POLL_MS = 25;
 
 /**
@@ -37,10 +36,7 @@ function shown(caller: Caller | null): string {
     return `${caller.actor.kind}/${caller.actor.key}`;
 }
 
-/**
- * Arms a one-shot of `step`, `everyMs` ahead, unless one is pending. A
- * handler's list leaves out the one-shot that fired it.
- */
+/** Arms a one-shot of `step`, `everyMs` ahead, unless one is pending. */
 async function armStep(schedule: ActorSchedule, everyMs: number) {
     const pending = await schedule.list();
     if (!pending.some((one) => one.action === "step")) {
@@ -180,7 +176,6 @@ const agent = actor({
         ticks: async (c) =>
             (await c.db.get<{ count: number }>("SELECT count FROM ticks"))
                 ?.count ?? 0,
-        /** The Node host's process id. */
         pid: () => process.pid,
         /** The Node host's resident memory, in kB of 1,000 bytes. */
         rss: () => Math.round(process.memoryUsage.rss() / 1_000),

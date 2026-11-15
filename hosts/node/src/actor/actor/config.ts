@@ -132,6 +132,10 @@ export interface ActorSchedule {
     at(timestamp: number, action: string, ...args: unknown[]): Promise<string>;
     cancel(id: string): Promise<boolean>;
     get(id: string): Promise<ScheduledEventInfo | undefined>;
+    /**
+     * The events still to fire. An event this run of the actor has taken to
+     * fire is left out, the one whose action is running among them.
+     */
     list(): Promise<ScheduledEventInfo[]>;
 }
 

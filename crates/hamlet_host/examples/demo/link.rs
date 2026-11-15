@@ -63,10 +63,8 @@ const MAIN: &str = concat!(
     "/../../hosts/node/src/main.ts"
 );
 
-/// How long the Node host has to be ready.
 const READY_WAIT: Duration = Duration::from_secs(20);
 
-/// How often `heard` asks the realm.
 const HEARD_POLL: Duration = Duration::from_millis(25);
 
 /// The Node host of a demo.
@@ -88,7 +86,7 @@ pub fn open(
     );
     let node = std::env::var("HAMLET_NODE")
         .unwrap_or_else(|_| "node".to_owned());
-    // Node 24 warns at each start that it strips types.
+    // Node before 24.3 warns at each start that it strips types.
     let mut argv = vec![
         node,
         "--disable-warning=ExperimentalWarning".to_owned(),
@@ -113,9 +111,6 @@ pub fn open(
     Ok((host, Link { supervisor }))
 }
 
-/// The pairs the linked demo uses: the realm calls an agent, and an
-/// agent calls the realm. Every other pair is refused, an agent's
-/// call to an agent among them.
 fn routes() -> Routes {
     Routes::only(&[
         (
@@ -133,9 +128,6 @@ impl Link {
     /// Waits until the Node host is ready, at most [`READY_WAIT`].
     pub async fn ready(&self) -> Result<()> {
         let mut state = self.supervisor.state();
-        // A Node host that fails is started again each second for as
-        // long as the supervisor runs, so only a bound ends this
-        // wait.
         tokio::time::timeout(
             READY_WAIT,
             state.wait_for(|now| *now == LinkState::Ready),
@@ -156,7 +148,6 @@ impl Link {
     }
 }
 
-/// Runs the command `command` of [`COMMANDS`] with its `words`.
 pub async fn run(
     demo: &Demo,
     command: &str,
@@ -193,7 +184,6 @@ pub async fn run(
     }
 }
 
-/// The address of agent `n`.
 fn agent(n: &str) -> Result<Address> {
     Ok(address::Agent(AgentNumber(n.parse()?)).address()?)
 }

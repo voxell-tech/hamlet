@@ -22,7 +22,6 @@ function number(line: string, name: string): number {
     return value as number;
 }
 
-/** The Node host's process id, which agent `n` answers. */
 async function nodePid(demo: Demo, n: number): Promise<number> {
     return number(await demo.ask(`tell ${n} pid`), `agent/${n}/pid`);
 }

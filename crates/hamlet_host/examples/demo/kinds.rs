@@ -16,7 +16,7 @@ const NAMED: [(&str, fn() -> ActorFactory); 3] = [
     (address::Agent::KIND, agent::factory),
 ];
 
-/// What a host runs when no `--kind` says.
+/// The kinds a host runs when no `--kind` says.
 pub const LOCAL: &[&str] = &[
     "counter",
     address::Workspace::KIND,
@@ -24,11 +24,11 @@ pub const LOCAL: &[&str] = &[
     address::Agent::KIND,
 ];
 
-/// What the Rust host of a linked demo runs when no `--kind` says.
+/// The kinds the Rust host of a linked demo runs when no `--kind`
+/// says.
 /// Its Node host runs [`link::NODE_KINDS`](crate::link::NODE_KINDS).
 pub const LINKED: &[&str] = &[address::Realm::KIND];
 
-/// The factory of each of `kinds`.
 pub fn factories(
     kinds: &[String],
     sleep: counter::Sleep,
