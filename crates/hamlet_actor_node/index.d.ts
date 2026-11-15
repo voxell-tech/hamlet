@@ -186,6 +186,16 @@ export interface JsActorConfig {
     actions?: Array<JsActionDefinition>;
     inspectorTabs?: Array<JsInspectorTabEntry>;
 }
+/** A [`hamlet_host::Address`] as TypeScript writes it. */
+export interface JsAddress {
+    kind: string;
+    key: string;
+}
+/** The options of one call. */
+export interface JsCallOptions {
+    /** Milliseconds, whole, from 1 to 2^32 - 1. */
+    deadlineMs: number;
+}
 export interface JsBindParam {
     kind: string;
     intValue?: number;
@@ -349,6 +359,16 @@ export declare class ActorContext {
      * before.
      */
     startCallSpan(actorName: string, actionName: string): OutboundCall | null;
+    /**
+     * Calls the action `name` of the actor at `to` as this actor,
+     * through [`HostRef::call`]. `args` and the answer are CBOR.
+     */
+    call(
+        to: JsAddress,
+        name: string,
+        args: Buffer,
+        options: JsCallOptions,
+    ): Promise<Buffer>;
     startWorkflowSpan(): Promise<WorkflowSpan>;
     /** Returns nothing outside a workflow run or when tracing is off. */
     startWorkflowStepSpan(
@@ -577,30 +597,29 @@ export declare class CoreRegistry {
      */
     start(dir: string): Promise<Array<string>>;
     /**
-     * Makes the actor of `kind` and `key` with `input`, the CBOR
-     * its kind's state is made from, and starts it. Fails with
+     * Makes the actor at `to` with `input`, the CBOR its kind's
+     * state is made from, and starts it. Fails with
      * `actor.duplicate_key` when the key has an actor. Returns its
      * id.
      */
-    create(kind: string, key: string, input: Buffer): Promise<string>;
+    create(to: JsAddress, input: Buffer): Promise<string>;
     /**
-     * The actor of `kind` and `key`, made with no input when the key
-     * has none, and started. Returns its id. For tests: a host's own
-     * code makes an actor with `create`.
+     * The actor at `to`, made with no input when the key has none,
+     * and started. Returns its id. For tests: a host's own code
+     * makes an actor with `create`.
      */
-    getOrStart(kind: string, key: string): Promise<string>;
+    getOrStart(to: JsAddress): Promise<string>;
     /**
-     * Calls the action `name` of the actor of `kind` and `key`,
-     * started from its file first if it is not running, within
-     * the deadline, in milliseconds. A call never makes its actor:
-     * for a key with no actor it fails with `actor.not_found`.
+     * Calls the action `name` of the actor at `to` with no caller,
+     * started from its file first if it is not running. A call never
+     * makes its actor: for a key with no actor it fails with
+     * `actor.not_found`.
      */
     call(
-        kind: string,
-        key: string,
+        to: JsAddress,
         name: string,
         args: Buffer,
-        deadlineMs: number,
+        options: JsCallOptions,
     ): Promise<Buffer>;
     /** Shuts the host down: stops every actor and lets the folder go. */
     shutdown(): Promise<void>;
