@@ -607,6 +607,34 @@ mod tests {
         started.stop().await;
     }
 
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_second_begin_waits_for_the_first_to_end() {
+        // A second begin while the first is open is not refused: it
+        // waits, and begins once the first ends. It runs on a task of
+        // its own, so dropping it while it waits would leave a
+        // transaction that no one holds.
+        let started = Started::new().await;
+        let first = Transaction::begin(&started.ctx).await.unwrap();
+        let mut second = Box::pin(Transaction::begin(&started.ctx));
+
+        assert!(
+            tokio::time::timeout(
+                Duration::from_millis(500),
+                &mut second
+            )
+            .await
+            .is_err(),
+            "the second begin ended while the first was open"
+        );
+        drop(first);
+        let second =
+            tokio::time::timeout(Duration::from_secs(5), second)
+                .await
+                .expect("the second begins once the first ends");
+        drop(second.unwrap());
+        started.stop().await;
+    }
+
     #[test]
     fn a_read_refuses_a_write_behind_a_with() {
         assert!(read_only("SELECT n FROM marker").is_ok());
