@@ -148,22 +148,18 @@ impl Takes<Offer> for Library {
             let why = BadOffer::NotASkillName { skill };
             return call.refuse(OfferRefusal::Shape(why)).await;
         }
-        if let Some(piece) = call
-            .files
-            .iter()
-            .find(|piece| !parts::is_file_path(&piece.path))
-        {
-            let path = piece.path.clone();
-            let why = BadOffer::NotAPath { path };
-            return call.refuse(OfferRefusal::Shape(why)).await;
-        }
-        let size = call
-            .files
-            .iter()
-            .map(|piece| {
-                parts::cost(&piece.path, piece.bytes.0.len())
-            })
-            .sum::<usize>();
+        let size =
+            parts::sized(call.files.iter().map(|piece| {
+                (piece.path.as_str(), piece.bytes.0.len())
+            }));
+        let size = match size {
+            Ok(size) => size,
+            Err(path) => {
+                let path = path.to_owned();
+                let why = BadOffer::NotAPath { path };
+                return call.refuse(OfferRefusal::Shape(why)).await;
+            }
+        };
         if size > MOST_PART {
             let why = TooLarge::PartTooLarge {
                 most: u32::try_from(MOST_PART)?,
@@ -239,7 +235,10 @@ fn offer(unit: Before<'_, Library, Offer>) -> Result<Ended<Offer>> {
     }
     let size = held
         .iter()
-        .map(|piece| piece.bytes.as_ref().map_or(0, Vec::len))
+        .map(|piece| {
+            let bytes = piece.bytes.as_ref().map_or(0, Vec::len);
+            parts::cost(&piece.path, bytes)
+        })
         .sum::<usize>();
     if size > MOST_SKILL {
         let most = u32::try_from(MOST_SKILL)?;

@@ -21,7 +21,9 @@ use super::{
 };
 use crate::library;
 use crate::repo::git::{By, Reads};
-use crate::repo::{Before, Call, Checked, Ended, Look, Reply, Takes};
+use crate::repo::{
+    Before, Call, Checked, Ended, Look, Reply, Takes, parts,
+};
 
 /// The most characters a character holds.
 const MOST_CHARACTER: u32 = 4000;
@@ -231,7 +233,7 @@ impl Takes<Edit> for Profile {
 /// Refuses a path that is not the character or a memory file, and a
 /// character over [`MOST_CHARACTER`].
 fn editable(path: &str, text: &str) -> Result<(), EditRefusal> {
-    if TreePath::parse(path).is_err() {
+    if !parts::is_file_path(path) {
         let path = path.to_owned();
         return Err(BadPath::NotAPath { path }.into());
     }

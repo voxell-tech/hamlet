@@ -234,23 +234,22 @@ impl Takes<Save> for Profile {
 /// Refuses a part that names a path outside the folder or withheld,
 /// or holds more than [`MOST_PART`].
 fn fits(changes: &[FileChange]) -> Result<(), SaveRefusal> {
-    let mut size = 0;
-    for change in changes {
-        let (path, bytes) = match change {
-            FileChange::Write(piece) => {
-                (&piece.path, piece.bytes.0.len())
-            }
-            FileChange::Remove { path } => (path, 0),
-        };
-        if !parts::is_file_path(path) {
-            let path = path.clone();
-            return Err(BadPath::NotAPath { path }.into());
+    let pieces = changes.iter().map(|change| match change {
+        FileChange::Write(piece) => {
+            (piece.path.as_str(), piece.bytes.0.len())
         }
-        if withheld(path) {
-            let path = path.clone();
-            return Err(BadPath::Withheld { path }.into());
+        FileChange::Remove { path } => (path.as_str(), 0),
+    });
+    let size = parts::sized(pieces.clone()).map_err(|path| {
+        BadPath::NotAPath {
+            path: path.to_owned(),
         }
-        size += parts::cost(path, bytes);
+    })?;
+    if let Some((path, _)) =
+        pieces.clone().find(|(path, _)| withheld(path))
+    {
+        let path = path.to_owned();
+        return Err(BadPath::Withheld { path }.into());
     }
     if size > MOST_PART {
         let most =

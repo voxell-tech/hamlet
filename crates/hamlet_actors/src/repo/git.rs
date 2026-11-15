@@ -230,7 +230,14 @@ impl Git<'_> {
         changes: &[Change],
         by: By,
     ) -> Result<CommitId> {
-        match self.join_onto(branch, base, changes, SAVED, by)? {
+        match self.join_onto(
+            branch,
+            base,
+            changes,
+            SAVED,
+            by,
+            Wins::From,
+        )? {
             Some(tip) => Ok(tip),
             None => self
                 .repo
@@ -240,8 +247,9 @@ impl Git<'_> {
     }
 
     /// Commits a dream's checkout as a three-way merge onto `branch`,
-    /// `base` the commit the checkout was made from. `None` when the
-    /// checkout changed nothing.
+    /// `base` the commit the checkout was made from, `wins` the side
+    /// kept where both changed a file. `None` when the checkout
+    /// changed nothing.
     pub fn commit_checkout(
         &self,
         branch: &str,
@@ -249,13 +257,15 @@ impl Git<'_> {
         files: &[Change],
         message: &str,
         by: By,
+        wins: Wins,
     ) -> Result<Option<CommitId>> {
-        self.join_onto(branch, base, files, message, by)
+        self.join_onto(branch, base, files, message, by, wins)
     }
 
-    /// `changes` committed on `base`, then merged into `branch`'s tip
-    /// with their side winning: the branch's new tip, or `None` when
-    /// they leave `base`'s files as they were.
+    /// `changes` committed on `base`, then merged into `branch`'s
+    /// tip, `wins` the side kept where both changed a file: the
+    /// branch's new tip, or `None` when they leave `base`'s files as
+    /// they were.
     fn join_onto(
         &self,
         branch: &str,
@@ -263,6 +273,7 @@ impl Git<'_> {
         changes: &[Change],
         message: &str,
         by: By,
+        wins: Wins,
     ) -> Result<Option<CommitId>> {
         let tip = self
             .repo
@@ -281,7 +292,7 @@ impl Git<'_> {
         let merged = self.repo.merge_commits(
             tip,
             made,
-            Wins::From,
+            wins,
             message,
             self.author(&by),
         )?;
@@ -685,6 +696,7 @@ mod tests {
             &[],
             "dreamt",
             By::Dream(1),
+            Wins::From,
         );
         assert_eq!(none.unwrap(), None);
         assert_eq!(tip(&held, MAIN), base);
@@ -705,6 +717,7 @@ mod tests {
                 &[write("dreamt.md", "x")],
                 "dreamt",
                 By::Dream(3),
+                Wins::From,
             )
             .unwrap()
             .unwrap();

@@ -11,16 +11,37 @@ use hamlet_os::fs::TreePath;
 /// The longest name of one file or folder a path may hold, in bytes.
 const MOST_NAME: usize = 255;
 
+/// How a checkout's file being written starts its name; a checkout's
+/// listing never shows one.
+pub(crate) const INCOMING: &str = ".incoming-";
+
 /// What a piece of `bytes` bytes at `path` counts for in a part.
 pub(crate) fn cost(path: &str, bytes: usize) -> usize {
     path.len() + bytes + PIECE_FRAME
 }
 
 /// Whether `path` names a file inside a folder that every system
-/// Hamlet runs on can write.
+/// Hamlet runs on can write, and that a checkout lists.
 pub(crate) fn is_file_path(path: &str) -> bool {
     TreePath::parse(path).is_ok()
-        && path.split('/').all(|name| name.len() <= MOST_NAME)
+        && path.split('/').all(|name| {
+            name.len() <= MOST_NAME && !name.starts_with(INCOMING)
+        })
+}
+
+/// What `pieces`, each a path and its length in bytes, count for
+/// together, or the first path that is not a file path.
+pub(crate) fn sized<'a>(
+    pieces: impl IntoIterator<Item = (&'a str, usize)>,
+) -> Result<usize, &'a str> {
+    let mut size = 0;
+    for (path, bytes) in pieces {
+        if !is_file_path(path) {
+            return Err(path);
+        }
+        size += cost(path, bytes);
+    }
+    Ok(size)
 }
 
 /// A piece a store keeps: part of a file, or a removal.
@@ -185,6 +206,9 @@ mod tests {
             "../a.md",
             "a/./b.md",
             &"n".repeat(MOST_NAME + 1),
+            ".incoming-a.md",
+            "memory/.incoming-plan.md",
+            ".incoming-x/a.md",
         ] {
             assert!(!is_file_path(bad), "{bad:?}");
         }

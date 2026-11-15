@@ -7,7 +7,7 @@ use std::path::Path;
 
 use anyhow::{Context, Result, bail};
 use hamlet_actor::{BindParam, ColumnValue};
-use hamlet_git::MAIN;
+use hamlet_git::{MAIN, Wins};
 use hamlet_messages::Message;
 use hamlet_messages::profile::{
     DreamEnd, DreamId, DreamOf, EndDream, PrepareDream, Prepared,
@@ -320,8 +320,9 @@ fn dreamt(
 
 /// The dream's commit on `branch`: the one a run a kill cut off made,
 /// else the changes of the checkout `side` since `base`, merged onto
-/// the tip with the dream's side winning. `None` when the side
-/// changed nothing.
+/// the tip. Where both changed a file, the dream's side wins on
+/// `main` and the hire's saves win on its branch. `None` when the
+/// side changed nothing.
 fn commit_side(
     writer: &Writer<'_, Profile, EndDream>,
     branch: &str,
@@ -339,13 +340,18 @@ fn commit_side(
         return Ok(made);
     }
     let changes = writer.changes(Path::new(&under), base, &skip)?;
+    let wins = if branch == MAIN {
+        Wins::From
+    } else {
+        Wins::Onto
+    };
     let message = match summary {
         "" => "Dreamt".to_owned(),
         summary => format!("Dreamt: {summary}"),
     };
-    writer
-        .writes()?
-        .commit_checkout(branch, base, &changes, &message, by)?;
+    writer.writes()?.commit_checkout(
+        branch, base, &changes, &message, by, wins,
+    )?;
     writer.git()?.made_by(branch, base, by)
 }
 
@@ -358,9 +364,11 @@ fn remove(
 ) -> Result<()> {
     let at = folder(dream, None);
     let ended = format!("{at}.ended");
-    let home = writer.home();
-    if home.join(&at).is_dir() {
-        std::fs::rename(home.join(&at), home.join(&ended))?;
+    let (at, ended_at) =
+        (writer.home().join(&at), writer.home().join(&ended));
+    if at.is_dir() {
+        writer.remove_folder(Path::new(&ended))?;
+        std::fs::rename(at, ended_at)?;
     }
     writer.remove_folder(Path::new(&ended))
 }
@@ -513,6 +521,60 @@ mod tests {
             repository.read(hire, "learned.md").unwrap().is_some()
         );
         assert!(!dir.join("dreams/3.ended").exists());
+    }
+
+    #[test]
+    fn an_end_after_a_half_removed_folder_and_a_prepare_s_repeat_ends()
+     {
+        let dir = Scratch::new("profile-dream-ended-again");
+        let (mut profile, _) = dreaming(&dir);
+        end_cut_off(&mut profile);
+        let left = dir.join("dreams/3.ended/hire");
+        std::fs::create_dir_all(&left).unwrap();
+        std::fs::write(left.join("left.md"), "left").unwrap();
+        let asked = PrepareDream {
+            dream: DreamId(3),
+            of: DreamOf::Hire {
+                agent: AgentNumber(7),
+            },
+        };
+        profile
+            .once::<Profile, _, _>(realm(), asked, prepare)
+            .unwrap();
+
+        let (ended, _) = profile
+            .once::<Profile, _, _>(realm(), end_3(), end)
+            .unwrap();
+        assert!(matches!(ended, DreamEnd::Dreamt { .. }));
+        assert!(!dir.join("dreams/3").exists());
+        assert!(!dir.join("dreams/3.ended").exists());
+    }
+
+    #[test]
+    fn what_the_hire_saved_during_its_dream_wins_on_its_branch() {
+        let dir = Scratch::new("profile-dream-hire-wins");
+        let (mut profile, repository) = dreaming(&dir);
+        let by = Author {
+            name: "agent:7",
+            at: 6000,
+        };
+        let saved = write("learned.md", "saved during the dream");
+        repository.commit("hires/7", &[saved], "saved", by).unwrap();
+        std::fs::write(
+            dir.join("dreams/3/hire/learned.md"),
+            "dreamt",
+        )
+        .unwrap();
+
+        profile
+            .once::<Profile, _, _>(realm(), end_3(), end)
+            .unwrap();
+        let hire = repository.tip("hires/7").unwrap().unwrap();
+        let text = repository.read(hire, "learned.md").unwrap();
+        assert_eq!(
+            text.as_deref(),
+            Some(&b"saved during the dream"[..])
+        );
     }
 
     #[test]

@@ -703,6 +703,42 @@ async fn an_offer_is_refused_for_each_reason() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn a_skill_of_many_empty_files_counts_their_paths_toward_its_size()
+ {
+    let dir = Scratch::new("library-many-empty-files");
+    let host = open(&dir, Arc::default()).await;
+    let name = "n".repeat(200);
+    let mut refused = None;
+    for part in 0..8 {
+        let files = (0..2500)
+            .map(|n| {
+                piece(
+                    &format!("empty/{name}{part}-{n}.md"),
+                    0,
+                    b"",
+                    true,
+                )
+            })
+            .collect();
+        let asked = offer("empties", "empties", part, false, files);
+        if let OfferAnswer::Refused { why } =
+            call_as(&host, &agent(7), &asked).await.unwrap()
+        {
+            refused = Some(why);
+            break;
+        }
+    }
+    assert_eq!(
+        refused,
+        Some(OfferRefusal::Skill(BadSkill::SkillTooLarge {
+            skill: "empties".into(),
+            most: 4 << 20
+        }))
+    );
+    host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn each_action_refuses_a_caller_of_the_other_kind() {
     let dir = Scratch::new("library-caller");
     let host = open(&dir, Arc::default()).await;

@@ -13,12 +13,11 @@ use hamlet_os::fs::{
     Removing, Replace, TreePath,
 };
 
+use super::parts::INCOMING;
+
 /// The largest file a checkout lists. Larger ones stay in the folder
 /// alone.
 const MOST_BYTES: u64 = 4 << 20;
-
-/// The prefix of a file being written, which a listing leaves out.
-const INCOMING: &str = ".incoming-";
 
 /// `under` as a path of names below the realm folder.
 fn tree(under: &Path) -> Result<TreePath> {
