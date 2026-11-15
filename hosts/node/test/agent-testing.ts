@@ -364,11 +364,12 @@ async function entriesOf(harness: Harness, context: Context) {
 
 export async function until(
     check: () => boolean | Promise<boolean>,
+    ms = 5_000,
 ): Promise<void> {
-    const end = Date.now() + 5_000;
+    const end = Date.now() + ms;
     while (!(await check())) {
         if (Date.now() > end)
-            throw new Error("waited five seconds for nothing");
+            throw new Error(`waited ${ms / 1000} seconds for nothing`);
         await new Promise((resolve) => setTimeout(resolve, 20));
     }
 }

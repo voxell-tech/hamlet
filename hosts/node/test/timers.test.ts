@@ -209,6 +209,8 @@ async function cutOffAndResumed(
             (await admitted()) > 0 &&
             (await secondHarness.snapshot(LiveDoc, root2.id, context))?.run ===
                 undefined,
+        // A thousand seeded timers are scanned on each look.
+        20_000,
     );
     const set = await timersSet();
     const inputs = await admitted();
