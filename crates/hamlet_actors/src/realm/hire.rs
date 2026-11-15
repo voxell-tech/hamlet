@@ -57,8 +57,7 @@ pub(super) fn row(agent: AgentNumber) -> StepId {
 }
 
 /// Does `step` of agent `n`'s hire, with no transaction open, and
-/// returns the changes committed with its progress. Each callee finds
-/// its own earlier work, so a step may run again.
+/// returns the changes committed with its progress.
 pub(super) async fn run(
     cx: &Cx<'_>,
     n: u64,
@@ -97,8 +96,6 @@ pub(super) async fn run(
                 .call(&Agent(agent), &fill, When::AfterAnswer)
                 .await?;
         }
-        // The commit's push sets the raised reach and records it in
-        // force.
         Step::Reach => {
             cx.commit(vec![
                 versions::Change::WantReach(agent).into(),

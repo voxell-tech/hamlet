@@ -45,7 +45,6 @@ impl Ends {
     }
 }
 
-/// The way between `a` and `b`, whatever their status.
 fn way(a: &End, b: &End, laid: bool) -> Option<Way> {
     let is_hand = |end: &End| end.agent == Hand::NUMBER;
     if a.lead == Some(b.agent)
@@ -86,15 +85,13 @@ pub(super) async fn ends(
     })
 }
 
-/// Every agent `agent` has a road to, with the way. A road's other
-/// end is live.
+/// Every agent `agent` has a road to, with the way.
 pub(super) async fn of(
     rows: &Rows<'_>,
     agent: AgentNumber,
 ) -> Result<Vec<(AgentNumber, Way)>> {
     let own = tree::lineage_of(rows, agent).await?;
     let laid = laid::of(rows, agent).await?;
-    // Every agent some way can join to `agent`; `way` decides.
     let mut others = own
         .agent
         .lead
@@ -139,8 +136,6 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn of_holds_each_live_agent_way_admits() {
-        // The Hand 1; hamlet h: mayor 2, its hires 3 and 4, 7 under
-        // 3, and 8 still hiring; hamlet k: mayor 5 and its hire 6.
         let started = Started::new().await;
         let h = HamletId("h".to_owned());
         let k = HamletId("k".to_owned());
@@ -181,7 +176,6 @@ mod tests {
         }
 
         for own in &all {
-            // No laid road joins any two of them.
             let admitted = all
                 .iter()
                 .filter(|other| {

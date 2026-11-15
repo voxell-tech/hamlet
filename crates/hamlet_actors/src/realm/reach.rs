@@ -18,21 +18,17 @@ pub(super) async fn of(
     rows: &Rows<'_>,
     agent: AgentNumber,
 ) -> Result<SetReach> {
-    // The version first: a reach may be newer than its version, never
-    // older.
     let (version, _) = versions::reach(rows, agent).await?;
     let lineage = tree::lineage_of(rows, agent).await?;
     let reach = match lineage.agent.status {
         Status::Ended(_) => Reach::Ended,
         Status::Hiring | Status::Live => Reach::Agent(Footing {
-            // With no folder, the agent works in its own filesystem.
             project: lineage.hamlet.and_then(|hamlet| {
                 Some(Project {
                     folder: hamlet.folder?,
                     mode: hamlet.mode,
                 })
             }),
-            // No chief turns the network on yet (C19).
             network: false,
             trust: Vec::new(),
             secrets: secrets::VERSION,
@@ -76,8 +72,6 @@ mod tests {
 
     const HIRE: AgentNumber = AgentNumber(2);
 
-    /// What an `End` of a `hiring` hire commits: the agent ended and
-    /// its wanted reach raised, in one transaction.
     async fn end(started: &Started) {
         let tx =
             started.ctx.sql().begin_transaction(None).await.unwrap();

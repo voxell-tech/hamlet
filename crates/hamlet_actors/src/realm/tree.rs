@@ -254,7 +254,6 @@ pub(super) async fn fresh_profile(
     Ok(ProfileId(u32::try_from(rows.next_id("profile").await?)?))
 }
 
-/// The profile `agent` was hired from.
 pub(super) async fn profile_of(
     rows: &Rows<'_>,
     agent: AgentNumber,
