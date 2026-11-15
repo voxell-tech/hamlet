@@ -371,6 +371,7 @@ pub(super) async fn undone(
 
 #[cfg(test)]
 mod tests {
+    use std::cell::RefCell;
     use std::time::Duration;
 
     use super::super::testing::Started;
@@ -415,6 +416,50 @@ mod tests {
             (read.done.as_deref(), read.closed),
             (Some("a"), true)
         );
+        started.stop().await;
+    }
+
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    enum Two {
+        First,
+        Second,
+    }
+
+    impl Steps for Two {
+        const ALL: &'static [Self] = &[Self::First, Self::Second];
+
+        fn name(self) -> &'static str {
+            match self {
+                Self::First => "first",
+                Self::Second => "second",
+            }
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_walk_runs_each_step_left_once_in_order() {
+        let started = Started::new().await;
+        let closed = StepId { n: 98, ..ROW };
+        for row in [ROW, closed] {
+            started.commit(Change::Begin { row }).await.unwrap();
+        }
+        started.commit(Change::Close { row: closed }).await.unwrap();
+        let cx = Cx {
+            realm: &started.realm,
+            ctx: &started.ctx,
+        };
+        let ran = RefCell::new(Vec::new());
+        let run = async |_: &Cx<'_>, step: Two| {
+            ran.borrow_mut().push(step);
+            Ok(Vec::new())
+        };
+        for row in [ROW, ROW, closed] {
+            walk(&cx, row, run).await.unwrap();
+        }
+
+        assert_eq!(*ran.borrow(), [Two::First, Two::Second]);
+        let read = row(&started.rows(), ROW).await.unwrap().unwrap();
+        assert_eq!(read.done.as_deref(), Some("second"));
         started.stop().await;
     }
 
