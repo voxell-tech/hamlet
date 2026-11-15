@@ -52,6 +52,9 @@ mod tools;
 #[path = "workspace/realm_folder.rs"]
 mod realm_folder;
 
+#[path = "workspace/output.rs"]
+mod output;
+
 const AGENT: AgentNumber = AgentNumber(7);
 
 /// The secret the stub realm holds.
@@ -68,6 +71,7 @@ const ID_REUSED: &str = "message.id_reused";
 #[derive(Default)]
 struct Peers {
     answer_within: Option<Duration>,
+    saved_output: Option<u64>,
     secrets_delay: Duration,
     fetched: AtomicUsize,
     told: Mutex<Vec<(String, Finished)>>,
@@ -232,14 +236,18 @@ async fn host(dir: &Path) -> Host {
 /// A host on `dir` with the workspace made, whose peers share
 /// `peers`.
 async fn host_with(dir: &Path, peers: Arc<Peers>) -> Host {
-    let mut options = HostOptions::default()
+    let default = workspace::Options::default();
+    let options = HostOptions::default()
         .with_value(Arc::new(Sandbox::testing()))
-        .with_value(peers.clone());
-    if let Some(answer_within) = peers.answer_within {
-        options = options.with_value(Arc::new(workspace::Options {
-            answer_within,
+        .with_value(peers.clone())
+        .with_value(Arc::new(workspace::Options {
+            answer_within: peers
+                .answer_within
+                .unwrap_or(default.answer_within),
+            saved_output: peers
+                .saved_output
+                .unwrap_or(default.saved_output),
         }));
-    }
     let host = open(dir, options).unwrap();
     host.get_or_start(&workspace_address()).await.unwrap();
     host

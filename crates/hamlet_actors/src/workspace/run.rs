@@ -23,10 +23,10 @@ use hamlet_sandbox::{
 use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 
-use self::output::{Output, SPILL_CAP};
+use self::output::{Output, SPILL_CAP, Saved};
 use super::calls::{self, Call};
 
-mod output;
+pub(super) mod output;
 
 pub const ANSWER_WITHIN: Duration = Duration::from_secs(5);
 
@@ -324,8 +324,8 @@ pub struct Spec {
     pub timeout: Duration,
     pub secrets: Arc<Vec<String>>,
     pub leftovers: Leftovers,
-    /// The file its output spills to.
-    pub output: PathBuf,
+    /// Where its output is saved once it passes the tail.
+    pub output: Saved,
     /// Fired to end it as cancelled, also before it started.
     pub cancel: CancellationToken,
 }
@@ -518,7 +518,12 @@ mod tests {
             timeout: Duration::from_secs(10),
             secrets: Arc::default(),
             leftovers: hamlet_sandbox::AllLeftovers::default().of(1),
-            output: cwd.join("output.log"),
+            output: Saved {
+                folder: cwd.to_owned(),
+                command: CommandId(1),
+                limit: u64::MAX,
+                running: Arc::default(),
+            },
             cancel: CancellationToken::new(),
         }
     }
