@@ -180,6 +180,17 @@ async fn a_laid_road_carries_letters_and_is_charged_once() {
         }
     );
     assert_eq!(road_charges(&realm).await, 1);
+    let used = realm
+        .rows(|db| {
+            db.query_row(
+                "SELECT used_at IS NOT NULL FROM road WHERE a = 3 \
+                 AND b = 4",
+                [],
+                |row| row.get::<_, bool>(0),
+            )
+        })
+        .await;
+    assert!(used, "a letter along the road marks it used");
     realm.host.shutdown().await.unwrap();
 }
 
@@ -410,6 +421,53 @@ async fn a_road_joins_two_hires_of_one_hamlet_under_its_layer() {
     assert_eq!(ended, Done::Done);
     assert_eq!(seen.roads, []);
     assert_eq!(road_charges(&realm).await, 0);
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_hamlet_holds_its_most_laid_roads() {
+    // with 24 laid roads in the hamlet, laying 3-4 is `Full`; once
+    // the chief takes one up, it is laid.
+    let (realm, hamlet) = hamlet_with(2).await;
+    realm
+        .write(&format!(
+            "WITH RECURSIVE n(i) AS (SELECT 100 UNION ALL SELECT i \
+             + 1 FROM n WHERE i < 124) INSERT INTO agent (id, kind, \
+             status, at) SELECT i, 'hire', 'live', 0 FROM n; WITH \
+             RECURSIVE n(i) AS (SELECT 100 UNION ALL SELECT i + 1 \
+             FROM n WHERE i < 124) INSERT INTO hire (agent, hamlet, \
+             profile, lead) SELECT i, '{0}', 1, 2 FROM n; WITH \
+             RECURSIVE n(i) AS (SELECT 101 UNION ALL SELECT i + 1 \
+             FROM n WHERE i < 124) INSERT INTO road (a, b, hamlet, \
+             at) SELECT 100, i, '{0}', 0 FROM n;",
+            hamlet.0
+        ))
+        .await;
+
+    let full = realm.tool(MAYOR, &tool("r1", lay(THREE, FOUR))).await;
+    let taken = realm
+        .ask(&Asked {
+            id: RequestId::new(),
+            act: TakeUpRoad {
+                a: to(AgentNumber(100)),
+                b: to(AgentNumber(101)),
+            },
+        })
+        .await
+        .unwrap();
+    let laid = realm.tool(MAYOR, &tool("r2", lay(THREE, FOUR))).await;
+
+    assert_eq!(
+        full.unwrap(),
+        Done::Refused {
+            why: LeadRefusal::Act(LayRefusal::Full {
+                hamlet,
+                most: 24
+            })
+        }
+    );
+    assert_eq!(taken, Done::Done);
+    assert_eq!(laid.unwrap(), Done::Done);
     realm.host.shutdown().await.unwrap();
 }
 
