@@ -11,7 +11,7 @@ import {
 } from "../agent-testing.ts";
 import { context, scratchFolder } from "../testing.ts";
 
-/** Each own search's whole result, as the model reads it. */
+/** Each own search's whole result, as the model reads it, and the root. */
 async function searches(
     t: TestContext,
     files: Record<string, string>,
@@ -34,7 +34,7 @@ async function searches(
         input: { type: "line", text: "Search." },
     });
     await agent.idle();
-    return toolResults(agent);
+    return { root: filesystem.root, results: await toolResults(agent) };
 }
 
 const answered = (output: string) => ({
@@ -50,15 +50,17 @@ const refused = (output: string) => ({
 
 test("an own search refuses an empty or a bad pattern in today's words", async (t) => {
     assert.deepEqual(
-        await searches(t, { "memory/notes.md": "notes" }, [
-            { pattern: "" },
-            { pattern: "", path: "missing" },
-            { pattern: "(?=a)" },
-            { pattern: "(a)\\1" },
-            { pattern: "(a" },
-            { pattern: "a{", path: "missing" },
-            { pattern: "a{99999}{99999}" },
-        ]),
+        (
+            await searches(t, { "memory/notes.md": "notes" }, [
+                { pattern: "" },
+                { pattern: "", path: "missing" },
+                { pattern: "(?=a)" },
+                { pattern: "(a)\\1" },
+                { pattern: "(a" },
+                { pattern: "a{", path: "missing" },
+                { pattern: "a{99999}{99999}" },
+            ])
+        ).results,
         [
             refused("`pattern` is required. Supply a regular expression."),
             refused("`pattern` is required. Supply a regular expression."),
@@ -83,15 +85,20 @@ test("an own search refuses an empty or a bad pattern in today's words", async (
 
 test("an own search shows each path from where a relative path starts", async (t) => {
     assert.deepEqual(
-        await searches(
-            t,
-            { "memory/notes.md": "notes", "skills/a/SKILL.md": "more notes" },
-            [
-                { pattern: "notes", path: "memory" },
-                { pattern: "notes" },
-                { pattern: "notes", path: "memory/notes.md" },
-            ],
-        ),
+        (
+            await searches(
+                t,
+                {
+                    "memory/notes.md": "notes",
+                    "skills/a/SKILL.md": "more notes",
+                },
+                [
+                    { pattern: "notes", path: "memory" },
+                    { pattern: "notes" },
+                    { pattern: "notes", path: "memory/notes.md" },
+                ],
+            )
+        ).results,
         [
             answered("memory/notes.md:1: notes"),
             answered(
@@ -111,9 +118,11 @@ test("an own search trims pi's spaces from a line's end, then clips it to 300 ch
         "e\u0085",
     ];
     assert.deepEqual(
-        await searches(t, { "memory/long.md": lines.join("\n") }, [
-            { pattern: "^[a-e]" },
-        ]),
+        (
+            await searches(t, { "memory/long.md": lines.join("\n") }, [
+                { pattern: "^[a-e]" },
+            ])
+        ).results,
         [
             answered(
                 [
@@ -126,4 +135,15 @@ test("an own search trims pi's spaces from a line's end, then clips it to 300 ch
             ),
         ],
     );
+});
+
+test("an own search shows whole the path of a name that begins with `..`, as today's does", async (t) => {
+    const { root, results } = await searches(
+        t,
+        { "..dots.md": "notes dots", "memory/notes.md": "notes" },
+        [{ pattern: "notes" }],
+    );
+    assert.deepEqual(results, [
+        answered(`${root}/..dots.md:1: notes dots\nmemory/notes.md:1: notes`),
+    ]);
 });

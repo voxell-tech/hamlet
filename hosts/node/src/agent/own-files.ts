@@ -313,7 +313,9 @@ async function searched(
 
 function shown(files: AgentFilesystem, path: string): string {
     const from = `${start(files)}/`;
-    return path.startsWith(from) ? path.slice(from.length) : path;
+    const under = path.startsWith(from) ? path.slice(from.length) : "";
+    // Today's `shown` (`walk.rs`) gives whole a name that begins with `..`.
+    return under === "" || under.startsWith("..") ? path : under;
 }
 
 const LINE_WIDTH = 300;
