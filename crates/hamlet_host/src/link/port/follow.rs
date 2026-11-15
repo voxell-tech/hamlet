@@ -7,7 +7,7 @@ use std::time::Duration;
 use hamlet_actor_core::ActorLifecycle;
 use tokio::sync::oneshot;
 
-use super::{Forget, Session, encode};
+use super::{Forget, Session};
 use crate::link::{Ask, Frame, Vetted, WireError};
 use crate::local::feed::{Closed, Feed, feed};
 use crate::{Address, Caller, Item};
@@ -26,7 +26,7 @@ impl Routed {
     }
 }
 
-/// Why a subscribe across the link gave no subscription.
+/// The reason a subscribe across the link gave no subscription.
 pub(crate) enum Unanswered {
     /// `link.down` or `link.lost`: nothing of the subscribe is left
     /// in the other host, and the next session may be asked.
@@ -77,16 +77,12 @@ impl Session {
         event: &str,
         within: Duration,
     ) -> Result<Routed, Unanswered> {
-        let id = self.next_id();
-        let bytes = encode(&Frame::Request {
-            id,
-            from: caller.cloned(),
-            to: to.clone(),
-            ask: Ask::Subscribe {
-                event: event.to_owned(),
-            },
-        })
-        .map_err(|error| Unanswered::Refused(error.into()))?;
+        let subscribe = Ask::Subscribe {
+            event: event.to_owned(),
+        };
+        let (id, bytes) = self
+            .request(caller, to, subscribe)
+            .map_err(|error| Unanswered::Refused(error.into()))?;
         let (sink, feed) = feed();
         let answered = {
             let mut pending = self.pending.lock();

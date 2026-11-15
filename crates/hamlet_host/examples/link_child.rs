@@ -503,7 +503,8 @@ async fn count(sql: &SqliteDb) -> Result<u64> {
     })
 }
 
-/// Whether a connection of the agent is not the call's own.
+/// A filter that keeps each of the agent's connections but the
+/// call's own.
 fn other(ctx: &Ctx<Agent>) -> impl Fn(&ConnCtx<Agent>) -> bool {
     let own = ctx.conn().map(|conn| conn.id().to_owned());
     move |conn| Some(conn.id()) != own.as_deref()

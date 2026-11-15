@@ -30,14 +30,20 @@ use ticks::{
 use tracing_subscriber::filter::LevelFilter;
 
 #[path = "support/actions.rs"]
-#[expect(dead_code, reason = "link_calls.rs uses the rest")]
+#[expect(
+    dead_code,
+    reason = "a support module shared with the other link suites"
+)]
 mod actions;
 #[path = "support/at.rs"]
 mod at;
 #[path = "support/call.rs"]
 mod call;
 #[path = "support/calls.rs"]
-#[expect(dead_code, reason = "link_calls.rs uses the rest")]
+#[expect(
+    dead_code,
+    reason = "a support module shared with the other link suites"
+)]
 mod calls;
 #[path = "support/code.rs"]
 mod code;
@@ -108,8 +114,8 @@ async fn end(stream: &mut Subscription) -> String {
     code(&error)
 }
 
-/// Whether `agent` holds no connection but the call's own within
-/// `within`.
+/// `true` once `agent` holds no connection but the call's own,
+/// within `within`.
 async fn unwatched(
     host: &Host,
     agent: &Address,
@@ -197,7 +203,8 @@ async fn a_subscription_gets_one_gap_when_the_node_host_dies_and_no_value_twice(
     let mut after = Vec::new();
     while after.len() < 20 {
         match next(&mut ticks).await {
-            // What the old Node host wrote before it died.
+            // The old Node host's last events, written before it
+            // died.
             Item::Event(args) if gaps == 0 => {
                 before.push(value(&args));
             }

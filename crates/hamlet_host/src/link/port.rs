@@ -329,8 +329,8 @@ struct Pending {
 type Answered = oneshot::Receiver<Result<Vec<u8>, WireError>>;
 
 impl Pending {
-    /// Waits for the reply to the request `id`. Fails with
-    /// `link.down` on a lost session.
+    /// The waiter for the reply to the request `id`, registered at
+    /// once. Fails with `link.down` on a lost session.
     fn expect(&mut self, id: u64) -> Result<Answered> {
         if self.lost {
             return Err(Down.build());
@@ -356,11 +356,26 @@ impl Session {
         })
     }
 
-    fn next_id(&self) -> u64 {
-        let mut pending = self.pending.lock();
-        let id = pending.next;
-        pending.next += 1;
-        id
+    /// A new request's id, and its frame's bytes.
+    fn request(
+        &self,
+        caller: Option<&Caller>,
+        to: &Address,
+        ask: Ask,
+    ) -> std::io::Result<(u64, Vec<u8>)> {
+        let id = {
+            let mut pending = self.pending.lock();
+            let id = pending.next;
+            pending.next += 1;
+            id
+        };
+        let bytes = encode(&Frame::Request {
+            id,
+            from: caller.cloned(),
+            to: to.clone(),
+            ask,
+        })?;
+        Ok((id, bytes))
     }
 
     /// Asks the other host, and waits for its reply, within `within`
@@ -372,13 +387,7 @@ impl Session {
         ask: Ask,
         within: Option<Duration>,
     ) -> Result<Vec<u8>> {
-        let id = self.next_id();
-        let bytes = encode(&Frame::Request {
-            id,
-            from: caller.cloned(),
-            to: to.clone(),
-            ask,
-        })?;
+        let (id, bytes) = self.request(caller, to, ask)?;
         let answered = self.pending.lock().expect(id)?;
         let _forget = Forget {
             pending: &self.pending,
