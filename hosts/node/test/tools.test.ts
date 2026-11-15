@@ -1,6 +1,3 @@
-/**
- * U9: the tools that reach the workspace, and the agent's own file routes.
- */
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { fauxAssistantMessage } from "@earendil-works/pi-ai";
@@ -21,7 +18,6 @@ import { context } from "./testing.ts";
 
 const ROOT = FAKE_ROOT;
 
-/** The text of each tool result the agent took, in order. */
 async function results(agent: Woken): Promise<string[]> {
     return (await agent.entries())
         .filter((entry) => entry.kind === "pi.tool-result")
@@ -462,7 +458,6 @@ test("running ends the tool, not the turn, and the end is taken once under its c
     );
     await agent.idle();
 
-    // The call carries its task's id, its conversation and the turn's task.
     const [run] = named(sent, "run");
     assert.ok(run);
     const message = run.message as { call: string; conversation: string };

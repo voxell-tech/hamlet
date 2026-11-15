@@ -84,16 +84,14 @@ use crate::stand_in_realm::{
     self, Grant, Recorded, Records, Send, Set, Switch,
 };
 
-/// The variable that chooses the real agent, and its value.
 const CHOOSE: (&str, &str) = ("HAMLET_DEMO_AGENT", "pi");
 
-/// The Node host's entry, in the checkout the demo was built from.
 const ENTRY: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../hosts/node/src/agent/demo-host.ts"
 );
 
-/// The file in the realm folder where the Node host keeps its pid.
+/// The same file as `PID_FILE` of hosts/node/src/agent/demo-host.ts.
 const PID_FILE: &str = "demo-node.pid";
 
 const READY_WAIT: Duration = Duration::from_secs(20);
@@ -104,7 +102,6 @@ const POLL: Duration = Duration::from_millis(25);
 /// reads them as settled.
 const QUIET: Duration = Duration::from_secs(1);
 
-/// Whether `HAMLET_DEMO_AGENT` chooses the real agent.
 pub fn chosen() -> Result<bool> {
     let (name, value) = CHOOSE;
     match std::env::var(name) {
@@ -116,15 +113,11 @@ pub fn chosen() -> Result<bool> {
     }
 }
 
-/// The Node host of the real agent.
 pub struct PiHost {
     supervisor: Supervisor,
     home: PathBuf,
 }
 
-/// Opens the folder `home` as [`Host::open_with`] does, running the
-/// stand-in realm and the workspace, with the agent in a Node child
-/// that runs [`ENTRY`].
 pub fn open(
     home: &Path,
     options: HostOptions,
@@ -188,7 +181,6 @@ fn routes() -> Routes {
 }
 
 impl PiHost {
-    /// Waits until the Node host is ready, at most [`READY_WAIT`].
     pub async fn ready(&self) -> Result<()> {
         let mut state = self.supervisor.state();
         tokio::time::timeout(
@@ -211,7 +203,6 @@ impl PiHost {
     }
 }
 
-/// Runs `demo pi <words>`.
 pub async fn run(demo: &Demo, words: &[String]) -> Result<()> {
     let (name, value) = CHOOSE;
     let pi = demo.pi.as_ref().with_context(|| {
@@ -284,9 +275,6 @@ fn number_of(word: &str) -> Result<AgentNumber> {
     })?))
 }
 
-/// Makes agent `n` as the program, the Hand when `n` is 1, and has
-/// the realm set its reach of version 1: no project, so its commands
-/// run in its filesystem.
 async fn make(host: &Host, n: AgentNumber) -> Result<()> {
     let input = AgentInput {
         kind: if n.0 == 1 {
@@ -416,7 +404,6 @@ async fn place(
     print(&format!("placed/{} {}", n.0, place.version.0))
 }
 
-/// Has the realm send `message` to agent `n` as itself.
 async fn send<M>(
     host: &Host,
     n: AgentNumber,
@@ -463,9 +450,6 @@ fn own_folder(home: &Path, n: AgentNumber) -> Result<PathBuf> {
         .join(format!("{}.fs", n.0)))
 }
 
-/// Waits until the realm has kept `at_least` charges of agent `n`,
-/// or `within` ms passed, and then until what it keeps has not
-/// changed for [`QUIET`].
 async fn charges(
     host: &Host,
     n: AgentNumber,
@@ -496,7 +480,6 @@ async fn charges(
     }
 }
 
-/// Prints agent `n`'s conversations from its file, one entry a line.
 fn conversation(pi: &PiHost, n: AgentNumber) -> Result<()> {
     let path = pi
         .home
@@ -538,9 +521,6 @@ fn conversation(pi: &PiHost, n: AgentNumber) -> Result<()> {
     Ok(())
 }
 
-/// An entry of pi-durable's as one line: its kind, and its words or
-/// its tool calls. A system entry, which lists the tools, is left
-/// out.
 fn entry(record: &serde_json::Value) -> Option<String> {
     let message = record.pointer("/model/0")?;
     let text = |content: &serde_json::Value| -> String {
@@ -585,9 +565,8 @@ fn entry(record: &serde_json::Value) -> Option<String> {
     }
 }
 
-/// The pid in the Node host's [`PID_FILE`], once it names a process
-/// that has not ended: just after a Node host dies, the file still
-/// names it until the next one starts.
+/// Just after a Node host dies, [`PID_FILE`] still names it until
+/// the next one starts.
 async fn live_pid(home: &Path, within: Duration) -> Result<u32> {
     let until = Instant::now() + within;
     loop {
@@ -614,8 +593,6 @@ fn node_pid(home: &Path) -> Result<u32> {
         .with_context(|| format!("{} holds no pid", path.display()))
 }
 
-/// Kills the Node host named in [`PID_FILE`] under `home` with
-/// SIGKILL, and waits until it has ended, at most `within`.
 pub async fn kill_node_host(
     home: &Path,
     within: Duration,
@@ -635,8 +612,7 @@ pub async fn kill_node_host(
     Ok(())
 }
 
-/// Sends `pid` the signal `flag` names, through `kill`. Answers
-/// whether `kill` said it was sent.
+/// Answers whether `kill` said it was sent.
 #[cfg(unix)]
 fn signal(pid: u32, flag: &str) -> Result<bool> {
     Ok(std::process::Command::new("kill")
@@ -652,8 +628,8 @@ fn signal(_pid: u32, _flag: &str) -> Result<bool> {
     bail!("the demo signals the Node host only on Unix")
 }
 
-/// Whether the process `pid` has ended: no process has the id, or,
-/// on Linux, the one that has it is dead and waits to be collected.
+/// On Linux, a process that is dead and waits to be collected has
+/// ended too.
 fn has_ended(pid: u32) -> Result<bool> {
     #[cfg(target_os = "linux")]
     if let Ok(stat) =

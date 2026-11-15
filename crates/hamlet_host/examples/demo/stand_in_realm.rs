@@ -55,7 +55,6 @@ use sha2::{Digest, Sha256};
 
 use crate::agent_host;
 
-/// The kind `realm`.
 pub fn factory() -> ActorFactory {
     let mut registry = Registry::new();
     registry.register_actor_with::<StandIn>(
@@ -92,13 +91,11 @@ CREATE TABLE IF NOT EXISTS waits (agent INTEGER NOT NULL, call TEXT \
 CREATE TABLE IF NOT EXISTS switches (name TEXT PRIMARY KEY) STRICT;
 ";
 
-/// A switch the program sets. Each is off until it is set.
 #[derive(
     Clone, Copy, Debug, serde::Serialize, serde::Deserialize,
 )]
 #[serde(rename_all = "snake_case")]
 pub enum Switch {
-    /// Every `may_spend` is refused.
     RefuseSpending,
     /// The next new `tell` kills the Node host before it is answered.
     DieInTell,
@@ -113,7 +110,6 @@ impl Switch {
     }
 }
 
-/// Sets the switch `switch` on or off. The program's own action.
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct Set {
     pub switch: Switch,
@@ -125,8 +121,6 @@ impl Action for Set {
     const NAME: &'static str = "set";
 }
 
-/// Asks the stand-in to set an agent's reach on the workspace, as
-/// `grant` of demo/realm.rs. The program's own action.
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct Grant(pub SetReach);
 
@@ -135,8 +129,6 @@ impl Action for Grant {
     const NAME: &'static str = "grant";
 }
 
-/// Asks the stand-in to answer a call that waits for a chief, as
-/// `decide` of demo/realm.rs. The program's own action.
 #[derive(serde::Serialize, serde::Deserialize)]
 struct Decide(ChiefAnswer);
 
@@ -145,8 +137,6 @@ impl Action for Decide {
     const NAME: &'static str = "decide";
 }
 
-/// Asks the stand-in to call the action `name` of agent `to` with
-/// `args` as itself. The program's own action.
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct Send {
     pub to: AgentNumber,
@@ -159,7 +149,6 @@ impl Action for Send {
     const NAME: &'static str = "send";
 }
 
-/// Asks the stand-in what it keeps. The program's own action.
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct Recorded;
 
@@ -168,7 +157,6 @@ impl Action for Recorded {
     const NAME: &'static str = "recorded";
 }
 
-/// What the stand-in keeps, counted.
 #[derive(
     Debug,
     Default,
@@ -191,7 +179,6 @@ pub struct Records {
 
 const CALL_WITHIN: Duration = Duration::from_secs(10);
 
-/// How long a `tell` that kills the Node host waits for it to end.
 const DEATH_WITHIN: Duration = Duration::from_secs(10);
 
 #[async_trait::async_trait]
@@ -256,7 +243,6 @@ done!(
     SetTools
 );
 
-/// The made-up number of the agent the `n`th act hires.
 fn hired(n: u32) -> AgentNumber {
     AgentNumber(100 + n)
 }
@@ -593,7 +579,6 @@ impl Handler<Recorded> for StandIn {
     }
 }
 
-/// Counts one call of `action`.
 async fn count(ctx: &Ctx<StandIn>, action: &str) -> Result<()> {
     ctx.sql()
         .run(
@@ -635,7 +620,6 @@ fn integer(found: &hamlet_actor_core::QueryResult) -> Result<i64> {
     }
 }
 
-/// Rows of a name and a count, by name.
 fn by_name(
     found: &hamlet_actor_core::QueryResult,
 ) -> Result<BTreeMap<String, u64>> {
@@ -773,7 +757,6 @@ mod tests {
         host
     }
 
-    /// The realm's answer to `action` from agent `n`, undecoded.
     async fn from_agent<A: Action + Serialize>(
         host: &Host,
         n: u32,

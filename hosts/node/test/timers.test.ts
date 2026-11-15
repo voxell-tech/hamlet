@@ -1,6 +1,3 @@
-/**
- * U11: `wake`, the agent's timer.
- */
 import assert from "node:assert/strict";
 import { type TestContext, test } from "node:test";
 import { fauxAssistantMessage } from "@earendil-works/pi-ai";
@@ -65,7 +62,6 @@ test("a timer arms one alarm, and its input is taken once when pi.wake fires", a
             ).length > 0,
     );
     await agent.idle();
-    // A second fire of the alarm finds nothing due.
     assert.equal(await agent.actions.pi.wake(agent.by(from.alarm)), null);
     await agent.idle();
 
@@ -122,7 +118,6 @@ test("a timer with no date sets nothing and arms no alarm, and the model is told
     );
 });
 
-/** One generation of a `pi()` actor over a plain SQLite file, with no host. */
 function generation(database: RawAccess): PiContext {
     return {
         actorId: "agent-1",
@@ -249,7 +244,6 @@ function hangingOnce(): {
     };
 }
 
-/** Rejects when `signal` aborts, and never settles otherwise. */
 function untilAborted(signal: AbortSignal | undefined): Promise<never> {
     return new Promise((_, reject) =>
         signal?.addEventListener("abort", () => reject(new Error("cut off"))),

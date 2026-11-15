@@ -241,7 +241,6 @@ impl AgentFolder {
     }
 }
 
-/// The `name` of `files` and `search`.
 struct Name {
     whole: Regex,
     by_path: bool,
@@ -266,8 +265,6 @@ impl Name {
         })
     }
 
-    /// Whether the file at `file` is one `name` asks for, in a walk
-    /// that started at `start`. Every file is, without a name.
     fn admits(name: &Option<Self>, start: &str, file: &str) -> bool {
         let Some(name) = name else {
             return true;

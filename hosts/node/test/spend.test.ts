@@ -1,7 +1,3 @@
-/**
- * U8: the model gate. Every provider request asks the realm before it is
- * sent and is charged after it ends.
- */
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
@@ -23,7 +19,6 @@ import {
 } from "./agent-testing.ts";
 import { context, fauxModels } from "./testing.ts";
 
-/** The peers of an agent whose every request is charged to `task-1`. */
 const onTask = (calls: Parameters<typeof peersOf>[0]["calls"]) =>
     peersOf({
         calls,
@@ -61,7 +56,6 @@ test("each provider request is asked for and charged once under its own id", asy
     );
     await agent.idle();
 
-    // Two requests: one question before each, one charge after each.
     assert.deepEqual(
         sent
             .filter((call) => call.to === "realm/local")
@@ -167,7 +161,6 @@ test("a refusal is never retried, whatever its words hold; without its opening i
     const words = [
         // The realm's words, with a status code in them.
         "the model time of the realm has run out: 500 of 500 ms spent",
-        // Hamlet's own, for a question that failed.
         "it could not be asked (actor.action_timed_out: The action timed out.)",
         "it could not be asked (actor.internal_error: connection refused)",
     ];
@@ -220,7 +213,6 @@ test("a question that fails sends no request and ends the turn with Hamlet's wor
 });
 
 test("a compaction's request names its session, and is asked for and charged to the standing task", async (t) => {
-    // What the gate's proxy sees from pi-durable, recorded under the gate.
     const seen: { method: string; session: boolean }[] = [];
     const recording = (models: Models): Models =>
         new Proxy(models, {
@@ -390,7 +382,6 @@ test("a request that finds the harness closing waits for the run's abort, and is
             { signal: run.signal },
         )
         .then((message) => message);
-    // Until the close aborts the run, the request neither ends nor asks the realm.
     assert.equal(
         await Promise.race([
             asked.then(() => "ended"),
@@ -406,8 +397,6 @@ test("a request that finds the harness closing waits for the run's abort, and is
 });
 
 test("two agents share one model access, and each asks and is charged as itself", async (t) => {
-    // The gate is built at each wake, so it holds its agent and needs no
-    // map of the process from a session to an agent.
     const seven = fakeCalls({});
     const eight = fakeCalls({});
     const a = await wakeAgent(t, {
@@ -477,7 +466,6 @@ test("a provider's stream that breaks is worded as the provider's failure, retri
     );
     await agent.idle();
 
-    // The broken request was asked for and not charged. Its retry was asked for and charged.
     assert.deepEqual(
         sent.map((call) => call.name).filter((name) => name !== "list_tools"),
         ["may_spend", "may_spend", "charge"],

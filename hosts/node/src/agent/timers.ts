@@ -1,13 +1,6 @@
 /**
- * `wake`: the agent sets itself a timer.
- *
- * A timer is a pi-durable background task of the conversation. It sleeps
- * until its time, then admits one input and ends in the same commit.
- * pi-durable keeps the sleep, so the agent keeps no timer of its own, and
- * the wrapper keeps one host alarm for the earliest one,
- * `c.schedule.at(earliest, "pi.wake")`.
- *
- * It needs no peer: it is built from nothing.
+ * pi-durable keeps each timer's sleep, so the agent keeps no timer of its
+ * own, and the wrapper keeps one host alarm for the earliest one.
  */
 import {
     defineExtension,
@@ -17,15 +10,14 @@ import {
 } from "@earendil-works/pi-durable";
 import { callOf, draftOf, failed, words } from "./turn.ts";
 
-/** What a timer keeps: the call that set it, its time, and what to say when it fires. */
 type WakeInput = { call: string; at: number; note: string };
 
 const KIND = "hamlet.wake";
 
 /**
- * The timer. Its second phase admits the input and ends the task in one
- * commit, under the request id `w<task id>@<at>`, so a phase that a kill
- * cut off admits once when it runs again.
+ * Its second phase admits the input and ends the task in one commit, under
+ * the request id `w<task id>@<at>`, so a phase that a kill cut off admits
+ * once when it runs again.
  */
 export const Wake = defineTask<
     WakeInput,
@@ -66,7 +58,6 @@ export const Wake = defineTask<
         ),
 });
 
-/** The extension `hamlet.timers`: the tool `wake` and its task. */
 export function timers(): Extension {
     return defineExtension({
         name: "hamlet.timers",
@@ -142,7 +133,6 @@ export function timers(): Extension {
     });
 }
 
-/** Whether `at`, in ms since the epoch, is within the range a `Date` holds. */
 function dated(at: number): boolean {
     return Number.isFinite(new Date(at).getTime());
 }

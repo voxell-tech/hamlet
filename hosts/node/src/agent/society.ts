@@ -1,14 +1,4 @@
 /**
- * The society tools, and the reply to a question.
- *
- * Every society tool takes one path to the realm: `callOut`, which sends
- * `Tool<Act>{call, act}` under `t<task id>` with the realm's 10 s deadline
- * and stamps the act's `task` and `conversation`. `done` and its kin give
- * the tool's words, and `refused` gives the realm's. So a tool is one row of
- * `TOOLS`, keyed by its act on the wire: the name and the text today's
- * server gives the model, how its arguments become its act, and what its
- * answer says.
- *
  * The realm keeps a marker per sender, id, action and digest, so a rerun
  * sends the same call and the realm answers what it recorded. All are
  * `replay: "safe"`.
@@ -40,24 +30,17 @@ import {
     words,
 } from "./turn.ts";
 
-/** The words of what is wrong with a call's arguments. Nothing is sent for it. */
 type Invalid = { readonly invalid: string };
 
-/** One society tool, whose act on the wire is `N`. */
 interface Definition<N extends SocietyTool> {
-    /** The tool's name for the model, as today's server gives it. */
     readonly name: string;
-    /** Today's text for the model, word for word. */
     readonly description: string;
     /**
-     * The JSON Schema of its arguments, today's word for word. pi-durable
-     * checks a call against it first. A parameter no field of the act
-     * carries is offered and never read; `test/society.test.ts` lists them.
+     * pi-durable checks a call against it first. A parameter no field of the
+     * act carries is offered and never read.
      */
     readonly parameters: object;
-    /** The act the call carries, less what `callOut` stamps on it. */
     readonly act: (args: never) => ActOf<N> | Invalid;
-    /** The tool's result for each answer but `refused`. */
     readonly said: (answer: Granted<SocietyActs[N]["answer"]>) => string;
 }
 
@@ -86,9 +69,8 @@ const object = (properties: object, required: readonly string[]) => ({
 const names = { type: "array", items: { type: "string" } };
 
 /**
- * The number of `<kind>#<number>`, read as today's server reads it (an
- * `i64`), or `undefined` when `text` is not one or the act's `u32` cannot
- * carry it.
+ * Read as today's server reads it (an `i64`), or `undefined` when the act's
+ * `u32` cannot carry it.
  */
 function numberOf(kind: "hire" | "scholar", text: string): number | undefined {
     const found = new RegExp(`^${kind}#([+-]?)([0-9]+)$`).exec(text);
@@ -99,16 +81,15 @@ function numberOf(kind: "hire" | "scholar", text: string): number | undefined {
     return number <= U32_MAX ? number : undefined;
 }
 
-/** `text` trimmed, or `undefined` when nothing is left: today's server reads an empty parameter as one left out. */
+/** Today's server reads an empty parameter as one left out. */
 function present(text: string | undefined): string | undefined {
     const trimmed = text?.trim();
     return trimmed === "" ? undefined : trimmed;
 }
 
 /**
- * The agent an address names, or what is wrong with it, read as today's
- * server reads it (`crates/hamlet_server/src/society/addresses.rs`, `parse`).
- * Written once, for every tool.
+ * Read as today's server reads it
+ * (`crates/hamlet_server/src/society/addresses.rs`, `parse`).
  */
 function named(given: string): Named | Invalid {
     const address = given.trim();
@@ -125,10 +106,9 @@ function named(given: string): Named | Invalid {
 }
 
 /**
- * The profile a `scholar` parameter names, `undefined` when it is left out,
- * or today's words for one that is not `scholar#<number>`
- * (`crates/hamlet_server/src/society/addresses.rs`, `parse_scholar`). The act
- * has no field for a pinned `@<version>`, so a pin is refused, not hired at `main`.
+ * As `parse_scholar` of `crates/hamlet_server/src/society/addresses.rs`. The
+ * act has no field for a pinned `@<version>`, so a pin is refused, not
+ * hired at `main`.
  */
 function profileOf(text: string | undefined): ProfileId | Invalid | undefined {
     const given = present(text);
@@ -140,7 +120,6 @@ function profileOf(text: string | undefined): ProfileId | Invalid | undefined {
     );
 }
 
-/** `build` with every address of `addresses` named, or the first one that is wrong. */
 function withNamed<K extends string, Act>(
     addresses: Record<K, string>,
     build: (named: Record<K, Named>) => Act,
@@ -154,7 +133,6 @@ function withNamed<K extends string, Act>(
     return build(out);
 }
 
-/** The acts of the tools named in `given`, or the first name that is no society tool. */
 function actsOf(given: readonly string[] | undefined): SocietyTool[] | Invalid {
     const acts: SocietyTool[] = [];
     for (const name of given ?? []) {
@@ -166,11 +144,7 @@ function actsOf(given: readonly string[] | undefined): SocietyTool[] | Invalid {
     return acts;
 }
 
-/**
- * Every society tool, keyed by its act. The type names each act of
- * `SocietyActs`, so a tool with no row does not compile, nor a row whose
- * act or answer is another tool's, nor one with no name for the model.
- */
+/** Today's names and words for the model, word for word. */
 const TOOLS: { readonly [N in SocietyTool]: Definition<N> } = {
     tell: {
         name: "tell",
@@ -340,12 +314,10 @@ const TOOLS: { readonly [N in SocietyTool]: Definition<N> } = {
     },
 };
 
-/** The act of each tool name the model knows, read from `TOOLS`: the one table. */
 const ACT_OF: ReadonlyMap<string, SocietyTool> = new Map(
     (Object.keys(TOOLS) as SocietyTool[]).map((act) => [TOOLS[act].name, act]),
 );
 
-/** The pi-durable tool of one row: the one path every society tool takes. */
 function societyTool<N extends SocietyTool>(
     peers: Peers,
     act: N,
@@ -365,8 +337,7 @@ function societyTool<N extends SocietyTool>(
                 context,
                 REALM,
                 act as SocietyTool,
-                // The row's type pairs `act` with its message and its answer.
-                // A name that stands for any act loses the pairing here, so
+                // A name that stands for any act loses the row's pairing, so
                 // these two casts restate what `TOOLS` already checked.
                 made as never,
                 (answer) => words(definition.said(answer as never)),
@@ -375,13 +346,6 @@ function societyTool<N extends SocietyTool>(
     });
 }
 
-/**
- * The extension `hamlet.society`: every society tool but those whose acts
- * are in `off`, and the reply hook. The actor installs it at each wake from the place it
- * keeps, and again when `place` takes a newer one, which replaces the
- * extension in the registry. So a tool that a lead turned off leaves the
- * next request, in every conversation.
- */
 export function society(peers: Peers, off: readonly SocietyTool[]): Extension {
     return defineExtension({
         name: "hamlet.society",
@@ -397,13 +361,8 @@ export function society(peers: Peers, off: readonly SocietyTool[]): Extension {
 }
 
 /**
- * When a turn on a question ends with an answer, sends `reply{question,
- * text}`. The question's letter is in the turn's first input, where
- * `submit` kept it.
- *
  * It runs at least once: a rerun after a kill replies again, and the realm
- * keeps the first reply by the question. A reply the realm refuses, or a
- * call that fails, is reported and lost. It never changes the run.
+ * keeps the first reply by the question.
  */
 async function reply(
     peers: Peers,

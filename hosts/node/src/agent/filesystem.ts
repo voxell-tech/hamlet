@@ -22,9 +22,7 @@ export const FOUND = 100;
 /** A name in a folder of the agent's filesystem, a link itself rather than what it names. */
 export type FileEntry = Omit<FileInfo, "mtimeMs">;
 
-/** What a search or a find gave, and which of its bounds it stopped at. */
 export interface Found<T> {
-    /** At most `FOUND`. */
     readonly found: T[];
     /** More than `FOUND` matched. */
     readonly more: boolean;
@@ -62,19 +60,13 @@ export interface AgentFilesystem {
         path: string,
         context: Context,
     ): Promise<Result<Uint8Array, FileError>>;
-    /**
-     * Writes the file whole, making its folders, and answers whether nothing
-     * was there before. A link there is replaced, not written through.
-     */
+    /** Writes the file whole, making its folders. A link there is replaced, not written through. */
     write(
         path: string,
         content: string | Uint8Array,
         context: Context,
     ): Promise<Result<{ readonly created: boolean }, FileError>>;
-    /**
-     * Makes every edit of `edits` in the UTF-8 text of the file at once, and
-     * answers the text before and after.
-     */
+    /** Makes every edit of `edits` in the UTF-8 text of the file at once. */
     edit(
         path: string,
         edits: readonly Edit[],
@@ -230,7 +222,7 @@ export function openAgentFilesystem(
     };
 }
 
-/** `items` cut at `FOUND`. As today's, a cut walk that also found more says only the more. */
+/** As today's, a cut walk that also found more says only the more. */
 function bounded<T>(items: T[], capped: boolean): Found<T> {
     const more = items.length > FOUND;
     return { found: items.slice(0, FOUND), more, capped: capped && !more };

@@ -1,6 +1,3 @@
-/**
- * U10: the society tools, under today's names, and the reply to a question.
- */
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { fauxAssistantMessage } from "@earendil-works/pi-ai";
@@ -22,7 +19,6 @@ const line = (id: string, text: string, task?: string) => ({
     input: { type: "line" as const, text },
 });
 
-/** The tools the root conversation's next request offers, as the model reads them. */
 async function schemas(
     agent: Woken,
 ): Promise<{ name: string; description: string; parameters: unknown }[]> {
@@ -35,12 +31,10 @@ async function schemas(
     }));
 }
 
-/** The names of the tools the root conversation's next request offers. */
 async function offered(agent: Woken): Promise<string[]> {
     return (await schemas(agent)).map((tool) => tool.name);
 }
 
-/** The acts the realm was sent for `name`, in order. */
 function acts(sent: Parameters<typeof named>[0], name: string): unknown[] {
     return named(sent, name).map(
         (call) => (call.message as { act: unknown }).act,
@@ -192,8 +186,8 @@ const TODAY = [
 ];
 
 /**
- * Every field of every act, both ways. `npm run check` fails here when an
- * act gains a field, so a parameter that `DROPPED` lists is mapped to it.
+ * `npm run check` fails here when an act gains a field, so a parameter that
+ * `DROPPED` lists is mapped to it.
  */
 const ACT_FIELDS = {
     found: ["name", "mayor", "tier", "purpose"],
@@ -384,8 +378,8 @@ test("each society tool is offered under today's name, and set_tools reads today
     );
     await agent.idle();
 
-    // The model's names leave as the acts of the wire. A hamlet an agent
-    // founds has today's default tier, 50 (`hamlet_store/src/schema.sql`).
+    // A hamlet an agent founds has today's default tier, 50
+    // (`hamlet_store/src/schema.sql`).
     assert.deepEqual(acts(sent, "found"), [
         { name: "Mill", tier: "fifty", purpose: "Grind" },
     ]);
@@ -423,7 +417,6 @@ test("a place turns tools off for the next request, an older one changes nothing
     );
     assert.deepEqual(await offered(first), without);
 
-    // An older version, and the same one again, change nothing.
     await first.actions.place(first.by(from.realm), place(2, []) as never);
     await first.actions.place(first.by(from.realm), place(3, []) as never);
     assert.deepEqual(await offered(first), without);
@@ -486,14 +479,12 @@ test("an input that arrives while the agent is busy waits, then has its own turn
     release.resolve();
     await agent.idle();
 
-    // Each turn's letter carries its own input's task.
     assert.deepEqual(
         named(sent, "tell").map(
             (call) => (call.message as { act: { task?: string } }).act.task,
         ),
         ["task-1", "task-2"],
     );
-    // The first turn's answer is no reply. The question's answer is, once.
     assert.deepEqual(
         named(sent, "reply").map((call) => call.message),
         [{ question: 5, text: "Two of them." }],
@@ -693,7 +684,6 @@ test("a scholar's address is read as today's server reads it, and one it cannot 
     await agent.stop();
 });
 
-/** Calls `seat_mayor` on each of `hires`, then `hire` on each of `scholars`: the acts sent and the tools' results. */
 async function seatAndHire(
     t: Parameters<typeof wakeAgent>[0],
     hires: string[],

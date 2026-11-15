@@ -1,10 +1,3 @@
-/**
- * What the agent's tests with no host share: a fake of `Calls`, a fake
- * of the agent's filesystem, and one agent created and woken on a plain
- * `node:sqlite` file with faux models. The agent is the kind's own
- * definition: its migration, `onCreate`, `onWake`, `onDestroy` and actions,
- * as `agentActor` returns them. Only the host is missing.
- */
 import type { TestContext } from "node:test";
 import type { Context } from "@earendil-works/chord/context";
 import {
@@ -42,7 +35,6 @@ import {
 import { createPiRuntime, PI_RUNTIME, piRuntime } from "../src/pi/runtime.ts";
 import { context, fauxModels, plainDatabase, scratchFile } from "./testing.ts";
 
-/** One call the agent made. */
 export interface Sent {
     readonly to: string;
     readonly name: string;
@@ -56,11 +48,6 @@ type Answers<A> = {
         : never;
 };
 
-/**
- * A fake of `Calls`. It records every call and answers from `answers`.
- * The realm allows every model request and takes every charge unless told
- * otherwise. An action with no answer fails as the host's does.
- */
 export function fakeCalls(answers: {
     workspace?: Answers<WorkspaceActions>;
     realm?: Answers<RealmActions>;
@@ -102,20 +89,16 @@ export function fakeCalls(answers: {
     return { calls, sent };
 }
 
-/** The calls of `sent` to `name`. */
 export function named(sent: readonly Sent[], name: string): Sent[] {
     return sent.filter((call) => call.name === name);
 }
 
-/** The error of a call past its deadline, whose outcome is unknown. */
 export function timedOut(): ActorError {
     return new ActorError("actor", "action_timed_out", "The action timed out.");
 }
 
-/** The root of `fakeFiles`, where agent 7's filesystem is. */
 export const FAKE_ROOT = "/realm/actors/agent/7.fs";
 
-/** A fake of the agent's filesystem over a map of files, rooted at `FAKE_ROOT`. */
 export function fakeFiles(files: Record<string, string>): AgentFilesystem & {
     readonly edits: number;
 } {
@@ -170,7 +153,7 @@ export function fakeFiles(files: Record<string, string>): AgentFilesystem & {
     };
 }
 
-/** `models`, with every answer costing `dollars`: the faux provider prices nothing. */
+/** The faux provider prices nothing. */
 export function priced(models: Models, dollars: number): Models {
     const costing = (message: AssistantMessage): AssistantMessage => ({
         ...message,
@@ -213,7 +196,6 @@ const HAND: AgentInput = {
     place: { version: 1, hires: [], roads: [], tools_off: [] },
 };
 
-/** A caller the host stamped: the realm, the workspace, or another actor. */
 export const from = {
     realm: { actor: REALM } as Caller,
     workspace: { actor: WORKSPACE } as Caller,
@@ -221,7 +203,6 @@ export const from = {
     agent: (n: number): Caller => ({ actor: Address.of("agent", String(n)) }),
 };
 
-/** The kind's definition, as `actor()` keeps it: what the host calls. */
 interface Definition {
     readonly db: { onMigrate(db: RawAccess): Promise<void> };
     onCreate(c: AgentContext, input: unknown): Promise<void>;
@@ -231,35 +212,26 @@ interface Definition {
 }
 
 export interface Woken {
-    /** The wake's context. */
     readonly c: AgentContext;
-    /** An action's context, with the caller the host stamped. */
     by(caller: Caller | null): AgentCall;
-    /** The definition's own actions. */
     readonly actions: AgentHandlers;
     readonly config: AgentConfig;
     readonly faux: ReturnType<typeof fauxModels>["faux"];
-    /** The alarms the wrapper asked the host for, by time. */
     readonly alarms: number[];
-    /** What the agent logged as a failure that left the turn as it was. */
     readonly reported: string[];
     harness(): Promise<Harness>;
-    /** Waits until no conversation has a run. */
     idle(): Promise<void>;
-    /** Every entry of the root conversation, oldest first, as its kind, data and text. */
     entries(): Promise<{ kind: string; text: string; data: unknown }[]>;
-    /** Makes the database's next transaction fail once, as a full disk would. Resolves when it has. */
+    /** Makes the database's next transaction fail once. Resolves when it has. */
     failNextCommit(): Promise<void>;
-    /** Closes this wake as the definition's `onDestroy` does: running work stops at once and resumes at the next wake. */
+    /**
+     * As `onDestroy` does: running work stops at once and resumes at the
+     * next wake.
+     */
     stop(): Promise<void>;
-    /** A new wake of the same agent on the same file. */
     again(): Promise<Woken>;
 }
 
-/**
- * One agent, created and woken on a scratch SQLite file through the kind's
- * own definition, with no host under it.
- */
 export async function wakeAgent(
     t: TestContext,
     given: {
@@ -337,7 +309,6 @@ export async function wakeAgent(
     return start(true);
 }
 
-/** `database`, whose next transaction can be made to fail once. */
 function failing(database: RawAccess): {
     readonly database: RawAccess;
     failNext(): Promise<void>;
@@ -391,7 +362,6 @@ async function entriesOf(harness: Harness, context: Context) {
     }));
 }
 
-/** Waits until `check` holds, or fails after five seconds. */
 export async function until(
     check: () => boolean | Promise<boolean>,
 ): Promise<void> {
@@ -403,7 +373,6 @@ export async function until(
     }
 }
 
-/** `promise`'s outcome, or `words` once `ms` have passed with none. */
 export function within<T>(
     promise: Promise<T>,
     ms: number,
@@ -417,7 +386,6 @@ export function within<T>(
     ]);
 }
 
-/** An answer of the faux model that calls `name`, under the model's call id `id`. */
 export function toolCall(
     name: string,
     args: Parameters<typeof fauxToolCall>[1],

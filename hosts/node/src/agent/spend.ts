@@ -1,24 +1,10 @@
 /**
- * The model gate: every provider request asks the realm before it is sent
- * and is charged after it ends.
- *
- * It is a `Models` proxy, because nothing else can refuse a request: a
- * hook's throw is reported and the request goes out anyway, and an
- * extension's `wraps` cover tools and sections only. The actor builds one
- * at each wake around `AgentConfig.models`, so it knows its agent and maps a
- * provider session to a conversation only.
- *
- * | `Models` method | Asks `may_spend` | Charges |
- * |---|---|---|
- * | `streamSimple` (a generation) | before | when the stream ends |
- * | `completeSimple` (a compaction) | before | on the answer |
- * | every other method | no | no |
+ * A `Models` proxy, because nothing else can refuse a request: a hook's
+ * throw is reported and the request goes out anyway, and an extension's
+ * `wraps` cover tools and sections only.
  *
  * pi-durable sends every request through the two `Simple` methods, so
  * `stream` and `complete` pass through as the other methods do.
- *
- * A deferred poll (`fetchDeferred`, `streamDeferred`) passes through: no
- * provider P5 runs defers.
  */
 import {
     type Api,
@@ -30,12 +16,6 @@ import {
 import { type RealmTask, u32 } from "./messages.ts";
 import { Closing, cutOff, modelCall, type Peers, reasonOf } from "./turn.ts";
 
-/**
- * `models` with the gate around it.
- *
- * P6's seam: `models.ts` builds the `Models` given here, and the notice and
- * the wait for a chief after a refusal are P6's.
- */
 export function gated(models: Models, peers: Peers): Models {
     const ask = async (
         model: Model<Api>,
@@ -107,7 +87,6 @@ export function gated(models: Models, peers: Peers): Models {
                 }
                 out.end(await source.result());
             })().catch((error: unknown) => {
-                // The provider's stream broke after the request was sent.
                 out.end(brokenOf(model, error));
             });
             return out;
@@ -137,12 +116,9 @@ export function gated(models: Models, peers: Peers): Models {
 }
 
 /**
- * The message a refused request ends with: `stopReason: "error"`, no
- * content and no usage. pi-durable retries an error whose words match
- * pi-ai's transient patterns, and the realm's words can: "500 of 500 ms
- * spent" holds a status code. So the words always start with a phrase
- * pi-ai never retries, and `isRetryableAssistantError` is false for every
- * message this returns.
+ * pi-durable retries an error whose words match pi-ai's transient patterns,
+ * and the realm's words can: "500 of 500 ms spent" holds a status code. So
+ * the words always start with a phrase pi-ai never retries.
  */
 export function refusalOf(model: Model<Api>, why: string): AssistantMessage {
     return {
@@ -172,17 +148,16 @@ export function refusalOf(model: Model<Api>, why: string): AssistantMessage {
 }
 
 /**
- * The message a request ends with when its provider's stream threw, or when
- * the harness closed under it: the error's own words, with nothing of the
- * gate's in them, so pi-durable treats it as it would without the gate.
+ * The error's own words, with nothing of the gate's in them, so pi-durable
+ * treats it as it would without the gate.
  */
 function brokenOf(model: Model<Api>, error: unknown): AssistantMessage {
     return { ...refusalOf(model, ""), errorMessage: reasonOf(error) };
 }
 
 /**
- * Resolves when `signal` aborts. pi-durable gives every provider request its
- * run's signal, which a close aborts; with none, it resolves at once.
+ * pi-durable gives every provider request its run's signal, which a close
+ * aborts.
  */
 function abortOf(signal: AbortSignal | undefined): Promise<void> {
     if (signal === undefined || signal.aborted) return Promise.resolve();

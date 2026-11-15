@@ -1,10 +1,3 @@
-/**
- * U12: the agent's messages against the Rust fixtures of
- * `crates/hamlet_messages/fixtures/`, decoded with the CBOR reader the wire
- * uses. Each message the agent writes equals its fixture, each fixture it
- * takes goes through its reader and its handler, and each integer it writes
- * fits a `u32`.
- */
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
 import { type TestContext, test } from "node:test";
@@ -38,13 +31,11 @@ const FOLDER = new URL(
     "../../../crates/hamlet_messages/fixtures/",
     import.meta.url,
 );
-/** The folders whose every fixture this file accounts for. */
 const FOLDERS = ["agent", "realm", "workspace", "address", "error"] as const;
 
 /**
  * A fixture as the host decodes it: an answer as `Calls.call` does, and a
  * call's arguments or a create input as the host does for an action.
- * `name` is the file's path under the fixtures, without `.cbor`.
  */
 function fixture(name: string): unknown {
     const bytes = readFileSync(new URL(`${name}.cbor`, FOLDER));
@@ -53,12 +44,10 @@ function fixture(name: string): unknown {
         : decodeCborCompat(bytes);
 }
 
-/** An answer fixture, as the fake's action gives it. */
 function answer(name: string): never {
     return fixture(`${name}.answer`) as never;
 }
 
-/** The fixtures whose names match `pattern`, without `.cbor`, in order. */
 function fixtures(pattern: RegExp): string[] {
     return FOLDERS.flatMap((folder) =>
         readdirSync(new URL(`${folder}/`, FOLDER)).map(
@@ -71,10 +60,8 @@ function fixtures(pattern: RegExp): string[] {
 
 type Answers = Parameters<typeof fakeCalls>[0];
 
-/** The input every agent here is created with: the hand's, with the standing task `standing-12`. */
 const HAND = fixture("agent/hand.input") as AgentInput;
 
-/** The model's last answer in every turn here, which a reply carries. */
 const LAST_WORDS = "Two of them";
 
 /** What a field read from the wrong place looks like in the words the model is given. */
@@ -87,7 +74,6 @@ function submitted(
     return { id: "input-1", ...(task === undefined ? {} : { task }), input };
 }
 
-/** One agent woken on `calls`, and one turn on `submit`, run to its end. */
 async function turn(
     t: TestContext,
     calls: Calls,
@@ -95,7 +81,6 @@ async function turn(
         submit: Submit;
         responses?: FauxResponseStep[];
         models?: (models: Models) => Models;
-        /** A tool the agent offers only once `list_tools` answered. */
         offered?: string;
     },
 ): Promise<Woken> {
@@ -121,37 +106,26 @@ async function turn(
     return agent;
 }
 
-// ---------------------------------------------------------------------------
-// 1. Each message the agent writes equals its fixture
-// ---------------------------------------------------------------------------
-
 type ToolArgs = Parameters<typeof toolCall>[1];
 
-/** One message the agent writes, and the turn that makes it write it. */
 interface Written {
-    /** `<folder>/<action>[.<variant>]`: the fixture is `<this>.args.cbor`. */
     readonly fixture: string;
-    /** The submit's task, which a stamped message carries as its own. */
     readonly task?: string;
     readonly input?: Submit["input"];
-    /** The model's tool call that writes it; none for a message the agent writes on its own. */
     readonly tool?: readonly [name: string, args: ToolArgs];
     readonly answers?: Answers;
     readonly offered?: string;
     readonly models?: (models: Models) => Models;
     /**
      * Fields of the first argument the agent makes itself, which the test
-     * cannot steer: `call` (`m<uuid>` in a charge, `t<task id>` elsewhere),
-     * `conversation` (pi-durable's id) and a charge's measured `took_ms`.
-     * Each is checked for the agent's form and then taken from the fixture,
-     * which holds a fixed one (`call-5`, `c1`, 830).
+     * cannot steer. Each is checked for the agent's form and then taken from
+     * the fixture.
      */
     readonly own?: readonly string[];
     /** Fields the agent always writes the same, checked and then taken from the fixture. */
     readonly constant?: Readonly<Record<string, unknown>>;
 }
 
-/** The form of each field the agent makes itself in a message of `action`. */
 function ownForms(
     action: string,
 ): Readonly<Record<string, (value: unknown) => boolean>> {
@@ -366,7 +340,6 @@ const WRITTEN: readonly Written[] = [
     },
 ];
 
-/** The object that holds the field at `path` (as `act.conversation`) in `message`, and the field's key. */
 function field(
     message: unknown,
     path: string,
@@ -378,7 +351,6 @@ function field(
     return { holder, key };
 }
 
-/** The action a fixture's name is of, and the address it is sent to. */
 function actionOf(name: string): { to: string; action: string } {
     const [folder = "", rest = ""] = name.split("/");
     const to = folder === "workspace" ? WORKSPACE : REALM;
@@ -435,11 +407,6 @@ test("the agent's addresses of the workspace and the realm equal their fixtures"
     }
 });
 
-// ---------------------------------------------------------------------------
-// 2. Each fixture the agent takes goes through its reader and its handler
-// ---------------------------------------------------------------------------
-
-/** Who sends each of the agent's actions. */
 const SENDER = {
     submit: from.realm,
     finished: from.workspace,
@@ -460,7 +427,6 @@ for (const name of fixtures(/^agent\/.*\.args$/)) {
         });
         const [message, ...more] = fixture(name) as unknown[];
         assert.equal(more.length, 0);
-        // The action reads its message with `read.<action>` before it takes it.
         const take = agent.actions[action] as (
             c: ReturnType<Woken["by"]>,
             message: unknown,
@@ -494,7 +460,6 @@ for (const name of fixtures(/^agent\/.*\.args$/)) {
 for (const name of fixtures(/^agent\/.*\.input$/)) {
     test(`${name} is read and creates the agent`, async (t) => {
         const { calls } = fakeCalls({});
-        // `onCreate` reads its input with `read.agentInput`.
         const agent = await wakeAgent(t, {
             calls,
             input: fixture(name) as AgentInput,
@@ -504,10 +469,6 @@ for (const name of fixtures(/^agent\/.*\.input$/)) {
     });
 }
 
-/**
- * The actions whose answers go to a tool. Each fixture of an answer to one
- * is given to the tool `WRITTEN` calls it with, in one turn.
- */
 const ANSWERED_BY_TOOLS = [
     "workspace/run",
     "workspace/read_file",
@@ -531,7 +492,6 @@ function answersTo(action: string): string[] {
     return fixtures(new RegExp(`^${action}(\\..+)?\\.answer$`));
 }
 
-/** The entries of the agent's tool results, oldest first. */
 async function toolResults(agent: Woken) {
     return (await agent.entries()).filter(
         (entry) => entry.kind === "pi.tool-result",
@@ -670,7 +630,6 @@ for (const name of fixtures(/^error\/.*\.run\./)) {
     });
 }
 
-/** Each fixture the agent never writes nor takes, by its name, with the reason. */
 const NOT_THE_AGENTS: readonly (readonly [RegExp, string])[] = [
     [/^realm\/chief_/, "a chief's act, sent by a client"],
     [/^realm\/(say|answer|read_world)\./, "a client's call of the realm"],
@@ -681,11 +640,11 @@ const NOT_THE_AGENTS: readonly (readonly [RegExp, string])[] = [
     ],
     [
         /^workspace\/cancel\./,
-        "an agent's, but P5's agent cancels nothing: `/stop` is P6's",
+        "an agent's call, which this agent never makes: it has no `/stop`",
     ],
     [
         /^workspace\/command_status\./,
-        "an agent's, but P5's agent never asks: a command's end arrives as `finished`",
+        "an agent's call, which this agent never makes: a command's end arrives as `finished`",
     ],
     [
         /^error\/wrong_caller\.set_reach\./,
@@ -717,13 +676,8 @@ test("every fixture of the five folders is one the agent writes or takes, or is 
     assert.deepEqual(unaccounted, []);
 });
 
-// ---------------------------------------------------------------------------
-// 3. The integers a TypeScript agent writes stay within `u32`
-// ---------------------------------------------------------------------------
-
 test("a charge's micros and took_ms are held at 2^32 - 1", async (t) => {
-    // Five thousand dollars is five billion micros. A request that took
-    // fifty days is `spend.test.ts`'s.
+    // Five thousand dollars is five billion micros.
     const { calls, sent } = fakeCalls({});
     const agent = await turn(t, calls, {
         submit: submitted(undefined),

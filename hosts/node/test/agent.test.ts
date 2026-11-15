@@ -1,4 +1,3 @@
-/** The agent actor itself, with no host. */
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
@@ -44,7 +43,6 @@ test("an input is taken once, and its entry keeps its task", async (t) => {
         input: { type: "line" as const, text: "Write the tests" },
     };
 
-    // Every action answers `null`, which a Rust `()` reads.
     assert.equal(await agent.actions.submit(agent.by(from.realm), line), null);
     assert.equal(await agent.actions.submit(agent.by(from.realm), line), null);
     await agent.idle();
@@ -280,7 +278,6 @@ test("a fill with no profile to read writes nothing and answers", async (t) => {
 test("the kind's definition passes actor()'s own checks, and its actions are the agent's messages and pi.wake", async (t) => {
     const { calls } = fakeCalls({});
     const agent = await wakeAgent(t, { calls });
-    // `actor()` parses the config, as the host does when it registers the kind.
     const definition = agentActor(agent.config);
     assert.deepEqual(
         Object.keys(flattenActionHandlers(definition.config.actions)).sort(),
@@ -368,7 +365,6 @@ test("a commit that fails while the harness's own work reads the turn reopens th
         released: released.promise,
     };
     let agent: Woken | undefined;
-    // The wake's own `Turns`, which the tools, the reply hook and the gate read through.
     const turns = () =>
         (
             agent?.c.vars as

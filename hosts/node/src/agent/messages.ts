@@ -1,11 +1,7 @@
 /**
- * The messages of `crates/hamlet_messages` that an agent takes or sends, as
- * TypeScript types, and the addresses they go to. Nothing outside this file
- * spells a field of a message that this file does not type.
- *
- * A field that is not set is absent, never `null`. An integer the agent
- * writes is a `u32`. A reader is lenient: it reads `null` as unset and
- * ignores a field it does not know.
+ * The messages of `crates/hamlet_messages` that an agent takes or sends. A
+ * field that is not set is absent, never `null`. An integer the agent
+ * writes is a `u32`.
  */
 import {
     arr,
@@ -26,19 +22,13 @@ import { ActorError, Address } from "../actor/actor/mod.ts";
 
 declare const minted: unique symbol;
 
-/** A string only one function makes, so a plain string is not one. */
 type Minted<Name extends string> = string & { readonly [minted]: Name };
 
-/**
- * The id a call out carries, which its taker finds a repeat by: `t<task id>`
- * for a tool call and `m<uuid>` for a model request. Made in `turn.ts` only.
- */
+/** The id a call out carries, which its taker finds a repeat by. */
 export type CallId = Minted<"call">;
 
-/** A conversation as a message names it: pi-durable's id in decimal. Made in `turn.ts` only. */
 export type ConversationRef = Minted<"conversation">;
 
-/** The realm's task a turn is charged to. The realm makes it; the agent only carries it. */
 export type RealmTask = string;
 
 export type AgentNumber = number;
@@ -47,27 +37,20 @@ export type ProfileId = number;
 export type HamletId = string;
 export type CommandId = number;
 
-/** The largest integer a `u32` holds, the type of every integer the agent writes. */
 export const U32_MAX = 2 ** 32 - 1;
 
-/** A whole number that a `u32` holds: rounded, and held at the ends. */
 export function u32(value: number): number {
     if (Number.isNaN(value) || value <= 0) return 0;
     return Math.min(Math.round(value), U32_MAX);
 }
 
-/** The arm of an answer whose taker kept nothing of the request. `words` are for the model. */
+/** The taker kept nothing of the request. `words` are for the model. */
 export interface Refused {
     readonly type: "refused";
     readonly why: { readonly type: string };
     readonly words: string;
 }
 
-// ---------------------------------------------------------------------------
-// The workspace, `workspace/local`
-// ---------------------------------------------------------------------------
-
-/** What a call that changes something carries, so the workspace finds its repeat. */
 export interface Stamped {
     readonly call: CallId;
     readonly conversation: ConversationRef;
@@ -233,7 +216,6 @@ export interface ToolList {
     }[];
 }
 
-/** The workspace's actions an agent calls. */
 export interface WorkspaceActions {
     run(message: Run): RunAnswer;
     read_file(message: ReadFile): ReadAnswer;
@@ -244,11 +226,7 @@ export interface WorkspaceActions {
     list_tools(): ToolList;
 }
 
-// ---------------------------------------------------------------------------
-// The realm, `realm/local`
-// ---------------------------------------------------------------------------
-
-/** An agent as an agent names it. `mayor` is the office of the caller's hamlet. */
+/** `mayor` is the office of the caller's hamlet. */
 export type Named =
     | { readonly type: "hand" }
     | { readonly type: "mayor" }
@@ -257,7 +235,6 @@ export type Named =
 
 export type Tier = "fifty" | "hundred" | "two_hundred" | "five_hundred";
 
-/** An agent's call of a society tool. A repeat carries the same `call`. */
 export interface Tool<Act> {
     readonly call: CallId;
     readonly act: Act;
@@ -277,11 +254,6 @@ export type HireAnswer =
     | { readonly type: "hired"; readonly agent: AgentNumber }
     | Refused;
 
-/**
- * Every society tool by its name on the wire: the act its call carries and
- * the answer it gets. The realm's actions, the names in a place's
- * `tools_off` and the table of tools in `society.ts` are all read from it.
- */
 export interface SocietyActs {
     found: {
         act: {
@@ -351,7 +323,7 @@ export interface SocietyActs {
 
 export type SocietyTool = keyof SocietyActs;
 
-/** Every society tool, as a list the compiler holds to `SocietyActs`'s keys. */
+/** A list the compiler holds to `SocietyActs`'s keys. */
 export const SOCIETY_TOOLS = Object.keys({
     found: true,
     hire: true,
@@ -381,7 +353,6 @@ export interface Charge {
     readonly took_ms: number;
 }
 
-/** The realm's actions an agent calls: each society tool, and the three bare ones. */
 export type RealmActions = {
     readonly [N in SocietyTool]: (
         message: Tool<SocietyActs[N]["act"]>,
@@ -392,16 +363,11 @@ export type RealmActions = {
     charge(message: Charge): null;
 };
 
-// ---------------------------------------------------------------------------
-// The agent, `agent/<n>`
-// ---------------------------------------------------------------------------
-
 export interface Author {
     readonly agent: AgentNumber;
     readonly name?: string;
 }
 
-/** An attachment of a chief's line, as the client sent it. */
 export interface Attached {
     readonly id: string;
     readonly at?: number;
@@ -461,7 +427,6 @@ export interface Fill {
     readonly branch: string;
 }
 
-/** The input `agent/<n>` is created with. */
 export interface AgentInput {
     readonly kind: "hand" | "hire";
     /** The standing task: it pays for a turn whose input names none. */
@@ -469,7 +434,6 @@ export interface AgentInput {
     readonly place: Place;
 }
 
-/** The agent's actions as a caller sees them. Each answers `null`, which a Rust `()` reads. */
 export interface AgentActions {
     submit(message: Submit): null;
     finished(message: Finished): null;
@@ -483,17 +447,13 @@ export const WORKSPACE: Address<WorkspaceActions> = Address.of(
 );
 export const REALM: Address<RealmActions> = Address.of("realm", "local");
 
-/** Who sends each of the agent's messages, as `Message::From` says. */
+/** As each message's `Message::From` says. */
 export const SENDERS = {
     submit: REALM,
     finished: WORKSPACE,
     place: REALM,
     fill: REALM,
 } as const satisfies { readonly [N in keyof AgentActions]: Address };
-
-// ---------------------------------------------------------------------------
-// The readers of what the agent takes
-// ---------------------------------------------------------------------------
 
 const OPEN = { open: true } as const;
 const U32 = int({ minimum: 0, maximum: U32_MAX });
@@ -535,12 +495,7 @@ const INPUT = union([
     ),
 ]);
 
-/**
- * The lenient readers of what the agent takes: one for each of its actions,
- * and one for its create input. Each drops `null` fields, ignores unknown
- * ones and checks the rest. A message it cannot read throws
- * `ActorError("message", "unreadable", ...)`.
- */
+/** Each drops `null` fields, ignores unknown ones and checks the rest. */
 export const read: {
     readonly [N in keyof AgentActions]: (
         raw: unknown,
@@ -593,7 +548,6 @@ function reader<S extends Schema, T>(
     };
 }
 
-/** `null` is unset: drop it, at every depth. */
 function withoutNulls(value: unknown): unknown {
     if (Array.isArray(value)) return value.map(withoutNulls);
     if (value === null || typeof value !== "object") return value;

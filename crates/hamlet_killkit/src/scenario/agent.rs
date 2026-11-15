@@ -1,7 +1,6 @@
-//! The real agent of hosts/node/src/agent/ on a faux model, against
-//! the demo's stand-in realm: `demo --link` with `HAMLET_DEMO_AGENT`
-//! set to `pi`. Each scenario's first line is a `pi` command, which
-//! fails in any other mode.
+//! The real agent on a faux model, against the demo's stand-in realm.
+//! Each scenario's first line is a `pi` command, which fails unless
+//! `HAMLET_DEMO_AGENT` is `pi`.
 
 use super::{Demo, Expect, Is, Kill, Probe, Read, Scenario};
 
@@ -186,10 +185,10 @@ pub const SCENARIOS: &[Scenario] = &[
     Scenario {
         name: "agent-timer",
         about: "kill the demo host about a second after the agent \
-                set a timer 20 s ahead, and start it again after the \
-                timer was due with both hosts down; the timer's \
-                input arrives once at the first start, and not again \
-                at the second",
+                set a timer 20 s ahead, and start it again after \
+                the timer was due with both hosts down; the timer's \
+                input arrives once at the first start, and not \
+                again at the second",
         demo: Demo::Linked { pid: NODE_PID },
         setup: &[
             "pi make 1",

@@ -1,20 +1,3 @@
-/**
- * The agent's own files. This extension offers no tool of its own: it
- * wraps each file tool of `hamlet.workspace`, so one `read` serves a
- * project path and a path in the agent's filesystem alike.
- *
- * A path at or below the filesystem's root is own, and goes to the
- * adapter in this process. Every other path goes on to the wrapped tool,
- * which calls the workspace. A relative path, and a left-out one, start
- * from the filesystem's root.
- *
- * The wrapped tools are `replay: "safe"`. An own read, write, search or
- * find is safe too: a rerun gives the same. An own `edit` is not, because a
- * rerun of an edit that already ran would not find its old text. So its
- * route marks the call in `api.memo` before it edits, and a rerun that finds
- * the mark answers that the outcome is unknown, as pi-durable does for an
- * unsafe tool.
- */
 import { isAbsolute } from "node:path";
 import type { Context } from "@earendil-works/chord/context";
 import { generateDiffString } from "@earendil-works/pi-coding-agent";
@@ -36,19 +19,16 @@ import {
 import type { Note, ReadAnswer, Refused } from "./messages.ts";
 import { failed, type Peers, unknownOutcome, words } from "./turn.ts";
 import {
+    type AbsoluteFileCall,
     changeWords,
     type Execute,
     editsOf,
-    type FileCall,
     type FileTool,
     type FileToolArgs,
     readResult,
 } from "./workspace-tools.ts";
 
 /**
- * Where a file tool's `path` leads: the absolute path, and whether it is
- * at or below the root of the agent's filesystem.
- *
  * A relative path is joined, not normalised, so one that climbs out of the
  * root stays own and the adapter refuses it.
  */
@@ -57,7 +37,7 @@ function reached(
     path: string | undefined,
 ): { readonly own: boolean; readonly path: string } {
     // No message tells the agent its project folder, so paths start from
-    // its own filesystem. When one does, this is the project folder.
+    // its own filesystem.
     const start = files.root;
     const absolute =
         path === undefined
@@ -71,12 +51,8 @@ function reached(
     };
 }
 
-/**
- * The route of each file tool. The type names every file tool of
- * `workspace-tools.ts`, so a file tool with no route does not compile.
- */
 function routes(peers: Peers): {
-    readonly [N in FileTool]: Execute<FileCall<N>>;
+    readonly [N in FileTool]: Execute<AbsoluteFileCall<N>>;
 } {
     const { files } = peers;
     return {
@@ -89,6 +65,9 @@ function routes(peers: Peers): {
                 : failed(file.error.message);
         },
         edit: async (args, api, context) => {
+            // A rerun of an edit that already ran would not find its old text,
+            // so a rerun that finds the mark answers that the outcome is
+            // unknown, as pi-durable does for an unsafe tool.
             if ((await api.memo<boolean>(EDIT_BEGAN, context)) === true) {
                 return unknownOutcome(
                     `The edit of ${args.path}`,
@@ -119,9 +98,8 @@ function routes(peers: Peers): {
 }
 
 /**
- * The extension `hamlet.own-files`. pi-durable applies every wrap after it
- * has gathered every tool, so the order of the two extensions does not
- * matter.
+ * pi-durable applies every wrap after it has gathered every tool, so the
+ * order of the two extensions does not matter.
  */
 export function ownFiles(peers: Peers): Extension {
     const own = routes(peers);
@@ -148,19 +126,13 @@ export function ownFiles(peers: Peers): Extension {
     });
 }
 
-/** The memo an own edit leaves before it runs. */
 const EDIT_BEGAN = "hamlet.own-edit.began";
 
-/** The most lines and bytes a read gives, as the workspace's (`crates/hamlet_actors/src/workspace.rs:48-49`). */
+/** As the workspace's (`crates/hamlet_actors/src/workspace.rs`). */
 const MOST_LINES = 2000;
 const MOST_BYTES = 50 * 1024;
 
-/**
- * What the workspace answers for a read of `bytes`: an image as it is, or
- * its lines from `offset`, at most `limit` of them and within the limits,
- * with a note on what was left out. Ported from
- * `crates/hamlet_actors/src/workspace/files/read.rs`.
- */
+/** Ported from `crates/hamlet_actors/src/workspace/files/read.rs`. */
 function readOf(
     path: string,
     bytes: Uint8Array,
@@ -220,7 +192,6 @@ function readOf(
     return text(head.text);
 }
 
-/** The first whole lines of `content` within the limits, and how it was cut. */
 function truncateHead(content: string): {
     readonly text: string;
     readonly lines: number;
@@ -267,14 +238,12 @@ function formatSize(bytes: number): string {
     return `${tenths(1024 * 1024)}MB`;
 }
 
-/** The last character boundary at or before `index`. */
 function characterEnd(bytes: Uint8Array, index: number): number {
     let end = index;
     while (end > 0 && ((bytes[end] ?? 0) & 0xc0) === 0x80) end--;
     return end;
 }
 
-/** The type of image `bytes` begin as, if it is one a model takes. */
 function imageOf(bytes: Uint8Array): string | undefined {
     const at = (offset: number, ...want: number[]) =>
         want.every((byte, index) => bytes[offset + index] === byte);
@@ -300,7 +269,7 @@ function imageOf(bytes: Uint8Array): string | undefined {
 
 async function written(
     files: AgentFilesystem,
-    args: FileCall<"write">,
+    args: AbsoluteFileCall<"write">,
     context: Context,
 ): Promise<ToolExecutionResult> {
     const done = await files.write(args.path, args.content, context);
@@ -311,7 +280,7 @@ async function written(
 
 async function searched(
     files: AgentFilesystem,
-    args: FileCall<"search">,
+    args: AbsoluteFileCall<"search">,
     context: Context,
 ): Promise<ToolExecutionResult> {
     const found = await files.search(
@@ -338,7 +307,7 @@ async function searched(
 
 async function found(
     files: AgentFilesystem,
-    args: FileCall<"find">,
+    args: AbsoluteFileCall<"find">,
     context: Context,
 ): Promise<ToolExecutionResult> {
     if (!args.name) {
@@ -357,10 +326,7 @@ async function found(
         : failed(matched.error.message);
 }
 
-/**
- * What a search or a find found, in today's words
- * (`crates/hamlet_server/src/work/tools/walk.rs:121-141`).
- */
+/** Today's words (`crates/hamlet_server/src/work/tools/walk.rs`). */
 function reported(found: Found<string>, none: string): ToolExecutionResult {
     const lines = found.found.length === 0 ? [none] : [...found.found];
     if (found.more) {

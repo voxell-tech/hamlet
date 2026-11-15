@@ -27,18 +27,15 @@ import { eventually, inFolder, startLocalHost } from "./support.ts";
 
 const CALL: CallOptions = { deadlineMs: 10_000 };
 
-/** The realm's deadline on a call to an agent. */
 const REALM_DEADLINE_MS = 4_000;
 
 type AgentAction = keyof AgentActions | "pi.wake";
 
-/** What a stand-in got from its call to an agent, and how long the call took. */
 type Got = (
     | { readonly answer: unknown }
     | { readonly error: { readonly group: string; readonly code: string } }
 ) & { readonly ms: number };
 
-/** Calls `agent/<n>`'s `name` with `message` as the caller `c` is, under the realm's deadline. */
 async function send(
     c: Calls,
     n: number,
@@ -64,7 +61,6 @@ async function send(
     }
 }
 
-/** The realm, `realm/local`: it sends as itself, allows every model request and takes every charge. */
 const realm = actor({
     actions: {
         send,
@@ -73,7 +69,6 @@ const realm = actor({
     },
 });
 
-/** The workspace, `workspace/local`: it sends as itself and adds no tools. */
 const workspace = actor({
     actions: {
         send,
@@ -91,11 +86,7 @@ function line(id: string, text: string): Submit {
     return { id, input: { type: "line", text } };
 }
 
-/**
- * The kinds of one host: the agent on faux models answering `responses`,
- * beside the stand-ins. `opened` counts the agent's `onCreate`s and
- * `onWake`s, the only callers of `files`.
- */
+/** `opened` counts the agent's `onCreate`s and `onWake`s. */
 function kindsAnswering(responses: FauxResponseStep[]) {
     const { faux, models, model } = fauxModels();
     faux.setResponses(responses);
@@ -111,7 +102,6 @@ function kindsAnswering(responses: FauxResponseStep[]) {
     return { files, kinds: { agent, realm, workspace } };
 }
 
-/** A host with the realm, the workspace and agent 1 created. */
 async function startWithAgent(
     dir: string,
     kinds: ReturnType<typeof kindsAnswering>["kinds"],
@@ -126,7 +116,6 @@ async function startWithAgent(
     return host;
 }
 
-/** What agent 1's file holds, read once its host is shut down. */
 function agentFile(dir: string) {
     const database = new DatabaseSync(
         join(dir, "actors", "agent", "1.sqlite"),

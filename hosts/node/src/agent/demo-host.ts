@@ -1,27 +1,3 @@
-/**
- * The Node host of `demo --link` with `HAMLET_DEMO_AGENT=pi`: `node
- * src/agent/demo-host.ts`, started by the demo's Rust host as its bound
- * child. It serves one kind, `agent`, as the real agent actor on a faux
- * model, until the Rust host's goodbye, and exits 0, or 1 when it could not.
- *
- * The model answers by the last message it is given. After a tool's result
- * it ends the turn with that result's words, prefixed `Done: `. An input
- * whose words start as a row of `LINES` says gets that tool call, and any
- * other input the answer `Heard: <its words>`.
- *
- * | Input | Tool call |
- * |---|---|
- * | `run: <script>` | `bash` running the script |
- * | `tell <n>: <text>` | `tell` to `hire#<n>` |
- * | `wake <seconds>: <note>` | `wake` |
- * | `write <path>: <content>` | `write` |
- * | `edit <path>: <old> -> <new>` | `edit` |
- * | `die in edit <path>: <old> -> <new>` | `edit`, inside which this process kills itself once the edit is marked begun, before the file is written |
- *
- * It keeps its pid in `PID_FILE` in the realm folder, which a demo command
- * prints, so a kill test can tell this process from the next one.
- */
-
 // Only Node's own modules and the native module are imported before the
 // take, as in `src/main.ts`.
 import { writeFileSync } from "node:fs";
@@ -40,7 +16,7 @@ import type { AgentFilesystem } from "./filesystem.ts";
 const NO_LINK =
     "this process has no link to a Rust host. The demo's Rust host starts it itself, with nothing between them: set HAMLET_NODE to the Node executable itself.";
 
-/** The file in the realm folder that holds this process's pid. */
+/** A kill test reads it to tell this process from the next one. */
 const PID_FILE = "demo-node.pid";
 
 function fail(words: string): never {
@@ -48,7 +24,6 @@ function fail(words: string): never {
     process.exit(1);
 }
 
-/** An error's message, with the cause an uncoded failure carries in its metadata. */
 function reason(error: unknown): string {
     if (!(error instanceof Error)) return String(error);
     const metadata: unknown = "metadata" in error ? error.metadata : undefined;
@@ -77,10 +52,8 @@ const [{ serveLink }, { agentActor }, { openAgentFilesystem }, ai] =
         import("@earendil-works/pi-ai"),
     ]);
 
-/** The paths of own edits that kill this process, which `die in edit` adds. */
 const dying = new Set<string>();
 
-/** One form of input that asks for a tool: the tool, and its arguments from the form's groups. */
 interface Line {
     readonly form: RegExp;
     readonly tool: string;
@@ -109,7 +82,6 @@ const LINES: readonly Line[] = [
         args: (path, content) => ({ path, content }),
     },
     {
-        // An optional group that did not match is `undefined`.
         form: /^(die in )?edit (\S+): (.+?) -> (.*)$/s,
         tool: "edit",
         args: (dies, path, oldText, newText) => {
@@ -119,7 +91,6 @@ const LINES: readonly Line[] = [
     },
 ];
 
-/** The words of a message, its images left out. */
 function wordsOf(message: Message): string {
     const content = message.content;
     if (typeof content === "string") return content;
@@ -128,7 +99,6 @@ function wordsOf(message: Message): string {
         .join("");
 }
 
-/** The model's answer to the transcript whose last message is `last`. */
 const answer: FauxResponseFactory = (context): AssistantMessage => {
     const last = context.messages.at(-1);
     if (last === undefined) return ai.fauxAssistantMessage("Heard nothing.");
@@ -146,10 +116,9 @@ const answer: FauxResponseFactory = (context): AssistantMessage => {
 };
 
 /**
- * `models` with `answer` queued before each request. The faux provider takes
- * a step off its queue when a request starts and runs it later, so a step
- * that queued the next one itself would leave none after a request that
- * never ran it.
+ * The faux provider takes a step off its queue when a request starts and
+ * runs it later, so a step that queued the next one itself would leave none
+ * after a request that never ran it.
  */
 function answering(models: Models, faux: FauxProviderHandle): Models {
     const queued = new Set<PropertyKey>([
@@ -173,7 +142,6 @@ function answering(models: Models, faux: FauxProviderHandle): Models {
     });
 }
 
-/** `files` whose `edit` kills this process for a path `die in edit` named. */
 function dyingIn(files: AgentFilesystem): AgentFilesystem {
     return {
         ...files,
