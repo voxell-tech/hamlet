@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use hamlet_actors::realm;
-use hamlet_messages::agent::InputId;
+use hamlet_messages::agent::{Input, InputId, Submit};
 use hamlet_messages::realm::client::{Say, SayAnswer, SayRefusal};
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::AgentNumber;
@@ -19,7 +19,7 @@ fn say(id: &RequestId, to: AgentNumber, text: &str) -> Say {
     })
 }
 
-fn submits_to(realm: &Realm, agent: AgentNumber) -> Vec<InputId> {
+fn submits_to(realm: &Realm, agent: AgentNumber) -> Vec<Submit> {
     realm
         .seen
         .submits
@@ -27,7 +27,7 @@ fn submits_to(realm: &Realm, agent: AgentNumber) -> Vec<InputId> {
         .unwrap()
         .iter()
         .filter(|(to, _)| *to == agent)
-        .map(|(_, submit)| submit.id.clone())
+        .map(|(_, submit)| submit.clone())
         .collect()
 }
 
@@ -75,8 +75,16 @@ async fn a_repeated_say_opens_one_task_and_submits_again() {
     assert_eq!(error_code(other), "message.id_reused");
     assert_eq!(tasks.len(), 1);
     assert_eq!(task.0, tasks[0].to_string());
-    let input = InputId(id.as_str().to_owned());
-    assert_eq!(submits_to(&realm, MAYOR), [input.clone(), input]);
+    let submit = Submit {
+        id: InputId(id.as_str().to_owned()),
+        task: Some(task.clone()),
+        input: Input::Line {
+            text: "build the mill".to_owned(),
+            images: Vec::new(),
+            files: Vec::new(),
+        },
+    };
+    assert_eq!(submits_to(&realm, MAYOR), [submit.clone(), submit]);
     realm.host.shutdown().await.unwrap();
 }
 
