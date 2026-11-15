@@ -232,7 +232,9 @@ with `actor.not_registered`.
 `child.rs` and `link.rs` join a Rust host to its Node child, the Node
 host, over the child's pipe. `child::open` opens a host whose other
 kinds run in the child, and its `Supervisor` starts the child, ends it
-with its tree, and starts another a second later when it is lost. The
+with its tree, and starts another when it is lost: a second later at
+first, and up to a minute later while each child ends before it has
+stayed ready for a minute. The
 child takes its ends with `take_link` and runs `link::serve`. The two
 say hello, welcome and ready (`link/frame.rs` holds the frames and their
 codec, `link.fingerprint` the frames' shapes), and then each takes the

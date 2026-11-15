@@ -35,8 +35,17 @@ const ENVIRONMENT: &[(&str, Value)] = &[
     ("HAMLET_FAULT_DIR", Value::Inherited),
 ];
 
-/// How long after a child has ended the next one starts.
+/// How long after a child has ended the next one starts, at first
+/// and after a child that stayed ready for [`STEADY`].
 const RESTART: Duration = Duration::from_secs(1);
+
+/// The longest pause between two children. Each child that ends
+/// before it stayed ready for [`STEADY`] doubles the pause up to it.
+const RESTART_CAP: Duration = Duration::from_secs(60);
+
+/// How long a child stays ready for the pause after it to go back to
+/// [`RESTART`].
+const STEADY: Duration = Duration::from_secs(60);
 
 /// How long a child has to say hello, from its start.
 const HELLO_DEADLINE: Duration = Duration::from_secs(30);
@@ -123,8 +132,11 @@ struct Supervised {
 
 /// Keeps one Node child running, from a thread of its own. A child
 /// that exits, breaks the link, misses a deadline of the handshake or
-/// is refused is killed with its tree and followed by a new one a
-/// second later, for as long as the supervisor runs.
+/// is refused is killed with its tree and followed by a new one, for
+/// as long as the supervisor runs. The new one starts a second later
+/// at first. Each child that ends before it stayed ready for a minute
+/// doubles that pause, up to a minute, and one that stayed ready for
+/// a minute brings it back to a second.
 ///
 /// Dropped, it stops: its thread sees the drop and shuts the running
 /// child down as [`Supervisor::shutdown`] does, and the drop does not
@@ -200,35 +212,58 @@ struct Running {
     /// What each read of the child's output gave: its frames, then
     /// its end or the break of the link.
     frames: mpsc::UnboundedReceiver<Result<Option<Frame>, Broken>>,
+    /// When the child said it is ready.
+    ready_at: Option<Instant>,
 }
 
 /// Starts a child, runs its session and ends it, and starts the next
-/// one a second later, until a shutdown.
+/// one after a pause, until a shutdown.
 async fn supervise(
     supervised: &Supervised,
     mut stop: oneshot::Receiver<()>,
 ) -> Option<ExitStatus> {
+    let mut pause = Pause(RESTART);
     loop {
-        match spawn(supervised) {
+        let steady = match spawn(supervised) {
             Ok(mut child) => {
                 let end =
                     session(supervised, &mut child, &mut stop).await;
+                let steady = child
+                    .ready_at
+                    .is_some_and(|ready| ready.elapsed() >= STEADY);
                 let status =
                     end_child(&supervised.port, child, &end).await;
                 if let End::Shutdown = end {
                     return status;
                 }
+                steady
             }
-            Err(error) => tracing::error!(
-                ?error,
-                argv = ?supervised.argv,
-                "could not start the Node host"
-            ),
-        }
+            Err(error) => {
+                tracing::error!(
+                    ?error,
+                    argv = ?supervised.argv,
+                    "could not start the Node host"
+                );
+                false
+            }
+        };
         tokio::select! {
             _ = &mut stop => return None,
-            () = tokio::time::sleep(RESTART) => {}
+            () = tokio::time::sleep(pause.after(steady)) => {}
         }
+    }
+}
+
+/// The pause before the next child starts.
+struct Pause(Duration);
+
+impl Pause {
+    /// The pause after a child ended: [`RESTART`] if it was `steady`,
+    /// else this one. The next is twice it, up to [`RESTART_CAP`].
+    fn after(&mut self, steady: bool) -> Duration {
+        let pause = if steady { RESTART } else { self.0 };
+        self.0 = (pause * 2).min(RESTART_CAP);
+        pause
     }
 }
 
@@ -258,6 +293,7 @@ fn spawn(supervised: &Supervised) -> io::Result<Running> {
         tree,
         out,
         frames: received,
+        ready_at: None,
     })
 }
 
@@ -370,6 +406,7 @@ async fn session(
             }
             (LinkState::Welcomed, Frame::Ready) => {
                 port.ready();
+                child.ready_at = Some(Instant::now());
                 deadline = None;
             }
             (LinkState::Down, frame) => {
@@ -491,4 +528,22 @@ impl Frames {
 
 pub(crate) fn take_ends() -> Option<Ends> {
     ENDS.lock().take()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_pause_doubles_to_a_minute_and_a_steady_child_brings_it_back()
+     {
+        let mut pause = Pause(RESTART);
+        let seconds =
+            |pause: &mut Pause, steady| pause.after(steady).as_secs();
+        let unsteady: Vec<_> =
+            (0..8).map(|_| seconds(&mut pause, false)).collect();
+        assert_eq!(unsteady, [1, 2, 4, 8, 16, 32, 60, 60]);
+        assert_eq!(seconds(&mut pause, true), 1);
+        assert_eq!(seconds(&mut pause, false), 2);
+    }
 }
