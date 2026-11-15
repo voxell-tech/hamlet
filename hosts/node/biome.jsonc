@@ -39,14 +39,17 @@
                             "options": {
                                 "patterns": [
                                     {
-                                        "group": ["**/actor/actor/calls.ts"],
+                                        "group": [
+                                            "**/actor/actor/calls.ts",
+                                            "**/actor/actor/calls.js"
+                                        ],
                                         "message": "Import from actor/mod.ts instead."
                                     },
                                     {
                                         "group": [
                                             "**/actor/registry/native.ts"
                                         ],
-                                        "importNamePattern": "(callThrough|withConnCaller)",
+                                        "importNamePattern": "(callThrough|withConnCaller|callNative)",
                                         "message": "Only the actor layer calls through the native module."
                                     }
                                 ]

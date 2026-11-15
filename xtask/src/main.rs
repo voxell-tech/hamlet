@@ -186,8 +186,8 @@ enum Failure {
     #[error("declarations: napi build wrote no {0}")]
     NoDeclarations(&'static str),
     #[error(
-        "{NATIVE}/{0} did not match the Rust and are rewritten: \
-         commit them"
+        "{NATIVE}/{0} did not match the Rust: rewritten, commit the \
+         change"
     )]
     StaleDeclarations(String),
 }
@@ -610,7 +610,7 @@ fn declarations(root: &Path) -> Result<(), Failure> {
         .arg(Path::new("../..").join(NAPI_TYPES).join("declarations"))
         .current_dir(root.join(NATIVE))
         .env("CARGO_TARGET_DIR", &target);
-    if env::var_os("CI").is_some() {
+    if ci() {
         napi.arg("--cargo-flags=--locked");
     }
     status(&mut napi)?;
@@ -728,11 +728,16 @@ fn cargo(args: &[&str]) -> Command {
 /// so CI fails on a stale `Cargo.lock` that a local run updates.
 fn locked(subcommand: &str, args: &[&str]) -> Command {
     let mut command = cargo(&[subcommand]);
-    if env::var_os("CI").is_some() {
+    if ci() {
         command.arg("--locked");
     }
     command.args(args);
     command
+}
+
+/// Whether this runs in CI, where cargo must not update `Cargo.lock`.
+fn ci() -> bool {
+    env::var_os("CI").is_some()
 }
 
 /// npm running `args` on the Node package in `package`.
