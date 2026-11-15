@@ -16,6 +16,10 @@ pub(super) async fn of(
     let version = PlaceVersion(versions::place(rows, agent).await?);
     let lineage = tree::lineage_of(rows, agent).await?;
     let lead = lineage.agent.lead;
+    let folder = lineage
+        .hamlet
+        .as_ref()
+        .and_then(|hamlet| hamlet.folder.clone());
     let (hires, roads) = roads::of(rows, agent)
         .await?
         .into_iter()
@@ -30,7 +34,7 @@ pub(super) async fn of(
         hires,
         roads,
         tools_off: tree::tools::off_for(rows, agent).await?,
-        folder: None,
+        folder,
     })
 }
 

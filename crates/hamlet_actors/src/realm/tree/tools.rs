@@ -62,8 +62,8 @@ impl<By: Lead> Act<By> for SetTools {
         if let Err(not_a_lead) = by.leads(&lineage, hire) {
             return Decision::Answer(Done::refused(not_a_lead));
         }
-        if let Status::Ended(_) = lineage.agent.status {
-            return refuse(OnlyAHire::NotAHire);
+        if let Status::Ended(left) = lineage.agent.status {
+            return refuse(OnlyAHire::Left { hire, left });
         }
         Decision::Change(
             Decided::new(())
@@ -72,7 +72,11 @@ impl<By: Lead> Act<By> for SetTools {
                     off: self.off.clone(),
                     on: self.on.clone(),
                 })
-                .record(record::Entry::Tools { hire, by: by.by() }),
+                .record(record::Entry::Tools {
+                    hire,
+                    by: by.by(),
+                    why: self.why.clone(),
+                }),
         )
     }
 
