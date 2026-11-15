@@ -8,8 +8,8 @@ use hamlet_actor::{BindParam, Ctx};
 use hamlet_messages::address::Agent;
 use hamlet_messages::agent::{Author, Input, InputId, Submit};
 use hamlet_messages::realm::{
-    AgentRefusal, Ask, Done, LetterId, LetterRefusal, Named,
-    Refusable, Reply, ReplyRefusal, Tell,
+    AgentRefusal, Ask, Done, Enclosed, LetterId, LetterRefusal,
+    Named, Refusable, Reply, ReplyRefusal, Tell,
 };
 use hamlet_messages::workspace::{
     AgentNumber, ConversationId, RealmTask,
@@ -19,11 +19,12 @@ use serde::{Deserialize, Serialize};
 use super::act::{Act, Decided, Decision};
 use super::calls::{Calls, Delivery, Made};
 use super::change::{self, Affected, Rows, Writer, number};
+use super::oversight::asking;
 use super::peer::When;
 use super::roads::{self, End, Ends, Way};
 use super::tasks::TaskId;
 use super::tree::{self, Status};
-use super::{Realm, hire, laid};
+use super::{Realm, hire, laid, parcels};
 
 type Sent = Done<AgentRefusal<LetterRefusal>>;
 
@@ -182,8 +183,17 @@ async fn letter_input(
         .with_context(|| format!("no letter {}", letter.0))?;
     let from = author(sender);
     let input = match change::from_case_name::<Kind>(kind)? {
-        Kind::Letter => Input::Letter { from, text },
-        Kind::Question => Input::Question { letter, from, text },
+        Kind::Letter => Input::Letter {
+            from,
+            text,
+            files: Vec::new(),
+        },
+        Kind::Question => Input::Question {
+            letter,
+            from,
+            text,
+            files: Vec::new(),
+        },
     };
     let submit = Submit {
         id: InputId(format!("letter/{}", letter.0)),
@@ -235,9 +245,65 @@ fn author(agent: u32) -> Author {
     }
 }
 
+/// What becomes of a letter or an answer once it is kept.
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize,
+)]
+pub(super) enum Route {
+    /// It is delivered at once.
+    Now(LetterId),
+    /// It is kept while its receiver's task is held.
+    Held(LetterId),
+    /// Its parcel's steps deliver it once its files are copied.
+    Parcel(LetterId),
+}
+
+impl Route {
+    /// The kept letter or answer, routed by the changes that hold it
+    /// or send its files.
+    fn of(
+        kept: Decided<LetterId>,
+        held: Option<asking::Change>,
+        parcel: Option<Vec<change::Change>>,
+    ) -> Decided<Self> {
+        let Decided {
+            done: letter,
+            mut changes,
+            entries,
+        } = kept;
+        let done = if let Some(parcel) = parcel {
+            changes.extend(parcel);
+            Self::Parcel(letter)
+        } else if let Some(held) = held {
+            changes.push(held.into());
+            Self::Held(letter)
+        } else {
+            Self::Now(letter)
+        };
+        Decided {
+            done,
+            changes,
+            entries,
+        }
+    }
+
+    fn calls(self, delivery: fn(LetterId) -> Delivery) -> Calls {
+        match self {
+            Self::Now(letter) => {
+                Calls::after_answer(delivery(letter))
+            }
+            Self::Held(_) | Self::Parcel(_) => Calls::none(),
+        }
+    }
+}
+
 pub(super) struct Letter {
     ends: Ends,
     id: LetterId,
+    /// The change that keeps it while its receiver's task is held.
+    held: Option<asking::Change>,
+    /// The changes that send its files.
+    parcel: Option<Vec<change::Change>>,
 }
 
 impl Letter {
@@ -245,10 +311,29 @@ impl Letter {
         rows: &Rows<'_>,
         by: &Agent,
         to: &Named,
+        task: Option<&RealmTask>,
+        paths: &[Enclosed],
     ) -> Result<Self> {
+        let ends = roads::ends(rows, by, to).await?;
+        let id = fresh(rows).await?;
+        let held = match &ends.to {
+            Some(to) => {
+                let task = task.and_then(TaskId::of);
+                let letter = Delivery::Letter(id);
+                asking::holds(rows, to.agent, task, letter).await?
+            }
+            None => None,
+        };
+        let parcel = if paths.is_empty() {
+            None
+        } else {
+            parcels::start(rows, id, paths).await?
+        };
         Ok(Self {
-            ends: roads::ends(rows, by, to).await?,
-            id: fresh(rows).await?,
+            ends,
+            id,
+            held,
+            parcel,
         })
     }
 }
@@ -261,11 +346,16 @@ pub(super) struct Written<'a> {
 }
 
 impl Written<'_> {
-    fn decide(self, letter: Letter) -> Decision<LetterId, Sent> {
+    fn decide(self, letter: Letter) -> Decision<Route, Sent> {
         let refuse = |why| {
             Decision::Answer(Done::refused(AgentRefusal::Act(why)))
         };
-        let Letter { ends, id } = letter;
+        let Letter {
+            ends,
+            id,
+            held,
+            parcel,
+        } = letter;
         let Some(to) = &ends.to else {
             return refuse(LetterRefusal::NoSuchAgent);
         };
@@ -292,7 +382,8 @@ impl Written<'_> {
                 )),
             };
         }
-        Decision::Change(self.keep(id, ends.from.agent, to, way))
+        let kept = self.keep(id, ends.from.agent, to, way);
+        Decision::Change(Route::of(kept, held, parcel))
     }
 
     pub fn keep(
@@ -330,21 +421,28 @@ impl Written<'_> {
 impl Act<Agent> for Tell {
     type Output = Sent;
     type Loaded = Letter;
-    type Done = LetterId;
+    type Done = Route;
 
     async fn load(
         &self,
         by: &Agent,
         rows: &Rows<'_>,
     ) -> Result<Letter> {
-        Letter::load(rows, by, &self.to).await
+        Letter::load(
+            rows,
+            by,
+            &self.to,
+            self.task.as_ref(),
+            &self.paths,
+        )
+        .await
     }
 
     fn decide(
         &self,
         _by: &Agent,
         letter: Letter,
-    ) -> Decision<LetterId, Sent> {
+    ) -> Decision<Route, Sent> {
         let written = Written {
             kind: Kind::Letter,
             text: &self.text,
@@ -354,11 +452,11 @@ impl Act<Agent> for Tell {
         written.decide(letter)
     }
 
-    fn deliveries(&self, _by: &Agent, letter: &LetterId) -> Calls {
-        Calls::after_answer(Delivery::Letter(*letter))
+    fn deliveries(&self, _by: &Agent, route: &Route) -> Calls {
+        route.calls(Delivery::Letter)
     }
 
-    fn answer(&self, _letter: LetterId, _made: &Made) -> Sent {
+    fn answer(&self, _route: Route, _made: &Made) -> Sent {
         Done::Done
     }
 }
@@ -366,21 +464,28 @@ impl Act<Agent> for Tell {
 impl Act<Agent> for Ask {
     type Output = Sent;
     type Loaded = Letter;
-    type Done = LetterId;
+    type Done = Route;
 
     async fn load(
         &self,
         by: &Agent,
         rows: &Rows<'_>,
     ) -> Result<Letter> {
-        Letter::load(rows, by, &self.to).await
+        Letter::load(
+            rows,
+            by,
+            &self.to,
+            self.task.as_ref(),
+            &self.paths,
+        )
+        .await
     }
 
     fn decide(
         &self,
         _by: &Agent,
         letter: Letter,
-    ) -> Decision<LetterId, Sent> {
+    ) -> Decision<Route, Sent> {
         let written = Written {
             kind: Kind::Question,
             text: &self.text,
@@ -390,33 +495,36 @@ impl Act<Agent> for Ask {
         written.decide(letter)
     }
 
-    fn deliveries(&self, _by: &Agent, letter: &LetterId) -> Calls {
-        Calls::after_answer(Delivery::Letter(*letter))
+    fn deliveries(&self, _by: &Agent, route: &Route) -> Calls {
+        route.calls(Delivery::Letter)
     }
 
-    fn answer(&self, _letter: LetterId, _made: &Made) -> Sent {
+    fn answer(&self, _route: Route, _made: &Made) -> Sent {
         Done::Done
     }
 }
 
 pub(super) struct Question {
     pub asked: AgentNumber,
+    /// The change that keeps the answer while the asker's task is
+    /// held.
+    pub held: Option<asking::Change>,
 }
 
 impl Act<Agent> for Reply {
     type Output = Done<ReplyRefusal>;
     type Loaded = Option<Question>;
-    type Done = LetterId;
+    type Done = Route;
 
     async fn load(
         &self,
         _by: &Agent,
         rows: &Rows<'_>,
     ) -> Result<Option<Question>> {
-        let asked = rows
-            .value::<u32>(
-                "SELECT receiver FROM letter WHERE id = ?1 AND kind \
-                 = ?2",
+        let found = rows
+            .row::<(u32, u32, Option<TaskId>)>(
+                "SELECT receiver, sender, task FROM letter WHERE id \
+                 = ?1 AND kind = ?2",
                 vec![
                     change::integer(self.question.0)?,
                     BindParam::Text(change::case_name(
@@ -425,8 +533,19 @@ impl Act<Agent> for Reply {
                 ],
             )
             .await?;
-        Ok(asked.map(|asked| Question {
+        let Some((asked, asker, task)) = found else {
+            return Ok(None);
+        };
+        let answer = Delivery::Answer(self.question);
+        Ok(Some(Question {
             asked: AgentNumber(asked),
+            held: asking::holds(
+                rows,
+                AgentNumber(asker),
+                task,
+                answer,
+            )
+            .await?,
         }))
     }
 
@@ -434,7 +553,7 @@ impl Act<Agent> for Reply {
         &self,
         by: &Agent,
         question: Option<Question>,
-    ) -> Decision<LetterId, Self::Output> {
+    ) -> Decision<Route, Self::Output> {
         let Some(question) = question else {
             return Decision::Answer(Done::refused(
                 ReplyRefusal::NoSuchQuestion,
@@ -445,23 +564,19 @@ impl Act<Agent> for Reply {
                 ReplyRefusal::NotAsked,
             ));
         }
-        Decision::Change(Decided::new(self.question).change(
-            Change::Answer {
+        let kept =
+            Decided::new(self.question).change(Change::Answer {
                 question: self.question,
                 text: self.text.clone(),
-            },
-        ))
+            });
+        Decision::Change(Route::of(kept, question.held, None))
     }
 
-    fn deliveries(&self, _by: &Agent, question: &LetterId) -> Calls {
-        Calls::after_answer(Delivery::Answer(*question))
+    fn deliveries(&self, _by: &Agent, route: &Route) -> Calls {
+        route.calls(Delivery::Answer)
     }
 
-    fn answer(
-        &self,
-        _question: LetterId,
-        _made: &Made,
-    ) -> Self::Output {
+    fn answer(&self, _route: Route, _made: &Made) -> Self::Output {
         Done::Done
     }
 }
@@ -508,6 +623,8 @@ mod tests {
                 laid: false,
             },
             id: LetterId(1),
+            held: None,
+            parcel: None,
         };
         assert_eq!(
             tell(4).decide(&sender(), letter),
@@ -530,6 +647,8 @@ mod tests {
                 laid: false,
             },
             id: LetterId(1),
+            held: None,
+            parcel: None,
         };
         let ask = Ask {
             to: Named::Agent {
@@ -567,6 +686,8 @@ mod tests {
                 laid: false,
             },
             id: LetterId(1),
+            held: None,
+            parcel: None,
         };
         assert!(matches!(
             tell(4).decide(&sender(), letter),

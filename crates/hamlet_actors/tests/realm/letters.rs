@@ -87,7 +87,8 @@ async fn a_repeated_tell_keeps_one_letter() {
         submits[0].input,
         Input::Letter {
             from: from(MAYOR),
-            text: "hi".to_owned()
+            text: "hi".to_owned(),
+            files: Vec::new(),
         }
     );
     realm.host.shutdown().await.unwrap();
@@ -256,6 +257,7 @@ async fn a_tell_to_a_hire_still_hiring_waits_for_its_steps() {
     // steps and is sent.
     let options = realm::Options {
         hiring_wait: Duration::from_secs(1),
+        ..realm::Options::default()
     };
     let realm =
         Realm::start_with(Some(options), Seen::default()).await;
@@ -309,6 +311,7 @@ async fn an_answer_reaches_the_asker_once() {
         letter,
         from: asker,
         text,
+        ..
     } = &question.input
     else {
         panic!("agent 3 got a question: {question:?}");

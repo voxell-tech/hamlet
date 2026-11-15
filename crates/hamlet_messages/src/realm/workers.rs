@@ -4,9 +4,12 @@
 use hamlet_actor::Action;
 use serde::{Deserialize, Serialize};
 
-use super::{ChiefRequest, Done, HamletId, Named, Refusable};
+use super::{
+    AgentRefusal, ChiefRequest, Done, HamletId, LeadRefusal, Left,
+    Named, Refusable, SocietyTool, ToolCall, ToolName,
+};
 use crate::address::{Agent, Realm};
-use crate::agent::BuiltIn;
+use crate::agent::chat::Count;
 use crate::workspace::{AgentNumber, RealmTask};
 use crate::{Message, worded};
 
@@ -18,7 +21,7 @@ pub struct StartWorker {
     /// The built-in tools the worker may use; empty for the
     /// starter's.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub tools: Vec<BuiltIn>,
+    pub tools: Vec<ToolName>,
     /// The task that pays; a chief's worker gets a task of its own.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub task: Option<RealmTask>,
@@ -30,6 +33,11 @@ pub struct StartWorker {
 impl ChiefRequest for StartWorker {
     const NAME: &'static str = "chief_start_worker";
     type Answer = Started<WorkerRefusal>;
+}
+
+impl ToolCall for StartWorker {
+    const TOOL: SocietyTool = SocietyTool::StartWorker;
+    type Answer = Started<AgentRefusal<WorkerRefusal>>;
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -69,11 +77,11 @@ impl<W> Refusable for Started<W> {
 )]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum WorkerRefusal {
-    #[error("the brief is empty")]
+    #[error("say what the worker is to do")]
     EmptyBrief,
     #[error("there is no built-in tool `{tool}`")]
     NoSuchTool { tool: String },
-    #[error("a worker starts no worker")]
+    #[error("a worker cannot do that")]
     AWorker,
     #[error("only a chief names a worker's hamlet")]
     HamletFromAnAgent,
@@ -127,7 +135,7 @@ pub struct SetAllowance {
     pub hire: Named,
     /// In millionths of a dollar. Absent takes the allowance away.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub micros: Option<u64>,
+    pub micros: Option<Count>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub why: Option<String>,
 }
@@ -135,6 +143,11 @@ pub struct SetAllowance {
 impl ChiefRequest for SetAllowance {
     const NAME: &'static str = "chief_set_allowance";
     type Answer = Done<AllowanceRefusal>;
+}
+
+impl ToolCall for SetAllowance {
+    const TOOL: SocietyTool = SocietyTool::SetAllowance;
+    type Answer = Done<LeadRefusal<AllowanceRefusal>>;
 }
 
 #[derive(
@@ -152,6 +165,8 @@ pub enum AllowanceRefusal {
     NoSuchAgent,
     #[error("only a hire has an allowance")]
     NotAHire,
+    #[error("`hire#{}` has left: {left}", hire.0)]
+    Left { hire: AgentNumber, left: Left },
     #[error(
         "an allowance is at most its lead's, {lead_micros} \
          millionths of a dollar"

@@ -15,10 +15,10 @@ use hamlet_messages::workspace::AgentNumber;
 use super::super::act::{Act, Decided, Decision};
 use super::super::callers::{Lead, RealmWide};
 use super::super::calls::Made;
-use super::super::change::{Affected, Rows, Writer, number};
+use super::super::change::{self, Affected, Rows, Writer, number};
 use super::super::world::Part;
 use super::super::{
-    chiefs, hire, laid, record, roads, steps, tasks, waits,
+    chiefs, hire, laid, record, roads, steps, tasks, waits, workers,
 };
 use super::{Change, Lineage, Member, Of, Status};
 
@@ -181,27 +181,36 @@ impl<By: Lead> Act<By> for Hire {
     }
 }
 
+pub(in crate::realm) struct Ending {
+    lineage: Option<Lineage>,
+    /// The changes that stop the hire's living workers.
+    workers: Vec<change::Change>,
+}
+
 impl<By: Lead> Act<By> for End {
     type Output = Done<By::Why<EndRefusal>>;
-    type Loaded = Option<Lineage>;
+    type Loaded = Ending;
     type Done = ();
 
-    async fn load(
-        &self,
-        by: &By,
-        rows: &Rows<'_>,
-    ) -> Result<Option<Lineage>> {
-        super::named(rows, by, &self.hire).await
+    async fn load(&self, by: &By, rows: &Rows<'_>) -> Result<Ending> {
+        let lineage = super::named(rows, by, &self.hire).await?;
+        let workers = match &lineage {
+            Some(lineage) => {
+                workers::end_with(rows, lineage.agent.agent).await?
+            }
+            None => Vec::new(),
+        };
+        Ok(Ending { lineage, workers })
     }
 
     fn decide(
         &self,
         by: &By,
-        lineage: Option<Lineage>,
+        ending: Ending,
     ) -> Decision<(), Self::Output> {
         let refuse =
             |why| Decision::Answer(Done::refused(By::refused(why)));
-        let Some(lineage) = lineage else {
+        let Some(lineage) = ending.lineage else {
             return refuse(EndRefusal::NoSuchAgent);
         };
         let hire = lineage.agent.agent;
@@ -220,23 +229,23 @@ impl<By: Lead> Act<By> for End {
                 left: left.clone(),
             });
         }
-        Decision::Change(
-            Decided::new(())
-                .change(Change::End {
-                    agent: hire,
-                    by: by.by(),
-                    why: self.why.clone(),
-                })
-                .change(waits::Change::Lapse { agent: hire })
-                .change(steps::Change::Close {
-                    row: hire::row(hire),
-                })
-                .record(record::Entry::Ended {
-                    hire,
-                    by: by.by(),
-                    why: self.why.clone(),
-                }),
-        )
+        let mut decided = Decided::new(())
+            .change(Change::End {
+                agent: hire,
+                by: by.by(),
+                why: self.why.clone(),
+            })
+            .change(waits::Change::Lapse { agent: hire })
+            .change(steps::Change::Close {
+                row: hire::row(hire),
+            })
+            .record(record::Entry::Ended {
+                hire,
+                by: by.by(),
+                why: self.why.clone(),
+            });
+        decided.changes.extend(ending.workers);
+        Decision::Change(decided)
     }
 
     fn answer(&self, (): (), _made: &Made) -> Self::Output {
@@ -477,6 +486,13 @@ mod tests {
         }
     }
 
+    fn ending(lineage: Lineage) -> Ending {
+        Ending {
+            lineage: Some(lineage),
+            workers: Vec::new(),
+        }
+    }
+
     fn seat_5() -> Seat {
         Seat {
             hire: Named::Agent {
@@ -645,7 +661,7 @@ mod tests {
     #[test]
     fn a_lead_ends_only_what_is_under_it() {
         let decide =
-            |lead| end_5().decide(&by(lead), Some(lineage_of_5()));
+            |lead| end_5().decide(&by(lead), ending(lineage_of_5()));
         assert!(matches!(decide(3), Decision::Change(_)));
         assert_eq!(
             decide(4),
@@ -660,7 +676,7 @@ mod tests {
     #[test]
     fn an_end_lapses_the_waits_and_closes_the_steps() {
         let Decision::Change(decided) =
-            end_5().decide(&by(3), Some(lineage_of_5()))
+            end_5().decide(&by(3), ending(lineage_of_5()))
         else {
             panic!("the lead of 5 ends it");
         };
@@ -686,7 +702,7 @@ mod tests {
     fn an_end_refuses_the_hand_the_mayor_and_a_hire_that_left() {
         let refused = |lineage, why| {
             assert_eq!(
-                end_5().decide(&Client, Some(lineage)),
+                end_5().decide(&Client, ending(lineage)),
                 Decision::Answer(Done::Refused { why })
             );
         };

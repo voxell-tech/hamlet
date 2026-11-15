@@ -5,31 +5,16 @@ use anyhow::Result;
 use hamlet_actor::BindParam;
 use hamlet_messages::agent::AgentKind;
 use hamlet_messages::realm::{
-    Done, OnlyAHire, Refusable, SetTools, SocietyTool, ToolName,
+    Done, OnlyAHire, Refusable, SetTools, ToolName,
 };
 use hamlet_messages::workspace::AgentNumber;
 
 use super::super::act::{Act, Decided, Decision};
 use super::super::callers::Lead;
 use super::super::calls::Made;
-use super::super::change::{self, Affected, Rows, Writer, number};
+use super::super::change::{Affected, Rows, Writer, number};
 use super::super::record;
 use super::{Lineage, Status};
-
-pub(in crate::realm) async fn is_off(
-    rows: &Rows<'_>,
-    agent: AgentNumber,
-    tool: SocietyTool,
-) -> Result<bool> {
-    Ok(rows
-        .value::<i64>(
-            "SELECT 1 FROM hire_tool_off WHERE hire = ?1 AND tool = \
-             ?2",
-            vec![number(agent), column(tool)?],
-        )
-        .await?
-        .is_some())
-}
 
 pub(in crate::realm) async fn off_for(
     rows: &Rows<'_>,
@@ -126,8 +111,4 @@ pub(in crate::realm) async fn set(
         affected.places.insert(hire);
     }
     Ok(affected)
-}
-
-fn column(tool: SocietyTool) -> Result<BindParam> {
-    Ok(BindParam::Text(change::case_name(&tool)?))
 }

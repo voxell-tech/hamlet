@@ -116,7 +116,9 @@ use hamlet_messages::realm::budget::{
 use hamlet_messages::realm::client::{
     self, AnswerRefusal, ReadWorld, Say, SayAnswer,
 };
-use hamlet_messages::realm::world::{ReachSeen, Seen, Status};
+use hamlet_messages::realm::world::{
+    ReachSeen, Seen, Status, WaitKind,
+};
 use hamlet_messages::realm::{
     AgentRefusal, Ask, ChiefRequest, Done, End, Found, FoundAnswer,
     Hire, HireAnswer, LetterId, LetterRefusal, Named, NeedsChief,
@@ -541,12 +543,12 @@ impl Handler<Submit> for StandInAgent {
             Input::WorkerAnswer { text, .. } => {
                 ("worker_answer", text, None, None)
             }
-            Input::Letter { from, text } => {
+            Input::Letter { from, text, .. } => {
                 ("letter", text, Some(from), None)
             }
-            Input::Question { letter, from, text } => {
-                ("question", text, Some(from), Some(letter))
-            }
+            Input::Question {
+                letter, from, text, ..
+            } => ("question", text, Some(from), Some(letter)),
             Input::Answer {
                 question,
                 from,
@@ -1009,6 +1011,7 @@ async fn as_chief(host: &Host, words: &[String]) -> Result<()> {
                 budget: vec![BudgetLimit::Cost {
                     micros: number(Some(micros))?,
                 }],
+                limits: Vec::new(),
             };
             match request(host, limits).await? {
                 Done::Done => {
@@ -1451,10 +1454,13 @@ fn print_world(seen: &Seen) -> Result<()> {
         writeln!(out, "reach/{n}/{word} {version}")?;
     }
     for wait in &seen.waits {
+        let WaitKind::Tool { call, .. } = &wait.kind else {
+            continue;
+        };
         writeln!(
             out,
             "wait/{}/{} {}",
-            wait.agent.0, wait.call.0, wait.wait.0
+            wait.agent.0, call.0, wait.wait.0
         )?;
     }
     for spend in &seen.spend {

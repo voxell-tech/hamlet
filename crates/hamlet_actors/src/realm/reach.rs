@@ -9,7 +9,7 @@ use hamlet_messages::workspace::{AgentNumber, InForce, SetReach};
 use super::change::{self, Rows};
 use super::peer::When;
 use super::tree::{self, Status};
-use super::{Realm, secrets, versions};
+use super::{Realm, secrets, settings, versions};
 
 /// `agent`'s reach as the rows give it now, under its wanted version:
 /// the hamlet's folder and mode, the agent's own filesystem, the
@@ -20,6 +20,7 @@ pub(super) async fn of(
 ) -> Result<SetReach> {
     let (version, _) = versions::reach(rows, agent).await?;
     let lineage = tree::lineage_of(rows, agent).await?;
+    let network = settings::read(rows).await?.allow_net;
     let reach = match lineage.agent.status {
         Status::Ended(_) => Reach::Ended,
         Status::Hiring | Status::Live => Reach::Agent(Footing {
@@ -29,7 +30,7 @@ pub(super) async fn of(
                     mode: hamlet.mode,
                 })
             }),
-            network: false,
+            network,
             trust: Vec::new(),
             secrets: secrets::VERSION,
         }),

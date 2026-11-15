@@ -1,6 +1,7 @@
 //! The realm's row, the chief and the hamlets: the `realm`, `chief`,
 //! `hamlet` and `hamlet_chief` tables, and founding a hamlet.
 
+pub(super) mod hamlet;
 pub(super) mod limits;
 mod tier;
 

@@ -1,6 +1,7 @@
 //! The tree of hires: the `profile`, `agent`, `hire` and
 //! `hire_tool_off` tables, and the lead's powers over them.
 
+pub(super) mod choices;
 mod lead;
 pub(super) mod tools;
 

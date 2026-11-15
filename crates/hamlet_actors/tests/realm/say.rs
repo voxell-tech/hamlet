@@ -69,7 +69,12 @@ async fn a_say_to_a_hiring_hire_waits_for_its_steps() {
     // hold the mayor's branch; say to it while `hiring`; release
     // while the say waits: `Taken` once it is live. With a wait
     // shorter than the hold, `StillHiring`, and nothing submitted.
-    let wait = |hiring_wait| Some(realm::Options { hiring_wait });
+    let wait = |hiring_wait| {
+        Some(realm::Options {
+            hiring_wait,
+            ..realm::Options::default()
+        })
+    };
     let realm = Realm::start_with(
         wait(Duration::from_secs(10)),
         Seen::default(),

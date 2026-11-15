@@ -5,7 +5,8 @@ use hamlet_messages::address;
 use hamlet_messages::realm::budget::{Charge, Payer};
 use hamlet_messages::realm::client::ReadWorld;
 use hamlet_messages::realm::world::{
-    AgentSeen, ReachSeen, Revision, Seen, Status, WaitId, WaitSeen,
+    AgentSeen, ReachSeen, Revision, Seen, Status, WaitId, WaitKind,
+    WaitSeen,
 };
 use hamlet_messages::realm::{Asked, Done, End, Named};
 use hamlet_messages::sender::Hand;
@@ -117,8 +118,10 @@ async fn the_revision_survives_a_restart() {
         [WaitSeen {
             wait: WaitId(1),
             agent: MAYOR,
-            call: CallId("c1".to_owned()),
-            subject: "rm -rf build".to_owned(),
+            kind: WaitKind::Tool {
+                call: CallId("c1".to_owned()),
+                subject: "rm -rf build".to_owned(),
+            },
         }]
     );
     assert_eq!(

@@ -3,12 +3,14 @@ use std::path::Path;
 /// Each realm module that writes rows, and the tables it may write.
 const WRITERS: &[(&str, &[&str])] = &[
     ("chiefs.rs", &["realm", "chief", "hamlet", "hamlet_chief"]),
+    ("chiefs/hamlet.rs", &["hamlet", "hamlet_folder"]),
     ("chiefs/limits.rs", &["realm", "hamlet"]),
     ("chiefs/tier.rs", &["hamlet"]),
     ("tree.rs", &["profile", "agent", "hire"]),
+    ("tree/choices.rs", &["nickname", "model_choice"]),
     ("tree/lead.rs", &["agent", "hire"]),
     ("tree/tools.rs", &["hire_tool_off"]),
-    ("versions.rs", &["reach", "place", "revision"]),
+    ("versions.rs", &["reach", "place", "revision", "copy"]),
     ("marker.rs", &["marker"]),
     ("record.rs", &["decision"]),
     ("steps.rs", &["step"]),
@@ -17,7 +19,22 @@ const WRITERS: &[(&str, &[&str])] = &[
     ("laid.rs", &["road"]),
     ("budget.rs", &["charge", "budget_reset"]),
     ("waits.rs", &["wait"]),
+    ("oversight.rs", &["grant", "trust"]),
+    ("oversight/asking.rs", &["objection", "held"]),
+    ("workers.rs", &["worker"]),
+    ("workers/errands.rs", &["errand"]),
+    ("reviews.rs", &["review"]),
+    ("allowance.rs", &["allowance"]),
+    ("society.rs", &["agreement"]),
+    ("documents.rs", &["document"]),
+    ("settings.rs", &["settings"]),
+    ("parcels.rs", &["parcel", "parcel_file"]),
 ];
+
+/// The handlers that run outside `Act`, by module: each writes
+/// something other than rows before it commits.
+const OUTSIDE_ACT: &[(&str, &str)] =
+    &[("secrets.rs", "KeepCredential")];
 
 #[test]
 fn each_table_has_one_writer() {
@@ -48,6 +65,41 @@ fn each_table_has_one_writer() {
         wrong.is_empty(),
         "a table has another writer:\n{}",
         wrong.join("\n")
+    );
+}
+
+#[test]
+fn each_handler_outside_act_is_named() {
+    let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let realm = src.join("realm");
+    let mut unnamed = Vec::new();
+    for file in rust_files(&realm) {
+        let module = file
+            .strip_prefix(&realm)
+            .unwrap()
+            .to_string_lossy()
+            .replace('\\', "/");
+        if module == "callers.rs" {
+            continue;
+        }
+        let text = std::fs::read_to_string(&file).unwrap();
+        let code = without_test_items(&text);
+        for (at, _) in code.match_indices("Handler<") {
+            let handled = code[at + "Handler<".len()..]
+                .split(|c: char| {
+                    !(c.is_ascii_alphanumeric() || c == '_')
+                })
+                .next()
+                .unwrap_or_default();
+            if !OUTSIDE_ACT.contains(&(module.as_str(), handled)) {
+                unnamed.push(format!("{module} handles `{handled}`"));
+            }
+        }
+    }
+    assert!(
+        unnamed.is_empty(),
+        "a handler runs outside `Act` unnamed:\n{}",
+        unnamed.join("\n")
     );
 }
 

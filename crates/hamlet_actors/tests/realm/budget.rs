@@ -31,6 +31,7 @@ async fn limit(
             act: SetLimits {
                 hamlet: hamlet.cloned(),
                 budget,
+                limits: Vec::new(),
             },
         })
         .await

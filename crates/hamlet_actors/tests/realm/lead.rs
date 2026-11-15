@@ -213,7 +213,7 @@ async fn an_end_of_a_hire_still_hiring_closes_its_steps() {
 
     let hired_3 = realm.tool(MAYOR, &tool("h1", hire(None))).await;
     until("the drive of 3 waits on the held branch", || {
-        realm.seen.held.receiver_count() > 0
+        realm.seen.is_waiting(Callee::Branch, AgentNumber(3))
     })
     .await;
     let ended = realm

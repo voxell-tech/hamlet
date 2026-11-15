@@ -20,11 +20,15 @@ pub mod refusal;
 use std::path::PathBuf;
 
 use hamlet_actor::Action;
+use hamlet_protocol::client::AttachedFile;
 use serde::{Deserialize, Serialize};
 
 use self::reach::{Need, Reach};
 use self::refusal::{ChangeNotRun, RunNotRun, RunRefusal};
 use crate::address::{Agent, Realm, Workspace};
+use crate::bytes::Sha256;
+use crate::realm::parcels::Part;
+use crate::realm::{Enclosed, Refusable};
 use crate::{Message, worded};
 
 /// The number in an agent actor's file name,
@@ -450,6 +454,120 @@ impl Message for CommandStatus {
     type To = Workspace;
     type From = Agent;
 }
+
+/// Measures the files under `paths` an agent sends with a letter or a
+/// question, as the agent may read them, without following links.
+/// Called by the realm. Its answer is not split: it holds at most
+/// [`ParcelFault::TooManyFiles`]'s `most` files.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Parcel {
+    pub agent: AgentNumber,
+    pub paths: Vec<Enclosed>,
+}
+
+impl Action for Parcel {
+    type Output = ParcelAnswer;
+    const NAME: &'static str = "parcel";
+}
+
+impl Message for Parcel {
+    type To = Workspace;
+    type From = Realm;
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum ParcelAnswer {
+    Measured {
+        files: Vec<ParcelEntry>,
+    },
+    #[serde(serialize_with = "worded")]
+    Refused {
+        why: ParcelRefusal,
+    },
+}
+
+impl Refusable for ParcelAnswer {
+    type Why = ParcelRefusal;
+    fn refused(why: ParcelRefusal) -> Self {
+        Self::Refused { why }
+    }
+}
+
+/// A file a [`Parcel`] holds.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ParcelEntry {
+    /// The path a [`ParcelPart`] names it by.
+    pub path: PathBuf,
+    /// Its path from the folder that holds what was named, so it
+    /// begins with the named file's or folder's own name.
+    pub name: PathBuf,
+    pub size: u64,
+    pub sha256: Sha256,
+}
+
+/// Reads the part `part` of a file a [`Parcel`] held, each part
+/// [`crate::realm::parcels::PARCEL_PART`] bytes from its start, as
+/// the agent may read it. Called by the realm.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ParcelPart {
+    pub agent: AgentNumber,
+    pub path: PathBuf,
+    pub part: u32,
+}
+
+impl Action for ParcelPart {
+    type Output = Part<ParcelRefusal>;
+    const NAME: &'static str = "parcel_part";
+}
+
+impl Message for ParcelPart {
+    type To = Workspace;
+    type From = Realm;
+}
+
+family!(
+    /// What the workspace finds in the files a parcel would send.
+    ParcelFault {
+        #[error("`{}` cannot be read: {words}", path.display())]
+        Unreadable { path: PathBuf, words: String },
+        #[error("`{}` is a link, and links are not sent", path.display())]
+        Link { path: PathBuf },
+        #[error("`{}` has no name to send", path.display())]
+        NoName { path: PathBuf },
+        #[error("that is too many folders and files to look through")]
+        TooManyEntries,
+        #[error("`{}` is not a name of a file", path.display())]
+        NotAName { path: PathBuf },
+        #[error(
+            "`{}` is more than {}",
+            path.display(),
+            AttachedFile::size_words(*most)
+        )]
+        FileTooLarge { path: PathBuf, most: u64 },
+        #[error(
+            "that is more than {} to send at once",
+            AttachedFile::size_words(*most)
+        )]
+        TooMuch { most: u64 },
+        #[error("that is more than {most} files to send at once")]
+        TooManyFiles { most: u32 },
+        #[error("there are no files in those paths")]
+        NoFiles,
+        #[error("`{}` has no part {part}", path.display())]
+        NoSuchPart { path: PathBuf, part: u32 },
+    }
+);
+
+union!(
+    /// The refusal of a [`Parcel`] and of a [`ParcelPart`].
+    ParcelRefusal {
+        Invalid(refusal::InvalidPath),
+        Path(refusal::PathRefusal<refusal::ToRead>),
+        Reach(refusal::ReachRefusal),
+        Parcel(ParcelFault),
+    }
+);
 
 #[cfg(test)]
 mod tests {

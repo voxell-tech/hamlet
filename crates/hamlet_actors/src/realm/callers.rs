@@ -7,7 +7,7 @@ use hamlet_messages::address::{Agent, Workspace};
 use hamlet_messages::realm::client::{Answer, Say};
 use hamlet_messages::realm::{
     Asked, ChiefRequest, Gate, LeadRefusal, Rank, Refusable,
-    SocietyTool, Standing, Tool, ToolCall,
+    Standing, Tool, ToolCall,
 };
 use hamlet_messages::sender::{Client, Hand, Sender, sender};
 use hamlet_messages::workspace::AgentNumber;
@@ -16,6 +16,7 @@ use serde::{Deserialize, Serialize};
 use super::act::{self, Act, Look};
 use super::change::Rows;
 use super::tree::{self, Lineage};
+use super::workers::errands;
 use super::{Realm, marker, record};
 
 /// A sender the realm takes calls from.
@@ -58,28 +59,34 @@ pub(super) enum Stood {
 
 /// A sender that is an agent of the tree.
 pub(super) trait Member: Witness {
+    fn agent(&self) -> AgentNumber;
+
     fn standing(
         &self,
         rows: &Rows<'_>,
-        tool: SocietyTool,
     ) -> impl Future<Output = Result<Option<Stood>>> + Send;
 }
 
 impl Member for Agent {
+    fn agent(&self) -> AgentNumber {
+        self.0
+    }
+
     async fn standing(
         &self,
         rows: &Rows<'_>,
-        tool: SocietyTool,
     ) -> Result<Option<Stood>> {
-        if let Some(left) = tree::left(rows, self.0).await? {
-            return Ok(Some(Stood::Standing(Standing::YouLeft {
+        if let Some(standing) =
+            errands::standing(rows, self.0).await?
+        {
+            return Ok(Some(Stood::Standing(standing)));
+        }
+        Ok(tree::left(rows, self.0).await?.map(|left| {
+            Stood::Standing(Standing::YouLeft {
                 how: left.how,
                 why: left.why,
-            })));
-        }
-        Ok(tree::tools::is_off(rows, self.0, tool)
-            .await?
-            .then_some(Stood::Gate(Gate::ToolOff { tool })))
+            })
+        }))
     }
 }
 

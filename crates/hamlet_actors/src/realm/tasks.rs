@@ -1,12 +1,15 @@
 //! The `task` table: what a chief's line or an agent's standing is
 //! charged to (H12, C31).
 
-use anyhow::{Context as _, Result};
+use anyhow::{Context as _, Result, bail};
 use hamlet_actor::{BindParam, ColumnValue};
-use hamlet_messages::realm::budget::Payer;
+use hamlet_messages::address::Agent;
+use hamlet_messages::realm::budget::{OpenTask, Payer, TaskOpened};
 use hamlet_messages::workspace::{AgentNumber, RealmTask};
 use serde::{Deserialize, Serialize};
 
+use super::act::{Act, Decision, Unbuilt};
+use super::calls::Made;
 use super::change::{self, Affected, Column, Rows, Writer, number};
 
 #[derive(
@@ -143,6 +146,32 @@ pub(super) async fn payer(
     .await?
     .map(|payer| Ok(serde_json::from_str(&payer)?))
     .transpose()
+}
+
+impl Act<Agent> for OpenTask {
+    type Output = TaskOpened;
+    type Loaded = Unbuilt;
+    type Done = Unbuilt;
+
+    async fn load(
+        &self,
+        _by: &Agent,
+        _rows: &Rows<'_>,
+    ) -> Result<Unbuilt> {
+        bail!("not built yet: U8")
+    }
+
+    fn decide(
+        &self,
+        _by: &Agent,
+        loaded: Unbuilt,
+    ) -> Decision<Unbuilt, Self::Output> {
+        match loaded {}
+    }
+
+    fn answer(&self, done: Unbuilt, _made: &Made) -> Self::Output {
+        match done {}
+    }
 }
 
 #[cfg(test)]

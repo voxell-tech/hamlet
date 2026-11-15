@@ -7,6 +7,7 @@ pub mod documents;
 pub mod hamlets;
 pub mod models;
 pub mod oversight;
+pub mod parcels;
 pub mod workers;
 pub mod world;
 
@@ -202,6 +203,15 @@ pub enum SocietyTool {
     TakeUpRoad,
     RequestRoad,
     SetTools,
+    AskChief,
+    Object,
+    StartWorker,
+    SetAllowance,
+    ReadBudget,
+    AgreeRoad,
+    SetNickname,
+    SetModel,
+    ReadRecord,
 }
 
 impl SocietyTool {
@@ -218,6 +228,15 @@ impl SocietyTool {
             Self::TakeUpRoad => "take_up_road",
             Self::RequestRoad => "request_road",
             Self::SetTools => "set_tools",
+            Self::AskChief => "ask_chief",
+            Self::Object => "object",
+            Self::StartWorker => "start_worker",
+            Self::SetAllowance => "set_allowance",
+            Self::ReadBudget => "read_budget",
+            Self::AgreeRoad => "agree_road",
+            Self::SetNickname => "set_nickname",
+            Self::SetModel => "set_model",
+            Self::ReadRecord => "read_record",
         }
     }
 }
@@ -823,6 +842,78 @@ pub enum LayRefusal {
     Full { hamlet: HamletId, most: u32 },
 }
 
+/// A mayor's half of a road between a hire of its hamlet and a hire
+/// of another. The road is laid once the other hamlet's mayor agrees
+/// to it too.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgreeRoad {
+    pub mine: Named,
+    pub theirs: Named,
+    /// Why, for the record.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub why: Option<String>,
+}
+
+impl ToolCall for AgreeRoad {
+    const TOOL: SocietyTool = SocietyTool::AgreeRoad;
+    type Answer = Agreed<AgentRefusal<AgreeRefusal>>;
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(
+    tag = "type",
+    rename_all = "snake_case",
+    bound(
+        serialize = "W: Serialize + std::fmt::Display",
+        deserialize = "W: Deserialize<'de>"
+    )
+)]
+pub enum Agreed<W> {
+    /// The other mayor has not agreed yet.
+    Waiting,
+    Laid,
+    #[serde(serialize_with = "worded")]
+    Refused {
+        why: W,
+    },
+}
+
+impl<W> Refusable for Agreed<W> {
+    type Why = W;
+    fn refused(why: W) -> Self {
+        Self::Refused { why }
+    }
+}
+
+#[derive(
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    Serialize,
+    Deserialize,
+    thiserror::Error,
+)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum AgreeRefusal {
+    #[error("only a mayor may do that")]
+    NotAMayor,
+    #[error("no agent is at that address")]
+    NoSuchAgent,
+    #[error("the chief allows no roads between hamlets")]
+    NoRoadsBetween,
+    #[error("a road joins hires only")]
+    NotHires,
+    #[error("`hire#{}` has left: {left}", hire.0)]
+    Left { hire: AgentNumber, left: Left },
+    #[error(
+        "both ends of an agreed road must be in different hamlets"
+    )]
+    SameHamlet,
+    #[error("`hire#{}` and `hire#{}` already have a road", a.0, b.0)]
+    RoadExists { a: AgentNumber, b: AgentNumber },
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TakeUpRoad {
     pub a: Named,
@@ -954,6 +1045,83 @@ pub struct SetLimits {
     /// Set in order, so the last of one kind holds.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub budget: Vec<budget::BudgetLimit>,
+    /// Set in order, so the last of one kind holds.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub limits: Vec<Limit>,
+}
+
+/// One of a hamlet's limits beside its budget, or the realm's
+/// `roads_between`, as a chief sets it (H22). A hamlet's model is set
+/// with [`choices::SetModel`].
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum Limit {
+    /// The most times an agent asks a chief in one turn.
+    Questions {
+        most: u32,
+    },
+    /// The most calls of one turn a chief refuses.
+    Refusals {
+        most: u32,
+    },
+    Review {
+        review: Review,
+    },
+    /// How long after a chief's task a lead may not end the hire
+    /// (H7).
+    ProtectedMinutes {
+        minutes: u32,
+    },
+    /// How many days of decisions each hire is told (H17).
+    ToldDays {
+        days: u32,
+    },
+    /// Whether a lead's act waits for a chief.
+    Reserved {
+        act: ReservedAct,
+        reserved: bool,
+    },
+    /// What a road costs, in millionths of a dollar (H3).
+    RoadPrice {
+        micros: u64,
+    },
+    /// The most roads a hamlet holds.
+    RoadsMost {
+        most: u32,
+    },
+    RoadsGrowOverDays {
+        days: u32,
+    },
+    /// The realm's own: whether mayors may agree roads between their
+    /// hamlets.
+    RoadsBetween {
+        allowed: bool,
+    },
+}
+
+/// When a lead reviews a chief's instruction to a hire under it
+/// (H10).
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum Review {
+    Always,
+    /// When the lead's model is served from another machine.
+    Remote,
+    Never,
+}
+
+/// A lead's act a chief may keep for itself.
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum ReservedAct {
+    End,
+    Hire,
+    Merge,
+    Roads,
 }
 
 impl ChiefRequest for SetLimits {
@@ -977,4 +1145,11 @@ pub enum HamletRefusal {
     NoSuchHamlet,
     #[error("there is no folder `{}` here", path.display())]
     NoSuchFolder { path: PathBuf },
+    #[error(
+        "only a hamlet has that limit; the realm's are its budget \
+         and roads_between"
+    )]
+    HamletsLimit,
+    #[error("only the realm has the limit roads_between")]
+    RealmsLimit,
 }

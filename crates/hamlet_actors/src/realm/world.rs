@@ -9,7 +9,7 @@ use hamlet_messages::realm::budget::Payer;
 use hamlet_messages::realm::client::ReadWorld;
 use hamlet_messages::realm::world::{
     AgentSeen, HamletSeen, ReachSeen, Revision, Seen, Spend, Status,
-    WaitId, WaitSeen,
+    WaitId, WaitKind, WaitSeen,
 };
 use hamlet_messages::sender::Client;
 use hamlet_messages::workspace::{AgentNumber, CallId, ReachVersion};
@@ -173,6 +173,7 @@ async fn agents(rows: &Rows<'_>) -> Result<Vec<AgentSeen>> {
             lead: Option::of(lead)?.map(AgentNumber),
             status,
             reach: reach(Option::of(wanted)?, Option::of(applied)?),
+            worker: None,
         });
     }
     Ok(agents)
@@ -223,8 +224,10 @@ async fn waits(rows: &Rows<'_>) -> Result<Vec<WaitSeen>> {
         .map(|(wait, agent, call, subject)| WaitSeen {
             wait: WaitId(wait),
             agent: AgentNumber(agent),
-            call: CallId(call),
-            subject,
+            kind: WaitKind::Tool {
+                call: CallId(call),
+                subject,
+            },
         })
         .collect())
 }

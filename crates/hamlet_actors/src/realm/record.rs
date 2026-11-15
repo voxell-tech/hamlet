@@ -1,14 +1,17 @@
 //! The `decision` table: the record of what was decided, by whom
 //! and why (H17).
 
-use anyhow::Result;
+use anyhow::{Result, bail};
 use hamlet_actor::BindParam;
 use hamlet_messages::address::Agent;
+use hamlet_messages::realm::hamlets::{ReadRecord, Record};
 use hamlet_messages::realm::{HamletId, Tier};
 use hamlet_messages::workspace::AgentNumber;
 
-use super::callers::Witness;
-use super::change::{self, Writer, number};
+use super::act::{Act, Decision, Unbuilt};
+use super::callers::{RealmWide, Witness};
+use super::calls::Made;
+use super::change::{self, Rows, Writer, number};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum By {
@@ -176,6 +179,32 @@ impl By {
             Self::Chief => "chief".to_owned(),
             Self::Agent(agent) => Agent(*agent).name(),
         }
+    }
+}
+
+impl<By: RealmWide> Act<By> for ReadRecord {
+    type Output = Record;
+    type Loaded = Unbuilt;
+    type Done = Unbuilt;
+
+    async fn load(
+        &self,
+        _by: &By,
+        _rows: &Rows<'_>,
+    ) -> Result<Unbuilt> {
+        bail!("not built yet: U9")
+    }
+
+    fn decide(
+        &self,
+        _by: &By,
+        loaded: Unbuilt,
+    ) -> Decision<Unbuilt, Self::Output> {
+        match loaded {}
+    }
+
+    fn answer(&self, done: Unbuilt, _made: &Made) -> Self::Output {
+        match done {}
     }
 }
 

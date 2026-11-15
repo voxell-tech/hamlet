@@ -5,8 +5,11 @@ use std::sync::Arc;
 
 use anyhow::{Context as _, Result, bail};
 use hamlet_actor::{BindParam, Ctx};
-use hamlet_messages::address::Workspace;
+use hamlet_messages::address::{Agent, Workspace};
+use hamlet_messages::realm::budget::Payer;
 use hamlet_messages::realm::client::{Answer, AnswerRefusal};
+use hamlet_messages::realm::models::TurnFailed;
+use hamlet_messages::realm::oversight::Lapse;
 use hamlet_messages::realm::world::WaitId;
 use hamlet_messages::realm::{Done, NeedsChief};
 use hamlet_messages::sender::Client;
@@ -16,7 +19,7 @@ use hamlet_messages::workspace::{
 use hamlet_protocol::client as protocol;
 use serde::Serialize;
 
-use super::act::{Act, Decided, Decision};
+use super::act::{Act, Decided, Decision, Unbuilt};
 use super::calls::{Calls, Delivery, Made};
 use super::change::{self, Affected, Rows, Writer, number};
 use super::peer::When;
@@ -174,6 +177,27 @@ pub(super) async fn deliver(
     Ok(())
 }
 
+/// Delivers the notice that closed `wait` to its agent.
+pub(super) async fn notice(
+    _realm: &Arc<Realm>,
+    _ctx: &Ctx<Realm>,
+    wait: WaitId,
+) -> Result<()> {
+    bail!(
+        "not built yet: U2, so {:?} is not made",
+        Delivery::Notice(wait)
+    )
+}
+
+/// The changes that close `payer`'s open budget faults when a chief
+/// resets its budget.
+pub(super) async fn budget_faults(
+    _rows: &Rows<'_>,
+    _payer: &Payer,
+) -> Result<Vec<change::Change>> {
+    Ok(Vec::new())
+}
+
 pub(super) enum Asker {
     Ended,
     NotEnded,
@@ -274,5 +298,57 @@ impl Act<Client> for Answer {
 
     fn answer(&self, _wait: WaitId, _made: &Made) -> Self::Output {
         Done::Done
+    }
+}
+
+impl Act<Agent> for TurnFailed {
+    type Output = ();
+    type Loaded = Unbuilt;
+    type Done = Unbuilt;
+
+    async fn load(
+        &self,
+        _by: &Agent,
+        _rows: &Rows<'_>,
+    ) -> Result<Unbuilt> {
+        bail!("not built yet: U2")
+    }
+
+    fn decide(
+        &self,
+        _by: &Agent,
+        loaded: Unbuilt,
+    ) -> Decision<Unbuilt, ()> {
+        match loaded {}
+    }
+
+    fn answer(&self, done: Unbuilt, _made: &Made) {
+        match done {}
+    }
+}
+
+impl Act<Agent> for Lapse {
+    type Output = ();
+    type Loaded = Unbuilt;
+    type Done = Unbuilt;
+
+    async fn load(
+        &self,
+        _by: &Agent,
+        _rows: &Rows<'_>,
+    ) -> Result<Unbuilt> {
+        bail!("not built yet: U2")
+    }
+
+    fn decide(
+        &self,
+        _by: &Agent,
+        loaded: Unbuilt,
+    ) -> Decision<Unbuilt, ()> {
+        match loaded {}
+    }
+
+    fn answer(&self, done: Unbuilt, _made: &Made) {
+        match done {}
     }
 }

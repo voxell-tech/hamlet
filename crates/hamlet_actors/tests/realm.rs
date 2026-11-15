@@ -39,8 +39,18 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use tokio::sync::watch;
 
+#[path = "realm/allowance.rs"]
+mod allowance;
+#[path = "realm/asking.rs"]
+mod asking;
 #[path = "realm/budget.rs"]
 mod budget;
+#[path = "realm/chiefs.rs"]
+mod chiefs;
+#[path = "realm/choices.rs"]
+mod choices;
+#[path = "realm/errands.rs"]
+mod errands;
 #[path = "realm/first_start.rs"]
 mod first_start;
 #[path = "realm/found.rs"]
@@ -51,14 +61,32 @@ mod laid;
 mod lead;
 #[path = "realm/letters.rs"]
 mod letters;
+#[path = "realm/oversight.rs"]
+mod oversight;
+#[path = "realm/parcels.rs"]
+mod parcels;
 #[path = "realm/places.rs"]
 mod places;
+#[path = "realm/record.rs"]
+mod record;
+#[path = "realm/reserved.rs"]
+mod reserved;
+#[path = "realm/reviews.rs"]
+mod reviews;
 #[path = "realm/say.rs"]
 mod say;
+#[path = "realm/secrets.rs"]
+mod secrets;
+#[path = "realm/settings.rs"]
+mod settings;
+#[path = "realm/society.rs"]
+mod society;
 #[path = "realm/steps.rs"]
 mod steps;
 #[path = "realm/waits.rs"]
 mod waits;
+#[path = "realm/workers.rs"]
+mod workers;
 #[path = "realm/world.rs"]
 mod world;
 #[path = "realm/writers.rs"]
@@ -94,6 +122,8 @@ struct Seen {
     branches: Mutex<Vec<(ProfileId, Branch)>>,
     failing: Mutex<HashSet<(Callee, AgentNumber)>>,
     held: watch::Sender<HashSet<Callee>>,
+    /// The calls that wait while the test holds their callee.
+    waiting: Mutex<HashSet<(Callee, AgentNumber)>>,
 }
 
 impl Seen {
@@ -104,10 +134,14 @@ impl Seen {
         callee: Callee,
         agent: AgentNumber,
     ) -> anyhow::Result<()> {
-        self.held
-            .subscribe()
-            .wait_for(|held| !held.contains(&callee))
-            .await?;
+        let mut held = self.held.subscribe();
+        if held.borrow().contains(&callee) {
+            self.waiting.lock().unwrap().insert((callee, agent));
+        }
+        let released =
+            held.wait_for(|held| !held.contains(&callee)).await;
+        self.waiting.lock().unwrap().remove(&(callee, agent));
+        released?;
         if self.failing.lock().unwrap().remove(&(callee, agent)) {
             bail!(
                 "the stand-in fails {callee:?} of {} once",
@@ -123,6 +157,10 @@ impl Seen {
 
     fn has_failed(&self, callee: Callee, agent: AgentNumber) -> bool {
         !self.failing.lock().unwrap().contains(&(callee, agent))
+    }
+
+    fn is_waiting(&self, callee: Callee, agent: AgentNumber) -> bool {
+        self.waiting.lock().unwrap().contains(&(callee, agent))
     }
 
     fn hold(&self, callee: Callee) {

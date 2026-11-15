@@ -13,11 +13,18 @@ CREATE TABLE IF NOT EXISTS hamlet (
 	folder TEXT,
 	mode TEXT NOT NULL,
 	limits TEXT NOT NULL,
+	x REAL,
+	z REAL,
 	at INTEGER NOT NULL) STRICT;
 CREATE TABLE IF NOT EXISTS hamlet_chief (
 	hamlet TEXT NOT NULL,
 	chief INTEGER NOT NULL,
 	PRIMARY KEY (hamlet, chief)) STRICT;
+-- chiefs/hamlet.rs
+CREATE TABLE IF NOT EXISTS hamlet_folder (
+	hamlet TEXT NOT NULL,
+	folder TEXT,
+	at INTEGER NOT NULL) STRICT;
 
 -- tree.rs
 CREATE TABLE IF NOT EXISTS profile (
@@ -41,6 +48,19 @@ CREATE TABLE IF NOT EXISTS hire_tool_off (
 	hire INTEGER NOT NULL,
 	tool TEXT NOT NULL,
 	PRIMARY KEY (hire, tool)) STRICT;
+-- tree/choices.rs
+CREATE TABLE IF NOT EXISTS nickname (
+	agent INTEGER PRIMARY KEY,
+	name TEXT NOT NULL,
+	by TEXT NOT NULL,
+	at INTEGER NOT NULL) STRICT;
+CREATE TABLE IF NOT EXISTS model_choice (
+	of TEXT PRIMARY KEY,
+	model TEXT,
+	effort TEXT,
+	fast INTEGER,
+	by TEXT NOT NULL,
+	at INTEGER NOT NULL) STRICT;
 
 -- versions.rs
 CREATE TABLE IF NOT EXISTS reach (
@@ -53,6 +73,9 @@ CREATE TABLE IF NOT EXISTS place (
 CREATE TABLE IF NOT EXISTS revision (
 	id INTEGER PRIMARY KEY CHECK (id = 1),
 	n INTEGER NOT NULL) STRICT;
+CREATE TABLE IF NOT EXISTS copy (
+	part TEXT PRIMARY KEY,
+	version INTEGER NOT NULL) STRICT;
 
 -- marker.rs
 CREATE TABLE IF NOT EXISTS marker (
@@ -75,6 +98,7 @@ CREATE TABLE IF NOT EXISTS decision (
 	tier TEXT,
 	by TEXT NOT NULL,
 	why TEXT,
+	detail BLOB,
 	at INTEGER NOT NULL) STRICT;
 
 -- steps.rs
@@ -114,6 +138,7 @@ CREATE TABLE IF NOT EXISTS road (
 	hamlet TEXT NOT NULL,
 	used_at INTEGER,
 	up_at INTEGER,
+	kind TEXT NOT NULL DEFAULT 'tree',
 	at INTEGER NOT NULL,
 	PRIMARY KEY (a, b),
 	CHECK (a < b)) STRICT;
@@ -125,6 +150,7 @@ CREATE TABLE IF NOT EXISTS charge (
 	payer TEXT NOT NULL,
 	micros INTEGER NOT NULL,
 	took_ms INTEGER NOT NULL,
+	tokens INTEGER,
 	at INTEGER NOT NULL,
 	PRIMARY KEY (agent, call)) STRICT;
 CREATE TABLE IF NOT EXISTS budget_reset (
@@ -136,13 +162,130 @@ CREATE TABLE IF NOT EXISTS budget_reset (
 CREATE TABLE IF NOT EXISTS wait (
 	id INTEGER PRIMARY KEY,
 	agent INTEGER NOT NULL,
-	call TEXT NOT NULL,
-	subject TEXT NOT NULL,
-	needs TEXT NOT NULL,
-	reach_version INTEGER NOT NULL,
+	kind TEXT NOT NULL DEFAULT 'tool',
+	task INTEGER,
+	conversation TEXT,
+	call TEXT,
+	subject TEXT,
+	needs TEXT,
+	reach_version INTEGER,
+	detail BLOB,
+	ruling TEXT,
 	choice TEXT,
 	scope TEXT,
 	reason TEXT,
 	closed_at INTEGER,
 	at INTEGER NOT NULL,
 	UNIQUE (agent, call)) STRICT;
+
+-- oversight.rs
+CREATE TABLE IF NOT EXISTS grant (
+	id INTEGER PRIMARY KEY,
+	agent INTEGER NOT NULL,
+	permission TEXT NOT NULL,
+	at INTEGER NOT NULL,
+	revoked_at INTEGER) STRICT;
+CREATE TABLE IF NOT EXISTS trust (
+	agent INTEGER NOT NULL,
+	conversation TEXT NOT NULL,
+	edits INTEGER NOT NULL DEFAULT 0,
+	commands INTEGER NOT NULL DEFAULT 0,
+	at INTEGER NOT NULL,
+	PRIMARY KEY (agent, conversation)) STRICT;
+
+-- oversight/asking.rs
+CREATE TABLE IF NOT EXISTS objection (
+	task INTEGER PRIMARY KEY,
+	agent INTEGER NOT NULL,
+	wait INTEGER NOT NULL,
+	source TEXT NOT NULL,
+	ruling TEXT,
+	at INTEGER NOT NULL) STRICT;
+CREATE TABLE IF NOT EXISTS held (
+	letter INTEGER NOT NULL,
+	what TEXT NOT NULL,
+	task INTEGER NOT NULL,
+	at INTEGER NOT NULL,
+	PRIMARY KEY (letter, what)) STRICT;
+
+-- workers.rs
+CREATE TABLE IF NOT EXISTS worker (
+	agent INTEGER PRIMARY KEY,
+	starter INTEGER,
+	hamlet TEXT,
+	brief TEXT NOT NULL,
+	tools TEXT NOT NULL,
+	task INTEGER NOT NULL,
+	ended TEXT,
+	answer TEXT,
+	at INTEGER NOT NULL) STRICT;
+
+-- workers/errands.rs
+CREATE TABLE IF NOT EXISTS errand (
+	n INTEGER PRIMARY KEY,
+	purpose TEXT NOT NULL,
+	task INTEGER NOT NULL,
+	cap INTEGER NOT NULL,
+	subject INTEGER,
+	ended TEXT,
+	answer TEXT,
+	at INTEGER NOT NULL) STRICT;
+
+-- reviews.rs
+CREATE TABLE IF NOT EXISTS review (
+	task INTEGER PRIMARY KEY,
+	hire INTEGER NOT NULL,
+	lead INTEGER NOT NULL,
+	errand INTEGER NOT NULL,
+	line BLOB NOT NULL,
+	due_at INTEGER NOT NULL,
+	outcome TEXT,
+	at INTEGER NOT NULL) STRICT;
+
+-- allowance.rs
+CREATE TABLE IF NOT EXISTS allowance (
+	hire INTEGER PRIMARY KEY,
+	micros INTEGER NOT NULL,
+	why TEXT,
+	by TEXT NOT NULL,
+	at INTEGER NOT NULL) STRICT;
+
+-- society.rs
+CREATE TABLE IF NOT EXISTS agreement (
+	a INTEGER NOT NULL,
+	b INTEGER NOT NULL,
+	by INTEGER NOT NULL,
+	why TEXT,
+	at INTEGER NOT NULL,
+	PRIMARY KEY (a, b, by),
+	CHECK (a < b)) STRICT;
+
+-- documents.rs
+CREATE TABLE IF NOT EXISTS document (
+	name TEXT PRIMARY KEY,
+	value BLOB NOT NULL,
+	version INTEGER NOT NULL) STRICT;
+
+-- settings.rs
+CREATE TABLE IF NOT EXISTS settings (
+	id INTEGER PRIMARY KEY CHECK (id = 1),
+	value BLOB NOT NULL,
+	version INTEGER NOT NULL) STRICT;
+
+-- parcels.rs
+CREATE TABLE IF NOT EXISTS parcel (
+	id INTEGER PRIMARY KEY,
+	letter INTEGER NOT NULL,
+	sender INTEGER NOT NULL,
+	receiver INTEGER NOT NULL,
+	state TEXT NOT NULL,
+	swept_at INTEGER,
+	at INTEGER NOT NULL) STRICT;
+CREATE TABLE IF NOT EXISTS parcel_file (
+	parcel INTEGER NOT NULL,
+	file INTEGER NOT NULL,
+	path TEXT NOT NULL,
+	name TEXT NOT NULL,
+	size INTEGER NOT NULL,
+	sha256 BLOB NOT NULL,
+	PRIMARY KEY (parcel, file)) STRICT;

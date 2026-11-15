@@ -27,11 +27,12 @@
 //! - A call's arguments and its answer are each at most [`MOST_CALL`]
 //!   as the host carries them. No host checks it, so the sender does:
 //!   what is larger goes in parts of at most [`MOST_PART`], and the
-//!   taker refuses a part that holds more. Five answers are not
-//!   split: [`profile::VersionList`], whose versions nothing bounds
-//!   and whose commits are at most [`profile::MOST_COMMITS_SEEN`];
+//!   taker refuses a part that holds more. Six answers are not split:
+//!   [`profile::VersionList`], whose versions nothing bounds and
+//!   whose commits are at most [`profile::MOST_COMMITS_SEEN`];
 //!   [`profile::PurgeAnswer`]'s `still_hold`, at most one for each
-//!   hire; and [`profile::PaperList`], [`profile::RevertAnswer`]'s
+//!   hire; [`workspace::ParcelAnswer`], whose files the workspace
+//!   bounds; and [`profile::PaperList`], [`profile::RevertAnswer`]'s
 //!   clashes and [`library::ShelfList`], which nothing bounds.
 //!
 //! A taker checks a call in this order:
@@ -55,12 +56,14 @@
 //! `Login` and `LoginStep` are untagged: their fields tell the case.
 //! Rust writes them: in a chief's request ([`realm::client::Say`],
 //! [`realm::client::Answer`], the calls of [`agent::chat`] and of
-//! [`realm::choices`]), in the attachments of [`agent::Input::Line`]
+//! [`realm::choices`], and [`realm::documents::EditSettings`]), in
+//! the attachments of [`agent::Input::Line`]
 //! and the effort of [`agent::copies::ModelChoice`], and as the
 //! [`RequestId`](hamlet_protocol::client::RequestId) of a chief's or
-//! the realm's request. An agent writes three, which hold no integer:
-//! the kind of an item and of a chat, and the step of
-//! [`agent::chat::LoginAnswer`].
+//! the realm's request. An agent writes four, which hold no integer:
+//! the kind of an item and of a chat, the step of
+//! [`agent::chat::LoginAnswer`], and the effort of
+//! [`realm::choices::SetModel`] as a society tool.
 //!
 //! The realm takes a repeat of a call that carries an id, a chief's
 //! [`realm::Asked`] or [`realm::client`] request or an agent's

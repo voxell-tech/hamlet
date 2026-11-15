@@ -4,7 +4,10 @@
 use hamlet_protocol::Effort;
 use serde::{Deserialize, Serialize};
 
-use super::{AgentNumber, ChiefRequest, Done, HamletId, Left, Named};
+use super::{
+    AgentNumber, ChiefRequest, Done, HamletId, LeadRefusal, Left,
+    Named, SocietyTool, ToolCall,
+};
 
 /// Sets the name a hire is shown by; absent gives it back its own.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -20,6 +23,11 @@ pub struct SetNickname {
 impl ChiefRequest for SetNickname {
     const NAME: &'static str = "chief_set_nickname";
     type Answer = Done<ChoiceRefusal>;
+}
+
+impl ToolCall for SetNickname {
+    const TOOL: SocietyTool = SocietyTool::SetNickname;
+    type Answer = Done<LeadRefusal<ChoiceRefusal>>;
 }
 
 /// Sets the model of an agent, or of a hamlet's agents that choose
@@ -43,6 +51,11 @@ pub struct SetModel {
 impl ChiefRequest for SetModel {
     const NAME: &'static str = "chief_set_model";
     type Answer = Done<ChoiceRefusal>;
+}
+
+impl ToolCall for SetModel {
+    const TOOL: SocietyTool = SocietyTool::SetModel;
+    type Answer = Done<LeadRefusal<ChoiceRefusal>>;
 }
 
 /// The hire or hamlet whose model a [`SetModel`] sets. Only a chief
@@ -75,4 +88,11 @@ pub enum ChoiceRefusal {
     BadNickname,
     #[error("no model is named `{model}`")]
     NoSuchModel { model: String },
+    #[error(
+        "a chief chose `hire#{}`'s model; only a chief may change it",
+        hire.0
+    )]
+    ChiefChose { hire: AgentNumber },
+    #[error("only a chief sets a hamlet's model")]
+    HamletFromAnAgent,
 }

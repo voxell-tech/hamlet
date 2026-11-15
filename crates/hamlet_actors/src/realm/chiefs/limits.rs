@@ -70,6 +70,7 @@ impl Budget {
             BudgetLimit::Time { ms } => {
                 self.ms = Some(ms);
             }
+            BudgetLimit::Period { .. } => {}
         }
     }
 }
@@ -252,6 +253,7 @@ mod tests {
         SetLimits {
             hamlet: hamlet.map(|hamlet| HamletId(hamlet.to_owned())),
             budget,
+            limits: Vec::new(),
         }
     }
 

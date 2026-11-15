@@ -4,7 +4,11 @@ use hamlet_actor::Action;
 use serde::{Deserialize, Serialize};
 
 use super::oversight::Hold;
-use super::{ChiefRequest, Done, HamletId, HamletRefusal, Standing};
+use super::world::Spend;
+use super::{
+    AgentRefusal, ChiefRequest, Done, HamletId, HamletRefusal,
+    Refusable, SocietyTool, Standing, ToolCall,
+};
 use crate::address::{Agent, Realm};
 use crate::workspace::{AgentNumber, CallId, RealmTask};
 use crate::{Message, worded};
@@ -37,9 +41,26 @@ impl std::fmt::Display for Payer {
 pub enum BudgetLimit {
     /// The most the payer spends in a period, in millionths of a
     /// dollar.
-    Cost { micros: u64 },
+    Cost {
+        micros: u64,
+    },
     /// The most model time the payer spends in a period.
-    Time { ms: u64 },
+    Time {
+        ms: u64,
+    },
+    Period {
+        period: Period,
+    },
+}
+
+/// The time a budget's spending is counted over, from its start.
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum Period {
+    Day,
+    Month,
 }
 
 /// Whether the caller may make a model call for `task`. A read: it
@@ -197,4 +218,63 @@ pub enum TaskOpened {
     Refused {
         why: Standing,
     },
+}
+
+/// Reads what the caller may spend: what its payer spent this period
+/// against its budget, what the caller spent, and its allowance.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReadBudget {
+    /// The task whose payer is read; absent for the caller's own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task: Option<RealmTask>,
+}
+
+impl ToolCall for ReadBudget {
+    const TOOL: SocietyTool = SocietyTool::ReadBudget;
+    type Answer = BudgetRead<AgentRefusal<ReadBudgetRefusal>>;
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(
+    tag = "type",
+    rename_all = "snake_case",
+    bound(
+        serialize = "W: Serialize + std::fmt::Display",
+        deserialize = "W: Deserialize<'de>"
+    )
+)]
+pub enum BudgetRead<W> {
+    Budget {
+        spend: Spend,
+        period: Period,
+        /// What the caller itself spent this period.
+        own_micros: u64,
+        /// The caller's allowance; absent when it has none.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        allowance_micros: Option<u64>,
+    },
+    #[serde(serialize_with = "worded")]
+    Refused { why: W },
+}
+
+impl<W> Refusable for BudgetRead<W> {
+    type Why = W;
+    fn refused(why: W) -> Self {
+        Self::Refused { why }
+    }
+}
+
+#[derive(
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    Serialize,
+    Deserialize,
+    thiserror::Error,
+)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum ReadBudgetRefusal {
+    #[error("the realm holds no such task")]
+    NoSuchTask,
 }

@@ -6,23 +6,33 @@ use hamlet_messages::realm::Refusable;
 use hamlet_messages::realm::client::{Say, SayAnswer, SayRefusal};
 use hamlet_messages::sender::Client;
 use hamlet_messages::workspace::AgentNumber;
+use serde::{Deserialize, Serialize};
 
 use super::act::{Act, Decided, Decision};
 use super::calls::{Calls, Delivery, Made};
-use super::change::Rows;
+use super::change::{self, Rows};
 use super::tasks::{self, TaskId};
 use super::tree::{self, Lineage, Status};
-use super::{chiefs, hire};
+use super::{chiefs, hire, reviews};
 
 pub(super) struct Target {
     lineage: Option<Lineage>,
     task: TaskId,
+    /// The changes that hold the line for its hire's lead to review.
+    review: Option<Vec<change::Change>>,
+}
+
+/// A line's task, and whether the line waits for a review.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub(super) enum Said {
+    Line(TaskId),
+    Review(TaskId),
 }
 
 impl Act<Client> for Say {
     type Output = SayAnswer;
     type Loaded = Target;
-    type Done = TaskId;
+    type Done = Said;
 
     async fn load(
         &self,
@@ -33,9 +43,18 @@ impl Act<Client> for Say {
             Some(to) => tree::lineage(rows, to).await?,
             None => None,
         };
+        let task = tasks::fresh(rows).await?;
+        let review = match &lineage {
+            Some(lineage) if lineage.agent.status == Status::Live => {
+                let line = line(self, task);
+                reviews::intercept(rows, lineage, task, &line).await?
+            }
+            _ => None,
+        };
         Ok(Target {
             lineage,
-            task: tasks::fresh(rows).await?,
+            task,
+            review,
         })
     }
 
@@ -43,7 +62,7 @@ impl Act<Client> for Say {
         &self,
         _by: &Client,
         target: Target,
-    ) -> Decision<TaskId, Self::Output> {
+    ) -> Decision<Said, Self::Output> {
         let Some(lineage) = target.lineage else {
             return Decision::Answer(SayAnswer::refused(
                 SayRefusal::NoSuchAgent,
@@ -64,44 +83,45 @@ impl Act<Client> for Say {
                 ),
             },
             Status::Live => {
-                let mut decided = Decided::new(target.task).change(
-                    tasks::Change::Open {
+                let said = match target.review {
+                    Some(_) => Said::Review(target.task),
+                    None => Said::Line(target.task),
+                };
+                let mut decided =
+                    Decided::new(said).change(tasks::Change::Open {
                         task: target.task,
                         origin: tasks::Origin::Chief,
                         agent: agent.agent,
                         payer: chiefs::payer_of(&lineage),
-                    },
-                );
+                    });
                 if agent.can_take_purpose()
                     && let Some(purpose) =
                         tree::purpose_from(agent.agent, &self.0.text)
                 {
                     decided = decided.change(purpose);
                 }
+                decided
+                    .changes
+                    .extend(target.review.into_iter().flatten());
                 Decision::Change(decided)
             }
         }
     }
 
-    fn deliveries(&self, _by: &Client, task: &TaskId) -> Calls {
-        to(self).map_or_else(Calls::none, |to| {
-            Calls::before_answer(Delivery::Line {
-                to,
-                submit: Submit {
-                    id: InputId(self.0.id.as_str().to_owned()),
-                    task: Some(task.on_the_wire()),
-                    input: Input::Line {
-                        text: self.0.text.clone(),
-                        images: self.0.images.clone(),
-                        files: self.0.files.clone(),
-                        note: None,
-                    },
-                },
-            })
-        })
+    fn deliveries(&self, _by: &Client, said: &Said) -> Calls {
+        match (to(self), *said) {
+            (Some(to), Said::Line(task)) => {
+                Calls::before_answer(Delivery::Line {
+                    to,
+                    submit: line(self, task),
+                })
+            }
+            _ => Calls::none(),
+        }
     }
 
-    fn answer(&self, task: TaskId, made: &Made) -> Self::Output {
+    fn answer(&self, said: Said, made: &Made) -> Self::Output {
+        let (Said::Line(task) | Said::Review(task)) = said;
         let task = task.on_the_wire();
         if made.all_taken() {
             SayAnswer::Taken { task }
@@ -113,6 +133,20 @@ impl Act<Client> for Say {
 
 fn to(say: &Say) -> Option<AgentNumber> {
     u32::try_from(say.0.to.0).ok().map(AgentNumber)
+}
+
+/// The line `say` carries to its agent on `task`.
+fn line(say: &Say, task: TaskId) -> Submit {
+    Submit {
+        id: InputId(say.0.id.as_str().to_owned()),
+        task: Some(task.on_the_wire()),
+        input: Input::Line {
+            text: say.0.text.clone(),
+            images: say.0.images.clone(),
+            files: say.0.files.clone(),
+            note: None,
+        },
+    }
 }
 
 #[cfg(test)]
@@ -193,13 +227,14 @@ mod tests {
     fn decide(
         lineage: Option<Lineage>,
         text: &str,
-    ) -> Decision<TaskId, SayAnswer> {
+    ) -> Decision<Said, SayAnswer> {
         let to = lineage
             .as_ref()
             .map_or(9, |lineage| u64::from(lineage.agent.agent.0));
         let target = Target {
             lineage,
             task: task_7(),
+            review: None,
         };
         say(&RequestId::new(), to, text).decide(&Client, target)
     }
@@ -221,7 +256,7 @@ mod tests {
         assert_eq!(
             decide(Some(mayor(Status::Live, false)), text),
             Decision::Change(
-                Decided::new(task_7())
+                Decided::new(Said::Line(task_7()))
                     .change(opened(AgentNumber(2), by_hamlet.clone()))
                     .change(tree::Change::Purpose {
                         hire: AgentNumber(2),
@@ -231,7 +266,8 @@ mod tests {
         );
         let only_the_task = |agent, payer| {
             Decision::Change(
-                Decided::new(task_7()).change(opened(agent, payer)),
+                Decided::new(Said::Line(task_7()))
+                    .change(opened(agent, payer)),
             )
         };
         assert_eq!(
