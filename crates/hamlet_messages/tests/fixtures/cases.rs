@@ -184,8 +184,7 @@ pub fn found<T: DeserializeOwned>(
     }
 }
 
-/// The union serde's `message` names: the only one of its name, or
-/// the instance of a generic union that `T`'s name holds.
+/// The union serde's `message` names.
 fn union_of<'u, T>(
     unions: &'u [Union],
     message: &str,

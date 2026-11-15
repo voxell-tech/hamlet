@@ -1,5 +1,3 @@
-//! An agent's place, pushed when the tree around it moves.
-
 #[tokio::test]
 #[ignore = "the scaffold: U9 fills it"]
 async fn a_place_follows_the_tree() {

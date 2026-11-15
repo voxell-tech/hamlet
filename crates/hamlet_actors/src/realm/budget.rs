@@ -1,9 +1,5 @@
 //! Spending: the `charge` and `budget_reset` tables, and the check
-//! before a model call (H8). Outside this module the realm calls only
-//! `spent` (the world) and `Change::Road` (a laid road's charge).
-//! Taking budgets out deletes this module, its two tables, those two
-//! uses, `hamlet_messages::realm::budget` and the agent's two calls;
-//! a model call then waits on no realm.
+//! before a model call (H8).
 
 #![expect(
     unused_variables,
@@ -25,12 +21,9 @@ use super::calls::Made;
 use super::change::{Affected, Rows, Writer};
 use super::chiefs;
 
-/// The changes to this module's tables.
 #[derive(Debug, PartialEq)]
 pub(super) enum Change {
-    /// One model call's cost and time, once per (agent, call): its
-    /// statement inserts or does nothing, so a repeat counts once
-    /// with no row read first.
+    /// One model call's cost and time, once per (agent, call).
     Charge {
         agent: AgentNumber,
         call: CallId,
@@ -49,7 +42,6 @@ pub(super) enum Change {
     },
 }
 
-/// Makes `change`. Spending is seen by a client, as `Part::Spend`.
 pub(super) async fn apply(
     writer: &Writer<'_>,
     change: Change,
@@ -99,7 +91,7 @@ async fn reset(
 }
 
 /// A payer's spending since its period began and since its last
-/// reset, as of `rows.at()`, with the budget it was counted against.
+/// reset, as of `rows.at()`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct Spent {
     pub payer: Payer,
@@ -115,12 +107,9 @@ pub(super) async fn spent(
     todo!()
 }
 
-/// What a check before a model call decides over.
 pub(super) struct Spending {
-    /// How the caller ended, when it did.
     left: Option<Left>,
-    /// The spending of the task's payer. `None` for a task the realm
-    /// does not hold.
+    /// `None` for a task the realm does not hold.
     spent: Option<Spent>,
 }
 
@@ -137,7 +126,6 @@ impl Act<Agent> for MaySpend {
         todo!()
     }
 
-    /// A read: every outcome is an `Answer`, and nothing is written.
     fn decide(
         &self,
         by: &Agent,
@@ -153,7 +141,6 @@ impl Act<Agent> for MaySpend {
 
 impl Act<Agent> for Charge {
     type Output = ();
-    /// The payer of the task.
     type Loaded = Option<Payer>;
     type Done = ();
 
@@ -180,7 +167,6 @@ impl Act<Agent> for Charge {
 
 impl Act<Client> for ResetBudget {
     type Output = Done<HamletRefusal>;
-    /// The hamlet that pays, when the payer is one.
     type Loaded = Option<Option<chiefs::Hamlet>>;
     type Done = ();
 

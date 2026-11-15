@@ -1,7 +1,3 @@
--- Every table of the realm actor, in its file. Made at each start by
--- `Realm::create`. The module named above each table is that table's
--- one writer in the code.
-
 -- chiefs.rs
 CREATE TABLE IF NOT EXISTS realm (
 	id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -23,7 +19,7 @@ CREATE TABLE IF NOT EXISTS hamlet_chief (
 	chief INTEGER NOT NULL,
 	PRIMARY KEY (hamlet, chief)) STRICT;
 
--- tree.rs (hire_tool_off: tree/tools.rs)
+-- tree.rs
 CREATE TABLE IF NOT EXISTS profile (
 	id INTEGER PRIMARY KEY,
 	kind TEXT NOT NULL) STRICT;
@@ -41,6 +37,7 @@ CREATE TABLE IF NOT EXISTS hire (
 	profile INTEGER NOT NULL,
 	lead INTEGER,
 	purpose TEXT) STRICT;
+-- tree/tools.rs
 CREATE TABLE IF NOT EXISTS hire_tool_off (
 	hire INTEGER NOT NULL,
 	tool TEXT NOT NULL,
@@ -58,7 +55,7 @@ CREATE TABLE IF NOT EXISTS revision (
 	id INTEGER PRIMARY KEY CHECK (id = 1),
 	n INTEGER NOT NULL) STRICT;
 
--- marker.rs: what a request or a society tool call made (S19).
+-- marker.rs
 CREATE TABLE IF NOT EXISTS marker (
 	caller TEXT NOT NULL,
 	id TEXT NOT NULL,
@@ -69,7 +66,7 @@ CREATE TABLE IF NOT EXISTS marker (
 	at INTEGER NOT NULL,
 	PRIMARY KEY (caller, id)) STRICT;
 
--- record.rs (H17)
+-- record.rs
 CREATE TABLE IF NOT EXISTS decision (
 	id INTEGER PRIMARY KEY,
 	kind TEXT NOT NULL,
@@ -79,7 +76,7 @@ CREATE TABLE IF NOT EXISTS decision (
 	why TEXT,
 	at INTEGER NOT NULL) STRICT;
 
--- steps.rs: a hire's row is ('hire', its agent).
+-- steps.rs
 CREATE TABLE IF NOT EXISTS step (
 	kind TEXT NOT NULL,
 	n INTEGER NOT NULL,
@@ -109,7 +106,7 @@ CREATE TABLE IF NOT EXISTS letter (
 	answer TEXT,
 	at INTEGER NOT NULL) STRICT;
 
--- laid.rs. A laid road keeps its lower end as `a`.
+-- laid.rs
 CREATE TABLE IF NOT EXISTS road (
 	a INTEGER NOT NULL,
 	b INTEGER NOT NULL,
@@ -117,7 +114,8 @@ CREATE TABLE IF NOT EXISTS road (
 	used_at INTEGER,
 	up_at INTEGER,
 	at INTEGER NOT NULL,
-	PRIMARY KEY (a, b)) STRICT;
+	PRIMARY KEY (a, b),
+	CHECK (a < b)) STRICT;
 
 -- budget.rs
 CREATE TABLE IF NOT EXISTS charge (

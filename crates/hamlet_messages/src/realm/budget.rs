@@ -1,6 +1,4 @@
-//! The realm's calls about spending (H8): what a payer spent in money
-//! and in model time. Taking budgets out of the product deletes this
-//! module.
+//! The realm's calls about spending (H8).
 
 use hamlet_actor::Action;
 use serde::{Deserialize, Serialize};
@@ -43,8 +41,8 @@ pub enum BudgetLimit {
     Time { ms: u64 },
 }
 
-/// Whether the caller may make a model call for `task`. Made by an
-/// agent before each model call. A read: it changes nothing.
+/// Whether the caller may make a model call for `task`. A read: it
+/// changes nothing.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MaySpend {
     pub task: RealmTask,
@@ -60,8 +58,7 @@ impl Message for MaySpend {
     type From = Agent;
 }
 
-/// Why a model call may not be made: the caller's standing, or the
-/// budget.
+/// Why a model call may not be made.
 #[derive(
     Clone,
     Debug,
@@ -114,17 +111,14 @@ pub enum Budget {
     },
 }
 
-/// Charges one model call to `task`'s payer. Made by an agent after
-/// the model call. Bare: a repeat with the same `call` is counted
-/// once, by the charge table's key.
+/// Charges one model call to `task`'s payer. A repeat with the same
+/// `call` is counted once.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Charge {
     /// The id of the model call.
     pub call: CallId,
     pub task: RealmTask,
-    /// Written by the agent, so a `u32`: at most $4,294 a call.
     pub micros: u32,
-    /// How long the model call took. Written by the agent.
     pub took_ms: u32,
 }
 
@@ -138,7 +132,7 @@ impl Message for Charge {
     type From = Agent;
 }
 
-/// Starts a payer's period again. The chief's only.
+/// Starts a payer's period again.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResetBudget {
     pub payer: Payer,

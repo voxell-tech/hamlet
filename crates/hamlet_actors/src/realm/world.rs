@@ -1,7 +1,4 @@
-//! The world a client reads: a copy in memory, rebuilt after each
-//! commit from the parts it changed, and answered with no SQL, so it
-//! answers while a transaction runs (S26). Its revision is
-//! `versions`'.
+//! The world a client reads: a copy in memory.
 
 #![expect(
     unused_variables,
@@ -21,8 +18,6 @@ use super::Realm;
 use super::act::Look;
 use super::change::Affected;
 
-/// A part of what a client sees. A module's `apply` reports the parts
-/// it changed; only those are rebuilt.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) enum Part {
     Agents,
@@ -33,17 +28,14 @@ pub(super) enum Part {
     Reaches,
 }
 
-/// The world as of one revision.
 pub(super) type World = Seen;
 
-/// The copy, swapped whole.
 #[derive(Default)]
 pub(super) struct Held {
     current: RwLock<Arc<World>>,
 }
 
 impl Held {
-    /// The copy as the rows give it at the realm's start.
     pub async fn load(ctx: &Ctx<Realm>) -> Result<Self> {
         Ok(Self::default())
     }
@@ -53,8 +45,7 @@ impl Held {
     }
 
     /// Rebuilds the parts `affected` names, as of `revision`, and
-    /// swaps the copy in when its revision is newer. A failure is
-    /// logged: the next change or the next start rebuilds it.
+    /// swaps the copy in when its revision is newer.
     pub async fn refresh(
         &self,
         ctx: &Ctx<Realm>,

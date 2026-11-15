@@ -1,7 +1,6 @@
 //! The realm's calls whose argument is the client protocol's own
 //! type, wrapped to be a call of the realm. Each carries its own
-//! request id, which marks a repeat. The wrapped types follow the
-//! client protocol's rules, not this crate's (see the crate's text).
+//! request id, which marks a repeat.
 
 use hamlet_actor::Action;
 use hamlet_protocol::client as protocol;
@@ -29,7 +28,6 @@ impl Message for Say {
     type From = Client;
 }
 
-/// The line is kept as a task of the realm.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum SayAnswer {
@@ -62,7 +60,6 @@ impl Refusable for SayAnswer {
 pub enum SayRefusal {
     #[error("no agent is at that address")]
     NoSuchAgent,
-    /// The agent was still being hired when the wait for it ended.
     #[error("`hire#{}` is still being hired; send the line again", agent.0)]
     StillHiring { agent: AgentNumber },
     #[error("`hire#{}` has left: {left}", agent.0)]

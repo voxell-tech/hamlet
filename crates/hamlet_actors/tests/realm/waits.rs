@@ -1,5 +1,3 @@
-//! Waits for the chief, and the secrets.
-
 #[tokio::test]
 #[ignore = "the scaffold: U8 fills it"]
 async fn a_wait_opens_once_and_its_answer_reaches_the_workspace() {

@@ -1,5 +1,3 @@
-//! `Say` and its task.
-
 #[tokio::test]
 #[ignore = "the scaffold: U5 fills it"]
 async fn a_repeated_say_opens_one_task_and_submits_again() {

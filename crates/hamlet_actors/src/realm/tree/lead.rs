@@ -1,6 +1,4 @@
-//! A lead's acts on the tree: hire, end and seat (H40, H5, H18), for
-//! the chief and for an agent alike, and the writes of an end and a
-//! seating.
+//! A lead's acts on the tree: hire, end and seat (H40, H5, H18).
 
 #![expect(
     unused_variables,
@@ -22,16 +20,11 @@ use super::super::change::{Affected, Rows, Writer};
 use super::super::record;
 use super::Lineage;
 
-/// What a hire decides over.
 pub(in crate::realm) struct Hiring {
-    /// The lead named, or the caller, or the mayor, with its
-    /// lineage; `None` when none is found.
     under: Option<Lineage>,
-    /// The hamlet's living hires, for its tier.
     living: u32,
     /// The profile named, when one was: `None` inside when missing.
     profile: Option<Option<super::Profile>>,
-    /// The hire's number, and a blank profile's.
     agent: AgentNumber,
     blank: ProfileId,
 }
@@ -64,7 +57,6 @@ impl<By: Lead> Act<By> for Hire {
 
 impl<By: Lead> Act<By> for End {
     type Output = Done<By::Why<EndRefusal>>;
-    /// The hire named and its lineage.
     type Loaded = Option<Lineage>;
     type Done = ();
 
@@ -89,8 +81,6 @@ impl<By: Lead> Act<By> for End {
     }
 }
 
-/// Seats a hire as its hamlet's mayor, for the chief or the Hand:
-/// the Actions tuple admits no other caller.
 impl<By: RealmWide> Act<By> for Seat {
     type Output = Done<SeatRefusal>;
     type Loaded = Option<Lineage>;
@@ -117,10 +107,9 @@ impl<By: RealmWide> Act<By> for Seat {
     }
 }
 
-/// `tree::apply`'s arm for `Change::End`: the agent ends with how, by
-/// whom and why; its hires go to its lead. Reports its reach as moved
-/// (to `Ended`), the places of its lead, of the moved hires and of
-/// the agents it had a road to, and `Part::Agents`.
+/// Reports its reach as moved (to `Ended`), the places of its lead,
+/// of the moved hires and of the agents it had a road to, and
+/// `Part::Agents`.
 pub(in crate::realm) async fn end(
     writer: &Writer<'_>,
     agent: AgentNumber,
@@ -130,9 +119,7 @@ pub(in crate::realm) async fn end(
     todo!()
 }
 
-/// `tree::apply`'s arm for `Change::Seat`: `mayor` becomes the root
-/// of its hamlet's tree, the old mayor under it. Reports the places
-/// that moved.
+/// Reports the places that moved.
 pub(in crate::realm) async fn seat(
     writer: &Writer<'_>,
     mayor: AgentNumber,
@@ -149,7 +136,7 @@ mod tests {
     use crate::realm::{hire, steps, waits};
 
     /// The lineage of hire 5 in one hamlet: the Hand 1, the mayor 2,
-    /// hire 3 under it, and 5 under 3. Built by hand, with no file.
+    /// hire 3 under it, and 5 under 3.
     fn lineage_of_5() -> Lineage {
         todo!()
     }

@@ -27,11 +27,7 @@
 //!
 //! The client protocol's types a message carries follow that
 //! protocol's rules, not these: an enum is tagged by `kind`, an unset
-//! field is `null`, and an integer is a `u64`. They are the requests
-//! of [`realm::client`], the `id` of a [`realm::Asked`] and the
-//! attachments of an [`agent::Input::Line`].
-//! `crates/hamlet_protocol/client_schema.fingerprint` holds their
-//! shapes, and the fixture test does not read into them.
+//! field is `null`, and an integer is a `u64`.
 //!
 //! The realm takes a repeat of a call that carries an id, a chief's
 //! [`realm::Asked`] or [`realm::client`] request or an agent's

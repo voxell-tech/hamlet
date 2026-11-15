@@ -1,14 +1,4 @@
-//! The `realm` actor, one per realm: the chief, the hamlets, the tree
-//! of hires, the roads and letters, the tasks and who pays, the waits
-//! for a chief, each agent's reach and place, and the world a client
-//! reads.
-//!
-//! Every call it takes is an entry of `Realm`'s `Actions`, whose
-//! type says who may make it (`callers.rs`). An action is an
-//! `act::Act`: it loads rows, decides over them as a function of
-//! values, and `act::run` commits what it decided, then answers and
-//! makes its calls. Nothing else opens a transaction for an action,
-//! and nothing that decides can reach another actor.
+//! The `realm` actor, one per realm.
 
 mod act;
 mod budget;
@@ -52,17 +42,10 @@ use hamlet_messages::realm::{
 
 use self::callers::{Bare, ByHand, Looks};
 
-/// Every table of the realm, made at each start.
 const SCHEMA: &str = include_str!("realm/schema.sql");
 
-/// The longest a line or a letter to a `hiring` hire waits for its
-/// steps. A handler cannot read its caller's deadline, so the wait
-/// and the call before the answer stay under the shortest one a
-/// caller gives: a caller cut off first would not know the outcome.
 const HIRING_WAIT: Duration = Duration::from_secs(4);
 
-/// The shortest deadline a caller of the realm gives: an agent's
-/// call, and a client's through the front door.
 const SHORTEST_CALLER_DEADLINE: Duration = Duration::from_secs(10);
 
 const _: () = assert!(
@@ -73,8 +56,7 @@ const _: () = assert!(
 );
 
 /// The realm's settings, given by its host as a value of
-/// [`hamlet_host::HostOptions`]. For tests: the assertion above holds
-/// the default, not a value given here.
+/// [`hamlet_host::HostOptions`].
 pub struct Options {
     /// The longest a line or a letter to a `hiring` hire waits for
     /// its steps.
@@ -99,9 +81,7 @@ pub fn factory() -> ActorFactory {
 
 struct Realm {
     peers: peer::Peers,
-    /// The world a client reads, as of the last commit.
     world: world::Held,
-    /// The step rows being driven.
     drives: steps::Drives,
     hiring_wait: Duration,
 }
@@ -109,19 +89,6 @@ struct Realm {
 #[async_trait::async_trait]
 impl Actor for Realm {
     type Input = ();
-    /// The table of callers. An entry's type says who makes the call
-    /// and how its repeat is told: [`Asked`] and the client's own
-    /// types are the chief's, under a request id; a [`Tool`] is an
-    /// agent's society tool, under its call id, and a [`ByHand`] tool
-    /// only the Hand holds; a [`Bare`] call is told by a row of its
-    /// own or changes nothing; a [`Looks`] call reads the copy in
-    /// memory. The sender of a `Bare` or a `Looks` is its message's
-    /// own. An entry whose act is not written for that sender does
-    /// not build.
-    ///
-    /// The framework serves the first entry with a name and refuses
-    /// no second one, so `tests::every_name_is_listed_once` checks
-    /// that no name is listed twice.
     type Actions = (
         Asked<Found>,
         ByHand<Tool<Found>>,
@@ -169,9 +136,6 @@ impl Actor for Realm {
         })
     }
 
-    /// The first start: the realm's row, the chief, profile 1 and the
-    /// Hand as agent 1, `hiring`, with its standing task and its hire
-    /// row. The commit reserves the row's drive and starts it.
     async fn on_create(
         self: Arc<Self>,
         ctx: Ctx<Self>,
@@ -180,18 +144,11 @@ impl Actor for Realm {
         Ok(())
     }
 
-    /// Starts a drive of every step row that is not done. It reads
-    /// rows and registers tasks, and waits for no call: the start has
-    /// a deadline. It runs before the first call is served, so no
-    /// action finds a `hiring` row with no drive.
     async fn on_start(self: Arc<Self>, ctx: Ctx<Self>) -> Result<()> {
         steps::drive_undone(&self, &ctx).await
     }
 }
 
-/// The error of a body a background task reaches before the unit
-/// named fills it. The drive or the task logs it, and the realm runs
-/// on.
 fn not_built(unit: &str) -> anyhow::Error {
     anyhow::anyhow!("the scaffold: {unit} fills this")
 }
@@ -204,7 +161,6 @@ mod tests {
 
     use super::Realm;
 
-    /// A name listed twice would never be served.
     #[test]
     fn every_name_is_listed_once() {
         let names =

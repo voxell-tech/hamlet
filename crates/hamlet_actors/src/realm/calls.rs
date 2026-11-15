@@ -1,6 +1,4 @@
-//! The calls the realm makes after a commit: a delivery carries an
-//! act's own content, and a push carries versioned state that a
-//! change moved.
+//! The calls the realm makes after a commit.
 
 #![expect(
     unused_variables,
@@ -22,11 +20,10 @@ use super::change::Affected;
 use super::peer::When;
 use super::{Realm, letters, place, reach, steps, waits};
 
-/// A call that carries an act's content. An act names its
-/// deliveries from what it recorded, so a repeat makes them again.
+/// A call that carries an act's content.
 #[derive(Debug, PartialEq)]
 pub(super) enum Delivery {
-    /// A chief's line, which no row keeps: the act holds it.
+    /// A chief's line.
     Line { to: AgentNumber, submit: Submit },
     /// The letter or the question `0`, from its row, to its receiver.
     Letter(LetterId),
@@ -38,13 +35,9 @@ pub(super) enum Delivery {
     ChiefAnswer(waits::WaitId),
 }
 
-/// The deliveries of one act.
 #[derive(Debug, Default, PartialEq)]
 pub(super) struct Calls {
-    /// Made before the act answers, so its answer tells how they
-    /// went.
     pub before_answer: Vec<Delivery>,
-    /// Made after the act answered.
     pub after_answer: Vec<Delivery>,
 }
 
@@ -68,45 +61,36 @@ impl Calls {
     }
 }
 
-/// How the deliveries before an answer went.
 #[derive(Debug, Default)]
 pub(super) struct Made {
     failed: Vec<anyhow::Error>,
 }
 
 impl Made {
-    /// Whether every one was taken. True when there was none.
     pub fn all_taken(&self) -> bool {
         self.failed.is_empty()
     }
 }
 
 /// State a commit moved, to carry to the actor that keeps a copy.
-/// It names rows, so the call is built from them as they are when
-/// it is made. A request's row keeps its pushes for a repeat.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(super) enum Push {
     /// The agent's place, to the agent.
     Place(AgentNumber),
-    /// The agent's reach, to the workspace, whose answer is
-    /// committed.
+    /// The agent's reach, to the workspace.
     Reach(AgentNumber),
-    /// The steps of a row. The commit that began the row started its
-    /// drive already, so this one is for a repeat.
+    /// The steps of a row.
     Drive(steps::StepId),
 }
 
 impl Push {
     /// The pushes of a commit, in the order they are made: the
-    /// drives, which wait for nothing, then the reaches, then the
-    /// places.
+    /// drives, then the reaches, then the places.
     pub fn of(affected: &Affected) -> Vec<Self> {
         todo!()
     }
 }
 
-/// Makes `deliveries` in order and tells which failed. A failed one
-/// is logged and not made again.
 pub(super) async fn deliver_all(
     realm: &Arc<Realm>,
     ctx: &Ctx<Realm>,
@@ -138,7 +122,6 @@ pub(super) async fn deliver_all(
     made
 }
 
-/// Makes `push`.
 pub(super) async fn push(
     realm: &Arc<Realm>,
     ctx: &Ctx<Realm>,
@@ -155,7 +138,7 @@ pub(super) async fn push(
 }
 
 /// The work after an answer: the pushes in their order, then the
-/// deliveries. Each failure is logged, and nothing is made again.
+/// deliveries.
 pub(super) async fn after_answer(
     realm: Arc<Realm>,
     ctx: Ctx<Realm>,

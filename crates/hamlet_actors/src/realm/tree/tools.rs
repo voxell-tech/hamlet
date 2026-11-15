@@ -19,7 +19,6 @@ use super::super::calls::Made;
 use super::super::change::{Affected, Rows, Writer};
 use super::Lineage;
 
-/// Whether `agent`'s lead turned `tool` off for it.
 pub(in crate::realm) async fn is_off(
     rows: &Rows<'_>,
     agent: AgentNumber,
@@ -28,7 +27,6 @@ pub(in crate::realm) async fn is_off(
     Ok(false)
 }
 
-/// The tools turned off for `agent`, for its place.
 pub(in crate::realm) async fn off_for(
     rows: &Rows<'_>,
     agent: AgentNumber,
@@ -62,7 +60,7 @@ impl<By: Lead> Act<By> for SetTools {
     }
 }
 
-/// `tree::apply`'s arm for `Change::Tools`. Reports the hire's place.
+/// Reports the hire's place.
 pub(in crate::realm) async fn set(
     writer: &Writer<'_>,
     hire: AgentNumber,

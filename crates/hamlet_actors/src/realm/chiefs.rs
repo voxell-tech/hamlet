@@ -1,7 +1,5 @@
 //! The realm's row, the chief and the hamlets: the `realm`, `chief`,
-//! `hamlet` and `hamlet_chief` tables, and founding a hamlet. This
-//! module is the tables' one writer; `limits.rs` and `tier.rs` are
-//! parts of it.
+//! `hamlet` and `hamlet_chief` tables, and founding a hamlet.
 
 #![expect(
     unused_variables,
@@ -26,7 +24,6 @@ use super::calls::Made;
 use super::change::{self, Affected, Rows, Writer};
 use super::{hire, steps, tasks, tree};
 
-/// A hamlet as its rows are.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct Hamlet {
     pub id: HamletId,
@@ -49,20 +46,17 @@ pub(super) async fn hamlet(
     todo!()
 }
 
-/// The mayors of every hamlet: each has a road to the others (H14).
 pub(super) async fn mayors(
     rows: &Rows<'_>,
 ) -> Result<Vec<AgentNumber>> {
     todo!()
 }
 
-/// A new hamlet's id, a random UUID. `load` draws it, so `decide`
-/// draws nothing.
+/// A new hamlet's id, a random UUID.
 pub(super) fn fresh() -> HamletId {
     todo!()
 }
 
-/// The changes to this module's tables.
 #[derive(Debug, PartialEq)]
 pub(super) enum Change {
     /// The realm's row and its one chief, at the first start.
@@ -75,7 +69,6 @@ pub(super) enum Change {
         mayor: AgentNumber,
         tier: Tier,
     },
-    /// The hamlet's mayor is `mayor` (`Seat`).
     Mayor {
         hamlet: HamletId,
         mayor: AgentNumber,
@@ -84,11 +77,9 @@ pub(super) enum Change {
         hamlet: HamletId,
         tier: Tier,
     },
-    /// The limits a chief set.
     Limits(limits::Kept),
 }
 
-/// Makes `change`. Every one is seen by a client, as `Part::Hamlets`.
 pub(super) async fn apply(
     writer: &Writer<'_>,
     change: Change,
@@ -133,11 +124,6 @@ async fn set_mayor(
     todo!()
 }
 
-/// What the realm's first start writes, in one transaction: the
-/// realm's row and the chief, profile 1 and the Hand as agent 1,
-/// `hiring`, with its standing task, and the Hand's hire row, whose
-/// drive the commit reserves and starts. No caller waits for the
-/// Hand's address, so its row begins at the first driven step.
 pub(super) fn first_start() -> Vec<change::Change> {
     let hand = Hand::NUMBER;
     vec![
@@ -155,7 +141,6 @@ pub(super) fn first_start() -> Vec<change::Change> {
     ]
 }
 
-/// What a founding decides over.
 pub(super) struct Founding {
     profile: Option<Option<tree::Profile>>,
     hamlet: HamletId,
@@ -163,10 +148,6 @@ pub(super) struct Founding {
     blank: hamlet_messages::realm::ProfileId,
 }
 
-/// Founds a hamlet for the chief or the Hand: the Actions tuple
-/// admits no other caller (`Asked<Found>`, `ByHand<Tool<Found>>`).
-/// Both answer `FoundAnswer<FoundRefusal>`, so one `Output` serves
-/// both.
 impl<By: RealmWide> Act<By> for Found {
     type Output = FoundAnswer<FoundRefusal>;
     type Loaded = Founding;

@@ -1,11 +1,5 @@
 //! The `step` table and its one walk: an operation that spans actors
-//! is a row, driven from its last step done. A step's progress moves
-//! by compare-and-set on the step before, in the transaction of that
-//! step's changes, so a closed row stops it.
-//!
-//! An operation is a value of [`Kind`] and a step enum of its own.
-//! [`drive`] matches on the kind with no `_` arm, so a new operation
-//! does not build until it has a drive here.
+//! is a row, driven from its last step done.
 
 #![expect(
     unused_variables,
@@ -26,7 +20,6 @@ use super::change::{self, Affected, Rows, Writer};
 use super::peer::Peers;
 use super::{Realm, hire};
 
-/// What a row drives.
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize,
 )]
@@ -34,8 +27,6 @@ pub(super) enum Kind {
     Hire,
 }
 
-/// A row's id: its kind and a number of that kind. A hire's number
-/// is its agent's.
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize,
 )]
@@ -44,8 +35,7 @@ pub(super) struct StepId {
     pub n: u64,
 }
 
-/// One operation's steps, in the order they are done. The row
-/// stores the name of the last one done.
+/// One operation's steps, in the order they are done.
 pub(super) trait Steps:
     Copy + Eq + Send + Sync + 'static
 {
@@ -54,11 +44,9 @@ pub(super) trait Steps:
     fn name(self) -> &'static str;
 }
 
-/// The changes to `step`.
 #[derive(Debug, PartialEq)]
 pub(super) enum Change {
-    /// A new row with no step done. Its drive is reserved before the
-    /// commit and started after it.
+    /// A new row with no step done.
     Begin { row: StepId },
     /// `to` is done, when `from` was the last step done and the row
     /// is open.
@@ -67,13 +55,12 @@ pub(super) enum Change {
         from: Option<&'static str>,
         to: &'static str,
     },
-    /// The row is driven no further: an end of a `hiring` hire.
+    /// The row is driven no further.
     Close { row: StepId },
 }
 
-/// Makes `change`. A `Begin` reports its row in `Affected::begun`.
 /// An `Advance` that finds the row moved or closed changes nothing
-/// and fails, which rolls back the step's other changes.
+/// and fails.
 pub(super) async fn apply(
     writer: &Writer<'_>,
     change: Change,
@@ -104,7 +91,6 @@ async fn close(writer: &Writer<'_>, row: StepId) -> Result<Affected> {
     todo!()
 }
 
-/// A row as it is read.
 pub(super) struct Row {
     pub id: StepId,
     pub done: Option<String>,
@@ -118,8 +104,6 @@ pub(super) async fn row(
     todo!()
 }
 
-/// What a step works with: rows read with no transaction open, the
-/// realm's peers, and a commit of its own before its call.
 pub(super) struct Cx<'a> {
     pub realm: &'a Arc<Realm>,
     pub ctx: &'a Ctx<Realm>,
@@ -135,8 +119,7 @@ impl Cx<'_> {
     }
 
     /// Commits `changes` before the step's call, and makes the pushes
-    /// they set off, waiting for each. A hire raises its wanted reach
-    /// this way before it calls the workspace.
+    /// they set off, waiting for each.
     pub async fn commit(
         &self,
         changes: Vec<change::Change>,
@@ -145,9 +128,6 @@ impl Cx<'_> {
     }
 }
 
-/// Drives `row` from its last step done. Runs on a task of the
-/// realm's; a step that fails is logged and its row stays where it
-/// is, for the realm's next start or the caller's repeat.
 async fn drive(realm: Arc<Realm>, ctx: Ctx<Realm>, row: StepId) {
     let cx = Cx {
         realm: &realm,
@@ -166,10 +146,7 @@ async fn drive(realm: Arc<Realm>, ctx: Ctx<Realm>, row: StepId) {
     }
 }
 
-/// Runs each step of `S` after the row's last one done. A step's
-/// changes and its progress commit together; the progress is a
-/// compare-and-set on the step before, so an `End` that closed the
-/// row, or another drive, stops this one.
+/// Runs each step of `S` after the row's last one done.
 async fn walk<S: Steps>(
     cx: &Cx<'_>,
     id: StepId,
@@ -178,15 +155,12 @@ async fn walk<S: Steps>(
     todo!()
 }
 
-/// The rows being driven. A row has one drive at a time: its entry
-/// is taken under the lock, and its drive removes it at its end.
 #[derive(Default)]
 pub(super) struct Drives {
     running: Arc<Mutex<HashMap<StepId, watch::Receiver<()>>>>,
 }
 
-/// The entries of rows about to be committed. Dropped without
-/// [`Reserved::start`], as when the commit fails, it gives them back.
+/// The entries of rows about to be committed.
 #[must_use]
 pub(super) struct Reserved {
     rows: Vec<(StepId, watch::Sender<()>)>,
@@ -194,22 +168,18 @@ pub(super) struct Reserved {
 }
 
 impl Reserved {
-    /// Drives each row on a task of the realm's. Waits for nothing.
+    /// Drives each row on a task of the realm's.
     pub fn start(self, realm: &Arc<Realm>, ctx: &Ctx<Realm>) {
         todo!()
     }
 }
 
 impl Drives {
-    /// Takes the entry of each of `rows` that no drive holds. A
-    /// commit that begins a row calls it before it commits, so no
-    /// action finds a `hiring` row with no drive.
+    /// Takes the entry of each of `rows` that no drive holds.
     pub fn reserve(&self, rows: &[StepId]) -> Reserved {
         todo!()
     }
 
-    /// Drives `row`, unless a drive holds it: a repeat of a hire, and
-    /// the realm's start.
     pub fn start(
         &self,
         realm: &Arc<Realm>,
@@ -219,20 +189,14 @@ impl Drives {
         self.reserve(&[row]).start(realm, ctx);
     }
 
-    /// Waits until `row`'s drive ends, at most `within`. Returns
-    /// whether one ended in time, and `false` at once when none runs.
-    pub async fn finished(
-        &self,
-        row: StepId,
-        within: Duration,
-    ) -> bool {
+    /// Waits until `row`'s drive ends, at most `within`, and at once
+    /// when none runs.
+    pub async fn finished(&self, row: StepId, within: Duration) {
         todo!()
     }
 }
 
-/// Starts a drive of every open row with a step left. Reads rows and
-/// registers tasks; waits for no call, since the start has a
-/// deadline.
+/// Starts a drive of every open row with a step left.
 pub(super) async fn drive_undone(
     realm: &Arc<Realm>,
     ctx: &Ctx<Realm>,

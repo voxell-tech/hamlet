@@ -13,15 +13,12 @@ use hamlet_messages::workspace::AgentNumber;
 
 use super::change::Writer;
 
-/// Who decided.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum By {
-    /// The realm's one chief.
     Chief,
     Agent(AgentNumber),
 }
 
-/// One entry of the record.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum Entry {
     Founded {
@@ -69,8 +66,6 @@ pub(super) enum Entry {
     },
 }
 
-/// Writes `entries`. Only [`super::change::Transaction::commit`]
-/// calls it.
 pub(super) async fn write(
     writer: &Writer<'_>,
     entries: Vec<Entry>,

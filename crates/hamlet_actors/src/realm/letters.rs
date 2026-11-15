@@ -31,7 +31,6 @@ pub(super) enum Kind {
     Question,
 }
 
-/// The changes to `letter`.
 #[derive(Debug, PartialEq)]
 pub(super) enum Change {
     Keep {
@@ -45,12 +44,10 @@ pub(super) enum Change {
         /// The conversation a question was asked from.
         conversation: Option<ConversationId>,
     },
-    /// The answer to a question, kept once: a second answer to it
-    /// changes nothing (`answer IS NULL` in its statement).
+    /// The answer to a question, kept once.
     Answer { question: LetterId, text: String },
 }
 
-/// Makes `change`. A letter is not seen by a client.
 pub(super) async fn apply(
     writer: &Writer<'_>,
     change: Change,
@@ -114,8 +111,7 @@ pub(super) async fn fresh(rows: &Rows<'_>) -> Result<LetterId> {
 
 /// Makes `delivery`, a letter or an answer, from its row as it is
 /// now: `Submit` to the receiver under the letter's id, or to the
-/// asker's conversation under the answer's. The receiver takes it
-/// once by that id.
+/// asker's conversation under the answer's.
 pub(super) async fn deliver(
     realm: &Arc<Realm>,
     ctx: &Ctx<Realm>,
@@ -124,7 +120,6 @@ pub(super) async fn deliver(
     Err(not_built("U6"))
 }
 
-/// What a letter decides over.
 pub(super) struct Letter {
     ends: Ends,
     id: LetterId,
@@ -190,15 +185,10 @@ impl Act<Agent> for Ask {
     }
 }
 
-/// A question as its row is.
 pub(super) struct Question {
     pub asked: AgentNumber,
 }
 
-/// The answer to a question, from the asked agent when its turn on
-/// the question ends. It arrives bare: the question's id is its key,
-/// and `Change::Answer` keeps the first answer only, so a repeat
-/// changes nothing and delivers again.
 impl Act<Agent> for Reply {
     type Output = Done<ReplyRefusal>;
     type Loaded = Option<Question>;
@@ -266,7 +256,6 @@ mod tests {
         Agent(AgentNumber(3))
     }
 
-    // No host and no file: a decision is a function of values.
     #[test]
     #[ignore = "the scaffold: U6 fills it"]
     fn a_tell_with_no_road_is_refused() {

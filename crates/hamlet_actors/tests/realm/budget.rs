@@ -1,5 +1,3 @@
-//! `MaySpend`, `Charge`, `ResetBudget`.
-
 #[tokio::test]
 #[ignore = "the scaffold: U7 fills it"]
 async fn a_charge_repeated_with_one_id_counts_once() {

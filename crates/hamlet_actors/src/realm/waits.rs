@@ -28,8 +28,6 @@ use super::{Realm, not_built};
 )]
 pub(super) struct WaitId(pub u64);
 
-/// How long an allow holds. The workspace hears only allow or
-/// refuse, and every allow acts once.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Scope {
     Once,
@@ -43,12 +41,9 @@ pub(super) enum Choice {
     Refuse { reason: Option<String> },
 }
 
-/// The changes to `wait`.
 #[derive(Debug, PartialEq)]
 pub(super) enum Change {
-    /// A wait opens, once per (agent, call): its statement inserts or
-    /// does nothing, so a repeat of `NeedsChief` writes nothing more.
-    /// The row holds the realm's own columns, read from the message.
+    /// A wait opens, once per (agent, call).
     Open {
         asked: NeedsChief,
     },
@@ -62,7 +57,7 @@ pub(super) enum Change {
     },
 }
 
-/// Makes `change`. A client sees each, as `Part::Waits`.
+/// A client sees each, as `Part::Waits`.
 pub(super) async fn apply(
     writer: &Writer<'_>,
     change: Change,
@@ -99,7 +94,7 @@ async fn lapse(
 }
 
 /// Calls the workspace with the chief's answer to `wait`, from its
-/// row: allow or refuse. The workspace answers `NoWait` to a second.
+/// row: allow or refuse.
 pub(super) async fn deliver(
     realm: &Arc<Realm>,
     ctx: &Ctx<Realm>,
@@ -108,8 +103,6 @@ pub(super) async fn deliver(
     Err(not_built("U8"))
 }
 
-/// A call that waits for a chief, from the workspace, which holds the
-/// agent's call meanwhile. It arrives bare: (agent, call) is its key.
 impl Act<Workspace> for NeedsChief {
     type Output = ();
     type Loaded = ();
@@ -132,7 +125,6 @@ impl Act<Workspace> for NeedsChief {
     }
 }
 
-/// A wait as its row is.
 pub(super) struct Waiting {
     pub wait: WaitId,
     pub agent: AgentNumber,

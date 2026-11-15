@@ -1,6 +1,3 @@
-//! A chief's line to an agent. It answers after its call,
-//! saying whether the agent took the line.
-
 #![expect(
     unused_variables,
     dead_code,
@@ -17,12 +14,8 @@ use super::change::Rows;
 use super::tasks::TaskId;
 use super::tree::Lineage;
 
-/// What a line decides over.
 pub(super) struct Target {
-    /// The agent spoken to, with its lineage; `None` when no agent
-    /// has that number.
     lineage: Option<Lineage>,
-    /// The task the line opens.
     task: TaskId,
 }
 
@@ -47,8 +40,6 @@ impl Act<Client> for Say {
         todo!()
     }
 
-    /// The line itself, which no row keeps: a repeat carries it
-    /// again, and the agent takes it once by the request's id.
     fn deliveries(&self, by: &Client, task: &TaskId) -> Calls {
         todo!()
     }
@@ -58,7 +49,6 @@ impl Act<Client> for Say {
     }
 }
 
-/// The first line of `text`: a hire's purpose when it has none.
 fn first_line(text: &str) -> String {
     todo!()
 }

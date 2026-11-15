@@ -1,8 +1,3 @@
-//! Each table of `schema.sql` has one writer: the module named above
-//! it. The check reads the realm's source, so a change that writes a
-//! table from another module fails here, naming the module and the
-//! table, before review.
-
 use std::path::Path;
 
 /// Each realm module that writes rows, and the tables it may write.
@@ -26,20 +21,25 @@ const WRITERS: &[(&str, &[&str])] = &[
 
 #[test]
 fn each_table_has_one_writer() {
-    let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/realm");
+    let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let realm = src.join("realm");
     let mut wrong = Vec::new();
-    for file in rust_files(&src) {
+    for file in
+        rust_files(&realm).into_iter().chain([src.join("realm.rs")])
+    {
         let module = file
-            .strip_prefix(&src)
-            .unwrap()
+            .strip_prefix(&realm)
+            .unwrap_or(Path::new("realm.rs"))
             .to_string_lossy()
             .replace('\\', "/");
         let text = std::fs::read_to_string(&file).unwrap();
+        // A test's SQL is data: only the code above it writes.
+        let code = text.split("#[cfg(test)]").next().unwrap();
         let allowed = WRITERS
             .iter()
             .find(|(name, _)| *name == module)
             .map_or(&[][..], |(_, tables)| *tables);
-        for table in written(&text) {
+        for table in written(code) {
             if !allowed.contains(&table.as_str()) {
                 wrong.push(format!("{module} writes `{table}`"));
             }
@@ -58,13 +58,15 @@ fn written(text: &str) -> Vec<String> {
         .split(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
         .filter(|word| !word.is_empty())
         .collect();
+    let keywords: Vec<String> =
+        words.iter().map(|word| word.to_ascii_uppercase()).collect();
     let mut tables = Vec::new();
-    for (i, word) in words.iter().enumerate() {
-        let after = match *word {
+    for (i, word) in keywords.iter().enumerate() {
+        let after = match word.as_str() {
             "INTO"
                 if i > 0
                     && matches!(
-                        words[i - 1],
+                        keywords[i - 1].as_str(),
                         "INSERT" | "REPLACE" | "IGNORE"
                     ) =>
             {
@@ -72,8 +74,13 @@ fn written(text: &str) -> Vec<String> {
             }
             // Not an upsert's `DO UPDATE SET`, whose table is the
             // insert's.
-            "UPDATE" if words.get(i + 1) != Some(&"SET") => i + 1,
-            "FROM" if i > 0 && words[i - 1] == "DELETE" => i + 1,
+            "UPDATE"
+                if keywords.get(i + 1).map(String::as_str)
+                    != Some("SET") =>
+            {
+                i + 1
+            }
+            "FROM" if i > 0 && keywords[i - 1] == "DELETE" => i + 1,
             _ => continue,
         };
         if let Some(table) = words.get(after) {
@@ -94,4 +101,16 @@ fn rust_files(dir: &Path) -> Vec<std::path::PathBuf> {
         }
     }
     files
+}
+
+#[test]
+fn the_scan_reads_a_write_in_either_case() {
+    assert_eq!(
+        written(
+            "insert into agent (n) VALUES (1) ON CONFLICT (n) DO \
+             UPDATE SET n = 1; update hire SET n = 2; DELETE from \
+             step"
+        ),
+        ["agent", "hire", "step"]
+    );
 }

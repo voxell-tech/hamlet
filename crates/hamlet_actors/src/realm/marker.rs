@@ -1,6 +1,6 @@
 //! The `marker` table: what every chief's request and every society
 //! tool call that changed the realm made, under the id its repeat
-//! carries, so asking again gives that result back (S19).
+//! carries (S19).
 
 #![expect(
     unused_variables,
@@ -22,15 +22,12 @@ use super::change::{Rows, Writer};
 
 /// The id a repeat carries.
 pub(super) enum Id {
-    /// A client's.
     Request(RequestId),
-    /// The id of an agent's tool call.
     Call(CallId),
 }
 
 /// The SHA-256 of a request's bytes: the CBOR of the act the call
-/// carries, as its Rust type. The sender, the id and the action's
-/// name are the rest of the [`Key`].
+/// carries, as its Rust type.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct Digest(Sha256);
 
@@ -40,8 +37,6 @@ impl Digest {
     }
 }
 
-/// A request as its row is found: who made it, under which id, and
-/// what it asked.
 pub(super) struct Key {
     caller: String,
     id: String,
@@ -59,8 +54,6 @@ impl Key {
         todo!()
     }
 
-    /// The error of a call that carries this key's id with another
-    /// request.
     pub fn reused(&self) -> anyhow::Error {
         id_reused(self.action, &CallId(self.id.clone()))
     }

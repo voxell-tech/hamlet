@@ -1,19 +1,7 @@
-//! Who makes a call of the realm, and the forms a call arrives in.
-//! The `Actions` tuple names a form per entry, so the rule of who may
-//! call is a type: an entry whose act is not written for its form's
-//! sender does not build.
-//!
-//! The senders are the messages' (`Client`, `Agent`, `Hand`,
-//! `Workspace`), read from the host's stamp by
-//! [`hamlet_messages::sender::sender`], which fails a sender of
-//! another kind with `message.wrong_caller`. The realm's own traits
-//! about a sender are implemented on them here. This is also the one
-//! place a society tool's answer gains what refuses the caller
-//! itself: the families `Standing` and `Gate`.
-
 #![expect(
     dead_code,
-    reason = "the scaffold: the units' bodies use these"
+    reason = "the scaffold: U2 to U11 use these, and the integrator \
+              removes this"
 )]
 
 use std::sync::Arc;
@@ -68,24 +56,14 @@ impl Witness for Workspace {
     }
 }
 
-/// What refuses an agent itself, before its society tool runs.
 #[derive(Debug)]
 pub(super) enum Stood {
     Standing(Standing),
     Gate(Gate),
 }
 
-/// A sender that is an agent of the tree, whose own standing is read
-/// before its society tool runs.
-///
-/// `standing` is an `async fn` in a trait, so its future is known to
-/// be `Send` only where the sender is a concrete type, as in the one
-/// handler that reads it. A handler generic over the member does not
-/// build.
+/// A sender that is an agent of the tree.
 pub(super) trait Member: Witness {
-    /// Why the sender itself is refused: it has ended, or its lead
-    /// turned `tool` off for it (C16). Read from rows, never from the
-    /// caller's copy of its place.
     async fn standing(
         &self,
         rows: &Rows<'_>,
@@ -134,37 +112,26 @@ impl Decider for Hand {
     }
 }
 
-/// A sender whose powers reach every hamlet: the chief and the Hand,
-/// who found hamlets and seat mayors (H6, H18). No agent but the Hand
-/// is one, so `Tool<Found>` or `Tool<Seat>` listed for an agent does
-/// not build; the Hand sends them as `ByHand<Tool<_>>`. Neither is
-/// refused for its standing (the chief has none; the Hand never
-/// leaves and has no lead), so both answer the act's own family.
+/// A sender whose powers reach every hamlet.
 pub(super) trait RealmWide: Decider {}
 
 impl RealmWide for Client {}
 
 impl RealmWide for Hand {}
 
-/// A sender that can have a lead's powers over a hire (H41): the
-/// chief over every hire, an agent over the hires below it, the Hand
-/// over all.
+/// A sender that can have a lead's powers over a hire (H41).
 pub(super) trait Lead: Decider {
-    /// A refusal `R` as this kind of sender is answered with it. The
-    /// chief is never refused for want of a lead's powers, so its
-    /// answers cannot hold that refusal.
+    /// A refusal `R` as this kind of sender is answered with it.
     type Why<R>: Send + 'static
     where
         R: Send + 'static;
 
-    /// Whether the sender leads `hire`, read from the hire's lineage.
     fn leads<R: Send + 'static>(
         &self,
         lineage: &Lineage,
         hire: AgentNumber,
     ) -> Result<(), Self::Why<R>>;
 
-    /// `refusal`, as this sender is answered with it.
     fn refused<R: Send + 'static>(refusal: R) -> Self::Why<R>;
 }
 
@@ -210,9 +177,7 @@ impl Lead for Agent {
     }
 }
 
-// The realm's own forms. On the wire each is the message it wraps.
-
-/// A society tool only the Hand holds: `found` and `seat`.
+/// A society tool only the Hand holds.
 #[derive(Serialize, Deserialize)]
 #[serde(transparent)]
 pub(super) struct ByHand<M>(pub M);
@@ -256,9 +221,6 @@ impl<M: Message> Message for Looks<M> {
     type To = M::To;
     type From = M::From;
 }
-
-// The handlers. Each reads its sender first, so no act runs for a
-// sender of another kind, and then hands the act to `act::run`.
 
 impl Handler<Say> for Realm {
     async fn handle(
@@ -329,8 +291,6 @@ where
     }
 }
 
-/// The Hand's own tools. No standing is read: the act runs as a
-/// chief's request does, and answers its own family.
 impl<T> Handler<ByHand<Tool<T>>> for Realm
 where
     T: ToolCall + Act<Hand, Output = <T as ToolCall>::Answer>,
@@ -348,8 +308,6 @@ where
     }
 }
 
-/// A society tool's answer: the sender's own standing first, then the
-/// act's.
 fn to_tool<O>(ran: Result<O, Stood>) -> O
 where
     O: Refusable,

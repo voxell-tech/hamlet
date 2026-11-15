@@ -1,7 +1,5 @@
 //! The chief's limits, a hamlet's and the realm's own: the `limits`
 //! column of the `hamlet` and `realm` rows, and `SetLimits` (H22).
-//! Each kept form is `serde(default)`, so a row written before a
-//! field was added reads the default for it.
 
 #![expect(
     unused_variables,
@@ -21,7 +19,6 @@ use super::super::act::{Act, Decision};
 use super::super::calls::Made;
 use super::super::change::{Affected, Rows, Writer};
 
-/// A hamlet's limits, as its row keeps them.
 #[derive(
     Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize,
 )]
@@ -38,7 +35,6 @@ impl Limits {
     }
 }
 
-/// The realm's own limits, as its row keeps them.
 #[derive(
     Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize,
 )]
@@ -47,7 +43,6 @@ struct RealmLimits {
     budget: Budget,
 }
 
-/// A budget for a period, on cost and model time (H8).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub(in crate::realm) struct Budget {
@@ -59,7 +54,6 @@ pub(in crate::realm) struct Budget {
 }
 
 impl Default for Budget {
-    /// $50 a day, and no bound on model time.
     fn default() -> Self {
         Self {
             micros: Some(50_000_000),
@@ -97,7 +91,6 @@ pub(in crate::realm) struct RoadRules {
 }
 
 impl Default for RoadRules {
-    /// $0.01 a road, 24 roads, 7 days.
     fn default() -> Self {
         Self {
             price: 10_000,
@@ -118,8 +111,6 @@ pub(super) fn new_realm() -> Result<String> {
     todo!()
 }
 
-/// The budget of `payer` as it is now. A payer names a hamlet the
-/// realm holds, so a missing one is an error, not a refusal.
 pub(in crate::realm) async fn budget(
     rows: &Rows<'_>,
     payer: &Payer,
@@ -131,8 +122,7 @@ async fn realm(rows: &Rows<'_>) -> Result<RealmLimits> {
     todo!()
 }
 
-/// Limits with the row that keeps them. Only `SetLimits::load` makes
-/// one.
+/// Limits with the row that keeps them.
 #[derive(Debug, PartialEq)]
 pub(in crate::realm) struct Kept(Row);
 
@@ -175,9 +165,6 @@ impl Act<Client> for SetLimits {
     }
 }
 
-/// `chiefs::apply`'s arm for `Change::Limits`: one statement, the
-/// whole column. Seen by a client as `Part::Spend`, which holds each
-/// payer's budget.
 pub(super) async fn set(
     writer: &Writer<'_>,
     kept: Kept,

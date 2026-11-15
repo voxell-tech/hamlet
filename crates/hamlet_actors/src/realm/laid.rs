@@ -1,6 +1,5 @@
 //! Roads a lead lays between two hires: the `road` table, `LayRoad`,
-//! `TakeUpRoad` and `RequestRoad` (H3). The tree's roads and the
-//! mayors' are no rows; `roads.rs` derives them.
+//! `TakeUpRoad` and `RequestRoad` (H3).
 
 #![expect(
     unused_variables,
@@ -22,7 +21,6 @@ use super::calls::{Calls, Made};
 use super::change::{Affected, Rows, Writer};
 use super::roads;
 
-/// The changes to `road`. A road is kept with its lower end first.
 #[derive(Debug, PartialEq)]
 pub(super) enum Change {
     Lay {
@@ -34,15 +32,11 @@ pub(super) enum Change {
         a: AgentNumber,
         b: AgentNumber,
     },
-    /// The road carried a letter now, for H3's grown-over road. Only
-    /// a letter along a laid road makes it.
     Used {
         between: (AgentNumber, AgentNumber),
     },
 }
 
-/// Makes `change`. A road laid or taken up moves the places of its
-/// two ends, and is seen by a client as `Part::Roads`.
 pub(super) async fn apply(
     writer: &Writer<'_>,
     change: Change,
@@ -89,7 +83,7 @@ pub(super) async fn between(
     Ok(false)
 }
 
-/// The other ends of `agent`'s open laid roads, for its place.
+/// The other ends of `agent`'s open laid roads.
 pub(super) async fn of(
     rows: &Rows<'_>,
     agent: AgentNumber,
@@ -97,8 +91,6 @@ pub(super) async fn of(
     Ok(Vec::new())
 }
 
-/// What laying or taking up a road decides over: both ends with their
-/// lineages, and whether the road is there.
 pub(super) struct Laying {
     ends: Option<(super::tree::Lineage, super::tree::Lineage)>,
     laid: bool,
@@ -148,7 +140,6 @@ impl<By: Lead> Act<By> for TakeUpRoad {
     }
 }
 
-/// An agent's request to its lead for a road: a letter to the lead.
 impl Act<Agent> for RequestRoad {
     type Output = Done<AgentRefusal<RequestRoadRefusal>>;
     type Loaded = roads::Ends;

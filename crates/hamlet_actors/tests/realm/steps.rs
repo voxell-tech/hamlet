@@ -1,5 +1,3 @@
-//! A hire's steps, from its rows to `live`.
-
 #[tokio::test]
 #[ignore = "the scaffold: U3 fills it"]
 async fn a_hire_goes_live_through_its_steps() {

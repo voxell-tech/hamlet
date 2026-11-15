@@ -1,10 +1,5 @@
 //! The `task` table: what a chief's line or an agent's standing is
-//! charged to (H12, C31). Outside this module the realm
-//! names a task only as [`TaskId`], and only this module turns one
-//! into or out of [`hamlet_messages::workspace::RealmTask`]. Taking
-//! tasks out deletes this module, its table and `TaskId`: the
-//! compiler then names every use, and the messages' `RealmTask`
-//! fields go with `RealmTask` itself.
+//! charged to (H12, C31).
 
 #![expect(
     unused_variables,
@@ -19,7 +14,6 @@ use serde::{Deserialize, Serialize};
 
 use super::change::{Affected, Rows, Writer};
 
-/// The realm's id of a task.
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize,
 )]
@@ -39,13 +33,11 @@ impl TaskId {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Origin {
-    /// A chief's line.
     Chief,
     /// The task that pays for an agent's turns no line started.
     Standing,
 }
 
-/// The changes to `task`.
 #[derive(Debug, PartialEq)]
 pub(super) enum Change {
     Open {
@@ -93,12 +85,10 @@ async fn standing_task(
     todo!()
 }
 
-/// The next task's id.
 pub(super) async fn fresh(rows: &Rows<'_>) -> Result<TaskId> {
     todo!()
 }
 
-/// `agent`'s standing task.
 pub(super) async fn standing(
     rows: &Rows<'_>,
     agent: AgentNumber,
@@ -106,7 +96,7 @@ pub(super) async fn standing(
     todo!()
 }
 
-/// Who pays for `task`. `None` for a task the realm does not hold.
+/// `None` for a task the realm does not hold.
 pub(super) async fn payer(
     rows: &Rows<'_>,
     task: TaskId,

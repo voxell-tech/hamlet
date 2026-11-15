@@ -1,5 +1,3 @@
-//! Laid roads, tools turned off, tiers.
-
 #[tokio::test]
 #[ignore = "the scaffold: U11 fills it"]
 async fn a_laid_road_carries_letters_and_is_charged_once() {

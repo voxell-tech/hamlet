@@ -1,5 +1,3 @@
-//! A hamlet's tier, set by the chief.
-
 #![expect(
     unused_variables,
     dead_code,
@@ -16,7 +14,6 @@ use super::super::act::{Act, Decision};
 use super::super::calls::Made;
 use super::super::change::{Affected, Rows, Writer};
 
-/// What a tier change decides over: the hamlet and its living hires.
 pub(in crate::realm) struct Tiering {
     hamlet: Option<super::Hamlet>,
     living: u32,
@@ -48,7 +45,6 @@ impl Act<Client> for SetTier {
     }
 }
 
-/// `chiefs::apply`'s arm for `Change::Tier`.
 pub(in crate::realm) async fn set(
     writer: &Writer<'_>,
     hamlet: HamletId,

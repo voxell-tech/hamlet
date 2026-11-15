@@ -1,19 +1,4 @@
 //! The calls the `realm` actor takes, and its answers.
-//!
-//! A call's form says who sends it. The chief's request comes from a
-//! client as an [`Asked`], or as the client protocol's own type in
-//! [`client`]. An agent's society tool comes as a [`Tool`]. The other
-//! calls come bare.
-//!
-//! Every answer is built from its own arms and one arm
-//! `refused { why, words }`. The chief's form refuses with the act's
-//! own family. An agent's form refuses with a union that adds the
-//! families of what refuses the caller itself: [`Standing`] for an
-//! agent that has left, [`Gate`] for a tool its lead turned off, and
-//! [`Rank`] for an act that needs a lead's powers. An act's own
-//! family lists every case the act sends, so a case several acts
-//! send, such as `no_such_agent`, is written in each of their
-//! families.
 
 pub mod budget;
 pub mod client;
@@ -103,7 +88,7 @@ impl Message for NeedsChief {
     type From = Workspace;
 }
 
-/// A chief's request, from a client. A repeat carries the same `id`.
+/// A chief's request. A repeat carries the same `id`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Asked<T> {
     pub id: RequestId,
@@ -111,15 +96,14 @@ pub struct Asked<T> {
 }
 
 /// An agent's call of a society tool. A repeat carries the same
-/// `call`: the agent's id of the tool call, given again when its
-/// harness runs a cut-off tool again.
+/// `call`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Tool<T> {
     pub call: CallId,
     pub act: T,
 }
 
-/// An act the chief requests: its name and its answer.
+/// An act the chief requests.
 pub trait ChiefRequest:
     Serialize + DeserializeOwned + Send + Sync + 'static
 {
@@ -131,8 +115,7 @@ pub trait ChiefRequest:
         + 'static;
 }
 
-/// An act an agent calls as a society tool: the tool, which names the
-/// call and which a lead can turn off, and its answer.
+/// An act an agent calls as a society tool.
 pub trait ToolCall:
     Serialize + DeserializeOwned + Send + Sync + 'static
 {
@@ -144,8 +127,7 @@ pub trait ToolCall:
         + 'static;
 }
 
-/// An answer with an arm `refused`, which the realm's runner builds
-/// from a reason.
+/// An answer with an arm `refused`.
 pub trait Refusable {
     type Why;
     fn refused(why: Self::Why) -> Self;
@@ -196,8 +178,7 @@ impl<W> Refusable for Done<W> {
     }
 }
 
-/// The society tools, by name: what a `Tool` is called by, and what a
-/// lead turns off (C16).
+/// The society tools, by name (C16).
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize,
 )]
@@ -216,7 +197,7 @@ pub enum SocietyTool {
 }
 
 impl SocietyTool {
-    /// Its name on the wire, which is also its action's name.
+    /// Its name on the wire.
     pub const fn name(self) -> &'static str {
         match self {
             Self::Found => "found",
@@ -367,13 +348,12 @@ impl<R> From<Gate> for LeadRefusal<R> {
 )]
 pub struct HamletId(pub String);
 
-/// A profile's id. An agent writes it, so a `u32`.
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize,
 )]
 pub struct ProfileId(pub u32);
 
-/// The realm's id of a question. An agent writes it back, so a `u32`.
+/// The realm's id of a question.
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize,
 )]
@@ -392,7 +372,7 @@ pub enum Tier {
 }
 
 /// An agent as a chief or an agent names it (H14). `Mayor` is the
-/// office of the caller's hamlet, read when the act decides.
+/// office of the caller's hamlet.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Named {
@@ -446,7 +426,6 @@ pub struct Found {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mayor: Option<ProfileId>,
     pub tier: Tier,
-    /// The mayor's purpose.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub purpose: Option<String>,
 }
@@ -456,8 +435,7 @@ impl ChiefRequest for Found {
     type Answer = FoundAnswer<FoundRefusal>;
 }
 
-/// Only the Hand calls it, and the Hand neither leaves nor has a
-/// lead.
+/// Only the Hand calls it.
 impl ToolCall for Found {
     const TOOL: SocietyTool = SocietyTool::Found;
     type Answer = FoundAnswer<FoundRefusal>;
@@ -703,7 +681,6 @@ pub enum LetterRefusal {
     NoSuchAgent,
     #[error("you have no road to `hire#{}`; ask your lead for one with request_road", to.0)]
     NoRoad { to: AgentNumber },
-    /// The receiver was still being hired when the wait for it ended.
     #[error("no road yet to `hire#{}`: it is still being hired", to.0)]
     StillHiring { to: AgentNumber },
     #[error("`hire#{}` has left: {left}", to.0)]
@@ -711,7 +688,7 @@ pub enum LetterRefusal {
 }
 
 /// The answer to a question, when the asked agent's turn on it ends.
-/// Bare: the question is its key, and a repeat keeps the first.
+/// The question is its key, and a repeat keeps the first.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Reply {
     pub question: LetterId,
@@ -879,7 +856,7 @@ pub enum ToolsRefusal {
     NotAHire,
 }
 
-/// Raises or lowers a hamlet's tier (H6). The chief's only.
+/// Raises or lowers a hamlet's tier (H6).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SetTier {
     pub hamlet: HamletId,
@@ -908,8 +885,7 @@ pub enum TierRefusal {
     TooSmall { living: u32 },
 }
 
-/// Sets limits of a hamlet, or of the realm itself (H22). The
-/// chief's only.
+/// Sets limits of a hamlet, or of the realm itself (H22).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SetLimits {
     /// Absent for the realm's own.
@@ -926,7 +902,7 @@ impl ChiefRequest for SetLimits {
 }
 
 /// The refusal of a chief's act whose one condition is that the
-/// hamlet it names exists: `SetLimits` and `ResetBudget`.
+/// hamlet it names exists.
 #[derive(
     Clone,
     Debug,

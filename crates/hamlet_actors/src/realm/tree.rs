@@ -1,7 +1,5 @@
 //! The tree of hires: the `profile`, `agent`, `hire` and
-//! `hire_tool_off` tables, and the lead's powers over them. This
-//! module is the tables' one writer; `lead.rs` (hire, end, seat) and
-//! `tools.rs` (a lead's tools turned off) are parts of it.
+//! `hire_tool_off` tables, and the lead's powers over them.
 
 #![expect(
     unused_variables,
@@ -29,7 +27,6 @@ pub(super) enum Status {
     Ended(Left),
 }
 
-/// An agent of the tree, as its rows are.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct Member {
     pub agent: AgentNumber,
@@ -41,10 +38,7 @@ pub(super) struct Member {
 }
 
 /// One agent with what a decision about it reads: its leads up to
-/// the root of its hamlet, its own hires, and its hamlet. A lead's
-/// powers, an end and a seating are decided on it. It is the depth of
-/// the tree plus one level of hires, not the hamlet's tree, so a
-/// commit stays small.
+/// the root of its hamlet, its own hires, and its hamlet.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct Lineage {
     pub agent: Member,
@@ -67,8 +61,6 @@ impl Lineage {
     }
 }
 
-/// `agent` with its leads, its hires and its hamlet; `None` when no
-/// agent has that number.
 pub(super) async fn lineage(
     rows: &Rows<'_>,
     agent: AgentNumber,
@@ -76,8 +68,6 @@ pub(super) async fn lineage(
     todo!()
 }
 
-/// The agent `named` is, for a caller in `hamlet` (H14): `hand`,
-/// `mayor` (the office, read now), `mayor@<hamlet>`, `hire#<n>`.
 pub(super) async fn resolve(
     rows: &Rows<'_>,
     hamlet: Option<&HamletId>,
@@ -86,7 +76,6 @@ pub(super) async fn resolve(
     todo!()
 }
 
-/// How and why `agent` ended, when it has.
 pub(super) async fn left(
     rows: &Rows<'_>,
     agent: AgentNumber,
@@ -104,8 +93,7 @@ pub(super) async fn living(
 }
 
 /// The next agent's number, from one sequence: the Hand is 1, the
-/// first mayor 2. Read in the transaction that writes it, which holds
-/// the file's gate from its read to its commit.
+/// first mayor 2.
 pub(super) async fn fresh(rows: &Rows<'_>) -> Result<AgentNumber> {
     todo!()
 }
@@ -144,7 +132,6 @@ pub(super) async fn kind_of(
     todo!()
 }
 
-/// The profile a hire is of.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum Of {
     Profile(ProfileId),
@@ -152,14 +139,11 @@ pub(super) enum Of {
     Blank(ProfileId),
 }
 
-/// The changes to this module's tables.
 #[derive(Debug, PartialEq)]
 pub(super) enum Change {
-    /// Profile 1 and the Hand as agent 1, `hiring`, at the first
-    /// start.
+    /// Profile 1 and the Hand as agent 1, `hiring`.
     Hand,
-    /// A new agent, `hiring`, and its place in a hamlet's tree: a
-    /// founded hamlet's mayor (no lead) or a hire.
+    /// A new agent, `hiring`, and its place in a hamlet's tree.
     Hire {
         agent: AgentNumber,
         hamlet: HamletId,
@@ -167,9 +151,9 @@ pub(super) enum Change {
         of: Of,
         purpose: Option<String>,
     },
-    /// Step 9: the agent is live.
+    /// The agent is live.
     Live { agent: AgentNumber },
-    /// A hire's purpose, when it has none: the first line said to it.
+    /// A hire's purpose, when it has none.
     Purpose { hire: AgentNumber, text: String },
     /// The agent ends, and its hires go to its lead.
     End {
@@ -180,7 +164,6 @@ pub(super) enum Change {
     /// `mayor` becomes the root of its hamlet's tree, with the old
     /// mayor under it.
     Seat { mayor: AgentNumber },
-    /// A lead turns tools off and on for its hire.
     Tools {
         hire: AgentNumber,
         off: Vec<SocietyTool>,
@@ -188,8 +171,6 @@ pub(super) enum Change {
     },
 }
 
-/// Makes `change`, and reports the agents whose place or reach it
-/// moved and whether a client sees it.
 pub(super) async fn apply(
     writer: &Writer<'_>,
     change: Change,
@@ -217,12 +198,11 @@ pub(super) async fn apply(
     }
 }
 
-/// Profile 1 and the Hand as agent 1, `hiring`.
 async fn hand(writer: &Writer<'_>) -> Result<Affected> {
     todo!()
 }
 
-/// A new agent, `hiring`, under `lead`. Reports the lead's place.
+/// Reports the lead's place.
 async fn hire(
     writer: &Writer<'_>,
     agent: AgentNumber,
@@ -234,7 +214,7 @@ async fn hire(
     todo!()
 }
 
-/// The agent is live. Reports its lead's place.
+/// Reports its lead's place.
 async fn live(
     writer: &Writer<'_>,
     agent: AgentNumber,

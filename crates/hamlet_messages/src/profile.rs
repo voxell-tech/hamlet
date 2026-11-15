@@ -6,9 +6,8 @@ use serde::{Deserialize, Serialize};
 use crate::Message;
 use crate::address::{Profile, Realm};
 
-/// Makes the branch `name` when the profile does not have it. Called
-/// by the realm, for a hire. A repeat finds the branch and answers
-/// the same.
+/// Makes the branch `name` when the profile does not have it. A
+/// repeat finds the branch and answers the same.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Branch {
     pub name: String,

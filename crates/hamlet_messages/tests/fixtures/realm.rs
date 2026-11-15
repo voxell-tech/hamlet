@@ -43,7 +43,6 @@ use super::{AGENT, Fixtures, call, task};
 const HIRE: AgentNumber = AgentNumber(12);
 const MAYOR: AgentNumber = AgentNumber(2);
 
-/// Every enum the realm adds.
 pub fn enums() -> Vec<Cases> {
     vec![
         tagged::<Done<HamletRefusal>>(),
@@ -81,7 +80,6 @@ pub fn enums() -> Vec<Cases> {
     ]
 }
 
-/// Every untagged union the realm adds, with its families.
 pub fn unions() -> Vec<Union> {
     vec![
         union!(SpendRefusal {
@@ -124,8 +122,6 @@ pub fn the_realms_messages(fixtures: &mut Fixtures) {
     the_calls_to_agents_and_profiles(fixtures);
 }
 
-/// Checks an answer's arms under `name`, and `refused` with each
-/// reason.
 fn answers<A>(
     fixtures: &mut Fixtures,
     name: &str,
@@ -155,7 +151,7 @@ fn done<W>(
     answers(fixtures, name, [("done", Done::Done)], refusals);
 }
 
-/// The refusals of an agent's act: the caller's own, then the act's.
+/// The refusals of an agent's act.
 fn by_an_agent<R>(
     tool: SocietyTool,
     acts: Vec<(&'static str, R)>,
@@ -229,7 +225,6 @@ fn hamlet() -> HamletId {
     HamletId("5f0d2c1b-7a3e-4d9f-8b6a-1c2d3e4f5a6b".into())
 }
 
-/// The task that pays for a turn no chief's line started.
 fn standing_task() -> RealmTask {
     RealmTask("standing-12".into())
 }
@@ -749,7 +744,6 @@ fn the_clients_calls(fixtures: &mut Fixtures) {
             ),
         ],
     );
-    // Not probed: the client protocol's own type keeps its own rules.
     fixtures.unprobed_args(
         "realm/answer",
         &Answer(protocol::Answer {
@@ -872,7 +866,6 @@ fn the_calls_to_agents_and_profiles(fixtures: &mut Fixtures) {
         roads: Vec::new(),
         tools_off: Vec::new(),
     };
-    // The input `agent/<n>` is created with.
     for (name, kind, place) in [
         ("hand", AgentKind::Hand, hands_place()),
         ("hire", AgentKind::Hire, place()),

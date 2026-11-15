@@ -1,8 +1,7 @@
 //! The versions the realm keeps of what other actors hold a copy of:
 //! each agent's reach, wanted and in force in the workspace; each
 //! agent's place, as the agent was last sent it; and the revision of
-//! the world a client reads. Every commit raises them here, from what
-//! its changes reported, so no action raises one by hand.
+//! the world a client reads.
 
 #![expect(
     unused_variables,
@@ -19,12 +18,9 @@ use super::change::{Affected, Rows, Writer};
 /// The changes to the versions that no other change implies.
 #[derive(Debug, PartialEq)]
 pub(super) enum Change {
-    /// The agent's reach is to be set: a hire's step 8. Writes
-    /// nothing itself; it reports the reach as moved, so the commit
-    /// raises its wanted version and pushes it.
+    /// The agent's reach is to be set.
     WantReach(AgentNumber),
-    /// The workspace answered that `version` is in force: the second
-    /// transaction of a reach's push.
+    /// The workspace answered that `version` is in force.
     Applied {
         agent: AgentNumber,
         version: ReachVersion,
@@ -56,8 +52,7 @@ async fn applied(
 }
 
 /// Raises the wanted reach of each agent in `affected.reaches` and
-/// the place version of each in `affected.places`, in the transaction
-/// that moved them. Only `Transaction::commit` calls it.
+/// the place version of each in `affected.places`.
 pub(super) async fn raise(
     writer: &Writer<'_>,
     affected: &Affected,
@@ -65,7 +60,6 @@ pub(super) async fn raise(
     todo!()
 }
 
-/// Raises the world's revision and returns it (S26).
 pub(super) async fn advance_revision(
     writer: &Writer<'_>,
 ) -> Result<Revision> {
@@ -73,8 +67,7 @@ pub(super) async fn advance_revision(
 }
 
 /// The reach versions of `agent`: wanted, and in force when the
-/// workspace has answered one. Pending while in force is below
-/// wanted.
+/// workspace has answered one.
 pub(super) async fn reach(
     rows: &Rows<'_>,
     agent: AgentNumber,

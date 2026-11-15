@@ -42,7 +42,6 @@ pub enum Outcome {
     Change { end: ChangeEnd },
 }
 
-/// What an agent of the tree is.
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize,
 )]
@@ -52,7 +51,7 @@ pub enum AgentKind {
     Hire,
 }
 
-/// The input `agent/<n>` is created with, by the realm.
+/// The input `agent/<n>` is created with.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AgentInput {
     pub kind: AgentKind,
@@ -68,7 +67,7 @@ pub struct AgentInput {
 )]
 pub struct InputId(pub String);
 
-/// Gives the agent an input to work on. Called by the realm.
+/// Gives the agent an input to work on.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Submit {
     pub id: InputId,
@@ -143,9 +142,8 @@ pub struct Author {
 )]
 pub struct PlaceVersion(pub u64);
 
-/// An agent's place in the tree, for its prompt and its tool list.
+/// An agent's place in the tree.
 /// The agent keeps it when `version` is newer than the one it holds.
-/// Called by the realm.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Place {
     pub version: PlaceVersion,
@@ -168,8 +166,8 @@ impl Message for Place {
     type From = Realm;
 }
 
-/// Fills the agent's filesystem from `branch` of `profile`. Called by
-/// the realm. An agent already filled answers the same.
+/// Fills the agent's filesystem from `branch` of `profile`. An agent
+/// already filled answers the same.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Fill {
     pub profile: ProfileId,

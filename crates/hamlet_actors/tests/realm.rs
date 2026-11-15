@@ -1,25 +1,28 @@
 //! The realm through a host, called as a client and as agents, with
-//! stand-ins for the actors it calls. Each unit's checks are in a
-//! file of their own below.
+//! stand-ins for the actors it calls.
 
 #![expect(
     dead_code,
-    reason = "the scaffold: the units' tests call these"
+    reason = "the scaffold: the tests of U2 to U11 call these, and \
+              the integrator removes this"
 )]
 
 use std::collections::{HashMap, HashSet};
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, bail};
 use hamlet_actor::{Action, Actor, Ctx, Handler, Registry};
-use hamlet_actor_core::{ActorConfig, ActorFactory};
+use hamlet_actor_core::{ActorConfig, ActorFactory, ShutdownKind};
 use hamlet_actor_error::ActorError;
 use hamlet_actors::realm;
 use hamlet_host::{Address, Caller, Host, HostOptions, HostRef};
 use hamlet_messages::address::{self, Party};
-use hamlet_messages::agent::{AgentInput, Fill, Place, Submit};
+use hamlet_messages::agent::{
+    AgentInput, Fill, Place, PlaceVersion, Submit,
+};
 use hamlet_messages::profile::Branch;
 use hamlet_messages::realm::ProfileId;
 use hamlet_messages::workspace::reach::Reach;
@@ -31,6 +34,7 @@ use hamlet_testing::Scratch;
 use rusqlite::{Connection, OpenFlags, OptionalExtension};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
+use tokio::sync::watch;
 
 #[path = "realm/budget.rs"]
 mod budget;
@@ -57,48 +61,57 @@ mod world;
 #[path = "realm/writers.rs"]
 mod writers;
 
-/// How long a test waits for a call, or for a hire to go live.
 const DEADLINE: Duration = Duration::from_secs(20);
 
-/// What the stand-ins were called with, in order, and how they
-/// answer. A test sets the answers before [`Realm::start_with`].
+/// A call of the realm's that a test can hold or fail.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+enum Callee {
+    Branch,
+    Create,
+    Fill,
+    SetReach,
+}
+
 #[derive(Default)]
 struct Seen {
-    /// Each `agent/<n>` made, with its input.
     made: Mutex<Vec<(AgentNumber, AgentInput)>>,
-    /// Each `Submit`, by its agent.
     submits: Mutex<Vec<(AgentNumber, Submit)>>,
-    /// Each `Place`, by its agent.
     places: Mutex<Vec<(AgentNumber, Place)>>,
-    /// Each `Fill`, by its agent.
     fills: Mutex<Vec<(AgentNumber, Fill)>>,
-    /// Each `SetReach` the workspace stand-in kept.
     reaches: Mutex<Vec<SetReach>>,
-    /// Each `ChiefAnswer` the workspace stand-in got.
     chief_answers: Mutex<Vec<ChiefAnswer>>,
-    /// Each `Branch`, by its profile.
     branches: Mutex<Vec<(ProfileId, Branch)>>,
-    /// How long a profile takes to answer a `Branch`: a hire then
-    /// stays `hiring` that long.
-    branch_delay: Duration,
-    /// The callees that fail once each, by the name of what they are
-    /// called with: `branch`, `create`, `fill`, `set_reach`.
-    fail_once: Mutex<HashSet<&'static str>>,
+    fail_once: Mutex<HashSet<Callee>>,
+    held: watch::Sender<HashSet<Callee>>,
 }
 
 impl Seen {
-    /// Fails `call` when `fail_once` lists it, and takes it off the
-    /// list.
-    fn fails(&self, call: &'static str) -> anyhow::Result<()> {
-        if self.fail_once.lock().unwrap().remove(call) {
-            bail!("the stand-in fails `{call}` once");
+    /// Waits while the test holds `callee`, then fails it if the
+    /// test asked it to fail once.
+    async fn called(&self, callee: Callee) -> anyhow::Result<()> {
+        self.held
+            .subscribe()
+            .wait_for(|held| !held.contains(&callee))
+            .await?;
+        if self.fail_once.lock().unwrap().remove(&callee) {
+            bail!("the stand-in fails {callee:?} once");
         }
         Ok(())
     }
+
+    fn hold(&self, callee: Callee) {
+        self.held.send_modify(|held| {
+            held.insert(callee);
+        });
+    }
+
+    fn release(&self, callee: Callee) {
+        self.held.send_modify(|held| {
+            held.remove(&callee);
+        });
+    }
 }
 
-/// Calls `name` with `args` at the realm, as the stand-in asked to:
-/// the test's way to call the realm as an agent or as the workspace.
 #[derive(Serialize, Deserialize)]
 struct Forward {
     name: String,
@@ -130,8 +143,17 @@ fn seen<A: Actor>(ctx: &Ctx<A>) -> anyhow::Result<Arc<Seen>> {
         .context("the host holds what the stand-ins saw")
 }
 
-/// Stands in for `agent/<n>`: records what it is made and called
-/// with, and calls the realm as itself when a test asks it to.
+/// The key of the stand-in's address, `kind/key`, as a number.
+fn key<A: Actor, N: FromStr>(ctx: &Ctx<A>) -> anyhow::Result<N>
+where
+    N::Err: std::error::Error + Send + Sync + 'static,
+{
+    let id = ctx.actor_id();
+    let (_, key) =
+        id.split_once('/').context("an actor id is kind/key")?;
+    Ok(key.parse()?)
+}
+
 struct AgentStandIn {
     seen: Arc<Seen>,
     agent: AgentNumber,
@@ -149,7 +171,7 @@ impl Actor for AgentStandIn {
     async fn create(ctx: &Ctx<Self>) -> anyhow::Result<Self> {
         Ok(Self {
             seen: seen(ctx)?,
-            agent: AgentNumber(ctx.actor_id().parse()?),
+            agent: AgentNumber(key(ctx)?),
         })
     }
 
@@ -157,7 +179,7 @@ impl Actor for AgentStandIn {
         self: Arc<Self>,
         ctx: Ctx<Self>,
     ) -> anyhow::Result<()> {
-        self.seen.fails("create")?;
+        self.seen.called(Callee::Create).await?;
         if let Some(input) = ctx.input()? {
             self.seen.made.lock().unwrap().push((self.agent, input));
         }
@@ -193,7 +215,7 @@ impl Handler<Fill> for AgentStandIn {
         _: Ctx<Self>,
         fill: Fill,
     ) -> anyhow::Result<()> {
-        self.seen.fails("fill")?;
+        self.seen.called(Callee::Fill).await?;
         self.seen.fills.lock().unwrap().push((self.agent, fill));
         Ok(())
     }
@@ -209,8 +231,6 @@ impl Handler<Forward> for AgentStandIn {
     }
 }
 
-/// Stands in for `profile/<id>`: answers a `Branch` after
-/// `branch_delay`, the same for a branch it made before.
 struct ProfileStandIn {
     seen: Arc<Seen>,
     profile: ProfileId,
@@ -227,7 +247,7 @@ impl Actor for ProfileStandIn {
     async fn create(ctx: &Ctx<Self>) -> anyhow::Result<Self> {
         Ok(Self {
             seen: seen(ctx)?,
-            profile: ProfileId(ctx.actor_id().parse()?),
+            profile: ProfileId(key(ctx)?),
         })
     }
 }
@@ -238,8 +258,7 @@ impl Handler<Branch> for ProfileStandIn {
         _: Ctx<Self>,
         branch: Branch,
     ) -> anyhow::Result<()> {
-        tokio::time::sleep(self.seen.branch_delay).await;
-        self.seen.fails("branch")?;
+        self.seen.called(Callee::Branch).await?;
         self.seen
             .branches
             .lock()
@@ -249,9 +268,6 @@ impl Handler<Branch> for ProfileStandIn {
     }
 }
 
-/// Stands in for `workspace/local`, started before the realm: keeps a
-/// reach only when it is newer than the agent's last, and calls the
-/// realm as the workspace when a test asks it to.
 struct WorkspaceStandIn {
     seen: Arc<Seen>,
 }
@@ -275,7 +291,7 @@ impl Handler<SetReach> for WorkspaceStandIn {
         _: Ctx<Self>,
         set: SetReach,
     ) -> anyhow::Result<InForce> {
-        self.seen.fails("set_reach")?;
+        self.seen.called(Callee::SetReach).await?;
         let mut kept = self.seen.reaches.lock().unwrap();
         let in_force = kept
             .iter()
@@ -323,8 +339,6 @@ fn kind<A: Actor>(name: &str) -> ActorFactory {
         .expect("the registry holds the kind it registered")
 }
 
-/// A host on `dir` with the realm and the stand-ins, the workspace's
-/// started.
 async fn open(
     dir: &Path,
     seen: &Arc<Seen>,
@@ -357,8 +371,6 @@ async fn open(
     host
 }
 
-/// A host with the realm and the three stand-ins, on a scratch
-/// folder.
 struct Realm {
     host: Host,
     seen: Arc<Seen>,
@@ -367,14 +379,10 @@ struct Realm {
 }
 
 impl Realm {
-    /// The realm with its own settings, and stand-ins that answer at
-    /// once.
     async fn start() -> Self {
         Self::start_with(None, Seen::default()).await
     }
 
-    /// The realm with `options`, and stand-ins that answer as `seen`
-    /// says.
     async fn start_with(
         options: Option<realm::Options>,
         seen: Seen,
@@ -394,8 +402,6 @@ impl Realm {
         }
     }
 
-    /// Stops the host and starts it again on the same folder: the
-    /// realm's start.
     async fn restart(self) -> Self {
         self.host.shutdown().await.unwrap();
         let host =
@@ -407,7 +413,6 @@ impl Realm {
         Self { host, ..self }
     }
 
-    /// Calls the realm as the client.
     async fn ask<A: Action>(
         &self,
         action: &A,
@@ -425,62 +430,59 @@ impl Realm {
         decoded(&answer)
     }
 
-    /// Calls the realm as `agent/<n>`, through its stand-in, made
-    /// first when the realm has not made it.
     async fn tool<A: Action>(
         &self,
         as_agent: AgentNumber,
         action: &A,
     ) -> anyhow::Result<A::Output> {
-        self.call_as(&address::Agent(as_agent).address()?, action)
-            .await
+        self.call_as(&address::Agent(as_agent), action).await
     }
 
-    /// Calls the realm as the workspace, through its stand-in.
     async fn call_as_workspace<A: Action>(
         &self,
         action: &A,
     ) -> anyhow::Result<A::Output> {
-        self.call_as(&address::Workspace.address()?, action).await
+        self.call_as(&address::Workspace, action).await
     }
 
     async fn call_as<A: Action>(
         &self,
-        from: &Address,
+        from: &impl Party,
         action: &A,
     ) -> anyhow::Result<A::Output> {
-        self.host.get_or_start(from).await?;
         let forward = Forward {
             name: A::NAME.to_owned(),
             args: hamlet_actor::action::encode_positional(action)?,
         };
-        let reply = self
-            .host
-            .call(
-                from,
-                Forward::NAME,
-                hamlet_actor::action::encode_positional(&forward)?,
-                DEADLINE,
-            )
-            .await?;
-        decoded(&decoded::<Vec<u8>>(&reply)?)
+        decoded(&call(&self.host, from, &forward).await?)
     }
 
-    /// Waits until `agent`'s hire row has every step done.
+    /// Waits for `agent`'s hire to be live.
     async fn live(&self, agent: AgentNumber) {
         let begun = Instant::now();
+        // Its reach is the last step that calls, so the reads after,
+        // which stop the realm, make no call twice.
+        while !self.holds_reach(agent) {
+            assert!(
+                begun.elapsed() < DEADLINE,
+                "the workspace holds no reach of agent {}",
+                agent.0
+            );
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
         let n = i64::from(agent.0);
         loop {
             let done = self
-                .rows()
-                .query_row(
-                    "SELECT done FROM step WHERE kind = 'hire' AND \
-                     n = ?1",
-                    [n],
-                    |row| row.get::<_, Option<String>>(0),
-                )
-                .optional()
-                .unwrap()
+                .rows(|db| {
+                    db.query_row(
+                        "SELECT done FROM step WHERE kind = 'hire' \
+                         AND n = ?1",
+                        [n],
+                        |row| row.get::<_, Option<String>>(0),
+                    )
+                    .optional()
+                })
+                .await
                 .flatten();
             if done.as_deref() == Some("live") {
                 return;
@@ -495,25 +497,63 @@ impl Realm {
         }
     }
 
-    /// The realm's file, for what no answer shows.
-    fn rows(&self) -> Connection {
-        Connection::open_with_flags(
-            self.file(),
-            OpenFlags::SQLITE_OPEN_READ_WRITE,
-        )
-        .unwrap()
+    fn holds_reach(&self, agent: AgentNumber) -> bool {
+        self.seen
+            .reaches
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|reach| reach.agent == agent)
     }
 
-    fn file(&self) -> PathBuf {
-        self.scratch.join("actors/realm/local.sqlite")
+    async fn rows<T>(
+        &self,
+        read: impl FnOnce(&Connection) -> rusqlite::Result<T>,
+    ) -> T {
+        let realm = address::Realm.address().unwrap();
+        stopped_read(&self.host, &self.scratch, &realm, read)
+            .await
+            .unwrap()
     }
+}
+
+/// Reads the file of the actor at `at`. The host holds the file
+/// locked while the actor runs, so the read stops the actor and
+/// starts it again.
+async fn stopped_read<T>(
+    host: &Host,
+    dir: &Path,
+    at: &Address,
+    read: impl FnOnce(&Connection) -> rusqlite::Result<T>,
+) -> anyhow::Result<T> {
+    host.stop(at, ShutdownKind::Sleep).await?;
+    let file = dir
+        .join("actors")
+        .join(at.kind())
+        .join(format!("{}.sqlite", at.key()));
+    let read = read(&Connection::open_with_flags(
+        file,
+        OpenFlags::SQLITE_OPEN_READ_ONLY,
+    )?);
+    host.get_or_start(at).await?;
+    Ok(read?)
+}
+
+async fn call<A: Action>(
+    host: &Host,
+    to: &impl Party,
+    action: &A,
+) -> anyhow::Result<A::Output> {
+    let to = to.address()?;
+    host.get_or_start(&to).await?;
+    let args = hamlet_actor::action::encode_positional(action)?;
+    decoded(&host.call(&to, A::NAME, args, DEADLINE).await?)
 }
 
 fn decoded<T: DeserializeOwned>(bytes: &[u8]) -> anyhow::Result<T> {
     ciborium::from_reader(bytes).context("decode the answer")
 }
 
-/// The `group.code` of the error a call failed with.
 fn error_code<T: std::fmt::Debug>(
     called: anyhow::Result<T>,
 ) -> String {
@@ -521,26 +561,19 @@ fn error_code<T: std::fmt::Debug>(
     format!("{}.{}", error.group(), error.code())
 }
 
-/// The workspace's stand-in keeps only a newer reach, and fails a
-/// call `fail_once` lists once, with no realm.
 #[tokio::test(flavor = "multi_thread")]
 async fn the_workspace_stand_in_keeps_only_a_newer_reach() {
     let scratch = Scratch::new("realm-stand-ins");
     let seen = Arc::new(Seen::default());
-    seen.fail_once.lock().unwrap().insert("set_reach");
+    seen.fail_once.lock().unwrap().insert(Callee::SetReach);
     let host = open(&scratch, &seen, None).await;
-    let workspace = address::Workspace.address().unwrap();
     let set = async |version| {
         let set = SetReach {
             agent: AgentNumber(2),
             version: ReachVersion(version),
             reach: Reach::Ended,
         };
-        let args = hamlet_actor::action::encode_positional(&set)?;
-        let answer = host
-            .call(&workspace, SetReach::NAME, args, DEADLINE)
-            .await?;
-        decoded::<InForce>(&answer)
+        call(&host, &address::Workspace, &set).await
     };
     assert!(set(2).await.is_err(), "it fails `set_reach` once");
     for (version, in_force) in [(2, 2), (1, 2), (3, 3)] {
@@ -557,5 +590,89 @@ async fn the_workspace_stand_in_keeps_only_a_newer_reach() {
         .map(|reach| reach.version)
         .collect::<Vec<_>>();
     assert_eq!(kept, [ReachVersion(2), ReachVersion(3)]);
+    host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_agent_and_profile_stand_ins_take_their_calls() {
+    let scratch = Scratch::new("realm-stand-ins");
+    let seen = Arc::new(Seen::default());
+    let host = open(&scratch, &seen, None).await;
+    let place = Place {
+        version: PlaceVersion(1),
+        lead: None,
+        hires: Vec::new(),
+        roads: Vec::new(),
+        tools_off: Vec::new(),
+    };
+    let branch = Branch {
+        name: "hires/2".into(),
+    };
+
+    call(&host, &address::Agent(AgentNumber(2)), &place)
+        .await
+        .unwrap();
+    call(&host, &address::Profile(ProfileId(1)), &branch)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        *seen.places.lock().unwrap(),
+        [(AgentNumber(2), place)]
+    );
+    assert_eq!(
+        *seen.branches.lock().unwrap(),
+        [(ProfileId(1), branch)]
+    );
+    host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_held_reach_answers_once_released() {
+    let scratch = Scratch::new("realm-stand-ins");
+    let seen = Arc::new(Seen::default());
+    let host = open(&scratch, &seen, None).await;
+    let set = SetReach {
+        agent: AgentNumber(2),
+        version: ReachVersion(1),
+        reach: Reach::Ended,
+    };
+    seen.hold(Callee::SetReach);
+
+    let answer = tokio::spawn({
+        let host = host.clone();
+        async move { call(&host, &address::Workspace, &set).await }
+    });
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    let held = answer.is_finished();
+    seen.release(Callee::SetReach);
+
+    assert!(!held, "a held call does not answer");
+    assert_eq!(
+        answer.await.unwrap().unwrap().version,
+        ReachVersion(1)
+    );
+    host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_stopped_read_opens_the_file_and_starts_the_actor_again() {
+    let scratch = Scratch::new("realm-stand-ins");
+    let seen = Arc::new(Seen::default());
+    let host = open(&scratch, &seen, None).await;
+    let workspace = address::Workspace.address().unwrap();
+
+    let tables = stopped_read(&host, &scratch, &workspace, |db| {
+        db.query_row(
+            "SELECT count(*) FROM sqlite_master",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+    })
+    .await
+    .unwrap();
+
+    assert!(tables >= 0);
+    assert!(host.is_running(&workspace));
     host.shutdown().await.unwrap();
 }

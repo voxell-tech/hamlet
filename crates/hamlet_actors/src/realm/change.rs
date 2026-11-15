@@ -1,9 +1,10 @@
 //! The changes to the realm's file as values, and the one
-//! transaction that makes them. Nothing else writes the file.
+//! transaction that makes them.
 
 #![expect(
     dead_code,
-    reason = "the scaffold: the units' bodies use these"
+    reason = "the scaffold: U2 to U11 use these, and the integrator \
+              removes this"
 )]
 
 use std::collections::BTreeSet;
@@ -21,8 +22,6 @@ use super::{
     tasks, tree, versions, waits, world,
 };
 
-/// One change, of the module that owns the table it is made in.
-/// Each module's `Change` is its whole vocabulary for writing.
 #[derive(Debug, PartialEq)]
 pub(super) enum Change {
     Chiefs(chiefs::Change),
@@ -58,19 +57,14 @@ change_from!(
     laid => Laid,
 );
 
-/// What a module's `apply` reports of the change it made.
 #[derive(Debug, Default, PartialEq)]
 pub(super) struct Affected {
-    /// The agents whose place it moved: their lead, their hires,
-    /// their roads or their tools turned off.
+    /// The agents whose place it moved.
     pub places: BTreeSet<AgentNumber>,
     /// The agents whose reach it moved.
     pub reaches: BTreeSet<AgentNumber>,
-    /// The step rows it began.
     pub begun: Vec<steps::StepId>,
-    /// The parts of the world a client reads that it changed. Any
-    /// part raises `revision` in this transaction, and the copy in
-    /// memory rebuilds those parts after the commit.
+    /// The parts of the world a client reads that it changed.
     pub seen: BTreeSet<world::Part>,
 }
 
@@ -83,8 +77,7 @@ impl Affected {
     }
 }
 
-/// The time of one transaction, in ms since the Unix epoch. Every
-/// row a transaction writes carries it.
+/// The time of one transaction, in ms since the Unix epoch.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) struct At(pub i64);
 
@@ -96,8 +89,6 @@ impl At {
     }
 }
 
-/// Reads rows: inside a transaction, or as ordinary statements after
-/// a commit.
 pub(super) struct Rows<'a> {
     source: Source<'a>,
     at: At,
@@ -109,8 +100,6 @@ enum Source<'a> {
 }
 
 impl<'a> Rows<'a> {
-    /// Rows read as ordinary statements, each of which waits for a
-    /// transaction that is open.
     pub fn outside(ctx: &'a Ctx<Realm>) -> Result<Self> {
         Ok(Self {
             source: Source::Statements(ctx),
@@ -118,24 +107,12 @@ impl<'a> Rows<'a> {
         })
     }
 
-    /// Runs a query. Any statement but a `SELECT` (or a `WITH` that
-    /// ends in one) fails, in every build: rows read here are never
-    /// written, and `tests/realm/writers.rs` names the writer of each
-    /// table.
     pub async fn select(
         &self,
         sql: &str,
         params: Vec<BindParam>,
     ) -> Result<Vec<Vec<ColumnValue>>> {
-        let head = sql
-            .trim_start()
-            .get(..6)
-            .unwrap_or("")
-            .to_ascii_uppercase();
-        anyhow::ensure!(
-            head == "SELECT" || head.starts_with("WITH"),
-            "rows are only read: {sql}"
-        );
+        read_only(sql)?;
         Ok(match self.source {
             Source::Transaction(tx) => {
                 tx.execute(sql, Some(params)).await?.rows
@@ -146,21 +123,26 @@ impl<'a> Rows<'a> {
         })
     }
 
-    /// The time this read counts as now.
     pub fn at(&self) -> At {
         self.at
     }
 }
 
-/// Writes rows in a transaction. Only [`Transaction::commit`] makes
-/// one, and only a module's `apply` is given it.
+fn read_only(sql: &str) -> Result<()> {
+    let head = sql.trim_start().get(..6).unwrap_or("");
+    anyhow::ensure!(
+        head.eq_ignore_ascii_case("SELECT"),
+        "rows are only read: {sql}"
+    );
+    Ok(())
+}
+
 pub(super) struct Writer<'a> {
     tx: &'a SqliteTransaction,
     at: At,
 }
 
 impl Writer<'_> {
-    /// Runs a statement; the number of rows it changed.
     pub async fn execute(
         &self,
         sql: &str,
@@ -183,16 +165,11 @@ impl Writer<'_> {
     }
 }
 
-/// A transaction of the realm. It holds the file's gate from `begin`
-/// to `commit` or `rollback`, so no call to another actor is made
-/// while one is open. The host gives a transaction no `Drop`: each
-/// path out of one rolls it back or commits it.
 pub(super) struct Transaction {
     tx: SqliteTransaction,
     at: At,
 }
 
-/// What one transaction writes.
 pub(super) struct Write<'a, D> {
     pub changes: Vec<Change>,
     pub entries: Vec<record::Entry>,
@@ -219,9 +196,6 @@ impl Transaction {
         self.tx.rollback().await
     }
 
-    /// Makes `write` and commits. Returns the pushes the changes set
-    /// off, for the caller to make after it. An error before the
-    /// commit rolls the transaction back.
     pub async fn commit<D: Serialize>(
         self,
         realm: &Arc<Realm>,
@@ -265,7 +239,6 @@ impl Transaction {
                     }
                 });
             }
-            // Places and reaches.
             versions::raise(&writer, &affected).await?;
             record::write(&writer, write.entries).await?;
             let revision = if affected.seen.is_empty() {
@@ -273,7 +246,6 @@ impl Transaction {
             } else {
                 Some(versions::advance_revision(&writer).await?)
             };
-            // Drives, reaches, places.
             let pushes = Push::of(&affected);
             if let Some((key, done)) = write.marker {
                 marker::record(&writer, key, done, &pushes).await?;
@@ -288,13 +260,9 @@ impl Transaction {
                 return Err(error);
             }
         };
-        // Before the commit: a row that is begun is never seen
-        // without its drive. On an error of the commit, `reserved`
-        // drops.
         let reserved = realm.drives.reserve(&affected.begun);
         self.tx.commit().await?;
         reserved.start(realm, ctx);
-        // After the commit, so it adds nothing to the commit's time.
         if let Some(revision) = revision {
             realm.world.refresh(ctx, revision, &affected).await;
         }
@@ -302,8 +270,6 @@ impl Transaction {
     }
 }
 
-/// Makes `changes` in a transaction of their own: for a step, for
-/// the answer of a reach, and for the realm's first start.
 pub(super) async fn commit(
     realm: &Arc<Realm>,
     ctx: &Ctx<Realm>,
@@ -321,4 +287,18 @@ pub(super) async fn commit(
             },
         )
         .await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::read_only;
+
+    #[test]
+    fn a_read_refuses_a_write_behind_a_with() {
+        assert!(read_only("SELECT n FROM marker").is_ok());
+        assert!(
+            read_only("WITH x AS (SELECT 1) DELETE FROM marker")
+                .is_err()
+        );
+    }
 }

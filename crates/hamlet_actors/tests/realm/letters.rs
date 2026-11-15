@@ -1,5 +1,3 @@
-//! `Tell`, `Ask`, `Reply` and the road rule.
-
 #[tokio::test]
 #[ignore = "the scaffold: U6 fills it"]
 async fn a_repeated_tell_keeps_one_letter() {

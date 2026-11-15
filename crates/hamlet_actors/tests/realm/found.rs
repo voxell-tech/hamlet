@@ -1,5 +1,3 @@
-//! `Found`, by the chief and by the Hand, and the marker rule.
-
 #[tokio::test]
 #[ignore = "the scaffold: U2 fills it"]
 async fn founding_makes_the_mayor_agent_2() {

@@ -11,8 +11,6 @@ use hamlet_host::HostRef;
 use hamlet_messages::Message;
 use hamlet_messages::address::Party;
 
-/// Calls `to` with `message` as the actor of `host`, and decodes its
-/// answer.
 async fn call<M: Message>(
     host: &HostRef,
     to: &M::To,

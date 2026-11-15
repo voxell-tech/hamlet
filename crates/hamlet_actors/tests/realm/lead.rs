@@ -1,5 +1,3 @@
-//! `Hire`, `End` and `Seat`, with a lead's powers.
-
 #[tokio::test]
 #[ignore = "the scaffold: U4 fills it"]
 async fn a_lead_hires_and_ends_only_under_itself() {

@@ -305,7 +305,6 @@ impl Fixtures {
         (name, bytes)
     }
 
-    /// Checks an answer, which the host carries through JSON.
     fn answer<T>(&mut self, name: &str, value: &T)
     where
         T: Serialize + DeserializeOwned + PartialEq + Debug,
@@ -316,8 +315,7 @@ impl Fixtures {
         self.decoded(&format!("{name}.answer"), value, &bytes);
     }
 
-    /// Checks the input an actor is created with, CBOR of the Rust
-    /// type itself.
+    /// Checks the input an actor is created with.
     fn input<T>(&mut self, name: &str, value: &T)
     where
         T: Serialize + DeserializeOwned + PartialEq + Debug,
@@ -327,8 +325,6 @@ impl Fixtures {
         self.decoded(&format!("{name}.input"), value, &bytes);
     }
 
-    /// Checks `bytes`, that they read back as `value`, and the cases
-    /// they hold.
     fn decoded<T>(&mut self, name: &str, value: &T, bytes: &[u8])
     where
         T: DeserializeOwned + PartialEq + Debug,
