@@ -61,6 +61,22 @@ impl CoreRegistry {
         Ok(began.iter().map(ToString::to_string).collect())
     }
 
+    /// Serves the link to the Rust host that started this process,
+    /// with the registered kinds, until its goodbye. Call `takeLink`
+    /// first. The registry's own `create`, `getOrStart` and `call`
+    /// stay unstarted: the Rust host makes and calls this host's
+    /// actors.
+    #[napi]
+    pub async fn serve_link(&self) -> napi::Result<()> {
+        let factories = std::mem::take(&mut *self.factories.lock())
+            .into_iter()
+            .map(|(kind, factory)| (kind, owned(factory)))
+            .collect();
+        hamlet_host::link::serve(factories)
+            .await
+            .map_err(napi_anyhow_error)
+    }
+
     /// Makes the actor at `to` with `input`, the CBOR its kind's
     /// state is made from, and starts it. Fails with
     /// `actor.duplicate_key` when the key has an actor. Returns its

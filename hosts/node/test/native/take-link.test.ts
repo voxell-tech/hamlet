@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
+import { CoreRegistry } from "@hamlet/actor-node";
 
 /** The Node host's folder, where `@hamlet/actor-node` resolves. */
 const HOST = fileURLToPath(new URL("../..", import.meta.url));
@@ -102,4 +103,8 @@ test("a Node host whose parent is killed is gone within 2 seconds", async () => 
         }
         await sleep(20);
     }
+});
+
+test("serveLink fails in a process that has not taken the link", async () => {
+    await assert.rejects(new CoreRegistry().serveLink(), /take_link first/);
 });

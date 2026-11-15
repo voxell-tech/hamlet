@@ -596,6 +596,14 @@ export declare class CoreRegistry {
      */
     start(dir: string): Promise<Array<string>>;
     /**
+     * Serves the link to the Rust host that started this process,
+     * with the registered kinds, until its goodbye. Call `takeLink`
+     * first. The registry's own `create`, `getOrStart` and `call`
+     * stay unstarted: the Rust host makes and calls this host's
+     * actors.
+     */
+    serveLink(): Promise<void>;
+    /**
      * Makes the actor at `to` with `input`, the CBOR its kind's
      * state is made from, and starts it. Fails with
      * `actor.duplicate_key` when the key has an actor. Returns its
