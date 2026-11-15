@@ -36,19 +36,11 @@ pub(super) enum Entry {
         hire: AgentNumber,
         by: By,
     },
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "U11 records it")
-    )]
     Road {
         a: AgentNumber,
         b: AgentNumber,
         by: By,
     },
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "U11 records it")
-    )]
     Unroad {
         a: AgentNumber,
         b: AgentNumber,
