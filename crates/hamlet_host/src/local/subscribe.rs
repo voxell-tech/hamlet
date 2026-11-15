@@ -6,13 +6,18 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Result;
+use hamlet_actor_core::ActorLifecycle;
+use hamlet_actor_core::host::Subscribed;
+use hamlet_actor_error::ActorError;
 use hamlet_address::Address;
 use tokio::sync::watch;
 use tracing::Instrument;
 
 use super::access::{Origin, Stamp};
-use super::feed::Closed;
-use super::{Failed, Host, HostInner, actor_id, host_shut_down};
+use super::feed::{Closed, Feed, feed};
+use super::{
+    Ended, Failed, Host, HostInner, Open, actor_id, host_shut_down,
+};
 use crate::directory::{Place, not_registered};
 use crate::link::{LinkState, Port, Routed, Unanswered};
 use crate::route::Operation;
@@ -130,12 +135,70 @@ impl Source {
     }
 }
 
-/// A subscription to an actor of this host.
-struct Local;
+/// The end of a local subscription whose connection the actor closed
+/// while it runs.
+#[derive(ActorError)]
+#[error("actor", "disconnected", "The actor closed the connection.")]
+struct Disconnected;
+
+/// A subscription to an actor of this host: one connection of one
+/// generation.
+struct Local {
+    feed: Feed,
+    /// The generation's `stopped`. The generation is not held, so
+    /// its file closes at its stop.
+    stopped: watch::Receiver<Option<Ended>>,
+    _conn: Closing,
+}
 
 impl Local {
     async fn next(&mut self) -> Result<Item, Failed> {
-        todo!("U8a: Local::next")
+        tokio::select! {
+            // The feed first: what the actor broadcast before it
+            // began to stop is given before the end. It is pending
+            // whenever it holds nothing, so the end is never starved.
+            biased;
+            fed = self.feed.next() => match fed {
+                Ok(item) => Ok(item),
+                Err(Closed::Ended(why)) => Err(why),
+                Err(Closed::Dropped) => Err(ended(None)),
+            },
+            stopped = self.stopped.wait_for(Option::is_some) => {
+                // A closed channel is a generation that is gone.
+                Err(ended(stopped.ok().and_then(|stopped| *stopped)))
+            }
+        }
+    }
+}
+
+/// The end of a local subscription whose generation began to stop as
+/// `how` says.
+fn ended(how: Option<Ended>) -> Failed {
+    Failed::new(&match how {
+        Some(Ended::Destroyed) => ActorLifecycle::Destroyed.build(),
+        Some(Ended::Stopped) | None => {
+            ActorLifecycle::Stopping.build()
+        }
+    })
+}
+
+/// Closes a local subscription's connection when dropped, on the
+/// host's runtime, from any thread. On a runtime that is gone the
+/// spawn drops the close where it was called, and nothing runs there
+/// to close.
+struct Closing {
+    conn: Option<Subscribed>,
+    runtime: tokio::runtime::Handle,
+}
+
+impl Drop for Closing {
+    fn drop(&mut self) {
+        if let Some(conn) = self.conn.take() {
+            // A failure is the generation's end, which closed it.
+            self.runtime.spawn(async move {
+                let _ = conn.close().await;
+            });
+        }
     }
 }
 
@@ -285,10 +348,44 @@ impl HostInner {
 
     async fn follow(
         self: &Arc<Self>,
-        _stamp: &Stamp,
-        _to: &Address,
-        _event: &str,
+        stamp: &Stamp,
+        to: &Address,
+        event: &str,
     ) -> Result<Local> {
-        todo!("U8a: follow")
+        let params = stamp.bytes()?;
+        let generation =
+            self.ensure_started(to, &Open::Existing).await?;
+        // Taken before the connection opens, so a stop that begins
+        // from here on is seen, and one that began already is held.
+        let stopped = generation.stopped.subscribe();
+        let (sink, feed) = feed();
+        let sink = Arc::new(sink);
+        let pushed = sink.clone();
+        let running = stopped.clone();
+        let conn = generation
+            .actor
+            .subscribe(
+                params,
+                event,
+                move |args| pushed.push(args),
+                // A close while the generation runs is the actor's
+                // own. Every stop sets `stopped` before the core's
+                // grace closes the connection, and `Local::next`
+                // gives that stop's end.
+                move |_| {
+                    if running.borrow().is_none() {
+                        sink.close(&Disconnected.build());
+                    }
+                },
+            )
+            .await?;
+        Ok(Local {
+            feed,
+            stopped,
+            _conn: Closing {
+                conn: Some(conn),
+                runtime: tokio::runtime::Handle::current(),
+            },
+        })
     }
 }

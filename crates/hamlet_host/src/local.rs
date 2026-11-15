@@ -652,10 +652,11 @@ pub struct HostOptions {
     /// What the host gives its actors, by type: none by default. See
     /// [`HostOptions::with_value`].
     pub values: Values,
-    /// The kinds each caller may reach by a call, a create or a
-    /// get-or-start. The host refuses any other with `actor.refused`
-    /// and reports it in [`HostEvent::Refused`]. An operation with
-    /// no caller is never refused. [`Routes::Any`] by default.
+    /// The kinds each caller may reach by a call, a create, a
+    /// get-or-start or a subscribe. The host refuses any other with
+    /// `actor.refused` and reports it in [`HostEvent::Refused`]. An
+    /// operation with no caller is never refused. [`Routes::Any`] by
+    /// default.
     pub routes: Routes,
 }
 

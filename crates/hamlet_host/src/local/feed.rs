@@ -113,9 +113,12 @@ impl Sink {
                 }
             }
             if !state.take(item) {
-                // The queue holds an item, so the reader comes and
-                // finds the mark behind it.
-                state.lagged = true;
+                // A gap at the tail already stands for this loss.
+                // Otherwise the queue holds an item, so the reader
+                // comes and finds the mark behind it.
+                if state.queue.back() != Some(&Item::Gap) {
+                    state.lagged = true;
+                }
                 return;
             }
         }
@@ -249,6 +252,18 @@ mod tests {
             next(&mut feed).await,
             Item::Event(event(9_999_999))
         );
+        assert!(pending(&mut feed).await);
+    }
+
+    #[tokio::test]
+    async fn a_loss_that_leaves_room_for_a_gap_tells_one_gap() {
+        let (sink, mut feed) = feed();
+        let half = vec![0; BUDGET / 2];
+        for _ in 0..4 {
+            sink.push(half.clone());
+        }
+        assert_eq!(next(&mut feed).await, Item::Event(half));
+        assert_eq!(next(&mut feed).await, Item::Gap);
         assert!(pending(&mut feed).await);
     }
 
