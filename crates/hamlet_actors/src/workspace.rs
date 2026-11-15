@@ -2,7 +2,7 @@
 //! commands and file changes under the sandbox, within each agent's
 //! reach.
 
-mod calls;
+pub(crate) mod calls;
 mod files;
 mod pending;
 mod reach;

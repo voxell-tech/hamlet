@@ -6,14 +6,15 @@
 //!
 //! --name <name>                 the host's name, `host` by default
 //! --kind <kind>                 a kind the host runs, as many as
-//!                               given. `workspace`, `realm` and
-//!                               `agent` are the workspace actor and
-//!                               the stand-ins of demo/realm.rs and
-//!                               demo/agent.rs; any other name is a
-//!                               counter kind. With none given the
-//!                               host runs `counter`, `workspace`,
-//!                               `realm` and `agent`, or with --link
-//!                               `realm` alone
+//!                               given. `workspace`, `profile` and
+//!                               `library` are those actors, and
+//!                               `realm` and `agent` the stand-ins
+//!                               of demo/realm.rs and demo/agent.rs;
+//!                               any other name is a counter kind.
+//!                               With none given the host runs
+//!                               `counter`, `workspace`, `profile`,
+//!                               `library`, `realm` and `agent`, or
+//!                               with --link `realm` alone
 //! --link                        run the agents in a Node host, this
 //!                               host's child, and wait for it
 //!                               before the first command. Its
@@ -53,6 +54,10 @@
 //!                               demo/agent.rs
 //! demo watch <n> <event>        follow <event> of agent <n> as a
 //!                               client, in demo/watch.rs
+//! demo profile ...              a profile's commands, in
+//!                               demo/profile.rs; not in serve
+//! demo library ...              the library's commands, in
+//!                               demo/library.rs; not in serve
 //! demo --realm-actor realm|agent ...
 //!                               the realm actor's commands, in
 //!                               demo/realm.rs
@@ -88,8 +93,12 @@ mod command;
 mod counter;
 #[path = "demo/kinds.rs"]
 mod kinds;
+#[path = "demo/library.rs"]
+mod library;
 #[path = "demo/link.rs"]
 mod link;
+#[path = "demo/profile.rs"]
+mod profile;
 #[path = "demo/realm.rs"]
 mod realm;
 #[path = "demo/watch.rs"]
@@ -156,6 +165,11 @@ async fn demo() -> Result<()> {
     if start.realm_actor {
         factories.extend(realm::actor_kinds());
     }
+    // A profile's and the library's commands call as stand-ins, in a
+    // process of their own: `serve` keeps the stub realm and agents.
+    if matches!(command, Some("profile" | "library")) {
+        factories.extend(profile::stand_ins());
+    }
     // The workspace does not start where there is no sandbox.
     let options = match Sandbox::open(Isolation::Sandboxed) {
         Ok(sandbox) => start.options.with_value(Arc::new(sandbox)),
@@ -182,6 +196,20 @@ async fn demo() -> Result<()> {
                 let began = demo.host.boot().await?;
                 tokio::time::sleep(Duration::from_millis(ms)).await;
                 print_began(&demo.host, began).await
+            }
+            .await
+        }
+        Some("profile") => {
+            async {
+                demo.host.boot().await?;
+                profile::run(&demo.host, &args[1..]).await
+            }
+            .await
+        }
+        Some("library") => {
+            async {
+                demo.host.boot().await?;
+                library::run(&demo.host, &args[1..]).await
             }
             .await
         }

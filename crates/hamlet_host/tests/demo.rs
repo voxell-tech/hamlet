@@ -131,15 +131,21 @@ fn two_demo_hosts_with_kinds_of_their_own_share_a_folder_and_a_third_of_one_name
 }
 
 #[test]
-fn a_demo_host_with_no_kind_runs_the_counter_the_workspace_and_both_stand_ins()
- {
+fn a_demo_host_with_no_kind_runs_the_counter_and_every_named_kind() {
     let home = Scratch::new("demo-default-kinds");
     let got = once(&home, &["get", "a"]);
     assert!(got.status.success());
     assert_eq!(String::from_utf8_lossy(&got.stdout), "counter/a 0\n");
     assert_eq!(
         names_in(&home.join("actors")),
-        ["agent", "counter", "realm", "workspace"]
+        [
+            "agent",
+            "counter",
+            "library",
+            "profile",
+            "realm",
+            "workspace"
+        ]
     );
 }
 

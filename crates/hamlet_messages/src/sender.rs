@@ -9,7 +9,11 @@ use hamlet_address::Caller;
 use serde::Serialize;
 
 use crate::Message;
-use crate::address::{Agent, LOCAL, Party, Realm, Workspace};
+use crate::address::{
+    Agent, LOCAL, Library, Party, Profile, Realm, Workspace,
+    number_at,
+};
+use crate::realm::ProfileId;
 use crate::workspace::{AgentNumber, CallId};
 
 /// A kind of actor that sends a [`Message`].
@@ -31,15 +35,22 @@ impl Sender for Realm {
     }
 }
 
+impl Sender for Library {
+    fn of(caller: Option<&Caller>) -> Option<Self> {
+        is_local::<Self>(caller).then_some(Self)
+    }
+}
+
 impl Sender for Agent {
     fn of(caller: Option<&Caller>) -> Option<Self> {
-        let Some(Caller::Actor(from)) = caller else {
-            return None;
-        };
-        if from.kind() != Self::KIND {
-            return None;
-        }
-        agent_at(from.key()).map(Self)
+        numbered::<Self>(caller)
+            .map(|number| Self(AgentNumber(number)))
+    }
+}
+
+impl Sender for Profile {
+    fn of(caller: Option<&Caller>) -> Option<Self> {
+        numbered::<Self>(caller).map(|id| Self(ProfileId(id)))
     }
 }
 
@@ -76,9 +87,13 @@ fn is_local<P: Party>(caller: Option<&Caller>) -> bool {
     )
 }
 
-fn agent_at(key: &str) -> Option<AgentNumber> {
-    let number = key.parse::<u32>().ok()?;
-    (number.to_string() == key).then_some(AgentNumber(number))
+fn numbered<P: Party>(caller: Option<&Caller>) -> Option<u32> {
+    match caller {
+        Some(Caller::Actor(from)) if from.kind() == P::KIND => {
+            number_at(from.key())
+        }
+        _ => None,
+    }
 }
 
 /// The sender of `message`, the call `ctx` handles, or the error of
@@ -194,24 +209,34 @@ mod tests {
             Some(Workspace)
         );
         assert_eq!(Realm::of(realm.as_ref()), Some(Realm));
+        let library = actor(Library.address().unwrap());
+        assert_eq!(Library::of(library.as_ref()), Some(Library));
         for number in [0, 7, u32::MAX] {
             let agent = Agent(AgentNumber(number));
             let caller = actor(agent.address().unwrap());
             assert_eq!(Agent::of(caller.as_ref()), Some(agent));
+            let profile = Profile(ProfileId(number));
+            let caller = actor(profile.address().unwrap());
+            assert_eq!(Profile::of(caller.as_ref()), Some(profile));
         }
     }
 
     #[test]
-    fn an_agent_is_at_its_number_written_back_exactly() {
+    fn a_numbered_party_is_at_its_number_written_back_exactly() {
         for key in ["07", "hand", "errand-3", "-1"] {
             assert_eq!(
                 Agent::of(at("agent", key).as_ref()),
                 None,
                 "{key}"
             );
+            assert_eq!(
+                Profile::of(at("profile", key).as_ref()),
+                None,
+                "{key}"
+            );
         }
-        assert_eq!(agent_at("+7"), None);
-        assert_eq!(agent_at("7"), Some(AgentNumber(7)));
+        assert_eq!(number_at("+7"), None);
+        assert_eq!(number_at("7"), Some(7));
     }
 
     #[test]
@@ -229,6 +254,15 @@ mod tests {
             None
         );
         assert_eq!(Agent::of(at("realm", "7").as_ref()), None);
+        assert_eq!(Agent::of(at("profile", "7").as_ref()), None);
+        assert_eq!(Profile::of(at("agent", "7").as_ref()), None);
+        for caller in [at("library", "other"), at("realm", "local")] {
+            assert_eq!(
+                Library::of(caller.as_ref()),
+                None,
+                "{caller:?}"
+            );
+        }
     }
 
     #[test]
@@ -237,7 +271,9 @@ mod tests {
             let caller = caller.as_ref();
             assert_eq!(Workspace::of(caller), None);
             assert_eq!(Realm::of(caller), None);
+            assert_eq!(Library::of(caller), None);
             assert_eq!(Agent::of(caller), None);
+            assert_eq!(Profile::of(caller), None);
         }
     }
 

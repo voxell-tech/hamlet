@@ -5,15 +5,17 @@ edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 publish.workspace = true
-description = "Hamlet's actors on the actor host: the workspace and the realm"
+description = "Hamlet's actors on the actor host: the workspace, the realm, the profile and the library"
 
 [dependencies]
 anyhow.workspace = true
 async-trait.workspace = true
 ciborium.workspace = true
+futures.workspace = true
 hamlet_actor.workspace = true
 hamlet_actor_core.workspace = true
 hamlet_actor_error.workspace = true
+hamlet_git.workspace = true
 hamlet_host.workspace = true
 hamlet_messages.workspace = true
 hamlet_os.workspace = true
@@ -37,6 +39,7 @@ uuid.workspace = true
 faults = []
 
 [dev-dependencies]
+hamlet_protocol.workspace = true
 hamlet_testing.workspace = true
 rusqlite.workspace = true
 

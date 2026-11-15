@@ -80,9 +80,9 @@ it, and it is not edited here.
 | `hamlet_actor_client` | A Rust client that calls actors |
 | `hamlet_actor_wire` | The actor runtime's shared types and versioned wire formats, generated from the schemas in `schemas/` |
 | `hamlet_actor_error`, `hamlet_actor_error_macros` | The actor runtime's structured errors and the derive that declares them |
-| `hamlet_host` | Runs actors in this process, each in one plain SQLite file; the `demo` example, its counter actor, its stand-ins for the realm and an agent, and with `--realm-actor` the realm actor with stand-ins for an agent and a profile; fault points behind the `faults` feature |
+| `hamlet_host` | Runs actors in this process, each in one plain SQLite file; the `demo` example, its counter actor, its stand-ins for the realm and an agent, with `--realm-actor` the realm actor with stand-ins for an agent and a profile, and its `demo profile` and `demo library` commands; fault points behind the `faults` feature |
 | `hamlet_address` | An actor's address, the name rule for its kind and key, and `Caller`, who made a call, as a host stamps it |
-| `hamlet_actors` | Hamlet's actors on the actor host: the `workspace`, which runs the agents' commands and file changes within each agent's reach, and the `realm`, which keeps the hamlets, the tree of hires, roads, letters, budgets and waits |
+| `hamlet_actors` | Hamlet's actors on the actor host: the `workspace`, which runs the agents' commands and file changes within each agent's reach; the `realm`, which keeps the hamlets, the tree of hires, roads, letters, budgets and waits; the `profile`, a profile's repository; the `library`, the shared skills |
 | `hamlet_messages` | The calls Hamlet's actors make to each other and their answers, one module per actor that takes them, and the CBOR fixture of each |
 | `hamlet_sqlite` | The actor runtime's SQL requests run on a rusqlite connection, for `hamlet_host` and for the core's tests |
 | `hamlet_killkit` | Kills the demo host at a scenario's step and checks what survived, the workspace's commands included, as `cargo xtask killkit` |
@@ -336,8 +336,9 @@ succeeds, or with its actor's file at a destroy.
 `examples/demo.rs` drives
 the host from the command line, under a host name and with the kinds of
 its options (`examples/demo/kinds.rs`: a host registers only those, or
-by default the counter, the workspace and both stand-ins, and with
-`--realm-actor` also the workspace, whatever the kinds), each counter
+by default the counter, the workspace, the profile, the library and
+both stand-ins, and with `--realm-actor` also the workspace, whatever
+the kinds), each counter
 line run by `examples/demo/command.rs`, with the
 counter actor in `examples/demo/counter.rs`; a counter calls another as
 itself, and `calls --count <n>` times those calls. The demo also
@@ -361,7 +362,11 @@ say, tell, charge and run commands through it, and print `<name>
 <number>` lines. They work one per line under `demo --realm-actor
 serve`, because a one-shot command exits before a hire's steps finish.
 The `faults` feature of `hamlet_actors` makes a realm action panic when
-`HAMLET_REALM_PANIC` names it. `tests/demo.rs` starts the demo as its
+`HAMLET_REALM_PANIC` names it. `demo profile` and `demo library`, in
+`examples/demo/profile.rs` and `examples/demo/library.rs`, drive a
+[profile and the library](#the-profile-and-library-actors) through
+stand-ins for the realm and the agents, which call as themselves and
+print what they are told. `tests/demo.rs` starts the demo as its
 lanes do, and `hosts/node/test/link/` drives the linked demo.
 `tests/local.rs` tests the host,
 `tests/create.rs` tests `create`, and `tests/access.rs` tests what an
@@ -622,6 +627,39 @@ workspace, the agents and the profiles, which keep what they were sent
 and can hold a call, or fail it once for one agent. The files in
 `tests/realm/` group its tests by subject.
 
+## The profile and library actors
+
+The server does not use them either. `hamlet_actors/src/profile.rs`
+and `src/profile/` are the kind `profile`, one actor per profile keyed
+by its `ProfileId`: the only writer of the repository
+`scholars/<n>.git` and of the store beside it. `main` is what the
+profile knows, `hires/<agent>` each hire's branch, and annotated tags
+its versions. `versions.rs` tags, reverts, edits, purges and erases;
+`hires.rs` makes and pins a hire's branch and takes `main` into it;
+`files.rs` gives an agent the files of its branch in parts (`Files`)
+and takes its changes back (`Save`); `dreams.rs` checks
+`main`, and a hire's branch, out for a dream and commits what the
+dream changed when it ends. `src/library.rs` and `src/library/` are
+the kind `library`, keyed `local`: the only writer of `library.git`
+and its checkout `library/`, which every agent reads. An agent offers
+a skill in parts, the librarian's verdict, sent by the realm,
+shelves it, and unshelving takes it off; each change moves the list's version and is told to the
+agents.
+
+Both take every call through `src/repo.rs`, the one way to a
+repository and the store beside it: `admit` checks the caller, and an
+action runs a closure through `Call::read`, `Call::once` (once per id,
+alone, the store's marker written in the same commit), `Call::fresh`
+(the id checked before the action calls other actors, as a purge
+does) or `Call::refuse`. A unit a kill cut off is finished by its
+repeat; a start finishes a cut-off purge, removes stale locks and
+writes `library/` again. The parts of a save or an offer come in
+order, and their rows outlive a sleep and a restart.
+`repo/git.rs` reaches the repository through `hamlet_git`,
+`repo/store.rs` the store, `repo/checkout.rs` a checkout on disk, and
+`repo/parts.rs` the files sent in parts. `hamlet_git/src/purge.rs`
+takes a path out of a repository's whole history.
+
 ## The server
 
 Paths below are under `crates/hamlet_server/src/`. Modules use a file
@@ -771,6 +809,12 @@ built-in ones.
 | How the realm actor runs an action: the marker, the transaction, the calls after it | `hamlet_actors/src/realm/act.rs`, `change.rs`, `calls.rs`; [the realm actor](#the-realm-actor) |
 | The realm actor's hires, ends and steps | `hamlet_actors/src/realm/tree/lead.rs`, `hire.rs`, `steps.rs` |
 | The realm actor's roads, letters, budgets and waits | `hamlet_actors/src/realm/roads.rs`, `laid.rs`, `letters.rs`, `budget.rs`, `waits.rs` |
+| A profile's versions, edits, purge and erase | `hamlet_actors/src/profile/versions.rs`; [the profile and library actors](#the-profile-and-library-actors) |
+| A hire's branch, its pin and taking `main` in | `hamlet_actors/src/profile/hires.rs` |
+| The files an agent is given, and its saves | `hamlet_actors/src/profile/files.rs`, `repo/parts.rs` |
+| A dream's checkouts and its end | `hamlet_actors/src/profile/dreams.rs`, `repo/checkout.rs` |
+| Offering, shelving and unshelving a skill | `hamlet_actors/src/library.rs`, `library/offers.rs` |
+| An actor that keeps a repository: admitting a call, once per id, settling after a kill | `hamlet_actors/src/repo.rs` |
 
 `hamlet_realm/src/hamlet.rs` bridges received entities to the generator's
 plots and roads. `Hire` marks an agent that is a hire; `HamletId` is a
