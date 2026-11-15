@@ -551,8 +551,10 @@ An input is taken once under its id.
 At each wake `actor.ts` builds the agent's parts from its peers: the
 workspace, the realm and its own filesystem. `turn.ts` holds the rules
 the parts share. `callOut` stamps every call out with its id
-(`t<task id>` for a tool's call), its conversation and the turn's task,
-and words a refusal, a failure or an unknown outcome for the model.
+(`t<task id>` for a tool's call), its conversation and the turn's task.
+It words a refusal or a failure for the model. A call that fails after it
+may have changed something answers with today's `tool_interrupted` error,
+under the name of the tool the model called.
 pi-durable runs a tool cut off by a crash again at the next start, with
 the same task id, so the call goes out again under the same id and the
 workspace or the realm answers with what it kept.
@@ -564,22 +566,27 @@ workspace or the realm answers with what it kept.
   chief added by hand, each one call to the workspace. A command still
   running after the workspace's 5 s ends its tool with `running`, and its
   end arrives later as `finished`, a new input.
-- `own-files.ts` serves the same file tools on the agent's filesystem
-  (`filesystem.ts`, `actors/agent/<n>.fs/`) for a path at or below its
-  root. An own `edit` is the one tool not run again: after a crash the
-  model is told its outcome is unknown.
+- `own-files.ts` serves the same file tools on the agent's filesystem,
+  `actors/agent/<n>.fs/`, for a path at or below its root. `filesystem.ts`
+  declares its interface, `AgentFilesystem`, and `native-filesystem.ts`
+  opens the folder through the native module. An own `edit` is the one
+  tool that is not run again. After a crash, the model is told that the
+  edit was interrupted and may have partially run.
 - `society.ts` sends the society tools to the realm, each a row of
   `TOOLS` that sends `Tool<Act>{call, act}`, and replies to a question.
 - `timers.ts` is `wake`, a pi-durable background task that admits one
   input at its time.
 
 A tool's name, parameters and descriptions are today's server's, word
-for word. `hosts/node/test/` tests the agent on fake calls
-(`agent-testing.ts`) in `agent.test.ts`, `spend.test.ts`,
-`tools.test.ts`, `society.test.ts` and `timers.test.ts`, and
-`messages.test.ts` checks each message the agent writes or takes
-against `hamlet_messages`'s fixtures. `test/native/agent-actor.test.ts`
-runs the agent on the native host.
+for word, except `wake`, because today's server has no timer an agent can
+set. `wake` lets an agent come back to its work at a later time without
+holding its turn open. The timer's input starts a new turn.
+
+`hosts/node/test/` tests the agent on fake calls (`agent-testing.ts`) in
+`agent.test.ts`, `spend.test.ts`, `tools.test.ts`, `society.test.ts` and
+`timers.test.ts`, and `messages.test.ts` checks each message the agent
+writes or takes against `hamlet_messages`'s fixtures.
+`test/native/agent-actor.test.ts` runs the agent on the native host.
 
 With `HAMLET_DEMO_AGENT=pi`, `demo --link` runs the real agent in its
 Node host instead of the kinds of `demo.ts`. `examples/demo/agent_host.rs`
@@ -723,7 +730,7 @@ built-in ones.
 | Where each actor kind runs | `hamlet_host/src/directory.rs` |
 | The link to the Node host: its child, handshake, frames, and calls each way | `hamlet_host/src/child.rs`, `link.rs`, `link/`; the stand-in Node host `hamlet_host/examples/link_child.rs` |
 | The agent actor: its actions, its parts and the stamp of its calls out | `hosts/node/src/agent/actor.ts`, `turn.ts`; [the agent actor](#the-agent-actor) |
-| A tool the agent offers the model | `hosts/node/src/agent/workspace-tools.ts`, `own-files.ts`, `society.ts`, `timers.ts`, in the words of today's server |
+| A tool the agent offers the model | `hosts/node/src/agent/workspace-tools.ts`, `own-files.ts`, `society.ts`, `timers.ts`; all but `wake` in the words of today's server |
 | A message the agent takes or sends | `hosts/node/src/agent/messages.ts`; `hosts/node/test/messages.test.ts` checks it against `hamlet_messages/fixtures/` |
 | The Node host's entry and the demo's TypeScript kinds | `hosts/node/src/main.ts`, `demo.ts`, `actor/registry/link.ts`; the linked demo in `hamlet_host/examples/demo/link.rs` |
 | What a TypeScript actor can do: call another actor with a deadline, its address and caller, `get`, `all` and `run` on its rows | `hosts/node/src/actor/actor/calls.ts`, `config.ts`; `registry/native.ts`, `runtime.ts`, `napi-runtime.ts`; `common/database/`; the native side in `hamlet_actor_node/src/address.rs`, `actor_context.rs` |
