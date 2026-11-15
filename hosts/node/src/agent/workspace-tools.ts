@@ -19,6 +19,7 @@ import {
     type ToolExecutionResult,
     type ToolRegistration,
 } from "@earendil-works/pi-durable";
+import { omitUndefined } from "../actor/common/utils.ts";
 import {
     type ChangeEnd,
     type Need,
@@ -45,6 +46,21 @@ export interface FileToolArgs {
 }
 
 export type FileTool = keyof FileToolArgs;
+
+/**
+ * A file tool's arguments once the wrap of `own-files.ts` has made its
+ * `path` absolute. That wrap runs before every file tool.
+ */
+export type FileCall<N extends FileTool> = FileToolArgs[N] & {
+    readonly path: string;
+};
+
+/** How a file tool works out its answer. */
+export type Execute<Args> = (
+    args: Args,
+    api: ToolExecutionApi,
+    context: Context,
+) => Promise<ToolExecutionResult>;
 
 const text = (description: string) => ({ type: "string", description });
 const number = (description: string) => ({ type: "number", description });
@@ -162,32 +178,24 @@ const BASH = {
     },
 };
 
-type Execute<Args> = (
-    args: Args,
-    api: ToolExecutionApi,
-    context: Context,
-) => Promise<ToolExecutionResult>;
-
 function fileTool<N extends FileTool>(
     name: N,
-    execute: Execute<FileToolArgs[N]>,
+    execute: Execute<FileCall<N>>,
 ): ToolRegistration {
     return defineTool({
         name,
         ...FILE_TOOLS[name],
         replay: "safe",
         execute: (args, api, context) =>
-            execute(args as FileToolArgs[N], api, context),
+            execute(args as FileCall<N>, api, context),
     });
 }
 
-/** The fields of `given` that are set. A message never carries an unset field. */
-function set<T extends object>(
-    given: T,
-): { [K in keyof T]?: NonNullable<T[K]> } {
-    return Object.fromEntries(
-        Object.entries(given).filter(([, value]) => value !== undefined),
-    ) as { [K in keyof T]?: NonNullable<T[K]> };
+/** An edit's replacements, from today's names to the workspace's. */
+export function editsOf(
+    edits: FileToolArgs["edit"]["edits"],
+): { old: string; new: string }[] {
+    return edits.map((one) => ({ old: one.oldText, new: one.newText }));
 }
 
 function shown(answer: Text): ToolExecutionResult {
@@ -262,7 +270,7 @@ function read(peers: Peers): ToolRegistration {
             "read_file",
             {
                 path: args.path,
-                ...set({ offset: args.offset, limit: args.limit }),
+                ...omitUndefined({ offset: args.offset, limit: args.limit }),
             },
             (answer) => {
                 switch (answer.type) {
@@ -369,13 +377,7 @@ function edit(peers: Peers): ToolRegistration {
             context,
             WORKSPACE,
             "edit_file",
-            {
-                path: args.path,
-                edits: args.edits.map((one) => ({
-                    old: one.oldText,
-                    new: one.newText,
-                })),
-            },
+            { path: args.path, edits: editsOf(args.edits) },
             (answer) =>
                 answer.type === "ended"
                     ? changed(answer.end)
@@ -394,10 +396,10 @@ function search(peers: Peers): ToolRegistration {
             WORKSPACE,
             "search",
             {
-                under: args.path ?? ".",
+                under: args.path,
                 pattern: args.pattern,
                 ignore_case: args.ignore_case ?? false,
-                ...set({ name: args.name }),
+                ...omitUndefined({ name: args.name }),
             },
             (answer) =>
                 answer.type === "text" ? shown(answer) : failed(answer.words),
@@ -414,7 +416,7 @@ function find(peers: Peers): ToolRegistration {
             context,
             WORKSPACE,
             "find",
-            { under: args.path ?? ".", ...set({ name: args.name }) },
+            { under: args.path, ...omitUndefined({ name: args.name }) },
             (answer) =>
                 answer.type === "text" ? shown(answer) : failed(answer.words),
         ),

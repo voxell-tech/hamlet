@@ -5,7 +5,8 @@
  *
  * A path at or below the filesystem's root is own, and goes to the
  * adapter in this process. Every other path goes on to the wrapped tool,
- * which calls the workspace.
+ * which calls the workspace. A relative path, and a left-out one, start
+ * from the filesystem's root.
  *
  * The wrapped tools are `replay: "safe"`. An own read, write, search or
  * find is safe too: a rerun gives the same. An own `edit` is not, because a
@@ -14,6 +15,7 @@
  * the mark answers that the outcome is unknown, as pi-durable does for an
  * unsafe tool.
  */
+import { isAbsolute } from "node:path";
 import type { Context } from "@earendil-works/chord/context";
 import {
     defineExtension,
@@ -25,21 +27,38 @@ import {
 } from "@earendil-works/pi-durable";
 import type { AgentFilesystem } from "./filesystem.ts";
 import { failed, type Peers, unknownOutcome, words } from "./turn.ts";
-import type { FileTool, FileToolArgs } from "./workspace-tools.ts";
+import {
+    type Execute,
+    editsOf,
+    type FileCall,
+    type FileTool,
+    type FileToolArgs,
+} from "./workspace-tools.ts";
 
-/** How a file tool works on a path of the agent's own filesystem. */
-type Route<Args> = (
-    args: Args,
-    api: ToolExecutionApi,
-    context: Context,
-) => Promise<ToolExecutionResult>;
-
-/** Whether `path` is at or below the root of the agent's filesystem. */
-function owns(files: AgentFilesystem, path: string | undefined): boolean {
-    return (
-        path !== undefined &&
-        (path === files.root || path.startsWith(`${files.root}/`))
-    );
+/**
+ * Where a file tool's `path` leads: the absolute path, and whether it is
+ * at or below the root of the agent's filesystem.
+ *
+ * A relative path is joined, not normalised, so one that climbs out of the
+ * root stays own and the adapter refuses it.
+ */
+function reached(
+    files: AgentFilesystem,
+    path: string | undefined,
+): { readonly own: boolean; readonly path: string } {
+    // No message tells the agent its project folder, so paths start from
+    // its own filesystem. When one does, this is the project folder.
+    const start = files.root;
+    const absolute =
+        path === undefined
+            ? start
+            : isAbsolute(path)
+              ? path
+              : `${start}/${path}`;
+    return {
+        own: absolute === files.root || absolute.startsWith(`${files.root}/`),
+        path: absolute,
+    };
 }
 
 /**
@@ -47,7 +66,7 @@ function owns(files: AgentFilesystem, path: string | undefined): boolean {
  * `workspace-tools.ts`, so a file tool with no route does not compile.
  */
 function routes(peers: Peers): {
-    readonly [N in FileTool]: Route<FileToolArgs[N]>;
+    readonly [N in FileTool]: Execute<FileCall<N>>;
 } {
     const { files } = peers;
     return {
@@ -67,10 +86,7 @@ function routes(peers: Peers): {
             await api.memo(EDIT_BEGAN, true, context);
             const edited = await files.edit(
                 args.path,
-                args.edits.map((one) => ({
-                    old: one.oldText,
-                    new: one.newText,
-                })),
+                editsOf(args.edits),
                 context,
             );
             return edited.ok
@@ -98,10 +114,13 @@ export function ownFiles(peers: Peers): Extension {
                 args: FileToolArgs[N],
                 api: ToolExecutionApi,
                 context: Context,
-            ) =>
-                owns(peers.files, args.path)
-                    ? own[name](args, api, context)
-                    : tool.execute(args, api, context),
+            ) => {
+                const at = reached(peers.files, args.path);
+                const resolved = { ...args, path: at.path };
+                return at.own
+                    ? own[name](resolved, api, context)
+                    : tool.execute(resolved, api, context);
+            },
         }),
     });
     return defineExtension({
@@ -122,7 +141,7 @@ function linesOf(bytes: Uint8Array, offset?: number, limit?: number): string {
 
 async function written(
     files: AgentFilesystem,
-    args: FileToolArgs["write"],
+    args: FileCall<"write">,
     context: Context,
 ): Promise<ToolExecutionResult> {
     const done = await files.write(args.path, args.content, context);
@@ -131,10 +150,10 @@ async function written(
 
 async function searched(
     files: AgentFilesystem,
-    args: FileToolArgs["search"],
+    args: FileCall<"search">,
     context: Context,
 ): Promise<ToolExecutionResult> {
-    const path = args.path ?? files.root;
+    const { path } = args;
     let named: Set<string> | undefined;
     if (args.name !== undefined) {
         const matched = await files.find(args.name, path, context);
@@ -160,10 +179,10 @@ async function searched(
 
 async function found(
     files: AgentFilesystem,
-    args: FileToolArgs["find"],
+    args: FileCall<"find">,
     context: Context,
 ): Promise<ToolExecutionResult> {
-    const path = args.path ?? files.root;
+    const { path } = args;
     if (args.name === undefined) {
         const listed = await files.list(path, context);
         return listed.ok

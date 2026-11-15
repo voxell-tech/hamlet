@@ -13,9 +13,20 @@ import {
     timedOut,
     toolCall,
     until,
+    type Woken,
     wakeAgent,
 } from "./agent-testing.ts";
 import { context } from "./testing.ts";
+
+/** The root of `fakeFiles`, agent 7's filesystem. */
+const ROOT = "/realm/actors/agent/7.fs";
+
+/** The text of each tool result the agent took, in order. */
+async function results(agent: Woken): Promise<string[]> {
+    return (await agent.entries())
+        .filter((entry) => entry.kind === "pi.tool-result")
+        .map((entry) => entry.text);
+}
 
 const line = (id: string, text: string, task?: string) => ({
     id,
@@ -75,6 +86,75 @@ test("a project path goes to the workspace and an own path to the adapter", asyn
         results.map((entry) => entry.text),
         ["project:/work/project/notes.md", "own:plan"],
     );
+    await agent.stop();
+});
+
+test("a relative path, and a left-out one, start from the agent's filesystem", async (t) => {
+    const { calls, sent } = fakeCalls({});
+    const fake = fakeFiles({ [`${ROOT}/memory/plan.md`]: "own:plan" });
+    const listed: string[] = [];
+    const files = Object.assign(Object.create(fake) as typeof fake, {
+        list: async (path: string) => {
+            listed.push(path);
+            return ok([
+                {
+                    name: "notes.md",
+                    path: `${path}/notes.md`,
+                    kind: "file" as const,
+                    size: 5,
+                },
+            ]);
+        },
+    });
+    const agent = await wakeAgent(t, {
+        calls,
+        files,
+        responses: [
+            toolCall("read", { path: "memory/plan.md" }, "c1"),
+            toolCall("find", {}, "c2"),
+            fauxAssistantMessage("read and listed"),
+        ],
+    });
+    await agent.actions.submit(agent.by(from.realm), line("input-1", "Look."));
+    await agent.idle();
+
+    assert.deepEqual(
+        sent
+            .filter((call) => call.to === "workspace/local")
+            .map((call) => call.name),
+        ["list_tools"],
+    );
+    assert.deepEqual(listed, [ROOT]);
+    assert.deepEqual(await results(agent), ["own:plan", "notes.md"]);
+    await agent.stop();
+});
+
+test("a path that only begins with the root's name goes to the workspace", async (t) => {
+    const { calls, sent } = fakeCalls({
+        workspace: {
+            read_file: (message) => ({
+                type: "text",
+                text: `project:${message.path}`,
+                notes: [],
+            }),
+        },
+    });
+    const agent = await wakeAgent(t, {
+        calls,
+        files: fakeFiles({ [`${ROOT}-other/x`]: "own:x" }),
+        responses: [
+            toolCall("read", { path: `${ROOT}-other/x` }),
+            fauxAssistantMessage("read"),
+        ],
+    });
+    await agent.actions.submit(
+        agent.by(from.realm),
+        line("input-1", "Read it."),
+    );
+    await agent.idle();
+
+    assert.equal(named(sent, "read_file").length, 1);
+    assert.deepEqual(await results(agent), [`project:${ROOT}-other/x`]);
     await agent.stop();
 });
 
