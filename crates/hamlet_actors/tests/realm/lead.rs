@@ -82,7 +82,6 @@ fn ended_in_workspace(realm: &Realm, agent: AgentNumber) -> bool {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "the scaffold: U4 fills it"]
 async fn a_lead_hires_and_ends_only_under_itself() {
     // mayor 2 hires 3 and 4 under 3; 4 may neither hire under 3 nor
     // end it (`NotALead`); 3 ends 4.
@@ -121,7 +120,6 @@ async fn a_lead_hires_and_ends_only_under_itself() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "the scaffold: U4 fills it"]
 async fn an_end_moves_the_children_and_drops_the_reach() {
     // end 3 with 4 under it: 4's lead is 2; the workspace stand-in
     // kept an `Ended` reach for 3.
@@ -192,6 +190,67 @@ async fn an_end_moves_the_children_and_drops_the_reach() {
         ("ended", HowEnded::ByTheChief, Some("done"))
     );
     assert!(!ended_in_workspace(&realm, AgentNumber(4)));
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_end_of_a_hire_still_hiring_closes_its_steps() {
+    // hold the branch; mayor 2 hires 3; the chief ends 3; release:
+    // the workspace holds 3's end, `agent/3` is never made, and its
+    // row is closed before the branch.
+    let realm = Realm::start().await;
+    realm.live(Hand::NUMBER).await;
+    founded(&realm).await;
+    realm.reach_held(MAYOR).await;
+    realm.seen.hold(Callee::Branch);
+
+    let hired_3 = realm.tool(MAYOR, &tool("h1", hire(None))).await;
+    let ended = realm
+        .ask(&Asked {
+            id: RequestId::new(),
+            act: end(3),
+        })
+        .await
+        .unwrap();
+    until("the workspace holds the end of agent 3", || {
+        ended_in_workspace(&realm, AgentNumber(3))
+    })
+    .await;
+    realm.seen.release(Callee::Branch);
+    let (status, done, closed) = realm
+        .rows(|db| {
+            db.query_row(
+                "SELECT agent.status, step.done, step.closed FROM \
+                 agent JOIN step ON step.kind = 'hire' AND step.n = \
+                 agent.id WHERE agent.id = 3",
+                [],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, Option<String>>(1)?,
+                        row.get::<_, bool>(2)?,
+                    ))
+                },
+            )
+        })
+        .await;
+    let made_3 = realm
+        .seen
+        .made
+        .lock()
+        .unwrap()
+        .iter()
+        .any(|(agent, _)| *agent == AgentNumber(3));
+
+    assert_eq!(hired_3.unwrap(), hired(3));
+    assert_eq!(ended, Done::Done);
+    assert_eq!(status, "ended");
+    assert!(closed);
+    assert!(
+        matches!(done.as_deref(), None | Some("profile")),
+        "{done:?}"
+    );
+    assert!(!made_3);
     realm.host.shutdown().await.unwrap();
 }
 

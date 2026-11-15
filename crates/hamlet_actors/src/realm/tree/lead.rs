@@ -6,19 +6,27 @@
     reason = "the scaffold: U4 fills this file"
 )]
 
+use std::collections::BTreeSet;
+
 use anyhow::Result;
+use hamlet_actor::BindParam;
+use hamlet_messages::agent::AgentKind;
 use hamlet_messages::realm::{
     Done, End, EndRefusal, HamletId, Hire, HireAnswer, HireRefusal,
-    Named, ProfileId, Refusable, Seat, SeatRefusal,
+    HowEnded, Named, ProfileId, Refusable, Seat, SeatRefusal,
 };
+use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::AgentNumber;
 
 use super::super::act::{Act, Decided, Decision};
 use super::super::callers::{Decider, Lead, RealmWide};
 use super::super::calls::Made;
 use super::super::change::{Affected, Rows, Writer, number};
-use super::super::{chiefs, hire, record, steps, tasks};
-use super::{Change, Lineage, Of, Status};
+use super::super::world::Part;
+use super::super::{
+    chiefs, hire, record, roads, steps, tasks, waits,
+};
+use super::{Change, Lineage, Member, Of, Status};
 
 pub(in crate::realm) struct Hiring {
     /// The calling hire's hamlet, else the one named: `None` inside
@@ -209,7 +217,8 @@ impl<By: Lead> Act<By> for End {
         by: &By,
         rows: &Rows<'_>,
     ) -> Result<Option<Lineage>> {
-        todo!()
+        let own = own_hamlet(rows, caller(by)).await?;
+        named_lineage(rows, own.as_ref(), &self.hire).await
     }
 
     fn decide(
@@ -217,11 +226,63 @@ impl<By: Lead> Act<By> for End {
         by: &By,
         lineage: Option<Lineage>,
     ) -> Decision<(), Self::Output> {
-        todo!()
+        let refuse =
+            |why| Decision::Answer(Done::refused(By::refused(why)));
+        let Some(lineage) = lineage else {
+            return refuse(EndRefusal::NoSuchAgent);
+        };
+        let hire = lineage.agent.agent;
+        if let Err(not_a_lead) = by.leads(&lineage, hire) {
+            return Decision::Answer(Done::refused(not_a_lead));
+        }
+        if lineage.agent.kind == AgentKind::Hand {
+            return refuse(EndRefusal::TheHand);
+        }
+        if lineage.is_mayor() {
+            return refuse(EndRefusal::TheMayor);
+        }
+        if let Status::Ended(left) = &lineage.agent.status {
+            return refuse(EndRefusal::Left {
+                hire,
+                left: left.clone(),
+            });
+        }
+        Decision::Change(
+            Decided::new(())
+                .change(Change::End {
+                    agent: hire,
+                    by: by.by(),
+                    why: self.why.clone(),
+                })
+                .change(waits::Change::Lapse { agent: hire })
+                // No later drive makes it live when it is still
+                // being hired.
+                .change(steps::Change::Close {
+                    row: hire::row(hire),
+                })
+                .record(record::Entry::Ended {
+                    hire,
+                    by: by.by(),
+                    why: self.why.clone(),
+                }),
+        )
     }
 
-    fn answer(&self, (): (), made: &Made) -> Self::Output {
-        todo!()
+    fn answer(&self, (): (), _made: &Made) -> Self::Output {
+        Done::Done
+    }
+}
+
+/// The lineage of the agent `named` names, reading `Mayor` as
+/// `hamlet`'s.
+async fn named_lineage(
+    rows: &Rows<'_>,
+    hamlet: Option<&HamletId>,
+    named: &Named,
+) -> Result<Option<Lineage>> {
+    match super::resolve(rows, hamlet, named).await? {
+        Some(agent) => super::lineage(rows, agent).await,
+        None => Ok(None),
     }
 }
 
@@ -251,16 +312,72 @@ impl<By: RealmWide> Act<By> for Seat {
     }
 }
 
-/// Reports its reach as moved (to `Ended`), the places of its lead,
-/// of the moved hires and of the agents it had a road to, and
-/// `Part::Agents`.
+/// Reports its reach as moved (to `Ended`), and the places of its
+/// lead, of the moved hires and of the agents it had a road to.
 pub(in crate::realm) async fn end(
     writer: &Writer<'_>,
     agent: AgentNumber,
     by: record::By,
     why: Option<String>,
 ) -> Result<Affected> {
-    todo!()
+    let rows = writer.rows();
+    let lineage = super::lineage_of(&rows, agent).await?;
+    let lead = lineage.agent.lead;
+    let moved = living_agents(&lineage.hires);
+    let places = roads::of(&rows, agent)
+        .await?
+        .into_iter()
+        .map(|(other, _)| other)
+        .chain(lead)
+        .chain(moved.iter().copied())
+        .collect::<BTreeSet<_>>();
+    let how = match by {
+        record::By::Chief => HowEnded::ByTheChief,
+        record::By::Agent(Hand::NUMBER) => HowEnded::ByTheHand,
+        record::By::Agent(lead) => HowEnded::ByALead { lead },
+    };
+    writer
+        .execute(
+            "UPDATE agent SET status = 'ended', ended_how = ?2, \
+             ended_why = ?3 WHERE id = ?1",
+            vec![
+                number(agent),
+                BindParam::Text(serde_json::to_string(&how)?),
+                why.map_or(BindParam::Null, BindParam::Text),
+            ],
+        )
+        .await?;
+    for hire in moved {
+        set_lead(writer, hire, lead).await?;
+    }
+    Ok(Affected {
+        places,
+        reaches: BTreeSet::from([agent]),
+        ..Affected::seen([Part::Agents, Part::Reaches])
+    })
+}
+
+/// The agents of `members` that have not ended.
+fn living_agents(members: &[Member]) -> Vec<AgentNumber> {
+    members
+        .iter()
+        .filter(|member| !matches!(member.status, Status::Ended(_)))
+        .map(|member| member.agent)
+        .collect()
+}
+
+async fn set_lead(
+    writer: &Writer<'_>,
+    hire: AgentNumber,
+    lead: Option<AgentNumber>,
+) -> Result<()> {
+    writer
+        .execute(
+            "UPDATE hire SET lead = ?2 WHERE agent = ?1",
+            vec![number(hire), lead.map_or(BindParam::Null, number)],
+        )
+        .await?;
+    Ok(())
 }
 
 /// Reports the places that moved.
@@ -274,16 +391,12 @@ pub(in crate::realm) async fn seat(
 #[cfg(test)]
 mod tests {
     use hamlet_messages::address::Agent;
-    use hamlet_messages::agent::AgentKind;
-    use hamlet_messages::realm::{
-        HamletId, LeadRefusal, Named, Rank, Tier,
-    };
+    use hamlet_messages::realm::{LeadRefusal, Left, Rank, Tier};
+    use hamlet_messages::sender::Client;
     use hamlet_messages::workspace::reach::Mode;
 
-    use super::super::{Member, Status};
     use super::*;
-    use crate::realm::chiefs::{self, limits};
-    use crate::realm::{hire, steps, waits};
+    use crate::realm::chiefs::limits;
 
     /// The lineage of hire 5 in one hamlet: the Hand 1, the mayor 2,
     /// hire 3 under it, and 5 under 3, still hiring.
@@ -313,6 +426,31 @@ mod tests {
         }
     }
 
+    fn hand() -> Lineage {
+        Lineage {
+            agent: Member {
+                agent: Hand::NUMBER,
+                kind: AgentKind::Hand,
+                status: Status::Live,
+                lead: None,
+                has_purpose: false,
+            },
+            leads: Vec::new(),
+            hires: Vec::new(),
+            hamlet: None,
+        }
+    }
+
+    fn left_5() -> (Lineage, Left) {
+        let left = Left {
+            how: HowEnded::ByTheChief,
+            why: None,
+        };
+        let mut lineage = lineage_of_5();
+        lineage.agent.status = Status::Ended(left.clone());
+        (lineage, left)
+    }
+
     fn end_5() -> End {
         End {
             hire: Named::Agent {
@@ -327,7 +465,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "the scaffold: U4 fills it"]
     fn a_lead_ends_only_what_is_under_it() {
         let decide =
             |lead| end_5().decide(&by(lead), Some(lineage_of_5()));
@@ -343,7 +480,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "the scaffold: U4 fills it"]
     fn an_end_lapses_the_waits_and_closes_the_steps() {
         let Decision::Change(decided) =
             end_5().decide(&by(3), Some(lineage_of_5()))
@@ -365,6 +501,33 @@ mod tests {
                 }
                 .into()
             )
+        );
+    }
+
+    #[test]
+    fn an_end_refuses_the_hand_the_mayor_and_a_hire_that_left() {
+        let refused = |lineage, why| {
+            assert_eq!(
+                end_5().decide(&Client, Some(lineage)),
+                Decision::Answer(Done::Refused { why })
+            );
+        };
+        let five = lineage_of_5();
+        let mayor = Lineage {
+            agent: five.leads[1].clone(),
+            leads: Vec::new(),
+            ..five
+        };
+        let (left, how) = left_5();
+
+        refused(hand(), EndRefusal::TheHand);
+        refused(mayor, EndRefusal::TheMayor);
+        refused(
+            left,
+            EndRefusal::Left {
+                hire: AgentNumber(5),
+                left: how,
+            },
         );
     }
 }
