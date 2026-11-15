@@ -44,7 +44,9 @@ no task covers: the mingw clippy of the server and CLI, and the macOS and
 Windows jobs. `deny.toml` at the root configures cargo deny,
 which `deny` runs. `doc` documents `hamlet_actor_core` apart from the
 rest, at its default features, because its two runtime features exclude
-each other. `killkit` and `idle` are the tools of the actor runtime,
+each other. `node` runs `declarations` first on Linux, which writes the
+native module's `index.d.ts` and `index.js` from its Rust and fails when
+either changed. `killkit` and `idle` are the tools of the actor runtime,
 described below.
 
 `vendor/fynix` is the submodule that supplies `bevy_fynix`, the panels'
@@ -634,6 +636,8 @@ built-in ones.
 | What an actor reaches of its host: its address, the realm folder, the program's values, and its calls, creates and get-or-starts as itself | `hamlet_host/src/local/access.rs` |
 | Where each actor kind runs | `hamlet_host/src/directory.rs` |
 | The link to the Node host: its child, handshake, frames, and calls each way | `hamlet_host/src/child.rs`, `link.rs`, `link/`; the stand-in Node host `hamlet_host/examples/link_child.rs` |
+| What a TypeScript actor can do: call another actor with a deadline, its address and caller, `get`, `all` and `run` on its rows | `hosts/node/src/actor/actor/calls.ts`, `config.ts`; `registry/native.ts`, `runtime.ts`, `napi-runtime.ts`; `common/database/`; the native side in `hamlet_actor_node/src/address.rs`, `actor_context.rs` |
+| The native module's TypeScript declarations | `hamlet_actor_node/index.d.ts` and `index.js`, written by `cargo xtask declarations`, never by hand |
 | What the host reports on `Host::events` | `hamlet_host/src/event.rs` |
 | A one-shot timer's tries, and the timers set aside after them | `hamlet_actor_core/src/actor/schedule.rs`; `Host::set_aside_timers` and `Host::rearm_timer` in `hamlet_host/src/local.rs` |
 | A kill scenario | `hamlet_killkit/src/scenario.rs`, and a fault point with `hamlet_host::fault::point` |
