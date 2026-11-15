@@ -1,30 +1,15 @@
 use hamlet_messages::realm::client::{Answer, AnswerRefusal};
 use hamlet_messages::realm::{
-    Asked, Done, End, Hire, HireAnswer, Named, NeedsChief,
-    SecretList, Secrets,
+    Asked, Done, End, HireAnswer, Named, SecretList, Secrets,
 };
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::reach::SecretsVersion;
-use hamlet_messages::workspace::{
-    self, AgentNumber, CallId, ChiefAnswer, ConversationId,
-    ReachVersion,
-};
+use hamlet_messages::workspace::{self, AgentNumber, ChiefAnswer};
 use hamlet_protocol::client::{self as protocol, Choice, RequestId};
 
-use super::{Realm, error_code, founded, until};
-
-fn needs(agent: AgentNumber, call: &str) -> NeedsChief {
-    NeedsChief {
-        agent,
-        call: CallId(call.to_owned()),
-        conversation: ConversationId("c".to_owned()),
-        realm_task: None,
-        needs: Vec::new(),
-        subject: "rm -rf build".to_owned(),
-        change: None,
-        reach_version: ReachVersion(1),
-    }
-}
+use super::{
+    Realm, chief_hires, error_code, founded, hire, needs, until,
+};
 
 fn answer(wait: &str, choice: Choice, text: Option<&str>) -> Answer {
     Answer(protocol::Answer {
@@ -154,18 +139,7 @@ async fn an_end_closes_open_waits() {
     let realm = Realm::start().await;
     realm.live(Hand::NUMBER).await;
     let hamlet = founded(&realm).await;
-    let hired = realm
-        .ask(&Asked {
-            id: RequestId::new(),
-            act: Hire {
-                hamlet: Some(hamlet),
-                under: None,
-                profile: None,
-                purpose: None,
-            },
-        })
-        .await
-        .unwrap();
+    let hired = chief_hires(&realm, &hamlet, hire(None)).await;
     let HireAnswer::Hired { agent: hire } = hired else {
         panic!("the chief hires: {hired:?}");
     };

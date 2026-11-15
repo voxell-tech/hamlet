@@ -1,43 +1,15 @@
 use hamlet_messages::agent::Place;
-use hamlet_messages::realm::{
-    Asked, Done, End, FoundAnswer, HamletId, Hire, HireAnswer,
-    HireRefusal, Named,
-};
+use hamlet_messages::realm::{Asked, Done, End, FoundAnswer, Named};
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::AgentNumber;
 use hamlet_protocol::client::RequestId;
 
-use super::{Callee, MAYOR, Realm, found, founded, tool, until};
+use super::{
+    Callee, MAYOR, Realm, chief_hires, found, hamlet_with, hire,
+    hired, tool, until,
+};
 
 const THREE: AgentNumber = AgentNumber(3);
-
-fn hire(hamlet: Option<HamletId>) -> Hire {
-    Hire {
-        hamlet,
-        under: Some(Named::Agent { agent: MAYOR }),
-        profile: None,
-        purpose: Some("Check the links".to_owned()),
-    }
-}
-
-fn hired<R>(agent: u32) -> HireAnswer<R> {
-    HireAnswer::Hired {
-        agent: AgentNumber(agent),
-    }
-}
-
-async fn chief_hires(
-    realm: &Realm,
-    hamlet: &HamletId,
-) -> HireAnswer<HireRefusal> {
-    realm
-        .ask(&Asked {
-            id: RequestId::new(),
-            act: hire(Some(hamlet.clone())),
-        })
-        .await
-        .unwrap()
-}
 
 /// The places `agent` was created with and then sent, as (version,
 /// hires).
@@ -97,10 +69,7 @@ async fn a_place_follows_the_tree() {
     // places with rising versions, the one after `Live` holding the
     // hire, the last without it. `Fill` is held so that the place the
     // hire moved at `Hire` arrives before the one at `Live`.
-    let realm = Realm::start().await;
-    realm.live(Hand::NUMBER).await;
-    founded(&realm).await;
-    realm.live(MAYOR).await;
+    let (realm, _) = hamlet_with(0).await;
     realm.seen.hold(Callee::Fill);
 
     let hired_3 = realm.tool(MAYOR, &tool("h1", hire(None))).await;
@@ -138,10 +107,7 @@ async fn a_place_the_agent_fails_to_take_is_not_sent_again() {
     // the mayor fails the place hire 3's `Hire` moved, with 3's fill
     // held: the realm still answers. The mayor gets nothing more
     // until 3 is live, and then the place of that change, holding 3.
-    let realm = Realm::start().await;
-    realm.live(Hand::NUMBER).await;
-    let hamlet = founded(&realm).await;
-    realm.live(MAYOR).await;
+    let (realm, hamlet) = hamlet_with(0).await;
     until("the Hand has its road to the mayor", || {
         sent_a_road(&realm, Hand::NUMBER, MAYOR)
     })
@@ -149,7 +115,7 @@ async fn a_place_the_agent_fails_to_take_is_not_sent_again() {
     realm.seen.hold(Callee::Fill);
     realm.seen.fail_once.lock().unwrap().insert(Callee::Place);
 
-    let hired_3 = chief_hires(&realm, &hamlet).await;
+    let hired_3 = chief_hires(&realm, &hamlet, hire(None)).await;
     until("the mayor fails a place", || {
         realm.seen.fail_once.lock().unwrap().is_empty()
     })
@@ -169,10 +135,7 @@ async fn a_place_the_agent_fails_to_take_is_not_sent_again() {
 async fn a_failed_place_at_a_step_leaves_the_others_sent() {
     // Pond's mayor 3 goes live with the first place its step pushes,
     // the Hand's, failing: mayor 2 is still sent its road to 3.
-    let realm = Realm::start().await;
-    realm.live(Hand::NUMBER).await;
-    founded(&realm).await;
-    realm.live(MAYOR).await;
+    let (realm, _) = hamlet_with(0).await;
     until("the Hand has its road to the mayor", || {
         sent_a_road(&realm, Hand::NUMBER, MAYOR)
     })

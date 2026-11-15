@@ -1,9 +1,8 @@
 use std::time::Duration;
 
 use hamlet_messages::realm::{
-    Asked, Done, End, EndRefusal, FoundAnswer, HamletId, Hire,
-    HireAnswer, HireRefusal, HowEnded, LeadRefusal, Left, Named,
-    Rank,
+    Asked, Done, End, EndRefusal, FoundAnswer, Hire, HireAnswer,
+    HireRefusal, HowEnded, LeadRefusal, Left, Named, Rank,
 };
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::AgentNumber;
@@ -11,7 +10,8 @@ use hamlet_messages::workspace::reach::Reach;
 use hamlet_protocol::client::RequestId;
 
 use super::{
-    Callee, MAYOR, Realm, error_code, found, founded, tool, until,
+    Callee, MAYOR, Realm, chief_hires, error_code, found, founded,
+    hire, hired, tool, until,
 };
 
 fn under(agent: u32) -> Option<Named> {
@@ -20,27 +20,12 @@ fn under(agent: u32) -> Option<Named> {
     })
 }
 
-fn hire(under: Option<Named>) -> Hire {
-    Hire {
-        hamlet: None,
-        under,
-        profile: None,
-        purpose: Some("Check the links".to_owned()),
-    }
-}
-
 fn end(agent: u32) -> End {
     End {
         hire: Named::Agent {
             agent: AgentNumber(agent),
         },
         why: None,
-    }
-}
-
-fn hired<R>(agent: u32) -> HireAnswer<R> {
-    HireAnswer::Hired {
-        agent: AgentNumber(agent),
     }
 }
 
@@ -384,23 +369,6 @@ async fn a_repeated_hire_hires_once() {
     assert_eq!(error_code(other), "message.id_reused");
     assert_eq!((agents, hires, made), (3, 2, 1));
     realm.host.shutdown().await.unwrap();
-}
-
-async fn chief_hires(
-    realm: &Realm,
-    hamlet: &HamletId,
-    act: Hire,
-) -> HireAnswer<HireRefusal> {
-    realm
-        .ask(&Asked {
-            id: RequestId::new(),
-            act: Hire {
-                hamlet: Some(hamlet.clone()),
-                ..act
-            },
-        })
-        .await
-        .unwrap()
 }
 
 fn refused_to_an_agent(

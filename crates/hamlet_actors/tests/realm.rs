@@ -27,12 +27,14 @@ use hamlet_messages::profile::Branch;
 use hamlet_messages::realm::client::Say;
 use hamlet_messages::realm::world::{ReachSeen, Status};
 use hamlet_messages::realm::{
-    Asked, Found, FoundAnswer, HamletId, ProfileId, Tier, Tool,
+    Asked, Found, FoundAnswer, HamletId, Hire, HireAnswer,
+    HireRefusal, Named, NeedsChief, ProfileId, Tier, Tool,
 };
+use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::reach::Reach;
 use hamlet_messages::workspace::{
-    AgentNumber, AnswerTaken, CallId, ChiefAnswer, InForce,
-    ReachVersion, SetReach,
+    AgentNumber, AnswerTaken, CallId, ChiefAnswer, ConversationId,
+    InForce, ReachVersion, RealmTask, SetReach,
 };
 use hamlet_protocol::client::{self as protocol, AgentId, RequestId};
 use hamlet_testing::Scratch;
@@ -598,6 +600,99 @@ async fn founded(realm: &Realm) -> HamletId {
         panic!("the chief founds a hamlet with mayor 2: {answer:?}");
     };
     hamlet
+}
+
+/// A realm with a hamlet whose mayor has `count` live hires, from
+/// agent 3 up.
+async fn hamlet_with(count: u32) -> (Realm, HamletId) {
+    let realm = Realm::start().await;
+    realm.live(Hand::NUMBER).await;
+    let hamlet = founded(&realm).await;
+    realm.live(MAYOR).await;
+    for n in 0..count {
+        hires(&realm, MAYOR, &format!("h{n}")).await;
+        realm.live(AgentNumber(3 + n)).await;
+    }
+    (realm, hamlet)
+}
+
+fn hire(under: Option<Named>) -> Hire {
+    Hire {
+        hamlet: None,
+        under,
+        profile: None,
+        purpose: Some("Check the links".to_owned()),
+    }
+}
+
+fn hired<R>(agent: u32) -> HireAnswer<R> {
+    HireAnswer::Hired {
+        agent: AgentNumber(agent),
+    }
+}
+
+/// `lead` hires one hire under itself, as the call `call`.
+async fn hires(realm: &Realm, lead: AgentNumber, call: &str) {
+    let hired = realm.tool(lead, &tool(call, hire(None))).await;
+    assert!(
+        matches!(hired, Ok(HireAnswer::Hired { .. })),
+        "{hired:?}"
+    );
+}
+
+async fn chief_hires(
+    realm: &Realm,
+    hamlet: &HamletId,
+    act: Hire,
+) -> HireAnswer<HireRefusal> {
+    realm
+        .ask(&Asked {
+            id: RequestId::new(),
+            act: Hire {
+                hamlet: Some(hamlet.clone()),
+                ..act
+            },
+        })
+        .await
+        .unwrap()
+}
+
+/// The standing task `agent` was made with.
+fn standing(realm: &Realm, agent: AgentNumber) -> RealmTask {
+    realm
+        .seen
+        .made
+        .lock()
+        .unwrap()
+        .iter()
+        .find(|(made, _)| *made == agent)
+        .map(|(_, input)| input.task.clone())
+        .expect("the agent was made")
+}
+
+fn submits_to(realm: &Realm, agent: AgentNumber) -> Vec<Submit> {
+    realm
+        .seen
+        .submits
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|(to, _)| *to == agent)
+        .map(|(_, submit)| submit.clone())
+        .collect()
+}
+
+fn needs(agent: AgentNumber, call: &str) -> NeedsChief {
+    NeedsChief {
+        agent,
+        call: CallId(call.to_owned()),
+        conversation: ConversationId("c".to_owned()),
+        realm_task: None,
+        needs: Vec::new(),
+        subject: "rm -rf build".to_owned(),
+        change: None,
+        reach_version: ReachVersion(1),
+    }
 }
 
 fn say(id: &RequestId, to: AgentNumber, text: &str) -> Say {

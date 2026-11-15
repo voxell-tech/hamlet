@@ -7,37 +7,18 @@ use hamlet_messages::realm::budget::{
     SpendRefusal,
 };
 use hamlet_messages::realm::{
-    Asked, Done, End, HamletId, HamletRefusal, Hire, HireAnswer,
-    HowEnded, Named, SetLimits, Standing,
+    Asked, Done, End, HamletId, HamletRefusal, HireAnswer, HowEnded,
+    Named, SetLimits, Standing,
 };
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::{AgentNumber, CallId, RealmTask};
 use hamlet_protocol::client::RequestId;
 use tokio::task::JoinSet;
 
-use super::{Forward, MAYOR, Realm, call, decoded, founded};
-
-/// A realm with a hamlet whose mayor is live.
-async fn with_mayor() -> (Realm, HamletId) {
-    let realm = Realm::start().await;
-    realm.live(Hand::NUMBER).await;
-    let hamlet = founded(&realm).await;
-    realm.live(MAYOR).await;
-    (realm, hamlet)
-}
-
-/// The standing task `agent` was made with.
-fn task_of(realm: &Realm, agent: AgentNumber) -> RealmTask {
-    realm
-        .seen
-        .made
-        .lock()
-        .unwrap()
-        .iter()
-        .find(|(made, _)| *made == agent)
-        .map(|(_, input)| input.task.clone())
-        .expect("the agent was made")
-}
+use super::{
+    Forward, MAYOR, Realm, call, chief_hires, decoded, hamlet_with,
+    hire, standing,
+};
 
 async fn limit(
     realm: &Realm,
@@ -114,8 +95,8 @@ fn pays(hamlet: &HamletId) -> Payer {
 async fn a_charge_repeated_with_one_id_counts_once() {
     // charge one call id twice, the second time at another price:
     // one row, and the spend shows the first price once.
-    let (realm, hamlet) = with_mayor().await;
-    let task = task_of(&realm, MAYOR);
+    let (realm, hamlet) = hamlet_with(0).await;
+    let task = standing(&realm, MAYOR);
     limit(
         &realm,
         Some(&hamlet),
@@ -153,8 +134,8 @@ async fn spending_past_the_budget_is_refused() {
     // the cost: OverCost; raise the cost and charge past the model
     // time: OverTime; ResetBudget: allowed again. A reset of a
     // hamlet the realm does not hold is refused.
-    let (realm, hamlet) = with_mayor().await;
-    let task = task_of(&realm, MAYOR);
+    let (realm, hamlet) = hamlet_with(0).await;
+    let task = standing(&realm, MAYOR);
     let payer = pays(&hamlet);
     let small = vec![
         BudgetLimit::Cost { micros: 10 },
@@ -207,23 +188,12 @@ async fn spending_past_the_budget_is_refused() {
 async fn an_ended_agent_may_not_spend() {
     // end a hire; MaySpend as it: Standing(YouLeft). A charge it
     // makes after its end still counts toward its hamlet.
-    let (realm, hamlet) = with_mayor().await;
+    let (realm, hamlet) = hamlet_with(0).await;
     let three = AgentNumber(3);
-    let hired = realm
-        .ask(&Asked {
-            id: RequestId::new(),
-            act: Hire {
-                hamlet: Some(hamlet.clone()),
-                under: None,
-                profile: None,
-                purpose: None,
-            },
-        })
-        .await
-        .unwrap();
+    let hired = chief_hires(&realm, &hamlet, hire(None)).await;
     assert_eq!(hired, HireAnswer::Hired { agent: three });
     realm.live(three).await;
-    let task = task_of(&realm, three);
+    let task = standing(&realm, three);
     limit(
         &realm,
         Some(&hamlet),
@@ -245,7 +215,7 @@ async fn an_ended_agent_may_not_spend() {
     let refused = may_spend(&realm, three, &task).await;
     realm.tool(three, &charge("c1", &task, 4, 1)).await.unwrap();
     let mayor =
-        may_spend(&realm, MAYOR, &task_of(&realm, MAYOR)).await;
+        may_spend(&realm, MAYOR, &standing(&realm, MAYOR)).await;
 
     assert_eq!(
         refused,
@@ -264,9 +234,9 @@ async fn an_ended_agent_may_not_spend() {
 async fn a_task_the_realm_does_not_hold_charges_the_realm() {
     // a charge under a task the realm never opened is the realm's;
     // MaySpend under it is refused NoSuchTask.
-    let (realm, _) = with_mayor().await;
+    let (realm, _) = hamlet_with(0).await;
     let unknown = RealmTask("999".to_owned());
-    let hand_task = task_of(&realm, Hand::NUMBER);
+    let hand_task = standing(&realm, Hand::NUMBER);
     limit(&realm, None, vec![BudgetLimit::Cost { micros: 1 }]).await;
 
     realm
@@ -290,8 +260,8 @@ async fn a_task_the_realm_does_not_hold_charges_the_realm() {
 async fn ten_charges_at_once_each_count() {
     // ten agents charge one small budget at once: each charge
     // counts, and the spend is their sum.
-    let (realm, hamlet) = with_mayor().await;
-    let task = task_of(&realm, MAYOR);
+    let (realm, hamlet) = hamlet_with(0).await;
+    let task = standing(&realm, MAYOR);
     limit(
         &realm,
         Some(&hamlet),
@@ -328,8 +298,8 @@ async fn ten_charges_at_once_each_count() {
 async fn a_charge_before_the_period_began_counts_nothing() {
     // a charge two days old, written with the realm stopped, is
     // outside today's period: only a charge made now counts.
-    let (realm, hamlet) = with_mayor().await;
-    let task = task_of(&realm, MAYOR);
+    let (realm, hamlet) = hamlet_with(0).await;
+    let task = standing(&realm, MAYOR);
     let payer = pays(&hamlet);
     let two_days_ago = SystemTime::now()
         .checked_sub(Duration::from_secs(48 * 3600))
