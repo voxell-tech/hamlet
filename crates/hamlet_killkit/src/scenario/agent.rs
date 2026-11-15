@@ -19,6 +19,19 @@ const TELL_RESULTS: Probe = Probe {
     ),
 };
 
+/// A `tell` result the model was told was cut off: a repeat the realm
+/// refused, rather than answered from what it kept.
+const TELLS_CUT_OFF: Probe = Probe {
+    name: "agent.tells_cut_off",
+    file: "actors/agent/1.sqlite",
+    read: Read::Sql(
+        "SELECT COUNT(*) FROM pi_entries WHERE record ->> '$.kind' \
+         = 'pi.tool-result' AND record ->> '$.model[0].toolName' = \
+         'tell' AND record ->> '$.model[0].content[0].text' LIKE \
+         '%was cut off%'",
+    ),
+};
+
 const TELLS_KEPT: Probe = Probe {
     name: "realm.tells",
     file: "actors/realm/local.sqlite",
@@ -80,6 +93,10 @@ const TOLD_ONCE: &[Expect] = &[
         value: "agent.tell_results",
         is: Is::Exactly(1),
     },
+    Expect {
+        value: "agent.tells_cut_off",
+        is: Is::Exactly(0),
+    },
 ];
 
 /// The write's two requests, the edit's request and the one after
@@ -135,7 +152,7 @@ pub const SCENARIOS: &[Scenario] = &[
             &["pi charges 1 2 30000", "pi recorded", "pi pid"],
             &["pi charges 1 2 3000", "pi recorded", "pi pid"],
         ],
-        probes: &[TELL_RESULTS, TELLS_KEPT],
+        probes: &[TELL_RESULTS, TELLS_CUT_OFF, TELLS_KEPT],
         expect: [TOLD_ONCE, TOLD_ONCE],
     },
     Scenario {
@@ -168,15 +185,16 @@ pub const SCENARIOS: &[Scenario] = &[
     },
     Scenario {
         name: "agent-timer",
-        about: "kill the demo host once the agent set a timer 5 s \
-                ahead, and start it again after the timer was due \
-                with both hosts down; the timer's input arrives \
-                once at the first start, and not again at the second",
+        about: "kill the demo host about a second after the agent \
+                set a timer 20 s ahead, and start it again after the \
+                timer was due with both hosts down; the timer's \
+                input arrives once at the first start, and not again \
+                at the second",
         demo: Demo::Linked { pid: NODE_PID },
         setup: &[
             "pi make 1",
             "pi pid",
-            "pi say 1 wake 5: stretch",
+            "pi say 1 wake 20: stretch",
             "pi charges 1 2 20000",
         ],
         trigger: "pi pid",
@@ -185,7 +203,7 @@ pub const SCENARIOS: &[Scenario] = &[
             min_ms: 0,
             max_ms: 200,
         },
-        down_ms: 6000,
+        down_ms: 22000,
         restart: [
             &["pi charges 1 3 30000", "pi recorded", "pi pid"],
             &["pi charges 1 3 3000", "pi recorded", "pi pid"],

@@ -48,6 +48,17 @@ function fail(words: string): never {
     process.exit(1);
 }
 
+/** An error's message, with the cause an uncoded failure carries in its metadata. */
+function reason(error: unknown): string {
+    if (!(error instanceof Error)) return String(error);
+    const metadata: unknown = "metadata" in error ? error.metadata : undefined;
+    const cause =
+        typeof metadata === "object" && metadata !== null && "error" in metadata
+            ? `: ${String(metadata.error)}`
+            : "";
+    return `${error.message}${cause}`;
+}
+
 try {
     takeLink();
 } catch {
@@ -189,6 +200,6 @@ const agent = agentActor({
 try {
     await serveLink({ agent });
 } catch (error) {
-    fail(error instanceof Error ? error.message : String(error));
+    fail(reason(error));
 }
 process.exit(0);
