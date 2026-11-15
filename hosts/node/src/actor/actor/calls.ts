@@ -15,7 +15,7 @@ export interface Address<A = unknown> {
 }
 
 /**
- * Internal: `hamlet_host::address::plain`. Every character it accepts is one
+ * Internal: `hamlet_address::plain`. Every character it accepts is one
  * byte, so its length in characters is its length in bytes.
  */
 export const PLAIN_NAME = /^(?!\.)[a-z0-9._-]{1,128}$/;
