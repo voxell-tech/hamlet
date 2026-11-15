@@ -92,7 +92,8 @@ async fn failed_once_at(callee: Callee) -> Realm {
 async fn a_hire_goes_live_through_its_steps() {
     // found; wait live(2); the stand-ins saw the profile made, one
     // Branch `hires/2`, `agent/2` made with its place and standing
-    // task, a Fill of `hires/2`, and a SetReach for agent 2.
+    // task, a Fill of `hires/2`, and a SetReach for agent 2; its row
+    // is closed.
     let realm = Realm::start().await;
     // The Hand going live moves the mayor's place.
     realm.live(Hand::NUMBER).await;
@@ -107,14 +108,21 @@ async fn a_hire_goes_live_through_its_steps() {
     realm.reach_held(MAYOR).await;
     let seen = hire_seen(&realm);
     realm.live(MAYOR).await;
-    let standing = realm
+    let (standing, closed) = realm
         .rows(|db| {
-            db.query_row(
+            let standing = db.query_row(
                 "SELECT id FROM task WHERE agent = 2 AND origin = \
                  'standing'",
                 [],
                 |row| row.get::<_, i64>(0),
-            )
+            )?;
+            let closed = db.query_row(
+                "SELECT closed FROM step WHERE kind = 'hire' AND n \
+                 = 2",
+                [],
+                |row| row.get::<_, bool>(0),
+            )?;
+            Ok((standing, closed))
         })
         .await;
 
@@ -158,6 +166,7 @@ async fn a_hire_goes_live_through_its_steps() {
             }],
         }
     );
+    assert!(closed, "a live hire's row is closed");
     realm.host.shutdown().await.unwrap();
 }
 

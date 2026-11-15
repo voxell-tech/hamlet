@@ -51,8 +51,8 @@ async fn founding_makes_the_mayor_agent_2() {
                 .optional()?;
             let row = db
                 .query_row(
-                    "SELECT closed FROM step WHERE kind = 'hire' \
-                     AND n = 2",
+                    "SELECT n FROM step WHERE kind = 'hire' AND n = \
+                     2",
                     [],
                     |row| row.get::<_, i64>(0),
                 )
@@ -68,7 +68,7 @@ async fn founding_makes_the_mayor_agent_2() {
             "chief".to_owned()
         ))
     );
-    assert_eq!(row, Some(0), "the mayor's row is begun and open");
+    assert_eq!(row, Some(2), "the mayor's row is begun");
     realm.host.shutdown().await.unwrap();
 }
 
