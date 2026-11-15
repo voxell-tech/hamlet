@@ -19,6 +19,7 @@ use super::frame::encode;
 use super::{
     Ask, Broken, Frame, Role, Side, Vetted, WireError, Writer,
 };
+use crate::local::feed::Sink;
 use crate::local::{Inbound, Origin, Stamp};
 use crate::{Address, Caller, HostEvent};
 
@@ -263,17 +264,37 @@ impl Port {
                 return Err(Broken::OutOfTurn(frame.name()));
             }
         };
+        let theirs = self.0.theirs.role;
         match frame {
+            // Before the general arm, so nothing is vetted or run.
+            frame @ Frame::Request {
+                ask: Ask::Subscribe { .. },
+                ..
+            } if !theirs.has_a_program() => {
+                return Err(Broken::OutOfTurn(frame.name()));
+            }
             Frame::Request { id, from, to, ask } => {
                 session.run(id, self.0.theirs.vet(from)?, to, ask);
             }
             Frame::Reply { id, result } => session.settle(id, result),
-            Frame::HostEvent(event)
-                if self.0.theirs.role == Role::Node =>
-            {
+            Frame::HostEvent(event) if theirs == Role::Node => {
                 session.report(event);
             }
-            Frame::Goodbye if self.0.theirs.role == Role::Rust => {
+            Frame::Event { sub, args } if theirs == Role::Node => {
+                session.deliver(sub, args);
+            }
+            Frame::Gap { sub } if theirs == Role::Node => {
+                session.gap(sub);
+            }
+            Frame::SubscriptionEnded { sub, error }
+                if theirs == Role::Node =>
+            {
+                session.end(sub, error);
+            }
+            Frame::Unsubscribe { sub } if theirs == Role::Rust => {
+                session.unsubscribe(sub);
+            }
+            Frame::Goodbye if theirs == Role::Rust => {
                 return Ok(Taken::Goodbye);
             }
             frame => return Err(Broken::OutOfTurn(frame.name())),
@@ -289,12 +310,35 @@ struct Session {
     pending: Mutex<Pending>,
 }
 
-/// The requests this side has out, by id.
+/// The requests this side has out, the subscriptions it follows and
+/// those it serves, by id.
 struct Pending {
     next: u64,
     waiting:
         HashMap<u64, oneshot::Sender<Result<Vec<u8>, WireError>>>,
+    /// By this side's request id: where the other host's frames for
+    /// that subscription go.
+    following: HashMap<u64, Sink>,
+    /// By the other side's request id: dropped, the sender ends the
+    /// task that serves that subscription.
+    serving: HashMap<u64, oneshot::Sender<()>>,
     lost: bool,
+}
+
+/// The reply to one request out, once it comes.
+type Answered = oneshot::Receiver<Result<Vec<u8>, WireError>>;
+
+impl Pending {
+    /// The waiter for the reply to the request `id`, registered at
+    /// once. Fails with `link.down` on a lost session.
+    fn expect(&mut self, id: u64) -> Result<Answered> {
+        if self.lost {
+            return Err(Down.build());
+        }
+        let (answer, answered) = oneshot::channel();
+        self.waiting.insert(id, answer);
+        Ok(answered)
+    }
 }
 
 impl Session {
@@ -305,20 +349,20 @@ impl Session {
             pending: Mutex::new(Pending {
                 next: 0,
                 waiting: HashMap::new(),
+                following: HashMap::new(),
+                serving: HashMap::new(),
                 lost: false,
             }),
         })
     }
 
-    /// Asks the other host, and waits for its reply, within `within`
-    /// when there is one.
-    async fn ask(
+    /// A new request's id, and its frame's bytes.
+    fn request(
         &self,
         caller: Option<&Caller>,
         to: &Address,
         ask: Ask,
-        within: Option<Duration>,
-    ) -> Result<Vec<u8>> {
+    ) -> std::io::Result<(u64, Vec<u8>)> {
         let id = {
             let mut pending = self.pending.lock();
             let id = pending.next;
@@ -331,25 +375,28 @@ impl Session {
             to: to.clone(),
             ask,
         })?;
-        let (answer, answered) = oneshot::channel();
-        {
-            let mut pending = self.pending.lock();
-            if pending.lost {
-                return Err(Down.build());
-            }
-            pending.waiting.insert(id, answer);
-        }
+        Ok((id, bytes))
+    }
+
+    /// Asks the other host, and waits for its reply, within `within`
+    /// when there is one.
+    async fn ask(
+        &self,
+        caller: Option<&Caller>,
+        to: &Address,
+        ask: Ask,
+        within: Option<Duration>,
+    ) -> Result<Vec<u8>> {
+        let (id, bytes) = self.request(caller, to, ask)?;
+        let answered = self.pending.lock().expect(id)?;
         let _forget = Forget {
             pending: &self.pending,
             id,
         };
         let asked = async {
-            self.out.queue(bytes).await.map_err(|_| Down.build())?;
-            match answered.await {
-                Ok(Ok(output)) => Ok(output),
-                Ok(Err(error)) => Err(error.into_error()),
-                Err(_) => Err(Lost.build()),
-            }
+            self.exchange(bytes, answered)
+                .await?
+                .map_err(WireError::into_error)
         };
         match within {
             Some(within) => tokio::time::timeout(within, asked)
@@ -357,6 +404,18 @@ impl Session {
                 .map_err(|_| ActionTimedOut.build())?,
             None => asked.await,
         }
+    }
+
+    /// Queues a request and waits for its reply. Fails with
+    /// `link.down` when nothing was queued, and with `link.lost` when
+    /// the session is lost with the request out.
+    async fn exchange(
+        &self,
+        bytes: Vec<u8>,
+        answered: Answered,
+    ) -> Result<Result<Vec<u8>, WireError>> {
+        self.out.queue(bytes).await.map_err(|_| Down.build())?;
+        answered.await.map_err(|_| Lost.build())
     }
 
     /// Runs the other host's request on this host's runtime, and
@@ -368,29 +427,42 @@ impl Session {
         to: Address,
         ask: Ask,
     ) {
+        match ask {
+            Ask::Call {
+                name,
+                args,
+                deadline_ms,
+            } => {
+                let host = self.host.clone();
+                let deadline = Duration::from_millis(deadline_ms);
+                self.answer(id, async move {
+                    host.call(from, &to, &name, args, deadline).await
+                });
+            }
+            Ask::Create { input } => {
+                let host = self.host.clone();
+                self.answer(id, async move {
+                    host.create(from, &to, input)
+                        .await
+                        .map(|()| Vec::new())
+                });
+            }
+            // On the link's thread: an `Unsubscribe` taken next finds
+            // it.
+            Ask::Subscribe { event } => {
+                self.serve(id, from, to, event);
+            }
+        }
+    }
+
+    fn answer(
+        self: &Arc<Self>,
+        id: u64,
+        work: impl Future<Output = Result<Vec<u8>>> + Send + 'static,
+    ) {
         let session = self.clone();
         self.host.runtime().spawn(async move {
-            let result = match ask {
-                Ask::Call {
-                    name,
-                    args,
-                    deadline_ms,
-                } => {
-                    let deadline = Duration::from_millis(deadline_ms);
-                    session
-                        .host
-                        .call(from, &to, &name, args, deadline)
-                        .await
-                }
-                Ask::Create { input } => session
-                    .host
-                    .create(from, &to, input)
-                    .await
-                    .map(|()| Vec::new()),
-                Ask::Subscribe { .. } => {
-                    todo!("U8b: serve a subscribe")
-                }
-            };
+            let result = work.await;
             session.reply(id, result).await;
         });
     }
@@ -423,11 +495,14 @@ impl Session {
     }
 
     /// Fails each request out with `link.lost`, and every later one
-    /// with `link.down`.
+    /// with `link.down`, and forgets the subscriptions it follows and
+    /// serves.
     fn lose(&self) {
         let mut pending = self.pending.lock();
         pending.lost = true;
         pending.waiting.clear();
+        pending.following.clear();
+        pending.serving.clear();
     }
 }
 

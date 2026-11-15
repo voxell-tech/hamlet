@@ -70,14 +70,6 @@ use crate::route::Routes;
 mod access;
 mod call;
 mod create;
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the scaffold: U8a's local subscription and U8b's \
-                  session use it"
-    )
-)]
 pub(crate) mod feed;
 mod subscribe;
 

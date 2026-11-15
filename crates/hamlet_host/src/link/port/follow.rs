@@ -1,15 +1,21 @@
 //! One session's half of a subscription.
 
+use std::io::ErrorKind;
 use std::sync::Arc;
 use std::time::Duration;
 
-use super::Session;
-use crate::local::feed::{Closed, Feed};
+use hamlet_actor_core::ActorLifecycle;
+use tokio::sync::oneshot;
+
+use super::{Forget, Session};
+use crate::link::{Ask, Frame, Vetted, WireError};
+use crate::local::feed::{Closed, Feed, feed};
 use crate::{Address, Caller, Item};
 
 /// One session's subscription, as the asking host holds it.
 pub(crate) struct Routed {
     feed: Feed,
+    _route: Route,
 }
 
 impl Routed {
@@ -20,7 +26,7 @@ impl Routed {
     }
 }
 
-/// Why a subscribe across the link gave no subscription.
+/// The reason a subscribe across the link gave no subscription.
 pub(crate) enum Unanswered {
     /// `link.down` or `link.lost`: nothing of the subscribe is left
     /// in the other host, and the next session may be asked.
@@ -37,14 +43,214 @@ impl Unanswered {
     }
 }
 
+/// The asking host's claim on one subscription of one session, from
+/// before its request is queued. Dropped, it writes `Unsubscribe` if
+/// the session still routes the subscription.
+struct Route {
+    session: Arc<Session>,
+    sub: u64,
+}
+
+impl Drop for Route {
+    fn drop(&mut self) {
+        let routed =
+            self.session.pending.lock().following.remove(&self.sub);
+        if routed.is_none() {
+            return;
+        }
+        let out = self.session.out.clone();
+        let unsubscribe = Frame::Unsubscribe { sub: self.sub };
+        // A drop cannot wait for the writer's queue, and may run
+        // where no runtime is.
+        self.session.host.runtime().spawn(async move {
+            let _ = out.write(&unsubscribe).await;
+        });
+    }
+}
+
 impl Session {
+    /// The asking side.
     pub(super) async fn subscribe(
         self: &Arc<Self>,
-        _caller: Option<&Caller>,
-        _to: &Address,
-        _event: &str,
-        _within: Duration,
+        caller: Option<&Caller>,
+        to: &Address,
+        event: &str,
+        within: Duration,
     ) -> Result<Routed, Unanswered> {
-        todo!("U8b: Session::subscribe")
+        let subscribe = Ask::Subscribe {
+            event: event.to_owned(),
+        };
+        let (id, bytes) = self
+            .request(caller, to, subscribe)
+            .map_err(|error| Unanswered::Refused(error.into()))?;
+        let (sink, feed) = feed();
+        let answered = {
+            let mut pending = self.pending.lock();
+            let answered =
+                pending.expect(id).map_err(Unanswered::Link)?;
+            // An `Event` may follow the `Reply` before this task runs
+            // again.
+            pending.following.insert(id, sink);
+            answered
+        };
+        let route = Route {
+            session: self.clone(),
+            sub: id,
+        };
+        let _forget = Forget {
+            pending: &self.pending,
+            id,
+        };
+        let answer = tokio::time::timeout(
+            within,
+            self.exchange(bytes, answered),
+        )
+        .await;
+        let unanswered = match answer {
+            Ok(Ok(Ok(_))) => {
+                return Ok(Routed {
+                    feed,
+                    _route: route,
+                });
+            }
+            // `route` drops: its `Unsubscribe` ends an answer that is
+            // still on its way.
+            Err(_) => {
+                return Err(Unanswered::Refused(
+                    ActorLifecycle::NotReady.build().context(
+                        format!(
+                            "the subscribe to {to} was not answered \
+                             within {within:?}"
+                        ),
+                    ),
+                ));
+            }
+            Ok(Ok(Err(refused))) => {
+                Unanswered::Refused(refused.into_error())
+            }
+            Ok(Err(link)) => Unanswered::Link(link),
+        };
+        // The other host holds nothing of it.
+        self.pending.lock().following.remove(&id);
+        Err(unanswered)
+    }
+
+    /// `Frame::Event`. Never waits. An event for a subscription this
+    /// session does not route is dropped.
+    pub(super) fn deliver(&self, sub: u64, args: Vec<u8>) {
+        if let Some(sink) = self.pending.lock().following.get(&sub) {
+            sink.push(args);
+        }
+    }
+
+    /// `Frame::Gap`. Never waits.
+    pub(super) fn gap(&self, sub: u64) {
+        if let Some(sink) = self.pending.lock().following.get(&sub) {
+            sink.gap();
+        }
+    }
+
+    /// `Frame::SubscriptionEnded`. Never waits.
+    pub(super) fn end(&self, sub: u64, error: WireError) {
+        let sink = self.pending.lock().following.remove(&sub);
+        if let Some(sink) = sink {
+            sink.close(&error.into_error());
+        }
+    }
+
+    /// The answering side: serves the other host's subscribe `sub`
+    /// until it ends or the other host unsubscribes.
+    pub(super) fn serve(
+        self: &Arc<Self>,
+        sub: u64,
+        from: Vetted,
+        to: Address,
+        event: String,
+    ) {
+        let (cancel, cancelled) = oneshot::channel::<()>();
+        self.pending.lock().serving.insert(sub, cancel);
+        let session = self.clone();
+        self.host.runtime().spawn(async move {
+            tokio::select! {
+                // A subscribe unsubscribed before this task ran starts
+                // nothing.
+                biased;
+                // The pump drops where it waits: a subscribe that is
+                // opening closes once it has opened.
+                _ = cancelled => {}
+                () = session.pump(sub, from, &to, &event) => {
+                    session.pending.lock().serving.remove(&sub);
+                }
+            }
+        });
+    }
+
+    /// Subscribes in this host, answers, then writes what the
+    /// subscription gives until it ends.
+    async fn pump(
+        &self,
+        sub: u64,
+        from: Vetted,
+        to: &Address,
+        event: &str,
+    ) {
+        let mut followed =
+            match self.host.subscribe(from, to, event).await {
+                Ok(followed) => followed,
+                Err(error) => {
+                    return self.reply(sub, Err(error)).await;
+                }
+            };
+        // Only this task writes frames of `sub`, so none comes before
+        // the reply.
+        self.reply(sub, Ok(Vec::new())).await;
+        let mut told = false;
+        loop {
+            let frame = match followed.next().await {
+                Ok(Item::Event(args)) => Frame::Event { sub, args },
+                Ok(Item::Gap) => Frame::Gap { sub },
+                Err(end) => {
+                    let error = WireError::of(&end);
+                    let ended =
+                        Frame::SubscriptionEnded { sub, error };
+                    let _ = self.out.write(&ended).await;
+                    return;
+                }
+            };
+            // While this waits for the writer's queue, the actor's
+            // events queue in `followed`, up to its budget.
+            match self.out.write(&frame).await {
+                Ok(()) => {}
+                // Nothing of it was queued, and the link is whole.
+                Err(error)
+                    if error.kind() == ErrorKind::InvalidInput =>
+                {
+                    if !std::mem::replace(&mut told, true) {
+                        tracing::warn!(
+                            actor_id = %to,
+                            event,
+                            %error,
+                            "an event over the frame limit crosses the \
+                             link as a gap"
+                        );
+                    }
+                    if self
+                        .out
+                        .write(&Frame::Gap { sub })
+                        .await
+                        .is_err()
+                    {
+                        return;
+                    }
+                }
+                Err(_) => return,
+            }
+        }
+    }
+
+    /// `Frame::Unsubscribe`. Never waits. An unknown `sub` is
+    /// dropped: the subscription ended by itself, or was refused.
+    pub(super) fn unsubscribe(&self, sub: u64) {
+        drop(self.pending.lock().serving.remove(&sub));
     }
 }
