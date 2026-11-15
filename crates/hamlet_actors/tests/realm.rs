@@ -22,7 +22,7 @@ use hamlet_messages::realm::client::{Answer, Say};
 use hamlet_messages::realm::world::{ReachSeen, Status};
 use hamlet_messages::realm::{
     Asked, Found, FoundAnswer, HamletId, Hire, HireAnswer,
-    HireRefusal, Named, NeedsChief, ProfileId, Tier, Tool,
+    HireRefusal, Named, NeedsChief, ProfileId, Tell, Tier, Tool,
 };
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::reach::Reach;
@@ -69,6 +69,8 @@ const DEADLINE: Duration = Duration::from_secs(20);
 const MAYOR: AgentNumber = AgentNumber(2);
 
 const THREE: AgentNumber = AgentNumber(3);
+
+const FOUR: AgentNumber = AgentNumber(4);
 
 /// A call of the realm's that a test can hold or fail.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -678,6 +680,31 @@ fn submits_to(realm: &Realm, agent: AgentNumber) -> Vec<Submit> {
         .filter(|(to, _)| *to == agent)
         .map(|(_, submit)| submit.clone())
         .collect()
+}
+
+/// Waits until `agent` saw `count` inputs, and gives them all.
+async fn seen_submits(
+    realm: &Realm,
+    agent: AgentNumber,
+    count: usize,
+) -> Vec<Submit> {
+    until(&format!("agent {} saw {count} inputs", agent.0), || {
+        submits_to(realm, agent).len() >= count
+    })
+    .await;
+    submits_to(realm, agent)
+}
+
+fn to(agent: AgentNumber) -> Named {
+    Named::Agent { agent }
+}
+
+fn tell(to: Named, text: &str) -> Tell {
+    Tell {
+        to,
+        text: text.to_owned(),
+        task: None,
+    }
 }
 
 fn needs(agent: AgentNumber, call: &str) -> NeedsChief {

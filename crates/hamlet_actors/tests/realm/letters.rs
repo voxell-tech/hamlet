@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use hamlet_actors::realm;
-use hamlet_messages::agent::{Author, Input, Submit};
+use hamlet_messages::agent::{Author, Input};
 use hamlet_messages::realm::AgentRefusal::{Act, Standing as Stood};
 use hamlet_messages::realm::client::SayAnswer;
 use hamlet_messages::realm::{
@@ -13,37 +13,13 @@ use hamlet_messages::workspace::{AgentNumber, ConversationId};
 use hamlet_protocol::client::RequestId;
 
 use super::{
-    Callee, MAYOR, Realm, Seen, THREE, error_code, found, founded,
-    hamlet_with, hires, purpose_of, say, standing, submits_to, tool,
-    until,
+    Callee, FOUR, MAYOR, Realm, Seen, THREE, error_code, found,
+    founded, hamlet_with, hires, purpose_of, say, seen_submits,
+    standing, tell, to, tool,
 };
-
-fn to(agent: AgentNumber) -> Named {
-    Named::Agent { agent }
-}
-
-fn tell(to: Named, text: &str) -> Tell {
-    Tell {
-        to,
-        text: text.to_owned(),
-        task: None,
-    }
-}
 
 fn from(agent: AgentNumber) -> Author {
     Author { agent, name: None }
-}
-
-async fn seen_submits(
-    realm: &Realm,
-    agent: AgentNumber,
-    count: usize,
-) -> Vec<Submit> {
-    until(&format!("agent {} saw {count} inputs", agent.0), || {
-        submits_to(realm, agent).len() >= count
-    })
-    .await;
-    submits_to(realm, agent)
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -121,17 +97,16 @@ async fn a_repeated_tell_keeps_one_letter() {
 async fn a_tell_with_no_road_is_refused() {
     // two hires of one lead tell each other: `NoRoad`.
     let (realm, _) = hamlet_with(2).await;
-    let four = AgentNumber(4);
 
     let three_to_four =
-        realm.tool(THREE, &tool("t1", tell(to(four), "hi"))).await;
+        realm.tool(THREE, &tool("t1", tell(to(FOUR), "hi"))).await;
     let four_to_three =
-        realm.tool(four, &tool("t1", tell(to(THREE), "hi"))).await;
+        realm.tool(FOUR, &tool("t1", tell(to(THREE), "hi"))).await;
 
     let no_road = |to| Done::Refused {
         why: Act(LetterRefusal::NoRoad { to }),
     };
-    assert_eq!(three_to_four.unwrap(), no_road(four));
+    assert_eq!(three_to_four.unwrap(), no_road(FOUR));
     assert_eq!(four_to_three.unwrap(), no_road(THREE));
     realm.host.shutdown().await.unwrap();
 }
@@ -142,18 +117,17 @@ async fn a_tell_with_no_road_to_a_hire_still_hiring_is_refused_at_once()
     // the mayor hires 4 with its fill held: 3, the mayor's other
     // hire, has no road to it, and hears `NoRoad` with no wait.
     let (realm, _) = hamlet_with(1).await;
-    let four = AgentNumber(4);
     realm.seen.hold(Callee::Fill);
     hires(&realm, MAYOR, "h1").await;
 
     let told =
-        realm.tool(THREE, &tool("t1", tell(to(four), "hi"))).await;
+        realm.tool(THREE, &tool("t1", tell(to(FOUR), "hi"))).await;
     realm.seen.release(Callee::Fill);
 
     assert_eq!(
         told.unwrap(),
         Done::Refused {
-            why: Act(LetterRefusal::NoRoad { to: four })
+            why: Act(LetterRefusal::NoRoad { to: FOUR })
         }
     );
     realm.host.shutdown().await.unwrap();
@@ -222,24 +196,23 @@ async fn a_tell_is_refused_for_its_ends() {
     // to the Hand or the mayor are refused; after 3 ends 4, a tell to
     // 4 says how it left, and 4 may not tell.
     let (realm, _) = hamlet_with(1).await;
-    let four = AgentNumber(4);
     hires(&realm, THREE, "h3").await;
-    realm.live(four).await;
+    realm.live(FOUR).await;
     let told = async |by, call, act| {
         realm.tool(by, &tool(call, act)).await.unwrap()
     };
 
     let to_self = told(THREE, "t1", tell(to(THREE), "hi")).await;
-    let empty = told(THREE, "t2", tell(to(four), " \n")).await;
-    let to_hand = told(four, "t1", tell(Named::Hand, "hi")).await;
-    let to_mayor = told(four, "t2", tell(Named::Mayor, "hi")).await;
+    let empty = told(THREE, "t2", tell(to(FOUR), " \n")).await;
+    let to_hand = told(FOUR, "t1", tell(Named::Hand, "hi")).await;
+    let to_mayor = told(FOUR, "t2", tell(Named::Mayor, "hi")).await;
     let end = End {
-        hire: to(four),
+        hire: to(FOUR),
         why: Some("done".to_owned()),
     };
     let ended = realm.tool(THREE, &tool("e1", end)).await.unwrap();
-    let to_ended = told(THREE, "t3", tell(to(four), "hi")).await;
-    let from_ended = told(four, "t3", tell(to(THREE), "hi")).await;
+    let to_ended = told(THREE, "t3", tell(to(FOUR), "hi")).await;
+    let from_ended = told(FOUR, "t3", tell(to(THREE), "hi")).await;
 
     let refused = |why| Done::Refused { why: Act(why) };
     assert_eq!(to_self, refused(LetterRefusal::Yourself));
@@ -259,7 +232,7 @@ async fn a_tell_is_refused_for_its_ends() {
     assert_eq!(
         to_ended,
         refused(LetterRefusal::Left {
-            to: four,
+            to: FOUR,
             left: left.clone()
         })
     );

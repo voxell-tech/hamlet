@@ -166,21 +166,10 @@ impl Cx<'_> {
         &self,
         changes: Vec<change::Change>,
     ) -> Result<()> {
-        let mut failed = 0;
-        for made in
-            change::commit(self.realm, self.ctx, changes).await?
-        {
-            let shown = format!("{made:?}");
-            if let Err(error) =
-                calls::push(self.realm, self.ctx, made).await
-            {
-                tracing::warn!(
-                    push = shown,
-                    "a push failed: {error:#}"
-                );
-                failed += 1;
-            }
-        }
+        let pushes =
+            change::commit(self.realm, self.ctx, changes).await?;
+        let failed =
+            calls::push_all(self.realm, self.ctx, pushes).await;
         if failed > 0 {
             bail!("{failed} of the commit's pushes failed");
         }

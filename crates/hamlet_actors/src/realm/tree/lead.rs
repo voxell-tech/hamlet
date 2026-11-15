@@ -13,7 +13,7 @@ use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::AgentNumber;
 
 use super::super::act::{Act, Decided, Decision};
-use super::super::callers::{Decider, Lead, RealmWide};
+use super::super::callers::{Lead, RealmWide};
 use super::super::calls::Made;
 use super::super::change::{Affected, Rows, Writer, number};
 use super::super::world::Part;
@@ -51,8 +51,8 @@ impl<By: Lead> Act<By> for Hire {
     type Done = AgentNumber;
 
     async fn load(&self, by: &By, rows: &Rows<'_>) -> Result<Hiring> {
-        let caller = caller(by);
-        let own = own_hamlet(rows, caller).await?;
+        let caller = super::caller(by);
+        let own = super::own_hamlet(rows, caller).await?;
         let hamlet = match (&own, &self.hamlet) {
             (Some(own), _) => Joining::Hamlet(own.clone()),
             (None, Some(named)) => chiefs::hamlet(rows, named)
@@ -68,7 +68,7 @@ impl<By: Lead> Act<By> for Hire {
             }
             (named, ..) => {
                 let named = named.as_ref().unwrap_or(&Named::Mayor);
-                named_lineage(rows, hamlet.id(), named).await?
+                super::named_in(rows, hamlet.id(), named).await?
             }
         };
         let living = match under
@@ -121,7 +121,7 @@ impl<By: Lead> Act<By> for Hire {
             return Decision::Answer(HireAnswer::refused(not_a_lead));
         }
         let purpose = super::given_purpose(self.purpose.as_deref());
-        if purpose.is_none() && caller(by).is_some() {
+        if purpose.is_none() && super::caller(by).is_some() {
             return refuse(HireRefusal::NoPurpose);
         }
         if named.as_ref().is_some_and(|named| *named != hamlet.id) {
@@ -181,23 +181,6 @@ impl<By: Lead> Act<By> for Hire {
     }
 }
 
-fn caller(by: &impl Decider) -> Option<AgentNumber> {
-    match by.by() {
-        record::By::Agent(agent) => Some(agent),
-        record::By::Chief => None,
-    }
-}
-
-async fn own_hamlet(
-    rows: &Rows<'_>,
-    caller: Option<AgentNumber>,
-) -> Result<Option<HamletId>> {
-    match caller {
-        Some(caller) => super::hamlet_of(rows, caller).await,
-        None => Ok(None),
-    }
-}
-
 impl<By: Lead> Act<By> for End {
     type Output = Done<By::Why<EndRefusal>>;
     type Loaded = Option<Lineage>;
@@ -208,8 +191,7 @@ impl<By: Lead> Act<By> for End {
         by: &By,
         rows: &Rows<'_>,
     ) -> Result<Option<Lineage>> {
-        let own = own_hamlet(rows, caller(by)).await?;
-        named_lineage(rows, own.as_ref(), &self.hire).await
+        super::named(rows, by, &self.hire).await
     }
 
     fn decide(
@@ -262,17 +244,6 @@ impl<By: Lead> Act<By> for End {
     }
 }
 
-async fn named_lineage(
-    rows: &Rows<'_>,
-    hamlet: Option<&HamletId>,
-    named: &Named,
-) -> Result<Option<Lineage>> {
-    match super::resolve(rows, hamlet, named).await? {
-        Some(agent) => super::lineage(rows, agent).await,
-        None => Ok(None),
-    }
-}
-
 impl<By: RealmWide> Act<By> for Seat {
     type Output = Done<SeatRefusal>;
     type Loaded = Option<Lineage>;
@@ -283,7 +254,7 @@ impl<By: RealmWide> Act<By> for Seat {
         _by: &By,
         rows: &Rows<'_>,
     ) -> Result<Option<Lineage>> {
-        named_lineage(rows, None, &self.hire).await
+        super::named_in(rows, None, &self.hire).await
     }
 
     fn decide(

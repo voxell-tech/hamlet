@@ -5,35 +5,16 @@ use anyhow::Result;
 use hamlet_actor::BindParam;
 use hamlet_messages::agent::AgentKind;
 use hamlet_messages::realm::{
-    Done, Named, Refusable, SetTools, SocietyTool, ToolsRefusal,
+    Done, Refusable, SetTools, SocietyTool, ToolsRefusal,
 };
 use hamlet_messages::workspace::AgentNumber;
 
 use super::super::act::{Act, Decided, Decision};
-use super::super::callers::{Decider, Lead};
+use super::super::callers::Lead;
 use super::super::calls::Made;
 use super::super::change::{self, Affected, Rows, Writer, number};
 use super::super::record;
 use super::{Lineage, Status};
-
-/// The agent `named` names as `by` names it: `mayor` is the mayor of
-/// `by`'s own hamlet.
-pub(in crate::realm) async fn named(
-    rows: &Rows<'_>,
-    by: &impl Decider,
-    named: &Named,
-) -> Result<Option<Lineage>> {
-    let own = match by.by() {
-        record::By::Agent(agent) => {
-            super::hamlet_of(rows, agent).await?
-        }
-        record::By::Chief => None,
-    };
-    match super::resolve(rows, own.as_ref(), named).await? {
-        Some(agent) => super::lineage(rows, agent).await,
-        None => Ok(None),
-    }
-}
 
 pub(in crate::realm) async fn is_off(
     rows: &Rows<'_>,
@@ -75,7 +56,7 @@ impl<By: Lead> Act<By> for SetTools {
         by: &By,
         rows: &Rows<'_>,
     ) -> Result<Option<Lineage>> {
-        named(rows, by, &self.hire).await
+        super::named(rows, by, &self.hire).await
     }
 
     fn decide(

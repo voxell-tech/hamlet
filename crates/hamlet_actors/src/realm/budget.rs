@@ -15,7 +15,7 @@ use hamlet_messages::workspace::{AgentNumber, CallId, RealmTask};
 
 use super::act::{Act, Decided, Decision};
 use super::calls::Made;
-use super::change::{Affected, Rows, Writer, number};
+use super::change::{self, Affected, Rows, Writer, number};
 use super::chiefs::{self, limits};
 use super::tasks::{self, TaskId};
 use super::world::Part;
@@ -93,7 +93,7 @@ async fn charge(
                 number(agent),
                 BindParam::Text(call),
                 BindParam::Text(serde_json::to_string(payer)?),
-                BindParam::Integer(i64::try_from(micros)?),
+                change::integer(micros)?,
                 BindParam::Integer(i64::from(took_ms)),
                 BindParam::Integer(writer.at().0),
             ],

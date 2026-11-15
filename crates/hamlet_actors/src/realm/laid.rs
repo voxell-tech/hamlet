@@ -202,8 +202,8 @@ impl Laying {
         b: &Named,
     ) -> Result<Self> {
         let (Some(a), Some(b)) = (
-            tree::tools::named(rows, by, a).await?,
-            tree::tools::named(rows, by, b).await?,
+            tree::named(rows, by, a).await?,
+            tree::named(rows, by, b).await?,
         ) else {
             return Ok(Self {
                 ends: None,

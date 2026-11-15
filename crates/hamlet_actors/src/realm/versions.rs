@@ -6,11 +6,10 @@
 use std::collections::BTreeSet;
 
 use anyhow::Result;
-use hamlet_actor::BindParam;
 use hamlet_messages::realm::world::Revision;
 use hamlet_messages::workspace::{AgentNumber, ReachVersion};
 
-use super::change::{Affected, Rows, Writer, number};
+use super::change::{self, Affected, Rows, Writer, number};
 use super::world::Part;
 
 /// The changes to the versions that no other change implies.
@@ -53,10 +52,7 @@ async fn applied(
         .execute(
             "UPDATE reach SET applied = ?2 WHERE agent = ?1 AND \
              (applied IS NULL OR applied < ?2)",
-            vec![
-                number(agent),
-                BindParam::Integer(i64::try_from(version.0)?),
-            ],
+            vec![number(agent), change::integer(version.0)?],
         )
         .await?;
     Ok(Affected::seen([Part::Reaches]))
@@ -75,10 +71,7 @@ pub(super) async fn raise(
                 "INSERT INTO reach (agent, wanted) VALUES (?1, ?2) \
                  ON CONFLICT (agent) DO UPDATE SET wanted = \
                  excluded.wanted",
-                vec![
-                    number(agent),
-                    BindParam::Integer(i64::try_from(wanted.0 + 1)?),
-                ],
+                vec![number(agent), change::integer(wanted.0 + 1)?],
             )
             .await?;
     }
@@ -89,10 +82,7 @@ pub(super) async fn raise(
                 "INSERT INTO place (agent, version) VALUES (?1, ?2) \
                  ON CONFLICT (agent) DO UPDATE SET version = \
                  excluded.version",
-                vec![
-                    number(agent),
-                    BindParam::Integer(i64::try_from(version + 1)?),
-                ],
+                vec![number(agent), change::integer(version + 1)?],
             )
             .await?;
     }
@@ -107,7 +97,7 @@ pub(super) async fn advance_revision(
         .execute(
             "INSERT INTO revision (id, n) VALUES (1, ?1) ON \
              CONFLICT (id) DO UPDATE SET n = excluded.n",
-            vec![BindParam::Integer(i64::try_from(next.0)?)],
+            vec![change::integer(next.0)?],
         )
         .await?;
     Ok(next)

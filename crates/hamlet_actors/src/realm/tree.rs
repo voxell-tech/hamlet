@@ -15,6 +15,7 @@ use hamlet_messages::realm::{
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::AgentNumber;
 
+use super::callers::Decider;
 use super::change::{self, Affected, Rows, Writer, number};
 use super::world::Part;
 use super::{chiefs, record};
@@ -179,6 +180,46 @@ async fn hamlet_of(
         )
         .await?
         .map(HamletId))
+}
+
+/// The agent `by` is, or none for the chief.
+fn caller(by: &impl Decider) -> Option<AgentNumber> {
+    match by.by() {
+        record::By::Agent(agent) => Some(agent),
+        record::By::Chief => None,
+    }
+}
+
+async fn own_hamlet(
+    rows: &Rows<'_>,
+    caller: Option<AgentNumber>,
+) -> Result<Option<HamletId>> {
+    match caller {
+        Some(caller) => hamlet_of(rows, caller).await,
+        None => Ok(None),
+    }
+}
+
+/// The agent `named` names as `by` names it: `mayor` is the mayor of
+/// `by`'s own hamlet.
+pub(in crate::realm) async fn named(
+    rows: &Rows<'_>,
+    by: &impl Decider,
+    named: &Named,
+) -> Result<Option<Lineage>> {
+    let own = own_hamlet(rows, caller(by)).await?;
+    named_in(rows, own.as_ref(), named).await
+}
+
+async fn named_in(
+    rows: &Rows<'_>,
+    hamlet: Option<&HamletId>,
+    named: &Named,
+) -> Result<Option<Lineage>> {
+    match resolve(rows, hamlet, named).await? {
+        Some(agent) => lineage(rows, agent).await,
+        None => Ok(None),
+    }
 }
 
 pub(super) async fn lineage_of(

@@ -121,7 +121,7 @@ pub(super) async fn deliver_all(
     made
 }
 
-pub(super) async fn push(
+async fn push(
     realm: &Arc<Realm>,
     ctx: &Ctx<Realm>,
     push: Push,
@@ -144,11 +144,24 @@ pub(super) async fn after_answer(
     deliveries: Vec<Delivery>,
     pushes: Vec<Push>,
 ) {
+    push_all(&realm, &ctx, pushes).await;
+    deliver_all(&realm, &ctx, deliveries, When::AfterAnswer).await;
+}
+
+/// Makes every push, logging each that fails, and gives how many
+/// failed.
+pub(super) async fn push_all(
+    realm: &Arc<Realm>,
+    ctx: &Ctx<Realm>,
+    pushes: Vec<Push>,
+) -> usize {
+    let mut failed = 0;
     for made in pushes {
         let shown = format!("{made:?}");
-        if let Err(error) = push(&realm, &ctx, made).await {
+        if let Err(error) = push(realm, ctx, made).await {
             tracing::warn!(push = shown, "a push failed: {error:#}");
+            failed += 1;
         }
     }
-    deliver_all(&realm, &ctx, deliveries, When::AfterAnswer).await;
+    failed
 }

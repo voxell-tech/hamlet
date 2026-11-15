@@ -1,35 +1,22 @@
-use hamlet_messages::agent::{Author, Input, Place, Submit};
+use hamlet_messages::agent::{Author, Input, Place};
 use hamlet_messages::realm::world::{RoadSeen, Seen};
 use hamlet_messages::realm::{
     AgentRefusal, Asked, Done, End, FoundAnswer, Gate, HamletId,
-    Hire, HireAnswer, LayRefusal, LayRoad, LeadRefusal,
-    LetterRefusal, Named, Rank, RequestRoad, RequestRoadRefusal,
-    SetTier, SetTools, SocietyTool, TakeUpRoad, Tell, Tier,
-    TierRefusal, ToolsRefusal,
+    LayRefusal, LayRoad, LeadRefusal, LetterRefusal, Named, Rank,
+    RequestRoad, RequestRoadRefusal, SetTier, SetTools, SocietyTool,
+    TakeUpRoad, Tier, TierRefusal, ToolsRefusal,
 };
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::AgentNumber;
 use hamlet_protocol::client::RequestId;
 
-use super::{MAYOR, Realm, found, founded, tool, until, world};
-
-const THREE: AgentNumber = AgentNumber(3);
-const FOUR: AgentNumber = AgentNumber(4);
-
-fn to(agent: AgentNumber) -> Named {
-    Named::Agent { agent }
-}
+use super::{
+    FOUR, MAYOR, Realm, THREE, found, hamlet_with, seen_submits,
+    tell, to, tool, until, world,
+};
 
 fn lay(a: AgentNumber, b: AgentNumber) -> LayRoad {
     LayRoad { a: to(a), b: to(b) }
-}
-
-fn tell(to: AgentNumber) -> Tell {
-    Tell {
-        to: self::to(to),
-        text: "hi".to_owned(),
-        task: None,
-    }
 }
 
 fn tools(off: &[SocietyTool], on: &[SocietyTool]) -> SetTools {
@@ -38,55 +25,6 @@ fn tools(off: &[SocietyTool], on: &[SocietyTool]) -> SetTools {
         off: off.to_vec(),
         on: on.to_vec(),
     }
-}
-
-/// A realm with a hamlet whose mayor has `count` live hires, from
-/// agent 3 up.
-async fn hamlet_with(count: u32) -> (Realm, HamletId) {
-    let realm = Realm::start().await;
-    realm.live(Hand::NUMBER).await;
-    let hamlet = founded(&realm).await;
-    realm.live(MAYOR).await;
-    for n in 0..count {
-        let hire = Hire {
-            hamlet: None,
-            under: None,
-            profile: None,
-            purpose: Some("Write the docs".to_owned()),
-        };
-        let hired =
-            realm.tool(MAYOR, &tool(&format!("h{n}"), hire)).await;
-        assert!(
-            matches!(hired, Ok(HireAnswer::Hired { .. })),
-            "{hired:?}"
-        );
-        realm.live(AgentNumber(3 + n)).await;
-    }
-    (realm, hamlet)
-}
-
-fn submits_to(realm: &Realm, agent: AgentNumber) -> Vec<Submit> {
-    realm
-        .seen
-        .submits
-        .lock()
-        .unwrap()
-        .iter()
-        .filter(|(to, _)| *to == agent)
-        .map(|(_, submit)| submit.clone())
-        .collect()
-}
-
-async fn seen_submits(
-    realm: &Realm,
-    agent: AgentNumber,
-    count: usize,
-) -> Vec<Submit> {
-    until(&format!("agent {} saw {count} inputs", agent.0), || {
-        submits_to(realm, agent).len() >= count
-    })
-    .await;
-    submits_to(realm, agent)
 }
 
 /// Waits until the last place sent to `agent` holds.
@@ -153,8 +91,10 @@ async fn a_laid_road_carries_letters_and_is_charged_once() {
         .tool(MAYOR, &tool("r2", lay(FOUR, THREE)))
         .await
         .unwrap();
-    let first = realm.tool(THREE, &tool("t1", tell(FOUR))).await;
-    let second = realm.tool(THREE, &tool("t2", tell(FOUR))).await;
+    let first =
+        realm.tool(THREE, &tool("t1", tell(to(FOUR), "hi"))).await;
+    let second =
+        realm.tool(THREE, &tool("t2", tell(to(FOUR), "hi"))).await;
     let letters = seen_submits(&realm, FOUR, 2).await;
     roads_seen(&realm, &[(3, 4)]).await;
     placed(&realm, THREE, |place| place.roads == [FOUR]).await;
@@ -207,14 +147,16 @@ async fn a_tool_turned_off_is_refused() {
 
     let off =
         set(MAYOR, "s1", tools(&[SocietyTool::Tell], &[])).await;
-    let refused = realm.tool(THREE, &tool("t1", tell(MAYOR))).await;
+    let refused =
+        realm.tool(THREE, &tool("t1", tell(to(MAYOR), "hi"))).await;
     placed(&realm, THREE, |place| {
         place.tools_off == [SocietyTool::Tell]
     })
     .await;
     let on = set(MAYOR, "s2", tools(&[], &[SocietyTool::Tell])).await;
     placed(&realm, THREE, |place| place.tools_off.is_empty()).await;
-    let told = realm.tool(THREE, &tool("t2", tell(MAYOR))).await;
+    let told =
+        realm.tool(THREE, &tool("t2", tell(to(MAYOR), "hi"))).await;
     let of_hand = SetTools {
         hire: Named::Hand,
         ..tools(&[SocietyTool::Hire], &[])
@@ -324,7 +266,8 @@ async fn a_road_taken_up_carries_no_letter_and_is_charged_again() {
         .await
         .unwrap();
     roads_seen(&realm, &[]).await;
-    let told = realm.tool(THREE, &tool("t1", tell(FOUR))).await;
+    let told =
+        realm.tool(THREE, &tool("t1", tell(to(FOUR), "hi"))).await;
     let again =
         realm.tool(MAYOR, &tool("u2", take_up)).await.unwrap();
     let relaid = realm
