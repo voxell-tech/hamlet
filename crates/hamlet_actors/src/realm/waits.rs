@@ -49,7 +49,9 @@ pub(super) enum Kind {
     Fault,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize,
+)]
 #[serde(rename_all = "snake_case")]
 pub(super) enum Scope {
     Once,
@@ -91,13 +93,36 @@ impl Choice {
         };
         Ok([
             BindParam::Text(choice.to_owned()),
-            text(scope),
-            text(reason),
+            nullable(scope),
+            nullable(reason),
         ])
+    }
+
+    /// The choice its columns keep.
+    fn read(
+        choice: &str,
+        scope: Option<String>,
+        reason: Option<String>,
+    ) -> Result<Self> {
+        Ok(match (choice, scope, reason) {
+            ("allow", Some(scope), _) => {
+                Self::Allow(change::from_case_name(scope)?)
+            }
+            ("refuse", ..) => Self::Refuse,
+            ("reply", ..) => Self::Reply,
+            ("dismiss", ..) => Self::Dismiss,
+            ("go", ..) => Self::Go,
+            ("withdraw", ..) => Self::Withdraw,
+            ("unasked", _, Some(words)) => Self::Unasked(words),
+            ("lapsed", _, Some(lapse)) => {
+                Self::Lapsed(change::from_case_name(lapse)?)
+            }
+            other => bail!("no choice is kept as {other:?}"),
+        })
     }
 }
 
-fn text(text: Option<String>) -> BindParam {
+fn nullable(text: Option<String>) -> BindParam {
     text.map_or(BindParam::Null, BindParam::Text)
 }
 
@@ -176,27 +201,25 @@ async fn open(
     asked: NeedsChief,
 ) -> Result<u64> {
     let at = BindParam::Integer(writer.at().0);
-    let (wait, choice, reason, closed_at) = match unasked {
+    let (wait, [choice, scope, reason], closed_at) = match unasked {
         Some((wait, words)) => (
             change::integer(wait.0)?,
-            BindParam::Text("unasked".to_owned()),
-            BindParam::Text(words),
+            Choice::Unasked(words).columns()?,
             at.clone(),
         ),
         None => (
             BindParam::Null,
-            BindParam::Null,
-            BindParam::Null,
+            [BindParam::Null, BindParam::Null, BindParam::Null],
             BindParam::Null,
         ),
     };
     writer
         .execute(
             "INSERT INTO wait (id, agent, kind, task, conversation, \
-             call, subject, needs, reach_version, choice, reason, \
-             closed_at, at) VALUES (?1, ?2, 'tool', ?3, ?4, ?5, ?6, \
-             ?7, ?8, ?9, ?10, ?11, ?12) ON CONFLICT (agent, call) \
-             DO NOTHING",
+             call, subject, needs, reach_version, choice, scope, \
+             reason, closed_at, at) VALUES (?1, ?2, 'tool', ?3, ?4, \
+             ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13) ON CONFLICT \
+             (agent, call) DO NOTHING",
             vec![
                 wait,
                 number(asked.agent),
@@ -209,6 +232,7 @@ async fn open(
                 BindParam::Text(serde_json::to_string(&asked.needs)?),
                 change::integer(asked.reach_version.0)?,
                 choice,
+                scope,
                 reason,
                 closed_at,
                 at,
@@ -232,7 +256,7 @@ async fn raise(
                 number(raised.agent),
                 BindParam::Text(change::case_name(&raised.kind)?),
                 task_column(raised.task)?,
-                text(raised.conversation.map(|c| c.0)),
+                nullable(raised.conversation.map(|c| c.0)),
                 BindParam::Text(raised.subject),
                 BindParam::Blob(raised.detail),
                 BindParam::Integer(writer.at().0),
@@ -261,7 +285,7 @@ async fn close(
                 choice,
                 scope,
                 reason,
-                text(ruling),
+                nullable(ruling),
                 BindParam::Integer(writer.at().0),
                 change::integer(wait.0)?,
             ],
@@ -275,9 +299,15 @@ async fn lapse(
 ) -> Result<u64> {
     writer
         .execute(
-            "UPDATE wait SET choice = 'lapsed', closed_at = ?1 \
-             WHERE agent = ?2 AND closed_at IS NULL",
-            vec![BindParam::Integer(writer.at().0), number(agent)],
+            "UPDATE wait SET choice = 'lapsed', reason = ?1, \
+             closed_at = ?2 WHERE agent = ?3 AND closed_at IS NULL",
+            vec![
+                BindParam::Text(change::case_name(
+                    &workspace::Lapse::Ended,
+                )?),
+                BindParam::Integer(writer.at().0),
+                number(agent),
+            ],
         )
         .await
 }
@@ -318,51 +348,90 @@ impl Told {
     }
 }
 
-/// Calls the workspace with the answer to the tool wait `wait`, from
-/// its row: allow, refuse or lapsed.
-pub(super) async fn deliver(
-    realm: &Arc<Realm>,
-    ctx: &Ctx<Realm>,
-    wait: WaitId,
-) -> Result<()> {
-    let (agent, call, choice, ruling, reason) = Rows::outside(ctx)?
-        .row::<(
+/// A closed wait's row.
+struct Closed {
+    agent: AgentNumber,
+    kind: Kind,
+    call: Option<String>,
+    task: Option<TaskId>,
+    conversation: Option<ConversationId>,
+    choice: Choice,
+    /// The chief's text.
+    ruling: Option<String>,
+}
+
+async fn closed(ctx: &Ctx<Realm>, wait: WaitId) -> Result<Closed> {
+    let rows = Rows::outside(ctx)?;
+    let id = change::integer(wait.0)?;
+    let no_row = || format!("wait {} has no row", wait.0);
+    let (agent, kind, call, task, conversation) =
+        rows.row::<(
             u32,
+            String,
+            Option<String>,
+            Option<TaskId>,
+            Option<String>,
+        )>(
+            "SELECT agent, kind, call, task, conversation FROM wait \
+             WHERE id = ?1",
+            vec![id.clone()],
+        )
+        .await?
+        .with_context(no_row)?;
+    let (choice, scope, reason, ruling) = rows
+        .row::<(
             Option<String>,
             Option<String>,
             Option<String>,
             Option<String>,
         )>(
-            "SELECT agent, call, choice, ruling, reason FROM wait \
-             WHERE id = ?1",
-            vec![change::integer(wait.0)?],
+            "SELECT choice, scope, reason, ruling FROM wait WHERE \
+             id = ?1",
+            vec![id],
         )
         .await?
-        .with_context(|| format!("wait {} has no row", wait.0))?;
-    let call =
-        call.with_context(|| format!("wait {} has no call", wait.0))?;
-    let answer = match (choice.as_deref(), reason) {
-        (Some("allow"), _) => workspace::Answer::Allow,
-        (Some("refuse"), _) => {
-            workspace::Answer::Refuse { reason: ruling }
-        }
-        (Some("unasked"), reason) => {
-            workspace::Answer::Refuse { reason }
-        }
-        (Some("lapsed"), Some(lapse)) => workspace::Answer::Lapsed {
-            lapse: change::from_case_name(lapse)?,
+        .with_context(no_row)?;
+    let choice =
+        choice.with_context(|| format!("wait {} is open", wait.0))?;
+    Ok(Closed {
+        agent: AgentNumber(agent),
+        kind: change::from_case_name(kind)?,
+        call,
+        task,
+        conversation: conversation.map(ConversationId),
+        choice: Choice::read(&choice, scope, reason)?,
+        ruling,
+    })
+}
+
+/// Calls the workspace with the answer to the tool wait `wait`, from
+/// its row.
+pub(super) async fn deliver(
+    realm: &Arc<Realm>,
+    ctx: &Ctx<Realm>,
+    wait: WaitId,
+) -> Result<()> {
+    let closed = closed(ctx, wait).await?;
+    let call = closed
+        .call
+        .with_context(|| format!("wait {} has no call", wait.0))?;
+    let answer = match closed.choice {
+        Choice::Allow(_) => workspace::Answer::Allow,
+        Choice::Refuse => workspace::Answer::Refuse {
+            reason: closed.ruling,
         },
-        (other, _) => bail!(
-            "wait {} holds no chief's answer: {other:?}",
-            wait.0
-        ),
+        Choice::Unasked(words) => workspace::Answer::Refuse {
+            reason: Some(words),
+        },
+        Choice::Lapsed(lapse) => workspace::Answer::Lapsed { lapse },
+        other => bail!("tool wait {} closed as {other:?}", wait.0),
     };
     realm
         .peers
         .call(
             &Workspace,
             &ChiefAnswer {
-                agent: AgentNumber(agent),
+                agent: closed.agent,
                 call: CallId(call),
                 answer,
             },
@@ -379,52 +448,42 @@ pub(super) async fn notice(
     ctx: &Ctx<Realm>,
     wait: WaitId,
 ) -> Result<()> {
-    let (agent, kind, choice, ruling, task, conversation) =
-        Rows::outside(ctx)?
-            .row::<(
-                u32,
-                String,
-                Option<String>,
-                Option<String>,
-                Option<TaskId>,
-                Option<String>,
-            )>(
-                "SELECT agent, kind, choice, ruling, task, \
-                 conversation FROM wait WHERE id = ?1",
-                vec![change::integer(wait.0)?],
-            )
-            .await?
-            .with_context(|| format!("wait {} has no row", wait.0))?;
+    let Closed {
+        agent,
+        kind,
+        task,
+        conversation,
+        choice,
+        ruling,
+        ..
+    } = closed(ctx, wait).await?;
     let says = ruling.as_ref().map_or_else(String::new, |ruling| {
         format!(" The chief says: {ruling}")
     });
-    let text = match (
-        change::from_case_name::<Kind>(kind)?,
-        choice.as_deref(),
-    ) {
-        (Kind::Question, Some("reply")) => format!(
+    let text = match (kind, choice) {
+        (Kind::Question, Choice::Reply) => format!(
             "The chief answers: {}",
             ruling.unwrap_or_default()
         ),
-        (Kind::Question, Some("dismiss")) => {
+        (Kind::Question, Choice::Dismiss) => {
             "The chief did not answer; go on with what you know."
                 .to_owned()
         }
-        (Kind::Objection, Some("go")) => {
+        (Kind::Objection, Choice::Go) => {
             format!(
                 "The chief rules: go on with the instruction.{says}"
             )
         }
-        (Kind::Objection, Some("withdraw")) => format!(
+        (Kind::Objection, Choice::Withdraw) => format!(
             "The chief withdrew the instruction. Stop working on \
              it.{says}"
         ),
-        (Kind::Reserved | Kind::Send, Some("refuse")) => format!(
+        (Kind::Reserved | Kind::Send, Choice::Refuse) => format!(
             "the chief refused it: {}",
             ruling.as_deref().unwrap_or("no reason given")
         ),
         (kind, choice) => bail!(
-            "wait {} of kind {kind:?} closed {choice:?} has no \
+            "wait {} of kind {kind:?} closed as {choice:?} has no \
              notice",
             wait.0
         ),
@@ -432,14 +491,11 @@ pub(super) async fn notice(
     realm
         .peers
         .call(
-            &Agent(AgentNumber(agent)),
+            &Agent(agent),
             &Submit {
                 id: InputId(format!("wait/{}", wait.0)),
                 task: task.map(TaskId::on_the_wire),
-                input: Input::Notice {
-                    text,
-                    conversation: conversation.map(ConversationId),
-                },
+                input: Input::Notice { text, conversation },
             },
             When::AfterAnswer,
         )
@@ -947,7 +1003,7 @@ impl Act<Agent> for Lapse {
             return Ok(Vec::new());
         }
         let conversation =
-            text(self.conversation.clone().map(|c| c.0));
+            nullable(self.conversation.clone().map(|c| c.0));
         rows.rows::<(u64, String)>(
             "SELECT id, kind FROM wait WHERE agent = ?1 AND \
              closed_at IS NULL AND (?2 IS NULL OR conversation = \
