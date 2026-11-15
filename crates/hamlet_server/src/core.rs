@@ -7,8 +7,10 @@
 use std::collections::{BTreeMap, HashMap};
 
 use anyhow::Result;
+use bevy_derive::{Deref, DerefMut};
 use bevy_ecs::entity::Entity;
 use bevy_ecs::message::{Message, MessageWriter, Messages};
+use bevy_ecs::resource::Resource;
 use bevy_ecs::system::{Commands, Query, Res, ResMut, SystemParam};
 use diesel::Connection;
 use hamlet_protocol::client as protocol;
@@ -55,61 +57,31 @@ pub(crate) fn plugin(app: &mut bevy_app::App) {
         .init_resource::<Moving>();
 }
 
-/// A resource that holds one value of a type made elsewhere, reached
-/// through it.
-macro_rules! holder {
-    ($(#[$meta:meta])* $name:ident($inner:ty)) => {
-        $(#[$meta])*
-        #[derive(bevy_ecs::resource::Resource)]
-        pub(crate) struct $name(pub $inner);
+/// Each conversation in memory with its transcript and its agent's
+/// activity.
+#[derive(Resource, Deref, DerefMut, Default)]
+pub(crate) struct Lives(pub BTreeMap<ConversationId, Live>);
 
-        impl std::ops::Deref for $name {
-            type Target = $inner;
+/// The sandbox confining the agents' commands on this machine.
+#[derive(Resource, Deref, DerefMut)]
+pub(crate) struct Confined(pub hamlet_sandbox::Sandbox);
 
-            fn deref(&self) -> &$inner {
-                &self.0
-            }
-        }
+/// The leftovers of the agents' commands, by agent.
+#[derive(Resource, Deref, DerefMut, Default)]
+pub(crate) struct Leftovers(pub hamlet_sandbox::AllLeftovers);
 
-        impl std::ops::DerefMut for $name {
-            fn deref_mut(&mut self) -> &mut $inner {
-                &mut self.0
-            }
-        }
-    };
-}
+/// The tools added by hand (C17), loaded again whenever their folder
+/// changes.
+#[derive(Resource, Deref, DerefMut, Default)]
+pub(crate) struct Added(pub Vec<Manifest>);
 
-holder! {
-    /// Each conversation in memory with its transcript and its
-    /// agent's activity.
-    #[derive(Default)]
-    Lives(BTreeMap<ConversationId, Live>)
-}
-holder! {
-    /// The sandbox confining the agents' commands on this machine.
-    Confined(hamlet_sandbox::Sandbox)
-}
-holder! {
-    /// The leftovers of the agents' commands, by agent.
-    #[derive(Default)]
-    Leftovers(hamlet_sandbox::AllLeftovers)
-}
-holder! {
-    /// The tools added by hand (C17), loaded again whenever their
-    /// folder changes.
-    #[derive(Default)]
-    Added(Vec<Manifest>)
-}
-holder! {
-    /// The reasons the tools added by hand failed to load.
-    #[derive(Default)]
-    ToolFaults(Vec<String>)
-}
-holder! {
-    /// Every tool a model may be offered.
-    #[derive(Default)]
-    Catalogue(Vec<ToolSpec>)
-}
+/// The reasons the tools added by hand failed to load.
+#[derive(Resource, Deref, DerefMut, Default)]
+pub(crate) struct ToolFaults(pub Vec<String>);
+
+/// Every tool a model may be offered.
+#[derive(Resource, Deref, DerefMut, Default)]
+pub(crate) struct Catalogue(pub Vec<ToolSpec>);
 
 impl Catalogue {
     /// Every tool a model may be offered: the built-in ones this
@@ -129,26 +101,27 @@ impl Catalogue {
         self.iter().map(|spec| spec.name.clone()).collect()
     }
 }
-holder! {
-    /// The remote workspace the agents' tools run in, chosen before
-    /// the server started; none for this machine.
-    Workspace(Option<Transport>)
-}
-holder! {
-    /// Each lodge as both copies held it when last in step, by agent;
-    /// a lodge not here is pushed before its next remote call.
-    #[derive(Default)]
-    Lodged(HashMap<AgentId, RemoteCopy>)
-}
+
+/// The remote workspace the agents' tools run in, chosen before the
+/// server started; none for this machine.
+#[derive(Resource, Deref, DerefMut)]
+pub(crate) struct Workspace(pub Option<Transport>);
+
+/// Each lodge as both copies held it when last in step, by agent; a
+/// lodge not here is pushed before its next remote call.
+#[derive(Resource, Deref, DerefMut, Default)]
+pub(crate) struct Lodged(pub HashMap<AgentId, RemoteCopy>);
+
 /// A lodge whose remote copy is owed a push, by its agent, which the
 /// runner makes before the next input.
 #[derive(Message)]
 pub(crate) struct UnpushedLodge(pub AgentId);
-holder! {
-    /// The progress of moving the lodges to the chosen workspace.
-    #[derive(Default)]
-    Moving(Option<protocol::SettingsViewWorkspaceMove>)
-}
+
+/// The progress of moving the lodges to the chosen workspace.
+#[derive(Resource, Deref, DerefMut, Default)]
+pub(crate) struct Moving(
+    pub Option<protocol::SettingsViewWorkspaceMove>,
+);
 
 /// The tools a model may be offered, and what runs the built-in ones
 /// on this machine.

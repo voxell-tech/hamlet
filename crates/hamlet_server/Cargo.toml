@@ -32,6 +32,7 @@ hamlet_workspace_wire.workspace = true
 anyhow.workspace = true
 base64.workspace = true
 bevy_app.workspace = true
+bevy_derive.workspace = true
 bevy_ecs.workspace = true
 chrono.workspace = true
 diesel.workspace = true
