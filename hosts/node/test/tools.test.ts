@@ -6,6 +6,7 @@ import { test } from "node:test";
 import { fauxAssistantMessage } from "@earendil-works/pi-ai";
 import { ok } from "@earendil-works/pi-durable/env";
 import {
+    FAKE_ROOT,
     fakeCalls,
     fakeFiles,
     from,
@@ -13,9 +14,19 @@ import {
     timedOut,
     toolCall,
     until,
+    type Woken,
     wakeAgent,
 } from "./agent-testing.ts";
 import { context } from "./testing.ts";
+
+const ROOT = FAKE_ROOT;
+
+/** The text of each tool result the agent took, in order. */
+async function results(agent: Woken): Promise<string[]> {
+    return (await agent.entries())
+        .filter((entry) => entry.kind === "pi.tool-result")
+        .map((entry) => entry.text);
+}
 
 const line = (id: string, text: string, task?: string) => ({
     id,
@@ -34,7 +45,7 @@ test("a project path goes to the workspace and an own path to the adapter", asyn
         },
     });
     const files = fakeFiles({
-        "/realm/actors/agent/7.fs/memory/plan.md": "own:plan",
+        [`${ROOT}/memory/plan.md`]: "own:plan",
     });
     const agent = await wakeAgent(t, {
         calls,
@@ -45,11 +56,7 @@ test("a project path goes to the workspace and an own path to the adapter", asyn
                 { path: "/work/project/notes.md", limit: 10 },
                 "c1",
             ),
-            toolCall(
-                "read",
-                { path: "/realm/actors/agent/7.fs/memory/plan.md" },
-                "c2",
-            ),
+            toolCall("read", { path: `${ROOT}/memory/plan.md` }, "c2"),
             fauxAssistantMessage("read both"),
         ],
     });
@@ -68,43 +75,134 @@ test("a project path goes to the workspace and an own path to the adapter", asyn
             deadlineMs: 15_000,
         },
     ]);
-    const results = (await agent.entries()).filter(
-        (entry) => entry.kind === "pi.tool-result",
-    );
-    assert.deepEqual(
-        results.map((entry) => entry.text),
-        ["project:/work/project/notes.md", "own:plan"],
-    );
+    assert.deepEqual(await results(agent), [
+        "project:/work/project/notes.md",
+        "own:plan",
+    ]);
     await agent.stop();
 });
 
-test("an own search keeps only the files whose name matches", async (t) => {
-    const fake = fakeFiles({});
-    const md = `${fake.root}/memory/plan.md`;
-    const txt = `${fake.root}/memory/plan.txt`;
+test("a relative path, and a left-out one, start from the agent's filesystem", async (t) => {
+    const { calls, sent } = fakeCalls({});
+    const fake = fakeFiles({ [`${ROOT}/memory/plan.md`]: "own:plan" });
+    const listed: string[] = [];
     const files = Object.assign(Object.create(fake) as typeof fake, {
-        search: async () =>
-            ok({
-                found: [md, txt].map((path) => ({
-                    path,
-                    line: 1,
-                    text: "the plan",
-                })),
-                capped: false,
+        list: async (path: string) => {
+            listed.push(path);
+            return ok([
+                {
+                    name: "notes.md",
+                    path: `${path}/notes.md`,
+                    kind: "file" as const,
+                    size: 5,
+                },
+            ]);
+        },
+    });
+    const agent = await wakeAgent(t, {
+        calls,
+        files,
+        responses: [
+            toolCall("read", { path: "memory/plan.md" }, "c1"),
+            toolCall("find", {}, "c2"),
+            fauxAssistantMessage("read and listed"),
+        ],
+    });
+    await agent.actions.submit(agent.by(from.realm), line("input-1", "Look."));
+    await agent.idle();
+
+    assert.deepEqual(
+        sent
+            .filter((call) => call.to === "workspace/local")
+            .map((call) => call.name),
+        ["list_tools"],
+    );
+    assert.deepEqual(listed, [ROOT]);
+    assert.deepEqual(await results(agent), ["own:plan", "notes.md"]);
+    await agent.stop();
+});
+
+test("a path that only begins with the root's name goes to the workspace", async (t) => {
+    const { calls, sent } = fakeCalls({
+        workspace: {
+            read_file: (message) => ({
+                type: "text",
+                text: `project:${message.path}`,
+                notes: [],
             }),
+        },
+    });
+    const agent = await wakeAgent(t, {
+        calls,
+        files: fakeFiles({ [`${ROOT}-other/x`]: "own:x" }),
+        responses: [
+            toolCall("read", { path: `${ROOT}-other/x` }),
+            fauxAssistantMessage("read"),
+        ],
+    });
+    await agent.actions.submit(
+        agent.by(from.realm),
+        line("input-1", "Read it."),
+    );
+    await agent.idle();
+
+    assert.equal(named(sent, "read_file").length, 1);
+    assert.deepEqual(await results(agent), [`project:${ROOT}-other/x`]);
+    await agent.stop();
+});
+
+test("an own search gives the adapter its name, and a search or a find answers in today's words", async (t) => {
+    const fake = fakeFiles({});
+    const md = `${ROOT}/memory/plan.md`;
+    const named: (string | undefined)[] = [];
+    const files = Object.assign(Object.create(fake) as typeof fake, {
+        search: async (
+            _pattern: string,
+            _path: string,
+            options?: { name?: string },
+        ) => {
+            named.push(options?.name);
+            return ok({
+                found:
+                    options?.name === "*.md"
+                        ? [{ path: md, line: 1, text: "the plan" }]
+                        : [],
+                more: false,
+                capped: false,
+            });
+        },
         find: async (glob: string) =>
-            ok({ found: glob === "*.md" ? [md] : [], capped: false }),
+            ok(
+                glob === "*.md"
+                    ? { found: [md], more: true, capped: false }
+                    : { found: [], more: false, capped: true },
+            ),
+        list: async () =>
+            ok([
+                {
+                    name: "b",
+                    path: `${ROOT}/b`,
+                    kind: "file" as const,
+                    size: 1,
+                },
+                {
+                    name: "a",
+                    path: `${ROOT}/a`,
+                    kind: "directory" as const,
+                    size: 0,
+                },
+            ]),
     });
     const { calls } = fakeCalls({});
     const agent = await wakeAgent(t, {
         calls,
         files,
         responses: [
-            toolCall("search", {
-                pattern: "plan",
-                path: files.root,
-                name: "*.md",
-            }),
+            toolCall("search", { pattern: "plan", name: "*.md" }, "c1"),
+            toolCall("search", { pattern: "plan", name: "*.rs" }, "c2"),
+            toolCall("find", { name: "*.md" }, "c3"),
+            toolCall("find", { name: "*.txt" }, "c4"),
+            toolCall("find", { path: "memory" }, "c5"),
             fauxAssistantMessage("Found it."),
         ],
     });
@@ -114,11 +212,191 @@ test("an own search keeps only the files whose name matches", async (t) => {
     );
     await agent.idle();
 
-    assert.equal(
-        (await agent.entries()).find((entry) => entry.kind === "pi.tool-result")
-            ?.text,
+    assert.deepEqual(named, ["*.md", "*.rs"]);
+    assert.deepEqual(await results(agent), [
         `${md}:1: the plan`,
+        "no match",
+        `${md}\n[more than 100. Narrow it with \`path\` or \`name\`]`,
+        "no file by that name\n[stopped after 20000 files. Narrow it with `path`]",
+        "a/\nb",
+    ]);
+    await agent.stop();
+});
+
+test("an own read answers as the workspace's read of the same file does", async (t) => {
+    const lines = (count: number, width: number) =>
+        Array.from({ length: count }, () => "x".repeat(width)).join("\n");
+    const note = (code: string, message: string) => ({
+        severity: "info" as const,
+        code,
+        message,
+    });
+    const png = Buffer.from(
+        "89504e470d0a1a0a0000000d494844520000000100000001",
+        "hex",
     );
+    // Each read, and what the workspace answers for it
+    // (`crates/hamlet_actors/src/workspace/files/read.rs`).
+    const reads = [
+        {
+            file: lines(2500, 1),
+            args: {},
+            answer: {
+                type: "text",
+                text: lines(2000, 1),
+                notes: [
+                    note(
+                        "truncated",
+                        "Showing lines 1-2000 of 2500. Use offset=2001 to continue.",
+                    ),
+                ],
+            },
+        },
+        {
+            file: lines(100, 1000),
+            args: {},
+            answer: {
+                type: "text",
+                text: lines(51, 1000),
+                notes: [
+                    note(
+                        "truncated",
+                        "Showing lines 1-51 of 100 (50.0KB limit). Use offset=52 to continue.",
+                    ),
+                ],
+            },
+        },
+        {
+            file: lines(20, 1),
+            args: { offset: 5, limit: 10 },
+            answer: {
+                type: "text",
+                text: lines(10, 1),
+                notes: [
+                    note(
+                        "",
+                        "6 more lines in file. Use offset=15 to continue.",
+                    ),
+                ],
+            },
+        },
+        {
+            file: lines(20, 1),
+            args: { offset: 30 },
+            answer: {
+                type: "failed",
+                words: "Offset 30 is beyond end of file (20 lines total)",
+            },
+        },
+        {
+            file: "x".repeat(60_000),
+            args: {},
+            answer: {
+                type: "text",
+                text: "x".repeat(51_200),
+                notes: [
+                    {
+                        severity: "warn",
+                        code: "truncated",
+                        // The note names the path the read was given.
+                        message: `Line 1 is 58.6KB, exceeds the 50.0KB limit; showing its first 50.0KB. Use bash: sed -n '1p' ${ROOT}/4 | tail -c +51201`,
+                    },
+                ],
+            },
+        },
+        {
+            file: png.toString("latin1"),
+            args: {},
+            answer: {
+                type: "image",
+                mime: "image/png",
+                data: png.toString("base64"),
+            },
+        },
+    ];
+    const answers = new Map(
+        reads.map((read, at) => [`/work/${at}`, read.answer]),
+    );
+    const { calls } = fakeCalls({
+        workspace: {
+            read_file: (message) => answers.get(message.path) as never,
+        },
+    });
+    const fake = fakeFiles({});
+    const files = Object.assign(Object.create(fake) as typeof fake, {
+        read: async (path: string) => {
+            const at = Number(path.slice(`${ROOT}/`.length));
+            return ok(
+                new Uint8Array(Buffer.from(reads[at]?.file ?? "", "latin1")),
+            );
+        },
+    });
+    const agent = await wakeAgent(t, {
+        calls,
+        files,
+        responses: [
+            ...reads.flatMap((read, at) => [
+                toolCall(
+                    "read",
+                    { path: `/work/${at}`, ...read.args },
+                    `w${at}`,
+                ),
+                toolCall(
+                    "read",
+                    { path: `${ROOT}/${at}`, ...read.args },
+                    `o${at}`,
+                ),
+            ]),
+            fauxAssistantMessage("Read."),
+        ],
+    });
+    await agent.actions.submit(agent.by(from.realm), line("input-1", "Read."));
+    await agent.idle();
+
+    const taken = await results(agent);
+    assert.equal(taken.length, reads.length * 2);
+    for (const [at] of reads.entries()) {
+        assert.equal(taken[at * 2 + 1], taken[at * 2], `read ${at}`);
+    }
+    await agent.stop();
+});
+
+test("an own write says whether it created the file, and an own edit shows the workspace's diff", async (t) => {
+    const { calls } = fakeCalls({});
+    const path = `${ROOT}/memory/plan.md`;
+    const agent = await wakeAgent(t, {
+        calls,
+        files: fakeFiles({}),
+        responses: [
+            toolCall("write", { path, content: "a" }, "c1"),
+            toolCall(
+                "write",
+                { path, content: "a\nb\nc\nd\ne\nf\ng\nh\ni\nj\nk\n" },
+                "c2",
+            ),
+            toolCall(
+                "edit",
+                {
+                    path,
+                    edits: [
+                        { oldText: "f\n", newText: "F\n" },
+                        { oldText: "k\n", newText: "k" },
+                    ],
+                },
+                "c3",
+            ),
+            fauxAssistantMessage("Done."),
+        ],
+    });
+    await agent.actions.submit(agent.by(from.realm), line("input-1", "Write."));
+    await agent.idle();
+
+    assert.deepEqual(await results(agent), [
+        `Created ${path}.`,
+        `Changed ${path}.`,
+        // The diff of `crates/hamlet_actors/src/workspace/files/diff.rs`'s test.
+        `Changed ${path}.\n    ...\n  2 b\n  3 c\n  4 d\n  5 e\n- 6 f\n+ 6 F\n  7 g\n  8 h\n  9 i\n 10 j\n-11 k\n+11 k`,
+    ]);
     await agent.stop();
 });
 
@@ -163,11 +441,9 @@ test("running ends the tool, not the turn, and the end is taken once under its c
     });
     // The tool ended with the command still running, and the turn went on to its answer.
     assert.equal(agent.faux.state.callCount, 2);
-    assert.equal(
-        (await agent.entries()).find((entry) => entry.kind === "pi.tool-result")
-            ?.text,
+    assert.deepEqual(await results(agent), [
         "Command 4 is still running. Its end arrives as a new input.",
-    );
+    ]);
 
     // Later the workspace tells the agent the end, and tells it again.
     const end = {
@@ -306,16 +582,14 @@ test("a call that fails says its outcome is unknown, and is not sent again", asy
     await agent.idle();
 
     assert.equal(named(sent, "run").length, 1);
-    assert.equal(
-        (await agent.entries()).find((entry) => entry.kind === "pi.tool-result")
-            ?.text,
+    assert.deepEqual(await results(agent), [
         "`run` was cut off: actor.action_timed_out: The action timed out.. Its outcome is unknown: it may have been carried out or not, and nothing sends it again. Look at what it would have changed before you repeat it.",
-    );
+    ]);
     await agent.stop();
 });
 
 test("an own edit that a cut-off interrupts is not run again, and says its outcome is unknown", async (t) => {
-    const path = "/realm/actors/agent/7.fs/memory/plan.md";
+    const path = `${ROOT}/memory/plan.md`;
     const files = fakeFiles({ [path]: "one two" });
     const cut = Promise.withResolvers<void>();
     // The first edit is made, and then the wake is cut off before it answers.
@@ -333,7 +607,7 @@ test("an own edit that a cut-off interrupts is not run again, and says its outco
                     reject(new Error("cut off")),
                 ),
             );
-            return ok(undefined);
+            return done;
         },
     });
     const { calls } = fakeCalls({});
@@ -361,12 +635,9 @@ test("an own edit that a cut-off interrupts is not run again, and says its outco
     // The adapter was asked once: the rerun found the mark and did not edit.
     assert.equal(edits, 1);
     assert.equal(files.edits, 1);
-    assert.equal(
-        (await second.entries()).find(
-            (entry) => entry.kind === "pi.tool-result",
-        )?.text,
+    assert.deepEqual(await results(second), [
         `The edit of ${path} was cut off: the agent stopped while it ran. Its outcome is unknown: it may have been carried out or not, and nothing sends it again. Look at what it would have changed before you repeat it.`,
-    );
+    ]);
     await second.stop();
 });
 

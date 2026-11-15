@@ -14,17 +14,21 @@ import { AgentFolder } from "@hamlet/actor-node";
 const FOLDERS = ["memory", "skills", "inbox"];
 
 /** The most names a search or a find looks at. */
-const LOOKED = 20_000;
+export const LOOKED = 20_000;
 
 /** The most matches or files a search or a find gives. */
-const FOUND = 100;
+export const FOUND = 100;
 
 /** A name in a folder of the agent's filesystem, a link itself rather than what it names. */
 export type FileEntry = Omit<FileInfo, "mtimeMs">;
 
-/** What a search or a find gave, and whether it stopped at a bound. */
+/** What a search or a find gave, and which of its bounds it stopped at. */
 export interface Found<T> {
+    /** At most `FOUND`. */
     readonly found: T[];
+    /** More than `FOUND` matched. */
+    readonly more: boolean;
+    /** It looked at `LOOKED` names and stopped with fewer than `FOUND`. */
     readonly capped: boolean;
 }
 
@@ -58,18 +62,26 @@ export interface AgentFilesystem {
         path: string,
         context: Context,
     ): Promise<Result<Uint8Array, FileError>>;
-    /** Writes the file whole, making its folders. A link there is replaced, not written through. */
+    /**
+     * Writes the file whole, making its folders, and answers whether nothing
+     * was there before. A link there is replaced, not written through.
+     */
     write(
         path: string,
         content: string | Uint8Array,
         context: Context,
-    ): Promise<Result<void, FileError>>;
-    /** Makes every edit of `edits` in the UTF-8 text of the file at once. */
+    ): Promise<Result<{ readonly created: boolean }, FileError>>;
+    /**
+     * Makes every edit of `edits` in the UTF-8 text of the file at once, and
+     * answers the text before and after.
+     */
     edit(
         path: string,
         edits: readonly Edit[],
         context: Context,
-    ): Promise<Result<void, FileError>>;
+    ): Promise<
+        Result<{ readonly before: string; readonly after: string }, FileError>
+    >;
     /** The names in one folder, sorted. */
     list(
         path: string,
@@ -77,12 +89,13 @@ export interface AgentFilesystem {
     ): Promise<Result<FileEntry[], FileError>>;
     /**
      * The lines that match `pattern`, a regular expression that runs in
-     * linear time, in the text files at or below `path`.
+     * linear time, in the text files at or below `path`, and only in those
+     * `options.name` matches as `find` reads a glob.
      */
     search(
         pattern: string,
         path: string,
-        options: { ignoreCase?: boolean } | undefined,
+        options: { ignoreCase?: boolean; name?: string } | undefined,
         context: Context,
     ): Promise<Result<Found<Match>, FileError>>;
     /**
@@ -164,14 +177,15 @@ export function openAgentFilesystem(
                 async () => new Uint8Array(await folder.read(path)),
             ),
         write: (path, content, context) =>
-            call(path, context, () => folder.write(path, Buffer.from(content))),
+            call(path, context, async () => ({
+                created: await folder.write(path, Buffer.from(content)),
+            })),
         edit: (path, edits, context) =>
             call(path, context, async () => {
-                const text = utf8(await folder.read(path), path);
-                await folder.write(
-                    path,
-                    Buffer.from(edited(text, edits, path)),
-                );
+                const before = utf8(await folder.read(path), path);
+                const after = edited(before, edits, path);
+                await folder.write(path, Buffer.from(after));
+                return { before, after };
             }),
         list: (path, context) =>
             call(path, context, async () =>
@@ -188,49 +202,38 @@ export function openAgentFilesystem(
                     path,
                     pattern,
                     options?.ignoreCase ?? false,
-                    FOUND,
+                    options?.name,
+                    FOUND + 1,
                     LOOKED,
                 );
-                return {
-                    found: searched.matches.map((match) => ({
+                return bounded(
+                    searched.matches.map((match) => ({
                         path: absolute(match.path),
                         line: match.line,
                         text: match.text,
                     })),
-                    capped: searched.capped,
-                };
+                    searched.capped,
+                );
             }),
         find: (glob, path, context) =>
             call(path, context, async () => {
-                const walked = await folder.files(path, LOOKED);
-                const found: string[] = [];
-                for (const file of walked.files) {
-                    const under =
-                        file.path === walked.start
-                            ? (file.path.split("/").pop() ?? "")
-                            : file.path.slice(
-                                  walked.start === ""
-                                      ? 0
-                                      : walked.start.length + 1,
-                              );
-                    const tested = glob.includes("/")
-                        ? under
-                        : (under.split("/").pop() ?? "");
-                    if (!matchesGlob(glob, tested)) {
-                        continue;
-                    }
-                    if (found.length === FOUND) {
-                        return { found, capped: true };
-                    }
-                    found.push(absolute(file.path));
-                }
-                return { found, capped: walked.capped };
+                const walked = await folder.files(path, LOOKED, glob);
+                return bounded(
+                    walked.files.map((file) => absolute(file.path)),
+                    walked.capped,
+                );
             }),
         copy: (from, to, context) =>
-            call(from, context, async () =>
-                folder.write(to, await folder.read(from)),
-            ),
+            call(from, context, async () => {
+                await folder.write(to, await folder.read(from));
+            }),
     };
+}
+
+/** `items` cut at `FOUND`. As today's, a cut walk that also found more says only the more. */
+function bounded<T>(items: T[], capped: boolean): Found<T> {
+    const more = items.length > FOUND;
+    return { found: items.slice(0, FOUND), more, capped: capped && !more };
 }
 
 function utf8(bytes: Uint8Array, path: string): string {
@@ -277,39 +280,4 @@ function edited(text: string, edits: readonly Edit[], path: string): string {
         from = span.end;
     }
     return out + text.slice(from);
-}
-
-/**
- * Whether `glob` matches the whole of `name`, where `*` stands for any run
- * of characters and `?` for one. Time grows with the product of the two
- * lengths at most.
- */
-function matchesGlob(glob: string, name: string): boolean {
-    const want = [...glob];
-    const have = [...name];
-    let at = 0;
-    let index = 0;
-    // The place of the last `*`, and how much of the name it took.
-    let star = -1;
-    let took = 0;
-    while (index < have.length) {
-        if (
-            at < want.length &&
-            (want[at] === "?" || want[at] === have[index])
-        ) {
-            at++;
-            index++;
-        } else if (at < want.length && want[at] === "*") {
-            star = at;
-            took = index;
-            at++;
-        } else if (star >= 0) {
-            took++;
-            at = star + 1;
-            index = took;
-        } else {
-            return false;
-        }
-    }
-    return want.slice(at).every((char) => char === "*");
 }

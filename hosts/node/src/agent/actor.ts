@@ -402,6 +402,14 @@ async function wake(c: AgentContext, config: AgentConfig): Promise<void> {
         peers,
         registry,
     };
+    // Not awaited, so a slow workspace does not hold `submit`'s 4 s. Begun
+    // before the open, since an action that reopens a harness the open
+    // left closed builds it from the same registry.
+    void handTools(peers).then(
+        (extension) => registry.install(extension),
+        (error: unknown) =>
+            peers.report("the hand tools were not listed", error),
+    );
     let harness: Harness;
     try {
         harness = await openOnWake(c, options);
@@ -414,12 +422,6 @@ async function wake(c: AgentContext, config: AgentConfig): Promise<void> {
         });
         return;
     }
-    // Not awaited, so a slow workspace does not hold `submit`'s 4 s.
-    void handTools(peers).then(
-        (extension) => registry.install(extension),
-        (error: unknown) =>
-            peers.report("the hand tools were not listed", error),
-    );
     harness.resume();
 }
 

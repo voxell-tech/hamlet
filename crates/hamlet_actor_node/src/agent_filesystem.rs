@@ -10,7 +10,7 @@ use std::sync::Arc;
 use hamlet_os::fs::{Folder, Kind, Outside, system_error};
 use napi::bindgen_prelude::Buffer;
 use napi_derive::napi;
-use regex::RegexBuilder;
+use regex::{Regex, RegexBuilder};
 
 /// The largest file a search reads, in bytes.
 const LARGEST: u64 = 1024 * 1024;
@@ -38,8 +38,6 @@ pub struct FolderFile {
 
 #[napi(object)]
 pub struct FolderFiles {
-    /// The path from the agent's filesystem the walk started at.
-    pub start: String,
     pub files: Vec<FolderFile>,
     /// The walk stopped at its bound.
     pub capped: bool,
@@ -56,7 +54,7 @@ pub struct FolderMatch {
 #[napi(object)]
 pub struct FolderMatches {
     pub matches: Vec<FolderMatch>,
-    /// The search stopped at a bound.
+    /// The walk stopped at its bound before the search found `most`.
     pub capped: bool,
 }
 
@@ -97,15 +95,21 @@ impl AgentFolder {
             .map(Buffer::from)
     }
 
+    /// Writes the file whole, and answers whether nothing was there
+    /// before.
     #[napi]
     pub async fn write(
         &self,
         path: String,
         bytes: Buffer,
-    ) -> napi::Result<()> {
+    ) -> napi::Result<bool> {
         let bytes = bytes.to_vec();
-        blocking(&self.0, move |folder| folder.write(&path, &bytes))
-            .await
+        blocking(&self.0, move |folder| {
+            let created = folder.stat(&path).is_err();
+            folder.write(&path, &bytes)?;
+            Ok(created)
+        })
+        .await
     }
 
     /// The names in the folder at `path`, sorted. Names that are
@@ -139,20 +143,28 @@ impl AgentFolder {
     }
 
     /// Every regular file with one name at or below `path`, after at
-    /// most `most` names looked at. No link is followed.
+    /// most `most` names looked at, or only those `name` matches. In
+    /// `name`, `*` stands for any run of characters and `?` for one;
+    /// with a `/` in it, it is matched against the file's path from
+    /// `path` rather than its name. No link is followed.
     #[napi]
     pub async fn files(
         &self,
         path: String,
         most: u32,
+        name: Option<String>,
     ) -> napi::Result<FolderFiles> {
+        let name = name.as_deref().map(Name::new).transpose()?;
         blocking(&self.0, move |folder| {
             let walked = folder.files(&path, most as usize)?;
+            let start = walked.start;
             Ok(FolderFiles {
-                start: walked.start,
                 files: walked
                     .files
                     .into_iter()
+                    .filter(|found| {
+                        Name::admits(&name, &start, &found.path)
+                    })
                     .map(|found| FolderFile {
                         path: found.path,
                         size: found.size as f64,
@@ -165,16 +177,17 @@ impl AgentFolder {
     }
 
     /// The lines that match `pattern`, a regular expression that runs
-    /// in linear time, in the text files at or below `path`, up to
-    /// `most` of them, after at most `looked` names. A file over 1
-    /// MiB, one that is not UTF-8 and one holding NUL are passed
-    /// over.
+    /// in linear time, in the text files at or below `path` that
+    /// `name` matches as in `files`, up to `most` of them, after at
+    /// most `looked` names. A file over 1 MiB, one that is not UTF-8
+    /// and one holding NUL are passed over.
     #[napi]
     pub async fn search(
         &self,
         path: String,
         pattern: String,
         ignore_case: bool,
+        name: Option<String>,
         most: u32,
         looked: u32,
     ) -> napi::Result<FolderMatches> {
@@ -182,11 +195,14 @@ impl AgentFolder {
             .case_insensitive(ignore_case)
             .build()
             .map_err(|error| failure("EINVAL", &error.to_string()))?;
+        let name = name.as_deref().map(Name::new).transpose()?;
         blocking(&self.0, move |folder| {
             let walked = folder.files(&path, looked as usize)?;
             let mut matches = Vec::new();
             for file in walked.files {
-                if file.size > LARGEST {
+                if file.size > LARGEST
+                    || !Name::admits(&name, &walked.start, &file.path)
+                {
                     continue;
                 }
                 let Ok(bytes) = folder.read(&file.path) else {
@@ -205,7 +221,7 @@ impl AgentFolder {
                     if matches.len() == most as usize {
                         return Ok(FolderMatches {
                             matches,
-                            capped: true,
+                            capped: false,
                         });
                     }
                     matches.push(FolderMatch {
@@ -222,6 +238,55 @@ impl AgentFolder {
             })
         })
         .await
+    }
+}
+
+/// The `name` of `files` and `search`.
+struct Name {
+    whole: Regex,
+    by_path: bool,
+}
+
+impl Name {
+    fn new(glob: &str) -> napi::Result<Self> {
+        let mut source = String::from("(?s)^");
+        for c in glob.chars() {
+            match c {
+                '*' => source.push_str(".*"),
+                '?' => source.push('.'),
+                c => source.push_str(&regex::escape(&c.to_string())),
+            }
+        }
+        source.push('$');
+        Ok(Self {
+            whole: Regex::new(&source).map_err(|error| {
+                failure("EINVAL", &error.to_string())
+            })?,
+            by_path: glob.contains('/'),
+        })
+    }
+
+    /// Whether the file at `file` is one `name` asks for, in a walk
+    /// that started at `start`. Every file is, without a name.
+    fn admits(name: &Option<Self>, start: &str, file: &str) -> bool {
+        let Some(name) = name else {
+            return true;
+        };
+        fn base(path: &str) -> &str {
+            path.rsplit('/').next().unwrap_or("")
+        }
+        let under = if file == start {
+            base(file)
+        } else if start.is_empty() {
+            file
+        } else {
+            &file[start.len() + 1..]
+        };
+        name.whole.is_match(if name.by_path {
+            under
+        } else {
+            base(under)
+        })
     }
 }
 

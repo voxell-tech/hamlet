@@ -62,7 +62,9 @@ test("a filesystem read gives a file's bytes, by a relative or an absolute path"
 test("a filesystem write makes the file and its folders, then reads back", async (t) => {
     const { filesystem } = await planted(t);
     const wrote = await filesystem.write("memory/new/today.md", "new", context);
-    assert.ok(wrote.ok);
+    assert.deepEqual(wrote.ok && wrote.value, { created: true });
+    const again = await filesystem.write("memory/new/today.md", "new", context);
+    assert.deepEqual(again.ok && again.value, { created: false });
     assert.equal(
         readFileSync(join(filesystem.root, "memory/new/today.md"), "utf8"),
         "new",
@@ -115,6 +117,7 @@ test("search and find never follow a link", async (t) => {
             `${filesystem.root}/memory/notes.md`,
             `${filesystem.root}/skills/a/SKILL.md`,
         ],
+        more: false,
         capped: false,
     });
     const byPath = await filesystem.find("a/*.md", "skills", context);
@@ -130,6 +133,7 @@ test("search and find never follow a link", async (t) => {
                 text: "SECRET word",
             },
         ],
+        more: false,
         capped: false,
     });
     const listed = await filesystem.list("skills", context);
@@ -166,4 +170,70 @@ test("an edit replaces text found once, and a copy stays inside", async (t) => {
     assert.ok(
         !(await filesystem.copy("memory/notes.md", "../copy.md", context)).ok,
     );
+});
+
+test("a search with a name looks only in the files the name matches, before its bound", async (t) => {
+    const { filesystem } = await planted(t);
+    const many = Array.from({ length: 120 }, () => "hit").join("\n");
+    for (const path of ["memory/a.txt", "memory/z.txt"]) {
+        assert.ok((await filesystem.write(path, many, context)).ok);
+    }
+    assert.ok((await filesystem.write("memory/m.md", "one hit", context)).ok);
+    const searched = await filesystem.search(
+        "hit",
+        "",
+        { name: "*.md" },
+        context,
+    );
+    assert.deepEqual(searched.ok && searched.value, {
+        found: [
+            {
+                path: `${filesystem.root}/memory/m.md`,
+                line: 1,
+                text: "one hit",
+            },
+        ],
+        more: false,
+        capped: false,
+    });
+});
+
+test("a path the file tools join to the root through `.` or `..` is read inside it or refused", async (t) => {
+    const { outside, filesystem } = await planted(t);
+    const read = await filesystem.read(
+        `${filesystem.root}/./memory/notes.md`,
+        context,
+    );
+    assert.equal(read.ok && decoder.decode(read.value), "notes");
+    const listed = await filesystem.list(`${filesystem.root}/.`, context);
+    assert.deepEqual(listed.ok && listed.value.map((entry) => entry.name), [
+        "inbox",
+        "memory",
+        "skills",
+    ]);
+    const climbed = await filesystem.read(
+        `${filesystem.root}/../../../outside/secret`,
+        context,
+    );
+    assert.equal(climbed.ok ? "read" : climbed.error.code, "permission_denied");
+    outsideIsUntouched(outside);
+});
+
+test("the root itself, as a left-out path reaches it, can be listed, found in and searched", async (t) => {
+    const { filesystem } = await planted(t);
+    const { root } = filesystem;
+    const listed = await filesystem.list(root, context);
+    assert.deepEqual(listed.ok && listed.value.map((entry) => entry.name), [
+        "inbox",
+        "memory",
+        "skills",
+    ]);
+    const found = await filesystem.find("*.md", root, context);
+    assert.deepEqual(found.ok && found.value.found, [
+        `${root}/memory/notes.md`,
+    ]);
+    const searched = await filesystem.search("notes", root, undefined, context);
+    assert.deepEqual(searched.ok && searched.value.found, [
+        { path: `${root}/memory/notes.md`, line: 1, text: "notes" },
+    ]);
 });

@@ -5,7 +5,8 @@
  *
  * A path at or below the filesystem's root is own, and goes to the
  * adapter in this process. Every other path goes on to the wrapped tool,
- * which calls the workspace.
+ * which calls the workspace. A relative path, and a left-out one, start
+ * from the filesystem's root.
  *
  * The wrapped tools are `replay: "safe"`. An own read, write, search or
  * find is safe too: a rerun gives the same. An own `edit` is not, because a
@@ -14,7 +15,9 @@
  * the mark answers that the outcome is unknown, as pi-durable does for an
  * unsafe tool.
  */
+import { isAbsolute } from "node:path";
 import type { Context } from "@earendil-works/chord/context";
+import { generateDiffString } from "@earendil-works/pi-coding-agent";
 import {
     defineExtension,
     type Extension,
@@ -23,23 +26,49 @@ import {
     type ToolRegistration,
     type Wrap,
 } from "@earendil-works/pi-durable";
-import type { AgentFilesystem } from "./filesystem.ts";
+import { omitUndefined } from "../actor/common/utils.ts";
+import {
+    type AgentFilesystem,
+    FOUND,
+    type Found,
+    LOOKED,
+} from "./filesystem.ts";
+import type { Note, ReadAnswer, Refused } from "./messages.ts";
 import { failed, type Peers, unknownOutcome, words } from "./turn.ts";
-import type { FileTool, FileToolArgs } from "./workspace-tools.ts";
+import {
+    changeWords,
+    type Execute,
+    editsOf,
+    type FileCall,
+    type FileTool,
+    type FileToolArgs,
+    readResult,
+} from "./workspace-tools.ts";
 
-/** How a file tool works on a path of the agent's own filesystem. */
-type Route<Args> = (
-    args: Args,
-    api: ToolExecutionApi,
-    context: Context,
-) => Promise<ToolExecutionResult>;
-
-/** Whether `path` is at or below the root of the agent's filesystem. */
-function owns(files: AgentFilesystem, path: string | undefined): boolean {
-    return (
-        path !== undefined &&
-        (path === files.root || path.startsWith(`${files.root}/`))
-    );
+/**
+ * Where a file tool's `path` leads: the absolute path, and whether it is
+ * at or below the root of the agent's filesystem.
+ *
+ * A relative path is joined, not normalised, so one that climbs out of the
+ * root stays own and the adapter refuses it.
+ */
+function reached(
+    files: AgentFilesystem,
+    path: string | undefined,
+): { readonly own: boolean; readonly path: string } {
+    // No message tells the agent its project folder, so paths start from
+    // its own filesystem. When one does, this is the project folder.
+    const start = files.root;
+    const absolute =
+        path === undefined
+            ? start
+            : isAbsolute(path)
+              ? path
+              : `${start}/${path}`;
+    return {
+        own: absolute === files.root || absolute.startsWith(`${files.root}/`),
+        path: absolute,
+    };
 }
 
 /**
@@ -47,14 +76,16 @@ function owns(files: AgentFilesystem, path: string | undefined): boolean {
  * `workspace-tools.ts`, so a file tool with no route does not compile.
  */
 function routes(peers: Peers): {
-    readonly [N in FileTool]: Route<FileToolArgs[N]>;
+    readonly [N in FileTool]: Execute<FileCall<N>>;
 } {
     const { files } = peers;
     return {
         read: async (args, _api, context) => {
             const file = await files.read(args.path, context);
             return file.ok
-                ? words(linesOf(file.value, args.offset, args.limit))
+                ? readResult(
+                      readOf(args.path, file.value, args.offset, args.limit),
+                  )
                 : failed(file.error.message);
         },
         edit: async (args, api, context) => {
@@ -67,14 +98,18 @@ function routes(peers: Peers): {
             await api.memo(EDIT_BEGAN, true, context);
             const edited = await files.edit(
                 args.path,
-                args.edits.map((one) => ({
-                    old: one.oldText,
-                    new: one.newText,
-                })),
+                editsOf(args.edits),
                 context,
             );
             return edited.ok
-                ? words(`Changed ${args.path}.`)
+                ? changeWords(
+                      args.path,
+                      false,
+                      generateDiffString(
+                          edited.value.before,
+                          edited.value.after,
+                      ).diff,
+                  )
                 : failed(edited.error.message);
         },
         write: (args, _api, context) => written(files, args, context),
@@ -98,10 +133,13 @@ export function ownFiles(peers: Peers): Extension {
                 args: FileToolArgs[N],
                 api: ToolExecutionApi,
                 context: Context,
-            ) =>
-                owns(peers.files, args.path)
-                    ? own[name](args, api, context)
-                    : tool.execute(args, api, context),
+            ) => {
+                const at = reached(peers.files, args.path);
+                const resolved = { ...args, path: at.path };
+                return at.own
+                    ? own[name](resolved, api, context)
+                    : tool.execute(resolved, api, context);
+            },
         }),
     });
     return defineExtension({
@@ -113,65 +151,223 @@ export function ownFiles(peers: Peers): Extension {
 /** The memo an own edit leaves before it runs. */
 const EDIT_BEGAN = "hamlet.own-edit.began";
 
-/** The text of `bytes` from line `offset`, at most `limit` lines, cut as the workspace cuts a read. */
-function linesOf(bytes: Uint8Array, offset?: number, limit?: number): string {
+/** The most lines and bytes a read gives, as the workspace's (`crates/hamlet_actors/src/workspace.rs:48-49`). */
+const MOST_LINES = 2000;
+const MOST_BYTES = 50 * 1024;
+
+/**
+ * What the workspace answers for a read of `bytes`: an image as it is, or
+ * its lines from `offset`, at most `limit` of them and within the limits,
+ * with a note on what was left out. Ported from
+ * `crates/hamlet_actors/src/workspace/files/read.rs`.
+ */
+function readOf(
+    path: string,
+    bytes: Uint8Array,
+    offset?: number,
+    limit?: number,
+): Exclude<ReadAnswer, Refused> {
+    const mime = imageOf(bytes);
+    if (mime !== undefined) {
+        return {
+            type: "image",
+            mime,
+            data: Buffer.from(bytes).toString("base64"),
+        };
+    }
+    // TextDecoder drops a leading BOM and replaces bytes that are not UTF-8.
     const lines = new TextDecoder().decode(bytes).split("\n");
-    const from = Math.max(0, (offset ?? 1) - 1);
-    return lines.slice(from, from + (limit ?? 2000)).join("\n");
+    const total = lines.length;
+    const start = Math.max(0, (offset ?? 0) - 1);
+    if (start >= total) {
+        return {
+            type: "failed",
+            words: `Offset ${offset ?? 0} is beyond end of file (${total} lines total)`,
+        };
+    }
+    const end = limit === undefined ? total : Math.min(start + limit, total);
+    const selected = lines.slice(start, end);
+    const head = truncateHead(selected.join("\n"));
+    const first = start + 1;
+    const text = (shown: string, ...notes: Note[]) =>
+        ({ type: "text", text: shown, notes }) as const;
+    if (head.firstLineTooLong) {
+        const line = Buffer.from(selected[0] ?? "");
+        const cut = characterEnd(line, MOST_BYTES);
+        return text(line.subarray(0, cut).toString(), {
+            severity: "warn",
+            code: "truncated",
+            message: `Line ${first} is ${formatSize(line.length)}, exceeds the ${formatSize(MOST_BYTES)} limit; showing its first ${formatSize(cut)}. Use bash: sed -n '${first}p' ${path} | tail -c +${cut + 1}`,
+        });
+    }
+    if (head.by !== undefined) {
+        const last = first + head.lines - 1;
+        const why =
+            head.by === "lines" ? "" : ` (${formatSize(MOST_BYTES)} limit)`;
+        return text(head.text, {
+            severity: "info",
+            code: "truncated",
+            message: `Showing lines ${first}-${last} of ${total}${why}. Use offset=${last + 1} to continue.`,
+        });
+    }
+    if (end < total) {
+        return text(head.text, {
+            severity: "info",
+            code: "",
+            message: `${total - end} more lines in file. Use offset=${end + 1} to continue.`,
+        });
+    }
+    return text(head.text);
+}
+
+/** The first whole lines of `content` within the limits, and how it was cut. */
+function truncateHead(content: string): {
+    readonly text: string;
+    readonly lines: number;
+    readonly by?: "lines" | "bytes";
+    readonly firstLineTooLong?: true;
+} {
+    const lines = content === "" ? [] : content.split("\n");
+    if (content.endsWith("\n")) lines.pop();
+    if (
+        lines.length <= MOST_LINES &&
+        Buffer.byteLength(content) <= MOST_BYTES
+    ) {
+        return { text: content, lines: lines.length };
+    }
+    if (Buffer.byteLength(lines[0] ?? "") > MOST_BYTES) {
+        return { text: "", lines: 0, by: "bytes", firstLineTooLong: true };
+    }
+    const kept: string[] = [];
+    let bytes = 0;
+    let by: "lines" | "bytes" = "lines";
+    for (const line of lines.slice(0, MOST_LINES)) {
+        const size = Buffer.byteLength(line) + (kept.length > 0 ? 1 : 0);
+        if (bytes + size > MOST_BYTES) {
+            by = "bytes";
+            break;
+        }
+        kept.push(line);
+        bytes += size;
+    }
+    // Without a byte break, only omitted lines prove the line limit was
+    // reached.
+    if (by !== "bytes" && kept.length === lines.length) by = "bytes";
+    return { text: kept.join("\n"), lines: kept.length, by };
+}
+
+/** `bytes` as pi writes a size, rounding a half up. */
+function formatSize(bytes: number): string {
+    const tenths = (unit: number) => {
+        const count = Math.floor((bytes * 10 + unit / 2) / unit);
+        return `${Math.floor(count / 10)}.${count % 10}`;
+    };
+    if (bytes < 1024) return `${bytes}B`;
+    if (bytes < 1024 * 1024) return `${tenths(1024)}KB`;
+    return `${tenths(1024 * 1024)}MB`;
+}
+
+/** The last character boundary at or before `index`. */
+function characterEnd(bytes: Uint8Array, index: number): number {
+    let end = index;
+    while (end > 0 && ((bytes[end] ?? 0) & 0xc0) === 0x80) end--;
+    return end;
+}
+
+/** The type of image `bytes` begin as, if it is one a model takes. */
+function imageOf(bytes: Uint8Array): string | undefined {
+    const at = (offset: number, ...want: number[]) =>
+        want.every((byte, index) => bytes[offset + index] === byte);
+    const ascii = (text: string) => [...text].map((c) => c.charCodeAt(0));
+    if (at(0, 0xff, 0xd8, 0xff)) {
+        return bytes[3] === 0xf7 ? undefined : "image/jpeg";
+    }
+    if (at(0, 0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a)) {
+        const header =
+            bytes.length >= 16 &&
+            at(8, 0, 0, 0, 13) &&
+            at(12, ...ascii("IHDR"));
+        return header ? "image/png" : undefined;
+    }
+    if (at(0, ...ascii("GIF87a")) || at(0, ...ascii("GIF89a"))) {
+        return "image/gif";
+    }
+    if (at(0, ...ascii("RIFF")) && at(8, ...ascii("WEBP"))) {
+        return "image/webp";
+    }
+    return undefined;
 }
 
 async function written(
     files: AgentFilesystem,
-    args: FileToolArgs["write"],
+    args: FileCall<"write">,
     context: Context,
 ): Promise<ToolExecutionResult> {
     const done = await files.write(args.path, args.content, context);
-    return done.ok ? words(`Wrote ${args.path}.`) : failed(done.error.message);
+    return done.ok
+        ? changeWords(args.path, done.value.created)
+        : failed(done.error.message);
 }
 
 async function searched(
     files: AgentFilesystem,
-    args: FileToolArgs["search"],
+    args: FileCall<"search">,
     context: Context,
 ): Promise<ToolExecutionResult> {
-    const path = args.path ?? files.root;
-    let named: Set<string> | undefined;
-    if (args.name !== undefined) {
-        const matched = await files.find(args.name, path, context);
-        if (!matched.ok) return failed(matched.error.message);
-        named = new Set(matched.value.found);
-    }
     const found = await files.search(
         args.pattern,
-        path,
-        args.ignore_case === undefined
-            ? undefined
-            : { ignoreCase: args.ignore_case },
+        args.path,
+        omitUndefined({
+            ignoreCase: args.ignore_case,
+            // As today's: an empty name is no name.
+            name: args.name || undefined,
+        }),
         context,
     );
     if (!found.ok) return failed(found.error.message);
-    return words(
-        found.value.found
-            .filter((match) => named?.has(match.path) ?? true)
-            .map((match) => `${match.path}:${match.line}: ${match.text}`)
-            .join("\n"),
+    return reported(
+        {
+            ...found.value,
+            found: found.value.found.map(
+                (match) => `${match.path}:${match.line}: ${match.text}`,
+            ),
+        },
+        "no match",
     );
 }
 
 async function found(
     files: AgentFilesystem,
-    args: FileToolArgs["find"],
+    args: FileCall<"find">,
     context: Context,
 ): Promise<ToolExecutionResult> {
-    const path = args.path ?? files.root;
-    if (args.name === undefined) {
-        const listed = await files.list(path, context);
-        return listed.ok
-            ? words(listed.value.map((entry) => entry.name).join("\n"))
-            : failed(listed.error.message);
+    if (!args.name) {
+        const listed = await files.list(args.path, context);
+        if (!listed.ok) return failed(listed.error.message);
+        const names = listed.value
+            .map((entry) =>
+                entry.kind === "directory" ? `${entry.name}/` : entry.name,
+            )
+            .sort();
+        return words(names.length === 0 ? "(empty)" : names.join("\n"));
     }
-    const matched = await files.find(args.name, path, context);
+    const matched = await files.find(args.name, args.path, context);
     return matched.ok
-        ? words(matched.value.found.join("\n"))
+        ? reported(matched.value, "no file by that name")
         : failed(matched.error.message);
+}
+
+/**
+ * What a search or a find found, in today's words
+ * (`crates/hamlet_server/src/work/tools/walk.rs:121-141`).
+ */
+function reported(found: Found<string>, none: string): ToolExecutionResult {
+    const lines = found.found.length === 0 ? [none] : [...found.found];
+    if (found.more) {
+        lines.push(`[more than ${FOUND}. Narrow it with \`path\` or \`name\`]`);
+    }
+    if (found.capped) {
+        lines.push(`[stopped after ${LOOKED} files. Narrow it with \`path\`]`);
+    }
+    return words(lines.join("\n"));
 }

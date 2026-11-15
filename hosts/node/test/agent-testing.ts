@@ -112,11 +112,14 @@ export function timedOut(): ActorError {
     return new ActorError("actor", "action_timed_out", "The action timed out.");
 }
 
-/** A fake of the agent's filesystem over a map of files, rooted where agent 7's is. */
+/** The root of `fakeFiles`, where agent 7's filesystem is. */
+export const FAKE_ROOT = "/realm/actors/agent/7.fs";
+
+/** A fake of the agent's filesystem over a map of files, rooted at `FAKE_ROOT`. */
 export function fakeFiles(files: Record<string, string>): AgentFilesystem & {
     readonly edits: number;
 } {
-    const root = "/realm/actors/agent/7.fs";
+    const root = FAKE_ROOT;
     const missing = (path: string) =>
         new FileError("not_found", `ENOENT: ${path}`, path);
     let edits = 0;
@@ -133,15 +136,17 @@ export function fakeFiles(files: Record<string, string>): AgentFilesystem & {
                 : ok(new TextEncoder().encode(text));
         },
         write: async (path, content) => {
+            const created = files[path] === undefined;
             files[path] =
                 typeof content === "string"
                     ? content
                     : new TextDecoder().decode(content);
-            return ok(undefined);
+            return ok({ created });
         },
         edit: async (path, changes) => {
-            let text = files[path];
-            if (text === undefined) return err(missing(path));
+            const before = files[path];
+            if (before === undefined) return err(missing(path));
+            let text = before;
             for (const change of changes) {
                 if (!text.includes(change.old)) {
                     return err(
@@ -156,11 +161,11 @@ export function fakeFiles(files: Record<string, string>): AgentFilesystem & {
             }
             files[path] = text;
             edits += 1;
-            return ok(undefined);
+            return ok({ before, after: text });
         },
         list: async () => ok([]),
-        search: async () => ok({ found: [], capped: false }),
-        find: async () => ok({ found: [], capped: false }),
+        search: async () => ok({ found: [], more: false, capped: false }),
+        find: async () => ok({ found: [], more: false, capped: false }),
         copy: async () => ok(undefined),
     };
 }
