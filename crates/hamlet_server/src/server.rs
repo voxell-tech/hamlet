@@ -306,21 +306,7 @@ impl Server {
             .insert_resource(Workspace(workspace))
             .insert_resource(runner)
             .insert_resource(writing)
-            .add_plugins((
-                crate::core::plugin,
-                crate::after_input::plugin,
-                crate::startup::plugin,
-                crate::background::plugin,
-                crate::calls::plugin,
-                crate::talk::sync::plugin,
-                crate::clients::plugin,
-                crate::commands::plugin,
-                runtimes::plugin,
-                crate::providers::plugin,
-                crate::dreaming::plugin,
-                crate::images::plugin,
-                crate::files::plugin,
-            ));
+            .add_plugins(crate::plugin);
         let world = app.world_mut();
         let inbox = InputChannels {
             runtime_lines: lines,
