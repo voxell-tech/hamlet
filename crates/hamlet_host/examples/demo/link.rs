@@ -7,6 +7,7 @@
 //! demo --link make <n>
 //!                     make the agent <n>
 //! demo --link tell <n> <action> [<arg>...] [--count <times>]
+//!     [--time]
 //!                     have the realm call <action> of agent <n> as
 //!                     itself, <times> times in a row, once by
 //!                     default; an <arg> is JSON where it reads as
@@ -22,7 +23,9 @@
 //! prints `agent/<n>/<action> <answer>`, the last answer as JSON on
 //! one line, or `agent/<n>/<action> {"error":{"group":..,"code":..,
 //! "message":..,"metadata":..}}` when the call failed with an actor's
-//! error of a group other than `link`. A `tell` never makes its
+//! error of a group other than `link`. With `--time` it then prints
+//! `time agent/<n>/<action> count=<times> p50=<us>us p99=<us>us`, the
+//! times of the realm's calls of the agent. A `tell` never makes its
 //! agent: for an agent that was not made it fails with
 //! `actor.not_found`. While the Node host is not ready it fails at
 //! once with `link.down`, and with `link.lost` when the Node host is
@@ -183,7 +186,8 @@ pub async fn run(
         }
         _ => bail!(
             "usage: demo --link link | make <n> | tell <n> <action> \
-             [<arg>...] [--count <times>] | heard <n> <within-ms>"
+             [<arg>...] [--count <times>] [--time] | heard <n> \
+             <within-ms>"
         ),
     }
 }
@@ -213,8 +217,8 @@ async fn make(host: &Host, at: &Address) -> Result<()> {
 }
 
 /// Has the realm call `action` of the actor at `at`, with `words` as
-/// its arguments but for `--count <times>`, and prints the last
-/// answer.
+/// its arguments but for `--count <times>` and `--time`, and prints
+/// the last answer.
 async fn tell(
     host: &Host,
     at: &Address,
@@ -222,11 +226,14 @@ async fn tell(
     words: &[String],
 ) -> Result<()> {
     let mut times = 1;
+    let mut timed = false;
     let mut args = Vec::new();
     let mut words = words.iter();
     while let Some(word) = words.next() {
         if word == "--count" {
             times = number(words.next())?;
+        } else if word == "--time" {
+            timed = true;
         } else {
             args.push(serde_json::from_str(word).unwrap_or_else(
                 |_| serde_json::Value::String(word.clone()),
@@ -240,9 +247,11 @@ async fn tell(
         args: encode_positional(&args)?,
     };
     let mut answer = Vec::new();
+    let mut micros = Vec::new();
     for _ in 0..times {
-        answer = match realm::ask(host, &tell).await {
-            Ok(answer) => answer,
+        let took;
+        (answer, took) = match realm::ask(host, &tell).await {
+            Ok(told) => told,
             Err(error) => {
                 let Some(shown) = failure(&error) else {
                     return Err(error);
@@ -251,13 +260,28 @@ async fn tell(
                 return Ok(());
             }
         };
+        micros.push(took.as_micros());
     }
     let value = if answer.is_empty() {
         serde_json::Value::Null
     } else {
         ciborium::from_reader(answer.as_slice())?
     };
-    writeln!(std::io::stdout(), "{at}/{action} {value}")?;
+    let mut out = std::io::stdout();
+    writeln!(out, "{at}/{action} {value}")?;
+    if timed {
+        micros.sort_unstable();
+        let at_percent = |percent: usize| {
+            let rank = (micros.len() * percent).div_ceil(100);
+            micros[rank.saturating_sub(1)]
+        };
+        writeln!(
+            out,
+            "time {at}/{action} count={times} p50={}us p99={}us",
+            at_percent(50),
+            at_percent(99)
+        )?;
+    }
     Ok(())
 }
 

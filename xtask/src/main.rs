@@ -51,7 +51,8 @@ Usage: cargo xtask <task> [args]
      <scenario> --runs <n>, or --list
   idle             a command tree's memory, in MB of 1,000,000 \
      bytes, and wakeups per second while idle: [--settle <s>] \
-     [--window <s>] <command> [args], 30 and 60 seconds by default; \
+     [--window <s>] [--send <line>]... <command> [args], 30 and 60 \
+     seconds by default, each line written to its stdin first; \
      Linux only
 
 Every task but help and uninstall first fetches the vendored fynix
