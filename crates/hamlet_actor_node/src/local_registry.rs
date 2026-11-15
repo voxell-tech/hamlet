@@ -5,15 +5,15 @@
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
-use std::time::Duration;
 
 use hamlet_actor_core::ActorFactory;
-use hamlet_host::{Address, Host};
+use hamlet_host::Host;
 use napi::bindgen_prelude::Buffer;
 use napi_derive::napi;
 use parking_lot::Mutex;
 
 use crate::actor_factory::NapiActorFactory;
+use crate::address::{JsAddress, JsCallOptions};
 use crate::{NapiInvalidState, napi_anyhow_error};
 
 #[napi]
@@ -61,18 +61,17 @@ impl CoreRegistry {
         Ok(began.iter().map(ToString::to_string).collect())
     }
 
-    /// Makes the actor of `kind` and `key` with `input`, the CBOR
-    /// its kind's state is made from, and starts it. Fails with
+    /// Makes the actor at `to` with `input`, the CBOR its kind's
+    /// state is made from, and starts it. Fails with
     /// `actor.duplicate_key` when the key has an actor. Returns its
     /// id.
     #[napi]
     pub async fn create(
         &self,
-        kind: String,
-        key: String,
+        to: JsAddress,
         input: Buffer,
     ) -> napi::Result<String> {
-        let at = address(kind, key)?;
+        let at = to.checked()?;
         self.host()?
             .create(&at, input.to_vec())
             .await
@@ -80,16 +79,15 @@ impl CoreRegistry {
         Ok(at.to_string())
     }
 
-    /// The actor of `kind` and `key`, made with no input when the key
-    /// has none, and started. Returns its id. For tests: a host's own
-    /// code makes an actor with `create`.
+    /// The actor at `to`, made with no input when the key has none,
+    /// and started. Returns its id. For tests: a host's own code
+    /// makes an actor with `create`.
     #[napi]
     pub async fn get_or_start(
         &self,
-        kind: String,
-        key: String,
+        to: JsAddress,
     ) -> napi::Result<String> {
-        let at = address(kind, key)?;
+        let at = to.checked()?;
         self.host()?
             .get_or_start(&at)
             .await
@@ -97,28 +95,23 @@ impl CoreRegistry {
         Ok(at.to_string())
     }
 
-    /// Calls the action `name` of the actor of `kind` and `key`,
-    /// started from its file first if it is not running, within
-    /// the deadline, in milliseconds. A call never makes its actor:
-    /// for a key with no actor it fails with `actor.not_found`.
+    /// Calls the action `name` of the actor at `to` with no caller,
+    /// started from its file first if it is not running. A call never
+    /// makes its actor: for a key with no actor it fails with
+    /// `actor.not_found`.
     #[napi]
     pub async fn call(
         &self,
-        kind: String,
-        key: String,
+        to: JsAddress,
         name: String,
         args: Buffer,
-        deadline_ms: u32,
+        options: JsCallOptions,
     ) -> napi::Result<Buffer> {
-        let at = address(kind, key)?;
+        let at = to.checked()?;
+        let deadline = options.deadline()?;
         let output = self
             .host()?
-            .call(
-                &at,
-                &name,
-                args.to_vec(),
-                Duration::from_millis(deadline_ms.into()),
-            )
+            .call(&at, &name, args.to_vec(), deadline)
             .await
             .map_err(napi_anyhow_error)?;
         Ok(output.into())
@@ -151,13 +144,6 @@ impl Default for CoreRegistry {
     fn default() -> Self {
         Self::new()
     }
-}
-
-/// The address of `kind` and `key`. A name that is not plain fails
-/// with its text.
-fn address(kind: String, key: String) -> napi::Result<Address> {
-    Address::new(kind, key)
-        .map_err(|error| napi_anyhow_error(error.into()))
 }
 
 /// The host owns its factories, while the N-API factory object keeps

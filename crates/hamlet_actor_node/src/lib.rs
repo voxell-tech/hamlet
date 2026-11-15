@@ -1,6 +1,7 @@
 // This file was changed for Hamlet. See NOTICE in this crate.
 pub mod actor_context;
 pub mod actor_factory;
+pub mod address;
 pub mod cancellation_token;
 pub mod connection;
 pub mod database;
