@@ -236,8 +236,12 @@ with its tree, and starts another a second later when it is lost. The
 child takes its ends with `take_link` and runs `link::serve`. The two
 say hello, welcome and ready (`link/frame.rs` holds the frames and their
 codec, `link.fingerprint` the frames' shapes), and then each takes the
-other's calls and creates through its `Port` (`link/port.rs`). A peer's
-request is checked against who that host speaks for (`link/peer.rs`),
+other's calls and creates through its `Port` (`link/port.rs`). The Node
+host's entry is `hosts/node/src/main.ts`: it takes the link before the
+actor layer loads, serves the kinds of `hosts/node/src/demo.ts` its
+`--kind` arguments name through `serveLink` in
+`hosts/node/src/actor/registry/link.ts`, and exits 1 on any failure. A
+peer's request is checked against who that host speaks for (`link/peer.rs`),
 then runs on the host's own call or start path, so `admit` checks it
 again. Only a call and a create cross the link. A call to the child
 fails with `link.down`, and nothing is sent, until the child is ready,
@@ -313,8 +317,10 @@ tries counted from none. A set-aside timer leaves only by a re-arm that
 succeeds, or with its actor's file at a destroy.
 
 `examples/demo.rs` drives
-the host from the command line, under a host name and with counter kinds
-of its options, each line run by `examples/demo/command.rs`, with the
+the host from the command line, under a host name and with the kinds of
+its options (`examples/demo/kinds.rs`: a host registers only those, or
+by default the counter, the workspace and both stand-ins), each counter
+line run by `examples/demo/command.rs`, with the
 counter actor in `examples/demo/counter.rs`; a counter calls another as
 itself, and `calls --count <n>` times those calls. The demo also
 registers the [workspace](#the-workspace-actor), given a sandbox where
@@ -324,7 +330,11 @@ reaches, answers for the realm's secrets with one made-up secret and
 answers waits as a chief; and `examples/demo/agent.rs`, the actor
 `agent/<n>`, which makes `actors/agent/<n>.fs/` as it starts, runs
 scripts and tools, reads and writes files, and keeps each `Finished` it
-is told. `tests/local.rs` tests the host,
+is told. `demo --link` runs the agents in a Node host instead, its child
+(`examples/demo/link.rs`): the TypeScript agent of
+`hosts/node/src/demo.ts`, reached through the realm's `tell`, with a route
+table of two pairs. `tests/demo.rs` starts the demo as its lanes do, and
+`hosts/node/test/link/` drives the linked demo. `tests/local.rs` tests the host,
 `tests/create.rs` tests `create`, and `tests/access.rs` tests what an
 actor reaches of its host, its calls to other actors included.
 `tests/timer.rs` tests one-shots that come due as their actor sleeps or
@@ -345,12 +355,16 @@ library by a `#[path]` line, most of them in the module they test.
 Most of the library's tests run on `TestHost` in `src/testing.rs`, a
 host that serves one in-memory database through `hamlet_sqlite`.
 
-`cargo xtask killkit` runs `hamlet_killkit`. Its scenarios are rows of
+`cargo xtask killkit` installs the Node host's packages, builds the
+native module and the demo, and runs `hamlet_killkit`. Its scenarios are rows of
 `src/scenario.rs`: the commands that set up, the fault point or the time to kill at,
 the commands after each restart, and what each restart must show.
 `workspace-command` kills the host while a command answered `Running`
 still runs, and checks after each restart that the command did not go
-on, that its row reads cut off and that the agent was told nothing.
+on, that its row reads cut off and that the agent was told nothing. A
+row's `Demo::Linked` starts `demo --link`; `link-kill-node` has an agent
+kill its own Node host (`Kill::NodeHost`), and `link-kill-rust` and
+`ts-schedule` kill the Rust host with the Node host running.
 `cargo xtask idle` is `xtask/src/idle.rs`. It reads `/proc` for the
 resident memory of a process tree and the growth of each thread's
 `voluntary_ctxt_switches`.
@@ -636,6 +650,7 @@ built-in ones.
 | What an actor reaches of its host: its address, the realm folder, the program's values, and its calls, creates and get-or-starts as itself | `hamlet_host/src/local/access.rs` |
 | Where each actor kind runs | `hamlet_host/src/directory.rs` |
 | The link to the Node host: its child, handshake, frames, and calls each way | `hamlet_host/src/child.rs`, `link.rs`, `link/`; the stand-in Node host `hamlet_host/examples/link_child.rs` |
+| The Node host's entry and the demo's TypeScript kinds | `hosts/node/src/main.ts`, `demo.ts`, `actor/registry/link.ts`; the linked demo in `hamlet_host/examples/demo/link.rs` |
 | What a TypeScript actor can do: call another actor with a deadline, its address and caller, `get`, `all` and `run` on its rows | `hosts/node/src/actor/actor/calls.ts`, `config.ts`; `registry/native.ts`, `runtime.ts`, `napi-runtime.ts`; `common/database/`; the native side in `hamlet_actor_node/src/address.rs`, `actor_context.rs` |
 | The native module's TypeScript declarations | `hamlet_actor_node/index.d.ts` and `index.js`, written by `cargo xtask declarations`, never by hand |
 | What the host reports on `Host::events` | `hamlet_host/src/event.rs` |
