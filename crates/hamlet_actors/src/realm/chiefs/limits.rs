@@ -392,20 +392,26 @@ mod tests {
             BudgetLimit::Cost { micros: 1 },
             BudgetLimit::Time { ms: 2 },
             BudgetLimit::Cost { micros: 3 },
+            BudgetLimit::Period {
+                period: budget::Period::Month,
+            },
         ];
-        let Decision::Change(decided) =
-            set(None, limits).decide(&Client, realm())
+        let act = SetLimits {
+            limits: vec![Limit::RoadsBetween { allowed: false }],
+            ..set(None, limits)
+        };
+        let Decision::Change(decided) = act.decide(&Client, realm())
         else {
             panic!("the limits change");
         };
         let budget = Budget {
             micros: Some(3),
             ms: Some(2),
-            period: Period::Day,
+            period: Period::Month,
         };
         let kept = Kept(Row::Realm(RealmLimits {
             budget,
-            ..RealmLimits::default()
+            roads_between: false,
         }));
         assert_eq!(
             decided.changes,

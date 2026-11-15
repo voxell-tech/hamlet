@@ -9,8 +9,10 @@ use hamlet_messages::agent::{AgentInput, Fill, Place};
 use hamlet_messages::realm::budget::{BudgetLimit, Payer};
 use hamlet_messages::realm::documents::{
     CardSetting, CatalogueRefusal, EditCatalogue, EditCharter,
-    EditSettings, ReadCharter, ReadCopies, Setting, SettingRefusal,
+    EditSettings, Endpoint, ReadCharter, ReadCopies, Setting,
+    SettingRefusal,
 };
+use hamlet_messages::realm::world::ReachSeen;
 use hamlet_messages::realm::{
     Asked, ChiefRequest, Done, HamletRefusal, Limit, Refusable,
     SetLimits,
@@ -23,8 +25,8 @@ use hamlet_testing::Scratch;
 
 use super::world::seen_until;
 use super::{
-    Forward, ProfileStandIn, Realm, Seen, WorkspaceStandIn, forward,
-    hamlet_with, key, kind, until,
+    Callee, Forward, MAYOR, ProfileStandIn, Realm, Seen,
+    WorkspaceStandIn, forward, hamlet_with, key, kind, until,
 };
 
 const FAUX: &str = "faux::faux-1";
@@ -420,6 +422,81 @@ async fn a_refused_edit_changes_nothing() {
     assert_eq!(
         read_copies(&realm, &ReadCopies::default()).await,
         before
+    );
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn allow_net_shows_each_reach_pending_until_the_workspace_answers()
+ {
+    let (realm, _) = hamlet_with(0).await;
+    realm.seen.hold(Callee::SetReach);
+
+    chief(&realm, settings(Setting::AllowNet { allow: true })).await;
+
+    seen_until(
+        &realm,
+        "the mayor's reach waits for the workspace",
+        |seen| {
+            seen.agents.iter().any(|shown| {
+                shown.agent == MAYOR
+                    && matches!(
+                        shown.reach,
+                        ReachSeen::Pending { .. }
+                    )
+            })
+        },
+    )
+    .await;
+    realm.seen.release(Callee::SetReach);
+    realm.live(MAYOR).await;
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_endpoint_is_refused_in_todays_words() {
+    let (realm, _) = realm_with_copies().await;
+    let endpoint = |address: &str| {
+        settings(Setting::Endpoints {
+            endpoints: vec![Endpoint {
+                name: "local".into(),
+                base_url: address.into(),
+            }],
+        })
+    };
+    let refused = |address: &str| {
+        let address = address.to_owned();
+        move |refusal: fn(String) -> SettingRefusal| {
+            Done::refused(refusal(address))
+        }
+    };
+
+    let mut answers = Vec::new();
+    for address in [
+        "ftp://host",
+        "localhost:11434",
+        "nowhere",
+        "http://me:key@host",
+        " http://127.0.0.1:11434/v1 ",
+    ] {
+        answers.push(chief(&realm, endpoint(address)).await);
+    }
+
+    assert_eq!(
+        answers,
+        [
+            refused("ftp://host")(|address| {
+                SettingRefusal::NotHttp { address }
+            }),
+            refused("localhost:11434")(|address| {
+                SettingRefusal::NotHttp { address }
+            }),
+            refused("nowhere")(|address| {
+                SettingRefusal::NotAnAddress { address }
+            }),
+            Done::refused(SettingRefusal::AddressHoldsKey),
+            Done::Done,
+        ]
     );
     realm.host.shutdown().await.unwrap();
 }

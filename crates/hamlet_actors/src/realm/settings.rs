@@ -18,6 +18,7 @@ use super::act::{Act, Decided, Decision};
 use super::calls::Made;
 use super::change::{Affected, Rows, Writer};
 use super::documents::{self, Copied, Part, Readers};
+use super::world;
 use crate::cbor;
 
 // Copied from the server's `settings.rs`.
@@ -156,15 +157,20 @@ fn endpoints_fault(
     Ok(())
 }
 
-/// A model server's address, read as `scheme://authority/...`.
+/// A model server's address, read as `scheme:` then, for http,
+/// `//authority/...`.
 fn address_fault(address: &str) -> Result<(), SettingRefusal> {
     let not_an_address = || SettingRefusal::NotAnAddress {
         address: address.to_owned(),
     };
     let (scheme, rest) =
-        address.split_once("://").ok_or_else(not_an_address)?;
-    let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
-    if scheme.is_empty() || authority.is_empty() {
+        address.split_once(':').ok_or_else(not_an_address)?;
+    let is_scheme = scheme
+        .starts_with(|c: char| c.is_ascii_alphabetic())
+        && scheme
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "+-.".contains(c));
+    if !is_scheme {
         return Err(not_an_address());
     }
     if !["http", "https"]
@@ -174,6 +180,14 @@ fn address_fault(address: &str) -> Result<(), SettingRefusal> {
         return Err(SettingRefusal::NotHttp {
             address: address.to_owned(),
         });
+    }
+    let authority = rest
+        .trim_start_matches('/')
+        .split(['/', '?', '#'])
+        .next()
+        .unwrap_or("");
+    if authority.is_empty() {
+        return Err(not_an_address());
     }
     if authority.contains('@') {
         return Err(SettingRefusal::AddressHoldsKey);
@@ -216,9 +230,15 @@ pub(super) async fn apply(
             readers: Readers::Living,
         })
         .collect();
+    let seen = if reaches.is_empty() {
+        BTreeSet::new()
+    } else {
+        BTreeSet::from([world::Part::Reaches])
+    };
     Ok(Affected {
         reaches,
         copies,
+        seen,
         ..Affected::default()
     })
 }
