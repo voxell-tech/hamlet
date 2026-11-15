@@ -7,10 +7,10 @@ use hamlet_messages::realm::client::ReadWorld;
 use hamlet_messages::realm::world::{
     AgentSeen, ReachSeen, Revision, Seen, Status, WaitId, WaitSeen,
 };
-use hamlet_messages::realm::{Done, End, Named};
+use hamlet_messages::realm::{Asked, Done, End, Named};
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::{AgentNumber, CallId, ReachVersion};
-use hamlet_protocol::client::Choice;
+use hamlet_protocol::client::{Choice, RequestId};
 use tokio::task::JoinSet;
 
 use super::{
@@ -238,6 +238,47 @@ async fn a_burst_of_charges_moves_the_world_only_forward() {
             .collect::<Vec<_>>(),
         [(&hamlet, MAYOR)]
     );
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_repeated_end_keeps_the_revision() {
+    // the chief ends 3 and its ended reach is applied. The same
+    // request again sends the reach again, which the workspace
+    // already holds: no row changes, so the revision stays for the
+    // second the repeat's push takes at most.
+    let (realm, _) = hamlet_with(1).await;
+    let end = Asked {
+        id: RequestId::new(),
+        act: End {
+            hire: Named::Agent { agent: THREE },
+            why: None,
+        },
+    };
+    let ended = realm.ask(&end).await.unwrap();
+    let applied =
+        seen_until(&realm, "3's ended reach applied", |seen| {
+            seen.agents.iter().any(|agent| {
+                agent.agent == THREE
+                    && agent.reach
+                        == ReachSeen::Applied {
+                            version: ReachVersion(2),
+                        }
+            })
+        })
+        .await;
+    let repeated = realm.ask(&end).await.unwrap();
+    let begun = Instant::now();
+    let mut after = realm.ask(&ReadWorld).await.unwrap();
+    while after.revision == applied.revision
+        && begun.elapsed() < Duration::from_secs(1)
+    {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        after = realm.ask(&ReadWorld).await.unwrap();
+    }
+
+    assert_eq!([ended, repeated], [Done::Done, Done::Done]);
+    assert_eq!(after.revision, applied.revision);
     realm.host.shutdown().await.unwrap();
 }
 

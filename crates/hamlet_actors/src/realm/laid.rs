@@ -20,10 +20,9 @@ use super::callers::Lead;
 use super::calls::{Calls, Delivery, Made};
 use super::change::{Affected, At, Rows, Writer, number};
 use super::roads::{self, Way};
-use super::tasks::TaskId;
 use super::tree::{self, Lineage, Status};
 use super::world::Part;
-use super::{budget, letters, record};
+use super::{budget, hire, letters, record};
 
 #[derive(Debug, PartialEq)]
 pub(super) enum Change {
@@ -167,7 +166,10 @@ pub(super) async fn laid_at(
         .map(At))
 }
 
-async fn open_in(rows: &Rows<'_>, hamlet: &HamletId) -> Result<u32> {
+async fn live_roads_in(
+    rows: &Rows<'_>,
+    hamlet: &HamletId,
+) -> Result<u32> {
     Ok(rows
         .value(
             "SELECT COUNT(*) FROM road JOIN agent AS one ON one.id \
@@ -183,7 +185,7 @@ async fn open_in(rows: &Rows<'_>, hamlet: &HamletId) -> Result<u32> {
 pub(super) struct Laying {
     ends: Option<(Lineage, Lineage)>,
     laid: bool,
-    in_hamlet: u32,
+    live_roads: u32,
 }
 
 impl Laying {
@@ -200,17 +202,17 @@ impl Laying {
             return Ok(Self {
                 ends: None,
                 laid: false,
-                in_hamlet: 0,
+                live_roads: 0,
             });
         };
-        let in_hamlet = match &a.hamlet {
-            Some(hamlet) => open_in(rows, &hamlet.id).await?,
+        let live_roads = match &a.hamlet {
+            Some(hamlet) => live_roads_in(rows, &hamlet.id).await?,
             None => 0,
         };
         Ok(Self {
             laid: between(rows, a.agent.agent, b.agent.agent).await?,
             ends: Some((a, b)),
-            in_hamlet,
+            live_roads,
         })
     }
 }
@@ -268,7 +270,7 @@ impl<By: Lead> Act<By> for LayRoad {
             return refuse(LayRefusal::RoadExists { a: one, b: two });
         }
         let most = hamlet.limits.road.most;
-        if laying.in_hamlet >= most {
+        if laying.live_roads >= most {
             return refuse(LayRefusal::Full {
                 hamlet: hamlet.id.clone(),
                 most,
@@ -343,6 +345,7 @@ impl<By: Lead> Act<By> for TakeUpRoad {
 
 pub(super) struct Asking {
     ends: roads::Ends,
+    lead: Option<roads::End>,
     letter: LetterId,
 }
 
@@ -356,8 +359,18 @@ impl Act<Agent> for RequestRoad {
         by: &Agent,
         rows: &Rows<'_>,
     ) -> Result<Asking> {
+        let ends = roads::ends(rows, by, &self.to).await?;
+        let lead = ends
+            .from
+            .lead
+            .or(ends.from.is_mayor.then_some(Hand::NUMBER));
+        let lead = match lead {
+            Some(lead) => Some(roads::end_of(rows, lead).await?),
+            None => None,
+        };
         Ok(Asking {
-            ends: roads::ends(rows, by, &self.to).await?,
+            ends,
+            lead,
             letter: letters::fresh(rows).await?,
         })
     }
@@ -370,35 +383,41 @@ impl Act<Agent> for RequestRoad {
         let refuse = |why| {
             Decision::Answer(Done::refused(AgentRefusal::Act(why)))
         };
-        let Asking { ends, letter } = asking;
+        let Asking { ends, lead, letter } = asking;
         let Some(to) = ends.to else {
             return refuse(RequestRoadRefusal::NoSuchAgent);
         };
-        let from = ends.from;
-        let lead = match from.lead {
-            Some(lead) => lead,
-            None if from.is_mayor => Hand::NUMBER,
-            None => return refuse(RequestRoadRefusal::NoLead),
+        let Some(lead) = lead else {
+            return refuse(RequestRoadRefusal::NoLead);
         };
+        if lead.status == Status::Hiring {
+            return Decision::WaitFor {
+                row: hire::row(lead.agent),
+                refusal: Done::refused(AgentRefusal::Act(
+                    RequestRoadRefusal::StillHiring {
+                        lead: lead.agent,
+                    },
+                )),
+            };
+        }
         let named = if to.agent == Hand::NUMBER {
             "the Hand".to_owned()
         } else {
             format!("`hire#{}`", to.agent.0)
         };
-        Decision::Change(Decided::new(letter).change(
-            letters::Change::Keep {
-                letter,
-                kind: letters::Kind::Letter,
-                from: from.agent,
-                to: lead,
-                way: Way::Tree,
-                text: format!(
-                    "I ask for a road to {named}: {}",
-                    self.why
-                ),
-                task: self.task.as_ref().and_then(TaskId::of),
-                conversation: None,
-            },
+        let text =
+            format!("I ask for a road to {named}: {}", self.why);
+        let written = letters::Written {
+            kind: letters::Kind::Letter,
+            text: &text,
+            task: self.task.as_ref(),
+            conversation: None,
+        };
+        Decision::Change(written.keep(
+            letter,
+            ends.from.agent,
+            &lead,
+            Way::Tree,
         ))
     }
 

@@ -48,14 +48,18 @@ async fn applied(
     agent: AgentNumber,
     version: ReachVersion,
 ) -> Result<Affected> {
-    writer
+    let changed = writer
         .execute(
             "UPDATE reach SET applied = ?2 WHERE agent = ?1 AND \
              (applied IS NULL OR applied < ?2)",
             vec![number(agent), change::integer(version.0)?],
         )
         .await?;
-    Ok(Affected::seen([Part::Reaches]))
+    Ok(if changed > 0 {
+        Affected::seen([Part::Reaches])
+    } else {
+        Affected::default()
+    })
 }
 
 /// Raises the wanted reach of each agent in `affected.reaches` and

@@ -828,6 +828,8 @@ pub enum RequestRoadRefusal {
     NoSuchAgent,
     #[error("you have no lead to ask")]
     NoLead,
+    #[error("your lead `hire#{}` is still being hired", lead.0)]
+    StillHiring { lead: AgentNumber },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

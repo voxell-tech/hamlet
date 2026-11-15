@@ -83,7 +83,7 @@ pub(super) fn given_purpose(purpose: Option<&str>) -> Option<String> {
         .map(str::to_owned)
 }
 
-const PURPOSE_KEPT: usize = 200;
+const PURPOSE_MOST_CHARS: usize = 200;
 
 pub(super) fn purpose_from(
     hire: AgentNumber,
@@ -93,7 +93,7 @@ pub(super) fn purpose_from(
         text.lines().map(str::trim).find(|line| !line.is_empty())?;
     Some(Change::Purpose {
         hire,
-        text: line.chars().take(PURPOSE_KEPT).collect(),
+        text: line.chars().take(PURPOSE_MOST_CHARS).collect(),
     })
 }
 

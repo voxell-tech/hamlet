@@ -574,6 +574,10 @@ fn the_roads_and_the_tools(fixtures: &mut Fixtures) {
             vec![
                 ("no_such_agent", RequestRoadRefusal::NoSuchAgent),
                 ("no_lead", RequestRoadRefusal::NoLead),
+                (
+                    "still_hiring",
+                    RequestRoadRefusal::StillHiring { lead: HIRE },
+                ),
             ],
         ),
     );

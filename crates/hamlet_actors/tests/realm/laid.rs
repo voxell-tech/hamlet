@@ -1,20 +1,30 @@
 use hamlet_messages::agent::{Author, Input, Place};
+use hamlet_messages::realm::budget::Payer;
 use hamlet_messages::realm::world::{RoadSeen, Seen};
 use hamlet_messages::realm::{
     AgentRefusal, Asked, Done, End, FoundAnswer, Gate, HamletId,
-    HowEnded, LayRefusal, LayRoad, LeadRefusal, Left, LetterRefusal,
-    Named, Rank, RequestRoad, RequestRoadRefusal, SetTier, SetTools,
-    SocietyTool, TakeUpRefusal, TakeUpRoad, Tier, TierRefusal,
-    ToolsRefusal,
+    Hire, HowEnded, LayRefusal, LayRoad, LeadRefusal, Left,
+    LetterRefusal, Named, Rank, RequestRoad, RequestRoadRefusal,
+    SetTier, SetTools, SocietyTool, TakeUpRefusal, TakeUpRoad, Tier,
+    TierRefusal, ToolsRefusal,
 };
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::AgentNumber;
 use hamlet_protocol::client::RequestId;
 
 use super::{
-    FOUR, MAYOR, Realm, THREE, found, hamlet_with, seen_submits,
-    tell, to, tool, until, world,
+    Callee, FOUR, MAYOR, Realm, THREE, chief_hires, found,
+    hamlet_with, hire, purpose_of, seen_submits, submits_to, tell,
+    to, tool, until, world,
 };
+
+fn request_road(to: AgentNumber) -> RequestRoad {
+    RequestRoad {
+        to: self::to(to),
+        why: "to report the well".to_owned(),
+        task: None,
+    }
+}
 
 fn lay(a: AgentNumber, b: AgentNumber) -> LayRoad {
     LayRoad { a: to(a), b: to(b) }
@@ -62,16 +72,25 @@ async fn roads_seen(realm: &Realm, roads: &[(u32, u32)]) -> Seen {
     .await
 }
 
-async fn road_charges(realm: &Realm) -> i64 {
-    realm
-        .rows(|db| {
-            db.query_row(
-                "SELECT COUNT(*) FROM charge WHERE agent = 0",
-                [],
-                |row| row.get(0),
-            )
-        })
-        .await
+const ROAD_PRICE: u64 = 10_000;
+
+/// Waits until the world shows `hamlet` spent `micros`.
+async fn spent(realm: &Realm, hamlet: &HamletId, micros: u64) {
+    let pays = Payer::Hamlet {
+        hamlet: hamlet.clone(),
+    };
+    world::seen_until(
+        realm,
+        &format!("the hamlet spent {micros}"),
+        |seen| {
+            seen.spend
+                .iter()
+                .find(|spend| spend.payer == pays)
+                .map_or(0, |spend| spend.spent_micros)
+                == micros
+        },
+    )
+    .await;
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -79,9 +98,9 @@ async fn a_laid_road_carries_letters_and_is_charged_once() {
     // the mayor lays a road between its hires 3 and 4, who have no
     // road by the tree, then lays it again with the same call: Done;
     // and with another: `RoadExists`. 3 tells 4 twice with two call
-    // ids: both delivered. The road's charge is one row, the world
-    // shows the road, and both ends' places hold each other.
-    let (realm, _) = hamlet_with(2).await;
+    // ids: both delivered. The hamlet spent one road's price, the
+    // world shows the road, and both ends' places hold each other.
+    let (realm, hamlet) = hamlet_with(2).await;
     let laying = tool("r1", lay(THREE, FOUR));
 
     let laid = realm.tool(MAYOR, &laying).await.unwrap();
@@ -124,7 +143,7 @@ async fn a_laid_road_carries_letters_and_is_charged_once() {
             text: "hi".to_owned()
         }
     );
-    assert_eq!(road_charges(&realm).await, 1);
+    spent(&realm, &hamlet, ROAD_PRICE).await;
     let used = realm
         .rows(|db| {
             db.query_row(
@@ -252,11 +271,74 @@ async fn a_road_is_asked_for_by_a_letter_to_the_lead() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn a_road_request_gives_a_lead_with_no_purpose_one() {
+    // the chief hires 3 under the mayor with no purpose, and 4 under
+    // 3. 4's request for a road to the mayor is the first message 3
+    // is given: its first line becomes 3's purpose, as a letter's
+    // does.
+    let (realm, hamlet) = hamlet_with(0).await;
+    chief_hires(
+        &realm,
+        &hamlet,
+        Hire {
+            purpose: None,
+            ..hire(Some(to(MAYOR)))
+        },
+    )
+    .await;
+    realm.live(THREE).await;
+    chief_hires(&realm, &hamlet, hire(Some(to(THREE)))).await;
+    realm.live(FOUR).await;
+
+    let asked = realm
+        .tool(FOUR, &tool("q1", request_road(MAYOR)))
+        .await
+        .unwrap();
+    seen_submits(&realm, THREE, 1).await;
+
+    assert_eq!(asked, Done::Done);
+    assert_eq!(
+        purpose_of(&realm, THREE).await.as_deref(),
+        Some("I ask for a road to `hire#2`: to report the well")
+    );
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_road_request_to_a_lead_still_hiring_waits_for_its_steps() {
+    // the chief hires 3 under the mayor, whose create fails once, so
+    // 3 stays hiring, and 4 under 3. 4's road request waits out the
+    // hiring wait and is refused `StillHiring`, and 3 is given
+    // nothing.
+    let (realm, hamlet) = hamlet_with(0).await;
+    realm.seen.fail_once.lock().unwrap().insert(Callee::Create);
+    chief_hires(&realm, &hamlet, hire(Some(to(MAYOR)))).await;
+    chief_hires(&realm, &hamlet, hire(Some(to(THREE)))).await;
+    realm.live(FOUR).await;
+
+    let asked = realm
+        .tool(FOUR, &tool("q1", request_road(MAYOR)))
+        .await
+        .unwrap();
+
+    assert_eq!(
+        asked,
+        Done::Refused {
+            why: AgentRefusal::Act(RequestRoadRefusal::StillHiring {
+                lead: THREE
+            })
+        }
+    );
+    assert!(submits_to(&realm, THREE).is_empty());
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn a_road_taken_up_carries_no_letter_and_is_charged_again() {
     // lay 3-4 and take it up: a tell across it is `NoRoad`, and
     // taking it up again is refused `NoRoad`. Laid again, it is
-    // charged again: two charges.
-    let (realm, _) = hamlet_with(2).await;
+    // charged again: the hamlet spent two roads' price.
+    let (realm, hamlet) = hamlet_with(2).await;
     let take_up = TakeUpRoad {
         a: to(FOUR),
         b: to(THREE),
@@ -300,7 +382,7 @@ async fn a_road_taken_up_carries_no_letter_and_is_charged_again() {
             })
         }
     );
-    assert_eq!(road_charges(&realm).await, 2);
+    spent(&realm, &hamlet, 2 * ROAD_PRICE).await;
     realm.host.shutdown().await.unwrap();
 }
 
@@ -311,7 +393,7 @@ async fn a_road_joins_two_hires_of_one_hamlet_under_its_layer() {
     // lays none it does not lead both ends of. A road between a hire
     // and its own lead is there by the tree: `RoadExists`, and
     // nothing is charged.
-    let (realm, _) = hamlet_with(2).await;
+    let (realm, hamlet) = hamlet_with(2).await;
     let other = realm
         .ask(&Asked {
             id: RequestId::new(),
@@ -383,7 +465,7 @@ async fn a_road_joins_two_hires_of_one_hamlet_under_its_layer() {
     );
     assert_eq!(ended, Done::Done);
     assert_eq!(seen.roads, []);
-    assert_eq!(road_charges(&realm).await, 0);
+    spent(&realm, &hamlet, 0).await;
     realm.host.shutdown().await.unwrap();
 }
 

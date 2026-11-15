@@ -69,7 +69,7 @@ pub(super) async fn ends(
     from: &Agent,
     to: &Named,
 ) -> Result<Ends> {
-    let from = end(&tree::lineage_of(rows, from.0).await?);
+    let from = end_of(rows, from.0).await?;
     let Some(to) =
         tree::resolve(rows, from.hamlet.as_ref(), to).await?
     else {
@@ -81,7 +81,7 @@ pub(super) async fn ends(
     };
     Ok(Ends {
         laid: laid::between(rows, from.agent, to).await?,
-        to: Some(end(&tree::lineage_of(rows, to).await?)),
+        to: Some(end_of(rows, to).await?),
         from,
     })
 }
@@ -115,6 +115,13 @@ pub(super) async fn of(
         }
     }
     Ok(roads)
+}
+
+pub(super) async fn end_of(
+    rows: &Rows<'_>,
+    agent: AgentNumber,
+) -> Result<End> {
+    Ok(end(&tree::lineage_of(rows, agent).await?))
 }
 
 fn end(lineage: &Lineage) -> End {

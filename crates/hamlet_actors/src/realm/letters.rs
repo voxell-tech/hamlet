@@ -20,7 +20,7 @@ use super::act::{Act, Decided, Decision};
 use super::calls::{Calls, Delivery, Made};
 use super::change::{self, Affected, Rows, Writer, number};
 use super::peer::When;
-use super::roads::{self, Ends, Way};
+use super::roads::{self, End, Ends, Way};
 use super::tasks::TaskId;
 use super::tree::{self, Status};
 use super::{Realm, hire, laid};
@@ -253,11 +253,11 @@ impl Letter {
     }
 }
 
-struct Written<'a> {
-    kind: Kind,
-    text: &'a str,
-    task: Option<&'a RealmTask>,
-    conversation: Option<&'a ConversationId>,
+pub(super) struct Written<'a> {
+    pub kind: Kind,
+    pub text: &'a str,
+    pub task: Option<&'a RealmTask>,
+    pub conversation: Option<&'a ConversationId>,
 }
 
 impl Written<'_> {
@@ -292,10 +292,20 @@ impl Written<'_> {
                 )),
             };
         }
+        Decision::Change(self.keep(id, ends.from.agent, to, way))
+    }
+
+    pub fn keep(
+        self,
+        id: LetterId,
+        from: AgentNumber,
+        to: &End,
+        way: Way,
+    ) -> Decided<LetterId> {
         let mut decided = Decided::new(id).change(Change::Keep {
             letter: id,
             kind: self.kind,
-            from: ends.from.agent,
+            from,
             to: to.agent,
             way,
             text: self.text.to_owned(),
@@ -310,10 +320,10 @@ impl Written<'_> {
         }
         if way == Way::Laid {
             decided = decided.change(laid::Change::Used {
-                between: (ends.from.agent, to.agent),
+                between: (from, to.agent),
             });
         }
-        Decision::Change(decided)
+        decided
     }
 }
 
