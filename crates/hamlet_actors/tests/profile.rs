@@ -36,7 +36,7 @@ const PEERS: [&str; 2] = [address::Realm::KIND, address::Agent::KIND];
 
 const CHARACTER: &str = "A careful reader.";
 
-/// What an agent stand-in was told.
+/// The messages an agent stand-in was told.
 #[derive(Default)]
 struct Told(Mutex<Vec<(String, Moved)>>);
 
@@ -179,7 +179,6 @@ fn character() -> ProfileInput {
     }
 }
 
-/// A host with profile 1 created from a character.
 async fn made(dir: &Path) -> Host {
     let host = open(dir);
     create(&host, 1, &character()).await.unwrap();

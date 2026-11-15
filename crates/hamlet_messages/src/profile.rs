@@ -145,14 +145,15 @@ pub struct Path {
 }
 
 /// What `profile/<n>` is created with. The host keeps it and gives it
-/// at every start; the repository is made from it whenever it has no
-/// `main`.
+/// at every start, which makes the repository from it unless the
+/// repository exists or was erased.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ProfileInput {
     /// A new profile whose first commit holds `CHARACTER.md`.
     Character { text: String },
-    /// A copy of another profile's history up to `at`.
+    /// A new profile whose first commit holds the files of another
+    /// profile's commit `at`.
     Fork { profile: ProfileId, at: CommitId },
 }
 

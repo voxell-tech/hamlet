@@ -28,15 +28,10 @@ use crate::repo::{
 /// The most characters a character holds.
 const MOST_CHARACTER: u32 = 4000;
 
-/// The folder of the profile's memory files.
 const MEMORY: &str = "memory/";
 
-/// The folder of the profile's skills.
 const SKILLS: &str = "skills/";
 
-/// Whether `version` is a version's name: 1 to 32 letters, digits,
-/// dots and hyphens, a letter or a digit first, with no `..`, no dot
-/// last and no `.lock` last.
 fn is_version_name(version: &str) -> bool {
     (1..=32).contains(&version.len())
         && version.bytes().all(|b| {
@@ -186,7 +181,6 @@ fn revert(
     })
 }
 
-/// The commit of `main` that `what` names.
 fn undone(
     git: &Reads,
     what: &Revision,
@@ -230,8 +224,6 @@ impl Takes<Edit> for Profile {
     }
 }
 
-/// Refuses a path that is not the character or a memory file, and a
-/// character over [`MOST_CHARACTER`].
 fn editable(path: &str, text: &str) -> Result<(), EditRefusal> {
     if !parts::is_file_path(path) {
         let path = path.to_owned();

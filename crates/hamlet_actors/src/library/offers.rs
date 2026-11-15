@@ -30,14 +30,12 @@ use crate::repo::{Before, Call, Ended, Reply, Takes};
 /// The most bytes the files of one skill hold.
 const MOST_SKILL: usize = 4 << 20;
 
-/// The token of the `offer` table.
 struct Offers(());
 
 impl store::Table for Offers {
     const NAME: &'static str = "offer";
 }
 
-/// The token of the `offer_piece` table.
 struct Pieces(());
 
 impl store::Table for Pieces {
@@ -105,7 +103,6 @@ fn first(
     .transpose()
 }
 
-/// The files `pieces` make, each from its pieces end to end.
 fn whole(mut pieces: Vec<Kept>) -> Result<Vec<Change>> {
     pieces.sort_by(|a, b| {
         (&a.path, a.offset).cmp(&(&b.path, b.offset))
@@ -129,7 +126,6 @@ fn has_front_matter(files: &[Change]) -> bool {
     })
 }
 
-/// The pieces the store keeps of the offer `offer`.
 fn pieces(rows: &Rows<'_, Pieces>, offer: u32) -> Result<Vec<Kept>> {
     rows.select(
         "SELECT path, offset, bytes, last, executable FROM \
@@ -375,7 +371,6 @@ fn exactly(
     Ok(files)
 }
 
-/// The files of an offer's commit, in path order.
 fn offered(
     git: &Reads,
     at: hamlet_git::CommitId,
@@ -391,8 +386,7 @@ fn offered(
         .collect()
 }
 
-/// The SHA-256 over each file's path, then its bytes, in path order:
-/// what [`DropCopy`] carries.
+/// The SHA-256 of `files` that [`DropCopy`] carries.
 fn digest(files: &[(hamlet_git::Entry, Vec<u8>)]) -> Sha256 {
     let mut digest = sha2::Sha256::new();
     for (entry, bytes) in files {

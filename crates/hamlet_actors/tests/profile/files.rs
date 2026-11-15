@@ -25,7 +25,7 @@ async fn settle(host: &Host, version: &str) {
     assert!(matches!(tagged, TagAnswer::Tagged { .. }), "{tagged:?}");
 }
 
-/// What one fill gave.
+/// The result of one fill.
 #[derive(Debug, Default)]
 struct Filled {
     tip: Option<CommitId>,

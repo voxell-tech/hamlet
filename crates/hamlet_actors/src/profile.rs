@@ -1,8 +1,5 @@
 //! The `profile` actor, one per profile: the only writer of its
 //! repository, `scholars/<n>.git`, and of the store beside it.
-//!
-//! An action is an `impl Takes<M> for Profile` in the module that
-//! owns what it changes, and one entry in `Actions` below.
 
 mod dreams;
 mod files;
@@ -65,8 +62,6 @@ pub(crate) struct Profile {
 
 #[async_trait::async_trait]
 impl Actor for Profile {
-    /// `None` only for a profile started with no input, which fails
-    /// its start: the realm makes a profile with `create`.
     type Input = Option<ProfileInput>;
     type Actions = (
         Branch,
@@ -87,8 +82,6 @@ impl Actor for Profile {
     type ConnParams = Option<Caller>;
     type Action = ();
 
-    /// Runs at every start. The repository is made from the input
-    /// whenever it is not there.
     async fn create(ctx: &Ctx<Self>) -> Result<Self> {
         let input = ctx
             .input()?
@@ -117,8 +110,6 @@ fn repository(
     repositories.join(format!("{}.git", profile.0.0))
 }
 
-/// Makes `main` from the input: a first commit of the character, or
-/// the files of another profile's commit.
 fn first_commit(
     git: &Git<'_>,
     input: &ProfileInput,
@@ -171,7 +162,6 @@ impl Owner for Profile {
         &self.repo
     }
 
-    /// Takes `main` into each hire that follows it.
     fn settle(settle: &mut Settle<'_, Self>) -> Result<()> {
         hires::follow_main(settle)
     }
@@ -199,15 +189,11 @@ fn git_commit(commit: CommitId) -> Result<hamlet_git::CommitId> {
 
 #[cfg(test)]
 impl repo::testing::Hostless {
-    /// A profile with no host, made from `character`, its realm
-    /// folder `home`.
     pub(crate) fn profile(home: &Path, character: &str) -> Self {
         Self::start_profile(home, character)
             .expect("a scratch folder takes a repository")
     }
 
-    /// A profile's start with no host, as [`Self::profile`], which
-    /// may fail.
     pub(crate) fn start_profile(
         home: &Path,
         character: &str,
@@ -248,7 +234,6 @@ mod tests {
         )
     }
 
-    /// One call of each action, each as its caller would send it.
     fn every_action() -> Vec<(&'static str, Vec<u8>)> {
         vec![
             args(&Branch {

@@ -28,7 +28,6 @@ CREATE TABLE IF NOT EXISTS offer_piece (
     PRIMARY KEY (offer, path, offset)
 ) STRICT;
 
--- What happened on the shelves.
 CREATE TABLE IF NOT EXISTS shelf_event (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     -- shelved, refused or unshelved

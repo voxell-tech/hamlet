@@ -120,7 +120,7 @@ impl Sql for UnitSql {
 }
 
 /// A table of the store, named by a token only the module that owns
-/// the table can make: `pub(super) struct Hire(());`.
+/// the table can make.
 pub(crate) trait Table {
     const NAME: &'static str;
 }

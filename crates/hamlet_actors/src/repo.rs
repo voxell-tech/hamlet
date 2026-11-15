@@ -1,7 +1,6 @@
 //! The one way to a repository and the store beside it.
 //!
-//! An actor that keeps a repository (an [`Owner`]: the profile, the
-//! library) takes every call through [`admit`], which checks the
+//! An [`Owner`] takes every call through [`admit`], which checks the
 //! caller and hands the action a [`Call`]. An action is straight-line
 //! code over that call: it never sees its `Ctx`, a
 //! `hamlet_git::Repository`, a SQL handle or a `HostRef`.
@@ -68,7 +67,7 @@ pub(crate) trait Owner:
 
 /// A kind of sender an [`Owner`] takes calls from.
 pub(crate) trait Admits<S: Sender>: Owner {
-    /// What the store holds of the caller, handed to the action.
+    /// The store's record of the caller, handed to the action.
     type Known: Send + 'static;
 
     /// `None` for a caller the store has no row for. Its call fails
@@ -345,7 +344,7 @@ where
     }
 }
 
-/// What [`Call::fresh`] found under the id.
+/// The outcome of [`Call::fresh`] under the id.
 #[expect(
     clippy::large_enum_variant,
     reason = "made once per call and matched at once, never kept"
@@ -415,8 +414,8 @@ where
     }
 }
 
-/// What a closure reads: the message, what the store holds of its
-/// caller, the repository and the store.
+/// A closure's view: the message, the store's record of its caller,
+/// the repository and the store.
 pub(crate) struct Look<'a, A: Admits<M::From>, M: Message> {
     held: &'a mut Held,
     sql: &'a dyn Sql,
@@ -434,7 +433,7 @@ impl<A: Admits<M::From>, M: Message> Look<'_, A, M> {
         self.asked.at
     }
 
-    /// What the store holds of the caller: for an agent, its hire.
+    /// The store's record of the caller.
     pub fn from(&self) -> &A::Known {
         self.from
     }
@@ -523,7 +522,6 @@ impl<'a, A: Admits<M::From>, M: Message> Deref for Writer<'a, A, M> {
 }
 
 impl<A: Admits<M::From>, M: Message> Writer<'_, A, M> {
-    /// The repository's writes.
     pub fn writes(&self) -> Result<Git<'_>> {
         self.look.held.writes()
     }
@@ -584,7 +582,8 @@ impl<A: Admits<M::From>, M: Message> Writer<'_, A, M> {
     }
 }
 
-/// How a unit ended. Only a [`Before`] or a [`Writer`] makes one.
+/// The outcome of a unit. Only a [`Before`] or a [`Writer`] makes
+/// one.
 pub(crate) struct Ended<M: Message> {
     end: End<M::Output>,
     /// The owner destroys itself once it has answered: an erase.
@@ -602,7 +601,7 @@ enum End<O> {
     Kept(O),
 }
 
-/// What runs after a kept unit: the owner's settle step.
+/// The owner's settle step, run after a kept unit.
 pub(crate) struct Settle<'a, A: Owner> {
     held: &'a Held,
     sql: &'a dyn Sql,
@@ -651,7 +650,7 @@ impl Told {
     }
 }
 
-/// What a unit that may change ended with.
+/// The end of a unit that may change.
 struct Changed<O> {
     answer: O,
     told: Vec<Told>,
@@ -989,7 +988,7 @@ mod tests {
         }
     }
 
-    /// What the agents were sent, as `<call>:<agent>`.
+    /// The calls the agents were sent, as `<call>:<agent>`.
     #[derive(Default)]
     struct Heard(Mutex<Vec<String>>);
 

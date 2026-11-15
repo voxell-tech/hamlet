@@ -1,6 +1,6 @@
-//! A folder under the realm folder that holds a commit's files, as a
-//! dream's or the library's checkout: reached through its open
-//! directory one name at a time, never through a link.
+//! A folder under the realm folder that holds a commit's files,
+//! reached through its open directory one name at a time, never
+//! through a link.
 
 use std::collections::BTreeSet;
 use std::io::{ErrorKind, Read as _, Write as _};
@@ -221,7 +221,6 @@ pub(super) fn remove_folder(home: &Path, under: &Path) -> Result<()> {
     }
 }
 
-/// Removes the folder `name` in `dir` with everything in it.
 fn remove_tree(dir: &Directory, name: &Name) -> Result<()> {
     let child = dir.child(name)?;
     for inner in child.names()? {

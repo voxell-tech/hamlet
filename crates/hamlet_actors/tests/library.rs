@@ -47,7 +47,8 @@ const PAPER: &str = "---\nname: tidy\ndescription: Tidy a \
 
 const SCRIPT: &str = "print('tidy')\n";
 
-/// What the agent stand-ins were told, each under its address.
+/// The messages the agent stand-ins were told, each under its
+/// address.
 #[derive(Default)]
 struct Told {
     shelves: Mutex<Vec<(String, ShelfList)>>,
@@ -163,7 +164,6 @@ fn open_with(dir: &Path, told: Arc<Told>) -> Host {
     .unwrap()
 }
 
-/// A host with the library started.
 async fn open(dir: &Path, told: Arc<Told>) -> Host {
     let host = open_with(dir, told);
     host.get_or_start(&library_at()).await.unwrap();

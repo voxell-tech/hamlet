@@ -30,7 +30,6 @@ const MAIN_SIDE: &str = "main";
 /// The checkout of the hire's branch, in a dream's folder.
 const HIRE_SIDE: &str = "hire";
 
-/// The token of the `dream` table.
 struct Table(());
 
 impl store::Table for Table {
@@ -54,8 +53,6 @@ fn skip(path: &str) -> bool {
     path == CHARACTER
 }
 
-/// The dream's folder under the realm folder, or one of its
-/// checkouts.
 fn folder(dream: DreamId, side: Option<&str>) -> String {
     match side {
         Some(side) => format!("{DREAMS}/{}/{side}", dream.0),
@@ -138,7 +135,6 @@ where
     }
 }
 
-/// The hire of `agent`, which a dream of it names.
 fn hire_of<M>(
     look: &Look<'_, Profile, M>,
     agent: AgentNumber,
@@ -292,9 +288,6 @@ fn end(
     writer.kept(outcome)
 }
 
-/// Commits the `main` side onto `main` and the hire's side onto its
-/// branch, then takes the new `main` into the branch and tells the
-/// hire's agent.
 fn dreamt(
     writer: &mut Writer<'_, Profile, EndDream>,
     found: &Dream,

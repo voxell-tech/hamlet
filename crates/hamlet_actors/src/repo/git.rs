@@ -120,22 +120,19 @@ impl Reads {
             .map(|commit| commit.id))
     }
 
-    /// Whether the repository holds the commit `at`.
     pub fn has(&self, at: CommitId) -> Result<bool> {
         Ok(self.0.resolve(&at.to_string())? == Some(at))
     }
 }
 
-/// Who a commit or a tag is by, as the record names it. Every write
-/// takes one, so no action builds an author from a free string.
+/// The author of a commit or a tag, as the record names it. Every
+/// write takes one, so no action builds an author from a free string.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum By {
     Chief(u32),
     Agent(AgentNumber),
-    /// A take-in, a pin, a profile's first commit.
     Profile,
     Dream(u32),
-    /// The library's starter skills, and the offers it keeps.
     Library,
 }
 
@@ -195,7 +192,7 @@ impl Git<'_> {
     }
 
     /// Merges `from` into `branch`, the branch's side winning
-    /// clashes: a take-in of `main`, by the profile.
+    /// clashes.
     pub fn take_in(
         &self,
         branch: &str,

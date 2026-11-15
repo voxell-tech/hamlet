@@ -11,11 +11,11 @@ use hamlet_os::fs::TreePath;
 /// The longest name of one file or folder a path may hold, in bytes.
 const MOST_NAME: usize = 255;
 
-/// How a checkout's file being written starts its name; a checkout's
-/// listing never shows one.
+/// The prefix of the name of a checkout's file being written; a
+/// checkout's listing never shows one.
 pub(crate) const INCOMING: &str = ".incoming-";
 
-/// What a piece of `bytes` bytes at `path` counts for in a part.
+/// The size a piece of `bytes` bytes at `path` counts for in a part.
 pub(crate) fn cost(path: &str, bytes: usize) -> usize {
     path.len() + bytes + PIECE_FRAME
 }
@@ -29,7 +29,7 @@ pub(crate) fn is_file_path(path: &str) -> bool {
         })
 }
 
-/// What `pieces`, each a path and its length in bytes, count for
+/// The size `pieces`, each a path and its length in bytes, count for
 /// together, or the first path that is not a file path.
 pub(crate) fn sized<'a>(
     pieces: impl IntoIterator<Item = (&'a str, usize)>,

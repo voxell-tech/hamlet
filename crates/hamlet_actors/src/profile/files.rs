@@ -1,6 +1,7 @@
-//! What a hire's agent asks of its own branch: its files in parts,
-//! and a save of what its filesystem changed, in parts. Also the
-//! `save` table, the parts of a save whose last part has not come.
+//! The calls a hire's agent makes on its own branch: its files in
+//! parts, and a save of what its filesystem changed, in parts. Also
+//! the `save` table, the parts of a save whose last part has not
+//! come.
 
 use std::collections::BTreeMap;
 
@@ -26,7 +27,6 @@ use crate::repo::{Before, Call, Ended, Look, Reply, Takes};
 /// start. Their agents save again under a new call.
 pub(super) const CUT_OFF: &str = "DELETE FROM save";
 
-/// The token of the `save` table.
 struct Table(());
 
 impl store::Table for Table {
@@ -105,7 +105,7 @@ fn files(look: &Look<'_, Profile, Files>) -> Result<FilesAnswer> {
     })
 }
 
-/// What a fill sends, in the order a cursor counts it.
+/// A removal or a file a fill sends, in the order a cursor counts it.
 enum Item {
     Remove(String),
     Write(Entry),
@@ -231,8 +231,6 @@ impl Takes<Save> for Profile {
     }
 }
 
-/// Refuses a part that names a path outside the folder or withheld,
-/// or holds more than [`MOST_PART`].
 fn fits(changes: &[FileChange]) -> Result<(), SaveRefusal> {
     let pieces = changes.iter().map(|change| match change {
         FileChange::Write(piece) => {
@@ -341,7 +339,6 @@ fn save(unit: Before<'_, Profile, Save>) -> Result<Ended<Save>> {
     })
 }
 
-/// The agent and the call that name a save's rows.
 fn of_call(agent: AgentNumber, call: &CallId) -> Vec<BindParam> {
     vec![
         BindParam::Integer(i64::from(agent.0)),
@@ -349,7 +346,6 @@ fn of_call(agent: AgentNumber, call: &CallId) -> Vec<BindParam> {
     ]
 }
 
-/// Whether the save holds any row.
 fn begun(
     rows: &Rows<'_, Table>,
     agent: AgentNumber,
@@ -362,7 +358,6 @@ fn begun(
     Ok(!found.is_empty())
 }
 
-/// The rows of one save, by path and offset.
 fn pieces(
     rows: &Rows<'_, Table>,
     agent: AgentNumber,

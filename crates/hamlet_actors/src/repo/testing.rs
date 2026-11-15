@@ -64,7 +64,8 @@ impl Hostless {
         })
     }
 
-    /// What [`super::Call::once`] answers, with the calls it queued.
+    /// The answer [`super::Call::once`] gives, with the calls it
+    /// queued.
     pub fn once<A, M, F>(
         &mut self,
         caller: Caller,
@@ -89,7 +90,7 @@ impl Hostless {
         changed.map(|changed| (changed.answer, changed.told))
     }
 
-    /// What [`super::Call::read`] answers.
+    /// The answer [`super::Call::read`] gives.
     pub fn read<A, M, F>(
         &mut self,
         caller: Caller,

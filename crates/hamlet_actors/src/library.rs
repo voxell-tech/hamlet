@@ -60,8 +60,6 @@ macro_rules! starter {
 type Starter =
     (&'static str, &'static [(&'static str, &'static str)]);
 
-/// The skills every library starts with, from the texts the server
-/// keeps.
 const STARTERS: &[Starter] = &[
     starter!("web-search", ["SKILL.md", "scripts/search.py"]),
     starter!("read-webpage", ["SKILL.md", "scripts/read.py"]),
@@ -73,14 +71,12 @@ const STARTERS: &[Starter] = &[
     starter!("write-typst", ["SKILL.md"]),
 ];
 
-/// The token of the `shelf_event` table.
 struct Events(());
 
 impl store::Table for Events {
     const NAME: &'static str = "shelf_event";
 }
 
-/// The token of the `listener` table.
 struct Listeners(());
 
 impl store::Table for Listeners {
@@ -115,9 +111,6 @@ impl Actor for Library {
     type ConnParams = Option<Caller>;
     type Action = ();
 
-    /// Runs at every start: the repository is made with the starter
-    /// skills when it is not there, and `library/` is written to
-    /// match `main`.
     async fn create(ctx: &Ctx<Self>) -> Result<Self> {
         let path =
             HostRef::of(ctx.inner())?.folder().join(REPOSITORY);
@@ -128,7 +121,6 @@ impl Actor for Library {
     }
 }
 
-/// Makes `main` with one commit of the starter skills.
 fn starters(git: &Git<'_>) -> Result<()> {
     let files = STARTERS
         .iter()
@@ -143,7 +135,6 @@ fn starters(git: &Git<'_>) -> Result<()> {
         .map(drop)
 }
 
-/// Makes `library/` hold the files of `main`.
 fn check_out(held: &Held) -> Result<()> {
     held.check_out(main(held.reads()?)?, Path::new(CHECKOUT), &|_| {
         false
@@ -185,7 +176,6 @@ impl Admits<Realm> for Library {
     }
 }
 
-/// Any agent reads the shelves and offers a skill.
 impl Admits<Agent> for Library {
     type Known = Agent;
 
@@ -194,8 +184,6 @@ impl Admits<Agent> for Library {
     }
 }
 
-/// Whether `skill` is a skill's folder name: letters, digits, hyphens
-/// and underscores.
 fn is_skill_name(skill: &str) -> bool {
     !skill.is_empty()
         && skill.bytes().all(|b| {
@@ -242,7 +230,6 @@ fn shelf_list(git: &Reads) -> Result<ShelfList> {
     Ok(ShelfList { version, skills })
 }
 
-/// The paths of the skill `skill` at `at`.
 fn skill_paths(
     git: &Reads,
     at: hamlet_git::CommitId,
@@ -256,8 +243,7 @@ fn skill_paths(
         .collect())
 }
 
-/// What follows every change of `main`: `library/` is written to
-/// match it, and every listener is told the new list.
+/// Publishes a change of `main` to `library/` and to every listener.
 fn published<M>(w: &mut Writer<'_, Library, M>) -> Result<()>
 where
     M: Message,
@@ -327,7 +313,6 @@ impl Takes<Shelves> for Library {
     }
 }
 
-/// Keeps the caller as a listener, once, and answers the list.
 fn shelves(
     unit: Before<'_, Library, Shelves>,
 ) -> Result<Ended<Shelves>> {
@@ -417,7 +402,6 @@ fn unshelve(
 
 #[cfg(test)]
 impl repo::testing::Hostless {
-    /// A library with no host, its realm folder `home`.
     pub(crate) fn library(home: &Path) -> Self {
         Self::new(home, home.join(REPOSITORY), SCHEMA, starters)
             .expect("a scratch folder takes a repository")
@@ -446,7 +430,6 @@ mod tests {
         )
     }
 
-    /// One call of each action, each as its caller would send it.
     fn every_action() -> Vec<(&'static str, Vec<u8>)> {
         vec![
             args(&Shelves { version_seen: None }),

@@ -22,8 +22,6 @@ use crate::repo::{
 /// The message of a take-in of `main`.
 const TOOK_IN: &str = "Took in main";
 
-/// The token of the `hire` table. Its field is private, so only this
-/// module reads or writes the table's rows.
 pub(super) struct Table(());
 
 impl store::Table for Table {
@@ -82,8 +80,6 @@ pub(super) fn of(
     .transpose()
 }
 
-/// An agent is admitted by its hire's row: it reads and saves its
-/// own branch.
 impl Admits<Agent> for Profile {
     type Known = Hire;
 
@@ -95,7 +91,6 @@ impl Admits<Agent> for Profile {
     }
 }
 
-/// Every hire of this profile, by agent.
 pub(super) fn every<M>(
     look: &Look<'_, Profile, M>,
 ) -> Result<Vec<Hire>>
@@ -106,7 +101,6 @@ where
     all(&look.rows(Table(())))
 }
 
-/// The hire of `agent`, when it is one of this profile's.
 pub(super) fn find<M>(
     look: &Look<'_, Profile, M>,
     agent: AgentNumber,
@@ -324,8 +318,6 @@ where
     Ok(())
 }
 
-/// Takes `main` into the branch of `hire` unless it is pinned, the
-/// hire's side winning.
 pub(super) fn take_in_main<M>(
     writer: &Writer<'_, Profile, M>,
     hire: &Hire,
@@ -344,7 +336,6 @@ where
     Ok(())
 }
 
-/// Tells the agent of `hire` that its branch is at `tip`.
 pub(super) fn tell_moved<M>(
     writer: &mut Writer<'_, Profile, M>,
     hire: &Hire,
@@ -359,7 +350,6 @@ where
     writer.tell(&Agent(hire.agent), &moved)
 }
 
-/// The commit the version `version` tags.
 pub(super) fn version_at(
     git: &Reads,
     version: &VersionName,
@@ -371,7 +361,8 @@ pub(super) fn version_at(
         .map(|seen| seen.commit))
 }
 
-/// What the agent of a hire whose branch moved to `tip` is told.
+/// The [`Moved`] the agent of a hire whose branch moved to `tip` is
+/// told.
 fn moved(
     table: &Writes<'_, Table>,
     git: &Reads,
