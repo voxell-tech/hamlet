@@ -27,7 +27,7 @@ impl Message for Lapse {
     type From = Agent;
 }
 
-/// Why the agent's waits lapse.
+/// The reason the agent's waits lapse.
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize,
 )]
@@ -44,7 +44,7 @@ pub enum LapseReason {
     Resumed,
 }
 
-/// Why the realm holds an agent's spending.
+/// The reason the realm holds an agent's spending.
 #[derive(
     Clone,
     Debug,
@@ -76,7 +76,7 @@ impl ChiefRequest for Revoke {
     type Answer = Done<RevokeRefusal>;
 }
 
-/// What a chief grants an agent beyond its hamlet's mode.
+/// A grant a chief gives an agent beyond its hamlet's mode.
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize,
 )]

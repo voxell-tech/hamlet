@@ -63,12 +63,11 @@ pub struct AgentInput {
     /// The task that pays for a turn no chief's line started.
     pub task: RealmTask,
     pub place: Place,
-    /// A worker's or an errand's one turn.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub brief: Option<Brief>,
 }
 
-/// The one turn a worker or an errand runs from its create.
+/// The one turn a worker or an errand runs when it is created.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Brief {
     /// An errand's whole prompt (C11); absent for a worker.
@@ -138,7 +137,7 @@ pub enum Input {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         conversation: Option<ConversationId>,
     },
-    /// What a worker the agent started answered.
+    /// The answer of a worker the agent started.
     WorkerAnswer {
         worker: AgentNumber,
         text: String,

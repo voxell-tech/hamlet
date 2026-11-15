@@ -1,8 +1,5 @@
 //! The calls a client makes to an agent about its chat, and their
-//! answers. Each wraps the client protocol's own type where one
-//! exists, as the realm's `Say` does. An agent writes the answers in
-//! TypeScript, so every integer in them is a `u32`, and a time is in
-//! whole seconds.
+//! answers. A time in them is in whole seconds.
 
 use hamlet_actor::Action;
 use hamlet_protocol::client as protocol;
@@ -158,14 +155,14 @@ pub enum RewindRefusal {
 pub struct ReadChat(pub protocol::Open);
 from_client!(ReadChat, "read_chat", ChatPage);
 
-/// A page of a chat, and the number of the agent's last change it
-/// holds: an event numbered at most `number` is already in it.
+/// A page of a chat.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ChatPage {
     /// The agent's wake the numbers count in; a new wake starts them
     /// again.
     pub epoch: u32,
-    /// The number of the agent's last change this page holds.
+    /// The number of the agent's last change this page holds: a
+    /// [`ChatEvent`] numbered at most this is already in it.
     pub number: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session: Option<u32>,
@@ -197,7 +194,7 @@ pub struct ChatItem {
     pub tool: Option<protocol::ItemTool>,
 }
 
-/// What the agent publishes as the event `chat` when a chat changes.
+/// The event `chat` the agent publishes when a chat changes.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ChatEvent {
     pub chat: protocol::ChatRef,
@@ -218,8 +215,8 @@ pub enum ChatOp {
     },
     Append {
         item: String,
-        /// Where `text` goes in the item's text, so a repeat writes
-        /// the same.
+        /// The place in the item's text `text` is written at, so a
+        /// repeat writes the same.
         at: u32,
         text: String,
     },
@@ -230,7 +227,7 @@ pub enum ChatOp {
     Usage {
         usage: protocol::UsageView,
     },
-    /// The chat must be read again: a rewind, a new session.
+    /// The chat must be read again.
     Reset,
 }
 

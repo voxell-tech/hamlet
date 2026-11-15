@@ -43,13 +43,9 @@ use crate::{Message, worded};
 )]
 pub struct AgentNumber(pub u32);
 
-/// The first agent number of an errand: an errand `n` is
-/// `agent/<2^31 + n>`, outside the count of the realm's tree.
 const FIRST_ERRAND: u32 = 1 << 31;
 
 impl AgentNumber {
-    /// What the number names. The one place a number is told from an
-    /// errand's.
     pub fn numbered(self) -> Numbered {
         match self.0.checked_sub(FIRST_ERRAND) {
             Some(n) => Numbered::Errand(ErrandNumber(n)),
@@ -58,7 +54,7 @@ impl AgentNumber {
     }
 }
 
-/// An agent number, as [`AgentNumber::numbered`] reads it.
+/// The kind of agent an [`AgentNumber`] names.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Numbered {
     /// The Hand, a hire or a worker.

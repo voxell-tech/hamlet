@@ -45,7 +45,8 @@ impl ChiefRequest for SetModel {
     type Answer = Done<ChoiceRefusal>;
 }
 
-/// Whose model a [`SetModel`] sets. Only a chief names a hamlet.
+/// The hire or hamlet whose model a [`SetModel`] sets. Only a chief
+/// names a hamlet.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ModelOf {

@@ -549,7 +549,6 @@ fn the_letters(fixtures: &mut Fixtures) {
 
 const WHY: &str = "To keep the tests apart";
 
-/// The refusals of an act whose subject is a living hire.
 fn only_a_hire() -> Vec<(&'static str, OnlyAHire)> {
     vec![
         ("no_such_agent", OnlyAHire::NoSuchAgent),

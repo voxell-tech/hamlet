@@ -45,8 +45,7 @@ pub struct OauthLogin {
     pub access: String,
     pub refresh: String,
     /// Whole seconds since the epoch, so it crosses both ways:
-    /// cbor-x writes a larger integer as a float. The realm keeps
-    /// milliseconds in `credentials.json`, as today.
+    /// cbor-x writes a larger integer as a float.
     pub expires: u32,
     /// The provider's own fields, as pi-ai keeps them.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -68,8 +67,7 @@ pub enum CredentialRefusal {
     NotSignedIn { provider: String },
 }
 
-/// Keeps a credential a sign-in or a refresh made. The Node host
-/// runs one refresh per provider at a time, so no rotation races.
+/// Keeps a credential a sign-in or a refresh made.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct KeepCredential {
     pub provider: String,
@@ -94,7 +92,9 @@ impl Message for KeepCredential {
 }
 
 /// Tells the realm that a turn in a chief's chat ended with no
-/// answer, so it opens a wait for the chief (C29, A3).
+/// answer, so it opens a wait for the chief (C29). A turn
+/// `may_spend` refused with a [`Hold`](super::oversight::Hold) sends
+/// none.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TurnFailed {
     pub task: RealmTask,
@@ -103,8 +103,6 @@ pub struct TurnFailed {
     pub cause: Cause,
 }
 
-/// Why the turn ended: the model failed, or the budget refused it.
-/// A hold (`may_spend` answering `held`) calls nothing.
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize,
 )]

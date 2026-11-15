@@ -250,8 +250,6 @@ pub enum Standing {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         why: Option<String>,
     },
-    /// The caller is no agent of the realm's tree, such as an
-    /// errand.
     #[error("you are not an agent of the realm's tree")]
     NotAMember,
 }
@@ -270,8 +268,8 @@ pub enum Standing {
 pub enum Gate {
     #[error("your lead turned off the tool `{tool}` for you")]
     ToolOff { tool: SocietyTool },
-    /// The act did not run, and the realm keeps the request for a
-    /// chief: it runs if one allows it, and the caller is told.
+    /// The realm keeps the request for a chief: it runs if one
+    /// allows it, and the caller is told.
     #[error(
         "a chief must allow this; it runs when one does, and you \
          are told"
@@ -652,7 +650,7 @@ impl ToolCall for Seat {
     type Answer = Done<OnlyAHire>;
 }
 
-/// The refusal of an act whose subject is a living hire.
+/// The refusal of an act that needs a living hire.
 #[derive(
     Clone,
     Debug,
@@ -680,13 +678,12 @@ pub struct Tell {
     /// for the receiver's turn; absent for a turn that has none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub task: Option<RealmTask>,
-    /// Files or folders to send with it, in the sender's
-    /// filesystem or its hamlet's folder.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub paths: Vec<Enclosed>,
 }
 
-/// A file or a folder a letter sends.
+/// A file or a folder a letter sends, in the sender's filesystem
+/// or its hamlet's folder.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Enclosed {
     pub path: PathBuf,
@@ -706,8 +703,6 @@ pub struct Ask {
     pub conversation: ConversationId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub task: Option<RealmTask>,
-    /// Files or folders to send with it, in the sender's
-    /// filesystem or its hamlet's folder.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub paths: Vec<Enclosed>,
 }

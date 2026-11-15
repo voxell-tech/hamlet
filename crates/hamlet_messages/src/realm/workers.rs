@@ -81,7 +81,7 @@ pub enum WorkerRefusal {
     NoSuchHamlet,
 }
 
-/// How a worker's or an errand's one turn ended.
+/// The end of a worker's or an errand's one turn.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Ended {
