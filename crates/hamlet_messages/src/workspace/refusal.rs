@@ -1,4 +1,4 @@
-//! Why the workspace does not carry out a call, by family.
+//! The reasons the workspace does not carry out a call, by family.
 //!
 //! A family holds the cases the same actions can send, each written
 //! once with its words. An answer holds a union of the families its
@@ -215,7 +215,7 @@ pub enum StatusRefusal {
     NoSuchCommand { command: CommandId },
 }
 
-/// How a call's wait for a chief ended with no allow (H11, H34).
+/// The end of a call's wait for a chief with no allow (H11, H34).
 #[derive(
     Clone,
     Debug,
@@ -306,7 +306,7 @@ pub enum Stale {
     },
 }
 
-/// What a fresh `Run` is refused with.
+/// The refusal of a fresh `Run`.
 #[derive(
     Clone,
     Debug,
@@ -328,8 +328,8 @@ pub enum RunRefusal {
     Reach(#[from] ReachRefusal),
 }
 
-/// What the gate under a newer reach refuses an allowed change with:
-/// the `why` of its [`ReachChanged`].
+/// The gate's refusal of an allowed change under a newer reach: the
+/// `why` of its [`ReachChanged`].
 #[derive(
     Clone,
     Debug,
@@ -347,7 +347,7 @@ pub enum FileGate {
     Reach(#[from] ReachRefusal),
 }
 
-/// What a `ReadFile`, a `Search` or a `Find` is refused with.
+/// The refusal of a `ReadFile`, a `Search` or a `Find`.
 #[derive(
     Clone,
     Debug,
@@ -367,7 +367,7 @@ pub enum ReadRefusal {
     Reach(#[from] ReachRefusal),
 }
 
-/// What a fresh `EditFile` is refused with.
+/// The refusal of a fresh `EditFile`.
 #[derive(
     Clone,
     Debug,
@@ -389,7 +389,7 @@ pub enum ChangeRefusal {
     Reach(#[from] ReachRefusal),
 }
 
-/// What a fresh `WriteFile` is refused with.
+/// The refusal of a fresh `WriteFile`.
 #[derive(
     Clone,
     Debug,
@@ -413,7 +413,7 @@ pub enum WriteRefusal {
     Content(#[from] InvalidContent),
 }
 
-/// Why a `Run` the workspace kept did not run.
+/// The reason a `Run` the workspace kept did not run.
 #[derive(
     Clone,
     Debug,
@@ -433,7 +433,7 @@ pub enum RunNotRun {
     Tool(#[from] ToolRefusal),
 }
 
-/// Why a change the workspace kept was not made.
+/// The reason a change the workspace kept was not made.
 #[derive(
     Clone,
     Debug,

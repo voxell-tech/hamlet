@@ -147,8 +147,9 @@ pub enum Lapse {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum AnswerTaken {
-    /// An allow was taken: the command started, or the change was
-    /// carried out. The agent is called with its end.
+    /// The allow was taken, and the workspace goes on with the call.
+    /// The call's end reaches the agent in
+    /// [`crate::agent::Finished`].
     Taken,
     /// A run did not run: a chief refused it, its wait lapsed, or
     /// its allow no longer holds.
@@ -239,7 +240,7 @@ pub struct AddedTool {
 pub struct Fault {
     /// The folder's path, as text even where its name is not UTF-8.
     pub folder: String,
-    /// Why it does not load, in words.
+    /// The reason it does not load, in words.
     pub words: String,
 }
 
@@ -278,7 +279,7 @@ pub enum RunAnswer<R = RunRefusal> {
     },
 }
 
-/// How a run ended.
+/// The end of a run.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum RunEnd {

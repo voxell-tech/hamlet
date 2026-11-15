@@ -86,6 +86,7 @@ pub fn factory() -> ActorFactory {
 struct Agent;
 
 /// Asks the agent to call the workspace with `name` and `args`.
+/// The program's own action, so it checks no sender.
 #[derive(serde::Serialize, serde::Deserialize)]
 struct Ask {
     name: String,

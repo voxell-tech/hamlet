@@ -7,8 +7,12 @@
 //! - An enum whose cases hold data is a map with its case's name, in
 //!   snake_case, under `type`, and an enum of bare names is the name
 //!   as text.
-//! - A field that is not set is absent, never `null`.
+//! - A field that is not set is absent, never `null`. A reader
+//!   ignores a field it does not know and reads `null` as unset, and
+//!   a writer sends neither.
 //! - Bytes are base64 text and a hash is hex text.
+//! - An integer that a TypeScript writer sends is a `u32`, which a
+//!   JavaScript number holds exactly.
 //! - A list holds maps, numbers or an enum's names, never free text.
 //!   [`realm::SecretList`] is the one exception, and only Rust reads
 //!   it.
@@ -16,14 +20,22 @@
 //!   written by [`worded`] and ignored when read.
 //! - A union of families is untagged, and no two of its families
 //!   share a case's `type`.
-//! - An answer `refused` means the taker kept nothing of the call, so
-//!   a call's id may be sent again with another request.
+//! - An answer `refused` means the taker kept nothing of the request,
+//!   so an id that was only ever refused may be sent again with
+//!   another request.
 //!
-//! A call from a caller that is not its message's [`Message::From`]
-//! fails with the error `message.wrong_caller`
-//! ([`sender::WrongCaller`]), and a call whose id a kept call of
-//! another request holds fails with `message.id_reused`
-//! ([`sender::IdReused`]). No answer has a case for either.
+//! A taker checks a call in this order:
+//!
+//! 1. A call from a caller that is not its message's
+//!    [`Message::From`] fails with the error `message.wrong_caller`
+//!    ([`sender::WrongCaller`]).
+//! 2. A request whose shape is refused, such as a script too long or
+//!    a path that is not absolute, is answered `refused`, whatever
+//!    its id.
+//! 3. A call whose id a kept call of another request holds fails with
+//!    the error `message.id_reused` ([`sender::IdReused`]).
+//!
+//! No answer has a case for either error.
 //!
 //! `fixtures/` holds the bytes of each one as the host carries it,
 //! so a host in another language can check its shapes against them.
