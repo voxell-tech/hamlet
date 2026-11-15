@@ -4,6 +4,7 @@
 //! An action is an `impl Takes<M> for Profile` in the module that
 //! owns what it changes, and one entry in `Actions` below.
 
+mod dreams;
 mod files;
 mod hires;
 mod versions;
@@ -19,8 +20,8 @@ use hamlet_host::{Caller, HostRef};
 use hamlet_messages::Message;
 use hamlet_messages::address::{self, Party, Realm};
 use hamlet_messages::profile::{
-    Branch, CommitId, Files, Pin, ProfileInput, Save, Sha1, Tag,
-    Versions,
+    Branch, CommitId, Edit, Erase, Files, Papers, Pin, ProfileInput,
+    Purge, Revert, Save, Sha1, Tag, Versions,
 };
 #[cfg(test)]
 use hamlet_messages::realm::ProfileId;
@@ -66,7 +67,19 @@ impl Actor for Profile {
     /// `None` only for a profile started with no input, which fails
     /// its start: the realm makes a profile with `create`.
     type Input = Option<ProfileInput>;
-    type Actions = (Branch, Files, Pin, Save, Tag, Versions);
+    type Actions = (
+        Branch,
+        Edit,
+        Erase,
+        Files,
+        Papers,
+        Pin,
+        Purge,
+        Revert,
+        Save,
+        Tag,
+        Versions,
+    );
     type Events = ();
     type ConnParams = Option<Caller>;
     type Action = ();
@@ -186,6 +199,16 @@ impl repo::testing::Hostless {
     /// A profile with no host, made from `character`, its realm
     /// folder `home`.
     pub(crate) fn profile(home: &Path, character: &str) -> Self {
+        Self::start_profile(home, character)
+            .expect("a scratch folder takes a repository")
+    }
+
+    /// A profile's start with no host, as [`Self::profile`], which
+    /// may fail.
+    pub(crate) fn start_profile(
+        home: &Path,
+        character: &str,
+    ) -> Result<Self> {
         let input = ProfileInput::Character {
             text: character.to_owned(),
         };
@@ -195,7 +218,6 @@ impl repo::testing::Hostless {
         Self::new(home, path, SCHEMA, |git| {
             first_commit(git, &input, &repositories)
         })
-        .expect("a scratch folder takes a repository")
     }
 }
 
@@ -207,7 +229,7 @@ mod tests {
     use hamlet_actor::ActionSet;
     use hamlet_actor_error::ActorError;
     use hamlet_host::{Host, HostOptions};
-    use hamlet_messages::profile::{By, VersionName};
+    use hamlet_messages::profile::{By, Revision, VersionName};
     use hamlet_messages::workspace::{AgentNumber, CallId};
     use hamlet_protocol::client::RequestId;
     use hamlet_testing::Scratch;
@@ -251,6 +273,29 @@ mod tests {
                 hire: AgentNumber(7),
                 to: None,
                 by: By::Chief { chief: 3 },
+            }),
+            args(&Revert {
+                id: RequestId::new(),
+                what: Revision::Version {
+                    version: VersionName("v1".into()),
+                },
+                reason: None,
+                by: By::Chief { chief: 3 },
+            }),
+            args(&Edit {
+                id: RequestId::new(),
+                path: "memory/a.md".into(),
+                text: "a".into(),
+                by: By::Chief { chief: 3 },
+            }),
+            args(&Purge {
+                id: RequestId::new(),
+                path: "memory/a.md".into(),
+                by: By::Chief { chief: 3 },
+            }),
+            args(&Papers),
+            args(&Erase {
+                id: RequestId::new(),
             }),
         ]
     }

@@ -3,6 +3,8 @@
 
 #[path = "profile/files.rs"]
 mod files;
+#[path = "profile/versions.rs"]
+mod versions;
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -14,12 +16,13 @@ use hamlet_actor::{Action, Actor, Ctx, Handler, Registry};
 use hamlet_actor_core::{ActorConfig, ActorFactory};
 use hamlet_actor_error::ActorError;
 use hamlet_actors::profile;
+use hamlet_git::{Change, MAIN};
 use hamlet_host::{Address, Caller, Host, HostOptions, HostRef};
 use hamlet_messages::address::{self, Party};
 use hamlet_messages::profile::{
-    Branch, By, Character, CommitId, Moved, ProfileInput, Sha1, Tag,
-    TagAnswer, TagRefusal, VersionList, VersionName, VersionSeen,
-    Versions,
+    Branch, By, Character, CommitId, Moved, ProfileInput, Removal,
+    RemovePath, Sha1, Tag, TagAnswer, TagRefusal, VersionList,
+    VersionName, VersionSeen, Versions,
 };
 use hamlet_messages::realm::ProfileId;
 use hamlet_messages::workspace::AgentNumber;
@@ -36,7 +39,8 @@ const CHARACTER: &str = "A careful reader.";
 struct Told(Mutex<Vec<(String, Moved)>>);
 
 /// Stands in for the realm and an agent: calls profile 1 as itself,
-/// and keeps what it is told.
+/// and keeps what it is told. Asked to remove a path, agent 7 removes
+/// it, agent 8 removes it later, and any other fails.
 struct Peer {
     told: Arc<Told>,
 }
@@ -55,7 +59,7 @@ impl Action for Forward {
 #[async_trait::async_trait]
 impl Actor for Peer {
     type Input = ();
-    type Actions = (Forward, Moved);
+    type Actions = (Forward, Moved, RemovePath);
     type Events = ();
     type ConnParams = Option<Caller>;
     type Action = ();
@@ -94,6 +98,23 @@ impl Handler<Moved> for Peer {
         let mut told = self.told.0.lock().unwrap();
         told.push((ctx.actor_id().to_owned(), moved));
         Ok(())
+    }
+}
+
+impl Handler<RemovePath> for Peer {
+    async fn handle(
+        self: Arc<Self>,
+        ctx: Ctx<Self>,
+        _: RemovePath,
+    ) -> anyhow::Result<Removal> {
+        let id = ctx.actor_id();
+        if id == agent_at(7).to_string() {
+            Ok(Removal::Removed)
+        } else if id == agent_at(8).to_string() {
+            Ok(Removal::Later)
+        } else {
+            anyhow::bail!("{id} cannot remove it")
+        }
     }
 }
 
@@ -224,11 +245,83 @@ fn tip(dir: &Path, branch: &str) -> Option<hamlet_git::CommitId> {
 }
 
 fn main_tip(dir: &Path) -> hamlet_git::CommitId {
-    tip(dir, hamlet_git::MAIN).unwrap()
+    tip(dir, MAIN).unwrap()
 }
 
 fn commit_id(commit: hamlet_git::CommitId) -> CommitId {
     CommitId(Sha1::from_hex(&commit.to_string()).unwrap())
+}
+
+/// A host with profile 1 whose `main` holds `files` beside its
+/// character, and hire 7's branch made from it.
+async fn hired(
+    dir: &Path,
+    files: &[Change],
+    told: Arc<Told>,
+) -> Host {
+    let host = open_with(dir, told);
+    create(&host, 1, &character()).await.unwrap();
+    if !files.is_empty() {
+        commit_main(dir, files);
+    }
+    hire(&host, 7).await;
+    host
+}
+
+async fn hire(host: &Host, number: u32) {
+    let branch = Branch {
+        name: format!("hires/{number}"),
+    };
+    call_as(host, &realm(), &branch).await.unwrap();
+}
+
+/// Moves `main` with a commit of the test's own, as an edit does.
+fn commit_main(
+    dir: &Path,
+    changes: &[Change],
+) -> hamlet_git::CommitId {
+    let by = hamlet_git::Author {
+        name: "chief:3",
+        at: 5000,
+    };
+    repository(dir, 1)
+        .commit(MAIN, changes, "edited", by)
+        .unwrap()
+}
+
+fn write(path: &str, bytes: impl Into<Vec<u8>>) -> Change {
+    Change::Write {
+        path: path.into(),
+        bytes: bytes.into(),
+    }
+}
+
+fn text(dir: &Path, at: CommitId, path: &str) -> Option<String> {
+    let at = at.0.to_string().parse().unwrap();
+    let bytes = repository(dir, 1).read(at, path).unwrap()?;
+    Some(String::from_utf8(bytes).unwrap())
+}
+
+/// The first `Moved` agent `number` was told, within 5 s.
+async fn moved_to(told: &Told, number: u32) -> Moved {
+    let to = agent_at(number).to_string();
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            let heard = told
+                .0
+                .lock()
+                .unwrap()
+                .iter()
+                .find(|(at, _)| *at == to)
+                .cloned();
+            if let Some((_, moved)) = heard {
+                return moved;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("the agent is told within 5s")
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -451,7 +544,7 @@ async fn a_profile_keeps_its_repository_under_its_own_number() {
     let host = open(&dir);
     create(&host, 12, &character()).await.unwrap();
     let repository = repository(&dir, 12);
-    let main = repository.tip(hamlet_git::MAIN).unwrap().unwrap();
+    let main = repository.tip(MAIN).unwrap().unwrap();
     let text =
         repository.read(main, "CHARACTER.md").unwrap().unwrap();
     assert_eq!(text, CHARACTER.as_bytes());
@@ -465,7 +558,7 @@ async fn a_fork_starts_from_the_files_of_another_profile_s_commit() {
     let first = main_tip(&dir);
     host.shutdown().await.unwrap();
     drop(host);
-    let later = hamlet_git::Change::Write {
+    let later = Change::Write {
         path: "memory/later.md".into(),
         bytes: b"later".to_vec(),
     };
@@ -474,7 +567,7 @@ async fn a_fork_starts_from_the_files_of_another_profile_s_commit() {
         at: 5000,
     };
     repository(&dir, 1)
-        .commit(hamlet_git::MAIN, &[later], "later", by)
+        .commit(MAIN, &[later], "later", by)
         .unwrap();
 
     let host = open(&dir);
@@ -484,7 +577,7 @@ async fn a_fork_starts_from_the_files_of_another_profile_s_commit() {
     };
     create(&host, 2, &fork).await.unwrap();
     let forked = repository(&dir, 2);
-    let main = forked.tip(hamlet_git::MAIN).unwrap().unwrap();
+    let main = forked.tip(MAIN).unwrap().unwrap();
     let files = forked.files(main).unwrap();
     assert_eq!(
         files,
@@ -524,7 +617,7 @@ async fn a_hire_is_told_once_main_moved_under_it() {
     call_as(&host, &realm(), &branch).await.unwrap();
     host.shutdown().await.unwrap();
     drop(host);
-    let character = hamlet_git::Change::Write {
+    let character = Change::Write {
         path: "CHARACTER.md".into(),
         bytes: b"A bolder reader.".to_vec(),
     };
@@ -533,7 +626,7 @@ async fn a_hire_is_told_once_main_moved_under_it() {
         at: 5000,
     };
     let main = repository(&dir, 1)
-        .commit(hamlet_git::MAIN, &[character], "edited", by)
+        .commit(MAIN, &[character], "edited", by)
         .unwrap();
 
     let told = Arc::new(Told::default());
@@ -543,18 +636,6 @@ async fn a_hire_is_told_once_main_moved_under_it() {
         .await
         .unwrap();
     assert_eq!(tip(&dir, "hires/7"), Some(main));
-    let heard = tokio::time::timeout(Duration::from_secs(5), async {
-        loop {
-            if let Some(heard) =
-                told.0.lock().unwrap().first().cloned()
-            {
-                return heard;
-            }
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
-    })
-    .await
-    .expect("the agent is told within 5s");
     let moved = Moved {
         tip: commit_id(main),
         character: Some(Character {
@@ -562,6 +643,6 @@ async fn a_hire_is_told_once_main_moved_under_it() {
             text: "A bolder reader.".into(),
         }),
     };
-    assert_eq!(heard, (agent().to_string(), moved));
+    assert_eq!(moved_to(&told, 7).await, moved);
     host.shutdown().await.unwrap();
 }

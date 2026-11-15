@@ -18,6 +18,9 @@ use super::checkout;
 /// The message of a save's commit.
 const SAVED: &str = "Saved the agent's files";
 
+/// What the folder beside an erased repository is named after.
+const ERASED: &str = "erased";
+
 /// The folder of an owner's repository.
 pub(crate) struct Folder {
     path: PathBuf,
@@ -371,13 +374,20 @@ impl Folder {
     /// removed. One that is not there is made by `make` in a folder
     /// beside it and moved into place, so a kill leaves none or a
     /// whole one. One that is there and does not open fails the
-    /// start: it is never made again over. Blocks.
+    /// start: it is never made again over. One that was erased fails
+    /// the start too, once what an erase a kill cut off left of it is
+    /// removed. Blocks.
     pub fn start(
         path: PathBuf,
         home: PathBuf,
         at: i64,
         make: impl FnOnce(&Git<'_>) -> Result<()>,
     ) -> Result<Self> {
+        let erased = beside(&path, ERASED)?;
+        if erased.exists() {
+            empty(&erased)?;
+            bail!("the repository {} was erased", path.display());
+        }
         let making = beside(&path, "making")?;
         if making.exists() {
             std::fs::remove_dir_all(&making)?;
@@ -428,6 +438,19 @@ fn remove_locks(dir: &Path) -> Result<()> {
             remove_locks(&path)?;
         } else if path.extension().is_some_and(|e| e == "lock") {
             std::fs::remove_file(&path)?;
+        }
+    }
+    Ok(())
+}
+
+/// Removes everything in the folder `dir`, and leaves the folder.
+fn empty(dir: &Path) -> Result<()> {
+    for entry in std::fs::read_dir(dir)? {
+        let entry = entry?;
+        if entry.file_type()?.is_dir() {
+            std::fs::remove_dir_all(entry.path())?;
+        } else {
+            std::fs::remove_file(entry.path())?;
         }
     }
     Ok(())
@@ -559,13 +582,17 @@ impl Held {
         checkout::remove_folder(&self.home, under)
     }
 
-    /// Removes the repository's folder. Nothing reads it after.
+    /// Moves the repository's folder aside by one rename and empties
+    /// it there. The empty folder stays as the mark that fails every
+    /// later start, so no kill lets the repository be made again.
+    /// Nothing reads it after.
     pub(super) fn erase(&mut self) -> Result<()> {
         if self.git.take().is_none() {
             bail!("the repository is gone");
         }
-        std::fs::remove_dir_all(&self.path)?;
-        Ok(())
+        let erased = beside(&self.path, ERASED)?;
+        std::fs::rename(&self.path, &erased)?;
+        empty(&erased)
     }
 }
 
