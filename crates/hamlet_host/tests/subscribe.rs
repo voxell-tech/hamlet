@@ -6,6 +6,8 @@ use std::time::{Duration, Instant};
 use at::at;
 use code::code;
 use files::any_file_of;
+#[cfg(target_os = "linux")]
+use files::any_file_of_open;
 use hamlet_actor_core::ShutdownKind;
 use hamlet_host::route::{CallerKind, Operation, Routes};
 use hamlet_host::{
@@ -90,6 +92,16 @@ async fn eventually(
         );
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
+}
+
+#[cfg(target_os = "linux")]
+async fn no_file_of_a_open(dir: &Scratch) {
+    eventually(
+        "a file of the stopped actor is open",
+        Duration::from_secs(10),
+        async || !any_file_of_open(dir, "ticker", "a"),
+    )
+    .await;
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -280,6 +292,8 @@ async fn the_stream_ends_with_stopping_when_the_actor_sleeps() {
         }
         let given = number(&next(&mut ticks, PROMPT).await);
         let ended = end(&mut ticks, PROMPT).await;
+        #[cfg(target_os = "linux")]
+        no_file_of_a_open(&dir).await;
         let again = tick(&host, &a, 0).await;
         host.shutdown().await.unwrap();
         assert_eq!(given, Some(1));
@@ -311,6 +325,8 @@ async fn the_stream_ends_with_destroyed_when_the_actor_is_destroyed()
             async || !any_file_of(&dir, "ticker", "a"),
         )
         .await;
+        #[cfg(target_os = "linux")]
+        no_file_of_a_open(&dir).await;
         drop(host);
         let deadline = Instant::now() + Duration::from_secs(5);
         let second = loop {
