@@ -422,7 +422,7 @@ mod tests {
             None
         );
         let lineage = async |agent| {
-            tree::lineage(&rows, agent).await.unwrap().unwrap()
+            tree::lineage_of(&rows, agent).await.unwrap()
         };
         assert_eq!(
             payer_of(&lineage(AgentNumber(3)).await),

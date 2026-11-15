@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use anyhow::{Context as _, Result};
+use anyhow::Result;
 use hamlet_actor::{BindParam, Ctx};
 use hamlet_messages::address::Workspace;
 use hamlet_messages::realm::HamletId;
@@ -24,9 +24,7 @@ pub(super) async fn of(
     rows: &Rows<'_>,
     agent: AgentNumber,
 ) -> Result<SetReach> {
-    let lineage = tree::lineage(rows, agent)
-        .await?
-        .with_context(|| format!("agent {} has no row", agent.0))?;
+    let lineage = tree::lineage_of(rows, agent).await?;
     let reach = match lineage.agent.status {
         Status::Ended(_) => Reach::Ended,
         Status::Hiring | Status::Live => Reach::Agent(Footing {

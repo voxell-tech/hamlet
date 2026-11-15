@@ -3,7 +3,7 @@
 
 use std::collections::BTreeSet;
 
-use anyhow::{Context as _, Result};
+use anyhow::Result;
 use hamlet_messages::address::Agent;
 use hamlet_messages::realm::{HamletId, Named};
 use hamlet_messages::sender::Hand;
@@ -69,7 +69,7 @@ pub(super) async fn ends(
     from: &Agent,
     to: &Named,
 ) -> Result<Ends> {
-    let from = end(&lineage(rows, from.0).await?);
+    let from = end(&tree::lineage_of(rows, from.0).await?);
     let Some(to) =
         tree::resolve(rows, from.hamlet.as_ref(), to).await?
     else {
@@ -81,7 +81,7 @@ pub(super) async fn ends(
     };
     Ok(Ends {
         laid: laid::between(rows, from.agent, to).await?,
-        to: Some(end(&lineage(rows, to).await?)),
+        to: Some(end(&tree::lineage_of(rows, to).await?)),
         from,
     })
 }
@@ -92,7 +92,7 @@ pub(super) async fn of(
     rows: &Rows<'_>,
     agent: AgentNumber,
 ) -> Result<Vec<(AgentNumber, Way)>> {
-    let own = lineage(rows, agent).await?;
+    let own = tree::lineage_of(rows, agent).await?;
     let laid = laid::of(rows, agent).await?;
     let mut others = own
         .agent
@@ -109,7 +109,7 @@ pub(super) async fn of(
     others.remove(&agent);
     let mut roads = Vec::new();
     for other in others {
-        let other = end(&lineage(rows, other).await?);
+        let other = end(&tree::lineage_of(rows, other).await?);
         let laid = laid.contains(&other.agent);
         if let (Status::Live, Some(way)) =
             (&other.status, way(&own, &other, laid))
@@ -118,15 +118,6 @@ pub(super) async fn of(
         }
     }
     Ok(roads)
-}
-
-async fn lineage(
-    rows: &Rows<'_>,
-    agent: AgentNumber,
-) -> Result<Lineage> {
-    tree::lineage(rows, agent)
-        .await?
-        .with_context(|| format!("agent {} has no row", agent.0))
 }
 
 fn end(lineage: &Lineage) -> End {

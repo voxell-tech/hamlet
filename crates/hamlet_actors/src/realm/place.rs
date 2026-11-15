@@ -1,6 +1,6 @@
 mod push;
 
-use anyhow::{Context as _, Result};
+use anyhow::Result;
 use hamlet_messages::agent::{Place, PlaceVersion};
 use hamlet_messages::workspace::AgentNumber;
 pub(super) use push::send;
@@ -13,9 +13,7 @@ pub(super) async fn of(
     rows: &Rows<'_>,
     agent: AgentNumber,
 ) -> Result<Place> {
-    let lineage = tree::lineage(rows, agent)
-        .await?
-        .with_context(|| format!("agent {} has no row", agent.0))?;
+    let lineage = tree::lineage_of(rows, agent).await?;
     let lead = lineage.agent.lead;
     let (hires, roads) = roads::of(rows, agent)
         .await?

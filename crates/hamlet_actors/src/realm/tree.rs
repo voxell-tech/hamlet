@@ -118,6 +118,15 @@ pub(super) async fn lineage(
     }))
 }
 
+pub(super) async fn lineage_of(
+    rows: &Rows<'_>,
+    agent: AgentNumber,
+) -> Result<Lineage> {
+    lineage(rows, agent)
+        .await?
+        .with_context(|| format!("agent {} has no row", agent.0))
+}
+
 async fn member(
     rows: &Rows<'_>,
     agent: AgentNumber,
