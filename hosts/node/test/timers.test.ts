@@ -273,24 +273,24 @@ function untilAborted(signal: AbortSignal | undefined): Promise<never> {
 test("a timer whose in-process wake comes early is admitted by the host's alarm", {
     timeout: 30_000,
 }, async (t) => {
-    // Node can fire a timer before `Date.now()` reaches its time; here each
-    // long one fires 50 ms early.
+    // Node can fire a timer before `Date.now()` reaches its time; here the
+    // runtime's in-process wake, `resumeDue`, fires 50 ms early.
     const onTime = globalThis.setTimeout;
     const early: number[] = [];
     t.mock.method(
         globalThis,
         "setTimeout",
         (callback: (...args: unknown[]) => void, ms = 0, ...args: unknown[]) =>
-            ms < 1_000
-                ? onTime(callback, ms, ...args)
-                : onTime(
+            callback.name === "resumeDue"
+                ? onTime(
                       (...given: unknown[]) => {
                           early.push(Date.now());
                           callback(...given);
                       },
                       ms - 50,
                       ...args,
-                  ),
+                  )
+                : onTime(callback, ms, ...args),
     );
     const database = plainDatabase(scratchFile(t));
     await migratePiTables(database);
