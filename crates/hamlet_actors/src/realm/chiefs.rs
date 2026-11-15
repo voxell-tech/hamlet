@@ -38,7 +38,6 @@ pub(super) struct Hamlet {
 
 impl Hamlet {
     /// The most hires the hamlet holds (H6).
-    #[cfg_attr(not(test), expect(dead_code, reason = "U4 calls it"))]
     pub fn most(&self) -> u32 {
         match self.tier {
             Tier::Fifty => 50,
@@ -101,10 +100,6 @@ pub(super) enum Change {
         mayor: AgentNumber,
         tier: Tier,
     },
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "U4 seats a mayor with it")
-    )]
     Mayor {
         hamlet: HamletId,
         mayor: AgentNumber,
@@ -322,10 +317,6 @@ impl<By: RealmWide> Act<By> for Found {
 
 /// The payer of an agent's own spending: its hamlet, or the realm
 /// for the Hand.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "U4 and U5 call it")
-)]
 pub(super) fn payer_of(lineage: &tree::Lineage) -> Payer {
     lineage.hamlet.as_ref().map_or(Payer::Realm, |hamlet| {
         Payer::Hamlet {

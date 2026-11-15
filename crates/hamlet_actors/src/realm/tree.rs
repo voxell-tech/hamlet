@@ -161,10 +161,6 @@ async fn member(
     }))
 }
 
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "U3 and U4 call it")
-)]
 pub(super) async fn resolve(
     rows: &Rows<'_>,
     hamlet: Option<&HamletId>,
@@ -213,10 +209,6 @@ pub(super) async fn left(
 
 /// The hires of `hamlet` that count toward its tier: `hiring` and
 /// `live`.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "U4 and U11 call it")
-)]
 pub(super) async fn living(
     rows: &Rows<'_>,
     hamlet: &HamletId,
@@ -321,7 +313,6 @@ pub(super) enum Change {
     )]
     Purpose { hire: AgentNumber, text: String },
     /// The agent ends, and its hires go to its lead.
-    #[expect(dead_code, reason = "U4 ends an agent with it")]
     End {
         agent: AgentNumber,
         by: record::By,
@@ -329,7 +320,6 @@ pub(super) enum Change {
     },
     /// `mayor` becomes the root of its hamlet's tree, with the old
     /// mayor under it.
-    #[expect(dead_code, reason = "U4 seats a mayor with it")]
     Seat { mayor: AgentNumber },
     #[expect(dead_code, reason = "U11 sets tools with it")]
     Tools {

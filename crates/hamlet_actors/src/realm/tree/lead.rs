@@ -1,14 +1,8 @@
 //! A lead's acts on the tree: hire, end and seat (H40, H5, H18).
 
-#![expect(
-    unused_variables,
-    dead_code,
-    reason = "the scaffold: U4 fills this file"
-)]
-
 use std::collections::BTreeSet;
 
-use anyhow::Result;
+use anyhow::{Context as _, Result};
 use hamlet_actor::BindParam;
 use hamlet_messages::agent::AgentKind;
 use hamlet_messages::realm::{
@@ -293,10 +287,10 @@ impl<By: RealmWide> Act<By> for Seat {
 
     async fn load(
         &self,
-        by: &By,
+        _by: &By,
         rows: &Rows<'_>,
     ) -> Result<Option<Lineage>> {
-        todo!()
+        named_lineage(rows, None, &self.hire).await
     }
 
     fn decide(
@@ -304,11 +298,37 @@ impl<By: RealmWide> Act<By> for Seat {
         by: &By,
         lineage: Option<Lineage>,
     ) -> Decision<(), Self::Output> {
-        todo!()
+        let refuse = |why| Decision::Answer(Done::refused(why));
+        let Some(lineage) = lineage else {
+            return refuse(SeatRefusal::NoSuchAgent);
+        };
+        let hire = lineage.agent.agent;
+        let Some(hamlet) = &lineage.hamlet else {
+            return refuse(SeatRefusal::NotAHire);
+        };
+        if let Status::Ended(left) = &lineage.agent.status {
+            return refuse(SeatRefusal::Left {
+                hire,
+                left: left.clone(),
+            });
+        }
+        if lineage.is_mayor() {
+            return Decision::Again(());
+        }
+        Decision::Change(
+            Decided::new(())
+                // First: it reads the old mayor from the hamlet.
+                .change(Change::Seat { mayor: hire })
+                .change(chiefs::Change::Mayor {
+                    hamlet: hamlet.id.clone(),
+                    mayor: hire,
+                })
+                .record(record::Entry::Seated { hire, by: by.by() }),
+        )
     }
 
-    fn answer(&self, (): (), made: &Made) -> Self::Output {
-        todo!()
+    fn answer(&self, (): (), _made: &Made) -> Self::Output {
+        Done::Done
     }
 }
 
@@ -380,12 +400,35 @@ async fn set_lead(
     Ok(())
 }
 
-/// Reports the places that moved.
+/// Puts the old mayor and its living hires under `mayor`, before the
+/// hamlet names it. Reports the places of the two mayors, of the
+/// hires that moved, of `mayor`'s old lead, and of the Hand and the
+/// other mayors.
 pub(in crate::realm) async fn seat(
     writer: &Writer<'_>,
     mayor: AgentNumber,
 ) -> Result<Affected> {
-    todo!()
+    let rows = writer.rows();
+    let seated = super::lineage_of(&rows, mayor).await?;
+    let hamlet = seated.hamlet.context("a seated hire's hamlet")?;
+    let old = super::lineage_of(&rows, hamlet.mayor).await?;
+    let mut moved = living_agents(&old.hires);
+    moved.retain(|&hire| hire != mayor);
+    let places = chiefs::mayors(&rows)
+        .await?
+        .into_iter()
+        .chain([Hand::NUMBER, mayor])
+        .chain(seated.agent.lead)
+        .chain(moved.iter().copied())
+        .collect::<BTreeSet<_>>();
+    for hire in moved.into_iter().chain([hamlet.mayor]) {
+        set_lead(writer, hire, Some(mayor)).await?;
+    }
+    set_lead(writer, mayor, None).await?;
+    Ok(Affected {
+        places,
+        ..Affected::seen([Part::Agents])
+    })
 }
 
 #[cfg(test)]
@@ -397,6 +440,8 @@ mod tests {
 
     use super::*;
     use crate::realm::chiefs::limits;
+    use crate::realm::testing::Started;
+    use crate::realm::{change, versions};
 
     /// The lineage of hire 5 in one hamlet: the Hand 1, the mayor 2,
     /// hire 3 under it, and 5 under 3, still hiring.
@@ -441,6 +486,15 @@ mod tests {
         }
     }
 
+    fn mayor_2() -> Lineage {
+        let five = lineage_of_5();
+        Lineage {
+            agent: five.leads[1].clone(),
+            leads: Vec::new(),
+            ..five
+        }
+    }
+
     fn left_5() -> (Lineage, Left) {
         let left = Left {
             how: HowEnded::ByTheChief,
@@ -457,6 +511,14 @@ mod tests {
                 agent: AgentNumber(5),
             },
             why: None,
+        }
+    }
+
+    fn seat_5() -> Seat {
+        Seat {
+            hire: Named::Agent {
+                agent: AgentNumber(5),
+            },
         }
     }
 
@@ -512,16 +574,10 @@ mod tests {
                 Decision::Answer(Done::Refused { why })
             );
         };
-        let five = lineage_of_5();
-        let mayor = Lineage {
-            agent: five.leads[1].clone(),
-            leads: Vec::new(),
-            ..five
-        };
         let (left, how) = left_5();
 
         refused(hand(), EndRefusal::TheHand);
-        refused(mayor, EndRefusal::TheMayor);
+        refused(mayor_2(), EndRefusal::TheMayor);
         refused(
             left,
             EndRefusal::Left {
@@ -529,5 +585,84 @@ mod tests {
                 left: how,
             },
         );
+    }
+
+    #[test]
+    fn a_seat_refuses_the_hand_and_a_hire_that_left() {
+        let decide =
+            |lineage| seat_5().decide(&Client, Some(lineage));
+        let refused = |why| Decision::Answer(Done::Refused { why });
+        let (left, how) = left_5();
+
+        assert_eq!(decide(hand()), refused(SeatRefusal::NotAHire));
+        assert_eq!(
+            decide(left),
+            refused(SeatRefusal::Left {
+                hire: AgentNumber(5),
+                left: how,
+            })
+        );
+        assert_eq!(decide(mayor_2()), Decision::Again(()));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_seat_puts_the_old_mayor_and_its_hires_under_the_new_one()
+     {
+        // hamlet h: mayor 2, its hires 3 and 4, and 5 under 3.
+        let started = Started::new().await;
+        let hamlet = HamletId("h".to_owned());
+        started.found(&hamlet, AgentNumber(2)).await;
+        for (agent, lead) in [(3, 2), (4, 2), (5, 3)] {
+            let lead = Some(AgentNumber(lead));
+            started.hire(&hamlet, AgentNumber(agent), lead).await;
+        }
+        let places = async || {
+            let mut places = Vec::new();
+            for agent in 1..=5 {
+                let rows = started.rows();
+                places.push(
+                    versions::place(&rows, AgentNumber(agent))
+                        .await
+                        .unwrap(),
+                );
+            }
+            places
+        };
+        let before = places().await;
+        let lineage =
+            super::super::lineage(&started.rows(), AgentNumber(5))
+                .await
+                .unwrap();
+        let Decision::Change(decided) =
+            seat_5().decide(&Client, lineage)
+        else {
+            panic!("the chief seats 5");
+        };
+        change::commit(&started.realm, &started.ctx, decided.changes)
+            .await
+            .unwrap();
+
+        let rows = started.rows();
+        let mut leads = Vec::new();
+        for agent in 2..=5 {
+            let lineage =
+                super::super::lineage_of(&rows, AgentNumber(agent));
+            leads.push(
+                lineage.await.unwrap().agent.lead.map(|lead| lead.0),
+            );
+        }
+        assert_eq!(leads, [Some(5), Some(5), Some(5), None]);
+        let read =
+            chiefs::hamlet(&rows, &hamlet).await.unwrap().unwrap();
+        assert_eq!(read.mayor, AgentNumber(5));
+        let after = places().await;
+        assert!(
+            after
+                .iter()
+                .zip(&before)
+                .all(|(after, before)| after > before),
+            "every place moved: {before:?} to {after:?}"
+        );
+        started.stop().await;
     }
 }
