@@ -18,16 +18,16 @@ const TELL_RESULTS: Probe = Probe {
     ),
 };
 
-/// A `tell` result the model was told was cut off: a repeat the realm
-/// refused, rather than answered from what it kept.
+/// A `tell` result the model was told was interrupted: a repeat the
+/// realm refused, rather than answered from what it kept.
 const TELLS_CUT_OFF: Probe = Probe {
     name: "agent.tells_cut_off",
     file: "actors/agent/1.sqlite",
     read: Read::Sql(
         "SELECT COUNT(*) FROM pi_entries WHERE record ->> '$.kind' \
          = 'pi.tool-result' AND record ->> '$.model[0].toolName' = \
-         'tell' AND record ->> '$.model[0].content[0].text' LIKE \
-         '%was cut off%'",
+         'tell' AND record ->> '$.data.diagnostics[0].code' = \
+         'tool_interrupted'",
     ),
 };
 
@@ -45,8 +45,22 @@ const EDITS_CUT_OFF: Probe = Probe {
     read: Read::Sql(
         "SELECT COUNT(*) FROM pi_entries WHERE record ->> '$.kind' \
          = 'pi.tool-result' AND record ->> '$.model[0].toolName' = \
-         'edit' AND record ->> '$.model[0].content[0].text' LIKE \
-         '%Its outcome is unknown%'",
+         'edit' AND record ->> '$.data.diagnostics[0].code' = \
+         'tool_interrupted'",
+    ),
+};
+
+/// The agent's reads of its notes that found the edit made once. The
+/// edit makes `draft` into `draft, final`, so an edit made again
+/// finds `draft` still and adds a second `final`.
+const READS_EDITED_ONCE: Probe = Probe {
+    name: "agent.reads_edited_once",
+    file: "actors/agent/1.sqlite",
+    read: Read::Sql(
+        "SELECT COUNT(*) FROM pi_entries WHERE record ->> '$.kind' \
+         = 'pi.tool-result' AND record ->> '$.model[0].toolName' = \
+         'read' AND record ->> '$.model[0].content[0].text' = \
+         'draft, final'",
     ),
 };
 
@@ -98,26 +112,33 @@ const TOLD_ONCE: &[Expect] = &[
     },
 ];
 
-/// The write's two requests, the edit's request and the one after
-/// the edit's result.
-const EDIT_CUT_OFF: &[Expect] = &[
-    Expect {
-        value: "charges/1",
-        is: Is::Exactly(4),
-    },
-    Expect {
-        value: "calls/tell",
-        is: Is::Absent,
-    },
-    Expect {
-        value: "agent.edits",
-        is: Is::Exactly(1),
-    },
-    Expect {
-        value: "agent.edits_cut_off",
-        is: Is::Exactly(1),
-    },
-];
+/// After restart `n`: the write's two requests, the edit's request,
+/// the one after the edit's result, and two for each restart's read
+/// of the notes.
+const fn edit_cut_off(n: i64) -> [Expect; 5] {
+    [
+        Expect {
+            value: "charges/1",
+            is: Is::Exactly(4 + 2 * n),
+        },
+        Expect {
+            value: "calls/tell",
+            is: Is::Absent,
+        },
+        Expect {
+            value: "agent.edits",
+            is: Is::Exactly(1),
+        },
+        Expect {
+            value: "agent.edits_cut_off",
+            is: Is::Exactly(1),
+        },
+        Expect {
+            value: "agent.reads_edited_once",
+            is: Is::Exactly(n),
+        },
+    ]
+}
 
 /// The wake's two requests and the one the timer's input began.
 const WOKEN_ONCE: &[Expect] = &[
@@ -157,12 +178,13 @@ pub const SCENARIOS: &[Scenario] = &[
     Scenario {
         name: "agent-mid-turn",
         about: "the Node host kills itself in the agent's edit of a \
-                file of its own, once the edit is marked begun and \
-                before the file is written; the next Node host's \
-                start of the agent resumes the turn at the cut-off \
-                edit with no call from outside, does not run the \
-                edit again, tells the model its outcome is unknown, \
-                and the turn ends",
+                file of its own, once the file is written and \
+                before the edit's result is kept; the next Node \
+                host's start of the agent resumes the turn at the \
+                cut-off edit with no call from outside, does not \
+                run the edit again, tells the model it was \
+                interrupted, and the turn ends; the agent's read of \
+                the file at each restart finds the edit made once",
         demo: Demo::Linked { pid: NODE_PID },
         setup: &[
             "pi make 1",
@@ -171,16 +193,28 @@ pub const SCENARIOS: &[Scenario] = &[
             "pi charges 1 2 20000",
         ],
         trigger: "pi say 1 die in edit own:memory/notes.md: draft \
-                  -> final",
+                  -> draft, final",
         trigger_replies: true,
         kill: Kill::NodeHost,
         down_ms: 0,
         restart: [
-            &["pi charges 1 4 30000", "pi recorded", "pi pid"],
-            &["pi charges 1 4 3000", "pi recorded", "pi pid"],
+            &[
+                "pi charges 1 4 30000",
+                "pi say 1 read own:memory/notes.md",
+                "pi charges 1 6 30000",
+                "pi recorded",
+                "pi pid",
+            ],
+            &[
+                "pi charges 1 6 3000",
+                "pi say 1 read own:memory/notes.md",
+                "pi charges 1 8 30000",
+                "pi recorded",
+                "pi pid",
+            ],
         ],
-        probes: &[EDITS, EDITS_CUT_OFF],
-        expect: [EDIT_CUT_OFF, EDIT_CUT_OFF],
+        probes: &[EDITS, EDITS_CUT_OFF, READS_EDITED_ONCE],
+        expect: [&edit_cut_off(1), &edit_cut_off(2)],
     },
     Scenario {
         name: "agent-timer",

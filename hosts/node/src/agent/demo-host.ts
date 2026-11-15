@@ -77,6 +77,11 @@ const LINES: readonly Line[] = [
         args: (seconds, note) => ({ in_seconds: Number(seconds), note }),
     },
     {
+        form: /^read (\S+)$/,
+        tool: "read",
+        args: (path) => ({ path }),
+    },
+    {
         form: /^write (\S+): (.*)$/s,
         tool: "write",
         args: (path, content) => ({ path, content }),
@@ -145,10 +150,11 @@ function answering(models: Models, faux: FauxProviderHandle): Models {
 function dyingIn(files: AgentFilesystem): AgentFilesystem {
     return {
         ...files,
-        edit: (path, edits, context) => {
-            if (!dying.delete(path)) return files.edit(path, edits, context);
+        edit: async (path, edits, context) => {
+            const edited = await files.edit(path, edits, context);
+            if (!dying.delete(path)) return edited;
             process.kill(process.pid, "SIGKILL");
-            // The signal may land after `kill` returns: nothing is written before it.
+            // The signal may land after `kill` returns: nothing is answered before it.
             return new Promise(() => {});
         },
     };
