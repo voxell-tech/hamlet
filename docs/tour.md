@@ -438,8 +438,9 @@ caller the host stamped, with `sender::sender`, and any other caller
 fails with the error `message.wrong_caller`. An agent's call is for
 the agent that made it. The workspace calls the realm with `Secrets`
 and `NeedsChief`, and an agent with `Finished`. In this repository
-the agent is only the demo's stand-in, and the realm is the realm actor
-or the demo's stand-in. The host gives the workspace its
+the agent is the [agent actor](#the-agent-actor) or the demo's
+stand-in, and the realm is the realm actor or one of the demo's
+stand-ins. The host gives the workspace its
 `Sandbox` as a value of `HostOptions`, and the workspace does not start
 without one; `workspace::Options` there sets how long a call waits for
 its command and how much saved output an agent keeps.

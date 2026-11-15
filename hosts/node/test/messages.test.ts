@@ -422,7 +422,6 @@ const SENDER = {
     fill: from.realm,
 } as const;
 
-/** The calls of the actions this agent takes. */
 const TAKEN = [
     "agent/fill",
     "agent/finished.change.changed",
@@ -439,7 +438,6 @@ const TAKEN = [
     "agent/submit.question",
 ] as const;
 
-/** The inputs this agent is created with. */
 const CREATED = ["agent/hand", "agent/hire"] as const;
 
 for (const call of TAKEN) {

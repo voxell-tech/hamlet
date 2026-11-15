@@ -36,10 +36,7 @@ type Invalid = { readonly invalid: string };
 interface Definition<N extends SocietyTool> {
     readonly name: string;
     readonly description: string;
-    /**
-     * pi-durable checks a call against it first. A parameter `act` does not
-     * read is offered and never sent.
-     */
+    /** pi-durable checks a call against it first. */
     readonly parameters: object;
     readonly act: (args: never) => ActOf<N> | Invalid;
     readonly said: (answer: Granted<SocietyActs[N]["answer"]>) => string;

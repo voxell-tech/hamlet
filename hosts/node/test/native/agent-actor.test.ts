@@ -254,7 +254,6 @@ const AGENT_FIXTURES = new URL(
     import.meta.url,
 );
 
-/** The message of `agent/<name>.args`. */
 function argsOf(name: string): unknown {
     const [message] = decodeCborCompat<unknown[]>(
         readFileSync(new URL(`${name}.args.cbor`, AGENT_FIXTURES)),

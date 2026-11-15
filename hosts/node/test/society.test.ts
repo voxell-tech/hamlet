@@ -224,7 +224,6 @@ const _everyField: {
     set_tools: true,
 };
 
-/** Today's parameters this agent does not send. The model may give them; nothing of them leaves. */
 const DROPPED: Record<string, readonly string[]> = {
     tell: ["paths"],
     ask: ["paths"],
@@ -412,7 +411,6 @@ test("a place turns tools off for the next request, an older one changes nothing
         (name) => name !== "tell" && name !== "found_hamlet",
     );
 
-    // A place names acts and other tools; only the acts named leave the offer.
     assert.equal(
         await first.actions.place(
             first.by(from.realm),
