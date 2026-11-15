@@ -246,6 +246,23 @@ struct Fixtures {
     problems: Vec<String>,
     messages: Coverage,
     stored: Coverage,
+    /// Each value a message fixture holds.
+    held: Vec<Value>,
+    /// Each type a row keeps, with what reads a value as one.
+    kept: BTreeMap<String, Under>,
+}
+
+type Under = fn(&Value, &[Union], &mut Found);
+
+/// Adds the cases `value` holds to `found` when it reads as a `T`.
+fn under<T: DeserializeOwned>(
+    value: &Value,
+    unions: &[Union],
+    found: &mut Found,
+) {
+    if cases::reads::<T>(value) {
+        cases::found::<T>("", value, unions, found);
+    }
 }
 
 impl Fixtures {
@@ -257,6 +274,8 @@ impl Fixtures {
             problems: Vec::new(),
             messages: Coverage::default(),
             stored: Coverage::default(),
+            held: Vec::new(),
+            kept: BTreeMap::new(),
         }
     }
 
@@ -307,6 +326,7 @@ impl Fixtures {
         T: Serialize + DeserializeOwned + PartialEq + Debug,
     {
         let name = format!("stored/{name}");
+        self.kept.insert(cases::short_name::<T>(), under::<T>);
         self.written.insert(format!("{name}.cbor"));
         let mut bytes = Vec::new();
         ciborium::into_writer(value, &mut bytes).unwrap();
@@ -379,6 +399,7 @@ impl Fixtures {
             &self.unions,
             &mut self.problems,
         );
+        self.held.push(value.clone());
     }
 
     fn check(&mut self, name: &str, bytes: &[u8]) {
@@ -429,15 +450,30 @@ impl Fixtures {
             &enums,
             &self.unions,
         ));
+        let mut under_kept = Found::default();
+        for value in self.held.iter().flat_map(cases::maps_and_lists)
+        {
+            for under in self.kept.values() {
+                under(value, &self.unions, &mut under_kept);
+            }
+        }
+        let stored_enums = self
+            .stored
+            .found
+            .keys()
+            .copied()
+            .chain(under_kept.cases.iter().map(|(cases, _)| *cases))
+            .collect::<BTreeSet<_>>();
         let stored_unions = self.unions.iter().filter(|union| {
             self.stored
                 .in_unions
                 .iter()
+                .chain(&under_kept.in_unions)
                 .any(|held| held.union == union.name)
         });
         problems.extend(self.stored.missing(
             "stored fixture",
-            self.stored.found.keys(),
+            &stored_enums,
             stored_unions,
         ));
         for cases in
