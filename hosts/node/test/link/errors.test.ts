@@ -102,7 +102,7 @@ test(
             await demo.ask("make 2");
             const read = answer(
                 await demo.ask(
-                    'tell 1 ask realm local tell {"to":{"kind":"agent","key":"2"},"name":"note","args":[]}',
+                    'tell 1 ask realm local tell {"to":{"kind":"agent","key":"2"},"name":"note","args":""}',
                 ),
                 "agent/1/ask",
             );
