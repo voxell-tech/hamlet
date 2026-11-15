@@ -379,9 +379,11 @@ fn run_once(
         )
     });
     ensure!(
-        to_due <= down + Duration::from_millis(scenario.down_ms),
-        "the one-shot is due {} ms after the planned restart",
-        to_due.saturating_sub(down).as_millis()
+        to_due <= Duration::from_millis(scenario.down_ms),
+        "the one-shot is due {} ms from now, past the downtime of \
+         {} ms",
+        to_due.as_millis(),
+        scenario.down_ms
     );
     std::thread::sleep(down.max(to_due));
     let past_due = due.map(|due| unix_ms() - due);
