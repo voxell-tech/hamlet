@@ -39,7 +39,6 @@ pub(super) struct Ends {
 }
 
 impl Ends {
-    #[expect(dead_code, reason = "U6 and U11 call it")]
     pub fn way(&self) -> Option<Way> {
         way(&self.from, self.to.as_ref()?, self.laid)
     }
@@ -62,7 +61,6 @@ fn way(a: &End, b: &End, laid: bool) -> Option<Way> {
     }
 }
 
-#[expect(dead_code, reason = "U6 and U11 call it")]
 pub(super) async fn ends(
     rows: &Rows<'_>,
     from: &Agent,

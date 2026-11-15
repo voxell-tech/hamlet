@@ -21,7 +21,6 @@ impl TaskId {
 
     /// The task a message names, when the text is one of the
     /// realm's.
-    #[cfg_attr(not(test), expect(dead_code, reason = "U6 calls it"))]
     pub fn of(task: &RealmTask) -> Option<Self> {
         let n = task.0.parse::<u64>().ok()?;
         (n.to_string() == task.0).then_some(Self(n))
