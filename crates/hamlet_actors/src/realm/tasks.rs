@@ -51,7 +51,7 @@ pub(super) enum Origin {
 pub(super) enum Change {
     #[cfg_attr(
         not(test),
-        expect(dead_code, reason = "U5 and U8 open tasks with it")
+        expect(dead_code, reason = "U5 opens tasks with it")
     )]
     Open {
         task: TaskId,

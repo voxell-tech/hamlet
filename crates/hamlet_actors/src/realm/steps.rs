@@ -54,7 +54,7 @@ pub(super) enum Change {
     /// The row is driven no further.
     #[cfg_attr(
         not(test),
-        expect(dead_code, reason = "U4 and U8 close rows with it")
+        expect(dead_code, reason = "U4 closes rows with it")
     )]
     Close { row: StepId },
 }

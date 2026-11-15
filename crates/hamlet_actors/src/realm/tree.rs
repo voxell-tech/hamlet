@@ -132,7 +132,10 @@ pub(super) async fn lineage(
 
 #[cfg_attr(
     not(test),
-    expect(dead_code, reason = "`lineage` calls it")
+    expect(
+        dead_code,
+        reason = "U3, U4 and U5 call it through `lineage`"
+    )
 )]
 async fn member(
     rows: &Rows<'_>,
