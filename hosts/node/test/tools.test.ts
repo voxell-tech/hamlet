@@ -6,6 +6,7 @@ import { test } from "node:test";
 import { fauxAssistantMessage } from "@earendil-works/pi-ai";
 import { ok } from "@earendil-works/pi-durable/env";
 import {
+    FAKE_ROOT,
     fakeCalls,
     fakeFiles,
     from,
@@ -18,8 +19,7 @@ import {
 } from "./agent-testing.ts";
 import { context } from "./testing.ts";
 
-/** The root of `fakeFiles`, agent 7's filesystem. */
-const ROOT = "/realm/actors/agent/7.fs";
+const ROOT = FAKE_ROOT;
 
 /** The text of each tool result the agent took, in order. */
 async function results(agent: Woken): Promise<string[]> {
@@ -45,7 +45,7 @@ test("a project path goes to the workspace and an own path to the adapter", asyn
         },
     });
     const files = fakeFiles({
-        "/realm/actors/agent/7.fs/memory/plan.md": "own:plan",
+        [`${ROOT}/memory/plan.md`]: "own:plan",
     });
     const agent = await wakeAgent(t, {
         calls,
@@ -56,11 +56,7 @@ test("a project path goes to the workspace and an own path to the adapter", asyn
                 { path: "/work/project/notes.md", limit: 10 },
                 "c1",
             ),
-            toolCall(
-                "read",
-                { path: "/realm/actors/agent/7.fs/memory/plan.md" },
-                "c2",
-            ),
+            toolCall("read", { path: `${ROOT}/memory/plan.md` }, "c2"),
             fauxAssistantMessage("read both"),
         ],
     });
@@ -79,13 +75,10 @@ test("a project path goes to the workspace and an own path to the adapter", asyn
             deadlineMs: 15_000,
         },
     ]);
-    const results = (await agent.entries()).filter(
-        (entry) => entry.kind === "pi.tool-result",
-    );
-    assert.deepEqual(
-        results.map((entry) => entry.text),
-        ["project:/work/project/notes.md", "own:plan"],
-    );
+    assert.deepEqual(await results(agent), [
+        "project:/work/project/notes.md",
+        "own:plan",
+    ]);
     await agent.stop();
 });
 
@@ -448,11 +441,9 @@ test("running ends the tool, not the turn, and the end is taken once under its c
     });
     // The tool ended with the command still running, and the turn went on to its answer.
     assert.equal(agent.faux.state.callCount, 2);
-    assert.equal(
-        (await agent.entries()).find((entry) => entry.kind === "pi.tool-result")
-            ?.text,
+    assert.deepEqual(await results(agent), [
         "Command 4 is still running. Its end arrives as a new input.",
-    );
+    ]);
 
     // Later the workspace tells the agent the end, and tells it again.
     const end = {
@@ -591,16 +582,14 @@ test("a call that fails says its outcome is unknown, and is not sent again", asy
     await agent.idle();
 
     assert.equal(named(sent, "run").length, 1);
-    assert.equal(
-        (await agent.entries()).find((entry) => entry.kind === "pi.tool-result")
-            ?.text,
+    assert.deepEqual(await results(agent), [
         "`run` was cut off: actor.action_timed_out: The action timed out.. Its outcome is unknown: it may have been carried out or not, and nothing sends it again. Look at what it would have changed before you repeat it.",
-    );
+    ]);
     await agent.stop();
 });
 
 test("an own edit that a cut-off interrupts is not run again, and says its outcome is unknown", async (t) => {
-    const path = "/realm/actors/agent/7.fs/memory/plan.md";
+    const path = `${ROOT}/memory/plan.md`;
     const files = fakeFiles({ [path]: "one two" });
     const cut = Promise.withResolvers<void>();
     // The first edit is made, and then the wake is cut off before it answers.
@@ -646,12 +635,9 @@ test("an own edit that a cut-off interrupts is not run again, and says its outco
     // The adapter was asked once: the rerun found the mark and did not edit.
     assert.equal(edits, 1);
     assert.equal(files.edits, 1);
-    assert.equal(
-        (await second.entries()).find(
-            (entry) => entry.kind === "pi.tool-result",
-        )?.text,
+    assert.deepEqual(await results(second), [
         `The edit of ${path} was cut off: the agent stopped while it ran. Its outcome is unknown: it may have been carried out or not, and nothing sends it again. Look at what it would have changed before you repeat it.`,
-    );
+    ]);
     await second.stop();
 });
 

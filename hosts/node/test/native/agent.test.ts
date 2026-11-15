@@ -218,3 +218,22 @@ test("a path the file tools join to the root through `.` or `..` is read inside 
     assert.equal(climbed.ok ? "read" : climbed.error.code, "permission_denied");
     outsideIsUntouched(outside);
 });
+
+test("the root itself, as a left-out path reaches it, can be listed, found in and searched", async (t) => {
+    const { filesystem } = await planted(t);
+    const { root } = filesystem;
+    const listed = await filesystem.list(root, context);
+    assert.deepEqual(listed.ok && listed.value.map((entry) => entry.name), [
+        "inbox",
+        "memory",
+        "skills",
+    ]);
+    const found = await filesystem.find("*.md", root, context);
+    assert.deepEqual(found.ok && found.value.found, [
+        `${root}/memory/notes.md`,
+    ]);
+    const searched = await filesystem.search("notes", root, undefined, context);
+    assert.deepEqual(searched.ok && searched.value.found, [
+        { path: `${root}/memory/notes.md`, line: 1, text: "notes" },
+    ]);
+});
