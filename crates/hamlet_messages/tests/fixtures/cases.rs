@@ -18,6 +18,10 @@ pub fn tagged<E: DeserializeOwned>() -> Cases {
     cases_of::<E>(&tag_probe())
 }
 
+pub fn reads<T: DeserializeOwned>(value: &Value) -> bool {
+    T::deserialize(TaggedReader(value)).is_ok()
+}
+
 pub fn tagged_cases<T: DeserializeOwned>() -> Option<Cases> {
     match T::deserialize(TaggedReader(&tag_probe())) {
         Err(Probed {
@@ -301,18 +305,33 @@ fn texts(
     path: &mut Vec<usize>,
     paths: &mut Vec<Vec<usize>>,
 ) {
-    let items = match value {
-        Value::Text(_) => return paths.push(path.clone()),
-        Value::Array(items) => items.iter().collect::<Vec<_>>(),
-        Value::Map(entries) => {
-            entries.iter().map(|(_, item)| item).collect()
-        }
-        _ => return,
-    };
-    for (index, item) in items.into_iter().enumerate() {
+    if let Value::Text(_) = value {
+        return paths.push(path.clone());
+    }
+    for (index, item) in items(value).into_iter().enumerate() {
         path.push(index);
         texts(item, path, paths);
         path.pop();
+    }
+}
+
+/// Each map and list in `value`, `value` first when it is one.
+pub fn maps_and_lists(value: &Value) -> Vec<&Value> {
+    if !matches!(value, Value::Array(_) | Value::Map(_)) {
+        return Vec::new();
+    }
+    let mut found = vec![value];
+    found.extend(items(value).into_iter().flat_map(maps_and_lists));
+    found
+}
+
+fn items(value: &Value) -> Vec<&Value> {
+    match value {
+        Value::Array(items) => items.iter().collect(),
+        Value::Map(entries) => {
+            entries.iter().map(|(_, item)| item).collect()
+        }
+        _ => Vec::new(),
     }
 }
 

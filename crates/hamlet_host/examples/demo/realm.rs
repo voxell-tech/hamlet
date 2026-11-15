@@ -61,6 +61,7 @@ pub fn factory() -> ActorFactory {
 struct Realm;
 
 /// Asks the realm to set an agent's reach on the workspace.
+/// The program's own action, so it checks no sender.
 #[derive(serde::Serialize, serde::Deserialize)]
 struct Grant(SetReach);
 
@@ -70,6 +71,7 @@ impl Action for Grant {
 }
 
 /// Asks the realm to answer a call that waits for a chief.
+/// The program's own action, so it checks no sender.
 #[derive(serde::Serialize, serde::Deserialize)]
 struct Decide(ChiefAnswer);
 

@@ -406,8 +406,10 @@ host stopped or was killed keeps its row `running`, and the next start
 of the workspace marks it cut off (`run::CUT_OFF`); no one is told.
 `CommandStatus` answers by command id, for the agent's own commands. A
 repeat of a call with the same id and request answers from its row, or
-waits with the first call while the command runs; the same id with
-another request fails with the error `message.id_reused`.
+waits with the first call while the command runs. The same id with
+another request fails with the error `message.id_reused`, once the
+request's shape has passed: a request refused for its shape is
+answered `refused` whatever its id.
 
 `workspace/run/output.rs` keeps a command's output, the realm's secrets
 taken out as it streams. Its end carries the tail, the last 2000 lines

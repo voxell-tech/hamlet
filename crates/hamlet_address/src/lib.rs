@@ -78,7 +78,8 @@ impl InvalidName {
     }
 }
 
-/// What a name that [`plain`] checks names.
+/// The use of a name that [`plain`] checks: a kind or a key, a kind,
+/// or a host.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Named {
     KindOrKey,

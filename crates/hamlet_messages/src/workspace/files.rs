@@ -254,7 +254,7 @@ pub enum ChangeAnswer<R = ChangeRefusal> {
     },
 }
 
-/// How a change ended.
+/// The end of a change.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ChangeEnd {
