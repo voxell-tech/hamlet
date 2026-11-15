@@ -39,6 +39,7 @@ mod code;
 #[path = "../examples/demo/command.rs"]
 mod command;
 #[path = "../examples/demo/counter.rs"]
+#[expect(dead_code, reason = "these tests never use `Sleep::Never`")]
 mod counter;
 #[path = "support/files.rs"]
 mod files;

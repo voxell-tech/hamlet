@@ -58,7 +58,6 @@ const CALL_DEADLINE: Duration = Duration::from_secs(60);
 
 /// Whether counters sleep once idle.
 #[derive(Clone, Copy)]
-#[cfg_attr(test, expect(dead_code, reason = "the tests use one"))]
 pub enum Sleep {
     WhenIdle,
     Never,

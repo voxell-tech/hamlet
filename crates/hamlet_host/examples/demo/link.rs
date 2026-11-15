@@ -47,6 +47,7 @@ use hamlet_host::child::{self, ChildOptions, LinkState, Supervisor};
 use hamlet_host::route::{CallerKind, Routes};
 use hamlet_host::{Address, Host, HostOptions};
 use hamlet_messages::address::{self, Party};
+use hamlet_messages::bytes::Base64;
 use hamlet_messages::workspace::AgentNumber;
 use tokio::time::Instant;
 
@@ -241,7 +242,7 @@ async fn tell(
     let tell = TellAny {
         to: at.clone(),
         name: action.to_owned(),
-        args: encode_positional(&args)?,
+        args: Base64(encode_positional(&args)?),
     };
     let mut answer = Vec::new();
     let mut micros = Vec::new();
@@ -257,7 +258,7 @@ async fn tell(
             }
         };
         micros.push(u64::try_from(told.took.as_micros())?);
-        answer = told.answer;
+        answer = told.answer.0;
     }
     let value = if answer.is_empty() {
         serde_json::Value::Null

@@ -26,6 +26,7 @@ mod at;
 #[path = "support/clock.rs"]
 mod clock;
 #[path = "../examples/demo/counter.rs"]
+#[expect(dead_code, reason = "these tests never use `Sleep::Never`")]
 mod counter;
 
 fn factories() -> HashMap<String, ActorFactory> {

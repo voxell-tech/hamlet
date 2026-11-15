@@ -113,6 +113,7 @@ use hamlet_messages::agent::{
     AgentInput, AgentKind, Fill, Finished, Input, Outcome, Place,
     Submit,
 };
+use hamlet_messages::bytes::Base64;
 use hamlet_messages::profile::Branch;
 use hamlet_messages::realm::budget::{
     BudgetLimit, Charge, MaySpend, Payer,
@@ -183,12 +184,12 @@ impl Action for Decide {
 pub struct TellAny {
     pub to: Address,
     pub name: String,
-    pub args: Vec<u8>,
+    pub args: Base64,
 }
 
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct Told {
-    pub answer: Vec<u8>,
+    pub answer: Base64,
     pub took: Duration,
 }
 
@@ -323,11 +324,14 @@ impl Handler<TellAny> for Realm {
         let host = HostRef::of(ctx.inner())?;
         let start = Instant::now();
         let answer = host
-            .call(&tell.to, &tell.name, tell.args, TELL_WITHIN)
+            .call(&tell.to, &tell.name, tell.args.0, TELL_WITHIN)
             .await?;
         let took = start.elapsed();
         hamlet_host::fault::point(&format!("told/{}", tell.name));
-        Ok(Told { answer, took })
+        Ok(Told {
+            answer: Base64(answer),
+            took,
+        })
     }
 }
 
@@ -1650,4 +1654,37 @@ fn print_world(seen: &Seen) -> Result<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A `tell`'s arguments and its answer cross as base64 text, a
+    /// third over their size, and not as a list of numbers, which
+    /// takes two bytes for each byte of `0xff`.
+    #[test]
+    fn a_tells_bytes_cross_as_text() {
+        const MIB: usize = 1 << 20;
+        let bytes = Base64(vec![0xff; MIB]);
+        let tell = TellAny {
+            to: address::Realm.address().unwrap(),
+            name: "note".to_owned(),
+            args: bytes.clone(),
+        };
+        let told = Told {
+            answer: bytes,
+            took: Duration::ZERO,
+        };
+        for encoded in [
+            hamlet_actor::action::encode_positional(&tell).unwrap(),
+            hamlet_actor::action::encode_positional(&told).unwrap(),
+        ] {
+            assert!(
+                encoded.len() < MIB * 4 / 3 + 64,
+                "{}",
+                encoded.len()
+            );
+        }
+    }
 }

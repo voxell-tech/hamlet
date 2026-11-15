@@ -44,5 +44,10 @@ serde-reflection.workspace = true
 sha2.workspace = true
 tracing-subscriber.workspace = true
 
+# The demo's tests of its own messages run with the crate's.
+[[example]]
+name = "demo"
+test = true
+
 [lints]
 workspace = true
