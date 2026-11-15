@@ -1,0 +1,792 @@
+/**
+ * U12: the agent's messages against the Rust fixtures of
+ * `crates/hamlet_messages/fixtures/`, decoded with the CBOR reader the wire
+ * uses. Each message the agent writes equals its fixture, each fixture it
+ * takes goes through its reader and its handler, and each integer it writes
+ * fits a `u32`.
+ */
+import assert from "node:assert/strict";
+import { readdirSync, readFileSync } from "node:fs";
+import { type TestContext, test } from "node:test";
+import {
+    type FauxResponseStep,
+    fauxAssistantMessage,
+    type Models,
+} from "@earendil-works/pi-ai";
+import { ActorError, type Calls } from "../src/actor/actor/mod.ts";
+import { decodeCborCompat, decodeCborJsonCompat } from "../src/actor/serde.ts";
+import {
+    type AgentInput,
+    REALM,
+    type Submit,
+    WORKSPACE,
+} from "../src/agent/messages.ts";
+import {
+    fakeCalls,
+    from,
+    priced,
+    toolCall,
+    until,
+    type Woken,
+    wakeAgent,
+} from "./agent-testing.ts";
+import { context } from "./testing.ts";
+
+const FOLDER = new URL(
+    "../../../crates/hamlet_messages/fixtures/",
+    import.meta.url,
+);
+/** The folders whose every fixture this file accounts for. */
+const FOLDERS = ["agent", "realm", "workspace", "address", "error"] as const;
+const U32_MAX = 2 ** 32 - 1;
+
+/**
+ * A fixture as the host decodes it: an answer as `Calls.call` does, and a
+ * call's arguments or a create input as the host does for an action.
+ * `name` is the file's path under the fixtures, without `.cbor`.
+ */
+function fixture(name: string): unknown {
+    const bytes = readFileSync(new URL(`${name}.cbor`, FOLDER));
+    return name.endsWith(".answer")
+        ? decodeCborJsonCompat(bytes)
+        : decodeCborCompat(bytes);
+}
+
+/** An answer fixture, as the fake's action gives it. */
+function answer(name: string): never {
+    return fixture(`${name}.answer`) as never;
+}
+
+/** The fixtures whose names match `pattern`, without `.cbor`, in order. */
+function fixtures(pattern: RegExp): string[] {
+    return FOLDERS.flatMap((folder) =>
+        readdirSync(new URL(`${folder}/`, FOLDER)).map(
+            (file) => `${folder}/${file.replace(/\.cbor$/, "")}`,
+        ),
+    )
+        .filter((name) => pattern.test(name))
+        .sort();
+}
+
+/** One call the agent made, with every positional argument. */
+interface Out {
+    readonly to: string;
+    readonly name: string;
+    readonly args: readonly unknown[];
+}
+
+type Answers = Parameters<typeof fakeCalls>[0];
+
+/** `fakeCalls`, keeping each call's whole argument list: `list_tools` sends none. */
+function recorded(answers: Answers): { calls: Calls; out: Out[] } {
+    const fake = fakeCalls(answers);
+    const out: Out[] = [];
+    const calls: Calls = {
+        call: (to, name, args, options) => {
+            out.push({
+                to: `${to.kind}/${to.key}`,
+                name,
+                args: args as readonly unknown[],
+            });
+            return fake.calls.call(to, name, args, options);
+        },
+    };
+    return { calls, out };
+}
+
+/** The input every agent here is created with: the hand's, with the standing task `standing-12`. */
+const HAND = fixture("agent/hand.input") as AgentInput;
+
+/** The model's last answer in every turn here, which a reply carries. */
+const LAST_WORDS = "Two of them";
+
+function submitted(
+    task: string | undefined,
+    input: Submit["input"] = { type: "line", text: "Go." },
+): Submit {
+    return { id: "input-1", ...(task === undefined ? {} : { task }), input };
+}
+
+/** One agent woken on `calls`, and one turn on `submit`, run to its end. */
+async function turn(
+    t: TestContext,
+    calls: Calls,
+    given: {
+        submit: Submit;
+        responses?: FauxResponseStep[];
+        models?: (models: Models) => Models;
+        /** A tool the agent offers only once `list_tools` answered. */
+        offered?: string;
+    },
+): Promise<Woken> {
+    const agent = await wakeAgent(t, {
+        calls,
+        input: HAND,
+        responses: [
+            ...(given.responses ?? []),
+            fauxAssistantMessage(LAST_WORDS),
+        ],
+        ...(given.models === undefined ? {} : { models: given.models }),
+    });
+    if (given.offered !== undefined) {
+        const root = await (await agent.harness()).root(context);
+        await until(async () =>
+            (await root.agent(context)).tools.some(
+                (tool) => tool.name === given.offered,
+            ),
+        );
+    }
+    await agent.actions.submit(agent.by(from.realm), given.submit);
+    await agent.idle();
+    return agent;
+}
+
+// ---------------------------------------------------------------------------
+// 1. Each message the agent writes equals its fixture
+// ---------------------------------------------------------------------------
+
+type ToolArgs = Parameters<typeof toolCall>[1];
+
+/** One message the agent writes, and the turn that makes it write it. */
+interface Written {
+    /** `<folder>/<action>[.<variant>]`: the fixture is `<this>.args.cbor`. */
+    readonly fixture: string;
+    /** The submit's task, which a stamped message carries as its own. */
+    readonly task?: string;
+    readonly input?: Submit["input"];
+    /** The model's tool call that writes it; none for a message the agent writes on its own. */
+    readonly tool?: readonly [name: string, args: ToolArgs];
+    readonly answers?: Answers;
+    readonly offered?: string;
+    readonly models?: (models: Models) => Models;
+    /**
+     * Fields of the first argument the agent makes itself, which the test
+     * cannot steer: `call` (`t<task id>` or `m<uuid>`), `conversation`
+     * (pi-durable's id) and a charge's measured `took_ms`. Each is checked
+     * for the agent's form and then taken from the fixture, which holds a
+     * fixed one (`call-5`, `c1`, 830).
+     */
+    readonly own?: readonly string[];
+    /** Fields the agent always writes the same, checked and then taken from the fixture. */
+    readonly constant?: Readonly<Record<string, unknown>>;
+}
+
+/** The form of each field the agent makes itself. */
+const OWN_FORMS: Readonly<Record<string, (value: unknown) => boolean>> = {
+    call: (value) =>
+        typeof value === "string" &&
+        /^(t[1-9][0-9]*|m[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12})$/.test(
+            value,
+        ),
+    conversation: (value) =>
+        typeof value === "string" && /^[1-9][0-9]*$/.test(value),
+    took_ms: (value) =>
+        Number.isInteger(value) &&
+        (value as number) >= 0 &&
+        (value as number) <= U32_MAX,
+};
+
+const WRITTEN: readonly Written[] = [
+    {
+        fixture: "workspace/run",
+        task: "task-1",
+        tool: ["bash", { command: "echo hi", timeout: 30, network: false }],
+        answers: { workspace: { run: () => answer("workspace/run.running") } },
+        own: ["call", "conversation"],
+    },
+    {
+        fixture: "workspace/run.unset",
+        tool: ["bash", { command: "echo hi", network: true }],
+        answers: { workspace: { run: () => answer("workspace/run.running") } },
+        own: ["call", "conversation"],
+    },
+    {
+        fixture: "workspace/run.tool",
+        task: "task-1",
+        tool: ["word_count", { path: "/project/a.md" }],
+        answers: {
+            workspace: {
+                list_tools: () => answer("workspace/list_tools"),
+                run: () => answer("workspace/run.running"),
+            },
+        },
+        offered: "word_count",
+        own: ["call", "conversation"],
+    },
+    {
+        fixture: "workspace/write_file",
+        tool: ["write", { path: "/work/project/notes.md", content: "hello\n" }],
+        answers: {
+            workspace: {
+                write_file: () => answer("workspace/write_file.ended.changed"),
+            },
+        },
+        own: ["call", "conversation"],
+    },
+    {
+        fixture: "workspace/edit_file",
+        task: "task-1",
+        tool: [
+            "edit",
+            {
+                path: "/work/project/notes.md",
+                edits: [{ oldText: "hello", newText: "goodbye" }],
+            },
+        ],
+        answers: {
+            workspace: {
+                edit_file: () => answer("workspace/edit_file.ended.changed"),
+            },
+        },
+        own: ["call", "conversation"],
+    },
+    {
+        fixture: "workspace/read_file",
+        tool: [
+            "read",
+            { path: "/work/project/notes.md", offset: 10, limit: 20 },
+        ],
+        answers: {
+            workspace: { read_file: () => answer("workspace/read_file.text") },
+        },
+    },
+    {
+        fixture: "workspace/read_file.whole",
+        tool: ["read", { path: "/work/project/notes.md" }],
+        answers: {
+            workspace: { read_file: () => answer("workspace/read_file.text") },
+        },
+    },
+    {
+        fixture: "workspace/search",
+        tool: [
+            "search",
+            {
+                pattern: "fn main",
+                path: "/work/project",
+                name: "*.rs",
+                ignore_case: true,
+            },
+        ],
+        answers: {
+            workspace: { search: () => answer("workspace/search.text") },
+        },
+    },
+    {
+        fixture: "workspace/find",
+        tool: ["find", { path: "/work/project" }],
+        answers: {
+            workspace: { find: () => answer("workspace/search.text") },
+        },
+    },
+    // Sent at each wake.
+    { fixture: "workspace/list_tools" },
+    // Sent before each model request; a turn whose input names no task asks for the standing one.
+    { fixture: "realm/may_spend" },
+    {
+        fixture: "realm/charge",
+        models: (models) => priced(models, 0.00125),
+        own: ["call", "took_ms"],
+    },
+    {
+        fixture: "realm/reply",
+        task: "task-1",
+        input: {
+            type: "question",
+            letter: 5,
+            from: { agent: 12, name: "Ada" },
+            text: "How many fail?",
+        },
+        answers: { realm: { reply: () => answer("realm/reply.done") } },
+    },
+    {
+        fixture: "realm/tell",
+        task: "task-1",
+        tool: ["tell", { to: "mayor", text: "The tests pass" }],
+        answers: { realm: { tell: () => answer("realm/tell.done") } },
+        own: ["call"],
+    },
+    {
+        fixture: "realm/tell.no_task",
+        tool: ["tell", { to: "hand", text: "The tests pass" }],
+        answers: { realm: { tell: () => answer("realm/tell.done") } },
+        own: ["call"],
+    },
+    {
+        fixture: "realm/ask",
+        task: "task-1",
+        tool: ["ask", { to: "hire#12", question: "Which tests fail?" }],
+        answers: { realm: { ask: () => answer("realm/ask.done") } },
+        own: ["call", "act.conversation"],
+    },
+    {
+        fixture: "realm/request_road",
+        task: "task-1",
+        tool: [
+            "request_road",
+            { to: "hire#13", reason: "To ask about the tests" },
+        ],
+        answers: {
+            realm: { request_road: () => answer("realm/request_road.done") },
+        },
+        own: ["call"],
+    },
+    {
+        fixture: "realm/found",
+        tool: ["found_hamlet", { name: "Harbor", purpose: "Run the release" }],
+        answers: { realm: { found: () => answer("realm/found.founded") } },
+        own: ["call"],
+        // The tool has no tier to choose: a hamlet an agent founds has
+        // today's default, 50. The fixture's 500 is a chief's choice.
+        constant: { "act.tier": "fifty" },
+    },
+    {
+        fixture: "realm/hire",
+        tool: ["hire", { purpose: "Check the links", under: "hire#12" }],
+        answers: { realm: { hire: () => answer("realm/hire.hired") } },
+        own: ["call"],
+    },
+    {
+        fixture: "realm/end",
+        tool: ["end_hire", { hire: "hire#12" }],
+        answers: { realm: { end: () => answer("realm/end.done") } },
+        own: ["call"],
+    },
+    {
+        fixture: "realm/seat",
+        tool: ["seat_mayor", { hire: "hire#13" }],
+        answers: { realm: { seat: () => answer("realm/seat.done") } },
+        own: ["call"],
+    },
+    {
+        fixture: "realm/lay_road",
+        tool: ["lay_road", { a: "hire#12", b: "hire#13" }],
+        answers: { realm: { lay_road: () => answer("realm/lay_road.done") } },
+        own: ["call"],
+    },
+    {
+        fixture: "realm/take_up_road",
+        tool: ["take_up_road", { a: "hire#12", b: "mayor" }],
+        answers: {
+            realm: { take_up_road: () => answer("realm/take_up_road.done") },
+        },
+        own: ["call"],
+    },
+    {
+        fixture: "realm/set_tools",
+        tool: ["set_tools", { hire: "hire#12", off: ["tell"] }],
+        answers: {
+            realm: { set_tools: () => answer("realm/set_tools.done") },
+        },
+        own: ["call"],
+    },
+];
+
+/** The object that holds the field at `path` (as `act.conversation`) in `message`, and the field's key. */
+function field(
+    message: unknown,
+    path: string,
+): { holder: Record<string, unknown>; key: string } {
+    const steps = path.split(".");
+    const key = steps.pop() as string;
+    let holder = message as Record<string, unknown>;
+    for (const step of steps) holder = holder[step] as Record<string, unknown>;
+    return { holder, key };
+}
+
+/** The action a fixture's name is of, and the address it is sent to. */
+function actionOf(name: string): { to: string; action: string } {
+    const [folder = "", rest = ""] = name.split("/");
+    const to = folder === "workspace" ? WORKSPACE : REALM;
+    return { to: `${to.kind}/${to.key}`, action: rest.split(".")[0] ?? "" };
+}
+
+for (const row of WRITTEN) {
+    test(`the agent's ${row.fixture} equals its fixture`, async (t) => {
+        const { calls, out } = recorded(row.answers ?? {});
+        const agent = await turn(t, calls, {
+            submit: submitted(row.task, row.input),
+            responses: row.tool === undefined ? [] : [toolCall(...row.tool)],
+            ...(row.models === undefined ? {} : { models: row.models }),
+            ...(row.offered === undefined ? {} : { offered: row.offered }),
+        });
+        await agent.stop();
+
+        const { to, action } = actionOf(row.fixture);
+        const sent = out.find((call) => call.to === to && call.name === action);
+        assert.ok(sent, `the agent sent no ${action}`);
+        const expected = fixture(`${row.fixture}.args`) as unknown[];
+        const args = structuredClone(sent.args) as unknown[];
+        for (const path of row.own ?? []) {
+            const mine = field(args[0], path);
+            const value = mine.holder[mine.key];
+            assert.ok(
+                OWN_FORMS[mine.key]?.(value),
+                `${path} has the agent's form: ${String(value)}`,
+            );
+            const theirs = field(expected[0], path);
+            mine.holder[mine.key] = theirs.holder[theirs.key];
+        }
+        for (const [path, value] of Object.entries(row.constant ?? {})) {
+            const mine = field(args[0], path);
+            assert.equal(mine.holder[mine.key], value, path);
+            const theirs = field(expected[0], path);
+            mine.holder[mine.key] = theirs.holder[theirs.key];
+        }
+        assert.deepStrictEqual(args, expected);
+    });
+}
+
+test("the agent's addresses of the workspace and the realm equal their fixtures", () => {
+    for (const [address, name] of [
+        [WORKSPACE, "address/workspace"],
+        [REALM, "address/realm"],
+    ] as const) {
+        assert.deepStrictEqual(
+            { kind: address.kind, key: address.key },
+            fixture(`${name}.answer`),
+        );
+    }
+});
+
+// ---------------------------------------------------------------------------
+// 2. Each fixture the agent takes goes through its reader and its handler
+// ---------------------------------------------------------------------------
+
+/** Who sends each of the agent's actions. */
+const SENDER = {
+    submit: from.realm,
+    finished: from.workspace,
+    place: from.realm,
+    fill: from.realm,
+} as const;
+
+for (const name of fixtures(/^agent\/.*\.args$/)) {
+    test(`${name} is read and taken, and answered as its answer fixture holds`, async (t) => {
+        const action = actionOf(name).action as keyof typeof SENDER;
+        const { calls } = recorded({
+            realm: { reply: () => answer("realm/reply.done") },
+        });
+        const agent = await wakeAgent(t, {
+            calls,
+            input: HAND,
+            responses: [fauxAssistantMessage(LAST_WORDS)],
+        });
+        const [message, ...more] = fixture(name) as unknown[];
+        assert.equal(more.length, 0);
+        // The action reads its message with `read.<action>` before it takes it.
+        const take = agent.actions[action] as (
+            c: ReturnType<Woken["by"]>,
+            message: unknown,
+        ) => Promise<unknown>;
+        assert.deepStrictEqual(
+            await take(agent.by(SENDER[action]), message),
+            fixture(`agent/${action}.answer`),
+        );
+        await agent.idle();
+        assert.deepEqual(agent.reported, []);
+        await agent.stop();
+    });
+}
+
+for (const name of fixtures(/^agent\/.*\.input$/)) {
+    test(`${name} is read and creates the agent`, async (t) => {
+        const { calls } = recorded({});
+        // `onCreate` reads its input with `read.agentInput`.
+        const agent = await wakeAgent(t, {
+            calls,
+            input: fixture(name) as AgentInput,
+        });
+        assert.deepEqual(agent.reported, []);
+        await agent.stop();
+    });
+}
+
+/**
+ * The actions whose answers go to a tool. Each fixture of an answer to one
+ * is given to the tool `WRITTEN` calls it with, in one turn.
+ */
+const ANSWERED_BY_TOOLS = [
+    "workspace/run",
+    "workspace/read_file",
+    "workspace/search",
+    "workspace/find",
+    "workspace/write_file",
+    "workspace/edit_file",
+    "realm/tell",
+    "realm/ask",
+    "realm/request_road",
+    "realm/found",
+    "realm/hire",
+    "realm/end",
+    "realm/seat",
+    "realm/lay_road",
+    "realm/take_up_road",
+    "realm/set_tools",
+] as const;
+
+function answersTo(action: string): string[] {
+    return fixtures(new RegExp(`^${action}(\\..+)?\\.answer$`));
+}
+
+/** The entries of the agent's tool results, oldest first. */
+async function toolResults(agent: Woken) {
+    return (await agent.entries()).filter(
+        (entry) => entry.kind === "pi.tool-result",
+    );
+}
+
+/**
+ * pi-durable records a throw of a tool's `execute` as a result with no
+ * output and a `tool_error` diagnostic.
+ */
+function threw(data: unknown): boolean {
+    return JSON.stringify(data).includes('"tool_error"');
+}
+
+for (const action of ANSWERED_BY_TOOLS) {
+    test(`each answer to ${action} gives its tool a result, never a throw`, async (t) => {
+        const row = WRITTEN.find((written) => written.fixture === action);
+        const tool = row?.tool;
+        assert.ok(tool);
+        const answers = answersTo(action);
+        const queue = [...answers];
+        const [folder = "", name = ""] = action.split("/");
+        const { calls } = recorded({
+            [folder]: { [name]: () => fixture(queue.shift() as string) },
+        });
+        const agent = await turn(t, calls, {
+            submit: submitted(row?.task),
+            responses: answers.map((_, index) =>
+                toolCall(tool[0], tool[1], `c${index}`),
+            ),
+        });
+        const results = await toolResults(agent);
+        await agent.stop();
+
+        assert.equal(results.length, answers.length);
+        answers.forEach((name, index) => {
+            const result = results[index];
+            assert.ok(result && !threw(result.data), `${name} threw`);
+            const given = fixture(name) as { type: string; words?: string };
+            if (given.type === "refused") {
+                assert.equal(result.text, given.words, name);
+            } else {
+                assert.notEqual(result.text, "", name);
+            }
+        });
+    });
+}
+
+for (const name of answersTo("realm/may_spend")) {
+    test(`${name} is read by the model gate, and the charge's answer by its sender`, async (t) => {
+        const given = fixture(name) as { type: string; words?: string };
+        const { calls } = recorded({
+            realm: {
+                may_spend: () => given as never,
+                charge: () => answer("realm/charge"),
+            },
+        });
+        const agent = await turn(t, calls, { submit: submitted(undefined) });
+        const harness = await agent.harness();
+        const root = await harness.root(context);
+        const submission = await harness.commit(
+            (tx) => tx.submissionByRequest(root.id, "input-1"),
+            context,
+        );
+        await agent.stop();
+
+        if (given.type === "refused") {
+            assert.equal(agent.faux.state.callCount, 0);
+            const detail = String(submission?.detail);
+            assert.ok(detail.endsWith(`: ${given.words}`), detail);
+        } else {
+            assert.equal(agent.faux.state.callCount, 1);
+        }
+        assert.deepEqual(agent.reported, []);
+    });
+}
+
+for (const name of answersTo("realm/reply")) {
+    test(`${name} is read by the reply`, async (t) => {
+        const given = fixture(name) as { type: string; words?: string };
+        const { calls } = recorded({ realm: { reply: () => given as never } });
+        const row = WRITTEN.find(
+            (written) => written.fixture === "realm/reply",
+        );
+        const agent = await turn(t, calls, {
+            submit: submitted(row?.task, row?.input),
+        });
+        await agent.stop();
+
+        assert.deepEqual(
+            agent.reported,
+            given.type === "refused"
+                ? [`a reply was refused: ${given.words}`]
+                : [],
+        );
+    });
+}
+
+for (const name of fixtures(/^error\/.*\.run\./)) {
+    test(`${name}, thrown by run, gives bash a result, never a throw`, async (t) => {
+        const given = fixture(name) as {
+            group: string;
+            code: string;
+            message: string;
+            metadata: unknown;
+        };
+        const { calls } = recorded({
+            workspace: {
+                run: () => {
+                    throw new ActorError(
+                        given.group,
+                        given.code,
+                        given.message,
+                        {
+                            metadata: given.metadata,
+                        },
+                    );
+                },
+            },
+        });
+        const agent = await turn(t, calls, {
+            submit: submitted("task-1"),
+            responses: [toolCall("bash", { command: "echo hi" })],
+        });
+        const [result] = await toolResults(agent);
+        await agent.stop();
+
+        assert.ok(result && !threw(result.data));
+        assert.ok(
+            result.text.includes(
+                `${given.group}.${given.code}: ${given.message}`,
+            ),
+            result.text,
+        );
+    });
+}
+
+/** Each fixture the agent never writes nor takes, by its name, with the reason. */
+const NOT_THE_AGENTS: readonly (readonly [RegExp, string])[] = [
+    [/^realm\/chief_/, "a chief's act, sent by a client"],
+    [/^realm\/(say|answer|read_world)\./, "a client's call of the realm"],
+    [/^realm\/(needs_chief|secrets)\./, "the workspace's call of the realm"],
+    [
+        /^workspace\/(set_reach|cancel_agent|chief_answer)\./,
+        "the realm's call of the workspace",
+    ],
+    [
+        /^workspace\/cancel\./,
+        "an agent's, but P5's agent cancels nothing: `/stop` is P6's",
+    ],
+    [
+        /^workspace\/command_status\./,
+        "an agent's, but P5's agent never asks: a command's end arrives as `finished`",
+    ],
+    [
+        /^error\/wrong_caller\.set_reach\./,
+        "the answer to the realm's set_reach",
+    ],
+    [/^address\/agent\./, "the agent's own address, which the host gives it"],
+    [/^address\/profile\./, "a profile's address, which the agent never calls"],
+];
+
+test("every fixture of the five folders is one the agent writes or takes, or is listed with its reason", () => {
+    const covered = new Set([
+        ...WRITTEN.map((row) => `${row.fixture}.args`),
+        "address/workspace.answer",
+        "address/realm.answer",
+        ...fixtures(/^agent\//),
+        ...ANSWERED_BY_TOOLS.flatMap(answersTo),
+        ...answersTo("realm/may_spend"),
+        ...answersTo("realm/reply"),
+        "realm/charge.answer",
+        // `workspace/run.tool` waits until the tool it lists is offered.
+        "workspace/list_tools.answer",
+        ...fixtures(/^error\/.*\.run\./),
+    ]);
+    const unaccounted = fixtures(/./).filter(
+        (name) =>
+            !covered.has(name) &&
+            !NOT_THE_AGENTS.some(([pattern]) => pattern.test(name)),
+    );
+    assert.deepEqual(unaccounted, []);
+});
+
+// ---------------------------------------------------------------------------
+// 3. The integers a TypeScript agent writes stay within `u32`
+// ---------------------------------------------------------------------------
+
+test("a charge's micros and took_ms are held at 2^32 - 1", async (t) => {
+    // Five thousand dollars is five billion micros. A request that took
+    // fifty days is `spend.test.ts`'s.
+    const { calls, out } = recorded({});
+    const agent = await turn(t, calls, {
+        submit: submitted(undefined),
+        models: (models) => priced(models, 5_000),
+    });
+    await agent.stop();
+
+    const charges = out
+        .filter((call) => call.name === "charge")
+        .map((call) => call.args[0] as { micros: number; took_ms: number });
+    assert.equal(charges.length, 1);
+    for (const { micros, took_ms } of charges) {
+        assert.equal(micros, U32_MAX);
+        assert.ok(Number.isInteger(took_ms) && took_ms <= U32_MAX);
+    }
+});
+
+test("a reply's question is never above 2^32 - 1", {
+    todo: "the agent reads `letter` as any integer and replies with it as it came: neither held nor refused",
+}, async (t) => {
+    const { calls, out } = recorded({
+        realm: { reply: () => answer("realm/reply.done") },
+    });
+    const agent = await wakeAgent(t, {
+        calls,
+        input: HAND,
+        responses: [fauxAssistantMessage(LAST_WORDS)],
+    });
+    try {
+        await agent.actions.submit(
+            agent.by(from.realm),
+            submitted(undefined, {
+                type: "question",
+                letter: 2 ** 32,
+                from: { agent: 12 },
+                text: "How many fail?",
+            }),
+        );
+        await agent.idle();
+    } catch (error) {
+        // Refused before anything is sent.
+        assert.ok(error instanceof ActorError);
+    } finally {
+        await agent.stop();
+    }
+
+    for (const call of out.filter((call) => call.name === "reply")) {
+        const { question } = call.args[0] as { question: number };
+        assert.ok(question <= U32_MAX, `question ${question}`);
+    }
+});
+
+test("an agent's number in Named is never above 2^32 - 1", {
+    todo: "`hire#<number>` is read with no bound and sent as it came: neither held nor refused",
+}, async (t) => {
+    const { calls, out } = recorded({
+        realm: { tell: () => answer("realm/tell.done") },
+    });
+    const agent = await turn(t, calls, {
+        submit: submitted(undefined),
+        responses: [toolCall("tell", { to: `hire#${2 ** 32}`, text: "Hello" })],
+    });
+    await agent.stop();
+
+    for (const call of out.filter((call) => call.name === "tell")) {
+        const { act } = call.args[0] as { act: { to: { agent?: number } } };
+        assert.ok((act.to.agent ?? 0) <= U32_MAX, `agent ${act.to.agent}`);
+    }
+});
