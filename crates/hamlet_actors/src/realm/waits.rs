@@ -30,8 +30,7 @@ fn named(wait: &str) -> Option<WaitId> {
     u64::try_from(n).ok().map(WaitId)
 }
 
-/// How long an allow holds, as the row records it. The workspace
-/// hears only allow or refuse, so every allow acts once.
+/// How long an allow holds, as the row records it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(super) enum Scope {
@@ -178,28 +177,36 @@ pub(super) async fn deliver(
     Ok(())
 }
 
+/// The agent that needs the chief.
+pub(super) enum Asker {
+    Ended,
+    NotEnded,
+}
+
 impl Act<Workspace> for NeedsChief {
     type Output = ();
-    /// Whether the agent has ended.
-    type Loaded = bool;
+    type Loaded = Asker;
     type Done = ();
 
     async fn load(
         &self,
         _by: &Workspace,
         rows: &Rows<'_>,
-    ) -> Result<bool> {
-        Ok(tree::left(rows, self.agent).await?.is_some())
+    ) -> Result<Asker> {
+        Ok(match tree::left(rows, self.agent).await? {
+            Some(_) => Asker::Ended,
+            None => Asker::NotEnded,
+        })
     }
 
     fn decide(
         &self,
         _by: &Workspace,
-        ended: bool,
+        asker: Asker,
     ) -> Decision<(), ()> {
         // The end lapsed this agent's waits; the workspace closes its
         // own when it hears of the end.
-        if ended {
+        if let Asker::Ended = asker {
             return Decision::Answer(());
         }
         Decision::Change(Decided::new(()).change(Change::Open {

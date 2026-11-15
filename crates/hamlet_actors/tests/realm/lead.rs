@@ -336,6 +336,8 @@ async fn a_repeated_hire_hires_once() {
             ),
         )
         .await;
+    // A repeat while the failed drive still holds the row drives
+    // nothing, so repeat until one does.
     let mut again = Vec::new();
     while !realm.holds_reach(AgentNumber(3)) {
         again.push(realm.tool(MAYOR, &call).await.unwrap());

@@ -310,6 +310,7 @@ impl<By: RealmWide> Act<By> for Seat {
         }
         Decision::Change(
             Decided::new(())
+                // First: `seat` reads the old mayor from the hamlet.
                 .change(Change::Seat { mayor: hire })
                 .change(chiefs::Change::Mayor {
                     hamlet: hamlet.id.clone(),
