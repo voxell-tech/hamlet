@@ -101,6 +101,8 @@ mod link;
 mod profile;
 #[path = "demo/realm.rs"]
 mod realm;
+#[path = "demo/tell.rs"]
+mod tell;
 #[path = "demo/watch.rs"]
 mod watch;
 

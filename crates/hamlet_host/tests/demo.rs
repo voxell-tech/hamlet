@@ -4,7 +4,14 @@ use std::process::{Child, ChildStdin, Command, Output, Stdio};
 use std::sync::mpsc;
 use std::time::Duration;
 
+use hamlet_actor::action::encode_positional;
+use hamlet_messages::address::{self, Party};
+use hamlet_messages::bytes::Base64;
 use hamlet_testing::{Scratch, names_in, strip_overrides};
+use tell::{TellAny, Told};
+
+#[path = "../examples/demo/tell.rs"]
+mod tell;
 
 /// How long a test waits for a line of the demo.
 const PATIENCE: Duration = Duration::from_secs(30);
@@ -163,4 +170,32 @@ fn a_demo_host_with_the_realm_actor_runs_the_workspace_beside_the_kinds_it_names
     assert_eq!(serve.ask("realm found h1"), "founded/h1 2");
     assert_eq!(serve.ask("get k1"), "x/k1 0");
     assert!(serve.stop());
+}
+
+/// A `tell`'s arguments and its answer cross as base64 text, a third
+/// over their size, and not as a list of numbers, which takes two
+/// bytes for each byte of `0xff`.
+#[test]
+fn a_tells_bytes_cross_as_text() {
+    const MIB: usize = 1 << 20;
+    let bytes = Base64(vec![0xff; MIB]);
+    let tell = TellAny {
+        to: address::Realm.address().unwrap(),
+        name: "note".to_owned(),
+        args: bytes.clone(),
+    };
+    let told = Told {
+        answer: bytes,
+        took: Duration::ZERO,
+    };
+    for encoded in [
+        encode_positional(&tell).unwrap(),
+        encode_positional(&told).unwrap(),
+    ] {
+        assert!(
+            encoded.len() < MIB * 4 / 3 + 64,
+            "{}",
+            encoded.len()
+        );
+    }
 }

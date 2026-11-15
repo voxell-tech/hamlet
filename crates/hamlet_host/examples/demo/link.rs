@@ -53,7 +53,8 @@ use tokio::time::Instant;
 
 use crate::Demo;
 use crate::command::{actor_error, number, p50_p99};
-use crate::realm::{self, Heard, TellAny};
+use crate::realm::{self, Heard};
+use crate::tell::TellAny;
 
 /// The kinds the Node host runs, each a kind of `demo.ts`.
 pub const NODE_KINDS: &[&str] = &[address::Agent::KIND];

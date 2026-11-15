@@ -106,7 +106,7 @@ use hamlet_actor_core::{
     ColumnValue,
 };
 use hamlet_actors::realm;
-use hamlet_host::{Address, Caller, Host, HostRef};
+use hamlet_host::{Caller, Host, HostRef};
 use hamlet_messages::Message;
 use hamlet_messages::address::{self, Party};
 use hamlet_messages::agent::{
@@ -138,6 +138,7 @@ use hamlet_messages::workspace::{
 };
 
 use crate::command::{number, shown};
+use crate::tell::{TellAny, Told};
 
 /// The kind `realm`.
 pub fn factory() -> ActorFactory {
@@ -175,27 +176,6 @@ struct Decide(ChiefAnswer);
 impl Action for Decide {
     type Output = AnswerTaken;
     const NAME: &'static str = "decide";
-}
-
-/// Asks the realm to call the action `name` of the actor at `to` with
-/// `args` as itself, and to answer what it answers. Only the program
-/// may send it.
-#[derive(serde::Serialize, serde::Deserialize)]
-pub struct TellAny {
-    pub to: Address,
-    pub name: String,
-    pub args: Base64,
-}
-
-#[derive(serde::Serialize, serde::Deserialize)]
-pub struct Told {
-    pub answer: Base64,
-    pub took: Duration,
-}
-
-impl Action for TellAny {
-    type Output = Told;
-    const NAME: &'static str = "tell";
 }
 
 /// Asks the realm who it reads as this call's caller. Any caller may
@@ -1654,37 +1634,4 @@ fn print_world(seen: &Seen) -> Result<()> {
         }
     }
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// A `tell`'s arguments and its answer cross as base64 text, a
-    /// third over their size, and not as a list of numbers, which
-    /// takes two bytes for each byte of `0xff`.
-    #[test]
-    fn a_tells_bytes_cross_as_text() {
-        const MIB: usize = 1 << 20;
-        let bytes = Base64(vec![0xff; MIB]);
-        let tell = TellAny {
-            to: address::Realm.address().unwrap(),
-            name: "note".to_owned(),
-            args: bytes.clone(),
-        };
-        let told = Told {
-            answer: bytes,
-            took: Duration::ZERO,
-        };
-        for encoded in [
-            hamlet_actor::action::encode_positional(&tell).unwrap(),
-            hamlet_actor::action::encode_positional(&told).unwrap(),
-        ] {
-            assert!(
-                encoded.len() < MIB * 4 / 3 + 64,
-                "{}",
-                encoded.len()
-            );
-        }
-    }
 }
