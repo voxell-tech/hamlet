@@ -151,10 +151,8 @@ async fn demo() -> Result<()> {
     } else {
         counter::Sleep::WhenIdle
     };
-    let mut factories = kinds::factories(&start.kinds, sleep);
-    if start.realm_actor {
-        factories.extend(realm::actor_kinds());
-    }
+    let factories =
+        kinds::factories(&start.kinds, start.realm_actor, sleep);
     // The workspace does not start where there is no sandbox.
     let options = match Sandbox::open(Isolation::Sandboxed) {
         Ok(sandbox) => start.options.with_value(Arc::new(sandbox)),

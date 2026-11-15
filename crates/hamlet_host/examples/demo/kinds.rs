@@ -29,8 +29,12 @@ pub const LOCAL: &[&str] = &[
 /// Its Node host runs [`link::NODE_KINDS`](crate::link::NODE_KINDS).
 pub const LINKED: &[&str] = &[address::Realm::KIND];
 
+/// The factories of `kinds`. With `realm_actor`, also the
+/// workspace's and the realm actor's kinds', which replace the stub
+/// realm and the stub agent.
 pub fn factories(
     kinds: &[String],
+    realm_actor: bool,
     sleep: counter::Sleep,
 ) -> HashMap<String, ActorFactory> {
     let counters = counters(kinds);
@@ -42,6 +46,13 @@ pub fn factories(
         if kinds.iter().any(|named| named == kind) {
             factories.insert(kind.to_owned(), factory());
         }
+    }
+    if realm_actor {
+        factories.insert(
+            address::Workspace::KIND.to_owned(),
+            workspace::factory(),
+        );
+        factories.extend(realm::actor_kinds());
     }
     factories
 }
