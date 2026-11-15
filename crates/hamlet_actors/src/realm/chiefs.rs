@@ -195,9 +195,20 @@ async fn set_mayor(
     Ok(Affected::seen([Part::Hamlets]))
 }
 
-pub(super) fn first_start() -> Vec<change::Change> {
+/// None once the realm's row is written: the host runs the first
+/// start again when the start after it fails.
+pub(super) async fn first_start(
+    rows: &Rows<'_>,
+) -> Result<Vec<change::Change>> {
+    if rows
+        .value::<i64>("SELECT id FROM realm", Vec::new())
+        .await?
+        .is_some()
+    {
+        return Ok(Vec::new());
+    }
     let hand = Hand::NUMBER;
-    vec![
+    Ok(vec![
         Change::First.into(),
         tree::Change::Hand.into(),
         tasks::Change::Standing {
@@ -209,7 +220,7 @@ pub(super) fn first_start() -> Vec<change::Change> {
             row: hire::row(hand),
         }
         .into(),
-    ]
+    ])
 }
 
 pub(super) struct Founding {
@@ -319,6 +330,7 @@ pub(super) fn payer_of(lineage: &tree::Lineage) -> Payer {
 
 #[cfg(test)]
 mod tests {
+    use hamlet_actor::Actor as _;
     use hamlet_messages::sender::Client;
 
     use super::super::testing::Started;
@@ -340,6 +352,29 @@ mod tests {
             mayor: AgentNumber(2),
             blank: ProfileId(2),
         }
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn the_first_start_run_again_writes_nothing() {
+        let started = Started::new().await;
+        started
+            .realm
+            .clone()
+            .on_create(started.ctx.clone())
+            .await
+            .unwrap();
+
+        let rows = started.rows();
+        for table in ["realm", "agent", "task", "step"] {
+            let counted = format!("SELECT COUNT(*) FROM {table}");
+            let count = rows.value::<u32>(&counted, Vec::new()).await;
+            assert_eq!(
+                count.unwrap(),
+                Some(1),
+                "the rows of `{table}`"
+            );
+        }
+        started.stop().await;
     }
 
     #[test]

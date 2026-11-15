@@ -141,7 +141,9 @@ impl Actor for Realm {
         self: Arc<Self>,
         ctx: Ctx<Self>,
     ) -> Result<()> {
-        change::commit(&self, &ctx, chiefs::first_start()).await?;
+        let rows = change::Rows::outside(&ctx)?;
+        let changes = chiefs::first_start(&rows).await?;
+        change::commit(&self, &ctx, changes).await?;
         Ok(())
     }
 
