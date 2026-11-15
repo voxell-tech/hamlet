@@ -109,7 +109,7 @@ async fn a_repeated_answer_calls_the_workspace_again() {
     // the chief refuses a wait with a reason, then sends the same
     // answer again: Done twice, and the workspace got the refusal
     // with its reason twice. An answer with another id finds nothing
-    // waiting.
+    // waiting, and so does one to a wait no row can have.
     let realm = Realm::start().await;
     realm.live(Hand::NUMBER).await;
     realm
@@ -122,6 +122,9 @@ async fn a_repeated_answer_calls_the_workspace_again() {
     let again = realm.ask(&refused).await.unwrap();
     let other =
         realm.ask(&answer("1", Choice::Allow, None)).await.unwrap();
+    let past_any = "9223372036854775808";
+    let unnumbered =
+        realm.ask(&answer(past_any, Choice::Allow, None)).await;
     until("the workspace has both answers", || {
         chief_answers(&realm).len() == 2
     })
@@ -129,6 +132,7 @@ async fn a_repeated_answer_calls_the_workspace_again() {
 
     assert_eq!((first, again), (Done::Done, Done::Done));
     assert_eq!(other, nothing_waits("1"));
+    assert_eq!(unnumbered.unwrap(), nothing_waits(past_any));
     let refusal = workspace::Answer::Refuse {
         reason: Some("not now".to_owned()),
     };

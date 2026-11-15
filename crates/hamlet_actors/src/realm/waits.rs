@@ -24,9 +24,10 @@ use super::world::Part;
 use super::{Realm, tree};
 
 /// The wait a client names: its number, as the client reads it,
-/// with or without a leading `#`.
+/// with or without a leading `#`. `None` for a number no row holds.
 fn named(wait: &str) -> Option<WaitId> {
-    wait.trim_start_matches('#').parse().ok().map(WaitId)
+    let n = wait.trim_start_matches('#').parse::<i64>().ok()?;
+    u64::try_from(n).ok().map(WaitId)
 }
 
 fn param(wait: WaitId) -> Result<BindParam> {
