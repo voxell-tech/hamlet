@@ -276,11 +276,21 @@ test("a timer whose in-process wake comes early is admitted by the host's alarm"
     // Node can fire a timer before `Date.now()` reaches its time; here each
     // long one fires 50 ms early.
     const onTime = globalThis.setTimeout;
+    const early: number[] = [];
     t.mock.method(
         globalThis,
         "setTimeout",
-        (callback: () => void, ms = 0, ...args: unknown[]) =>
-            onTime(callback, ms >= 1_000 ? ms - 50 : ms, ...args),
+        (callback: (...args: unknown[]) => void, ms = 0, ...args: unknown[]) =>
+            ms < 1_000
+                ? onTime(callback, ms, ...args)
+                : onTime(
+                      (...given: unknown[]) => {
+                          early.push(Date.now());
+                          callback(...given);
+                      },
+                      ms - 50,
+                      ...args,
+                  ),
     );
     const database = plainDatabase(scratchFile(t));
     await migratePiTables(database);
@@ -307,7 +317,24 @@ test("a timer whose in-process wake comes early is admitted by the host's alarm"
             ),
         10_000,
     );
+    const [timer] = await harness.commit(
+        async (tx) =>
+            (
+                await tx.scanTasks(
+                    { conversationId: root.id, kind: "hamlet.wake" },
+                    10,
+                )
+            ).items,
+        context,
+    );
     await closeHarness(c, { reason: "destroy" });
+
+    assert.ok(timer, "the wake set one timer");
+    const { at } = timer.input as { at: number };
+    assert.ok(
+        early.some((fired) => fired < at),
+        "an in-process wake came before the timer's time",
+    );
 });
 
 test("a wake cut off after it set its timer sets no second one on its rerun, and the timer admits once", {
