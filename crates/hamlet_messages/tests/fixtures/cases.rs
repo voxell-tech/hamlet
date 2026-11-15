@@ -67,8 +67,14 @@ pub struct Family {
 }
 
 impl Union {
+    /// Whether serde's `message` names this union. It leaves out a
+    /// generic union's parameters.
     fn fails_with(&self, message: &str) -> bool {
-        message.ends_with(&format!("untagged enum {}", self.name))
+        let outer = self
+            .name
+            .split_once('<')
+            .map_or(self.name.as_str(), |(outer, _)| outer);
+        message.ends_with(&format!("untagged enum {outer}"))
     }
 }
 
@@ -150,13 +156,13 @@ pub fn found<T: DeserializeOwned>(
                 cases: None,
                 message,
             }) if message.contains("untagged enum") => {
-                let Some(union) = unions
-                    .iter()
-                    .find(|union| union.fails_with(&message))
+                let Some(union) = union_of::<T>(unions, &message)
                 else {
                     found.problems.push(format!(
                         "{name}: the union of \"{message}\" is \
-                         missing from unions()"
+                         missing from unions(), or {} names none of \
+                         its instances",
+                        short_name::<T>()
                     ));
                     continue;
                 };
@@ -178,6 +184,26 @@ pub fn found<T: DeserializeOwned>(
                 }
             }
             Err(_) | Ok(_) => {}
+        }
+    }
+}
+
+/// The union serde's `message` names.
+fn union_of<'u, T>(
+    unions: &'u [Union],
+    message: &str,
+) -> Option<&'u Union> {
+    let named = unions
+        .iter()
+        .filter(|union| union.fails_with(message))
+        .collect::<Vec<_>>();
+    match named.as_slice() {
+        [union] => Some(union),
+        _ => {
+            let probed = short_name::<T>();
+            named
+                .into_iter()
+                .find(|union| probed.contains(&union.name))
         }
     }
 }

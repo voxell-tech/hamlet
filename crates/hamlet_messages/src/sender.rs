@@ -43,6 +43,31 @@ impl Sender for Agent {
     }
 }
 
+/// The chief, through a client.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Client;
+
+impl Sender for Client {
+    fn of(caller: Option<&Caller>) -> Option<Self> {
+        matches!(caller, Some(Caller::Client)).then_some(Self)
+    }
+}
+
+/// The Hand: the agent that founds hamlets and seats mayors (H6,
+/// H18).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Hand;
+
+impl Hand {
+    pub const NUMBER: AgentNumber = AgentNumber(1);
+}
+
+impl Sender for Hand {
+    fn of(caller: Option<&Caller>) -> Option<Self> {
+        (Agent::of(caller)? == Agent(Self::NUMBER)).then_some(Self)
+    }
+}
+
 fn is_local<P: Party>(caller: Option<&Caller>) -> bool {
     matches!(
         caller,
@@ -213,6 +238,26 @@ mod tests {
             assert_eq!(Workspace::of(caller), None);
             assert_eq!(Realm::of(caller), None);
             assert_eq!(Agent::of(caller), None);
+        }
+    }
+
+    #[test]
+    fn the_hand_is_agent_1_and_the_client_no_actor() {
+        assert_eq!(Hand::of(at("agent", "1").as_ref()), Some(Hand));
+        for caller in [
+            at("agent", "2"),
+            at("agent", "01"),
+            Some(Caller::Client),
+        ] {
+            assert_eq!(Hand::of(caller.as_ref()), None, "{caller:?}");
+        }
+        assert_eq!(Client::of(Some(&Caller::Client)), Some(Client));
+        for caller in [at("agent", "1"), None] {
+            assert_eq!(
+                Client::of(caller.as_ref()),
+                None,
+                "{caller:?}"
+            );
         }
     }
 }

@@ -3,6 +3,7 @@
 
 use hamlet_address::{Address, InvalidName};
 
+use crate::realm::ProfileId;
 use crate::workspace::AgentNumber;
 
 /// An actor a [`crate::Message`] is sent to.
@@ -26,6 +27,11 @@ pub struct Realm;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Agent(pub AgentNumber);
 
+/// A profile's actor, `profile/<n>`: its id in decimal, with no sign
+/// and no leading zero.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Profile(pub ProfileId);
+
 /// The key of the workspace, and of the realm.
 pub const LOCAL: &str = "local";
 
@@ -47,6 +53,14 @@ impl Party for Realm {
 
 impl Party for Agent {
     const KIND: &'static str = "agent";
+
+    fn address(&self) -> Result<Address, InvalidName> {
+        Address::new(Self::KIND, self.0.0.to_string())
+    }
+}
+
+impl Party for Profile {
+    const KIND: &'static str = "profile";
 
     fn address(&self) -> Result<Address, InvalidName> {
         Address::new(Self::KIND, self.0.0.to_string())
