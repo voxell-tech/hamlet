@@ -307,7 +307,9 @@ is told. With `--realm-actor` before the command, the demo runs the
 [realm actor](#the-realm-actor) in place of both stand-ins, with a
 stand-in agent and a stand-in profile from `examples/demo/realm.rs`:
 its `realm` and `agent` lines found, hire, say, tell, charge and run
-commands through it, and print `<name> <number>` lines. The
+commands through it, and print `<name> <number>` lines. They work
+one per line under `demo --realm-actor serve`, because a one-shot
+command exits before a hire's steps finish. The
 `faults` feature of `hamlet_actors` makes a realm action panic when
 `HAMLET_REALM_PANIC` names it. `tests/local.rs` tests the host,
 `tests/create.rs` tests `create`, and `tests/access.rs` tests what an
@@ -518,28 +520,32 @@ agent (refused while the agent ended or the tool is turned off), a
 lead (the chief, or an agent with a lead's powers), or the workspace.
 Any other caller fails with the error `message.wrong_caller`, and an id
 used again with another request with `message.id_reused`. `Reply`,
-`Charge` and `NeedsChief` keep no marker: each insert does nothing when
-its row is there.
+`Charge` and `NeedsChief` keep no marker: a repeat writes nothing, as a
+question keeps its first answer and a charge or a wait is kept once
+per call.
 
 A change is a value of the `Change` enum of the module that owns its
 tables, and only that module's `apply` writes them;
 `tests/realm/writers.rs` fails otherwise. `change.rs` holds the
 transaction and `Affected`, what a commit moved: the agents whose
 place or reach changed, the steps begun, and the parts of the world a
-client sees. After the commit, `calls.rs` pushes each moved place
-(`place/push.rs`) and reach (`reach.rs`, through `versions.rs`, which
-keeps each version wanted and in force), starts the steps, and makes
-the action's deliveries, such as `Submit` to an agent or `ChiefAnswer`
-to the workspace, before or after the answer. `peer.rs` is the one way
-to another actor. A failed call is logged, and `Say` answers whether
-its line reached the agent; what was committed stays.
+client sees. After the commit, the steps begun start, and `calls.rs`
+pushes each moved place (`place/push.rs`) and reach (`reach.rs`,
+through `versions.rs`, which keeps each version wanted and in force)
+and makes the action's deliveries, such as `Submit` to an agent or
+`ChiefAnswer` to the workspace, before or after the answer. `peer.rs`
+is the one way to another actor. A failed call is logged, and `Say`
+answers whether its line reached the agent; what was committed stays.
 
-A hire is one transaction, then six steps in `hire.rs`, each a call to
-another actor and a transaction that records it done (`steps.rs`): the
-profile's actor, its branch `hires/<n>`, the agent made with its place
-and its task, the agent's filesystem filled, its first reach, and live.
-At the realm's start, each step row not closed goes on from its last
-done step, and `End` closes the row.
+A hire is one transaction, then six steps in `hire.rs`, each recorded
+done by a transaction of its own (`steps.rs`). The first four call
+another actor: the profile's actor, its branch `hires/<n>`, the agent
+made with its place and its task, and the agent's filesystem filled.
+`Reach` commits the hire's first reach as wanted, which the push after
+that commit sends to the workspace, and `Live` calls no actor: the
+transaction that records it makes the hire live and closes the row. At
+the realm's start, each step row not closed goes on from its last done
+step, and `End` closes the row.
 
 The rest is by module: `chiefs.rs` founds a hamlet, with
 `chiefs/limits.rs` and `chiefs/tier.rs`; `tree.rs` keeps the tree, with
@@ -552,11 +558,12 @@ line or an agent's turns are charged to; `budget.rs` answers
 and their answers; `secrets.rs` answers the workspace's `Secrets`;
 `record.rs` keeps the decisions. `world.rs` keeps the world a client
 reads with `ReadWorld` as a copy in memory, rebuilt after each commit
-that changes it, and numbers those commits in the file.
+that changes it, and `versions.rs` numbers those commits in the file.
 
-`tests/realm.rs` runs the realm on a host with the workspace and
-stand-ins for agents and profiles that keep what they were sent and can
-hold or fail a call; `tests/realm/` holds a file per module.
+`tests/realm.rs` runs the realm on a host with stand-ins for the
+workspace, the agents and the profiles, which keep what they were sent
+and can hold a call, or fail it once for one agent. The files in
+`tests/realm/` group its tests by subject.
 
 ## The server
 
