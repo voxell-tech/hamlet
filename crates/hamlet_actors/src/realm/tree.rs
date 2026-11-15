@@ -263,7 +263,7 @@ pub(super) async fn fresh_profile(
     Ok(ProfileId(u32::try_from(rows.next_id("profile").await?)?))
 }
 
-/// The profile `agent` was hired from: the Hand's is 1.
+/// The profile `agent` was hired from.
 pub(super) async fn profile_of(
     rows: &Rows<'_>,
     agent: AgentNumber,
@@ -683,7 +683,7 @@ mod tests {
         );
         assert_eq!(
             profile_of(&rows, hire).await.unwrap(),
-            ProfileId(1)
+            HAND_PROFILE
         );
         assert_eq!(
             profile_of(&rows, Hand::NUMBER).await.unwrap(),
