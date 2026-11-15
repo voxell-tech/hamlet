@@ -1,8 +1,9 @@
 use std::time::Duration;
 
 use hamlet_messages::realm::{
-    Asked, Done, End, FoundAnswer, HamletId, Hire, HireAnswer,
-    HireRefusal, HowEnded, LeadRefusal, Named, Rank, Tool,
+    Asked, Done, End, EndRefusal, FoundAnswer, HamletId, Hire,
+    HireAnswer, HireRefusal, HowEnded, LeadRefusal, Left, Named,
+    Rank, Tool,
 };
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::reach::Reach;
@@ -122,7 +123,8 @@ async fn a_lead_hires_and_ends_only_under_itself() {
 #[tokio::test(flavor = "multi_thread")]
 async fn an_end_moves_the_children_and_drops_the_reach() {
     // end 3 with 4 under it: 4's lead is 2; the workspace stand-in
-    // kept an `Ended` reach for 3.
+    // kept an `Ended` reach for 3. The same end again answers the
+    // same, and another end is refused: 3 has left.
     let realm = Realm::start().await;
     realm.live(Hand::NUMBER).await;
     let hamlet = founded(&realm).await;
@@ -142,20 +144,26 @@ async fn an_end_moves_the_children_and_drops_the_reach() {
     assert_eq!(chief_hires(under(3)).await, hired(4));
     realm.reach_held(AgentNumber(4)).await;
 
-    let ended = realm
-        .ask(&Asked {
-            id: RequestId::new(),
-            act: End {
-                why: Some("done".to_owned()),
-                ..end(3)
-            },
-        })
-        .await
-        .unwrap();
+    let end_3 = Asked {
+        id: RequestId::new(),
+        act: End {
+            why: Some("done".to_owned()),
+            ..end(3)
+        },
+    };
+    let ended = realm.ask(&end_3).await.unwrap();
     until("the workspace holds the end of agent 3", || {
         ended_in_workspace(&realm, AgentNumber(3))
     })
     .await;
+    let again = realm.ask(&end_3).await.unwrap();
+    let other = realm
+        .ask(&Asked {
+            id: RequestId::new(),
+            ..end_3.clone()
+        })
+        .await
+        .unwrap();
     let (lead_of_4, (status, how, why)) = realm
         .rows(|db| {
             let lead = db.query_row(
@@ -179,7 +187,20 @@ async fn an_end_moves_the_children_and_drops_the_reach() {
         })
         .await;
 
-    assert_eq!(ended, Done::Done);
+    assert_eq!([ended, again], [Done::Done, Done::Done]);
+    let left = Left {
+        how: HowEnded::ByTheChief,
+        why: Some("done".to_owned()),
+    };
+    assert_eq!(
+        other,
+        Done::Refused {
+            why: EndRefusal::Left {
+                hire: AgentNumber(3),
+                left,
+            }
+        }
+    );
     assert_eq!(lead_of_4, 2);
     assert_eq!(
         (

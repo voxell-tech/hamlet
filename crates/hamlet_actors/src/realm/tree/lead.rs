@@ -527,6 +527,63 @@ mod tests {
     }
 
     #[test]
+    fn a_hire_refuses_a_lead_elsewhere_a_full_hamlet_and_a_missing_profile()
+     {
+        let decide =
+            |hire: Hire, hiring| hire.decide(&Client, hiring);
+        let refused =
+            |why| Decision::Answer(HireAnswer::refused(why));
+        let under_5 = || Hiring {
+            hamlet: None,
+            under: Some(lineage_of_5()),
+            living: 3,
+            profile: None,
+            agent: AgentNumber(6),
+            blank: ProfileId(6),
+        };
+        let hire = Hire {
+            hamlet: None,
+            under: None,
+            profile: None,
+            purpose: None,
+        };
+        let elsewhere = Hiring {
+            hamlet: Some(Some(HamletId("k".to_owned()))),
+            ..under_5()
+        };
+        let full = Hiring {
+            living: 50,
+            ..under_5()
+        };
+        let missing = Hire {
+            profile: Some(ProfileId(9)),
+            ..hire.clone()
+        };
+
+        assert!(matches!(
+            decide(hire.clone(), under_5()),
+            Decision::Change(_)
+        ));
+        assert_eq!(
+            decide(hire.clone(), elsewhere),
+            refused(HireRefusal::NoSuchAgent)
+        );
+        assert_eq!(
+            decide(hire, full),
+            refused(HireRefusal::Full {
+                hamlet: HamletId("h".to_owned()),
+                most: 50,
+            })
+        );
+        assert_eq!(
+            decide(missing, under_5()),
+            refused(HireRefusal::NoSuchProfile {
+                profile: ProfileId(9)
+            })
+        );
+    }
+
+    #[test]
     fn a_lead_ends_only_what_is_under_it() {
         let decide =
             |lead| end_5().decide(&by(lead), Some(lineage_of_5()));
