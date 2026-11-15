@@ -36,9 +36,12 @@ Usage: cargo xtask <task> [args]
   harness          the server's tests that start pi, built with \
      fault points
   doc              the documentation, with warnings as errors
-  node             pi's TypeScript, Biome and tests, the Node host's \
+  node             pi's TypeScript, Biome and tests, the native \
+     module's declarations (Linux only), the Node host's \
      TypeScript, Biome and tests, then the native module for Node \
      (debug) and the Node host's tests that load it
+  declarations     write the native module's index.d.ts and index.js \
+     from its Rust, and fail if either changed
   fmt              format Rust, with the latest nightly, and pi
   workspace-image  build the remote workspace image; args go to \
      docker build
@@ -70,6 +73,14 @@ const NODE_HOST: &str = "hosts/node";
 
 /// The native module for Node, the crate the Node host loads.
 const NATIVE: &str = "crates/hamlet_actor_node";
+
+/// The cargo target folder the declarations are built in, apart
+/// from `target`: the napi CLI's environment would make every plain
+/// build there compile the native module again.
+const NAPI_TYPES: &str = "target/napi-types";
+
+/// The files `napi build` writes from the native module's Rust.
+const DECLARATIONS: [&str; 2] = ["index.d.ts", "index.js"];
 
 /// The toolchain that formats Rust: `rustfmt.toml` uses unstable
 /// options, so stable cannot.
@@ -170,6 +181,15 @@ enum Failure {
     Libnode(io::Error),
     #[error("node: cannot put the native module where it loads: {0}")]
     Native(io::Error),
+    #[error("declarations: {0}")]
+    Declarations(io::Error),
+    #[error("declarations: napi build wrote no {0}")]
+    NoDeclarations(&'static str),
+    #[error(
+        "{NATIVE}/{0} did not match the Rust and are rewritten: \
+         commit them"
+    )]
+    StaleDeclarations(String),
 }
 
 /// The binaries a chief runs, with the packages that hold them.
@@ -274,6 +294,10 @@ fn run(task: &str, rest: &[String]) -> Result<(), Failure> {
                 XTASK,
             ]))?;
             status(&mut npm(PI, &["run", "format"]))
+        }
+        "declarations" => {
+            install(&root, NODE_HOST)?;
+            declarations(&root)
         }
         "workspace-image" => workspace_image(rest),
         "killkit" => {
@@ -468,15 +492,20 @@ fn node(root: &Path) -> Result<(), Failure> {
     status(&mut npm(PI, &["run", "check"]))?;
     status(&mut npm(PI, &["test"]))?;
     install(root, NODE_HOST)?;
+    // The declarations do not differ by system, and one CI job is
+    // enough to catch stale ones.
+    if env::consts::OS == "linux" {
+        declarations(root)?;
+    } else {
+        eprintln!(
+            "xtask: node: skips the native module's declarations: \
+             CI checks them on Linux"
+        );
+    }
     status(&mut npm(NODE_HOST, &["run", "check"]))?;
     status(&mut npm(NODE_HOST, &["test"]))?;
     let Some(names) = native_names() else {
-        eprintln!(
-            "xtask: node: skips the native module and its tests: \
-             its loader has no name for {}-{}",
-            env::consts::OS,
-            env::consts::ARCH,
-        );
+        unnamed("node", "the native module and its tests");
         return Ok(());
     };
     native(root, names)?;
@@ -488,6 +517,17 @@ fn node(root: &Path) -> Result<(), Failure> {
         NODE_HOST,
         &["run", "test:native", "--if-present"],
     ))
+}
+
+/// Says that `task` skips `what` because the native module's loader
+/// has no name for this system.
+fn unnamed(task: &str, what: &str) {
+    eprintln!(
+        "xtask: {task}: skips {what}: its loader has no name for \
+         {}-{}",
+        env::consts::OS,
+        env::consts::ARCH,
+    );
 }
 
 /// The native module's library as cargo builds it on this system, and
@@ -537,6 +577,81 @@ fn native(
     fs::copy(target.join("debug").join(library), &partial)
         .and_then(|_| fs::rename(&partial, folder.join(loaded)))
         .map_err(Failure::Native)
+}
+
+/// Writes the native module's `index.d.ts` and `index.js` from its
+/// Rust with the napi CLI, Biome and the changed-file notice, copies
+/// each one that changed over the committed one, and fails if any
+/// did.
+fn declarations(root: &Path) -> Result<(), Failure> {
+    let Some((_, loaded)) = native_names() else {
+        unnamed("declarations", "the native module's declarations");
+        return Ok(());
+    };
+    let target = root.join(NAPI_TYPES);
+    // napi-derive writes the type file the CLI reads only while the
+    // crate compiles, and the CLI writes nothing without it.
+    status(
+        locked("clean", &["-p", "hamlet_actor_node", "--target-dir"])
+            .arg(&target),
+    )?;
+    let written = target.join("declarations");
+    if written.exists() {
+        fs::remove_dir_all(&written)
+            .map_err(Failure::Declarations)?;
+    }
+    let tools = root.join(NODE_HOST).join("node_modules");
+    let mut napi = Command::new("node");
+    napi.arg(tools.join("@napi-rs/cli/scripts/index.js"))
+        .args(["build", "--platform", "--dts", "index.d.ts"])
+        .args(["--js", "index.js"])
+        // The CLI joins this folder to its working directory even
+        // when it is absolute.
+        .arg(Path::new("../..").join(NAPI_TYPES).join("declarations"))
+        .current_dir(root.join(NATIVE))
+        .env("CARGO_TARGET_DIR", &target);
+    if env::var_os("CI").is_some() {
+        napi.arg("--cargo-flags=--locked");
+    }
+    status(&mut napi)?;
+    fs::remove_file(written.join(loaded))
+        .map_err(Failure::Declarations)?;
+    for file in DECLARATIONS {
+        if !written.join(file).exists() {
+            return Err(Failure::NoDeclarations(file));
+        }
+    }
+    status(
+        Command::new("node")
+            .arg(tools.join("@biomejs/biome/bin/biome"))
+            .args(["format", "--write", "--config-path", NATIVE])
+            .args(DECLARATIONS.map(|file| written.join(file))),
+    )?;
+    let mut stale = Vec::new();
+    for file in DECLARATIONS {
+        let body = fs::read_to_string(written.join(file))
+            .map_err(Failure::Declarations)?;
+        let text = format!(
+            "// This file was changed for Hamlet. See NOTICE in \
+             this crate.\n{body}"
+        );
+        let committed = root.join(NATIVE).join(file);
+        if fs::read_to_string(&committed).ok().as_deref()
+            != Some(&text)
+        {
+            fs::write(&committed, text)
+                .map_err(Failure::Declarations)?;
+            stale.push(file);
+        }
+    }
+    match stale.as_slice() {
+        [] => Ok(()),
+        [file] => Err(Failure::StaleDeclarations((*file).to_owned())),
+        files => Err(Failure::StaleDeclarations(format!(
+            "{{{}}}",
+            files.join(",")
+        ))),
+    }
 }
 
 /// Builds the remote workspace image, tagged with the short commit

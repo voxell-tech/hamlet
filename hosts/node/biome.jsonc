@@ -26,6 +26,35 @@
                     }
                 }
             }
+        },
+        {
+            // The package has no exports map, so this is what keeps the
+            // actor layer's internals out of the code built on it.
+            "includes": ["src/**", "!src/actor/**"],
+            "linter": {
+                "rules": {
+                    "style": {
+                        "noRestrictedImports": {
+                            "level": "error",
+                            "options": {
+                                "patterns": [
+                                    {
+                                        "group": ["**/actor/actor/calls.ts"],
+                                        "message": "Import from actor/mod.ts instead."
+                                    },
+                                    {
+                                        "group": [
+                                            "**/actor/registry/native.ts"
+                                        ],
+                                        "importNamePattern": "(callThrough|withConnCaller)",
+                                        "message": "Only the actor layer calls through the native module."
+                                    }
+                                ]
+                            }
+                        }
+                    }
+                }
+            }
         }
     ],
     "assist": {

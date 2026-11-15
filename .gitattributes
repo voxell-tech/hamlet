@@ -1,1 +1,3 @@
 crates/hamlet_host/link.fingerprint text eol=lf
+crates/hamlet_actor_node/index.d.ts text eol=lf
+crates/hamlet_actor_node/index.js text eol=lf
