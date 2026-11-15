@@ -1,19 +1,22 @@
 //! `cargo xtask idle`: how much memory a command's process tree holds
 //! and how often its threads wake while it should be idle.
 //!
-//! It starts the command with its standard input held open, waits
-//! out a settle time, and samples every thread of every process in
-//! the tree twice, a window apart. Memory is the sum of each
-//! process's resident set at the window's end, printed in megabytes
-//! of 1,000,000 bytes. Wakeups are the growth
-//! of `voluntary_ctxt_switches` summed over the threads, per second
-//! of the window; a thread born inside the window counts in full, and
-//! one that ended inside it is lost. It reads `/proc`, so it runs on
+//! It starts the command, writes each `--send` line to its standard
+//! input, holds that input open, waits out a settle time, and samples
+//! every thread of every process in the tree twice, a window apart.
+//! Memory is the sum of each process's resident set at the window's
+//! end, printed in megabytes of 1,000,000 bytes. Wakeups are the
+//! growth of `voluntary_ctxt_switches` summed over the threads, per
+//! second of the window; a thread born inside the window counts in
+//! full, and one that ended inside it is lost. The command's standard
+//! output is copied to the probe's. It reads `/proc`, so it runs on
 //! Linux alone.
 
 use std::collections::BTreeMap;
 #[cfg(target_os = "linux")]
 use std::collections::HashMap;
+#[cfg(target_os = "linux")]
+use std::io::{Read, Write};
 use std::time::Duration;
 
 /// The probe's reading over one window.
@@ -51,11 +54,13 @@ impl std::fmt::Display for Reading {
     }
 }
 
-/// The probe's command line: `[--settle <s>] [--window <s>] <command>
-/// [args]`.
+/// The probe's command line: `[--settle <s>] [--window <s>]
+/// [--send <line>]... <command> [args]`.
 pub struct Options {
     pub settle: Duration,
     pub window: Duration,
+    /// Lines for the command's standard input, in order.
+    pub send: Vec<String>,
     pub command: Vec<String>,
 }
 
@@ -64,6 +69,7 @@ impl Options {
         let mut options = Self {
             settle: Duration::from_secs(30),
             window: Duration::from_secs(60),
+            send: Vec::new(),
             command: Vec::new(),
         };
         let mut args = args.iter();
@@ -71,6 +77,12 @@ impl Options {
             let slot = match arg.as_str() {
                 "--settle" => &mut options.settle,
                 "--window" => &mut options.window,
+                "--send" => {
+                    let line =
+                        args.next().ok_or("--send takes a line")?;
+                    options.send.push(line.clone());
+                    continue;
+                }
                 "--" => {
                     options.command.extend(args.cloned());
                     break;
@@ -103,12 +115,49 @@ pub fn measure(options: &Options) -> Result<Reading, String> {
     let mut child = std::process::Command::new(program)
         .args(args)
         .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
         .spawn()
         .map_err(|error| format!("{program}: {error}"))?;
-    let reading =
-        read_tree(&mut child, options.settle, options.window);
+    let copied = child.stdout.take().map(copy_out);
+    let reading = send(&mut child, &options.send).and_then(|()| {
+        read_tree(&mut child, options.settle, options.window)
+    });
     stop(&mut child);
+    if let Some(copied) = copied {
+        let _ = copied.join();
+    }
     reading
+}
+
+#[cfg(target_os = "linux")]
+fn send(
+    child: &mut std::process::Child,
+    lines: &[String],
+) -> Result<(), String> {
+    let stdin = child.stdin.as_mut().ok_or("no standard input")?;
+    for line in lines {
+        writeln!(stdin, "{line}")
+            .map_err(|error| format!("--send {line}: {error}"))?;
+    }
+    Ok(())
+}
+
+/// Copies `out` to the probe's standard output until it ends, and
+/// keeps reading it when that copy fails, so the command never
+/// waits on a full pipe.
+#[cfg(target_os = "linux")]
+fn copy_out(
+    mut out: std::process::ChildStdout,
+) -> std::thread::JoinHandle<()> {
+    std::thread::spawn(move || {
+        let mut stdout = std::io::stdout();
+        let mut buffer = [0; 8192];
+        while let Ok(read @ 1..) = out.read(&mut buffer) {
+            let _ = stdout
+                .write_all(&buffer[..read])
+                .and_then(|()| stdout.flush());
+        }
+    })
 }
 
 #[cfg(not(target_os = "linux"))]
@@ -322,6 +371,7 @@ mod tests {
         let options = Options {
             settle: Duration::from_millis(500),
             window: Duration::from_secs(3),
+            send: Vec::new(),
             command: vec![
                 exe.to_string_lossy().into_owned(),
                 "--exact".to_owned(),
@@ -366,5 +416,19 @@ mod tests {
         assert_eq!(options.command, ["demo", "serve", "30"]);
         assert!(Options::parse(&[]).is_err());
         assert!(Options::parse(&["--settle".to_owned()]).is_err());
+    }
+
+    #[test]
+    fn parses_the_lines_to_send_in_order() {
+        let args: Vec<String> = [
+            "--send", "link", "--settle", "1", "--send", "make 1",
+            "demo", "--send", "x",
+        ]
+        .map(str::to_owned)
+        .into();
+        let options = Options::parse(&args).unwrap();
+        assert_eq!(options.send, ["link", "make 1"]);
+        assert_eq!(options.command, ["demo", "--send", "x"]);
+        assert!(Options::parse(&["--send".to_owned()]).is_err());
     }
 }

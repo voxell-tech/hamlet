@@ -98,8 +98,9 @@ pub struct Tell {
 }
 
 impl Action for Tell {
-    /// The other actor's answer, as it encoded it.
-    type Output = Vec<u8>;
+    /// The other actor's answer, as it encoded it, and how long the
+    /// call of it took.
+    type Output = (Vec<u8>, Duration);
     const NAME: &'static str = "tell";
 }
 
@@ -224,13 +225,16 @@ impl Handler<Tell> for Realm {
         self: Arc<Self>,
         ctx: Ctx<Self>,
         tell: Tell,
-    ) -> Result<Vec<u8>> {
+    ) -> Result<(Vec<u8>, Duration)> {
         from_program(&ctx, Tell::NAME)?;
-        let answer = HostRef::of(ctx.inner())?
+        let host = HostRef::of(ctx.inner())?;
+        let start = std::time::Instant::now();
+        let answer = host
             .call(&tell.to, &tell.name, tell.args, TELL_WITHIN)
             .await?;
+        let took = start.elapsed();
         hamlet_host::fault::point(&format!("told/{}", tell.name));
-        Ok(answer)
+        Ok((answer, took))
     }
 }
 
