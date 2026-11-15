@@ -510,6 +510,20 @@ fn the_roads_and_the_tools(fixtures: &mut Fixtures) {
                 LayRefusal::NotTwoHiresOfOneHamlet,
             ),
             (
+                "left",
+                LayRefusal::Left {
+                    hire: HIRE,
+                    left: left(HowEnded::ByTheHand),
+                },
+            ),
+            (
+                "road_exists",
+                LayRefusal::RoadExists {
+                    a: HIRE,
+                    b: AgentNumber(13),
+                },
+            ),
+            (
                 "full",
                 LayRefusal::Full {
                     hamlet: hamlet(),
@@ -530,8 +544,12 @@ fn the_roads_and_the_tools(fixtures: &mut Fixtures) {
     };
     fixtures.args("realm/chief_take_up_road", &asked(take_up()));
     fixtures.args("realm/take_up_road", &tool(take_up()));
-    let take_up_refusals =
-        || vec![("no_such_agent", TakeUpRefusal::NoSuchAgent)];
+    let take_up_refusals = || {
+        vec![
+            ("no_such_agent", TakeUpRefusal::NoSuchAgent),
+            ("no_road", TakeUpRefusal::NoRoad { a: HIRE, b: MAYOR }),
+        ]
+    };
     done(fixtures, "realm/chief_take_up_road", take_up_refusals());
     done(
         fixtures,
