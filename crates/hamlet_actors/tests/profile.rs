@@ -1,6 +1,9 @@
 //! The profile through a host: a realm stand-in and an agent
 //! stand-in call it as themselves.
 
+#[path = "profile/files.rs"]
+mod files;
+
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -110,7 +113,11 @@ fn realm() -> Address {
 }
 
 fn agent() -> Address {
-    address::Agent(AgentNumber(7)).address().unwrap()
+    agent_at(7)
+}
+
+fn agent_at(number: u32) -> Address {
+    address::Agent(AgentNumber(number)).address().unwrap()
 }
 
 fn open_with(dir: &Path, told: Arc<Told>) -> Host {
@@ -161,6 +168,16 @@ async fn call_as<A: Action>(
     from: &Address,
     asked: &A,
 ) -> anyhow::Result<A::Output> {
+    let bytes = answer_of(host, from, asked).await?;
+    Ok(ciborium::from_reader(bytes.as_slice())?)
+}
+
+/// The answer as the host carried it to `from`, not yet decoded.
+async fn answer_of<A: Action>(
+    host: &Host,
+    from: &Address,
+    asked: &A,
+) -> anyhow::Result<Vec<u8>> {
     host.get_or_start(from).await?;
     let forward = Forward {
         name: A::NAME.to_owned(),
@@ -174,9 +191,8 @@ async fn call_as<A: Action>(
             Duration::from_secs(20),
         )
         .await?;
-    let bytes: Vec<u8> = ciborium::from_reader(reply.as_slice())
-        .context("the peer's reply")?;
-    Ok(ciborium::from_reader(bytes.as_slice())?)
+    ciborium::from_reader(reply.as_slice())
+        .context("the peer's reply")
 }
 
 fn error_code<T: std::fmt::Debug>(

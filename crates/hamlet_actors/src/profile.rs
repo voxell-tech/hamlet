@@ -4,6 +4,7 @@
 //! An action is an `impl Takes<M> for Profile` in the module that
 //! owns what it changes, and one entry in `Actions` below.
 
+mod files;
 mod hires;
 mod versions;
 
@@ -18,7 +19,8 @@ use hamlet_host::{Caller, HostRef};
 use hamlet_messages::Message;
 use hamlet_messages::address::{self, Party, Realm};
 use hamlet_messages::profile::{
-    Branch, CommitId, ProfileInput, Sha1, Tag, Versions,
+    Branch, CommitId, Files, Pin, ProfileInput, Save, Sha1, Tag,
+    Versions,
 };
 #[cfg(test)]
 use hamlet_messages::realm::ProfileId;
@@ -64,7 +66,7 @@ impl Actor for Profile {
     /// `None` only for a profile started with no input, which fails
     /// its start: the realm makes a profile with `create`.
     type Input = Option<ProfileInput>;
-    type Actions = (Branch, Tag, Versions);
+    type Actions = (Branch, Files, Pin, Save, Tag, Versions);
     type Events = ();
     type ConnParams = Option<Caller>;
     type Action = ();
@@ -87,6 +89,7 @@ impl Actor for Profile {
             |_| Ok(()),
         )
         .await?;
+        ctx.sql().exec(files::CUT_OFF).await?;
         Ok(Self { repo })
     }
 }
@@ -205,6 +208,7 @@ mod tests {
     use hamlet_actor_error::ActorError;
     use hamlet_host::{Host, HostOptions};
     use hamlet_messages::profile::{By, VersionName};
+    use hamlet_messages::workspace::{AgentNumber, CallId};
     use hamlet_protocol::client::RequestId;
     use hamlet_testing::Scratch;
 
@@ -231,6 +235,23 @@ mod tests {
                 by: By::Chief { chief: 3 },
             }),
             args(&Versions),
+            args(&Files {
+                since: None,
+                after: None,
+            }),
+            args(&Save {
+                call: CallId("c".into()),
+                base: CommitId(Sha1([0; 20])),
+                part: 0,
+                last: true,
+                changes: Vec::new(),
+            }),
+            args(&Pin {
+                id: RequestId::new(),
+                hire: AgentNumber(7),
+                to: None,
+                by: By::Chief { chief: 3 },
+            }),
         ]
     }
 
