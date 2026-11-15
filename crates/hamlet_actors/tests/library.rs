@@ -680,8 +680,7 @@ async fn an_offer_is_refused_for_each_reason() {
         answers[5],
         OfferAnswer::Refused {
             why: OfferRefusal::Skill(BadSkill::SkillTooLarge {
-                skill: "large".into(),
-                most: 4 << 20
+                skill: "large".into()
             })
         }
     );
@@ -796,8 +795,7 @@ async fn a_skill_of_many_empty_files_counts_their_paths_toward_its_size()
     assert_eq!(
         refused,
         Some(OfferRefusal::Skill(BadSkill::SkillTooLarge {
-            skill: "empties".into(),
-            most: 4 << 20
+            skill: "empties".into()
         }))
     );
     host.shutdown().await.unwrap();

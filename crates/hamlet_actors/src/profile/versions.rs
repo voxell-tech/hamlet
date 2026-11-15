@@ -18,7 +18,7 @@ use hamlet_messages::workspace::AgentNumber;
 use hamlet_os::fs::TreePath;
 
 use super::{
-    CHARACTER, CHARACTER_MOST, Profile, commit_id, dreams,
+    CHARACTER, CHARACTER_MOST, Profile, commit_id, dreams, files,
     git_commit, hires,
 };
 use crate::library;
@@ -277,7 +277,9 @@ fn edit(unit: Before<'_, Profile, Edit>) -> Result<Ended<Edit>> {
         Who::Chief { .. } => ("Edited the memory", text.is_empty()),
         Who::Agent { .. } => ("Edited by the Hand", text.is_empty()),
     };
-    let message = message.unwrap_or_else(|| words.to_owned());
+    let message = message
+        .filter(|message| !message.is_empty())
+        .unwrap_or_else(|| words.to_owned());
     let change = if removes {
         Change::Remove { path }
     } else {
@@ -357,6 +359,7 @@ fn purge(
     let path = unit.message().path.clone();
     let mut writer = unit.write();
     let branches = writer.purge(&path)?;
+    files::drop_saves(&writer)?;
     // A repeat past a kill rewrites nothing, and still tells every
     // agent and keeps every pin.
     hires::repin(&mut writer)?;

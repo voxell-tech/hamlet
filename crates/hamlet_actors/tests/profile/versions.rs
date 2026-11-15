@@ -316,6 +316,12 @@ async fn the_hand_s_edit_writes_any_file_and_empty_text_removes_it() {
         assert_eq!(last_words(&dir, 1, MAIN), words);
     }
     let asked = Edit {
+        message: Some(String::new()),
+        ..hand("notes.md", "again")
+    };
+    call_as(&host, &realm(), &asked).await.unwrap();
+    assert_eq!(last_words(&dir, 1, MAIN), words);
+    let asked = Edit {
         message: Some("Took out the tidy skill".into()),
         ..hand("skills/tidy/SKILL.md", "")
     };

@@ -19,7 +19,7 @@ use hamlet_messages::address::{self, Party, Realm};
 use hamlet_messages::profile::{
     Branch, CommitId, Edit, EndDream, Erase, Files, Papers, Pin,
     PrepareDream, ProfileInput, Purge, Revert, Save, Sha1, Tag,
-    Versions,
+    TooLong, Versions,
 };
 #[cfg(test)]
 use hamlet_messages::realm::ProfileId;
@@ -90,10 +90,11 @@ impl Actor for Profile {
             .input()?
             .context("a profile is created with its input")?;
         if let ProfileInput::Character { text } = &input {
+            let most = CHARACTER_MOST;
             ensure!(
-                text.chars().count() <= CHARACTER_MOST as usize,
-                "a character may have at most {CHARACTER_MOST} \
-                 characters"
+                text.chars().count() <= most as usize,
+                "{}",
+                TooLong::CharacterTooLong { most }
             );
         }
         let own = address::Profile::own(ctx)?;

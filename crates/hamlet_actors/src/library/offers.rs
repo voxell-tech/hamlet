@@ -236,8 +236,7 @@ fn offer(unit: Before<'_, Library, Offer>) -> Result<Ended<Offer>> {
         })
         .sum::<usize>();
     if size > MOST_SKILL {
-        let most = u32::try_from(MOST_SKILL)?;
-        let why = BadSkill::SkillTooLarge { skill, most };
+        let why = BadSkill::SkillTooLarge { skill };
         return unit.refuse(OfferRefusal::Skill(why));
     }
     let whole = if last {

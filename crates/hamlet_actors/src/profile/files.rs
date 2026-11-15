@@ -14,14 +14,16 @@ use hamlet_messages::profile::{
     Piece, Protected, Save, SaveAnswer, SaveRefusal, TooLarge,
 };
 use hamlet_messages::workspace::{AgentNumber, CallId};
-use hamlet_messages::{MOST_PART, PIECE_FRAME};
+use hamlet_messages::{MOST_PART, Message, PIECE_FRAME};
 
 use super::hires::{self, Hire};
 use super::{CHARACTER, Profile, commit_id, git_commit};
 use crate::repo::git::{By, Reads};
 use crate::repo::parts::{self, Kept, joined};
 use crate::repo::store::{self, Rows};
-use crate::repo::{Before, Call, Ended, Look, Reply, Takes};
+use crate::repo::{
+    Admits, Before, Call, Ended, Look, Reply, Takes, Writer,
+};
 
 struct Table(());
 
@@ -348,6 +350,24 @@ fn save(unit: Before<'_, Profile, Save>) -> Result<Ended<Save>> {
     writer.kept(SaveAnswer::Saved {
         tip: commit_id(tip)?,
     })
+}
+
+/// Drops the parts of every save under way: a purge's path may be in
+/// them. Their agents save again under a new call.
+pub(super) fn drop_saves<M>(
+    writer: &Writer<'_, Profile, M>,
+) -> Result<()>
+where
+    M: Message,
+    Profile: Admits<M::From>,
+{
+    writer
+        .table(Table(()))
+        .execute("DELETE FROM save", Vec::new())?;
+    writer
+        .table(Calls(()))
+        .execute("DELETE FROM save_call", Vec::new())?;
+    Ok(())
 }
 
 fn of_call(agent: AgentNumber, call: &CallId) -> Vec<BindParam> {

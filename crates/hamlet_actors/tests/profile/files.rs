@@ -7,8 +7,8 @@ use hamlet_git::Change;
 use hamlet_messages::bytes::Base64;
 use hamlet_messages::profile::{
     BadPath, Cursor, FileChange, Files, FilesAnswer, Gone, Missing,
-    NotAHire, Piece, Pin, PinAnswer, PinRefusal, Protected, Save,
-    SaveAnswer, SaveRefusal, TooLarge,
+    NotAHire, Piece, Pin, PinAnswer, PinRefusal, Protected, Purge,
+    PurgeAnswer, Save, SaveAnswer, SaveRefusal, TooLarge,
 };
 use hamlet_messages::workspace::CallId;
 use hamlet_messages::{MOST_CALL, MOST_PART, PIECE_FRAME};
@@ -447,6 +447,37 @@ async fn a_save_s_last_part_commits_only_when_every_part_before_it_came()
         given(&dir, saved).keys().collect::<Vec<_>>(),
         ["a.md", "b.md", "c.md"]
     );
+    host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_purge_drops_the_parts_of_a_save_under_way() {
+    let dir = Scratch::new("profile-save-purge");
+    let host = hired(&dir, &[], Arc::default()).await;
+    host.get_or_start(&agent()).await.unwrap();
+    let base = fill(&host, None).await.tip.unwrap();
+    let first =
+        save("s1", base, 0, false, vec![whole("secret.md", b"s")]);
+    let kept = call_as(&host, &agent(), &first).await.unwrap();
+    assert_eq!(kept, SaveAnswer::Kept);
+    let purge = Purge {
+        id: RequestId::new(),
+        path: "secret.md".into(),
+        by: By::Chief { chief: 3 },
+    };
+    let purged = call_as(&host, &realm(), &purge).await.unwrap();
+    assert!(
+        matches!(purged, PurgeAnswer::Purged { .. }),
+        "{purged:?}"
+    );
+    host.stop(&profile_at(1), ShutdownKind::Sleep)
+        .await
+        .unwrap();
+
+    let rest = save("s1", base, 1, true, vec![whole("b.md", b"b")]);
+    call_as(&host, &agent(), &rest).await.unwrap_err();
+    let hire = commit_id(tip(&dir, "hires/7").unwrap());
+    assert!(!given(&dir, hire).contains_key("secret.md"));
     host.shutdown().await.unwrap();
 }
 

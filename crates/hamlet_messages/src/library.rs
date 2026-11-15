@@ -91,7 +91,7 @@ family!(
     /// them.
     BadSkill {
         #[error("`{skill}` holds more than the library takes, 4 MB.")]
-        SkillTooLarge { skill: String, most: u32 },
+        SkillTooLarge { skill: String },
         #[error(
             "skills/{skill}/SKILL.md must open with a front matter \
              `name:` and `description:`"

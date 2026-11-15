@@ -113,11 +113,7 @@ pub fn the_librarys_messages(fixtures: &mut Fixtures) {
         (
             "refused.skill_too_large",
             OfferAnswer::refused(
-                BadSkill::SkillTooLarge {
-                    skill: skill(),
-                    most: 4 << 20,
-                }
-                .into(),
+                BadSkill::SkillTooLarge { skill: skill() }.into(),
             ),
         ),
         (

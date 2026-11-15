@@ -26,9 +26,10 @@
 //! - A call's arguments and its answer are each at most [`MOST_CALL`]
 //!   as the host carries them. No host checks it, so the sender does:
 //!   what is larger goes in parts of at most [`MOST_PART`], and the
-//!   taker refuses a part that holds more. Three answers are not
+//!   taker refuses a part that holds more. Four answers are not
 //!   split, and nothing bounds them: [`profile::VersionList`],
-//!   [`profile::PaperList`] and [`library::ShelfList`].
+//!   [`profile::PaperList`], [`profile::RevertAnswer`]'s clashes and
+//!   [`library::ShelfList`].
 //!
 //! A taker checks a call in this order:
 //!
