@@ -118,6 +118,36 @@ fn every_frame() -> Vec<Frame> {
                 action: "ping".to_owned(),
             },
         }),
+        Frame::HostEvent(HostEvent::Refused {
+            from: Caller::Client,
+            to: Address::new("workspace", "w1").unwrap(),
+            operation: Operation::Subscribe {
+                event: "changes".to_owned(),
+            },
+        }),
+        Frame::Request {
+            id: 11,
+            from: Some(Caller::Client),
+            to: Address::new("agent", "a1").unwrap(),
+            ask: Ask::Subscribe {
+                event: "changes".to_owned(),
+            },
+        },
+        Frame::Event {
+            sub: 11,
+            args: vec![0x81, 0x18, 0x64],
+        },
+        Frame::Gap { sub: 11 },
+        Frame::SubscriptionEnded {
+            sub: 11,
+            error: WireError {
+                group: "actor".to_owned(),
+                code: "stopping".to_owned(),
+                message: "Actor is stopping.".to_owned(),
+                metadata: None,
+            },
+        },
+        Frame::Unsubscribe { sub: 12 },
     ]
 }
 
@@ -173,6 +203,56 @@ fn a_request_of_each_ask_has_the_recorded_bytes() {
         "a16772657175657374a4626964086466726f6d66636c69656e7462746fa264\
          6b696e64656167656e74636b657961336361736ba166637265617465a16569\
          6e70757441a0"
+    );
+}
+
+#[test]
+fn a_subscription_frame_of_each_kind_has_the_recorded_bytes() {
+    let subscribe = Frame::Request {
+        id: 9,
+        from: Some(Caller::Client),
+        to: Address::new("agent", "3").unwrap(),
+        ask: Ask::Subscribe {
+            event: "changes".to_owned(),
+        },
+    };
+    let ended = Frame::SubscriptionEnded {
+        sub: 9,
+        error: WireError {
+            group: "actor".to_owned(),
+            code: "destroyed".to_owned(),
+            message: "Actor was destroyed.".to_owned(),
+            metadata: None,
+        },
+    };
+    let body = |frame: &Frame| hex(&encoded(frame)[8..]);
+    assert_eq!(
+        body(&subscribe),
+        "a16772657175657374a4626964096466726f6d66636c69656e7462746fa264\
+         6b696e64656167656e74636b657961336361736ba169737562736372696265\
+         a1656576656e74676368616e676573"
+    );
+    assert_eq!(
+        body(&Frame::Event {
+            sub: 9,
+            args: vec![0x81, 0x18, 0x64],
+        }),
+        "a1656576656e74a26373756209646172677343811864"
+    );
+    assert_eq!(
+        body(&Frame::Gap { sub: 9 }),
+        "a163676170a16373756209"
+    );
+    assert_eq!(
+        body(&ended),
+        "a172737562736372697074696f6e5f656e646564a2637375620965657272\
+         6f72a46567726f7570656163746f7264636f64656964657374726f796564\
+         676d657373616765744163746f72207761732064657374726f7965642e68\
+         6d65746164617461f6"
+    );
+    assert_eq!(
+        body(&Frame::Unsubscribe { sub: 9 }),
+        "a16b756e737562736372696265a16373756209"
     );
 }
 

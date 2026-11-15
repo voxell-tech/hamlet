@@ -14,6 +14,7 @@ use parking_lot::Mutex;
 use serde_bytes::ByteBuf;
 use tokio::sync::{oneshot, watch};
 
+pub(crate) use self::follow::{Routed, Unanswered};
 use super::frame::encode;
 use super::{
     Ask, Broken, Frame, Role, Side, Vetted, WireError, Writer,
@@ -193,6 +194,31 @@ impl Port {
         self.session()?.ask(caller, at, ask, None).await.map(drop)
     }
 
+    /// Asks the other host to follow `event` of the actor at `to`,
+    /// for `stamp`, on the session that is Ready, and waits for its
+    /// answer within `within`. What happens when that session is lost
+    /// is the caller's.
+    ///
+    /// - [`Unanswered::Link`] with `link.down`, at once, unless the
+    ///   link is Ready, and with `link.lost` when the link goes down
+    ///   with the ask out.
+    /// - [`Unanswered::Refused`] with the other host's error, with
+    ///   `actor.not_ready` at `within`, and with
+    ///   `actor.invalid_operation` for a stamp this host may not ask
+    ///   with.
+    pub(crate) async fn subscribe(
+        &self,
+        stamp: &Stamp,
+        to: &Address,
+        event: &str,
+        within: Duration,
+    ) -> Result<Routed, Unanswered> {
+        let caller =
+            self.caller_of(stamp).map_err(Unanswered::Refused)?;
+        let session = self.session().map_err(Unanswered::Link)?;
+        session.subscribe(caller, to, event, within).await
+    }
+
     fn session(&self) -> Result<Arc<Session>> {
         match &*self.0.link.lock() {
             Link::Ready(session) => Ok(session.clone()),
@@ -361,6 +387,9 @@ impl Session {
                     .create(from, &to, input)
                     .await
                     .map(|()| Vec::new()),
+                Ask::Subscribe { .. } => {
+                    todo!("U8b: serve a subscribe")
+                }
             };
             session.reply(id, result).await;
         });
@@ -413,5 +442,6 @@ impl Drop for Forget<'_> {
     }
 }
 
+mod follow;
 #[cfg(test)]
 mod tests;

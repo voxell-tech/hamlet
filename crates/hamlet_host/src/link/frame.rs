@@ -75,6 +75,24 @@ pub enum Frame {
     /// Something that happened to an actor of the Node host, for the
     /// Rust host's clients. Only the Node host writes it.
     HostEvent(HostEvent),
+    /// One broadcast of the event the subscription `sub` follows,
+    /// with its arguments. `sub` is the id of the [`Frame::Request`]
+    /// that asked [`Ask::Subscribe`]. Only the Node host writes it,
+    /// after the request's [`Frame::Reply`].
+    Event {
+        sub: u64,
+        #[serde(with = "serde_bytes")]
+        args: Vec<u8>,
+    },
+    /// Events of `sub` were dropped here. Only the Node host writes
+    /// it.
+    Gap { sub: u64 },
+    /// The Node host ended `sub`, and why. It writes nothing of `sub`
+    /// after it.
+    SubscriptionEnded { sub: u64, error: WireError },
+    /// The Rust host follows `sub` no more, also when its subscribe
+    /// has not been answered. An unknown `sub` is dropped.
+    Unsubscribe { sub: u64 },
 }
 
 impl Frame {
@@ -109,6 +127,10 @@ pub enum Ask {
         #[serde(with = "serde_bytes")]
         input: Vec<u8>,
     },
+    /// Follow the actor's event `event`. Never makes the actor.
+    /// Answered with no bytes once the actor let it through, then by
+    /// [`Frame::Event`]s under the request's id.
+    Subscribe { event: String },
 }
 
 /// An actor error as it crosses the link, with the fields that give

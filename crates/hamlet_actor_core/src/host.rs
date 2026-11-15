@@ -16,7 +16,7 @@ use hamlet_actor_wire::shared_types::actor_key;
 use tokio::sync::{oneshot, watch};
 
 pub use self::dispatch::ActionTimedOut;
-pub use self::running::{RunningActor, StartRequest};
+pub use self::running::{RunningActor, StartRequest, Subscribed};
 use self::tunnel::HibernatingWebSocketMetadata;
 use crate::actor::schedule::SetAsideTimer;
 use crate::async_counter::AsyncCounter;

@@ -60,6 +60,7 @@ use tokio::task::{AbortHandle, JoinHandle};
 pub use self::access::{HostRef, Values};
 pub(crate) use self::access::{Inbound, Origin, Stamp};
 use self::create::DuplicateKey;
+pub use self::subscribe::{Item, Subscription};
 use crate::directory::{Directory, Place};
 use crate::event::HostEvent;
 use crate::link::Port;
@@ -69,6 +70,16 @@ use crate::route::Routes;
 mod access;
 mod call;
 mod create;
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the scaffold: U8a's local subscription and U8b's \
+                  session use it"
+    )
+)]
+pub(crate) mod feed;
+mod subscribe;
 
 /// The one session a local file has. The transaction code compares
 /// sessions to detect a lost connection, which a local file cannot
@@ -239,23 +250,24 @@ type Waiters = watch::Receiver<Option<Failed>>;
 /// remove a destroyed actor's files, for each of its waiters to
 /// return.
 #[derive(Clone)]
-struct Failed {
-    error: ActorError,
+pub(crate) struct Failed {
+    /// Boxed, so a `Result` that fails with it stays small.
+    error: Box<ActorError>,
     /// The failure with its causes, as the work returned it.
     detail: String,
 }
 
 impl Failed {
-    fn new(error: &anyhow::Error) -> Self {
+    pub(crate) fn new(error: &anyhow::Error) -> Self {
         Self {
-            error: ActorError::extract(error),
+            error: Box::new(ActorError::extract(error)),
             detail: format!("{error:#}"),
         }
     }
 
     /// The failure, with its code.
-    fn to_error(&self) -> anyhow::Error {
-        anyhow::Error::from(self.error.clone())
+    pub(crate) fn to_error(&self) -> anyhow::Error {
+        anyhow::Error::from(*self.error.clone())
             .context(self.detail.clone())
     }
 }
@@ -312,9 +324,32 @@ struct Generation {
     /// The last alarm the core pushed in this generation, `None`
     /// until it pushes one, as the core's own record starts.
     alarm: Arc<Mutex<Option<i64>>>,
+    /// How the generation began to stop, set once under the map's
+    /// lock by the transition that begins its stop.
+    stopped: watch::Sender<Option<Ended>>,
+}
+
+/// How a generation began to stop.
+#[derive(Clone, Copy)]
+enum Ended {
+    /// A sleep, a crash, a host's stop or its shutdown.
+    Stopped,
+    Destroyed,
 }
 
 impl Generation {
+    /// Records how the generation began to stop. The first call
+    /// wins, so a sleep that a destroy follows stays `Stopped`.
+    fn began_to_stop(&self, how: Ended) {
+        self.stopped.send_if_modified(|ended| {
+            if ended.is_some() {
+                return false;
+            }
+            *ended = Some(how);
+            true
+        });
+    }
+
     /// Stops the generation's core, then marks its file stopped with
     /// the deadline the generation leaves, and closes the file.
     /// Returns what the mark returned, or `None` if the mark did not
@@ -849,7 +884,10 @@ fn stopping(
 ) -> Life {
     let done = owned.waiters.clone();
     match reason {
-        ShutdownKind::Sleep => Life::Stopping { generation, done },
+        ShutdownKind::Sleep => {
+            generation.began_to_stop(Ended::Stopped);
+            Life::Stopping { generation, done }
+        }
         ShutdownKind::Destroy => destroying(generation, done),
     }
 }
@@ -860,6 +898,7 @@ fn stopping(
 /// its actor sends after, but those of a transaction open now: a kill
 /// from then on leaves a file whose next start finishes the destroy.
 fn destroying(generation: Arc<Generation>, done: Waiters) -> Life {
+    generation.began_to_stop(Ended::Destroyed);
     // A file already closed is marked as it is removed.
     let _ = generation.file.when_idle(|conn| {
         mark_destroyed(conn)?;
@@ -2185,6 +2224,7 @@ async fn start_generation(
         actor,
         file,
         alarm,
+        stopped: watch::Sender::new(None),
     }))
 }
 

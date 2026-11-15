@@ -55,6 +55,7 @@ pub enum Operation {
     Call { action: String },
     Create,
     GetOrStart,
+    Subscribe { event: String },
 }
 
 impl std::fmt::Display for Operation {
@@ -66,6 +67,7 @@ impl std::fmt::Display for Operation {
             Self::Call { .. } => "call",
             Self::Create => "create",
             Self::GetOrStart => "get_or_start",
+            Self::Subscribe { .. } => "subscribe",
         })
     }
 }

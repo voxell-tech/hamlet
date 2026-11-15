@@ -10,7 +10,8 @@ use hamlet_actor_core::{ActorContext, ActorLifecycle};
 use hamlet_address::{Address, Caller};
 
 use super::{
-    Host, HostInner, HostOptions, LocalHandle, Open, host_shut_down,
+    Host, HostInner, HostOptions, LocalHandle, Open, Subscription,
+    host_shut_down,
 };
 use crate::event::HostEvent;
 use crate::link::Vetted;
@@ -244,6 +245,18 @@ impl Inbound {
         let host = self.host.upgrade().ok_or_else(host_shut_down)?;
         host.start(Stamp::from_peer(from), at, Open::New(input))
             .await
+    }
+
+    /// Runs a subscribe the other host asked for.
+    #[expect(dead_code, reason = "the scaffold: U8b's pump calls it")]
+    pub(crate) async fn subscribe(
+        &self,
+        from: Vetted,
+        to: &Address,
+        event: &str,
+    ) -> Result<Subscription> {
+        let host = self.host.upgrade().ok_or_else(host_shut_down)?;
+        host.subscribe(Stamp::from_peer(from), to, event).await
     }
 
     /// Passes on an event of the Node host's to this host's
