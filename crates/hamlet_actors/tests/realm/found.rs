@@ -1,9 +1,11 @@
-use hamlet_messages::realm::{Asked, FoundAnswer, Tool};
+use hamlet_messages::realm::client::SayAnswer;
+use hamlet_messages::realm::{Asked, Found, FoundAnswer, Tool};
+use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::{AgentNumber, CallId};
 use hamlet_protocol::client::RequestId;
 use rusqlite::OptionalExtension;
 
-use super::{Realm, error_code, found};
+use super::{MAYOR, Realm, error_code, found, purpose_of, say};
 
 fn count(
     db: &rusqlite::Connection,
@@ -116,5 +118,45 @@ async fn a_found_from_an_agent_that_is_not_the_hand_is_refused() {
         .await;
 
     assert_eq!(error_code(called), "message.wrong_caller");
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_founding_purpose_is_kept_trimmed_and_a_blank_one_as_none()
+{
+    // found Mill with a blank purpose and Pond with " Dig \n": Mill's
+    // mayor takes the chief's first line as its purpose, and Pond's
+    // keeps "Dig".
+    let realm = Realm::start().await;
+    realm.live(Hand::NUMBER).await;
+    for (name, purpose) in [("Mill", "  "), ("Pond", " Dig \n")] {
+        let founded = realm
+            .ask(&Asked {
+                id: RequestId::new(),
+                act: Found {
+                    purpose: Some(purpose.to_owned()),
+                    ..found(name)
+                },
+            })
+            .await
+            .unwrap();
+        assert!(matches!(founded, FoundAnswer::Founded { .. }));
+    }
+    realm.live(MAYOR).await;
+    realm.live(AgentNumber(3)).await;
+
+    let said = realm
+        .ask(&say(&RequestId::new(), MAYOR, "build the mill"))
+        .await
+        .unwrap();
+
+    assert!(matches!(said, SayAnswer::Taken { .. }), "{said:?}");
+    assert_eq!(
+        (
+            purpose_of(&realm, MAYOR).await,
+            purpose_of(&realm, AgentNumber(3)).await
+        ),
+        (Some("build the mill".to_owned()), Some("Dig".to_owned()))
+    );
     realm.host.shutdown().await.unwrap();
 }

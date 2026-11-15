@@ -120,12 +120,7 @@ impl<By: Lead> Act<By> for Hire {
         {
             return Decision::Answer(HireAnswer::refused(not_a_lead));
         }
-        let purpose = self
-            .purpose
-            .as_deref()
-            .map(str::trim)
-            .filter(|purpose| !purpose.is_empty())
-            .map(str::to_owned);
+        let purpose = super::given_purpose(self.purpose.as_deref());
         if purpose.is_none() && caller(by).is_some() {
             return refuse(HireRefusal::NoPurpose);
         }

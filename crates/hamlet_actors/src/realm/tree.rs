@@ -56,6 +56,14 @@ impl Member {
     }
 }
 
+/// A purpose as a hire is given it: trimmed, and none when blank.
+pub(super) fn given_purpose(purpose: Option<&str>) -> Option<String> {
+    purpose
+        .map(str::trim)
+        .filter(|purpose| !purpose.is_empty())
+        .map(str::to_owned)
+}
+
 /// The most characters of a line a purpose keeps.
 const PURPOSE_KEPT: usize = 200;
 
