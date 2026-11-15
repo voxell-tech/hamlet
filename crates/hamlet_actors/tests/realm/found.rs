@@ -1,18 +1,9 @@
-use hamlet_messages::realm::{Asked, Found, FoundAnswer, Tier, Tool};
+use hamlet_messages::realm::{Asked, FoundAnswer, Tool};
 use hamlet_messages::workspace::{AgentNumber, CallId};
 use hamlet_protocol::client::RequestId;
 use rusqlite::OptionalExtension;
 
-use super::{Realm, error_code};
-
-fn found(name: &str) -> Found {
-    Found {
-        name: name.to_owned(),
-        mayor: None,
-        tier: Tier::Fifty,
-        purpose: None,
-    }
-}
+use super::{Realm, error_code, found};
 
 fn count(
     db: &rusqlite::Connection,

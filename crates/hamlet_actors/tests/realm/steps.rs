@@ -1,12 +1,10 @@
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use hamlet_messages::agent::{
     AgentInput, AgentKind, Fill, Place, PlaceVersion,
 };
 use hamlet_messages::profile::Branch;
-use hamlet_messages::realm::{
-    Asked, Found, FoundAnswer, ProfileId, Tier,
-};
+use hamlet_messages::realm::{Asked, FoundAnswer, ProfileId};
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::reach::{
     Footing, Reach, SecretsVersion,
@@ -16,24 +14,12 @@ use hamlet_messages::workspace::{
 };
 use hamlet_protocol::client::RequestId;
 
-use super::{Callee, DEADLINE, Realm};
+use super::{Callee, Realm, found, until};
 
 const MAYOR: AgentNumber = AgentNumber(2);
 
 /// The mayor's blank profile, which `Found` makes.
 const BLANK: ProfileId = ProfileId(2);
-
-fn found() -> Asked<Found> {
-    Asked {
-        id: RequestId::new(),
-        act: Found {
-            name: "Mill".to_owned(),
-            mayor: None,
-            tier: Tier::Fifty,
-            purpose: None,
-        },
-    }
-}
 
 /// What the stand-ins saw of the mayor's hire.
 #[derive(Debug, Default, PartialEq)]
@@ -82,31 +68,19 @@ fn hire_seen(realm: &Realm) -> HireSeen {
     }
 }
 
-async fn until(what: &str, holds: impl Fn() -> bool) {
-    let begun = Instant::now();
-    while !holds() {
-        assert!(begun.elapsed() < DEADLINE, "never: {what}");
-        tokio::time::sleep(Duration::from_millis(20)).await;
-    }
-}
-
-/// Waits in memory for the mayor's reach, its hire's last call. A
-/// stopped read before it starts the realm again, which would do the
-/// rest of the steps itself.
-async fn reach_held(realm: &Realm) {
-    until("the workspace holds the mayor's reach", || {
-        realm.holds_reach(MAYOR)
-    })
-    .await;
-}
-
 /// A realm whose mayor's hire failed at `callee`. The Hand is live
 /// first, so its own steps take no failure.
 async fn failed_once_at(callee: Callee) -> Realm {
     let realm = Realm::start().await;
     realm.live(Hand::NUMBER).await;
     realm.seen.fail_once.lock().unwrap().insert(callee);
-    realm.ask(&found()).await.unwrap();
+    realm
+        .ask(&Asked {
+            id: RequestId::new(),
+            act: found("Mill"),
+        })
+        .await
+        .unwrap();
     until("the stand-in fails its call", || {
         !realm.seen.fail_once.lock().unwrap().contains(&callee)
     })
@@ -123,8 +97,14 @@ async fn a_hire_goes_live_through_its_steps() {
     // The Hand going live moves the mayor's place.
     realm.live(Hand::NUMBER).await;
 
-    let answer = realm.ask(&found()).await.unwrap();
-    reach_held(&realm).await;
+    let answer = realm
+        .ask(&Asked {
+            id: RequestId::new(),
+            act: found("Mill"),
+        })
+        .await
+        .unwrap();
+    realm.reach_held(MAYOR).await;
     let seen = hire_seen(&realm);
     realm.live(MAYOR).await;
     let standing = realm
@@ -190,7 +170,7 @@ async fn a_hiring_row_is_finished_at_the_realms_start() {
     let before = hire_seen(&realm);
 
     let realm = realm.restart().await;
-    reach_held(&realm).await;
+    realm.reach_held(MAYOR).await;
     let after = hire_seen(&realm);
     realm.live(MAYOR).await;
 
@@ -210,7 +190,7 @@ async fn every_step_twice_leaves_one_hire() {
         Callee::SetReach,
     ] {
         let realm = failed_once_at(callee).await.restart().await;
-        reach_held(&realm).await;
+        realm.reach_held(MAYOR).await;
         let seen = hire_seen(&realm);
         realm.live(MAYOR).await;
 

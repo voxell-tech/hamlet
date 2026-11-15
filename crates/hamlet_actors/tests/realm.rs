@@ -24,7 +24,7 @@ use hamlet_messages::agent::{
     AgentInput, Fill, Place, PlaceVersion, Submit,
 };
 use hamlet_messages::profile::Branch;
-use hamlet_messages::realm::ProfileId;
+use hamlet_messages::realm::{Found, ProfileId, Tier};
 use hamlet_messages::workspace::reach::Reach;
 use hamlet_messages::workspace::{
     AgentNumber, AnswerTaken, ChiefAnswer, InForce, ReachVersion,
@@ -459,17 +459,10 @@ impl Realm {
 
     /// Waits for `agent`'s hire to be live.
     async fn live(&self, agent: AgentNumber) {
+        // The reads below can still repeat `SetReach`: a stop before
+        // the reach step commits runs that step again.
+        self.reach_held(agent).await;
         let begun = Instant::now();
-        // Its reach is the last step that calls, so the reads after,
-        // which stop the realm, make no call twice.
-        while !self.holds_reach(agent) {
-            assert!(
-                begun.elapsed() < DEADLINE,
-                "the workspace holds no reach of agent {}",
-                agent.0
-            );
-            tokio::time::sleep(Duration::from_millis(20)).await;
-        }
         let n = i64::from(agent.0);
         loop {
             let done = self
@@ -495,6 +488,17 @@ impl Realm {
             );
             tokio::time::sleep(Duration::from_millis(20)).await;
         }
+    }
+
+    /// Waits in memory for the workspace to hold `agent`'s reach, its
+    /// hire's last call. A stopped read before it starts the realm
+    /// again, which would do the rest of the steps itself.
+    async fn reach_held(&self, agent: AgentNumber) {
+        until(
+            &format!("the workspace holds agent {}'s reach", agent.0),
+            || self.holds_reach(agent),
+        )
+        .await;
     }
 
     fn holds_reach(&self, agent: AgentNumber) -> bool {
@@ -548,6 +552,23 @@ async fn call<A: Action>(
     host.get_or_start(&to).await?;
     let args = hamlet_actor::action::encode_positional(action)?;
     decoded(&host.call(&to, A::NAME, args, DEADLINE).await?)
+}
+
+async fn until(what: &str, holds: impl Fn() -> bool) {
+    let begun = Instant::now();
+    while !holds() {
+        assert!(begun.elapsed() < DEADLINE, "never: {what}");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
+fn found(name: &str) -> Found {
+    Found {
+        name: name.to_owned(),
+        mayor: None,
+        tier: Tier::Fifty,
+        purpose: None,
+    }
 }
 
 fn decoded<T: DeserializeOwned>(bytes: &[u8]) -> anyhow::Result<T> {
