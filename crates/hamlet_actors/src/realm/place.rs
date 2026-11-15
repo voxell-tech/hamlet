@@ -13,6 +13,9 @@ pub(super) async fn of(
     rows: &Rows<'_>,
     agent: AgentNumber,
 ) -> Result<Place> {
+    // The version first: a place may be newer than its version, never
+    // older.
+    let version = PlaceVersion(versions::place(rows, agent).await?);
     let lineage = tree::lineage_of(rows, agent).await?;
     let lead = lineage.agent.lead;
     let (hires, roads) = roads::of(rows, agent)
@@ -24,7 +27,7 @@ pub(super) async fn of(
             lineage.hires.iter().any(|hire| hire.agent == other)
         });
     Ok(Place {
-        version: PlaceVersion(versions::place(rows, agent).await?),
+        version,
         lead,
         hires,
         roads,
