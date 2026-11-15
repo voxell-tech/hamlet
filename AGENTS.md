@@ -117,7 +117,12 @@ sleep, and takes one command per line on stdin until stdin ends or the
 process gets SIGTERM. A running host holds `host.lock` and each actor's
 file, so open a file with `sqlite3 -readonly` only after the host stops.
 
-`cargo xtask killkit <scenario> --runs <n>` builds the demo, kills it
+`demo --link serve` runs the agents in a Node host, the demo's child,
+started with `HAMLET_NODE` or `node` from `PATH`; it needs the Node host
+installed and its native module built, as `cargo xtask node` does.
+
+`cargo xtask killkit <scenario> --runs <n>` installs the Node host's
+packages, builds the native module and the demo, kills the demo
 with SIGKILL at a scenario's step, restarts it twice and prints one line
 per run; `--list` names the scenarios. Each kit process makes a new
 folder of its own under the system's temporary folder, with a folder per
@@ -190,7 +195,10 @@ and `npm run test:native` runs them. `cargo xtask node` runs all three
 after pi's: it builds the module, copies the library into
 `crates/hamlet_actor_node/` under the name its `index.js` loads (on
 Linux x64, `actor-node.linux-x64-gnu.node`), builds `hamlet_os`'s example
-`bound`, which the native tests start Node through, then runs them.
+`bound`, which the native tests start Node through, then runs them, and
+last builds the demo and runs `npm run test:link`, the tests in
+`test/link/` that drive `demo --link` and the Node host's entry
+`src/main.ts`.
 By hand, on Linux:
 
 ```sh
@@ -200,6 +208,8 @@ cargo build -p hamlet_actor_node
 cp target/debug/libhamlet_actor_node.so crates/hamlet_actor_node/actor-node.linux-x64-gnu.node
 cargo build -p hamlet_os --example bound
 npm run test:native --prefix hosts/node
+cargo build -p hamlet_host --example demo
+npm run test:link --prefix hosts/node
 ```
 
 The native tests load whatever library is at that name, so build and
