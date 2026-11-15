@@ -144,8 +144,8 @@ async fn a_revert_cut_off_before_its_marker_is_still_taken_in() {
     let undone = main_tip(&dir);
     host.shutdown().await.unwrap();
     drop(host);
-    // What a kill after the revert's commit and before its marker
-    // leaves: `main` reverted, the hire not yet moved.
+    // Left by a kill after the revert's commit and before its
+    // marker: `main` reverted, the hire not yet moved.
     let by = hamlet_git::Author {
         name: "chief:3",
         at: 6000,
@@ -299,7 +299,7 @@ async fn a_purge_takes_a_path_out_of_every_branch_and_version() {
     let branches = repository.branches().unwrap();
     let versions = repository.versions().unwrap();
     let tips = branches.iter().map(|(_, tip)| *tip);
-    for at in tips.clone().chain(versions.iter().map(|v| v.commit)) {
+    for at in tips.chain(versions.iter().map(|v| v.commit)) {
         for commit in repository.history(at, 100).unwrap() {
             let paths = repository.entries(commit.id).unwrap();
             assert!(paths.iter().all(|e| e.path != "secret.md"));

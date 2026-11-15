@@ -375,11 +375,21 @@ mod tests {
     use super::*;
     use crate::repo::testing::Hostless;
 
-    #[test]
-    fn an_end_cut_off_before_its_row_makes_no_second_commit() {
-        let dir = Scratch::new("profile-dream-cut");
-        let mut profile = Hostless::profile(&dir, "Careful.");
-        let realm = Caller::Actor(Realm.address().unwrap());
+    fn realm() -> Caller {
+        Caller::Actor(Realm.address().unwrap())
+    }
+
+    fn write(path: &str, text: &str) -> Change {
+        Change::Write {
+            path: path.into(),
+            bytes: text.into(),
+        }
+    }
+
+    /// A profile with no host whose hire 7 saved `learned.md`, and
+    /// dream 3 of that hire prepared.
+    fn dreaming(dir: &Scratch) -> (Hostless, Repository) {
+        let mut profile = Hostless::profile(dir, "Careful.");
         let repository =
             Repository::open(&dir.join("scholars/1.git")).unwrap();
         let first = repository.tip(MAIN).unwrap().unwrap();
@@ -392,55 +402,70 @@ mod tests {
                 [],
             )
             .unwrap();
-        let learned = Change::Write {
-            path: "learned.md".into(),
-            bytes: b"learned".to_vec(),
-        };
         let by = Author {
             name: "agent:7",
             at: 5000,
         };
+        let learned = write("learned.md", "learned");
         repository
             .commit("hires/7", &[learned], "saved", by)
             .unwrap();
-        let of = DreamOf::Hire {
-            agent: AgentNumber(7),
-        };
         let asked = PrepareDream {
             dream: DreamId(3),
-            of,
+            of: DreamOf::Hire {
+                agent: AgentNumber(7),
+            },
         };
         profile
-            .once::<Profile, _, _>(realm.clone(), asked, prepare)
+            .once::<Profile, _, _>(realm(), asked, prepare)
             .unwrap();
+        (profile, repository)
+    }
+
+    fn end_3() -> EndDream {
+        EndDream {
+            dream: DreamId(3),
+            done: true,
+            summary: String::new(),
+        }
+    }
+
+    /// Ends dream 3 as far as its folder's removal, then fails as a
+    /// kill would, before the row's outcome is kept.
+    fn end_cut_off(profile: &mut Hostless) {
+        let cut =
+            profile.once::<Profile, _, _>(realm(), end_3(), |unit| {
+                end(unit)?;
+                bail!("killed")
+            });
+        assert!(cut.is_err());
+    }
+
+    fn dreamt(repository: &Repository, branch: &str) -> usize {
+        let tip = repository.tip(branch).unwrap().unwrap();
+        let commits =
+            repository.first_parents(tip, None, 10).unwrap();
+        commits.iter().filter(|c| c.author == "dream:3").count()
+    }
+
+    #[test]
+    fn an_end_cut_off_before_its_row_makes_no_second_commit() {
+        let dir = Scratch::new("profile-dream-cut");
+        let (mut profile, repository) = dreaming(&dir);
         let checkouts = dir.join("dreams/3");
         std::fs::write(checkouts.join("main/home.md"), "home")
             .unwrap();
         std::fs::write(checkouts.join("hire/kept.md"), "kept")
             .unwrap();
 
-        let asked = EndDream {
-            dream: DreamId(3),
-            done: true,
-            summary: String::new(),
-        };
-        // The commits and the folder's removal, then a kill before
-        // the row's outcome is kept.
-        let cut = profile.once::<Profile, _, _>(
-            realm.clone(),
-            asked.clone(),
-            |unit| {
-                end(unit)?;
-                bail!("killed")
-            },
-        );
-        assert!(cut.is_err());
+        end_cut_off(&mut profile);
         assert!(!checkouts.exists());
         let main = repository.tip(MAIN).unwrap().unwrap();
         let hire = repository.tip("hires/7").unwrap().unwrap();
 
-        let (ended, told) =
-            profile.once::<Profile, _, _>(realm, asked, end).unwrap();
+        let (ended, told) = profile
+            .once::<Profile, _, _>(realm(), end_3(), end)
+            .unwrap();
         assert_eq!(
             ended,
             DreamEnd::Dreamt {
@@ -450,13 +475,11 @@ mod tests {
         assert_eq!(repository.tip(MAIN).unwrap(), Some(main));
         assert_eq!(repository.tip("hires/7").unwrap(), Some(hire));
         assert_eq!(told.len(), 1);
-        let dreamt = |branch: &str| {
-            let tip = repository.tip(branch).unwrap().unwrap();
-            let commits =
-                repository.first_parents(tip, None, 10).unwrap();
-            commits.iter().filter(|c| c.author == "dream:3").count()
-        };
-        assert_eq!((dreamt(MAIN), dreamt("hires/7")), (1, 1));
+        let made = (
+            dreamt(&repository, MAIN),
+            dreamt(&repository, "hires/7"),
+        );
+        assert_eq!(made, (1, 1));
         for (at, path) in
             [(main, "home.md"), (hire, "kept.md"), (hire, "home.md")]
         {
@@ -465,5 +488,57 @@ mod tests {
                 "{path}"
             );
         }
+    }
+
+    #[test]
+    fn a_folder_a_kill_left_half_removed_is_not_read_as_removals() {
+        let dir = Scratch::new("profile-dream-half-removed");
+        let (mut profile, repository) = dreaming(&dir);
+        std::fs::write(dir.join("dreams/3/main/home.md"), "home")
+            .unwrap();
+        end_cut_off(&mut profile);
+        let hire = repository.tip("hires/7").unwrap().unwrap();
+        // The hire's checkout, emptied part-way by the cut-off
+        // removal.
+        let left = dir.join("dreams/3.ended/hire");
+        std::fs::create_dir_all(&left).unwrap();
+
+        let (ended, _) = profile
+            .once::<Profile, _, _>(realm(), end_3(), end)
+            .unwrap();
+        assert!(matches!(ended, DreamEnd::Dreamt { main: Some(_) }));
+        assert_eq!(repository.tip("hires/7").unwrap(), Some(hire));
+        assert_eq!(dreamt(&repository, "hires/7"), 0);
+        assert!(
+            repository.read(hire, "learned.md").unwrap().is_some()
+        );
+        assert!(!dir.join("dreams/3.ended").exists());
+    }
+
+    #[test]
+    fn a_prepare_s_repeat_checks_out_the_commits_its_row_holds() {
+        let dir = Scratch::new("profile-dream-prepare-again");
+        let (mut profile, repository) = dreaming(&dir);
+        let by = Author {
+            name: "chief:3",
+            at: 6000,
+        };
+        let later = write("memory/later.md", "later");
+        repository.commit(MAIN, &[later], "edited", by).unwrap();
+        let checkout = dir.join("dreams/3/hire");
+        std::fs::remove_file(checkout.join("learned.md")).unwrap();
+
+        let asked = PrepareDream {
+            dream: DreamId(3),
+            of: DreamOf::Hire {
+                agent: AgentNumber(7),
+            },
+        };
+        let (again, _) = profile
+            .once::<Profile, _, _>(realm(), asked, prepare)
+            .unwrap();
+        assert_eq!(again, ready(DreamId(3), true));
+        assert!(checkout.join("learned.md").exists());
+        assert!(!dir.join("dreams/3/main/memory/later.md").exists());
     }
 }

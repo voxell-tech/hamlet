@@ -138,10 +138,8 @@ async fn a_hire_s_dream_brings_its_learning_home_and_keeps_its_side()
     assert_eq!(text(&dir, at, "learned.md"), None);
 
     let hire = tip(&dir, "hires/7").unwrap();
-    assert!(
-        repository(&dir, 1).merge_base(hire, main).unwrap()
-            == Some(main)
-    );
+    let base = repository(&dir, 1).merge_base(hire, main).unwrap();
+    assert_eq!(base, Some(main));
     let at = commit_id(hire);
     assert_eq!(
         text(&dir, at, "memory/shared.md").as_deref(),

@@ -1,16 +1,16 @@
-//! What a chief changes of the profile's history and `main`: a tag,
-//! a revert, an edit, a purge and the erase, and the reads of its
+//! A chief's changes to the profile's history and `main`: a tag, a
+//! revert, an edit, a purge and the erase, and the reads of its
 //! versions and its papers.
 
 use anyhow::{Context, Result};
 use hamlet_git::{Change, Joined, MAIN};
 use hamlet_messages::address::Agent;
 use hamlet_messages::profile::{
-    BadCommit, BadPath, DreamOpen, Edit, EditRefusal, Erase, Missing,
-    Paper, PaperList, Papers, Path, Purge, PurgeAnswer, Removal,
-    RemovePath, Revert, RevertAnswer, RevertRefusal, Revision, Tag,
-    TagAnswer, TagRefusal, TooLong, VersionList, VersionName,
-    VersionSeen, Versions,
+    BadCommit, BadPath, DreamId, DreamOpen, Edit, EditRefusal, Erase,
+    Missing, Paper, PaperList, Papers, Path, Purge, PurgeAnswer,
+    Removal, RemovePath, Revert, RevertAnswer, RevertRefusal,
+    Revision, Tag, TagAnswer, TagRefusal, TooLong, VersionList,
+    VersionName, VersionSeen, Versions,
 };
 use hamlet_messages::realm::Done;
 use hamlet_messages::workspace::AgentNumber;
@@ -305,17 +305,22 @@ impl Takes<Purge> for Profile {
                 }
             }
         }
-        fresh.once(move |unit| purge(unit, still_hold)).await
+        fresh
+            .once(move |unit| purge(unit, dreaming, still_hold))
+            .await
     }
 }
 
 /// Takes the path out of every branch and version, then gives each
 /// pin its rewritten commit and each agent its branch's new tip.
+/// `dreaming` is the dream open when the agents would have been
+/// asked: none was.
 fn purge(
     unit: Before<'_, Profile, Purge>,
+    dreaming: Option<DreamId>,
     still_hold: Vec<AgentNumber>,
 ) -> Result<Ended<Purge>> {
-    if let Some(dream) = dreams::open(&unit)? {
+    if let Some(dream) = dreaming.or(dreams::open(&unit)?) {
         return unit.refuse(DreamOpen::Dreaming { dream }.into());
     }
     let path = unit.message().path.clone();
@@ -548,7 +553,7 @@ mod tests {
         assert_eq!(done, Done::Done);
         let repository = dir.join("scholars/1.git");
         assert!(!repository.exists());
-        // What a kill part-way through the removal leaves.
+        // Left by a kill part-way through the removal.
         let erased = dir.join("scholars/1.git.erased");
         std::fs::create_dir(erased.join("objects")).unwrap();
         std::fs::write(erased.join("HEAD"), "ref: refs/heads/main")
@@ -566,6 +571,30 @@ mod tests {
         let dir = Scratch::new("profile-dreaming");
         let mut profile = Hostless::profile(&dir, "Careful.");
         let realm = Caller::Actor(Realm.address().unwrap());
+        let refused = |dream| PurgeAnswer::Refused {
+            why: DreamOpen::Dreaming {
+                dream: DreamId(dream),
+            }
+            .into(),
+        };
+        let purge_in = |profile: &mut Hostless, seen| {
+            let asked = Purge {
+                id: RequestId::new(),
+                path: "CHARACTER.md".into(),
+                by: Who::Chief { chief: 3 },
+            };
+            profile
+                .once::<Profile, Purge, _>(
+                    realm.clone(),
+                    asked,
+                    |unit| purge(unit, seen, Vec::new()),
+                )
+                .unwrap()
+        };
+        // A dream that ended after the agents were not asked.
+        let (purged, told) = purge_in(&mut profile, Some(DreamId(2)));
+        assert_eq!((purged, told.len()), (refused(2), 0));
+
         profile
             .store()
             .execute(
@@ -573,33 +602,19 @@ mod tests {
                 [],
             )
             .unwrap();
-        let dreaming = DreamOpen::Dreaming {
-            dream: hamlet_messages::profile::DreamId(4),
-        };
-        let asked = Purge {
-            id: RequestId::new(),
-            path: "CHARACTER.md".into(),
-            by: Who::Chief { chief: 3 },
-        };
-        let (purged, told) = profile
-            .once::<Profile, Purge, _>(realm.clone(), asked, |unit| {
-                purge(unit, Vec::new())
-            })
-            .unwrap();
-        assert_eq!(
-            purged,
-            PurgeAnswer::Refused {
-                why: dreaming.clone().into()
-            }
-        );
-        assert!(told.is_empty());
+        let (purged, told) = purge_in(&mut profile, None);
+        assert_eq!((purged, told.len()), (refused(4), 0));
         let asked = Erase {
             id: RequestId::new(),
         };
         let (erased, _) = profile
-            .once::<Profile, Erase, _>(realm, asked, erase)
+            .once::<Profile, Erase, _>(realm.clone(), asked, erase)
             .unwrap();
+        let dreaming = DreamOpen::Dreaming { dream: DreamId(4) };
         assert_eq!(erased, Done::Refused { why: dreaming });
-        assert!(dir.join("scholars/1.git").exists());
+        let papers = profile
+            .read::<Profile, Papers, _>(realm, Papers, papers)
+            .unwrap();
+        assert_eq!(papers.character, "Careful.");
     }
 }

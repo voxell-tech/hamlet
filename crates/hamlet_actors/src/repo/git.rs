@@ -18,7 +18,7 @@ use super::checkout;
 /// The message of a save's commit.
 const SAVED: &str = "Saved the agent's files";
 
-/// What the folder beside an erased repository is named after.
+/// The suffix of the folder an erased repository is moved to.
 const ERASED: &str = "erased";
 
 /// The folder of an owner's repository.
