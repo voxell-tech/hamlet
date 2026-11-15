@@ -7,13 +7,18 @@ use std::time::Duration;
 
 use hamlet_host::Host;
 use hamlet_messages::workspace::reach::Reach;
-use hamlet_messages::workspace::{AgentNumber, Exit, Run, RunAnswer};
+use hamlet_messages::workspace::{
+    AgentNumber, Answer, Exit, Run, RunAnswer,
+};
 use hamlet_testing::Scratch;
 use tokio::task::JoinHandle;
 
+use super::changes::manual;
+use super::files::project;
+use super::waits::chief;
 use super::{
     AGENT, Peers, agent_runs, done, ended, filesystem, host,
-    host_with, reach, realm_sets, run,
+    host_with, ran, reach, realm_sets, run, told, told_within,
 };
 
 /// The folder of `agent`'s saved output in the realm folder `dir`.
@@ -126,5 +131,56 @@ async fn the_oldest_finished_output_goes_first() {
     assert_eq!(
         std::fs::read_to_string(&waiting_file).unwrap(),
         (1..=2001).map(|n| format!("{n}\n")).collect::<String>()
+    );
+}
+
+/// A command a chief allows late keeps the id its wait was given, yet
+/// its output is as old as its run: past the limit, the output of the
+/// command that ran first goes.
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn output_is_as_old_as_its_run() {
+    let dir = Scratch::new("workspace-output-run-order");
+    filesystem(&dir);
+    let (_project, folder) =
+        project("workspace-output-run-order-project", &[]);
+    let peers = Arc::new(Peers {
+        saved_output: Some(150_000),
+        ..Peers::default()
+    });
+    let host = host_with(&dir, peers.clone()).await;
+    realm_sets(&host, 1, manual(&folder)).await;
+    // 60,000 bytes each: three are past the limit, two are under it.
+    let script = "yes | head -n 30000";
+    agent_runs(&host, &run("late", script)).await;
+    for (ran_before, call) in
+        ["a", "b", "late", "c"].into_iter().enumerate()
+    {
+        if call != "late" {
+            agent_runs(&host, &run(call, script)).await;
+        }
+        chief(&host, call, Answer::Allow).await;
+        told_within(&peers, ran_before + 1, Duration::from_secs(20))
+            .await;
+    }
+    let kept = told(&peers)
+        .iter()
+        .map(|(_, finished)| {
+            let cut = ran(finished)
+                .cut
+                .as_ref()
+                .expect("the output was saved");
+            (
+                finished.call.0.as_str().to_owned(),
+                cut.full_output.exists(),
+            )
+        })
+        .collect::<Vec<_>>();
+    host.shutdown().await.unwrap();
+
+    assert_eq!(
+        kept,
+        [("a", false), ("b", true), ("late", true), ("c", true)]
+            .map(|(call, kept)| (call.to_owned(), kept))
     );
 }

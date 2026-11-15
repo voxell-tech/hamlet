@@ -211,10 +211,10 @@ impl Saved {
         self.folder.join(format!("{}.log", self.command.0))
     }
 
-    /// Removes the folder's files of finished commands, oldest
-    /// command first, until the rest is under the limit. A file that
-    /// cannot be removed, as one another process holds open on
-    /// Windows, stays.
+    /// Removes the folder's files of finished commands, the least
+    /// recently written first and then the lowest command id, until
+    /// the rest is under the limit. A file that cannot be removed, as
+    /// one another process holds open on Windows, stays.
     fn make_room(&self) {
         let listed = match std::fs::read_dir(&self.folder) {
             Ok(listed) => listed,
@@ -232,13 +232,14 @@ impl Saved {
                 let entry = entry.ok()?;
                 let command = command_of(&entry.file_name())?;
                 let metadata = entry.metadata().ok()?;
-                metadata
-                    .is_file()
-                    .then(|| (command, metadata.len(), entry.path()))
+                let modified = metadata.modified().ok()?;
+                metadata.is_file().then(|| {
+                    (command, modified, metadata.len(), entry.path())
+                })
             })
             .collect::<Vec<_>>();
         let mut total =
-            files.iter().map(|(_, len, _)| len).sum::<u64>();
+            files.iter().map(|(.., len, _)| len).sum::<u64>();
         // Read after the listing: a listed file's command was running
         // before its file was made, so one that is not now has ended
         // and closed its file.
@@ -254,8 +255,10 @@ impl Saved {
                 })
                 .collect::<Vec<_>>()
         };
-        finished.sort_by_key(|(command, ..)| command.0);
-        for (_, len, path) in finished {
+        finished.sort_by_key(|(command, modified, ..)| {
+            (*modified, command.0)
+        });
+        for (.., len, path) in finished {
             if total < self.limit {
                 break;
             }
