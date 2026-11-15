@@ -20,6 +20,9 @@ import {
     fakeCalls,
     fakeFiles,
     from,
+    named,
+    toolCall,
+    until,
     type Woken,
     wakeAgent,
     within,
@@ -164,6 +167,43 @@ test("a null field is read as unset, an unknown field is ignored, and an unreada
     await agent.stop();
 });
 
+test("a place keeps only the fields the agent knows, also one a newer realm sends as a bigint", async (t) => {
+    const { calls } = fakeCalls({});
+    const newer = {
+        version: 1,
+        hires: [2],
+        roads: [],
+        tools_off: [],
+        future: 2n ** 70n,
+    };
+    const agent = await wakeAgent(t, {
+        calls,
+        input: { kind: "hand", task: "standing", place: newer as never },
+    });
+    const kept = async () =>
+        JSON.parse(
+            (await agent.c.db.get<{ place: string }>("SELECT place FROM agent"))
+                ?.place ?? "",
+        ) as unknown;
+    assert.deepEqual(await kept(), { hires: [2], roads: [], tools_off: [] });
+
+    assert.equal(
+        await agent.actions.place(agent.by(from.realm), {
+            ...newer,
+            version: 2,
+            lead: 3,
+        } as never),
+        null,
+    );
+    assert.deepEqual(await kept(), {
+        lead: 3,
+        hires: [2],
+        roads: [],
+        tools_off: [],
+    });
+    await agent.stop();
+});
+
 test("an answer goes to the conversation it names, and to the root when that is not one", async (t) => {
     const { calls } = fakeCalls({});
     const agent = await wakeAgent(t, {
@@ -274,6 +314,50 @@ function holding(
         },
     });
 }
+
+test("a wake whose harness does not open still lists the hand tools, and the next action offers them", async (t) => {
+    const { calls, sent } = fakeCalls({
+        workspace: {
+            list_tools: () => ({
+                tools: [
+                    {
+                        name: "word_count",
+                        description: "Count the words of a file.",
+                        parameters: JSON.stringify({ type: "object" }),
+                    },
+                ],
+                faults: [],
+            }),
+            run: () => ({ type: "running", command: 9 }),
+        },
+    });
+    const first = await wakeAgent(t, {
+        calls,
+        responses: [
+            toolCall("word_count", { path: "/project/a.md" }),
+            fauxAssistantMessage("Counted."),
+        ],
+    });
+    await until(() => named(sent, "list_tools").length === 1);
+    await first.stop();
+
+    const failed = first.failNextCommit();
+    const second = await first.again();
+    await failed;
+    assert.ok(
+        second.reported.some((line) => line.includes("could not open on wake")),
+        "the wake's open failed",
+    );
+    await until(() => named(sent, "list_tools").length === 2);
+    await second.actions.submit(second.by(from.realm), {
+        id: "input-1",
+        input: { type: "line", text: "Count." },
+    });
+    await second.idle();
+
+    assert.equal(named(sent, "run").length, 1);
+    await second.stop();
+});
 
 test("a commit that fails while the harness's own work reads the turn reopens the harness, and the agent goes on", async (t) => {
     const entered = Promise.withResolvers<void>();

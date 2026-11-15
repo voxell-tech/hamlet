@@ -538,7 +538,7 @@ export const read: {
 } & { readonly agentInput: (raw: unknown) => AgentInput } = {
     agentInput: reader(
         obj({ kind: oneOf(["hand", "hire"]), task: str(), place: PLACE }, OPEN),
-        (input) => ({ ...input, place: knownTools(input.place) }) as AgentInput,
+        ({ kind, task, place }) => ({ kind, task, place: placeOf(place) }),
     ),
     submit: reader(
         obj({ id: str(), task: opt(str()), input: INPUT }, OPEN),
@@ -561,7 +561,7 @@ export const read: {
         ),
         (finished) => finished as unknown as Finished,
     ),
-    place: reader(PLACE, knownTools),
+    place: reader(PLACE, placeOf),
     fill: reader(obj({ profile: int(), branch: str() }, OPEN), (fill) => fill),
 };
 
@@ -594,11 +594,24 @@ function withoutNulls(value: unknown): unknown {
     );
 }
 
-/** A newer realm may turn off a tool this agent does not have; it is ignored. */
-function knownTools(place: Static<typeof PLACE>): Place {
+/**
+ * A newer realm may add fields, and turn off a tool this agent does not
+ * have. Both are dropped: the row keeps the place, and a field it cannot
+ * serialise, such as a bigint, would fail the write.
+ */
+function placeOf({
+    version,
+    lead,
+    hires,
+    roads,
+    tools_off,
+}: Static<typeof PLACE>): Place {
     return {
-        ...place,
-        tools_off: place.tools_off.filter((name): name is SocietyTool =>
+        version,
+        ...(lead === undefined ? {} : { lead }),
+        hires,
+        roads,
+        tools_off: tools_off.filter((name): name is SocietyTool =>
             (SOCIETY_TOOLS as readonly string[]).includes(name),
         ),
     };
