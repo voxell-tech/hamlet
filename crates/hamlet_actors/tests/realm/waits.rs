@@ -721,3 +721,126 @@ async fn a_ruling_on_a_question_or_an_objection_is_a_notice() {
     );
     realm.host.shutdown().await.unwrap();
 }
+
+fn refused_unasked(call: &str, words: &str) -> ChiefAnswer {
+    ChiefAnswer {
+        agent: HAND,
+        call: needs(HAND, call).call,
+        answer: workspace::Answer::Refuse {
+            reason: Some(words.to_owned()),
+        },
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_request_the_chief_refused_is_refused_again_unasked() {
+    // on the Hand's task the chief refuses a command with no reason,
+    // and a network call. The same command again, and any network
+    // call, are refused at once with today's words; another command
+    // still waits.
+    let realm = Realm::start().await;
+    realm.live(HAND).await;
+    let task = standing(&realm, HAND);
+    let command = |call: &str, subject: &str| NeedsChief {
+        subject: subject.to_owned(),
+        ..asked(call, Need::Command, Some(&task), "c")
+    };
+    realm
+        .call_as_workspace(&command("c1", "make clean"))
+        .await
+        .unwrap();
+    realm.ask(&answer("1", Choice::Deny, None)).await.unwrap();
+    realm
+        .call_as_workspace(&asked(
+            "c2",
+            Need::Network,
+            Some(&task),
+            "c",
+        ))
+        .await
+        .unwrap();
+    realm
+        .ask(&answer("2", Choice::Deny, Some("stay offline")))
+        .await
+        .unwrap();
+
+    for asked in [
+        command("c3", "make clean"),
+        asked("c4", Need::Network, Some(&task), "c"),
+        command("c5", "make all"),
+    ] {
+        realm.call_as_workspace(&asked).await.unwrap();
+    }
+    until("the workspace has four answers", || {
+        chief_answers(&realm).len() == 4
+    })
+    .await;
+
+    assert_eq!(
+        chief_answers(&realm)[2..],
+        [
+            refused_unasked(
+                "c3",
+                "the chief already refused this in this turn (no \
+                 reason given). Do not ask again: go on without it, \
+                 or report that you could not."
+            ),
+            refused_unasked(
+                "c4",
+                "the chief already refused this in this turn (stay \
+                 offline). Do not ask again: go on without it, or \
+                 report that you could not."
+            ),
+        ]
+    );
+    let open = waits_of(&realm, HAND).await;
+    assert_eq!(open[4], (5, true, None));
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_refusal_that_reaches_the_count_closes_the_tasks_other_waits()
+ {
+    // four commands wait on the Hand's task, and one on no task. The
+    // chief refuses three: the fourth of the task closes refused
+    // unasked and the workspace is told; the one on no task waits.
+    let realm = Realm::start().await;
+    realm.live(HAND).await;
+    let task = standing(&realm, HAND);
+    for n in 1..=4 {
+        realm
+            .call_as_workspace(&asked(
+                &format!("c{n}"),
+                Need::Command,
+                Some(&task),
+                "c",
+            ))
+            .await
+            .unwrap();
+    }
+    realm
+        .call_as_workspace(&asked("c5", Need::Command, None, "c"))
+        .await
+        .unwrap();
+
+    for wait in ["1", "2", "3"] {
+        realm.ask(&answer(wait, Choice::Deny, None)).await.unwrap();
+    }
+    until("the workspace has four answers", || {
+        chief_answers(&realm).len() == 4
+    })
+    .await;
+
+    assert!(
+        chief_answers(&realm)
+            .contains(&refused_unasked("c4", PAST_THE_COUNT)),
+        "{:?}",
+        chief_answers(&realm)
+    );
+    let waits = waits_of(&realm, HAND).await;
+    assert_eq!(
+        waits[3..],
+        [(4, false, Some("unasked".to_owned())), (5, true, None)]
+    );
+    realm.host.shutdown().await.unwrap();
+}

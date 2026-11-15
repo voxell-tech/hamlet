@@ -64,6 +64,9 @@ pub(super) enum Choice {
     Dismiss,
     Go,
     Withdraw,
+    /// Refused with no chief asked, with the words its asker is
+    /// told.
+    Unasked(String),
     Lapsed(workspace::Lapse),
 }
 
@@ -79,6 +82,9 @@ impl Choice {
             Self::Dismiss => ("dismiss", None, None),
             Self::Go => ("go", None, None),
             Self::Withdraw => ("withdraw", None, None),
+            Self::Unasked(words) => {
+                ("unasked", None, Some(words.clone()))
+            }
             Self::Lapsed(lapse) => {
                 ("lapsed", None, Some(change::case_name(lapse)?))
             }
@@ -489,12 +495,69 @@ async fn most_refusals(
         .refusals)
 }
 
+/// A tool call of an agent's that a chief refused on a task.
+struct Refused {
+    subject: String,
+    needs: Vec<Need>,
+    ruling: Option<String>,
+}
+
+impl Refused {
+    /// Whether this refusal covers a call for `needs` on `subject`:
+    /// every call for the network, else the same call.
+    fn covers(&self, needs: &[Need], subject: &str) -> bool {
+        let network = |needs: &[Need]| needs.contains(&Need::Network);
+        if network(needs) {
+            network(&self.needs)
+        } else {
+            !network(&self.needs) && self.subject == subject
+        }
+    }
+}
+
+async fn refusals(
+    rows: &Rows<'_>,
+    agent: AgentNumber,
+    task: TaskId,
+) -> Result<Vec<Refused>> {
+    rows.rows::<(String, String, Option<String>)>(
+        "SELECT subject, needs, ruling FROM wait WHERE agent = ?1 \
+         AND task = ?2 AND kind = 'tool' AND choice = 'refuse' \
+         ORDER BY id",
+        vec![number(agent), task.column()?],
+    )
+    .await?
+    .into_iter()
+    .map(|(subject, needs, ruling)| {
+        Ok(Refused {
+            subject,
+            needs: serde_json::from_str(&needs)?,
+            ruling,
+        })
+    })
+    .collect()
+}
+
+/// The words a call is refused with when `refused` calls of its task
+/// reach `most`.
+fn past_the_count(refused: usize, most: u32) -> Option<String> {
+    (refused >= usize::try_from(most).unwrap_or(usize::MAX)).then(
+        || {
+            format!(
+                "the chief has refused {refused} requests this turn \
+                 and will not be asked again in it. Stop and report \
+                 what you could not do."
+            )
+        },
+    )
+}
+
 pub(super) enum Asker {
     Ended,
     /// Its call already has a wait.
     Known,
     Asks,
-    PastTheCount {
+    Refused {
         wait: WaitId,
         words: String,
     },
@@ -532,24 +595,30 @@ impl Act<Workspace> for NeedsChief {
         else {
             return Ok(Asker::Asks);
         };
-        let refused = rows
-            .value::<u32>(
-                "SELECT count(*) FROM wait WHERE agent = ?1 AND \
-                 task = ?2 AND kind = 'tool' AND choice = 'refuse'",
-                vec![number(self.agent), task.column()?],
-            )
-            .await?
-            .unwrap_or(0);
-        if refused < most_refusals(rows, self.agent).await? {
-            return Ok(Asker::Asks);
-        }
-        Ok(Asker::PastTheCount {
-            wait: next(rows).await?,
-            words: format!(
-                "the chief has refused {refused} requests this turn \
-                 and will not be asked again in it. Stop and report \
-                 what you could not do."
+        let refused = refusals(rows, self.agent, task).await?;
+        let words = match refused.iter().find(|refused| {
+            refused.covers(&self.needs, &self.subject)
+        }) {
+            Some(earlier) => Some(format!(
+                "the chief already refused this in this turn ({}). \
+                 Do not ask again: go on without it, or report that \
+                 you could not.",
+                earlier
+                    .ruling
+                    .as_deref()
+                    .unwrap_or("no reason given")
+            )),
+            None => past_the_count(
+                refused.len(),
+                most_refusals(rows, self.agent).await?,
             ),
+        };
+        Ok(match words {
+            Some(words) => Asker::Refused {
+                wait: next(rows).await?,
+                words,
+            },
+            None => Asker::Asks,
         })
     }
 
@@ -565,7 +634,7 @@ impl Act<Workspace> for NeedsChief {
                     asked: self.clone(),
                 }),
             ),
-            Asker::PastTheCount { wait, words } => Decision::Change(
+            Asker::Refused { wait, words } => Decision::Change(
                 Decided::new(Told::workspace(wait)).change(
                     Change::Unasked {
                         wait,
@@ -592,6 +661,10 @@ pub(super) struct Waiting {
     task: Option<TaskId>,
     conversation: Option<ConversationId>,
     needs: Vec<Need>,
+    /// For a refusal that reaches its task's count: the agent's
+    /// other open tool waits on the task, with the words they close
+    /// with.
+    past_the_count: Option<(Vec<WaitId>, String)>,
 }
 
 impl Waiting {
@@ -692,6 +765,7 @@ impl Act<Client> for Answer {
         else {
             return Ok(None);
         };
+        let agent = AgentNumber(agent);
         let kind = change::from_case_name::<Kind>(kind)?;
         if let (
             Kind::Reserved | Kind::Send,
@@ -704,11 +778,41 @@ impl Act<Client> for Answer {
                 wait.0
             );
         }
+        let past_the_count = match (kind, &self.0.choice, task) {
+            (Kind::Tool, protocol::Choice::Deny, Some(task)) => {
+                let refused =
+                    refusals(rows, agent, task).await?.len();
+                let most = most_refusals(rows, agent).await?;
+                match past_the_count(refused + 1, most) {
+                    Some(words) => Some((
+                        rows.values::<u64>(
+                            "SELECT id FROM wait WHERE agent = ?1 \
+                             AND task = ?2 AND kind = 'tool' AND \
+                             closed_at IS NULL AND id != ?3 ORDER \
+                             BY id",
+                            vec![
+                                number(agent),
+                                task.column()?,
+                                change::integer(wait.0)?,
+                            ],
+                        )
+                        .await?
+                        .into_iter()
+                        .map(WaitId)
+                        .collect(),
+                        words,
+                    )),
+                    None => None,
+                }
+            }
+            _ => None,
+        };
         Ok(Some(Waiting {
             wait,
-            agent: AgentNumber(agent),
+            agent,
             kind,
             task,
+            past_the_count,
             conversation: conversation.map(ConversationId),
             needs: needs
                 .map(|needs| serde_json::from_str(&needs))
@@ -746,6 +850,16 @@ impl Act<Client> for Answer {
             && let Some(lasting) = open.lasting()
         {
             decided = decided.change(lasting);
+        }
+        if let Some((others, words)) = open.past_the_count {
+            for other in others {
+                decided.done.workspace.push(other);
+                decided = decided.change(Change::Close {
+                    wait: other,
+                    choice: Choice::Unasked(words.clone()),
+                    text: None,
+                });
+            }
         }
         Decision::Change(decided.change(Change::Close {
             wait: open.wait,
