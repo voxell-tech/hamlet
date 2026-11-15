@@ -113,7 +113,8 @@ async fn the_tools_added_by_hand_are_listed() {
     );
 }
 
-#[cfg(unix)]
+/// Linux only: macOS refuses a file name that is not UTF-8.
+#[cfg(target_os = "linux")]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_folder_whose_name_is_not_text_is_a_fault() {
     use std::os::unix::ffi::OsStrExt as _;
