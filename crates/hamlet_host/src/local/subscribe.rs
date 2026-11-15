@@ -6,13 +6,18 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Result;
+use hamlet_actor_core::ActorLifecycle;
+use hamlet_actor_core::host::Subscribed;
+use hamlet_actor_error::ActorError;
 use hamlet_address::Address;
 use tokio::sync::watch;
 use tracing::Instrument;
 
 use super::access::{Origin, Stamp};
-use super::feed::Closed;
-use super::{Failed, Host, HostInner, actor_id, host_shut_down};
+use super::feed::{Closed, Feed, feed};
+use super::{
+    Ended, Failed, Host, HostInner, Open, actor_id, host_shut_down,
+};
 use crate::directory::{Place, not_registered};
 use crate::link::{LinkState, Port, Routed, Unanswered};
 use crate::route::Operation;
@@ -35,6 +40,9 @@ impl Host {
     /// - `actor.not_registered` for a kind no host holds;
     /// - `actor.not_found` for a key with no actor;
     /// - the actor's own error when it refuses the subscriber;
+    /// - `actor.stopping` or `actor.destroyed`, as
+    ///   [`Subscription::next`] ends, when the actor begins to stop
+    ///   before it lets the subscribe through;
     /// - `actor.not_ready` when the subscribe is not answered within
     ///   the start deadline, or the host shuts down first;
     /// - as a start fails, for an actor that is being destroyed or
@@ -55,7 +63,7 @@ impl Host {
     }
 }
 
-/// What a [`Subscription`] gives.
+/// An item of a [`Subscription`].
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Item {
     /// One broadcast of the event: its arguments, as the actor's
@@ -115,7 +123,13 @@ impl Subscription {
     }
 }
 
-/// Where the actor runs.
+const _: () = {
+    const fn send_and_sync<T: Send + Sync>() {}
+    send_and_sync::<Subscription>();
+};
+
+/// The host the actor runs in: this one, or the other across the
+/// link.
 enum Source {
     Local(Local),
     Linked(Across),
@@ -130,12 +144,70 @@ impl Source {
     }
 }
 
-/// A subscription to an actor of this host.
-struct Local;
+/// The end of a local subscription whose connection the actor closed
+/// while it runs.
+#[derive(ActorError)]
+#[error("actor", "disconnected", "The actor closed the connection.")]
+struct Disconnected;
+
+/// A subscription to an actor of this host: one connection of one
+/// generation.
+struct Local {
+    feed: Feed,
+    /// The generation's `stopped`. The generation is not held, so
+    /// its file closes at its stop.
+    stopped: watch::Receiver<Option<Ended>>,
+    _conn: Closing,
+}
 
 impl Local {
     async fn next(&mut self) -> Result<Item, Failed> {
-        todo!("U8a: Local::next")
+        tokio::select! {
+            // The feed first: what the actor broadcast before it
+            // began to stop is given before the end. It is pending
+            // whenever it holds nothing, so the end is never starved.
+            biased;
+            fed = self.feed.next() => match fed {
+                Ok(item) => Ok(item),
+                Err(Closed::Ended(why)) => Err(why),
+                Err(Closed::Dropped) => Err(ended(None)),
+            },
+            stopped = self.stopped.wait_for(Option::is_some) => {
+                // A closed channel is a generation that is gone.
+                Err(ended(stopped.ok().and_then(|stopped| *stopped)))
+            }
+        }
+    }
+}
+
+/// The end of a local subscription whose generation began to stop as
+/// `how` says.
+fn ended(how: Option<Ended>) -> Failed {
+    Failed::new(&match how {
+        Some(Ended::Destroyed) => ActorLifecycle::Destroyed.build(),
+        Some(Ended::Stopped) | None => {
+            ActorLifecycle::Stopping.build()
+        }
+    })
+}
+
+/// Closes a local subscription's connection when dropped, on the
+/// runtime its actor runs on, from any thread. On a runtime that is
+/// gone the spawn drops the close where it was called, and nothing
+/// runs there to close.
+struct Closing {
+    conn: Option<Subscribed>,
+    runtime: tokio::runtime::Handle,
+}
+
+impl Drop for Closing {
+    fn drop(&mut self) {
+        if let Some(conn) = self.conn.take() {
+            // A failure is the generation's end, which closed it.
+            self.runtime.spawn(async move {
+                let _ = conn.close().await;
+            });
+        }
     }
 }
 
@@ -147,13 +219,13 @@ struct Across {
     now: Now,
 }
 
-/// What was asked, to ask it again.
+/// The subscribe asked, kept to ask it again.
 struct Asked {
     port: Port,
     stamp: Stamp,
     to: Address,
     event: String,
-    /// How long each ask may take.
+    /// The time each ask may take.
     within: Duration,
 }
 
@@ -161,7 +233,9 @@ enum Now {
     Live(Routed),
     /// The session was lost. Kept here, not in `next`'s frame, so a
     /// dropped `next` does not drop an ask that is out.
-    Again(Pin<Box<dyn Future<Output = Result<Routed>> + Send>>),
+    Again(
+        Pin<Box<dyn Future<Output = Result<Routed>> + Send + Sync>>,
+    ),
 }
 
 impl Across {
@@ -285,10 +359,50 @@ impl HostInner {
 
     async fn follow(
         self: &Arc<Self>,
-        _stamp: &Stamp,
-        _to: &Address,
-        _event: &str,
+        stamp: &Stamp,
+        to: &Address,
+        event: &str,
     ) -> Result<Local> {
-        todo!("U8a: follow")
+        let params = stamp.bytes()?;
+        let generation =
+            self.ensure_started(to, &Open::Existing).await?;
+        // Taken before the connection opens, so a stop that begins
+        // from here on is seen, and one that began already is held.
+        let stopped = generation.stopped.subscribe();
+        let (sink, feed) = feed();
+        let sink = Arc::new(sink);
+        let pushed = sink.clone();
+        let running = stopped.clone();
+        let conn = generation
+            .actor
+            .subscribe(
+                params,
+                event,
+                move |args| pushed.push(args),
+                // A close while the generation runs is the actor's
+                // own. Every stop sets `stopped` before the core's
+                // grace closes the connection, and `Local::next`
+                // gives that stop's end.
+                move |_| {
+                    if running.borrow().is_none() {
+                        sink.close(&Disconnected.build());
+                    }
+                },
+            )
+            .await
+            // A stop that overtook the subscribe fails it with the
+            // core's error, which names no stop.
+            .map_err(|error| match *stopped.borrow() {
+                Some(how) => ended(Some(how)).to_error(),
+                None => error,
+            })?;
+        Ok(Local {
+            feed,
+            stopped,
+            _conn: Closing {
+                conn: Some(conn),
+                runtime: generation.runtime.clone(),
+            },
+        })
     }
 }

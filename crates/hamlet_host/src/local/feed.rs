@@ -16,8 +16,8 @@ use super::subscribe::Item;
 /// [`OVERHEAD`]. An empty queue takes one event of any size.
 const BUDGET: usize = 1 << 20;
 
-/// What an event with no arguments, or the mark of a loss, counts
-/// for, so the budget bounds the number of events too.
+/// The weight of an event with no arguments, or of the mark of a
+/// loss, so the budget bounds the number of events too.
 const OVERHEAD: usize = 64;
 
 /// A queue for one reader: its writing end and its reading end.
@@ -49,7 +49,7 @@ struct Shared {
 
 struct State {
     queue: VecDeque<Item>,
-    /// What `queue` counts for, of [`BUDGET`].
+    /// The weight of `queue`, against [`BUDGET`].
     weight: usize,
     /// An event was dropped after the last item queued, and no gap
     /// is queued for it yet.
@@ -77,7 +77,7 @@ fn cost(item: &Item) -> usize {
     }
 }
 
-/// Why a feed gives no more.
+/// The reason a feed gives no more.
 #[derive(Clone)]
 pub(crate) enum Closed {
     /// The source closed it, and said why.
@@ -113,9 +113,12 @@ impl Sink {
                 }
             }
             if !state.take(item) {
-                // The queue holds an item, so the reader comes and
-                // finds the mark behind it.
-                state.lagged = true;
+                // A gap at the tail already stands for this loss.
+                // Otherwise the queue holds an item, so the reader
+                // comes and finds the mark behind it.
+                if state.queue.back() != Some(&Item::Gap) {
+                    state.lagged = true;
+                }
                 return;
             }
         }
@@ -249,6 +252,18 @@ mod tests {
             next(&mut feed).await,
             Item::Event(event(9_999_999))
         );
+        assert!(pending(&mut feed).await);
+    }
+
+    #[tokio::test]
+    async fn a_loss_that_leaves_room_for_a_gap_tells_one_gap() {
+        let (sink, mut feed) = feed();
+        let half = vec![0; BUDGET / 2];
+        for _ in 0..4 {
+            sink.push(half.clone());
+        }
+        assert_eq!(next(&mut feed).await, Item::Event(half));
+        assert_eq!(next(&mut feed).await, Item::Gap);
         assert!(pending(&mut feed).await);
     }
 
