@@ -12,7 +12,7 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Result, bail};
-use hamlet_actor::{BindParam, ColumnValue, Ctx, SqliteTransaction};
+use hamlet_actor::{BindParam, ColumnValue, Ctx};
 use hamlet_messages::workspace::AgentNumber;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -105,7 +105,7 @@ pub(super) struct Rows<'a> {
 }
 
 enum Source<'a> {
-    Transaction(&'a SqliteTransaction),
+    Transaction(&'a handle::Statements),
     Statements(&'a Ctx<Realm>),
 }
 
@@ -125,7 +125,7 @@ impl<'a> Rows<'a> {
         read_only(sql)?;
         Ok(match self.source {
             Source::Transaction(tx) => {
-                tx.execute(sql, Some(params)).await?.rows
+                tx.execute(sql, params).await?.rows
             }
             Source::Statements(ctx) => {
                 ctx.sql().query(sql, Some(params)).await?.rows
@@ -290,7 +290,7 @@ fn read_only(sql: &str) -> Result<()> {
 }
 
 pub(super) struct Writer<'a> {
-    tx: &'a SqliteTransaction,
+    tx: &'a handle::Statements,
     at: At,
 }
 
@@ -301,7 +301,7 @@ impl Writer<'_> {
         params: Vec<BindParam>,
     ) -> Result<u64> {
         Ok(u64::try_from(
-            self.tx.execute(sql, Some(params)).await?.changes,
+            self.tx.execute(sql, params).await?.changes,
         )?)
     }
 
@@ -318,23 +318,74 @@ impl Writer<'_> {
 }
 
 pub(super) struct Transaction {
-    tx: SqliteTransaction,
+    statements: handle::Statements,
+    open: handle::Open,
     at: At,
     ctx: Ctx<Realm>,
-    is_open: bool,
 }
 
-impl Drop for Transaction {
-    fn drop(&mut self) {
-        if !self.is_open {
-            return;
+mod handle {
+    use anyhow::Result;
+    use hamlet_actor::{BindParam, Ctx, SqliteTransaction};
+    use hamlet_actor_core::ExecuteResult;
+
+    use super::Realm;
+
+    /// An open transaction's statements, which cannot end it.
+    pub(super) struct Statements(SqliteTransaction);
+
+    impl Statements {
+        pub async fn execute(
+            &self,
+            sql: &str,
+            params: Vec<BindParam>,
+        ) -> Result<ExecuteResult> {
+            self.0.execute(sql, Some(params)).await
         }
-        let tx = self.tx.clone();
-        self.ctx.register_task(async move {
-            if let Err(error) = tx.rollback().await {
-                tracing::warn!("a rollback failed: {error:#}");
+    }
+
+    /// An open transaction's end: its commit, or a rollback when
+    /// dropped.
+    pub(super) struct Open {
+        tx: Option<SqliteTransaction>,
+        ctx: Ctx<Realm>,
+    }
+
+    impl Drop for Open {
+        fn drop(&mut self) {
+            let Some(tx) = self.tx.take() else { return };
+            self.ctx.register_task(async move {
+                if let Err(error) = tx.rollback().await {
+                    tracing::warn!("a rollback failed: {error:#}");
+                }
+            });
+        }
+    }
+
+    impl Open {
+        pub async fn commit(
+            mut self,
+            _statements: Statements,
+        ) -> Result<()> {
+            // A commit that fails rolls back by itself.
+            if let Some(tx) = self.tx.take() {
+                tx.commit().await?;
             }
-        });
+            Ok(())
+        }
+    }
+
+    pub(super) async fn begin(
+        ctx: &Ctx<Realm>,
+    ) -> Result<(Statements, Open)> {
+        let tx = ctx.sql().begin_transaction(None).await?;
+        Ok((
+            Statements(tx.clone()),
+            Open {
+                tx: Some(tx),
+                ctx: ctx.clone(),
+            },
+        ))
     }
 }
 
@@ -351,17 +402,18 @@ pub(super) struct Write<'a, D> {
 
 impl Transaction {
     pub async fn begin(ctx: &Ctx<Realm>) -> Result<Self> {
+        let (statements, open) = handle::begin(ctx).await?;
         Ok(Self {
-            tx: ctx.sql().begin_transaction(None).await?,
+            statements,
+            open,
             at: At::now()?,
             ctx: ctx.clone(),
-            is_open: true,
         })
     }
 
     pub fn rows(&self) -> Rows<'_> {
         Rows {
-            source: Source::Transaction(&self.tx),
+            source: Source::Transaction(&self.statements),
             at: self.at,
         }
     }
@@ -372,12 +424,12 @@ impl Transaction {
     }
 
     pub async fn commit<D: Serialize>(
-        mut self,
+        self,
         realm: &Arc<Realm>,
         write: Write<'_, D>,
     ) -> Result<Vec<Push>> {
         let writer = Writer {
-            tx: &self.tx,
+            tx: &self.statements,
             at: self.at,
         };
         let written = async {
@@ -429,13 +481,17 @@ impl Transaction {
         .await;
         let (affected, revision, mut pushes) = written?;
         let reserved = realm.drives.reserve(&affected.begun, &self);
-        // A commit that fails rolls back by itself.
-        self.is_open = false;
-        self.tx.commit().await?;
-        reserved.start(realm, &self.ctx);
+        let Self {
+            statements,
+            open,
+            at: _,
+            ctx,
+        } = self;
+        open.commit(statements).await?;
+        reserved.start(realm, &ctx);
         pushes.retain(|push| !matches!(push, Push::Drive(_)));
         if let Some(revision) = revision {
-            realm.world.refresh(&self.ctx, revision, &affected).await;
+            realm.world.refresh(&ctx, revision, &affected).await;
         }
         Ok(pushes)
     }
@@ -471,15 +527,37 @@ mod tests {
     use super::*;
 
     #[tokio::test(flavor = "multi_thread")]
-    async fn a_transaction_dropped_open_leaves_the_file_free() {
+    async fn a_transaction_dropped_open_rolls_back_and_frees_the_file()
+     {
         let started = Started::new().await;
-        drop(Transaction::begin(&started.ctx).await.unwrap());
+        let row = steps::StepId {
+            kind: steps::Kind::Hire,
+            n: 96,
+        };
+        commit(
+            &started.realm,
+            &started.ctx,
+            vec![
+                steps::Change::Begin { row }.into(),
+                steps::Change::Advance {
+                    row,
+                    from: Some("a"),
+                    to: "b",
+                }
+                .into(),
+            ],
+        )
+        .await
+        .unwrap_err();
         let next = started
             .commit(versions::Change::WantReach(AgentNumber(5)));
         tokio::time::timeout(Duration::from_secs(5), next)
             .await
             .expect("the next transaction begins at once")
             .unwrap();
+        assert!(
+            steps::row(&started.rows(), row).await.unwrap().is_none()
+        );
         started.stop().await;
     }
 
