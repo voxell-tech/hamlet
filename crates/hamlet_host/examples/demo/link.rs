@@ -51,7 +51,7 @@ use hamlet_messages::workspace::AgentNumber;
 use tokio::time::Instant;
 
 use crate::Demo;
-use crate::command::{actor_error, number};
+use crate::command::{actor_error, number, p50_p99};
 use crate::realm::{self, Heard, Tell};
 
 /// The kinds the Node host runs, each a kind of `demo.ts`.
@@ -260,7 +260,7 @@ async fn tell(
                 return Ok(());
             }
         };
-        micros.push(took.as_micros());
+        micros.push(u64::try_from(took.as_micros())?);
     }
     let value = if answer.is_empty() {
         serde_json::Value::Null
@@ -270,24 +270,19 @@ async fn tell(
     let mut out = std::io::stdout();
     writeln!(out, "{at}/{action} {value}")?;
     if timed {
-        micros.sort_unstable();
-        let at_percent = |percent: usize| {
-            let rank = (micros.len() * percent).div_ceil(100);
-            micros[rank.saturating_sub(1)]
-        };
+        let (p50, p99) = p50_p99(&mut micros);
         writeln!(
             out,
-            "time {at}/{action} count={times} p50={}us p99={}us",
-            at_percent(50),
-            at_percent(99)
+            "time {at}/{action} count={times} p50={p50}us \
+             p99={p99}us",
         )?;
     }
     Ok(())
 }
 
-/// The actor's error `error` holds first, as `tell` prints a call
-/// that failed, or `None` where it holds none or one of the group
-/// `link`.
+/// The first actor's error that `error` holds, as the JSON printed
+/// for a call that failed, or `None` where it holds none or one of
+/// the group `link`.
 pub fn failure(error: &anyhow::Error) -> Option<serde_json::Value> {
     let found =
         actor_error(error).filter(|found| found.group() != "link")?;

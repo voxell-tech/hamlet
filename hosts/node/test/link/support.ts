@@ -3,8 +3,8 @@ import { once } from "node:events";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
-import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
+import { eventually } from "../native/support.ts";
 
 const ROOT = fileURLToPath(new URL("../../../..", import.meta.url));
 
@@ -87,13 +87,15 @@ export function startDemo(dir: string): Demo {
         found: () => T | undefined,
         what: string,
     ): Promise<T> {
-        const end = Date.now() + PATIENCE_MS;
-        for (;;) {
-            const value = found();
-            if (value !== undefined) return value;
-            if (Date.now() > end) throw new Error(`${what}:\n${stderr}`);
-            await sleep(20);
-        }
+        const value = await eventually(
+            async () => found(),
+            (value) => value !== undefined,
+            PATIENCE_MS,
+        ).catch((error: unknown) => {
+            throw new Error(`${what}:\n${stderr}`, { cause: error });
+        });
+        if (value === undefined) throw new Error(what);
+        return value;
     }
     return {
         pid,

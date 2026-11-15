@@ -347,8 +347,10 @@ answers waits as a chief; and `examples/demo/agent.rs`, the actor
 scripts and tools, reads and writes files, and keeps each `Finished` it
 is told. `demo --link` runs the agents in a Node host instead, its child
 (`examples/demo/link.rs`): the TypeScript agent of
-`hosts/node/src/demo.ts`, reached through the realm's `tell`, with a route
-table of two pairs. `tests/demo.rs` starts the demo as its lanes do, and
+`hosts/node/src/demo.ts`, reached through the realm's `tell` and, as a
+client, through `watch` (`examples/demo/watch.rs`), which follows an
+agent's event. Its route table lets the realm and an agent call each
+other and a client call either. `tests/demo.rs` starts the demo as its lanes do, and
 `hosts/node/test/link/` drives the linked demo. `tests/local.rs` tests the host,
 `tests/create.rs` tests `create`, and `tests/access.rs` tests what an
 actor reaches of its host, its calls to other actors included.

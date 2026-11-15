@@ -7,27 +7,29 @@
 //! ```
 //!
 //! `watch` prints `watch/<n> 1` once the subscribe is answered, or
-//! `watch/<n> {"error":..}` as `tell` of demo/link.rs prints a failed
-//! call. From then on it prints `watch/<n>/<event> <args>` for each
-//! broadcast, its arguments as JSON on one line, `watch/<n>/gap 1`
-//! where events were lost, and `watch/<n>/end <group.code>` when the
-//! subscription ends.
+//! `watch/<n> {"error":{"group":..,"code":..,"message":..,
+//! "metadata":..}}` when it failed with an actor's error of a group
+//! other than `link`. From then on it prints `watch/<n>/<event>
+//! <args>` for each broadcast, its arguments as JSON on one line,
+//! `watch/<n>/gap 1` where events were lost, and `watch/<n>/end
+//! <group.code>` when the subscription ends.
 
 use std::io::Write;
 
 use anyhow::{Result, bail};
-use hamlet_host::{Host, Item, Subscription};
+use hamlet_host::{Item, Subscription};
 
+use crate::Demo;
 use crate::command::{actor_error, shown};
 use crate::link::{agent, failure};
 
-pub async fn run(host: &Host, words: &[String]) -> Result<()> {
+pub async fn run(demo: &Demo, words: &[String]) -> Result<()> {
     let [n, event] = words else {
         bail!("usage: demo watch <n> <event>");
     };
     let at = agent(n)?;
     let subscription =
-        match host.subscribe_for_client(&at, event).await {
+        match demo.host.subscribe_for_client(&at, event).await {
             Ok(subscription) => subscription,
             Err(error) => {
                 let Some(shown) = failure(&error) else {
@@ -38,7 +40,7 @@ pub async fn run(host: &Host, words: &[String]) -> Result<()> {
             }
         };
     writeln!(std::io::stdout(), "watch/{n} 1")?;
-    tokio::spawn(print_items(
+    demo.watches.lock().spawn(print_items(
         subscription,
         format!("watch/{n}"),
         event.clone(),

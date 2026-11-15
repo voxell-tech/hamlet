@@ -97,7 +97,9 @@ use anyhow::{Context, Result, anyhow, bail};
 use command::{counter_kind, number, print_reply, run, shown};
 use hamlet_host::{Address, Host, HostOptions};
 use hamlet_sandbox::{Isolation, Sandbox};
+use parking_lot::Mutex;
 use tokio::sync::mpsc;
+use tokio::task::JoinSet;
 use tracing_subscriber::EnvFilter;
 
 #[tokio::main]
@@ -157,6 +159,7 @@ async fn demo() -> Result<()> {
         host,
         link,
         counters: kinds::counters(&start.kinds),
+        watches: Mutex::default(),
     };
     let result = match command {
         Some("serve") => serve(&demo, loaded.unwrap_or(0)).await,
@@ -193,6 +196,8 @@ pub struct Demo {
     pub link: Option<link::Link>,
     /// The counter kinds the host runs.
     counters: Vec<String>,
+    /// The tasks that print each `watch`'s stream.
+    pub watches: Mutex<JoinSet<()>>,
 }
 
 impl Demo {
@@ -213,11 +218,15 @@ impl Demo {
         }
     }
 
+    /// Shuts the host down, which ends every `watch`, and waits for
+    /// each to print its end.
     async fn shutdown(self) -> Result<()> {
         if let Some(link) = self.link {
             link.shutdown().await;
         }
-        self.host.shutdown().await
+        let shut = self.host.shutdown().await;
+        self.watches.into_inner().join_all().await;
+        shut
     }
 }
 
@@ -242,7 +251,7 @@ async fn run_line(demo: &Demo, words: &[String]) -> Result<()> {
             agent::run(&demo.host, rest).await
         }
         Some((first, rest)) if first == "watch" => {
-            watch::run(&demo.host, rest).await
+            watch::run(demo, rest).await
         }
         Some((first, rest))
             if link::COMMANDS.contains(&first.as_str()) =>

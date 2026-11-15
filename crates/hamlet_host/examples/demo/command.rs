@@ -140,19 +140,23 @@ async fn calls(
         micros.push(took);
         last = n;
     }
+    let (p50, p99) = p50_p99(&mut micros);
+    writeln!(
+        std::io::stdout(),
+        "calls {from} {to} count={count} p50={p50}us p99={p99}us \
+         from={last}",
+    )?;
+    Ok(())
+}
+
+/// The 50th and the 99th percentile of `micros`, by nearest rank.
+pub fn p50_p99(micros: &mut [u64]) -> (u64, u64) {
     micros.sort_unstable();
     let at = |percent: usize| {
         let rank = (micros.len() * percent).div_ceil(100);
         micros[rank.saturating_sub(1)]
     };
-    writeln!(
-        std::io::stdout(),
-        "calls {from} {to} count={count} p50={}us p99={}us \
-         from={last}",
-        at(50),
-        at(99)
-    )?;
-    Ok(())
+    (at(50), at(99))
 }
 
 /// The first of the counter kinds `kinds`, which a key with no kind
