@@ -51,17 +51,15 @@ impl<By: Lead> Act<By> for Hire {
             ),
             (None, None) => None,
         };
-        let lead = match (&self.under, own) {
-            (None, Some(_)) => caller,
-            (named, _) => {
+        let under = match (&self.under, caller, own) {
+            (None, Some(caller), Some(_)) => {
+                super::lineage(rows, caller).await?
+            }
+            (named, ..) => {
                 let named = named.as_ref().unwrap_or(&Named::Mayor);
                 let hamlet = hamlet.as_ref().and_then(Option::as_ref);
-                super::resolve(rows, hamlet, named).await?
+                named_lineage(rows, hamlet, named).await?
             }
-        };
-        let under = match lead {
-            Some(lead) => super::lineage(rows, lead).await?,
-            None => None,
         };
         let living = match under
             .as_ref()
@@ -181,16 +179,10 @@ async fn own_hamlet(
     rows: &Rows<'_>,
     caller: Option<AgentNumber>,
 ) -> Result<Option<HamletId>> {
-    let Some(caller) = caller else {
-        return Ok(None);
-    };
-    Ok(rows
-        .value::<String>(
-            "SELECT hamlet FROM hire WHERE agent = ?1",
-            vec![number(caller)],
-        )
-        .await?
-        .map(HamletId))
+    match caller {
+        Some(caller) => super::hamlet_of(rows, caller).await,
+        None => Ok(None),
+    }
 }
 
 impl<By: Lead> Act<By> for End {

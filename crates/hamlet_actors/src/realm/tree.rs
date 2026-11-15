@@ -96,17 +96,11 @@ pub(super) async fn lineage(
                 .with_context(|| format!("the hire {hire}"))?,
         );
     }
-    let hamlet = match rows
-        .value::<String>(
-            "SELECT hamlet FROM hire WHERE agent = ?1",
-            vec![number(agent)],
-        )
-        .await?
-    {
+    let hamlet = match hamlet_of(rows, agent).await? {
         Some(id) => Some(
-            chiefs::hamlet(rows, &HamletId(id.clone()))
+            chiefs::hamlet(rows, &id)
                 .await?
-                .with_context(|| format!("the hamlet `{id}`"))?,
+                .with_context(|| format!("the hamlet `{}`", id.0))?,
         ),
         None => None,
     };
@@ -116,6 +110,20 @@ pub(super) async fn lineage(
         hires,
         hamlet,
     }))
+}
+
+/// The hamlet of `agent` when it is a hire.
+async fn hamlet_of(
+    rows: &Rows<'_>,
+    agent: AgentNumber,
+) -> Result<Option<HamletId>> {
+    Ok(rows
+        .value::<String>(
+            "SELECT hamlet FROM hire WHERE agent = ?1",
+            vec![number(agent)],
+        )
+        .await?
+        .map(HamletId))
 }
 
 pub(super) async fn lineage_of(
