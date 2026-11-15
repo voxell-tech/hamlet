@@ -33,13 +33,12 @@ fn each_table_has_one_writer() {
             .to_string_lossy()
             .replace('\\', "/");
         let text = std::fs::read_to_string(&file).unwrap();
-        // A test's SQL is data: only the code above it writes.
-        let code = text.split("#[cfg(test)]").next().unwrap();
+        let code = code(&text);
         let allowed = WRITERS
             .iter()
             .find(|(name, _)| *name == module)
             .map_or(&[][..], |(_, tables)| *tables);
-        for table in written(code) {
+        for table in written(&code) {
             if !allowed.contains(&table.as_str()) {
                 wrong.push(format!("{module} writes `{table}`"));
             }
@@ -50,6 +49,38 @@ fn each_table_has_one_writer() {
         "a table has another writer:\n{}",
         wrong.join("\n")
     );
+}
+
+/// `text` without its test items, whose SQL is data.
+fn code(text: &str) -> String {
+    let mut code = String::new();
+    let mut rest = text;
+    while let Some(at) = rest.find("#[cfg(test)]") {
+        code.push_str(&rest[..at]);
+        let item = &rest[at..];
+        let end = match (item.find(';'), item.find('{')) {
+            (Some(semi), Some(open)) if semi < open => semi + 1,
+            (Some(semi), None) => semi + 1,
+            (_, Some(open)) => open + block(&item[open..]),
+            (None, None) => item.len(),
+        };
+        rest = &item[end..];
+    }
+    code + rest
+}
+
+/// The length of the braced block `text` opens, through its close.
+fn block(text: &str) -> usize {
+    let mut depth = 0;
+    for (i, c) in text.char_indices() {
+        match c {
+            '{' => depth += 1,
+            '}' if depth == 1 => return i + 1,
+            '}' => depth -= 1,
+            _ => {}
+        }
+    }
+    text.len()
 }
 
 /// The tables `text` inserts into, updates or deletes from.
@@ -113,4 +144,15 @@ fn the_scan_reads_a_write_in_either_case() {
         ),
         ["agent", "hire", "step"]
     );
+}
+
+#[test]
+fn the_scan_skips_only_test_items() {
+    let text =
+        "#[cfg(test)]\nuse std::fmt as _;\nconst A: &str = \"INSERT \
+         INTO agent (n) VALUES (1)\";\n#[cfg(test)]\nfn seed() { \
+         \"DELETE FROM step\"; }\n#[cfg(test)]\nmod testing { fn \
+         f() { if true { \"UPDATE hire SET n = 1\"; } } }\nconst B: \
+         &str = \"DELETE FROM task\";\n#[cfg(test)]\nmod tests;\n";
+    assert_eq!(written(&code(text)), ["agent", "task"]);
 }
