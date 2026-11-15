@@ -57,7 +57,7 @@ export interface AgentFilesystem {
         path: string,
         content: string | Uint8Array,
         context: Context,
-    ): Promise<Result<{ readonly created: boolean }, FileError>>;
+    ): Promise<Result<void, FileError>>;
     /** Makes every edit of `edits` in the UTF-8 text of the file at once. */
     edit(
         path: string,

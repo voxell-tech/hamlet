@@ -592,7 +592,7 @@ for (const name of answersTo("realm/reply")) {
 }
 
 for (const name of fixtures(/^error\/.*\.run\./)) {
-    test(`${name}, thrown by run, gives bash a result, never a throw`, async (t) => {
+    test(`${name}, thrown by run, gives bash today's interrupted result, never a throw`, async (t) => {
         const given = fixture(name) as {
             group: string;
             code: string;
@@ -621,9 +621,10 @@ for (const name of fixtures(/^error\/.*\.run\./)) {
         await agent.stop();
 
         assert.ok(result && !threw(result.data));
+        // Today's words for a change that may have run (`calls.rs`).
         assert.ok(
             result.text.includes(
-                `${given.group}.${given.code}: ${given.message}`,
+                "Tool bash was interrupted by a restart and may have partially run",
             ),
             result.text,
         );

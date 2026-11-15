@@ -352,7 +352,8 @@ export type Granted<T> = Exclude<T, { readonly type: "refused" }>;
 /**
  * It never calls twice. It throws only when `context` is aborted while the
  * call is out, which is how a close cuts a tool off: pi-durable then reruns
- * the tool at the next wake, and the rerun sends the same id.
+ * the tool at the next wake, and the rerun sends the same id. `tool` is the
+ * name the model called.
  */
 export async function callOut<
     A,
@@ -367,6 +368,7 @@ export async function callOut<
     said: (
         answer: Granted<AnswersOf<A>[N]>,
     ) => ToolExecutionResult | Promise<ToolExecutionResult>,
+    tool: string,
 ): Promise<ToolExecutionResult> {
     const stamp = await stamped(peers, api, to, name, message as object);
     let answer: unknown;
@@ -382,7 +384,7 @@ export async function callOut<
     } catch (error) {
         if (context.abortSignal?.aborted) throw error;
         return stamp.changes
-            ? unknownOutcome(`\`${name}\``, reasonOf(error))
+            ? interrupted(tool)
             : failed(
                   `\`${name}\` failed: ${reasonOf(error)}. Nothing was changed.`,
               );
@@ -460,9 +462,20 @@ export function failed(text: string): ToolExecutionResult {
     return { output: [{ type: "text", text }], isError: true };
 }
 
-export function unknownOutcome(what: string, why: string): ToolExecutionResult {
-    return failed(
-        `${what} was cut off: ${why}. Its outcome is unknown: it may have been carried out or not, and nothing sends it again. Look at what it would have changed before you repeat it.`,
+/** A call that threw, as today's harness gives it: no text and one error. */
+export function thrown(code: string, message: string): ToolExecutionResult {
+    return {
+        output: [{ type: "text", text: "" }],
+        isError: true,
+        diagnostics: [{ severity: "error", code, message }],
+    };
+}
+
+/** Today's words for a call that may have run (`crates/hamlet_server/src/calls.rs`). */
+export function interrupted(tool: string): ToolExecutionResult {
+    return thrown(
+        "tool_interrupted",
+        `Tool ${tool} was interrupted by a restart and may have partially run`,
     );
 }
 

@@ -2,14 +2,17 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { fauxAssistantMessage } from "@earendil-works/pi-ai";
 import { ok } from "@earendil-works/pi-durable/env";
+import type { Exit } from "../src/agent/messages.ts";
 import {
     FAKE_ROOT,
     fakeCalls,
     fakeFiles,
     from,
+    interrupted,
     named,
     timedOut,
     toolCall,
+    toolResults,
     until,
     type Woken,
     wakeAgent,
@@ -401,7 +404,7 @@ test("an own read answers as the workspace's read of the same file does", async 
     await agent.stop();
 });
 
-test("an own write says whether it created the file, and an own edit shows the workspace's diff", async (t) => {
+test("an own write and an own edit answer in today's words, the edit with the workspace's diff", async (t) => {
     const { calls } = fakeCalls({});
     const path = `${ROOT}/memory/plan.md`;
     const agent = await wakeAgent(t, {
@@ -431,11 +434,25 @@ test("an own write says whether it created the file, and an own edit shows the w
     await agent.actions.submit(agent.by(from.realm), line("input-1", "Write."));
     await agent.idle();
 
-    assert.deepEqual(await results(agent), [
-        `Created ${path}.`,
-        `Changed ${path}.`,
-        // The diff of `crates/hamlet_actors/src/workspace/files/diff.rs`'s test.
-        `Changed ${path}.\n    ...\n  2 b\n  3 c\n  4 d\n  5 e\n- 6 f\n+ 6 F\n  7 g\n  8 h\n  9 i\n 10 j\n-11 k\n+11 k`,
+    const wrote = {
+        output: `Successfully wrote to ${path}`,
+        isError: false,
+        diagnostics: [],
+    };
+    assert.deepEqual(await toolResults(agent), [
+        wrote,
+        wrote,
+        {
+            output: `Successfully replaced 2 block(s) in ${path}.`,
+            isError: false,
+            diagnostics: [],
+            // The diff and patch of `crates/hamlet_actors/src/workspace/files/diff.rs`'s test.
+            details: {
+                diff: "    ...\n  2 b\n  3 c\n  4 d\n  5 e\n- 6 f\n+ 6 F\n  7 g\n  8 h\n  9 i\n 10 j\n-11 k\n+11 k",
+                patch: `--- ${path}\n+++ ${path}\n@@ -2,10 +2,10 @@\n b\n c\n d\n e\n-f\n+F\n g\n h\n i\n j\n-k\n+k\n\\ No newline at end of file\n`,
+                firstChangedLine: 6,
+            },
+        },
     ]);
     await agent.stop();
 });
@@ -599,7 +616,7 @@ test("a rerun after a cut-off sends the same id", async (t) => {
     await second.stop();
 });
 
-test("a call that fails says its outcome is unknown, and is not sent again", async (t) => {
+test("a change whose call fails, a deadline included, says it was interrupted as today does, and is not sent again", async (t) => {
     const { calls, sent } = fakeCalls({
         workspace: {
             run: () => {
@@ -621,13 +638,11 @@ test("a call that fails says its outcome is unknown, and is not sent again", asy
     await agent.idle();
 
     assert.equal(named(sent, "run").length, 1);
-    assert.deepEqual(await results(agent), [
-        "`run` was cut off: actor.action_timed_out: The action timed out.. Its outcome is unknown: it may have been carried out or not, and nothing sends it again. Look at what it would have changed before you repeat it.",
-    ]);
+    assert.deepEqual(await toolResults(agent), [interrupted("bash")]);
     await agent.stop();
 });
 
-test("an own edit that a cut-off interrupts is not run again, and says its outcome is unknown", async (t) => {
+test("an own edit that a cut-off interrupts is not run again, and says it was interrupted as today does", async (t) => {
     const path = `${ROOT}/memory/plan.md`;
     const files = fakeFiles({ [path]: "one two" });
     const cut = Promise.withResolvers<void>();
@@ -674,9 +689,7 @@ test("an own edit that a cut-off interrupts is not run again, and says its outco
     // The adapter was asked once: the rerun found the mark and did not edit.
     assert.equal(edits, 1);
     assert.equal(files.edits, 1);
-    assert.deepEqual(await results(second), [
-        `The edit of ${path} was cut off: the agent stopped while it ran. Its outcome is unknown: it may have been carried out or not, and nothing sends it again. Look at what it would have changed before you repeat it.`,
-    ]);
+    assert.deepEqual(await toolResults(second), [interrupted("edit")]);
     await second.stop();
 });
 
@@ -734,5 +747,307 @@ test("a tool a chief added by hand is listed after the wake and runs under its c
         },
     });
     assert.match(message.call, /^t[1-9][0-9]*$/);
+    await agent.stop();
+});
+
+const ended = (
+    command: number,
+    exit: Exit,
+    output: string,
+    cut?: { full_output: string },
+) => ({
+    type: "ended" as const,
+    end: {
+        type: "ran" as const,
+        command,
+        exit,
+        output,
+        ...(cut === undefined
+            ? {}
+            : {
+                  cut: {
+                      total_bytes: 90_000,
+                      total_lines: 3_000,
+                      full_output: cut.full_output,
+                  },
+              }),
+        policy: "3f2a",
+        took_ms: 10,
+    },
+});
+
+test("a command that ends inside its call answers as today's bash does", async (t) => {
+    const ends: Record<string, ReturnType<typeof ended>> = {
+        "echo hi": ended(1, { type: "code", code: 0 }, "hi\n"),
+        make: ended(2, { type: "code", code: 2 }, "tail\n", {
+            full_output: "/tmp/hamlet/out-2.log",
+        }),
+        "sleep 200": ended(3, { type: "timed_out" }, "a\n"),
+        "sleep 500": ended(4, { type: "timed_out" }, ""),
+        nope: ended(5, { type: "failed", words: "spawn failed" }, ""),
+        kill: ended(6, { type: "cut_off" }, "half\n"),
+        stop: ended(7, { type: "cancelled" }, "x\n"),
+    };
+    const { calls } = fakeCalls({
+        workspace: {
+            run: (message) => {
+                const { program } = message;
+                assert.equal(program.type, "script");
+                const end =
+                    program.type === "script"
+                        ? ends[program.script]
+                        : undefined;
+                assert.ok(end);
+                return end;
+            },
+        },
+    });
+    const agent = await wakeAgent(t, {
+        calls,
+        responses: [
+            toolCall("bash", { command: "echo hi" }, "c1"),
+            toolCall("bash", { command: "make" }, "c2"),
+            toolCall("bash", { command: "sleep 200", timeout: 1.5 }, "c3"),
+            toolCall("bash", { command: "sleep 500", timeout: 600 }, "c4"),
+            toolCall("bash", { command: "nope" }, "c5"),
+            toolCall("bash", { command: "kill" }, "c6"),
+            toolCall("bash", { command: "stop" }, "c7"),
+            fauxAssistantMessage("Ran."),
+        ],
+    });
+    await agent.actions.submit(agent.by(from.realm), line("input-1", "Run."));
+    await agent.idle();
+
+    assert.deepEqual(await toolResults(agent), [
+        { output: "hi\n", isError: false, diagnostics: [] },
+        {
+            output: "tail\n",
+            isError: true,
+            diagnostics: [
+                {
+                    severity: "info",
+                    code: "full_output",
+                    message: "Full output: /tmp/hamlet/out-2.log",
+                },
+                {
+                    severity: "error",
+                    code: "exit_code",
+                    message: "Command exited with code 2",
+                },
+            ],
+        },
+        {
+            output: "a\n\n[timed out after 1.5s]",
+            isError: true,
+            diagnostics: [],
+        },
+        {
+            output: "\n[timed out after 120s]",
+            isError: true,
+            diagnostics: [],
+        },
+        {
+            output: "Error: spawn failed. Inspect the output before trying again, or tell the chief.",
+            isError: true,
+            diagnostics: [],
+        },
+        interrupted("bash"),
+        // Today has no words for a cancelled command.
+        {
+            output: "x\n\n[Command 7: cancelled]",
+            isError: true,
+            diagnostics: [],
+        },
+    ]);
+    await agent.stop();
+});
+
+test("a hand tool that ends inside its call answers as today's hand tools do", async (t) => {
+    const ends: Record<string, ReturnType<typeof ended>> = {
+        ok: ended(1, { type: "code", code: 0 }, "3 words\n"),
+        bad: ended(2, { type: "code", code: 1 }, "no file\n"),
+        spawn: ended(3, { type: "failed", words: "exec format error" }, ""),
+        kill: ended(4, { type: "cut_off" }, ""),
+    };
+    const { calls } = fakeCalls({
+        workspace: {
+            list_tools: () => ({
+                tools: [
+                    {
+                        name: "word_count",
+                        description: "Count the words of a file.",
+                        parameters: JSON.stringify({
+                            type: "object",
+                            required: ["path"],
+                            properties: { path: { type: "string" } },
+                        }),
+                    },
+                ],
+                faults: [],
+            }),
+            run: (message) => {
+                const { program } = message;
+                assert.equal(program.type, "tool");
+                const end =
+                    program.type === "tool"
+                        ? ends[
+                              (
+                                  JSON.parse(program.arguments) as {
+                                      path: string;
+                                  }
+                              ).path
+                          ]
+                        : undefined;
+                assert.ok(end);
+                return end;
+            },
+        },
+    });
+    const agent = await wakeAgent(t, {
+        calls,
+        responses: [
+            toolCall("word_count", { path: "ok" }, "c1"),
+            toolCall("word_count", { path: "bad" }, "c2"),
+            toolCall("word_count", { path: "spawn" }, "c3"),
+            toolCall("word_count", { path: "kill" }, "c4"),
+            fauxAssistantMessage("Counted."),
+        ],
+    });
+    const harness = await agent.harness();
+    const root = await harness.root(context);
+    await until(async () =>
+        (await root.agent(context)).tools.some(
+            (tool) => tool.name === "word_count",
+        ),
+    );
+    await agent.actions.submit(agent.by(from.realm), line("input-1", "Count."));
+    await agent.idle();
+
+    assert.deepEqual(await toolResults(agent), [
+        { output: "3 words\n", isError: false, diagnostics: [] },
+        {
+            output: "no file\n",
+            isError: true,
+            diagnostics: [
+                {
+                    severity: "error",
+                    code: "exit_code",
+                    message: "Command exited with code 1",
+                },
+            ],
+        },
+        {
+            output: "",
+            isError: true,
+            diagnostics: [
+                {
+                    severity: "error",
+                    code: "tool_error",
+                    message: "exec format error",
+                },
+            ],
+        },
+        interrupted("word_count"),
+    ]);
+    await agent.stop();
+});
+
+test("a workspace write and edit answer in today's words, in the call and later", async (t) => {
+    const diff = {
+        diff: "- 1 a\n+ 1 A",
+        patch: "--- /work/a.md\n+++ /work/a.md\n@@ -1,1 +1,1 @@\n-a\n+A\n",
+        first_changed_line: 1,
+    };
+    const { calls, sent } = fakeCalls({
+        workspace: {
+            write_file: (message) =>
+                message.path === "/work/a.md"
+                    ? {
+                          type: "ended",
+                          end: {
+                              type: "changed",
+                              path: "/work/a.md",
+                              created: true,
+                              hash: "1f",
+                          },
+                      }
+                    : { type: "waits_for_chief", needs: ["edit"] },
+            edit_file: () => ({
+                type: "ended",
+                end: {
+                    type: "changed",
+                    path: "/work/a.md",
+                    created: false,
+                    hash: "2f",
+                    diff,
+                },
+            }),
+        },
+    });
+    const agent = await wakeAgent(t, {
+        calls,
+        responses: [
+            toolCall("write", { path: "/work/a.md", content: "a\n" }, "c1"),
+            toolCall(
+                "edit",
+                {
+                    path: "/work/a.md",
+                    edits: [
+                        { oldText: "a", newText: "A" },
+                        { oldText: "b", newText: "B" },
+                    ],
+                },
+                "c2",
+            ),
+            toolCall("write", { path: "/work/b.md", content: "b" }, "c3"),
+            fauxAssistantMessage("Wrote; one waits."),
+            fauxAssistantMessage("It was written."),
+        ],
+    });
+    await agent.actions.submit(agent.by(from.realm), line("input-1", "Write."));
+    await agent.idle();
+
+    assert.deepEqual((await toolResults(agent)).slice(0, 2), [
+        {
+            output: "Successfully wrote to /work/a.md",
+            isError: false,
+            diagnostics: [],
+        },
+        {
+            output: "Successfully replaced 2 block(s) in /work/a.md.",
+            isError: false,
+            diagnostics: [],
+            details: {
+                diff: diff.diff,
+                patch: diff.patch,
+                firstChangedLine: 1,
+            },
+        },
+    ]);
+
+    const [, waited] = named(sent, "write_file");
+    assert.ok(waited);
+    assert.equal(
+        await agent.actions.finished(agent.by(from.workspace), {
+            call: (waited.message as { call: string }).call,
+            outcome: {
+                type: "change",
+                end: {
+                    type: "changed",
+                    path: "/work/b.md",
+                    created: true,
+                    hash: "3f",
+                },
+            },
+        }),
+        null,
+    );
+    await agent.idle();
+    assert.deepEqual(
+        (await agent.entries())
+            .filter((entry) => entry.kind === "hamlet.finished")
+            .map((entry) => entry.text),
+        ["Successfully wrote to /work/b.md"],
+    );
     await agent.stop();
 });

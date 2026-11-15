@@ -9,7 +9,15 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { type TestContext, test } from "node:test";
+import { fauxAssistantMessage } from "@earendil-works/pi-ai";
 import { openAgentFilesystem } from "../../src/agent/native-filesystem.ts";
+import {
+    fakeCalls,
+    from,
+    toolCall,
+    toolResults,
+    wakeAgent,
+} from "../agent-testing.ts";
 import { context, scratchFolder } from "../testing.ts";
 
 const decoder = new TextDecoder();
@@ -62,9 +70,9 @@ test("a filesystem read gives a file's bytes, by a relative or an absolute path"
 test("a filesystem write makes the file and its folders, then reads back", async (t) => {
     const { filesystem } = await planted(t);
     const wrote = await filesystem.write("memory/new/today.md", "new", context);
-    assert.deepEqual(wrote.ok && wrote.value, { created: true });
+    assert.ok(wrote.ok);
     const again = await filesystem.write("memory/new/today.md", "new", context);
-    assert.deepEqual(again.ok && again.value, { created: false });
+    assert.ok(again.ok);
     assert.equal(
         readFileSync(join(filesystem.root, "memory/new/today.md"), "utf8"),
         "new",
@@ -236,4 +244,102 @@ test("the root itself, as a left-out path reaches it, can be listed, found in an
     assert.deepEqual(searched.ok && searched.value.found, [
         { path: `${root}/memory/notes.md`, line: 1, text: "notes" },
     ]);
+});
+
+test("an own edit the filesystem refuses answers in today's words, and the file stays", async (t) => {
+    const { filesystem } = await planted(t);
+    assert.ok(
+        (await filesystem.write("memory/notes.md", "one two two\n", context))
+            .ok,
+    );
+    const path = `${filesystem.root}/memory/notes.md`;
+    const edits: [string, string][][] = [
+        [],
+        [["", "x"]],
+        [
+            ["one", "1"],
+            ["", "x"],
+        ],
+        [["three", "3"]],
+        [
+            ["one", "1"],
+            ["three", "3"],
+        ],
+        [["two", "2"]],
+        [
+            ["one", "1"],
+            ["two", "2"],
+        ],
+        [
+            ["one two", "a"],
+            ["e t", "b"],
+        ],
+        [["one", "one"]],
+        [
+            ["one", "one"],
+            ["two two", "two two"],
+        ],
+    ];
+    const agent = await wakeAgent(t, {
+        calls: fakeCalls({}).calls,
+        files: filesystem,
+        responses: [
+            ...edits.map((each, at) =>
+                toolCall(
+                    "edit",
+                    {
+                        path: "memory/notes.md",
+                        edits: each.map(([oldText, newText]) => ({
+                            oldText,
+                            newText,
+                        })),
+                    },
+                    `c${at}`,
+                ),
+            ),
+            fauxAssistantMessage("None took."),
+        ],
+    });
+    await agent.actions.submit(agent.by(from.realm), {
+        id: "input-1",
+        input: { type: "line", text: "Edit." },
+    });
+    await agent.idle();
+
+    // Today's `CallError` (`crates/hamlet_server/src/work/tools/files.rs`).
+    const refused = (message: string) => ({
+        output: "",
+        isError: true,
+        diagnostics: [{ severity: "error", code: "tool_error", message }],
+    });
+    assert.deepEqual(await toolResults(agent), [
+        refused(
+            "Edit tool input is invalid. edits must contain at least one replacement.",
+        ),
+        refused(`oldText must not be empty in ${path}.`),
+        refused(`edits[1].oldText must not be empty in ${path}.`),
+        refused(
+            `Could not find the exact text in ${path}. The old text must match exactly including all whitespace and newlines.`,
+        ),
+        refused(
+            `Could not find edits[1] in ${path}. The oldText must match exactly including all whitespace and newlines.`,
+        ),
+        refused(
+            `Found 2 occurrences of the text in ${path}. The text must be unique. Please provide more context to make it unique.`,
+        ),
+        refused(
+            `Found 2 occurrences of edits[1] in ${path}. Each oldText must be unique. Please provide more context to make it unique.`,
+        ),
+        refused(
+            `edits[0] and edits[1] overlap in ${path}. Merge them into one edit or target disjoint regions.`,
+        ),
+        refused(
+            `No changes made to ${path}. The replacement produced identical content. This might indicate an issue with special characters or the text not existing as expected.`,
+        ),
+        refused(
+            `No changes made to ${path}. The replacements produced identical content.`,
+        ),
+    ]);
+    assert.equal(readFileSync(path, "utf8"), "one two two\n");
+    await agent.stop();
 });

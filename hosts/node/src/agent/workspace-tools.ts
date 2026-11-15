@@ -14,6 +14,7 @@ import {
 } from "@earendil-works/pi-durable";
 import { omitUndefined } from "../actor/common/utils.ts";
 import {
+    type Change,
     type ChangeEnd,
     type Need,
     type Outcome,
@@ -25,7 +26,15 @@ import {
     u32,
     WORKSPACE,
 } from "./messages.ts";
-import { callOut, failed, listTools, type Peers, words } from "./turn.ts";
+import {
+    callOut,
+    failed,
+    interrupted,
+    listTools,
+    type Peers,
+    thrown,
+    words,
+} from "./turn.ts";
 
 export interface FileToolArgs {
     read: { path: string; offset?: number; limit?: number };
@@ -51,6 +60,13 @@ export type Execute<Args> = (
     api: ToolExecutionApi,
     context: Context,
 ) => Promise<ToolExecutionResult>;
+
+/** The seconds a script may run, as the workspace's `LONGEST`. */
+const LONGEST = 120;
+
+function wallOf(script: Extract<Program, { type: "script" }>): number {
+    return Math.min((script.timeout_ms ?? LONGEST * 1000) / 1000, LONGEST);
+}
 
 const text = (description: string) => ({ type: "string", description });
 const number = (description: string) => ({ type: "number", description });
@@ -204,6 +220,7 @@ function waits(what: string, needs: readonly Need[]): ToolExecutionResult {
     );
 }
 
+/** The words of a command's end that arrives as an input. */
 function ran(end: RunEnd): ToolExecutionResult {
     if (end.type === "not_run") return failed(end.words);
     const cut =
@@ -224,19 +241,91 @@ function ran(end: RunEnd): ToolExecutionResult {
         : { ...result, isError: true };
 }
 
-function changed(end: ChangeEnd): ToolExecutionResult {
-    if (end.type !== "changed") return failed(end.words);
-    return changeWords(end.path, end.created, end.diff?.diff);
+/**
+ * The words of a command that ended inside its call, as today's bash
+ * (`crates/hamlet_server/src/work/tools/shell.rs`) and hand tools
+ * (`work/added.rs`) give them.
+ */
+function ranNow(end: RunEnd, program: Program): ToolExecutionResult {
+    if (end.type === "not_run") return failed(end.words);
+    const script = program.type === "script";
+    const fullOutput =
+        end.cut === undefined
+            ? []
+            : [
+                  {
+                      severity: "info" as const,
+                      code: "full_output",
+                      message: `Full output: ${end.cut.full_output}`,
+                  },
+              ];
+    switch (end.exit.type) {
+        case "code": {
+            const { code } = end.exit;
+            return {
+                ...words(end.output),
+                isError: code !== 0,
+                diagnostics:
+                    code === 0
+                        ? fullOutput
+                        : [
+                              ...fullOutput,
+                              {
+                                  severity: "error",
+                                  code: "exit_code",
+                                  message: `Command exited with code ${code}`,
+                              },
+                          ],
+            };
+        }
+        case "timed_out":
+            // A hand tool's limit is in its manifest, which the agent does
+            // not see.
+            if (!script) return ran(end);
+            return {
+                ...words(
+                    `${end.output}\n[timed out after ${wallOf(program)}s]`,
+                ),
+                isError: true,
+                diagnostics: fullOutput,
+            };
+        case "failed":
+            return script
+                ? failed(
+                      `${end.output}Error: ${end.exit.words}. Inspect the output before trying again, or tell the chief.`,
+                  )
+                : thrown("tool_error", end.exit.words);
+        case "cut_off":
+            return interrupted(script ? "bash" : program.name);
+        case "cancelled":
+            return ran(end);
+    }
 }
 
-export function changeWords(
+export function wrote(path: string): ToolExecutionResult {
+    return words(`Successfully wrote to ${path}`);
+}
+
+/** Today's edit words (`crates/hamlet_server/src/work/tools/files.rs`). */
+export function replaced(
     path: string,
-    created: boolean,
-    diff?: string,
+    blocks: number,
+    diff: Change["diff"],
 ): ToolExecutionResult {
-    return words(
-        `${created ? "Created" : "Changed"} ${path}.${diff === undefined ? "" : `\n${diff}`}`,
-    );
+    return {
+        ...words(`Successfully replaced ${blocks} block(s) in ${path}.`),
+        ...(diff === undefined
+            ? {}
+            : {
+                  details: {
+                      diff: diff.diff,
+                      patch: diff.patch,
+                      ...(diff.first_changed_line === undefined
+                          ? {}
+                          : { firstChangedLine: diff.first_changed_line }),
+                  },
+              }),
+    };
 }
 
 export function readResult(
@@ -256,13 +345,19 @@ export function readResult(
     }
 }
 
-/**
- * The words of a call's end, as its tool would have given them had the call
- * ended at once, so the model reads one form whichever way an end reaches it.
- */
+function changedLater(end: ChangeEnd): ToolExecutionResult {
+    if (end.type !== "changed") return failed(end.words);
+    // A diff is set only for an edit. Today's edit words count its blocks,
+    // which `Change` does not carry.
+    return end.diff === undefined
+        ? wrote(end.path)
+        : words(`Changed ${end.path}.\n${end.diff.diff}`);
+}
+
+/** The words of a call's end that arrives as an input. */
 export function endWords(outcome: Outcome): string {
     const result =
-        outcome.type === "run" ? ran(outcome.end) : changed(outcome.end);
+        outcome.type === "run" ? ran(outcome.end) : changedLater(outcome.end);
     return (result.output ?? [])
         .map((part) => (part.type === "text" ? part.text : ""))
         .join("");
@@ -288,6 +383,7 @@ function read(peers: Peers): ToolRegistration {
                 }),
             },
             readResult,
+            "read",
         ),
     );
 }
@@ -308,7 +404,7 @@ async function run(
         (answer) => {
             switch (answer.type) {
                 case "ended":
-                    return ran(answer.end);
+                    return ranNow(answer.end, program);
                 case "running":
                     return words(
                         `Command ${answer.command} is still running. Its end arrives as a new input.`,
@@ -317,6 +413,7 @@ async function run(
                     return waits("The command", answer.needs);
             }
         },
+        program.type === "script" ? "bash" : program.name,
     );
 }
 
@@ -352,9 +449,12 @@ function write(peers: Peers): ToolRegistration {
             "write_file",
             { path: args.path, content: args.content },
             (answer) =>
-                answer.type === "ended"
-                    ? changed(answer.end)
-                    : waits("The write", answer.needs),
+                answer.type !== "ended"
+                    ? waits("The write", answer.needs)
+                    : answer.end.type === "changed"
+                      ? wrote(answer.end.path)
+                      : failed(answer.end.words),
+            "write",
         ),
     );
 }
@@ -369,9 +469,16 @@ function edit(peers: Peers): ToolRegistration {
             "edit_file",
             { path: args.path, edits: editsOf(args.edits) },
             (answer) =>
-                answer.type === "ended"
-                    ? changed(answer.end)
-                    : waits("The edit", answer.needs),
+                answer.type !== "ended"
+                    ? waits("The edit", answer.needs)
+                    : answer.end.type === "changed"
+                      ? replaced(
+                            answer.end.path,
+                            args.edits.length,
+                            answer.end.diff,
+                        )
+                      : failed(answer.end.words),
+            "edit",
         ),
     );
 }
@@ -392,6 +499,7 @@ function search(peers: Peers): ToolRegistration {
             },
             (answer) =>
                 answer.type === "text" ? shown(answer) : failed(answer.words),
+            "search",
         ),
     );
 }
@@ -407,6 +515,7 @@ function find(peers: Peers): ToolRegistration {
             { under: args.path, ...omitUndefined({ name: args.name }) },
             (answer) =>
                 answer.type === "text" ? shown(answer) : failed(answer.words),
+            "find",
         ),
     );
 }

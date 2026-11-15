@@ -1,6 +1,9 @@
 import { isAbsolute } from "node:path";
 import type { Context } from "@earendil-works/chord/context";
-import { generateDiffString } from "@earendil-works/pi-coding-agent";
+import {
+    generateDiffString,
+    generateUnifiedPatch,
+} from "@earendil-works/pi-coding-agent";
 import {
     defineExtension,
     type Extension,
@@ -17,15 +20,16 @@ import {
     LOOKED,
 } from "./filesystem.ts";
 import type { Note, ReadAnswer, Refused } from "./messages.ts";
-import { failed, type Peers, unknownOutcome, words } from "./turn.ts";
+import { failed, interrupted, type Peers, thrown, words } from "./turn.ts";
 import {
     type AbsoluteFileCall,
-    changeWords,
     type Execute,
     editsOf,
     type FileTool,
     type FileToolArgs,
     readResult,
+    replaced,
+    wrote,
 } from "./workspace-tools.ts";
 
 /**
@@ -66,13 +70,10 @@ function routes(peers: Peers): {
         },
         edit: async (args, api, context) => {
             // A rerun of an edit that already ran would not find its old text,
-            // so a rerun that finds the mark answers that the outcome is
-            // unknown, as pi-durable does for an unsafe tool.
+            // so a rerun that finds the mark answers as pi-durable does for an
+            // unsafe tool.
             if ((await api.memo<boolean>(EDIT_BEGAN, context)) === true) {
-                return unknownOutcome(
-                    `The edit of ${args.path}`,
-                    "the agent stopped while it ran",
-                );
+                return interrupted("edit");
             }
             await api.memo(EDIT_BEGAN, true, context);
             const edited = await files.edit(
@@ -80,16 +81,19 @@ function routes(peers: Peers): {
                 editsOf(args.edits),
                 context,
             );
-            return edited.ok
-                ? changeWords(
-                      args.path,
-                      false,
-                      generateDiffString(
-                          edited.value.before,
-                          edited.value.after,
-                      ).diff,
-                  )
-                : failed(edited.error.message);
+            if (!edited.ok) return thrown("tool_error", edited.error.message);
+            const { before, after } = edited.value;
+            const { diff, firstChangedLine } = generateDiffString(
+                before,
+                after,
+            );
+            return replaced(args.path, args.edits.length, {
+                diff,
+                patch: generateUnifiedPatch(args.path, before, after),
+                ...(firstChangedLine === undefined
+                    ? {}
+                    : { first_changed_line: firstChangedLine }),
+            });
         },
         write: (args, _api, context) => written(files, args, context),
         search: (args, _api, context) => searched(files, args, context),
@@ -273,9 +277,7 @@ async function written(
     context: Context,
 ): Promise<ToolExecutionResult> {
     const done = await files.write(args.path, args.content, context);
-    return done.ok
-        ? changeWords(args.path, done.value.created)
-        : failed(done.error.message);
+    return done.ok ? wrote(args.path) : failed(done.error.message);
 }
 
 async function searched(

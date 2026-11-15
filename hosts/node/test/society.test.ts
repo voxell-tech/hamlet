@@ -5,9 +5,11 @@ import type { SocietyActs, SocietyTool } from "../src/agent/messages.ts";
 import {
     fakeCalls,
     from,
+    interrupted,
     named,
     timedOut,
     toolCall,
+    toolResults,
     type Woken,
     wakeAgent,
 } from "./agent-testing.ts";
@@ -681,6 +683,28 @@ test("a scholar's address is read as today's server reads it, and one it cannot 
             "`hire#3` is not an address",
         ],
     );
+    await agent.stop();
+});
+
+test("a society tool whose call fails says it was interrupted, under the tool's name", async (t) => {
+    const { calls } = fakeCalls({
+        realm: {
+            found: () => {
+                throw timedOut();
+            },
+        },
+    });
+    const agent = await wakeAgent(t, {
+        calls,
+        responses: [
+            toolCall("found_hamlet", { name: "Mill", purpose: "Grind" }),
+            fauxAssistantMessage("I will look first."),
+        ],
+    });
+    await agent.actions.submit(agent.by(from.realm), line("input-1", "Found."));
+    await agent.idle();
+
+    assert.deepEqual(await toolResults(agent), [interrupted("found_hamlet")]);
     await agent.stop();
 });
 

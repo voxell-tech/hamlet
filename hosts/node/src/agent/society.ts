@@ -350,6 +350,7 @@ function societyTool<N extends SocietyTool>(
                 // these two casts restate what `TOOLS` already checked.
                 made as never,
                 (answer) => words(definition.said(answer as never)),
+                definition.name,
             );
         },
     });

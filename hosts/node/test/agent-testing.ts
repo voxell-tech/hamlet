@@ -7,8 +7,13 @@ import {
     fauxAssistantMessage,
     fauxToolCall,
     type Models,
+    type ToolResultMessage,
 } from "@earendil-works/pi-ai";
-import type { Harness, HarnessSettings } from "@earendil-works/pi-durable";
+import type {
+    Harness,
+    HarnessSettings,
+    ToolDiagnostic,
+} from "@earendil-works/pi-durable";
 import { err, FileError, ok } from "@earendil-works/pi-durable/env";
 import {
     ActorError,
@@ -119,12 +124,11 @@ export function fakeFiles(files: Record<string, string>): AgentFilesystem & {
                 : ok(new TextEncoder().encode(text));
         },
         write: async (path, content) => {
-            const created = files[path] === undefined;
             files[path] =
                 typeof content === "string"
                     ? content
                     : new TextDecoder().decode(content);
-            return ok({ created });
+            return ok(undefined);
         },
         edit: async (path, changes) => {
             const before = files[path];
@@ -339,7 +343,7 @@ function failing(database: RawAccess): {
     };
 }
 
-async function entriesOf(harness: Harness, context: Context) {
+async function rootEntries(harness: Harness, context: Context) {
     const root = await harness.root(context);
     const page = await root.entries(
         { order: "ascending" },
@@ -347,7 +351,11 @@ async function entriesOf(harness: Harness, context: Context) {
         undefined,
         context,
     );
-    return page.items.map((entry) => ({
+    return page.items;
+}
+
+async function entriesOf(harness: Harness, context: Context) {
+    return (await rootEntries(harness, context)).map((entry) => ({
         kind: entry.kind,
         data: entry.data,
         text: (entry.model ?? [])
@@ -360,6 +368,55 @@ async function entriesOf(harness: Harness, context: Context) {
             )
             .join(""),
     }));
+}
+
+export interface ToolResult {
+    /** The text before the diagnostics pi-durable renders after it. */
+    readonly output: string;
+    readonly isError: boolean;
+    readonly diagnostics: readonly ToolDiagnostic[];
+    readonly details?: unknown;
+}
+
+/** Today's `tool_interrupted` (`crates/hamlet_server/src/calls.rs`). */
+export function interrupted(tool: string): ToolResult {
+    return {
+        output: "",
+        isError: true,
+        diagnostics: [
+            {
+                severity: "error",
+                code: "tool_interrupted",
+                message: `Tool ${tool} was interrupted by a restart and may have partially run`,
+            },
+        ],
+    };
+}
+
+/** Each tool result the model is sent, in order. */
+export async function toolResults(
+    agent: Pick<Woken, "harness">,
+): Promise<ToolResult[]> {
+    return (await rootEntries(await agent.harness(), context))
+        .filter((entry) => entry.kind === "pi.tool-result")
+        .map((entry) => {
+            const message = entry.model?.[0] as ToolResultMessage;
+            const { diagnostics } = entry.data as {
+                diagnostics: ToolDiagnostic[];
+            };
+            const output = message.content
+                .slice(0, diagnostics.length > 0 ? -1 : undefined)
+                .map((part) => (part.type === "text" ? part.text : "<image>"))
+                .join("");
+            return {
+                output,
+                isError: message.isError,
+                diagnostics,
+                ...(message.details === undefined
+                    ? {}
+                    : { details: message.details }),
+            };
+        });
 }
 
 export async function until(

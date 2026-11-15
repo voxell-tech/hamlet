@@ -81,9 +81,9 @@ export function openAgentFilesystem(
                 async () => new Uint8Array(await folder.read(path)),
             ),
         write: (path, content, context) =>
-            call(path, context, async () => ({
-                created: await folder.write(path, Buffer.from(content)),
-            })),
+            call(path, context, async () => {
+                await folder.write(path, Buffer.from(content));
+            }),
         edit: (path, edits, context) =>
             call(path, context, async () => {
                 const before = utf8(await folder.read(path), path);
@@ -148,40 +148,74 @@ function utf8(bytes: Uint8Array, path: string): string {
     }
 }
 
-/** `text` with each of `edits` made in it, each found once in `text` as it was. */
+/**
+ * `text` with each of `edits` made in it, each found once in `text` as it
+ * was. A refusal is in today's words (`crates/hamlet_server/src/work/tools/files.rs`).
+ */
 function edited(text: string, edits: readonly Edit[], path: string): string {
+    const refuse = (words: string): never => {
+        throw new FileError("invalid", words, path);
+    };
+    if (edits.length === 0) {
+        refuse(
+            "Edit tool input is invalid. edits must contain at least one replacement.",
+        );
+    }
+    const many = edits.length > 1;
+    const empty = edits.findIndex((edit) => edit.old === "");
+    if (empty >= 0) {
+        refuse(
+            many
+                ? `edits[${empty}].oldText must not be empty in ${path}.`
+                : `oldText must not be empty in ${path}.`,
+        );
+    }
     const spans = edits
-        .map((edit) => {
+        .map((edit, index) => {
             const at = text.indexOf(edit.old);
-            if (edit.old === "" || at < 0) {
-                throw new FileError(
-                    "invalid",
-                    `the text to replace is not in ${path}`,
-                    path,
+            if (at < 0) {
+                refuse(
+                    many
+                        ? `Could not find edits[${index}] in ${path}. The oldText must match exactly including all whitespace and newlines.`
+                        : `Could not find the exact text in ${path}. The old text must match exactly including all whitespace and newlines.`,
                 );
             }
-            if (text.indexOf(edit.old, at + 1) >= 0) {
-                throw new FileError(
-                    "invalid",
-                    `the text to replace occurs more than once in ${path}`,
-                    path,
+            const count = text.split(edit.old).length - 1;
+            if (count > 1) {
+                refuse(
+                    many
+                        ? `Found ${count} occurrences of edits[${index}] in ${path}. Each oldText must be unique. Please provide more context to make it unique.`
+                        : `Found ${count} occurrences of the text in ${path}. The text must be unique. Please provide more context to make it unique.`,
                 );
             }
-            return { at, end: at + edit.old.length, replacement: edit.new };
+            return {
+                index,
+                at,
+                end: at + edit.old.length,
+                replacement: edit.new,
+            };
         })
         .sort((a, b) => a.at - b.at);
     let out = "";
     let from = 0;
+    let last: (typeof spans)[number] | undefined;
     for (const span of spans) {
-        if (span.at < from) {
-            throw new FileError(
-                "invalid",
-                `two edits replace the same text in ${path}`,
-                path,
+        if (last !== undefined && span.at < last.end) {
+            refuse(
+                `edits[${last.index}] and edits[${span.index}] overlap in ${path}. Merge them into one edit or target disjoint regions.`,
             );
         }
         out += text.slice(from, span.at) + span.replacement;
         from = span.end;
+        last = span;
     }
-    return out + text.slice(from);
+    out += text.slice(from);
+    if (out === text) {
+        refuse(
+            many
+                ? `No changes made to ${path}. The replacements produced identical content.`
+                : `No changes made to ${path}. The replacement produced identical content. This might indicate an issue with special characters or the text not existing as expected.`,
+        );
+    }
+    return out;
 }
