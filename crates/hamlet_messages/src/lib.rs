@@ -37,6 +37,18 @@
 //!
 //! No answer has a case for either error.
 //!
+//! The client protocol's types a message carries keep that
+//! protocol's rules where they differ from these: an enum whose
+//! cases hold data is tagged by `kind`, a reader refuses `null` and a
+//! field it does not know, and an integer is a `u64`.
+//! [`realm::client::Say`], [`realm::client::Answer`] and the
+//! attachments of [`agent::Input::Line`] carry them.
+//!
+//! The realm takes a repeat of a call that carries an id, a chief's
+//! [`realm::Asked`] or [`realm::client`] request or an agent's
+//! [`realm::Tool`], by its sender, its id and the SHA-256 of the CBOR
+//! of the act it carries.
+//!
 //! `fixtures/` holds the bytes of each one as the host carries it,
 //! so a host in another language can check its shapes against them.
 //! A change to a shape rewrites its fixture and fails the test once.
@@ -90,6 +102,7 @@
 pub mod address;
 pub mod agent;
 pub mod bytes;
+pub mod profile;
 pub mod realm;
 pub mod sender;
 pub mod workspace;

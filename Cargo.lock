@@ -4962,6 +4962,7 @@ dependencies = [
  "hamlet_actor",
  "hamlet_actor_error",
  "hamlet_address",
+ "hamlet_protocol",
  "serde",
  "serde_json",
  "thiserror 2.0.21",

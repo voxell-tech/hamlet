@@ -30,7 +30,16 @@ use crate::{Message, worded};
 /// The number in an agent actor's file name,
 /// `actors/agent/<n>.sqlite`, and its key.
 #[derive(
-    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize,
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Serialize,
+    Deserialize,
 )]
 pub struct AgentNumber(pub u32);
 

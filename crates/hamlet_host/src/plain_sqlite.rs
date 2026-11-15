@@ -69,13 +69,9 @@ impl PlainSqlite {
     /// Serves `conn` on a thread of its own until [`Self::close`].
     pub fn serve(conn: Connection) -> Result<Self> {
         let (tx, rx) = mpsc::channel::<Command>();
-        thread::Builder::new().name("plain-sqlite".into()).spawn(
-            move || {
-                if let Some(answer) = serve(conn, rx) {
-                    answer();
-                }
-            },
-        )?;
+        thread::Builder::new()
+            .name("plain-sqlite".into())
+            .spawn(move || serve(conn, rx))?;
         Ok(Self { tx })
     }
 
@@ -166,10 +162,7 @@ async fn received<T>(rx: oneshot::Receiver<Result<T>>) -> Result<T> {
     rx.await.map_err(|_| anyhow!("sqlite thread stopped"))?
 }
 
-fn serve(
-    conn: Connection,
-    rx: mpsc::Receiver<Command>,
-) -> Option<Answer> {
+fn serve(conn: Connection, rx: mpsc::Receiver<Command>) {
     // The work `when_idle` holds until no transaction is open, in the
     // order it came.
     let mut idle = Vec::new();
@@ -194,14 +187,15 @@ fn serve(
                         "sqlite file did not close"
                     );
                 }
-                return Some(answer);
+                drop(rx);
+                answer();
+                return;
             }
         }
         if conn.is_autocommit() {
             run_idle(&conn, &mut idle);
         }
     }
-    None
 }
 
 fn run_idle(conn: &Connection, idle: &mut Vec<Idle>) {
