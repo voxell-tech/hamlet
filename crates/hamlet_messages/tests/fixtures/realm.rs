@@ -29,7 +29,7 @@ use hamlet_messages::realm::{
     ProfileId, Rank, Refusable, Reply, ReplyRefusal, RequestRoad,
     RequestRoadRefusal, Seat, SetLimits, SetTier, SetTools,
     SocietyTool, Standing, TakeUpRefusal, TakeUpRoad, Tell, Tier,
-    TierRefusal, Tool,
+    TierRefusal, Tool, ToolName,
 };
 use hamlet_messages::workspace::{
     AgentNumber, ConversationId, ReachVersion, RealmTask,
@@ -574,6 +574,23 @@ fn only_a_hire() -> Vec<(&'static str, OnlyAHire)> {
 }
 
 fn the_roads_and_the_tools(fixtures: &mut Fixtures) {
+    // A society tool is on the wire by its name in `Gate::ToolOff`,
+    // which no act of the Hand's own tools gives.
+    fixtures.answer(
+        "realm/society_tools",
+        &vec![
+            SocietyTool::Found,
+            SocietyTool::Hire,
+            SocietyTool::End,
+            SocietyTool::Seat,
+            SocietyTool::Tell,
+            SocietyTool::Ask,
+            SocietyTool::LayRoad,
+            SocietyTool::TakeUpRoad,
+            SocietyTool::RequestRoad,
+            SocietyTool::SetTools,
+        ],
+    );
     let lay = || LayRoad {
         a: hire(),
         b: Named::Agent {
@@ -689,20 +706,8 @@ fn the_roads_and_the_tools(fixtures: &mut Fixtures) {
         "realm/chief_set_tools",
         &asked(SetTools {
             hire: hire(),
-            off: vec![
-                SocietyTool::Found,
-                SocietyTool::Hire,
-                SocietyTool::End,
-                SocietyTool::Seat,
-                SocietyTool::Tell,
-            ],
-            on: vec![
-                SocietyTool::Ask,
-                SocietyTool::LayRoad,
-                SocietyTool::TakeUpRoad,
-                SocietyTool::RequestRoad,
-                SocietyTool::SetTools,
-            ],
+            off: vec![SocietyTool::Tell.into(), named_tool("bash")],
+            on: vec![named_tool("$Set")],
             why: None,
         }),
     );
@@ -710,7 +715,7 @@ fn the_roads_and_the_tools(fixtures: &mut Fixtures) {
         "realm/set_tools",
         &tool(SetTools {
             hire: hire(),
-            off: vec![SocietyTool::Tell],
+            off: vec![SocietyTool::Tell.into()],
             on: Vec::new(),
             why: None,
         }),
@@ -720,7 +725,7 @@ fn the_roads_and_the_tools(fixtures: &mut Fixtures) {
         &tool(SetTools {
             hire: hire(),
             off: Vec::new(),
-            on: vec![SocietyTool::Tell],
+            on: vec![SocietyTool::Tell.into()],
             why: Some(WHY.into()),
         }),
     );
@@ -1023,7 +1028,11 @@ fn place() -> Place {
         lead: Some(MAYOR),
         hires: vec![AgentNumber(13)],
         roads: vec![AgentNumber(14)],
-        tools_off: vec![SocietyTool::Found, SocietyTool::Seat],
+        tools_off: vec![
+            SocietyTool::Found.into(),
+            named_tool("bash"),
+        ],
+        folder: Some("/work/orchard".into()),
     }
 }
 
@@ -1034,6 +1043,7 @@ fn the_calls_to_agents_and_profiles(fixtures: &mut Fixtures) {
         hires: Vec::new(),
         roads: Vec::new(),
         tools_off: Vec::new(),
+        folder: None,
     };
     for (name, kind, place) in [
         ("hand", AgentKind::Hand, hands_place()),
@@ -1198,4 +1208,8 @@ fn the_calls_to_agents_and_profiles(fixtures: &mut Fixtures) {
         "address/profile",
         &Profile(ProfileId(2)).address().unwrap(),
     );
+}
+
+fn named_tool(name: &str) -> ToolName {
+    ToolName { name: name.into() }
 }

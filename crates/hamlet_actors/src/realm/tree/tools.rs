@@ -5,7 +5,7 @@ use anyhow::Result;
 use hamlet_actor::BindParam;
 use hamlet_messages::agent::AgentKind;
 use hamlet_messages::realm::{
-    Done, OnlyAHire, Refusable, SetTools, SocietyTool,
+    Done, OnlyAHire, Refusable, SetTools, SocietyTool, ToolName,
 };
 use hamlet_messages::workspace::AgentNumber;
 
@@ -34,16 +34,17 @@ pub(in crate::realm) async fn is_off(
 pub(in crate::realm) async fn off_for(
     rows: &Rows<'_>,
     agent: AgentNumber,
-) -> Result<Vec<SocietyTool>> {
-    rows.values::<String>(
-        "SELECT tool FROM hire_tool_off WHERE hire = ?1 ORDER BY \
-         tool",
-        vec![number(agent)],
-    )
-    .await?
-    .into_iter()
-    .map(change::from_case_name)
-    .collect()
+) -> Result<Vec<ToolName>> {
+    Ok(rows
+        .values::<String>(
+            "SELECT tool FROM hire_tool_off WHERE hire = ?1 ORDER \
+             BY tool",
+            vec![number(agent)],
+        )
+        .await?
+        .into_iter()
+        .map(|name| ToolName { name })
+        .collect())
 }
 
 impl<By: Lead> Act<By> for SetTools {
@@ -98,8 +99,8 @@ impl<By: Lead> Act<By> for SetTools {
 pub(in crate::realm) async fn set(
     writer: &Writer<'_>,
     hire: AgentNumber,
-    off: Vec<SocietyTool>,
-    on: Vec<SocietyTool>,
+    off: Vec<ToolName>,
+    on: Vec<ToolName>,
 ) -> Result<Affected> {
     let mut changed = 0;
     for tool in off {
@@ -107,7 +108,7 @@ pub(in crate::realm) async fn set(
             .execute(
                 "INSERT INTO hire_tool_off (hire, tool) VALUES (?1, \
                  ?2) ON CONFLICT (hire, tool) DO NOTHING",
-                vec![number(hire), column(tool)?],
+                vec![number(hire), BindParam::Text(tool.name)],
             )
             .await?;
     }
@@ -116,7 +117,7 @@ pub(in crate::realm) async fn set(
             .execute(
                 "DELETE FROM hire_tool_off WHERE hire = ?1 AND tool \
                  = ?2",
-                vec![number(hire), column(tool)?],
+                vec![number(hire), BindParam::Text(tool.name)],
             )
             .await?;
     }

@@ -7,7 +7,7 @@ use hamlet_messages::realm::{
     Hire, HowEnded, LayRefusal, LayRoad, LeadRefusal, Left,
     LetterRefusal, Named, OnlyAHire, Rank, RequestRoad,
     RequestRoadRefusal, SetTier, SetTools, SocietyTool,
-    TakeUpRefusal, TakeUpRoad, Tier, TierRefusal,
+    TakeUpRefusal, TakeUpRoad, Tier, TierRefusal, ToolName,
 };
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::AgentNumber;
@@ -35,13 +35,20 @@ fn lay(a: AgentNumber, b: AgentNumber) -> LayRoad {
     }
 }
 
-fn tools(off: &[SocietyTool], on: &[SocietyTool]) -> SetTools {
+fn tools(off: &[&str], on: &[&str]) -> SetTools {
     SetTools {
         hire: to(THREE),
-        off: off.to_vec(),
-        on: on.to_vec(),
+        off: names(off),
+        on: names(on),
         why: None,
     }
+}
+
+fn names(names: &[&str]) -> Vec<ToolName> {
+    names
+        .iter()
+        .map(|&name| ToolName { name: name.into() })
+        .collect()
 }
 
 fn tell_off<R>() -> Done<AgentRefusal<R>> {
@@ -181,15 +188,14 @@ async fn a_tool_turned_off_is_refused() {
         realm.tool(by, &tool(call, act)).await.unwrap()
     };
 
-    let off =
-        set(MAYOR, "s1", tools(&[SocietyTool::Tell], &[])).await;
+    let off = set(MAYOR, "s1", tools(&["tell"], &[])).await;
     let refused =
         realm.tool(THREE, &tool("t1", tell(to(MAYOR), "hi"))).await;
     placed(&realm, THREE, |place| {
-        place.tools_off == [SocietyTool::Tell]
+        place.tools_off == names(&["tell"])
     })
     .await;
-    let on = set(MAYOR, "s2", tools(&[], &[SocietyTool::Tell])).await;
+    let on = set(MAYOR, "s2", tools(&[], &["tell"])).await;
     placed(&realm, THREE, |place| place.tools_off.is_empty()).await;
     let told =
         realm.tool(THREE, &tool("t2", tell(to(MAYOR), "hi"))).await;
@@ -201,19 +207,46 @@ async fn a_tool_turned_off_is_refused() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn a_tool_off_is_kept_by_its_name() {
+    // the mayor turns `bash` and `tell` off for its hire 3: 3's place
+    // lists both by name, and its tell is still refused `ToolOff`.
+    // Turned on again, `bash` leaves the place and `tell` stays.
+    let (realm, _) = hamlet_with(1).await;
+    let set = async |call, act| {
+        realm.tool(MAYOR, &tool(call, act)).await.unwrap()
+    };
+
+    let off = set("s1", tools(&["bash", "tell"], &[])).await;
+    placed(&realm, THREE, |place| {
+        place.tools_off == names(&["bash", "tell"])
+    })
+    .await;
+    let refused =
+        realm.tool(THREE, &tool("t1", tell(to(MAYOR), "hi"))).await;
+    let on = set("s2", tools(&[], &["bash"])).await;
+    placed(&realm, THREE, |place| {
+        place.tools_off == names(&["tell"])
+    })
+    .await;
+
+    assert_eq!([off, on], [Done::Done, Done::Done]);
+    assert_eq!(refused.unwrap(), tell_off());
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn a_mayors_tools_are_set_by_the_chief_and_the_hand() {
     // the chief turns the mayor's `tell` off: its tell to 3 is
     // refused `ToolOff`, and its place lists the tool. The Hand turns
     // it on again. Hire 3 may not set its mayor's tools, and the
     // Hand's own are not turned off, by the Hand or the chief.
     let (realm, _) = hamlet_with(1).await;
-    let of =
-        |hire, off: &[SocietyTool], on: &[SocietyTool]| SetTools {
-            hire,
-            ..tools(off, on)
-        };
-    let mayor_off = of(to(MAYOR), &[SocietyTool::Tell], &[]);
-    let hand_off = of(Named::Hand, &[SocietyTool::Hire], &[]);
+    let of = |hire, off: &[&str], on: &[&str]| SetTools {
+        hire,
+        ..tools(off, on)
+    };
+    let mayor_off = of(to(MAYOR), &["tell"], &[]);
+    let hand_off = of(Named::Hand, &["hire"], &[]);
     let by_chief = async |act| {
         realm
             .ask(&Asked {
@@ -236,17 +269,13 @@ async fn a_mayors_tools_are_set_by_the_chief_and_the_hand() {
     let off = by_chief(mayor_off.clone()).await;
     assert_eq!(off, Done::Done);
     placed(&realm, MAYOR, |place| {
-        place.tools_off == [SocietyTool::Tell]
+        place.tools_off == names(&["tell"])
     })
     .await;
     let refused = mayor_tells("t1").await;
     let by_hire = by(THREE, "s1", mayor_off).await;
-    let on = by(
-        Hand::NUMBER,
-        "s1",
-        of(to(MAYOR), &[], &[SocietyTool::Tell]),
-    )
-    .await;
+    let on =
+        by(Hand::NUMBER, "s1", of(to(MAYOR), &[], &["tell"])).await;
     placed(&realm, MAYOR, |place| place.tools_off.is_empty()).await;
     let told = mayor_tells("t2").await;
     let hand_by_hand = by(Hand::NUMBER, "s2", hand_off.clone()).await;

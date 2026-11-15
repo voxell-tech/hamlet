@@ -30,6 +30,7 @@ pub(super) async fn of(
         hires,
         roads,
         tools_off: tree::tools::off_for(rows, agent).await?,
+        folder: None,
     })
 }
 

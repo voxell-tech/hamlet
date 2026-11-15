@@ -222,6 +222,23 @@ impl SocietyTool {
     }
 }
 
+/// A tool by its name: a society tool's is [`SocietyTool::name`], and
+/// any other is a built-in or a hand tool's. A list holds it as a
+/// map, so a name that begins with `$` crosses the agent's host as
+/// itself.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ToolName {
+    pub name: String,
+}
+
+impl From<SocietyTool> for ToolName {
+    fn from(tool: SocietyTool) -> Self {
+        Self {
+            name: tool.name().to_owned(),
+        }
+    }
+}
+
 impl std::fmt::Display for SocietyTool {
     fn fmt(
         &self,
@@ -889,9 +906,9 @@ pub enum RequestRoadRefusal {
 pub struct SetTools {
     pub hire: Named,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub off: Vec<SocietyTool>,
+    pub off: Vec<ToolName>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub on: Vec<SocietyTool>,
+    pub on: Vec<ToolName>,
     /// Why, for the record.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub why: Option<String>,

@@ -119,6 +119,7 @@ async fn a_hire_goes_live_through_its_steps() {
                     hires: Vec::new(),
                     roads: vec![Hand::NUMBER],
                     tools_off: Vec::new(),
+                    folder: None,
                 },
                 brief: None,
             }],

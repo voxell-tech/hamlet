@@ -10,7 +10,7 @@ use anyhow::{Context as _, Result, bail};
 use hamlet_actor::BindParam;
 use hamlet_messages::agent::AgentKind;
 use hamlet_messages::realm::{
-    HamletId, Left, Named, ProfileId, SocietyTool,
+    HamletId, Left, Named, ProfileId, ToolName,
 };
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::AgentNumber;
@@ -403,8 +403,8 @@ pub(super) enum Change {
     Seat { mayor: AgentNumber },
     Tools {
         hire: AgentNumber,
-        off: Vec<SocietyTool>,
-        on: Vec<SocietyTool>,
+        off: Vec<ToolName>,
+        on: Vec<ToolName>,
     },
 }
 

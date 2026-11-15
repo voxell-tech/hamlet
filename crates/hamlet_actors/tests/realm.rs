@@ -832,6 +832,7 @@ async fn the_agent_and_profile_stand_ins_take_their_calls() {
         hires: Vec::new(),
         roads: Vec::new(),
         tools_off: Vec::new(),
+        folder: None,
     };
     let branch = Branch {
         name: "hires/2".into(),

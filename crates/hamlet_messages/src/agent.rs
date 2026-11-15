@@ -4,13 +4,15 @@
 pub mod chat;
 pub mod copies;
 
+use std::path::PathBuf;
+
 use hamlet_actor::Action;
 use hamlet_protocol::client::{AttachedFile, AttachedImage};
 use serde::{Deserialize, Serialize};
 
 use crate::Message;
 use crate::address::{Agent, Realm, Workspace};
-use crate::realm::{LetterId, ProfileId, SocietyTool};
+use crate::realm::{LetterId, ProfileId, ToolName};
 use crate::workspace::files::ChangeEnd;
 use crate::workspace::{
     AgentNumber, CallId, ConversationId, RealmTask, RunEnd,
@@ -196,7 +198,11 @@ pub struct Place {
     pub hires: Vec<AgentNumber>,
     /// The agents it has a road to, its lead and its hires left out.
     pub roads: Vec<AgentNumber>,
-    pub tools_off: Vec<SocietyTool>,
+    pub tools_off: Vec<ToolName>,
+    /// Its hamlet's project folder, where its commands run and a
+    /// relative path starts; absent when unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub folder: Option<PathBuf>,
 }
 
 impl Action for Place {
