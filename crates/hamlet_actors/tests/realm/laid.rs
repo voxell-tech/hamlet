@@ -83,7 +83,6 @@ async fn roads_seen(realm: &Realm, roads: &[(u32, u32)]) -> Seen {
 
 const ROAD_PRICE: u64 = 10_000;
 
-/// Waits until the world shows `hamlet` spent `micros`.
 async fn spent(realm: &Realm, hamlet: &HamletId, micros: u64) {
     let pays = Payer::Hamlet {
         hamlet: hamlet.clone(),
@@ -353,8 +352,8 @@ async fn a_road_request_gives_a_lead_with_no_purpose_one() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_road_request_to_a_lead_still_hiring_waits_for_its_steps() {
-    // the chief hires 3 under the mayor, whose create fails once, so
-    // 3 stays hiring, and 4 under 3. 4's road request waits out the
+    // the chief hires 3 under the mayor and 4 under 3. 3's create
+    // fails once, so 3 stays hiring. 4's road request waits out the
     // hiring wait and is refused `StillHiring`, and 3 is given
     // nothing.
     let (realm, hamlet) = hamlet_with(0).await;

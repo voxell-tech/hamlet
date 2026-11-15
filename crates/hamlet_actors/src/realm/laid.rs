@@ -167,7 +167,6 @@ pub(super) async fn laid_at(
         .map(At))
 }
 
-/// The open laid roads whose two ends are not ended.
 const LIVE_ROADS: &str = "road JOIN agent AS one ON one.id = road.a \
                           JOIN agent AS other ON other.id = road.b \
                           WHERE road.up_at IS NULL AND one.status \

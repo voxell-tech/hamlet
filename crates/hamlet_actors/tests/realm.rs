@@ -117,7 +117,6 @@ impl Seen {
         Ok(())
     }
 
-    /// Fails the next `callee` call for `agent`, and no other.
     fn fail_once(&self, callee: Callee, agent: AgentNumber) {
         self.failing.lock().unwrap().insert((callee, agent));
     }
