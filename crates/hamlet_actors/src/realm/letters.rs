@@ -22,7 +22,7 @@ use super::change::{self, Affected, Rows, Writer, number};
 use super::peer::When;
 use super::roads::{self, Ends, Way};
 use super::tasks::TaskId;
-use super::tree::Status;
+use super::tree::{self, Status};
 use super::{Realm, hire, laid};
 
 type Sent = Done<AgentRefusal<LetterRefusal>>;
@@ -308,6 +308,12 @@ impl Written<'_> {
             task: self.task.and_then(TaskId::of),
             conversation: self.conversation.cloned(),
         });
+        if to.can_take_purpose
+            && let Some(purpose) =
+                tree::purpose_from(to.agent, self.text)
+        {
+            decided = decided.change(purpose);
+        }
         if way == Way::Laid {
             decided = decided.change(laid::Change::Used {
                 between: (ends.from.agent, to.agent),
@@ -470,6 +476,7 @@ mod tests {
             lead: lead.map(AgentNumber),
             hamlet: Some(HamletId("h".into())),
             is_mayor: lead.is_none(),
+            can_take_purpose: false,
         }
     }
 
@@ -504,6 +511,42 @@ mod tests {
                     to: AgentNumber(4)
                 })
             })
+        );
+    }
+
+    #[test]
+    fn a_question_to_a_hire_with_no_purpose_gives_it_one() {
+        let mut to = end(4, Some(3));
+        to.can_take_purpose = true;
+        let letter = Letter {
+            ends: Ends {
+                from: end(3, Some(2)),
+                to: Some(to),
+                laid: false,
+            },
+            id: LetterId(1),
+        };
+        let ask = Ask {
+            to: Named::Agent {
+                agent: AgentNumber(4),
+            },
+            text: "Why the well?".into(),
+            conversation: ConversationId("c".into()),
+            task: None,
+        };
+
+        let Decision::Change(decided) = ask.decide(&sender(), letter)
+        else {
+            panic!("3 asks its hire 4");
+        };
+        assert!(
+            decided.changes.contains(
+                &tree::Change::Purpose {
+                    hire: AgentNumber(4),
+                    text: "Why the well?".to_owned(),
+                }
+                .into()
+            )
         );
     }
 

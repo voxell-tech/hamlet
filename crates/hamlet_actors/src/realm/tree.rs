@@ -48,6 +48,31 @@ pub(super) struct Lineage {
     pub hamlet: Option<chiefs::Hamlet>,
 }
 
+impl Member {
+    /// Whether the first line of the next message it is given becomes
+    /// its purpose (H40).
+    pub fn can_take_purpose(&self) -> bool {
+        self.kind == AgentKind::Hire && !self.has_purpose
+    }
+}
+
+/// The most characters of a line a purpose keeps.
+const PURPOSE_KEPT: usize = 200;
+
+/// The purpose a message gives `hire`: the first line of `text` that
+/// is not blank, trimmed and cut to [`PURPOSE_KEPT`].
+pub(super) fn purpose_from(
+    hire: AgentNumber,
+    text: &str,
+) -> Option<Change> {
+    let line =
+        text.lines().map(str::trim).find(|line| !line.is_empty())?;
+    Some(Change::Purpose {
+        hire,
+        text: line.chars().take(PURPOSE_KEPT).collect(),
+    })
+}
+
 impl Lineage {
     /// Whether `lead` is the agent's lead, or a lead of its leads, or
     /// the Hand (H41). An ended lead leads nothing.

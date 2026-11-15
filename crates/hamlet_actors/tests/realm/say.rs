@@ -2,22 +2,14 @@ use std::time::Duration;
 
 use hamlet_actors::realm;
 use hamlet_messages::agent::{Input, InputId, Submit};
-use hamlet_messages::realm::client::{Say, SayAnswer, SayRefusal};
+use hamlet_messages::realm::client::{SayAnswer, SayRefusal};
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::AgentNumber;
-use hamlet_protocol::client::{self as protocol, AgentId, RequestId};
+use hamlet_protocol::client::RequestId;
 
-use super::{Callee, MAYOR, Realm, Seen, error_code, founded, until};
-
-fn say(id: &RequestId, to: AgentNumber, text: &str) -> Say {
-    Say(protocol::Say {
-        files: Vec::new(),
-        id: id.clone(),
-        images: Vec::new(),
-        text: text.to_owned(),
-        to: AgentId(u64::from(to.0)),
-    })
-}
+use super::{
+    Callee, MAYOR, Realm, Seen, error_code, founded, say, until,
+};
 
 fn submits_to(realm: &Realm, agent: AgentNumber) -> Vec<Submit> {
     realm

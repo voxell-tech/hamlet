@@ -24,6 +24,7 @@ use hamlet_messages::agent::{
     AgentInput, Fill, Place, PlaceVersion, Submit,
 };
 use hamlet_messages::profile::Branch;
+use hamlet_messages::realm::client::Say;
 use hamlet_messages::realm::world::{ReachSeen, Status};
 use hamlet_messages::realm::{
     Asked, Found, FoundAnswer, HamletId, ProfileId, Tier, Tool,
@@ -33,7 +34,7 @@ use hamlet_messages::workspace::{
     AgentNumber, AnswerTaken, CallId, ChiefAnswer, InForce,
     ReachVersion, SetReach,
 };
-use hamlet_protocol::client::RequestId;
+use hamlet_protocol::client::{self as protocol, AgentId, RequestId};
 use hamlet_testing::Scratch;
 use rusqlite::{Connection, OpenFlags};
 use serde::de::DeserializeOwned;
@@ -595,6 +596,31 @@ async fn founded(realm: &Realm) -> HamletId {
         panic!("the chief founds a hamlet with mayor 2: {answer:?}");
     };
     hamlet
+}
+
+fn say(id: &RequestId, to: AgentNumber, text: &str) -> Say {
+    Say(protocol::Say {
+        files: Vec::new(),
+        id: id.clone(),
+        images: Vec::new(),
+        text: text.to_owned(),
+        to: AgentId(u64::from(to.0)),
+    })
+}
+
+async fn purpose_of(
+    realm: &Realm,
+    agent: AgentNumber,
+) -> Option<String> {
+    realm
+        .rows(|db| {
+            db.query_row(
+                "SELECT purpose FROM hire WHERE agent = ?1",
+                [agent.0],
+                |row| row.get(0),
+            )
+        })
+        .await
 }
 
 fn tool<T>(call: &str, act: T) -> Tool<T> {

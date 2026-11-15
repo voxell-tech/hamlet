@@ -1,7 +1,7 @@
 //! A chief's line to an agent.
 
 use anyhow::Result;
-use hamlet_messages::agent::{AgentKind, Input, InputId, Submit};
+use hamlet_messages::agent::{Input, InputId, Submit};
 use hamlet_messages::realm::Refusable;
 use hamlet_messages::realm::client::{Say, SayAnswer, SayRefusal};
 use hamlet_messages::sender::Client;
@@ -13,9 +13,6 @@ use super::change::Rows;
 use super::tasks::{self, TaskId};
 use super::tree::{self, Lineage, Status};
 use super::{chiefs, hire};
-
-/// The most characters of a line a purpose keeps.
-const PURPOSE_KEPT: usize = 200;
 
 pub(super) struct Target {
     /// `None` when no agent has that number.
@@ -76,14 +73,11 @@ impl Act<Client> for Say {
                         payer: chiefs::payer_of(&lineage),
                     },
                 );
-                if agent.kind == AgentKind::Hire
-                    && !agent.has_purpose
-                    && let Some(text) = first_line(&self.0.text)
+                if agent.can_take_purpose()
+                    && let Some(purpose) =
+                        tree::purpose_from(agent.agent, &self.0.text)
                 {
-                    decided = decided.change(tree::Change::Purpose {
-                        hire: agent.agent,
-                        text,
-                    });
+                    decided = decided.change(purpose);
                 }
                 Decision::Change(decided)
             }
@@ -124,17 +118,10 @@ fn to(say: &Say) -> Option<AgentNumber> {
     u32::try_from(say.0.to.0).ok().map(AgentNumber)
 }
 
-/// The first line of `text` that is not blank, trimmed and cut to
-/// [`PURPOSE_KEPT`], as a hire's purpose.
-fn first_line(text: &str) -> Option<String> {
-    let line =
-        text.lines().map(str::trim).find(|line| !line.is_empty())?;
-    Some(line.chars().take(PURPOSE_KEPT).collect())
-}
-
 #[cfg(test)]
 mod tests {
     use hamlet_actor::Action as _;
+    use hamlet_messages::agent::AgentKind;
     use hamlet_messages::realm::budget::Payer;
     use hamlet_messages::realm::{HamletId, HowEnded, Left, Tier};
     use hamlet_messages::sender::Hand;
