@@ -1,7 +1,3 @@
-//! The world a client reads: a copy in memory, rebuilt from the rows
-//! after each commit a client sees, so a read takes no SQL and waits
-//! for no transaction.
-
 use std::collections::BTreeSet;
 use std::mem;
 use std::sync::{Arc, PoisonError, RwLock};
@@ -48,8 +44,6 @@ pub(super) type World = Seen;
 
 pub(super) struct Held {
     current: RwLock<Arc<World>>,
-    /// Taken for a whole rebuild, so each copy reads the rows after
-    /// the one before it did.
     rebuilding: Mutex<()>,
 }
 
@@ -77,10 +71,6 @@ impl Held {
             .clone()
     }
 
-    /// Rebuilds the parts `affected` names, as of `revision`, and
-    /// swaps the copy in when its revision is newer. A copy that
-    /// missed the revision before rebuilds every part, so a failed or
-    /// late refresh loses nothing.
     pub async fn refresh(
         &self,
         ctx: &Ctx<Realm>,
@@ -188,7 +178,6 @@ async fn agents(rows: &Rows<'_>) -> Result<Vec<AgentSeen>> {
     Ok(agents)
 }
 
-/// No reach row means the realm has set none.
 fn reach(wanted: Option<u64>, applied: Option<u64>) -> ReachSeen {
     match (wanted, applied) {
         (None, _) => ReachSeen::None,
@@ -255,7 +244,6 @@ async fn waits(rows: &Rows<'_>) -> Result<Vec<WaitSeen>> {
         .collect())
 }
 
-/// The realm pays only once its row is written at the first start.
 async fn spend(rows: &Rows<'_>) -> Result<Vec<Spend>> {
     let realm = rows
         .value::<i64>("SELECT id FROM realm", Vec::new())

@@ -15,7 +15,6 @@ use super::tree::{self, Lineage, Status};
 use super::{chiefs, hire};
 
 pub(super) struct Target {
-    /// `None` when no agent has that number.
     lineage: Option<Lineage>,
     task: TaskId,
 }
@@ -84,8 +83,6 @@ impl Act<Client> for Say {
         }
     }
 
-    /// The line is in no row: a repeat carries it again, and the
-    /// agent takes it once by the request's id.
     fn deliveries(&self, _by: &Client, task: &TaskId) -> Calls {
         to(self).map_or_else(Calls::none, |to| {
             Calls::before_answer(Delivery::Line {
@@ -113,7 +110,6 @@ impl Act<Client> for Say {
     }
 }
 
-/// `None` for a number no agent can have.
 fn to(say: &Say) -> Option<AgentNumber> {
     u32::try_from(say.0.to.0).ok().map(AgentNumber)
 }

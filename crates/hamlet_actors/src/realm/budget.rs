@@ -21,8 +21,6 @@ use super::tasks::{self, TaskId};
 use super::world::Part;
 use super::{laid, tree};
 
-/// The `agent` of a road's charge: no agent has it, so no model
-/// call's charge shares a road's key.
 const ROAD: AgentNumber = AgentNumber(0);
 
 #[derive(Debug, PartialEq)]
@@ -35,8 +33,6 @@ pub(super) enum Change {
         micros: u32,
         took_ms: u32,
     },
-    /// A laid road's price, charged to its hamlet once per laying
-    /// (H3). The road is laid first.
     Road {
         a: AgentNumber,
         b: AgentNumber,
@@ -178,8 +174,6 @@ impl Spent {
     }
 }
 
-/// A reset counts the charges strictly after it, so one in the same
-/// millisecond as the reset is not counted.
 pub(super) async fn spent(
     rows: &Rows<'_>,
     payer: &Payer,
@@ -206,8 +200,6 @@ pub(super) async fn spent(
     })
 }
 
-/// When the period holding `rows.at()` began, by the machine's local
-/// clock (H8).
 async fn began(
     rows: &Rows<'_>,
     period: limits::Period,
@@ -323,7 +315,6 @@ impl Act<Agent> for Charge {
     fn answer(&self, (): (), _made: &Made) {}
 }
 
-/// Whether the realm holds the payer a reset names.
 pub(super) enum PayerRow {
     Held,
     Missing,

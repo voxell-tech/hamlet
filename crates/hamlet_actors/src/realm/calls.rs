@@ -148,8 +148,6 @@ pub(super) async fn after_answer(
     deliver_all(&realm, &ctx, deliveries, When::AfterAnswer).await;
 }
 
-/// Makes every push, logging each that fails, and gives how many
-/// failed.
 pub(super) async fn push_all(
     realm: &Arc<Realm>,
     ctx: &Ctx<Realm>,

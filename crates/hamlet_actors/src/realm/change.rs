@@ -264,7 +264,6 @@ columns!(
     (A a, B b, C c, D d, E e, F f),
 );
 
-/// An integer, such as an id, as the column that holds it.
 pub(super) fn integer<N>(n: N) -> Result<BindParam>
 where
     i64: TryFrom<N>,

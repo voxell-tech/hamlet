@@ -11,8 +11,6 @@ use super::{
     say, submits_to, until,
 };
 
-/// Holds the branch, then founds a hamlet whose mayor's drive waits
-/// on it.
 async fn mayor_held_at_its_branch(realm: &Realm) {
     realm.live(Hand::NUMBER).await;
     realm.seen.hold(Callee::Branch);

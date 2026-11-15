@@ -96,7 +96,6 @@ impl<By: Lead> Act<By> for SetTools {
     }
 }
 
-/// Turns `off` off, then `on` on, so a tool in both ends on.
 pub(in crate::realm) async fn set(
     writer: &Writer<'_>,
     hire: AgentNumber,

@@ -1,5 +1,3 @@
-//! A hamlet's tier, set by the chief (H6).
-
 use anyhow::Result;
 use hamlet_actor::BindParam;
 use hamlet_messages::realm::{

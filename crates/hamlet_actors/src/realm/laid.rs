@@ -54,7 +54,6 @@ pub(super) async fn apply(
     }
 }
 
-/// The road's key, its lower end first.
 fn key(a: AgentNumber, b: AgentNumber) -> Vec<BindParam> {
     vec![number(a.min(b)), number(a.max(b))]
 }
@@ -77,8 +76,6 @@ async fn lay(
         BindParam::Text(hamlet.0),
         BindParam::Integer(writer.at().0),
     ]);
-    // A laying's charge is keyed by `at`, so a road laid again gets a
-    // later one even within the same millisecond.
     writer
         .execute(
             "INSERT INTO road (a, b, hamlet, at) VALUES (?1, ?2, \
@@ -107,8 +104,6 @@ async fn take_up(
     Ok(moved(a, b))
 }
 
-/// A road unused past its days is only shown so: it still carries
-/// letters (H3).
 async fn used(
     writer: &Writer<'_>,
     (a, b): (AgentNumber, AgentNumber),
@@ -158,7 +153,6 @@ pub(super) async fn of(
         .collect())
 }
 
-/// When the road between `a` and `b` was last laid.
 pub(super) async fn laid_at(
     rows: &Rows<'_>,
     a: AgentNumber,
@@ -173,7 +167,6 @@ pub(super) async fn laid_at(
         .map(At))
 }
 
-/// The open laid roads of `hamlet` whose ends have not ended.
 async fn open_in(rows: &Rows<'_>, hamlet: &HamletId) -> Result<u32> {
     Ok(rows
         .value(
@@ -190,7 +183,6 @@ async fn open_in(rows: &Rows<'_>, hamlet: &HamletId) -> Result<u32> {
 pub(super) struct Laying {
     ends: Option<(Lineage, Lineage)>,
     laid: bool,
-    /// The open laid roads of the first end's hamlet.
     in_hamlet: u32,
 }
 

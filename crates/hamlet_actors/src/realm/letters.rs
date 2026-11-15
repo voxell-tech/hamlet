@@ -193,7 +193,6 @@ async fn letter_input(
     Ok((AgentNumber(receiver), submit))
 }
 
-// The asker's turn on the answer is paid as its question was.
 async fn answer_input(
     rows: &Rows<'_>,
     question: LetterId,
@@ -254,7 +253,6 @@ impl Letter {
     }
 }
 
-/// A letter or a question as its sender wrote it.
 struct Written<'a> {
     kind: Kind,
     text: &'a str,

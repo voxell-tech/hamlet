@@ -9,8 +9,6 @@ use super::{
     hire, hired, tool, until,
 };
 
-/// The places `agent` was created with and then sent, as (version,
-/// hires).
 fn places_of(
     realm: &Realm,
     agent: AgentNumber,
@@ -44,7 +42,6 @@ async fn places_reach(
     .await;
 }
 
-/// Whether `agent` was sent a place with a road to `to`.
 fn sent_a_road(
     realm: &Realm,
     agent: AgentNumber,

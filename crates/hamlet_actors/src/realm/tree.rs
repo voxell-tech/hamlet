@@ -28,8 +28,6 @@ pub(super) enum Status {
 }
 
 impl Status {
-    /// The status of an agent's row, from its `status`, `ended_how`
-    /// and `ended_why`.
     pub fn of_row(
         agent: AgentNumber,
         status: &str,
@@ -73,14 +71,11 @@ pub(super) struct Lineage {
 }
 
 impl Member {
-    /// Whether the first line of the next message it is given becomes
-    /// its purpose (H40).
     pub fn can_take_purpose(&self) -> bool {
         self.kind == AgentKind::Hire && !self.has_purpose
     }
 }
 
-/// A purpose as a hire is given it: trimmed, and none when blank.
 pub(super) fn given_purpose(purpose: Option<&str>) -> Option<String> {
     purpose
         .map(str::trim)
@@ -88,11 +83,8 @@ pub(super) fn given_purpose(purpose: Option<&str>) -> Option<String> {
         .map(str::to_owned)
 }
 
-/// The most characters of a line a purpose keeps.
 const PURPOSE_KEPT: usize = 200;
 
-/// The purpose a message gives `hire`: the first line of `text` that
-/// is not blank, trimmed and cut to [`PURPOSE_KEPT`].
 pub(super) fn purpose_from(
     hire: AgentNumber,
     text: &str,
@@ -182,7 +174,6 @@ async fn hamlet_of(
         .map(HamletId))
 }
 
-/// The agent `by` is, or none for the chief.
 fn caller(by: &impl Decider) -> Option<AgentNumber> {
     match by.by() {
         record::By::Agent(agent) => Some(agent),
@@ -200,8 +191,6 @@ async fn own_hamlet(
     }
 }
 
-/// The agent `named` names as `by` names it: `mayor` is the mayor of
-/// `by`'s own hamlet.
 pub(in crate::realm) async fn named(
     rows: &Rows<'_>,
     by: &impl Decider,

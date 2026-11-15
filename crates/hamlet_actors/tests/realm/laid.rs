@@ -27,7 +27,6 @@ fn tools(off: &[SocietyTool], on: &[SocietyTool]) -> SetTools {
     }
 }
 
-/// Waits until the last place sent to `agent` holds.
 async fn placed(
     realm: &Realm,
     agent: AgentNumber,
@@ -62,7 +61,6 @@ async fn roads_seen(realm: &Realm, roads: &[(u32, u32)]) -> Seen {
     .await
 }
 
-/// The charges of laid roads, read with the realm stopped.
 async fn road_charges(realm: &Realm) -> i64 {
     realm
         .rows(|db| {

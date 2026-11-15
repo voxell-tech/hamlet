@@ -20,7 +20,6 @@ fn nothing_waits(wait: &str) -> Done<AnswerRefusal> {
     }
 }
 
-/// `agent`'s waits: each id, whether it is open, and its choice.
 async fn waits_of(
     realm: &Realm,
     agent: AgentNumber,

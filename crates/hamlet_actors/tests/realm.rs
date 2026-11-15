@@ -470,7 +470,6 @@ impl Realm {
         decoded(&call(&self.host, from, &forward).await?)
     }
 
-    /// Waits for `agent`'s hire to be live, with its reach applied.
     async fn live(&self, agent: AgentNumber) {
         world::seen_until(
             self,
@@ -602,8 +601,6 @@ async fn founded(realm: &Realm) -> HamletId {
     hamlet
 }
 
-/// A realm with a hamlet whose mayor has `count` live hires, from
-/// agent 3 up.
 async fn hamlet_with(count: u32) -> (Realm, HamletId) {
     let realm = Realm::start().await;
     realm.live(Hand::NUMBER).await;
@@ -631,7 +628,6 @@ fn hired<R>(agent: u32) -> HireAnswer<R> {
     }
 }
 
-/// `lead` hires one hire under itself, as the call `call`.
 async fn hires(realm: &Realm, lead: AgentNumber, call: &str) {
     let hired = realm.tool(lead, &tool(call, hire(None))).await;
     assert!(
@@ -657,7 +653,6 @@ async fn chief_hires(
         .unwrap()
 }
 
-/// The standing task `agent` was made with.
 fn standing(realm: &Realm, agent: AgentNumber) -> RealmTask {
     realm
         .seen
@@ -682,7 +677,6 @@ fn submits_to(realm: &Realm, agent: AgentNumber) -> Vec<Submit> {
         .collect()
 }
 
-/// Waits until `agent` saw `count` inputs, and gives them all.
 async fn seen_submits(
     realm: &Realm,
     agent: AgentNumber,

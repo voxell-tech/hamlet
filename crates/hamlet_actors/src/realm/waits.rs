@@ -23,15 +23,11 @@ use super::peer::When;
 use super::world::Part;
 use super::{Realm, tree};
 
-/// The wait a client names: its number, as the client reads it,
-/// with or without a leading `#`. `None` for a number no row can
-/// have.
 fn named(wait: &str) -> Option<WaitId> {
     let n = wait.trim_start_matches('#').parse::<i64>().ok()?;
     u64::try_from(n).ok().map(WaitId)
 }
 
-/// How long an allow holds, as the row records it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(super) enum Scope {
@@ -156,8 +152,6 @@ pub(super) async fn deliver(
         .await?
         .with_context(|| format!("wait {} has no row", wait.0))?;
     let answer = match choice.as_deref() {
-        // The workspace hears only allow or refuse, so an allow kept
-        // as always acts once.
         Some("allow") => workspace::Answer::Allow,
         Some("refuse") => workspace::Answer::Refuse { reason },
         other => bail!(
@@ -180,7 +174,6 @@ pub(super) async fn deliver(
     Ok(())
 }
 
-/// The agent that needs the chief.
 pub(super) enum Asker {
     Ended,
     NotEnded,
@@ -207,8 +200,6 @@ impl Act<Workspace> for NeedsChief {
         _by: &Workspace,
         asker: Asker,
     ) -> Decision<(), ()> {
-        // The end lapsed this agent's waits; the workspace closes its
-        // own when it hears of the end.
         if let Asker::Ended = asker {
             return Decision::Answer(());
         }
@@ -222,7 +213,6 @@ impl Act<Workspace> for NeedsChief {
 
 impl Act<Client> for Answer {
     type Output = Done<AnswerRefusal>;
-    /// The open wait it names.
     type Loaded = Option<WaitId>;
     type Done = WaitId;
 

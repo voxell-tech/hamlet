@@ -1,8 +1,3 @@
-//! The push of a place: after a commit that moved an agent's lead,
-//! its hires, its roads or its tools, the agent is sent its place as
-//! the rows give it then. The agent keeps only a newer version, so a
-//! push sent twice, or late, does no harm.
-
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -14,9 +9,6 @@ use super::super::change::Rows;
 use super::super::peer::When;
 use super::super::{Realm, tree};
 
-/// Sends `agent` its place. A failed call is the caller's to log: the
-/// agent's copy stays old until the next change to its place. An
-/// agent that has ended is sent nothing, since its place is moot.
 pub(in crate::realm) async fn send(
     realm: &Arc<Realm>,
     ctx: &Ctx<Realm>,

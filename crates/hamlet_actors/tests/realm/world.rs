@@ -18,7 +18,6 @@ use super::{
     decoded, founded, hamlet_with, needs, standing, tool, until,
 };
 
-/// Reads the world until `holds` holds for it.
 pub(super) async fn seen_until(
     realm: &Realm,
     what: &str,

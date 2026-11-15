@@ -159,9 +159,6 @@ impl Cx<'_> {
         &self.realm.peers
     }
 
-    /// Commits `changes` before the step's call, and makes every push
-    /// they set off, waiting for each. A push that fails is logged,
-    /// and fails the step once the others are made.
     pub async fn commit(
         &self,
         changes: Vec<change::Change>,

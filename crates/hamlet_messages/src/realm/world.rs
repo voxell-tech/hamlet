@@ -87,8 +87,7 @@ pub struct RoadSeen {
     pub b: AgentNumber,
 }
 
-/// The realm's number of a wait for a chief. A client names it in
-/// decimal, as the `wait` of its answer.
+/// The realm's number of a wait for a chief.
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize,
 )]
