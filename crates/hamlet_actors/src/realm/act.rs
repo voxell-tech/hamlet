@@ -1,9 +1,3 @@
-#![expect(
-    dead_code,
-    reason = "the scaffold: U2 to U11 use these, and the integrator \
-              removes this"
-)]
-
 use std::convert::Infallible;
 use std::future::Future;
 use std::sync::Arc;

@@ -1,12 +1,6 @@
 //! The changes to the realm's file as values, and the one
 //! transaction that makes them.
 
-#![expect(
-    dead_code,
-    reason = "the scaffold: U2 to U11 use these, and the integrator \
-              removes this"
-)]
-
 use std::collections::BTreeSet;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};

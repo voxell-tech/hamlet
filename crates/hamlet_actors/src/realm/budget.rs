@@ -18,8 +18,8 @@ use super::calls::Made;
 use super::change::{Affected, Rows, Writer, number};
 use super::chiefs::{self, limits};
 use super::tasks::{self, TaskId};
-use super::tree;
 use super::world::Part;
+use super::{laid, tree};
 
 /// The `agent` of a road's charge: no agent has it, so no model
 /// call's charge shares a road's key.
@@ -35,12 +35,8 @@ pub(super) enum Change {
         micros: u32,
         took_ms: u32,
     },
-    /// A laid road's price, charged to its hamlet once for its two
-    /// ends (H3).
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "U11 lays roads with it")
-    )]
+    /// A laid road's price, charged to its hamlet once per laying
+    /// (H3). The road is laid first.
     Road {
         a: AgentNumber,
         b: AgentNumber,
@@ -124,8 +120,11 @@ async fn road(
         .limits
         .road
         .price;
-    let ends = format!("{}-{}", a.min(b).0, a.max(b).0);
-    charge(writer, ROAD, ends, &Payer::Hamlet { hamlet }, price, 0)
+    let laid = laid::laid_at(&writer.rows(), a, b)
+        .await?
+        .context("a charged road is laid first")?;
+    let laying = format!("{}-{}@{}", a.min(b).0, a.max(b).0, laid.0);
+    charge(writer, ROAD, laying, &Payer::Hamlet { hamlet }, price, 0)
         .await
 }
 
@@ -375,32 +374,57 @@ impl Act<Client> for ResetBudget {
 
 #[cfg(test)]
 mod tests {
+    use super::super::change;
     use super::super::testing::Started;
     use super::*;
 
     #[tokio::test(flavor = "multi_thread")]
-    async fn a_road_is_charged_once_to_its_hamlet() {
+    async fn a_road_is_charged_once_per_laying_to_its_hamlet() {
+        // laid and charged, then charged again: one price. Taken up
+        // and laid again in the same millisecond: a second.
         let started = Started::new().await;
         let hamlet = HamletId("h".to_owned());
         started.found(&hamlet, AgentNumber(2)).await;
-        for (a, b) in [(3, 4), (4, 3)] {
-            started
-                .commit(Change::Road {
-                    a: AgentNumber(a),
-                    b: AgentNumber(b),
-                    hamlet: hamlet.clone(),
-                })
+        let (three, four) = (AgentNumber(3), AgentNumber(4));
+        let lay = || laid::Change::Lay {
+            a: three,
+            b: four,
+            hamlet: hamlet.clone(),
+        };
+        let road = |a, b| Change::Road {
+            a,
+            b,
+            hamlet: hamlet.clone(),
+        };
+        let take_up = laid::Change::TakeUp { a: four, b: three };
+        let price = limits::RoadRules::default().price;
+        let commit = async |changes: Vec<change::Change>| {
+            change::commit(&started.realm, &started.ctx, changes)
                 .await
                 .unwrap();
-        }
+            let rows = started.rows();
+            let payer = Payer::Hamlet {
+                hamlet: hamlet.clone(),
+            };
+            spent(&rows, &payer).await.unwrap().micros
+        };
 
-        let rows = started.rows();
-        let hamlet =
-            spent(&rows, &Payer::Hamlet { hamlet }).await.unwrap();
-        let realm = spent(&rows, &Payer::Realm).await.unwrap();
+        let once =
+            commit(vec![lay().into(), road(three, four).into()])
+                .await;
+        let repeated = commit(vec![road(four, three).into()]).await;
+        let relaid = commit(vec![
+            take_up.into(),
+            lay().into(),
+            road(three, four).into(),
+        ])
+        .await;
+        let realm =
+            spent(&started.rows(), &Payer::Realm).await.unwrap();
+
         assert_eq!(
-            (hamlet.micros, realm.micros),
-            (limits::RoadRules::default().price, 0)
+            (once, repeated, relaid, realm.micros),
+            (price, price, 2 * price, 0)
         );
         started.stop().await;
     }

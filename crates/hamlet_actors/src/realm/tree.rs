@@ -371,7 +371,6 @@ pub(super) enum Change {
     /// `mayor` becomes the root of its hamlet's tree, with the old
     /// mayor under it.
     Seat { mayor: AgentNumber },
-    #[expect(dead_code, reason = "U11 sets tools with it")]
     Tools {
         hire: AgentNumber,
         off: Vec<SocietyTool>,
