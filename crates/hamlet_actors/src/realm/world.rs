@@ -3,6 +3,7 @@
 //! for no transaction.
 
 use std::collections::BTreeSet;
+use std::mem;
 use std::sync::{Arc, PoisonError, RwLock};
 
 use anyhow::{Result, bail};
@@ -16,6 +17,7 @@ use hamlet_messages::realm::world::{
 use hamlet_messages::realm::{HamletId, Left};
 use hamlet_messages::sender::Client;
 use hamlet_messages::workspace::{AgentNumber, CallId, ReachVersion};
+use tokio::sync::Mutex;
 
 use super::act::Look;
 use super::change::{self, Affected, Column as _, Rows};
@@ -46,6 +48,9 @@ pub(super) type World = Seen;
 
 pub(super) struct Held {
     current: RwLock<Arc<World>>,
+    /// Taken for a whole rebuild, so each copy reads the rows after
+    /// the one before it did.
+    rebuilding: Mutex<()>,
 }
 
 impl Held {
@@ -61,6 +66,7 @@ impl Held {
         .await?;
         Ok(Self {
             current: RwLock::new(Arc::new(world)),
+            rebuilding: Mutex::new(()),
         })
     }
 
@@ -81,6 +87,7 @@ impl Held {
         revision: Revision,
         affected: &Affected,
     ) {
+        let _rebuilding = self.rebuilding.lock().await;
         let held = self.current();
         if revision <= held.revision {
             return;
@@ -98,13 +105,14 @@ impl Held {
         .await;
         match built {
             Ok(world) => {
-                let mut current = self
-                    .current
-                    .write()
-                    .unwrap_or_else(PoisonError::into_inner);
-                if current.revision < revision {
-                    *current = Arc::new(world);
-                }
+                let world = Arc::new(world);
+                let _old = mem::replace(
+                    &mut *self
+                        .current
+                        .write()
+                        .unwrap_or_else(PoisonError::into_inner),
+                    world,
+                );
             }
             Err(error) => tracing::warn!(
                 "the world's copy missed revision {}: {error:#}",
