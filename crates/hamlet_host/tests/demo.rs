@@ -142,3 +142,19 @@ fn a_demo_host_with_no_kind_runs_the_counter_the_workspace_and_both_stand_ins()
         ["agent", "counter", "realm", "workspace"]
     );
 }
+
+#[test]
+#[cfg_attr(
+    windows,
+    ignore = "the demo opens no sandbox on Windows, so its \
+              workspace cannot start"
+)]
+fn a_demo_host_with_the_realm_actor_runs_the_workspace_beside_the_kinds_it_names()
+ {
+    let home = Scratch::new("demo-realm-actor");
+    let mut serve =
+        Serve::start(&home, &["--kind", "x", "--realm-actor"]);
+    assert_eq!(serve.ask("realm found h1"), "founded/h1 2");
+    assert_eq!(serve.ask("get k1"), "x/k1 0");
+    assert!(serve.stop());
+}

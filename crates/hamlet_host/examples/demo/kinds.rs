@@ -43,15 +43,13 @@ pub fn factories(
         sleep,
     );
     for (kind, factory) in NAMED {
-        if kinds.iter().any(|named| named == kind) {
+        if realm_actor && kind == address::Workspace::KIND
+            || kinds.iter().any(|named| named == kind)
+        {
             factories.insert(kind.to_owned(), factory());
         }
     }
     if realm_actor {
-        factories.insert(
-            address::Workspace::KIND.to_owned(),
-            workspace::factory(),
-        );
         factories.extend(realm::actor_kinds());
     }
     factories
