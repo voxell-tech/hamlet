@@ -1,17 +1,15 @@
 //! The steps of a hire, from its rows to an agent that is live.
 
-#![expect(
-    unused_variables,
-    dead_code,
-    reason = "the scaffold: U3 fills this file"
-)]
-
 use anyhow::Result;
+use hamlet_messages::address::{Agent, Profile};
+use hamlet_messages::agent::{AgentInput, Fill};
+use hamlet_messages::profile::Branch;
 use hamlet_messages::workspace::AgentNumber;
 
 use super::change::Change;
-use super::not_built;
+use super::peer::When;
 use super::steps::{Cx, Kind, StepId, Steps};
+use super::{place, tasks, tree, versions};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Step {
@@ -59,16 +57,62 @@ pub(super) fn row(agent: AgentNumber) -> StepId {
 }
 
 /// Does `step` of agent `n`'s hire, with no transaction open, and
-/// returns the changes committed with its progress.
+/// returns the changes committed with its progress. Each callee finds
+/// its own earlier work, so a step may run again.
 pub(super) async fn run(
     cx: &Cx<'_>,
     n: u64,
     step: Step,
 ) -> Result<Vec<Change>> {
-    Err(not_built("U3"))
+    let agent = AgentNumber(u32::try_from(n)?);
+    let rows = cx.rows()?;
+    match step {
+        Step::Profile => {
+            let profile = tree::profile_of(&rows, agent).await?;
+            cx.peers().get_or_start(&Profile(profile)).await?;
+        }
+        Step::Branch => {
+            let profile = tree::profile_of(&rows, agent).await?;
+            let named = Branch { name: branch(n) };
+            cx.peers()
+                .call(&Profile(profile), &named, When::AfterAnswer)
+                .await?;
+        }
+        Step::Create => {
+            let input = AgentInput {
+                kind: tree::kind_of(&rows, agent).await?,
+                task: tasks::standing(&rows, agent)
+                    .await?
+                    .on_the_wire(),
+                place: place::of(&rows, agent).await?,
+            };
+            cx.peers().create(&Agent(agent), &input).await?;
+        }
+        Step::Fill => {
+            let fill = Fill {
+                profile: tree::profile_of(&rows, agent).await?,
+                branch: branch(n),
+            };
+            cx.peers()
+                .call(&Agent(agent), &fill, When::AfterAnswer)
+                .await?;
+        }
+        // The commit's push sets the raised reach and records it in
+        // force.
+        Step::Reach => {
+            cx.commit(vec![
+                versions::Change::WantReach(agent).into(),
+            ])
+            .await?;
+        }
+        Step::Live => {
+            return Ok(vec![tree::Change::Live { agent }.into()]);
+        }
+    }
+    Ok(Vec::new())
 }
 
 /// The profile's branch a hire is filled from.
 fn branch(n: u64) -> String {
-    todo!()
+    format!("hires/{n}")
 }

@@ -17,19 +17,8 @@ use super::world::Part;
 #[derive(Debug, PartialEq)]
 pub(super) enum Change {
     /// The agent's reach is to be set.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "U3 wants a reach with it")
-    )]
     WantReach(AgentNumber),
     /// The workspace answered that `version` is in force.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "U3 records a reach in force with it"
-        )
-    )]
     Applied {
         agent: AgentNumber,
         version: ReachVersion,

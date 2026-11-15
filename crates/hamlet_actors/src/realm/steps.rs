@@ -52,10 +52,6 @@ pub(super) enum Change {
         to: &'static str,
     },
     /// The row is driven no further.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "U4 closes rows with it")
-    )]
     Close { row: StepId },
 }
 
@@ -159,7 +155,6 @@ impl Cx<'_> {
         Rows::outside(self.ctx)
     }
 
-    #[expect(dead_code, reason = "U3 calls it")]
     pub fn peers(&self) -> &Peers {
         &self.realm.peers
     }
@@ -197,7 +192,8 @@ async fn drive(realm: Arc<Realm>, ctx: Ctx<Realm>, row: StepId) {
     }
 }
 
-/// Runs each step of `S` after the row's last one done.
+/// Runs each step of `S` after the row's last one done, and closes
+/// the row with the last step of `S`.
 async fn walk<S: Steps>(
     cx: &Cx<'_>,
     id: StepId,
@@ -237,6 +233,9 @@ async fn walk<S: Steps>(
             }
             .into(),
         );
+        if next + 1 == S::ALL.len() {
+            changes.push(Change::Close { row: id }.into());
+        }
         cx.commit(changes).await?;
     }
 }
@@ -456,8 +455,18 @@ mod tests {
         }
 
         assert_eq!(*ran.borrow(), [Two::First, Two::Second]);
-        let read = row(&started.rows(), ROW).await.unwrap().unwrap();
-        assert_eq!(read.done.as_deref(), Some("second"));
+        let rows = started.rows();
+        let read = row(&rows, ROW).await.unwrap().unwrap();
+        assert_eq!(
+            (read.done.as_deref(), read.closed),
+            (Some("second"), true)
+        );
+        let at_start =
+            undone(&rows, &Drives::default()).await.unwrap();
+        assert!(
+            at_start.rows.iter().all(|&(row, _)| row != ROW),
+            "a start drives no finished row"
+        );
         started.stop().await;
     }
 

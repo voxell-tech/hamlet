@@ -261,7 +261,13 @@ macro_rules! columns {
     )+};
 }
 
-columns!((A a), (A a, B b), (A a, B b, C c), (A a, B b, C c, D d));
+columns!(
+    (A a),
+    (A a, B b),
+    (A a, B b, C c),
+    (A a, B b, C c, D d),
+    (A a, B b, C c, D d, E e),
+);
 
 pub(super) fn number(agent: AgentNumber) -> BindParam {
     BindParam::Integer(i64::from(agent.0))

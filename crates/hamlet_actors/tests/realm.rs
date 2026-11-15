@@ -24,7 +24,7 @@ use hamlet_messages::agent::{
     AgentInput, Fill, Place, PlaceVersion, Submit,
 };
 use hamlet_messages::profile::Branch;
-use hamlet_messages::realm::ProfileId;
+use hamlet_messages::realm::{Found, ProfileId, Tier};
 use hamlet_messages::workspace::reach::Reach;
 use hamlet_messages::workspace::{
     AgentNumber, AnswerTaken, ChiefAnswer, InForce, ReachVersion,
@@ -459,17 +459,10 @@ impl Realm {
 
     /// Waits for `agent`'s hire to be live.
     async fn live(&self, agent: AgentNumber) {
+        // The reads below can still repeat `SetReach`: a stop before
+        // the reach step commits runs that step again.
+        self.reach_held(agent).await;
         let begun = Instant::now();
-        // Its reach is the last step that calls, so the reads after,
-        // which stop the realm, make no call twice.
-        while !self.holds_reach(agent) {
-            assert!(
-                begun.elapsed() < DEADLINE,
-                "the workspace holds no reach of agent {}",
-                agent.0
-            );
-            tokio::time::sleep(Duration::from_millis(20)).await;
-        }
         let n = i64::from(agent.0);
         loop {
             let done = self
@@ -497,6 +490,17 @@ impl Realm {
         }
     }
 
+    /// Waits in memory for the workspace to hold `agent`'s reach, its
+    /// hire's last call. A stopped read before it starts the realm
+    /// again, which would do the rest of the steps itself.
+    async fn reach_held(&self, agent: AgentNumber) {
+        until(
+            &format!("the workspace holds agent {}'s reach", agent.0),
+            || self.holds_reach(agent),
+        )
+        .await;
+    }
+
     fn holds_reach(&self, agent: AgentNumber) -> bool {
         self.seen
             .reaches
@@ -511,32 +515,51 @@ impl Realm {
         read: impl FnOnce(&Connection) -> rusqlite::Result<T>,
     ) -> T {
         let realm = address::Realm.address().unwrap();
-        stopped_read(&self.host, &self.scratch, &realm, read)
-            .await
-            .unwrap()
+        stopped_open(
+            &self.host,
+            &self.scratch,
+            &realm,
+            OpenFlags::SQLITE_OPEN_READ_ONLY,
+            read,
+        )
+        .await
+        .unwrap()
+    }
+
+    /// Runs `sql` on the realm's file, which starts the realm again
+    /// as a stopped read does.
+    async fn write(&self, sql: &str) {
+        let realm = address::Realm.address().unwrap();
+        stopped_open(
+            &self.host,
+            &self.scratch,
+            &realm,
+            OpenFlags::default(),
+            |db| db.execute_batch(sql),
+        )
+        .await
+        .unwrap();
     }
 }
 
-/// Reads the file of the actor at `at`. The host holds the file
-/// locked while the actor runs, so the read stops the actor and
+/// Opens the file of the actor at `at` with `flags`. The host holds
+/// the file locked while the actor runs, so this stops the actor and
 /// starts it again.
-async fn stopped_read<T>(
+async fn stopped_open<T>(
     host: &Host,
     dir: &Path,
     at: &Address,
-    read: impl FnOnce(&Connection) -> rusqlite::Result<T>,
+    flags: OpenFlags,
+    open: impl FnOnce(&Connection) -> rusqlite::Result<T>,
 ) -> anyhow::Result<T> {
     host.stop(at, ShutdownKind::Sleep).await?;
     let file = dir
         .join("actors")
         .join(at.kind())
         .join(format!("{}.sqlite", at.key()));
-    let read = read(&Connection::open_with_flags(
-        file,
-        OpenFlags::SQLITE_OPEN_READ_ONLY,
-    )?);
+    let opened = open(&Connection::open_with_flags(file, flags)?);
     host.get_or_start(at).await?;
-    Ok(read?)
+    Ok(opened?)
 }
 
 async fn call<A: Action>(
@@ -548,6 +571,23 @@ async fn call<A: Action>(
     host.get_or_start(&to).await?;
     let args = hamlet_actor::action::encode_positional(action)?;
     decoded(&host.call(&to, A::NAME, args, DEADLINE).await?)
+}
+
+async fn until(what: &str, holds: impl Fn() -> bool) {
+    let begun = Instant::now();
+    while !holds() {
+        assert!(begun.elapsed() < DEADLINE, "never: {what}");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
+fn found(name: &str) -> Found {
+    Found {
+        name: name.to_owned(),
+        mayor: None,
+        tier: Tier::Fifty,
+        purpose: None,
+    }
 }
 
 fn decoded<T: DeserializeOwned>(bytes: &[u8]) -> anyhow::Result<T> {
@@ -662,13 +702,19 @@ async fn a_stopped_read_opens_the_file_and_starts_the_actor_again() {
     let host = open(&scratch, &seen, None).await;
     let workspace = address::Workspace.address().unwrap();
 
-    let tables = stopped_read(&host, &scratch, &workspace, |db| {
-        db.query_row(
-            "SELECT count(*) FROM sqlite_master",
-            [],
-            |row| row.get::<_, i64>(0),
-        )
-    })
+    let tables = stopped_open(
+        &host,
+        &scratch,
+        &workspace,
+        OpenFlags::SQLITE_OPEN_READ_ONLY,
+        |db| {
+            db.query_row(
+                "SELECT count(*) FROM sqlite_master",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+        },
+    )
     .await
     .unwrap();
 

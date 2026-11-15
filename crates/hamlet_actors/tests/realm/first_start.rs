@@ -5,9 +5,9 @@ use super::Realm;
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_new_realm_holds_the_hand_as_agent_1() {
-    // start; read the rows: agent 1 is the Hand, `hiring`, of
-    // profile 1; its hire row is open with no step done; its standing
-    // task is paid by the realm. (Its drive to `live` is U3's check.)
+    // start; read the rows: agent 1 is the Hand of profile 1,
+    // `hiring` or `live` as far as its drive went; its hire row is
+    // closed once `live`; its standing task is paid by the realm.
     let realm = Realm::start().await;
 
     let (agent, profile, row, payer) = realm
@@ -56,9 +56,20 @@ async fn a_new_realm_holds_the_hand_as_agent_1() {
         })
         .await;
 
-    assert_eq!(agent, Some(("hand".to_owned(), "hiring".to_owned())));
+    assert!(
+        matches!(
+            agent.as_ref().map(|(kind, status)| (&**kind, &**status)),
+            Some(("hand", "hiring" | "live"))
+        ),
+        "{agent:?}"
+    );
     assert_eq!(profile.as_deref(), Some("hand"));
-    assert_eq!(row, Some((None, 0)));
+    let (done, closed) = row.unwrap();
+    assert_eq!(
+        closed == 1,
+        done.as_deref() == Some("live"),
+        "{done:?}"
+    );
     let payer =
         serde_json::from_str::<Payer>(&payer.unwrap()).unwrap();
     assert_eq!(payer, Payer::Realm);

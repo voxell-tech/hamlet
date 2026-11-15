@@ -4,6 +4,8 @@
 pub(super) mod limits;
 mod tier;
 
+use std::path::PathBuf;
+
 use anyhow::Result;
 use hamlet_actor::BindParam;
 use hamlet_messages::realm::budget::Payer;
@@ -30,6 +32,8 @@ pub(super) struct Hamlet {
     pub mayor: AgentNumber,
     pub tier: Tier,
     pub limits: limits::Limits,
+    pub folder: Option<PathBuf>,
+    pub mode: Mode,
 }
 
 impl Hamlet {
@@ -49,20 +53,24 @@ pub(super) async fn hamlet(
     rows: &Rows<'_>,
     id: &HamletId,
 ) -> Result<Option<Hamlet>> {
-    rows.row::<(u32, String, String)>(
-        "SELECT mayor, tier, limits FROM hamlet WHERE id = ?1",
-        vec![BindParam::Text(id.0.clone())],
-    )
-    .await?
-    .map(|(mayor, tier, limits)| {
-        Ok(Hamlet {
-            id: id.clone(),
-            mayor: AgentNumber(mayor),
-            tier: change::from_case_name(tier)?,
-            limits: limits::Limits::of_row(&limits)?,
-        })
-    })
-    .transpose()
+    let Some((mayor, tier, limits, folder, mode)) = rows
+        .row::<(u32, String, String, Option<String>, String)>(
+            "SELECT mayor, tier, limits, folder, mode FROM hamlet \
+             WHERE id = ?1",
+            vec![BindParam::Text(id.0.clone())],
+        )
+        .await?
+    else {
+        return Ok(None);
+    };
+    Ok(Some(Hamlet {
+        id: id.clone(),
+        mayor: AgentNumber(mayor),
+        tier: change::from_case_name(tier)?,
+        limits: limits::Limits::of_row(&limits)?,
+        folder: folder.map(PathBuf::from),
+        mode: change::from_case_name(mode)?,
+    }))
 }
 
 pub(super) async fn mayors(
@@ -422,7 +430,7 @@ mod tests {
             None
         );
         let lineage = async |agent| {
-            tree::lineage(&rows, agent).await.unwrap().unwrap()
+            tree::lineage_of(&rows, agent).await.unwrap()
         };
         assert_eq!(
             payer_of(&lineage(AgentNumber(3)).await),

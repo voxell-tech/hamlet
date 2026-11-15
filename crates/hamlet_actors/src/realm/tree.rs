@@ -20,10 +20,6 @@ use super::world::Part;
 use super::{chiefs, record};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "`lineage` reads these for U3 to U6")
-)]
 pub(super) enum Status {
     Hiring,
     Live,
@@ -63,7 +59,6 @@ impl Lineage {
             })
     }
 
-    #[cfg_attr(not(test), expect(dead_code, reason = "U4 calls it"))]
     pub fn is_mayor(&self) -> bool {
         self.hamlet
             .as_ref()
@@ -71,10 +66,6 @@ impl Lineage {
     }
 }
 
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "U3, U4 and U5 call it")
-)]
 pub(super) async fn lineage(
     rows: &Rows<'_>,
     agent: AgentNumber,
@@ -127,13 +118,15 @@ pub(super) async fn lineage(
     }))
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "U3, U4 and U5 call it through `lineage`"
-    )
-)]
+pub(super) async fn lineage_of(
+    rows: &Rows<'_>,
+    agent: AgentNumber,
+) -> Result<Lineage> {
+    lineage(rows, agent)
+        .await?
+        .with_context(|| format!("agent {} has no row", agent.0))
+}
+
 async fn member(
     rows: &Rows<'_>,
     agent: AgentNumber,
@@ -263,15 +256,13 @@ pub(super) async fn profile(
         .map(|id| Profile { id: ProfileId(id) }))
 }
 
-/// The next profile's id: the Hand's is 1.
 pub(super) async fn fresh_profile(
     rows: &Rows<'_>,
 ) -> Result<ProfileId> {
     Ok(ProfileId(u32::try_from(rows.next_id("profile").await?)?))
 }
 
-/// The profile `agent` was hired from: the Hand's is 1.
-#[cfg_attr(not(test), expect(dead_code, reason = "U3 calls it"))]
+/// The profile `agent` was hired from.
 pub(super) async fn profile_of(
     rows: &Rows<'_>,
     agent: AgentNumber,
@@ -288,7 +279,6 @@ pub(super) async fn profile_of(
     .with_context(|| format!("agent {} has no hire row", agent.0))
 }
 
-#[cfg_attr(not(test), expect(dead_code, reason = "U3 calls it"))]
 pub(super) async fn kind_of(
     rows: &Rows<'_>,
     agent: AgentNumber,
@@ -323,10 +313,6 @@ pub(super) enum Change {
         purpose: Option<String>,
     },
     /// The agent is live.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "U3 makes a hire live with it")
-    )]
     Live { agent: AgentNumber },
     /// A hire's purpose, when it has none.
     #[cfg_attr(
@@ -696,7 +682,7 @@ mod tests {
         );
         assert_eq!(
             profile_of(&rows, hire).await.unwrap(),
-            ProfileId(1)
+            HAND_PROFILE
         );
         assert_eq!(
             profile_of(&rows, Hand::NUMBER).await.unwrap(),
