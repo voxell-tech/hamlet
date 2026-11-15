@@ -10,6 +10,19 @@ use anyhow::{Context, Result};
 use hamlet_host::HostRef;
 use hamlet_messages::Message;
 use hamlet_messages::address::Party;
+use serde::Serialize;
+use sha2::{Digest, Sha256};
+
+fn cbor(value: &impl Serialize) -> Result<Vec<u8>> {
+    let mut bytes = Vec::new();
+    ciborium::into_writer(value, &mut bytes)?;
+    Ok(bytes)
+}
+
+/// The hash of `request` that a repeat of its call must match.
+fn request_hash(request: &impl Serialize) -> Result<[u8; 32]> {
+    Ok(Sha256::digest(cbor(request)?).into())
+}
 
 async fn call<M: Message>(
     host: &HostRef,

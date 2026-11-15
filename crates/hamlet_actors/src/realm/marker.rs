@@ -10,12 +10,11 @@ use hamlet_messages::workspace::CallId;
 use hamlet_protocol::client::RequestId;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
-use sha2::Digest as _;
 
 use super::callers::Witness;
 use super::calls::Push;
-use super::cbor;
 use super::change::{Rows, Writer};
+use crate::{cbor, request_hash};
 
 /// The id a repeat carries.
 pub(super) enum Id {
@@ -30,7 +29,7 @@ pub(super) struct Digest(Sha256);
 
 impl Digest {
     pub fn of(call: &impl Serialize) -> Result<Self> {
-        Ok(Self(Sha256(sha2::Sha256::digest(cbor(call)?).into())))
+        Ok(Self(Sha256(request_hash(call)?)))
     }
 }
 

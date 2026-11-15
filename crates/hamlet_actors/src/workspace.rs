@@ -308,7 +308,7 @@ impl Handler<Run> for Workspace {
         if let Some(why) = checked(&run) {
             return Ok(RunAnswer::Refused { why });
         }
-        let request_hash = calls::request_hash(&run)?;
+        let request_hash = crate::request_hash(&run)?.to_vec();
         // Read before the row is opened: past its commit, nothing
         // returns before the command starts.
         let leftovers = self.leftovers.of(i64::from(agent.0));

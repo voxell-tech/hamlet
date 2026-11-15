@@ -131,7 +131,7 @@ pub(super) async fn end(
     tx: &SqliteTransaction,
     end: &CommandEnd,
 ) -> Result<()> {
-    let answer = calls::cbor(end)?;
+    let answer = crate::cbor(end)?;
     tx.execute(
         "UPDATE calls SET state = 'ended', answer = ?1, ended_at = \
          ?2 WHERE id = ?3 AND state = 'running'",

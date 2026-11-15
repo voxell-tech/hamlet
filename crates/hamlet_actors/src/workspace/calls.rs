@@ -7,8 +7,6 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use anyhow::{Context, Result, bail};
 use hamlet_actor_core::{BindParam, ColumnValue, SqliteTransaction};
 use hamlet_messages::workspace::{AgentNumber, CallId};
-use serde::Serialize;
-use sha2::{Digest, Sha256};
 
 /// One row per call. A command's id is its row's. A change records
 /// the path of the new file it is about to make in `temp` until it
@@ -44,19 +42,6 @@ impl Call {
     pub fn is(&self, op: &str, request_hash: &[u8]) -> bool {
         self.op == op && self.request_hash == request_hash
     }
-}
-
-/// The hash of `request` that a repeat of its call must match.
-pub(super) fn request_hash(
-    request: &impl Serialize,
-) -> Result<Vec<u8>> {
-    Ok(Sha256::digest(cbor(request)?).to_vec())
-}
-
-pub(super) fn cbor(value: &impl Serialize) -> Result<Vec<u8>> {
-    let mut bytes = Vec::new();
-    ciborium::into_writer(value, &mut bytes)?;
-    Ok(bytes)
 }
 
 const COLUMNS: &str = "id, op, request_hash, state, answer, temp";

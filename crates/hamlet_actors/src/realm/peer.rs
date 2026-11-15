@@ -15,7 +15,7 @@ use hamlet_messages::Message;
 use hamlet_messages::address::Party;
 use serde::Serialize;
 
-use super::cbor;
+use crate::cbor;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum When {
