@@ -3,10 +3,13 @@ import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { readdirSync } from "node:fs";
 import { test } from "node:test";
+import { setTimeout as sleep } from "node:timers/promises";
 import { inFolder } from "../native/support.ts";
-import { example, MAIN } from "./support.ts";
+import { example, MAIN, startDemo } from "./support.ts";
 
 const SKIP = { skip: process.platform === "win32" };
+
+const ONLY_LINUX = { skip: process.platform !== "linux" };
 
 const NO_LINK = /no link to a Rust host.*launcher.*HAMLET_NODE/;
 
@@ -89,6 +92,58 @@ test(
             assert.equal(none.code, 1, none.stderr);
             assert.match(none.stderr, /--kind/);
             assert.deepEqual(readdirSync(dir), []);
+        });
+    },
+);
+
+/** How many Node hosts the second demo starts before the test stops it. */
+const ATTEMPTS = 5;
+
+test(
+    "each Node host of a second demo on a folder another Node host holds says node.lock is held before it ends, and the first still answers",
+    ONLY_LINUX,
+    async () => {
+        await inFolder(async (dir) => {
+            const first = startDemo(dir);
+            assert.equal(await first.ask("link"), "link/ready 1");
+            const second = spawn(
+                example("demo"),
+                ["--name", "second", "--kind", "spare", "--link", "link"],
+                {
+                    env: {
+                        PATH: process.env.PATH,
+                        HAMLET_HOME: dir,
+                        HAMLET_NODE: process.execPath,
+                    },
+                    stdio: ["ignore", "ignore", "pipe"],
+                    signal: AbortSignal.timeout(60_000),
+                    killSignal: "SIGKILL",
+                },
+            );
+            let stderr = "";
+            second.stderr.on("data", (chunk) => {
+                stderr += chunk;
+            });
+            const closed = once(second, "close");
+            const ended = () =>
+                stderr.match(/the Node host's output ended/g)?.length ?? 0;
+            const until = Date.now() + 30_000;
+            while (ended() < ATTEMPTS) {
+                if (second.exitCode !== null || Date.now() > until) {
+                    assert.fail(
+                        `the second demo started too few Node hosts:\n${stderr}`,
+                    );
+                }
+                await sleep(20);
+            }
+            second.kill("SIGTERM");
+            await closed;
+            const held =
+                stderr.match(/^hamlet node host: .*node\.lock/gm)?.length ?? 0;
+            // A Node host that is starting when the demo stops never reaches the lock.
+            assert.ok(held >= ended() - 1, stderr);
+            assert.equal(await first.ask("make 1"), "agent/1 1");
+            assert.equal(await first.stop(), 0, first.stderr());
         });
     },
 );

@@ -44,7 +44,8 @@ const HELLO_DEADLINE: Duration = Duration::from_secs(30);
 /// How long a welcomed child has to say it is ready.
 const READY_DEADLINE: Duration = Duration::from_secs(120);
 
-/// How long a child has to exit after the goodbye.
+/// How long a child has to exit after the goodbye, or once its link
+/// is closed.
 const EXIT_DEADLINE: Duration = Duration::from_secs(15);
 
 /// The link's ends in the Node host, from [`take_link`] until
@@ -185,7 +186,9 @@ impl Supervisor {
 enum End {
     /// The child is to go, and a new one start.
     Lost,
-    Refused,
+    /// The link is closed, by the child or by a refusal of its hello,
+    /// and the child is to say why on its errors and exit.
+    Closed,
     /// The supervisor shuts down.
     Shutdown,
 }
@@ -313,7 +316,7 @@ async fn session(
                 }
                 Some(Ok(None)) | None => {
                     tracing::warn!("the Node host's output ended");
-                    return End::Lost;
+                    return End::Closed;
                 }
             },
             () = until(deadline) => {
@@ -350,7 +353,7 @@ async fn session(
                         pid,
                         "refused the Node host's hello"
                     );
-                    return End::Refused;
+                    return End::Closed;
                 }
                 if let Err(error) = written {
                     tracing::warn!(
@@ -407,7 +410,7 @@ async fn end_child(
         })
         .await
         .ok(),
-        End::Refused => {
+        End::Closed => {
             tokio::time::timeout(EXIT_DEADLINE, child.tree.ended())
                 .await
                 .ok()
