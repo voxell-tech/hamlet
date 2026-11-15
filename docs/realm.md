@@ -125,7 +125,8 @@ they start in, and the most one may cost.
 ## Starting and stopping
 
 `hamlet_server --home <folder> --port 0` publishes a free loopback address.
-`main` runs a Bevy app with `ServerPlugin` (`lib.rs`), whose runner,
+`main` runs a Bevy app with `bevy_log`'s `LogPlugin` and `ServerPlugin`
+(`lib.rs`), whose runner,
 `serve::runner`, serves. The app's first update opens the realm and
 the rest in `PreStartup`, starts them in `Startup`, and only then
 publishes `server.json` (`startup.rs`). A stop signal takes the server
@@ -141,6 +142,13 @@ sign-in, waits up to 15 s for a credential rotation begun, stops the
 runtimes and removes `server.json`; inputs keep running until then. A
 second SIGINT exits 130. Closing a client
 or window does not stop the server.
+
+The server logs on stderr: readable lines in a terminal, else one JSON
+object per line, as in `server.log`. `RUST_LOG` selects what it logs,
+`info` and above unless it says otherwise. A failure's words have every
+secret the server knows taken out before they are logged. When the
+server cannot serve, its last line is `Error: ` and why, in plain text,
+which the CLI and the launcher show.
 
 ## Starter skills
 

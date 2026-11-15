@@ -8,10 +8,12 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::Result;
+use bevy_log::warn;
 use hamlet_protocol::client::{
     RequestId, SettingsViewWorkspaceMove,
     SettingsViewWorkspaceMoveState,
 };
+use hamlet_sandbox::scrub::scrub_text;
 use hamlet_store::Db;
 use hamlet_store::ids::AgentId;
 
@@ -20,7 +22,6 @@ use super::{Policy, Session, Transport, workspace_of};
 use crate::background::BackgroundResult;
 use crate::clients::check::reply;
 use crate::core::{Core, RemoteWorkspace, UnpushedLodge};
-use crate::diagnostic::{Secrets, tell};
 use crate::jobs::Job;
 use crate::knowledge;
 use crate::knowledge::runner::RepositoryWriteLock;
@@ -192,12 +193,11 @@ impl RemoteWorkspace<'_> {
             let secrets = secrets.to_vec();
             tokio::spawn(async move {
                 if let Err(error) = lodging.push().await {
-                    tell(
-                        Secrets::Listed(&secrets),
-                        format!(
-                            "could not bring a lodge to the \
-                             workspace: {error:#}"
-                        ),
+                    let words =
+                        scrub_text(&secrets, &format!("{error:#}"));
+                    warn!(
+                        "could not bring a lodge to the workspace: \
+                         {words}"
                     );
                 }
             });
@@ -267,7 +267,7 @@ impl Core<'_, '_> {
                     answer: None,
                 });
                 if let Err(error) = lodging.push().await {
-                    failed = Some(hamlet_sandbox::scrub::scrub_text(
+                    failed = Some(scrub_text(
                         &secrets,
                         &format!("{error:#}"),
                     ));

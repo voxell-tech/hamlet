@@ -19,6 +19,7 @@ use bevy_ecs::entity::Entity;
 use bevy_ecs::message::{Message, Messages};
 use bevy_ecs::resource::Resource;
 use bevy_ecs::system::{Commands, Query, ResMut, SystemParam};
+use bevy_log::warn;
 use hamlet_protocol::client::{
     self as protocol, ChatRef, RequestId, ServerMessage, Update,
 };
@@ -31,7 +32,6 @@ use self::asked::ClientConnected;
 use self::check::Protocol;
 use self::connection::Connection;
 use crate::credentials::Credentials;
-use crate::diagnostic::{Secrets, tell};
 use crate::server::InputSender;
 
 pub(crate) fn plugin(app: &mut bevy_app::App) {
@@ -235,13 +235,9 @@ impl Connections<'_, '_> {
                 ),
             };
             if let Err(error) = sent {
-                tell(
-                    Secrets::Of(credentials),
-                    format!(
-                        "a message to client {client} failed: \
-                         {error:#}"
-                    ),
-                );
+                let words =
+                    credentials.scrub_text(&format!("{error:#}"));
+                warn!("a message to client {client} failed: {words}");
             }
         }
     }

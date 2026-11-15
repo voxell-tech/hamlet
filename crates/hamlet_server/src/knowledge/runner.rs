@@ -11,12 +11,13 @@ use anyhow::Result;
 use bevy_ecs::message::Message;
 use bevy_ecs::resource::Resource;
 use bevy_ecs::system::ResMut;
+use bevy_log::error;
 use diesel::connection::SimpleConnection;
 use hamlet_store::Store;
 
 use crate::clock;
 use crate::core::RemoteWorkspace;
-use crate::diagnostic::{Secrets, panicked, tell};
+use crate::diagnostic::panicked;
 use crate::follow_up::InputEffects;
 use crate::jobs::Job;
 use crate::layout::Layout;
@@ -130,21 +131,15 @@ impl Runner {
                         Err(panic) => Some(panicked(&*panic)),
                     };
                     if let Some(failure) = failed {
-                        tell(
-                            Secrets::Fixed,
-                            format!("running jobs: {failure}"),
-                        );
+                        error!("running jobs: {failure}");
                         if hamlet_store::unwind(store.connection())
                             .is_err()
                         {
                             match open(&layout) {
                                 Ok(opened) => store = opened,
-                                Err(error) => tell(
-                                    Secrets::Fixed,
-                                    format!(
-                                        "opening the store for \
-                                         jobs: {error:#}"
-                                    ),
+                                Err(error) => error!(
+                                    "opening the store for jobs: \
+                                     {error:#}"
                                 ),
                             }
                         }

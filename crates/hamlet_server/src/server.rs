@@ -25,15 +25,15 @@ use bevy_ecs::system::{
     ResMut, ScheduleSystem, SystemParam, SystemState,
 };
 use bevy_ecs::world::World;
+use bevy_log::error;
 use hamlet_protocol::client::RequestId;
 use tokio::sync::mpsc;
 
-use crate::closing;
 use crate::core::Core;
-use crate::diagnostic::{self, Secrets, tell};
 use crate::follow_up::discard;
 use crate::realm::Realm;
 use crate::timers::{self, TimerFired};
+use crate::{closing, diagnostic};
 
 /// The one channel inputs arrive on, the error handler, where each
 /// input begins, and who is told when one fails.
@@ -346,10 +346,8 @@ impl Server {
         let failures = self.update()?;
         let core = self.core().map_err(Fatal)?;
         for failure in failures {
-            tell(
-                Secrets::Of(&core.credentials),
-                format!("an input failed: {}", failure.logged),
-            );
+            let words = core.credentials.scrub_text(&failure.logged);
+            error!("an input failed: {words}");
         }
         Ok(())
     }

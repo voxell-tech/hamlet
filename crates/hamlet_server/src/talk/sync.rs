@@ -10,6 +10,7 @@ use bevy_ecs::component::Component;
 use bevy_ecs::entity::Entity;
 use bevy_ecs::resource::Resource;
 use bevy_ecs::system::{Commands, Query, Res, ResMut, SystemParam};
+use bevy_log::error;
 use hamlet_protocol::runtime::{
     self, ModelRef, Picture, ServerMessage,
 };
@@ -20,7 +21,7 @@ use super::conversations::{self, Conversation};
 use super::inputs::{self, Input, Resend};
 use super::runtimes::{Pending, Runtimes};
 use super::{Env, models};
-use crate::diagnostic::{self, Secrets, tell};
+use crate::diagnostic;
 use crate::follow_up::InputEffects;
 use crate::images::Limits;
 use crate::images::fitting::pictures;
@@ -144,12 +145,9 @@ impl ImageFitting<'_, '_> {
                 pictures(&folder, &ids, limits)
             })
             .unwrap_or_else(|panic| {
-                tell(
-                    Secrets::Fixed,
-                    format!(
-                        "fitting images failed: {}",
-                        diagnostic::panicked(&*panic)
-                    ),
+                error!(
+                    "fitting images failed: {}",
+                    diagnostic::panicked(&*panic)
                 );
                 Vec::new()
             });

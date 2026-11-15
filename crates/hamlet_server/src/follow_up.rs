@@ -18,6 +18,7 @@ use bevy_ecs::resource::Resource;
 use bevy_ecs::schedule::IntoScheduleConfigs;
 use bevy_ecs::system::{Commands, In, Res, ResMut};
 use bevy_ecs::world::World;
+use bevy_log::error;
 use hamlet_protocol::runtime::{
     ErrorCode, ProtocolError, ServerMessage,
 };
@@ -31,7 +32,6 @@ use crate::clients::check::{failed, fault};
 use crate::clients::{Connections, OutgoingClientMessage, check};
 use crate::core::{Catalogue, Core, RemoteWorkspace};
 use crate::credentials::Credentials;
-use crate::diagnostic::{Secrets, tell};
 use crate::knowledge::runner::{
     RepositoryWriteLock, Runner, run_due,
 };
@@ -364,7 +364,7 @@ fn run_kept_jobs(
     match run_due(db, &layout, &writing) {
         Ok(done) => remote.owe_pushes(db, &done),
         Err(error) => {
-            tell(Secrets::Fixed, format!("running jobs: {error:#}"));
+            error!("running jobs: {error:#}");
         }
     }
     runner.wake();

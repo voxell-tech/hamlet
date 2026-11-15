@@ -13,6 +13,7 @@ use bevy_ecs::message::Message;
 use bevy_ecs::schedule::IntoScheduleConfigs;
 use bevy_ecs::schedule::common_conditions::on_message;
 use bevy_ecs::system::{Commands, Res, ResMut};
+use bevy_log::warn;
 use hamlet_protocol::runtime::{
     self, AdmittedStatus, ProtocolError, RuntimeMessage,
     ServerMessage, SettledStatus,
@@ -27,7 +28,6 @@ use super::turns::{self, Admission};
 use super::{conversations, items, verdicts};
 use crate::core::Core;
 use crate::credentials::Credentials;
-use crate::diagnostic::{Secrets, tell};
 use crate::follow_up::{InputEffects, keep_or_roll_back_input};
 use crate::providers::FAUX;
 use crate::realm::Realm;
@@ -112,10 +112,9 @@ fn take_in_runtime_line(
     {
         Ok(message) => message,
         Err(error) => {
-            tell(
-                Secrets::Of(&core.credentials),
-                format!("a runtime's line is not a message: {error}"),
-            );
+            let words =
+                core.credentials.scrub_text(&error.to_string());
+            warn!("a runtime's line is not a message: {words}");
             return Ok(());
         }
     };
@@ -246,7 +245,7 @@ fn hello(
     let re = hello.id;
     match refusal {
         Some(words) => {
-            tell(Secrets::Fixed, &words);
+            warn!("{words}");
             core.runtimes.send(from, |v, id| {
                 ServerMessage::Refused(runtime::Refused {
                     id,
@@ -725,10 +724,8 @@ fn error(
     else {
         return Ok(());
     };
-    tell(
-        Secrets::Of(&credentials),
-        format!("{}: {}", runtimes.id(from)?, error.message),
-    );
+    let words = credentials.scrub_text(&error.message);
+    warn!("{}: {words}", runtimes.id(from)?);
     Ok(())
 }
 

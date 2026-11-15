@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 use base64::Engine as _;
+use bevy_log::warn;
 use hamlet_protocol::client::ImageId;
 use hamlet_protocol::runtime::Picture;
 use image::codecs::jpeg::JpegEncoder;
@@ -18,7 +19,6 @@ use image::{
 
 use super::kept::Images;
 use super::{Format, Limits, Unusable};
-use crate::diagnostic::{Secrets, tell};
 
 /// The most pixels of an image that is opened.
 pub(super) const MOST_PIXELS: u64 = 64_000_000;
@@ -49,10 +49,7 @@ pub(crate) fn pictures(
         .filter_map(|id| match images.picture(id, limits) {
             Ok(picture) => Some(picture),
             Err(error) => {
-                tell(
-                    Secrets::Fixed,
-                    format!("an image was left out: {error:#}"),
-                );
+                warn!("an image was left out: {error:#}");
                 None
             }
         })

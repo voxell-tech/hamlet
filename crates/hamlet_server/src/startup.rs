@@ -23,6 +23,7 @@ use bevy_ecs::schedule::IntoScheduleConfigs;
 use bevy_ecs::schedule::common_conditions::{not, resource_exists};
 use bevy_ecs::system::ResMut;
 use bevy_ecs::world::World;
+use bevy_log::{info, warn};
 use hamlet_sandbox::Sandbox;
 use hamlet_store::ids::Actor;
 use serde_json::json;
@@ -167,12 +168,8 @@ fn watch_added_tools(world: &mut World) -> Result {
     let inputs = world.resource::<InputSender>().clone();
     let watching = added::watch(&tools, inputs)
         .inspect_err(|error| {
-            crate::diagnostic::tell(
-                crate::diagnostic::Secrets::Fixed,
-                format!(
-                    "the tools added by hand load only at start: \
-                     {error}"
-                ),
+            warn!(
+                "the tools added by hand load only at start: {error}"
             );
         })
         .ok();
@@ -202,11 +199,6 @@ fn listen(world: &mut World) -> Result {
 /// Publishes the server's address in the realm's `server.json` once
 /// its first update is over, so a client finds it only when the
 /// start is done; it stays while the server serves.
-#[expect(
-    clippy::print_stderr,
-    reason = "the banner is the server's output for whoever started \
-              it"
-)]
 fn publish_address(world: &mut World) -> Result {
     let url =
         format!("ws://{}", world.resource::<Listening>().address);
@@ -223,8 +215,8 @@ fn publish_address(world: &mut World) -> Result {
     });
     write_whole(&layout.server(), &serde_json::to_vec(&address)?)?;
     world.insert_resource(Published(layout.server()));
-    eprintln!(
-        "hamlet_server: holding {}; serving at {url}; Ctrl-C stops",
+    info!(
+        "holding {}; serving at {url}; Ctrl-C stops",
         hamlet_os::fs::path::text(layout.root())
     );
     Ok(())

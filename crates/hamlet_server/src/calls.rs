@@ -21,6 +21,7 @@ use bevy_ecs::entity::Entity;
 use bevy_ecs::lifecycle::HookContext;
 use bevy_ecs::system::{Commands, Query};
 use bevy_ecs::world::DeferredWorld;
+use bevy_log::warn;
 use futures::future::BoxFuture;
 use hamlet_protocol::runtime::{
     self, ConfigureTools, RuntimeMessage, ServerMessage, ToolSpec,
@@ -820,12 +821,11 @@ impl Core<'_, '_> {
                     && let Some(lodging) = &lodging
                     && let Err(error) = lodging.pull().await
                 {
-                    crate::diagnostic::tell(
-                        crate::diagnostic::Secrets::Listed(&secrets),
-                        format!(
-                            "could not bring a lodge home: {error:#}"
-                        ),
+                    let words = hamlet_sandbox::scrub::scrub_text(
+                        &secrets,
+                        &format!("{error:#}"),
                     );
+                    warn!("could not bring a lodge home: {words}");
                 }
                 if let Some(change) = change {
                     outcome

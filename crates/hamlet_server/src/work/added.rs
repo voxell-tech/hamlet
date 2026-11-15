@@ -9,6 +9,7 @@ use bevy_app::App;
 use bevy_ecs::message::Message;
 use bevy_ecs::resource::Resource;
 use bevy_ecs::system::{Res, ResMut};
+use bevy_log::warn;
 use hamlet_os::fs::path::{resolve, text};
 use hamlet_protocol::runtime::{
     DiagnosticSeverity, ServerMessage, ToolSpec, ToolSpecReplay,
@@ -23,7 +24,6 @@ use serde_json::{Map, Value, json};
 use tokio::sync::mpsc;
 
 use crate::core::{Catalogue, ModelTools};
-use crate::diagnostic::{Secrets, tell};
 use crate::follow_up::InputEffects;
 use crate::realm::Realm;
 use crate::server::{AddHandler, InputSender};
@@ -134,10 +134,7 @@ pub(crate) fn reload(
 ) {
     let (added, faults) = load(realm.layout().root());
     for fault in faults.iter().filter(|f| !tools.faults.contains(f)) {
-        tell(
-            Secrets::Fixed,
-            format!("a tool added by hand did not load: {fault}"),
-        );
+        warn!("a tool added by hand did not load: {fault}");
     }
     let catalogue = Catalogue::of(&tools.shells, &added);
     tools.added.0 = added;

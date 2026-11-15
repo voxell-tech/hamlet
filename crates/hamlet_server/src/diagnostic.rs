@@ -1,37 +1,6 @@
-//! The server's diagnostics, on stderr, which is its log.
+//! The words for a panic, to log or answer with.
 
 use std::any::Any;
-use std::fmt::Display;
-
-use serde_json::Value;
-
-use crate::credentials::Credentials;
-
-/// The secrets a diagnostic's words may hold.
-pub(crate) enum Secrets<'a> {
-    /// Any these credentials know.
-    Of(&'a Credentials),
-    /// These, as a task off the loop holds them.
-    Listed(&'a [String]),
-    /// None: the words are a fixed text.
-    Fixed,
-}
-
-/// Writes `words` to the log as one line under the server's name,
-/// with `secrets` removed. The line is a JSON string, so a newline or
-/// a terminal escape in the words cannot break or forge it.
-#[expect(clippy::print_stderr, reason = "stderr is the server's log")]
-pub(crate) fn tell(secrets: Secrets<'_>, words: impl Display) {
-    let mut line = Value::String(format!("hamlet_server: {words}"));
-    match secrets {
-        Secrets::Of(credentials) => credentials.scrub(&mut line),
-        Secrets::Listed(secrets) => {
-            hamlet_sandbox::scrub::scrub_value(secrets, &mut line);
-        }
-        Secrets::Fixed => {}
-    }
-    eprintln!("{line}");
-}
 
 /// The words a handler that panicked gives for it.
 pub(crate) fn panicked(panic: &(dyn Any + Send)) -> String {

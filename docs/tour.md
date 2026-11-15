@@ -182,7 +182,7 @@ double of the remote workspace worker.
 | `clients.rs`, `clients/` | Connections, each an entity whose client's watches and owed replies are entities related to it (`connection.rs`, `Connections`), strict parsing of client messages (`check.rs`), the system for each request (`asked.rs`) and what they share (`requests.rs`), the state and its changes (`state.rs`), transcripts (`fold.rs`) and the chief's documents (`documents.rs`) |
 | `workspace.rs`, `workspace/` | The remote workspace: each agent's session there (`serving.rs`) and a lodge's copy kept in step with the server's (`lodges.rs`) |
 | `providers.rs`, `providers/`, `credentials.rs`, `settings.rs` | The model catalogue, each listed model read into a `Listing` (`listing.rs`), and provider requests, sign-ins, the atomic credentials file and secret removal, and the realm's settings with the process's overrides |
-| `diagnostic.rs`, `clock.rs`, `fault.rs` | The server's one diagnostic, on stderr; the clock; the fault points |
+| `diagnostic.rs`, `clock.rs`, `fault.rs` | The words for a panic; the clock; the fault points |
 
 `realm.sqlite` holds server-owned records, chief documents, runtimes,
 conversations, inputs, waits, charges, markers and jobs. It does not hold
