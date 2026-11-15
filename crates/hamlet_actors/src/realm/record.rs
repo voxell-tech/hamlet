@@ -1,17 +1,25 @@
 //! The `decision` table: the record of what was decided, by whom
-//! and why (H17).
+//! and why (H17), and its reader.
 
 use anyhow::{Result, bail};
 use hamlet_actor::BindParam;
 use hamlet_messages::address::Agent;
-use hamlet_messages::realm::hamlets::{ReadRecord, Record};
-use hamlet_messages::realm::{HamletId, Tier};
+use hamlet_messages::agent::AgentKind;
+use hamlet_messages::realm::hamlets::{
+    ReadRecord, Record, RecordLine,
+};
+use hamlet_messages::realm::{
+    HamletId, HamletRefusal, Refusable, Tier,
+};
 use hamlet_messages::workspace::AgentNumber;
+use serde::{Deserialize, Serialize};
 
-use super::act::{Act, Decision, Unbuilt};
+use super::act::{Act, Decision};
 use super::callers::{RealmWide, Witness};
 use super::calls::Made;
 use super::change::{self, Rows, Writer, number};
+use super::chiefs;
+use super::tree::choices::{self, Chosen};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum By {
@@ -23,7 +31,9 @@ pub(super) enum By {
 pub(super) enum Entry {
     Founded {
         hamlet: HamletId,
+        mayor: AgentNumber,
         by: By,
+        why: Option<String>,
     },
     Hired {
         hire: AgentNumber,
@@ -52,6 +62,7 @@ pub(super) enum Entry {
     Tools {
         hire: AgentNumber,
         by: By,
+        why: Option<String>,
     },
     Tier {
         hamlet: HamletId,
@@ -64,6 +75,32 @@ pub(super) enum Entry {
         hamlet: Option<HamletId>,
         by: By,
     },
+    NamedHamlet {
+        hamlet: HamletId,
+        by: By,
+    },
+    PlacedHamlet {
+        hamlet: HamletId,
+        by: By,
+    },
+    Folder {
+        hamlet: HamletId,
+        by: By,
+    },
+    Mode {
+        hamlet: HamletId,
+        by: By,
+    },
+    Nicknamed {
+        agent: AgentNumber,
+        by: By,
+        why: Option<String>,
+    },
+    Model {
+        of: Chosen,
+        by: By,
+        why: Option<String>,
+    },
 }
 
 pub(super) async fn write(
@@ -72,12 +109,17 @@ pub(super) async fn write(
 ) -> Result<()> {
     for entry in entries {
         let (kind, by, fields) = match entry {
-            Entry::Founded { hamlet, by } => (
+            Entry::Founded {
+                hamlet,
+                mayor,
+                by,
+                why,
+            } => (
                 "founded",
                 by,
                 Fields {
                     hamlet: Some(hamlet),
-                    ..Fields::default()
+                    ..Fields::of(mayor, why)
                 },
             ),
             Entry::Hired { hire, by, why } => {
@@ -95,8 +137,8 @@ pub(super) async fn write(
             Entry::Unroad { a, b, by } => {
                 ("unroad", by, Fields::road(a, b))
             }
-            Entry::Tools { hire, by } => {
-                ("tools", by, Fields::of(hire, None))
+            Entry::Tools { hire, by, why } => {
+                ("tools", by, Fields::of(hire, why))
             }
             Entry::Tier { hamlet, tier, by } => (
                 "tier",
@@ -113,6 +155,32 @@ pub(super) async fn write(
                 Fields {
                     hamlet,
                     ..Fields::default()
+                },
+            ),
+            Entry::NamedHamlet { hamlet, by } => {
+                ("named-hamlet", by, Fields::hamlet(hamlet))
+            }
+            Entry::PlacedHamlet { hamlet, by } => {
+                ("placed-hamlet", by, Fields::hamlet(hamlet))
+            }
+            Entry::Folder { hamlet, by } => {
+                ("folder", by, Fields::hamlet(hamlet))
+            }
+            Entry::Mode { hamlet, by } => {
+                ("mode", by, Fields::hamlet(hamlet))
+            }
+            Entry::Nicknamed { agent, by, why } => {
+                ("nicknamed", by, Fields::of(agent, why))
+            }
+            Entry::Model { of, by, why } => (
+                "model",
+                by,
+                match of {
+                    Chosen::Agent(agent) => Fields::of(agent, why),
+                    Chosen::Hamlet(hamlet) => Fields {
+                        why,
+                        ..Fields::hamlet(hamlet)
+                    },
                 },
             ),
         };
@@ -164,6 +232,13 @@ impl Fields {
         }
     }
 
+    fn hamlet(hamlet: HamletId) -> Self {
+        Self {
+            hamlet: Some(hamlet),
+            ..Self::default()
+        }
+    }
+
     fn road(a: AgentNumber, b: AgentNumber) -> Self {
         Self {
             agent: Some(a),
@@ -174,37 +249,128 @@ impl Fields {
 }
 
 impl By {
-    fn name(&self) -> String {
+    /// The name the `decision` and `model_choice` tables keep.
+    pub fn name(&self) -> String {
         match self {
-            Self::Chief => "chief".to_owned(),
+            Self::Chief => CHIEF.to_owned(),
             Self::Agent(agent) => Agent(*agent).name(),
         }
     }
 }
 
+const CHIEF: &str = "chief";
+
+/// The outcome of an act that only reads: there is none.
+#[derive(Serialize, Deserialize)]
+pub(super) enum Unchanged {}
+
 impl<By: RealmWide> Act<By> for ReadRecord {
     type Output = Record;
-    type Loaded = Unbuilt;
-    type Done = Unbuilt;
+    type Loaded = Record;
+    type Done = Unchanged;
 
     async fn load(
         &self,
         _by: &By,
-        _rows: &Rows<'_>,
-    ) -> Result<Unbuilt> {
-        bail!("not built yet: U9")
+        rows: &Rows<'_>,
+    ) -> Result<Record> {
+        if let Some(hamlet) = &self.hamlet
+            && chiefs::hamlet(rows, hamlet).await?.is_none()
+        {
+            return Ok(Record::refused(HamletRefusal::NoSuchHamlet));
+        }
+        Ok(Record::Read {
+            lines: lines(rows, self.hamlet.as_ref()).await?,
+        })
     }
 
     fn decide(
         &self,
         _by: &By,
-        loaded: Unbuilt,
-    ) -> Decision<Unbuilt, Self::Output> {
-        match loaded {}
+        record: Record,
+    ) -> Decision<Unchanged, Record> {
+        Decision::Answer(record)
     }
 
-    fn answer(&self, done: Unbuilt, _made: &Made) -> Self::Output {
+    fn answer(&self, done: Unchanged, _made: &Made) -> Record {
         match done {}
+    }
+}
+
+/// The decisions of `hamlet`, or the realm's own, oldest first, in
+/// words.
+async fn lines(
+    rows: &Rows<'_>,
+    hamlet: Option<&HamletId>,
+) -> Result<Vec<RecordLine>> {
+    let kept = rows
+        .rows::<(String, Option<u32>, String, Option<String>)>(
+            "SELECT kind, agent, by, why FROM decision WHERE hamlet \
+             IS ?1 ORDER BY id",
+            vec![hamlet.map_or(BindParam::Null, |hamlet| {
+                BindParam::Text(hamlet.0.clone())
+            })],
+        )
+        .await?;
+    let mut lines = Vec::new();
+    for (kind, agent, by, why) in kept {
+        let who = match by.as_str() {
+            CHIEF => CHIEF.to_owned(),
+            agent => name_of(rows, numbered(agent)?).await?,
+        };
+        let subject = match agent {
+            Some(agent) => name_of(rows, AgentNumber(agent)).await?,
+            None => String::new(),
+        };
+        let why = why
+            .filter(|why| !why.is_empty())
+            .map_or_else(String::new, |why| format!(": {why}"));
+        lines.push(RecordLine {
+            text: format!("- {who} {} {subject}{why}", done(&kind)),
+        });
+    }
+    Ok(lines)
+}
+
+fn numbered(by: &str) -> Result<AgentNumber> {
+    match by.strip_prefix("agent/").map(str::parse) {
+        Some(Ok(agent)) => Ok(AgentNumber(agent)),
+        _ => bail!("a decision by `{by}`"),
+    }
+}
+
+/// How `agent` is shown in the record: its address, with its
+/// nickname beside it when it has one, as in `hire#3 (Spade)`.
+async fn name_of(
+    rows: &Rows<'_>,
+    agent: AgentNumber,
+) -> Result<String> {
+    let n = agent.0;
+    let address = match super::tree::kind_of(rows, agent).await? {
+        AgentKind::Hand => "hand".to_owned(),
+        AgentKind::Hire => format!("hire#{n}"),
+        AgentKind::Worker => format!("worker#{n}"),
+        AgentKind::Errand => bail!("errand {n} decided something"),
+    };
+    Ok(match choices::nickname(rows, agent).await? {
+        Some(nickname) => format!("{address} ({nickname})"),
+        None => address,
+    })
+}
+
+/// What a decision of `kind` did, after who made it.
+fn done(kind: &str) -> &'static str {
+    match kind {
+        "founded" => "founded the hamlet under",
+        "hired" => "hired",
+        "ended" => "ended",
+        "seated" => "gave the office to",
+        "model" => "chose the model of",
+        "tools" => "changed the tools of",
+        "road" => "laid a road from",
+        "unroad" => "took up a road from",
+        "nicknamed" => "nicknamed",
+        _ => "changed",
     }
 }
 

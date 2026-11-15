@@ -259,6 +259,14 @@ impl<By: RealmWide> Act<By> for Found {
                 FoundRefusal::EmptyName,
             ));
         }
+        let purpose = tree::given_purpose(self.purpose.as_deref());
+        // A chief's hamlet may leave its mayor's purpose to the first
+        // line; an agent says what it founds for.
+        if purpose.is_none() && by.by() != record::By::Chief {
+            return Decision::Answer(FoundAnswer::refused(
+                FoundRefusal::NoPurpose,
+            ));
+        }
         let Founding { of, hamlet, mayor } = founding;
         let of = match of {
             Ok(of) => of,
@@ -281,9 +289,7 @@ impl<By: RealmWide> Act<By> for Found {
                     hamlet: hamlet.clone(),
                     lead: None,
                     of,
-                    purpose: tree::given_purpose(
-                        self.purpose.as_deref(),
-                    ),
+                    purpose: purpose.clone(),
                 })
                 .change(tasks::Change::Standing {
                     agent: mayor,
@@ -296,7 +302,9 @@ impl<By: RealmWide> Act<By> for Found {
                 })
                 .record(record::Entry::Founded {
                     hamlet,
+                    mayor,
                     by: by.by(),
+                    why: purpose,
                 }),
         )
     }
