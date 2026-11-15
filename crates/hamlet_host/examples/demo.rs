@@ -15,8 +15,10 @@
 //!                               `realm` alone
 //! --link                        run the agents in a Node host, this
 //!                               host's child, and wait for it
-//!                               before the first command; its
-//!                               commands are in demo/link.rs
+//!                               before the first command. Its
+//!                               commands, and the route table the
+//!                               host then uses whatever --kind
+//!                               says, are in demo/link.rs
 //!
 //! demo increment <key> [times]  add one per time, each in a transaction
 //! demo get <key>                print the count
