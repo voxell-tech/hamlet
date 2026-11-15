@@ -78,7 +78,7 @@ it, and it is not edited here.
 | `hamlet_actor_client` | A Rust client that calls actors |
 | `hamlet_actor_wire` | The actor runtime's shared types and versioned wire formats, generated from the schemas in `schemas/` |
 | `hamlet_actor_error`, `hamlet_actor_error_macros` | The actor runtime's structured errors and the derive that declares them |
-| `hamlet_host` | Runs actors in this process, each in one plain SQLite file; the `demo` example, its counter actor and its stand-ins for the realm and an agent; fault points behind the `faults` feature |
+| `hamlet_host` | Runs actors in this process, each in one plain SQLite file; the `demo` example, its counter actor, its stand-ins for the realm and an agent, and its `demo profile` and `demo library` commands; fault points behind the `faults` feature |
 | `hamlet_address` | An actor's address, the name rule for its kind and key, and `Caller`, who made a call, as a host stamps it |
 | `hamlet_actors` | Hamlet's actors on the actor host: the `workspace`, which runs the agents' commands and file changes within each agent's reach; the `profile`, a profile's repository; the `library`, the shared skills |
 | `hamlet_messages` | The calls Hamlet's actors make to each other and their answers, one module per actor that takes them, and the CBOR fixture of each |
@@ -303,7 +303,11 @@ reaches, answers for the realm's secrets with one made-up secret and
 answers waits as a chief; and `examples/demo/agent.rs`, the actor
 `agent/<n>`, which makes `actors/agent/<n>.fs/` as it starts, runs
 scripts and tools, reads and writes files, and keeps each `Finished` it
-is told. `tests/local.rs` tests the host,
+is told. `demo profile` and `demo library`, in
+`examples/demo/profile.rs` and `examples/demo/library.rs`, drive a
+[profile and the library](#the-profile-and-library-actors) through
+stand-ins for the realm and the agents, which call as themselves and
+print what they are told. `tests/local.rs` tests the host,
 `tests/create.rs` tests `create`, and `tests/access.rs` tests what an
 actor reaches of its host, its calls to other actors included.
 `tests/timer.rs` tests one-shots that come due as their actor sleeps or
@@ -506,10 +510,12 @@ agents.
 Both take every call through `src/repo.rs`, the one way to a
 repository and the store beside it: `admit` checks the caller, and an
 action runs a closure through `Call::read`, `Call::once` (once per id,
-alone, the store's marker written in the same commit) or
-`Call::refuse`. A unit a kill cut off is finished by its repeat;
-a start finishes a cut-off purge, removes stale locks and the rows of
-a cut-off save, and writes `library/` again.
+alone, the store's marker written in the same commit), `Call::fresh`
+(the id checked before the action calls other actors, as a purge
+does) or `Call::refuse`. A unit a kill cut off is finished by its
+repeat; a start finishes a cut-off purge, removes stale locks and
+writes `library/` again. The parts of a save or an offer come in
+order, and their rows outlive a sleep and a restart.
 `repo/git.rs` reaches the repository through `hamlet_git`,
 `repo/store.rs` the store, `repo/checkout.rs` a checkout on disk, and
 `repo/parts.rs` the files sent in parts. `hamlet_git/src/purge.rs`
