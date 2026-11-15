@@ -2392,7 +2392,6 @@ fn now_ms() -> i64 {
 
 #[cfg(test)]
 #[path = "../examples/demo/counter.rs"]
-#[expect(dead_code, reason = "these tests never use `Sleep::Never`")]
 mod counter;
 
 #[cfg(test)]
