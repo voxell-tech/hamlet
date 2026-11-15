@@ -15,7 +15,7 @@ import {
     defineTool,
     type Extension,
 } from "@earendil-works/pi-durable";
-import { callOf, draftOf, words } from "./turn.ts";
+import { callOf, draftOf, failed, words } from "./turn.ts";
 
 /** What a timer keeps: the call that set it, its time, and what to say when it fires. */
 type WakeInput = { call: string; at: number; note: string };
@@ -27,7 +27,7 @@ const KIND = "hamlet.wake";
  * commit, under the request id `w<task id>@<at>`, so a phase that a kill
  * cut off admits once when it runs again.
  */
-const Wake = defineTask<
+export const Wake = defineTask<
     WakeInput,
     { phase: "sleep" } | { phase: "admit" },
     null
@@ -97,11 +97,16 @@ export function timers(): Extension {
                     context,
                 ) => {
                     // One commit finds the timer this call made, or makes it. A rerun
-                    // finds it, so one call makes one timer (grounding 9c).
+                    // finds it, so one call makes one timer. It is among the newest:
+                    // only the later calls of its own reply made timers after it.
                     const call = callOf(api);
                     const at = await api.commit(async (tx) => {
                         const set = await tx.scanTasks(
-                            { conversationId: api.conversationId, kind: KIND },
+                            {
+                                conversationId: api.conversationId,
+                                kind: KIND,
+                                order: "descending",
+                            },
                             1000,
                         );
                         const mine = set.items.find(
@@ -111,6 +116,7 @@ export function timers(): Extension {
                             return (mine.input as WakeInput).at;
                         const at =
                             api.now() + Math.round(args.in_seconds * 1000);
+                        if (!dated(at)) return undefined;
                         await tx.createTask(
                             Wake,
                             { call, at, note: args.note },
@@ -122,6 +128,11 @@ export function timers(): Extension {
                         );
                         return at;
                     }, context);
+                    if (at === undefined) {
+                        return failed(
+                            "`in_seconds` is out of range: no time that far off has a date. No timer is set.",
+                        );
+                    }
                     return words(
                         `A timer is set for ${new Date(at).toISOString()}.`,
                     );
@@ -129,4 +140,9 @@ export function timers(): Extension {
             }),
         ],
     });
+}
+
+/** Whether `at`, in ms since the epoch, is within the range a `Date` holds. */
+function dated(at: number): boolean {
+    return Number.isFinite(new Date(at).getTime());
 }
