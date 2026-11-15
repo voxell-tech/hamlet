@@ -37,9 +37,12 @@
 //!
 //! No answer has a case for either error.
 //!
-//! The client protocol's types a message carries follow that
-//! protocol's rules, not these: an enum is tagged by `kind`, an unset
-//! field is `null`, and an integer is a `u64`.
+//! The client protocol's types a message carries keep that
+//! protocol's rules where they differ from these: an enum whose
+//! cases hold data is tagged by `kind`, a reader refuses `null` and a
+//! field it does not know, and an integer is a `u64`.
+//! [`realm::client::Say`], [`realm::client::Answer`] and the
+//! attachments of [`agent::Input::Line`] carry them.
 //!
 //! The realm takes a repeat of a call that carries an id, a chief's
 //! [`realm::Asked`] or [`realm::client`] request or an agent's

@@ -14,6 +14,7 @@ use hamlet_actors::workspace;
 use hamlet_host::{Address, Caller, Host, HostOptions, HostRef};
 use hamlet_messages::address::{self, Party};
 use hamlet_messages::agent::{Finished, Outcome};
+use hamlet_messages::bytes::Base64;
 use hamlet_messages::realm::{NeedsChief, SecretList, Secrets};
 use hamlet_messages::workspace::reach::{
     Footing, Mode, Project, Reach, SecretsVersion,
@@ -89,7 +90,7 @@ struct Peer {
 #[derive(Serialize, Deserialize)]
 struct Forward {
     name: String,
-    args: Vec<u8>,
+    args: Base64,
 }
 
 impl Action for Forward {
@@ -126,7 +127,7 @@ impl Handler<Forward> for Peer {
             .call(
                 &workspace_address(),
                 &forward.name,
-                forward.args,
+                forward.args.0,
                 Duration::from_secs(20),
             )
             .await
@@ -286,7 +287,7 @@ async fn call_as(
     host.get_or_start(from).await?;
     let forward = Forward {
         name: name.to_owned(),
-        args,
+        args: Base64(args),
     };
     let reply = host
         .call(
