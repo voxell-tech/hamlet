@@ -144,6 +144,8 @@ pub(crate) enum By {
     /// A take-in, a pin, a profile's first commit.
     Profile,
     Dream(u32),
+    /// The library's starter skills, and the offers it keeps.
+    Library,
 }
 
 impl By {
@@ -153,6 +155,7 @@ impl By {
             Self::Agent(agent) => format!("agent:{}", agent.0),
             Self::Profile => "profile".to_owned(),
             Self::Dream(dream) => format!("dream:{dream}"),
+            Self::Library => "library".to_owned(),
         }
     }
 }
