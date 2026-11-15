@@ -198,7 +198,10 @@ fn the_versions(fixtures: &mut Fixtures) {
         ),
         (
             "refused.no_such_commit",
-            TagAnswer::refused(TagRefusal::NoSuchCommit),
+            TagAnswer::refused(TagRefusal::NoSuchCommit {
+                profile: ProfileId(4),
+                commit: commit(0xab),
+            }),
         ),
     ] {
         fixtures.kept(&format!("profile/tag.{arm}"), &answer);
@@ -292,6 +295,7 @@ fn the_changes_of_main(fixtures: &mut Fixtures) {
             "refused.no_commit",
             RevertAnswer::refused(
                 BadCommit::NoCommit {
+                    profile: ProfileId(4),
                     commit: commit(0xab),
                 }
                 .into(),

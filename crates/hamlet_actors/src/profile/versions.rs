@@ -51,20 +51,25 @@ impl Takes<Tag> for Profile {
                 .refuse(TagRefusal::BadName { version })
                 .await;
         }
-        call.once(tag).await
+        let own = call.owner().own.0;
+        call.once(move |unit| tag(unit, own)).await
     }
 }
 
-fn tag(unit: Before<'_, Profile, Tag>) -> Result<Ended<Tag>> {
+fn tag(
+    unit: Before<'_, Profile, Tag>,
+    own: ProfileId,
+) -> Result<Ended<Tag>> {
     let tag = unit.message().clone();
     let by = By::from(tag.by);
     let (at, seen, taken) = {
         let git = unit.git()?;
         let at = match tag.at {
             Some(at) => Some(git_commit(at)?)
-                .filter(|at| git.has(*at).unwrap_or(false)),
+                .filter(|found| git.has(*found).unwrap_or(false))
+                .ok_or(at),
             None => {
-                Some(git.tip(MAIN)?.context("a profile has a main")?)
+                Ok(git.tip(MAIN)?.context("a profile has a main")?)
             }
         };
         let seen = git
@@ -75,8 +80,15 @@ fn tag(unit: Before<'_, Profile, Tag>) -> Result<Ended<Tag>> {
         let taken = git.resolve(&tag.version.0)?.is_some();
         (at, seen, taken)
     };
-    let Some(at) = at else {
-        return unit.refuse(TagRefusal::NoSuchCommit);
+    let at = match at {
+        Ok(at) => at,
+        Err(commit) => {
+            let why = TagRefusal::NoSuchCommit {
+                profile: own,
+                commit,
+            };
+            return unit.refuse(why);
+        }
     };
     let left_by_a_cut_off_run = |seen: &hamlet_git::Version| {
         seen.note == tag.note
@@ -176,11 +188,13 @@ fn revert(
         Ok(commit) => commit,
         Err(why) => return unit.refuse(why),
     };
-    let message = format!(
-        "Reverted {}: {}",
-        &commit.to_string()[..8],
-        reason.unwrap_or_default()
-    );
+    let reason = reason.unwrap_or_default();
+    let message = match by {
+        Who::Chief { .. } => {
+            format!("Reverted {}: {reason}", &commit.to_string()[..8])
+        }
+        Who::Agent { .. } => format!("Reverted: {reason}"),
+    };
     let writer = unit.write();
     let merged =
         writer.writes()?.revert(MAIN, commit, &message, by.into())?;
@@ -218,9 +232,8 @@ fn undone(
             let at = git_commit(*commit)?;
             if !git.has(at)? {
                 let commit = *commit;
-                return Ok(
-                    Err(BadCommit::NoCommit { commit }.into()),
-                );
+                let why = BadCommit::NoCommit { profile, commit };
+                return Ok(Err(why.into()));
             }
             at
         }
@@ -482,7 +495,9 @@ mod tests {
                 let writer = unit.write();
                 writer.writes()?.tag("v1", main, "", By::Chief(3))?;
                 writer.kept(TagAnswer::Refused {
-                    why: TagRefusal::NoSuchCommit,
+                    why: TagRefusal::Taken {
+                        version: VersionName("v1".into()),
+                    },
                 })
             },
         );
@@ -493,7 +508,9 @@ mod tests {
             ..first
         };
         let (answer, _) = profile
-            .once::<Profile, Tag, _>(realm, again, tag)
+            .once::<Profile, Tag, _>(realm, again, |unit| {
+                tag(unit, ProfileId(1))
+            })
             .unwrap();
         assert!(
             matches!(answer, TagAnswer::Tagged { .. }),
@@ -535,22 +552,25 @@ mod tests {
             .once::<Profile, Tag, _>(
                 realm.clone(),
                 asked(Some(commit_id(unknown).unwrap())),
-                tag,
+                |unit| tag(unit, ProfileId(1)),
             )
             .unwrap();
+        let why = TagRefusal::NoSuchCommit {
+            profile: ProfileId(1),
+            commit: commit_id(unknown).unwrap(),
+        };
         assert_eq!(
-            refused,
-            TagAnswer::Refused {
-                why: TagRefusal::NoSuchCommit
-            }
+            why.to_string(),
+            format!("`scholar#1` has no version `{unknown}`")
         );
+        assert_eq!(refused, TagAnswer::Refused { why });
 
         let at = commit_id(first).unwrap();
         let (tagged, _) = profile
             .once::<Profile, Tag, _>(
                 realm.clone(),
                 asked(Some(at)),
-                tag,
+                |unit| tag(unit, ProfileId(1)),
             )
             .unwrap();
         let version = VersionName("v1".into());

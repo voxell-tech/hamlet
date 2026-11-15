@@ -120,7 +120,11 @@ async fn a_revert_is_refused_a_commit_main_does_not_hold() {
         ),
         (
             Revision::Commit { commit: unknown },
-            BadCommit::NoCommit { commit: unknown }.into(),
+            BadCommit::NoCommit {
+                profile: ProfileId(1),
+                commit: unknown,
+            }
+            .into(),
         ),
         (
             of_commit(on_hire),
@@ -136,6 +140,15 @@ async fn a_revert_is_refused_a_commit_main_does_not_hold() {
         assert_eq!(answer, RevertAnswer::Refused { why });
     }
     assert_eq!(main_tip(&dir), main);
+    let words = BadCommit::NoCommit {
+        profile: ProfileId(1),
+        commit: unknown,
+    }
+    .to_string();
+    assert_eq!(
+        words,
+        format!("`scholar#1` has no version `{}`", unknown.0)
+    );
     host.shutdown().await.unwrap();
 }
 
@@ -288,6 +301,27 @@ async fn a_chief_s_edits_and_reverts_carry_today_s_words() {
     assert_eq!(
         last_words(&dir, 1, MAIN),
         (format!("Reverted {short}:"), chief())
+    );
+    host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_hand_s_revert_carries_today_s_words() {
+    let dir = Scratch::new("profile-revert-hand");
+    let host = made(&dir).await;
+    edited(&host, "memory/a.md", "a").await;
+    let asked = Revert {
+        reason: Some("undo it".into()),
+        by: By::Agent {
+            agent: AgentNumber(1),
+        },
+        ..revert(&RequestId::new(), of_commit(main_tip(&dir)))
+    };
+    let answer = call_as(&host, &realm(), &asked).await.unwrap();
+    assert!(matches!(answer, RevertAnswer::Reverted { .. }));
+    assert_eq!(
+        last_words(&dir, 1, MAIN),
+        ("Reverted: undo it".to_owned(), "agent:1".to_owned())
     );
     host.shutdown().await.unwrap();
 }

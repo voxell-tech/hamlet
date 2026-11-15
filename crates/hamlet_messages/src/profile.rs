@@ -189,8 +189,8 @@ family!(NotAHire {
 });
 
 family!(BadCommit {
-    #[error("there is no commit `{}`", commit.0)]
-    NoCommit { commit: CommitId },
+    #[error("`scholar#{}` has no version `{}`", profile.0, commit.0)]
+    NoCommit { profile: ProfileId, commit: CommitId },
     #[error("the commit `{}` is not on main", commit.0)]
     NotOnMain { commit: CommitId },
 });
@@ -252,8 +252,8 @@ family!(TagRefusal {
     BadName { version: VersionName },
     #[error("the version `{}` exists already; choose another", version.0)]
     Taken { version: VersionName },
-    #[error("the profile has no such commit")]
-    NoSuchCommit,
+    #[error("`scholar#{}` has no version `{}`", profile.0, commit.0)]
+    NoSuchCommit { profile: ProfileId, commit: CommitId },
 });
 
 answer!(TagAnswer<TagRefusal> {
