@@ -243,10 +243,25 @@ actor layer loads, serves the kinds of `hosts/node/src/demo.ts` its
 `hosts/node/src/actor/registry/link.ts`, and exits 1 on any failure. A
 peer's request is checked against who that host speaks for (`link/peer.rs`),
 then runs on the host's own call or start path, so `admit` checks it
-again. Only a call and a create cross the link. A call to the child
-fails with `link.down`, and nothing is sent, until the child is ready,
-and with `link.lost`, its outcome unknown, when the child is lost with
-the call out. Nothing sends a call again.
+again. A call, a create and a subscribe cross the link. A call to the
+child fails with `link.down`, and nothing is sent, until the child is
+ready, and with `link.lost`, its outcome unknown, when the child is lost
+with the call out. Nothing sends a call again.
+
+`local/subscribe.rs` holds `subscribe_for_client`, a client's
+`Subscription` to one event of an actor. It takes the call's path: the
+route table's check, then the start of a local actor from its file, or
+an `Ask::Subscribe` request to the child. A local subscription is a
+connection to the actor, opened with `RunningActor::subscribe`, which
+keeps the actor awake. The reader's drop closes it; the actor's close
+and the start of the actor's stop, which the host records on the
+generation, end it. Across the link the child serves the subscribe
+through the same path and writes `Event`, `Gap` and `SubscriptionEnded`
+frames (`link/port/follow.rs`); the Rust host's `Unsubscribe` ends it.
+When the child is lost, the subscription asks the next child once it is
+ready and gives one `Item::Gap`. Each hop's queue is `local/feed.rs`: it
+holds up to 1 MiB, or one larger event alone, never makes its writer
+wait, and drops what does not fit, with one gap where the loss was.
 
 Each actor that is not stopped with no deadline is one `Life` in the
 host's map: read by boot, stopped with a deadline, starting, running,

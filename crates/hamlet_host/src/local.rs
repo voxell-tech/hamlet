@@ -60,6 +60,7 @@ use tokio::task::{AbortHandle, JoinHandle};
 pub use self::access::{HostRef, Values};
 pub(crate) use self::access::{Inbound, Origin, Stamp};
 use self::create::DuplicateKey;
+pub use self::subscribe::{Item, Subscription};
 use crate::directory::{Directory, Place};
 use crate::event::HostEvent;
 use crate::link::Port;
@@ -69,6 +70,8 @@ use crate::route::Routes;
 mod access;
 mod call;
 mod create;
+pub(crate) mod feed;
+mod subscribe;
 
 /// The one session a local file has. The transaction code compares
 /// sessions to detect a lost connection, which a local file cannot
@@ -239,23 +242,23 @@ type Waiters = watch::Receiver<Option<Failed>>;
 /// remove a destroyed actor's files, for each of its waiters to
 /// return.
 #[derive(Clone)]
-struct Failed {
-    error: ActorError,
+pub(crate) struct Failed {
+    error: Box<ActorError>,
     /// The failure with its causes, as the work returned it.
     detail: String,
 }
 
 impl Failed {
-    fn new(error: &anyhow::Error) -> Self {
+    pub(crate) fn new(error: &anyhow::Error) -> Self {
         Self {
-            error: ActorError::extract(error),
+            error: Box::new(ActorError::extract(error)),
             detail: format!("{error:#}"),
         }
     }
 
     /// The failure, with its code.
-    fn to_error(&self) -> anyhow::Error {
-        anyhow::Error::from(self.error.clone())
+    pub(crate) fn to_error(&self) -> anyhow::Error {
+        anyhow::Error::from(*self.error.clone())
             .context(self.detail.clone())
     }
 }
@@ -312,6 +315,20 @@ struct Generation {
     /// The last alarm the core pushed in this generation, `None`
     /// until it pushes one, as the core's own record starts.
     alarm: Arc<Mutex<Option<i64>>>,
+    /// The kind of stop the generation began, set once under the
+    /// map's lock by the transition that begins it: a destroy after
+    /// a sleep leaves it `Stopped`.
+    stopped: watch::Sender<Option<Ended>>,
+    /// The runtime the generation's core runs on.
+    runtime: tokio::runtime::Handle,
+}
+
+/// The kind of stop a generation began.
+#[derive(Clone, Copy)]
+enum Ended {
+    /// A sleep, a crash, a host's stop or its shutdown.
+    Stopped,
+    Destroyed,
 }
 
 impl Generation {
@@ -617,10 +634,11 @@ pub struct HostOptions {
     /// What the host gives its actors, by type: none by default. See
     /// [`HostOptions::with_value`].
     pub values: Values,
-    /// The kinds each caller may reach by a call, a create or a
-    /// get-or-start. The host refuses any other with `actor.refused`
-    /// and reports it in [`HostEvent::Refused`]. An operation with
-    /// no caller is never refused. [`Routes::Any`] by default.
+    /// The kinds each caller may reach by a call, a create, a
+    /// get-or-start or a subscribe. The host refuses any other with
+    /// `actor.refused` and reports it in [`HostEvent::Refused`]. An
+    /// operation with no caller is never refused. [`Routes::Any`] by
+    /// default.
     pub routes: Routes,
 }
 
@@ -697,15 +715,10 @@ impl HostInner {
     /// starts under way after [`START_GRACE_AT_SHUTDOWN`].
     fn shut_down(&self) {
         self.actors.lock().shut_down();
-        self.starts_end.send_if_modified(|end| {
-            if end.is_some() {
-                return false;
-            }
-            *end = Some(
-                tokio::time::Instant::now() + START_GRACE_AT_SHUTDOWN,
-            );
-            true
-        });
+        set_once(
+            &self.starts_end,
+            tokio::time::Instant::now() + START_GRACE_AT_SHUTDOWN,
+        );
     }
 
     /// Awaits `start` until it ends, its start deadline passes, or
@@ -824,6 +837,17 @@ impl HostInner {
     }
 }
 
+/// Sets `sender` to `value` unless it holds one already.
+fn set_once<T>(sender: &watch::Sender<Option<T>>, value: T) {
+    sender.send_if_modified(|now| {
+        if now.is_some() {
+            return false;
+        }
+        *now = Some(value);
+        true
+    });
+}
+
 /// What a host that has shut down answers a start.
 fn host_shut_down() -> anyhow::Error {
     ActorLifecycle::Stopping
@@ -849,7 +873,10 @@ fn stopping(
 ) -> Life {
     let done = owned.waiters.clone();
     match reason {
-        ShutdownKind::Sleep => Life::Stopping { generation, done },
+        ShutdownKind::Sleep => {
+            set_once(&generation.stopped, Ended::Stopped);
+            Life::Stopping { generation, done }
+        }
         ShutdownKind::Destroy => destroying(generation, done),
     }
 }
@@ -860,6 +887,7 @@ fn stopping(
 /// its actor sends after, but those of a transaction open now: a kill
 /// from then on leaves a file whose next start finishes the destroy.
 fn destroying(generation: Arc<Generation>, done: Waiters) -> Life {
+    set_once(&generation.stopped, Ended::Destroyed);
     // A file already closed is marked as it is removed.
     let _ = generation.file.when_idle(|conn| {
         mark_destroyed(conn)?;
@@ -2185,6 +2213,8 @@ async fn start_generation(
         actor,
         file,
         alarm,
+        stopped: watch::Sender::new(None),
+        runtime: tokio::runtime::Handle::current(),
     }))
 }
 

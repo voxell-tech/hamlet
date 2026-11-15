@@ -16,4 +16,6 @@ mod testing;
 pub use event::HostEvent;
 /// The host's calls take an [`Address`] and stamp a [`Caller`].
 pub use hamlet_address::{Address, Caller, InvalidName};
-pub use local::{Host, HostOptions, HostRef, Values};
+pub use local::{
+    Host, HostOptions, HostRef, Item, Subscription, Values,
+};

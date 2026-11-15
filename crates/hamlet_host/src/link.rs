@@ -18,7 +18,7 @@ use hamlet_actor_core::ActorFactory;
 use hamlet_protocol::Version;
 pub(crate) use peer::{Role, Side, Vetted};
 pub use port::LinkState;
-pub(crate) use port::{Port, Taken};
+pub(crate) use port::{Port, Routed, Taken, Unanswered};
 use tokio::sync::broadcast::error::RecvError;
 
 use crate::local::Inbound;

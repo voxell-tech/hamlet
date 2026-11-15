@@ -15,10 +15,13 @@ use tracing::Instrument;
 use super::HostHandle;
 use super::dispatch::{
     ActionTimedOut, dispatch_action_through_task,
-    with_action_dispatch_timeout,
+    dispatch_subscribe_request, with_action_dispatch_timeout,
 };
 use crate::actor::action::ActionDispatchError;
-use crate::actor::connection::DisconnectOnDrop;
+use crate::actor::connection::{
+    ConnHandle, DisconnectCallback, DisconnectOnDrop,
+    EventSendCallback, OutgoingEvent,
+};
 use crate::actor::kv::LegacyActorKv;
 use crate::actor::task::{
     DispatchCommand, LifecycleCommand, try_send_lifecycle_command,
@@ -227,6 +230,84 @@ impl RunningActor {
         result.map_err(ActionDispatchError::into_anyhow)
     }
 
+    /// Opens a connection to the actor, with `params` as its
+    /// parameters, that follows its event `event`: `sink` is called
+    /// with the arguments of each broadcast of `event` from the
+    /// moment the actor let the subscribe through. `sink` runs inside
+    /// the broadcast and must return at once. A refusal fails with
+    /// the actor's error, and the connection closes again. A caller
+    /// that goes away at any await leaves no connection.
+    ///
+    /// `closed` is called with the close reason each time the
+    /// connection's transport closes: when the actor closes it, at
+    /// the actor's stop, and at [`Subscribed::close`]. It must return
+    /// at once.
+    pub async fn subscribe(
+        &self,
+        params: Vec<u8>,
+        event: &str,
+        sink: impl Fn(Vec<u8>) + Send + Sync + 'static,
+        closed: impl Fn(Option<String>) + Send + Sync + 'static,
+    ) -> Result<Subscribed> {
+        let name = event.to_owned();
+        let sender: EventSendCallback =
+            Arc::new(move |sent: OutgoingEvent| {
+                if sent.name == name {
+                    sink(sent.args);
+                }
+                Ok(())
+            });
+        // Always `Ok`: a failure would skip the actor's own
+        // disconnect hook.
+        let closed: DisconnectCallback = Arc::new(move |reason| {
+            closed(reason);
+            Box::pin(async { Ok(()) })
+        });
+        let ctx = self.ctx.clone();
+        let connect = RuntimeSpawner::spawn(
+            async move {
+                let conn = ctx
+                    .connect_conn_with_prepare(
+                        params,
+                        false,
+                        None,
+                        None,
+                        async { Ok(Vec::new()) },
+                        move |conn| {
+                            conn.configure_event_sender(Some(sender));
+                            conn.configure_transport_disconnect_handler(
+                                Some(closed),
+                            );
+                            Ok(())
+                        },
+                    )
+                    .await?;
+                Ok::<_, anyhow::Error>((
+                    conn.clone(),
+                    DisconnectOnDrop::new(conn),
+                ))
+            }
+            .instrument(tracing::Span::current()),
+        );
+        let (conn, open) = connect
+            .await
+            .context("join the subscribe's connect")??;
+        if let Err(refused) = dispatch_subscribe_request(
+            &self.ctx,
+            conn.clone(),
+            event.to_owned(),
+        )
+        .await
+        {
+            let _ = conn.disconnect(None).await;
+            open.disarm();
+            return Err(refused);
+        }
+        conn.subscribe(event);
+        open.disarm();
+        Ok(Subscribed(conn))
+    }
+
     /// Stops the task and waits until it has ended.
     pub async fn stop(&self, reason: ShutdownKind) {
         let (reply, rx) = oneshot::channel();
@@ -247,6 +328,20 @@ impl RunningActor {
             generation = self.generation,
             "actor stopped"
         );
+    }
+}
+
+/// A connection that follows one event of an actor, from
+/// [`RunningActor::subscribe`]. It does nothing at its drop: close it
+/// with [`Subscribed::close`].
+#[must_use = "a connection that is not closed keeps its actor awake"]
+pub struct Subscribed(ConnHandle);
+
+impl Subscribed {
+    /// Closes the connection. Fails when the actor's generation has
+    /// ended, which closed it already.
+    pub async fn close(self) -> Result<()> {
+        self.0.disconnect(None).await
     }
 }
 

@@ -1611,10 +1611,6 @@ impl ActorContext {
         Ok(conn)
     }
 
-    #[expect(
-        dead_code,
-        reason = "ported; nothing in Hamlet calls it yet"
-    )]
     pub(crate) async fn connect_conn_with_prepare<F, P>(
         &self,
         params: Vec<u8>,
