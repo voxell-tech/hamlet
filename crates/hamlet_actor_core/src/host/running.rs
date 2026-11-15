@@ -15,10 +15,13 @@ use tracing::Instrument;
 use super::HostHandle;
 use super::dispatch::{
     ActionTimedOut, dispatch_action_through_task,
-    with_action_dispatch_timeout,
+    dispatch_subscribe_request, with_action_dispatch_timeout,
 };
 use crate::actor::action::ActionDispatchError;
-use crate::actor::connection::{ConnHandle, DisconnectOnDrop};
+use crate::actor::connection::{
+    ConnHandle, DisconnectCallback, DisconnectOnDrop,
+    EventSendCallback, OutgoingEvent,
+};
 use crate::actor::kv::LegacyActorKv;
 use crate::actor::task::{
     DispatchCommand, LifecycleCommand, try_send_lifecycle_command,
@@ -241,12 +244,71 @@ impl RunningActor {
     /// at once.
     pub async fn subscribe(
         &self,
-        _params: Vec<u8>,
-        _event: &str,
-        _sink: impl Fn(Vec<u8>) + Send + Sync + 'static,
-        _closed: impl Fn(Option<String>) + Send + Sync + 'static,
+        params: Vec<u8>,
+        event: &str,
+        sink: impl Fn(Vec<u8>) + Send + Sync + 'static,
+        closed: impl Fn(Option<String>) + Send + Sync + 'static,
     ) -> Result<Subscribed> {
-        todo!("U8a: RunningActor::subscribe")
+        let name = event.to_owned();
+        let sender: EventSendCallback =
+            Arc::new(move |sent: OutgoingEvent| {
+                // The actor's own `conn.send` may send any event.
+                if sent.name == name {
+                    sink(sent.args);
+                }
+                Ok(())
+            });
+        // Always `Ok`: a failure would skip the actor's own
+        // disconnect hook.
+        let closed: DisconnectCallback = Arc::new(move |reason| {
+            closed(reason);
+            Box::pin(async { Ok(()) })
+        });
+        let ctx = self.ctx.clone();
+        let connect = RuntimeSpawner::spawn(
+            async move {
+                let conn = ctx
+                    .connect_conn_with_prepare(
+                        params,
+                        false,
+                        None,
+                        None,
+                        async { Ok(Vec::new()) },
+                        move |conn| {
+                            conn.configure_event_sender(Some(sender));
+                            conn.configure_transport_disconnect_handler(
+                                Some(closed),
+                            );
+                            Ok(())
+                        },
+                    )
+                    .await?;
+                Ok::<_, anyhow::Error>((
+                    conn.clone(),
+                    DisconnectOnDrop::new(conn),
+                ))
+            }
+            .instrument(tracing::Span::current()),
+        );
+        let (conn, open) = connect
+            .await
+            .context("join the subscribe's connect")??;
+        if let Err(refused) = dispatch_subscribe_request(
+            &self.ctx,
+            conn.clone(),
+            event.to_owned(),
+        )
+        .await
+        {
+            // `open` stays armed through the close, for a caller gone
+            // during it. A failed close is a generation that ended.
+            let _ = conn.disconnect(None).await;
+            open.disarm();
+            return Err(refused);
+        }
+        conn.subscribe(event);
+        open.disarm();
+        Ok(Subscribed(conn))
     }
 
     /// Stops the task and waits until it has ended.
