@@ -11,7 +11,7 @@ use anyhow::{Context as _, Result, bail};
 use hamlet_actor::BindParam;
 use hamlet_messages::agent::AgentKind;
 use hamlet_messages::realm::{
-    HamletId, Left, Named, ProfileId, ToolName,
+    HamletId, HowEnded, Left, Named, ProfileId, ToolName,
 };
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::AgentNumber;
@@ -407,6 +407,18 @@ pub(super) enum Change {
         off: Vec<ToolName>,
         on: Vec<ToolName>,
     },
+    /// A worker, live from its start and outside every hamlet's tree.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "U7 starts workers")
+    )]
+    Worker { agent: AgentNumber },
+    /// A worker ends `how`, when it had not.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "U7 ends workers")
+    )]
+    WorkerEnded { agent: AgentNumber, how: HowEnded },
 }
 
 pub(super) async fn apply(
@@ -433,6 +445,14 @@ pub(super) async fn apply(
         Change::Tools { hire, off, on } => {
             tools::set(writer, hire, off, on).await
         }
+        Change::Worker { agent } => {
+            new_agent(writer, agent, AgentKind::Worker, "live")
+                .await?;
+            Ok(Affected::seen([Part::Agents]))
+        }
+        Change::WorkerEnded { agent, how } => {
+            worker_ended(writer, agent, how).await
+        }
     }
 }
 
@@ -445,7 +465,8 @@ async fn hand(writer: &Writer<'_>) -> Result<Affected> {
             vec![BindParam::Integer(i64::from(HAND_PROFILE.0))],
         )
         .await?;
-    new_agent(writer, Hand::NUMBER, AgentKind::Hand).await?;
+    new_agent(writer, Hand::NUMBER, AgentKind::Hand, "hiring")
+        .await?;
     places_showing(writer, Hand::NUMBER, None).await
 }
 
@@ -470,7 +491,7 @@ async fn hire(
             profile
         }
     };
-    new_agent(writer, agent, AgentKind::Hire).await?;
+    new_agent(writer, agent, AgentKind::Hire, "hiring").await?;
     writer
         .execute(
             "INSERT INTO hire (agent, hamlet, profile, lead, \
@@ -491,19 +512,45 @@ async fn new_agent(
     writer: &Writer<'_>,
     agent: AgentNumber,
     kind: AgentKind,
+    status: &str,
 ) -> Result<()> {
     writer
         .execute(
             "INSERT INTO agent (id, kind, status, at) VALUES (?1, \
-             ?2, 'hiring', ?3)",
+             ?2, ?3, ?4)",
             vec![
                 number(agent),
                 BindParam::Text(change::case_name(&kind)?),
+                BindParam::Text(status.to_owned()),
                 BindParam::Integer(writer.at().0),
             ],
         )
         .await?;
     Ok(())
+}
+
+async fn worker_ended(
+    writer: &Writer<'_>,
+    agent: AgentNumber,
+    how: HowEnded,
+) -> Result<Affected> {
+    let ended = writer
+        .execute(
+            "UPDATE agent SET status = 'ended', ended_how = ?2 \
+             WHERE id = ?1 AND status != 'ended'",
+            vec![
+                number(agent),
+                BindParam::Text(serde_json::to_string(&how)?),
+            ],
+        )
+        .await?;
+    if ended == 0 {
+        return Ok(Affected::default());
+    }
+    Ok(Affected {
+        reaches: BTreeSet::from([agent]),
+        ..Affected::seen([Part::Agents, Part::Reaches])
+    })
 }
 
 async fn places_showing(
@@ -719,6 +766,42 @@ mod tests {
             Ok(Of::Profile(HAND_PROFILE))
         );
         assert_eq!(of(Some(ProfileId(9))).await, Err(ProfileId(9)));
+        started.stop().await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_worker_is_live_at_once_and_ends_once() {
+        let started = Started::new().await;
+        let worker = fresh(&started.rows()).await.unwrap();
+        started
+            .commit(Change::Worker { agent: worker })
+            .await
+            .unwrap();
+        let rows = started.rows();
+        let member = lineage(&rows, worker).await.unwrap().unwrap();
+        assert_eq!(
+            (member.agent.kind, member.agent.status, member.hamlet),
+            (AgentKind::Worker, Status::Live, None)
+        );
+        assert_eq!(
+            fresh(&rows).await.unwrap(),
+            AgentNumber(worker.0 + 1)
+        );
+
+        for how in [HowEnded::Answered, HowEnded::Stopped] {
+            started
+                .commit(Change::WorkerEnded { agent: worker, how })
+                .await
+                .unwrap();
+        }
+        let left = left_of(&started.rows(), worker.0).await;
+        assert_eq!(
+            left,
+            Some(Left {
+                how: HowEnded::Answered,
+                why: None,
+            })
+        );
         started.stop().await;
     }
 
