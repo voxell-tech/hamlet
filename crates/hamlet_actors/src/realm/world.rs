@@ -264,8 +264,8 @@ async fn spend(rows: &Rows<'_>) -> Result<Vec<Spend>> {
 impl Look<Client> for ReadWorld {
     type Output = Seen;
 
-    fn look(&self, _by: &Client, world: &World) -> Seen {
-        world.clone()
+    fn look(&self, _by: &Client, realm: &Realm) -> Seen {
+        World::clone(&realm.world.current())
     }
 }
 

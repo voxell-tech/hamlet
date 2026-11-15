@@ -122,6 +122,7 @@ pub fn factory() -> ActorFactory {
 struct Realm {
     peers: peer::Peers,
     world: world::Held,
+    secrets: secrets::Held,
     drives: steps::Drives,
     hiring_wait: Duration,
 }
@@ -202,6 +203,7 @@ impl Actor for Realm {
             hiring_wait: host
                 .value::<Options>()
                 .map_or(HIRING_WAIT, |options| options.hiring_wait),
+            secrets: secrets::Held::load(host.folder())?,
             peers: peer::Peers::new(host),
             world: world::Held::load(ctx).await?,
             drives: steps::Drives::default(),

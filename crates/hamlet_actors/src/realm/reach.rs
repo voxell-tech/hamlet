@@ -4,18 +4,22 @@ use anyhow::Result;
 use hamlet_actor::Ctx;
 use hamlet_messages::address::Workspace;
 use hamlet_messages::realm::HamletId;
-use hamlet_messages::workspace::reach::{Footing, Reach};
+use hamlet_messages::workspace::reach::{
+    Footing, Reach, SecretsVersion,
+};
 use hamlet_messages::workspace::{AgentNumber, InForce, SetReach};
 
 use super::change::{self, Rows, number};
 use super::peer::When;
 use super::{Realm, chiefs, oversight, tree, versions};
 
-/// `agent`'s reach as the rows give it now, under its wanted version;
-/// `Reach::Ended` for an agent that ended.
+/// `agent`'s reach as the rows give it now, under its wanted version,
+/// asking for the secrets of version `secrets`; `Reach::Ended` for an
+/// agent that ended.
 pub(super) async fn of(
     rows: &Rows<'_>,
     agent: AgentNumber,
+    secrets: SecretsVersion,
 ) -> Result<SetReach> {
     let (version, _) = versions::reach(rows, agent).await?;
     let worker = rows
@@ -34,11 +38,12 @@ pub(super) async fn of(
                 rows,
                 starter,
                 hamlet.map(HamletId),
+                secrets,
             )
             .await?,
         }
     } else {
-        Reach::Agent(oversight::footing(rows, agent).await?)
+        Reach::Agent(oversight::footing(rows, agent, secrets).await?)
     };
     Ok(SetReach {
         agent,
@@ -53,18 +58,19 @@ async fn worker_footing(
     rows: &Rows<'_>,
     starter: Option<AgentNumber>,
     hamlet: Option<HamletId>,
+    secrets: SecretsVersion,
 ) -> Result<Footing> {
     if let Some(starter) = starter {
         return Ok(Footing {
             trust: Vec::new(),
-            ..oversight::footing(rows, starter).await?
+            ..oversight::footing(rows, starter, secrets).await?
         });
     }
     let hamlet = match hamlet {
         Some(id) => chiefs::hamlet(rows, &id).await?,
         None => None,
     };
-    oversight::hamlet_footing(rows, hamlet.as_ref()).await
+    oversight::hamlet_footing(rows, hamlet.as_ref(), secrets).await
 }
 
 /// Carries `agent`'s wanted reach to the workspace and commits its
@@ -74,7 +80,9 @@ pub(super) async fn push(
     ctx: &Ctx<Realm>,
     agent: AgentNumber,
 ) -> Result<()> {
-    let set = of(&Rows::outside(ctx)?, agent).await?;
+    let set =
+        of(&Rows::outside(ctx)?, agent, realm.secrets.version())
+            .await?;
     let InForce { version } = realm
         .peers
         .call(&Workspace, &set, When::AfterAnswer)
@@ -92,6 +100,7 @@ pub(super) async fn push(
 mod tests {
     use hamlet_messages::realm::{HamletId, HowEnded};
 
+    use super::super::secrets;
     use super::super::testing::Started;
     use super::*;
 
@@ -117,7 +126,12 @@ mod tests {
             let set = started
                 .race(
                     |ctx| async move {
-                        of(&Rows::outside(&ctx)?, HIRE).await
+                        of(
+                            &Rows::outside(&ctx)?,
+                            HIRE,
+                            secrets::VERSION,
+                        )
+                        .await
                     },
                     &[
                         &end,

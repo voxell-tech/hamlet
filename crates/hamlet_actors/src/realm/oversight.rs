@@ -13,14 +13,16 @@ use hamlet_messages::realm::oversight::{
     Permission, Revoke, RevokeRefusal,
 };
 use hamlet_messages::sender::Client;
-use hamlet_messages::workspace::reach::{Footing, Project, Trust};
+use hamlet_messages::workspace::reach::{
+    Footing, Project, SecretsVersion, Trust,
+};
 use hamlet_messages::workspace::{AgentNumber, ConversationId};
 
 use super::act::{Act, Decided, Decision};
 use super::calls::Made;
 use super::change::{self, Affected, Rows, Writer, number};
 use super::world::Part;
-use super::{chiefs, secrets, settings, tree};
+use super::{chiefs, settings, tree};
 
 /// Each raises the reach of its agent and of the agent's living
 /// workers, when it changes a row.
@@ -159,9 +161,11 @@ async fn reached(
 pub(super) async fn footing(
     rows: &Rows<'_>,
     agent: AgentNumber,
+    secrets: SecretsVersion,
 ) -> Result<Footing> {
     let hamlet = tree::lineage_of(rows, agent).await?.hamlet;
-    let mut footing = hamlet_footing(rows, hamlet.as_ref()).await?;
+    let mut footing =
+        hamlet_footing(rows, hamlet.as_ref(), secrets).await?;
     footing.network |=
         holds(rows, agent, Permission::Network).await?;
     footing.trust = trust(rows, agent).await?;
@@ -173,6 +177,7 @@ pub(super) async fn footing(
 pub(super) async fn hamlet_footing(
     rows: &Rows<'_>,
     hamlet: Option<&chiefs::Hamlet>,
+    secrets: SecretsVersion,
 ) -> Result<Footing> {
     Ok(Footing {
         project: hamlet.and_then(|hamlet| {
@@ -183,7 +188,7 @@ pub(super) async fn hamlet_footing(
         }),
         network: settings::read(rows).await?.allow_net,
         trust: Vec::new(),
-        secrets: secrets::VERSION,
+        secrets,
     })
 }
 
@@ -277,7 +282,7 @@ mod tests {
 
     use super::super::calls::Push;
     use super::super::testing::Started;
-    use super::super::{reach, waits};
+    use super::super::{reach, secrets, waits};
     use super::*;
 
     const MAYOR: AgentNumber = AgentNumber(2);
@@ -323,7 +328,9 @@ mod tests {
         started: &Started,
         agent: AgentNumber,
     ) -> SetReach {
-        reach::of(&started.rows(), agent).await.unwrap()
+        reach::of(&started.rows(), agent, secrets::VERSION)
+            .await
+            .unwrap()
     }
 
     fn footing_of(set: SetReach) -> Footing {
