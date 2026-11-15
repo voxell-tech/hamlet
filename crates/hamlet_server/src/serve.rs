@@ -1,21 +1,20 @@
-//! The server from start to stop: the claim (S2), the harness, the
-//! published address, then the ordered close (S3).
+//! The runner, the server from start to stop: the claim (S2), the
+//! harness, the published address, the inputs one at a time, then
+//! the ordered close (S3).
 
-use std::cell::RefCell;
-use std::ffi::OsString;
 use std::path::PathBuf;
-use std::rc::Rc;
 use std::time::Duration;
 
-use anyhow::{Context, Result, bail};
+use anyhow::Result;
 use bevy_app::{App, AppExit};
-use hamlet_sandbox::{Isolation, Sandbox};
+use hamlet_sandbox::Sandbox;
 use serde_json::json;
 use tokio::net::TcpListener;
 use tokio::sync::watch;
 
 use crate::clients::connection::GRACE;
 use crate::credentials::write_whole;
+use crate::options::Options;
 use crate::realm::Realm;
 use crate::server::{Fatal, Server};
 use crate::settings::{self, Overrides};
@@ -26,73 +25,6 @@ use crate::talk::process::Pi;
 const STOPPING: Duration = Duration::from_secs(30);
 /// The time a closing realm waits for a credential rotation begun.
 const ROTATING: Duration = Duration::from_secs(15);
-
-const USAGE: &str = "usage: hamlet_server [--home <dir>] [--port \
-                     <n>] [--faux <file>] [--insecure]";
-
-/// The options the server is started with.
-pub struct Options {
-    pub home: PathBuf,
-    pub port: u16,
-    pub faux: Option<PathBuf>,
-    pub isolation: Isolation,
-}
-
-impl Options {
-    pub fn parse(
-        mut args: impl Iterator<Item = OsString>,
-    ) -> Result<Self> {
-        let mut home = std::env::var_os("HAMLET_HOME")
-            .filter(|p| !p.is_empty())
-            .map(PathBuf::from);
-        let mut port = 7313;
-        let mut faux = None;
-        let mut isolation = Isolation::Sandboxed;
-        while let Some(flag) = args.next() {
-            let mut value = || args.next().context(USAGE);
-            match flag.to_str() {
-                Some("--insecure") => isolation = insecure()?,
-                Some("--home") => home = Some(value()?.into()),
-                Some("--port") => {
-                    port = value()?
-                        .to_str()
-                        .context("port must be a number")?
-                        .parse()
-                        .context("port must be 0 to 65535")?;
-                }
-                Some("--faux") => faux = Some(value()?.into()),
-                _ => bail!(USAGE),
-            }
-        }
-        let home = home
-            .or_else(|| {
-                std::env::var_os("HOME")
-                    .map(|p| PathBuf::from(p).join(".hamlet"))
-            })
-            .context("set --home or HAMLET_HOME")?;
-        Ok(Self {
-            home,
-            port,
-            faux,
-            isolation,
-        })
-    }
-}
-
-/// `--insecure`, which only a Windows build takes (C18).
-#[cfg(windows)]
-fn insecure() -> Result<Isolation> {
-    Ok(Isolation::Insecure)
-}
-
-/// `--insecure`, which only a Windows build takes (C18).
-#[cfg(not(windows))]
-fn insecure() -> Result<Isolation> {
-    bail!(
-        "Insecure mode is only for Windows. This platform has a \
-         sandbox."
-    )
-}
 
 /// The published address, removed when the server stops.
 struct Published(PathBuf);
@@ -114,13 +46,13 @@ fn chief_name() -> String {
         .unwrap_or_else(|| "chief".into())
 }
 
-/// Serves until SIGTERM or Ctrl-C, as a Bevy app whose runner is the
-/// serve loop, which sleeps until an input comes.
-pub fn run(options: Options) -> Result<()> {
-    let failed = Rc::new(RefCell::new(None));
-    let mut app = App::empty();
-    let failure = Rc::clone(&failed);
-    app.set_runner(move |app| {
+/// The app's runner: serves it on a Tokio runtime of one thread until
+/// SIGTERM or Ctrl-C, sleeping until an input comes. A server that
+/// fails says why.
+pub(crate) fn runner(
+    options: Options,
+) -> impl FnOnce(App) -> AppExit + 'static {
+    move |app| {
         let served = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
@@ -131,18 +63,21 @@ pub fn run(options: Options) -> Result<()> {
         match served {
             Ok(()) => AppExit::Success,
             Err(error) => {
-                *failure.borrow_mut() = Some(error);
+                failed(&error);
                 AppExit::error()
             }
         }
-    });
-    match app.run() {
-        AppExit::Success => Ok(()),
-        AppExit::Error(_) => Err(failed
-            .borrow_mut()
-            .take()
-            .unwrap_or_else(|| anyhow::anyhow!("the server failed"))),
     }
+}
+
+/// Says why the server could not serve, as `main` would have.
+#[expect(
+    clippy::print_stderr,
+    reason = "the failure is the server's last output for whoever \
+              started it"
+)]
+fn failed(error: &anyhow::Error) {
+    eprintln!("Error: {error:?}");
 }
 
 /// Serves `app` until SIGTERM or Ctrl-C, closing every client before

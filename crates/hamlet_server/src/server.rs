@@ -28,13 +28,12 @@ use notify::RecommendedWatcher;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{mpsc, watch};
 
-use crate::after_input::{AfterInput, InputEffects, discard};
+use crate::after_input::{InputEffects, discard};
 use crate::background::BackgroundResult;
 use crate::calls::{Ran, ToolRun};
 use crate::clients::check::{failed, fault};
 use crate::clients::connection::Event;
 use crate::clients::{Clients, asked};
-use crate::clock;
 use crate::core::{
     Confined, Core, Leftovers, RemoteWorkspace, UnpushedLodge,
     Workspace,
@@ -46,7 +45,6 @@ use crate::knowledge::runner::{RepositoryWriteLock, Runner};
 use crate::providers::Providers;
 use crate::realm::Realm;
 use crate::society::agents;
-use crate::startup::ServerStartup;
 use crate::talk::process::{Pi, Received};
 use crate::talk::runtimes::{self, Harness, Runtimes};
 use crate::talk::sync::FittedImages;
@@ -55,6 +53,7 @@ use crate::timers::{self, TimerSystem};
 use crate::work::added;
 use crate::work::tools::shell::Shells;
 use crate::workspace::Transport;
+use crate::{AfterInput, ServerStartup, clock};
 
 /// An input that wakes the server.
 pub(crate) enum Input {
@@ -241,9 +240,9 @@ pub(crate) struct Server {
 }
 
 impl Server {
-    /// Takes `realm` on in `app`: its jobs runner and its harness's
-    /// runtime, and follows the turns that ended before the last stop
-    /// but were not followed.
+    /// Takes `realm` on in `app`, which has [`crate::ServerPlugin`]:
+    /// its jobs runner and its harness's runtime, and follows the
+    /// turns that ended before the last stop but were not followed.
     pub fn start(
         mut app: App,
         mut realm: Realm,
@@ -305,8 +304,7 @@ impl Server {
             .insert_resource(providers)
             .insert_resource(Workspace(workspace))
             .insert_resource(runner)
-            .insert_resource(writing)
-            .add_plugins(crate::plugin);
+            .insert_resource(writing);
         let world = app.world_mut();
         let inbox = InputChannels {
             runtime_lines: lines,
@@ -807,8 +805,17 @@ mod tests {
             Sandbox::open(hamlet_sandbox::Isolation::Sandboxed)
                 .unwrap();
         let (_closing, closed) = watch::channel(false);
+        let mut app = App::empty();
+        app.add_plugins(crate::ServerPlugin {
+            options: crate::options::Options {
+                home: dir.join("realm"),
+                port: 0,
+                faux: Some(faux.clone()),
+                isolation: hamlet_sandbox::Isolation::Sandboxed,
+            },
+        });
         let mut server = Server::start(
-            App::empty(),
+            app,
             realm,
             env,
             Pi::from_env(Some(faux)).unwrap(),

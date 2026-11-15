@@ -184,10 +184,15 @@ the chief typed and for what is about the open chat or the whole realm.
 ([ADR 0015](adr/0015-the-server-runs-as-a-bevy-app-with-no-frame.md)).
 What differs from the window:
 
+- **`lib.rs` is the way in.** As in a Bevy crate, it holds the crate's
+  plugin, `ServerPlugin`, which `main` adds to an empty app, and the
+  schedules and steps every area adds its systems to. Its first
+  comment says in which order to read the rest.
 - **The runner runs inputs, not frames.** `server.rs` sleeps until an
-  input comes and runs it; the `AfterInput` schedule
-  (`after_input.rs`) runs once after it. The `ServerStartup` schedule
-  (`startup.rs`) runs once before the first input. There is no `Main`
+  input comes and runs it; the `AfterInput` schedule, its systems in
+  `after_input.rs`, runs once after it. The `ServerStartup` schedule,
+  its systems in `startup.rs`, runs once before the first input.
+  `ServerPlugin` sets the runner, `serve::runner`. There is no `Main`
   schedule, so nothing runs that an input or a timer did not ask for,
   and messages are turned over by `AfterInput`'s last step instead of
   by a frame.

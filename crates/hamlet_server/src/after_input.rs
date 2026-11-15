@@ -14,10 +14,7 @@ use bevy_ecs::message::{Message, MessageReader, Messages};
 use bevy_ecs::observer::On;
 use bevy_ecs::query::With;
 use bevy_ecs::resource::Resource;
-use bevy_ecs::schedule::{
-    IntoScheduleConfigs, Schedule, ScheduleLabel,
-    SingleThreadedExecutor, SystemSet,
-};
+use bevy_ecs::schedule::IntoScheduleConfigs;
 use bevy_ecs::system::{Commands, Res, ResMut};
 use bevy_ecs::world::World;
 use hamlet_store::Db;
@@ -41,34 +38,14 @@ use crate::talk::inputs::Resend;
 use crate::talk::runtimes::Runtimes;
 use crate::talk::sync::{self, ImageFitting};
 use crate::talk::{Env, conversations};
+use crate::{AfterInput, AfterInputStep};
 
 pub(crate) fn plugin(app: &mut App) {
-    let mut after_input = Schedule::new(AfterInput);
-    // One thread: SQLite has one writer, and the gain is the order.
-    after_input.set_executor(SingleThreadedExecutor::new());
-    app.add_schedule(after_input)
-        .init_resource::<InputEffects>()
+    app.init_resource::<InputEffects>()
         .add_message::<WakeHeldCall>()
         .add_message::<InputEnded>()
         .add_observer(follow_ended_input)
         .add_observer(send_owed_replies)
-        .configure_sets(
-            AfterInput,
-            (
-                AfterInputStep::FollowEndedInputs,
-                AfterInputStep::NarrowToolsToRoles,
-                AfterInputStep::CommitInput,
-                AfterInputStep::RunKeptJobs,
-                AfterInputStep::StopCancelledToolRuns,
-                AfterInputStep::StartToolRunsAndBackgroundWork,
-                AfterInputStep::SendRuntimesWhatTheyAreOwed,
-                AfterInputStep::PublishState,
-                AfterInputStep::SendClientMessages,
-                AfterInputStep::WriteRuntimeLines,
-                AfterInputStep::PushOwedLodges,
-            )
-                .chain(),
-        )
         .add_systems(
             AfterInput,
             (
@@ -109,32 +86,6 @@ pub(crate) fn plugin(app: &mut App) {
                     .in_set(AfterInputStep::PushOwedLodges),
             ),
         );
-}
-
-/// The schedule the runner runs after each input.
-#[derive(ScheduleLabel, Clone, Debug, PartialEq, Eq, Hash)]
-pub(crate) struct AfterInput;
-
-/// The steps of [`AfterInput`], in their order.
-#[derive(SystemSet, Clone, Debug, PartialEq, Eq, Hash)]
-pub(crate) enum AfterInputStep {
-    /// The inputs that ended are followed.
-    FollowEndedInputs,
-    NarrowToolsToRoles,
-    /// The changes of the steps before are kept.
-    CommitInput,
-    /// The jobs the kept changes left are run.
-    RunKeptJobs,
-    StopCancelledToolRuns,
-    /// The tool runs and the tasks the input asked for start.
-    StartToolRunsAndBackgroundWork,
-    SendRuntimesWhatTheyAreOwed,
-    PublishState,
-    SendClientMessages,
-    /// The runtimes are sent what the input queued for them.
-    WriteRuntimeLines,
-    /// The lodges the input owes the remote workspace are pushed.
-    PushOwedLodges,
 }
 
 /// A call held on a wait whose wait was answered: its runtime is

@@ -11,7 +11,7 @@ alone, such as the connections, the uploads, the tool runs, the runtimes
 and the conversations in memory. No row of the database is mirrored in
 the world.
 
-**No frame.** `serve::run` builds an `App` and sets its runner. The runner
+**No frame.** `ServerPlugin` adds every area and sets the runner. The runner
 sleeps until an input comes (a runtime's line, a client's message, a tool
 run that ended, a task that finished, the jobs runner's pass, a change to
 the tools added by hand, a timer that is due) and runs that input alone,

@@ -2,7 +2,7 @@
 //! the handlers of the server's inputs reach. Every change of an
 //! input is made in its one transaction, and what it needs woken
 //! after, the jobs, the runtimes and the clients, is left for
-//! [`crate::after_input::AfterInput`] once it is kept.
+//! [`crate::AfterInput`] once it is kept.
 
 use std::collections::{BTreeMap, HashMap};
 
@@ -253,7 +253,7 @@ impl Core<'_, '_> {
     }
 
     /// Leaves what a change touched for
-    /// [`crate::after_input::AfterInput`] to follow up once the input
+    /// [`crate::AfterInput`] to follow up once the input
     /// is kept.
     fn after(&mut self, touched: &Touched) {
         self.changed.change_kept = true;

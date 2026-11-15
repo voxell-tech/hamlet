@@ -125,7 +125,8 @@ they start in, and the most one may cost.
 ## Starting and stopping
 
 `hamlet_server --home <folder> --port 0` publishes a free loopback address.
-`serve::run` builds the Bevy app whose runner serves; `serve::serve` owns
+`main` runs a Bevy app with `ServerPlugin` (`lib.rs`), whose runner,
+`serve::runner`, serves; `serve::serve` owns
 the ordered start and shutdown, `clients/connection.rs` the sockets,
 `clients/requests.rs` authentication, and `clients/asked.rs` the system
 that answers each request. `--faux` selects an offline
