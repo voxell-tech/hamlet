@@ -256,7 +256,6 @@ pub(super) async fn profile(
         .map(|id| Profile { id: ProfileId(id) }))
 }
 
-/// The next profile's id: the Hand's is 1.
 pub(super) async fn fresh_profile(
     rows: &Rows<'_>,
 ) -> Result<ProfileId> {
