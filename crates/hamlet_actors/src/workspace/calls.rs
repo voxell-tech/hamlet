@@ -25,7 +25,6 @@ pub(super) const SCHEMA: &str = "CREATE TABLE IF NOT EXISTS calls (
 	state TEXT NOT NULL,
 	answer BLOB,
 	temp TEXT,
-	opened_at INTEGER NOT NULL,
 	ended_at INTEGER,
 	UNIQUE (agent, call)) STRICT";
 
@@ -150,8 +149,8 @@ pub(super) async fn insert(
     let inserted = tx
         .execute(
             "INSERT INTO calls (agent, call, op, request_hash, \
-             state, answer, temp, opened_at) VALUES (?1, ?2, ?3, \
-             ?4, ?5, ?6, ?7, ?8)",
+             state, answer, temp) VALUES (?1, ?2, ?3, ?4, ?5, ?6, \
+             ?7)",
             Some(vec![
                 BindParam::Integer(i64::from(agent.0)),
                 BindParam::Text(call.0.clone()),
@@ -162,7 +161,6 @@ pub(super) async fn insert(
                 temp.map_or(BindParam::Null, |temp| {
                     BindParam::Text(temp.to_owned())
                 }),
-                BindParam::Integer(now_ms()?),
             ]),
         )
         .await?;
