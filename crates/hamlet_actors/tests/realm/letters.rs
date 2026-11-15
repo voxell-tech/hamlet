@@ -3,20 +3,20 @@ use std::time::Duration;
 use hamlet_actors::realm;
 use hamlet_messages::agent::{Author, Input, Submit};
 use hamlet_messages::realm::AgentRefusal::{Act, Standing as Stood};
+use hamlet_messages::realm::client::SayAnswer;
 use hamlet_messages::realm::{
-    Ask, Done, End, Hire, HireAnswer, HowEnded, Left, LetterId,
+    Ask, Asked, Done, End, FoundAnswer, HowEnded, Left, LetterId,
     LetterRefusal, Named, Reply, ReplyRefusal, Standing, Tell,
 };
 use hamlet_messages::sender::Hand;
-use hamlet_messages::workspace::{
-    AgentNumber, ConversationId, RealmTask,
-};
+use hamlet_messages::workspace::{AgentNumber, ConversationId};
+use hamlet_protocol::client::RequestId;
 
 use super::{
-    Callee, MAYOR, Realm, Seen, error_code, founded, tool, until,
+    Callee, MAYOR, Realm, Seen, THREE, error_code, found, founded,
+    hamlet_with, hires, purpose_of, say, standing, submits_to, tool,
+    until,
 };
-
-const THREE: AgentNumber = AgentNumber(3);
 
 fn to(agent: AgentNumber) -> Named {
     Named::Agent { agent }
@@ -34,47 +34,6 @@ fn from(agent: AgentNumber) -> Author {
     Author { agent, name: None }
 }
 
-/// `lead` hires one hire under itself, as the call `call`.
-async fn hires(realm: &Realm, lead: AgentNumber, call: &str) {
-    let hire = Hire {
-        hamlet: None,
-        under: None,
-        profile: None,
-        purpose: Some("Write the docs".to_owned()),
-    };
-    let hired = realm.tool(lead, &tool(call, hire)).await;
-    assert!(
-        matches!(hired, Ok(HireAnswer::Hired { .. })),
-        "{hired:?}"
-    );
-}
-
-/// A realm with a hamlet whose mayor has `count` live hires, from
-/// agent 3 up.
-async fn hamlet_with(count: u32) -> Realm {
-    let realm = Realm::start().await;
-    realm.live(Hand::NUMBER).await;
-    founded(&realm).await;
-    realm.live(MAYOR).await;
-    for n in 0..count {
-        hires(&realm, MAYOR, &format!("h{n}")).await;
-        realm.live(AgentNumber(3 + n)).await;
-    }
-    realm
-}
-
-fn submits_to(realm: &Realm, agent: AgentNumber) -> Vec<Submit> {
-    realm
-        .seen
-        .submits
-        .lock()
-        .unwrap()
-        .iter()
-        .filter(|(to, _)| *to == agent)
-        .map(|(_, submit)| submit.clone())
-        .collect()
-}
-
 async fn seen_submits(
     realm: &Realm,
     agent: AgentNumber,
@@ -87,26 +46,13 @@ async fn seen_submits(
     submits_to(realm, agent)
 }
 
-/// The task `agent` was made with.
-fn standing(realm: &Realm, agent: AgentNumber) -> RealmTask {
-    realm
-        .seen
-        .made
-        .lock()
-        .unwrap()
-        .iter()
-        .find(|(made, _)| *made == agent)
-        .map(|(_, input)| input.task.clone())
-        .expect("the agent was made")
-}
-
 #[tokio::test(flavor = "multi_thread")]
 async fn a_repeated_tell_keeps_one_letter() {
     // Tool<Tell> twice with one call id: both Done, one letter row
     // naming its way, and two Submits to the receiver with one
     // InputId and the sender's task. The same id with another text
     // is a reused id.
-    let realm = hamlet_with(1).await;
+    let (realm, _) = hamlet_with(1).await;
     let task = standing(&realm, MAYOR);
     let sent = tool(
         "t1",
@@ -174,7 +120,7 @@ async fn a_repeated_tell_keeps_one_letter() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_tell_with_no_road_is_refused() {
     // two hires of one lead tell each other: `NoRoad`.
-    let realm = hamlet_with(2).await;
+    let (realm, _) = hamlet_with(2).await;
     let four = AgentNumber(4);
 
     let three_to_four =
@@ -191,11 +137,91 @@ async fn a_tell_with_no_road_is_refused() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn a_tell_with_no_road_to_a_hire_still_hiring_is_refused_at_once()
+ {
+    // the mayor hires 4 with its fill held: 3, the mayor's other
+    // hire, has no road to it, and hears `NoRoad` with no wait.
+    let (realm, _) = hamlet_with(1).await;
+    let four = AgentNumber(4);
+    realm.seen.hold(Callee::Fill);
+    hires(&realm, MAYOR, "h1").await;
+
+    let told =
+        realm.tool(THREE, &tool("t1", tell(to(four), "hi"))).await;
+    realm.seen.release(Callee::Fill);
+
+    assert_eq!(
+        told.unwrap(),
+        Done::Refused {
+            why: Act(LetterRefusal::NoRoad { to: four })
+        }
+    );
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_letter_or_a_question_as_the_first_message_gives_the_purpose()
+ {
+    // mayors 2 and 3 are founded with no purpose. The Hand tells 2
+    // and 2 asks 3: the first line of each becomes its receiver's
+    // purpose, and the chief's line to 2 after it changes nothing.
+    let (realm, _) = hamlet_with(0).await;
+    let barn = realm
+        .ask(&Asked {
+            id: RequestId::new(),
+            act: found("Barn"),
+        })
+        .await
+        .unwrap();
+    realm.live(THREE).await;
+    let ask = Ask {
+        to: to(THREE),
+        text: "Mind the barn?\nsoon".to_owned(),
+        conversation: ConversationId("c1".to_owned()),
+        task: None,
+    };
+
+    let told = realm
+        .tool(
+            Hand::NUMBER,
+            &tool(
+                "t1",
+                tell(to(MAYOR), "\n Dig the well \nthen rest"),
+            ),
+        )
+        .await
+        .unwrap();
+    let asked = realm.tool(MAYOR, &tool("a1", ask)).await.unwrap();
+    let said = realm
+        .ask(&say(&RequestId::new(), MAYOR, "Paint the mill"))
+        .await
+        .unwrap();
+
+    assert!(matches!(
+        barn,
+        FoundAnswer::Founded { mayor: THREE, .. }
+    ));
+    assert_eq!((told, asked), (Done::Done, Done::Done));
+    assert!(matches!(said, SayAnswer::Taken { .. }), "{said:?}");
+    assert_eq!(
+        (
+            purpose_of(&realm, MAYOR).await,
+            purpose_of(&realm, THREE).await
+        ),
+        (
+            Some("Dig the well".to_owned()),
+            Some("Mind the barn?".to_owned())
+        )
+    );
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn a_tell_is_refused_for_its_ends() {
     // hire 3 hires 4. A tell to oneself, an empty one, and one from 4
     // to the Hand or the mayor are refused; after 3 ends 4, a tell to
     // 4 says how it left, and 4 may not tell.
-    let realm = hamlet_with(1).await;
+    let (realm, _) = hamlet_with(1).await;
     let four = AgentNumber(4);
     hires(&realm, THREE, "h3").await;
     realm.live(four).await;
@@ -293,7 +319,7 @@ async fn an_answer_reaches_the_asker_once() {
     // text, its conversation and the question's task. A reply from
     // another agent is `NotAsked`, and one to no question
     // `NoSuchQuestion`.
-    let realm = hamlet_with(1).await;
+    let (realm, _) = hamlet_with(1).await;
     let task = standing(&realm, MAYOR);
     let conversation = ConversationId("c1".to_owned());
     let ask = Ask {

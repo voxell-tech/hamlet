@@ -24,17 +24,14 @@ use super::world::Part;
 use super::{Realm, tree};
 
 /// The wait a client names: its number, as the client reads it,
-/// with or without a leading `#`.
+/// with or without a leading `#`. `None` for a number no row can
+/// have.
 fn named(wait: &str) -> Option<WaitId> {
-    wait.trim_start_matches('#').parse().ok().map(WaitId)
+    let n = wait.trim_start_matches('#').parse::<i64>().ok()?;
+    u64::try_from(n).ok().map(WaitId)
 }
 
-fn param(wait: WaitId) -> Result<BindParam> {
-    Ok(BindParam::Integer(i64::try_from(wait.0)?))
-}
-
-/// How long an allow holds, as the row records it. The workspace
-/// hears only allow or refuse, so every allow acts once.
+/// How long an allow holds, as the row records it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(super) enum Scope {
@@ -94,9 +91,7 @@ async fn open(writer: &Writer<'_>, asked: NeedsChief) -> Result<u64> {
                 BindParam::Text(asked.call.0),
                 BindParam::Text(asked.subject),
                 BindParam::Text(serde_json::to_string(&asked.needs)?),
-                BindParam::Integer(i64::try_from(
-                    asked.reach_version.0,
-                )?),
+                change::integer(asked.reach_version.0)?,
                 BindParam::Integer(writer.at().0),
             ],
         )
@@ -126,7 +121,7 @@ async fn close(
                 },
                 reason.map_or(BindParam::Null, BindParam::Text),
                 BindParam::Integer(writer.at().0),
-                param(wait)?,
+                change::integer(wait.0)?,
             ],
         )
         .await
@@ -156,11 +151,13 @@ pub(super) async fn deliver(
         .row::<(u32, String, Option<String>, Option<String>)>(
             "SELECT agent, call, choice, reason FROM wait WHERE id \
              = ?1",
-            vec![param(wait)?],
+            vec![change::integer(wait.0)?],
         )
         .await?
         .with_context(|| format!("wait {} has no row", wait.0))?;
     let answer = match choice.as_deref() {
+        // The workspace hears only allow or refuse, so an allow kept
+        // as always acts once.
         Some("allow") => workspace::Answer::Allow,
         Some("refuse") => workspace::Answer::Refuse { reason },
         other => bail!(
@@ -183,28 +180,36 @@ pub(super) async fn deliver(
     Ok(())
 }
 
+/// The agent that needs the chief.
+pub(super) enum Asker {
+    Ended,
+    NotEnded,
+}
+
 impl Act<Workspace> for NeedsChief {
     type Output = ();
-    /// Whether the agent has ended.
-    type Loaded = bool;
+    type Loaded = Asker;
     type Done = ();
 
     async fn load(
         &self,
         _by: &Workspace,
         rows: &Rows<'_>,
-    ) -> Result<bool> {
-        Ok(tree::left(rows, self.agent).await?.is_some())
+    ) -> Result<Asker> {
+        Ok(match tree::left(rows, self.agent).await? {
+            Some(_) => Asker::Ended,
+            None => Asker::NotEnded,
+        })
     }
 
     fn decide(
         &self,
         _by: &Workspace,
-        ended: bool,
+        asker: Asker,
     ) -> Decision<(), ()> {
         // The end lapsed this agent's waits; the workspace closes its
         // own when it hears of the end.
-        if ended {
+        if let Asker::Ended = asker {
             return Decision::Answer(());
         }
         Decision::Change(Decided::new(()).change(Change::Open {
@@ -233,7 +238,7 @@ impl Act<Client> for Answer {
             .value::<u64>(
                 "SELECT id FROM wait WHERE id = ?1 AND closed_at IS \
                  NULL",
-                vec![param(wait)?],
+                vec![change::integer(wait.0)?],
             )
             .await?
             .map(WaitId))

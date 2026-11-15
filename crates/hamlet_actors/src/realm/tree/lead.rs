@@ -120,15 +120,8 @@ impl<By: Lead> Act<By> for Hire {
         {
             return Decision::Answer(HireAnswer::refused(not_a_lead));
         }
-        let purpose = self
-            .purpose
-            .as_deref()
-            .map(str::trim)
-            .filter(|purpose| !purpose.is_empty())
-            .map(str::to_owned);
-        if purpose.is_none()
-            && caller(by).is_some_and(|agent| agent != Hand::NUMBER)
-        {
+        let purpose = super::given_purpose(self.purpose.as_deref());
+        if purpose.is_none() && caller(by).is_some() {
             return refuse(HireRefusal::NoPurpose);
         }
         if named.as_ref().is_some_and(|named| *named != hamlet.id) {
@@ -317,6 +310,7 @@ impl<By: RealmWide> Act<By> for Seat {
         }
         Decision::Change(
             Decided::new(())
+                // First: `seat` reads the old mayor from the hamlet.
                 .change(Change::Seat { mayor: hire })
                 .change(chiefs::Change::Mayor {
                     hamlet: hamlet.id.clone(),
@@ -588,7 +582,7 @@ mod tests {
         }
         assert!(matches!(by_3(Some("dig")), Decision::Change(_)));
         let by_the_hand = hire_for(None).decide(&by(1), under_5("h"));
-        assert!(matches!(by_the_hand, Decision::Change(_)));
+        assert_eq!(by_the_hand, no_purpose);
         let by_the_chief =
             hire_for(None).decide(&Client, under_5("h"));
         assert!(matches!(by_the_chief, Decision::Change(_)));

@@ -1,9 +1,8 @@
 use std::time::Duration;
 
 use hamlet_messages::realm::{
-    Asked, Done, End, EndRefusal, FoundAnswer, HamletId, Hire,
-    HireAnswer, HireRefusal, HowEnded, LeadRefusal, Left, Named,
-    Rank,
+    Asked, Done, End, EndRefusal, FoundAnswer, Hire, HireAnswer,
+    HireRefusal, HowEnded, LeadRefusal, Left, Named, Rank,
 };
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::AgentNumber;
@@ -11,7 +10,8 @@ use hamlet_messages::workspace::reach::Reach;
 use hamlet_protocol::client::RequestId;
 
 use super::{
-    Callee, MAYOR, Realm, error_code, found, founded, tool, until,
+    Callee, MAYOR, Realm, chief_hires, error_code, found, founded,
+    hire, hired, tool, until,
 };
 
 fn under(agent: u32) -> Option<Named> {
@@ -20,27 +20,12 @@ fn under(agent: u32) -> Option<Named> {
     })
 }
 
-fn hire(under: Option<Named>) -> Hire {
-    Hire {
-        hamlet: None,
-        under,
-        profile: None,
-        purpose: Some("Check the links".to_owned()),
-    }
-}
-
 fn end(agent: u32) -> End {
     End {
         hire: Named::Agent {
             agent: AgentNumber(agent),
         },
         why: None,
-    }
-}
-
-fn hired<R>(agent: u32) -> HireAnswer<R> {
-    HireAnswer::Hired {
-        agent: AgentNumber(agent),
     }
 }
 
@@ -351,6 +336,8 @@ async fn a_repeated_hire_hires_once() {
             ),
         )
         .await;
+    // A repeat while the failed drive still holds the row drives
+    // nothing, so repeat until one does.
     let mut again = Vec::new();
     while !realm.holds_reach(AgentNumber(3)) {
         again.push(realm.tool(MAYOR, &call).await.unwrap());
@@ -386,23 +373,6 @@ async fn a_repeated_hire_hires_once() {
     realm.host.shutdown().await.unwrap();
 }
 
-async fn chief_hires(
-    realm: &Realm,
-    hamlet: &HamletId,
-    act: Hire,
-) -> HireAnswer<HireRefusal> {
-    realm
-        .ask(&Asked {
-            id: RequestId::new(),
-            act: Hire {
-                hamlet: Some(hamlet.clone()),
-                ..act
-            },
-        })
-        .await
-        .unwrap()
-}
-
 fn refused_to_an_agent(
     why: HireRefusal,
 ) -> HireAnswer<LeadRefusal<HireRefusal>> {
@@ -413,9 +383,9 @@ fn refused_to_an_agent(
 
 #[tokio::test(flavor = "multi_thread")]
 async fn an_agents_hire_says_what_it_is_for() {
-    // mayor 2 hires with no purpose, an empty one and a blank one:
-    // each is refused `NoPurpose`. The chief and the Hand hire with
-    // none, and hire 3 and 4.
+    // mayor 2 hires with no purpose, an empty one and a blank one,
+    // and the Hand with none: each is refused `NoPurpose`. The chief
+    // hires with none, and hires 3.
     let realm = Realm::start().await;
     let hamlet = founded(&realm).await;
     let hire_for = |purpose: Option<&str>| Hire {
@@ -446,14 +416,13 @@ async fn an_agents_hire_says_what_it_is_for() {
         )
         .await;
 
-    for answer in by_the_mayor {
+    for answer in by_the_mayor.into_iter().chain([by_the_hand]) {
         assert_eq!(
             answer.unwrap(),
             refused_to_an_agent(HireRefusal::NoPurpose)
         );
     }
     assert_eq!(by_the_chief, hired(3));
-    assert_eq!(by_the_hand.unwrap(), hired(4));
     realm.host.shutdown().await.unwrap();
 }
 

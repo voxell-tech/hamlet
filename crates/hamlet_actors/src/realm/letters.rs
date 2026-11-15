@@ -22,7 +22,7 @@ use super::change::{self, Affected, Rows, Writer, number};
 use super::peer::When;
 use super::roads::{self, Ends, Way};
 use super::tasks::TaskId;
-use super::tree::Status;
+use super::tree::{self, Status};
 use super::{Realm, hire, laid};
 
 type Sent = Done<AgentRefusal<LetterRefusal>>;
@@ -104,7 +104,7 @@ async fn keep(
              text, task, conversation, at) VALUES (?1, ?2, ?3, ?4, \
              ?5, ?6, ?7, ?8, ?9)",
             vec![
-                id(letter),
+                change::integer(letter.0)?,
                 BindParam::Text(change::case_name(&kind)?),
                 number(from),
                 number(to),
@@ -133,14 +133,10 @@ async fn keep_answer(
         .execute(
             "UPDATE letter SET answer = ?2 WHERE id = ?1 AND answer \
              IS NULL",
-            vec![id(question), BindParam::Text(text)],
+            vec![change::integer(question.0)?, BindParam::Text(text)],
         )
         .await?;
     Ok(Affected::default())
-}
-
-fn id(letter: LetterId) -> BindParam {
-    BindParam::Integer(i64::from(letter.0))
 }
 
 /// The next letter's id.
@@ -180,7 +176,7 @@ async fn letter_input(
         .row::<(String, u32, u32, String, Option<TaskId>)>(
             "SELECT kind, sender, receiver, text, task FROM letter \
              WHERE id = ?1",
-            vec![id(letter)],
+            vec![change::integer(letter.0)?],
         )
         .await?
         .with_context(|| format!("no letter {}", letter.0))?;
@@ -212,7 +208,7 @@ async fn answer_input(
         )>(
             "SELECT sender, receiver, answer, conversation, task \
              FROM letter WHERE id = ?1",
-            vec![id(question)],
+            vec![change::integer(question.0)?],
         )
         .await?;
     let Some((asker, asked, Some(text), Some(conversation), task)) =
@@ -281,26 +277,23 @@ impl Written<'_> {
         if self.text.trim().is_empty() {
             return refuse(LetterRefusal::Empty);
         }
-        match &to.status {
-            Status::Ended(left) => {
-                return refuse(LetterRefusal::Left {
-                    to: to.agent,
-                    left: left.clone(),
-                });
-            }
-            Status::Hiring => {
-                return Decision::WaitFor {
-                    row: hire::row(to.agent),
-                    refusal: Done::refused(AgentRefusal::Act(
-                        LetterRefusal::StillHiring { to: to.agent },
-                    )),
-                };
-            }
-            Status::Live => {}
+        if let Status::Ended(left) = &to.status {
+            return refuse(LetterRefusal::Left {
+                to: to.agent,
+                left: left.clone(),
+            });
         }
         let Some(way) = ends.way() else {
             return refuse(LetterRefusal::NoRoad { to: to.agent });
         };
+        if to.status == Status::Hiring {
+            return Decision::WaitFor {
+                row: hire::row(to.agent),
+                refusal: Done::refused(AgentRefusal::Act(
+                    LetterRefusal::StillHiring { to: to.agent },
+                )),
+            };
+        }
         let mut decided = Decided::new(id).change(Change::Keep {
             letter: id,
             kind: self.kind,
@@ -311,6 +304,12 @@ impl Written<'_> {
             task: self.task.and_then(TaskId::of),
             conversation: self.conversation.cloned(),
         });
+        if to.can_take_purpose
+            && let Some(purpose) =
+                tree::purpose_from(to.agent, self.text)
+        {
+            decided = decided.change(purpose);
+        }
         if way == Way::Laid {
             decided = decided.change(laid::Change::Used {
                 between: (ends.from.agent, to.agent),
@@ -411,7 +410,7 @@ impl Act<Agent> for Reply {
                 "SELECT receiver FROM letter WHERE id = ?1 AND kind \
                  = ?2",
                 vec![
-                    id(self.question),
+                    change::integer(self.question.0)?,
                     BindParam::Text(change::case_name(
                         &Kind::Question,
                     )?),
@@ -473,6 +472,7 @@ mod tests {
             lead: lead.map(AgentNumber),
             hamlet: Some(HamletId("h".into())),
             is_mayor: lead.is_none(),
+            can_take_purpose: false,
         }
     }
 
@@ -507,6 +507,42 @@ mod tests {
                     to: AgentNumber(4)
                 })
             })
+        );
+    }
+
+    #[test]
+    fn a_question_to_a_hire_with_no_purpose_gives_it_one() {
+        let mut to = end(4, Some(3));
+        to.can_take_purpose = true;
+        let letter = Letter {
+            ends: Ends {
+                from: end(3, Some(2)),
+                to: Some(to),
+                laid: false,
+            },
+            id: LetterId(1),
+        };
+        let ask = Ask {
+            to: Named::Agent {
+                agent: AgentNumber(4),
+            },
+            text: "Why the well?".into(),
+            conversation: ConversationId("c".into()),
+            task: None,
+        };
+
+        let Decision::Change(decided) = ask.decide(&sender(), letter)
+        else {
+            panic!("3 asks its hire 4");
+        };
+        assert!(
+            decided.changes.contains(
+                &tree::Change::Purpose {
+                    hire: AgentNumber(4),
+                    text: "Why the well?".to_owned(),
+                }
+                .into()
+            )
         );
     }
 

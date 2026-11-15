@@ -281,7 +281,9 @@ impl<By: RealmWide> Act<By> for Found {
                     hamlet: hamlet.clone(),
                     lead: None,
                     of,
-                    purpose: self.purpose.clone(),
+                    purpose: tree::given_purpose(
+                        self.purpose.as_deref(),
+                    ),
                 })
                 .change(tasks::Change::Standing {
                     agent: mayor,

@@ -3,26 +3,20 @@ use std::time::{Duration, Instant};
 use hamlet_actor::Action as _;
 use hamlet_messages::address;
 use hamlet_messages::realm::budget::{Charge, Payer};
-use hamlet_messages::realm::client::{Answer, ReadWorld};
+use hamlet_messages::realm::client::ReadWorld;
 use hamlet_messages::realm::world::{
     AgentSeen, ReachSeen, Revision, Seen, Status, WaitId, WaitSeen,
 };
-use hamlet_messages::realm::{
-    Done, End, Hire, HireAnswer, Named, NeedsChief,
-};
+use hamlet_messages::realm::{Done, End, Named};
 use hamlet_messages::sender::Hand;
-use hamlet_messages::workspace::{
-    AgentNumber, CallId, ConversationId, ReachVersion,
-};
-use hamlet_protocol::client::{self as protocol, Choice, RequestId};
+use hamlet_messages::workspace::{AgentNumber, CallId, ReachVersion};
+use hamlet_protocol::client::Choice;
 use tokio::task::JoinSet;
 
 use super::{
-    Callee, DEADLINE, Forward, MAYOR, Realm, call, decoded, founded,
-    tool, until,
+    Callee, DEADLINE, Forward, MAYOR, Realm, THREE, answer, call,
+    decoded, founded, hamlet_with, needs, standing, tool, until,
 };
-
-const HIRE: AgentNumber = AgentNumber(3);
 
 /// Reads the world until `holds` holds for it.
 pub(super) async fn seen_until(
@@ -48,45 +42,6 @@ fn agent(seen: &Seen, agent: AgentNumber) -> Option<&AgentSeen> {
     seen.agents.iter().find(|seen| seen.agent == agent)
 }
 
-/// A realm with mayor 2 live, and its hire 3 live.
-async fn with_a_hire() -> Realm {
-    let realm = Realm::start().await;
-    realm.live(Hand::NUMBER).await;
-    founded(&realm).await;
-    realm.live(MAYOR).await;
-    let hired = realm
-        .tool(
-            MAYOR,
-            &tool(
-                "h1",
-                Hire {
-                    hamlet: None,
-                    under: None,
-                    profile: None,
-                    purpose: Some("Check the links".to_owned()),
-                },
-            ),
-        )
-        .await
-        .unwrap();
-    assert_eq!(hired, HireAnswer::Hired { agent: HIRE });
-    realm.live(HIRE).await;
-    realm
-}
-
-fn needs(agent: AgentNumber) -> NeedsChief {
-    NeedsChief {
-        agent,
-        call: CallId("c1".to_owned()),
-        conversation: ConversationId("c".to_owned()),
-        realm_task: None,
-        needs: Vec::new(),
-        subject: "rm -rf build".to_owned(),
-        change: None,
-        reach_version: ReachVersion(1),
-    }
-}
-
 async fn end_the_hire(realm: &Realm) {
     let ended = realm
         .tool(
@@ -94,7 +49,7 @@ async fn end_the_hire(realm: &Realm) {
             &tool(
                 "e1",
                 End {
-                    hire: Named::Agent { agent: HIRE },
+                    hire: Named::Agent { agent: THREE },
                     why: None,
                 },
             ),
@@ -144,8 +99,8 @@ async fn the_revision_survives_a_restart() {
     // hire 3 under mayor 2; open a wait for the mayor; fail the
     // SetReach of 3's end, so its reach stays pending; read the
     // world; restart: the world is the same, its revision with it.
-    let realm = with_a_hire().await;
-    realm.call_as_workspace(&needs(MAYOR)).await.unwrap();
+    let (realm, _) = hamlet_with(1).await;
+    realm.call_as_workspace(&needs(MAYOR, "c1")).await.unwrap();
     realm
         .seen
         .fail_once
@@ -178,7 +133,7 @@ async fn the_revision_survives_a_restart() {
         }]
     );
     assert_eq!(
-        agent(&before, HIRE).map(|hire| &hire.reach),
+        agent(&before, THREE).map(|hire| &hire.reach),
         Some(&ReachSeen::Pending {
             applied: Some(ReachVersion(1)),
             wanted: ReachVersion(2),
@@ -192,7 +147,7 @@ async fn the_revision_survives_a_restart() {
 async fn a_revoke_shows_pending_until_the_workspace_answers() {
     // hold SetReach; end a hire: ReadWorld shows its reach Pending;
     // release SetReach: Applied.
-    let realm = with_a_hire().await;
+    let (realm, _) = hamlet_with(1).await;
     realm.seen.hold(Callee::SetReach);
 
     end_the_hire(&realm).await;
@@ -200,21 +155,21 @@ async fn a_revoke_shows_pending_until_the_workspace_answers() {
     realm.seen.release(Callee::SetReach);
     let applied =
         seen_until(&realm, "the end's reach applied", |seen| {
-            agent(seen, HIRE).is_some_and(|hire| {
+            agent(seen, THREE).is_some_and(|hire| {
                 matches!(hire.reach, ReachSeen::Applied { .. })
             })
         })
         .await;
 
     assert_eq!(
-        agent(&pending, HIRE).map(|hire| &hire.reach),
+        agent(&pending, THREE).map(|hire| &hire.reach),
         Some(&ReachSeen::Pending {
             applied: Some(ReachVersion(1)),
             wanted: ReachVersion(2),
         })
     );
     assert_eq!(
-        agent(&applied, HIRE).map(|hire| &hire.reach),
+        agent(&applied, THREE).map(|hire| &hire.reach),
         Some(&ReachSeen::Applied {
             version: ReachVersion(2)
         })
@@ -229,19 +184,8 @@ async fn a_burst_of_charges_moves_the_world_only_forward() {
     // read again and again: no read shows a lower revision or less
     // spend than the one before, and the last shows the hamlet and
     // all 20 charges.
-    let realm = Realm::start().await;
-    realm.live(Hand::NUMBER).await;
-    let hamlet = founded(&realm).await;
-    realm.live(MAYOR).await;
-    let task = realm
-        .seen
-        .made
-        .lock()
-        .unwrap()
-        .iter()
-        .find(|(made, _)| *made == MAYOR)
-        .map(|(_, input)| input.task.clone())
-        .unwrap();
+    let (realm, hamlet) = hamlet_with(0).await;
+    let task = standing(&realm, MAYOR);
     let pays = Payer::Hamlet {
         hamlet: hamlet.clone(),
     };
@@ -304,18 +248,13 @@ async fn an_answered_wait_leaves_the_world() {
     let realm = Realm::start().await;
     realm.live(Hand::NUMBER).await;
 
-    realm.call_as_workspace(&needs(Hand::NUMBER)).await.unwrap();
-    let open = realm.ask(&ReadWorld).await.unwrap();
-    let allowed = realm
-        .ask(&Answer(protocol::Answer {
-            choice: Choice::Allow,
-            id: RequestId::new(),
-            picks: None,
-            text: None,
-            wait: "1".to_owned(),
-        }))
+    realm
+        .call_as_workspace(&needs(Hand::NUMBER, "c1"))
         .await
         .unwrap();
+    let open = realm.ask(&ReadWorld).await.unwrap();
+    let allowed =
+        realm.ask(&answer("1", Choice::Allow, None)).await.unwrap();
     let answered = realm.ask(&ReadWorld).await.unwrap();
 
     assert_eq!(allowed, Done::Done);

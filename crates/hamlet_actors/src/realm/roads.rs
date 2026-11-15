@@ -30,6 +30,7 @@ pub(super) struct End {
     pub lead: Option<AgentNumber>,
     pub hamlet: Option<HamletId>,
     pub is_mayor: bool,
+    pub can_take_purpose: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -126,6 +127,7 @@ fn end(lineage: &Lineage) -> End {
             .as_ref()
             .map(|hamlet| hamlet.id.clone()),
         is_mayor: lineage.is_mayor(),
+        can_take_purpose: lineage.agent.can_take_purpose(),
     }
 }
 

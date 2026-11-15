@@ -267,7 +267,18 @@ columns!(
     (A a, B b, C c),
     (A a, B b, C c, D d),
     (A a, B b, C c, D d, E e),
+    (A a, B b, C c, D d, E e, F f),
 );
+
+/// An integer, such as an id, as the column that holds it.
+pub(super) fn integer<N>(n: N) -> Result<BindParam>
+where
+    i64: TryFrom<N>,
+    <i64 as TryFrom<N>>::Error:
+        std::error::Error + Send + Sync + 'static,
+{
+    Ok(BindParam::Integer(i64::try_from(n)?))
+}
 
 pub(super) fn number(agent: AgentNumber) -> BindParam {
     BindParam::Integer(i64::from(agent.0))

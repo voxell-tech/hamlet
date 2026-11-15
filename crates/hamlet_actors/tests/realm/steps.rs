@@ -11,7 +11,7 @@ use hamlet_messages::workspace::reach::{
 };
 use hamlet_messages::workspace::{ReachVersion, RealmTask, SetReach};
 
-use super::{Callee, MAYOR, Realm, founded, until};
+use super::{Callee, MAYOR, Realm, founded, hamlet_with, until};
 
 const BLANK: ProfileId = ProfileId(2);
 
@@ -192,10 +192,7 @@ async fn a_step_done_again_leaves_one_hire() {
     // found; live(2); set its row back to before each step in turn,
     // with the agent hiring; each run ends with one live hire, one
     // agent made and its reach in force.
-    let realm = Realm::start().await;
-    realm.live(Hand::NUMBER).await;
-    founded(&realm).await;
-    realm.live(MAYOR).await;
+    let (realm, _) = hamlet_with(0).await;
 
     for done in [
         "NULL",

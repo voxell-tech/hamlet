@@ -27,7 +27,7 @@ impl TaskId {
     }
 
     pub fn column(self) -> Result<BindParam> {
-        Ok(BindParam::Integer(i64::try_from(self.0)?))
+        change::integer(self.0)
     }
 }
 

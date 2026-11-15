@@ -2,34 +2,14 @@ use std::time::Duration;
 
 use hamlet_actors::realm;
 use hamlet_messages::agent::{Input, InputId, Submit};
-use hamlet_messages::realm::client::{Say, SayAnswer, SayRefusal};
+use hamlet_messages::realm::client::{SayAnswer, SayRefusal};
 use hamlet_messages::sender::Hand;
-use hamlet_messages::workspace::AgentNumber;
-use hamlet_protocol::client::{self as protocol, AgentId, RequestId};
+use hamlet_protocol::client::RequestId;
 
-use super::{Callee, MAYOR, Realm, Seen, error_code, founded, until};
-
-fn say(id: &RequestId, to: AgentNumber, text: &str) -> Say {
-    Say(protocol::Say {
-        files: Vec::new(),
-        id: id.clone(),
-        images: Vec::new(),
-        text: text.to_owned(),
-        to: AgentId(u64::from(to.0)),
-    })
-}
-
-fn submits_to(realm: &Realm, agent: AgentNumber) -> Vec<Submit> {
-    realm
-        .seen
-        .submits
-        .lock()
-        .unwrap()
-        .iter()
-        .filter(|(to, _)| *to == agent)
-        .map(|(_, submit)| submit.clone())
-        .collect()
-}
+use super::{
+    Callee, MAYOR, Realm, Seen, error_code, founded, hamlet_with,
+    say, submits_to, until,
+};
 
 /// Holds the branch, then founds a hamlet whose mayor's drive waits
 /// on it.
@@ -47,10 +27,7 @@ async fn mayor_held_at_its_branch(realm: &Realm) {
 async fn a_repeated_say_opens_one_task_and_submits_again() {
     // say twice with one id: one task; two Submits with one InputId.
     // The same id with another text is refused as reused.
-    let realm = Realm::start().await;
-    realm.live(Hand::NUMBER).await;
-    founded(&realm).await;
-    realm.live(MAYOR).await;
+    let (realm, _) = hamlet_with(0).await;
     let id = RequestId::new();
     let line = say(&id, MAYOR, "build the mill");
 

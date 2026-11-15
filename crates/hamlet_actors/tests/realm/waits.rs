@@ -1,40 +1,16 @@
-use hamlet_messages::realm::client::{Answer, AnswerRefusal};
+use hamlet_messages::realm::client::AnswerRefusal;
 use hamlet_messages::realm::{
-    Asked, Done, End, Hire, HireAnswer, Named, NeedsChief,
-    SecretList, Secrets,
+    Asked, Done, End, HireAnswer, Named, SecretList, Secrets,
 };
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::reach::SecretsVersion;
-use hamlet_messages::workspace::{
-    self, AgentNumber, CallId, ChiefAnswer, ConversationId,
-    ReachVersion,
+use hamlet_messages::workspace::{self, AgentNumber, ChiefAnswer};
+use hamlet_protocol::client::{Choice, RequestId};
+
+use super::{
+    Realm, answer, chief_hires, error_code, founded, hire, needs,
+    until,
 };
-use hamlet_protocol::client::{self as protocol, Choice, RequestId};
-
-use super::{Realm, error_code, founded, until};
-
-fn needs(agent: AgentNumber, call: &str) -> NeedsChief {
-    NeedsChief {
-        agent,
-        call: CallId(call.to_owned()),
-        conversation: ConversationId("c".to_owned()),
-        realm_task: None,
-        needs: Vec::new(),
-        subject: "rm -rf build".to_owned(),
-        change: None,
-        reach_version: ReachVersion(1),
-    }
-}
-
-fn answer(wait: &str, choice: Choice, text: Option<&str>) -> Answer {
-    Answer(protocol::Answer {
-        choice,
-        id: RequestId::new(),
-        picks: None,
-        text: text.map(str::to_owned),
-        wait: wait.to_owned(),
-    })
-}
 
 fn nothing_waits(wait: &str) -> Done<AnswerRefusal> {
     Done::Refused {
@@ -109,7 +85,7 @@ async fn a_repeated_answer_calls_the_workspace_again() {
     // the chief refuses a wait with a reason, then sends the same
     // answer again: Done twice, and the workspace got the refusal
     // with its reason twice. An answer with another id finds nothing
-    // waiting.
+    // waiting, and so does one to a wait no row can have.
     let realm = Realm::start().await;
     realm.live(Hand::NUMBER).await;
     realm
@@ -122,6 +98,9 @@ async fn a_repeated_answer_calls_the_workspace_again() {
     let again = realm.ask(&refused).await.unwrap();
     let other =
         realm.ask(&answer("1", Choice::Allow, None)).await.unwrap();
+    let past_any = "9223372036854775808";
+    let unnumbered =
+        realm.ask(&answer(past_any, Choice::Allow, None)).await;
     until("the workspace has both answers", || {
         chief_answers(&realm).len() == 2
     })
@@ -129,6 +108,7 @@ async fn a_repeated_answer_calls_the_workspace_again() {
 
     assert_eq!((first, again), (Done::Done, Done::Done));
     assert_eq!(other, nothing_waits("1"));
+    assert_eq!(unnumbered.unwrap(), nothing_waits(past_any));
     let refusal = workspace::Answer::Refuse {
         reason: Some("not now".to_owned()),
     };
@@ -150,18 +130,7 @@ async fn an_end_closes_open_waits() {
     let realm = Realm::start().await;
     realm.live(Hand::NUMBER).await;
     let hamlet = founded(&realm).await;
-    let hired = realm
-        .ask(&Asked {
-            id: RequestId::new(),
-            act: Hire {
-                hamlet: Some(hamlet),
-                under: None,
-                profile: None,
-                purpose: None,
-            },
-        })
-        .await
-        .unwrap();
+    let hired = chief_hires(&realm, &hamlet, hire(None)).await;
     let HireAnswer::Hired { agent: hire } = hired else {
         panic!("the chief hires: {hired:?}");
     };
