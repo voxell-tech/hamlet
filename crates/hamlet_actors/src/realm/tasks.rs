@@ -73,29 +73,40 @@ pub(super) async fn apply(
             origin,
             agent,
             payer,
-        } => open(writer, Some(task), origin, agent, payer).await,
+        } => {
+            open(writer, Id::Given(task), origin, agent, payer).await
+        }
         Change::Standing { agent, payer } => {
-            open(writer, None, Origin::Standing, agent, payer).await
+            open(writer, Id::Next, Origin::Standing, agent, payer)
+                .await
         }
     }
 }
 
-/// Writes a task under `task`, or under the next id when `None`.
+/// The id a task is written under.
+enum Id {
+    Given(TaskId),
+    /// The next of the table's ids.
+    Next,
+}
+
 async fn open(
     writer: &Writer<'_>,
-    task: Option<TaskId>,
+    id: Id,
     origin: Origin,
     agent: AgentNumber,
     payer: Payer,
 ) -> Result<Affected> {
+    let id = match id {
+        Id::Given(task) => BindParam::Integer(i64::try_from(task.0)?),
+        Id::Next => BindParam::Null,
+    };
     writer
         .execute(
             "INSERT INTO task (id, origin, agent, payer, at) VALUES \
              (?1, ?2, ?3, ?4, ?5)",
             vec![
-                task.map_or(Ok(BindParam::Null), |task| {
-                    i64::try_from(task.0).map(BindParam::Integer)
-                })?,
+                id,
                 BindParam::Text(change::name(&origin)?),
                 number(agent),
                 BindParam::Text(serde_json::to_string(&payer)?),
