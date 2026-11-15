@@ -176,7 +176,9 @@ CREATE TABLE IF NOT EXISTS wait (
 	reason TEXT,
 	closed_at INTEGER,
 	at INTEGER NOT NULL,
-	UNIQUE (agent, call)) STRICT;
+	UNIQUE (agent, call),
+	CHECK (kind <> 'tool' OR (call IS NOT NULL AND subject IS NOT NULL
+		AND needs IS NOT NULL AND reach_version IS NOT NULL))) STRICT;
 
 -- oversight.rs
 CREATE TABLE IF NOT EXISTS grant (

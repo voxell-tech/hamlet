@@ -1085,6 +1085,15 @@ mod tests {
                 call,
                 answer: Answer::Allow,
             }),
+            row(&Parcel {
+                agent: AgentNumber(7),
+                paths: Vec::new(),
+            }),
+            row(&ParcelPart {
+                agent: AgentNumber(7),
+                path: "/a".into(),
+                part: 0,
+            }),
         ]
     }
 

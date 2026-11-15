@@ -216,7 +216,7 @@ async fn waits(rows: &Rows<'_>) -> Result<Vec<WaitSeen>> {
     Ok(rows
         .rows::<(u64, u32, String, String)>(
             "SELECT id, agent, call, subject FROM wait WHERE \
-             closed_at IS NULL ORDER BY id",
+             closed_at IS NULL AND kind = 'tool' ORDER BY id",
             Vec::new(),
         )
         .await?

@@ -1,7 +1,7 @@
 use std::time::{Duration, Instant};
 
 use hamlet_actor::Action as _;
-use hamlet_messages::address;
+use hamlet_messages::address::{self, Party as _};
 use hamlet_messages::realm::budget::{Charge, Payer};
 use hamlet_messages::realm::client::ReadWorld;
 use hamlet_messages::realm::world::{
@@ -297,5 +297,38 @@ async fn an_answered_wait_leaves_the_world() {
         [WaitId(1)]
     );
     assert_eq!(answered.waits, []);
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_wait_that_is_not_a_tools_leaves_the_world_readable() {
+    let (realm, _) = hamlet_with(1).await;
+    realm
+        .write(
+            "INSERT INTO wait (agent, kind, task, conversation, at) \
+             VALUES (3, 'question', 1, 'c', 1)",
+        )
+        .await;
+    let seen = realm.ask(&ReadWorld).await.unwrap();
+    assert!(seen.waits.is_empty(), "{:?}", seen.waits);
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_tool_wait_holds_its_call() {
+    let (realm, _) = hamlet_with(1).await;
+    let written = super::stopped_open(
+        &realm.host,
+        &realm.scratch,
+        &address::Realm.address().unwrap(),
+        rusqlite::OpenFlags::default(),
+        |db| {
+            db.execute_batch(
+                "INSERT INTO wait (agent, at) VALUES (3, 1)",
+            )
+        },
+    )
+    .await;
+    assert!(written.is_err(), "a tool wait with no call was kept");
     realm.host.shutdown().await.unwrap();
 }
