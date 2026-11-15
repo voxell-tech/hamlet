@@ -413,9 +413,9 @@ fn refused_to_an_agent(
 
 #[tokio::test(flavor = "multi_thread")]
 async fn an_agents_hire_says_what_it_is_for() {
-    // mayor 2 hires with no purpose, an empty one and a blank one:
-    // each is refused `NoPurpose`. The chief and the Hand hire with
-    // none, and hire 3 and 4.
+    // mayor 2 hires with no purpose, an empty one and a blank one,
+    // and the Hand with none: each is refused `NoPurpose`. The chief
+    // hires with none, and hires 3.
     let realm = Realm::start().await;
     let hamlet = founded(&realm).await;
     let hire_for = |purpose: Option<&str>| Hire {
@@ -446,14 +446,13 @@ async fn an_agents_hire_says_what_it_is_for() {
         )
         .await;
 
-    for answer in by_the_mayor {
+    for answer in by_the_mayor.into_iter().chain([by_the_hand]) {
         assert_eq!(
             answer.unwrap(),
             refused_to_an_agent(HireRefusal::NoPurpose)
         );
     }
     assert_eq!(by_the_chief, hired(3));
-    assert_eq!(by_the_hand.unwrap(), hired(4));
     realm.host.shutdown().await.unwrap();
 }
 
