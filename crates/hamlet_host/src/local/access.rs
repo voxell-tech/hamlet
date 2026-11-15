@@ -248,7 +248,6 @@ impl Inbound {
     }
 
     /// Runs a subscribe the other host asked for.
-    #[expect(dead_code, reason = "the scaffold: U8b's pump calls it")]
     pub(crate) async fn subscribe(
         &self,
         from: Vetted,
