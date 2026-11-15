@@ -41,7 +41,6 @@ impl Calls {
         Self::default()
     }
 
-    #[expect(dead_code, reason = "U5 calls it")]
     pub fn before_answer(delivery: Delivery) -> Self {
         Self {
             before_answer: vec![delivery],
@@ -64,7 +63,6 @@ pub(super) struct Made {
 }
 
 impl Made {
-    #[expect(dead_code, reason = "U5 calls it")]
     pub fn all_taken(&self) -> bool {
         self.failed.is_empty()
     }
