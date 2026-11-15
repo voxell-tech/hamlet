@@ -5,7 +5,6 @@ use std::sync::Arc;
 use parking_lot::Mutex;
 use tracing_subscriber::filter::LevelFilter;
 use tracing_subscriber::fmt::format::FmtSpan;
-use tracing_subscriber::util::SubscriberInitExt;
 
 /// The lines logged while [`Logs::record`]'s guard lives, each span
 /// as it opens among them.
@@ -38,20 +37,28 @@ impl Logs {
     /// until the guard drops.
     pub fn record(&self, level: LevelFilter) -> Recording {
         Recording {
-            _default: tracing_subscriber::fmt()
-                .with_max_level(level)
-                .with_span_events(FmtSpan::NEW)
-                .with_ansi(false)
-                .with_writer({
-                    let logs = self.clone();
-                    move || logs.clone()
-                })
-                .finish()
-                .set_default(),
+            _default: tracing::dispatcher::set_default(
+                &self.dispatch(level),
+            ),
             _second: tracing::Dispatch::new(
                 tracing::subscriber::NoSubscriber::default(),
             ),
         }
+    }
+
+    /// A dispatcher that writes what is logged at `level` or above
+    /// to these logs.
+    pub fn dispatch(&self, level: LevelFilter) -> tracing::Dispatch {
+        tracing_subscriber::fmt()
+            .with_max_level(level)
+            .with_span_events(FmtSpan::NEW)
+            .with_ansi(false)
+            .with_writer({
+                let logs = self.clone();
+                move || logs.clone()
+            })
+            .finish()
+            .into()
     }
 
     /// What was logged so far.

@@ -33,7 +33,7 @@ use std::fs::{File, TryLockError};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Arc, Weak};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail, ensure};
 use hamlet_actor_core::actor::schedule::{
@@ -86,6 +86,13 @@ const START_GRACE_AT_SHUTDOWN: Duration = Duration::from_secs(1);
 /// waits for the actor's file to close. A file whose thread still
 /// runs a statement closes only once the statement ends.
 const CLOSE_GRACE: Duration = Duration::from_secs(1);
+
+/// How long a destroy tries again to remove an actor's files while
+/// another handle holds one.
+const REMOVE_GRACE: Duration = Duration::from_secs(1);
+
+/// The pause between two tries of a removal.
+const REMOVE_AGAIN: Duration = Duration::from_millis(20);
 
 /// The host's row in each actor file. Its version ladder is Hamlet's,
 /// apart from the core's `_actor_` tables.
@@ -1740,7 +1747,9 @@ fn actor_path(dir: &Path, at: &Address) -> PathBuf {
 /// removes the write-ahead file and the shared-memory file, then the
 /// file itself, so that no write-ahead file outlives its file and
 /// joins one made later at that path. A file already missing is
-/// passed over, so a destroy repeated ends the same way.
+/// passed over, so a destroy repeated ends the same way. A removal
+/// that Windows refuses because another handle holds the file is
+/// tried again for [`REMOVE_GRACE`] in all.
 fn destroy_file(path: &Path) -> Result<()> {
     if path.exists() {
         let conn = plain_sqlite::open(path, false)?;
@@ -1756,22 +1765,44 @@ fn destroy_file(path: &Path) -> Result<()> {
         ensure!(busy == 0, "{} stayed busy", path.display());
         conn.close().map_err(|(_, error)| error)?;
     }
+    let deadline = Instant::now() + REMOVE_GRACE;
     for suffix in ["-wal", "-shm", ""] {
         crate::fault::point("destroy-remove");
         let mut file = path.as_os_str().to_owned();
         file.push(suffix);
-        match std::fs::remove_file(&file) {
-            Err(error)
-                if error.kind() != std::io::ErrorKind::NotFound =>
-            {
-                return Err(error).with_context(|| {
-                    format!("remove {}", Path::new(&file).display())
-                });
-            }
-            _ => {}
-        }
+        let file = Path::new(&file);
+        remove_by(file, deadline)
+            .with_context(|| format!("remove {}", file.display()))?;
     }
     Ok(())
+}
+
+/// Removes `file`, passing over a missing one, and tries again until
+/// `deadline` while another handle holds it.
+fn remove_by(file: &Path, deadline: Instant) -> std::io::Result<()> {
+    loop {
+        match std::fs::remove_file(file) {
+            Err(error)
+                if error.kind() == std::io::ErrorKind::NotFound =>
+            {
+                return Ok(());
+            }
+            Err(error)
+                if held(&error) && Instant::now() < deadline =>
+            {
+                std::thread::sleep(REMOVE_AGAIN);
+            }
+            removed => return removed,
+        }
+    }
+}
+
+/// Whether Windows refused a removal because another handle holds
+/// the file, a scanner's say: `ERROR_SHARING_VIOLATION` (32) when it
+/// does not share the deletion, `ERROR_ACCESS_DENIED` (5) while an
+/// earlier deletion of the file waits for it to close.
+fn held(error: &std::io::Error) -> bool {
+    cfg!(windows) && matches!(error.raw_os_error(), Some(32 | 5))
 }
 
 /// What a start may do with the actor's file.
@@ -2022,7 +2053,8 @@ fn bump_generation(
 /// and is not tried again. A create's own start that fails removes
 /// the actor it made, its files with it, and tells its waiters
 /// nothing either, since no actor is left; unless the file did not
-/// close within the grace, when the actor stays, as for any start.
+/// close within the grace or could not be removed, when the actor
+/// stays, as for any start.
 async fn start_actor(
     owned: Owned,
     id: u64,
@@ -2065,6 +2097,13 @@ async fn start_actor(
                 Some(file) => close_within_grace(&file).await,
                 None => true,
             };
+            if !closed {
+                tracing::warn!(
+                    actor_id = %at,
+                    "host could not close the file of a start that \
+                     failed within the grace"
+                );
+            }
             // Not told to the waiters: each reads the map again.
             if let Some(found) = error.downcast_ref::<Found>() {
                 return Err(found.to_error(&at));
