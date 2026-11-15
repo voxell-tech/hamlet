@@ -193,7 +193,7 @@ struct Report {
 /// probe.
 type Restart = BTreeMap<String, i64>;
 
-/// What the name of a count of failed commands starts with.
+/// The prefix of the name of each count of failed commands.
 const ERROR: &str = "error ";
 
 impl Report {
@@ -318,7 +318,6 @@ fn run_once(
         let (actor, count) = host.reply()?;
         acked.insert(actor, count);
     }
-    // The Node host the kill ends, with the demo host or alone.
     let node = match scenario.demo {
         Demo::Local => None,
         Demo::Linked { pid } => Some(node_pid(&acked, pid)?),
@@ -329,8 +328,7 @@ fn run_once(
         let (actor, count) = host.reply()?;
         acked.insert(actor, count);
     }
-    // After `Kill::NodeHost`, the demo host that runs on.
-    let mut running = None;
+    let mut surviving = None;
     let killed = match (&scenario.kill, node) {
         (Kill::Fault(_), _) => host.kill_at_fault(&faults)?,
         (Kill::After { min_ms, max_ms }, _) => {
@@ -344,14 +342,14 @@ fn run_once(
                 "the Node host {pid} did not end at the trigger's \
                  step"
             );
-            running = Some(host);
+            surviving = Some(host);
             format!("the Node host at the trigger's step (pid {pid})")
         }
         (Kill::NodeHost, None) => {
             bail!("a scenario that kills the Node host is linked")
         }
     };
-    if let (Some(pid), None) = (node, &running)
+    if let (Some(pid), None) = (node, &surviving)
         && !ended_within(pid, GONE_WAIT)?
     {
         end(pid);
@@ -368,7 +366,7 @@ fn run_once(
     let mut nodes = Vec::from_iter(node);
     let mut restarts = Vec::new();
     for (n, lines) in (1..).zip(scenario.restart) {
-        let mut host = match running.take() {
+        let mut host = match surviving.take() {
             Some(host) => host,
             None => Host::start(
                 demo,
@@ -508,7 +506,6 @@ fn error_code(line: &str) -> Option<&str> {
     (plain(group) && plain(name)).then_some(code)
 }
 
-/// The process id of a Node host, which `values` holds as `name`.
 fn node_pid(
     values: &BTreeMap<String, i64>,
     name: &str,
@@ -520,8 +517,6 @@ fn node_pid(
         .with_context(|| format!("{name} is {pid}, not a process id"))
 }
 
-/// Waits until the process `pid` has ended, at most `within`.
-/// Returns whether it has.
 fn ended_within(pid: u32, within: Duration) -> Result<bool> {
     let deadline = Instant::now() + within;
     loop {
@@ -814,7 +809,6 @@ mod tests {
             ("agent.notes", 5),
             ("agent.jobs", 0),
         ];
-        // The second restart expects no error.
         assert_eq!(
             report(&shown).failures(lost),
             ["restart 2: an unexpected error link.lost"]
@@ -853,6 +847,18 @@ mod tests {
         }
     }
 
+    #[test]
+    fn a_scenario_that_arms_a_one_shot_is_down_past_its_due_time() {
+        for scenario in SCENARIOS {
+            let words: Vec<&str> =
+                scenario.trigger.split(' ').collect();
+            if let ["tell", _, "arm", ms] = words.as_slice() {
+                let due: u64 = ms.parse().expect(scenario.name);
+                assert!(scenario.down_ms > due, "{}", scenario.name);
+            }
+        }
+    }
+
     #[cfg(target_os = "linux")]
     #[test]
     fn a_process_has_ended_once_it_is_dead_also_before_it_is_collected()
@@ -865,7 +871,6 @@ mod tests {
                 .spawn()
                 .unwrap();
         let pid = child.id();
-        // Dead and not collected: this process has not waited.
         assert!(ended_within(pid, PATIENCE).unwrap());
         child.wait().unwrap();
         assert!(has_ended(pid).unwrap());

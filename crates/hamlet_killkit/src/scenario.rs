@@ -7,7 +7,6 @@
 pub struct Scenario {
     pub name: &'static str,
     pub about: &'static str,
-    /// How the demo host is started, each time.
     pub demo: Demo,
     /// Lines `demo serve` runs before the kill. Each waits for its
     /// reply, which acknowledges it.
@@ -315,28 +314,24 @@ const COMMAND_CUT_OFF: &[Expect] = &[
 /// scenarios: agent 1's answer to `pid`.
 const NODE_PID: &str = "agent/1/pid";
 
-/// The notes agent 1 holds, read from its file.
 const NOTES: Probe = Probe {
     name: "agent.notes",
     file: "actors/agent/1.sqlite",
     read: Read::Sql("SELECT COUNT(*) FROM notes"),
 };
 
-/// The jobs agent 1 holds unfinished, read from its file.
 const JOBS: Probe = Probe {
     name: "agent.jobs",
     file: "actors/agent/1.sqlite",
     read: Read::Sql("SELECT COUNT(*) FROM jobs"),
 };
 
-/// How many times agent 1's one-shot fired, read from its file.
 const FIRED: Probe = Probe {
     name: "agent.fired",
     file: "actors/agent/1.sqlite",
     read: Read::Sql("SELECT COUNT(*) FROM fired"),
 };
 
-/// The one-shots agent 1 holds, read from its file.
 const ONE_SHOTS: Probe = Probe {
     name: "agent.one_shots",
     file: "actors/agent/1.sqlite",
@@ -403,7 +398,6 @@ const COMMITTED_NOTES_KEPT: &[Expect] = &[
     },
 ];
 
-/// The one-shot fired once and is gone.
 const ONE_SHOT_FIRED_ONCE: &[Expect] = &[
     Expect {
         value: "agent/1/fired",
@@ -586,14 +580,9 @@ pub const SCENARIOS: &[Scenario] = &[
         trigger: "tell 1 arm 3000",
         trigger_replies: false,
         kill: Kill::Fault("told/arm"),
-        // Past the 3 s at which the one-shot is due, counted from
-        // the trigger.
         down_ms: 4500,
         restart: [
-            // Waits for the fire, which boot starts on a task of
-            // its own.
             &["tell 1 fired 1 10000", "tell 1 pid"],
-            // Leaves a second fire half a second to show.
             &["tell 1 fired 2 500", "tell 1 pid"],
         ],
         probes: &[FIRED, ONE_SHOTS],
