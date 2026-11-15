@@ -147,13 +147,17 @@ const agent = actor({
                 await sleep(FIRED_POLL_MS);
             }
         },
-        /** Starts the chain of `step`, one each `everyMs`, unless it runs. */
+        /**
+         * Starts the chain of `step`, one each `everyMs`, unless it runs.
+         * Answers the count so far.
+         */
         tick: async (c, everyMs: number) => {
-            await c.db.run(
-                "INSERT INTO ticks (id, count, every_ms) VALUES (0, 0, ?) ON CONFLICT (id) DO UPDATE SET every_ms = excluded.every_ms",
+            const row = await c.db.get<{ count: number }>(
+                "INSERT INTO ticks (id, count, every_ms) VALUES (0, 0, ?) ON CONFLICT (id) DO UPDATE SET every_ms = excluded.every_ms RETURNING count",
                 everyMs,
             );
             await armStep(c.schedule, everyMs);
+            return row?.count;
         },
         /**
          * Adds one to the count, broadcasts it as `ticked` once committed,

@@ -228,7 +228,7 @@ test(
             await demo.ask("make 1");
             await demo.ask("make 2");
             const first = await nodePid(demo, 1);
-            await demo.ask("tell 1 tick 50");
+            assert.equal(await demo.ask("tell 1 tick 50"), "agent/1/tick 0");
             const ticks = async () =>
                 number(await demo.ask("tell 1 ticks"), "agent/1/ticks");
             const grown = async (above: number) => {
