@@ -209,7 +209,6 @@ async fn a_wait_from_another_sender_than_the_workspace_is_refused() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "U10 fills `world::Held::current`, which every look reads"]
 async fn the_secrets_are_version_1_with_no_value() {
     let realm = Realm::start().await;
 

@@ -24,6 +24,7 @@ use hamlet_messages::agent::{
     AgentInput, Fill, Place, PlaceVersion, Submit,
 };
 use hamlet_messages::profile::Branch;
+use hamlet_messages::realm::world::{ReachSeen, Status};
 use hamlet_messages::realm::{
     Asked, Found, FoundAnswer, HamletId, ProfileId, Tier, Tool,
 };
@@ -34,7 +35,7 @@ use hamlet_messages::workspace::{
 };
 use hamlet_protocol::client::RequestId;
 use hamlet_testing::Scratch;
-use rusqlite::{Connection, OpenFlags, OptionalExtension};
+use rusqlite::{Connection, OpenFlags};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use tokio::sync::watch;
@@ -464,35 +465,23 @@ impl Realm {
         decoded(&call(&self.host, from, &forward).await?)
     }
 
-    /// Waits for `agent`'s hire to be live.
+    /// Waits for `agent`'s hire to be live, with its reach applied.
     async fn live(&self, agent: AgentNumber) {
-        self.reach_held(agent).await;
-        let begun = Instant::now();
-        let n = i64::from(agent.0);
-        loop {
-            let done = self
-                .rows(|db| {
-                    db.query_row(
-                        "SELECT done FROM step WHERE kind = 'hire' \
-                         AND n = ?1",
-                        [n],
-                        |row| row.get::<_, Option<String>>(0),
-                    )
-                    .optional()
+        world::seen_until(
+            self,
+            &format!("agent {} is live", agent.0),
+            |seen| {
+                seen.agents.iter().any(|shown| {
+                    shown.agent == agent
+                        && shown.status == Status::Live
+                        && matches!(
+                            shown.reach,
+                            ReachSeen::Applied { .. }
+                        )
                 })
-                .await
-                .flatten();
-            if done.as_deref() == Some("live") {
-                return;
-            }
-            assert!(
-                begun.elapsed() < DEADLINE,
-                "agent {} is not live: its last step done is \
-                 {done:?}",
-                agent.0
-            );
-            tokio::time::sleep(Duration::from_millis(20)).await;
-        }
+            },
+        )
+        .await;
     }
 
     async fn reach_held(&self, agent: AgentNumber) {
