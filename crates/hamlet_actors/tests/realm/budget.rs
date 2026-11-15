@@ -3,65 +3,21 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use hamlet_actor::Action as _;
 use hamlet_messages::address;
 use hamlet_messages::realm::budget::{
-    Budget, BudgetLimit, Charge, MaySpend, Payer, ResetBudget,
-    SpendRefusal,
+    Budget, BudgetLimit, Charge, Payer, ResetBudget, SpendRefusal,
 };
 use hamlet_messages::realm::{
     Asked, Done, End, HamletId, HamletRefusal, HireAnswer, HowEnded,
-    Named, SetLimits, Standing,
+    Named, Standing,
 };
 use hamlet_messages::sender::Hand;
-use hamlet_messages::workspace::{AgentNumber, CallId, RealmTask};
+use hamlet_messages::workspace::{AgentNumber, RealmTask};
 use hamlet_protocol::client::RequestId;
 use tokio::task::JoinSet;
 
 use super::{
-    Forward, MAYOR, Realm, call, chief_hires, decoded, hamlet_with,
-    hire, standing,
+    Forward, MAYOR, Realm, call, charge, chief_hires, decoded,
+    hamlet_with, hire, limit, may_spend, standing,
 };
-
-async fn limit(
-    realm: &Realm,
-    hamlet: Option<&HamletId>,
-    budget: Vec<BudgetLimit>,
-) {
-    let set = realm
-        .ask(&Asked {
-            id: RequestId::new(),
-            act: SetLimits {
-                hamlet: hamlet.cloned(),
-                budget,
-                limits: Vec::new(),
-            },
-        })
-        .await
-        .unwrap();
-    assert_eq!(set, Done::Done);
-}
-
-fn charge(
-    call: &str,
-    task: &RealmTask,
-    micros: u32,
-    ms: u32,
-) -> Charge {
-    Charge {
-        call: CallId(call.to_owned()),
-        task: task.clone(),
-        micros,
-        took_ms: ms,
-        tokens: None,
-    }
-}
-
-async fn may_spend(
-    realm: &Realm,
-    agent: AgentNumber,
-    task: &RealmTask,
-) -> Done<SpendRefusal> {
-    let may = MaySpend { task: task.clone() };
-    realm.tool(agent, &may).await.unwrap()
-}
 
 async fn reset(realm: &Realm, payer: Payer) -> Done<HamletRefusal> {
     realm

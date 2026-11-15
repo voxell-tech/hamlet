@@ -1,45 +1,27 @@
 use hamlet_messages::agent::chat::Count;
 use hamlet_messages::realm::budget::{
-    Budget, BudgetLimit, BudgetRead, Charge, MaySpend, OpenTask,
-    Payer, Period, ReadBudget, ReadBudgetRefusal, ResetBudget,
-    SpendRefusal, TaskOpened, TaskTurn,
+    Budget, BudgetLimit, BudgetRead, Charge, OpenTask, Payer, Period,
+    ReadBudget, ReadBudgetRefusal, ResetBudget, SpendRefusal,
+    TaskOpened, TaskTurn,
 };
 use hamlet_messages::realm::workers::{
     AllowanceRefusal, SetAllowance,
 };
 use hamlet_messages::realm::world::Spend;
 use hamlet_messages::realm::{
-    AgentRefusal, Asked, Done, End, HamletId, HowEnded, LeadRefusal,
-    Named, Rank, SetLimits, Standing,
+    AgentRefusal, Asked, Done, End, HowEnded, LeadRefusal, Named,
+    Rank, Standing,
 };
 use hamlet_messages::sender::Hand;
-use hamlet_messages::workspace::{AgentNumber, CallId, RealmTask};
+use hamlet_messages::workspace::{AgentNumber, RealmTask};
 use hamlet_protocol::client::RequestId;
 
 use super::{
-    FOUR, MAYOR, Realm, THREE, hamlet_with, standing, to, tool,
+    FOUR, MAYOR, Realm, THREE, charge, hamlet_with, limit, may_spend,
+    standing, to, tool,
 };
 
 const WORKER: AgentNumber = AgentNumber(50);
-
-fn charge(call: &str, task: &RealmTask, micros: u32) -> Charge {
-    Charge {
-        call: CallId(call.to_owned()),
-        task: task.clone(),
-        micros,
-        took_ms: 1,
-        tokens: None,
-    }
-}
-
-async fn may_spend(
-    realm: &Realm,
-    agent: AgentNumber,
-    task: &RealmTask,
-) -> Done<SpendRefusal> {
-    let may = MaySpend { task: task.clone() };
-    realm.tool(agent, &may).await.unwrap()
-}
 
 fn allowance(hire: AgentNumber, micros: Option<u64>) -> SetAllowance {
     SetAllowance {
@@ -86,21 +68,6 @@ async fn end(realm: &Realm, hire: AgentNumber) {
     assert_eq!(ended, Done::Done);
 }
 
-async fn limit(realm: &Realm, hamlet: &HamletId, micros: u64) {
-    let set = realm
-        .ask(&Asked {
-            id: RequestId::new(),
-            act: SetLimits {
-                hamlet: Some(hamlet.clone()),
-                budget: vec![BudgetLimit::Cost { micros }],
-                limits: Vec::new(),
-            },
-        })
-        .await
-        .unwrap();
-    assert_eq!(set, Done::Done);
-}
-
 fn over_allowance(
     hire: AgentNumber,
     spent: u64,
@@ -139,9 +106,12 @@ async fn over_its_allowance_a_hire_is_refused() {
 
     let set = chief_sets(&realm, MAYOR, Some(10)).await;
     let own = chief_sets(&realm, THREE, Some(100)).await;
-    realm.tool(THREE, &charge("c1", &task, 6)).await.unwrap();
+    realm.tool(THREE, &charge("c1", &task, 6, 1)).await.unwrap();
     let under = may_spend(&realm, THREE, &task).await;
-    realm.tool(MAYOR, &charge("c2", &mayors, 4)).await.unwrap();
+    realm
+        .tool(MAYOR, &charge("c2", &mayors, 4, 1))
+        .await
+        .unwrap();
     let spent = may_spend(&realm, THREE, &task).await;
     let reset = realm
         .ask(&Asked {
@@ -176,7 +146,10 @@ async fn a_living_worker_spends_its_starters_allowance() {
     assert_eq!(chief_sets(&realm, THREE, Some(10)).await, Done::Done);
     worker(&realm, THREE, "NULL").await;
 
-    realm.tool(WORKER, &charge("w1", &task, 10)).await.unwrap();
+    realm
+        .tool(WORKER, &charge("w1", &task, 10, 1))
+        .await
+        .unwrap();
     let living = may_spend(&realm, WORKER, &task).await;
     let starter = may_spend(&realm, THREE, &task).await;
     worker(&realm, THREE, "'answered'").await;
@@ -197,7 +170,10 @@ async fn an_ended_hires_spend_leaves_its_leads_allowance() {
     let mayors = standing(&realm, MAYOR);
     assert_eq!(chief_sets(&realm, MAYOR, Some(10)).await, Done::Done);
 
-    realm.tool(THREE, &charge("c1", &task, 10)).await.unwrap();
+    realm
+        .tool(THREE, &charge("c1", &task, 10, 1))
+        .await
+        .unwrap();
     let spent = may_spend(&realm, MAYOR, &mayors).await;
     end(&realm, THREE).await;
     let after = may_spend(&realm, MAYOR, &mayors).await;
@@ -231,7 +207,7 @@ async fn a_lead_sets_its_hires_allowance() {
     let hand = lead_sets(&realm, MAYOR, "a4", hand).await;
     let nobody = allowance(AgentNumber(99), Some(5));
     let nobody = lead_sets(&realm, MAYOR, "a5", nobody).await;
-    realm.tool(THREE, &charge("c1", &task, 5)).await.unwrap();
+    realm.tool(THREE, &charge("c1", &task, 5, 1)).await.unwrap();
     let spent = may_spend(&realm, THREE, &task).await;
     end(&realm, FOUR).await;
     let left = chief_sets(&realm, FOUR, Some(5)).await;
@@ -271,10 +247,15 @@ async fn read_budget_shows_what_may_spend_used() {
         hamlet: hamlet.clone(),
     };
     assert_eq!(chief_sets(&realm, THREE, Some(8)).await, Done::Done);
-    limit(&realm, &hamlet, 100).await;
+    limit(
+        &realm,
+        Some(&hamlet),
+        vec![BudgetLimit::Cost { micros: 100 }],
+    )
+    .await;
     let tokens = Charge {
         tokens: Some(120),
-        ..charge("c1", &task, 8)
+        ..charge("c1", &task, 8, 1)
     };
     realm.tool(THREE, &tokens).await.unwrap();
     let read = async |call: &str, task: Option<RealmTask>| {
@@ -284,7 +265,12 @@ async fn read_budget_shows_what_may_spend_used() {
 
     let over = may_spend(&realm, THREE, &task).await;
     let read_over = read("r1", None).await;
-    limit(&realm, &hamlet, 5).await;
+    limit(
+        &realm,
+        Some(&hamlet),
+        vec![BudgetLimit::Cost { micros: 5 }],
+    )
+    .await;
     let over_cost = may_spend(&realm, THREE, &task).await;
     let read_cost = read("r2", Some(task.clone())).await;
     let unknown = read("r3", Some(RealmTask("999".to_owned()))).await;
@@ -348,12 +334,20 @@ async fn a_retry_opens_a_task_of_its_own() {
             }
         }
     };
-    limit(&realm, &hamlet, 1).await;
+    limit(
+        &realm,
+        Some(&hamlet),
+        vec![BudgetLimit::Cost { micros: 1 }],
+    )
+    .await;
 
     let retry = opened(THREE, TaskTurn::Retry).await;
     let again = opened(THREE, TaskTurn::Retry).await;
     let reflection = opened(Hand::NUMBER, TaskTurn::Reflection).await;
-    realm.tool(THREE, &charge("c1", &retry, 1)).await.unwrap();
+    realm
+        .tool(THREE, &charge("c1", &retry, 1, 1))
+        .await
+        .unwrap();
     let hire_pays =
         may_spend(&realm, THREE, &standing(&realm, THREE)).await;
     let hand_may = may_spend(&realm, Hand::NUMBER, &reflection).await;

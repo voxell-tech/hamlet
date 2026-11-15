@@ -4,7 +4,7 @@ use hamlet_messages::agent::{
     AgentInput, AgentKind, Brief, Place, PlaceVersion,
 };
 use hamlet_messages::realm::budget::{
-    Budget, Charge, MaySpend, ReadBudget, SpendRefusal,
+    Budget, ReadBudget, SpendRefusal,
 };
 use hamlet_messages::realm::choices::{
     ModelOf, SetModel, SetNickname,
@@ -19,12 +19,12 @@ use hamlet_messages::realm::{
     SetTools, Standing, TakeUpRoad, ToolCall,
 };
 use hamlet_messages::workspace::{
-    AgentNumber, CallId, ConversationId, ErrandNumber, RealmTask,
+    AgentNumber, ConversationId, ErrandNumber, RealmTask,
 };
 
 use super::{
-    MAYOR, Realm, THREE, hamlet_with, hire, standing, tell, to, tool,
-    until,
+    MAYOR, Realm, THREE, charge, hamlet_with, hire, made, may_spend,
+    standing, tell, to, tool, until,
 };
 
 fn errand(n: u32) -> AgentNumber {
@@ -58,17 +58,6 @@ async fn seed(realm: &Realm, n: u32, task: &RealmTask, cap: u64) {
              0);"
         ))
         .await;
-}
-
-fn made(realm: &Realm, agent: AgentNumber) -> Option<AgentInput> {
-    realm
-        .seen
-        .made
-        .lock()
-        .unwrap()
-        .iter()
-        .find(|(made, _)| *made == agent)
-        .map(|(_, input)| input.clone())
 }
 
 async fn made_until(realm: &Realm, agent: AgentNumber) -> AgentInput {
@@ -350,25 +339,6 @@ async fn an_errand_done_twice_ends_once() {
     assert!(by_a_hire.is_err(), "only an errand ends an errand");
 }
 
-fn charge(call: &str, task: &RealmTask, micros: u32) -> Charge {
-    Charge {
-        call: CallId(call.to_owned()),
-        task: task.clone(),
-        micros,
-        took_ms: 1,
-        tokens: None,
-    }
-}
-
-async fn may_spend(
-    realm: &Realm,
-    agent: AgentNumber,
-    task: &RealmTask,
-) -> Done<SpendRefusal> {
-    let may = MaySpend { task: task.clone() };
-    realm.tool(agent, &may).await.unwrap()
-}
-
 #[tokio::test(flavor = "multi_thread")]
 async fn an_errand_spends_under_its_cap() {
     let (realm, _) = hamlet_with(1).await;
@@ -379,7 +349,7 @@ async fn an_errand_spends_under_its_cap() {
 
     let under = may_spend(&realm, errand(0), &task).await;
     realm
-        .tool(errand(0), &charge("c1", &task, 10))
+        .tool(errand(0), &charge("c1", &task, 10, 1))
         .await
         .unwrap();
     let at_cap = may_spend(&realm, errand(0), &task).await;

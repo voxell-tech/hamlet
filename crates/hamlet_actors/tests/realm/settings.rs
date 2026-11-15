@@ -1,11 +1,4 @@
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
-
-use hamlet_actor::{Actor, Ctx, Handler};
-use hamlet_host::{Caller, Host, HostOptions, HostRef};
-use hamlet_messages::address::{self, Party};
 use hamlet_messages::agent::copies::{Copies, CopyVersion, Price};
-use hamlet_messages::agent::{AgentInput, Fill, Place};
 use hamlet_messages::realm::budget::{BudgetLimit, Payer};
 use hamlet_messages::realm::documents::{
     CardSetting, CatalogueRefusal, EditCatalogue, EditCharter,
@@ -21,138 +14,17 @@ use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::AgentNumber;
 use hamlet_messages::workspace::reach::Reach;
 use hamlet_protocol::client::RequestId;
-use hamlet_testing::Scratch;
 
 use super::world::seen_until;
-use super::{
-    Callee, Forward, MAYOR, ProfileStandIn, Realm, Seen,
-    WorkspaceStandIn, forward, hamlet_with, key, kind, until,
-};
+use super::{Callee, MAYOR, Realm, copies_to, hamlet_with, until};
 
 const FAUX: &str = "faux::faux-1";
 
-/// The copies each agent was pushed.
-#[derive(Default)]
-struct Pushed(Mutex<Vec<(AgentNumber, Copies)>>);
-
-impl Pushed {
-    fn to(&self, agent: AgentNumber) -> Vec<Copies> {
-        self.0
-            .lock()
-            .unwrap()
-            .iter()
-            .filter(|(to, _)| *to == agent)
-            .map(|(_, copies)| copies.clone())
-            .collect()
-    }
-}
-
-/// An agent that keeps the copies it is pushed and takes the calls a
-/// hire's steps make of it.
-struct CopiesStandIn {
-    pushed: Arc<Pushed>,
-    agent: AgentNumber,
-}
-
-#[async_trait::async_trait]
-impl Actor for CopiesStandIn {
-    type Input = Option<AgentInput>;
-    type Actions = (Copies, Place, Fill, Forward);
-    type Events = ();
-    type ConnParams = Option<Caller>;
-    type Action = ();
-
-    async fn create(ctx: &Ctx<Self>) -> anyhow::Result<Self> {
-        Ok(Self {
-            pushed: HostRef::of(ctx.inner())?
-                .value::<Pushed>()
-                .expect("the host holds the copies pushed"),
-            agent: AgentNumber(key(ctx)?),
-        })
-    }
-}
-
-impl Handler<Copies> for CopiesStandIn {
-    async fn handle(
-        self: Arc<Self>,
-        _: Ctx<Self>,
-        copies: Copies,
-    ) -> anyhow::Result<()> {
-        self.pushed.0.lock().unwrap().push((self.agent, copies));
-        Ok(())
-    }
-}
-
-impl Handler<Place> for CopiesStandIn {
-    async fn handle(
-        self: Arc<Self>,
-        _: Ctx<Self>,
-        _: Place,
-    ) -> anyhow::Result<()> {
-        Ok(())
-    }
-}
-
-impl Handler<Fill> for CopiesStandIn {
-    async fn handle(
-        self: Arc<Self>,
-        _: Ctx<Self>,
-        _: Fill,
-    ) -> anyhow::Result<()> {
-        Ok(())
-    }
-}
-
-impl Handler<Forward> for CopiesStandIn {
-    async fn handle(
-        self: Arc<Self>,
-        ctx: Ctx<Self>,
-        asked: Forward,
-    ) -> anyhow::Result<Vec<u8>> {
-        forward(&ctx, asked).await
-    }
-}
-
-/// A realm whose agents keep the copies they are pushed, with the
-/// Hand live.
-async fn realm_with_copies() -> (Realm, Arc<Pushed>) {
-    let scratch = Scratch::new("realm-copies");
-    let seen = Arc::new(Seen::default());
-    let pushed = Arc::new(Pushed::default());
-    let kinds = HashMap::from([
-        (
-            address::Realm::KIND.to_owned(),
-            hamlet_actors::realm::factory(),
-        ),
-        (
-            address::Agent::KIND.to_owned(),
-            kind::<CopiesStandIn>(address::Agent::KIND),
-        ),
-        (
-            address::Profile::KIND.to_owned(),
-            kind::<ProfileStandIn>(address::Profile::KIND),
-        ),
-        (
-            address::Workspace::KIND.to_owned(),
-            kind::<WorkspaceStandIn>(address::Workspace::KIND),
-        ),
-    ]);
-    let options = HostOptions::default()
-        .with_value(seen.clone())
-        .with_value(pushed.clone());
-    let host = Host::open_with(&scratch, kinds, options).unwrap();
-    for at in [address::Workspace.address(), address::Realm.address()]
-    {
-        host.get_or_start(&at.unwrap()).await.unwrap();
-    }
-    let realm = Realm {
-        host,
-        seen,
-        options: None,
-        scratch,
-    };
+/// A realm with the Hand live.
+async fn realm_with_hand() -> Realm {
+    let realm = Realm::start().await;
     realm.live(Hand::NUMBER).await;
-    (realm, pushed)
+    realm
 }
 
 async fn chief<T: ChiefRequest>(realm: &Realm, act: T) -> T::Answer {
@@ -197,13 +69,13 @@ fn priced(model: &str, price: Option<Price>) -> EditCatalogue {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_charter_edit_pushes_a_copy() {
-    let (realm, pushed) = realm_with_copies().await;
+    let realm = realm_with_hand().await;
 
     let edited = chief(&realm, charter("Be brief.")).await;
 
     assert_eq!(edited, Done::Done);
     until("the Hand is pushed the new charter", || {
-        pushed.to(Hand::NUMBER).iter().any(|copies| {
+        copies_to(&realm, Hand::NUMBER).iter().any(|copies| {
             copies
                 .charter
                 .as_ref()
@@ -218,7 +90,7 @@ async fn a_charter_edit_pushes_a_copy() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_blank_charter_gives_back_the_built_in_one() {
-    let (realm, _) = realm_with_copies().await;
+    let realm = realm_with_hand().await;
     chief(&realm, charter("Be brief.")).await;
 
     let edited = chief(&realm, charter("  ")).await;
@@ -238,7 +110,7 @@ async fn a_blank_charter_gives_back_the_built_in_one() {
 async fn read_copies_gives_only_newer_parts() {
     // the Hand holds every part as first read; one settings edit
     // moves only the settings part.
-    let (realm, _) = realm_with_copies().await;
+    let realm = realm_with_hand().await;
     chief(&realm, settings(Setting::Model { model: FAUX.into() }))
         .await;
     let first = read_copies(&realm, &ReadCopies::default()).await;
@@ -354,12 +226,11 @@ async fn allow_net_raises_every_reach() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_price_change_pushes_the_model_copy() {
-    let (realm, pushed) = realm_with_copies().await;
+    let realm = realm_with_hand().await;
     chief(&realm, settings(Setting::Model { model: FAUX.into() }))
         .await;
     let model_pushes = || {
-        pushed
-            .to(Hand::NUMBER)
+        copies_to(&realm, Hand::NUMBER)
             .into_iter()
             .filter_map(|copies| copies.model)
             .collect::<Vec<_>>()
@@ -394,7 +265,7 @@ async fn a_price_change_pushes_the_model_copy() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_refused_edit_changes_nothing() {
-    let (realm, _) = realm_with_copies().await;
+    let realm = realm_with_hand().await;
     let before = read_copies(&realm, &ReadCopies::default()).await;
     let blank = EditSettings {
         set: vec![
@@ -455,7 +326,7 @@ async fn allow_net_shows_each_reach_pending_until_the_workspace_answers()
 
 #[tokio::test(flavor = "multi_thread")]
 async fn an_endpoint_is_refused_in_todays_words() {
-    let (realm, _) = realm_with_copies().await;
+    let realm = realm_with_hand().await;
     let endpoint = |address: &str| {
         settings(Setting::Endpoints {
             endpoints: vec![Endpoint {

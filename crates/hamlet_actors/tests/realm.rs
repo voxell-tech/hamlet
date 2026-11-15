@@ -14,15 +14,20 @@ use hamlet_actor_error::ActorError;
 use hamlet_actors::realm;
 use hamlet_host::{Address, Caller, Host, HostOptions, HostRef};
 use hamlet_messages::address::{self, Party};
+use hamlet_messages::agent::copies::Copies;
 use hamlet_messages::agent::{
     AgentInput, Fill, Place, PlaceVersion, Submit,
 };
 use hamlet_messages::profile::Branch;
+use hamlet_messages::realm::budget::{
+    BudgetLimit, Charge, MaySpend, SpendRefusal,
+};
 use hamlet_messages::realm::client::{Answer, Say};
 use hamlet_messages::realm::world::{ReachSeen, Status};
 use hamlet_messages::realm::{
-    Asked, Found, FoundAnswer, HamletId, Hire, HireAnswer,
-    HireRefusal, Named, NeedsChief, ProfileId, Tell, Tier, Tool,
+    Asked, Done, Found, FoundAnswer, HamletId, Hire, HireAnswer,
+    HireRefusal, Named, NeedsChief, ProfileId, SetLimits, Tell, Tier,
+    Tool,
 };
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::reach::Reach;
@@ -117,6 +122,7 @@ struct Seen {
     submits: Mutex<Vec<(AgentNumber, Submit)>>,
     places: Mutex<Vec<(AgentNumber, Place)>>,
     fills: Mutex<Vec<(AgentNumber, Fill)>>,
+    copies: Mutex<Vec<(AgentNumber, Copies)>>,
     reaches: Mutex<Vec<SetReach>>,
     chief_answers: Mutex<Vec<ChiefAnswer>>,
     branches: Mutex<Vec<(ProfileId, Branch)>>,
@@ -227,7 +233,7 @@ struct AgentStandIn {
 impl Actor for AgentStandIn {
     /// `None` for an agent a test made to call as.
     type Input = Option<AgentInput>;
-    type Actions = (Submit, Place, Fill, Forward);
+    type Actions = (Submit, Place, Fill, Copies, Forward);
     type Events = ();
     type ConnParams = Option<Caller>;
     type Action = ();
@@ -283,6 +289,17 @@ impl Handler<Fill> for AgentStandIn {
     ) -> anyhow::Result<()> {
         self.seen.called(Callee::Fill, self.agent).await?;
         self.seen.fills.lock().unwrap().push((self.agent, fill));
+        Ok(())
+    }
+}
+
+impl Handler<Copies> for AgentStandIn {
+    async fn handle(
+        self: Arc<Self>,
+        _: Ctx<Self>,
+        copies: Copies,
+    ) -> anyhow::Result<()> {
+        self.seen.copies.lock().unwrap().push((self.agent, copies));
         Ok(())
     }
 }
@@ -712,7 +729,7 @@ async fn chief_hires(
         .unwrap()
 }
 
-fn standing(realm: &Realm, agent: AgentNumber) -> RealmTask {
+fn made(realm: &Realm, agent: AgentNumber) -> Option<AgentInput> {
     realm
         .seen
         .made
@@ -720,8 +737,67 @@ fn standing(realm: &Realm, agent: AgentNumber) -> RealmTask {
         .unwrap()
         .iter()
         .find(|(made, _)| *made == agent)
-        .map(|(_, input)| input.task.clone())
-        .expect("the agent was made")
+        .map(|(_, input)| input.clone())
+}
+
+fn standing(realm: &Realm, agent: AgentNumber) -> RealmTask {
+    made(realm, agent).expect("the agent was made").task
+}
+
+fn charge(
+    call: &str,
+    task: &RealmTask,
+    micros: u32,
+    ms: u32,
+) -> Charge {
+    Charge {
+        call: CallId(call.to_owned()),
+        task: task.clone(),
+        micros,
+        took_ms: ms,
+        tokens: None,
+    }
+}
+
+async fn may_spend(
+    realm: &Realm,
+    agent: AgentNumber,
+    task: &RealmTask,
+) -> Done<SpendRefusal> {
+    let may = MaySpend { task: task.clone() };
+    realm.tool(agent, &may).await.unwrap()
+}
+
+async fn limit(
+    realm: &Realm,
+    hamlet: Option<&HamletId>,
+    budget: Vec<BudgetLimit>,
+) {
+    let set = realm
+        .ask(&Asked {
+            id: RequestId::new(),
+            act: SetLimits {
+                hamlet: hamlet.cloned(),
+                budget,
+                limits: Vec::new(),
+            },
+        })
+        .await
+        .unwrap();
+    assert_eq!(set, Done::Done);
+}
+
+/// The copies `agent` was pushed, oldest first.
+fn copies_to(realm: &Realm, agent: AgentNumber) -> Vec<Copies> {
+    realm
+        .seen
+        .copies
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|(to, _)| *to == agent)
+        .map(|(_, copies)| copies.clone())
+        .collect()
 }
 
 fn submits_to(realm: &Realm, agent: AgentNumber) -> Vec<Submit> {
