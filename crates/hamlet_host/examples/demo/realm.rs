@@ -88,8 +88,8 @@ impl Action for Decide {
 }
 
 /// Asks the realm to call the action `name` of the actor at `to` with
-/// `args` as itself, and to answer what it answers.
-/// The program's own action, so it checks no sender.
+/// `args` as itself, and to answer what it answers. Only the program
+/// may send it.
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct Tell {
     pub to: Address,
@@ -134,7 +134,7 @@ impl Action for Resumed {
 }
 
 /// Asks the realm how many jobs the agent said it resumed, in all.
-/// The program's own action, so it checks no sender.
+/// Only the program may send it.
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct Heard(pub AgentNumber);
 
@@ -225,6 +225,7 @@ impl Handler<Tell> for Realm {
         ctx: Ctx<Self>,
         tell: Tell,
     ) -> Result<Vec<u8>> {
+        from_program(&ctx, Tell::NAME)?;
         let answer = HostRef::of(ctx.inner())?
             .call(&tell.to, &tell.name, tell.args, TELL_WITHIN)
             .await?;
@@ -289,6 +290,7 @@ impl Handler<Heard> for Realm {
         ctx: Ctx<Self>,
         Heard(agent): Heard,
     ) -> Result<u64> {
+        from_program(&ctx, Heard::NAME)?;
         let heard = ctx
             .sql()
             .query(
@@ -309,6 +311,18 @@ impl Handler<Heard> for Realm {
 /// The caller the host stamped on the call `ctx` handles.
 fn caller(ctx: &Ctx<Realm>) -> Result<Option<Caller>> {
     ctx.conn().context("the call has no connection")?.params()
+}
+
+/// Fails with [`wrong_caller`] unless the program, which the host
+/// stamps with no caller, made the call `ctx` handles.
+fn from_program(
+    ctx: &Ctx<Realm>,
+    action: &'static str,
+) -> Result<()> {
+    match caller(ctx)? {
+        None => Ok(()),
+        caller => Err(wrong_caller(action, caller)),
+    }
 }
 
 async fn call<M: Message>(

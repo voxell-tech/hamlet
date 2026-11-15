@@ -93,6 +93,38 @@ test(
 );
 
 test(
+    "an agent's call of the realm's tell reads message.wrong_caller, so the realm calls no agent for it",
+    SKIP,
+    async () => {
+        await inFolder(async (dir) => {
+            const demo = startDemo(dir);
+            await demo.ask("make 1");
+            await demo.ask("make 2");
+            const read = answer(
+                await demo.ask(
+                    'tell 1 ask realm local tell {"to":{"kind":"agent","key":"2"},"name":"note","args":[]}',
+                ),
+                "agent/1/ask",
+            );
+            const notes = await demo.ask("tell 2 count");
+            await stopped(demo, await nodePid(demo, 1));
+            assert.deepEqual(read, {
+                error: {
+                    group: "message",
+                    code: "wrong_caller",
+                    message: "agent/1 may not send 'tell'.",
+                    metadata: {
+                        action: "tell",
+                        caller: { actor: { kind: "agent", key: "1" } },
+                    },
+                },
+            });
+            assert.equal(notes, "agent/2/count 0");
+        });
+    },
+);
+
+test(
     "an agent's call to an agent, a pair the demo's route table does not list, is refused: the agent reads actor.refused with its metadata, and the log holds the refusal",
     SKIP,
     async () => {
