@@ -105,8 +105,18 @@ pub struct Entry {
 /// A change to one file on a branch.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Change {
-    Write { path: String, bytes: Vec<u8> },
-    Remove { path: String },
+    Write {
+        path: String,
+        bytes: Vec<u8>,
+    },
+    /// A write of a file that runs.
+    WriteExecutable {
+        path: String,
+        bytes: Vec<u8>,
+    },
+    Remove {
+        path: String,
+    },
 }
 
 /// Who made a commit, as the record names it, and when in
@@ -177,7 +187,7 @@ pub enum Joined {
 }
 
 /// The branch's tip after a merge or a revert, and the paths both
-/// sides changed, where the branch's side was kept.
+/// sides changed, where the winning side was kept.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Merged {
     pub commit: CommitId,
@@ -457,7 +467,7 @@ impl Repository {
         match was {
             Some(was) if commit == was => ensure!(
                 self.tip(branch)? == Some(was),
-                "{branch} is no longer at {was}"
+                "{branch} is not at {was}"
             ),
             Some(was) => self.set_branch(branch, commit, was)?,
             None => self.branch(branch, commit)?,
@@ -479,13 +489,14 @@ impl Repository {
         let mut editor = self.0.edit_tree(tree)?;
         for change in changes {
             match change {
-                Change::Write { path, bytes } => {
+                Change::Write { path, bytes }
+                | Change::WriteExecutable { path, bytes } => {
+                    let runs = matches!(
+                        change,
+                        Change::WriteExecutable { .. }
+                    );
                     let blob = self.0.write_blob(bytes)?.detach();
-                    editor.upsert(
-                        path.as_str(),
-                        EntryKind::Blob,
-                        blob,
-                    )?;
+                    editor.upsert(path.as_str(), kind(runs), blob)?;
                 }
                 Change::Remove { path } => {
                     editor.remove(path.as_str())?;

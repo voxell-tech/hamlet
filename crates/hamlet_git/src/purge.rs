@@ -119,10 +119,12 @@ pub fn settle(path: &Path) -> Result<()> {
         if path.exists() {
             std::fs::rename(path, &old)?;
         }
-        std::fs::remove_file(fresh.join("PURGED"))?;
         std::fs::rename(&fresh, path)?;
     } else if fresh.exists() {
         std::fs::remove_dir_all(&fresh)?;
+    }
+    if path.join("PURGED").exists() {
+        std::fs::remove_file(path.join("PURGED"))?;
     }
     if old.exists() {
         std::fs::remove_dir_all(&old)?;

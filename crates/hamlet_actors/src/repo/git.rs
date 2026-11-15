@@ -484,15 +484,18 @@ impl Held {
             .entries(base)?
             .into_iter()
             .filter(|entry| !skip(&entry.path))
-            .map(|entry| (entry.path, entry.blob))
+            .map(|entry| (entry.path, (entry.blob, entry.executable)))
             .collect::<BTreeMap<_, _>>();
         let mut changes = Vec::new();
         for entry in listing {
-            if held.remove(&entry.path) != Some(entry.blob) {
+            let now = (entry.blob, entry.executable);
+            if held.remove(&entry.path) != Some(now) {
                 let bytes = checkout::read(&folder, &entry.path)?;
-                changes.push(Change::Write {
-                    path: entry.path,
-                    bytes,
+                let path = entry.path;
+                changes.push(if entry.executable {
+                    Change::WriteExecutable { path, bytes }
+                } else {
+                    Change::Write { path, bytes }
                 });
             }
         }

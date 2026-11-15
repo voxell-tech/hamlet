@@ -215,16 +215,17 @@ where
     M: Message,
     M::From: Send + Sync + 'static,
 {
-    /// Answers `refused` to a request whose shape is refused, before
-    /// its id is looked at.
-    pub fn refuse(
+    /// Answers `refused` to a request whose shape is refused, after
+    /// its caller is admitted and before its id is looked at.
+    pub async fn refuse(
         self,
         why: <M::Output as Refusable>::Why,
-    ) -> Reply<M>
+    ) -> Result<Reply<M>>
     where
         M::Output: Refusable,
+        <M::Output as Refusable>::Why: Send + 'static,
     {
-        Reply(M::Output::refused(why))
+        self.read(move |_| Ok(M::Output::refused(why))).await
     }
 
     /// Answers what `look` reads.

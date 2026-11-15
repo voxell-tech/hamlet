@@ -2,9 +2,8 @@
 //! calls it makes on an agent.
 //!
 //! The library keeps the skills every agent may use. An agent offers
-//! one in parts ([`Offer`]) and then calls the realm's
-//! `submit_skill` with the offer's id. The realm runs the librarian
-//! and brings its verdict ([`Verdict`]).
+//! one in parts ([`Offer`]), and the realm brings the verdict on it
+//! ([`Verdict`]).
 
 use hamlet_protocol::client::RequestId;
 use serde::{Deserialize, Serialize};

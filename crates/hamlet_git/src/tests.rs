@@ -680,6 +680,35 @@ fn a_first_parent_walk_skips_what_a_merge_brought_in() {
 }
 
 #[test]
+fn a_settle_cut_after_its_own_renames_keeps_the_purged_repository() {
+    let dir = Scratch::new("git-settle-cut");
+    let path = dir.join("profile.git");
+    let old =
+        Repository::create(&dir.join("profile.git.purged")).unwrap();
+    old.commit(
+        MAIN,
+        &[write("memory/key.md", "secret")],
+        "made",
+        by(1),
+    )
+    .unwrap();
+    let fresh = Repository::create(&path).unwrap();
+    let kept = fresh
+        .commit(MAIN, &[write("CHARACTER.md", "a")], "made", by(1))
+        .unwrap();
+    drop((old, fresh));
+    std::fs::write(path.join("PURGED"), b"").unwrap();
+
+    settle(&path).unwrap();
+    assert_eq!(
+        Repository::open(&path).unwrap().tip(MAIN).unwrap(),
+        Some(kept)
+    );
+    assert!(!path.join("PURGED").exists());
+    assert!(!dir.join("profile.git.purged").exists());
+}
+
+#[test]
 fn a_purge_cut_between_its_renames_is_settled_whole() {
     let dir = Scratch::new("git-settle");
     let path = dir.join("profile.git");
@@ -711,4 +740,40 @@ fn a_purge_cut_between_its_renames_is_settled_whole() {
         Repository::open(&path).unwrap().tip(MAIN).unwrap(),
         Some(kept)
     );
+}
+
+#[test]
+fn a_write_keeps_whether_its_file_runs() {
+    let dir = Scratch::new("git-executable");
+    let repo = repository(&dir);
+    let tip = repo.tip(MAIN).unwrap();
+    let runs = repo
+        .commit_on(
+            tip,
+            &[Change::WriteExecutable {
+                path: "skills/run.sh".into(),
+                bytes: b"echo".to_vec(),
+            }],
+            "runs",
+            by(2),
+        )
+        .unwrap();
+    let plain = repo
+        .commit_on(
+            Some(runs),
+            &[write("skills/run.sh", "echo")],
+            "plain",
+            by(3),
+        )
+        .unwrap();
+
+    let runs_at = |at| {
+        repo.entries(at)
+            .unwrap()
+            .into_iter()
+            .find(|entry| entry.path == "skills/run.sh")
+            .map(|entry| entry.executable)
+    };
+    assert_eq!(runs_at(runs), Some(true));
+    assert_eq!(runs_at(plain), Some(false));
 }

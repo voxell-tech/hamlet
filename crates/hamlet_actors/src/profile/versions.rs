@@ -29,7 +29,9 @@ impl Takes<Tag> for Profile {
     async fn take(call: Call<Self, Tag>) -> Result<Reply<Tag>> {
         if !is_version_name(&call.version.0) {
             let version = call.version.clone();
-            return Ok(call.refuse(TagRefusal::BadName { version }));
+            return call
+                .refuse(TagRefusal::BadName { version })
+                .await;
         }
         call.once(tag).await
     }

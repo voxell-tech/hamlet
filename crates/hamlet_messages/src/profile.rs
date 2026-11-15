@@ -124,8 +124,18 @@ pub struct Piece {
     pub offset: u32,
     pub bytes: Base64,
     pub last: bool,
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[serde(
+        default,
+        deserialize_with = "null_is_false",
+        skip_serializing_if = "std::ops::Not::not"
+    )]
     pub executable: bool,
+}
+
+fn null_is_false<'de, D: Deserializer<'de>>(
+    from: D,
+) -> Result<bool, D::Error> {
+    Ok(Option::<bool>::deserialize(from)?.unwrap_or(false))
 }
 
 /// A path, in a list.

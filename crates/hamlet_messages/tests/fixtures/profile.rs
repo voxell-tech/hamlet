@@ -569,3 +569,16 @@ fn the_calls_on_an_agent(fixtures: &mut Fixtures) {
             .answer(&format!("profile/remove_path.{arm}"), &answer);
     }
 }
+
+#[test]
+fn a_piece_reads_a_null_executable_as_not_running() {
+    let piece = serde_json::json!({
+        "path": "run.sh",
+        "offset": 0,
+        "bytes": "",
+        "last": true,
+        "executable": null,
+    });
+    let piece: Piece = serde_json::from_value(piece).unwrap();
+    assert!(!piece.executable);
+}
