@@ -178,6 +178,9 @@ async fn demo() -> Result<()> {
     result
 }
 
+/// Runs one command line split into words: the realm actor's when
+/// `realm_actor` is set, else the stub realm's or a stub agent's, or
+/// one for the counters of `kinds`.
 async fn run_line(
     host: &Host,
     kinds: &[String],
@@ -201,6 +204,9 @@ async fn run_line(
     }
 }
 
+/// The host's options, its counter kinds and whether it runs the
+/// realm actor, read from the options before the command, and the
+/// words from the command on.
 fn options(
     args: &[String],
 ) -> Result<(HostOptions, Vec<String>, bool, &[String])> {
