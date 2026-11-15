@@ -428,12 +428,14 @@ impl Transaction {
             anyhow::Ok((affected, revision, pushes))
         }
         .await;
-        let (affected, revision, pushes) = written?;
+        let (affected, revision, mut pushes) = written?;
         let reserved = realm.drives.reserve(&affected.begun, &self);
         // A commit that fails rolls back by itself.
         self.is_open = false;
         self.tx.commit().await?;
         reserved.start(realm, &self.ctx);
+        // Only a repeat pushes the drives this starts.
+        pushes.retain(|push| !matches!(push, Push::Drive(_)));
         if let Some(revision) = revision {
             realm.world.refresh(&self.ctx, revision, &affected).await;
         }
@@ -463,7 +465,9 @@ pub(super) async fn commit(
 mod tests {
     use std::time::Duration;
 
+    use hamlet_messages::sender::Client;
     use hamlet_messages::workspace::AgentNumber;
+    use hamlet_protocol::client::RequestId;
 
     use super::super::testing::Started;
     use super::*;
@@ -478,6 +482,50 @@ mod tests {
             .await
             .expect("the next transaction begins at once")
             .unwrap();
+        started.stop().await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_first_run_leaves_its_drives_to_the_commit_and_a_repeat()
+     {
+        let started = Started::new().await;
+        let row = steps::StepId {
+            kind: steps::Kind::Hire,
+            n: 97,
+        };
+        let key = marker::Key::of(
+            &Client,
+            marker::Id::Request(RequestId::new()),
+            "begin",
+            &row,
+        )
+        .unwrap();
+        let after_answer = Transaction::begin(&started.ctx)
+            .await
+            .unwrap()
+            .commit(
+                &started.realm,
+                Write {
+                    changes: vec![
+                        steps::Change::Begin { row }.into(),
+                    ],
+                    entries: Vec::new(),
+                    marker: Some((&key, &())),
+                },
+            )
+            .await
+            .unwrap();
+
+        let Some(marker::Found::Same {
+            pushes: on_repeat, ..
+        }) = marker::find::<()>(&started.rows(), &key).await.unwrap()
+        else {
+            panic!("the marker holds the first run");
+        };
+        assert_eq!(
+            (after_answer, on_repeat),
+            (Vec::new(), vec![Push::Drive(row)])
+        );
         started.stop().await;
     }
 
