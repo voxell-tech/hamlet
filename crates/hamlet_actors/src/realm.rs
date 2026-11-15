@@ -157,6 +157,8 @@ fn not_built(unit: &str) -> anyhow::Error {
     anyhow::anyhow!("the scaffold: {unit} fills this")
 }
 
+// The crate's one testing module, in the realm, since moving it would
+// open the realm's private modules to the crate.
 #[cfg(test)]
 mod testing {
     use std::sync::Arc;
