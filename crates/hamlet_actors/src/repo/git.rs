@@ -8,8 +8,8 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail, ensure};
 use hamlet_git::{
-    Author, BlobId, Change, Commit, CommitId, Entry, FileChange,
-    MAIN, Merged, Repository, Step, Version, Wins,
+    Author, BlobId, Change, Commit, CommitId, Entry, MAIN, Merged,
+    Repository, Step, Version, Wins,
 };
 use hamlet_messages::workspace::AgentNumber;
 
@@ -63,24 +63,12 @@ impl Reads {
         self.0.resolve(name)
     }
 
-    pub fn branches(&self) -> Result<Vec<(String, CommitId)>> {
-        self.0.branches()
-    }
-
     pub fn entries(&self, at: CommitId) -> Result<Vec<Entry>> {
         self.0.entries(at)
     }
 
     pub fn blob(&self, blob: BlobId) -> Result<Vec<u8>> {
         self.0.blob(blob)
-    }
-
-    pub fn diff(
-        &self,
-        from: Option<CommitId>,
-        to: CommitId,
-    ) -> Result<Vec<FileChange>> {
-        self.0.diff(from, to)
     }
 
     pub fn history(
@@ -303,29 +291,6 @@ impl Git<'_> {
         Ok(Some(merged.commit))
     }
 
-    /// Makes `branch` with one commit of `changes` and no parent. A
-    /// repeat finds the branch and its commit.
-    pub fn start(
-        &self,
-        branch: &str,
-        changes: &[Change],
-        message: &str,
-        by: By,
-    ) -> Result<CommitId> {
-        if let Some(tip) = self.repo.tip(branch)? {
-            return Ok(tip);
-        }
-        let by = by.name();
-        let commit = self.repo.commit_on(
-            None,
-            changes,
-            message,
-            self.author(&by),
-        )?;
-        self.repo.branch(branch, commit)?;
-        Ok(commit)
-    }
-
     /// Makes `branch` with the files of `at` in the repository at
     /// `source`, which is only read, as its one commit.
     pub fn start_from(
@@ -480,16 +445,6 @@ impl Held {
             repo: &self.reads()?.0,
             at: self.at,
         })
-    }
-
-    /// The files of the folder `under` the realm folder, as a commit
-    /// lists them: links, and files over 4 MiB, left out. None when
-    /// the folder is not there.
-    pub(super) fn listing(&self, under: &Path) -> Result<Vec<Entry>> {
-        match checkout::open(&self.home, under)? {
-            Some(folder) => checkout::list(&folder, &|_| false),
-            None => Ok(Vec::new()),
-        }
     }
 
     /// The changes that make the files of `base` those of the folder
@@ -695,14 +650,15 @@ mod tests {
             text(&held, tip_after, "memory/notes.md").as_deref(),
             Some("ONE\ntwo\nthree\n")
         );
-        let reads = held.reads().unwrap();
-        let changed = reads.diff(Some(base), tip_after).unwrap();
-        let changed =
-            changed.iter().map(FileChange::path).collect::<Vec<_>>();
         assert_eq!(
-            changed,
-            ["memory/notes.md", "saved.md", "taken.md"]
+            text(&held, tip_after, "taken.md").as_deref(),
+            Some("from main")
         );
+        assert_eq!(
+            text(&held, tip_after, "saved.md").as_deref(),
+            Some("from the agent")
+        );
+        let reads = held.reads().unwrap();
         assert!(reads.holds("hires/7", base).unwrap());
         assert!(!reads.holds(MAIN, tip_after).unwrap());
 
@@ -730,36 +686,6 @@ mod tests {
         );
         assert_eq!(none.unwrap(), None);
         assert_eq!(tip(&held, MAIN), base);
-    }
-
-    #[test]
-    fn a_branch_from_nothing_is_found_by_its_repeat() {
-        let dir = Scratch::new("repo-git-start");
-        let held = folder(&dir).open(2000).unwrap();
-        let git = held.writes().unwrap();
-        let files = [write("SKILL.md", "Use clippy.")];
-        let made = git
-            .start(
-                "offers/1",
-                &files,
-                "offered",
-                By::Agent(AgentNumber(7)),
-            )
-            .unwrap();
-        let again = git
-            .start(
-                "offers/1",
-                &[],
-                "offered",
-                By::Agent(AgentNumber(7)),
-            )
-            .unwrap();
-        assert_eq!(again, made);
-        let reads = held.reads().unwrap();
-        assert_eq!(reads.history(made, 10).unwrap().len(), 1);
-        let paths =
-            reads.entries(made).unwrap().into_iter().map(|e| e.path);
-        assert_eq!(paths.collect::<Vec<_>>(), ["SKILL.md"]);
     }
 
     #[test]
@@ -921,13 +847,10 @@ mod tests {
         let under = Path::new("dreams/1/main");
         let skip = |path: &str| path == "CHARACTER.md";
         held.check_out(base, under, &skip).unwrap();
-        let listed = |held: &Held| {
-            let listing = held.listing(under).unwrap();
-            listing.into_iter().map(|e| e.path).collect::<Vec<_>>()
-        };
-        assert_eq!(listed(&held), ["memory/notes.md"]);
-
         let at = dir.join(under);
+        assert!(!at.join("CHARACTER.md").exists());
+        assert!(held.changes(under, base, &skip).unwrap().is_empty());
+
         std::fs::write(
             at.join("memory/notes.md"),
             "ONE\ntwo\nthree\n",
@@ -940,7 +863,6 @@ mod tests {
             at.join("link"),
         )
         .unwrap();
-        assert_eq!(listed(&held), ["memory/notes.md", "new.md"]);
         assert_eq!(
             held.changes(under, base, &skip).unwrap(),
             [
@@ -960,9 +882,9 @@ mod tests {
         );
 
         held.check_out(base, under, &skip).unwrap();
-        assert_eq!(listed(&held), ["memory/notes.md"]);
+        assert!(held.changes(under, base, &skip).unwrap().is_empty());
+        assert!(!at.join("new.md").exists());
         held.remove_folder(Path::new("dreams/1")).unwrap();
         assert!(!dir.join("dreams/1").exists());
-        assert!(held.listing(under).unwrap().is_empty());
     }
 }

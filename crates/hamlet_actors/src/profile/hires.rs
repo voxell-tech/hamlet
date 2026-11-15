@@ -106,6 +106,18 @@ where
     all(&look.rows(Table(())))
 }
 
+/// The hire of `agent`, when it is one of this profile's.
+pub(super) fn find<M>(
+    look: &Look<'_, Profile, M>,
+    agent: AgentNumber,
+) -> Result<Option<Hire>>
+where
+    M: Message,
+    Profile: Admits<M::From>,
+{
+    of(&look.rows(Table(())), agent)
+}
+
 fn all(rows: &Rows<'_, Table>) -> Result<Vec<Hire>> {
     rows.select(
         &format!("SELECT {COLUMNS} FROM hire ORDER BY agent"),
@@ -308,6 +320,26 @@ where
             .tip(&hire.branch)?
             .context("a hire has a branch")?;
         tell_moved(writer, &hire, tip)?;
+    }
+    Ok(())
+}
+
+/// Takes `main` into the branch of `hire` unless it is pinned, the
+/// hire's side winning.
+pub(super) fn take_in_main<M>(
+    writer: &Writer<'_, Profile, M>,
+    hire: &Hire,
+) -> Result<()>
+where
+    M: Message,
+    Profile: Admits<M::From>,
+{
+    if hire.pin.is_none() {
+        let main = writer
+            .git()?
+            .tip(MAIN)?
+            .context("a profile has a main")?;
+        writer.writes()?.take_in(&hire.branch, main, TOOK_IN)?;
     }
     Ok(())
 }

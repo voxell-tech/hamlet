@@ -17,14 +17,6 @@
 //! made after the unit. The unit, from the id's lookup to the store's
 //! commit, is one blocking job, so an actor's stop cannot fall
 //! between a ref's move and the marker.
-#![cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the whole surface the profile's and the library's \
-                  actions write against"
-    )
-)]
 
 mod checkout;
 pub(crate) mod git;
@@ -453,15 +445,6 @@ impl<A: Admits<M::From>, M: Message> Look<'_, A, M> {
     /// The realm folder, which the checkouts are under.
     pub fn home(&self) -> &Path {
         self.held.home()
-    }
-
-    /// The files of a folder under the realm folder, as a commit
-    /// would list them.
-    pub fn listing(
-        &self,
-        under: &Path,
-    ) -> Result<Vec<hamlet_git::Entry>> {
-        self.held.listing(under)
     }
 
     /// The changes that make the files of `base` those of a folder
@@ -1216,14 +1199,6 @@ mod tests {
                         dir.join(under).join("b.md"),
                         "b",
                     )?;
-                    let listed = writer
-                        .listing(under)?
-                        .into_iter()
-                        .map(|e| e.path);
-                    assert_eq!(
-                        listed.collect::<Vec<_>>(),
-                        ["a.md", "b.md"]
-                    );
                     let changes =
                         writer.changes(under, base, &|_| false)?;
                     let b = Change::Write {
@@ -1234,10 +1209,9 @@ mod tests {
                     writer.remove_folder(Path::new("dreams/1"))?;
                     let purged = writer.purge("a.md")?;
                     assert_eq!(purged.len(), 1);
-                    let branches = writer.git()?.branches()?;
                     assert_eq!(
-                        branches,
-                        [(MAIN.to_owned(), purged[0].2)]
+                        writer.git()?.tip(MAIN)?,
+                        Some(purged[0].2)
                     );
                     assert_eq!(
                         writer.git()?.read(purged[0].2, "a.md")?,

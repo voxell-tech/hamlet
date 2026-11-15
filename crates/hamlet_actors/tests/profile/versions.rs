@@ -44,28 +44,6 @@ async fn edited(host: &Host, path: &str, text: &str) {
     assert_eq!(done, Done::Done);
 }
 
-/// Waits until agent `number` is told its branch is at `tip`.
-async fn told_at(
-    told: &Told,
-    number: u32,
-    tip: hamlet_git::CommitId,
-) {
-    let (to, tip) = (agent_at(number).to_string(), commit_id(tip));
-    tokio::time::timeout(Duration::from_secs(5), async {
-        while !told
-            .0
-            .lock()
-            .unwrap()
-            .iter()
-            .any(|(at, moved)| *at == to && moved.tip == tip)
-        {
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
-    })
-    .await
-    .expect("the agent is told within 5s");
-}
-
 #[tokio::test(flavor = "multi_thread")]
 async fn a_revert_puts_main_back_and_a_hire_that_follows_takes_it_in()
 {

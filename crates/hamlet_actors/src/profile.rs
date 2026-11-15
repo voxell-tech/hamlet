@@ -20,8 +20,9 @@ use hamlet_host::{Caller, HostRef};
 use hamlet_messages::Message;
 use hamlet_messages::address::{self, Party, Realm};
 use hamlet_messages::profile::{
-    Branch, CommitId, Edit, Erase, Files, Papers, Pin, ProfileInput,
-    Purge, Revert, Save, Sha1, Tag, Versions,
+    Branch, CommitId, Edit, EndDream, Erase, Files, Papers, Pin,
+    PrepareDream, ProfileInput, Purge, Revert, Save, Sha1, Tag,
+    Versions,
 };
 #[cfg(test)]
 use hamlet_messages::realm::ProfileId;
@@ -70,10 +71,12 @@ impl Actor for Profile {
     type Actions = (
         Branch,
         Edit,
+        EndDream,
         Erase,
         Files,
         Papers,
         Pin,
+        PrepareDream,
         Purge,
         Revert,
         Save,
@@ -229,7 +232,9 @@ mod tests {
     use hamlet_actor::ActionSet;
     use hamlet_actor_error::ActorError;
     use hamlet_host::{Host, HostOptions};
-    use hamlet_messages::profile::{By, Revision, VersionName};
+    use hamlet_messages::profile::{
+        By, DreamId, DreamOf, Revision, VersionName,
+    };
     use hamlet_messages::workspace::{AgentNumber, CallId};
     use hamlet_protocol::client::RequestId;
     use hamlet_testing::Scratch;
@@ -296,6 +301,15 @@ mod tests {
             args(&Papers),
             args(&Erase {
                 id: RequestId::new(),
+            }),
+            args(&PrepareDream {
+                dream: DreamId(1),
+                of: DreamOf::Profile,
+            }),
+            args(&EndDream {
+                dream: DreamId(1),
+                done: true,
+                summary: String::new(),
             }),
         ]
     }

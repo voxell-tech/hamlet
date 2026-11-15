@@ -1,6 +1,8 @@
 //! The profile through a host: a realm stand-in and an agent
 //! stand-in call it as themselves.
 
+#[path = "profile/dreams.rs"]
+mod dreams;
 #[path = "profile/files.rs"]
 mod files;
 #[path = "profile/versions.rs"]
@@ -322,6 +324,28 @@ async fn moved_to(told: &Told, number: u32) -> Moved {
     })
     .await
     .expect("the agent is told within 5s")
+}
+
+/// Waits until agent `number` is told its branch is at `tip`.
+async fn told_at(
+    told: &Told,
+    number: u32,
+    tip: hamlet_git::CommitId,
+) {
+    let (to, tip) = (agent_at(number).to_string(), commit_id(tip));
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while !told
+            .0
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|(at, moved)| *at == to && moved.tip == tip)
+        {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("the agent is told within 5s");
 }
 
 #[tokio::test(flavor = "multi_thread")]
