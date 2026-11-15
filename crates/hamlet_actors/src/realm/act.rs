@@ -193,11 +193,13 @@ where
             Decision::Answer(output) => return Ok(Ok(output)),
             Decision::Again(done) => break (done, Vec::new()),
             Decision::WaitFor { row, refusal } => {
-                drop(tx);
                 if waited {
                     return Ok(Ok(refusal));
                 }
-                realm.drives.finished(row, realm.hiring_wait).await;
+                realm
+                    .drives
+                    .finished(row, realm.hiring_wait, tx.abandon())
+                    .await;
                 waited = true;
             }
             Decision::Change(decided) => {

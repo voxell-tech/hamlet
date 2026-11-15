@@ -338,6 +338,10 @@ impl Drop for Transaction {
     }
 }
 
+/// A [`Transaction`] given up, whose rollback may still be running.
+#[must_use]
+pub(super) struct Abandoned(());
+
 pub(super) struct Write<'a, D> {
     pub changes: Vec<Change>,
     pub entries: Vec<record::Entry>,
@@ -360,6 +364,11 @@ impl Transaction {
             source: Source::Transaction(&self.tx),
             at: self.at,
         }
+    }
+
+    pub fn abandon(self) -> Abandoned {
+        drop(self);
+        Abandoned(())
     }
 
     pub async fn commit<D: Serialize>(

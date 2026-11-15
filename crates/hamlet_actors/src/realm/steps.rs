@@ -326,7 +326,12 @@ impl Drives {
 
     /// Waits until `row`'s drive ends, at most `within`, and at once
     /// when none runs.
-    pub async fn finished(&self, row: StepId, within: Duration) {
+    pub async fn finished(
+        &self,
+        row: StepId,
+        within: Duration,
+        _abandoned: change::Abandoned,
+    ) {
         let Some(mut ended) = self
             .running
             .lock()
@@ -463,21 +468,37 @@ mod tests {
         assert_eq!(drives.take(&[ROW]).rows.len(), 1);
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn a_wait_for_a_drive_ends_with_it() {
+        let started = Started::new().await;
+        let abandoned = async || {
+            change::Transaction::begin(&started.ctx)
+                .await
+                .unwrap()
+                .abandon()
+        };
         let drives = Drives::default();
         tokio::time::timeout(
             Duration::from_secs(1),
-            drives.finished(ROW, Duration::from_secs(60)),
+            drives.finished(
+                ROW,
+                Duration::from_secs(60),
+                abandoned().await,
+            ),
         )
         .await
         .expect("no drive runs, so the wait ends at once");
 
         let reserved = drives.take(&[ROW]);
-        let waiting = drives.finished(ROW, Duration::from_secs(60));
+        let waiting = drives.finished(
+            ROW,
+            Duration::from_secs(60),
+            abandoned().await,
+        );
         drop(reserved);
         tokio::time::timeout(Duration::from_secs(1), waiting)
             .await
             .expect("the wait ends with the drive");
+        started.stop().await;
     }
 }
