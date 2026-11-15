@@ -9,8 +9,9 @@
 //! 3. The runner, `serve::runner`, updates the app a first time:
 //!    `PreStartup` opens what the server serves, from the sandbox and
 //!    the realm to the listener, and `Startup` starts it (`startup`).
-//!    It then runs each input until a signal comes, and closes in
-//!    order.
+//!    It then runs each input until the app exits: a stop signal is
+//!    an input that takes the server from `Open` through `Closing` to
+//!    `Stopping` (`closing`).
 //! 4. `server::Server::run` writes one input as a message and updates
 //!    the app once, in one transaction:
 //!    - `PreUpdate` takes the input in and reads it into a message of
@@ -28,6 +29,7 @@ use crate::options::Options;
 
 // The app, its runner and what follows each input.
 mod background;
+mod closing;
 mod core;
 mod follow_up;
 pub mod options;
@@ -117,6 +119,7 @@ impl Plugin for ServerPlugin {
             background::plugin,
             timers::plugin,
             knowledge::runner::plugin,
+            closing::plugin,
         ))
         // The areas, each with the systems for the inputs it takes.
         .add_plugins((

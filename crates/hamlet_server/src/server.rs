@@ -18,7 +18,6 @@ use bevy_app::{App, First, Update};
 use bevy_ecs::entity::Entity;
 use bevy_ecs::error::{BevyError, ErrorContext};
 use bevy_ecs::message::{Message, Messages};
-use bevy_ecs::query::With;
 use bevy_ecs::resource::Resource;
 use bevy_ecs::schedule::common_conditions::on_message;
 use bevy_ecs::schedule::{IntoScheduleConfigs, ScheduleConfigs};
@@ -29,14 +28,11 @@ use bevy_ecs::world::World;
 use hamlet_protocol::client::RequestId;
 use tokio::sync::mpsc;
 
-use crate::calls::ToolRun;
-use crate::clients::Listening;
-use crate::core::{Core, Leftovers};
+use crate::closing;
+use crate::core::Core;
 use crate::diagnostic::{self, Secrets, tell};
 use crate::follow_up::discard;
-use crate::knowledge::runner::Runner;
 use crate::realm::Realm;
-use crate::talk::runtimes::Runtimes;
 use crate::timers::{self, TimerFired};
 
 /// The one channel inputs arrive on, the error handler, where each
@@ -303,13 +299,17 @@ impl Server {
     }
 
     /// Runs the next input, a timer that came due, or nothing after
-    /// `wait`. Returns whether anything ran.
+    /// `wait`. Returns whether anything ran. A stopping server runs
+    /// no timer.
     pub async fn step(
         &mut self,
         wait: Duration,
     ) -> Result<bool, Fatal> {
-        let due =
-            timers::next(self.app.world_mut()).map_err(Fatal)?;
+        let due = if closing::is_stopping(self.app.world()) {
+            None
+        } else {
+            timers::next(self.app.world_mut()).map_err(Fatal)?
+        };
         let due = async move {
             match due {
                 Some(at) => tokio::time::sleep_until(at.into()).await,
@@ -380,54 +380,34 @@ impl Server {
         discard(self.app.world_mut())
     }
 
-    /// Readies the realm to stop: every sign-in ends, and a
-    /// credential rotation begun may finish within `grace`, so no
-    /// refreshed token is lost.
-    pub async fn close(&mut self, grace: Duration) -> Result<()> {
-        // No client connects from now on.
-        self.app.world_mut().remove_resource::<Listening>();
-        {
-            let mut core = self.core()?;
-            core.providers.close_all();
-            core.send_providers()?;
-        }
-        // No input follows to deliver them.
-        let world = self.app.world_mut();
-        self.core.apply(world);
-        world
-            .run_system_cached(|mut runtimes: Runtimes| {
-                runtimes.deliver();
-            })
-            .map_err(|error| anyhow::anyhow!("{error}"))?;
-        let deadline = Instant::now() + grace;
-        while self.core()?.leases.is_holding()
-            && Instant::now() < deadline
-        {
-            self.step(Duration::from_millis(100)).await?;
-        }
-        Ok(())
+    /// Where the inputs go, for what sends them from off the loop.
+    pub fn inputs(&self) -> InputSender {
+        self.app.world().resource::<InputSender>().clone()
     }
 
-    /// Stops the runtimes, giving each `grace` to finish.
-    pub async fn stop(mut self, grace: Duration) -> Result<()> {
-        let world = self.app.world_mut();
-        // Each run's task stops with its entity.
-        let runs = world
-            .query_filtered::<Entity, With<ToolRun>>()
-            .iter(world)
-            .collect::<Vec<_>>();
-        for run in runs {
-            world.despawn(run);
-        }
-        let processes = self.core()?.runtimes.take_processes();
-        for process in processes {
-            process.stop(grace).await;
-        }
-        let world = self.app.world_mut();
-        world.resource::<Leftovers>().end(|_| true);
-        drop(world.remove_resource::<Runner>());
-        Ok(())
+    /// Whether the app has exited: the server stopped.
+    pub fn has_exited(&self) -> bool {
+        self.app.should_exit().is_some()
     }
+}
+
+/// A test's stop of the server: the signal a stop is, then its inputs
+/// until it exits.
+#[cfg(all(test, feature = "harness"))]
+pub(crate) async fn shut_down(server: &mut Server) -> Result<()> {
+    let deadline = Instant::now() + Duration::from_secs(60);
+    server
+        .inputs()
+        .send(closing::StopAsked)
+        .map_err(|_| anyhow::anyhow!("the server stopped already"))?;
+    while !server.has_exited() {
+        anyhow::ensure!(
+            Instant::now() < deadline,
+            "timed out stopping"
+        );
+        server.step(Duration::from_millis(100)).await?;
+    }
+    Ok(())
 }
 
 /// A test's wait on a condition of the realm.
@@ -571,7 +551,7 @@ mod tests {
             repo.read(main, "memory/shared.md").unwrap().is_some(),
             "the dream's note is on main"
         );
-        server.stop(Duration::from_secs(5)).await.unwrap();
+        shut_down(&mut server).await.unwrap();
     }
 
     #[tokio::test]
@@ -618,7 +598,7 @@ mod tests {
             "{page:#?}"
         );
         assert!(crate::oversight::open(db).unwrap().is_empty());
-        server.stop(Duration::from_secs(5)).await.unwrap();
+        shut_down(&mut server).await.unwrap();
     }
 
     #[tokio::test]
@@ -648,7 +628,7 @@ mod tests {
             }),
             "{page:#?}"
         );
-        server.stop(Duration::from_secs(5)).await.unwrap();
+        shut_down(&mut server).await.unwrap();
     }
 
     #[tokio::test]
@@ -671,6 +651,6 @@ mod tests {
             task.done_at.is_some(),
             "the instruction is answered"
         );
-        server.stop(Duration::from_secs(5)).await.unwrap();
+        shut_down(&mut server).await.unwrap();
     }
 }

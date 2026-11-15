@@ -1,23 +1,22 @@
 //! The app's runner: the server from start to stop. Its first update
 //! opens and starts what it serves (`startup.rs`); then it runs the
-//! inputs one at a time until a signal, and closes in order (S3).
+//! inputs one at a time until the app exits, which a stop signal
+//! leads to (`closing.rs`).
 
 use std::time::Duration;
 
 use anyhow::Result;
 use bevy_app::{App, AppExit};
 
-use crate::clients::connection::GRACE;
-use crate::server::{Fatal, Server};
+use crate::closing::StopAsked;
+use crate::server::{InputSender, Server};
 
-/// The time a closing realm waits for its runtimes to stop.
-const STOPPING: Duration = Duration::from_secs(30);
-/// The time a closing realm waits for a credential rotation begun.
-const ROTATING: Duration = Duration::from_secs(15);
+/// The longest the runner sleeps with nothing coming.
+const IDLE: Duration = Duration::from_secs(60);
 
-/// The app's runner: serves it on a Tokio runtime of one thread until
-/// SIGTERM or Ctrl-C, sleeping until an input comes. A server that
-/// fails says why.
+/// The app's runner: serves it on a Tokio runtime of one thread,
+/// sleeping until an input comes, until it exits. A server that fails
+/// says why.
 pub(crate) fn runner(app: App) -> AppExit {
     let served = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -43,52 +42,39 @@ fn failed(error: &anyhow::Error) {
     eprintln!("Error: {error:?}");
 }
 
-/// Serves `app` until SIGTERM or Ctrl-C, closing every client before
-/// letting the realm go.
+/// Serves `app` until it exits. The first SIGTERM or Ctrl-C asks it
+/// to stop, and a second exits at once. A realm that can no longer be
+/// served is stopped too, and its error is the server's.
 async fn serve(app: App) -> Result<()> {
-    let mut signals = Signals::new()?;
+    let signals = Signals::new()?;
     hamlet_os::process::reap_with_server()?;
     let mut server = Server::start(app)?;
-    let served = async {
-        loop {
-            server.step(Duration::from_secs(60)).await?;
+    tokio::spawn(stop_on_signals(signals, server.inputs()));
+    let mut fatal = None;
+    while !server.has_exited() {
+        match server.step(IDLE).await {
+            Ok(_) => {}
+            // A second while it stops ends the server where it is.
+            Err(error) if fatal.is_some() => return Err(error.0),
+            Err(error) => {
+                fatal = Some(error.0);
+                let _ = server.inputs().send(StopAsked);
+            }
         }
-        #[expect(
-            unreachable_code,
-            reason = "the loop ends with a fatal error or a signal"
-        )]
-        Ok::<_, Fatal>(())
-    };
-    let result = tokio::select! {
-        result = served => result.map_err(|fatal| fatal.0),
-        () = signals.next() => Ok(()),
-    };
-    let mut tasks = {
-        let mut core = server.core()?;
-        core.clients.close_connections();
-        std::mem::take(&mut core.clients.connection_tasks)
-    };
-    let drained =
-        async { while tasks.join_next().await.is_some() {} };
-    tokio::select! {
-        () = signals.next() => std::process::exit(130),
-        _ = tokio::time::timeout(GRACE, drained) => {}
     }
-    tasks.abort_all();
-    let closed = server.close(ROTATING);
-    tokio::select! {
-        () = signals.next() => std::process::exit(130),
-        closed = closed => closed?,
-    }
-    let stopped = server.stop(STOPPING);
-    tokio::select! {
-        () = signals.next() => std::process::exit(130),
-        stopped = stopped => stopped?,
-    }
-    result
+    fatal.map_or(Ok(()), Err)
 }
 
-pub(crate) struct Signals {
+/// Asks the server to stop at the first signal, and exits at the
+/// second.
+async fn stop_on_signals(mut signals: Signals, inputs: InputSender) {
+    signals.next().await;
+    let _ = inputs.send(StopAsked);
+    signals.next().await;
+    std::process::exit(130);
+}
+
+struct Signals {
     #[cfg(unix)]
     interrupt: tokio::signal::unix::Signal,
     #[cfg(unix)]
@@ -120,7 +106,7 @@ impl Signals {
         }
     }
 
-    pub(crate) async fn next(&mut self) {
+    async fn next(&mut self) {
         #[cfg(unix)]
         {
             tokio::select! {

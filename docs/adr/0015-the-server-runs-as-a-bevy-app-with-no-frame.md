@@ -59,6 +59,14 @@ the failure with secrets taken out and goes on. Only a `Fatal` error, or
 a database SQLite calls corrupt or not a database, stops the server. The
 jobs runner survives a job that panics, which runs again later.
 
+**Stopping is a state, and its steps are inputs.** A stop signal is an
+input like any other. It takes the `Serving` state from `Open` to
+`Closing`, whose systems close the clients and end the sign-ins; the
+server goes on running inputs while a credential rotation it began
+finishes. Then `Stopping` ends the tool runs and stops the runtimes on a
+task whose end is an input, and the app exits. A `Fatal` error stops the
+server the same way.
+
 **Considered.** Keeping one struct that owned every field and a loop that
 matched every message: it is what the server was, and adding a feature
 meant editing central matches. Running each handler as a one-shot system

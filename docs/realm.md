@@ -128,15 +128,18 @@ they start in, and the most one may cost.
 `main` runs a Bevy app with `ServerPlugin` (`lib.rs`), whose runner,
 `serve::runner`, serves. The app's first update opens the realm and
 the rest in `PreStartup`, starts them in `Startup`, and only then
-publishes `server.json` (`startup.rs`); `serve::serve` owns the ordered
-shutdown, `clients/connection.rs` the sockets,
+publishes `server.json` (`startup.rs`). A stop signal takes the server
+through the `Serving` states, `Open`, `Closing` and `Stopping`, until the
+app exits (`closing.rs`); `clients/connection.rs` owns the sockets,
 `clients/requests.rs` authentication, and `clients/asked.rs` the system
 that answers each request. `--faux` selects an offline
 response script, not a harness entry. `HAMLET_PI_HARNESS` selects that entry
 instead.
 
-SIGTERM or the first SIGINT closes clients with code 1001, settles shutdown
-work and removes `server.json`. A second SIGINT exits 130. Closing a client
+SIGTERM or the first SIGINT closes clients with code 1001, ends every
+sign-in, waits up to 15 s for a credential rotation begun, stops the
+runtimes and removes `server.json`; inputs keep running until then. A
+second SIGINT exits 130. Closing a client
 or window does not stop the server.
 
 ## Starter skills
