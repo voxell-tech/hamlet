@@ -297,6 +297,11 @@ test("an own edit the filesystem refuses answers in today's words, and the file 
                     `c${at}`,
                 ),
             ),
+            toolCall(
+                "edit",
+                { path: "memory/missing.md", edits: [] },
+                "c-missing",
+            ),
             fauxAssistantMessage("None took."),
         ],
     });
@@ -338,6 +343,10 @@ test("an own edit the filesystem refuses answers in today's words, and the file 
         ),
         refused(
             `No changes made to ${path}. The replacements produced identical content.`,
+        ),
+        // Today checks for an edit before it looks for the file.
+        refused(
+            "Edit tool input is invalid. edits must contain at least one replacement.",
         ),
     ]);
     assert.equal(readFileSync(path, "utf8"), "one two two\n");

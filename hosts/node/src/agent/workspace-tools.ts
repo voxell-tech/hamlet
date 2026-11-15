@@ -64,6 +64,17 @@ export type Execute<Args> = (
 /** The seconds a script may run, as the workspace's `LONGEST`. */
 const LONGEST = 120;
 
+/** Words in a command's output that tell the sandbox stopped it (`shell.rs`). */
+const REFUSED = [
+    "Operation not permitted",
+    "Read-only file system",
+    "Permission denied",
+];
+
+/** Today's note after a command the sandbox stopped, while the hamlet works on no folder. */
+const OUTSIDE =
+    "\n[The sandbox lets a command write only inside the workspace, which is its working directory. Use a relative path there, not /tmp or another folder.]";
+
 function wallOf(script: Extract<Program, { type: "script" }>): number {
     return Math.min((script.timeout_ms ?? LONGEST * 1000) / 1000, LONGEST);
 }
@@ -249,8 +260,9 @@ function ran(end: RunEnd): ToolExecutionResult {
 function ranNow(end: RunEnd, program: Program): ToolExecutionResult {
     if (end.type === "not_run") return failed(end.words);
     const script = program.type === "script";
+    // Today's hand tools keep the head of their output and name no file.
     const fullOutput =
-        end.cut === undefined
+        end.cut === undefined || !script
             ? []
             : [
                   {
@@ -262,8 +274,14 @@ function ranNow(end: RunEnd, program: Program): ToolExecutionResult {
     switch (end.exit.type) {
         case "code": {
             const { code } = end.exit;
+            // No message tells the agent its project folder, so the note is
+            // the one for a hamlet with none.
+            const stopped =
+                script &&
+                code !== 0 &&
+                REFUSED.some((refused) => end.output.includes(refused));
             return {
-                ...words(end.output),
+                ...words(stopped ? `${end.output}${OUTSIDE}` : end.output),
                 isError: code !== 0,
                 diagnostics:
                     code === 0
@@ -310,21 +328,17 @@ export function wrote(path: string): ToolExecutionResult {
 export function replaced(
     path: string,
     blocks: number,
-    diff: Change["diff"],
+    diff: NonNullable<Change["diff"]>,
 ): ToolExecutionResult {
     return {
         ...words(`Successfully replaced ${blocks} block(s) in ${path}.`),
-        ...(diff === undefined
-            ? {}
-            : {
-                  details: {
-                      diff: diff.diff,
-                      patch: diff.patch,
-                      ...(diff.first_changed_line === undefined
-                          ? {}
-                          : { firstChangedLine: diff.first_changed_line }),
-                  },
-              }),
+        details: {
+            diff: diff.diff,
+            patch: diff.patch,
+            ...(diff.first_changed_line === undefined
+                ? {}
+                : { firstChangedLine: diff.first_changed_line }),
+        },
     };
 }
 
@@ -345,19 +359,23 @@ export function readResult(
     }
 }
 
-function changedLater(end: ChangeEnd): ToolExecutionResult {
+/**
+ * The words of a write's or an edit's end. A diff is set only for an edit,
+ * and today's edit words count its `blocks`, which an end that arrives as
+ * an input does not carry.
+ */
+function changed(end: ChangeEnd, blocks?: number): ToolExecutionResult {
     if (end.type !== "changed") return failed(end.words);
-    // A diff is set only for an edit. Today's edit words count its blocks,
-    // which `Change` does not carry.
-    return end.diff === undefined
-        ? wrote(end.path)
-        : words(`Changed ${end.path}.\n${end.diff.diff}`);
+    if (end.diff === undefined) return wrote(end.path);
+    return blocks === undefined
+        ? words(`Changed ${end.path}.\n${end.diff.diff}`)
+        : replaced(end.path, blocks, end.diff);
 }
 
 /** The words of a call's end that arrives as an input. */
 export function endWords(outcome: Outcome): string {
     const result =
-        outcome.type === "run" ? ran(outcome.end) : changedLater(outcome.end);
+        outcome.type === "run" ? ran(outcome.end) : changed(outcome.end);
     return (result.output ?? [])
         .map((part) => (part.type === "text" ? part.text : ""))
         .join("");
@@ -449,11 +467,9 @@ function write(peers: Peers): ToolRegistration {
             "write_file",
             { path: args.path, content: args.content },
             (answer) =>
-                answer.type !== "ended"
-                    ? waits("The write", answer.needs)
-                    : answer.end.type === "changed"
-                      ? wrote(answer.end.path)
-                      : failed(answer.end.words),
+                answer.type === "ended"
+                    ? changed(answer.end)
+                    : waits("The write", answer.needs),
             "write",
         ),
     );
@@ -469,15 +485,9 @@ function edit(peers: Peers): ToolRegistration {
             "edit_file",
             { path: args.path, edits: editsOf(args.edits) },
             (answer) =>
-                answer.type !== "ended"
-                    ? waits("The edit", answer.needs)
-                    : answer.end.type === "changed"
-                      ? replaced(
-                            answer.end.path,
-                            args.edits.length,
-                            answer.end.diff,
-                        )
-                      : failed(answer.end.words),
+                answer.type === "ended"
+                    ? changed(answer.end, args.edits.length)
+                    : waits("The edit", answer.needs),
             "edit",
         ),
     );

@@ -457,6 +457,50 @@ test("an own write and an own edit answer in today's words, the edit with the wo
     await agent.stop();
 });
 
+test("an own write and edit name their path as today does, without `.` parts or doubled slashes", async (t) => {
+    const { calls } = fakeCalls({});
+    const agent = await wakeAgent(t, {
+        calls,
+        files: fakeFiles({}),
+        responses: [
+            toolCall(
+                "write",
+                { path: "./memory//plan.md", content: "a\n" },
+                "c1",
+            ),
+            toolCall(
+                "edit",
+                {
+                    path: "memory/./plan.md",
+                    edits: [{ oldText: "a", newText: "b" }],
+                },
+                "c2",
+            ),
+            fauxAssistantMessage("Done."),
+        ],
+    });
+    await agent.actions.submit(agent.by(from.realm), line("input-1", "Write."));
+    await agent.idle();
+
+    const path = `${ROOT}/memory/plan.md`;
+    const [wrote, edited] = await toolResults(agent);
+    assert.deepEqual(wrote, {
+        output: `Successfully wrote to ${path}`,
+        isError: false,
+        diagnostics: [],
+    });
+    assert.equal(
+        edited?.output,
+        `Successfully replaced 1 block(s) in ${path}.`,
+    );
+    const patch = (edited?.details as { patch: string } | undefined)?.patch;
+    assert.equal(
+        patch?.split("\n").slice(0, 2).join("\n"),
+        `--- ${path}\n+++ ${path}`,
+    );
+    await agent.stop();
+});
+
 test("running ends the tool, not the turn, and the end is taken once under its call id", async (t) => {
     const { calls, sent } = fakeCalls({
         workspace: { run: () => ({ type: "running", command: 4 }) },
@@ -787,6 +831,12 @@ test("a command that ends inside its call answers as today's bash does", async (
         nope: ended(5, { type: "failed", words: "spawn failed" }, ""),
         kill: ended(6, { type: "cut_off" }, "half\n"),
         stop: ended(7, { type: "cancelled" }, "x\n"),
+        "touch /x": ended(
+            8,
+            { type: "code", code: 1 },
+            "touch: cannot touch '/x': Permission denied\n",
+        ),
+        "cat /x": ended(9, { type: "code", code: 0 }, "Permission denied\n"),
     };
     const { calls } = fakeCalls({
         workspace: {
@@ -812,6 +862,8 @@ test("a command that ends inside its call answers as today's bash does", async (
             toolCall("bash", { command: "nope" }, "c5"),
             toolCall("bash", { command: "kill" }, "c6"),
             toolCall("bash", { command: "stop" }, "c7"),
+            toolCall("bash", { command: "touch /x" }, "c8"),
+            toolCall("bash", { command: "cat /x" }, "c9"),
             fauxAssistantMessage("Ran."),
         ],
     });
@@ -858,6 +910,18 @@ test("a command that ends inside its call answers as today's bash does", async (
             isError: true,
             diagnostics: [],
         },
+        {
+            output: "touch: cannot touch '/x': Permission denied\n\n[The sandbox lets a command write only inside the workspace, which is its working directory. Use a relative path there, not /tmp or another folder.]",
+            isError: true,
+            diagnostics: [
+                {
+                    severity: "error",
+                    code: "exit_code",
+                    message: "Command exited with code 1",
+                },
+            ],
+        },
+        { output: "Permission denied\n", isError: false, diagnostics: [] },
     ]);
     await agent.stop();
 });
@@ -868,6 +932,9 @@ test("a hand tool that ends inside its call answers as today's hand tools do", a
         bad: ended(2, { type: "code", code: 1 }, "no file\n"),
         spawn: ended(3, { type: "failed", words: "exec format error" }, ""),
         kill: ended(4, { type: "cut_off" }, ""),
+        long: ended(5, { type: "code", code: 0 }, "tail\n", {
+            full_output: "/tmp/hamlet/out-5.log",
+        }),
     };
     const { calls } = fakeCalls({
         workspace: {
@@ -910,6 +977,7 @@ test("a hand tool that ends inside its call answers as today's hand tools do", a
             toolCall("word_count", { path: "bad" }, "c2"),
             toolCall("word_count", { path: "spawn" }, "c3"),
             toolCall("word_count", { path: "kill" }, "c4"),
+            toolCall("word_count", { path: "long" }, "c5"),
             fauxAssistantMessage("Counted."),
         ],
     });
@@ -948,6 +1016,7 @@ test("a hand tool that ends inside its call answers as today's hand tools do", a
             ],
         },
         interrupted("word_count"),
+        { output: "tail\n", isError: false, diagnostics: [] },
     ]);
     await agent.stop();
 });

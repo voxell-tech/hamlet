@@ -1,4 +1,4 @@
-import { isAbsolute } from "node:path";
+import { isAbsolute, posix } from "node:path";
 import type { Context } from "@earendil-works/chord/context";
 import {
     generateDiffString,
@@ -40,8 +40,9 @@ function start(files: AgentFilesystem): string {
 }
 
 /**
- * A relative path is joined, not normalised, so one that climbs out of the
- * root stays own and the adapter refuses it.
+ * A path is found own before it is normalised, so one that climbs out of
+ * the root stays own and the adapter refuses it. An own path is then
+ * normalised, as today's `footing` does.
  */
 function reached(
     files: AgentFilesystem,
@@ -50,10 +51,9 @@ function reached(
     const from = start(files);
     const absolute =
         path === undefined ? from : isAbsolute(path) ? path : `${from}/${path}`;
-    return {
-        own: absolute === files.root || absolute.startsWith(`${files.root}/`),
-        path: absolute,
-    };
+    const own =
+        absolute === files.root || absolute.startsWith(`${files.root}/`);
+    return { own, path: own ? posix.normalize(absolute) : absolute };
 }
 
 function routes(peers: Peers): {

@@ -86,6 +86,14 @@ export function openAgentFilesystem(
             }),
         edit: (path, edits, context) =>
             call(path, context, async () => {
+                // Today refuses an empty `edits` before it looks for the file.
+                if (edits.length === 0) {
+                    throw new FileError(
+                        "invalid",
+                        "Edit tool input is invalid. edits must contain at least one replacement.",
+                        path,
+                    );
+                }
                 const before = utf8(await folder.read(path), path);
                 const after = edited(before, edits, path);
                 await folder.write(path, Buffer.from(after));
@@ -183,11 +191,6 @@ function edited(text: string, edits: readonly Edit[], path: string): string {
     const refuse = (words: string): never => {
         throw new FileError("invalid", words, path);
     };
-    if (edits.length === 0) {
-        refuse(
-            "Edit tool input is invalid. edits must contain at least one replacement.",
-        );
-    }
     const many = edits.length > 1;
     const empty = edits.findIndex((edit) => edit.old === "");
     if (empty >= 0) {
