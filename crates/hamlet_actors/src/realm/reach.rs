@@ -64,34 +64,12 @@ pub(super) async fn push(
 
 #[cfg(test)]
 mod tests {
-    use hamlet_actor::BindParam;
     use hamlet_messages::realm::{HamletId, HowEnded};
 
     use super::super::testing::Started;
     use super::*;
 
     const HIRE: AgentNumber = AgentNumber(2);
-
-    async fn end(started: &Started) {
-        let tx =
-            started.ctx.sql().begin_transaction(None).await.unwrap();
-        let how =
-            serde_json::to_string(&HowEnded::ByTheChief).unwrap();
-        tx.execute(
-            "UPDATE agent SET status = 'ended', ended_how = ?1 \
-             WHERE id = 2",
-            Some(vec![BindParam::Text(how)]),
-        )
-        .await
-        .unwrap();
-        tx.execute(
-            "UPDATE reach SET wanted = wanted + 1 WHERE agent = 2",
-            None,
-        )
-        .await
-        .unwrap();
-        tx.commit().await.unwrap();
-    }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn a_reach_is_never_older_than_its_version() {
@@ -101,15 +79,27 @@ mod tests {
             .commit(versions::Change::WantReach(HIRE))
             .await
             .unwrap();
+        let how =
+            serde_json::to_string(&HowEnded::ByTheChief).unwrap();
+        let end = format!(
+            "UPDATE agent SET status = 'ended', ended_how = '{how}' \
+             WHERE id = 2"
+        );
         for _ in 0..200 {
             let (before, _) =
                 versions::reach(&started.rows(), HIRE).await.unwrap();
-            let ctx = started.ctx.clone();
-            let read = tokio::spawn(async move {
-                of(&Rows::outside(&ctx)?, HIRE).await
-            });
-            end(&started).await;
-            let set = read.await.unwrap().unwrap();
+            let set = started
+                .race(
+                    |ctx| async move {
+                        of(&Rows::outside(&ctx)?, HIRE).await
+                    },
+                    &[
+                        &end,
+                        "UPDATE reach SET wanted = wanted + 1 WHERE \
+                         agent = 2",
+                    ],
+                )
+                .await;
             assert!(
                 set.version == before || set.reach == Reach::Ended,
                 "{set:?}: a footing under the end's version, raised \

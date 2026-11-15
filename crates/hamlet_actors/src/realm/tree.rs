@@ -96,17 +96,11 @@ pub(super) async fn lineage(
                 .with_context(|| format!("the hire {hire}"))?,
         );
     }
-    let hamlet = match rows
-        .value::<String>(
-            "SELECT hamlet FROM hire WHERE agent = ?1",
-            vec![number(agent)],
-        )
-        .await?
-    {
+    let hamlet = match hamlet_of(rows, agent).await? {
         Some(id) => Some(
-            chiefs::hamlet(rows, &HamletId(id.clone()))
+            chiefs::hamlet(rows, &id)
                 .await?
-                .with_context(|| format!("the hamlet `{id}`"))?,
+                .with_context(|| format!("the hamlet `{}`", id.0))?,
         ),
         None => None,
     };
@@ -116,6 +110,20 @@ pub(super) async fn lineage(
         hires,
         hamlet,
     }))
+}
+
+/// The hamlet of `agent` when it is a hire.
+async fn hamlet_of(
+    rows: &Rows<'_>,
+    agent: AgentNumber,
+) -> Result<Option<HamletId>> {
+    Ok(rows
+        .value::<String>(
+            "SELECT hamlet FROM hire WHERE agent = ?1",
+            vec![number(agent)],
+        )
+        .await?
+        .map(HamletId))
 }
 
 pub(super) async fn lineage_of(
@@ -161,10 +169,6 @@ async fn member(
     }))
 }
 
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "U3 and U4 call it")
-)]
 pub(super) async fn resolve(
     rows: &Rows<'_>,
     hamlet: Option<&HamletId>,
@@ -213,10 +217,6 @@ pub(super) async fn left(
 
 /// The hires of `hamlet` that count toward its tier: `hiring` and
 /// `live`.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "U4 and U11 call it")
-)]
 pub(super) async fn living(
     rows: &Rows<'_>,
     hamlet: &HamletId,
@@ -238,28 +238,23 @@ pub(super) async fn fresh(rows: &Rows<'_>) -> Result<AgentNumber> {
     Ok(AgentNumber(u32::try_from(rows.next_id("agent").await?)?))
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) struct Profile {
-    pub id: ProfileId,
-}
-
-pub(super) async fn profile(
+/// The profile a new hire is made of: the one `named`, else a new
+/// blank one. `Err` is the one named when it is missing.
+pub(super) async fn made_of(
     rows: &Rows<'_>,
-    id: ProfileId,
-) -> Result<Option<Profile>> {
-    Ok(rows
+    named: Option<ProfileId>,
+) -> Result<Result<Of, ProfileId>> {
+    let Some(named) = named else {
+        let blank = u32::try_from(rows.next_id("profile").await?)?;
+        return Ok(Ok(Of::Blank(ProfileId(blank))));
+    };
+    let found = rows
         .value::<u32>(
             "SELECT id FROM profile WHERE id = ?1",
-            vec![BindParam::Integer(i64::from(id.0))],
+            vec![BindParam::Integer(i64::from(named.0))],
         )
-        .await?
-        .map(|id| Profile { id: ProfileId(id) }))
-}
-
-pub(super) async fn fresh_profile(
-    rows: &Rows<'_>,
-) -> Result<ProfileId> {
-    Ok(ProfileId(u32::try_from(rows.next_id("profile").await?)?))
+        .await?;
+    Ok(found.map(|_| Of::Profile(named)).ok_or(named))
 }
 
 pub(super) async fn profile_of(
@@ -320,7 +315,6 @@ pub(super) enum Change {
     )]
     Purpose { hire: AgentNumber, text: String },
     /// The agent ends, and its hires go to its lead.
-    #[expect(dead_code, reason = "U4 ends an agent with it")]
     End {
         agent: AgentNumber,
         by: record::By,
@@ -328,7 +322,6 @@ pub(super) enum Change {
     },
     /// `mayor` becomes the root of its hamlet's tree, with the old
     /// mayor under it.
-    #[expect(dead_code, reason = "U4 seats a mayor with it")]
     Seat { mayor: AgentNumber },
     #[expect(dead_code, reason = "U11 sets tools with it")]
     Tools {
@@ -633,6 +626,21 @@ mod tests {
         };
         assert_eq!(named(None, agent(3)).await, Some(AgentNumber(3)));
         assert_eq!(named(None, agent(9)).await, None);
+        started.stop().await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_hire_is_made_of_the_profile_named_else_a_blank_one() {
+        let started = Started::new().await;
+        let rows = started.rows();
+        let of = async |named| made_of(&rows, named).await.unwrap();
+
+        assert_eq!(of(None).await, Ok(Of::Blank(ProfileId(2))));
+        assert_eq!(
+            of(Some(HAND_PROFILE)).await,
+            Ok(Of::Profile(HAND_PROFILE))
+        );
+        assert_eq!(of(Some(ProfileId(9))).await, Err(ProfileId(9)));
         started.stop().await;
     }
 

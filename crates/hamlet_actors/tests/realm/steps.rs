@@ -4,19 +4,14 @@ use hamlet_messages::agent::{
     AgentInput, AgentKind, Fill, Place, PlaceVersion,
 };
 use hamlet_messages::profile::Branch;
-use hamlet_messages::realm::{Asked, FoundAnswer, ProfileId};
+use hamlet_messages::realm::ProfileId;
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::reach::{
     Footing, Reach, SecretsVersion,
 };
-use hamlet_messages::workspace::{
-    AgentNumber, ReachVersion, RealmTask, SetReach,
-};
-use hamlet_protocol::client::RequestId;
+use hamlet_messages::workspace::{ReachVersion, RealmTask, SetReach};
 
-use super::{Callee, Realm, found, until};
-
-const MAYOR: AgentNumber = AgentNumber(2);
+use super::{Callee, MAYOR, Realm, founded, until};
 
 const BLANK: ProfileId = ProfileId(2);
 
@@ -70,13 +65,7 @@ async fn failed_once_at(callee: Callee) -> Realm {
     let realm = Realm::start().await;
     realm.live(Hand::NUMBER).await;
     realm.seen.fail_once.lock().unwrap().insert(callee);
-    realm
-        .ask(&Asked {
-            id: RequestId::new(),
-            act: found("Mill"),
-        })
-        .await
-        .unwrap();
+    founded(&realm).await;
     until("the stand-in fails its call", || {
         !realm.seen.fail_once.lock().unwrap().contains(&callee)
     })
@@ -92,13 +81,7 @@ async fn a_hire_goes_live_through_its_steps() {
     let realm = Realm::start().await;
     realm.live(Hand::NUMBER).await;
 
-    let answer = realm
-        .ask(&Asked {
-            id: RequestId::new(),
-            act: found("Mill"),
-        })
-        .await
-        .unwrap();
+    founded(&realm).await;
     realm.reach_held(MAYOR).await;
     let seen = hire_seen(&realm);
     realm.live(MAYOR).await;
@@ -120,10 +103,6 @@ async fn a_hire_goes_live_through_its_steps() {
         })
         .await;
 
-    assert!(
-        matches!(answer, FoundAnswer::Founded { mayor: MAYOR, .. }),
-        "{answer:?}"
-    );
     let branch = "hires/2".to_owned();
     assert_eq!(
         seen,
@@ -215,13 +194,7 @@ async fn a_step_done_again_leaves_one_hire() {
     // agent made and its reach in force.
     let realm = Realm::start().await;
     realm.live(Hand::NUMBER).await;
-    realm
-        .ask(&Asked {
-            id: RequestId::new(),
-            act: found("Mill"),
-        })
-        .await
-        .unwrap();
+    founded(&realm).await;
     realm.live(MAYOR).await;
 
     for done in [

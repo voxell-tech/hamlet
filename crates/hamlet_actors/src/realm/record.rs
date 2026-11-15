@@ -22,19 +22,16 @@ pub(super) enum Entry {
         hamlet: HamletId,
         by: By,
     },
-    #[expect(dead_code, reason = "U4 records it")]
     Hired {
         hire: AgentNumber,
         by: By,
         why: Option<String>,
     },
-    #[expect(dead_code, reason = "U4 records it")]
     Ended {
         hire: AgentNumber,
         by: By,
         why: Option<String>,
     },
-    #[expect(dead_code, reason = "U4 records it")]
     Seated {
         hire: AgentNumber,
         by: By,
