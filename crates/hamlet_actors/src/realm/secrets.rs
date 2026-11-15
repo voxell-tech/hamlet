@@ -9,7 +9,6 @@ use std::sync::{Arc, Mutex, PoisonError, RwLock};
 
 use anyhow::{Context as _, Result, bail};
 use hamlet_actor::{Ctx, Handler};
-use hamlet_host::HostRef;
 use hamlet_messages::address::{Agent, Workspace};
 use hamlet_messages::realm::models::{
     Credential, CredentialAnswer, CredentialRefusal, KeepCredential,
@@ -22,7 +21,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 
 use super::act::Look;
-use super::world::World;
 use super::{Realm, calls, change, documents, versions};
 
 /// The version of a file that holds no counter, and of no file.
@@ -110,55 +108,8 @@ impl Held {
             .clone()
     }
 
-    #[expect(
-        dead_code,
-        reason = "the reach takes it once the realm holds the file"
-    )]
     pub fn version(&self) -> SecretsVersion {
         self.current().version
-    }
-
-    #[expect(
-        dead_code,
-        reason = "`credential` reads it once the realm holds the \
-                  file"
-    )]
-    fn answer(&self, provider: &str) -> CredentialAnswer {
-        self.current()
-            .models
-            .get(provider)
-            .and_then(given)
-            .unwrap_or_else(|| CredentialAnswer::Refused {
-                why: CredentialRefusal::NotSignedIn {
-                    provider: provider.to_owned(),
-                },
-            })
-    }
-
-    /// Longest first, so a value inside another is taken out after
-    /// it.
-    #[expect(
-        dead_code,
-        reason = "`secrets` reads it once the realm holds the file"
-    )]
-    fn list(&self) -> SecretList {
-        let stored = self.current();
-        let retired = self
-            .retired
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner);
-        let mut values = stored
-            .secrets()
-            .chain(retired.iter().map(String::as_str))
-            .filter(|value| !value.is_empty())
-            .map(str::to_owned)
-            .collect::<Vec<_>>();
-        values.sort_by(|a, b| b.len().cmp(&a.len()).then(a.cmp(b)));
-        values.dedup();
-        SecretList {
-            version: stored.version,
-            values,
-        }
     }
 
     /// Writes the file whole with `keep` in it, then holds it. The
@@ -275,13 +226,28 @@ fn write_whole(file: &Path, bytes: &[u8]) -> Result<()> {
     Ok(written?)
 }
 
+/// Longest first, so a value inside another is taken out after it.
 impl Look<Workspace> for Secrets {
     type Output = SecretList;
 
-    fn look(&self, _by: &Workspace, _world: &World) -> SecretList {
+    fn look(&self, _by: &Workspace, realm: &Realm) -> SecretList {
+        let stored = realm.secrets.current();
+        let retired = realm
+            .secrets
+            .retired
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let mut values = stored
+            .secrets()
+            .chain(retired.iter().map(String::as_str))
+            .filter(|value| !value.is_empty())
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+        values.sort_by(|a, b| b.len().cmp(&a.len()).then(a.cmp(b)));
+        values.dedup();
         SecretList {
-            version: VERSION,
-            values: Vec::new(),
+            version: stored.version,
+            values,
         }
     }
 }
@@ -289,12 +255,18 @@ impl Look<Workspace> for Secrets {
 impl Look<Agent> for Credential {
     type Output = CredentialAnswer;
 
-    fn look(&self, _by: &Agent, _world: &World) -> CredentialAnswer {
-        CredentialAnswer::Refused {
-            why: CredentialRefusal::NotSignedIn {
-                provider: self.provider.clone(),
-            },
-        }
+    fn look(&self, _by: &Agent, realm: &Realm) -> CredentialAnswer {
+        realm
+            .secrets
+            .current()
+            .models
+            .get(&self.provider)
+            .and_then(given)
+            .unwrap_or_else(|| CredentialAnswer::Refused {
+                why: CredentialRefusal::NotSignedIn {
+                    provider: self.provider.clone(),
+                },
+            })
     }
 }
 
@@ -309,9 +281,8 @@ impl Handler<KeepCredential> for Realm {
     ) -> Result<()> {
         let Agent(_) = sender(&ctx, &keep)?;
         let tx = change::Transaction::begin(&ctx).await?;
-        let held = Held::load(HostRef::of(ctx.inner())?.folder())?;
         let living = documents::living(&tx.rows()).await?;
-        held.keep(&keep)?;
+        self.secrets.keep(&keep)?;
         let raises = living
             .into_iter()
             .map(|agent| versions::Change::WantReach(agent).into())

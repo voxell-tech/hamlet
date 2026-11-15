@@ -205,7 +205,6 @@ async fn keeping_a_credential_raises_every_reach() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "the realm holds no copy of credentials.json yet"]
 async fn a_credential_is_given_only_to_an_agent() {
     let realm = Realm::start().await;
     keep(&realm, "anthropic", key("sk-a")).await;
@@ -240,7 +239,6 @@ async fn a_credential_is_given_only_to_an_agent() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "the realm holds no copy of credentials.json yet"]
 async fn a_file_from_todays_server_reads_as_an_agent_keeps_it() {
     let realm =
         moved_over(Realm::start().await, &todays_file()).await;
@@ -269,7 +267,6 @@ async fn a_file_from_todays_server_reads_as_an_agent_keeps_it() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "the realm holds no copy of credentials.json yet"]
 async fn the_workspace_reads_each_kept_value_under_a_raised_version()
 {
     let realm =

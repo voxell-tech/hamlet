@@ -14,7 +14,6 @@ use super::calls::{self, Calls, Made, Push};
 use super::change::{self, Change, Rows};
 use super::oversight::reserved;
 use super::peer::When;
-use super::world::World;
 use super::{Realm, marker, record, steps};
 
 /// An action that may change the realm, made by a caller of kind
@@ -49,13 +48,13 @@ pub(super) trait Act<By>:
     fn answer(&self, done: Self::Done, made: &Made) -> Self::Output;
 }
 
-/// A read of the copy in memory.
+/// A read of a copy the realm holds in memory.
 pub(super) trait Look<By>:
     Send + Sync + Sized + 'static
 {
     type Output: Send + 'static;
 
-    fn look(&self, by: &By, world: &World) -> Self::Output;
+    fn look(&self, by: &By, realm: &Realm) -> Self::Output;
 }
 
 /// The rows and the outcome of an act whose unit is not built yet:
@@ -349,5 +348,5 @@ where
     By: Witness,
     L: Look<By>,
 {
-    look.look(by, &realm.world.current())
+    look.look(by, realm)
 }
