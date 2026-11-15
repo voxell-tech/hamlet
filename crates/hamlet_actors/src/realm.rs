@@ -238,6 +238,27 @@ mod testing {
             Ok(())
         }
 
+        /// What `read` gives on its own task, outside a transaction,
+        /// while `writes` commit in one beside it.
+        pub async fn race<T, R>(
+            &self,
+            read: impl FnOnce(Ctx<Realm>) -> R,
+            writes: &[&str],
+        ) -> T
+        where
+            R: Future<Output = anyhow::Result<T>> + Send + 'static,
+            T: Send + 'static,
+        {
+            let read = tokio::spawn(read(self.ctx.clone()));
+            let tx =
+                self.ctx.sql().begin_transaction(None).await.unwrap();
+            for &write in writes {
+                tx.execute(write, None).await.unwrap();
+            }
+            tx.commit().await.unwrap();
+            read.await.unwrap().unwrap()
+        }
+
         pub async fn found(
             &self,
             hamlet: &HamletId,

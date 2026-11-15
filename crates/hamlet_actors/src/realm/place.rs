@@ -32,3 +32,57 @@ pub(super) async fn of(
         tools_off: tree::tools::off_for(rows, agent).await?,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use hamlet_messages::realm::HamletId;
+
+    use super::super::testing::Started;
+    use super::*;
+
+    const HIRE: AgentNumber = AgentNumber(3);
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_place_is_never_older_than_its_version() {
+        let started = Started::new().await;
+        let hamlet = HamletId("h".to_owned());
+        started.found(&hamlet, AgentNumber(2)).await;
+        started.hire(&hamlet, HIRE, Some(AgentNumber(2))).await;
+        let sql = started.ctx.sql();
+        sql.execute(
+            "INSERT INTO place (agent, version) VALUES (3, 1)",
+            None,
+        )
+        .await
+        .unwrap();
+        for _ in 0..200 {
+            let before =
+                versions::place(&started.rows(), HIRE).await.unwrap();
+            let place = started
+                .race(
+                    |ctx| async move {
+                        of(&Rows::outside(&ctx)?, HIRE).await
+                    },
+                    &[
+                        "UPDATE hire SET lead = NULL WHERE agent = 3",
+                        "UPDATE place SET version = version + 1 \
+                         WHERE agent = 3",
+                    ],
+                )
+                .await;
+            assert!(
+                place.version == PlaceVersion(before)
+                    || place.lead.is_none(),
+                "{place:?}: the lead before the move under the \
+                 move's version, raised from {before}"
+            );
+            sql.execute(
+                "UPDATE hire SET lead = 2 WHERE agent = 3",
+                None,
+            )
+            .await
+            .unwrap();
+        }
+        started.stop().await;
+    }
+}
