@@ -38,6 +38,14 @@ fn tools(off: &[SocietyTool], on: &[SocietyTool]) -> SetTools {
     }
 }
 
+fn tell_off<R>() -> Done<AgentRefusal<R>> {
+    Done::Refused {
+        why: AgentRefusal::Gate(Gate::ToolOff {
+            tool: SocietyTool::Tell,
+        }),
+    }
+}
+
 async fn placed(
     realm: &Realm,
     agent: AgentNumber,
@@ -162,8 +170,7 @@ async fn a_laid_road_carries_letters_and_is_charged_once() {
 async fn a_tool_turned_off_is_refused() {
     // the mayor turns `tell` off for its hire 3: 3's tell is refused
     // `ToolOff`, and its place lists the tool. Turned on again, the
-    // tell goes through. The Hand's and a mayor's tools are not
-    // turned off, by the Hand, a hire or the chief.
+    // tell goes through.
     let (realm, _) = hamlet_with(1).await;
     let set = async |by, call, act| {
         realm.tool(by, &tool(call, act)).await.unwrap()
@@ -181,43 +188,82 @@ async fn a_tool_turned_off_is_refused() {
     placed(&realm, THREE, |place| place.tools_off.is_empty()).await;
     let told =
         realm.tool(THREE, &tool("t2", tell(to(MAYOR), "hi"))).await;
-    let of_hand = SetTools {
-        hire: Named::Hand,
-        ..tools(&[SocietyTool::Hire], &[])
-    };
-    let of_mayor = SetTools {
-        hire: Named::Mayor,
-        ..tools(&[SocietyTool::Hire], &[])
-    };
-    let hand_by_hand = set(Hand::NUMBER, "s1", of_hand.clone()).await;
-    let mayor_by_hire = set(THREE, "s1", of_mayor).await;
-    let chief = realm
-        .ask(&Asked {
-            id: RequestId::new(),
-            act: of_hand,
-        })
-        .await
-        .unwrap();
 
     assert_eq!([off, on], [Done::Done, Done::Done]);
-    assert_eq!(
-        refused.unwrap(),
-        Done::Refused {
-            why: AgentRefusal::Gate(Gate::ToolOff {
-                tool: SocietyTool::Tell
+    assert_eq!(refused.unwrap(), tell_off());
+    assert_eq!(told.unwrap(), Done::Done);
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_mayors_tools_are_set_by_the_chief_and_the_hand() {
+    // the chief turns the mayor's `tell` off: its tell to 3 is
+    // refused `ToolOff`, and its place lists the tool. The Hand turns
+    // it on again. Hire 3 may not set its mayor's tools, and the
+    // Hand's own are not turned off, by the Hand or the chief.
+    let (realm, _) = hamlet_with(1).await;
+    let of =
+        |hire, off: &[SocietyTool], on: &[SocietyTool]| SetTools {
+            hire,
+            ..tools(off, on)
+        };
+    let mayor_off = of(to(MAYOR), &[SocietyTool::Tell], &[]);
+    let hand_off = of(Named::Hand, &[SocietyTool::Hire], &[]);
+    let by_chief = async |act| {
+        realm
+            .ask(&Asked {
+                id: RequestId::new(),
+                act,
             })
+            .await
+            .unwrap()
+    };
+    let by = async |agent, call, act| {
+        realm.tool(agent, &tool(call, act)).await.unwrap()
+    };
+    let mayor_tells = async |call| {
+        realm
+            .tool(MAYOR, &tool(call, tell(to(THREE), "hi")))
+            .await
+            .unwrap()
+    };
+
+    let off = by_chief(mayor_off.clone()).await;
+    assert_eq!(off, Done::Done);
+    placed(&realm, MAYOR, |place| {
+        place.tools_off == [SocietyTool::Tell]
+    })
+    .await;
+    let refused = mayor_tells("t1").await;
+    let by_hire = by(THREE, "s1", mayor_off).await;
+    let on = by(
+        Hand::NUMBER,
+        "s1",
+        of(to(MAYOR), &[], &[SocietyTool::Tell]),
+    )
+    .await;
+    placed(&realm, MAYOR, |place| place.tools_off.is_empty()).await;
+    let told = mayor_tells("t2").await;
+    let hand_by_hand = by(Hand::NUMBER, "s2", hand_off.clone()).await;
+    let hand_by_chief = by_chief(hand_off).await;
+
+    assert_eq!(on, Done::Done);
+    assert_eq!(refused, tell_off());
+    assert_eq!(told, Done::Done);
+    assert_eq!(
+        by_hire,
+        Done::Refused {
+            why: LeadRefusal::Rank(Rank::NotALead { hire: MAYOR })
         }
     );
-    assert_eq!(told.unwrap(), Done::Done);
-    let not_a_hire = Done::Refused {
-        why: LeadRefusal::Act(ToolsRefusal::NotAHire),
-    };
     assert_eq!(
-        [hand_by_hand, mayor_by_hire],
-        [not_a_hire.clone(), not_a_hire]
+        hand_by_hand,
+        Done::Refused {
+            why: LeadRefusal::Act(ToolsRefusal::NotAHire)
+        }
     );
     assert_eq!(
-        chief,
+        hand_by_chief,
         Done::Refused {
             why: ToolsRefusal::NotAHire
         }

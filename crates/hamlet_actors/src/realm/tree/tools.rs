@@ -69,8 +69,7 @@ impl<By: Lead> Act<By> for SetTools {
         let Some(lineage) = lineage else {
             return refuse(ToolsRefusal::NoSuchAgent);
         };
-        if lineage.agent.kind == AgentKind::Hand || lineage.is_mayor()
-        {
+        if lineage.agent.kind == AgentKind::Hand {
             return refuse(ToolsRefusal::NotAHire);
         }
         let hire = lineage.agent.agent;
