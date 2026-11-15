@@ -1,11 +1,14 @@
 //! A host that runs counter actors in the realm folder `HAMLET_HOME`.
 //!
 //! ```text
-//! demo [--name <name>] [--kind <kind>]... <command> ...
+//! demo [--name <name>] [--kind <kind>]... [--realm-actor] <command> ...
 //!
 //! --name <name>                 the host's name, `host` by default
 //! --kind <kind>                 a counter kind the host runs, as many
 //!                               as given, `counter` by default
+//! --realm-actor                 run the realm actor with a stand-in
+//!                               agent and profile, in place of the
+//!                               stub realm and the stub agent
 //!
 //! demo increment <key> [times]  add one per time, each in a transaction
 //! demo get <key>                print the count
@@ -33,6 +36,9 @@
 //!                               demo/realm.rs
 //! demo agent ...                the stub agent's commands, in
 //!                               demo/agent.rs
+//! demo --realm-actor realm|agent ...
+//!                               the realm actor's commands, in
+//!                               demo/realm.rs
 //! ```
 //!
 //! A `<key>` names a counter of the first kind, and `<kind>/<key>` an
@@ -108,7 +114,7 @@ async fn demo() -> Result<()> {
         .map(PathBuf::from)
         .context("set HAMLET_HOME to the realm folder")?;
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let (options, kinds, args) = options(&args)?;
+    let (options, kinds, realm_actor, args) = options(&args)?;
     let command = args.first().map(String::as_str);
     let loaded = match command {
         Some("serve") => {
@@ -129,10 +135,18 @@ async fn demo() -> Result<()> {
         address::Workspace::KIND.to_owned(),
         workspace::factory(),
     );
-    factories
-        .insert(address::Realm::KIND.to_owned(), realm::factory());
-    factories
-        .insert(address::Agent::KIND.to_owned(), agent::factory());
+    if realm_actor {
+        factories.extend(realm::actor_kinds());
+    } else {
+        factories.insert(
+            address::Realm::KIND.to_owned(),
+            realm::factory(),
+        );
+        factories.insert(
+            address::Agent::KIND.to_owned(),
+            agent::factory(),
+        );
+    }
     // The workspace does not start where there is no sandbox.
     let options = match Sandbox::open(Isolation::Sandboxed) {
         Ok(sandbox) => options.with_value(Arc::new(sandbox)),
@@ -141,7 +155,8 @@ async fn demo() -> Result<()> {
     let host = Host::open_with(&home, factories, options)?;
     let result = match command {
         Some("serve") => {
-            serve(&host, &kinds, loaded.unwrap_or(0)).await
+            serve(&host, &kinds, realm_actor, loaded.unwrap_or(0))
+                .await
         }
         Some("boot") => {
             let ms = number(args.get(1))?;
@@ -151,7 +166,7 @@ async fn demo() -> Result<()> {
         }
         Some(_) => {
             host.boot().await?;
-            run_line(&host, &kinds, args).await
+            run_line(&host, &kinds, realm_actor, args).await
         }
         None => Err(anyhow!(
             "usage: demo [--name <name>] [--kind <kind>]... \
@@ -163,14 +178,19 @@ async fn demo() -> Result<()> {
     result
 }
 
-/// Runs one command line split into words: the stub realm's, a stub
-/// agent's, or one for the counters of `kinds`.
 async fn run_line(
     host: &Host,
     kinds: &[String],
+    realm_actor: bool,
     words: &[String],
 ) -> Result<()> {
     match words.split_first() {
+        Some((first, _))
+            if realm_actor
+                && (first == "realm" || first == "agent") =>
+        {
+            realm::drive(host, words).await
+        }
         Some((first, rest)) if first == "realm" => {
             realm::run(host, rest).await
         }
@@ -181,16 +201,19 @@ async fn run_line(
     }
 }
 
-/// The host's options and its counter kinds, read from the options
-/// before the command, and the words from the command on.
 fn options(
     args: &[String],
-) -> Result<(HostOptions, Vec<String>, &[String])> {
+) -> Result<(HostOptions, Vec<String>, bool, &[String])> {
     let mut options = HostOptions::default();
     let mut kinds = Vec::new();
+    let mut realm_actor = false;
     let mut rest = args;
     loop {
         match rest {
+            [option, more @ ..] if option == "--realm-actor" => {
+                realm_actor = true;
+                rest = more;
+            }
             [option, value, more @ ..] if option == "--name" => {
                 options.name.clone_from(value);
                 rest = more;
@@ -210,7 +233,7 @@ fn options(
     if kinds.is_empty() {
         kinds.push("counter".to_owned());
     }
-    Ok((options, kinds, rest))
+    Ok((options, kinds, realm_actor, rest))
 }
 
 /// Boots, starts `loaded` counters of the first of `kinds`, then runs
@@ -219,6 +242,7 @@ fn options(
 async fn serve(
     host: &Host,
     kinds: &[String],
+    realm_actor: bool,
     loaded: u64,
 ) -> Result<()> {
     print_began(host, host.boot().await?).await?;
@@ -254,7 +278,7 @@ async fn serve(
             continue;
         }
         let ran = tokio::select! {
-            ran = run_line(host, kinds, &words) => ran,
+            ran = run_line(host, kinds, realm_actor, &words) => ran,
             () = &mut stop => return Ok(()),
         };
         if let Err(error) = ran {

@@ -32,6 +32,10 @@ tracing.workspace = true
 unicode-normalization = "0.1"
 uuid.workspace = true
 
+[features]
+# A realm action that panics when `HAMLET_REALM_PANIC` names it.
+faults = []
+
 [dev-dependencies]
 hamlet_testing.workspace = true
 rusqlite.workspace = true

@@ -158,6 +158,12 @@ where
         .transpose()?;
     let mut waited = false;
     let (done, pushes) = loop {
+        #[cfg(feature = "faults")]
+        assert!(
+            std::env::var("HAMLET_REALM_PANIC").as_deref()
+                != Ok(name),
+            "HAMLET_REALM_PANIC names `{name}`"
+        );
         let tx = change::Transaction::begin(ctx).await?;
         let read = async {
             if let Some(key) = &key

@@ -31,7 +31,7 @@
 //! ```text
 //! demo realm found <name>
 //!                    found the hamlet <name> as the chief
-//! demo realm hire <lead> <call> [purpose ...]
+//! demo realm hire <lead> <call> <purpose ...>
 //!                    have agent <lead> hire, as its call <call>
 //! demo realm say <n> <id> <text ...>
 //!                    say a line to agent <n> as the chief, under the
@@ -89,12 +89,6 @@
 //! <letter>` for a question. The stand-in agent keeps its inputs, its
 //! newest place and the ends the workspace tells it of in its file,
 //! and prints `finished/<call>/<exit> <code>` for each end.
-
-#![expect(
-    dead_code,
-    reason = "demo.rs runs the realm actor once the integrator's \
-              patch gives it `--realm-actor`, which removes this"
-)]
 
 use std::io::Write;
 use std::sync::Arc;
@@ -448,9 +442,6 @@ async fn answer_call(
     Ok(())
 }
 
-/// The kinds `--realm-actor` runs in place of the stub realm and the
-/// stub agent: the realm actor, a stand-in agent and a stand-in
-/// profile.
 pub fn actor_kinds() -> [(String, ActorFactory); 3] {
     [
         (address::Realm::KIND.to_owned(), realm::factory()),
@@ -480,9 +471,6 @@ fn kind<A: Actor>(name: &str, has_database: bool) -> ActorFactory {
         .expect("the registry holds the kind it registered")
 }
 
-/// A stand-in for `agent/<n>`, which the realm makes. It keeps each
-/// input once by its id, its newest place and each end the workspace
-/// tells it of, and calls the realm or the workspace as itself.
 struct StandInAgent;
 
 const AGENT_TABLES: &str =
@@ -500,7 +488,6 @@ const AGENT_TABLES: &str =
 
 #[async_trait::async_trait]
 impl Actor for StandInAgent {
-    /// Absent only for an actor no realm made.
     type Input = Option<AgentInput>;
     type Actions = (Submit, Place, Fill, Finished, Forward, Kept);
     type Events = ();
@@ -608,7 +595,6 @@ impl Handler<Place> for StandInAgent {
     }
 }
 
-/// Keeps `place` when it is newer than the one kept.
 async fn keep_place(
     ctx: &Ctx<StandInAgent>,
     place: &Place,
@@ -703,7 +689,6 @@ impl Handler<Finished> for StandInAgent {
     }
 }
 
-/// The word and the code a line prints for `exit`.
 fn exit_word(exit: &Exit) -> (&'static str, i64) {
     match exit {
         Exit::Code { code } => ("exit", i64::from(*code)),
@@ -714,8 +699,6 @@ fn exit_word(exit: &Exit) -> (&'static str, i64) {
     }
 }
 
-/// Asks the agent to call the realm or the workspace as itself.
-/// The program's own action, so it checks no sender.
 #[derive(serde::Serialize, serde::Deserialize)]
 struct Forward {
     to: Peer,
@@ -730,7 +713,6 @@ enum Peer {
 }
 
 impl Action for Forward {
-    /// The callee's answer, as it encoded it.
     type Output = Vec<u8>;
     const NAME: &'static str = "forward";
 }
@@ -751,8 +733,6 @@ impl Handler<Forward> for StandInAgent {
     }
 }
 
-/// Asks the agent for its standing task and the inputs it took.
-/// The program's own action, so it checks no sender.
 #[derive(serde::Serialize, serde::Deserialize)]
 struct Kept;
 
@@ -831,8 +811,6 @@ fn text(value: &ColumnValue) -> Option<String> {
     }
 }
 
-/// A stand-in for `profile/<n>`: every branch is there, with no
-/// files.
 struct StandInProfile;
 
 #[async_trait::async_trait]
@@ -863,8 +841,6 @@ const DRIVE_WITHIN: Duration = Duration::from_secs(20);
 
 const CONVERSATION: &str = "demo";
 
-/// Runs `demo realm <words>` or `demo agent <words>` on the realm
-/// actor, in the background when the last word is `&`.
 pub async fn drive(host: &Host, words: &[String]) -> Result<()> {
     let [line @ .., last] = words else {
         bail!("a command takes words");
@@ -932,13 +908,14 @@ async fn as_chief(host: &Host, words: &[String]) -> Result<()> {
                 FoundAnswer::Refused { why } => refused(name, &why)?,
             }
         }
-        [verb, lead, call, purpose @ ..] if verb == "hire" => {
+        [verb, lead, call, purpose @ ..]
+            if verb == "hire" && !purpose.is_empty() =>
+        {
             let hire = Hire {
                 hamlet: None,
                 under: None,
                 profile: None,
-                purpose: (!purpose.is_empty())
-                    .then(|| purpose.join(" ")),
+                purpose: Some(purpose.join(" ")),
             };
             let tool = tool(call, hire);
             match forward(
@@ -1222,14 +1199,12 @@ async fn as_agent(
     Ok(())
 }
 
-/// A chief's request on the wire: `Asked` with its id as text.
 #[derive(serde::Serialize)]
 struct Request<T> {
     id: String,
     act: T,
 }
 
-/// A chief's line on the wire, as [`Say`] reads it.
 #[derive(serde::Serialize)]
 struct Line {
     id: String,
@@ -1237,8 +1212,6 @@ struct Line {
     to: u64,
 }
 
-/// A chief's answer to a wait on the wire, as [`client::Answer`]
-/// reads it.
 #[derive(serde::Serialize)]
 struct Choice {
     choice: &'static str,
@@ -1277,7 +1250,6 @@ async fn as_client<T: serde::de::DeserializeOwned>(
     Ok(ciborium::from_reader(answer.as_slice())?)
 }
 
-/// Has agent `me` call `to` with `action` as itself.
 async fn forward<A: Action>(
     host: &Host,
     me: u32,
@@ -1329,7 +1301,6 @@ async fn tell(
     forward(host, me, Peer::Realm, &tool(call, tell)).await
 }
 
-/// Whether agent `me` may spend for `task`; a refusal is logged.
 async fn may_spend(
     host: &Host,
     me: u32,
@@ -1378,7 +1349,6 @@ fn tool<T>(call: &str, act: T) -> Tool<T> {
     }
 }
 
-/// The agent a word names: `hand`, `mayor`, `hire#<n>` or `<n>`.
 fn named(word: &str) -> Result<Named> {
     Ok(match word {
         "hand" => Named::Hand,
@@ -1395,15 +1365,11 @@ fn agent_number(word: &str) -> Result<u32> {
     Ok(u32::try_from(number(Some(&word.to_owned()))?)?)
 }
 
-/// A task's number, which is its wire form, or -1.
 fn task_number(task: &RealmTask) -> i64 {
     task.0.parse().unwrap_or(-1)
 }
 
-/// The request id `word` stands for: a UUID made from it, the same
-/// for the same word in every run.
 fn request_id(word: &str) -> String {
-    // FNV-1a, twice over, so the id depends on nothing but the word.
     let half = |seed: u64| {
         word.bytes().fold(seed, |hash, byte| {
             (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3)
@@ -1424,7 +1390,6 @@ fn request_id(word: &str) -> String {
     )
 }
 
-/// A request id no other request of this process holds.
 fn fresh_id() -> Result<String> {
     static MADE: AtomicU64 = AtomicU64::new(0);
     let now = SystemTime::now().duration_since(UNIX_EPOCH)?;
