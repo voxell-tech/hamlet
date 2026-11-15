@@ -24,12 +24,15 @@ use hamlet_messages::agent::{
     AgentInput, Fill, Place, PlaceVersion, Submit,
 };
 use hamlet_messages::profile::Branch;
-use hamlet_messages::realm::{Found, ProfileId, Tier};
+use hamlet_messages::realm::{
+    Asked, Found, FoundAnswer, HamletId, ProfileId, Tier, Tool,
+};
 use hamlet_messages::workspace::reach::Reach;
 use hamlet_messages::workspace::{
-    AgentNumber, AnswerTaken, ChiefAnswer, InForce, ReachVersion,
-    SetReach,
+    AgentNumber, AnswerTaken, CallId, ChiefAnswer, InForce,
+    ReachVersion, SetReach,
 };
+use hamlet_protocol::client::RequestId;
 use hamlet_testing::Scratch;
 use rusqlite::{Connection, OpenFlags, OptionalExtension};
 use serde::de::DeserializeOwned;
@@ -62,6 +65,9 @@ mod world;
 mod writers;
 
 const DEADLINE: Duration = Duration::from_secs(20);
+
+/// The first hamlet's mayor, the agent hired after the Hand.
+const MAYOR: AgentNumber = AgentNumber(2);
 
 /// A call of the realm's that a test can hold or fail.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -580,6 +586,32 @@ fn found(name: &str) -> Found {
         mayor: None,
         tier: Tier::Fifty,
         purpose: None,
+    }
+}
+
+/// Founds `Mill` as the chief.
+async fn founded(realm: &Realm) -> HamletId {
+    let answer = realm
+        .ask(&Asked {
+            id: RequestId::new(),
+            act: found("Mill"),
+        })
+        .await
+        .unwrap();
+    let FoundAnswer::Founded {
+        hamlet,
+        mayor: MAYOR,
+    } = answer
+    else {
+        panic!("the chief founds a hamlet with mayor 2: {answer:?}");
+    };
+    hamlet
+}
+
+fn tool<T>(call: &str, act: T) -> Tool<T> {
+    Tool {
+        call: CallId(call.to_owned()),
+        act,
     }
 }
 

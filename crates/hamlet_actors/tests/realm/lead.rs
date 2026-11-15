@@ -1,32 +1,15 @@
 use std::time::Duration;
 
 use hamlet_messages::realm::{
-    Asked, Done, End, EndRefusal, FoundAnswer, HamletId, Hire,
-    HireAnswer, HireRefusal, HowEnded, LeadRefusal, Left, Named,
-    Rank, Tool,
+    Asked, Done, End, EndRefusal, Hire, HireAnswer, HireRefusal,
+    HowEnded, LeadRefusal, Left, Named, Rank,
 };
 use hamlet_messages::sender::Hand;
+use hamlet_messages::workspace::AgentNumber;
 use hamlet_messages::workspace::reach::Reach;
-use hamlet_messages::workspace::{AgentNumber, CallId};
 use hamlet_protocol::client::RequestId;
 
-use super::{Callee, Realm, error_code, found, until};
-
-const MAYOR: AgentNumber = AgentNumber(2);
-
-async fn founded(realm: &Realm) -> HamletId {
-    let answer = realm
-        .ask(&Asked {
-            id: RequestId::new(),
-            act: found("Mill"),
-        })
-        .await
-        .unwrap();
-    let FoundAnswer::Founded { hamlet, .. } = answer else {
-        panic!("the chief founds a hamlet: {answer:?}");
-    };
-    hamlet
-}
+use super::{Callee, MAYOR, Realm, error_code, founded, tool, until};
 
 fn under(agent: u32) -> Option<Named> {
     Some(Named::Agent {
@@ -49,13 +32,6 @@ fn end(agent: u32) -> End {
             agent: AgentNumber(agent),
         },
         why: None,
-    }
-}
-
-fn tool<T>(call: &str, act: T) -> Tool<T> {
-    Tool {
-        call: CallId(call.to_owned()),
-        act,
     }
 }
 
