@@ -28,7 +28,6 @@ CREATE TABLE IF NOT EXISTS agent (
 	kind TEXT NOT NULL,
 	status TEXT NOT NULL,
 	ended_how TEXT,
-	ended_by TEXT,
 	ended_why TEXT,
 	at INTEGER NOT NULL) STRICT;
 CREATE TABLE IF NOT EXISTS hire (
