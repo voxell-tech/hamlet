@@ -3,7 +3,7 @@
 
 use std::collections::BTreeMap;
 
-use hamlet_git::{Change, MAIN};
+use hamlet_git::Change;
 use hamlet_messages::bytes::Base64;
 use hamlet_messages::profile::{
     BadPath, Cursor, FileChange, Files, FilesAnswer, Gone, Missing,
@@ -14,50 +14,6 @@ use hamlet_messages::workspace::CallId;
 use hamlet_messages::{MOST_CALL, MOST_PART};
 
 use super::*;
-
-/// A host with profile 1 whose `main` holds `files` beside its
-/// character, and hire 7's branch made from it.
-async fn hired(
-    dir: &Path,
-    files: &[Change],
-    told: Arc<Told>,
-) -> Host {
-    let host = open_with(dir, told);
-    create(&host, 1, &character()).await.unwrap();
-    if !files.is_empty() {
-        commit_main(dir, files);
-    }
-    hire(&host, 7).await;
-    host
-}
-
-async fn hire(host: &Host, number: u32) {
-    let branch = Branch {
-        name: format!("hires/{number}"),
-    };
-    call_as(host, &realm(), &branch).await.unwrap();
-}
-
-/// Moves `main` with a commit of the test's own, as an edit does.
-fn commit_main(
-    dir: &Path,
-    changes: &[Change],
-) -> hamlet_git::CommitId {
-    let by = hamlet_git::Author {
-        name: "chief:3",
-        at: 5000,
-    };
-    repository(dir, 1)
-        .commit(MAIN, changes, "edited", by)
-        .unwrap()
-}
-
-fn write(path: &str, bytes: impl Into<Vec<u8>>) -> Change {
-    Change::Write {
-        path: path.into(),
-        bytes: bytes.into(),
-    }
-}
 
 /// A kept unit of the realm's, a tag of `version`, whose settle
 /// takes `main` into the hires that follow it.
@@ -308,12 +264,6 @@ fn whole(path: &str, bytes: &[u8]) -> FileChange {
     FileChange::Write(piece(path, bytes))
 }
 
-fn text(dir: &Path, at: CommitId, path: &str) -> Option<String> {
-    let at = at.0.to_string().parse().unwrap();
-    let bytes = repository(dir, 1).read(at, path).unwrap()?;
-    Some(String::from_utf8(bytes).unwrap())
-}
-
 #[tokio::test(flavor = "multi_thread")]
 async fn a_save_in_parts_commits_once_and_its_repeat_answers_the_same()
  {
@@ -533,28 +483,6 @@ async fn an_agent_with_no_hire_here_is_a_wrong_caller() {
         "message.wrong_caller"
     );
     host.shutdown().await.unwrap();
-}
-
-/// The first `Moved` agent `number` was told, within 5 s.
-async fn moved_to(told: &Told, number: u32) -> Moved {
-    let to = agent_at(number).to_string();
-    tokio::time::timeout(Duration::from_secs(5), async {
-        loop {
-            let heard = told
-                .0
-                .lock()
-                .unwrap()
-                .iter()
-                .find(|(at, _)| *at == to)
-                .cloned();
-            if let Some((_, moved)) = heard {
-                return moved;
-            }
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
-    })
-    .await
-    .expect("the agent is told within 5s")
 }
 
 fn pin(id: &RequestId, hire: u32, to: Option<&str>) -> Pin {

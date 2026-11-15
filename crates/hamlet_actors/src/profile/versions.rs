@@ -1,15 +1,36 @@
-//! The profile's versions: a tag of its history, and the list.
+//! A chief's changes to the profile's history and `main`: a tag, a
+//! revert, an edit, a purge and the erase, and the reads of its
+//! versions and its papers.
 
 use anyhow::{Context, Result};
-use hamlet_git::MAIN;
+use hamlet_git::{Change, Joined, MAIN};
+use hamlet_messages::address::Agent;
 use hamlet_messages::profile::{
-    Tag, TagAnswer, TagRefusal, VersionList, VersionName,
-    VersionSeen, Versions,
+    BadCommit, BadPath, DreamId, DreamOpen, Edit, EditRefusal, Erase,
+    Missing, Paper, PaperList, Papers, Path, Purge, PurgeAnswer,
+    Removal, RemovePath, Revert, RevertAnswer, RevertRefusal,
+    Revision, Tag, TagAnswer, TagRefusal, TooLong, VersionList,
+    VersionName, VersionSeen, Versions,
 };
+use hamlet_messages::realm::Done;
+use hamlet_messages::workspace::AgentNumber;
+use hamlet_os::fs::TreePath;
 
-use super::{Profile, commit_id, git_commit};
-use crate::repo::git::By;
-use crate::repo::{Before, Call, Ended, Look, Reply, Takes};
+use super::{
+    CHARACTER, Profile, commit_id, dreams, git_commit, hires,
+};
+use crate::library;
+use crate::repo::git::{By, Reads};
+use crate::repo::{Before, Call, Checked, Ended, Look, Reply, Takes};
+
+/// The most characters a character holds.
+const MOST_CHARACTER: u32 = 4000;
+
+/// The folder of the profile's memory files.
+const MEMORY: &str = "memory/";
+
+/// The folder of the profile's skills.
+const SKILLS: &str = "skills/";
 
 /// Whether `version` is a version's name: 1 to 32 letters, digits,
 /// dots and hyphens, a letter or a digit first, with no `..`, no dot
@@ -123,9 +144,259 @@ fn versions(
     Ok(VersionList { versions })
 }
 
+impl Takes<Revert> for Profile {
+    async fn take(call: Call<Self, Revert>) -> Result<Reply<Revert>> {
+        call.once(revert).await
+    }
+}
+
+/// Undoes a commit of `main` with one commit on `main`, the tip
+/// winning clashes.
+fn revert(
+    unit: Before<'_, Profile, Revert>,
+) -> Result<Ended<Revert>> {
+    let Revert {
+        what, reason, by, ..
+    } = unit.message().clone();
+    let commit = match undone(unit.git()?, &what)? {
+        Ok(commit) => commit,
+        Err(why) => return unit.refuse(why),
+    };
+    let short = &commit.to_string()[..12];
+    let message = match reason {
+        Some(reason) => format!("Reverted {short}: {reason}"),
+        None => format!("Reverted {short}"),
+    };
+    let writer = unit.write();
+    let merged =
+        writer.writes()?.revert(MAIN, commit, &message, by.into())?;
+    // A repeat past a kill finds its own revert there.
+    if merged.joined == Joined::UpToDate {
+        return writer.kept(RevertAnswer::Unchanged);
+    }
+    writer.kept(RevertAnswer::Reverted {
+        commit: commit_id(merged.commit)?,
+        clashes: merged
+            .clashes
+            .into_iter()
+            .map(|path| Path { path })
+            .collect(),
+    })
+}
+
+/// The commit of `main` that `what` names.
+fn undone(
+    git: &Reads,
+    what: &Revision,
+) -> Result<Result<hamlet_git::CommitId, RevertRefusal>> {
+    let commit = match what {
+        Revision::Version { version } => {
+            match hires::version_at(git, version)? {
+                Some(commit) => commit,
+                None => {
+                    let version = version.clone();
+                    return Ok(Err(
+                        Missing::NoVersion { version }.into()
+                    ));
+                }
+            }
+        }
+        Revision::Commit { commit } => {
+            let at = git_commit(*commit)?;
+            if !git.has(at)? {
+                let commit = *commit;
+                return Ok(
+                    Err(BadCommit::NoCommit { commit }.into()),
+                );
+            }
+            at
+        }
+    };
+    if !git.holds(MAIN, commit)? {
+        let commit = commit_id(commit)?;
+        return Ok(Err(BadCommit::NotOnMain { commit }.into()));
+    }
+    Ok(Ok(commit))
+}
+
+impl Takes<Edit> for Profile {
+    async fn take(call: Call<Self, Edit>) -> Result<Reply<Edit>> {
+        if let Err(why) = editable(&call.path, &call.text) {
+            return call.refuse(why).await;
+        }
+        call.once(edit).await
+    }
+}
+
+/// Refuses a path that is not the character or a memory file, and a
+/// character over [`MOST_CHARACTER`].
+fn editable(path: &str, text: &str) -> Result<(), EditRefusal> {
+    if TreePath::parse(path).is_err() {
+        let path = path.to_owned();
+        return Err(BadPath::NotAPath { path }.into());
+    }
+    if path != CHARACTER && !path.starts_with(MEMORY) {
+        let path = path.to_owned();
+        return Err(BadPath::Withheld { path }.into());
+    }
+    let most = MOST_CHARACTER;
+    if path == CHARACTER && text.chars().count() > most as usize {
+        return Err(TooLong::CharacterTooLong { most }.into());
+    }
+    Ok(())
+}
+
+fn edit(unit: Before<'_, Profile, Edit>) -> Result<Ended<Edit>> {
+    let Edit { path, text, by, .. } = unit.message().clone();
+    let main =
+        unit.git()?.tip(MAIN)?.context("a profile has a main")?;
+    let message = format!("Edited {path}");
+    let change = Change::Write {
+        path,
+        bytes: text.into_bytes(),
+    };
+    let writer = unit.write();
+    writer.writes()?.commit(
+        MAIN,
+        Some(main),
+        &[change],
+        &message,
+        by.into(),
+    )?;
+    writer.kept(Done::Done)
+}
+
+impl Takes<Purge> for Profile {
+    async fn take(call: Call<Self, Purge>) -> Result<Reply<Purge>> {
+        if TreePath::parse(&call.path).is_err() {
+            let path = call.path.clone();
+            return call
+                .refuse(BadPath::NotAPath { path }.into())
+                .await;
+        }
+        // The id is checked before any agent is asked: a repeat asks
+        // none.
+        let fresh = match call.fresh().await? {
+            Checked::First(fresh) => fresh,
+            Checked::Repeat(reply) => return Ok(reply),
+        };
+        let (dreaming, agents) = fresh
+            .look(|look| {
+                let agents = hires::every(look)?
+                    .into_iter()
+                    .map(|hire| Agent(hire.agent))
+                    .collect::<Vec<_>>();
+                Ok((dreams::open(look)?, agents))
+            })
+            .await?;
+        let mut still_hold = Vec::new();
+        if dreaming.is_none() {
+            let asked = agents
+                .into_iter()
+                .map(|agent| {
+                    let path = fresh.path.clone();
+                    (agent, RemovePath { path })
+                })
+                .collect::<Vec<_>>();
+            let answers = fresh.ask_all(&asked).await;
+            for ((agent, _), removal) in asked.iter().zip(answers) {
+                if !matches!(removal, Ok(Removal::Removed)) {
+                    still_hold.push(agent.0);
+                }
+            }
+        }
+        fresh
+            .once(move |unit| purge(unit, dreaming, still_hold))
+            .await
+    }
+}
+
+/// Takes the path out of every branch and version, then gives each
+/// pin its rewritten commit and each agent its branch's new tip.
+/// `dreaming` is the dream open when the agents would have been
+/// asked: none was.
+fn purge(
+    unit: Before<'_, Profile, Purge>,
+    dreaming: Option<DreamId>,
+    still_hold: Vec<AgentNumber>,
+) -> Result<Ended<Purge>> {
+    if let Some(dream) = dreaming.or(dreams::open(&unit)?) {
+        return unit.refuse(DreamOpen::Dreaming { dream }.into());
+    }
+    let path = unit.message().path.clone();
+    let mut writer = unit.write();
+    let branches = writer.purge(&path)?;
+    // A repeat past a kill rewrites nothing, and still tells every
+    // agent and keeps every pin.
+    hires::repin(&mut writer)?;
+    writer.kept(PurgeAnswer::Purged {
+        branches: u32::try_from(branches.len())?,
+        still_hold,
+    })
+}
+
+impl Takes<Erase> for Profile {
+    async fn take(call: Call<Self, Erase>) -> Result<Reply<Erase>> {
+        call.once(erase).await
+    }
+}
+
+fn erase(unit: Before<'_, Profile, Erase>) -> Result<Ended<Erase>> {
+    if let Some(dream) = dreams::open(&unit)? {
+        return unit.refuse(DreamOpen::Dreaming { dream });
+    }
+    unit.write().erase(Done::Done)
+}
+
+impl Takes<Papers> for Profile {
+    async fn take(call: Call<Self, Papers>) -> Result<Reply<Papers>> {
+        call.read(papers).await
+    }
+}
+
+/// The character, the memory files and the skills at `main`, each
+/// file with the `description` of its front matter.
+fn papers(look: &Look<'_, Profile, Papers>) -> Result<PaperList> {
+    let git = look.git()?;
+    let main = git.tip(MAIN)?.context("a profile has a main")?;
+    let mut list = PaperList {
+        character: String::new(),
+        memory: Vec::new(),
+        skills: Vec::new(),
+    };
+    for entry in git.entries(main)? {
+        let is_skill = entry
+            .path
+            .strip_prefix(SKILLS)
+            .and_then(|rest| rest.split_once('/'))
+            .is_some_and(|(_, file)| file == "SKILL.md");
+        let kept = if entry.path == CHARACTER {
+            None
+        } else if entry.path.starts_with(MEMORY) {
+            Some(&mut list.memory)
+        } else if is_skill {
+            Some(&mut list.skills)
+        } else {
+            continue;
+        };
+        let bytes = git.blob(entry.blob)?;
+        let text = String::from_utf8_lossy(&bytes);
+        match kept {
+            None => list.character = text.into_owned(),
+            Some(kept) => kept.push(Paper {
+                description: library::field(&text, "description")
+                    .unwrap_or_default()
+                    .to_owned(),
+                path: entry.path,
+            }),
+        }
+    }
+    Ok(list)
+}
+
 #[cfg(test)]
 mod tests {
-    use hamlet_git::{Author, Change, Repository};
+    use hamlet_git::{Author, Repository};
     use hamlet_host::Caller;
     use hamlet_messages::address::{Party, Realm};
     use hamlet_messages::profile::By as Who;
@@ -266,5 +537,84 @@ mod tests {
             by: "chief:3".into(),
         };
         assert_eq!(listed.versions, [seen]);
+    }
+
+    #[test]
+    fn an_erase_cut_off_before_its_marker_makes_nothing_again() {
+        let dir = Scratch::new("profile-erase-cut");
+        let mut profile = Hostless::profile(&dir, "Careful.");
+        let realm = Caller::Actor(Realm.address().unwrap());
+        let asked = Erase {
+            id: RequestId::new(),
+        };
+        let (done, _) = profile
+            .once::<Profile, Erase, _>(realm, asked, erase)
+            .unwrap();
+        assert_eq!(done, Done::Done);
+        let repository = dir.join("scholars/1.git");
+        assert!(!repository.exists());
+        // Left by a kill part-way through the removal.
+        let erased = dir.join("scholars/1.git.erased");
+        std::fs::create_dir(erased.join("objects")).unwrap();
+        std::fs::write(erased.join("HEAD"), "ref: refs/heads/main")
+            .unwrap();
+
+        // A new store: the erase's marker was never kept.
+        let again = Hostless::start_profile(&dir, "Careful.");
+        assert!(again.is_err());
+        assert!(!repository.exists());
+        assert_eq!(std::fs::read_dir(&erased).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn a_purge_and_an_erase_are_refused_while_a_dream_is_open() {
+        let dir = Scratch::new("profile-dreaming");
+        let mut profile = Hostless::profile(&dir, "Careful.");
+        let realm = Caller::Actor(Realm.address().unwrap());
+        let refused = |dream| PurgeAnswer::Refused {
+            why: DreamOpen::Dreaming {
+                dream: DreamId(dream),
+            }
+            .into(),
+        };
+        let purge_in = |profile: &mut Hostless, seen| {
+            let asked = Purge {
+                id: RequestId::new(),
+                path: "CHARACTER.md".into(),
+                by: Who::Chief { chief: 3 },
+            };
+            profile
+                .once::<Profile, Purge, _>(
+                    realm.clone(),
+                    asked,
+                    |unit| purge(unit, seen, Vec::new()),
+                )
+                .unwrap()
+        };
+        // A dream that ended after the agents were not asked.
+        let (purged, told) = purge_in(&mut profile, Some(DreamId(2)));
+        assert_eq!((purged, told.len()), (refused(2), 0));
+
+        profile
+            .store()
+            .execute(
+                "INSERT INTO dream (id, main) VALUES (4, 'unused')",
+                [],
+            )
+            .unwrap();
+        let (purged, told) = purge_in(&mut profile, None);
+        assert_eq!((purged, told.len()), (refused(4), 0));
+        let asked = Erase {
+            id: RequestId::new(),
+        };
+        let (erased, _) = profile
+            .once::<Profile, Erase, _>(realm.clone(), asked, erase)
+            .unwrap();
+        let dreaming = DreamOpen::Dreaming { dream: DreamId(4) };
+        assert_eq!(erased, Done::Refused { why: dreaming });
+        let papers = profile
+            .read::<Profile, Papers, _>(realm, Papers, papers)
+            .unwrap();
+        assert_eq!(papers.character, "Careful.");
     }
 }

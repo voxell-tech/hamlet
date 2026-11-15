@@ -205,7 +205,7 @@ fn is_skill_name(skill: &str) -> bool {
 
 /// The value of `key` in the front matter that opens `text`, between
 /// its `---` lines; `None` when it is not there or empty.
-fn field<'a>(text: &'a str, key: &str) -> Option<&'a str> {
+pub(crate) fn field<'a>(text: &'a str, key: &str) -> Option<&'a str> {
     let head = text.strip_prefix("---")?.split("\n---").next()?;
     head.lines()
         .find_map(|line| {

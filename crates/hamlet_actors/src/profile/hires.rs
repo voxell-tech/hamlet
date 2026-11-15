@@ -4,6 +4,7 @@
 use anyhow::{Context, Result, bail};
 use hamlet_actor::{BindParam, ColumnValue};
 use hamlet_git::{Joined, MAIN, blob_id};
+use hamlet_messages::Message;
 use hamlet_messages::address::Agent;
 use hamlet_messages::profile::{
     Branch, Character, Missing, Moved, NotAHire, Pin, PinAnswer,
@@ -15,7 +16,7 @@ use super::{CHARACTER, Profile, commit_id};
 use crate::repo::git::Reads;
 use crate::repo::store::{self, Rows, Store, Writes};
 use crate::repo::{
-    Admits, Before, Call, Ended, Reply, Settle, Takes,
+    Admits, Before, Call, Ended, Look, Reply, Settle, Takes, Writer,
 };
 
 /// The message of a take-in of `main`.
@@ -92,6 +93,29 @@ impl Admits<Agent> for Profile {
     ) -> Result<Option<Hire>> {
         of(&store.rows(Table(())), from.0)
     }
+}
+
+/// Every hire of this profile, by agent.
+pub(super) fn every<M>(
+    look: &Look<'_, Profile, M>,
+) -> Result<Vec<Hire>>
+where
+    M: Message,
+    Profile: Admits<M::From>,
+{
+    all(&look.rows(Table(())))
+}
+
+/// The hire of `agent`, when it is one of this profile's.
+pub(super) fn find<M>(
+    look: &Look<'_, Profile, M>,
+    agent: AgentNumber,
+) -> Result<Option<Hire>>
+where
+    M: Message,
+    Profile: Admits<M::From>,
+{
+    of(&look.rows(Table(())), agent)
 }
 
 fn all(rows: &Rows<'_, Table>) -> Result<Vec<Hire>> {
@@ -259,13 +283,7 @@ fn pin(unit: Before<'_, Profile, Pin>) -> Result<Ended<Pin>> {
     let merged =
         writer.writes()?.take_in(&row.branch, at, &message)?;
     if merged.joined != Joined::UpToDate {
-        let moved = moved(
-            &writer.table(Table(())),
-            writer.git()?,
-            &row,
-            merged.commit,
-        )?;
-        writer.tell(&Agent(hire), &moved)?;
+        tell_moved(&mut writer, &row, merged.commit)?;
     }
     writer.kept(match to {
         Some(version) => PinAnswer::Pinned {
@@ -276,8 +294,73 @@ fn pin(unit: Before<'_, Profile, Pin>) -> Result<Ended<Pin>> {
     })
 }
 
+/// After a purge rewrote the history: each pin's commit as its
+/// version names it now, and each agent told its branch's new tip.
+pub(super) fn repin<M>(
+    writer: &mut Writer<'_, Profile, M>,
+) -> Result<()>
+where
+    M: Message,
+    Profile: Admits<M::From>,
+{
+    for hire in every(writer)? {
+        if let Some(version) = &hire.pin {
+            let at = version_at(writer.git()?, version)?
+                .context("a purge keeps every version")?;
+            writer.table(Table(())).execute(
+                "UPDATE hire SET pin_commit = ?1 WHERE agent = ?2",
+                vec![
+                    BindParam::Text(at.to_string()),
+                    BindParam::Integer(i64::from(hire.agent.0)),
+                ],
+            )?;
+        }
+        let tip = writer
+            .git()?
+            .tip(&hire.branch)?
+            .context("a hire has a branch")?;
+        tell_moved(writer, &hire, tip)?;
+    }
+    Ok(())
+}
+
+/// Takes `main` into the branch of `hire` unless it is pinned, the
+/// hire's side winning.
+pub(super) fn take_in_main<M>(
+    writer: &Writer<'_, Profile, M>,
+    hire: &Hire,
+) -> Result<()>
+where
+    M: Message,
+    Profile: Admits<M::From>,
+{
+    if hire.pin.is_none() {
+        let main = writer
+            .git()?
+            .tip(MAIN)?
+            .context("a profile has a main")?;
+        writer.writes()?.take_in(&hire.branch, main, TOOK_IN)?;
+    }
+    Ok(())
+}
+
+/// Tells the agent of `hire` that its branch is at `tip`.
+pub(super) fn tell_moved<M>(
+    writer: &mut Writer<'_, Profile, M>,
+    hire: &Hire,
+    tip: hamlet_git::CommitId,
+) -> Result<()>
+where
+    M: Message,
+    Profile: Admits<M::From>,
+{
+    let moved =
+        moved(&writer.table(Table(())), writer.git()?, hire, tip)?;
+    writer.tell(&Agent(hire.agent), &moved)
+}
+
 /// The commit the version `version` tags.
-fn version_at(
+pub(super) fn version_at(
     git: &Reads,
     version: &VersionName,
 ) -> Result<Option<hamlet_git::CommitId>> {
