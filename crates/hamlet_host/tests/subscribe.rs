@@ -6,8 +6,6 @@ use std::time::{Duration, Instant};
 use at::at;
 use code::code;
 use files::any_file_of;
-#[cfg(target_os = "linux")]
-use files::any_file_of_open;
 use hamlet_actor_core::ShutdownKind;
 use hamlet_host::route::{CallerKind, Operation, Routes};
 use hamlet_host::{
@@ -27,6 +25,9 @@ mod code;
 mod files;
 #[path = "support/logs.rs"]
 mod logs;
+#[cfg(target_os = "linux")]
+#[path = "support/open.rs"]
+mod open;
 #[path = "support/subscription.rs"]
 mod subscription;
 #[path = "support/ticker.rs"]
@@ -99,7 +100,7 @@ async fn no_file_of_a_open(dir: &Scratch) {
     eventually(
         "a file of the stopped actor is open",
         Duration::from_secs(10),
-        async || !any_file_of_open(dir, "ticker", "a"),
+        async || !open::any_file_of_open(dir, "ticker", "a"),
     )
     .await;
 }

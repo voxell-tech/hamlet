@@ -579,17 +579,11 @@ async fn the_stream_ends_at_the_rust_hosts_shutdown_after_its_supervisors()
     )
     .await;
     host.shutdown().await.unwrap();
-    let ended =
-        tokio::time::timeout(Duration::from_secs(1), ticks.next())
-            .await
-            .expect("the stream outlived the host's shutdown");
+    let ended = end(&mut ticks, Duration::from_secs(1)).await;
 
     assert!(status.success(), "{status}");
     assert!(quiet.is_err(), "{quiet:?}");
-    let Err(error) = ended else {
-        panic!("the stream gave {ended:?}");
-    };
-    assert_eq!(code(&error), "actor.stopping");
+    assert_eq!(ended, "actor.stopping");
 }
 
 #[tokio::test(flavor = "multi_thread")]

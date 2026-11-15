@@ -371,8 +371,9 @@ Most of the library's tests run on `TestHost` in `src/testing.rs`, a
 host that serves one in-memory database through `hamlet_sqlite`.
 
 `cargo xtask killkit` installs the Node host's packages, builds the
-native module and the demo, and runs `hamlet_killkit`. Its scenarios are rows of
-`src/scenario.rs`: the commands that set up, the fault point or the time to kill at,
+native module and the demo, and runs `hamlet_killkit`. Its scenarios are rows,
+one file of them per actor in `src/scenario/`, which `all()` in
+`src/scenario.rs` lists: the commands that set up, the fault point or the time to kill at,
 the commands after each restart, and what each restart must show.
 `workspace-command` kills the host while a command answered `Running`
 still runs, and checks after each restart that the command did not go
@@ -670,7 +671,7 @@ built-in ones.
 | The native module's TypeScript declarations | `hamlet_actor_node/index.d.ts` and `index.js`, written by `cargo xtask declarations`, never by hand |
 | What the host reports on `Host::events` | `hamlet_host/src/event.rs` |
 | A one-shot timer's tries, and the timers set aside after them | `hamlet_actor_core/src/actor/schedule.rs`; `Host::set_aside_timers` and `Host::rearm_timer` in `hamlet_host/src/local.rs` |
-| A kill scenario | `hamlet_killkit/src/scenario.rs`, and a fault point with `hamlet_host::fault::point` |
+| A kill scenario | the actor's file in `hamlet_killkit/src/scenario/`, a new actor's file listed in `all()` of `src/scenario.rs`, and a fault point with `hamlet_host::fault::point` |
 | A message between actors, or its fixture | `hamlet_messages/src/`, then `cargo test -p hamlet_messages` rewrites `fixtures/` |
 | An agent's reach on the workspace, and the gate | `hamlet_actors/src/workspace/reach.rs` (`apply`, `gate`, `placement`); [the workspace actor](#the-workspace-actor) |
 | A command's life: its row, `Ended` or `Running`, `Finished`, its status, a repeat, a cut-off command | `hamlet_actors/src/workspace.rs`, `workspace/run.rs`, `workspace/calls.rs` |
