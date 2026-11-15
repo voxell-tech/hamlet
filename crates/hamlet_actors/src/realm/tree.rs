@@ -26,6 +26,29 @@ pub(super) enum Status {
     Ended(Left),
 }
 
+impl Status {
+    /// The status of an agent's row, from its `status`, `ended_how`
+    /// and `ended_why`.
+    pub fn of_row(
+        agent: AgentNumber,
+        status: &str,
+        how: Option<String>,
+        why: Option<String>,
+    ) -> Result<Self> {
+        Ok(match (status, how) {
+            ("hiring", _) => Self::Hiring,
+            ("live", _) => Self::Live,
+            ("ended", Some(how)) => Self::Ended(Left {
+                how: serde_json::from_str(&how)?,
+                why,
+            }),
+            (other, how) => {
+                bail!("agent {} is `{other}`, ended {how:?}", agent.0)
+            }
+        })
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct Member {
     pub agent: AgentNumber,
@@ -171,31 +194,29 @@ async fn member(
     rows: &Rows<'_>,
     agent: AgentNumber,
 ) -> Result<Option<Member>> {
-    let Some((kind, status, lead, has_purpose)) = rows
-        .row::<(String, String, Option<u32>, bool)>(
-            "SELECT agent.kind, agent.status, hire.lead, \
-             hire.purpose IS NOT NULL FROM agent LEFT JOIN hire ON \
-             hire.agent = agent.id WHERE agent.id = ?1",
+    let Some((kind, status, how, why, lead, has_purpose)) = rows
+        .row::<(
+            String,
+            String,
+            Option<String>,
+            Option<String>,
+            Option<u32>,
+            bool,
+        )>(
+            "SELECT agent.kind, agent.status, agent.ended_how, \
+             agent.ended_why, hire.lead, hire.purpose IS NOT NULL \
+             FROM agent LEFT JOIN hire ON hire.agent = agent.id \
+             WHERE agent.id = ?1",
             vec![number(agent)],
         )
         .await?
     else {
         return Ok(None);
     };
-    let status = match status.as_str() {
-        "hiring" => Status::Hiring,
-        "live" => Status::Live,
-        "ended" => {
-            Status::Ended(left(rows, agent).await?.with_context(
-                || format!("how agent {} ended", agent.0),
-            )?)
-        }
-        other => bail!("agent {} is `{other}`", agent.0),
-    };
     Ok(Some(Member {
         agent,
         kind: change::from_case_name(kind)?,
-        status,
+        status: Status::of_row(agent, &status, how, why)?,
         lead: lead.map(AgentNumber),
         has_purpose,
     }))
@@ -233,18 +254,19 @@ pub(super) async fn left(
     agent: AgentNumber,
 ) -> Result<Option<Left>> {
     let found = rows
-        .row::<(Option<String>, Option<String>)>(
-            "SELECT ended_how, ended_why FROM agent WHERE id = ?1",
+        .row::<(String, Option<String>, Option<String>)>(
+            "SELECT status, ended_how, ended_why FROM agent WHERE \
+             id = ?1",
             vec![number(agent)],
         )
         .await?;
-    let Some((Some(how), why)) = found else {
+    let Some((status, how, why)) = found else {
         return Ok(None);
     };
-    Ok(Some(Left {
-        how: serde_json::from_str(&how)?,
-        why,
-    }))
+    Ok(match Status::of_row(agent, &status, how, why)? {
+        Status::Ended(left) => Some(left),
+        Status::Hiring | Status::Live => None,
+    })
 }
 
 /// The hires of `hamlet` that count toward its tier: `hiring` and

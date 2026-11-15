@@ -267,6 +267,7 @@ columns!(
     (A a, B b, C c),
     (A a, B b, C c, D d),
     (A a, B b, C c, D d, E e),
+    (A a, B b, C c, D d, E e, F f),
 );
 
 /// An integer, such as an id, as the column that holds it.

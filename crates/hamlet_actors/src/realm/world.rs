@@ -14,14 +14,14 @@ use hamlet_messages::realm::world::{
     AgentSeen, HamletSeen, ReachSeen, Revision, RoadSeen, Seen,
     Spend, Status, WaitId, WaitSeen,
 };
-use hamlet_messages::realm::{HamletId, Left};
+use hamlet_messages::realm::HamletId;
 use hamlet_messages::sender::Client;
 use hamlet_messages::workspace::{AgentNumber, CallId, ReachVersion};
 use tokio::sync::Mutex;
 
 use super::act::Look;
 use super::change::{self, Affected, Column as _, Rows};
-use super::{Realm, budget, versions};
+use super::{Realm, budget, tree, versions};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) enum Part {
@@ -167,16 +167,15 @@ async fn agents(rows: &Rows<'_>) -> Result<Vec<AgentSeen>> {
             bail!("an agent's row of another form: {row:?}");
         };
         let agent = AgentNumber(u32::of(id)?);
-        let status = match (String::of(status)?.as_str(), how) {
-            ("hiring", _) => Status::Hiring,
-            ("live", _) => Status::Live,
-            ("ended", how) => Status::Ended {
-                left: Left {
-                    how: serde_json::from_str(&String::of(how)?)?,
-                    why: Option::of(why)?,
-                },
-            },
-            (other, _) => bail!("agent {} is `{other}`", agent.0),
+        let status = match tree::Status::of_row(
+            agent,
+            &String::of(status)?,
+            Option::of(how)?,
+            Option::of(why)?,
+        )? {
+            tree::Status::Hiring => Status::Hiring,
+            tree::Status::Live => Status::Live,
+            tree::Status::Ended(left) => Status::Ended { left },
         };
         agents.push(AgentSeen {
             agent,
