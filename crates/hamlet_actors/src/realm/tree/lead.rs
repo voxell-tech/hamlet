@@ -22,10 +22,27 @@ use super::super::{
 };
 use super::{Change, Lineage, Member, Of, Status};
 
+/// The hamlet a hire joins, as the call gives it.
+enum Joining {
+    /// The calling hire's hamlet, else the one named.
+    Hamlet(HamletId),
+    /// The one named is missing.
+    Missing,
+    /// The caller is not a hire and names no hamlet.
+    Unnamed,
+}
+
+impl Joining {
+    fn id(&self) -> Option<&HamletId> {
+        match self {
+            Self::Hamlet(id) => Some(id),
+            Self::Missing | Self::Unnamed => None,
+        }
+    }
+}
+
 pub(in crate::realm) struct Hiring {
-    /// The calling hire's hamlet, else the one named: `None` inside
-    /// when the one named is missing.
-    hamlet: Option<Option<HamletId>>,
+    hamlet: Joining,
     /// The lead named, else the calling hire, else the mayor.
     under: Option<Lineage>,
     /// How many living hires the lead's hamlet holds.
@@ -43,13 +60,13 @@ impl<By: Lead> Act<By> for Hire {
         let caller = caller(by);
         let own = own_hamlet(rows, caller).await?;
         let hamlet = match (&own, &self.hamlet) {
-            (Some(own), _) => Some(Some(own.clone())),
-            (None, Some(named)) => Some(
-                chiefs::hamlet(rows, named)
-                    .await?
-                    .map(|hamlet| hamlet.id),
-            ),
-            (None, None) => None,
+            (Some(own), _) => Joining::Hamlet(own.clone()),
+            (None, Some(named)) => chiefs::hamlet(rows, named)
+                .await?
+                .map_or(Joining::Missing, |hamlet| {
+                    Joining::Hamlet(hamlet.id)
+                }),
+            (None, None) => Joining::Unnamed,
         };
         let under = match (&self.under, caller, own) {
             (None, Some(caller), Some(_)) => {
@@ -57,8 +74,7 @@ impl<By: Lead> Act<By> for Hire {
             }
             (named, ..) => {
                 let named = named.as_ref().unwrap_or(&Named::Mayor);
-                let hamlet = hamlet.as_ref().and_then(Option::as_ref);
-                named_lineage(rows, hamlet, named).await?
+                named_lineage(rows, hamlet.id(), named).await?
             }
         };
         let living = match under
@@ -86,9 +102,11 @@ impl<By: Lead> Act<By> for Hire {
             Decision::Answer(HireAnswer::refused(By::refused(why)))
         };
         let named = match hiring.hamlet {
-            Some(None) => return refuse(HireRefusal::NoSuchHamlet),
-            Some(Some(hamlet)) => Some(hamlet),
-            None => None,
+            Joining::Missing => {
+                return refuse(HireRefusal::NoSuchHamlet);
+            }
+            Joining::Hamlet(hamlet) => Some(hamlet),
+            Joining::Unnamed => None,
         };
         let Some(under) = hiring.under else {
             let under_the_mayor =
@@ -523,14 +541,14 @@ mod tests {
         let refused =
             |why| Decision::Answer(HireAnswer::refused(why));
         let under_5 = || Hiring {
-            hamlet: None,
+            hamlet: Joining::Unnamed,
             under: Some(lineage_of_5()),
             living: 3,
             of: Ok(Of::Blank(ProfileId(6))),
             agent: AgentNumber(6),
         };
         let elsewhere = Hiring {
-            hamlet: Some(Some(HamletId("k".to_owned()))),
+            hamlet: Joining::Hamlet(HamletId("k".to_owned())),
             ..under_5()
         };
         let full = Hiring {
