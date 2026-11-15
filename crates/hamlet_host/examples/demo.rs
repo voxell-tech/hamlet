@@ -1,7 +1,8 @@
 //! A host that runs counter actors in the realm folder `HAMLET_HOME`.
 //!
 //! ```text
-//! demo [--name <name>] [--kind <kind>]... [--link] <command> ...
+//! demo [--name <name>] [--kind <kind>]... [--link] [--realm-actor]
+//!     <command> ...
 //!
 //! --name <name>                 the host's name, `host` by default
 //! --kind <kind>                 a kind the host runs, as many as
@@ -19,6 +20,10 @@
 //!                               commands, and the route table the
 //!                               host then uses whatever --kind
 //!                               says, are in demo/link.rs
+//! --realm-actor                 run the realm actor with a stand-in
+//!                               agent and profile, in place of the
+//!                               stub realm and the stub agent; not
+//!                               with --link
 //!
 //! demo increment <key> [times]  add one per time, each in a transaction
 //! demo get <key>                print the count
@@ -48,6 +53,9 @@
 //!                               demo/agent.rs
 //! demo watch <n> <event>        follow <event> of agent <n> as a
 //!                               client, in demo/watch.rs
+//! demo --realm-actor realm|agent ...
+//!                               the realm actor's commands, in
+//!                               demo/realm.rs
 //! ```
 //!
 //! A `<key>` names a counter of the first counter kind, and
@@ -143,7 +151,10 @@ async fn demo() -> Result<()> {
     } else {
         counter::Sleep::WhenIdle
     };
-    let factories = kinds::factories(&start.kinds, sleep);
+    let mut factories = kinds::factories(&start.kinds, sleep);
+    if start.realm_actor {
+        factories.extend(realm::actor_kinds());
+    }
     // The workspace does not start where there is no sandbox.
     let options = match Sandbox::open(Isolation::Sandboxed) {
         Ok(sandbox) => start.options.with_value(Arc::new(sandbox)),
@@ -159,6 +170,7 @@ async fn demo() -> Result<()> {
         host,
         link,
         counters: kinds::counters(&start.kinds),
+        realm_actor: start.realm_actor,
         watches: Mutex::default(),
     };
     let result = match command {
@@ -182,9 +194,9 @@ async fn demo() -> Result<()> {
         }
         None => Err(anyhow!(
             "usage: demo [--name <name>] [--kind <kind>]... [--link] \
-             increment|get|schedule|sleep|destroy|block|call|calls|\
-             timers|rearm|boot|serve|realm|agent|link|make|tell|heard|\
-             watch ..."
+             [--realm-actor] increment|get|schedule|sleep|destroy|\
+             block|call|calls|timers|rearm|boot|serve|realm|agent|link|\
+             make|tell|heard|watch ..."
         )),
     };
     demo.shutdown().await?;
@@ -196,6 +208,8 @@ pub struct Demo {
     pub link: Option<link::Link>,
     /// The counter kinds the host runs.
     counters: Vec<String>,
+    /// Whether `realm` and `agent` lines drive the realm actor.
+    realm_actor: bool,
     pub watches: Mutex<JoinSet<()>>,
 }
 
@@ -236,10 +250,18 @@ struct Start {
     kinds: Vec<String>,
     /// Whether the host runs the agents in a Node child.
     link: bool,
+    /// Whether the host runs the realm actor.
+    realm_actor: bool,
 }
 
 async fn run_line(demo: &Demo, words: &[String]) -> Result<()> {
     match words.split_first() {
+        Some((first, _))
+            if demo.realm_actor
+                && (first == "realm" || first == "agent") =>
+        {
+            realm::drive(&demo.host, words).await
+        }
         Some((first, rest)) if first == "realm" => {
             realm::run(&demo.host, rest).await
         }
@@ -264,9 +286,14 @@ fn options(args: &[String]) -> Result<(Start, &[String])> {
     let mut options = HostOptions::default();
     let mut kinds = Vec::new();
     let mut link = false;
+    let mut realm_actor = false;
     let mut rest = args;
     loop {
         match rest {
+            [option, more @ ..] if option == "--realm-actor" => {
+                realm_actor = true;
+                rest = more;
+            }
             [option, value, more @ ..] if option == "--name" => {
                 options.name.clone_from(value);
                 rest = more;
@@ -287,6 +314,9 @@ fn options(args: &[String]) -> Result<(Start, &[String])> {
             _ => break,
         }
     }
+    if link && realm_actor {
+        bail!("--link and --realm-actor do not go together");
+    }
     if kinds.is_empty() {
         let default = if link { kinds::LINKED } else { kinds::LOCAL };
         kinds =
@@ -297,6 +327,7 @@ fn options(args: &[String]) -> Result<(Start, &[String])> {
             options,
             kinds,
             link,
+            realm_actor,
         },
         rest,
     ))

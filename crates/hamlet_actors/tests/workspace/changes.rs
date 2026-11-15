@@ -684,8 +684,7 @@ fn writable(dir: &Path) -> Connection {
 fn plant_unfinished(db: &Connection, call: &str, temp: &Path) {
     db.execute(
         "INSERT INTO calls (agent, call, op, request_hash, state, \
-         temp, opened_at) VALUES (7, ?1, 'write', x'00', \
-         'changing', ?2, 0)",
+         temp) VALUES (7, ?1, 'write', x'00', 'changing', ?2)",
         rusqlite::params![call, temp.to_str().unwrap()],
     )
     .unwrap();

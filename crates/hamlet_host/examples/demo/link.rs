@@ -52,7 +52,7 @@ use tokio::time::Instant;
 
 use crate::Demo;
 use crate::command::{actor_error, number, p50_p99};
-use crate::realm::{self, Heard, Tell};
+use crate::realm::{self, Heard, TellAny};
 
 /// The kinds the Node host runs, each a kind of `demo.ts`.
 pub const NODE_KINDS: &[&str] = &[address::Agent::KIND];
@@ -238,7 +238,7 @@ async fn tell(
         }
     }
     ensure!(times > 0, "tell takes a count above 0");
-    let tell = Tell {
+    let tell = TellAny {
         to: at.clone(),
         name: action.to_owned(),
         args: encode_positional(&args)?,

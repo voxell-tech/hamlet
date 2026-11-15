@@ -71,9 +71,9 @@ impl Pending {
 
     fn cbor(&self) -> Result<Vec<u8>> {
         match self {
-            Self::Run(run) => calls::cbor(run),
-            Self::Write(write) => calls::cbor(write),
-            Self::Edit(edit) => calls::cbor(edit),
+            Self::Run(run) => crate::cbor(run),
+            Self::Write(write) => crate::cbor(write),
+            Self::Edit(edit) => crate::cbor(edit),
         }
     }
 
@@ -165,7 +165,7 @@ pub(super) async fn open(
         opening.request.op(),
         opening.request_hash,
         "waiting",
-        Some(calls::cbor(&opening.needs)?),
+        Some(crate::cbor(&opening.needs)?),
         None,
     )
     .await?;
@@ -178,13 +178,13 @@ pub(super) async fn open(
         Some(vec![
             BindParam::Integer(i64::from(opening.agent.0)),
             BindParam::Text(call.0.clone()),
-            BindParam::Blob(calls::cbor(&opening.needs)?),
+            BindParam::Blob(crate::cbor(&opening.needs)?),
             BindParam::Blob(request),
             BindParam::Integer(i64::try_from(
                 opening.reach_version.0,
             )?),
             match &opening.base_hash {
-                Some(hash) => BindParam::Blob(calls::cbor(hash)?),
+                Some(hash) => BindParam::Blob(crate::cbor(hash)?),
                 None => BindParam::Null,
             },
         ]),
@@ -341,8 +341,8 @@ impl NotRun {
 
     fn stored(&self) -> Result<Vec<u8>> {
         match self {
-            Self::Run(why) => calls::cbor(why),
-            Self::Change(why) => calls::cbor(why),
+            Self::Run(why) => crate::cbor(why),
+            Self::Change(why) => crate::cbor(why),
         }
     }
 
@@ -386,7 +386,7 @@ pub(super) async fn close(
              RETURNING call, op",
             Some(vec![
                 agent,
-                BindParam::Blob(calls::cbor(why)?),
+                BindParam::Blob(crate::cbor(why)?),
                 BindParam::Integer(calls::now_ms()?),
             ]),
         )

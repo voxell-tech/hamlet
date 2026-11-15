@@ -1,12 +1,15 @@
 //! A command's output: the tail its end carries and, once it passes
 //! the tail's limits, all of it in a spill file the agent may read.
 
+use std::ffi::OsStr;
 use std::fs::{DirBuilder, File, OpenOptions};
 use std::io::{self, BufWriter, Write};
 use std::path::PathBuf;
+use std::sync::PoisonError;
 
-use hamlet_messages::workspace::Cut;
+use hamlet_messages::workspace::{CommandId, Cut};
 
+use super::RunningCommands;
 use crate::workspace::{MOST_BYTES, MOST_LINES};
 
 /// The most of a command's output a spill file holds.
@@ -21,8 +24,15 @@ pub(super) struct Output {
     spill: Spill,
 }
 
+pub struct Saved {
+    pub folder: PathBuf,
+    pub command: CommandId,
+    pub limit: u64,
+    pub running: RunningCommands,
+}
+
 struct Spill {
-    path: PathBuf,
+    saved: Saved,
     cap: u64,
     file: Option<BufWriter<File>>,
     written: u64,
@@ -32,16 +42,14 @@ struct Spill {
 }
 
 impl Output {
-    /// Output that spills to `path`, keeping at most `cap` bytes
-    /// there.
-    pub(super) fn new(path: PathBuf, cap: u64) -> Self {
+    pub(super) fn new(saved: Saved, cap: u64) -> Self {
         Self {
             tail: Tail::default(),
             bytes: 0,
             newlines: 0,
             ends_a_line: true,
             spill: Spill {
-                path,
+                saved,
                 cap,
                 file: None,
                 written: 0,
@@ -153,16 +161,15 @@ impl Spill {
     /// it, and only its agent reads it.
     fn file(&mut self) -> io::Result<&mut BufWriter<File>> {
         if self.file.is_none() {
-            if let Some(folder) = self.path.parent() {
-                let mut builder = DirBuilder::new();
-                builder.recursive(true);
-                #[cfg(unix)]
-                std::os::unix::fs::DirBuilderExt::mode(
-                    &mut builder,
-                    0o700,
-                );
-                builder.create(folder)?;
-            }
+            let mut builder = DirBuilder::new();
+            builder.recursive(true);
+            #[cfg(unix)]
+            std::os::unix::fs::DirBuilderExt::mode(
+                &mut builder,
+                0o700,
+            );
+            builder.create(&self.saved.folder)?;
+            self.saved.make_room();
             let mut options = OpenOptions::new();
             options.write(true).create_new(true);
             #[cfg(unix)]
@@ -170,7 +177,7 @@ impl Spill {
                 &mut options,
                 0o600,
             );
-            let file = options.open(&self.path)?;
+            let file = options.open(self.saved.path())?;
             self.file =
                 Some(BufWriter::with_capacity(64 * 1024, file));
         }
@@ -186,10 +193,82 @@ impl Spill {
             None => Ok(None),
             Some(mut file) => {
                 file.flush()?;
-                Ok(Some(self.path))
+                Ok(Some(self.saved.path()))
             }
         }
     }
+}
+
+impl Saved {
+    fn path(&self) -> PathBuf {
+        self.folder.join(format!("{}.log", self.command.0))
+    }
+
+    /// A file that cannot be removed, as one another process holds
+    /// open on Windows, stays.
+    fn make_room(&self) {
+        let listed = match std::fs::read_dir(&self.folder) {
+            Ok(listed) => listed,
+            Err(error) => {
+                tracing::warn!(
+                    %error,
+                    folder = %self.folder.display(),
+                    "list an agent's saved output"
+                );
+                return;
+            }
+        };
+        let files = listed
+            .filter_map(|entry| {
+                let entry = entry.ok()?;
+                let command = command_of(&entry.file_name())?;
+                let metadata = entry.metadata().ok()?;
+                let modified = metadata.modified().ok()?;
+                metadata.is_file().then(|| {
+                    (command, modified, metadata.len(), entry.path())
+                })
+            })
+            .collect::<Vec<_>>();
+        let mut total =
+            files.iter().map(|(.., len, _)| len).sum::<u64>();
+        let mut finished = {
+            let running = self
+                .running
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            files
+                .into_iter()
+                .filter(|(command, ..)| {
+                    !running.contains_key(command)
+                })
+                .collect::<Vec<_>>()
+        };
+        finished.sort_by_key(|(command, modified, ..)| {
+            (*modified, command.0)
+        });
+        for (.., len, path) in finished {
+            if total < self.limit {
+                break;
+            }
+            match std::fs::remove_file(&path) {
+                Err(error)
+                    if error.kind() != io::ErrorKind::NotFound =>
+                {
+                    tracing::warn!(
+                        %error,
+                        path = %path.display(),
+                        "remove a finished command's saved output"
+                    );
+                }
+                _ => total -= len,
+            }
+        }
+    }
+}
+
+fn command_of(name: &OsStr) -> Option<CommandId> {
+    let number = name.to_str()?.strip_suffix(".log")?;
+    number.parse().ok().map(CommandId)
 }
 
 /// `bytes` in whole MiB where it is some, else in bytes.
@@ -256,13 +335,22 @@ impl Tail {
 mod tests {
     use super::*;
 
+    fn saved(folder: PathBuf) -> Saved {
+        Saved {
+            folder,
+            command: CommandId(1),
+            limit: u64::MAX,
+            running: RunningCommands::default(),
+        }
+    }
+
     fn spilled(
         cap: u64,
         chunks: &[&str],
     ) -> (String, Option<Cut>, String) {
         let scratch = hamlet_testing::Scratch::new("output");
         let path = scratch.join("7/1.log");
-        let mut output = Output::new(path.clone(), cap);
+        let mut output = Output::new(saved(scratch.join("7")), cap);
         for chunk in chunks {
             output.push(chunk);
         }
@@ -315,7 +403,7 @@ mod tests {
         std::fs::write(scratch.join("7"), "a file, not a folder")
             .unwrap();
         let mut output =
-            Output::new(scratch.join("7/1.log"), SPILL_CAP);
+            Output::new(saved(scratch.join("7")), SPILL_CAP);
         output.push(&"y\n".repeat(MOST_LINES + 1));
         let (_, cut) = output.finish();
         assert!(cut.unwrap_err().to_string().starts_with(
