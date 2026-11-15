@@ -63,12 +63,10 @@ use hamlet_messages::workspace::{AgentNumber, CallId};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
-/// The chief every command speaks for.
 pub const CHIEF: By = By::Chief { chief: 1 };
 
 const CALL_WITHIN: Duration = Duration::from_secs(60);
 
-/// The stand-ins' factories, for the realm's kind and the agents'.
 pub fn stand_ins() -> Vec<(String, ActorFactory)> {
     [address::Realm::KIND, address::Agent::KIND]
         .into_iter()
@@ -114,8 +112,6 @@ pub async fn run(host: &Host, words: &[String]) -> Result<()> {
     on(host, &profile(first)?, rest).await
 }
 
-/// Runs `words` on profile `n` and prints when it began and ended,
-/// in microseconds since the epoch.
 async fn timed(host: &Host, n: &str, words: &[String]) -> Result<()> {
     let began = micros()?;
     let done = on(host, &profile(n)?, words).await;
@@ -263,8 +259,6 @@ async fn on(
     }
 }
 
-/// Asks for every file of the hire's branch as its agent does, part
-/// by part from one commit, and writes them under `folder`.
 async fn fill(
     host: &Host,
     agent: &Address,
@@ -321,7 +315,6 @@ async fn fill(
     }
 }
 
-/// Calls `to` as `from` and prints the answer.
 pub async fn shown<A>(
     host: &Host,
     from: &Address,
@@ -338,8 +331,6 @@ where
     Ok(())
 }
 
-/// The answer of `to` to `asked`, called as `from`, as the host
-/// carried it.
 async fn carried<A: Action>(
     host: &Host,
     from: &Address,
@@ -367,7 +358,6 @@ fn profile(word: &str) -> Result<Address> {
     Ok(address::Profile(ProfileId(number(word)?)).address()?)
 }
 
-/// The address of agent `word`, a hire's number.
 pub fn agent_at(word: &str) -> Result<Address> {
     Ok(address::Agent(AgentNumber(number(word)?)).address()?)
 }
@@ -377,7 +367,6 @@ fn number(word: &str) -> Result<u32> {
         .with_context(|| format!("not a number: {word}"))
 }
 
-/// A fresh request id, as a chief's client makes one.
 pub fn request_id<T: DeserializeOwned>() -> Result<T> {
     static MADE: AtomicU64 = AtomicU64::new(0);
     let now =
@@ -394,8 +383,6 @@ pub fn request_id<T: DeserializeOwned>() -> Result<T> {
     Ok(ciborium::Value::Text(text).deserialized()?)
 }
 
-/// Stands in for the realm or an agent: calls another actor as
-/// itself, and prints what it is told.
 struct StandIn;
 
 #[derive(Serialize, Deserialize)]

@@ -48,8 +48,7 @@ struct Row {
     agent: AgentNumber,
     skill: String,
     reason: String,
-    /// The part that comes next.
-    next: u32,
+    next_part: u32,
     /// The commit `offers/<id>` names, once its last part came.
     commit: Option<hamlet_git::CommitId>,
     /// `None` until it is judged.
@@ -57,7 +56,7 @@ struct Row {
 }
 
 const COLUMNS: &str =
-    "id, agent, skill, reason, next, commit_id, accepted";
+    "id, agent, skill, reason, next_part, commit_id, accepted";
 
 impl Row {
     fn of(row: &[ColumnValue]) -> Result<Self> {
@@ -67,7 +66,7 @@ impl Row {
                 ColumnValue::Integer(agent),
                 ColumnValue::Text(skill),
                 ColumnValue::Text(reason),
-                ColumnValue::Integer(next),
+                ColumnValue::Integer(next_part),
                 commit,
                 accepted,
             ] => Ok(Self {
@@ -75,7 +74,7 @@ impl Row {
                 agent: AgentNumber(u32::try_from(*agent)?),
                 skill: skill.clone(),
                 reason: reason.clone(),
-                next: u32::try_from(*next)?,
+                next_part: u32::try_from(*next_part)?,
                 commit: match commit {
                     ColumnValue::Text(commit) => Some(
                         commit.parse().map_err(anyhow::Error::msg)?,
@@ -171,9 +170,6 @@ impl Takes<Offer> for Library {
     }
 }
 
-/// Keeps one part, in order. The first part of a call drops the
-/// caller's other offers that never came whole. The last commits the
-/// offer's files to `offers/<offer>`.
 fn offer(unit: Before<'_, Library, Offer>) -> Result<Ended<Offer>> {
     let Offer {
         call,
@@ -204,9 +200,8 @@ fn offer(unit: Before<'_, Library, Offer>) -> Result<Ended<Offer>> {
             "the parts of one offer name one skill"
         );
     }
-    // Keeping the rest without an earlier part would lose it.
     ensure!(
-        part == row.as_ref().map_or(0, |row| row.next),
+        part == row.as_ref().map_or(0, |row| row.next_part),
         "the parts before part {part} of the offer {} did not all \
          come; offer again under a new call",
         call.0
@@ -261,22 +256,22 @@ fn offer(unit: Before<'_, Library, Offer>) -> Result<Ended<Offer>> {
     let id = match row {
         Some(row) => row.id,
         None => {
-            let mine = "agent = ?1 AND commit_id IS NULL";
+            let unfinished = "agent = ?1 AND commit_id IS NULL";
             let params = vec![BindParam::Integer(i64::from(agent.0))];
             w.table(Pieces(())).execute(
                 &format!(
                     "DELETE FROM offer_piece WHERE offer IN (SELECT \
-                     id FROM offer WHERE {mine})"
+                     id FROM offer WHERE {unfinished})"
                 ),
                 params.clone(),
             )?;
             offers.execute(
-                &format!("DELETE FROM offer WHERE {mine}"),
+                &format!("DELETE FROM offer WHERE {unfinished}"),
                 params,
             )?;
             offers.execute(
                 "INSERT INTO offer (agent, call, skill, reason, \
-                 next) VALUES (?1, ?2, ?3, ?4, 0)",
+                 next_part) VALUES (?1, ?2, ?3, ?4, 0)",
                 vec![
                     by_call[0].clone(),
                     by_call[1].clone(),
@@ -296,7 +291,7 @@ fn offer(unit: Before<'_, Library, Offer>) -> Result<Ended<Offer>> {
     let Some(whole) = whole else {
         keep_pieces(&w.table(Pieces(())), id, files)?;
         offers.execute(
-            "UPDATE offer SET next = ?1 WHERE id = ?2",
+            "UPDATE offer SET next_part = ?1 WHERE id = ?2",
             vec![
                 BindParam::Integer(i64::from(part) + 1),
                 BindParam::Integer(i64::from(id)),

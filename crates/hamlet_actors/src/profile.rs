@@ -37,8 +37,7 @@ const REPOSITORIES: &str = "scholars";
 
 const CHARACTER: &str = "CHARACTER.md";
 
-/// The most characters a character holds.
-const MOST_CHARACTER: u32 = 4000;
+const CHARACTER_MOST: u32 = 4000;
 
 /// The message of a profile's first commit.
 const MADE: &str = "Made the scholar";
@@ -92,8 +91,8 @@ impl Actor for Profile {
             .context("a profile is created with its input")?;
         if let ProfileInput::Character { text } = &input {
             ensure!(
-                text.chars().count() <= MOST_CHARACTER as usize,
-                "a character may have at most {MOST_CHARACTER} \
+                text.chars().count() <= CHARACTER_MOST as usize,
+                "a character may have at most {CHARACTER_MOST} \
                  characters"
             );
         }

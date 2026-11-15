@@ -693,7 +693,6 @@ async fn an_offer_is_refused_for_each_reason() {
             skill: "tidy".into()
         })
     );
-    // The offerer's own offer again waits for the first's verdict.
     assert_eq!(
         refused(7, tidy("again")).await,
         OfferRefusal::Shelves(OnTheShelves::BeingJudged {
@@ -732,12 +731,10 @@ async fn an_offer_s_last_part_keeps_it_only_when_every_part_before_it_came()
         assert_eq!(answer, OfferAnswer::More);
     };
 
-    // The last part before the middle one.
     more(part("o1", 0, false, "SKILL.md")).await;
     call_as(&host, &agent(7), &part("o1", 2, true, "c.py"))
         .await
         .unwrap_err();
-    // A refused middle part.
     more(part("o2", 0, false, "SKILL.md")).await;
     let answer =
         call_as(&host, &agent(7), &part("o2", 1, false, "/b.py"))
@@ -751,7 +748,6 @@ async fn an_offer_s_last_part_keeps_it_only_when_every_part_before_it_came()
         .await
         .unwrap_err();
 
-    // Parts in order, the library asleep between two of them.
     more(part("o3", 0, false, "SKILL.md")).await;
     host.stop(&library_at(), ShutdownKind::Sleep).await.unwrap();
     more(part("o3", 1, false, "b.py")).await;

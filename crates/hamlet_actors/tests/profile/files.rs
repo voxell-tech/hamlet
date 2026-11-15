@@ -412,19 +412,16 @@ async fn a_save_s_last_part_commits_only_when_every_part_before_it_came()
         assert_eq!(answer, SaveAnswer::Kept);
     };
 
-    // The last part before the middle one.
     kept(part("s5", 0, false, "a.md")).await;
     call_as(&host, &agent(), &part("s5", 2, true, "c.md"))
         .await
         .unwrap_err();
-    // Another call's first part between two parts of one.
     kept(part("s6", 0, false, "a.md")).await;
     kept(part("s6", 1, false, "b.md")).await;
     kept(part("s7", 0, false, "x.md")).await;
     call_as(&host, &agent(), &part("s6", 2, true, "c.md"))
         .await
         .unwrap_err();
-    // A refused middle part.
     kept(part("s8", 0, false, "a.md")).await;
     let refused = part("s8", 1, false, "inbox/b.md");
     let answer = call_as(&host, &agent(), &refused).await.unwrap();

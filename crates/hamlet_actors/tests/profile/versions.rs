@@ -272,7 +272,6 @@ async fn a_chief_s_edits_and_reverts_carry_today_s_words() {
         ("Edited the memory".to_owned(), chief())
     );
 
-    // Empty text removes a memory file, and one that is not there.
     edited(&host, "memory/a.md", "").await;
     let main = main_tip(&dir);
     assert_eq!(text(&dir, commit_id(main), "memory/a.md"), None);

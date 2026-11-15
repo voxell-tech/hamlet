@@ -18,7 +18,7 @@ use hamlet_messages::workspace::AgentNumber;
 use hamlet_os::fs::TreePath;
 
 use super::{
-    CHARACTER, MOST_CHARACTER, Profile, commit_id, dreams,
+    CHARACTER, CHARACTER_MOST, Profile, commit_id, dreams,
     git_commit, hires,
 };
 use crate::library;
@@ -78,14 +78,13 @@ fn tag(unit: Before<'_, Profile, Tag>) -> Result<Ended<Tag>> {
     let Some(at) = at else {
         return unit.refuse(TagRefusal::NoSuchCommit);
     };
+    let left_by_a_cut_off_run = |seen: &hamlet_git::Version| {
+        seen.note == tag.note
+            && seen.by == by.name()
+            && seen.commit == at
+    };
     match seen {
-        // Its own tag, from a run a kill cut off before the marker:
-        // one at another commit, `main` moved since, is another's.
-        Some(seen)
-            if seen.note == tag.note
-                && seen.by == by.name()
-                && seen.commit == at =>
-        {
+        Some(seen) if left_by_a_cut_off_run(&seen) => {
             let tagged = TagAnswer::Tagged {
                 version: tag.version,
                 commit: commit_id(seen.commit)?,
@@ -165,7 +164,7 @@ impl Takes<Revert> for Profile {
 }
 
 /// Undoes a commit of `main` with one commit on `main`, the tip
-/// winning clashes. `own` is the profile's number.
+/// winning clashes.
 fn revert(
     unit: Before<'_, Profile, Revert>,
     own: ProfileId,
@@ -242,8 +241,6 @@ impl Takes<Edit> for Profile {
     }
 }
 
-/// A chief edits the character and memory; an agent, the Hand, any
-/// file.
 fn editable(edit: &Edit) -> Result<(), EditRefusal> {
     let path = &edit.path;
     if !parts::is_file_path(path) {
@@ -255,7 +252,7 @@ fn editable(edit: &Edit) -> Result<(), EditRefusal> {
         let path = path.clone();
         return Err(Protected::Withheld { path }.into());
     }
-    let most = MOST_CHARACTER;
+    let most = CHARACTER_MOST;
     if path == CHARACTER && edit.text.chars().count() > most as usize
     {
         return Err(TooLong::CharacterTooLong { most }.into());
@@ -263,8 +260,6 @@ fn editable(edit: &Edit) -> Result<(), EditRefusal> {
     Ok(())
 }
 
-/// Writes the file, or removes it on empty text, but for a chief's
-/// character, which is written empty.
 fn edit(unit: Before<'_, Profile, Edit>) -> Result<Ended<Edit>> {
     let Edit {
         path,

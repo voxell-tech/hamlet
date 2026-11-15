@@ -290,8 +290,6 @@ fn commit_main(
         .unwrap()
 }
 
-/// The message and the author of the tip of `branch` in profile
-/// `id`.
 fn last_words(dir: &Path, id: u32, branch: &str) -> (String, String) {
     let repository = repository(dir, id);
     let tip = repository.tip(branch).unwrap().unwrap();

@@ -207,7 +207,6 @@ where
     M: Message,
     M::From: Send + Sync + 'static,
 {
-    /// The actor that takes the call.
     pub fn owner(&self) -> &A {
         &self.owner
     }

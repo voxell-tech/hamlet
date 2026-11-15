@@ -1,7 +1,7 @@
 //! The calls a hire's agent makes on its own branch: its files in
 //! parts, and a save of what its filesystem changed, in parts. Also
-//! the `save` and `save_call` tables, the parts of a save whose last
-//! part has not come.
+//! the `save` table, the parts of a save whose last part has not
+//! come.
 
 use std::collections::BTreeMap;
 
@@ -259,8 +259,7 @@ fn fits(changes: &[FileChange]) -> Result<(), SaveRefusal> {
     Ok(())
 }
 
-/// Keeps one part of a save as rows, in order: the first part of a
-/// call drops the agent's other call. The last one commits every part
+/// Keeps one part of a save as rows. The last one commits every part
 /// of the call onto `base` as one commit and joins it to the hire's
 /// branch, the save's side winning.
 fn save(unit: Before<'_, Profile, Save>) -> Result<Ended<Save>> {
@@ -278,8 +277,7 @@ fn save(unit: Before<'_, Profile, Save>) -> Result<Ended<Save>> {
     if !git.has(at)? || !git.holds(&branch, at)? {
         return unit.refuse(Gone::CommitGone { commit: base }.into());
     }
-    // Committing the rest without an earlier part would lose it.
-    if part != next(&unit.rows(Calls(())), agent, &call)? {
+    if part != next_part(&unit.rows(Calls(())), agent, &call)? {
         bail!(
             "the parts before part {part} of the save {} did not \
              all come; save again under a new call",
@@ -297,7 +295,7 @@ fn save(unit: Before<'_, Profile, Save>) -> Result<Ended<Save>> {
     let mut row = of_call(agent, &call);
     row.push(BindParam::Integer(i64::from(part) + 1));
     writer.table(Calls(())).execute(
-        "INSERT OR REPLACE INTO save_call (agent, call, next) \
+        "INSERT OR REPLACE INTO save_call (agent, call, next_part) \
          VALUES (?1, ?2, ?3)",
         row,
     )?;
@@ -359,15 +357,14 @@ fn of_call(agent: AgentNumber, call: &CallId) -> Vec<BindParam> {
     ]
 }
 
-/// The part of `call` the agent's save takes next: 0 for a call it
-/// has not begun.
-fn next(
+fn next_part(
     rows: &Rows<'_, Calls>,
     agent: AgentNumber,
     call: &CallId,
 ) -> Result<u32> {
     let found = rows.select(
-        "SELECT next FROM save_call WHERE agent = ?1 AND call = ?2",
+        "SELECT next_part FROM save_call WHERE agent = ?1 AND call \
+         = ?2",
         of_call(agent, call),
     )?;
     match found.first().map(Vec::as_slice) {

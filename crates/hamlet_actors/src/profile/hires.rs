@@ -20,7 +20,6 @@ use crate::repo::{
     Admits, Before, Call, Ended, Look, Reply, Settle, Takes, Writer,
 };
 
-/// The message of a take-in of `main` or of a pin.
 const TOOK_IN: &str = "Took in what its scholar learned";
 
 pub(super) struct Table(());
@@ -241,8 +240,7 @@ impl Takes<Pin> for Profile {
 }
 
 /// Keeps the hire's pin and takes the pinned commit, or `main`'s tip,
-/// into its branch, the hire's side winning. `own` is the profile's
-/// number.
+/// into its branch, the hire's side winning.
 fn pin(
     unit: Before<'_, Profile, Pin>,
     own: ProfileId,

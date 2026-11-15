@@ -29,12 +29,11 @@ CREATE TABLE IF NOT EXISTS save (
     PRIMARY KEY (agent, call, path, offset)
 ) STRICT;
 
--- files.rs: the save each hire's agent has under way, and the part
--- of it that comes next.
+-- files.rs
 CREATE TABLE IF NOT EXISTS save_call (
     agent INTEGER PRIMARY KEY,
     call TEXT NOT NULL,
-    next INTEGER NOT NULL
+    next_part INTEGER NOT NULL
 ) STRICT;
 
 -- dreams.rs
