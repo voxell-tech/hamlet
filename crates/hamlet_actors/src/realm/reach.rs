@@ -3,43 +3,68 @@ use std::sync::Arc;
 use anyhow::Result;
 use hamlet_actor::Ctx;
 use hamlet_messages::address::Workspace;
-use hamlet_messages::workspace::reach::{Footing, Project, Reach};
+use hamlet_messages::realm::HamletId;
+use hamlet_messages::workspace::reach::{Footing, Reach};
 use hamlet_messages::workspace::{AgentNumber, InForce, SetReach};
 
-use super::change::{self, Rows};
+use super::change::{self, Rows, number};
 use super::peer::When;
-use super::tree::{self, Status};
-use super::{Realm, secrets, settings, versions};
+use super::{Realm, chiefs, oversight, tree, versions};
 
-/// `agent`'s reach as the rows give it now, under its wanted version:
-/// the hamlet's folder and mode, the agent's own filesystem, the
-/// network setting; `Reach::Ended` for an agent that ended.
+/// `agent`'s reach as the rows give it now, under its wanted version;
+/// `Reach::Ended` for an agent that ended.
 pub(super) async fn of(
     rows: &Rows<'_>,
     agent: AgentNumber,
 ) -> Result<SetReach> {
     let (version, _) = versions::reach(rows, agent).await?;
-    let lineage = tree::lineage_of(rows, agent).await?;
-    let network = settings::read(rows).await?.allow_net;
-    let reach = match lineage.agent.status {
-        Status::Ended(_) => Reach::Ended,
-        Status::Hiring | Status::Live => Reach::Agent(Footing {
-            project: lineage.hamlet.and_then(|hamlet| {
-                Some(Project {
-                    folder: hamlet.folder?,
-                    mode: hamlet.mode,
-                })
-            }),
-            network,
-            trust: Vec::new(),
-            secrets: secrets::VERSION,
-        }),
+    let worker = rows
+        .row::<(Option<u32>, Option<String>)>(
+            "SELECT starter, hamlet FROM worker WHERE agent = ?1",
+            vec![number(agent)],
+        )
+        .await?;
+    let reach = if tree::left(rows, agent).await?.is_some() {
+        Reach::Ended
+    } else if let Some((starter, hamlet)) = worker {
+        let starter = starter.map(AgentNumber);
+        Reach::Worker {
+            starter,
+            footing: worker_footing(
+                rows,
+                starter,
+                hamlet.map(HamletId),
+            )
+            .await?,
+        }
+    } else {
+        Reach::Agent(oversight::footing(rows, agent).await?)
     };
     Ok(SetReach {
         agent,
         version,
         reach,
     })
+}
+
+/// A worker's footing: its starter's without the trust, or for a
+/// chief's worker, its hamlet's.
+async fn worker_footing(
+    rows: &Rows<'_>,
+    starter: Option<AgentNumber>,
+    hamlet: Option<HamletId>,
+) -> Result<Footing> {
+    if let Some(starter) = starter {
+        return Ok(Footing {
+            trust: Vec::new(),
+            ..oversight::footing(rows, starter).await?
+        });
+    }
+    let hamlet = match hamlet {
+        Some(id) => chiefs::hamlet(rows, &id).await?,
+        None => None,
+    };
+    oversight::hamlet_footing(rows, hamlet.as_ref()).await
 }
 
 /// Carries `agent`'s wanted reach to the workspace and commits its
