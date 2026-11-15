@@ -337,8 +337,9 @@ succeeds, or with its actor's file at a destroy.
 the host from the command line, under a host name and with the kinds of
 its options (`examples/demo/kinds.rs`: a host registers only those, or
 by default the counter, the workspace, the profile, the library and
-both stand-ins, or with `--link` the stand-in realm alone, and with
-`--realm-actor` also the workspace, whatever the kinds), each counter
+both stand-ins, or with `--link` the stand-in realm alone; whatever the
+kinds, it also registers the workspace with `--realm-actor`, and the
+profile and the library for `demo profile` and `demo library`), each counter
 line run by `examples/demo/command.rs`, with the
 counter actor in `examples/demo/counter.rs`; a counter calls another as
 itself, and `calls --count <n>` times those calls. The demo also

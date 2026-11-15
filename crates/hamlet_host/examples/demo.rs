@@ -115,7 +115,7 @@ use act::act;
 use anyhow::{Context, Result, anyhow, bail};
 use command::{counter_kind, number, print_reply, run, shown};
 use hamlet_host::{Address, Host, HostOptions};
-use hamlet_messages::address::{Party, Workspace};
+use hamlet_messages::address::{Library, Party, Profile, Workspace};
 use hamlet_sandbox::{Isolation, Sandbox};
 use parking_lot::Mutex;
 use tokio::sync::mpsc;
@@ -356,11 +356,21 @@ fn options(args: &[String]) -> Result<(Start, &[String])> {
         kinds =
             default.iter().map(|kind| (*kind).to_owned()).collect();
     }
+    let mut needed = Vec::new();
     // The realm actor calls the workspace.
-    if realm_actor
-        && !kinds.iter().any(|kind| kind == Workspace::KIND)
-    {
-        kinds.push(Workspace::KIND.to_owned());
+    if realm_actor {
+        needed.push(Workspace::KIND);
+    }
+    if matches!(
+        rest.first().map(String::as_str),
+        Some("profile" | "library")
+    ) {
+        needed.extend([Profile::KIND, Library::KIND]);
+    }
+    for kind in needed {
+        if !kinds.iter().any(|named| named == kind) {
+            kinds.push(kind.to_owned());
+        }
     }
     Ok((
         Start {
