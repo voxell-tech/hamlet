@@ -64,11 +64,11 @@ pub(super) enum Stood {
 
 /// A sender that is an agent of the tree.
 pub(super) trait Member: Witness {
-    async fn standing(
+    fn standing(
         &self,
         rows: &Rows<'_>,
         tool: SocietyTool,
-    ) -> Result<Option<Stood>>;
+    ) -> impl Future<Output = Result<Option<Stood>>> + Send;
 }
 
 impl Member for Agent {
