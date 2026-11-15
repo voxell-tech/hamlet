@@ -1,89 +1,320 @@
 //! What a hire and everyone under it may spend: the `allowance`
 //! table, `SetAllowance` and `ReadBudget`.
 
-use anyhow::{Result, bail};
+use anyhow::{Context as _, Result};
+use hamlet_actor::BindParam;
 use hamlet_messages::address::Agent;
+use hamlet_messages::agent::AgentKind;
 use hamlet_messages::realm::budget::{
-    Budget, BudgetRead, ReadBudget, ReadBudgetRefusal,
+    self, Budget, BudgetRead, Payer, ReadBudget, ReadBudgetRefusal,
 };
 use hamlet_messages::realm::workers::{
     AllowanceRefusal, SetAllowance,
 };
-use hamlet_messages::realm::{AgentRefusal, Done};
+use hamlet_messages::realm::world::Spend;
+use hamlet_messages::realm::{AgentRefusal, Done, Refusable};
 use hamlet_messages::workspace::AgentNumber;
 
-use super::act::{Act, Decision, Unbuilt};
-use super::callers::Lead;
+use super::act::{Act, Decided, Decision};
+use super::callers::{Lead, Witness};
 use super::calls::Made;
-use super::change::{Affected, At, Rows, Writer};
+use super::change::{self, Affected, At, Rows, Writer, number};
+use super::chiefs::limits;
+use super::tree::{self, Lineage, Status};
+use super::world::Part;
+use super::{record, tasks};
 
 #[derive(Debug, PartialEq)]
-pub(super) enum Change {}
-
-pub(super) async fn apply(
-    _writer: &Writer<'_>,
-    change: Change,
-) -> Result<Affected> {
-    match change {}
+pub(super) enum Change {
+    /// Gives `hire` an allowance, or takes it away when `micros` is
+    /// `None`.
+    Set {
+        hire: AgentNumber,
+        micros: Option<u64>,
+        why: Option<String>,
+        by: record::By,
+    },
 }
 
-/// The allowance `agent` or one of its leads has spent, as of `at`.
+pub(super) async fn apply(
+    writer: &Writer<'_>,
+    change: Change,
+) -> Result<Affected> {
+    let Change::Set {
+        hire,
+        micros,
+        why,
+        by,
+    } = change;
+    match micros {
+        Some(micros) => {
+            writer
+                .execute(
+                    "INSERT INTO allowance (hire, micros, why, by, \
+                     at) VALUES (?1, ?2, ?3, ?4, ?5) ON CONFLICT \
+                     (hire) DO UPDATE SET micros = excluded.micros, \
+                     why = excluded.why, by = excluded.by, at = \
+                     excluded.at",
+                    vec![
+                        number(hire),
+                        change::integer(micros)?,
+                        why.map_or(BindParam::Null, BindParam::Text),
+                        BindParam::Text(by_name(&by)),
+                        BindParam::Integer(writer.at().0),
+                    ],
+                )
+                .await?
+        }
+        None => {
+            writer
+                .execute(
+                    "DELETE FROM allowance WHERE hire = ?1",
+                    vec![number(hire)],
+                )
+                .await?
+        }
+    };
+    Ok(Affected::seen([Part::Agents]))
+}
+
+fn by_name(by: &record::By) -> String {
+    match by {
+        record::By::Chief => "chief".to_owned(),
+        record::By::Agent(agent) => Agent(*agent).name(),
+    }
+}
+
+/// The first allowance on the way from `agent` up its leads that is
+/// spent as of `at`. A worker spends as its starter.
 pub(super) async fn over(
-    _rows: &Rows<'_>,
-    _agent: AgentNumber,
-    _at: At,
+    rows: &Rows<'_>,
+    agent: AgentNumber,
+    at: At,
 ) -> Result<Option<Budget>> {
+    let Some(first) = bounded(rows, agent).await? else {
+        return Ok(None);
+    };
+    let Some(lineage) = tree::lineage(rows, first).await? else {
+        return Ok(None);
+    };
+    let Some(hamlet) = &lineage.hamlet else {
+        return Ok(None);
+    };
+    let payer = Payer::Hamlet {
+        hamlet: hamlet.id.clone(),
+    };
+    let period = limits::budget(rows, &payer).await?.period;
+    let since = began(rows, at, period).await?;
+    for hire in std::iter::once(&lineage.agent).chain(&lineage.leads)
+    {
+        let Some(allowance_micros) = of(rows, hire.agent).await?
+        else {
+            continue;
+        };
+        let spent_micros =
+            charged(rows, hire.agent, Counted::WithAllUnder, since)
+                .await?;
+        if spent_micros >= allowance_micros {
+            return Ok(Some(Budget::OverAllowance {
+                hire: hire.agent,
+                spent_micros,
+                allowance_micros,
+            }));
+        }
+    }
     Ok(None)
+}
+
+/// The agent whose allowances bound `agent`: a worker's starter, and
+/// none for a chief's worker.
+async fn bounded(
+    rows: &Rows<'_>,
+    agent: AgentNumber,
+) -> Result<Option<AgentNumber>> {
+    let starter = rows
+        .value::<Option<u32>>(
+            "SELECT starter FROM worker WHERE agent = ?1",
+            vec![number(agent)],
+        )
+        .await?;
+    Ok(match starter {
+        Some(starter) => starter.map(AgentNumber),
+        None => Some(agent),
+    })
+}
+
+async fn of(
+    rows: &Rows<'_>,
+    hire: AgentNumber,
+) -> Result<Option<u64>> {
+    rows.value(
+        "SELECT micros FROM allowance WHERE hire = ?1",
+        vec![number(hire)],
+    )
+    .await
+}
+
+enum Counted {
+    Own,
+    /// The agent's, its living hires' down the tree, and the living
+    /// workers' of each.
+    WithAllUnder,
+}
+
+/// What `agent` and those `counted` with it were charged for model
+/// calls from `since`, a time in ms.
+async fn charged(
+    rows: &Rows<'_>,
+    agent: AgentNumber,
+    counted: Counted,
+    since: i64,
+) -> Result<u64> {
+    let agents = match counted {
+        Counted::Own => "SELECT ?1",
+        Counted::WithAllUnder => {
+            "WITH RECURSIVE under (agent) AS (SELECT ?1 UNION SELECT \
+             hire.agent FROM hire JOIN under ON hire.lead = \
+             under.agent JOIN agent ON agent.id = hire.agent WHERE \
+             agent.status != 'ended') SELECT agent FROM under UNION \
+             SELECT worker.agent FROM worker JOIN under ON \
+             worker.starter = under.agent WHERE worker.ended IS NULL"
+        }
+    };
+    rows.value(
+        &format!(
+            "SELECT COALESCE(SUM(micros), 0) FROM charge WHERE at \
+             >= ?2 AND agent IN ({agents})"
+        ),
+        vec![number(agent), BindParam::Integer(since)],
+    )
+    .await?
+    .context("the sum of the charges under an allowance")
+}
+
+/// The start of the period holding `at`, in ms.
+async fn began(
+    rows: &Rows<'_>,
+    at: At,
+    period: limits::Period,
+) -> Result<i64> {
+    let start = match period {
+        limits::Period::Day => "start of day",
+        limits::Period::Month => "start of month",
+    };
+    rows.value(
+        "SELECT CAST(strftime('%s', ?1 / 1000, 'unixepoch', \
+         'localtime', ?2, 'utc') AS INTEGER) * 1000",
+        vec![
+            BindParam::Integer(at.0),
+            BindParam::Text(start.to_owned()),
+        ],
+    )
+    .await?
+    .context("the start of a budget's period")
 }
 
 impl<By: Lead> Act<By> for SetAllowance {
     type Output = Done<By::Why<AllowanceRefusal>>;
-    type Loaded = Unbuilt;
-    type Done = Unbuilt;
+    type Loaded = Option<Lineage>;
+    type Done = ();
 
     async fn load(
         &self,
-        _by: &By,
-        _rows: &Rows<'_>,
-    ) -> Result<Unbuilt> {
-        bail!("not built yet: U8")
+        by: &By,
+        rows: &Rows<'_>,
+    ) -> Result<Option<Lineage>> {
+        tree::named(rows, by, &self.hire).await
     }
 
     fn decide(
         &self,
-        _by: &By,
-        loaded: Unbuilt,
-    ) -> Decision<Unbuilt, Self::Output> {
-        match loaded {}
+        by: &By,
+        lineage: Option<Lineage>,
+    ) -> Decision<(), Self::Output> {
+        let refuse =
+            |why| Decision::Answer(Done::refused(By::refused(why)));
+        let Some(lineage) = lineage else {
+            return refuse(AllowanceRefusal::NoSuchAgent);
+        };
+        if lineage.agent.kind != AgentKind::Hire {
+            return refuse(AllowanceRefusal::NotAHire);
+        }
+        let hire = lineage.agent.agent;
+        if let Err(not_a_lead) = by.leads(&lineage, hire) {
+            return Decision::Answer(Done::refused(not_a_lead));
+        }
+        if let Status::Ended(left) = &lineage.agent.status {
+            return refuse(AllowanceRefusal::Left {
+                hire,
+                left: left.clone(),
+            });
+        }
+        Decision::Change(Decided::new(()).change(Change::Set {
+            hire,
+            micros: self.micros.map(|micros| micros.0),
+            why: self.why.clone(),
+            by: by.by(),
+        }))
     }
 
-    fn answer(&self, done: Unbuilt, _made: &Made) -> Self::Output {
-        match done {}
+    fn answer(&self, (): (), _made: &Made) -> Self::Output {
+        Done::Done
     }
 }
 
 impl Act<Agent> for ReadBudget {
     type Output = BudgetRead<AgentRefusal<ReadBudgetRefusal>>;
-    type Loaded = Unbuilt;
-    type Done = Unbuilt;
+    type Loaded = Self::Output;
+    type Done = Self::Output;
 
     async fn load(
         &self,
-        _by: &Agent,
-        _rows: &Rows<'_>,
-    ) -> Result<Unbuilt> {
-        bail!("not built yet: U8")
+        by: &Agent,
+        rows: &Rows<'_>,
+    ) -> Result<Self::Output> {
+        let payer = match &self.task {
+            Some(task) => tasks::payer_of(rows, task).await?,
+            None => tasks::own_payer(rows, by.0).await?,
+        };
+        let Some(payer) = payer else {
+            return Ok(BudgetRead::refused(AgentRefusal::Act(
+                ReadBudgetRefusal::NoSuchTask,
+            )));
+        };
+        let spent = super::budget::spent(rows, &payer).await?;
+        let period = spent.budget.period;
+        let since = began(rows, rows.at(), period).await?;
+        Ok(BudgetRead::Budget {
+            spend: Spend {
+                payer: spent.payer,
+                spent_micros: spent.micros,
+                budget_micros: spent.budget.micros,
+                spent_ms: spent.took_ms,
+                budget_ms: spent.budget.ms,
+            },
+            period: match period {
+                limits::Period::Day => budget::Period::Day,
+                limits::Period::Month => budget::Period::Month,
+            },
+            own_micros: charged(rows, by.0, Counted::Own, since)
+                .await?,
+            allowance_micros: of(rows, by.0).await?,
+        })
     }
 
     fn decide(
         &self,
         _by: &Agent,
-        loaded: Unbuilt,
-    ) -> Decision<Unbuilt, Self::Output> {
-        match loaded {}
+        read: Self::Output,
+    ) -> Decision<Self::Output, Self::Output> {
+        Decision::Answer(read)
     }
 
-    fn answer(&self, done: Unbuilt, _made: &Made) -> Self::Output {
-        match done {}
+    fn answer(
+        &self,
+        read: Self::Output,
+        _made: &Made,
+    ) -> Self::Output {
+        read
     }
 }
