@@ -515,32 +515,51 @@ impl Realm {
         read: impl FnOnce(&Connection) -> rusqlite::Result<T>,
     ) -> T {
         let realm = address::Realm.address().unwrap();
-        stopped_read(&self.host, &self.scratch, &realm, read)
-            .await
-            .unwrap()
+        stopped_open(
+            &self.host,
+            &self.scratch,
+            &realm,
+            OpenFlags::SQLITE_OPEN_READ_ONLY,
+            read,
+        )
+        .await
+        .unwrap()
+    }
+
+    /// Runs `sql` on the realm's file, which starts the realm again
+    /// as a stopped read does.
+    async fn write(&self, sql: &str) {
+        let realm = address::Realm.address().unwrap();
+        stopped_open(
+            &self.host,
+            &self.scratch,
+            &realm,
+            OpenFlags::default(),
+            |db| db.execute_batch(sql),
+        )
+        .await
+        .unwrap();
     }
 }
 
-/// Reads the file of the actor at `at`. The host holds the file
-/// locked while the actor runs, so the read stops the actor and
+/// Opens the file of the actor at `at` with `flags`. The host holds
+/// the file locked while the actor runs, so this stops the actor and
 /// starts it again.
-async fn stopped_read<T>(
+async fn stopped_open<T>(
     host: &Host,
     dir: &Path,
     at: &Address,
-    read: impl FnOnce(&Connection) -> rusqlite::Result<T>,
+    flags: OpenFlags,
+    open: impl FnOnce(&Connection) -> rusqlite::Result<T>,
 ) -> anyhow::Result<T> {
     host.stop(at, ShutdownKind::Sleep).await?;
     let file = dir
         .join("actors")
         .join(at.kind())
         .join(format!("{}.sqlite", at.key()));
-    let read = read(&Connection::open_with_flags(
-        file,
-        OpenFlags::SQLITE_OPEN_READ_ONLY,
-    )?);
+    let opened = open(&Connection::open_with_flags(file, flags)?);
     host.get_or_start(at).await?;
-    Ok(read?)
+    Ok(opened?)
 }
 
 async fn call<A: Action>(
@@ -683,13 +702,19 @@ async fn a_stopped_read_opens_the_file_and_starts_the_actor_again() {
     let host = open(&scratch, &seen, None).await;
     let workspace = address::Workspace.address().unwrap();
 
-    let tables = stopped_read(&host, &scratch, &workspace, |db| {
-        db.query_row(
-            "SELECT count(*) FROM sqlite_master",
-            [],
-            |row| row.get::<_, i64>(0),
-        )
-    })
+    let tables = stopped_open(
+        &host,
+        &scratch,
+        &workspace,
+        OpenFlags::SQLITE_OPEN_READ_ONLY,
+        |db| {
+            db.query_row(
+                "SELECT count(*) FROM sqlite_master",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+        },
+    )
     .await
     .unwrap();
 

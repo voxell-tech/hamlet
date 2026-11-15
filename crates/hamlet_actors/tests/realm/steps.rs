@@ -216,3 +216,76 @@ async fn every_step_twice_leaves_one_hire() {
         realm.host.shutdown().await.unwrap();
     }
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_step_done_again_leaves_one_hire() {
+    // found; live(2); set its row back to before each step in turn,
+    // with the agent hiring; each run ends with one live hire, one
+    // agent made and its reach in force.
+    let realm = Realm::start().await;
+    realm.live(Hand::NUMBER).await;
+    realm
+        .ask(&Asked {
+            id: RequestId::new(),
+            act: found("Mill"),
+        })
+        .await
+        .unwrap();
+    realm.live(MAYOR).await;
+
+    for done in [
+        "NULL",
+        "'profile'",
+        "'branch'",
+        "'create'",
+        "'fill'",
+        "'reach'",
+    ] {
+        realm
+            .write(&format!(
+                "UPDATE step SET done = {done}, closed = 0 WHERE \
+                 kind = 'hire' AND n = 2; UPDATE agent SET status = \
+                 'hiring' WHERE id = 2;"
+            ))
+            .await;
+        realm.live(MAYOR).await;
+        let (agents, hires, (status, wanted, applied)) = realm
+            .rows(|db| {
+                let count = |table: &str| {
+                    db.query_row(
+                        &format!("SELECT COUNT(*) FROM {table}"),
+                        [],
+                        |row| row.get::<_, i64>(0),
+                    )
+                };
+                let mayor = db.query_row(
+                    "SELECT agent.status, reach.wanted, \
+                     reach.applied FROM agent JOIN reach ON \
+                     reach.agent = agent.id WHERE agent.id = 2",
+                    [],
+                    |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, i64>(1)?,
+                            row.get::<_, Option<i64>>(2)?,
+                        ))
+                    },
+                )?;
+                Ok((count("agent")?, count("hire")?, mayor))
+            })
+            .await;
+
+        assert_eq!(
+            (
+                agents,
+                hires,
+                status.as_str(),
+                hire_seen(&realm).made.len()
+            ),
+            (2, 1, "live", 1),
+            "set back to {done}"
+        );
+        assert_eq!(Some(wanted), applied, "set back to {done}");
+    }
+    realm.host.shutdown().await.unwrap();
+}
