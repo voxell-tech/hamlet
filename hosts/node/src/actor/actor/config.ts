@@ -7,6 +7,7 @@ import type {
 import type { UniversalWebSocket } from "../common/websocket-interface.ts";
 import type { WorkflowState } from "../inspector/workflow.ts";
 import { flattenActionHandlers } from "./actions.ts";
+import type { ActionCaller, ContextCalls } from "./calls.ts";
 import type { BaseActorDefinition } from "./definition.ts";
 import type {
     EventSchemaConfig,
@@ -38,7 +39,6 @@ export interface ActorLogger {
     info: any;
     warn: any;
     error: any;
-    [key: string]: any;
 }
 
 type ActorKvValueType = "text" | "arrayBuffer" | "binary";
@@ -102,7 +102,6 @@ export interface ActorKv {
         prefix: Uint8Array | string,
         options?: ActorKvListOptions<T, K>,
     ): Promise<Array<[ActorKvKeyTypeMap[K], ActorKvValueTypeMap[T]]>>;
-    [key: string]: any;
 }
 
 /** One individual actor fork behind an actor, as `c.forkChain` lists it. */
@@ -133,8 +132,11 @@ export interface ActorSchedule {
     at(timestamp: number, action: string, ...args: unknown[]): Promise<string>;
     cancel(id: string): Promise<boolean>;
     get(id: string): Promise<ScheduledEventInfo | undefined>;
+    /**
+     * The events still to fire. An event this run of the actor has taken to
+     * fire is left out, the one whose action is running among them.
+     */
     list(): Promise<ScheduledEventInfo[]>;
-    [key: string]: any;
 }
 
 export interface ActorCronSetOptions {
@@ -164,7 +166,6 @@ export interface ActorCron {
     list(): Promise<CronJobInfo[]>;
     delete(name: string): Promise<boolean>;
     history(name: string, options?: { limit?: number }): Promise<CronFire[]>;
-    [key: string]: any;
 }
 
 export interface ScheduledEventInfo {
@@ -377,7 +378,6 @@ export interface ActorQueue<
         const TName extends QueueFilterName<TQueues>,
         const TCompletable extends boolean = false,
     >(opts?: QueueIterOptions<TName, TCompletable>): AsyncIterable<any>;
-    [key: string]: any;
 }
 
 export interface Conn<
@@ -397,7 +397,6 @@ export interface Conn<
     isHibernatable: boolean;
     send(name: string, ...args: any[]): void;
     disconnect(reason?: string): Promise<void>;
-    [key: string]: any;
 }
 
 export type AnyConn = Conn<any, any, any, any, any, any, any, any>;
@@ -411,7 +410,7 @@ export interface ActorContext<
     TDatabase extends AnyDatabaseProvider,
     TEvents extends EventSchemaConfig = Record<never, never>,
     TQueues extends QueueSchemaConfig = Record<never, never>,
-> {
+> extends ContextCalls {
     [ACTOR_CONTEXT_INTERNAL_SYMBOL]?: unknown;
     /** Returns the raw unwrapped state without the write-through proxy. */
     [RAW_STATE_SYMBOL](): TState;
@@ -470,7 +469,6 @@ export interface ActorContext<
     setPreventSleep(preventSleep: boolean): void;
     sleep(): void;
     destroy(): void;
-    [key: string]: any;
 }
 
 /** @experimental How one run of a workflow function ended. */
@@ -551,7 +549,7 @@ export type ActionContext<
         TEvents,
         TQueues
     >;
-};
+} & ActionCaller;
 
 export type BeforeActionResponseContext<
     TState,

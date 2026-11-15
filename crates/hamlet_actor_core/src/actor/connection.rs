@@ -318,10 +318,6 @@ impl ConnHandle {
         handler(reason.map(str::to_owned)).await
     }
 
-    #[expect(
-        dead_code,
-        reason = "ported; nothing in Hamlet calls it yet"
-    )]
     pub(crate) fn configure_event_sender(
         &self,
         event_sender: Option<EventSendCallback>,
@@ -336,13 +332,6 @@ impl ConnHandle {
         *self.0.disconnect_handler.write() = disconnect_handler;
     }
 
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "ported; nothing in Hamlet calls it yet"
-        )
-    )]
     pub(crate) fn configure_transport_disconnect_handler(
         &self,
         disconnect_handler: Option<DisconnectCallback>,

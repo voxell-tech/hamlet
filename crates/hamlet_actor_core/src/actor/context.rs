@@ -1580,6 +1580,12 @@ impl ActorContext {
         self.configure_schedule_envoy(envoy_handle, generation);
     }
 
+    /// The host that runs this actor, from before `create` on. A host
+    /// downcasts it to its own type to reach what it holds.
+    pub fn host(&self) -> Option<EnvoyHandle> {
+        self.sleep_envoy_handle()
+    }
+
     pub(crate) async fn connect_conn<F>(
         &self,
         params: Vec<u8>,
@@ -1605,10 +1611,6 @@ impl ActorContext {
         Ok(conn)
     }
 
-    #[expect(
-        dead_code,
-        reason = "ported; nothing in Hamlet calls it yet"
-    )]
     pub(crate) async fn connect_conn_with_prepare<F, P>(
         &self,
         params: Vec<u8>,
@@ -2467,6 +2469,8 @@ impl ActorContext {
         let action = dispatch.action;
         let args = dispatch.args;
         let scheduled_fire = dispatch.fire;
+        let one_shot = scheduled_fire.kind
+            == crate::actor::schedule::ScheduleKind::At;
         let recurring_name = scheduled_fire.name.clone();
         let history_id = dispatch.history_id;
         let internal_keep_awake_region =
@@ -2484,8 +2488,14 @@ impl ActorContext {
 			);
 			let invocation_telemetry = invocation.telemetry();
 			let (reply_tx, reply_rx) = oneshot::channel();
+			let cut_off = Arc::new(AtomicBool::new(false));
+			let reply = Reply::from(reply_tx).on_cut_off({
+				let cut_off = Arc::clone(&cut_off);
+				move || cut_off.store(true, Ordering::SeqCst)
+			});
 
 			let mut dispatch_error = None;
+			let mut replied = false;
 			match ctx.try_send_actor_event(
 				ActorEvent::Action {
 					name: action.clone(),
@@ -2493,13 +2503,14 @@ impl ActorContext {
 					conn: None,
 					scheduled_fire: Some(scheduled_fire),
 					invocation_telemetry: Some(invocation_telemetry),
-					reply: Reply::from(reply_tx),
+					reply,
 				},
 				"scheduled_action",
 			) {
 				Ok(()) => match reply_rx.await {
-					Ok(Ok(_)) => {}
+					Ok(Ok(_)) => replied = true,
 					Ok(Err(error)) => {
+						replied = true;
 						dispatch_error = Some(error);
 						tracing::error!(
 							error = ?dispatch_error.as_ref().expect("just assigned"),
@@ -2532,6 +2543,11 @@ impl ActorContext {
 
 			ctx.finish_schedule_dispatch(&event_id, history_id, dispatch_error.as_ref())
 				.await;
+			if one_shot {
+				let answered = replied && !cut_off.load(Ordering::SeqCst);
+				ctx.finish_one_shot_dispatch(&event_id, answered, dispatch_error.as_ref())
+					.await;
+			}
 			if let (Some(name), Some(error)) = (recurring_name, dispatch_error.as_ref()) {
 				let structured = hamlet_actor_error::ActorError::extract(error);
 				if structured.group() == "actor" && structured.code() == "action_not_found"

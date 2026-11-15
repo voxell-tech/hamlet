@@ -49,7 +49,8 @@ _Avoid_: blank scholar, temp hire
 How a chief or an agent names an agent or a scholar, by ids and never by a
 name: `hand`, `mayor@<hamlet>` (by the hamlet's id), `hire#<id>`,
 `worker#<id>`, `scholar#<id>`. Wherever an agent is shown, its address comes
-first and its name beside it.
+first and its name beside it. An actor's address is another thing: its
+kind and its key.
 _Avoid_: handle, username
 
 **Name**:
@@ -164,8 +165,14 @@ _Avoid_: team, project, town
 
 **Workspace**:
 Where agents' tools run: this machine, or a remote one the chief chooses in
-Settings.
+Settings. On the actor host it is one actor per machine.
 _Avoid_: sandbox, lodge
+
+**Reach**:
+What one agent's tool calls may touch on a machine, and which of them
+wait for a chief: the folder its hamlet works on and its mode, the
+network, and trust. Only the realm sets it, each time as a newer version.
+_Avoid_: permissions
 
 **Sandbox**:
 What holds an agent's commands to the reach the spec gives them, on the
@@ -216,6 +223,39 @@ _Avoid_: receipt
 A step the server has recorded to do after a change and runs on a thread of
 its own, so a crash loses none.
 _Avoid_: task (a task is an agent's work)
+
+### Actors
+
+**Actor runtime**:
+What runs actors: the `hamlet_actor` and `hamlet_actor_*` crates,
+`hamlet_host`, the host that runs them in one process, and
+`hamlet_address`, an actor's address.
+_Avoid_: runtime (a runtime is one running harness)
+
+**Actor**:
+One instance of an actor kind, found by its kind and its key, with its
+state in a file of its own. A kind and a key take only lower-case
+letters, digits, `-`, `_` and `.`, and do not start with `.`. Not the
+chief, agent or realm that makes a change, which the store's code calls
+`Actor`.
+
+**Call**:
+An actor's action run for its caller, which the host stamps on it:
+another actor, a client, or none for the program that opened the host.
+A call made for a task carries that task in its own message. A call
+never makes its actor.
+
+**Subscription**:
+A client's following of one event of an actor: each broadcast of the
+event, in order, until the actor closes it or stops. Events a slow
+reader or a lost link misses are not kept; a gap in their place tells
+the reader to read the actor's state again.
+
+**Set-aside timer**:
+An actor's one-shot timer that used up its tries without its handler's
+reply. The actor keeps it, and nothing runs it again until a re-arm puts
+it back. The actor's destroy removes it.
+_Avoid_: dead letter (a letter is what one agent sends another)
 
 ### Between agents
 

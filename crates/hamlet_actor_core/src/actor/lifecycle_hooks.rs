@@ -1,4 +1,6 @@
 // This file was changed for Hamlet. See NOTICE in this crate.
+use std::cell::Cell;
+
 use anyhow::Result;
 use tokio::sync::{mpsc, oneshot};
 
@@ -10,6 +12,7 @@ use crate::actor::messages::ActorEvent;
 pub struct Reply<T> {
     tx: Option<oneshot::Sender<Result<T>>>,
     on_reply: Option<Box<dyn FnOnce(&Result<T>) + Send>>,
+    on_cut_off: Option<Box<dyn FnOnce() + Send>>,
 }
 
 impl<T> Reply<T> {
@@ -24,8 +27,32 @@ impl<T> Reply<T> {
         self
     }
 
+    /// Runs `on_cut_off` just before the reply is answered for a
+    /// handler that did not run to its end: by [`Reply::cut_off`], or
+    /// by a drop with no panic of the handler's to report.
+    pub(crate) fn on_cut_off(
+        mut self,
+        on_cut_off: impl FnOnce() + Send + 'static,
+    ) -> Self {
+        self.on_cut_off = Some(Box::new(on_cut_off));
+        self
+    }
+
     pub fn send(mut self, result: Result<T>) {
         self.deliver(result);
+    }
+
+    /// Answers `error` for a handler that was cut off before its end,
+    /// as by its actor's stop.
+    pub fn cut_off(mut self, error: anyhow::Error) {
+        self.cut();
+        self.deliver(Err(error));
+    }
+
+    fn cut(&mut self) {
+        if let Some(on_cut_off) = self.on_cut_off.take() {
+            on_cut_off();
+        }
     }
 
     /// Runs cancellation-safe work and replies with its result. If
@@ -56,12 +83,34 @@ impl<T> Reply<T> {
     }
 }
 
+/// A reply dropped unsent answers `actor.dropped_reply`, as a cut-off
+/// of its handler, or `actor.panicked` when the thread that drops it
+/// is unwinding from a panic. A handler that panics in the task
+/// holding its reply, as each action of the authoring layer does,
+/// drops the reply that way, so the panic reads as the handler's
+/// outcome, like an error it returned, and a one-shot it ran is not
+/// kept to run again.
+///
+/// A panic in an actor's event loop answers each reply the loop
+/// received as panicked. A reply still queued in the loop's channel
+/// never reached the actor's code, so [`ActorEvents`]' drop answers
+/// it `actor.dropped_reply`, and its one-shot is kept. A panic in
+/// another task than the reply's leaves the reply's holder to answer
+/// it.
 impl<T> Drop for Reply<T> {
     fn drop(&mut self) {
         if self.tx.is_some() {
-            self.deliver(Err(
-                crate::error::ActorLifecycle::DroppedReply.build(),
-            ));
+            let error =
+                if std::thread::panicking() && !UNREACHED.get() {
+                    crate::error::ActorRuntime::Panicked {
+                        operation: "a handler".to_owned(),
+                    }
+                    .build()
+                } else {
+                    self.cut();
+                    crate::error::ActorLifecycle::DroppedReply.build()
+                };
+            self.deliver(Err(error));
         }
     }
 }
@@ -82,6 +131,7 @@ impl<T> From<oneshot::Sender<Result<T>>> for Reply<T> {
         Self {
             tx: Some(tx),
             on_reply: None,
+            on_cut_off: None,
         }
     }
 }
@@ -121,6 +171,47 @@ impl ActorEvents {
             );
         }
         event
+    }
+}
+
+thread_local! {
+    /// Set while [`ActorEvents`]' drop drops the events still queued
+    /// in its channel, which never reached the actor's code.
+    static UNREACHED: Cell<bool> = const { Cell::new(false) };
+}
+
+/// Closes the channel and drops the events still queued in it. A
+/// reply among them answers `actor.dropped_reply`, also while a panic
+/// of the loop that held the channel unwinds: the panic was not
+/// theirs.
+///
+/// The drain goes on until the channel reports it is disconnected, as
+/// tokio's `close` asks. Until then a send that began before the
+/// close has yet to land, and the channel reads empty, so the drain
+/// yields to let it land. Stopping at empty would leave its event to
+/// drop after the drain, as panicked, or to wait in the channel
+/// unanswered.
+impl Drop for ActorEvents {
+    fn drop(&mut self) {
+        /// Clears [`UNREACHED`] however the drain ends.
+        struct Reached;
+        impl Drop for Reached {
+            fn drop(&mut self) {
+                UNREACHED.set(false);
+            }
+        }
+        self.inner.close();
+        UNREACHED.set(true);
+        let _reached = Reached;
+        loop {
+            match self.inner.try_recv() {
+                Ok(event) => drop(event),
+                Err(mpsc::error::TryRecvError::Empty) => {
+                    std::thread::yield_now();
+                }
+                Err(mpsc::error::TryRecvError::Disconnected) => break,
+            }
+        }
     }
 }
 

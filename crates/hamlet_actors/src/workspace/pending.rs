@@ -1,0 +1,609 @@
+//! Calls that wait for a chief (H11, H34). A call the gate says needs
+//! one keeps its row in `calls`, `waiting`, and what it runs if a
+//! chief allows it in `waits`, both in one transaction. After the
+//! commit the realm is told, and it asks a chief. The answer comes
+//! back by a call from the realm, which checks the call again against
+//! the reach in force before it runs.
+//!
+//! A wait stays through a restart, and nothing of it ran. Nothing
+//! calls again when a call on either way is cut off: the wait stays,
+//! and a repeat of the call answers that it waits.
+
+use std::sync::Arc;
+
+use anyhow::{Context, Result, bail};
+use hamlet_actor::{Ctx, Handler};
+use hamlet_actor_core::{BindParam, ColumnValue, SqliteTransaction};
+use hamlet_host::HostRef;
+use hamlet_messages::address::Realm;
+use hamlet_messages::agent::Outcome;
+use hamlet_messages::realm::NeedsChief;
+use hamlet_messages::sender::sender;
+use hamlet_messages::workspace::files::{
+    ChangeEnd, EditDiff, EditFile, Hashed, WriteFile,
+};
+use hamlet_messages::workspace::reach::{Need, Reach};
+use hamlet_messages::workspace::refusal::{
+    CallRefusal, ChangeNotRun, ReachChanged, RunNotRun, WaitEnd,
+};
+use hamlet_messages::workspace::{
+    AgentNumber, Answer, AnswerTaken, CallId, ChiefAnswer,
+    ReachVersion, Run, RunEnd,
+};
+use hamlet_sandbox::scrub::scrub_text;
+
+use super::files::{EDIT, WRITE};
+use super::reach::{self, Gate, Network, Op, Refused};
+use super::{
+    CALL_WITHIN, Weighing, Workspace, call, calls, read_only, run,
+    tell, transact_if,
+};
+
+/// One row per call that waits for a chief, beside its `calls` row.
+/// `request` is the call's own request, the only place a call's text
+/// is kept; `base_hash` is what the file held, for a change.
+pub(super) const SCHEMA: &str = "CREATE TABLE IF NOT EXISTS waits (
+	agent INTEGER NOT NULL,
+	call TEXT NOT NULL,
+	needs BLOB NOT NULL,
+	request BLOB NOT NULL,
+	reach_version INTEGER NOT NULL,
+	base_hash BLOB,
+	PRIMARY KEY (agent, call)) STRICT";
+
+/// The request a waiting call runs if a chief allows it: its own,
+/// never what the workspace read for it.
+#[derive(Clone, Debug)]
+pub(super) enum Pending {
+    Run(Run),
+    Write(WriteFile),
+    Edit(EditFile),
+}
+
+impl Pending {
+    fn op(&self) -> &'static str {
+        match self {
+            Self::Run(_) => run::OP,
+            Self::Write(_) => WRITE,
+            Self::Edit(_) => EDIT,
+        }
+    }
+
+    fn cbor(&self) -> Result<Vec<u8>> {
+        match self {
+            Self::Run(run) => calls::cbor(run),
+            Self::Write(write) => calls::cbor(write),
+            Self::Edit(edit) => calls::cbor(edit),
+        }
+    }
+
+    fn read(op: &str, bytes: &[u8]) -> Result<Self> {
+        Ok(match op {
+            run::OP => Self::Run(ciborium::from_reader(bytes)?),
+            WRITE => Self::Write(ciborium::from_reader(bytes)?),
+            EDIT => Self::Edit(ciborium::from_reader(bytes)?),
+            _ => bail!("a wait of the op {op}"),
+        })
+    }
+}
+
+/// A wait as it is stored.
+pub(super) struct Wait {
+    pub agent: AgentNumber,
+    pub call: CallId,
+    pub needs: Vec<Need>,
+    pub request: Pending,
+    pub reach_version: ReachVersion,
+    pub base_hash: Option<Hashed>,
+}
+
+/// A wait to open, and what the realm is told of it.
+pub(super) struct Opening {
+    pub agent: AgentNumber,
+    pub request_hash: Vec<u8>,
+    pub needs: Vec<Need>,
+    pub request: Pending,
+    pub reach_version: ReachVersion,
+    pub base_hash: Option<Hashed>,
+    /// The call in words, before the secrets are taken out.
+    pub words: String,
+    /// An edit's change, before the secrets are taken out.
+    pub change: Option<EditDiff>,
+}
+
+/// Opens the wait of `opening` in `tx`, or refuses it when its
+/// request holds one of `secrets`, which is never stored.
+/// Returns what the realm is told once `tx` commits.
+pub(super) async fn open(
+    tx: &SqliteTransaction,
+    secrets: &[String],
+    opening: Opening,
+) -> Result<Result<NeedsChief, CallRefusal>> {
+    let (call, conversation, realm_task) = match &opening.request {
+        Pending::Run(Run {
+            call,
+            conversation,
+            realm_task,
+            ..
+        })
+        | Pending::Write(WriteFile {
+            call,
+            conversation,
+            realm_task,
+            ..
+        })
+        | Pending::Edit(EditFile {
+            call,
+            conversation,
+            realm_task,
+            ..
+        }) => {
+            (call.clone(), conversation.clone(), realm_task.clone())
+        }
+    };
+    let request = opening.request.cbor()?;
+    if holds_a_secret(secrets, &request) {
+        tracing::warn!(
+            agent = opening.agent.0,
+            call = call.0,
+            "refused to keep a call that waits for a chief: it \
+             holds one of the realm's secrets"
+        );
+        return Ok(Err(CallRefusal::HoldsSecret));
+    }
+    let scrub = |words: &str| scrub_text(secrets, words);
+    let subject = scrub(&opening.words);
+    let change = opening.change.map(|change| EditDiff {
+        diff: scrub(&change.diff),
+        patch: scrub(&change.patch),
+        ..change
+    });
+    let row = calls::insert(
+        tx,
+        opening.agent,
+        &call,
+        opening.request.op(),
+        opening.request_hash,
+        "waiting",
+        Some(calls::cbor(&opening.needs)?),
+        None,
+    )
+    .await?;
+    if let Pending::Run(_) = opening.request {
+        run::command_id(row)?;
+    }
+    tx.execute(
+        "INSERT INTO waits (agent, call, needs, request, \
+         reach_version, base_hash) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        Some(vec![
+            BindParam::Integer(i64::from(opening.agent.0)),
+            BindParam::Text(call.0.clone()),
+            BindParam::Blob(calls::cbor(&opening.needs)?),
+            BindParam::Blob(request),
+            BindParam::Integer(i64::try_from(
+                opening.reach_version.0,
+            )?),
+            match &opening.base_hash {
+                Some(hash) => BindParam::Blob(calls::cbor(hash)?),
+                None => BindParam::Null,
+            },
+        ]),
+    )
+    .await?;
+    Ok(Ok(NeedsChief {
+        agent: opening.agent,
+        call,
+        conversation,
+        realm_task,
+        needs: opening.needs,
+        subject,
+        change,
+        reach_version: opening.reach_version,
+    }))
+}
+
+/// Whether `request`, as encoded, holds any of `secrets`. A text is
+/// kept whole in its encoding, so a secret in any of its fields is
+/// found.
+fn holds_a_secret(secrets: &[String], request: &[u8]) -> bool {
+    secrets.iter().any(|secret| {
+        !secret.is_empty()
+            && request
+                .windows(secret.len())
+                .any(|window| window == secret.as_bytes())
+    })
+}
+
+/// The wait of `agent`'s call `call`, in `tx`.
+pub(super) async fn find(
+    tx: &SqliteTransaction,
+    agent: AgentNumber,
+    call: &CallId,
+) -> Result<Option<Wait>> {
+    let read = tx
+        .execute(
+            "SELECT calls.op, needs, request, reach_version, \
+             base_hash FROM waits JOIN calls USING (agent, call) \
+             WHERE agent = ?1 AND call = ?2",
+            Some(vec![
+                BindParam::Integer(i64::from(agent.0)),
+                BindParam::Text(call.0.clone()),
+            ]),
+        )
+        .await?;
+    let Some(row) = read.rows.first() else {
+        return Ok(None);
+    };
+    let [
+        ColumnValue::Text(op),
+        ColumnValue::Blob(needs),
+        ColumnValue::Blob(request),
+        ColumnValue::Integer(reach_version),
+        base_hash,
+    ] = row.as_slice()
+    else {
+        bail!("a wait's row has another shape: {row:?}");
+    };
+    Ok(Some(Wait {
+        agent,
+        call: call.clone(),
+        needs: ciborium::from_reader(needs.as_slice())?,
+        request: Pending::read(op, request)?,
+        reach_version: ReachVersion(u64::try_from(*reach_version)?),
+        base_hash: match base_hash {
+            ColumnValue::Blob(hash) => {
+                Some(ciborium::from_reader(hash.as_slice())?)
+            }
+            _ => None,
+        },
+    }))
+}
+
+pub(super) async fn settled(
+    ctx: &Ctx<Workspace>,
+    wait: &Wait,
+    state: &str,
+    answer: Option<Vec<u8>>,
+    temp: Option<&str>,
+) -> Result<Option<i64>> {
+    let settled = transact_if(ctx, async |tx| {
+        Ok(settle(tx, wait, state, answer, temp).await?.ok_or(()))
+    })
+    .await?;
+    Ok(settled.ok())
+}
+
+/// Ends `wait` in `tx`: removes it, and sets its call's row to
+/// `state` with `answer` and `temp`. Returns the row's id, or `None`
+/// when another answer ended the wait first.
+pub(super) async fn settle(
+    tx: &SqliteTransaction,
+    wait: &Wait,
+    state: &str,
+    answer: Option<Vec<u8>>,
+    temp: Option<&str>,
+) -> Result<Option<i64>> {
+    let agent = BindParam::Integer(i64::from(wait.agent.0));
+    let call = BindParam::Text(wait.call.0.clone());
+    let removed = tx
+        .execute(
+            "DELETE FROM waits WHERE agent = ?1 AND call = ?2",
+            Some(vec![agent.clone(), call.clone()]),
+        )
+        .await?;
+    if removed.changes != 1 {
+        return Ok(None);
+    }
+    let ended_at = match state {
+        "refused" | "ended" => BindParam::Integer(calls::now_ms()?),
+        _ => BindParam::Null,
+    };
+    let updated = tx
+        .execute(
+            "UPDATE calls SET state = ?3, answer = ?4, temp = ?5, \
+             ended_at = ?6 WHERE agent = ?1 AND call = ?2 AND state \
+             = 'waiting' RETURNING id",
+            Some(vec![
+                agent,
+                call,
+                BindParam::Text(state.to_owned()),
+                answer.map_or(BindParam::Null, BindParam::Blob),
+                temp.map_or(BindParam::Null, |temp| {
+                    BindParam::Text(temp.to_owned())
+                }),
+                ended_at,
+            ]),
+        )
+        .await?;
+    match updated.rows.first().map(Vec::as_slice) {
+        Some([ColumnValue::Integer(id)]) => Ok(Some(*id)),
+        _ => bail!(
+            "agent {}'s call {} waited with no waiting row",
+            wait.agent.0,
+            wait.call.0
+        ),
+    }
+}
+
+pub(super) enum NotRun {
+    Run(RunNotRun),
+    Change(ChangeNotRun),
+}
+
+impl NotRun {
+    fn of(op: &str, why: WaitEnd) -> Result<Self> {
+        Ok(match op {
+            run::OP => Self::Run(why.into()),
+            WRITE | EDIT => Self::Change(why.into()),
+            other => bail!("a call of the op {other} waited"),
+        })
+    }
+
+    fn stored(&self) -> Result<Vec<u8>> {
+        match self {
+            Self::Run(why) => calls::cbor(why),
+            Self::Change(why) => calls::cbor(why),
+        }
+    }
+
+    pub(super) fn outcome(&self) -> Outcome {
+        match self {
+            Self::Run(why) => Outcome::Run {
+                end: RunEnd::NotRun { why: why.clone() },
+            },
+            Self::Change(why) => Outcome::Change {
+                end: ChangeEnd::NotRun { why: why.clone() },
+            },
+        }
+    }
+
+    fn taken(self) -> AnswerTaken {
+        match self {
+            Self::Run(why) => AnswerTaken::RunNotRun { why },
+            Self::Change(why) => AnswerTaken::ChangeNotRun { why },
+        }
+    }
+}
+
+/// Ends every wait of `agent` with `why` in `tx`, as when its reach
+/// ended: a chief's answer that comes after finds no wait. Returns
+/// the calls whose waits it ended, each with why by its kind.
+pub(super) async fn close(
+    tx: &SqliteTransaction,
+    agent: AgentNumber,
+    why: &WaitEnd,
+) -> Result<Vec<(CallId, NotRun)>> {
+    let agent = BindParam::Integer(i64::from(agent.0));
+    tx.execute(
+        "DELETE FROM waits WHERE agent = ?1",
+        Some(vec![agent.clone()]),
+    )
+    .await?;
+    let closed = tx
+        .execute(
+            "UPDATE calls SET state = 'refused', answer = ?2, \
+             ended_at = ?3 WHERE agent = ?1 AND state = 'waiting' \
+             RETURNING call, op",
+            Some(vec![
+                agent,
+                BindParam::Blob(calls::cbor(why)?),
+                BindParam::Integer(calls::now_ms()?),
+            ]),
+        )
+        .await?;
+    closed
+        .rows
+        .iter()
+        .map(|row| match row.as_slice() {
+            [ColumnValue::Text(call), ColumnValue::Text(op)] => Ok((
+                CallId(call.clone()),
+                NotRun::of(op, why.clone())?,
+            )),
+            other => bail!("a closed call's row is {other:?}"),
+        })
+        .collect()
+}
+
+pub(super) enum Rechecked {
+    Pass {
+        reach: Reach,
+        network: Network,
+        secrets: Arc<Vec<String>>,
+    },
+    Changed(ReachChanged<Refused>),
+}
+
+pub(super) fn changed<G>(
+    changed: ReachChanged<Refused>,
+    why: impl FnOnce(Refused) -> Result<G>,
+) -> Result<ReachChanged<G>> {
+    Ok(match changed {
+        ReachChanged::ReachRefuses {
+            since,
+            now,
+            why: refused,
+        } => ReachChanged::ReachRefuses {
+            since,
+            now,
+            why: why(refused)?,
+        },
+        ReachChanged::ReachNeeds { since, now, needs } => {
+            ReachChanged::ReachNeeds { since, now, needs }
+        }
+    })
+}
+
+impl Workspace {
+    /// Tells the realm that a call waits for a chief. A failure is
+    /// logged and the wait stays.
+    pub(super) async fn ask_chief(
+        &self,
+        ctx: &Ctx<Self>,
+        notice: NeedsChief,
+    ) {
+        let (agent, id) = (notice.agent, notice.call.clone());
+        let asked = async {
+            call(
+                &HostRef::of(ctx.inner())?,
+                &Realm,
+                &notice,
+                CALL_WITHIN,
+            )
+            .await
+        };
+        if let Err(error) = asked.await {
+            tracing::warn!(
+                ?error,
+                agent = agent.0,
+                call = id.0,
+                "the realm was not told that a call waits for a \
+                 chief"
+            );
+        }
+    }
+
+    /// Ends `wait` with `why`, and calls its agent with it.
+    pub(super) async fn not_run(
+        &self,
+        ctx: &Ctx<Self>,
+        wait: &Wait,
+        why: NotRun,
+    ) -> Result<AnswerTaken> {
+        let answer = Some(why.stored()?);
+        if settled(ctx, wait, "refused", answer, None)
+            .await?
+            .is_none()
+        {
+            return Ok(AnswerTaken::NoWait);
+        }
+        tell(ctx, wait.agent, wait.call.clone(), why.outcome()).await;
+        Ok(why.taken())
+    }
+
+    /// Weighs `wait`, which a chief allowed, again under the reach in
+    /// force (S18): it runs only what the chief was asked about.
+    pub(super) async fn recheck(
+        &self,
+        ctx: &Ctx<Self>,
+        wait: &Wait,
+        op: &Op<'_>,
+    ) -> Result<Rechecked> {
+        self.weighed(ctx, move || async move {
+            let in_force = read_only(ctx, async |tx| {
+                reach::in_force(tx, wait.agent).await
+            })
+            .await?;
+            let (now, reach) = in_force
+                .context("a call waits for an agent with no reach")?;
+            let (held, secrets) = self.held();
+            let since = wait.reach_version;
+            Ok(Weighing::Done(
+                match reach::gate(
+                    &self.home,
+                    wait.agent,
+                    Some(&reach),
+                    held,
+                    op,
+                ) {
+                    Gate::NeedsSecrets(version) => {
+                        return Ok(Weighing::NeedsSecrets(version));
+                    }
+                    Gate::Run { network } => Rechecked::Pass {
+                        reach,
+                        network,
+                        secrets,
+                    },
+                    Gate::NeedsChief(needs)
+                        if needs.iter().all(|need| {
+                            wait.needs.contains(need)
+                        }) =>
+                    {
+                        let network = if needs
+                            .contains(&Need::Network)
+                            || reach.footing().is_some_and(
+                                |footing| footing.network,
+                            ) {
+                            Network::On
+                        } else {
+                            Network::Off
+                        };
+                        Rechecked::Pass {
+                            reach,
+                            network,
+                            secrets,
+                        }
+                    }
+                    Gate::NeedsChief(needs) => {
+                        Rechecked::Changed(ReachChanged::ReachNeeds {
+                            since,
+                            now,
+                            needs,
+                        })
+                    }
+                    Gate::Refuse(why) => Rechecked::Changed(
+                        ReachChanged::ReachRefuses {
+                            since,
+                            now,
+                            why,
+                        },
+                    ),
+                },
+            ))
+        })
+        .await
+    }
+}
+
+impl Handler<ChiefAnswer> for Workspace {
+    async fn handle(
+        self: Arc<Self>,
+        ctx: Ctx<Self>,
+        answered: ChiefAnswer,
+    ) -> Result<AnswerTaken> {
+        sender(&ctx, &answered)?;
+        let wait = read_only(&ctx, async |tx| {
+            find(tx, answered.agent, &answered.call).await
+        })
+        .await?;
+        let Some(wait) = wait else {
+            return Ok(AnswerTaken::NoWait);
+        };
+        let ended = match answered.answer {
+            Answer::Refuse { reason } => {
+                WaitEnd::ChiefRefused { reason }
+            }
+            Answer::Lapsed { lapse } => WaitEnd::Lapsed { lapse },
+            Answer::Allow => match &wait.request {
+                Pending::Run(run) => {
+                    return self
+                        .clone()
+                        .grant_run(&ctx, &wait, run)
+                        .await;
+                }
+                Pending::Write(_) | Pending::Edit(_) => {
+                    return self.grant_change(&ctx, &wait).await;
+                }
+            },
+        };
+        let why = match &wait.request {
+            Pending::Run(_) => NotRun::Run(ended.into()),
+            Pending::Write(_) | Pending::Edit(_) => {
+                NotRun::Change(ended.into())
+            }
+        };
+        self.not_run(&ctx, &wait, why).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_secret_is_found_in_any_text_of_a_request() {
+        let secrets = vec![String::new(), "s3cr3t".to_owned()];
+        assert!(holds_a_secret(&secrets, b"echo s3cr3t; ls"));
+        assert!(!holds_a_secret(&secrets, b"echo s3cr; ls"));
+        assert!(!holds_a_secret(&[String::new()], b"anything"));
+    }
+}

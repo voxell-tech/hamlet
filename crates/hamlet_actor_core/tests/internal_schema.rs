@@ -62,6 +62,45 @@ fn unpublished_schema_has_explicit_values_and_minimal_constraints() {
     }
 }
 
+/// Each table's kind, columns and indexes, as SQLite reports them.
+/// The `CREATE` text is left out: an `ALTER TABLE` rewrites it.
+fn schema_shape(conn: &rusqlite::Connection) -> Vec<String> {
+    let mut shape = Vec::new();
+    for sql in [
+        "SELECT name || ' ncol=' || ncol || ' wr=' || wr || ' \
+         strict=' || strict FROM pragma_table_list WHERE schema = \
+         'main' AND name NOT LIKE 'sqlite_%' ORDER BY name",
+        "SELECT m.name || '.' || p.name || ' ' || p.type || ' \
+         notnull=' || p.\"notnull\" || ' default=' || \
+         ifnull(p.dflt_value, '-') || ' pk=' || p.pk FROM \
+         sqlite_schema m JOIN pragma_table_info(m.name) p WHERE \
+         m.type = 'table' ORDER BY m.name, p.cid",
+        "SELECT m.name || ' on ' || m.tbl_name || '.' || i.name || \
+         ' partial=' || (m.sql LIKE '%WHERE%') FROM sqlite_schema m \
+         JOIN pragma_index_info(m.name) i WHERE m.type = 'index' \
+         AND m.sql IS NOT NULL ORDER BY m.name, i.seqno",
+    ] {
+        let mut statement = conn.prepare(sql).unwrap();
+        let rows = statement
+            .query_map([], |row| row.get::<_, String>(0))
+            .unwrap();
+        shape.extend(rows.map(Result::unwrap));
+    }
+    shape
+}
+
+#[test]
+fn fresh_schema_matches_the_migration_ladder() {
+    let fresh = rusqlite::Connection::open_in_memory().unwrap();
+    initialize_test_schema(&fresh).unwrap();
+    let migrated = rusqlite::Connection::open_in_memory().unwrap();
+    migrated.execute_batch(CREATE_META_TABLE).unwrap();
+    for sql in MIGRATIONS.iter().flat_map(|sqls| sqls.iter()) {
+        migrated.execute_batch(sql).unwrap();
+    }
+    assert_eq!(schema_shape(&fresh), schema_shape(&migrated));
+}
+
 #[test]
 fn v1_database_upgrades_to_the_current_schema() {
     let conn = rusqlite::Connection::open_in_memory()
@@ -148,6 +187,15 @@ fn v1_database_upgrades_to_the_current_schema() {
         )
         .unwrap();
     assert_eq!(trace_context, (None, None, None));
+    let tries: (i64, Option<String>) = conn
+        .query_row(
+            "SELECT tries, last_error FROM _actor_schedule_events \
+             WHERE event_id = 'at:1'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(tries, (0, None));
     let trace_context: (
         Option<String>,
         Option<String>,

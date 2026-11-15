@@ -818,8 +818,16 @@ impl ActorTask {
                 .await;
         }
         match command {
-            LifecycleCommand::Start { reply } => {
-                let result = self.start_actor().await;
+            LifecycleCommand::Start { mut reply } => {
+                // A host that gives up on the start drops the reply's
+                // receiver. The start then ends as a failed one.
+                let result = tokio::select! {
+                    biased;
+                    result = self.start_actor() => result,
+                    () = reply.closed() => Err(ActorLifecycleError::NotReady
+                        .build()
+                        .context("the host gave up on the start")),
+                };
                 let failed = result.is_err();
                 if failed {
                     self.finish_failed_startup().await;

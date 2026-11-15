@@ -20,6 +20,7 @@ use hamlet_actor_core::{
     WorkflowRunOutcome, WorkflowStepOutcome,
     WorkflowStepSpan as CoreWorkflowStepSpan,
 };
+use hamlet_host::HostRef;
 use napi::bindgen_prelude::{Buffer, Promise};
 use napi::threadsafe_function::{
     ErrorStrategy, ThreadSafeCallContext, ThreadsafeFunction,
@@ -35,6 +36,7 @@ use tokio_util::sync::CancellationToken as CoreCancellationToken;
 use crate::actor_factory::{
     BridgeActorErrorContext, anyhow_error_from_js_reason,
 };
+use crate::address::{JsAddress, JsCallOptions};
 use crate::connection::ConnHandle;
 use crate::database::{
     JsActorStateTransaction, JsNativeDatabase, transaction_timeout,
@@ -471,6 +473,27 @@ impl ActorContext {
                 invocation: Some(invocation),
             },
         )
+    }
+
+    /// Calls the action `name` of the actor at `to` as this actor,
+    /// through [`HostRef::call`]. `args` and the answer are CBOR.
+    #[napi]
+    pub async fn call(
+        &self,
+        to: JsAddress,
+        name: String,
+        args: Buffer,
+        options: JsCallOptions,
+    ) -> napi::Result<Buffer> {
+        let to = to.checked()?;
+        let deadline = options.deadline()?;
+        let host =
+            HostRef::of(&self.inner).map_err(napi_anyhow_error)?;
+        let answer = host
+            .call(&to, &name, args.to_vec(), deadline)
+            .await
+            .map_err(napi_anyhow_error)?;
+        Ok(answer.into())
     }
 
     #[napi]

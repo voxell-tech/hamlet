@@ -12,11 +12,13 @@ use std::collections::BTreeMap;
 use anyhow::bail;
 
 pub use self::env::{
-    AllLeftovers, Env, ExecError, FileError, FileInfo, FileKind,
-    Launch, Leftovers, Ran, errno_name, status_word,
+    AllLeftovers, Current, Env, ExecError, FileError, FileInfo,
+    FileKind, Launch, Leftovers, Ran, Replaced, errno_name,
+    status_word,
 };
 pub use self::policy::{
     LimitError, Policy, SetupError, host_env, is_within, policy_hash,
+    real_path,
 };
 
 /// A command confined to a policy: the program to run and its whole

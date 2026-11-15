@@ -595,11 +595,12 @@ fn spawn_action_reply<A: Actor>(
     tokio::spawn(async move {
         let abort = ctx.abort_signal();
         tokio::select! {
-            _ = abort.cancelled() => {
-                reply.send(Err(ActorLifecycle::Stopping.build()));
-            }
+            biased;
             result = future => {
                 reply.send(result);
+            }
+            _ = abort.cancelled() => {
+                reply.cut_off(ActorLifecycle::Stopping.build());
             }
         }
     });
@@ -676,7 +677,7 @@ fn decode_cbor<T: DeserializeOwned>(
         .with_context(|| format!("decode {label} from cbor"))
 }
 
-fn decode_conn_params<A: Actor>(
+pub(crate) fn decode_conn_params<A: Actor>(
     bytes: &[u8],
 ) -> Result<A::ConnParams> {
     if bytes.is_empty() || bytes == [0xf6] {

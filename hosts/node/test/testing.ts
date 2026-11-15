@@ -8,7 +8,6 @@ import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { createModels, fauxProvider } from "@earendil-works/pi-ai";
 import type { StorageConformanceAssertions } from "@earendil-works/pi-durable/testing";
 import type { CoreRegistry } from "@hamlet/actor-node";
-import { decode, encode } from "cbor-x";
 import type { AnyActorDefinition } from "../src/actor/actor/definition.ts";
 import type { RawAccess } from "../src/actor/common/database/mod.ts";
 
@@ -90,39 +89,41 @@ export async function startHost(
     // test that starts no host, kill children included, would load it.
     const [
         { RegistryConfigSchema },
-        { buildNativeFactory },
-        { loadNapiRuntime },
+        { buildNativeRegistry, callNative, callThrough },
     ] = await Promise.all([
         import("../src/actor/registry/config/index.ts"),
         import("../src/actor/registry/native.ts"),
-        import("../src/actor/registry/napi-runtime.ts"),
     ]);
-    const { runtime } = await loadNapiRuntime();
-    const config = RegistryConfigSchema.parse({ use: kinds });
-    const handle = runtime.createRegistry();
-    for (const [kind, definition] of Object.entries(kinds)) {
-        runtime.registerActor(
-            handle,
-            kind,
-            buildNativeFactory(runtime, config, definition),
-        );
-    }
-    const registry = handle as unknown as CoreRegistry;
-    const due = await registry.start(dir);
+    const { registry } = await buildNativeRegistry(
+        RegistryConfigSchema.parse({ use: kinds }),
+    );
+    const native = registry as unknown as CoreRegistry;
+    const due = await callNative(() => native.start(dir));
     return {
         /** The actors the host started at once: an alarm was due, or a kill cut off their run. */
         due,
-        /** Calls `action` on the actor of `kind` and `key`, starting it if it is not running. */
+        /** Calls `action` on the actor of `kind` and `key`, made and started first if it is not running. */
         call: async (
             kind: string,
             key: string,
             action: string,
             ...args: unknown[]
-        ): Promise<unknown> =>
-            decode(await registry.action(kind, key, action, encode(args))),
-        shutdown: () => registry.shutdown(),
+        ): Promise<unknown> => {
+            await callNative(() => native.getOrStart({ kind, key }));
+            return callThrough(
+                (bytes) =>
+                    native.call({ kind, key }, action, Buffer.from(bytes), {
+                        deadlineMs: CALL_DEADLINE_MS,
+                    }),
+                args,
+            );
+        },
+        shutdown: () => callNative(() => native.shutdown()),
     };
 }
+
+/** Long enough for a faux turn on a loaded machine. */
+const CALL_DEADLINE_MS = 60_000;
 
 /**
  * The actor layer's database client over a plain `node:sqlite` file, with no
@@ -151,15 +152,39 @@ export function plainDatabase(path: string): RawAccess {
         }
         return [];
     };
+    const access = (turn: <T>(work: () => T) => Promise<T>) => {
+        const execute = <TRow extends Record<string, unknown>>(
+            sql: string,
+            ...args: unknown[]
+        ) => turn(() => run<TRow>(sql, args));
+        return {
+            execute,
+            all: execute,
+            get: <TRow extends Record<string, unknown>>(
+                sql: string,
+                ...args: unknown[]
+            ) => turn(() => run<TRow>(sql, args).at(0)),
+            run: (sql: string, ...args: unknown[]) =>
+                turn(() => {
+                    const { changes, lastInsertRowid } = db
+                        .prepare(sql)
+                        .run(...(args as SQLInputValue[]));
+                    return {
+                        changes: Number(changes),
+                        lastInsertRowId: Number(lastInsertRowid),
+                    };
+                }),
+        };
+    };
     const inTransaction: RawAccess = {
-        execute: async (sql, ...args) => run(sql, args),
+        ...access(async (work) => work()),
         transaction: () => {
             throw new Error("nested transaction");
         },
         close: async () => {},
     };
     return {
-        execute: (sql, ...args) => inTurn(() => run(sql, args)),
+        ...access(inTurn),
         transaction: (callback) =>
             inTurn(async () => {
                 db.exec("BEGIN IMMEDIATE");

@@ -22,8 +22,9 @@ pub struct Policy {
     pub rw: Vec<PathBuf>,
     /// The whole machine can be read, but for `hidden`.
     pub open: bool,
-    /// Paths that stay unreadable when `open`. A path of `ro` or
-    /// `rw` inside one is still granted.
+    /// Paths that stay unreadable and unwritable, also inside a path
+    /// of `ro` or `rw`. A path of `ro` or `rw` inside one is still
+    /// granted: of the roots that hold a path, the deepest decides.
     pub hidden: Vec<PathBuf>,
     /// Paths inside `rw` that cannot be written, renamed or removed.
     pub locked: Vec<PathBuf>,
@@ -56,6 +57,23 @@ impl Policy {
             return Err(LimitError::PastTimer(limits.wall_secs));
         }
         Ok(())
+    }
+
+    /// Whether a command under this policy reads `path`, where the
+    /// system resolves it.
+    /// No temp folder counts: another policy can share one.
+    pub fn can_read(&self, path: &Path) -> bool {
+        let real = canon_text(&text(path));
+        !is_within_text(&real, &temp_root())
+            && is_readable(self, &tmp_of(self), &real)
+    }
+
+    /// Whether a command under this policy writes `path`, where the
+    /// system resolves it. No temp folder counts.
+    pub fn can_write(&self, path: &Path) -> bool {
+        let real = canon_text(&text(path));
+        !is_within_text(&real, &temp_root())
+            && is_writable(self, &tmp_of(self), &real, false)
     }
 }
 
@@ -174,6 +192,12 @@ pub(crate) fn is_within_text(path: &str, parent: &str) -> bool {
         }
 }
 
+/// The real path of `path`, as a policy compares it: every link on
+/// the way followed, the part that does not exist yet as written.
+pub fn real_path(path: &Path) -> PathBuf {
+    PathBuf::from(canon_text(&text(path)))
+}
+
 /// The real path of `path`, where a file made at it lands, with each
 /// name in the case its volume keeps. Every symbolic link on the way
 /// is followed, also one whose chain ends at a missing file. The part
@@ -259,14 +283,8 @@ pub(crate) fn temp_root() -> String {
 pub(crate) fn private_tmp(
     policy: &Policy,
 ) -> Result<String, SetupError> {
-    let mut digest = Sha256::new();
-    for each in &policy.rw {
-        digest.update(canon_text(&text(each)).as_bytes());
-        digest.update(b"\0");
-    }
-    let hex = format!("{:x}", digest.finalize());
     let root = temp_root();
-    let dir = path::join(&[root.as_str(), &hex[..16]]);
+    let dir = tmp_of(policy);
     directory_root(&root)?;
     directory_root(&dir)?;
     fs::create_dir_all(&dir)?;
@@ -277,6 +295,16 @@ pub(crate) fn private_tmp(
         fs::set_permissions(&dir, fs::Permissions::from_mode(0o700))?;
     }
     Ok(dir)
+}
+
+fn tmp_of(policy: &Policy) -> String {
+    let mut digest = Sha256::new();
+    for each in &policy.rw {
+        digest.update(canon_text(&text(each)).as_bytes());
+        digest.update(b"\0");
+    }
+    let hex = format!("{:x}", digest.finalize());
+    path::join(&[temp_root(), hex[..16].to_owned()])
 }
 
 /// The writable roots of a policy, including its private temp folder.
@@ -302,20 +330,115 @@ pub(crate) fn fixed_roots(policy: &Policy, tmp: &str) -> Vec<String> {
     roots
 }
 
-fn is_in_any(path: &str, paths: &[String]) -> bool {
-    paths
-        .iter()
-        .any(|each| is_within_text(path, &canon_text(each)))
+/// A locked path is compared without case, as a hidden root is.
+pub(crate) fn is_locked(policy: &Policy, real: &str) -> bool {
+    let folded = real.to_lowercase();
+    policy.locked.iter().any(|each| {
+        is_within_text(
+            &folded,
+            &canon_text(&text(each)).to_lowercase(),
+        )
+    })
 }
 
-/// True when `path` lies in any of `paths`, compared without case. A
-/// refusal uses it, so that a volume that ignores case cannot carry a
-/// path past one.
-fn is_in_any_folded(path: &str, paths: &[String]) -> bool {
-    let folded = path.to_lowercase();
-    paths.iter().any(|each| {
-        is_within_text(&folded, &canon_text(each).to_lowercase())
-    })
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum Grant {
+    Hidden,
+    Read,
+    Write,
+}
+
+pub(crate) struct Layer {
+    pub path: String,
+    pub real: String,
+    pub grant: Grant,
+}
+
+/// The roots of `policy`, each before the roots inside it, and of
+/// roots at one place only the greatest grant.
+pub(crate) fn layers(policy: &Policy, tmp: &str) -> Vec<Layer> {
+    let mut hidden =
+        policy.hidden.iter().map(|p| text(p)).collect::<Vec<_>>();
+    hidden.push(temp_root());
+    let with = |grant, paths: Vec<String>| {
+        paths.into_iter().map(move |path| Layer {
+            real: canon_text(&path),
+            path,
+            grant,
+        })
+    };
+    let mut all = with(Grant::Hidden, hidden)
+        .chain(with(
+            Grant::Read,
+            policy.ro.iter().map(|p| text(p)).collect(),
+        ))
+        .chain(with(Grant::Write, write_roots(policy, tmp)))
+        .collect::<Vec<_>>();
+    all.sort_by_key(|layer| (names(&layer.real), layer.grant));
+    let mut layers = Vec::<Layer>::new();
+    for layer in all {
+        match layers.last_mut() {
+            Some(last) if last.real == layer.real => *last = layer,
+            _ => layers.push(layer),
+        }
+    }
+    if !policy.open {
+        let granted = layers
+            .iter()
+            .filter(|layer| layer.grant != Grant::Hidden)
+            .map(|layer| layer.real.clone())
+            .collect::<Vec<_>>();
+        layers.retain(|layer| {
+            layer.grant != Grant::Hidden
+                || granted
+                    .iter()
+                    .any(|root| is_within_text(&layer.real, root))
+        });
+    }
+    layers
+}
+
+fn names(real: &str) -> usize {
+    real.split('/').filter(|name| !name.is_empty()).count()
+}
+
+pub(crate) fn depth(path: &str) -> usize {
+    names(&canon_text(path))
+}
+
+#[derive(Clone, Copy)]
+pub(crate) enum Access {
+    Read,
+    Write,
+}
+
+/// A hidden root is compared without case, so that a volume that
+/// ignores case cannot carry a path past one.
+fn deciding(
+    policy: &Policy,
+    tmp: &str,
+    real: &str,
+    access: Access,
+) -> Option<Grant> {
+    let folded = real.to_lowercase();
+    layers(policy, tmp)
+        .into_iter()
+        .rev()
+        .find(|layer| {
+            let root = &layer.real;
+            match layer.grant {
+                Grant::Hidden => {
+                    is_within_text(&folded, &root.to_lowercase())
+                }
+                Grant::Read if matches!(access, Access::Write) => {
+                    false
+                }
+                Grant::Read | Grant::Write => {
+                    is_within_text(real, root)
+                }
+            }
+        })
+        .map(|layer| layer.grant)
 }
 
 /// True when `policy` lets a command with `tmp` as its temp folder
@@ -325,16 +448,10 @@ pub(crate) fn is_readable(
     tmp: &str,
     real: &str,
 ) -> bool {
-    let mut granted =
-        policy.ro.iter().map(|p| text(p)).collect::<Vec<_>>();
-    granted.extend(write_roots(policy, tmp));
-    if is_in_any(real, &granted) {
-        return true;
+    match deciding(policy, tmp, real, Access::Read) {
+        Some(grant) => grant != Grant::Hidden,
+        None => policy.open,
     }
-    let mut closed =
-        policy.hidden.iter().map(|p| text(p)).collect::<Vec<_>>();
-    closed.push(temp_root());
-    policy.open && !is_in_any_folded(real, &closed)
 }
 
 /// True when `policy` lets a command with `tmp` as its temp folder
@@ -346,10 +463,8 @@ pub(crate) fn is_writable(
     real: &str,
     moved: bool,
 ) -> bool {
-    let locked =
-        policy.locked.iter().map(|p| text(p)).collect::<Vec<_>>();
-    is_in_any(real, &write_roots(policy, tmp))
-        && !is_in_any_folded(real, &locked)
+    deciding(policy, tmp, real, Access::Write) == Some(Grant::Write)
+        && !is_locked(policy, real)
         && !(moved
             && fixed_roots(policy, tmp).iter().any(|root| {
                 is_within_text(
@@ -390,6 +505,14 @@ pub(crate) fn above_roots(policy: &Policy, tmp: &str) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_policy_reads_and_writes_no_temp_folder() {
+        let policy = Policy::default();
+        let file = path::join(&[tmp_of(&policy), "notes.md".into()]);
+        assert!(!policy.can_read(Path::new(&file)));
+        assert!(!policy.can_write(Path::new(&file)));
+    }
 
     #[test]
     fn a_policy_hash_is_stable() {

@@ -13,7 +13,9 @@ use hamlet_actor_core::{
 use hamlet_actor_error::ActorError;
 
 use crate::actor::Actor;
-use crate::start::{Start, run_actor, wrap_start};
+use crate::start::{
+    Start, decode_conn_params, run_actor, wrap_start,
+};
 
 pub struct Registry {
     inner: HashMap<String, CoreActorFactory>,
@@ -147,6 +149,9 @@ where
             })
         },
     )
+    .with_conn_params_check(|params| {
+        decode_conn_params::<A>(params).map(drop)
+    })
 }
 
 fn actor_config(mut config: ActorConfig) -> ActorConfig {

@@ -1,0 +1,83 @@
+//! Follows an event of an agent as a client of the demo's host.
+//!
+//! ```text
+//! demo watch <n> <event>
+//!                     subscribe to <event> of agent <n>, and print
+//!                     each item while the next commands run
+//! ```
+//!
+//! `watch` prints `watch/<n> 1` once the subscribe is answered, or
+//! `watch/<n> {"error":{"group":..,"code":..,"message":..,
+//! "metadata":..}}` when it failed with an actor's error of a group
+//! other than `link`. From then on it prints `watch/<n>/<event>
+//! <args>` for each broadcast, its arguments as JSON on one line,
+//! `watch/<n>/gap 1` where events were lost, and `watch/<n>/end
+//! <group.code>` when the subscription ends.
+
+use std::io::Write;
+
+use anyhow::{Result, bail};
+use hamlet_host::{Item, Subscription};
+
+use crate::Demo;
+use crate::command::{actor_error, shown};
+use crate::link::{agent, non_link_failure};
+
+pub async fn run(demo: &Demo, words: &[String]) -> Result<()> {
+    let [n, event] = words else {
+        bail!("usage: demo watch <n> <event>");
+    };
+    let at = agent(n)?;
+    let subscription =
+        match demo.host.subscribe_for_client(&at, event).await {
+            Ok(subscription) => subscription,
+            Err(error) => {
+                let Some(shown) = non_link_failure(&error) else {
+                    return Err(error);
+                };
+                writeln!(std::io::stdout(), "watch/{n} {shown}")?;
+                return Ok(());
+            }
+        };
+    writeln!(std::io::stdout(), "watch/{n} 1")?;
+    demo.watches.lock().spawn(print_items(
+        subscription,
+        format!("watch/{n}"),
+        event.clone(),
+    ));
+    Ok(())
+}
+
+async fn print_items(
+    mut subscription: Subscription,
+    prefix: String,
+    event: String,
+) {
+    loop {
+        let line = match subscription.next().await {
+            Ok(Item::Event(args)) => {
+                match ciborium::from_reader::<serde_json::Value, _>(
+                    args.as_slice(),
+                ) {
+                    Ok(args) => format!("{prefix}/{event} {args}"),
+                    Err(error) => format!("{prefix}/{event} {error}"),
+                }
+            }
+            Ok(Item::Gap) => format!("{prefix}/gap 1"),
+            Err(error) => {
+                let why = actor_error(&error).map_or_else(
+                    || shown(&error),
+                    |found| {
+                        format!("{}.{}", found.group(), found.code())
+                    },
+                );
+                let _ =
+                    writeln!(std::io::stdout(), "{prefix}/end {why}");
+                return;
+            }
+        };
+        if writeln!(std::io::stdout(), "{line}").is_err() {
+            return;
+        }
+    }
+}

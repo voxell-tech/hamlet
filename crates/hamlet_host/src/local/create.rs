@@ -1,0 +1,126 @@
+use std::sync::Arc;
+
+use anyhow::Result;
+use hamlet_actor_error::ActorError;
+use hamlet_address::Address;
+
+use super::access::{Origin, Stamp};
+use super::{Host, HostInner, Open};
+use crate::directory::{
+    Place, not_registered, runs_in_the_other_host,
+};
+use crate::route::Operation;
+
+/// A create of a key that holds an actor.
+#[derive(ActorError)]
+#[error("actor", "duplicate_key", "Actor key already exists.")]
+pub(super) struct DuplicateKey;
+
+impl Host {
+    /// Makes the actor at `at` and starts it with
+    /// `input`, the bytes its kind reads as its create input: the
+    /// CBOR of its `Input` for a kind of the authoring layer. The
+    /// input is kept with the actor and given to each start, and the
+    /// core reads it only while the actor has no state, so the kind
+    /// reads it once.
+    ///
+    /// Fails with `actor.duplicate_key` and changes nothing for a key
+    /// that holds an actor, running, asleep or stopping. Waits first
+    /// for a start under way, and for boot's read of the actor's
+    /// file. Fails at once with `actor.destroying` for an actor that
+    /// is being destroyed; once the destroy ends, a create makes the
+    /// actor anew. Fails at once with `actor.shutdown_timeout` for an
+    /// actor whose stop missed its deadline. A destroy that a kill
+    /// cut off is finished first. So none of the old actor's data
+    /// comes back. Fails at once with `actor.not_registered` for a
+    /// kind the directory does not hold.
+    ///
+    /// A create whose own start fails, for an input the kind cannot
+    /// read or any other reason, returns that failure and leaves
+    /// nothing of the actor: its files are removed, and the key is
+    /// free for another create. Only a statement of that start that
+    /// still holds the file past the close's grace leaves the actor
+    /// made, to start or destroy as any other: the create returns the
+    /// start's failure all the same, without waiting for the
+    /// statement. Until the statement ends, a start or a create of
+    /// the key cannot open the file and fails at its start deadline.
+    /// Once it ends, a create fails with `actor.duplicate_key`, and
+    /// the next boot starts the actor, since its file stays marked
+    /// running. A create that waited for another create's start that
+    /// failed then makes the actor itself; one that waited for any
+    /// other start that failed fails with that start's error. A kill
+    /// during the create's start leaves the actor made, with its
+    /// input, which each start gives the core until one starts it:
+    /// boot starts it, and tries again after each start retry for as
+    /// long as its start fails.
+    ///
+    /// A start that fails for a reason of the kind's own, an error of
+    /// its `create` hook say, fails with `core.internal_error`, for a
+    /// create, a call or any start that waited for it. The authoring
+    /// layer hands the core only the error's [`ActorError`], and the
+    /// message of an error with no code of its own is hidden unless
+    /// `HAMLET_ACTOR_EXPOSE_ERRORS=1`. The reason stays in the
+    /// error's metadata, as its `error`:
+    /// `ActorError::extract(&error).metadata()`. `ActorError`'s
+    /// `Serialize` writes that metadata, so code that sends the error
+    /// to a client sends the reason with it unless it drops the
+    /// metadata first.
+    ///
+    /// For a kind that runs in the host's Node child (see
+    /// [`child::open`](crate::child::open)), the child makes the
+    /// actor. The create fails at once with `link.down`, and nothing
+    /// is sent, while the link is not ready. It fails with
+    /// `link.lost` when the link goes down before the answer comes,
+    /// and with `actor.not_ready` when no answer comes within the
+    /// start deadline: in both its outcome is unknown, and a create
+    /// again fails with `actor.duplicate_key` if the first made the
+    /// actor.
+    ///
+    /// [`ActorError`]: struct@hamlet_actor_error::ActorError
+    pub async fn create(
+        &self,
+        at: &Address,
+        input: Vec<u8>,
+    ) -> Result<()> {
+        self.inner()
+            .start(Stamp::PROGRAM, at, Open::New(input))
+            .await
+    }
+}
+
+impl HostInner {
+    pub(super) async fn start(
+        self: &Arc<Self>,
+        stamp: Stamp,
+        at: &Address,
+        open: Open,
+    ) -> Result<()> {
+        let operation = match open {
+            Open::New(_) => Operation::Create,
+            Open::OrCreate | Open::Existing => Operation::GetOrStart,
+        };
+        self.admit(operation, stamp.caller(), at)?;
+        match (self.locate(at)?, stamp.origin(), open) {
+            (Place::Local(_), _, open) => {
+                self.ensure_started(at, &open).await.map(drop)
+            }
+            (Place::Linked(port), Origin::Here, Open::New(input)) => {
+                self.within_start_deadline(
+                    at,
+                    port.create(&stamp, at, input),
+                )
+                .await
+            }
+            (
+                Place::Linked(_),
+                Origin::Here,
+                Open::OrCreate | Open::Existing,
+            ) => {
+                Err(runs_in_the_other_host("get_or_start", at.kind()))
+            }
+            (Place::Linked(_), Origin::Peer, _) => {
+                Err(not_registered(at.kind()))
+            }
+        }
+    }
+}

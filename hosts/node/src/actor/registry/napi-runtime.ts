@@ -270,6 +270,14 @@ export class NapiCoreRuntime implements CoreRuntime {
         await asNativeRegistry(registry).shutdown();
     }
 
+    /**
+     * Serves the link to the Rust host that started this process, with the
+     * kinds registered on `registry`, until the Rust host's goodbye.
+     */
+    async serveLink(registry: RegistryHandle): Promise<void> {
+        await asNativeRegistry(registry).serveLink();
+    }
+
     async shutdownTelemetry(): Promise<void> {
         await this.#bindings.shutdownTelemetry();
     }
@@ -463,6 +471,21 @@ export class NapiCoreRuntime implements CoreRuntime {
             span: call.spanContext() ?? undefined,
             finish: (error?: string) => call.finish(error),
         };
+    }
+
+    async actorCall(
+        ctx: ActorContextHandle,
+        to: { kind: string; key: string },
+        name: string,
+        args: RuntimeBytes,
+        options: { deadlineMs: number },
+    ): Promise<RuntimeBytes> {
+        return await this.#actorContextForOperation(ctx).call(
+            to,
+            name,
+            toNapiBuffer(args),
+            options,
+        );
     }
 
     async startWorkflowSpan(ctx: ActorContextHandle): Promise<WorkflowSpan> {

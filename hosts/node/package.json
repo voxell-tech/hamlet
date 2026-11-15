@@ -12,6 +12,7 @@
         "test": "node --test test/*.test.ts src/pi/tests/*.test.ts",
         "conformance": "node --test test/conformance.test.ts",
         "test:native": "node --test --test-force-exit test/native/*.test.ts",
+        "test:link": "node --test --test-force-exit test/link/*.test.ts",
         "format": "biome check --write ."
     },
     "dependencies": {
@@ -32,6 +33,7 @@
     },
     "devDependencies": {
         "@biomejs/biome": "2.5.15",
+        "@napi-rs/cli": "2.18.4",
         "@opentelemetry/sdk-trace-node": "2.12.1",
         "@standard-schema/spec": "1.1.0",
         "@types/invariant": "2.2.37",

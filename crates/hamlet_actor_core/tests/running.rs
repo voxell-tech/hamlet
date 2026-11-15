@@ -1,19 +1,32 @@
 //! One actor started, called and stopped through [`RunningActor`] on
 //! the in-memory test host.
 
+use std::future::Future;
 use std::sync::Arc;
-use std::time::Duration;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::time::{Duration, Instant};
 
 use hamlet_actor_error::ActorError;
+use parking_lot::Mutex;
+use tokio::sync::oneshot;
+use tracing_subscriber::layer::{Context as LayerContext, Layer};
+use tracing_subscriber::prelude::*;
 
-use super::{RunningActor, StartRequest};
-use crate::testing::TestHost;
+use super::{RunningActor, StartRequest, Subscribed};
+use crate::actor::internal_storage::queries::TAKE_DUE_SCHEDULES_SQL;
+use crate::actor::sleep::CanSleep;
+use crate::testing::{TestHost, TestSqliteWriteGate};
 use crate::types::ActorKeySegment;
 use crate::{
     ActorConfig, ActorEvent, ActorFactory, ActorStart, ShutdownKind,
 };
 
-/// An actor whose `input` action replies with its start input, and
+/// A call's deadline where a test does not test it: the kind's action
+/// timeout decides.
+const NO_DEADLINE: Duration = Duration::MAX;
+
+/// An actor whose `input` action replies with its start input, whose
+/// `params` action replies with its call's connection parameters, and
 /// whose `connections` action replies with the inspector's count of
 /// connection changes.
 fn factory() -> Arc<ActorFactory> {
@@ -31,11 +44,16 @@ fn factory() -> Arc<ActorFactory> {
             } = start;
             while let Some(event) = events.recv().await {
                 match event {
-                    ActorEvent::Action { name, reply, .. } => {
+                    ActorEvent::Action {
+                        name, conn, reply, ..
+                    } => {
                         let output = match name.as_str() {
                             "input" => {
                                 input.clone().unwrap_or_default()
                             }
+                            "params" => conn
+                                .map(|conn| conn.params())
+                                .unwrap_or_default(),
                             _ => ctx
                                 .inspector_snapshot()
                                 .connections_revision
@@ -129,8 +147,31 @@ async fn start_with(
 async fn the_first_start_hands_the_actor_its_input() {
     let actor = start(Some(b"hello".to_vec())).await;
     assert_eq!(
-        actor.action("input", Vec::new()).await.unwrap(),
+        actor
+            .action(Vec::new(), "input", Vec::new(), NO_DEADLINE)
+            .await
+            .unwrap(),
         b"hello"
+    );
+    actor.stop(ShutdownKind::Sleep).await;
+}
+
+/// The parameters a call gives are its connection's: the action reads
+/// them on the connection the call opened.
+#[tokio::test]
+async fn an_action_reads_the_parameters_its_call_gave() {
+    let actor = start(None).await;
+    assert_eq!(
+        actor
+            .action(
+                b"who".to_vec(),
+                "params",
+                Vec::new(),
+                NO_DEADLINE
+            )
+            .await
+            .unwrap(),
+        b"who"
     );
     actor.stop(ShutdownKind::Sleep).await;
 }
@@ -138,8 +179,10 @@ async fn the_first_start_hands_the_actor_its_input() {
 #[tokio::test]
 async fn a_started_actor_has_an_inspector() {
     let actor = start(None).await;
-    let reply =
-        actor.action("connections", Vec::new()).await.unwrap();
+    let reply = actor
+        .action(Vec::new(), "connections", Vec::new(), NO_DEADLINE)
+        .await
+        .unwrap();
     let revision = u64::from_le_bytes(reply.try_into().unwrap());
     assert!(revision > 0, "no inspector saw the action's connection");
     actor.stop(ShutdownKind::Sleep).await;
@@ -151,7 +194,7 @@ async fn a_dropped_action_call_closes_its_connection() {
         start_with(mute_factory(Duration::from_secs(60)), None).await;
     tokio::time::timeout(
         Duration::from_millis(100),
-        actor.action("wait", Vec::new()),
+        actor.action(Vec::new(), "wait", Vec::new(), NO_DEADLINE),
     )
     .await
     .expect_err("the action should still be waiting");
@@ -169,10 +212,524 @@ async fn an_action_that_times_out_closes_its_connection() {
     let actor =
         start_with(mute_factory(Duration::from_millis(100)), None)
             .await;
-    let error = actor.action("wait", Vec::new()).await.unwrap_err();
+    let error = actor
+        .action(Vec::new(), "wait", Vec::new(), NO_DEADLINE)
+        .await
+        .unwrap_err();
     assert_eq!(
         ActorError::extract(&error).code(),
         "action_timed_out"
     );
     assert_eq!(actor.ctx.active_connection_count(), 0);
+}
+
+#[tokio::test]
+async fn a_deadline_shorter_than_the_action_timeout_ends_the_action()
+{
+    let actor =
+        start_with(mute_factory(Duration::from_secs(60)), None).await;
+    let begun = tokio::time::Instant::now();
+    let error = actor
+        .action(
+            Vec::new(),
+            "wait",
+            Vec::new(),
+            Duration::from_millis(100),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(
+        ActorError::extract(&error).code(),
+        "action_timed_out"
+    );
+    assert!(begun.elapsed() < Duration::from_secs(5));
+    assert_eq!(actor.ctx.active_connection_count(), 0);
+}
+
+/// The threads that panicked, by name.
+static PANICKED: std::sync::Mutex<Vec<String>> =
+    std::sync::Mutex::new(Vec::new());
+
+/// Records the name of each thread that panics, from the first call
+/// on.
+fn record_panics() {
+    static HOOK: std::sync::Once = std::sync::Once::new();
+    HOOK.call_once(|| {
+        let previous = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |info| {
+            let name = std::thread::current()
+                .name()
+                .unwrap_or_default()
+                .to_owned();
+            PANICKED.lock().unwrap().push(name);
+            previous(info);
+        }));
+    });
+}
+
+/// Whether this thread panicked since [`record_panics`]. A
+/// current-thread runtime runs its tasks on the test's own thread.
+fn this_thread_panicked() -> bool {
+    let name = std::thread::current().name().map(str::to_owned);
+    PANICKED
+        .lock()
+        .unwrap()
+        .iter()
+        .any(|panicked| Some(panicked) == name.as_ref())
+}
+
+/// Sets its flag when dropped.
+struct DropFlag(Arc<AtomicBool>);
+
+impl Drop for DropFlag {
+    fn drop(&mut self) {
+        self.0.store(true, Ordering::SeqCst);
+    }
+}
+
+fn stuck_config(name: &str) -> ActorConfig {
+    ActorConfig {
+        name: Some(name.to_owned()),
+        has_database: true,
+        ..ActorConfig::default()
+    }
+}
+
+/// Starts an actor of `factory` on `host`, and gives up on the start
+/// once `parked` resolves, as a host does at its deadline: drops the
+/// start's future, then closes the database. Checks that within a
+/// second the actor's task ends, dropping everything that holds
+/// `host`, that the run handler's future is dropped, setting
+/// `dropped`, and that nothing on this thread panicked.
+async fn give_up_on_the_start(
+    host: Arc<TestHost>,
+    factory: Arc<ActorFactory>,
+    dropped: &AtomicBool,
+    parked: impl Future<Output = ()>,
+) {
+    record_panics();
+    let mut start = Box::pin(RunningActor::start(StartRequest {
+        actor_id: "stuck/a".to_owned(),
+        name: "stuck".to_owned(),
+        key: vec![ActorKeySegment::String("a".to_owned())],
+        generation: 1,
+        factory,
+        handle: host.clone(),
+        new_storage: false,
+        input: None,
+    }));
+    tokio::select! {
+        started = &mut start => {
+            panic!("the start ended before the test gave up: {:?}", started.err());
+        }
+        () = parked => {}
+    }
+    drop(start);
+    host.close();
+    let deadline = Instant::now() + Duration::from_secs(1);
+    while Arc::strong_count(&host) > 1
+        || !dropped.load(Ordering::SeqCst)
+    {
+        assert!(
+            Instant::now() < deadline,
+            "after a second, {} holders of the host, run future \
+             dropped: {}",
+            Arc::strong_count(&host) - 1,
+            dropped.load(Ordering::SeqCst)
+        );
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert!(!this_thread_panicked(), "a panic while the start ended");
+}
+
+/// A start the host gives up on while the run handler's preamble has
+/// not signaled ready.
+#[tokio::test]
+async fn a_start_given_up_at_the_ready_wait_ends() {
+    let dropped = Arc::new(AtomicBool::new(false));
+    let flag = dropped.clone();
+    let factory = ActorFactory::new_with_manual_startup_ready(
+        stuck_config("stuck"),
+        move |start: ActorStart| {
+            let flag = DropFlag(flag.clone());
+            Box::pin(async move {
+                let _held = (flag, start);
+                std::future::pending::<()>().await;
+                Ok(())
+            })
+        },
+    );
+    give_up_on_the_start(
+        TestHost::new_for_tests(),
+        Arc::new(factory),
+        &dropped,
+        tokio::time::sleep(Duration::from_millis(100)),
+    )
+    .await;
+}
+
+/// A start the host gives up on while one of its statements waits
+/// behind a transaction the run handler's preamble left open.
+#[tokio::test]
+async fn a_start_given_up_behind_an_open_transaction_ends() {
+    let dropped = Arc::new(AtomicBool::new(false));
+    let flag = dropped.clone();
+    let (ready_tx, ready_rx) = oneshot::channel();
+    let ready_tx = std::sync::Mutex::new(Some(ready_tx));
+    let factory = ActorFactory::new_with_manual_startup_ready(
+        stuck_config("stuck"),
+        move |start: ActorStart| {
+            let flag = DropFlag(flag.clone());
+            let ready_tx = ready_tx.lock().unwrap().take();
+            Box::pin(async move {
+                let _flag = flag;
+                let ActorStart {
+                    ctx,
+                    events,
+                    startup_ready,
+                    ..
+                } = start;
+                let _open = ctx.sql().begin_transaction(None).await?;
+                if let Some(ready) = startup_ready {
+                    let _ = ready.send(Ok(()));
+                }
+                if let Some(ready_tx) = ready_tx {
+                    let _ = ready_tx.send(());
+                }
+                let _held = events;
+                std::future::pending::<()>().await;
+                Ok(())
+            })
+        },
+    );
+    give_up_on_the_start(
+        TestHost::new_for_tests(),
+        Arc::new(factory),
+        &dropped,
+        async {
+            ready_rx.await.unwrap();
+            // Long enough for the start to reach its next statement.
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        },
+    )
+    .await;
+}
+
+/// A start the host gives up on while its drain of overdue schedules
+/// waits for the database.
+#[tokio::test]
+async fn a_start_given_up_during_the_drain_ends() {
+    let (entered_tx, mut entered) =
+        tokio::sync::mpsc::unbounded_channel();
+    let release = Arc::new(tokio::sync::Semaphore::new(0));
+    let host = TestHost::with_write_gate(TestSqliteWriteGate {
+        sql_prefix: TAKE_DUE_SCHEDULES_SQL,
+        entered_tx,
+        release: release.clone(),
+    });
+    let dropped = Arc::new(AtomicBool::new(false));
+    let flag = dropped.clone();
+    let factory = ActorFactory::new(
+        stuck_config("stuck"),
+        move |start: ActorStart| {
+            let flag = DropFlag(flag.clone());
+            Box::pin(async move {
+                let _flag = flag;
+                let mut events = start.events;
+                while events.recv().await.is_some() {}
+                Ok(())
+            })
+        },
+    );
+    give_up_on_the_start(host, Arc::new(factory), &dropped, async {
+        entered.recv().await.unwrap();
+    })
+    .await;
+    release.add_permits(1);
+}
+
+/// The error [`watcher`] refuses a subscribe with.
+#[derive(ActorError)]
+#[error("auth", "forbidden", "Not allowed to follow this event.")]
+struct Forbidden;
+
+/// Connection parameters for which [`watcher`]'s `onConnect` is slow.
+const SLOW: &[u8] = b"slow";
+
+/// The time [`watcher`] takes over a slow `onConnect` or subscribe.
+const WEIGHS: Duration = Duration::from_millis(300);
+
+/// An actor that refuses a subscribe to the event `secret`, and takes
+/// [`WEIGHS`] over a subscribe to the event `slow` and over the
+/// `onConnect` of a connection whose parameters are [`SLOW`], sending
+/// on `began` as each of those begins. It closes a connection's
+/// transport when the core asks, as the authoring layer does, and
+/// counts the connections whose `on_disconnect` ran in
+/// `disconnected`.
+fn watcher(
+    began: tokio::sync::mpsc::UnboundedSender<()>,
+    disconnected: Arc<AtomicUsize>,
+) -> Arc<ActorFactory> {
+    let config = ActorConfig {
+        name: Some("watcher".to_owned()),
+        ..ActorConfig::default()
+    };
+    Arc::new(ActorFactory::new(config, move |start: ActorStart| {
+        let (began, disconnected) =
+            (began.clone(), disconnected.clone());
+        Box::pin(async move {
+            let ActorStart {
+                ctx, mut events, ..
+            } = start;
+            while let Some(event) = events.recv().await {
+                match event {
+                    ActorEvent::ConnectionOpen {
+                        conn,
+                        reply,
+                        ..
+                    } if conn.params() == SLOW => {
+                        let _ = began.send(());
+                        tokio::spawn(async move {
+                            tokio::time::sleep(WEIGHS).await;
+                            reply.send(Ok(()));
+                        });
+                    }
+                    ActorEvent::SubscribeRequest {
+                        event_name,
+                        reply,
+                        ..
+                    } => match event_name.as_str() {
+                        "secret" => {
+                            reply.send(Err(Forbidden.build()));
+                        }
+                        "slow" => {
+                            let _ = began.send(());
+                            tokio::spawn(async move {
+                                tokio::time::sleep(WEIGHS).await;
+                                reply.send(Ok(()));
+                            });
+                        }
+                        _ => reply.send(Ok(())),
+                    },
+                    ActorEvent::DisconnectConn {
+                        conn_id,
+                        reason,
+                        reply,
+                    } => {
+                        reply.send(
+                            ctx.disconnect_conn_with_reason(
+                                conn_id, reason,
+                            )
+                            .await,
+                        );
+                    }
+                    ActorEvent::ConnectionClosed { .. } => {
+                        disconnected.fetch_add(1, Ordering::SeqCst);
+                    }
+                    ActorEvent::SerializeState { reply, .. } => {
+                        reply.send(Ok(Vec::new()));
+                    }
+                    ActorEvent::RunGracefulCleanup {
+                        reply, ..
+                    }
+                    | ActorEvent::ConnectionPreflight {
+                        reply, ..
+                    }
+                    | ActorEvent::ConnectionOpen { reply, .. } => {
+                        reply.send(Ok(()));
+                    }
+                    _ => {}
+                }
+            }
+            Ok(())
+        })
+    }))
+}
+
+async fn start_watcher()
+-> (RunningActor, tokio::sync::mpsc::UnboundedReceiver<()>) {
+    let (began, begins) = tokio::sync::mpsc::unbounded_channel();
+    let actor =
+        start_with(watcher(began, Arc::default()), None).await;
+    (actor, begins)
+}
+
+/// Subscribes to `ticked` with a sink that does nothing, and records
+/// each close reason in the returned list.
+async fn subscribe_recording_closes(
+    actor: &RunningActor,
+) -> (Subscribed, Arc<Mutex<Vec<Option<String>>>>) {
+    let closes = Arc::new(Mutex::new(Vec::new()));
+    let subscribed = actor
+        .subscribe(Vec::new(), "ticked", |_| {}, {
+            let closes = closes.clone();
+            move |reason| closes.lock().push(reason)
+        })
+        .await
+        .unwrap();
+    (subscribed, closes)
+}
+
+/// Waits a second at most for `holds`.
+async fn within_a_second(what: &str, holds: impl Fn() -> bool) {
+    let deadline = Instant::now() + Duration::from_secs(1);
+    while !holds() {
+        assert!(Instant::now() < deadline, "after a second, {what}");
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+}
+
+#[tokio::test]
+async fn a_subscription_gets_each_broadcast_of_its_event_and_no_other()
+ {
+    let (actor, _begins) = start_watcher().await;
+    let sunk = Arc::new(Mutex::new(Vec::new()));
+    let subscribed = actor
+        .subscribe(
+            Vec::new(),
+            "ticked",
+            {
+                let sunk = sunk.clone();
+                move |args| sunk.lock().push(args)
+            },
+            |_| {},
+        )
+        .await
+        .unwrap();
+    actor.ctx.broadcast("ticked", &[1]);
+    actor.ctx.broadcast("other", &[9]);
+    actor.ctx.broadcast("ticked", &[2, 2]);
+    actor.ctx.broadcast("ticked", &[3]);
+    assert_eq!(*sunk.lock(), [vec![1], vec![2, 2], vec![3]]);
+    subscribed.close().await.unwrap();
+    actor.stop(ShutdownKind::Sleep).await;
+}
+
+#[tokio::test]
+async fn a_refused_subscribe_fails_with_the_actors_error_and_leaves_no_connection()
+ {
+    let (actor, _begins) = start_watcher().await;
+    let Err(error) =
+        actor.subscribe(Vec::new(), "secret", |_| {}, |_| {}).await
+    else {
+        panic!("the actor let a subscribe to `secret` through");
+    };
+    let error = ActorError::extract(&error);
+    assert_eq!((error.group(), error.code()), ("auth", "forbidden"));
+    assert!(actor.ctx.conns().is_empty());
+    actor.stop(ShutdownKind::Sleep).await;
+}
+
+#[tokio::test]
+async fn a_subscribe_dropped_while_its_connection_opens_leaves_no_connection()
+ {
+    let (actor, mut begins) = start_watcher().await;
+    for (params, event) in [(SLOW, "ticked"), (&[][..], "slow")] {
+        let mut subscribe = Box::pin(actor.subscribe(
+            params.to_vec(),
+            event,
+            |_| {},
+            |_| {},
+        ));
+        tokio::select! {
+            _ = &mut subscribe => panic!("the subscribe of `{event}` did not wait"),
+            Some(()) = begins.recv() => {}
+        }
+        assert!(!actor.ctx.conns().is_empty());
+        drop(subscribe);
+        within_a_second(
+            "the dropped subscribe's connection is open",
+            || actor.ctx.conns().is_empty(),
+        )
+        .await;
+    }
+    actor.stop(ShutdownKind::Sleep).await;
+}
+
+#[tokio::test]
+async fn an_open_subscription_keeps_the_actor_awake_and_a_closed_one_lets_it_sleep()
+ {
+    let (actor, _begins) = start_watcher().await;
+    let (subscribed, _) = subscribe_recording_closes(&actor).await;
+    assert_eq!(
+        actor.ctx.can_sleep().await,
+        CanSleep::ActiveConnections
+    );
+    subscribed.close().await.unwrap();
+    assert_eq!(actor.ctx.can_sleep().await, CanSleep::Yes);
+    actor.stop(ShutdownKind::Sleep).await;
+}
+
+/// Counts the events logged at ERROR.
+struct Errors(Arc<AtomicUsize>);
+
+impl<S: tracing::Subscriber> Layer<S> for Errors {
+    fn on_event(
+        &self,
+        event: &tracing::Event<'_>,
+        _: LayerContext<'_, S>,
+    ) {
+        if *event.metadata().level() == tracing::Level::ERROR {
+            self.0.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+}
+
+#[tokio::test]
+async fn a_broadcast_to_a_subscription_logs_no_error() {
+    let errors = Arc::new(AtomicUsize::new(0));
+    let _recording = tracing::subscriber::set_default(
+        tracing_subscriber::registry().with(Errors(errors.clone())),
+    );
+    // With one dispatcher, tracing may cache a callsite as unseen
+    // from another test's thread.
+    let _second = tracing::Dispatch::new(
+        tracing::subscriber::NoSubscriber::default(),
+    );
+    let (actor, _begins) = start_watcher().await;
+    let (subscribed, _) = subscribe_recording_closes(&actor).await;
+    for n in 0..1000_u16 {
+        actor.ctx.broadcast("ticked", &n.to_le_bytes());
+    }
+    assert_eq!(errors.load(Ordering::SeqCst), 0);
+    subscribed.close().await.unwrap();
+    actor.stop(ShutdownKind::Sleep).await;
+}
+
+/// The actor's own close and a destroy's grace close the transport
+/// alone, so the actor's `on_disconnect` runs only for the holder's
+/// close.
+#[tokio::test]
+async fn closed_is_called_at_each_close_and_each_close_removes_the_connection()
+ {
+    let disconnected = Arc::new(AtomicUsize::new(0));
+    let (began, _begins) = tokio::sync::mpsc::unbounded_channel();
+    let actor =
+        start_with(watcher(began, disconnected.clone()), None).await;
+
+    let (closed_by_actor, closes) =
+        subscribe_recording_closes(&actor).await;
+    let id = actor.ctx.conns().next().unwrap().id().to_owned();
+    actor.ctx.disconnect_conn(id).await.unwrap();
+    assert_eq!(*closes.lock(), [None]);
+    assert!(actor.ctx.conns().is_empty());
+    let _ = closed_by_actor.close().await;
+
+    let (closed_by_holder, closes) =
+        subscribe_recording_closes(&actor).await;
+    closed_by_holder.close().await.unwrap();
+    assert_eq!(*closes.lock(), [None]);
+    assert!(actor.ctx.conns().is_empty());
+    within_a_second("the actor's on_disconnect did not run", || {
+        disconnected.load(Ordering::SeqCst) == 1
+    })
+    .await;
+
+    let (closed_by_destroy, closes) =
+        subscribe_recording_closes(&actor).await;
+    actor.stop(ShutdownKind::Destroy).await;
+    assert_eq!(*closes.lock(), [Some("actor.destroyed".to_owned())]);
+    assert!(actor.ctx.conns().is_empty());
+    let _ = closed_by_destroy.close().await;
+    assert_eq!(disconnected.load(Ordering::SeqCst), 1);
 }

@@ -40,7 +40,9 @@ pub(crate) const USER_KV_BATCH_GET_MAX_KEYS: usize = 128;
 const QUEUE_METADATA_PAGE_ROWS: usize = 128;
 const QUEUE_MESSAGE_IDS_PER_QUERY: usize = 128;
 const WORKFLOW_KV_VALUE_LIMIT: usize = 256 * 1024;
-pub(crate) const RUN_WAKE_AT_META_KEY: &str = "run_wake_at";
+/// The `_actor_meta` key of the run wake deadline, which
+/// [`decode_run_wake_at`] reads.
+pub const RUN_WAKE_AT_META_KEY: &str = "run_wake_at";
 /// The `_actor_meta` key of the legacy KV import marker.
 pub(crate) const KV_IMPORT_STATE_META_KEY: &str = "kv_import_state";
 const RUN_WAKE_AT_VERSION: u16 = 1;
@@ -156,13 +158,7 @@ pub(crate) async fn load_actor_startup(
                 6,
                 "run wake deadline",
             )? {
-                Some(payload) => {
-                    decode_latest_with_embedded_version::<
-                        persist_versioned::RunWakeAt,
-                    >(
-                        &payload, "run wake deadline"
-                    )?
-                }
+                Some(payload) => decode_run_wake_at(&payload)?,
                 None => None,
             };
             Some(InternalActorSnapshot {
@@ -1327,6 +1323,16 @@ pub(crate) async fn persist_last_pushed_alarm(
     .await
     .context("persist internal last pushed alarm")?;
     Ok(())
+}
+
+/// Decodes the run wake deadline as `_actor_meta` stores it under
+/// [`RUN_WAKE_AT_META_KEY`]. A host reads it from the file of an
+/// actor that has stopped, to know when the actor must run again.
+pub fn decode_run_wake_at(payload: &[u8]) -> Result<Option<i64>> {
+    decode_latest_with_embedded_version::<persist_versioned::RunWakeAt>(
+        payload,
+        "run wake deadline",
+    )
 }
 
 pub(crate) async fn persist_run_wake_at(

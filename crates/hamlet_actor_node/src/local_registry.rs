@@ -13,6 +13,7 @@ use napi_derive::napi;
 use parking_lot::Mutex;
 
 use crate::actor_factory::NapiActorFactory;
+use crate::address::{JsAddress, JsCallOptions};
 use crate::{NapiInvalidState, napi_anyhow_error};
 
 #[napi]
@@ -56,36 +57,88 @@ impl CoreRegistry {
         let host = Host::open(Path::new(&dir), factories)
             .map_err(napi_anyhow_error)?;
         *self.host.lock() = Some(host.clone());
-        host.boot().await.map_err(napi_anyhow_error)
+        let began = host.boot().await.map_err(napi_anyhow_error)?;
+        Ok(began.iter().map(ToString::to_string).collect())
     }
 
-    /// Calls `action` on the actor of `kind` and `key`, starting it
-    /// first if it is not running.
+    /// Serves the link to the Rust host that started this process,
+    /// with the registered kinds, until its goodbye. Call `takeLink`
+    /// first. The registry's own `create`, `getOrStart` and `call`
+    /// stay unstarted: the Rust host makes and calls this host's
+    /// actors.
     #[napi]
-    pub async fn action(
+    pub async fn serve_link(&self) -> napi::Result<()> {
+        let factories = std::mem::take(&mut *self.factories.lock())
+            .into_iter()
+            .map(|(kind, factory)| (kind, owned(factory)))
+            .collect();
+        hamlet_host::link::serve(factories)
+            .await
+            .map_err(napi_anyhow_error)
+    }
+
+    /// Makes the actor at `to` with `input`, the CBOR its kind's
+    /// state is made from, and starts it. Fails with
+    /// `actor.duplicate_key` when the key has an actor. Returns its
+    /// id.
+    #[napi]
+    pub async fn create(
         &self,
-        kind: String,
-        key: String,
-        action: String,
-        args: Buffer,
-    ) -> napi::Result<Buffer> {
-        let host = self.host()?;
-        let actor_id = host
-            .get_or_start(&kind, &key)
+        to: JsAddress,
+        input: Buffer,
+    ) -> napi::Result<String> {
+        let at = to.checked()?;
+        self.host()?
+            .create(&at, input.to_vec())
             .await
             .map_err(napi_anyhow_error)?;
-        let output = host
-            .action(&actor_id, &action, args.to_vec())
+        Ok(at.to_string())
+    }
+
+    /// The actor at `to`, made with no input when the key has none,
+    /// and started. Returns its id. For tests: a host's own code
+    /// makes an actor with `create`.
+    #[napi]
+    pub async fn get_or_start(
+        &self,
+        to: JsAddress,
+    ) -> napi::Result<String> {
+        let at = to.checked()?;
+        self.host()?
+            .get_or_start(&at)
+            .await
+            .map_err(napi_anyhow_error)?;
+        Ok(at.to_string())
+    }
+
+    /// Calls the action `name` of the actor at `to` with no caller,
+    /// started from its file first if it is not running. A call never
+    /// makes its actor: for a key with no actor it fails with
+    /// `actor.not_found`.
+    #[napi]
+    pub async fn call(
+        &self,
+        to: JsAddress,
+        name: String,
+        args: Buffer,
+        options: JsCallOptions,
+    ) -> napi::Result<Buffer> {
+        let at = to.checked()?;
+        let deadline = options.deadline()?;
+        let output = self
+            .host()?
+            .call(&at, &name, args.to_vec(), deadline)
             .await
             .map_err(napi_anyhow_error)?;
         Ok(output.into())
     }
 
+    /// Shuts the host down: stops every actor and lets the folder go.
     #[napi]
     pub async fn shutdown(&self) -> napi::Result<()> {
         let host = self.host.lock().take();
         if let Some(host) = host {
-            host.stop_all().await.map_err(napi_anyhow_error)?;
+            host.shutdown().await.map_err(napi_anyhow_error)?;
         }
         Ok(())
     }

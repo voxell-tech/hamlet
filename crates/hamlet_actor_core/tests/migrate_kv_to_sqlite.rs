@@ -164,8 +164,6 @@ impl ActorHost for RemoteSqliteHost {
             }
         })
     }
-
-    fn transaction_committed(&self, _actor_id: &str) {}
 }
 
 fn sqlite_ctx(kv: Kv) -> (ActorContext, tokio::task::JoinHandle<()>) {
