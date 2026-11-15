@@ -325,9 +325,27 @@ impl Writer<'_> {
     }
 }
 
+/// A transaction of the realm's file, rolled back when dropped
+/// before its commit.
 pub(super) struct Transaction {
     tx: SqliteTransaction,
     at: At,
+    ctx: Ctx<Realm>,
+    is_open: bool,
+}
+
+impl Drop for Transaction {
+    fn drop(&mut self) {
+        if !self.is_open {
+            return;
+        }
+        let tx = self.tx.clone();
+        self.ctx.register_task(async move {
+            if let Err(error) = tx.rollback().await {
+                tracing::warn!("a rollback failed: {error:#}");
+            }
+        });
+    }
 }
 
 pub(super) struct Write<'a, D> {
@@ -342,6 +360,8 @@ impl Transaction {
         Ok(Self {
             tx: ctx.sql().begin_transaction(None).await?,
             at: At::now()?,
+            ctx: ctx.clone(),
+            is_open: true,
         })
     }
 
@@ -352,14 +372,9 @@ impl Transaction {
         }
     }
 
-    pub async fn rollback(self) -> Result<()> {
-        self.tx.rollback().await
-    }
-
     pub async fn commit<D: Serialize>(
-        self,
+        mut self,
         realm: &Arc<Realm>,
-        ctx: &Ctx<Realm>,
         write: Write<'_, D>,
     ) -> Result<Vec<Push>> {
         let writer = Writer {
@@ -413,18 +428,14 @@ impl Transaction {
             anyhow::Ok((affected, revision, pushes))
         }
         .await;
-        let (affected, revision, pushes) = match written {
-            Ok(written) => written,
-            Err(error) => {
-                self.tx.rollback().await?;
-                return Err(error);
-            }
-        };
+        let (affected, revision, pushes) = written?;
         let reserved = realm.drives.reserve(&affected.begun);
+        // A commit that fails rolls back by itself.
+        self.is_open = false;
         self.tx.commit().await?;
-        reserved.start(realm, ctx);
+        reserved.start(realm, &self.ctx);
         if let Some(revision) = revision {
-            realm.world.refresh(ctx, revision, &affected).await;
+            realm.world.refresh(&self.ctx, revision, &affected).await;
         }
         Ok(pushes)
     }
@@ -439,7 +450,6 @@ pub(super) async fn commit(
         .await?
         .commit(
             realm,
-            ctx,
             Write::<()> {
                 changes,
                 entries: Vec::new(),
@@ -451,7 +461,25 @@ pub(super) async fn commit(
 
 #[cfg(test)]
 mod tests {
-    use super::read_only;
+    use std::time::Duration;
+
+    use hamlet_messages::workspace::AgentNumber;
+
+    use super::super::testing::Started;
+    use super::*;
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_transaction_dropped_open_leaves_the_file_free() {
+        let started = Started::new().await;
+        drop(Transaction::begin(&started.ctx).await.unwrap());
+        let next = started
+            .commit(versions::Change::WantReach(AgentNumber(5)));
+        tokio::time::timeout(Duration::from_secs(5), next)
+            .await
+            .expect("the next transaction begins at once")
+            .unwrap();
+        started.stop().await;
+    }
 
     #[test]
     fn a_read_refuses_a_write_behind_a_with() {
