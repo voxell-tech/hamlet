@@ -13,6 +13,16 @@ export type {
     SocketMessageEvent,
     UniversalWebSocket,
 } from "../common/websocket-interface.ts";
+export {
+    type ActionAnswer,
+    type ActionArgs,
+    type ActionName,
+    type ActionsOf,
+    Address,
+    type Caller,
+    type CallOptions,
+    type Calls,
+} from "./calls.ts";
 export type * from "./config.ts";
 export { defineRunHandler } from "./config.ts";
 export type {
@@ -54,6 +64,7 @@ export {
     ActorError,
     type ActorErrorLike,
     type ActorErrorOptions,
+    isActorErrorCode,
     UserError,
     type UserErrorOptions,
 } from "./errors.ts";

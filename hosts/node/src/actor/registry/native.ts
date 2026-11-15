@@ -6,6 +6,18 @@ import {
     flattenActionTraceSamplers,
 } from "../actor/actions.ts";
 import {
+    type ActionAnswer,
+    type ActionArgs,
+    type ActionCaller,
+    type ActionName,
+    type Address,
+    addressFromHost,
+    type Caller,
+    type CallOptions,
+    type ContextCalls,
+    callerOf,
+} from "../actor/calls.ts";
+import {
     ACTOR_CONTEXT_INTERNAL_SYMBOL,
     type ActorCron,
     type ActorCronEveryOptions,
@@ -35,6 +47,7 @@ import {
     encodeBridgeActorError,
     forbiddenError,
     INTERNAL_ERROR_CODE,
+    internalError,
     isActorAbortedError,
     isActorErrorLike,
     toActorError,
@@ -78,7 +91,11 @@ import type {
     SocketMessageEvent,
     UniversalWebSocket,
 } from "../common/websocket-interface.ts";
-import { decodeCborCompat, encodeCborCompat } from "../serde.ts";
+import {
+    decodeCborCompat,
+    decodeCborJsonCompat,
+    encodeCborCompat,
+} from "../serde.ts";
 import {
     getNodeFsSync,
     getNodePath,
@@ -756,12 +773,43 @@ function encodeNativeCallbackError(error: unknown): Error {
     });
 }
 
-async function callNative<T>(invoke: () => Promise<T>): Promise<T> {
+export async function callNative<T>(invoke: () => Promise<T>): Promise<T> {
     try {
         return await invoke();
     } catch (error) {
         throw normalizeNativeBridgeError(error);
     }
+}
+
+/**
+ * Encodes `args`, sends them through `callNative` and decodes the answer with
+ * `decodeCborJsonCompat`, so an integer up to 2^53 - 1 is a `number`.
+ */
+export async function callThrough(
+    send: (args: RuntimeBytes) => Promise<RuntimeBytes>,
+    args: readonly unknown[],
+): Promise<unknown> {
+    const bytes = encodeValue(args);
+    const answer = await callNative(() => send(bytes));
+    return answer.length === 0 ? undefined : decodeCborJsonCompat(answer);
+}
+
+/**
+ * Gives `context` the caller read from `conn`'s raw parameters, never from
+ * `conn.params`, which the actor's `connParamsSchema` may rewrite.
+ */
+export function withConnCaller<T extends object>(
+    context: T,
+    runtime: CoreRuntime,
+    conn: ConnHandle,
+): T & ActionCaller {
+    let caller: Caller | null | undefined;
+    return Object.defineProperty(context, "caller", {
+        get: () => {
+            caller ??= callerOf(decodeValue(runtime.connParams(conn)) ?? null);
+            return caller;
+        },
+    }) as T & ActionCaller;
 }
 
 function callNativeSync<T>(invoke: () => T): T {
@@ -2590,7 +2638,7 @@ class NativeConnectionMap implements ReadonlyMap<string, NativeConnAdapter> {
 /** Logger cache key for code that runs outside any invocation. */
 const NO_INVOCATION_SCOPE = {};
 
-export class ActorContextHandleAdapter {
+export class ActorContextHandleAdapter implements ContextCalls {
     #runtime: CoreRuntime;
     #ctx: ActorContextHandle;
     #schemas: NativeValidationConfig;
@@ -2824,6 +2872,36 @@ export class ActorContextHandleAdapter {
         return toActorKey(
             callNativeSync(() => this.#runtime.actorKey(this.#ctx)),
         );
+    }
+
+    async call<A, N extends ActionName<A>>(
+        to: Address<A>,
+        name: N,
+        args: ActionArgs<A, N>,
+        options: CallOptions,
+    ): Promise<ActionAnswer<A, N>> {
+        // The answer's type is the address's claim, unchecked here.
+        return (await callThrough(
+            (bytes) =>
+                this.#runtime.actorCall(this.#ctx, to, name, bytes, options),
+            args,
+        )) as ActionAnswer<A, N>;
+    }
+
+    get address(): Address {
+        const key = this.key;
+        const [only] = key;
+        if (key.length !== 1 || only === undefined) {
+            throw internalError(
+                `actor ${this.name} has ${key.length} key segments, not one`,
+            );
+        }
+        return addressFromHost(this.name, only);
+    }
+
+    /** `null` with no connection: a fire of this actor's own schedule, or a hook. */
+    get caller(): Caller | null {
+        return null;
     }
 
     get forkChain(): ActorForkLink[] {
@@ -3754,19 +3832,23 @@ function withConnContext(
         dispatchCancelToken,
         runHandlerConfigured,
     );
-    return Object.assign(actorContext, {
-        conn: new NativeConnAdapter(
-            runtime,
-            conn,
-            schemas,
-            ctx,
-            (connId) =>
-                callNativeSync(() =>
-                    runtime.actorQueueHibernationRemoval(ctx, connId),
-                ),
-            () => actorContext.assertCanMutateState(),
-        ),
-    });
+    return withConnCaller(
+        Object.assign(actorContext, {
+            conn: new NativeConnAdapter(
+                runtime,
+                conn,
+                schemas,
+                ctx,
+                (connId) =>
+                    callNativeSync(() =>
+                        runtime.actorQueueHibernationRemoval(ctx, connId),
+                    ),
+                () => actorContext.assertCanMutateState(),
+            ),
+        }),
+        runtime,
+        conn,
+    );
 }
 
 function buildActorTracingConfig(

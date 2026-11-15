@@ -112,8 +112,73 @@ export function db({
                 transactionScoped = false,
                 stateTransactionContext?: NativeStateTransactionContext,
             ): RawAccess => {
+                // `execute`'s accounting of one SQL text: the open check,
+                // the manual-transaction warning, metrics and the debug log.
+                const tracked = async <T>(
+                    query: string,
+                    run: () => Promise<T>,
+                ): Promise<T> => {
+                    ensureOpen();
+                    if (
+                        !transactionScoped &&
+                        warnOnManualTransactions &&
+                        !manualTransactionWarned &&
+                        !hasMultipleStatements(query) &&
+                        isManualTransactionControl(query)
+                    ) {
+                        manualTransactionWarned = true;
+                        getLogger("database").warn(
+                            { actorId: ctx.actorId },
+                            "Manual cross-call SQLite transactions can interleave with other actor work. Use db.transaction() for coordinated transactions. Set warnOnManualTransactions: false in your db(...) configuration to disable this warning.",
+                        );
+                    }
+
+                    const kvReadsBefore = ctx.metrics?.totalKvReads ?? 0;
+                    const kvWritesBefore = ctx.metrics?.totalKvWrites ?? 0;
+                    const start = performance.now();
+
+                    try {
+                        return await run();
+                    } finally {
+                        const durationMs = performance.now() - start;
+                        ctx.metrics?.trackSql(query, durationMs);
+                        if (ctx.metrics) {
+                            const kvReads =
+                                ctx.metrics.totalKvReads - kvReadsBefore;
+                            const kvWrites =
+                                ctx.metrics.totalKvWrites - kvWritesBefore;
+                            ctx.log?.debug({
+                                msg: "sql query",
+                                query: query.slice(0, 120),
+                                durationMs,
+                                kvReads,
+                                kvWrites,
+                            });
+                        }
+                    }
+                };
+                const statement = (query: string, args: unknown[]) =>
+                    tracked(query, () =>
+                        target.execute(
+                            query,
+                            args.length === 0
+                                ? undefined
+                                : args.length === 1 &&
+                                    isSqliteBindingObject(args[0])
+                                  ? toSqliteBindings(args[0])
+                                  : toSqliteBindings(args),
+                        ),
+                    );
+                const rows = async <TRow extends Record<string, unknown>>(
+                    query: string,
+                    args: unknown[],
+                ): Promise<TRow[]> => {
+                    const { rows, columns } = await statement(query, args);
+                    return rows.map((row) => rowToObject<TRow>(row, columns));
+                };
+
                 const client: RawAccess = {
-                    execute: async <
+                    execute: <
                         TRow extends Record<string, unknown> = Record<
                             string,
                             unknown
@@ -121,73 +186,29 @@ export function db({
                     >(
                         query: string,
                         ...args: unknown[]
-                    ): Promise<TRow[]> => {
-                        ensureOpen();
-                        if (
-                            !transactionScoped &&
-                            warnOnManualTransactions &&
-                            !manualTransactionWarned &&
-                            !hasMultipleStatements(query) &&
-                            isManualTransactionControl(query)
-                        ) {
-                            manualTransactionWarned = true;
-                            getLogger("database").warn(
-                                { actorId: ctx.actorId },
-                                "Manual cross-call SQLite transactions can interleave with other actor work. Use db.transaction() for coordinated transactions. Set warnOnManualTransactions: false in your db(...) configuration to disable this warning.",
-                            );
-                        }
-
-                        const kvReadsBefore = ctx.metrics?.totalKvReads ?? 0;
-                        const kvWritesBefore = ctx.metrics?.totalKvWrites ?? 0;
-                        const start = performance.now();
-
-                        try {
-                            if (args.length > 0) {
-                                const bindings =
-                                    args.length === 1 &&
-                                    isSqliteBindingObject(args[0])
-                                        ? toSqliteBindings(args[0])
-                                        : toSqliteBindings(args);
-                                const { rows, columns } = await target.execute(
-                                    query,
-                                    bindings,
-                                );
-                                return rows.map((row) =>
-                                    rowToObject<TRow>(row, columns),
-                                );
-                            }
-
-                            if (!hasMultipleStatements(query)) {
-                                const { rows, columns } = await target.execute(
-                                    query,
-                                    undefined,
-                                );
-                                return rows.map((row) =>
-                                    rowToObject<TRow>(row, columns),
-                                );
-                            }
-
-                            return await execMultiStatement<TRow>(
-                                target,
-                                query,
-                            );
-                        } finally {
-                            const durationMs = performance.now() - start;
-                            ctx.metrics?.trackSql(query, durationMs);
-                            if (ctx.metrics) {
-                                const kvReads =
-                                    ctx.metrics.totalKvReads - kvReadsBefore;
-                                const kvWrites =
-                                    ctx.metrics.totalKvWrites - kvWritesBefore;
-                                ctx.log?.debug({
-                                    msg: "sql query",
-                                    query: query.slice(0, 120),
-                                    durationMs,
-                                    kvReads,
-                                    kvWrites,
-                                });
-                            }
-                        }
+                    ): Promise<TRow[]> =>
+                        args.length === 0 && hasMultipleStatements(query)
+                            ? tracked(query, () =>
+                                  execMultiStatement<TRow>(target, query),
+                              )
+                            : rows<TRow>(query, args),
+                    get: async <TRow extends Record<string, unknown>>(
+                        query: string,
+                        ...args: unknown[]
+                    ) => (await rows<TRow>(query, args))[0],
+                    all: <TRow extends Record<string, unknown>>(
+                        query: string,
+                        ...args: unknown[]
+                    ) => rows<TRow>(query, args),
+                    run: async (query, ...args) => {
+                        const { changes, lastInsertRowId } = await statement(
+                            query,
+                            args,
+                        );
+                        return {
+                            changes,
+                            lastInsertRowId: lastInsertRowId ?? null,
+                        };
                     },
                     transaction: async <T>(
                         callback: (tx: RawAccess) => Promise<T> | T,

@@ -465,6 +465,21 @@ export class NapiCoreRuntime implements CoreRuntime {
         };
     }
 
+    async actorCall(
+        ctx: ActorContextHandle,
+        to: { kind: string; key: string },
+        name: string,
+        args: RuntimeBytes,
+        options: { deadlineMs: number },
+    ): Promise<RuntimeBytes> {
+        return await this.#actorContextForOperation(ctx).call(
+            to,
+            name,
+            toNapiBuffer(args),
+            options,
+        );
+    }
+
     async startWorkflowSpan(ctx: ActorContextHandle): Promise<WorkflowSpan> {
         const span = await asNativeActorContext(ctx).startWorkflowSpan();
         const spanCtx = span.ctx();

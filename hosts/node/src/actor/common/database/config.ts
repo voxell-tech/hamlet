@@ -275,4 +275,31 @@ export type RawAccess = {
      * Closes the database connection and releases resources.
      */
     close: () => Promise<void>;
-};
+} & RowAccess;
+
+export interface SqliteRunResult {
+    /** Rows the statement inserted, updated or deleted. */
+    readonly changes: number;
+    /**
+     * `last_insert_rowid()` after a statement that may write, also an UPDATE
+     * or a DELETE; `null` after a read-only one.
+     */
+    readonly lastInsertRowId: number | null;
+}
+
+/**
+ * One statement, bound as `execute` binds. A text of two statements fails
+ * with SQLite's error.
+ */
+export interface RowAccess {
+    /** The first row, or `undefined` when there is none. */
+    get<TRow extends Record<string, unknown> = Record<string, unknown>>(
+        query: string,
+        ...args: unknown[]
+    ): Promise<TRow | undefined>;
+    all<TRow extends Record<string, unknown> = Record<string, unknown>>(
+        query: string,
+        ...args: unknown[]
+    ): Promise<TRow[]>;
+    run(query: string, ...args: unknown[]): Promise<SqliteRunResult>;
+}
