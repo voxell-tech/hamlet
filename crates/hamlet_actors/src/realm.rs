@@ -39,6 +39,7 @@ use hamlet_messages::realm::{
     RequestRoad, Seat, Secrets, SetLimits, SetTier, SetTools,
     TakeUpRoad, Tell, Tool,
 };
+use serde::Serialize;
 
 use self::callers::{Bare, ByHand, Looks};
 
@@ -140,17 +141,147 @@ impl Actor for Realm {
         self: Arc<Self>,
         ctx: Ctx<Self>,
     ) -> Result<()> {
-        change::commit(&self, &ctx, chiefs::first_start()).await?;
+        let rows = change::Rows::outside(&ctx)?;
+        let changes = chiefs::first_start(&rows).await?;
+        change::commit(&self, &ctx, changes).await?;
         Ok(())
     }
 
     async fn on_start(self: Arc<Self>, ctx: Ctx<Self>) -> Result<()> {
-        steps::drive_undone(&self, &ctx).await
+        let rows = change::Rows::outside(&ctx)?;
+        steps::undone(&rows, &self.drives).await?.start(&self, &ctx);
+        Ok(())
     }
 }
 
 fn not_built(unit: &str) -> anyhow::Error {
     anyhow::anyhow!("the scaffold: {unit} fills this")
+}
+
+fn cbor(value: &impl Serialize) -> Result<Vec<u8>> {
+    let mut bytes = Vec::new();
+    ciborium::into_writer(value, &mut bytes)?;
+    Ok(bytes)
+}
+
+/// A realm on a host, for the tests of the realm's modules.
+#[cfg(test)]
+mod testing {
+    use std::sync::Arc;
+
+    use hamlet_actor::{Actor as _, Ctx, Registry, run_actor};
+    use hamlet_actor_core::ActorConfig;
+    use hamlet_host::{Host, HostOptions};
+    use hamlet_messages::address::{self, Party as _};
+    use hamlet_messages::realm::{HamletId, ProfileId, Tier};
+    use hamlet_messages::workspace::AgentNumber;
+    use hamlet_testing::Scratch;
+    use tokio::sync::mpsc;
+
+    use super::change::{self, Rows};
+    use super::{Realm, chiefs, tree};
+
+    /// A started realm, past its first start, and a second value of
+    /// its state over the same context.
+    pub(super) struct Started {
+        pub realm: Arc<Realm>,
+        pub ctx: Ctx<Realm>,
+        host: Host,
+        _scratch: Scratch,
+    }
+
+    impl Started {
+        pub async fn new() -> Self {
+            let (sent, mut started) = mpsc::unbounded_channel();
+            let mut registry = Registry::new();
+            #[expect(
+                deprecated,
+                reason = "the one registration that hands a test \
+                          the realm's context"
+            )]
+            registry.register_with::<Realm, _, _>(
+                address::Realm::KIND,
+                ActorConfig {
+                    has_database: true,
+                    ..ActorConfig::default()
+                },
+                move |start| {
+                    let _ = sent.send(start.ctx.clone());
+                    run_actor(start)
+                },
+            );
+            let scratch = Scratch::new("realm-module");
+            let host = Host::open_with(
+                &scratch,
+                registry.into_factories(),
+                HostOptions::default(),
+            )
+            .unwrap();
+            host.get_or_start(&address::Realm.address().unwrap())
+                .await
+                .unwrap();
+            let ctx = started.recv().await.unwrap();
+            Self {
+                realm: Arc::new(Realm::create(&ctx).await.unwrap()),
+                ctx,
+                host,
+                _scratch: scratch,
+            }
+        }
+
+        pub async fn stop(self) {
+            self.host.shutdown().await.unwrap();
+        }
+
+        pub fn rows(&self) -> Rows<'_> {
+            Rows::outside(&self.ctx).unwrap()
+        }
+
+        pub async fn commit(
+            &self,
+            made: impl Into<change::Change>,
+        ) -> anyhow::Result<()> {
+            change::commit(&self.realm, &self.ctx, vec![made.into()])
+                .await?;
+            Ok(())
+        }
+
+        /// Founds `hamlet`, of tier fifty, with `mayor` as its mayor.
+        pub async fn found(
+            &self,
+            hamlet: &HamletId,
+            mayor: AgentNumber,
+        ) {
+            self.commit(chiefs::Change::Found {
+                hamlet: hamlet.clone(),
+                name: hamlet.0.clone(),
+                mayor,
+                tier: Tier::Fifty,
+            })
+            .await
+            .unwrap();
+            self.hire(hamlet, mayor, None).await;
+        }
+
+        /// Hires `agent` into `hamlet` under `lead`, of the Hand's
+        /// profile.
+        pub async fn hire(
+            &self,
+            hamlet: &HamletId,
+            agent: AgentNumber,
+            lead: Option<AgentNumber>,
+        ) {
+            self.commit(tree::Change::Hire {
+                agent,
+                hamlet: hamlet.clone(),
+                lead,
+                of: tree::Of::Profile(ProfileId(1)),
+                purpose: None,
+            })
+            .await
+            .unwrap();
+        }
+    }
 }
 
 #[cfg(test)]

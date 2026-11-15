@@ -1,6 +1,5 @@
 #![expect(
     unused_variables,
-    dead_code,
     reason = "the scaffold: U9 fills this file"
 )]
 

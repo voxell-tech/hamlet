@@ -72,6 +72,8 @@ CREATE TABLE IF NOT EXISTS decision (
 	kind TEXT NOT NULL,
 	hamlet TEXT,
 	agent INTEGER,
+	other INTEGER,
+	tier TEXT,
 	by TEXT NOT NULL,
 	why TEXT,
 	at INTEGER NOT NULL) STRICT;

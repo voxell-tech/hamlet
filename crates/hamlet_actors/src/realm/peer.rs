@@ -15,6 +15,8 @@ use hamlet_messages::Message;
 use hamlet_messages::address::Party;
 use serde::Serialize;
 
+use super::cbor;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum When {
     BeforeAnswer,
@@ -56,9 +58,7 @@ impl Peers {
         at: &P,
         input: &impl Serialize,
     ) -> Result<()> {
-        let mut bytes = Vec::new();
-        ciborium::into_writer(input, &mut bytes)?;
-        match self.host.create(&at.address()?, bytes).await {
+        match self.host.create(&at.address()?, cbor(input)?).await {
             Err(error) if is_duplicate_key(&error) => Ok(()),
             other => other,
         }

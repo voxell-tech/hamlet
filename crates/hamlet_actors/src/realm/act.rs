@@ -165,9 +165,6 @@ where
     let mut waited = false;
     let (done, pushes) = loop {
         let tx = change::Transaction::begin(ctx).await?;
-        // The host's transaction has no `Drop`: one left open holds
-        // the realm's file until its 60 s timeout, so every path
-        // below ends it.
         let read = async {
             if let Some(key) = &key
                 && let Some(found) =
@@ -187,32 +184,17 @@ where
             anyhow::Ok(Read::Decided(act.decide(&by, loaded)))
         }
         .await;
-        let decision = match read {
-            Err(error) => {
-                tx.rollback().await?;
-                return Err(error);
-            }
-            Ok(Read::Repeat { done, pushes }) => {
-                tx.rollback().await?;
-                break (done, pushes);
-            }
-            Ok(Read::Stood(stood)) => {
-                tx.rollback().await?;
-                return Ok(Err(stood));
-            }
-            Ok(Read::Decided(decision)) => decision,
+        let decision = match read? {
+            Read::Repeat { done, pushes } => break (done, pushes),
+            Read::Stood(stood) => return Ok(Err(stood)),
+            Read::Decided(decision) => decision,
         };
         match decision {
-            Decision::Answer(output) => {
-                tx.rollback().await?;
-                return Ok(Ok(output));
-            }
-            Decision::Again(done) => {
-                tx.rollback().await?;
-                break (done, Vec::new());
-            }
+            Decision::Answer(output) => return Ok(Ok(output)),
+            Decision::Again(done) => break (done, Vec::new()),
             Decision::WaitFor { row, refusal } => {
-                tx.rollback().await?;
+                // The hire's steps commit while this waits.
+                drop(tx);
                 if waited {
                     return Ok(Ok(refusal));
                 }
@@ -223,7 +205,6 @@ where
                 let pushes = tx
                     .commit(
                         realm,
-                        ctx,
                         change::Write {
                             changes: decided.changes,
                             entries: decided.entries,

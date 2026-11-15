@@ -2,22 +2,19 @@
 //! tool call that changed the realm made, under the id its repeat
 //! carries (S19).
 
-#![expect(
-    unused_variables,
-    dead_code,
-    reason = "the scaffold: U2 fills this file"
-)]
-
 use anyhow::Result;
+use hamlet_actor::BindParam;
 use hamlet_messages::bytes::Sha256;
 use hamlet_messages::sender::id_reused;
 use hamlet_messages::workspace::CallId;
 use hamlet_protocol::client::RequestId;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
+use sha2::Digest as _;
 
 use super::callers::Witness;
 use super::calls::Push;
+use super::cbor;
 use super::change::{Rows, Writer};
 
 /// The id a repeat carries.
@@ -33,7 +30,7 @@ pub(super) struct Digest(Sha256);
 
 impl Digest {
     pub fn of(call: &impl Serialize) -> Result<Self> {
-        todo!()
+        Ok(Self(Sha256(sha2::Sha256::digest(cbor(call)?).into())))
     }
 }
 
@@ -51,7 +48,15 @@ impl Key {
         action: &'static str,
         call: &impl Serialize,
     ) -> Result<Self> {
-        todo!()
+        Ok(Self {
+            caller: by.name(),
+            id: match id {
+                Id::Request(id) => id.as_str().to_owned(),
+                Id::Call(CallId(id)) => id,
+            },
+            action,
+            digest: Digest::of(call)?,
+        })
     }
 
     pub fn reused(&self) -> anyhow::Error {
@@ -71,7 +76,26 @@ pub(super) async fn find<D: DeserializeOwned>(
     rows: &Rows<'_>,
     key: &Key,
 ) -> Result<Option<Found<D>>> {
-    todo!()
+    let Some((action, digest, done, pushes)) = rows
+        .row::<(String, Vec<u8>, Vec<u8>, Vec<u8>)>(
+            "SELECT action, digest, done, pushes FROM marker WHERE \
+             caller = ?1 AND id = ?2",
+            vec![
+                BindParam::Text(key.caller.clone()),
+                BindParam::Text(key.id.clone()),
+            ],
+        )
+        .await?
+    else {
+        return Ok(None);
+    };
+    if action != key.action || digest[..] != key.digest.0.0 {
+        return Ok(Some(Found::Other));
+    }
+    Ok(Some(Found::Same {
+        done: ciborium::from_reader(done.as_slice())?,
+        pushes: ciborium::from_reader(pushes.as_slice())?,
+    }))
 }
 
 pub(super) async fn record(
@@ -80,5 +104,20 @@ pub(super) async fn record(
     done: &impl Serialize,
     pushes: &[Push],
 ) -> Result<()> {
-    todo!()
+    writer
+        .execute(
+            "INSERT INTO marker (caller, id, action, digest, done, \
+             pushes, at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            vec![
+                BindParam::Text(key.caller.clone()),
+                BindParam::Text(key.id.clone()),
+                BindParam::Text(key.action.to_owned()),
+                BindParam::Blob(key.digest.0.0.to_vec()),
+                BindParam::Blob(cbor(done)?),
+                BindParam::Blob(cbor(&pushes)?),
+                BindParam::Integer(writer.at().0),
+            ],
+        )
+        .await?;
+    Ok(())
 }

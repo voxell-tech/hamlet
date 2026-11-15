@@ -11,10 +11,11 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use anyhow::Result;
+use anyhow::{Result, bail};
 use hamlet_actor::{BindParam, ColumnValue, Ctx, SqliteTransaction};
 use hamlet_messages::workspace::AgentNumber;
 use serde::Serialize;
+use serde::de::DeserializeOwned;
 
 use super::calls::Push;
 use super::{
@@ -69,6 +70,16 @@ pub(super) struct Affected {
 }
 
 impl Affected {
+    /// A change a client sees in `parts`, and nothing else.
+    pub fn seen(
+        parts: impl IntoIterator<Item = world::Part>,
+    ) -> Self {
+        Self {
+            seen: parts.into_iter().collect(),
+            ..Self::default()
+        }
+    }
+
     fn merge(&mut self, other: Affected) {
         self.places.extend(other.places);
         self.reaches.extend(other.reaches);
@@ -123,9 +134,158 @@ impl<'a> Rows<'a> {
         })
     }
 
+    pub async fn rows<T: Columns>(
+        &self,
+        sql: &str,
+        params: Vec<BindParam>,
+    ) -> Result<Vec<T>> {
+        self.select(sql, params)
+            .await?
+            .iter()
+            .map(|row| T::of(row))
+            .collect()
+    }
+
+    /// The first row `sql` finds.
+    pub async fn row<T: Columns>(
+        &self,
+        sql: &str,
+        params: Vec<BindParam>,
+    ) -> Result<Option<T>> {
+        Ok(self.rows(sql, params).await?.into_iter().next())
+    }
+
+    /// The one column of each row `sql` finds.
+    pub async fn values<T: Column>(
+        &self,
+        sql: &str,
+        params: Vec<BindParam>,
+    ) -> Result<Vec<T>> {
+        let rows = self.rows::<(T,)>(sql, params).await?;
+        Ok(rows.into_iter().map(|(value,)| value).collect())
+    }
+
+    /// The one column of the first row `sql` finds.
+    pub async fn value<T: Column>(
+        &self,
+        sql: &str,
+        params: Vec<BindParam>,
+    ) -> Result<Option<T>> {
+        Ok(self.row::<(T,)>(sql, params).await?.map(|(value,)| value))
+    }
+
+    /// The id after the highest of `table`, 1 for an empty one.
+    pub async fn next_id(&self, table: &str) -> Result<u64> {
+        let highest = self
+            .value::<Option<u64>>(
+                &format!("SELECT MAX(id) FROM {table}"),
+                Vec::new(),
+            )
+            .await?
+            .flatten();
+        Ok(highest.unwrap_or(0) + 1)
+    }
+
     pub fn at(&self) -> At {
         self.at
     }
+}
+
+/// A Rust value of one column.
+pub(super) trait Column: Sized {
+    fn of(value: &ColumnValue) -> Result<Self>;
+}
+
+impl Column for i64 {
+    fn of(value: &ColumnValue) -> Result<Self> {
+        match value {
+            ColumnValue::Integer(n) => Ok(*n),
+            other => bail!("an integer column holds {other:?}"),
+        }
+    }
+}
+
+impl Column for u64 {
+    fn of(value: &ColumnValue) -> Result<Self> {
+        Ok(Self::try_from(i64::of(value)?)?)
+    }
+}
+
+impl Column for u32 {
+    fn of(value: &ColumnValue) -> Result<Self> {
+        Ok(Self::try_from(i64::of(value)?)?)
+    }
+}
+
+impl Column for bool {
+    fn of(value: &ColumnValue) -> Result<Self> {
+        Ok(i64::of(value)? != 0)
+    }
+}
+
+impl Column for Vec<u8> {
+    fn of(value: &ColumnValue) -> Result<Self> {
+        match value {
+            ColumnValue::Blob(bytes) => Ok(bytes.clone()),
+            other => bail!("a blob column holds {other:?}"),
+        }
+    }
+}
+
+impl Column for String {
+    fn of(value: &ColumnValue) -> Result<Self> {
+        match value {
+            ColumnValue::Text(text) => Ok(text.clone()),
+            other => bail!("a text column holds {other:?}"),
+        }
+    }
+}
+
+impl<T: Column> Column for Option<T> {
+    fn of(value: &ColumnValue) -> Result<Self> {
+        match value {
+            ColumnValue::Null => Ok(None),
+            value => T::of(value).map(Some),
+        }
+    }
+}
+
+/// A Rust value of one row.
+pub(super) trait Columns: Sized {
+    fn of(row: &[ColumnValue]) -> Result<Self>;
+}
+
+macro_rules! columns {
+    ($(($($column:ident $value:ident),+)),+ $(,)?) => {$(
+        impl<$($column: Column),+> Columns for ($($column,)+) {
+            fn of(row: &[ColumnValue]) -> Result<Self> {
+                match row {
+                    [$($value),+] => Ok(($($column::of($value)?,)+)),
+                    _ => bail!("a row of another form: {row:?}"),
+                }
+            }
+        }
+    )+};
+}
+
+columns!((A a), (A a, B b), (A a, B b, C c), (A a, B b, C c, D d));
+
+/// An agent's number as a statement's parameter.
+pub(super) fn number(agent: AgentNumber) -> BindParam {
+    BindParam::Integer(i64::from(agent.0))
+}
+
+/// The serde name of an enum's case, as a column holds it.
+pub(super) fn name(case: &impl Serialize) -> Result<String> {
+    match serde_json::to_value(case)? {
+        serde_json::Value::String(name) => Ok(name),
+        other => bail!("{other} is no case's name"),
+    }
+}
+
+/// The case of `T` a column names.
+pub(super) fn named<T: DeserializeOwned>(name: String) -> Result<T> {
+    Ok(serde_json::from_value(serde_json::Value::String(name))?)
 }
 
 fn read_only(sql: &str) -> Result<()> {
@@ -165,9 +325,27 @@ impl Writer<'_> {
     }
 }
 
+/// A transaction of the realm's file, rolled back when dropped
+/// before its commit.
 pub(super) struct Transaction {
     tx: SqliteTransaction,
     at: At,
+    ctx: Ctx<Realm>,
+    is_open: bool,
+}
+
+impl Drop for Transaction {
+    fn drop(&mut self) {
+        if !self.is_open {
+            return;
+        }
+        let tx = self.tx.clone();
+        self.ctx.register_task(async move {
+            if let Err(error) = tx.rollback().await {
+                tracing::warn!("a rollback failed: {error:#}");
+            }
+        });
+    }
 }
 
 pub(super) struct Write<'a, D> {
@@ -182,6 +360,8 @@ impl Transaction {
         Ok(Self {
             tx: ctx.sql().begin_transaction(None).await?,
             at: At::now()?,
+            ctx: ctx.clone(),
+            is_open: true,
         })
     }
 
@@ -192,14 +372,9 @@ impl Transaction {
         }
     }
 
-    pub async fn rollback(self) -> Result<()> {
-        self.tx.rollback().await
-    }
-
     pub async fn commit<D: Serialize>(
-        self,
+        mut self,
         realm: &Arc<Realm>,
-        ctx: &Ctx<Realm>,
         write: Write<'_, D>,
     ) -> Result<Vec<Push>> {
         let writer = Writer {
@@ -253,18 +428,16 @@ impl Transaction {
             anyhow::Ok((affected, revision, pushes))
         }
         .await;
-        let (affected, revision, pushes) = match written {
-            Ok(written) => written,
-            Err(error) => {
-                self.tx.rollback().await?;
-                return Err(error);
-            }
-        };
-        let reserved = realm.drives.reserve(&affected.begun);
+        let (affected, revision, mut pushes) = written?;
+        let reserved = realm.drives.reserve(&affected.begun, &self);
+        // A commit that fails rolls back by itself.
+        self.is_open = false;
         self.tx.commit().await?;
-        reserved.start(realm, ctx);
+        reserved.start(realm, &self.ctx);
+        // Only a repeat pushes the drives this starts.
+        pushes.retain(|push| !matches!(push, Push::Drive(_)));
         if let Some(revision) = revision {
-            realm.world.refresh(ctx, revision, &affected).await;
+            realm.world.refresh(&self.ctx, revision, &affected).await;
         }
         Ok(pushes)
     }
@@ -279,7 +452,6 @@ pub(super) async fn commit(
         .await?
         .commit(
             realm,
-            ctx,
             Write::<()> {
                 changes,
                 entries: Vec::new(),
@@ -291,7 +463,71 @@ pub(super) async fn commit(
 
 #[cfg(test)]
 mod tests {
-    use super::read_only;
+    use std::time::Duration;
+
+    use hamlet_messages::sender::Client;
+    use hamlet_messages::workspace::AgentNumber;
+    use hamlet_protocol::client::RequestId;
+
+    use super::super::testing::Started;
+    use super::*;
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_transaction_dropped_open_leaves_the_file_free() {
+        let started = Started::new().await;
+        drop(Transaction::begin(&started.ctx).await.unwrap());
+        let next = started
+            .commit(versions::Change::WantReach(AgentNumber(5)));
+        tokio::time::timeout(Duration::from_secs(5), next)
+            .await
+            .expect("the next transaction begins at once")
+            .unwrap();
+        started.stop().await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_first_run_leaves_its_drives_to_the_commit_and_a_repeat()
+     {
+        let started = Started::new().await;
+        let row = steps::StepId {
+            kind: steps::Kind::Hire,
+            n: 97,
+        };
+        let key = marker::Key::of(
+            &Client,
+            marker::Id::Request(RequestId::new()),
+            "begin",
+            &row,
+        )
+        .unwrap();
+        let after_answer = Transaction::begin(&started.ctx)
+            .await
+            .unwrap()
+            .commit(
+                &started.realm,
+                Write {
+                    changes: vec![
+                        steps::Change::Begin { row }.into(),
+                    ],
+                    entries: Vec::new(),
+                    marker: Some((&key, &())),
+                },
+            )
+            .await
+            .unwrap();
+
+        let Some(marker::Found::Same {
+            pushes: on_repeat, ..
+        }) = marker::find::<()>(&started.rows(), &key).await.unwrap()
+        else {
+            panic!("the marker holds the first run");
+        };
+        assert_eq!(
+            (after_answer, on_repeat),
+            (Vec::new(), vec![Push::Drive(row)])
+        );
+        started.stop().await;
+    }
 
     #[test]
     fn a_read_refuses_a_write_behind_a_with() {

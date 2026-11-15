@@ -1,11 +1,5 @@
 //! The calls the realm makes after a commit.
 
-#![expect(
-    unused_variables,
-    dead_code,
-    reason = "the scaffold: U2 fills this file"
-)]
-
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -22,6 +16,7 @@ use super::{Realm, letters, place, reach, steps, waits};
 
 /// A call that carries an act's content.
 #[derive(Debug, PartialEq)]
+#[expect(dead_code, reason = "U5, U6 and U8 deliver these")]
 pub(super) enum Delivery {
     /// A chief's line.
     Line { to: AgentNumber, submit: Submit },
@@ -46,6 +41,7 @@ impl Calls {
         Self::default()
     }
 
+    #[expect(dead_code, reason = "U5 calls it")]
     pub fn before_answer(delivery: Delivery) -> Self {
         Self {
             before_answer: vec![delivery],
@@ -53,6 +49,7 @@ impl Calls {
         }
     }
 
+    #[expect(dead_code, reason = "U6, U8 and U11 call it")]
     pub fn after_answer(delivery: Delivery) -> Self {
         Self {
             before_answer: Vec::new(),
@@ -67,6 +64,7 @@ pub(super) struct Made {
 }
 
 impl Made {
+    #[expect(dead_code, reason = "U5 calls it")]
     pub fn all_taken(&self) -> bool {
         self.failed.is_empty()
     }
@@ -87,7 +85,11 @@ impl Push {
     /// The pushes of a commit, in the order they are made: the
     /// drives, then the reaches, then the places.
     pub fn of(affected: &Affected) -> Vec<Self> {
-        todo!()
+        let drives = affected.begun.iter().copied().map(Self::Drive);
+        let reaches =
+            affected.reaches.iter().copied().map(Self::Reach);
+        let places = affected.places.iter().copied().map(Self::Place);
+        drives.chain(reaches).chain(places).collect()
     }
 }
 
@@ -145,5 +147,11 @@ pub(super) async fn after_answer(
     deliveries: Vec<Delivery>,
     pushes: Vec<Push>,
 ) {
-    todo!()
+    for made in pushes {
+        let shown = format!("{made:?}");
+        if let Err(error) = push(&realm, &ctx, made).await {
+            tracing::warn!(push = shown, "a push failed: {error:#}");
+        }
+    }
+    deliver_all(&realm, &ctx, deliveries, When::AfterAnswer).await;
 }

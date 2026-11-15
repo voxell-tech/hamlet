@@ -1,28 +1,29 @@
 //! The realm's row, the chief and the hamlets: the `realm`, `chief`,
 //! `hamlet` and `hamlet_chief` tables, and founding a hamlet.
 
-#![expect(
-    unused_variables,
-    dead_code,
-    reason = "the scaffold: U2 fills this file"
-)]
-
 pub(super) mod limits;
 mod tier;
 
 use anyhow::Result;
+use hamlet_actor::BindParam;
 use hamlet_messages::realm::budget::Payer;
 use hamlet_messages::realm::{
-    Found, FoundAnswer, FoundRefusal, HamletId, Tier,
+    Found, FoundAnswer, FoundRefusal, HamletId, ProfileId, Refusable,
+    Tier,
 };
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::AgentNumber;
+use hamlet_messages::workspace::reach::Mode;
 
-use super::act::{Act, Decision};
+use super::act::{Act, Decided, Decision};
 use super::callers::RealmWide;
 use super::calls::Made;
-use super::change::{self, Affected, Rows, Writer};
-use super::{hire, steps, tasks, tree};
+use super::change::{self, Affected, Rows, Writer, number};
+use super::world::Part;
+use super::{hire, record, steps, tasks, tree};
+
+/// The version of `schema.sql` the realm's row is written with.
+const SCHEMA_VERSION: i64 = 1;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct Hamlet {
@@ -34,8 +35,14 @@ pub(super) struct Hamlet {
 
 impl Hamlet {
     /// The most hires the hamlet holds (H6).
+    #[cfg_attr(not(test), expect(dead_code, reason = "U4 calls it"))]
     pub fn most(&self) -> u32 {
-        todo!()
+        match self.tier {
+            Tier::Fifty => 50,
+            Tier::Hundred => 100,
+            Tier::TwoHundred => 200,
+            Tier::FiveHundred => 500,
+        }
     }
 }
 
@@ -43,18 +50,36 @@ pub(super) async fn hamlet(
     rows: &Rows<'_>,
     id: &HamletId,
 ) -> Result<Option<Hamlet>> {
-    todo!()
+    rows.row::<(u32, String, String)>(
+        "SELECT mayor, tier, limits FROM hamlet WHERE id = ?1",
+        vec![BindParam::Text(id.0.clone())],
+    )
+    .await?
+    .map(|(mayor, tier, limits)| {
+        Ok(Hamlet {
+            id: id.clone(),
+            mayor: AgentNumber(mayor),
+            tier: change::named(tier)?,
+            limits: limits::Limits::of_row(&limits)?,
+        })
+    })
+    .transpose()
 }
 
 pub(super) async fn mayors(
     rows: &Rows<'_>,
 ) -> Result<Vec<AgentNumber>> {
-    todo!()
+    Ok(rows
+        .values::<u32>("SELECT mayor FROM hamlet", Vec::new())
+        .await?
+        .into_iter()
+        .map(AgentNumber)
+        .collect())
 }
 
 /// A new hamlet's id, a random UUID.
 pub(super) fn fresh() -> HamletId {
-    todo!()
+    HamletId(uuid::Uuid::new_v4().to_string())
 }
 
 #[derive(Debug, PartialEq)]
@@ -69,10 +94,15 @@ pub(super) enum Change {
         mayor: AgentNumber,
         tier: Tier,
     },
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "U4 seats a mayor with it")
+    )]
     Mayor {
         hamlet: HamletId,
         mayor: AgentNumber,
     },
+    #[expect(dead_code, reason = "U11 sets a tier with it")]
     Tier {
         hamlet: HamletId,
         tier: Tier,
@@ -103,7 +133,20 @@ pub(super) async fn apply(
 }
 
 async fn first(writer: &Writer<'_>) -> Result<Affected> {
-    todo!()
+    writer
+        .execute(
+            "INSERT INTO realm (id, schema, limits) VALUES (1, ?1, \
+             ?2)",
+            vec![
+                BindParam::Integer(SCHEMA_VERSION),
+                BindParam::Text(limits::new_realm()?),
+            ],
+        )
+        .await?;
+    writer
+        .execute("INSERT INTO chief (id) VALUES (1)", Vec::new())
+        .await?;
+    Ok(Affected::seen([Part::Spend]))
 }
 
 async fn found(
@@ -113,7 +156,29 @@ async fn found(
     mayor: AgentNumber,
     tier: Tier,
 ) -> Result<Affected> {
-    todo!()
+    writer
+        .execute(
+            "INSERT INTO hamlet (id, name, mayor, tier, folder, \
+             mode, limits, at) VALUES (?1, ?2, ?3, ?4, NULL, ?5, \
+             ?6, ?7)",
+            vec![
+                BindParam::Text(hamlet.0.clone()),
+                BindParam::Text(name),
+                number(mayor),
+                BindParam::Text(change::name(&tier)?),
+                BindParam::Text(change::name(&Mode::Manual)?),
+                BindParam::Text(limits::new_hamlet()?),
+                BindParam::Integer(writer.at().0),
+            ],
+        )
+        .await?;
+    writer
+        .execute(
+            "INSERT INTO hamlet_chief (hamlet, chief) VALUES (?1, 1)",
+            vec![BindParam::Text(hamlet.0)],
+        )
+        .await?;
+    Ok(Affected::seen([Part::Hamlets, Part::Spend]))
 }
 
 async fn set_mayor(
@@ -121,12 +186,29 @@ async fn set_mayor(
     hamlet: HamletId,
     mayor: AgentNumber,
 ) -> Result<Affected> {
-    todo!()
+    writer
+        .execute(
+            "UPDATE hamlet SET mayor = ?2 WHERE id = ?1",
+            vec![BindParam::Text(hamlet.0), number(mayor)],
+        )
+        .await?;
+    Ok(Affected::seen([Part::Hamlets]))
 }
 
-pub(super) fn first_start() -> Vec<change::Change> {
+/// No changes once the realm's row is written: the host runs the
+/// first start again when the start after it fails.
+pub(super) async fn first_start(
+    rows: &Rows<'_>,
+) -> Result<Vec<change::Change>> {
+    if rows
+        .value::<i64>("SELECT id FROM realm", Vec::new())
+        .await?
+        .is_some()
+    {
+        return Ok(Vec::new());
+    }
     let hand = Hand::NUMBER;
-    vec![
+    Ok(vec![
         Change::First.into(),
         tree::Change::Hand.into(),
         tasks::Change::Standing {
@@ -138,14 +220,15 @@ pub(super) fn first_start() -> Vec<change::Change> {
             row: hire::row(hand),
         }
         .into(),
-    ]
+    ])
 }
 
 pub(super) struct Founding {
-    profile: Option<Option<tree::Profile>>,
+    /// The mayor's profile, when the act names one the realm holds.
+    profile: Option<tree::Profile>,
     hamlet: HamletId,
     mayor: AgentNumber,
-    blank: hamlet_messages::realm::ProfileId,
+    blank: ProfileId,
 }
 
 impl<By: RealmWide> Act<By> for Found {
@@ -156,10 +239,19 @@ impl<By: RealmWide> Act<By> for Found {
 
     async fn load(
         &self,
-        by: &By,
+        _by: &By,
         rows: &Rows<'_>,
     ) -> Result<Founding> {
-        todo!()
+        let profile = match self.mayor {
+            Some(id) => tree::profile(rows, id).await?,
+            None => None,
+        };
+        Ok(Founding {
+            profile,
+            hamlet: fresh(),
+            mayor: tree::fresh(rows).await?,
+            blank: tree::fresh_profile(rows).await?,
+        })
     }
 
     fn decide(
@@ -167,16 +259,181 @@ impl<By: RealmWide> Act<By> for Found {
         by: &By,
         founding: Founding,
     ) -> Decision<Self::Done, Self::Output> {
-        todo!()
+        if self.name.trim().is_empty() {
+            return Decision::Answer(FoundAnswer::refused(
+                FoundRefusal::EmptyName,
+            ));
+        }
+        let of = match (self.mayor, founding.profile) {
+            (None, _) => tree::Of::Blank(founding.blank),
+            (Some(_), Some(profile)) => tree::Of::Profile(profile.id),
+            (Some(profile), None) => {
+                return Decision::Answer(FoundAnswer::refused(
+                    FoundRefusal::NoSuchProfile { profile },
+                ));
+            }
+        };
+        let Founding { hamlet, mayor, .. } = founding;
+        Decision::Change(
+            Decided::new((hamlet.clone(), mayor))
+                .change(Change::Found {
+                    hamlet: hamlet.clone(),
+                    name: self.name.clone(),
+                    mayor,
+                    tier: self.tier,
+                })
+                .change(tree::Change::Hire {
+                    agent: mayor,
+                    hamlet: hamlet.clone(),
+                    lead: None,
+                    of,
+                    purpose: self.purpose.clone(),
+                })
+                .change(tasks::Change::Standing {
+                    agent: mayor,
+                    payer: Payer::Hamlet {
+                        hamlet: hamlet.clone(),
+                    },
+                })
+                .change(steps::Change::Begin {
+                    row: hire::row(mayor),
+                })
+                .record(record::Entry::Founded {
+                    hamlet,
+                    by: by.by(),
+                }),
+        )
     }
 
-    fn answer(&self, done: Self::Done, made: &Made) -> Self::Output {
-        todo!()
+    fn answer(
+        &self,
+        (hamlet, mayor): Self::Done,
+        _made: &Made,
+    ) -> Self::Output {
+        FoundAnswer::Founded { hamlet, mayor }
     }
 }
 
 /// The payer of an agent's own spending: its hamlet, or the realm
 /// for the Hand.
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "U4 and U5 call it")
+)]
 pub(super) fn payer_of(lineage: &tree::Lineage) -> Payer {
-    todo!()
+    lineage.hamlet.as_ref().map_or(Payer::Realm, |hamlet| {
+        Payer::Hamlet {
+            hamlet: hamlet.id.clone(),
+        }
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use hamlet_actor::Actor as _;
+    use hamlet_messages::sender::Client;
+
+    use super::super::testing::Started;
+    use super::*;
+
+    fn found(name: &str, mayor: Option<ProfileId>) -> Found {
+        Found {
+            name: name.to_owned(),
+            mayor,
+            tier: Tier::Fifty,
+            purpose: None,
+        }
+    }
+
+    fn founding() -> Founding {
+        Founding {
+            profile: None,
+            hamlet: HamletId("h".to_owned()),
+            mayor: AgentNumber(2),
+            blank: ProfileId(2),
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn the_first_start_run_again_writes_nothing() {
+        let started = Started::new().await;
+        started
+            .realm
+            .clone()
+            .on_create(started.ctx.clone())
+            .await
+            .unwrap();
+
+        let rows = started.rows();
+        for table in ["realm", "agent", "task", "step"] {
+            let counted = format!("SELECT COUNT(*) FROM {table}");
+            let count = rows.value::<u32>(&counted, Vec::new()).await;
+            assert_eq!(
+                count.unwrap(),
+                Some(1),
+                "the rows of `{table}`"
+            );
+        }
+        started.stop().await;
+    }
+
+    #[test]
+    fn a_found_refuses_an_empty_name_and_a_missing_profile() {
+        let refused =
+            |why| Decision::Answer(FoundAnswer::refused(why));
+        assert_eq!(
+            found(" ", None).decide(&Client, founding()),
+            refused(FoundRefusal::EmptyName)
+        );
+        assert_eq!(
+            found("Mill", Some(ProfileId(7)))
+                .decide(&Client, founding()),
+            refused(FoundRefusal::NoSuchProfile {
+                profile: ProfileId(7)
+            })
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_hamlet_reads_back_with_its_new_mayor() {
+        let started = Started::new().await;
+        let hamlet = HamletId("h".to_owned());
+        started.found(&hamlet, AgentNumber(2)).await;
+        started
+            .hire(&hamlet, AgentNumber(3), Some(AgentNumber(2)))
+            .await;
+        started
+            .commit(Change::Mayor {
+                hamlet: hamlet.clone(),
+                mayor: AgentNumber(3),
+            })
+            .await
+            .unwrap();
+        let rows = started.rows();
+
+        let read =
+            super::hamlet(&rows, &hamlet).await.unwrap().unwrap();
+        assert_eq!(
+            (read.mayor, read.tier, read.most()),
+            (AgentNumber(3), Tier::Fifty, 50)
+        );
+        assert_eq!(mayors(&rows).await.unwrap(), [AgentNumber(3)]);
+        let missing = HamletId("x".to_owned());
+        assert_eq!(
+            super::hamlet(&rows, &missing).await.unwrap(),
+            None
+        );
+        let lineage = async |agent| {
+            tree::lineage(&rows, agent).await.unwrap().unwrap()
+        };
+        assert_eq!(
+            payer_of(&lineage(AgentNumber(3)).await),
+            Payer::Hamlet { hamlet }
+        );
+        assert_eq!(
+            payer_of(&lineage(Hand::NUMBER).await),
+            Payer::Realm
+        );
+        started.stop().await;
+    }
 }
