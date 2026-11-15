@@ -258,9 +258,10 @@ async fn a_repeated_end_sends_the_end_again() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn an_end_of_a_hire_still_hiring_closes_its_steps() {
-    // hold the branch; mayor 2 hires 3; the chief ends 3; release:
-    // the workspace holds 3's end, `agent/3` is never made, and its
-    // row is closed before the branch.
+    // hold the branch; mayor 2 hires 3; the chief ends 3 while its
+    // drive waits on the branch; release: the branch is taken and no
+    // step after it, so `agent/3` is never made or filled and its one
+    // reach is its end; its row is closed after the profile.
     let realm = Realm::start().await;
     realm.live(Hand::NUMBER).await;
     founded(&realm).await;
@@ -268,6 +269,10 @@ async fn an_end_of_a_hire_still_hiring_closes_its_steps() {
     realm.seen.hold(Callee::Branch);
 
     let hired_3 = realm.tool(MAYOR, &tool("h1", hire(None))).await;
+    until("the drive of 3 waits on the held branch", || {
+        realm.seen.held.receiver_count() > 0
+    })
+    .await;
     let ended = realm
         .ask(&Asked {
             id: RequestId::new(),
@@ -280,6 +285,47 @@ async fn an_end_of_a_hire_still_hiring_closes_its_steps() {
     })
     .await;
     realm.seen.release(Callee::Branch);
+    until("the profile takes the branch of 3", || {
+        realm
+            .seen
+            .branches
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|(_, branch)| branch.name == "hires/3")
+    })
+    .await;
+    // Room for a step after the branch.
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let three = AgentNumber(3);
+    let made_3 = realm
+        .seen
+        .made
+        .lock()
+        .unwrap()
+        .iter()
+        .any(|(agent, _)| *agent == three);
+    let filled_3 = realm
+        .seen
+        .fills
+        .lock()
+        .unwrap()
+        .iter()
+        .any(|(agent, _)| *agent == three);
+    let reaches_3 = realm
+        .seen
+        .reaches
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|set| set.agent == three)
+        .map(|set| set.reach.clone())
+        .collect::<Vec<_>>();
+
+    assert_eq!(hired_3.unwrap(), hired(3));
+    assert_eq!(ended, Done::Done);
+    assert_eq!((made_3, filled_3), (false, false));
+    assert_eq!(reaches_3, [Reach::Ended]);
     let (status, done, closed) = realm
         .rows(|db| {
             db.query_row(
@@ -297,23 +343,10 @@ async fn an_end_of_a_hire_still_hiring_closes_its_steps() {
             )
         })
         .await;
-    let made_3 = realm
-        .seen
-        .made
-        .lock()
-        .unwrap()
-        .iter()
-        .any(|(agent, _)| *agent == AgentNumber(3));
-
-    assert_eq!(hired_3.unwrap(), hired(3));
-    assert_eq!(ended, Done::Done);
-    assert_eq!(status, "ended");
-    assert!(closed);
-    assert!(
-        matches!(done.as_deref(), None | Some("profile")),
-        "{done:?}"
+    assert_eq!(
+        (status.as_str(), done.as_deref(), closed),
+        ("ended", Some("profile"), true)
     );
-    assert!(!made_3);
     realm.host.shutdown().await.unwrap();
 }
 
