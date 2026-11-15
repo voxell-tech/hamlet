@@ -244,7 +244,7 @@ impl<By: Lead> Act<By> for SetNickname {
 
 pub(in crate::realm) enum Target {
     Agent {
-        lineage: Option<Lineage>,
+        lineage: Option<Box<Lineage>>,
         chief_chose: bool,
     },
     Hamlet {
@@ -276,7 +276,7 @@ impl<By: Lead> Act<By> for SetModel {
                     None => false,
                 };
                 Target::Agent {
-                    lineage,
+                    lineage: lineage.map(Box::new),
                     chief_chose,
                 }
             }
@@ -309,7 +309,7 @@ impl<By: Lead> Act<By> for SetModel {
             Target::Agent {
                 lineage,
                 chief_chose,
-            } => match led(by, lineage) {
+            } => match led(by, lineage.map(|lineage| *lineage)) {
                 Ok(hire) if chief_chose && !by_chief => {
                     return refuse(ChoiceRefusal::ChiefChose {
                         hire,
