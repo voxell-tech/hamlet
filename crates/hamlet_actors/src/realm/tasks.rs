@@ -122,7 +122,6 @@ pub(super) async fn standing(
 }
 
 /// `None` for a task the realm does not hold.
-#[cfg_attr(not(test), expect(dead_code, reason = "U7 calls it"))]
 pub(super) async fn payer(
     rows: &Rows<'_>,
     task: TaskId,

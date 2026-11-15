@@ -116,7 +116,6 @@ pub(super) fn new_realm() -> Result<String> {
     Ok(serde_json::to_string(&RealmLimits::default())?)
 }
 
-#[cfg_attr(not(test), expect(dead_code, reason = "U7 calls it"))]
 pub(in crate::realm) async fn budget(
     rows: &Rows<'_>,
     payer: &Payer,

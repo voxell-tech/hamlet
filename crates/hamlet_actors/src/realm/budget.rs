@@ -1,25 +1,29 @@
 //! Spending: the `charge` and `budget_reset` tables, and the check
 //! before a model call (H8).
 
-#![expect(
-    unused_variables,
-    dead_code,
-    reason = "the scaffold: U7 fills this file"
-)]
-
-use anyhow::Result;
+use anyhow::{Context as _, Result};
+use hamlet_actor::BindParam;
 use hamlet_messages::address::Agent;
 use hamlet_messages::realm::budget::{
-    Charge, MaySpend, Payer, ResetBudget, SpendRefusal,
+    Budget, Charge, MaySpend, Payer, ResetBudget, SpendRefusal,
 };
-use hamlet_messages::realm::{Done, HamletRefusal, Left};
+use hamlet_messages::realm::{
+    Done, HamletId, HamletRefusal, Left, Refusable, Standing,
+};
 use hamlet_messages::sender::Client;
-use hamlet_messages::workspace::{AgentNumber, CallId};
+use hamlet_messages::workspace::{AgentNumber, CallId, RealmTask};
 
-use super::act::{Act, Decision};
+use super::act::{Act, Decided, Decision};
 use super::calls::Made;
-use super::change::{Affected, Rows, Writer};
-use super::chiefs;
+use super::change::{Affected, Rows, Writer, number};
+use super::chiefs::{self, limits};
+use super::tasks::{self, TaskId};
+use super::tree;
+use super::world::Part;
+
+/// The `agent` of a road's charge: no agent has it, so no model
+/// call's charge shares a road's key.
+const ROAD: AgentNumber = AgentNumber(0);
 
 #[derive(Debug, PartialEq)]
 pub(super) enum Change {
@@ -31,11 +35,16 @@ pub(super) enum Change {
         micros: u32,
         took_ms: u32,
     },
-    /// A laid road's price, charged once (H3).
+    /// A laid road's price, charged to its hamlet once for its two
+    /// ends (H3).
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "U11 lays roads with it")
+    )]
     Road {
         a: AgentNumber,
         b: AgentNumber,
-        payer: Payer,
+        hamlet: HamletId,
     },
     Reset {
         payer: Payer,
@@ -54,40 +63,86 @@ pub(super) async fn apply(
             micros,
             took_ms,
         } => {
-            charge(writer, agent, call, payer, micros, took_ms).await
+            charge(
+                writer,
+                agent,
+                call.0,
+                &payer,
+                u64::from(micros),
+                took_ms,
+            )
+            .await
         }
-        Change::Road { a, b, payer } => {
-            road(writer, a, b, payer).await
+        Change::Road { a, b, hamlet } => {
+            road(writer, a, b, hamlet).await
         }
-        Change::Reset { payer } => reset(writer, payer).await,
+        Change::Reset { payer } => reset(writer, &payer).await,
     }
 }
 
 async fn charge(
     writer: &Writer<'_>,
     agent: AgentNumber,
-    call: CallId,
-    payer: Payer,
-    micros: u32,
+    call: String,
+    payer: &Payer,
+    micros: u64,
     took_ms: u32,
 ) -> Result<Affected> {
-    todo!()
+    let charged = writer
+        .execute(
+            "INSERT INTO charge (agent, call, payer, micros, \
+             took_ms, at) VALUES (?1, ?2, ?3, ?4, ?5, ?6) ON \
+             CONFLICT (agent, call) DO NOTHING",
+            vec![
+                number(agent),
+                BindParam::Text(call),
+                BindParam::Text(serde_json::to_string(payer)?),
+                BindParam::Integer(i64::try_from(micros)?),
+                BindParam::Integer(i64::from(took_ms)),
+                BindParam::Integer(writer.at().0),
+            ],
+        )
+        .await?;
+    Ok(if charged == 0 {
+        Affected::default()
+    } else {
+        Affected::seen([Part::Spend])
+    })
 }
 
 async fn road(
     writer: &Writer<'_>,
     a: AgentNumber,
     b: AgentNumber,
-    payer: Payer,
+    hamlet: HamletId,
 ) -> Result<Affected> {
-    todo!()
+    let price = chiefs::hamlet(&writer.rows(), &hamlet)
+        .await?
+        .with_context(|| {
+            format!("the hamlet `{}` of a laid road", hamlet.0)
+        })?
+        .limits
+        .road
+        .price;
+    let ends = format!("{}-{}", a.min(b).0, a.max(b).0);
+    charge(writer, ROAD, ends, &Payer::Hamlet { hamlet }, price, 0)
+        .await
 }
 
 async fn reset(
     writer: &Writer<'_>,
-    payer: Payer,
+    payer: &Payer,
 ) -> Result<Affected> {
-    todo!()
+    writer
+        .execute(
+            "INSERT INTO budget_reset (payer, at) VALUES (?1, ?2)",
+            vec![
+                BindParam::Text(serde_json::to_string(payer)?),
+                BindParam::Integer(writer.at().0),
+            ],
+        )
+        .await?;
+    Ok(Affected::seen([Part::Spend]))
 }
 
 /// A payer's spending since its period began and since its last
@@ -97,20 +152,98 @@ pub(super) struct Spent {
     pub payer: Payer,
     pub micros: u64,
     pub took_ms: u64,
-    pub budget: chiefs::limits::Budget,
+    pub budget: limits::Budget,
 }
 
+impl Spent {
+    fn over(self) -> Option<Budget> {
+        if let Some(budget_micros) = self.budget.micros
+            && self.micros >= budget_micros
+        {
+            return Some(Budget::OverCost {
+                payer: self.payer,
+                spent_micros: self.micros,
+                budget_micros,
+            });
+        }
+        if let Some(budget_ms) = self.budget.ms
+            && self.took_ms >= budget_ms
+        {
+            return Some(Budget::OverTime {
+                payer: self.payer,
+                spent_ms: self.took_ms,
+                budget_ms,
+            });
+        }
+        None
+    }
+}
+
+/// A reset counts the charges strictly after it, so one in the same
+/// millisecond as the reset is not counted.
 pub(super) async fn spent(
     rows: &Rows<'_>,
     payer: &Payer,
 ) -> Result<Spent> {
-    todo!()
+    let budget = limits::budget(rows, payer).await?;
+    let (micros, took_ms) = rows
+        .row::<(u64, u64)>(
+            "SELECT COALESCE(SUM(micros), 0), \
+             COALESCE(SUM(took_ms), 0) FROM charge WHERE payer = ?1 \
+             AND at >= ?2 AND at > COALESCE((SELECT MAX(at) FROM \
+             budget_reset WHERE payer = ?1), -1)",
+            vec![
+                BindParam::Text(serde_json::to_string(payer)?),
+                BindParam::Integer(began(rows, budget.period).await?),
+            ],
+        )
+        .await?
+        .context("the sums of a payer's charges")?;
+    Ok(Spent {
+        payer: payer.clone(),
+        micros,
+        took_ms,
+        budget,
+    })
 }
 
-pub(super) struct Spending {
-    left: Option<Left>,
-    /// `None` for a task the realm does not hold.
-    spent: Option<Spent>,
+/// When the period holding `rows.at()` began, by the machine's local
+/// clock (H8).
+async fn began(
+    rows: &Rows<'_>,
+    period: limits::Period,
+) -> Result<i64> {
+    let start = match period {
+        limits::Period::Day => "start of day",
+        limits::Period::Month => "start of month",
+    };
+    rows.value(
+        "SELECT CAST(strftime('%s', ?1 / 1000, 'unixepoch', \
+         'localtime', ?2, 'utc') AS INTEGER) * 1000",
+        vec![
+            BindParam::Integer(rows.at().0),
+            BindParam::Text(start.to_owned()),
+        ],
+    )
+    .await?
+    .context("the start of a budget's period")
+}
+
+/// `None` for a task the realm does not hold.
+async fn payer_of(
+    rows: &Rows<'_>,
+    task: &RealmTask,
+) -> Result<Option<Payer>> {
+    match TaskId::of(task) {
+        Some(task) => tasks::payer(rows, task).await,
+        None => Ok(None),
+    }
+}
+
+pub(super) enum Spending {
+    Left(Left),
+    NoSuchTask,
+    Spent(Spent),
 }
 
 impl Act<Agent> for MaySpend {
@@ -123,19 +256,41 @@ impl Act<Agent> for MaySpend {
         by: &Agent,
         rows: &Rows<'_>,
     ) -> Result<Spending> {
-        todo!()
+        if let Some(left) = tree::left(rows, by.0).await? {
+            return Ok(Spending::Left(left));
+        }
+        Ok(match payer_of(rows, &self.task).await? {
+            Some(payer) => {
+                Spending::Spent(spent(rows, &payer).await?)
+            }
+            None => Spending::NoSuchTask,
+        })
     }
 
     fn decide(
         &self,
-        by: &Agent,
+        _by: &Agent,
         spending: Spending,
     ) -> Decision<(), Self::Output> {
-        todo!()
+        let refusal = match spending {
+            Spending::Left(Left { how, why }) => {
+                Some(SpendRefusal::Standing(Standing::YouLeft {
+                    how,
+                    why,
+                }))
+            }
+            Spending::NoSuchTask => {
+                Some(SpendRefusal::Budget(Budget::NoSuchTask))
+            }
+            Spending::Spent(spent) => {
+                spent.over().map(SpendRefusal::Budget)
+            }
+        };
+        Decision::Answer(refusal.map_or(Done::Done, Done::refused))
     }
 
-    fn answer(&self, (): (), made: &Made) -> Self::Output {
-        todo!()
+    fn answer(&self, (): (), _made: &Made) -> Self::Output {
+        Done::Done
     }
 }
 
@@ -146,10 +301,10 @@ impl Act<Agent> for Charge {
 
     async fn load(
         &self,
-        by: &Agent,
+        _by: &Agent,
         rows: &Rows<'_>,
     ) -> Result<Option<Payer>> {
-        todo!()
+        payer_of(rows, &self.task).await
     }
 
     fn decide(
@@ -157,36 +312,96 @@ impl Act<Agent> for Charge {
         by: &Agent,
         payer: Option<Payer>,
     ) -> Decision<(), ()> {
-        todo!()
+        Decision::Change(Decided::new(()).change(Change::Charge {
+            agent: by.0,
+            call: self.call.clone(),
+            payer: payer.unwrap_or(Payer::Realm),
+            micros: self.micros,
+            took_ms: self.took_ms,
+        }))
     }
 
-    fn answer(&self, (): (), made: &Made) {
-        todo!()
-    }
+    fn answer(&self, (): (), _made: &Made) {}
+}
+
+/// Whether the realm holds the payer a reset names.
+pub(super) enum PayerRow {
+    Held,
+    Missing,
 }
 
 impl Act<Client> for ResetBudget {
     type Output = Done<HamletRefusal>;
-    type Loaded = Option<Option<chiefs::Hamlet>>;
+    type Loaded = PayerRow;
     type Done = ();
 
     async fn load(
         &self,
-        by: &Client,
+        _by: &Client,
         rows: &Rows<'_>,
-    ) -> Result<Option<Option<chiefs::Hamlet>>> {
-        todo!()
+    ) -> Result<PayerRow> {
+        Ok(match &self.payer {
+            Payer::Realm => PayerRow::Held,
+            Payer::Hamlet { hamlet } => {
+                match chiefs::hamlet(rows, hamlet).await? {
+                    Some(_) => PayerRow::Held,
+                    None => PayerRow::Missing,
+                }
+            }
+        })
     }
 
     fn decide(
         &self,
-        by: &Client,
-        hamlet: Option<Option<chiefs::Hamlet>>,
+        _by: &Client,
+        row: PayerRow,
     ) -> Decision<(), Self::Output> {
-        todo!()
+        match row {
+            PayerRow::Held => Decision::Change(
+                Decided::new(()).change(Change::Reset {
+                    payer: self.payer.clone(),
+                }),
+            ),
+            PayerRow::Missing => Decision::Answer(Done::refused(
+                HamletRefusal::NoSuchHamlet,
+            )),
+        }
     }
 
-    fn answer(&self, (): (), made: &Made) -> Self::Output {
-        todo!()
+    fn answer(&self, (): (), _made: &Made) -> Self::Output {
+        Done::Done
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::testing::Started;
+    use super::*;
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_road_is_charged_once_to_its_hamlet() {
+        let started = Started::new().await;
+        let hamlet = HamletId("h".to_owned());
+        started.found(&hamlet, AgentNumber(2)).await;
+        for (a, b) in [(3, 4), (4, 3)] {
+            started
+                .commit(Change::Road {
+                    a: AgentNumber(a),
+                    b: AgentNumber(b),
+                    hamlet: hamlet.clone(),
+                })
+                .await
+                .unwrap();
+        }
+
+        let rows = started.rows();
+        let hamlet =
+            spent(&rows, &Payer::Hamlet { hamlet }).await.unwrap();
+        let realm = spent(&rows, &Payer::Realm).await.unwrap();
+        assert_eq!(
+            (hamlet.micros, realm.micros),
+            (limits::RoadRules::default().price, 0)
+        );
+        started.stop().await;
     }
 }
