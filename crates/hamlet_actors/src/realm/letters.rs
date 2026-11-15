@@ -104,7 +104,7 @@ async fn keep(
              text, task, conversation, at) VALUES (?1, ?2, ?3, ?4, \
              ?5, ?6, ?7, ?8, ?9)",
             vec![
-                id(letter),
+                change::integer(letter.0)?,
                 BindParam::Text(change::case_name(&kind)?),
                 number(from),
                 number(to),
@@ -133,14 +133,10 @@ async fn keep_answer(
         .execute(
             "UPDATE letter SET answer = ?2 WHERE id = ?1 AND answer \
              IS NULL",
-            vec![id(question), BindParam::Text(text)],
+            vec![change::integer(question.0)?, BindParam::Text(text)],
         )
         .await?;
     Ok(Affected::default())
-}
-
-fn id(letter: LetterId) -> BindParam {
-    BindParam::Integer(i64::from(letter.0))
 }
 
 /// The next letter's id.
@@ -180,7 +176,7 @@ async fn letter_input(
         .row::<(String, u32, u32, String, Option<TaskId>)>(
             "SELECT kind, sender, receiver, text, task FROM letter \
              WHERE id = ?1",
-            vec![id(letter)],
+            vec![change::integer(letter.0)?],
         )
         .await?
         .with_context(|| format!("no letter {}", letter.0))?;
@@ -212,7 +208,7 @@ async fn answer_input(
         )>(
             "SELECT sender, receiver, answer, conversation, task \
              FROM letter WHERE id = ?1",
-            vec![id(question)],
+            vec![change::integer(question.0)?],
         )
         .await?;
     let Some((asker, asked, Some(text), Some(conversation), task)) =
@@ -414,7 +410,7 @@ impl Act<Agent> for Reply {
                 "SELECT receiver FROM letter WHERE id = ?1 AND kind \
                  = ?2",
                 vec![
-                    id(self.question),
+                    change::integer(self.question.0)?,
                     BindParam::Text(change::case_name(
                         &Kind::Question,
                     )?),

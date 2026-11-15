@@ -88,7 +88,7 @@ async fn begin(writer: &Writer<'_>, row: StepId) -> Result<Affected> {
 fn key(row: StepId) -> Result<Vec<BindParam>> {
     Ok(vec![
         BindParam::Text(change::case_name(&row.kind)?),
-        BindParam::Integer(i64::try_from(row.n)?),
+        change::integer(row.n)?,
     ])
 }
 

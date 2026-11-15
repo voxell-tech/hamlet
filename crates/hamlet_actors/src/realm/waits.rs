@@ -30,10 +30,6 @@ fn named(wait: &str) -> Option<WaitId> {
     u64::try_from(n).ok().map(WaitId)
 }
 
-fn param(wait: WaitId) -> Result<BindParam> {
-    Ok(BindParam::Integer(i64::try_from(wait.0)?))
-}
-
 /// How long an allow holds, as the row records it. The workspace
 /// hears only allow or refuse, so every allow acts once.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -95,9 +91,7 @@ async fn open(writer: &Writer<'_>, asked: NeedsChief) -> Result<u64> {
                 BindParam::Text(asked.call.0),
                 BindParam::Text(asked.subject),
                 BindParam::Text(serde_json::to_string(&asked.needs)?),
-                BindParam::Integer(i64::try_from(
-                    asked.reach_version.0,
-                )?),
+                change::integer(asked.reach_version.0)?,
                 BindParam::Integer(writer.at().0),
             ],
         )
@@ -127,7 +121,7 @@ async fn close(
                 },
                 reason.map_or(BindParam::Null, BindParam::Text),
                 BindParam::Integer(writer.at().0),
-                param(wait)?,
+                change::integer(wait.0)?,
             ],
         )
         .await
@@ -157,7 +151,7 @@ pub(super) async fn deliver(
         .row::<(u32, String, Option<String>, Option<String>)>(
             "SELECT agent, call, choice, reason FROM wait WHERE id \
              = ?1",
-            vec![param(wait)?],
+            vec![change::integer(wait.0)?],
         )
         .await?
         .with_context(|| format!("wait {} has no row", wait.0))?;
@@ -234,7 +228,7 @@ impl Act<Client> for Answer {
             .value::<u64>(
                 "SELECT id FROM wait WHERE id = ?1 AND closed_at IS \
                  NULL",
-                vec![param(wait)?],
+                vec![change::integer(wait.0)?],
             )
             .await?
             .map(WaitId))
