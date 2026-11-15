@@ -23,6 +23,7 @@ use hamlet_host::{
 use hamlet_testing::Scratch;
 use linked::{GONE_WAIT, has_line, wait_for};
 use logs::Logs;
+use subscription::{end, next, refusal};
 use ticks::{
     Close, Count, Crash, Destroy, Hang, SECRET, SLOW, Sleep, Tick,
     Ticked, Watchers, forbidden,
@@ -53,6 +54,8 @@ mod files;
 mod linked;
 #[path = "support/logs.rs"]
 mod logs;
+#[path = "support/subscription.rs"]
+mod subscription;
 #[path = "support/ticks.rs"]
 mod ticks;
 
@@ -86,34 +89,6 @@ async fn subscribed(host: &Host, to: &Address) -> Subscription {
         })
 }
 
-fn refusal(
-    subscribed: anyhow::Result<Subscription>,
-) -> anyhow::Error {
-    let Err(error) = subscribed else {
-        panic!("the subscribe succeeded");
-    };
-    error
-}
-
-/// The stream's next item, within the test's wait.
-async fn next(stream: &mut Subscription) -> Item {
-    tokio::time::timeout(WAIT, stream.next())
-        .await
-        .expect("the stream gave nothing")
-        .expect("the stream ended")
-}
-
-/// The code of the stream's end, within the test's wait.
-async fn end(stream: &mut Subscription) -> String {
-    let next = tokio::time::timeout(WAIT, stream.next())
-        .await
-        .expect("the stream did not end");
-    let Err(error) = next else {
-        panic!("the stream gave {next:?}");
-    };
-    code(&error)
-}
-
 /// `true` once `agent` holds no connection but the call's own,
 /// within `within`.
 async fn unwatched(
@@ -143,7 +118,7 @@ async fn a_client_follows_a_node_actors_event_across_the_link() {
     }
     let mut seen = Vec::new();
     for _ in 0..5 {
-        seen.push(next(&mut ticks).await);
+        seen.push(next(&mut ticks, WAIT).await);
     }
     let more = tokio::time::timeout(
         Duration::from_millis(200),
@@ -191,7 +166,7 @@ async fn a_subscription_gets_one_gap_when_the_node_host_dies_and_no_value_twice(
 
     let mut before = Vec::new();
     while before.len() < 20 {
-        match next(&mut ticks).await {
+        match next(&mut ticks, WAIT).await {
             Item::Event(args) => before.push(value(&args)),
             Item::Gap => panic!("a gap while the link is up"),
         }
@@ -202,7 +177,7 @@ async fn a_subscription_gets_one_gap_when_the_node_host_dies_and_no_value_twice(
     let mut read = None;
     let mut after = Vec::new();
     while after.len() < 20 {
-        match next(&mut ticks).await {
+        match next(&mut ticks, WAIT).await {
             // The old Node host's last events, written before it
             // died.
             Item::Event(args) if gaps == 0 => {
@@ -429,8 +404,8 @@ async fn the_stream_ends_with_the_node_actors_end_and_is_not_asked_again()
             "crash" => call(&host, &agent, &Crash).await,
             _ => call(&host, &agent, &Close).await,
         };
-        let first = end(&mut ticks).await;
-        let again = end(&mut ticks).await;
+        let first = end(&mut ticks, WAIT).await;
+        let again = end(&mut ticks, WAIT).await;
         ended.push((key, first, again));
     }
     close(host, node).await;
@@ -459,7 +434,7 @@ async fn the_stream_ends_with_the_node_actors_end_and_is_not_asked_again()
     )
     .await;
     let mut ticks = subscribed(&host, &at("agent", "a")).await;
-    let first = end(&mut ticks).await;
+    let first = end(&mut ticks, WAIT).await;
     tokio::time::sleep(Duration::from_millis(300)).await;
     drop(ticks);
     close(host, node).await;
@@ -531,9 +506,9 @@ async fn an_event_over_the_frame_limit_becomes_a_gap_and_the_link_stays_up()
         },
     )
     .await;
-    let gap = next(&mut ticks).await;
+    let gap = next(&mut ticks, WAIT).await;
     let after = call(&host, &agent, &Tick { pad: 0 }).await;
-    let then = next(&mut ticks).await;
+    let then = next(&mut ticks, WAIT).await;
     let answered = call(&host, &agent, &relay(&realm, &Who)).await;
     let stayed = !state.has_changed().unwrap();
     drop(ticks);
@@ -575,7 +550,7 @@ async fn a_reader_that_stalls_gets_a_gap_and_the_host_keeps_answering()
     let mut values = Vec::new();
     let mut gaps = 0;
     while values.last() != Some(&later) {
-        match next(&mut ticks).await {
+        match next(&mut ticks, WAIT).await {
             Item::Event(args) => values.push(value(&args)),
             Item::Gap => gaps += 1,
         }
@@ -697,7 +672,7 @@ async fn the_stream_ends_when_a_node_actors_stop_misses_its_deadline()
     call(&host, &agent, &Hang).await.unwrap();
     let slept = Instant::now();
     let sleep = call(&host, &agent, &Sleep).await;
-    let ended = end(&mut ticks).await;
+    let ended = end(&mut ticks, WAIT).await;
     let took = slept.elapsed();
     let mut state = node.state();
     let exit = call(&host, &other, &Exit).await;

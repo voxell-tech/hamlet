@@ -13,6 +13,7 @@ use hamlet_host::{
 };
 use hamlet_testing::Scratch;
 use logs::Logs;
+use subscription::{end, next, refusal};
 use ticker::{TICKED, WEIGHS, ask, number, tick, watchers};
 use tracing_subscriber::filter::LevelFilter;
 
@@ -24,6 +25,8 @@ mod code;
 mod files;
 #[path = "support/logs.rs"]
 mod logs;
+#[path = "support/subscription.rs"]
+mod subscription;
 #[path = "support/ticker.rs"]
 mod ticker;
 
@@ -58,36 +61,6 @@ async fn subscribe(
     event: &str,
 ) -> Subscription {
     host.subscribe_for_client(to, event).await.unwrap()
-}
-
-/// The error the subscribe fails with.
-async fn refusal(
-    host: &Host,
-    to: &Address,
-    event: &str,
-) -> anyhow::Error {
-    match host.subscribe_for_client(to, event).await {
-        Ok(_) => panic!("the subscribe to {to} succeeded"),
-        Err(error) => error,
-    }
-}
-
-async fn next(subscription: &mut Subscription) -> Item {
-    tokio::time::timeout(PROMPT, subscription.next())
-        .await
-        .expect("the subscription gave nothing")
-        .unwrap()
-}
-
-/// The code the stream ended with, within [`PROMPT`].
-async fn end(subscription: &mut Subscription) -> String {
-    let next = tokio::time::timeout(PROMPT, subscription.next())
-        .await
-        .expect("the subscription did not end");
-    match next {
-        Ok(item) => panic!("the subscription gave {item:?}"),
-        Err(error) => code(&error),
-    }
 }
 
 async fn gives_nothing(subscription: &mut Subscription) {
@@ -131,7 +104,7 @@ async fn a_client_follows_a_local_actors_event_in_order_stamped_client()
     }
     let mut given = Vec::new();
     for _ in 0..10 {
-        given.push(number(&next(&mut ticks).await));
+        given.push(number(&next(&mut ticks, PROMPT).await));
     }
     gives_nothing(&mut ticks).await;
     let watching = watchers(&host, &a).await;
@@ -145,7 +118,10 @@ async fn a_subscribe_to_a_key_with_no_file_fails_with_not_found_and_makes_no_fil
  {
     let dir = Scratch::new("subscribe-not-found");
     let host = open(&dir, HostOptions::default());
-    let error = refusal(&host, &at("ticker", "none"), TICKED).await;
+    let error = refusal(
+        host.subscribe_for_client(&at("ticker", "none"), TICKED)
+            .await,
+    );
     host.shutdown().await.unwrap();
     assert!(code(&error) == "actor.not_found", "{error:#}");
     assert!(!any_file_of(&dir, "ticker", "none"));
@@ -167,7 +143,7 @@ async fn a_subscribe_the_route_table_refuses_fails_with_actor_refused_and_is_rep
     let mut events = host.events();
     let logs = Logs::default();
     let logging = logs.record(LevelFilter::WARN);
-    let error = refusal(&host, &a, TICKED).await;
+    let error = refusal(host.subscribe_for_client(&a, TICKED).await);
     drop(logging);
     let started = host.is_running(&a);
     host.shutdown().await.unwrap();
@@ -200,7 +176,8 @@ async fn a_subscribe_the_actor_refuses_fails_with_its_error_and_leaves_no_connec
     let dir = Scratch::new("subscribe-forbidden");
     let host = open(&dir, HostOptions::default());
     let a = make(&host).await;
-    let error = refusal(&host, &a, "secret").await;
+    let error =
+        refusal(host.subscribe_for_client(&a, "secret").await);
     let watching = watchers(&host, &a).await;
     host.shutdown().await.unwrap();
     assert!(code(&error) == "auth.forbidden", "{error:#}");
@@ -220,7 +197,7 @@ async fn a_subscribe_that_outlasts_the_start_deadline_fails_with_not_ready_and_l
     );
     let a = make(&host).await;
     let begun = Instant::now();
-    let error = refusal(&host, &a, "slow").await;
+    let error = refusal(host.subscribe_for_client(&a, "slow").await);
     let took = begun.elapsed();
     tokio::time::sleep_until((begun + WEIGHS).into()).await;
     let watching = watchers(&host, &a).await;
@@ -242,7 +219,9 @@ async fn a_stop_that_overtakes_a_subscribe_while_its_connection_opens_fails_it_w
         ask(&host, &a, "slow_open").await.unwrap();
         let subscribing = tokio::spawn({
             let (host, a) = (host.clone(), a.clone());
-            async move { refusal(&host, &a, TICKED).await }
+            async move {
+                refusal(host.subscribe_for_client(&a, TICKED).await)
+            }
         });
         // Time for the subscribe to reach the actor's `onConnect`.
         tokio::time::sleep(Duration::from_millis(100)).await;
@@ -300,8 +279,8 @@ async fn the_stream_ends_with_stopping_when_the_actor_sleeps() {
         } else {
             ask(&host, &a, "sleep").await.unwrap();
         }
-        let given = number(&next(&mut ticks).await);
-        let ended = end(&mut ticks).await;
+        let given = number(&next(&mut ticks, PROMPT).await);
+        let ended = end(&mut ticks, PROMPT).await;
         // The ended subscription keeps no generation's file: the
         // actor starts again.
         let again = tick(&host, &a, 0).await;
@@ -328,7 +307,7 @@ async fn the_stream_ends_with_destroyed_when_the_actor_is_destroyed()
         } else {
             ask(&host, &a, "destroy").await.unwrap();
         }
-        let ended = end(&mut ticks).await;
+        let ended = end(&mut ticks, PROMPT).await;
         eventually(
             "the destroyed actor's files are there",
             Duration::from_secs(10),
@@ -371,7 +350,7 @@ async fn the_stream_ends_with_stopping_when_the_actor_crashes() {
     let a = make(&host).await;
     let mut ticks = subscribe(&host, &a, TICKED).await;
     ask(&host, &a, "crash").await.unwrap();
-    let ended = end(&mut ticks).await;
+    let ended = end(&mut ticks, PROMPT).await;
     host.shutdown().await.unwrap();
     assert_eq!(ended, "actor.stopping");
 }
@@ -384,7 +363,7 @@ async fn the_stream_ends_with_stopping_when_the_actors_event_loop_fails()
     let a = make(&host).await;
     let mut ticks = subscribe(&host, &a, TICKED).await;
     ask(&host, &a, "fail").await.unwrap();
-    let ended = end(&mut ticks).await;
+    let ended = end(&mut ticks, PROMPT).await;
     host.shutdown().await.unwrap();
     assert_eq!(ended, "actor.stopping");
 }
@@ -408,7 +387,7 @@ async fn the_stream_ends_when_a_stop_that_misses_its_deadline_begins()
         let (host, a) = (host.clone(), a.clone());
         async move { host.stop(&a, ShutdownKind::Sleep).await }
     });
-    let ended = end(&mut ticks).await;
+    let ended = end(&mut ticks, PROMPT).await;
     let took = begun.elapsed();
     let stopped = stop.await.unwrap();
     // The actor is given up, so the shutdown names it.
@@ -432,7 +411,7 @@ async fn the_stream_ends_with_stopping_when_the_host_shuts_down() {
             host.shutdown().await.unwrap();
         }
         assert_eq!(
-            end(&mut ticks).await,
+            end(&mut ticks, PROMPT).await,
             "actor.stopping",
             "shut by the host's drop: {shut_by_drop}"
         );
@@ -458,14 +437,14 @@ async fn a_full_queue_drops_events_gives_a_gap_and_logs_nothing() {
     drop(logging);
     let mut given = Vec::new();
     loop {
-        let item = next(&mut ticks).await;
+        let item = next(&mut ticks, PROMPT).await;
         given.push(number(&item));
         if item == Item::Gap {
             break;
         }
     }
     let later = tick(&host, &a, 0).await;
-    let after = number(&next(&mut ticks).await);
+    let after = number(&next(&mut ticks, PROMPT).await);
     host.shutdown().await.unwrap();
     assert!(slowest < Duration::from_secs(1), "{slowest:?}");
     assert_eq!(logs.text(), "");
@@ -550,7 +529,7 @@ async fn a_stream_that_ended_fails_the_same_way_again() {
     host.stop(&a, ShutdownKind::Destroy).await.unwrap();
     let mut ends = Vec::new();
     for _ in 0..4 {
-        ends.push(end(&mut ticks).await);
+        ends.push(end(&mut ticks, PROMPT).await);
     }
     host.shutdown().await.unwrap();
     assert_eq!(ends, ["actor.destroyed"; 4]);
@@ -566,7 +545,7 @@ async fn the_stream_ends_with_disconnected_when_the_actor_closes_the_connection(
     let a = make(&host).await;
     let mut first = subscribe(&host, &a, TICKED).await;
     ask(&host, &a, "close").await.unwrap();
-    let closed = end(&mut first).await;
+    let closed = end(&mut first, PROMPT).await;
     let running = host.is_running(&a);
     let mut second = subscribe(&host, &a, TICKED).await;
     ask(&host, &a, "sleep").await.unwrap();
@@ -575,7 +554,7 @@ async fn the_stream_ends_with_disconnected_when_the_actor_closes_the_connection(
         !host.is_running(&a)
     })
     .await;
-    let slept = end(&mut second).await;
+    let slept = end(&mut second, PROMPT).await;
     host.shutdown().await.unwrap();
     assert_eq!(closed, "actor.disconnected");
     assert!(running, "the actor stopped as it closed the connection");
