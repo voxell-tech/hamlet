@@ -44,7 +44,7 @@ export function u32(value: number): number {
     return Math.min(Math.round(value), U32_MAX);
 }
 
-/** The taker kept nothing of the request. `words` are for the model. */
+/** The act did not run. `words` are for the model. */
 export interface Refused {
     readonly type: "refused";
     readonly why: { readonly type: string };
@@ -242,6 +242,11 @@ export interface Tool<Act> {
 
 export type Done = { readonly type: "done" } | Refused;
 
+/** A society tool's act, or a built-in or hand tool's name. */
+export interface ToolName {
+    readonly name: string;
+}
+
 export type FoundAnswer =
     | {
           readonly type: "founded";
@@ -306,7 +311,7 @@ export interface SocietyActs {
     request_road: {
         act: {
             readonly to: Named;
-            readonly why: string;
+            readonly why?: string;
             readonly task?: RealmTask;
         };
         answer: Done;
@@ -314,28 +319,14 @@ export interface SocietyActs {
     set_tools: {
         act: {
             readonly hire: Named;
-            readonly off?: readonly SocietyTool[];
-            readonly on?: readonly SocietyTool[];
+            readonly off?: readonly ToolName[];
+            readonly on?: readonly ToolName[];
         };
         answer: Done;
     };
 }
 
 export type SocietyTool = keyof SocietyActs;
-
-/** A list the compiler holds to `SocietyActs`'s keys. */
-export const SOCIETY_TOOLS = Object.keys({
-    found: true,
-    hire: true,
-    end: true,
-    seat: true,
-    tell: true,
-    ask: true,
-    lay_road: true,
-    take_up_road: true,
-    request_road: true,
-    set_tools: true,
-} satisfies { readonly [N in SocietyTool]: true }) as readonly SocietyTool[];
 
 export interface Reply {
     readonly question: LetterId;
@@ -419,7 +410,8 @@ export interface Place {
     readonly lead?: AgentNumber;
     readonly hires: readonly AgentNumber[];
     readonly roads: readonly AgentNumber[];
-    readonly tools_off: readonly SocietyTool[];
+    readonly tools_off: readonly ToolName[];
+    readonly folder?: string;
 }
 
 export interface Fill {
@@ -464,7 +456,8 @@ const PLACE = obj(
         lead: opt(U32),
         hires: arr(U32),
         roads: arr(U32),
-        tools_off: arr(str()),
+        tools_off: arr(obj({ name: str() }, OPEN)),
+        folder: opt(str()),
     },
     OPEN,
 );
@@ -559,9 +552,8 @@ function withoutNulls(value: unknown): unknown {
 }
 
 /**
- * A newer realm may add fields, and turn off a tool this agent does not
- * have. Both are dropped: the row keeps the place, and a field it cannot
- * serialise, such as a bigint, would fail the write.
+ * A newer realm may add fields, which are dropped: the row keeps the place,
+ * and a field it cannot serialise, such as a bigint, would fail the write.
  */
 function placeOf({
     version,
@@ -569,14 +561,14 @@ function placeOf({
     hires,
     roads,
     tools_off,
+    folder,
 }: Static<typeof PLACE>): Place {
     return {
         version,
         ...(lead === undefined ? {} : { lead }),
         hires,
         roads,
-        tools_off: tools_off.filter((name): name is SocietyTool =>
-            (SOCIETY_TOOLS as readonly string[]).includes(name),
-        ),
+        tools_off: tools_off.map(({ name }) => ({ name })),
+        ...(folder === undefined ? {} : { folder }),
     };
 }

@@ -146,7 +146,7 @@ test("a null field is read as unset, an unknown field is ignored, and an unreada
         lead: null,
         hires: [],
         roads: [],
-        tools_off: ["a_newer_tool"],
+        tools_off: [{ name: "a_newer_tool" }],
         colour: 1,
     };
     assert.equal(

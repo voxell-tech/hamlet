@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
@@ -14,6 +15,7 @@ import {
     type Calls,
 } from "../../src/actor/actor/mod.ts";
 import type { JsonCompatValue } from "../../src/actor/common/encoding.ts";
+import { decodeCborCompat } from "../../src/actor/serde.ts";
 import { agentActor } from "../../src/agent/actor.ts";
 import type {
     AgentActions,
@@ -244,6 +246,78 @@ test("a wrong caller across the host gets message.wrong_caller, and nothing is a
         }
         assert.partialDeepStrictEqual(admitted, { answer: null });
         assert.deepEqual(agentFile(dir).submissions, ["from-realm"]);
+    });
+});
+
+const AGENT_FIXTURES = new URL(
+    "../../../../crates/hamlet_messages/fixtures/agent/",
+    import.meta.url,
+);
+
+/** The message of `agent/<name>.args`. */
+function argsOf(name: string): unknown {
+    const [message] = decodeCborCompat<unknown[]>(
+        readFileSync(new URL(`${name}.args.cbor`, AGENT_FIXTURES)),
+    );
+    return message;
+}
+
+test("an action or an input the agent does not take is refused, and the agent goes on", async () => {
+    await inFolder(async (dir) => {
+        const { kinds } = kindsAnswering([fauxAssistantMessage("Done.")]);
+        const host = await startWithAgent(dir, kinds);
+        const r = host.at("realm", "local");
+        const takes = ["submit", "finished", "place", "fill"];
+        const actions = [
+            ...new Set(
+                readdirSync(AGENT_FIXTURES)
+                    .filter((file) => file.endsWith(".args.cbor"))
+                    .map((file) => file.split(".")[0] ?? ""),
+            ),
+        ].filter((action) => !takes.includes(action));
+        const refused: Record<string, unknown> = {};
+        for (const action of actions) {
+            refused[action] = await host.call(
+                r,
+                "send",
+                [1, action as AgentAction, argsOf(action)],
+                CALL,
+            );
+        }
+        for (const input of ["submit.notice", "submit.worker_answer"]) {
+            refused[input] = await host.call(
+                r,
+                "send",
+                [1, "submit", argsOf(input)],
+                CALL,
+            );
+        }
+        const admitted = await host.call(
+            r,
+            "send",
+            [1, "submit", line("after", "Hello.")],
+            CALL,
+        );
+        await eventually(
+            async () => agentFile(dir).replies.length,
+            (count) => count > 0,
+        );
+        await host.shutdown();
+
+        assert.ok(actions.includes("login"), actions.join());
+        for (const action of actions) {
+            assert.partialDeepStrictEqual(refused[action], {
+                error: { group: "actor", code: "action_not_found" },
+            });
+        }
+        for (const input of ["submit.notice", "submit.worker_answer"]) {
+            assert.partialDeepStrictEqual(refused[input], {
+                error: { group: "message", code: "unreadable" },
+            });
+        }
+        assert.partialDeepStrictEqual(admitted, { answer: null });
+        assert.deepEqual(agentFile(dir).submissions, ["after"]);
+        assert.match(JSON.stringify(agentFile(dir).replies), /Done\./);
     });
 });
 

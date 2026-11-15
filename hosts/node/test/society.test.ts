@@ -224,7 +224,7 @@ const _everyField: {
     set_tools: true,
 };
 
-/** Today's parameters that no field of their act carries. The model may send them; nothing of them leaves. */
+/** Today's parameters this agent does not send. The model may give them; nothing of them leaves. */
 const DROPPED: Record<string, readonly string[]> = {
     tell: ["paths"],
     ask: ["paths"],
@@ -386,7 +386,10 @@ test("each society tool is offered under today's name, and set_tools reads today
         { name: "Mill", tier: "fifty", purpose: "Grind" },
     ]);
     assert.deepEqual(acts(sent, "set_tools"), [
-        { hire: { type: "agent", agent: 21 }, off: ["found", "tell"] },
+        {
+            hire: { type: "agent", agent: 21 },
+            off: [{ name: "found" }, { name: "tell" }],
+        },
     ]);
     const results = (await agent.entries()).filter(
         (entry) => entry.kind === "pi.tool-result",
@@ -402,14 +405,14 @@ test("a place turns tools off for the next request, an older one changes nothing
         version,
         hires: [],
         roads: [],
-        tools_off: off,
+        tools_off: off.map((name) => ({ name })),
     });
     const all = await offered(first);
     const without = all.filter(
         (name) => name !== "tell" && name !== "found_hamlet",
     );
 
-    // A place names acts; a name of a tool this agent does not know is ignored.
+    // A place names acts and other tools; only the acts named leave the offer.
     assert.equal(
         await first.actions.place(
             first.by(from.realm),
@@ -504,7 +507,7 @@ test("each society tool is offered with today's name, description and parameters
     await agent.stop();
 });
 
-test("every one of today's parameters leaves as a field of its act, but those no act carries", async (t) => {
+test("every one of today's parameters leaves as a field of its act, but those this agent does not send", async (t) => {
     const { calls, sent } = fakeCalls({
         realm: {
             tell: () => ({ type: "done" }),
@@ -606,7 +609,7 @@ test("every one of today's parameters leaves as a field of its act, but those no
             }),
             request_road: [
                 { to: four, why: "We share a file.", task: "task-1" },
-                { to: four, why: "", task: "task-1" },
+                { to: four, task: "task-1" },
             ],
             found: [
                 { name: "Mill", tier: "fifty", purpose: "Grind", mayor: 2 },
@@ -628,8 +631,8 @@ test("every one of today's parameters leaves as a field of its act, but those no
             }),
             set_tools: Array(2).fill({
                 hire: four,
-                off: ["tell"],
-                on: ["found"],
+                off: [{ name: "tell" }],
+                on: [{ name: "found" }],
             }),
         },
     );

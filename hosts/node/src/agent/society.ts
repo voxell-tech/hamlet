@@ -19,6 +19,7 @@ import {
     type SocietyActs,
     type SocietyTool,
     type Tier,
+    type ToolName,
     U32_MAX,
 } from "./messages.ts";
 import {
@@ -36,8 +37,8 @@ interface Definition<N extends SocietyTool> {
     readonly name: string;
     readonly description: string;
     /**
-     * pi-durable checks a call against it first. A parameter no field of the
-     * act carries is offered and never read.
+     * pi-durable checks a call against it first. A parameter `act` does not
+     * read is offered and never sent.
      */
     readonly parameters: object;
     readonly act: (args: never) => ActOf<N> | Invalid;
@@ -133,13 +134,13 @@ function withNamed<K extends string, Act>(
     return build(out);
 }
 
-function actsOf(given: readonly string[] | undefined): SocietyTool[] | Invalid {
-    const acts: SocietyTool[] = [];
+function actsOf(given: readonly string[] | undefined): ToolName[] | Invalid {
+    const acts: ToolName[] = [];
     for (const name of given ?? []) {
         const act = ACT_OF.get(name);
         if (act === undefined)
             return { invalid: `\`${name}\` is not a society tool.` };
-        acts.push(act);
+        acts.push({ name: act });
     }
     return acts;
 }
@@ -178,11 +179,13 @@ const TOOLS: { readonly [N in SocietyTool]: Definition<N> } = {
         description:
             "Ask your lead for a road to an agent of your hamlet you need to reach.",
         parameters: object({ to: address, reason }, ["to"]),
-        act: (args: { to: string; reason?: string }) =>
-            withNamed({ to: args.to }, ({ to }) => ({
+        act: (args: { to: string; reason?: string }) => {
+            const why = present(args.reason);
+            return withNamed({ to: args.to }, ({ to }) => ({
                 to,
-                why: present(args.reason) ?? "",
-            })),
+                ...(why === undefined ? {} : { why }),
+            }));
+        },
         said: () => "Your lead has the request.",
     },
     found: {
@@ -357,11 +360,11 @@ function societyTool<N extends SocietyTool>(
     });
 }
 
-export function society(peers: Peers, off: readonly SocietyTool[]): Extension {
+export function society(peers: Peers, off: readonly ToolName[]): Extension {
     return defineExtension({
         name: "hamlet.society",
         tools: (Object.keys(TOOLS) as SocietyTool[])
-            .filter((act) => !off.includes(act))
+            .filter((act) => !off.some(({ name }) => name === act))
             .map((act) => societyTool(peers, act)),
         hooks: [
             hook(GenerationTask, {

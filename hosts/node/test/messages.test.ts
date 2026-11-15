@@ -31,7 +31,6 @@ const FOLDER = new URL(
     "../../../crates/hamlet_messages/fixtures/",
     import.meta.url,
 );
-const FOLDERS = ["agent", "realm", "workspace", "address", "error"] as const;
 
 /**
  * A fixture as the host decodes it: an answer as `Calls.call` does, and a
@@ -49,11 +48,12 @@ function answer(name: string): never {
 }
 
 function fixtures(pattern: RegExp): string[] {
-    return FOLDERS.flatMap((folder) =>
-        readdirSync(new URL(`${folder}/`, FOLDER)).map(
-            (file) => `${folder}/${file.replace(/\.cbor$/, "")}`,
-        ),
-    )
+    return readdirSync(FOLDER)
+        .flatMap((folder) =>
+            readdirSync(new URL(`${folder}/`, FOLDER)).map(
+                (file) => `${folder}/${file.replace(/\.cbor$/, "")}`,
+            ),
+        )
         .filter((name) => pattern.test(name))
         .sort();
 }
@@ -290,6 +290,14 @@ const WRITTEN: readonly Written[] = [
         own: ["call"],
     },
     {
+        fixture: "realm/request_road.no_why",
+        tool: ["request_road", { to: "mayor" }],
+        answers: {
+            realm: { request_road: () => answer("realm/request_road.done") },
+        },
+        own: ["call"],
+    },
+    {
         fixture: "realm/found",
         tool: ["found_hamlet", { name: "Harbor", purpose: "Run the release" }],
         answers: { realm: { found: () => answer("realm/found.founded") } },
@@ -414,7 +422,28 @@ const SENDER = {
     fill: from.realm,
 } as const;
 
-for (const name of fixtures(/^agent\/.*\.args$/)) {
+/** The calls of the actions this agent takes. */
+const TAKEN = [
+    "agent/fill",
+    "agent/finished.change.changed",
+    "agent/finished.change.failed",
+    "agent/finished.change.not_run",
+    "agent/finished.run.not_run",
+    "agent/finished.run.ran",
+    "agent/place",
+    "agent/place.hand",
+    "agent/submit.answer",
+    "agent/submit.letter",
+    "agent/submit.line",
+    "agent/submit.line.attached",
+    "agent/submit.question",
+] as const;
+
+/** The inputs this agent is created with. */
+const CREATED = ["agent/hand", "agent/hire"] as const;
+
+for (const call of TAKEN) {
+    const name = `${call}.args`;
     test(`${name} is read and taken, and answered as its answer fixture holds`, async (t) => {
         const action = actionOf(name).action as keyof typeof SENDER;
         const { calls } = fakeCalls({
@@ -457,7 +486,8 @@ for (const name of fixtures(/^agent\/.*\.args$/)) {
     });
 }
 
-for (const name of fixtures(/^agent\/.*\.input$/)) {
+for (const input of CREATED) {
+    const name = `${input}.input`;
     test(`${name} is read and creates the agent`, async (t) => {
         const { calls } = fakeCalls({});
         const agent = await wakeAgent(t, {
@@ -468,6 +498,33 @@ for (const name of fixtures(/^agent\/.*\.input$/)) {
         await agent.stop();
     });
 }
+
+test("agent/place.args keeps every tool's name and the folder, and turns off only the society tools named", async (t) => {
+    const { calls } = fakeCalls({});
+    const agent = await wakeAgent(t, { calls, input: HAND });
+    const [place] = fixture("agent/place.args") as unknown[];
+    await agent.actions.place(agent.by(from.realm), place as never);
+    const row = await agent.c.db.get<{ tools_off: string; place: string }>(
+        "SELECT tools_off, place FROM agent",
+    );
+    const root = await (await agent.harness()).root(context);
+    const offered = async () =>
+        (await root.agent(context)).tools.map((tool) => tool.name);
+    await until(async () => (await offered()).includes("bash"));
+    const names = await offered();
+    await agent.stop();
+
+    assert.deepEqual(JSON.parse(row?.tools_off ?? ""), [
+        { name: "found" },
+        { name: "bash" },
+    ]);
+    assert.equal(
+        (JSON.parse(row?.place ?? "") as { folder?: unknown }).folder,
+        "/work/orchard",
+    );
+    assert.ok(!names.includes("found_hamlet"), names.join());
+    assert.ok(names.includes("hire") && names.includes("bash"), names.join());
+});
 
 const ANSWERED_BY_TOOLS = [
     "workspace/run",
@@ -633,7 +690,30 @@ for (const name of fixtures(/^error\/.*\.run\./)) {
 
 const NOT_THE_AGENTS: readonly (readonly [RegExp, string])[] = [
     [/^realm\/chief_/, "a chief's act, sent by a client"],
-    [/^realm\/(say|answer|read_world)\./, "a client's call of the realm"],
+    [
+        /^realm\/(say|answer|read_world|read_charter)\./,
+        "a client's call of the realm",
+    ],
+    [
+        /^realm\/(credential|keep_credential|lapse|open_task|read_copies|turn_failed|worker_done|errand_done)\./,
+        "an agent's call of the realm, which this agent does not make",
+    ],
+    [
+        /^realm\/(tell|ask)\.paths\.args$/,
+        "an act that sends paths, which this agent does not write",
+    ],
+    [
+        /^realm\/(seat|lay_road|take_up_road|set_tools)\.why\.args$/,
+        "an act with its why, which this agent does not write",
+    ],
+    [
+        /^realm\/charge\.tokens\.args$/,
+        "a charge with its tokens, which this agent does not write",
+    ],
+    [
+        /^realm\/society_tools\.answer$/,
+        "the society tools as a refusal's gate names them: the agent reads only a refusal's words",
+    ],
     [/^realm\/(needs_chief|secrets)\./, "the workspace's call of the realm"],
     [
         /^workspace\/(set_reach|cancel_agent|chief_answer)\./,
@@ -653,14 +733,69 @@ const NOT_THE_AGENTS: readonly (readonly [RegExp, string])[] = [
     ],
     [/^address\/agent\./, "the agent's own address, which the host gives it"],
     [/^address\/profile\./, "a profile's address, which the agent never calls"],
+    [
+        /^agent\/(read_chat|read_history|read_prompt|login|new_session|resume|retry|rewind|stop|reflect|copies)\./,
+        "an action this agent does not take",
+    ],
+    [/^agent\/chat\.event\./, "a chat's event, which this agent does not send"],
+    [
+        /^agent\/submit\.(notice|worker_answer)\.args$/,
+        "an input this agent does not take: its submit is refused as unreadable",
+    ],
+    [
+        /^agent\/submit\.line\.reviewed\.args$/,
+        "a line a lead reviewed: the agent takes the line and drops the note",
+    ],
+    [
+        /^agent\/(errand|worker)\.input$/,
+        "the input of an errand or a worker, which this agent is never created with",
+    ],
+    [
+        /^library\/(shelves|offer)\./,
+        "an agent's call of the library, which this agent does not make",
+    ],
+    [
+        /^library\/(read_shelves|verdict|unshelve)\./,
+        "the realm's call of the library",
+    ],
+    [
+        /^library\/(shelves_changed|drop_copy)\./,
+        "the library's call of an agent, an action this agent does not take",
+    ],
+    [
+        /^library\/address\./,
+        "the library's address, which the agent never calls",
+    ],
+    [
+        /^profile\/(files|save)\./,
+        "an agent's call of its profile, which this agent does not make",
+    ],
+    [
+        /^profile\/(moved|remove_path)\./,
+        "a profile's call of an agent, an action this agent does not take",
+    ],
+    [
+        /^profile\/(branch|tag|pin|revert|purge|edit|prepare_dream|end_dream|versions|papers|erase)\./,
+        "the realm's call of a profile",
+    ],
+    [
+        /^profile\/(character|fork)\.input$/,
+        "the input a profile is created with",
+    ],
+    [
+        /^stored\//,
+        "a row the workspace, a profile, the library or the host keeps in its own file",
+    ],
 ];
 
-test("every fixture of the five folders is one the agent writes or takes, or is listed with its reason", () => {
+test("every fixture is one the agent writes or takes, or is listed with its reason", () => {
     const covered = new Set([
         ...WRITTEN.map((row) => `${row.fixture}.args`),
         "address/workspace.answer",
         "address/realm.answer",
-        ...fixtures(/^agent\//),
+        ...TAKEN.map((call) => `${call}.args`),
+        ...Object.keys(SENDER).map((action) => `agent/${action}.answer`),
+        ...CREATED.map((input) => `${input}.input`),
         ...ANSWERED_BY_TOOLS.flatMap(answersTo),
         ...answersTo("realm/may_spend"),
         ...answersTo("realm/reply"),

@@ -41,8 +41,8 @@ import {
     type RealmTask,
     read,
     SENDERS,
-    type SocietyTool,
     type Submit,
+    type ToolName,
 } from "./messages.ts";
 import { ownFiles } from "./own-files.ts";
 import { society } from "./society.ts";
@@ -103,7 +103,7 @@ export type AgentDefinition = ActorDefinition<
 >;
 
 /** Their order decides only the order the tools are offered in. */
-function parts(peers: Peers, off: readonly SocietyTool[]): Extension[] {
+function parts(peers: Peers, off: readonly ToolName[]): Extension[] {
     return [
         workspaceTools(peers),
         ownFiles(peers),
@@ -227,7 +227,7 @@ async function migrateAgent(raw: Pick<RawAccess, "execute">): Promise<void> {
 
 interface Row {
     readonly standingTask: RealmTask;
-    readonly toolsOff: readonly SocietyTool[];
+    readonly toolsOff: readonly ToolName[];
 }
 
 async function rowAt(c: AgentContext): Promise<Row> {
@@ -238,7 +238,7 @@ async function rowAt(c: AgentContext): Promise<Row> {
         throw new Error("the agent has no row: it was not created");
     return {
         standingTask: row.task,
-        toolsOff: JSON.parse(row.tools_off) as SocietyTool[],
+        toolsOff: JSON.parse(row.tools_off) as ToolName[],
     };
 }
 
