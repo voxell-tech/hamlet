@@ -1,7 +1,7 @@
 //! A host that runs counter actors in the realm folder `HAMLET_HOME`.
 //!
 //! ```text
-//! demo [--name <name>] [--kind <kind>]... <command> ...
+//! demo [--name <name>] [--kind <kind>]... [--link] <command> ...
 //!
 //! --name <name>                 the host's name, `host` by default
 //! --kind <kind>                 a kind the host runs, as many as
@@ -11,7 +11,12 @@
 //!                               demo/agent.rs; any other name is a
 //!                               counter kind. With none given the
 //!                               host runs `counter`, `workspace`,
-//!                               `realm` and `agent`
+//!                               `realm` and `agent`, or with --link
+//!                               `realm` alone
+//! --link                        run the agents in a Node host, this
+//!                               host's child, and wait for it
+//!                               before the first command; its
+//!                               commands are in demo/link.rs
 //!
 //! demo increment <key> [times]  add one per time, each in a transaction
 //! demo get <key>                print the count
@@ -71,6 +76,8 @@ mod command;
 mod counter;
 #[path = "demo/kinds.rs"]
 mod kinds;
+#[path = "demo/link.rs"]
+mod link;
 #[path = "demo/realm.rs"]
 mod realm;
 
@@ -115,7 +122,7 @@ async fn demo() -> Result<()> {
         .map(PathBuf::from)
         .context("set HAMLET_HOME to the realm folder")?;
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let (options, kinds, args) = options(&args)?;
+    let (start, args) = options(&args)?;
     let command = args.first().map(String::as_str);
     let loaded = match command {
         Some("serve") => {
@@ -128,63 +135,123 @@ async fn demo() -> Result<()> {
     } else {
         counter::Sleep::WhenIdle
     };
-    let factories = kinds::factories(&kinds, sleep);
-    let counters = kinds::counters(&kinds);
+    let factories = kinds::factories(&start.kinds, sleep);
     // The workspace does not start where there is no sandbox.
     let options = match Sandbox::open(Isolation::Sandboxed) {
-        Ok(sandbox) => options.with_value(Arc::new(sandbox)),
-        Err(_) => options,
+        Ok(sandbox) => start.options.with_value(Arc::new(sandbox)),
+        Err(_) => start.options,
     };
-    let host = Host::open_with(&home, factories, options)?;
+    let (host, link) = if start.link {
+        let (host, link) = link::open(&home, factories, options)?;
+        (host, Some(link))
+    } else {
+        (Host::open_with(&home, factories, options)?, None)
+    };
+    let demo = Demo {
+        host,
+        link,
+        counters: kinds::counters(&start.kinds),
+    };
     let result = match command {
-        Some("serve") => {
-            serve(&host, &counters, loaded.unwrap_or(0)).await
-        }
+        Some("serve") => serve(&demo, loaded.unwrap_or(0)).await,
         Some("boot") => {
-            let ms = number(args.get(1))?;
-            let began = host.boot().await?;
-            tokio::time::sleep(Duration::from_millis(ms)).await;
-            print_began(&host, began).await
+            async {
+                let ms = number(args.get(1))?;
+                let began = demo.host.boot().await?;
+                tokio::time::sleep(Duration::from_millis(ms)).await;
+                print_began(&demo.host, began).await
+            }
+            .await
         }
         Some(_) => {
-            host.boot().await?;
-            run_line(&host, &counters, args).await
+            async {
+                demo.host.boot().await?;
+                demo.ready(std::future::pending()).await?;
+                run_line(&demo, args).await
+            }
+            .await
         }
         None => Err(anyhow!(
-            "usage: demo [--name <name>] [--kind <kind>]... \
+            "usage: demo [--name <name>] [--kind <kind>]... [--link] \
              increment|get|schedule|sleep|destroy|block|call|calls|\
-             timers|rearm|boot|serve ..."
+             timers|rearm|boot|serve|realm|agent|link|make|tell|heard \
+             ..."
         )),
     };
-    host.shutdown().await?;
+    demo.shutdown().await?;
     result
 }
 
-/// Runs one command line split into words: the stub realm's, a stub
-/// agent's, or one for the counter kinds `counters`.
-async fn run_line(
-    host: &Host,
-    counters: &[String],
-    words: &[String],
-) -> Result<()> {
-    match words.split_first() {
-        Some((first, rest)) if first == "realm" => {
-            realm::run(host, rest).await
+/// A demo host, as its commands use it.
+pub struct Demo {
+    pub host: Host,
+    /// The Node host, in a demo started with `--link`.
+    pub link: Option<link::Link>,
+    /// The counter kinds the host runs.
+    counters: Vec<String>,
+}
+
+impl Demo {
+    /// Waits for the Node host, where the demo has one, until `stop`
+    /// ends.
+    async fn ready(
+        &self,
+        stop: impl Future<Output = ()>,
+    ) -> Result<()> {
+        let Some(link) = &self.link else {
+            return Ok(());
+        };
+        tokio::select! {
+            ready = link.ready() => ready,
+            () = stop => bail!(
+                "the Node host was not ready when the demo was stopped"
+            ),
         }
-        Some((first, rest)) if first == "agent" => {
-            agent::run(host, rest).await
+    }
+
+    /// Shuts the Node host down, then the host.
+    async fn shutdown(self) -> Result<()> {
+        if let Some(link) = self.link {
+            link.shutdown().await;
         }
-        _ => run(host, counters, words).await,
+        self.host.shutdown().await
     }
 }
 
-/// The host's options and its kinds, read from the options before
-/// the command, and the words from the command on.
-fn options(
-    args: &[String],
-) -> Result<(HostOptions, Vec<String>, &[String])> {
+/// What the options before the command ask for.
+struct Start {
+    options: HostOptions,
+    /// The kinds the host runs, in the order given.
+    kinds: Vec<String>,
+    /// Whether the host runs the agents in a Node child.
+    link: bool,
+}
+
+/// Runs one command line split into words: the stub realm's, a stub
+/// agent's, one of the Node host's, or one for the counters.
+async fn run_line(demo: &Demo, words: &[String]) -> Result<()> {
+    match words.split_first() {
+        Some((first, rest)) if first == "realm" => {
+            realm::run(&demo.host, rest).await
+        }
+        Some((first, rest)) if first == "agent" => {
+            agent::run(&demo.host, rest).await
+        }
+        Some((first, rest))
+            if link::COMMANDS.contains(&first.as_str()) =>
+        {
+            link::run(demo, first, rest).await
+        }
+        _ => run(&demo.host, &demo.counters, words).await,
+    }
+}
+
+/// What the options before the command ask for, and the words from
+/// the command on.
+fn options(args: &[String]) -> Result<(Start, &[String])> {
     let mut options = HostOptions::default();
     let mut kinds = Vec::new();
+    let mut link = false;
     let mut rest = args;
     loop {
         match rest {
@@ -196,6 +263,10 @@ fn options(
                 kinds.push(value.clone());
                 rest = more;
             }
+            [option, more @ ..] if option == "--link" => {
+                link = true;
+                rest = more;
+            }
             [option, ..] if option.starts_with("--") => {
                 bail!(
                     "`{option}` is not an option, or lacks its value"
@@ -205,25 +276,36 @@ fn options(
         }
     }
     if kinds.is_empty() {
-        kinds = kinds::LOCAL
-            .iter()
-            .map(|kind| (*kind).to_owned())
-            .collect();
+        let default = if link { kinds::LINKED } else { kinds::LOCAL };
+        kinds =
+            default.iter().map(|kind| (*kind).to_owned()).collect();
     }
-    Ok((options, kinds, rest))
+    Ok((
+        Start {
+            options,
+            kinds,
+            link,
+        },
+        rest,
+    ))
 }
 
-/// Boots, starts `loaded` counters of the first of `counters`, then
-/// runs each line of stdin as a command until stdin ends or the
-/// process gets SIGTERM or Ctrl-C, also while a command runs.
-async fn serve(
-    host: &Host,
-    counters: &[String],
-    loaded: u64,
-) -> Result<()> {
+/// Boots, waits for the Node host where there is one, starts
+/// `loaded` counters of the first counter kind, then runs each line
+/// of stdin as a command until stdin ends or the process gets
+/// SIGTERM or Ctrl-C, also while a command runs.
+async fn serve(demo: &Demo, loaded: u64) -> Result<()> {
+    let host = &demo.host;
     print_began(host, host.boot().await?).await?;
+    // One for the whole of serve, so no signal falls between two
+    // waits.
+    let mut stop = std::pin::pin!(stop_signal());
+    // A line, or stdin's end, before the Node host is ready would
+    // meet `link.down`, or say goodbye to a Node host that has not
+    // booted.
+    demo.ready(&mut stop).await?;
     if loaded > 0 {
-        let kind = counter_kind(counters)?;
+        let kind = counter_kind(&demo.counters)?;
         for n in 1..=loaded {
             let at = Address::new(kind, format!("load-{n}"))?;
             host.get_or_start(&at).await?;
@@ -241,8 +323,6 @@ async fn serve(
             }
         }
     });
-    // One for the whole loop, so no signal falls between two.
-    let mut stop = std::pin::pin!(stop_signal());
     loop {
         let line = tokio::select! {
             line = lines.recv() => line,
@@ -255,7 +335,7 @@ async fn serve(
             continue;
         }
         let ran = tokio::select! {
-            ran = run_line(host, counters, &words) => ran,
+            ran = run_line(demo, &words) => ran,
             () = &mut stop => return Ok(()),
         };
         if let Err(error) = ran {

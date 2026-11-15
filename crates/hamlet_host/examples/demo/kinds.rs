@@ -24,6 +24,10 @@ pub const LOCAL: &[&str] = &[
     address::Agent::KIND,
 ];
 
+/// What the Rust host of a linked demo runs when no `--kind` says.
+/// Its Node host runs [`link::NODE_KINDS`](crate::link::NODE_KINDS).
+pub const LINKED: &[&str] = &[address::Realm::KIND];
+
 /// The factory of each of `kinds`.
 pub fn factories(
     kinds: &[String],

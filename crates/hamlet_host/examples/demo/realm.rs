@@ -2,7 +2,11 @@
 //! agents' reach on the workspace by calling it as itself, answers
 //! the workspace's call for its secrets with one made-up secret,
 //! `demo-secret-value`, of version 1, and keeps each call the
-//! workspace says waits for a chief in its `waits` table.
+//! workspace says waits for a chief in its `waits` table. For the
+//! linked demo it calls any actor's action as itself (`tell` in
+//! demo/link.rs), answers who calls it and powers of two to anyone,
+//! and keeps in its `resumed` table how many jobs each agent says it
+//! finished after a kill.
 //!
 //! ```text
 //! demo realm reach <n> <version> [project=<path>] [mode=manual|auto]
@@ -27,13 +31,16 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
+use hamlet_actor::action::encode_positional;
 use hamlet_actor::{Action, Actor, Ctx, Handler, Registry};
-use hamlet_actor_core::{ActorConfig, ActorFactory, BindParam};
-use hamlet_host::{Caller, Host, HostRef};
+use hamlet_actor_core::{
+    ActorConfig, ActorFactory, BindParam, ColumnValue,
+};
+use hamlet_host::{Address, Caller, Host, HostRef};
 use hamlet_messages::Message;
 use hamlet_messages::address::{self, Party};
 use hamlet_messages::realm::{NeedsChief, SecretList, Secrets};
-use hamlet_messages::sender::sender;
+use hamlet_messages::sender::{Sender, sender, wrong_caller};
 use hamlet_messages::workspace::reach::{
     Footing, Mode, Project, Reach, SecretsVersion, Trust,
 };
@@ -80,10 +87,83 @@ impl Action for Decide {
     const NAME: &'static str = "decide";
 }
 
+/// Asks the realm to call the action `name` of the actor at `to` with
+/// `args` as itself, and to answer what it answers.
+/// The program's own action, so it checks no sender.
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct Tell {
+    pub to: Address,
+    pub name: String,
+    pub args: Vec<u8>,
+}
+
+impl Action for Tell {
+    /// The other actor's answer, as it encoded it.
+    type Output = Vec<u8>;
+    const NAME: &'static str = "tell";
+}
+
+/// Asks the realm who it reads as this call's caller. Any caller may
+/// ask.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct Who;
+
+impl Action for Who {
+    type Output = Option<Caller>;
+    const NAME: &'static str = "who";
+}
+
+/// Asks the realm for 2 to the power of this, below 64. Any caller
+/// may ask.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct Power(u8);
+
+impl Action for Power {
+    type Output = u64;
+    const NAME: &'static str = "power";
+}
+
+/// An agent says it finished this many jobs a kill cut off. Only an
+/// agent may send it, about itself.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct Resumed(u32);
+
+impl Action for Resumed {
+    type Output = ();
+    const NAME: &'static str = "resumed";
+}
+
+/// Asks the realm how many jobs the agent said it resumed, in all.
+/// The program's own action, so it checks no sender.
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct Heard(pub AgentNumber);
+
+impl Action for Heard {
+    type Output = u64;
+    const NAME: &'static str = "heard";
+}
+
+/// How long the realm's call for [`Tell`] may take.
+const TELL_WITHIN: Duration = Duration::from_secs(30);
+
+/// How long the program's call of the realm may take: longer than
+/// any call the realm makes for it.
+const ASK_WITHIN: Duration = Duration::from_secs(60);
+
 #[async_trait::async_trait]
 impl Actor for Realm {
     type Input = ();
-    type Actions = (Grant, Decide, Secrets, NeedsChief);
+    type Actions = (
+        Grant,
+        Decide,
+        Secrets,
+        NeedsChief,
+        Tell,
+        Who,
+        Power,
+        Resumed,
+        Heard,
+    );
     type Events = ();
     type ConnParams = Option<Caller>;
     type Action = ();
@@ -94,6 +174,12 @@ impl Actor for Realm {
                 "CREATE TABLE IF NOT EXISTS waits (agent INTEGER \
                  NOT NULL, call TEXT NOT NULL, needs INTEGER NOT \
                  NULL, subject TEXT NOT NULL) STRICT",
+            )
+            .await?;
+        ctx.sql()
+            .exec(
+                "CREATE TABLE IF NOT EXISTS resumed (agent INTEGER \
+                 NOT NULL, jobs INTEGER NOT NULL) STRICT",
             )
             .await?;
         Ok(Self)
@@ -134,13 +220,106 @@ impl Handler<Decide> for Realm {
 
 const CALL_WITHIN: Duration = Duration::from_secs(10);
 
+impl Handler<Tell> for Realm {
+    async fn handle(
+        self: Arc<Self>,
+        ctx: Ctx<Self>,
+        tell: Tell,
+    ) -> Result<Vec<u8>> {
+        let answer = HostRef::of(ctx.inner())?
+            .call(&tell.to, &tell.name, tell.args, TELL_WITHIN)
+            .await?;
+        // The other actor has answered, and the realm has not.
+        hamlet_host::fault::point(&format!("told/{}", tell.name));
+        Ok(answer)
+    }
+}
+
+impl Handler<Who> for Realm {
+    async fn handle(
+        self: Arc<Self>,
+        ctx: Ctx<Self>,
+        _: Who,
+    ) -> Result<Option<Caller>> {
+        let caller = caller(&ctx)?;
+        tracing::info!(?caller, "the realm was asked who calls");
+        Ok(caller)
+    }
+}
+
+impl Handler<Power> for Realm {
+    async fn handle(
+        self: Arc<Self>,
+        _: Ctx<Self>,
+        Power(bits): Power,
+    ) -> Result<u64> {
+        1_u64
+            .checked_shl(u32::from(bits))
+            .context("power takes a number below 64")
+    }
+}
+
+impl Handler<Resumed> for Realm {
+    async fn handle(
+        self: Arc<Self>,
+        ctx: Ctx<Self>,
+        Resumed(jobs): Resumed,
+    ) -> Result<()> {
+        let caller = caller(&ctx)?;
+        let Some(address::Agent(agent)) =
+            address::Agent::of(caller.as_ref())
+        else {
+            return Err(wrong_caller(Resumed::NAME, caller));
+        };
+        ctx.sql()
+            .execute(
+                "INSERT INTO resumed (agent, jobs) VALUES (?1, ?2)",
+                Some(vec![
+                    BindParam::Integer(i64::from(agent.0)),
+                    BindParam::Integer(i64::from(jobs)),
+                ]),
+            )
+            .await?;
+        tracing::info!("agent/{} resumed {jobs} jobs", agent.0);
+        Ok(())
+    }
+}
+
+impl Handler<Heard> for Realm {
+    async fn handle(
+        self: Arc<Self>,
+        ctx: Ctx<Self>,
+        Heard(agent): Heard,
+    ) -> Result<u64> {
+        let heard = ctx
+            .sql()
+            .query(
+                "SELECT COALESCE(SUM(jobs), 0) FROM resumed WHERE \
+                 agent = ?1",
+                Some(vec![BindParam::Integer(i64::from(agent.0))]),
+            )
+            .await?;
+        match heard.rows.first().and_then(|row| row.first()) {
+            Some(ColumnValue::Integer(jobs)) => {
+                Ok(u64::try_from(*jobs)?)
+            }
+            other => bail!("the jobs heard of read {other:?}"),
+        }
+    }
+}
+
+/// The caller the host stamped on the call `ctx` handles.
+fn caller(ctx: &Ctx<Realm>) -> Result<Option<Caller>> {
+    ctx.conn().context("the call has no connection")?.params()
+}
+
 async fn call<M: Message>(
     host: &HostRef,
     to: &M::To,
     message: &M,
     deadline: Duration,
 ) -> Result<M::Output> {
-    let args = hamlet_actor::action::encode_positional(message)?;
+    let args = encode_positional(message)?;
     let answer =
         host.call(&to.address()?, M::NAME, args, deadline).await?;
     Ok(ciborium::from_reader(answer.as_slice())?)
@@ -197,6 +376,20 @@ impl Handler<Secrets> for Realm {
     }
 }
 
+/// Starts the realm, made if it has none, and asks it `action` as
+/// the program.
+pub async fn ask<A: Action>(
+    host: &Host,
+    action: &A,
+) -> Result<A::Output> {
+    let realm = address::Realm.address()?;
+    host.get_or_start(&realm).await?;
+    let reply = host
+        .call(&realm, A::NAME, encode_positional(action)?, ASK_WITHIN)
+        .await?;
+    Ok(ciborium::from_reader(reply.as_slice())?)
+}
+
 /// Runs `demo realm <words>`.
 pub async fn run(host: &Host, words: &[String]) -> Result<()> {
     if let [verb, agent, call, answer] = words
@@ -219,17 +412,7 @@ pub async fn run(host: &Host, words: &[String]) -> Result<()> {
         reach: parse_reach(rest)?,
     };
     host.get_or_start(&address::Workspace.address()?).await?;
-    host.get_or_start(&address::Realm.address()?).await?;
-    let reply = host
-        .call(
-            &address::Realm.address()?,
-            Grant::NAME,
-            hamlet_actor::action::encode_positional(&Grant(set))?,
-            Duration::from_secs(20),
-        )
-        .await?;
-    let in_force =
-        ciborium::from_reader::<InForce, _>(reply.as_slice())?;
+    let in_force = ask(host, &Grant(set)).await?;
     writeln!(
         std::io::stdout(),
         "reach/{agent} {}",
@@ -323,17 +506,8 @@ async fn answer_call(
         answer,
     });
     host.get_or_start(&address::Workspace.address()?).await?;
-    host.get_or_start(&address::Realm.address()?).await?;
-    let reply = host
-        .call(
-            &address::Realm.address()?,
-            Decide::NAME,
-            hamlet_actor::action::encode_positional(&decide)?,
-            Duration::from_secs(20),
-        )
-        .await?;
     let mut out = std::io::stdout();
-    match ciborium::from_reader(reply.as_slice())? {
+    match ask(host, &decide).await? {
         AnswerTaken::Taken => writeln!(out, "answered/{call} 1")?,
         AnswerTaken::RunNotRun { why } => {
             tracing::warn!(%why, "agent {agent}'s call {call} did not run");

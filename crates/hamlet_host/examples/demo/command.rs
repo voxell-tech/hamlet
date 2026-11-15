@@ -215,13 +215,17 @@ fn address(kind: &str, word: &str) -> Result<Address> {
     })
 }
 
+/// The first `ActorError` in `error`'s chain.
+pub fn actor_error(error: &anyhow::Error) -> Option<&ActorError> {
+    error
+        .chain()
+        .find_map(|cause| cause.downcast_ref::<ActorError>())
+}
+
 /// `error` as the demo prints it, led by the `group.code` of the
 /// first `ActorError` in its chain, as `actor.not_found`.
 pub fn shown(error: &anyhow::Error) -> String {
-    match error
-        .chain()
-        .find_map(|cause| cause.downcast_ref::<ActorError>())
-    {
+    match actor_error(error) {
         Some(found) => {
             format!("{}.{}: {error:#}", found.group(), found.code())
         }

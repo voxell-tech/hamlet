@@ -4,6 +4,7 @@
 
 import { setTimeout as sleep } from "node:timers/promises";
 import {
+    type ActorSchedule,
     Address,
     actor,
     type Caller,
@@ -34,6 +35,17 @@ function shown(caller: Caller | null): string {
     if (caller === null) return "no caller";
     if (caller === "client") return "client";
     return `${caller.actor.kind}/${caller.actor.key}`;
+}
+
+/**
+ * Arms a one-shot of `step`, `everyMs` ahead, unless one is pending. A
+ * handler's list leaves out the one-shot that fired it.
+ */
+async function armStep(schedule: ActorSchedule, everyMs: number) {
+    const pending = await schedule.list();
+    if (!pending.some((one) => one.action === "step")) {
+        await schedule.after(everyMs, "step");
+    }
 }
 
 /**
@@ -145,15 +157,11 @@ const agent = actor({
                 "INSERT INTO ticks (id, count, every_ms) VALUES (0, 0, ?) ON CONFLICT (id) DO UPDATE SET every_ms = excluded.every_ms",
                 everyMs,
             );
-            const pending = await c.schedule.list();
-            if (!pending.some((one) => one.action === "step")) {
-                await c.schedule.after(everyMs, "step");
-            }
+            await armStep(c.schedule, everyMs);
         },
         /**
          * Adds one to the count, broadcasts it as `ticked` once committed,
-         * then arms the next `step` unless another is pending besides this
-         * one.
+         * then arms the next `step` unless another is pending.
          */
         step: async (c) => {
             const { count, everyMs } = await c.db.transaction(async (tx) => {
@@ -167,15 +175,7 @@ const agent = actor({
                 return { count: row.count, everyMs: row.every_ms };
             });
             c.broadcast("ticked", count);
-            const firing = c.scheduledFire?.id;
-            const pending = await c.schedule.list();
-            if (
-                !pending.some(
-                    (one) => one.action === "step" && one.id !== firing,
-                )
-            ) {
-                await c.schedule.after(everyMs, "step");
-            }
+            await armStep(c.schedule, everyMs);
         },
         ticks: async (c) =>
             (await c.db.get<{ count: number }>("SELECT count FROM ticks"))
