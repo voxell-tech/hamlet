@@ -684,8 +684,8 @@ CREATE TABLE marker (
 ) STRICT, WITHOUT ROWID;
 
 -- An effect kept with the change that needs it and run after the
--- commit, again after a crash, until done. A key keeps two of one
--- effect from waiting at once.
+-- commit, again after a crash, until done, then deleted. A key keeps
+-- two of one effect from waiting at once.
 CREATE TABLE job (
     id INTEGER PRIMARY KEY,
     kind TEXT NOT NULL,
@@ -694,9 +694,6 @@ CREATE TABLE job (
     made INTEGER NOT NULL,
     after INTEGER,
     tries INTEGER NOT NULL DEFAULT 0 CHECK (tries >= 0),
-    failure TEXT,
-    done INTEGER
+    failure TEXT
 ) STRICT;
-CREATE UNIQUE INDEX job_waiting ON job(key)
-    WHERE done IS NULL AND key IS NOT NULL;
-CREATE INDEX job_due ON job(done, after);
+CREATE UNIQUE INDEX job_waiting ON job(key) WHERE key IS NOT NULL;

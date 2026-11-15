@@ -1,5 +1,5 @@
 //! Jobs: effects kept with the change that needs them, run after the
-//! commit and again after a crash until done.
+//! commit and again after a crash until done, then deleted.
 
 use anyhow::Result;
 use diesel::prelude::*;
@@ -30,7 +30,6 @@ pub fn add(
     if let Some(key) = key
         && let Some(id) = job::table
             .filter(job::key.eq(key))
-            .filter(job::done.is_null())
             .select(job::id)
             .first::<JobId>(db)
             .optional()?
@@ -48,10 +47,9 @@ pub fn add(
         .get_result(db)?)
 }
 
-/// The jobs not done whose time has come at `now`, oldest first.
+/// The jobs whose time has come at `now`, oldest first.
 pub fn due(db: &mut Db, now: i64) -> Result<Vec<Job>> {
     Ok(job::table
-        .filter(job::done.is_null())
         .filter(job::after.is_null().or(job::after.le(now)))
         .order(job::id)
         .select((job::id, job::kind, job::payload, job::tries))
@@ -61,15 +59,13 @@ pub fn due(db: &mut Db, now: i64) -> Result<Vec<Job>> {
 /// The earliest time a job waits for, if any waits.
 pub fn next(db: &mut Db) -> Result<Option<i64>> {
     Ok(job::table
-        .filter(job::done.is_null())
         .select(diesel::dsl::min(job::after))
         .first::<Option<i64>>(db)?)
 }
 
-pub fn finish(db: &mut Db, id: JobId, at: i64) -> Result<()> {
-    diesel::update(job::table.find(id))
-        .set(job::done.eq(at))
-        .execute(db)?;
+/// Removes the job `id`, which is done.
+pub fn finish(db: &mut Db, id: JobId) -> Result<()> {
+    diesel::delete(job::table.find(id)).execute(db)?;
     Ok(())
 }
 

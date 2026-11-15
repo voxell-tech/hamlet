@@ -53,7 +53,7 @@ pub(crate) fn due(
             });
         match ran {
             Ok(job) => {
-                hamlet_store::job::finish(db, kept.id, now)?;
+                hamlet_store::job::finish(db, kept.id)?;
                 done.push(job);
             }
             Err(error) => {

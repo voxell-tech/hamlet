@@ -292,7 +292,6 @@ diesel::table! {
         after -> Nullable<BigInt>,
         tries -> BigInt,
         failure -> Nullable<Text>,
-        done -> Nullable<BigInt>,
     }
 }
 

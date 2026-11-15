@@ -284,7 +284,7 @@ fn a_keyed_job_waits_once_and_is_done_once() {
     let due = job::due(db, 50).unwrap();
     assert_eq!(due.iter().map(|j| j.id).collect::<Vec<_>>(), [first]);
     assert_eq!(job::next(db).unwrap(), Some(100));
-    job::finish(db, first, 60).unwrap();
+    job::finish(db, first).unwrap();
     let due = job::due(db, 100).unwrap();
     assert_eq!(due.iter().map(|j| j.id).collect::<Vec<_>>(), [plain]);
     assert_eq!(due[0].tries, 1);
