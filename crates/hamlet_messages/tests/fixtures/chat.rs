@@ -293,11 +293,11 @@ fn event() -> ChatEvent {
         number: 42,
         ops: vec![
             ChatOp::Add {
-                item: ChatItem {
+                item: Box::new(ChatItem {
                     author: Some("hire#3".into()),
                     rewindable: Some(true),
                     ..item("i8", protocol::ItemKind::User, "Go on")
-                },
+                }),
                 replaces: Some("p1".into()),
             },
             ChatOp::Append {

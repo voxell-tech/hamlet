@@ -209,7 +209,7 @@ pub struct ChatEvent {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ChatOp {
     Add {
-        item: ChatItem,
+        item: Box<ChatItem>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         replaces: Option<String>,
     },
