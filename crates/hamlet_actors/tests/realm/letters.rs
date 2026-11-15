@@ -191,6 +191,29 @@ async fn a_tell_with_no_road_is_refused() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn a_tell_with_no_road_to_a_hire_still_hiring_is_refused_at_once()
+ {
+    // the mayor hires 4 with its fill held: 3, the mayor's other
+    // hire, has no road to it, and hears `NoRoad` with no wait.
+    let realm = hamlet_with(1).await;
+    let four = AgentNumber(4);
+    realm.seen.hold(Callee::Fill);
+    hires(&realm, MAYOR, "h1").await;
+
+    let told =
+        realm.tool(THREE, &tool("t1", tell(to(four), "hi"))).await;
+    realm.seen.release(Callee::Fill);
+
+    assert_eq!(
+        told.unwrap(),
+        Done::Refused {
+            why: Act(LetterRefusal::NoRoad { to: four })
+        }
+    );
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn a_tell_is_refused_for_its_ends() {
     // hire 3 hires 4. A tell to oneself, an empty one, and one from 4
     // to the Hand or the mayor are refused; after 3 ends 4, a tell to

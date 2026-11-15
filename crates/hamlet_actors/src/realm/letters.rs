@@ -281,26 +281,23 @@ impl Written<'_> {
         if self.text.trim().is_empty() {
             return refuse(LetterRefusal::Empty);
         }
-        match &to.status {
-            Status::Ended(left) => {
-                return refuse(LetterRefusal::Left {
-                    to: to.agent,
-                    left: left.clone(),
-                });
-            }
-            Status::Hiring => {
-                return Decision::WaitFor {
-                    row: hire::row(to.agent),
-                    refusal: Done::refused(AgentRefusal::Act(
-                        LetterRefusal::StillHiring { to: to.agent },
-                    )),
-                };
-            }
-            Status::Live => {}
+        if let Status::Ended(left) = &to.status {
+            return refuse(LetterRefusal::Left {
+                to: to.agent,
+                left: left.clone(),
+            });
         }
         let Some(way) = ends.way() else {
             return refuse(LetterRefusal::NoRoad { to: to.agent });
         };
+        if to.status == Status::Hiring {
+            return Decision::WaitFor {
+                row: hire::row(to.agent),
+                refusal: Done::refused(AgentRefusal::Act(
+                    LetterRefusal::StillHiring { to: to.agent },
+                )),
+            };
+        }
         let mut decided = Decided::new(id).change(Change::Keep {
             letter: id,
             kind: self.kind,
