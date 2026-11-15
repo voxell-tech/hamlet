@@ -468,7 +468,7 @@ impl Held {
             .map(|entry| (entry.path, (entry.blob, entry.executable)))
             .collect::<BTreeMap<_, _>>();
         let mut changes = Vec::new();
-        for entry in listing {
+        for entry in listing.files {
             let now = (entry.blob, entry.executable);
             if held.remove(&entry.path) != Some(now) {
                 let bytes = checkout::read(&folder, &entry.path)?;
@@ -481,7 +481,9 @@ impl Held {
             }
         }
         changes.extend(
-            held.into_keys().map(|path| Change::Remove { path }),
+            held.into_keys()
+                .filter(|path| !listing.alone.contains(path))
+                .map(|path| Change::Remove { path }),
         );
         Ok(changes)
     }
@@ -511,7 +513,7 @@ impl Held {
         let folder = checkout::make(&self.home, under)?;
         let reads = self.reads()?;
         let listing = checkout::list(&folder, skip)?;
-        for step in reads.0.plan(at, &listing, skip)? {
+        for step in reads.0.plan(at, &listing.files, skip)? {
             match step {
                 Step::Write {
                     path,
@@ -797,6 +799,28 @@ mod tests {
             By::Chief(1),
         )
         .unwrap();
+    }
+
+    #[test]
+    fn a_checkout_does_not_read_a_file_too_large_to_list_as_removed()
+    {
+        let dir = Scratch::new("repo-checkout-large");
+        let held = folder(&dir).open(2000).unwrap();
+        let base = tip(&held, MAIN);
+        let large = Change::Write {
+            path: "large.bin".into(),
+            bytes: vec![7; 5 << 20],
+        };
+        let at = held
+            .writes()
+            .unwrap()
+            .commit(MAIN, Some(base), &[large], "large", By::Chief(1))
+            .unwrap();
+        let under = Path::new("dreams/1/main");
+        held.check_out(at, under, &|_| false).unwrap();
+        assert!(
+            held.changes(under, at, &|_| false).unwrap().is_empty()
+        );
     }
 
     #[cfg(unix)]

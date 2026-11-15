@@ -452,8 +452,10 @@ async fn an_accepted_offer_is_shelved_and_its_offerer_drops_its_copy()
     assert_eq!(shelves, [(agent(8).to_string(), list)]);
     let mut digest = sha2::Sha256::new();
     for (path, bytes) in [("SKILL.md", PAPER), ("tidy.py", SCRIPT)] {
-        digest.update(path);
-        digest.update(bytes);
+        for part in [path, bytes] {
+            digest.update((part.len() as u64).to_be_bytes());
+            digest.update(part);
+        }
     }
     let copy = DropCopy {
         skill: "tidy".into(),
@@ -590,6 +592,26 @@ async fn an_offer_is_refused_for_each_reason() {
             refused(7, asked).await,
             OfferRefusal::Shape(BadOffer::NotASkillName {
                 skill: skill.into()
+            })
+        );
+    }
+
+    let long = "n".repeat(256);
+    for path in ["a\\b.py", "/abs.py", "a//b.py", "", long.as_str()] {
+        let asked = offer(
+            "bad-path",
+            "tidy",
+            0,
+            true,
+            vec![
+                piece("SKILL.md", 0, PAPER.as_bytes(), true),
+                piece(path, 0, SCRIPT.as_bytes(), true),
+            ],
+        );
+        assert_eq!(
+            refused(7, asked).await,
+            OfferRefusal::Shape(BadOffer::NotAPath {
+                path: path.into()
             })
         );
     }

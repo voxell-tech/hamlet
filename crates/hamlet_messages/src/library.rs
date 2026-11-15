@@ -75,6 +75,12 @@ family!(
              hyphens and underscores"
         )]
         NotASkillName { skill: String },
+        #[error(
+            "`{path}` is no file path every system writes: names \
+             between single slashes, none empty, `.` or `..`, none over \
+             255 bytes"
+        )]
+        NotAPath { path: String },
     }
 );
 
@@ -170,8 +176,9 @@ message!(ShelvesChanged, "shelves_changed", Library => Agent, ());
 
 /// Asks the agent to remove `skills/<skill>/` now that the library
 /// shelved it, if its files are still the ones it offered: `digest`
-/// is the SHA-256 over each offered file's path and bytes, in path
-/// order.
+/// is the SHA-256 over each offered file in path order, each as its
+/// path's length, its path, its bytes' length and its bytes, each
+/// length eight bytes big-endian.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DropCopy {
     pub skill: String,

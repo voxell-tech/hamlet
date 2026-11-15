@@ -2,6 +2,7 @@
 //! dream's or the library's checkout: reached through its open
 //! directory one name at a time, never through a link.
 
+use std::collections::BTreeSet;
 use std::io::{ErrorKind, Read as _, Write as _};
 use std::path::{Component, Path};
 
@@ -65,15 +66,23 @@ pub(super) fn make(home: &Path, under: &Path) -> Result<Directory> {
     Ok(dir.make(name, Mode::FOLDER, Exists::Open)?)
 }
 
-/// Every regular file with one name and at most [`MOST_BYTES`], with
-/// its blob id, but under the paths `skip` names.
+/// A folder's files, but under the paths a listing skips.
+#[derive(Default)]
+pub(super) struct Listing {
+    /// Every regular file with one name and at most [`MOST_BYTES`],
+    /// with its blob id, in path order.
+    pub files: Vec<Entry>,
+    /// The regular files left alone: larger, or with more names.
+    pub alone: BTreeSet<String>,
+}
+
 pub(super) fn list(
     folder: &Directory,
     skip: &dyn Fn(&str) -> bool,
-) -> Result<Vec<Entry>> {
-    let mut out = Vec::new();
+) -> Result<Listing> {
+    let mut out = Listing::default();
     walk(folder, "", skip, &mut out)?;
-    out.sort_by(|a, b| a.path.cmp(&b.path));
+    out.files.sort_by(|a, b| a.path.cmp(&b.path));
     Ok(out)
 }
 
@@ -81,7 +90,7 @@ fn walk(
     dir: &Directory,
     prefix: &str,
     skip: &dyn Fn(&str) -> bool,
-    out: &mut Vec<Entry>,
+    out: &mut Listing,
 ) -> Result<()> {
     for name in dir.names()? {
         let Some(text) = name.to_str() else {
@@ -112,13 +121,16 @@ fn walk(
                 dir.file(&name, Open::Read)?
                     .into_file()
                     .read_to_end(&mut bytes)?;
-                out.push(Entry {
+                out.files.push(Entry {
                     path,
                     blob: blob_id(&bytes),
                     executable: stat.mode.bits() & 0o100 != 0,
                 });
             }
-            Kind::File | Kind::Link | Kind::Special => {}
+            Kind::File => {
+                out.alone.insert(path);
+            }
+            Kind::Link | Kind::Special => {}
         }
     }
     Ok(())

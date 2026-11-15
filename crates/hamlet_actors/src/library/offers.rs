@@ -1,13 +1,14 @@
 //! Offers and their verdicts: an offer's files kept part by part,
 //! then on `offers/<offer>`; an accepted one shelved on `main`.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
 use anyhow::{Context, Result, bail, ensure};
 use hamlet_actor::{BindParam, ColumnValue};
 use hamlet_git::{Change, MAIN};
+use hamlet_messages::MOST_PART;
 use hamlet_messages::address::Agent;
-use hamlet_messages::bytes::{Base64, Sha256};
+use hamlet_messages::bytes::Sha256;
 use hamlet_messages::library::{
     BadOffer, BadSkill, DropCopy, Offer, OfferAnswer, OfferId,
     OfferRefusal, OnTheShelves, Verdict, VerdictRefusal,
@@ -15,7 +16,6 @@ use hamlet_messages::library::{
 use hamlet_messages::profile::{Piece, TooLarge};
 use hamlet_messages::realm::Done;
 use hamlet_messages::workspace::AgentNumber;
-use hamlet_messages::{MOST_PART, PIECE_FRAME};
 use sha2::Digest as _;
 
 use super::{
@@ -23,6 +23,7 @@ use super::{
     published, record, skill_paths,
 };
 use crate::repo::git::{By, Reads};
+use crate::repo::parts::{self, Kept, joined};
 use crate::repo::store::{self, Rows, Writes};
 use crate::repo::{Before, Call, Ended, Reply, Takes};
 
@@ -104,54 +105,12 @@ fn first(
     .transpose()
 }
 
-/// The bytes a part counts for: each piece's bytes, its path and the
-/// frame.
-fn part_size(files: &[Piece]) -> usize {
-    files
-        .iter()
-        .map(|piece| {
-            piece.bytes.0.len() + piece.path.len() + PIECE_FRAME
-        })
-        .sum()
-}
-
-/// Whether `path` is a path inside a skill's folder.
-fn is_inner_path(path: &str) -> bool {
-    path.split('/')
-        .all(|name| !name.is_empty() && name != "." && name != "..")
-}
-
-/// The files `pieces` make, each from its pieces end to end, the last
-/// one marked, in path order.
-fn whole(mut pieces: Vec<Piece>) -> Result<Vec<Change>> {
+/// The files `pieces` make, each from its pieces end to end.
+fn whole(mut pieces: Vec<Kept>) -> Result<Vec<Change>> {
     pieces.sort_by(|a, b| {
         (&a.path, a.offset).cmp(&(&b.path, b.offset))
     });
-    let mut files = BTreeMap::<String, (Vec<u8>, bool, bool)>::new();
-    for piece in pieces {
-        let (bytes, last, _) = files
-            .entry(piece.path.clone())
-            .or_insert((Vec::new(), false, piece.executable));
-        ensure!(
-            !*last && usize::try_from(piece.offset)? == bytes.len(),
-            "a piece of {} out of place at {}",
-            piece.path,
-            piece.offset
-        );
-        bytes.extend(piece.bytes.0);
-        *last = piece.last;
-    }
-    files
-        .into_iter()
-        .map(|(path, (bytes, last, executable))| {
-            ensure!(last, "{path} has no last piece");
-            Ok(if executable {
-                Change::WriteExecutable { path, bytes }
-            } else {
-                Change::Write { path, bytes }
-            })
-        })
-        .collect()
+    joined(pieces)
 }
 
 /// Whether `files` hold a `SKILL.md` that opens with a front matter
@@ -171,29 +130,14 @@ fn has_front_matter(files: &[Change]) -> bool {
 }
 
 /// The pieces the store keeps of the offer `offer`.
-fn pieces(rows: &Rows<'_, Pieces>, offer: u32) -> Result<Vec<Piece>> {
+fn pieces(rows: &Rows<'_, Pieces>, offer: u32) -> Result<Vec<Kept>> {
     rows.select(
         "SELECT path, offset, bytes, last, executable FROM \
          offer_piece WHERE offer = ?1",
         vec![BindParam::Integer(i64::from(offer))],
     )?
-    .into_iter()
-    .map(|row| match row.as_slice() {
-        [
-            ColumnValue::Text(path),
-            ColumnValue::Integer(offset),
-            ColumnValue::Blob(bytes),
-            ColumnValue::Integer(last),
-            ColumnValue::Integer(executable),
-        ] => Ok(Piece {
-            path: path.clone(),
-            offset: u32::try_from(*offset)?,
-            bytes: Base64(bytes.clone()),
-            last: *last != 0,
-            executable: *executable != 0,
-        }),
-        _ => bail!("a piece row of another shape: {row:?}"),
-    })
+    .iter()
+    .map(|row| Kept::of(row))
     .collect()
 }
 
@@ -204,7 +148,23 @@ impl Takes<Offer> for Library {
             let why = BadOffer::NotASkillName { skill };
             return call.refuse(OfferRefusal::Shape(why)).await;
         }
-        if part_size(&call.files) > MOST_PART {
+        if let Some(piece) = call
+            .files
+            .iter()
+            .find(|piece| !parts::is_file_path(&piece.path))
+        {
+            let path = piece.path.clone();
+            let why = BadOffer::NotAPath { path };
+            return call.refuse(OfferRefusal::Shape(why)).await;
+        }
+        let size = call
+            .files
+            .iter()
+            .map(|piece| {
+                parts::cost(&piece.path, piece.bytes.0.len())
+            })
+            .sum::<usize>();
+        if size > MOST_PART {
             let why = TooLarge::PartTooLarge {
                 most: u32::try_from(MOST_PART)?,
             };
@@ -252,10 +212,6 @@ fn offer(unit: Before<'_, Library, Offer>) -> Result<Ended<Offer>> {
             "the parts of one offer name one skill"
         );
     }
-    ensure!(
-        files.iter().all(|piece| is_inner_path(&piece.path)),
-        "a piece's path is not inside the skill's folder"
-    );
     let main = main(unit.git()?)?;
     if !skill_paths(unit.git()?, main, &skill)?.is_empty() {
         let why = OnTheShelves::AlreadyShelved { skill };
@@ -278,9 +234,13 @@ fn offer(unit: Before<'_, Library, Offer>) -> Result<Ended<Offer>> {
         Some(row) => pieces(&unit.rows(Pieces(())), row.id)?,
         None => Vec::new(),
     };
-    held.extend(files.iter().cloned());
-    let size =
-        held.iter().map(|piece| piece.bytes.0.len()).sum::<usize>();
+    for piece in &files {
+        held.push(Kept::try_from(piece.clone())?);
+    }
+    let size = held
+        .iter()
+        .map(|piece| piece.bytes.as_ref().map_or(0, Vec::len))
+        .sum::<usize>();
     if size > MOST_SKILL {
         let most = u32::try_from(MOST_SKILL)?;
         let why = BadSkill::SkillTooLarge { skill, most };
@@ -437,8 +397,10 @@ fn offered(
 fn digest(files: &[(hamlet_git::Entry, Vec<u8>)]) -> Sha256 {
     let mut digest = sha2::Sha256::new();
     for (entry, bytes) in files {
-        digest.update(entry.path.as_bytes());
-        digest.update(bytes);
+        for part in [entry.path.as_bytes(), bytes] {
+            digest.update((part.len() as u64).to_be_bytes());
+            digest.update(part);
+        }
     }
     Sha256(digest.finalize().into())
 }
@@ -550,6 +512,7 @@ fn verdict(
 mod tests {
     use hamlet_host::Caller;
     use hamlet_messages::address::{Party, Realm};
+    use hamlet_messages::bytes::Base64;
     use hamlet_messages::library::{
         ShelfList, Shelves, ShelvesChanged, Skill,
     };
@@ -579,13 +542,20 @@ mod tests {
         }
     }
 
+    fn kept(pieces: Vec<Piece>) -> Vec<Kept> {
+        pieces
+            .into_iter()
+            .map(|piece| Kept::try_from(piece).unwrap())
+            .collect()
+    }
+
     #[test]
     fn a_file_is_made_of_its_pieces_end_to_end() {
-        let made = whole(vec![
+        let made = whole(kept(vec![
             piece("b.md", 2, b"cd", true),
             piece("b.md", 0, b"ab", false),
             piece("a.md", 0, b"x", true),
-        ])
+        ]))
         .unwrap();
         assert_eq!(
             made,
@@ -600,8 +570,12 @@ mod tests {
                 },
             ]
         );
-        assert!(whole(vec![piece("a.md", 1, b"x", true)]).is_err());
-        assert!(whole(vec![piece("a.md", 0, b"x", false)]).is_err());
+        assert!(
+            whole(kept(vec![piece("a.md", 1, b"x", true)])).is_err()
+        );
+        assert!(
+            whole(kept(vec![piece("a.md", 0, b"x", false)])).is_err()
+        );
     }
 
     #[test]

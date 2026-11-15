@@ -5,8 +5,8 @@
 use std::collections::BTreeMap;
 
 use anyhow::{Context, Result, bail, ensure};
-use hamlet_actor::{BindParam, ColumnValue};
-use hamlet_git::{BlobId, Change, Entry};
+use hamlet_actor::BindParam;
+use hamlet_git::{BlobId, Entry};
 use hamlet_messages::bytes::Base64;
 use hamlet_messages::profile::{
     BadPath, Cursor, FileChange, Files, FilesAnswer, Gone, Path,
@@ -14,11 +14,11 @@ use hamlet_messages::profile::{
 };
 use hamlet_messages::workspace::{AgentNumber, CallId};
 use hamlet_messages::{MOST_PART, PIECE_FRAME};
-use hamlet_os::fs::TreePath;
 
 use super::hires::{self, Hire};
 use super::{CHARACTER, Profile, commit_id, git_commit};
 use crate::repo::git::{By, Reads};
+use crate::repo::parts::{self, Kept, joined};
 use crate::repo::store::{self, Rows};
 use crate::repo::{Before, Call, Ended, Look, Reply, Takes};
 
@@ -173,7 +173,7 @@ fn pack(
     while let Some(item) = items.get(at) {
         match item {
             Item::Remove(path) => {
-                let cost = path.len() + PIECE_FRAME;
+                let cost = parts::cost(path, 0);
                 if cost > room {
                     packed.next = Some((at, 0));
                     return Ok(packed);
@@ -182,7 +182,7 @@ fn pack(
                 packed.removed.push(Path { path: path.clone() });
             }
             Item::Write(entry) => {
-                let head = entry.path.len() + PIECE_FRAME;
+                let head = parts::cost(&entry.path, 0);
                 ensure!(
                     head < MOST_PART,
                     "the path {} is too long to send",
@@ -196,7 +196,7 @@ fn pack(
                     .then_some(rest.len())
                     .or_else(|| {
                         (head + rest.len() > MOST_PART && head < room)
-                            .then_some(room - head)
+                            .then(|| room - head)
                     });
                 let Some(sent) = sent else {
                     packed.next = Some((at, offset));
@@ -242,7 +242,7 @@ fn fits(changes: &[FileChange]) -> Result<(), SaveRefusal> {
             }
             FileChange::Remove { path } => (path, 0),
         };
-        if TreePath::parse(path).is_err() {
+        if !parts::is_file_path(path) {
             let path = path.clone();
             return Err(BadPath::NotAPath { path }.into());
         }
@@ -250,7 +250,7 @@ fn fits(changes: &[FileChange]) -> Result<(), SaveRefusal> {
             let path = path.clone();
             return Err(BadPath::Withheld { path }.into());
         }
-        size += path.len() + bytes + PIECE_FRAME;
+        size += parts::cost(path, bytes);
     }
     if size > MOST_PART {
         let most =
@@ -274,7 +274,8 @@ fn save(unit: Before<'_, Profile, Save>) -> Result<Ended<Save>> {
     let Hire { agent, branch, .. } = unit.from();
     let (agent, branch) = (*agent, branch.clone());
     let at = git_commit(base)?;
-    if !unit.git()?.has(at)? {
+    let git = unit.git()?;
+    if !git.has(at)? || !git.holds(&branch, at)? {
         return unit.refuse(Gone::CommitGone { commit: base }.into());
     }
     // A part's earlier parts are kept answers, but their rows went
@@ -349,16 +350,6 @@ fn of_call(agent: AgentNumber, call: &CallId) -> Vec<BindParam> {
     ]
 }
 
-/// A row of the `save` table: a piece of a file, or a removal.
-struct Kept {
-    path: String,
-    offset: usize,
-    /// `None` for a removal.
-    bytes: Option<Vec<u8>>,
-    last: bool,
-    executable: bool,
-}
-
 /// Whether the save holds any row.
 fn begun(
     rows: &Rows<'_, Table>,
@@ -383,67 +374,7 @@ fn pieces(
          WHERE agent = ?1 AND call = ?2 ORDER BY path, offset",
         of_call(agent, call),
     )?
-    .into_iter()
-    .map(|row| match row.as_slice() {
-        [
-            ColumnValue::Text(path),
-            ColumnValue::Integer(offset),
-            bytes,
-            ColumnValue::Integer(last),
-            ColumnValue::Integer(executable),
-        ] => Ok(Kept {
-            path: path.clone(),
-            offset: usize::try_from(*offset)?,
-            bytes: match bytes {
-                ColumnValue::Blob(bytes) => Some(bytes.clone()),
-                ColumnValue::Null => None,
-                other => bail!(
-                    "a piece's bytes of another kind: {other:?}"
-                ),
-            },
-            last: *last != 0,
-            executable: *executable != 0,
-        }),
-        _ => bail!("a save row of another shape: {row:?}"),
-    })
+    .iter()
+    .map(|row| Kept::of(row))
     .collect()
-}
-
-/// The changes a save's rows make: each file's pieces joined in
-/// order, each removal as it is.
-fn joined(pieces: Vec<Kept>) -> Result<Vec<Change>> {
-    let mut changes = Vec::new();
-    let mut open: Option<(String, Vec<u8>)> = None;
-    for piece in pieces {
-        let Some(bytes) = piece.bytes else {
-            ensure!(open.is_none(), "{} is cut short", piece.path);
-            changes.push(Change::Remove { path: piece.path });
-            continue;
-        };
-        let mut file = match open.take() {
-            None if piece.offset == 0 => Vec::new(),
-            Some((path, file))
-                if path == piece.path
-                    && file.len() == piece.offset =>
-            {
-                file
-            }
-            _ => bail!("the pieces of {} do not join", piece.path),
-        };
-        file.extend(bytes);
-        let path = piece.path;
-        if !piece.last {
-            open = Some((path, file));
-            continue;
-        }
-        changes.push(if piece.executable {
-            Change::WriteExecutable { path, bytes: file }
-        } else {
-            Change::Write { path, bytes: file }
-        });
-    }
-    if let Some((path, _)) = open {
-        bail!("the last piece of {path} never came");
-    }
-    Ok(changes)
 }

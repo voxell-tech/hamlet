@@ -94,6 +94,15 @@ pub fn the_librarys_messages(fixtures: &mut Fixtures) {
             ),
         ),
         (
+            "refused.not_a_path",
+            OfferAnswer::refused(
+                BadOffer::NotAPath {
+                    path: "a\\b.py".into(),
+                }
+                .into(),
+            ),
+        ),
+        (
             "refused.part_too_large",
             OfferAnswer::refused(OfferRefusal::from(
                 TooLarge::PartTooLarge {

@@ -20,6 +20,7 @@
 
 mod checkout;
 pub(crate) mod git;
+pub(crate) mod parts;
 pub(crate) mod store;
 #[cfg(test)]
 pub(crate) mod testing;

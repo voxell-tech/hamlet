@@ -11,7 +11,7 @@ use hamlet_messages::profile::{
     SaveRefusal, TooLarge,
 };
 use hamlet_messages::workspace::CallId;
-use hamlet_messages::{MOST_CALL, MOST_PART};
+use hamlet_messages::{MOST_CALL, MOST_PART, PIECE_FRAME};
 
 use super::*;
 
@@ -164,6 +164,30 @@ async fn a_file_larger_than_a_part_comes_whole_in_pieces() {
         ["large.bin"]
     );
     assert_eq!(filled.files["large.bin"].0, large);
+    host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn files_that_just_fill_a_part_or_just_miss_one_come_whole() {
+    let dir = Scratch::new("profile-fill-edges");
+    let mut files = (0..4)
+        .map(|n| {
+            let path = format!("exact{n}.bin");
+            let size = MOST_PART - path.len() - PIECE_FRAME;
+            write(&path, vec![0xff; size])
+        })
+        .collect::<Vec<_>>();
+    let over = "over.bin";
+    files.push(write(
+        over,
+        vec![0xfe; MOST_PART - over.len() - PIECE_FRAME + 1],
+    ));
+    files.push(write("zbig.bin", vec![0xfd; 3 * MOST_PART + 7]));
+    let host = hired(&dir, &files, Arc::default()).await;
+
+    let filled = fill(&host, None).await;
+    assert_eq!(filled.files, given(&dir, filled.tip.unwrap()));
+    assert_eq!(filled.files.len(), files.len());
     host.shutdown().await.unwrap();
 }
 
@@ -459,6 +483,31 @@ async fn a_save_is_refused_what_it_may_not_change() {
         }
     );
     assert_eq!(commit_id(tip(&dir, "hires/7").unwrap()), base);
+    host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_save_onto_another_hires_commit_is_refused() {
+    let dir = Scratch::new("profile-save-other-base");
+    let host = hired(&dir, &[], Arc::default()).await;
+    hire(&host, 8).await;
+    let base = commit_id(tip(&dir, "hires/8").unwrap());
+    let theirs =
+        save("theirs", base, 0, true, vec![whole("eight.md", b"8")]);
+    let SaveAnswer::Saved { tip: eight } =
+        call_as(&host, &agent_at(8), &theirs).await.unwrap()
+    else {
+        panic!("hire 8's save refused");
+    };
+
+    let mine =
+        save("mine", eight, 0, true, vec![whole("seven.md", b"7")]);
+    assert_eq!(
+        call_as(&host, &agent(), &mine).await.unwrap(),
+        SaveAnswer::Refused {
+            why: Gone::CommitGone { commit: eight }.into()
+        }
+    );
     host.shutdown().await.unwrap();
 }
 
