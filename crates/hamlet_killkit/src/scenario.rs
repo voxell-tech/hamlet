@@ -7,6 +7,8 @@
 pub struct Scenario {
     pub name: &'static str,
     pub about: &'static str,
+    /// How the demo host is started, each time.
+    pub demo: Demo,
     /// Lines `demo serve` runs before the kill. Each waits for its
     /// reply, which acknowledges it.
     pub setup: &'static [&'static str],
@@ -20,12 +22,26 @@ pub struct Scenario {
     /// How long after the trigger was sent the first restart starts.
     pub down_ms: u64,
     /// Lines the first and the second restart's `demo serve` run
-    /// after it boots.
+    /// after it boots. After [`Kill::NodeHost`] the first restart is
+    /// the Rust host's own, of its Node host: the demo host that
+    /// ran the trigger runs these lines.
     pub restart: [&'static [&'static str]; 2],
     /// Values read from the actor files once each restart exited.
     pub probes: &'static [Probe],
     /// The values the first and the second restart must show.
     pub expect: [&'static [Expect]; 2],
+}
+
+/// How the demo host is started.
+pub enum Demo {
+    /// `demo serve`: every kind in the one Rust host.
+    Local,
+    /// `demo --link serve`: the agents in a Node host, the Rust
+    /// host's child. `pid` names the value that holds the Node
+    /// host's process id, which a TypeScript actor answers. The kit
+    /// checks that each Node host a run saw has ended once its demo
+    /// host has, and that each start has a Node host of its own.
+    Linked { pid: &'static str },
 }
 
 /// When the kit kills the host, once the trigger was sent and, for a
@@ -37,6 +53,11 @@ pub enum Kill {
     /// At a time drawn at random from `min_ms` to `max_ms`, both
     /// included. The run's line records the time drawn.
     After { min_ms: u64, max_ms: u64 },
+    /// The trigger's own action kills the Node host it runs in, at a
+    /// step the action names. The kit kills nothing: it waits for
+    /// that Node host to end. The demo host stays up, and its
+    /// supervisor starts the next Node host.
+    NodeHost,
 }
 
 /// A value read from one actor file, under the realm folder.
@@ -57,7 +78,9 @@ pub enum Read {
 
 /// A value a restart must show: an actor's last reply, as
 /// `counter/<key>`; the count of an actor its boot started, as
-/// `boot counter/<key>`; or a probe, by its name.
+/// `boot counter/<key>`; how many commands failed with one code, as
+/// `error <group.code>`; or a probe, by its name. A restart that
+/// shows an error no expectation names fails.
 pub struct Expect {
     pub value: &'static str,
     pub is: Is,
@@ -288,12 +311,121 @@ const COMMAND_CUT_OFF: &[Expect] = &[
     },
 ];
 
+/// The value that holds the Node host's process id in the linked
+/// scenarios: agent 1's answer to `pid`.
+const NODE_PID: &str = "agent/1/pid";
+
+/// The notes agent 1 holds, read from its file.
+const NOTES: Probe = Probe {
+    name: "agent.notes",
+    file: "actors/agent/1.sqlite",
+    read: Read::Sql("SELECT COUNT(*) FROM notes"),
+};
+
+/// The jobs agent 1 holds unfinished, read from its file.
+const JOBS: Probe = Probe {
+    name: "agent.jobs",
+    file: "actors/agent/1.sqlite",
+    read: Read::Sql("SELECT COUNT(*) FROM jobs"),
+};
+
+/// How many times agent 1's one-shot fired, read from its file.
+const FIRED: Probe = Probe {
+    name: "agent.fired",
+    file: "actors/agent/1.sqlite",
+    read: Read::Sql("SELECT COUNT(*) FROM fired"),
+};
+
+/// The one-shots agent 1 holds, read from its file.
+const ONE_SHOTS: Probe = Probe {
+    name: "agent.one_shots",
+    file: "actors/agent/1.sqlite",
+    read: Read::Sql("SELECT COUNT(*) FROM _actor_schedule_events"),
+};
+
+/// One call failed, with `link.lost`. The new Node host's start of
+/// the agent finished the job the call had kept, with one note, and
+/// told the realm once; the next call added one more note.
+const LOST_ONCE_THEN_RESUMED: &[Expect] = &[
+    Expect {
+        value: "error link.lost",
+        is: Is::Exactly(1),
+    },
+    Expect {
+        value: "heard/1",
+        is: Is::Exactly(1),
+    },
+    Expect {
+        value: "agent/1/note",
+        is: Is::Acked("agent/1/note", 2),
+    },
+    Expect {
+        value: "agent.notes",
+        is: Is::Acked("agent/1/note", 2),
+    },
+    Expect {
+        value: "agent.jobs",
+        is: Is::Exactly(0),
+    },
+];
+
+/// Both hosts stopped and started again: the same notes, and the job
+/// heard of once.
+const RESUMED_ONCE: &[Expect] = &[
+    Expect {
+        value: "heard/1",
+        is: Is::Exactly(1),
+    },
+    Expect {
+        value: "agent/1/count",
+        is: Is::Acked("agent/1/note", 2),
+    },
+    Expect {
+        value: "agent.notes",
+        is: Is::Acked("agent/1/note", 2),
+    },
+    Expect {
+        value: "agent.jobs",
+        is: Is::Exactly(0),
+    },
+];
+
+/// The acknowledged notes, and the one whose commit had returned in
+/// the Node host when the Rust host was killed.
+const COMMITTED_NOTES_KEPT: &[Expect] = &[
+    Expect {
+        value: "agent/1/count",
+        is: Is::Acked("agent/1/note", 1),
+    },
+    Expect {
+        value: "agent.notes",
+        is: Is::Acked("agent/1/note", 1),
+    },
+];
+
+/// The one-shot fired once and is gone.
+const ONE_SHOT_FIRED_ONCE: &[Expect] = &[
+    Expect {
+        value: "agent/1/fired",
+        is: Is::Exactly(1),
+    },
+    Expect {
+        value: "agent.fired",
+        is: Is::Exactly(1),
+    },
+    Expect {
+        value: "agent.one_shots",
+        is: Is::Exactly(0),
+    },
+];
+
 pub const SCENARIOS: &[Scenario] = &[
     Scenario {
         name: "counter-transaction",
         about: "kill inside an increment's open transaction, after \
                 three acknowledged increments; state and SQL equal \
                 the last acknowledged write",
+        demo: Demo::Local,
         setup: &["increment a 3"],
         trigger: "increment a",
         trigger_replies: false,
@@ -309,6 +441,7 @@ pub const SCENARIOS: &[Scenario] = &[
                 is acknowledged and before it is due, and restart \
                 after it is due; it fires exactly once, at the \
                 first start",
+        demo: Demo::Local,
         setup: &["increment a 2"],
         trigger: "schedule a 1500",
         trigger_replies: true,
@@ -328,6 +461,7 @@ pub const SCENARIOS: &[Scenario] = &[
                 are removed; the first restart finishes the destroy \
                 and starts nothing, and a new start of the key at \
                 the second reads 0",
+        demo: Demo::Local,
         setup: &["increment a 3"],
         trigger: "destroy a",
         trigger_replies: true,
@@ -344,6 +478,7 @@ pub const SCENARIOS: &[Scenario] = &[
                 process is gone under bubblewrap, and after each \
                 restart its row reads cut off, a status by its id \
                 answers cut off, and the agent was told nothing",
+        demo: Demo::Local,
         setup: &["realm reach 1 1"],
         trigger: "agent 1 run c1 sleep 8; touch late",
         trigger_replies: true,
@@ -365,6 +500,7 @@ pub const SCENARIOS: &[Scenario] = &[
                 restart's boot starts all five with no call, each \
                 reading its last acknowledged count, and the second \
                 starts none",
+        demo: Demo::Local,
         setup: &[
             "increment a 1",
             "increment b 2",
@@ -384,5 +520,83 @@ pub const SCENARIOS: &[Scenario] = &[
         ],
         probes: &[],
         expect: [FIVE_STARTED_AT_BOOT, FIVE_LEFT_STOPPED],
+    },
+    Scenario {
+        name: "link-kill-node",
+        about: "the Node host kills itself in a call from the \
+                realm, once the call's action has kept a job and \
+                before it answers; the call fails with link.lost, \
+                the Rust host starts a new Node host, whose start \
+                of the agent finishes the job and tells the realm \
+                with no call from outside, and calls answer again",
+        demo: Demo::Linked { pid: NODE_PID },
+        setup: &[
+            "make 1",
+            "tell 1 note",
+            "tell 1 note",
+            "tell 1 note",
+            "tell 1 pid",
+        ],
+        trigger: "tell 1 begin",
+        trigger_replies: false,
+        kill: Kill::NodeHost,
+        down_ms: 0,
+        restart: [
+            &["link", "heard 1 10000", "tell 1 note", "tell 1 pid"],
+            &["heard 1 0", "tell 1 count", "tell 1 pid"],
+        ],
+        probes: &[NOTES, JOBS],
+        expect: [LOST_ONCE_THEN_RESUMED, RESUMED_ONCE],
+    },
+    Scenario {
+        name: "link-kill-rust",
+        about: "kill the Rust host once its realm's fourth call to \
+                an agent has answered and before the realm answers; \
+                the Node host is gone within 2 s, the next start \
+                runs a Node host of its own, and the agent holds \
+                the three acknowledged notes and the fourth",
+        demo: Demo::Linked { pid: NODE_PID },
+        setup: &[
+            "make 1",
+            "tell 1 note",
+            "tell 1 note",
+            "tell 1 note",
+            "tell 1 pid",
+        ],
+        trigger: "tell 1 note",
+        trigger_replies: false,
+        kill: Kill::Fault("told/note:4"),
+        down_ms: 0,
+        restart: [
+            &["tell 1 count", "tell 1 pid"],
+            &["tell 1 count", "tell 1 pid"],
+        ],
+        probes: &[NOTES],
+        expect: [COMMITTED_NOTES_KEPT, COMMITTED_NOTES_KEPT],
+    },
+    Scenario {
+        name: "ts-schedule",
+        about: "kill the Rust host once a TypeScript agent has \
+                armed a one-shot 3 s ahead, and start it again \
+                after the one-shot was due with both hosts down; it \
+                fires once at the first start, and not again at the \
+                second",
+        demo: Demo::Linked { pid: NODE_PID },
+        setup: &["make 1", "tell 1 pid"],
+        trigger: "tell 1 arm 3000",
+        trigger_replies: false,
+        kill: Kill::Fault("told/arm"),
+        // Past the 3 s at which the one-shot is due, counted from
+        // the trigger.
+        down_ms: 4500,
+        restart: [
+            // Waits for the fire, which boot starts on a task of
+            // its own.
+            &["tell 1 fired 1 10000", "tell 1 pid"],
+            // Leaves a second fire half a second to show.
+            &["tell 1 fired 2 500", "tell 1 pid"],
+        ],
+        probes: &[FIRED, ONE_SHOTS],
+        expect: [ONE_SHOT_FIRED_ONCE, ONE_SHOT_FIRED_ONCE],
     },
 ];

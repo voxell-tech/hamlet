@@ -1,8 +1,10 @@
 //! The kill kit. For each run it starts the demo host of
-//! `hamlet_host` on a fresh realm folder, kills it with SIGKILL at
-//! the scenario's fault point or at a random time, restarts it twice,
-//! and prints one line with the state before the kill and after each
-//! restart. It exits non-zero when any run fails its scenario.
+//! `hamlet_host` on a fresh realm folder, alone or with its Node
+//! host, kills it with SIGKILL at the scenario's fault point or at a
+//! random time, or has the Node host kill itself at a step of an
+//! action, restarts twice, and prints one line with the state before
+//! the kill and after each restart. It exits non-zero when any run
+//! fails its scenario.
 //!
 //! ```text
 //! hamlet_killkit <scenario> [--runs <n>] [--demo <path>] [--keep]
@@ -30,10 +32,15 @@ use anyhow::{Context, Result, anyhow, bail, ensure};
 use rand::Rng;
 use rusqlite::{Connection, OpenFlags};
 
-use crate::scenario::{Is, Kill, Probe, Read, SCENARIOS, Scenario};
+use crate::scenario::{
+    Demo, Is, Kill, Probe, Read, SCENARIOS, Scenario,
+};
 
 /// How long the kit waits for a reply, a fault point or a restart.
 const PATIENCE: Duration = Duration::from_secs(30);
+
+/// How long a Node host may outlive its demo host.
+const GONE_WAIT: Duration = Duration::from_secs(2);
 
 fn main() -> ExitCode {
     match run() {
@@ -181,9 +188,13 @@ struct Report {
 }
 
 /// One restart's values, by name: each actor's last reply, the
-/// count of each actor its boot started, as `boot <actor>`, and each
+/// count of each actor its boot started, as `boot <actor>`, how many
+/// commands failed with each code, as `error <group.code>`, and each
 /// probe.
 type Restart = BTreeMap<String, i64>;
+
+/// What the name of a count of failed commands starts with.
+const ERROR: &str = "error ";
 
 impl Report {
     fn failures(&self, scenario: &Scenario) -> Vec<String> {
@@ -226,6 +237,17 @@ impl Report {
                         shown(want)
                     ));
                 }
+            }
+            for name in restart.keys().filter(|name| {
+                name.starts_with(ERROR)
+                    && expects
+                        .iter()
+                        .all(|expect| expect.value != *name)
+            }) {
+                failures.push(format!(
+                    "restart {}: an unexpected {name}",
+                    n + 1
+                ));
             }
         }
         failures
@@ -281,48 +303,92 @@ fn run_once(
 
     let fault = match scenario.kill {
         Kill::Fault(point) => Some((point, faults.as_path())),
-        Kill::After { .. } => None,
+        Kill::After { .. } | Kill::NodeHost => None,
     };
-    let mut host =
-        Host::start(demo, &home, fault, &dir.join("host.log"))?;
+    let mut host = Host::start(
+        demo,
+        &scenario.demo,
+        &home,
+        fault,
+        &dir.join("host.log"),
+    )?;
     let mut acked = BTreeMap::new();
     for line in scenario.setup {
         host.send(line)?;
         let (actor, count) = host.reply()?;
         acked.insert(actor, count);
     }
+    // The Node host the kill ends, with the demo host or alone.
+    let node = match scenario.demo {
+        Demo::Local => None,
+        Demo::Linked { pid } => Some(node_pid(&acked, pid)?),
+    };
     host.send(scenario.trigger)?;
     let sent = Instant::now();
     if scenario.trigger_replies {
         let (actor, count) = host.reply()?;
         acked.insert(actor, count);
     }
-    let killed = match scenario.kill {
-        Kill::Fault(_) => host.kill_at_fault(&faults)?,
-        Kill::After { min_ms, max_ms } => {
+    // After `Kill::NodeHost`, the demo host that runs on.
+    let mut running = None;
+    let killed = match (&scenario.kill, node) {
+        (Kill::Fault(_), _) => host.kill_at_fault(&faults)?,
+        (Kill::After { min_ms, max_ms }, _) => {
             host.kill_after(Duration::from_millis(
-                rand::thread_rng().gen_range(min_ms..=max_ms),
+                rand::thread_rng().gen_range(*min_ms..=*max_ms),
             ))?
         }
+        (Kill::NodeHost, Some(pid)) => {
+            ensure!(
+                ended_within(pid, PATIENCE)?,
+                "the Node host {pid} did not end at the trigger's \
+                 step"
+            );
+            running = Some(host);
+            format!("the Node host at the trigger's step (pid {pid})")
+        }
+        (Kill::NodeHost, None) => {
+            bail!("a scenario that kills the Node host is linked")
+        }
     };
+    if let (Some(pid), None) = (node, &running)
+        && !ended_within(pid, GONE_WAIT)?
+    {
+        end(pid);
+        bail!(
+            "the Node host {pid} outlived its demo host by {} s",
+            GONE_WAIT.as_secs()
+        );
+    }
 
     std::thread::sleep(
         (sent + Duration::from_millis(scenario.down_ms))
             .saturating_duration_since(Instant::now()),
     );
+    let mut nodes = Vec::from_iter(node);
     let mut restarts = Vec::new();
     for (n, lines) in (1..).zip(scenario.restart) {
-        let mut host = Host::start(
-            demo,
-            &home,
-            None,
-            &dir.join(format!("restart-{n}.log")),
-        )?;
+        let mut host = match running.take() {
+            Some(host) => host,
+            None => Host::start(
+                demo,
+                &scenario.demo,
+                &home,
+                None,
+                &dir.join(format!("restart-{n}.log")),
+            )?,
+        };
         for line in lines {
             host.send(line)?;
         }
         let mut restart = Restart::new();
         for line in host.finish()? {
+            if let Some(code) = error_code(&line) {
+                *restart
+                    .entry(format!("{ERROR}{code}"))
+                    .or_insert(0) += 1;
+                continue;
+            }
             let (name, count) = match line.strip_prefix("boot ") {
                 Some(reply) => {
                     let (actor, count) = parse_reply(reply)?;
@@ -331,6 +397,21 @@ fn run_once(
                 None => parse_reply(&line)?,
             };
             restart.insert(name, count);
+        }
+        if let Demo::Linked { pid } = scenario.demo {
+            let pid = node_pid(&restart, pid)?;
+            ensure!(
+                !nodes.contains(&pid),
+                "restart {n} ran on the Node host {pid} of before"
+            );
+            if !ended_within(pid, GONE_WAIT)? {
+                end(pid);
+                bail!(
+                    "the Node host {pid} of restart {n} outlived \
+                     its demo host"
+                );
+            }
+            nodes.push(pid);
         }
         for probe in scenario.probes {
             let value = read_probe(&home, probe)
@@ -413,6 +494,90 @@ fn parse_reply(line: &str) -> Result<(String, i64)> {
     parsed.ok_or_else(|| anyhow!("the host printed `{line}`"))
 }
 
+/// The `<group.code>` of `error: <group.code>: <words>`, the line the
+/// demo prints for a command that failed with an actor's error.
+fn error_code(line: &str) -> Option<&str> {
+    let (code, _) = line.strip_prefix("error: ")?.split_once(": ")?;
+    let (group, name) = code.split_once('.')?;
+    let plain = |part: &str| {
+        !part.is_empty()
+            && part
+                .bytes()
+                .all(|byte| byte.is_ascii_lowercase() || byte == b'_')
+    };
+    (plain(group) && plain(name)).then_some(code)
+}
+
+/// The process id of a Node host, which `values` holds as `name`.
+fn node_pid(
+    values: &BTreeMap<String, i64>,
+    name: &str,
+) -> Result<u32> {
+    let pid = values
+        .get(name)
+        .with_context(|| format!("the host printed no {name}"))?;
+    u32::try_from(*pid)
+        .with_context(|| format!("{name} is {pid}, not a process id"))
+}
+
+/// Waits until the process `pid` has ended, at most `within`.
+/// Returns whether it has.
+fn ended_within(pid: u32, within: Duration) -> Result<bool> {
+    let deadline = Instant::now() + within;
+    loop {
+        if has_ended(pid)? {
+            return Ok(true);
+        }
+        if Instant::now() >= deadline {
+            return Ok(false);
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+/// Whether the process `pid` has ended: no process has the id, or
+/// the one that has it is dead and waits for its parent to collect
+/// it.
+#[cfg(target_os = "linux")]
+fn has_ended(pid: u32) -> Result<bool> {
+    match std::fs::read_to_string(format!("/proc/{pid}/stat")) {
+        // The state follows the command's name, which is in
+        // parentheses and may hold any character.
+        Ok(stat) => {
+            Ok(stat.rsplit_once(')').is_some_and(|(_, rest)| {
+                rest.trim_start().starts_with('Z')
+            }))
+        }
+        Err(error)
+            if error.kind() == std::io::ErrorKind::NotFound =>
+        {
+            Ok(true)
+        }
+        Err(error) => Err(error)
+            .with_context(|| format!("read the state of {pid}")),
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn has_ended(_pid: u32) -> Result<bool> {
+    bail!(
+        "the kit tells that a Node host has ended only on Linux, \
+         from /proc"
+    )
+}
+
+/// Kills the Node host `pid`, which outlived its demo host, so that
+/// a failed run leaves no process. The kit has no handle on it, so
+/// it asks `kill`.
+fn end(pid: u32) {
+    #[cfg(unix)]
+    let _ = Command::new("kill")
+        .args(["-KILL", &pid.to_string()])
+        .status();
+    #[cfg(not(unix))]
+    let _ = pid;
+}
+
 /// A demo host the kit drives through `demo serve`.
 struct Host {
     child: Child,
@@ -421,15 +586,19 @@ struct Host {
 }
 
 impl Host {
-    /// Starts `demo serve` on `home`, stopping at `fault` when given,
-    /// with its standard error in `log`.
+    /// Starts `demo serve` on `home` as `how` says, stopping at
+    /// `fault` when given, with its standard error in `log`.
     fn start(
         demo: &Path,
+        how: &Demo,
         home: &Path,
         fault: Option<(&str, &Path)>,
         log: &Path,
     ) -> Result<Self> {
         let mut command = Command::new(demo);
+        if let Demo::Linked { .. } = how {
+            command.arg("--link");
+        }
         command
             .arg("serve")
             .env("HAMLET_HOME", home)
@@ -603,5 +772,102 @@ mod tests {
             assert_eq!(std::fs::read_dir(dir).unwrap().count(), 0);
         }
         std::fs::remove_dir_all(&parent).unwrap();
+    }
+
+    #[test]
+    fn only_a_coded_error_line_is_an_error_value() {
+        assert_eq!(
+            error_code(
+                "error: link.lost: The link to the other host went \
+                 down before the answer came."
+            ),
+            Some("link.lost")
+        );
+        assert_eq!(error_code("error: unknown command `x`"), None);
+        assert_eq!(error_code("error: no such file: a.b"), None);
+        assert_eq!(error_code("agent/1/note 3"), None);
+    }
+
+    fn report(restart: &[(&str, i64)]) -> Report {
+        let restart = restart
+            .iter()
+            .map(|(name, value)| ((*name).to_owned(), *value))
+            .collect::<Restart>();
+        Report {
+            killed: String::new(),
+            acked: BTreeMap::from([("agent/1/note".to_owned(), 3)]),
+            restarts: vec![restart.clone(), restart],
+        }
+    }
+
+    #[test]
+    fn an_error_no_expectation_names_fails_the_restart() {
+        let lost = SCENARIOS
+            .iter()
+            .find(|scenario| scenario.name == "link-kill-node")
+            .unwrap();
+        let shown = [
+            ("error link.lost", 1),
+            ("heard/1", 1),
+            ("agent/1/note", 5),
+            ("agent/1/count", 5),
+            ("agent.notes", 5),
+            ("agent.jobs", 0),
+        ];
+        // The second restart expects no error.
+        assert_eq!(
+            report(&shown).failures(lost),
+            ["restart 2: an unexpected error link.lost"]
+        );
+        let mut down = shown.to_vec();
+        down.push(("error link.down", 1));
+        assert_eq!(
+            report(&down).failures(lost),
+            [
+                "restart 1: an unexpected error link.down",
+                "restart 2: an unexpected error link.down",
+                "restart 2: an unexpected error link.lost",
+            ]
+        );
+        let counters = &SCENARIOS[0];
+        assert!(
+            report(&[("error actor.not_found", 1)])
+                .failures(counters)
+                .contains(
+                    &"restart 1: an unexpected error actor.not_found"
+                        .to_owned()
+                )
+        );
+    }
+
+    #[test]
+    fn a_scenario_that_kills_the_node_host_is_linked() {
+        for scenario in SCENARIOS {
+            if let Kill::NodeHost = scenario.kill {
+                assert!(
+                    matches!(scenario.demo, Demo::Linked { .. }),
+                    "{}",
+                    scenario.name
+                );
+            }
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_process_has_ended_once_it_is_dead_also_before_it_is_collected()
+     {
+        assert!(!has_ended(std::process::id()).unwrap());
+        let mut child =
+            Command::new(std::env::current_exe().unwrap())
+                .arg("--list")
+                .stdout(Stdio::null())
+                .spawn()
+                .unwrap();
+        let pid = child.id();
+        // Dead and not collected: this process has not waited.
+        assert!(ended_within(pid, PATIENCE).unwrap());
+        child.wait().unwrap();
+        assert!(has_ended(pid).unwrap());
     }
 }
