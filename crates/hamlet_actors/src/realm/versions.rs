@@ -10,6 +10,7 @@
 )]
 
 use anyhow::Result;
+use hamlet_actor::BindParam;
 use hamlet_messages::realm::world::Revision;
 use hamlet_messages::workspace::{AgentNumber, ReachVersion};
 
@@ -57,13 +58,49 @@ pub(super) async fn raise(
     writer: &Writer<'_>,
     affected: &Affected,
 ) -> Result<()> {
-    todo!()
+    for &agent in &affected.reaches {
+        let (wanted, _) = reach(&writer.rows(), agent).await?;
+        writer
+            .execute(
+                "INSERT INTO reach (agent, wanted) VALUES (?1, ?2) \
+                 ON CONFLICT (agent) DO UPDATE SET wanted = \
+                 excluded.wanted",
+                vec![
+                    BindParam::Integer(i64::from(agent.0)),
+                    BindParam::Integer(i64::try_from(wanted.0 + 1)?),
+                ],
+            )
+            .await?;
+    }
+    for &agent in &affected.places {
+        let version = place(&writer.rows(), agent).await?;
+        writer
+            .execute(
+                "INSERT INTO place (agent, version) VALUES (?1, ?2) \
+                 ON CONFLICT (agent) DO UPDATE SET version = \
+                 excluded.version",
+                vec![
+                    BindParam::Integer(i64::from(agent.0)),
+                    BindParam::Integer(i64::try_from(version + 1)?),
+                ],
+            )
+            .await?;
+    }
+    Ok(())
 }
 
 pub(super) async fn advance_revision(
     writer: &Writer<'_>,
 ) -> Result<Revision> {
-    todo!()
+    let next = Revision(revision(&writer.rows()).await?.0 + 1);
+    writer
+        .execute(
+            "INSERT INTO revision (id, n) VALUES (1, ?1) ON \
+             CONFLICT (id) DO UPDATE SET n = excluded.n",
+            vec![BindParam::Integer(i64::try_from(next.0)?)],
+        )
+        .await?;
+    Ok(next)
 }
 
 /// The reach versions of `agent`: wanted, and in force when the
@@ -75,13 +112,25 @@ pub(super) async fn reach(
     todo!()
 }
 
+/// 1 until the place first moves: the version an agent is created
+/// with.
 pub(super) async fn place(
     rows: &Rows<'_>,
     agent: AgentNumber,
 ) -> Result<u64> {
-    todo!()
+    Ok(rows
+        .value(
+            "SELECT version FROM place WHERE agent = ?1",
+            vec![BindParam::Integer(i64::from(agent.0))],
+        )
+        .await?
+        .unwrap_or(1))
 }
 
 pub(super) async fn revision(rows: &Rows<'_>) -> Result<Revision> {
-    todo!()
+    Ok(Revision(
+        rows.value("SELECT n FROM revision WHERE id = 1", Vec::new())
+            .await?
+            .unwrap_or(0),
+    ))
 }

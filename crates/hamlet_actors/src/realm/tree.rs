@@ -1,23 +1,22 @@
 //! The tree of hires: the `profile`, `agent`, `hire` and
 //! `hire_tool_off` tables, and the lead's powers over them.
 
-#![expect(
-    unused_variables,
-    dead_code,
-    reason = "the scaffold: U2 fills this file"
-)]
-
 mod lead;
 pub(super) mod tools;
 
+use std::collections::BTreeSet;
+
 use anyhow::Result;
+use hamlet_actor::BindParam;
 use hamlet_messages::agent::AgentKind;
 use hamlet_messages::realm::{
     HamletId, Left, Named, ProfileId, SocietyTool,
 };
+use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::AgentNumber;
 
-use super::change::{Affected, Rows, Writer};
+use super::change::{self, Affected, Rows, Writer};
+use super::world::Part;
 use super::{chiefs, record};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -95,7 +94,7 @@ pub(super) async fn living(
 /// The next agent's number, from one sequence: the Hand is 1, the
 /// first mayor 2.
 pub(super) async fn fresh(rows: &Rows<'_>) -> Result<AgentNumber> {
-    todo!()
+    Ok(AgentNumber(next(rows, "agent").await?))
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -107,14 +106,32 @@ pub(super) async fn profile(
     rows: &Rows<'_>,
     id: ProfileId,
 ) -> Result<Option<Profile>> {
-    todo!()
+    Ok(rows
+        .value::<u32>(
+            "SELECT id FROM profile WHERE id = ?1",
+            vec![BindParam::Integer(i64::from(id.0))],
+        )
+        .await?
+        .map(|id| Profile { id: ProfileId(id) }))
 }
 
 /// The next profile's id: the Hand's is 1.
 pub(super) async fn fresh_profile(
     rows: &Rows<'_>,
 ) -> Result<ProfileId> {
-    todo!()
+    Ok(ProfileId(next(rows, "profile").await?))
+}
+
+/// The id after the highest of `table`, 1 for an empty one.
+async fn next(rows: &Rows<'_>, table: &str) -> Result<u32> {
+    let highest = rows
+        .value::<Option<u32>>(
+            &format!("SELECT MAX(id) FROM {table}"),
+            Vec::new(),
+        )
+        .await?
+        .flatten();
+    Ok(highest.unwrap_or(0) + 1)
 }
 
 /// The profile `agent` was hired from: the Hand's is 1.
@@ -198,11 +215,20 @@ pub(super) async fn apply(
     }
 }
 
+/// The `profile` of the Hand's own row.
+const HAND_PROFILE: ProfileId = ProfileId(1);
+
 async fn hand(writer: &Writer<'_>) -> Result<Affected> {
-    todo!()
+    writer
+        .execute(
+            "INSERT INTO profile (id, kind) VALUES (?1, 'hand')",
+            vec![BindParam::Integer(i64::from(HAND_PROFILE.0))],
+        )
+        .await?;
+    new_agent(writer, Hand::NUMBER, AgentKind::Hand).await?;
+    moved(writer, Hand::NUMBER, None).await
 }
 
-/// Reports the lead's place.
 async fn hire(
     writer: &Writer<'_>,
     agent: AgentNumber,
@@ -211,10 +237,83 @@ async fn hire(
     of: Of,
     purpose: Option<String>,
 ) -> Result<Affected> {
-    todo!()
+    let profile = match of {
+        Of::Profile(profile) => profile,
+        Of::Blank(profile) => {
+            writer
+                .execute(
+                    "INSERT INTO profile (id, kind) VALUES (?1, \
+                     'blank')",
+                    vec![BindParam::Integer(i64::from(profile.0))],
+                )
+                .await?;
+            profile
+        }
+    };
+    new_agent(writer, agent, AgentKind::Hire).await?;
+    writer
+        .execute(
+            "INSERT INTO hire (agent, hamlet, profile, lead, \
+             purpose) VALUES (?1, ?2, ?3, ?4, ?5)",
+            vec![
+                BindParam::Integer(i64::from(agent.0)),
+                BindParam::Text(hamlet.0),
+                BindParam::Integer(i64::from(profile.0)),
+                lead.map_or(BindParam::Null, |lead| {
+                    BindParam::Integer(i64::from(lead.0))
+                }),
+                purpose.map_or(BindParam::Null, BindParam::Text),
+            ],
+        )
+        .await?;
+    moved(writer, agent, lead).await
 }
 
-/// Reports its lead's place.
+async fn new_agent(
+    writer: &Writer<'_>,
+    agent: AgentNumber,
+    kind: AgentKind,
+) -> Result<()> {
+    writer
+        .execute(
+            "INSERT INTO agent (id, kind, status, at) VALUES (?1, \
+             ?2, 'hiring', ?3)",
+            vec![
+                BindParam::Integer(i64::from(agent.0)),
+                BindParam::Text(change::name(&kind)?),
+                BindParam::Integer(writer.at().0),
+            ],
+        )
+        .await?;
+    Ok(())
+}
+
+/// The places that show `agent`, which a change to its row moves: its
+/// lead's, or with no lead the Hand's and the mayors'.
+async fn moved(
+    writer: &Writer<'_>,
+    agent: AgentNumber,
+    lead: Option<AgentNumber>,
+) -> Result<Affected> {
+    let places = match lead {
+        Some(lead) => BTreeSet::from([lead]),
+        None => {
+            let mut places = chiefs::mayors(&writer.rows())
+                .await?
+                .into_iter()
+                .collect::<BTreeSet<_>>();
+            places.insert(Hand::NUMBER);
+            places.remove(&agent);
+            places
+        }
+    };
+    Ok(Affected {
+        places,
+        seen: BTreeSet::from([Part::Agents]),
+        ..Affected::default()
+    })
+}
+
 async fn live(
     writer: &Writer<'_>,
     agent: AgentNumber,

@@ -1,18 +1,13 @@
 //! The `task` table: what a chief's line or an agent's standing is
 //! charged to (H12, C31).
 
-#![expect(
-    unused_variables,
-    dead_code,
-    reason = "the scaffold: U2 fills this file"
-)]
-
 use anyhow::Result;
+use hamlet_actor::BindParam;
 use hamlet_messages::realm::budget::Payer;
 use hamlet_messages::workspace::{AgentNumber, RealmTask};
 use serde::{Deserialize, Serialize};
 
-use super::change::{Affected, Rows, Writer};
+use super::change::{self, Affected, Rows, Writer};
 
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize,
@@ -31,7 +26,8 @@ impl TaskId {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub(super) enum Origin {
     Chief,
     /// The task that pays for an agent's turns no line started.
@@ -82,7 +78,19 @@ async fn standing_task(
     agent: AgentNumber,
     payer: Payer,
 ) -> Result<Affected> {
-    todo!()
+    writer
+        .execute(
+            "INSERT INTO task (origin, agent, payer, at) VALUES \
+             (?1, ?2, ?3, ?4)",
+            vec![
+                BindParam::Text(change::name(&Origin::Standing)?),
+                BindParam::Integer(i64::from(agent.0)),
+                BindParam::Text(serde_json::to_string(&payer)?),
+                BindParam::Integer(writer.at().0),
+            ],
+        )
+        .await?;
+    Ok(Affected::default())
 }
 
 pub(super) async fn fresh(rows: &Rows<'_>) -> Result<TaskId> {

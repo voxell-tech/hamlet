@@ -1,16 +1,13 @@
 //! The `decision` table: the record of what was decided, by whom
 //! and why (H17).
 
-#![expect(
-    unused_variables,
-    dead_code,
-    reason = "the scaffold: U2 fills this file"
-)]
-
 use anyhow::Result;
+use hamlet_actor::BindParam;
+use hamlet_messages::address::Agent;
 use hamlet_messages::realm::{HamletId, Tier};
 use hamlet_messages::workspace::AgentNumber;
 
+use super::callers::Witness;
 use super::change::Writer;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -70,5 +67,64 @@ pub(super) async fn write(
     writer: &Writer<'_>,
     entries: Vec<Entry>,
 ) -> Result<()> {
-    todo!()
+    for entry in entries {
+        let (kind, hamlet, hire, by, why) = match entry {
+            Entry::Founded { hamlet, by } => {
+                ("founded", Some(hamlet), None, by, None)
+            }
+            Entry::Hired { hire, by, why } => {
+                ("hired", None, Some(hire), by, why)
+            }
+            Entry::Ended { hire, by, why } => {
+                ("ended", None, Some(hire), by, why)
+            }
+            Entry::Seated { hire, by } => {
+                ("seated", None, Some(hire), by, None)
+            }
+            Entry::Road { .. } | Entry::Unroad { .. } => {
+                todo!(
+                    "the decision table has no column for a road's \
+                     other end"
+                )
+            }
+            Entry::Tools { hire, by } => {
+                ("tools", None, Some(hire), by, None)
+            }
+            Entry::Tier { .. } => {
+                todo!("the decision table has no column for a tier")
+            }
+            Entry::Limits { hamlet, by } => {
+                ("limits", hamlet, None, by, None)
+            }
+        };
+        writer
+            .execute(
+                "INSERT INTO decision (kind, hamlet, agent, by, \
+                 why, at) VALUES (?1, COALESCE(?2, (SELECT hamlet \
+                 FROM hire WHERE agent = ?3)), ?3, ?4, ?5, ?6)",
+                vec![
+                    BindParam::Text(kind.to_owned()),
+                    hamlet.map_or(BindParam::Null, |hamlet| {
+                        BindParam::Text(hamlet.0)
+                    }),
+                    hire.map_or(BindParam::Null, |hire| {
+                        BindParam::Integer(i64::from(hire.0))
+                    }),
+                    BindParam::Text(by.name()),
+                    why.map_or(BindParam::Null, BindParam::Text),
+                    BindParam::Integer(writer.at().0),
+                ],
+            )
+            .await?;
+    }
+    Ok(())
+}
+
+impl By {
+    fn name(&self) -> String {
+        match self {
+            Self::Chief => "chief".to_owned(),
+            Self::Agent(agent) => Agent(*agent).name(),
+        }
+    }
 }

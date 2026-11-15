@@ -11,10 +11,11 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use anyhow::Result;
+use anyhow::{Result, bail};
 use hamlet_actor::{BindParam, ColumnValue, Ctx, SqliteTransaction};
 use hamlet_messages::workspace::AgentNumber;
 use serde::Serialize;
+use serde::de::DeserializeOwned;
 
 use super::calls::Push;
 use super::{
@@ -123,9 +124,91 @@ impl<'a> Rows<'a> {
         })
     }
 
+    /// The one column of each row `sql` finds.
+    pub async fn values<T: Column>(
+        &self,
+        sql: &str,
+        params: Vec<BindParam>,
+    ) -> Result<Vec<T>> {
+        self.select(sql, params)
+            .await?
+            .iter()
+            .map(|row| match row.as_slice() {
+                [value] => T::of(value),
+                _ => bail!("a row of another form: {row:?}"),
+            })
+            .collect()
+    }
+
+    /// The one column of the first row `sql` finds.
+    pub async fn value<T: Column>(
+        &self,
+        sql: &str,
+        params: Vec<BindParam>,
+    ) -> Result<Option<T>> {
+        Ok(self.values(sql, params).await?.into_iter().next())
+    }
+
     pub fn at(&self) -> At {
         self.at
     }
+}
+
+/// A Rust value of one column.
+pub(super) trait Column: Sized {
+    fn of(value: &ColumnValue) -> Result<Self>;
+}
+
+impl Column for i64 {
+    fn of(value: &ColumnValue) -> Result<Self> {
+        match value {
+            ColumnValue::Integer(n) => Ok(*n),
+            other => bail!("an integer column holds {other:?}"),
+        }
+    }
+}
+
+impl Column for u64 {
+    fn of(value: &ColumnValue) -> Result<Self> {
+        Ok(Self::try_from(i64::of(value)?)?)
+    }
+}
+
+impl Column for u32 {
+    fn of(value: &ColumnValue) -> Result<Self> {
+        Ok(Self::try_from(i64::of(value)?)?)
+    }
+}
+
+impl Column for String {
+    fn of(value: &ColumnValue) -> Result<Self> {
+        match value {
+            ColumnValue::Text(text) => Ok(text.clone()),
+            other => bail!("a text column holds {other:?}"),
+        }
+    }
+}
+
+impl<T: Column> Column for Option<T> {
+    fn of(value: &ColumnValue) -> Result<Self> {
+        match value {
+            ColumnValue::Null => Ok(None),
+            value => T::of(value).map(Some),
+        }
+    }
+}
+
+/// The serde name of an enum's case, as a column holds it.
+pub(super) fn name(case: &impl Serialize) -> Result<String> {
+    match serde_json::to_value(case)? {
+        serde_json::Value::String(name) => Ok(name),
+        other => bail!("{other} is no case's name"),
+    }
+}
+
+/// The case of `T` a column names.
+pub(super) fn named<T: DeserializeOwned>(name: String) -> Result<T> {
+    Ok(serde_json::from_value(serde_json::Value::String(name))?)
 }
 
 fn read_only(sql: &str) -> Result<()> {

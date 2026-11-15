@@ -39,6 +39,7 @@ use hamlet_messages::realm::{
     RequestRoad, Seat, Secrets, SetLimits, SetTier, SetTools,
     TakeUpRoad, Tell, Tool,
 };
+use serde::Serialize;
 
 use self::callers::{Bare, ByHand, Looks};
 
@@ -151,6 +152,12 @@ impl Actor for Realm {
 
 fn not_built(unit: &str) -> anyhow::Error {
     anyhow::anyhow!("the scaffold: {unit} fills this")
+}
+
+fn cbor(value: &impl Serialize) -> Result<Vec<u8>> {
+    let mut bytes = Vec::new();
+    ciborium::into_writer(value, &mut bytes)?;
+    Ok(bytes)
 }
 
 #[cfg(test)]

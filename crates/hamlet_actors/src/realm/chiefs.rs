@@ -1,28 +1,29 @@
 //! The realm's row, the chief and the hamlets: the `realm`, `chief`,
 //! `hamlet` and `hamlet_chief` tables, and founding a hamlet.
 
-#![expect(
-    unused_variables,
-    dead_code,
-    reason = "the scaffold: U2 fills this file"
-)]
-
 pub(super) mod limits;
 mod tier;
 
 use anyhow::Result;
+use hamlet_actor::BindParam;
 use hamlet_messages::realm::budget::Payer;
 use hamlet_messages::realm::{
-    Found, FoundAnswer, FoundRefusal, HamletId, Tier,
+    Found, FoundAnswer, FoundRefusal, HamletId, ProfileId, Refusable,
+    Tier,
 };
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::AgentNumber;
+use hamlet_messages::workspace::reach::Mode;
 
-use super::act::{Act, Decision};
+use super::act::{Act, Decided, Decision};
 use super::callers::RealmWide;
 use super::calls::Made;
 use super::change::{self, Affected, Rows, Writer};
-use super::{hire, steps, tasks, tree};
+use super::world::Part;
+use super::{hire, record, steps, tasks, tree};
+
+/// The version of `schema.sql` the realm's row is written with.
+const SCHEMA_VERSION: i64 = 1;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct Hamlet {
@@ -49,12 +50,17 @@ pub(super) async fn hamlet(
 pub(super) async fn mayors(
     rows: &Rows<'_>,
 ) -> Result<Vec<AgentNumber>> {
-    todo!()
+    Ok(rows
+        .values::<u32>("SELECT mayor FROM hamlet", Vec::new())
+        .await?
+        .into_iter()
+        .map(AgentNumber)
+        .collect())
 }
 
 /// A new hamlet's id, a random UUID.
 pub(super) fn fresh() -> HamletId {
-    todo!()
+    HamletId(uuid::Uuid::new_v4().to_string())
 }
 
 #[derive(Debug, PartialEq)]
@@ -103,7 +109,20 @@ pub(super) async fn apply(
 }
 
 async fn first(writer: &Writer<'_>) -> Result<Affected> {
-    todo!()
+    writer
+        .execute(
+            "INSERT INTO realm (id, schema, limits) VALUES (1, ?1, \
+             ?2)",
+            vec![
+                BindParam::Integer(SCHEMA_VERSION),
+                BindParam::Text(limits::new_realm()?),
+            ],
+        )
+        .await?;
+    writer
+        .execute("INSERT INTO chief (id) VALUES (1)", Vec::new())
+        .await?;
+    Ok(seen(&[Part::Spend]))
 }
 
 async fn found(
@@ -113,7 +132,36 @@ async fn found(
     mayor: AgentNumber,
     tier: Tier,
 ) -> Result<Affected> {
-    todo!()
+    writer
+        .execute(
+            "INSERT INTO hamlet (id, name, mayor, tier, folder, \
+             mode, limits, at) VALUES (?1, ?2, ?3, ?4, NULL, ?5, \
+             ?6, ?7)",
+            vec![
+                BindParam::Text(hamlet.0.clone()),
+                BindParam::Text(name),
+                BindParam::Integer(i64::from(mayor.0)),
+                BindParam::Text(change::name(&tier)?),
+                BindParam::Text(change::name(&Mode::Manual)?),
+                BindParam::Text(limits::new_hamlet()?),
+                BindParam::Integer(writer.at().0),
+            ],
+        )
+        .await?;
+    writer
+        .execute(
+            "INSERT INTO hamlet_chief (hamlet, chief) VALUES (?1, 1)",
+            vec![BindParam::Text(hamlet.0)],
+        )
+        .await?;
+    Ok(seen(&[Part::Hamlets, Part::Spend]))
+}
+
+fn seen(parts: &[Part]) -> Affected {
+    Affected {
+        seen: parts.iter().copied().collect(),
+        ..Affected::default()
+    }
 }
 
 async fn set_mayor(
@@ -142,10 +190,11 @@ pub(super) fn first_start() -> Vec<change::Change> {
 }
 
 pub(super) struct Founding {
-    profile: Option<Option<tree::Profile>>,
+    /// The mayor's profile, when the act names one the realm holds.
+    profile: Option<tree::Profile>,
     hamlet: HamletId,
     mayor: AgentNumber,
-    blank: hamlet_messages::realm::ProfileId,
+    blank: ProfileId,
 }
 
 impl<By: RealmWide> Act<By> for Found {
@@ -156,10 +205,19 @@ impl<By: RealmWide> Act<By> for Found {
 
     async fn load(
         &self,
-        by: &By,
+        _by: &By,
         rows: &Rows<'_>,
     ) -> Result<Founding> {
-        todo!()
+        let profile = match self.mayor {
+            Some(id) => tree::profile(rows, id).await?,
+            None => None,
+        };
+        Ok(Founding {
+            profile,
+            hamlet: fresh(),
+            mayor: tree::fresh(rows).await?,
+            blank: tree::fresh_profile(rows).await?,
+        })
     }
 
     fn decide(
@@ -167,11 +225,58 @@ impl<By: RealmWide> Act<By> for Found {
         by: &By,
         founding: Founding,
     ) -> Decision<Self::Done, Self::Output> {
-        todo!()
+        if self.name.trim().is_empty() {
+            return Decision::Answer(FoundAnswer::refused(
+                FoundRefusal::EmptyName,
+            ));
+        }
+        let of = match (self.mayor, founding.profile) {
+            (None, _) => tree::Of::Blank(founding.blank),
+            (Some(_), Some(profile)) => tree::Of::Profile(profile.id),
+            (Some(profile), None) => {
+                return Decision::Answer(FoundAnswer::refused(
+                    FoundRefusal::NoSuchProfile { profile },
+                ));
+            }
+        };
+        let Founding { hamlet, mayor, .. } = founding;
+        Decision::Change(
+            Decided::new((hamlet.clone(), mayor))
+                .change(Change::Found {
+                    hamlet: hamlet.clone(),
+                    name: self.name.clone(),
+                    mayor,
+                    tier: self.tier,
+                })
+                .change(tree::Change::Hire {
+                    agent: mayor,
+                    hamlet: hamlet.clone(),
+                    lead: None,
+                    of,
+                    purpose: self.purpose.clone(),
+                })
+                .change(tasks::Change::Standing {
+                    agent: mayor,
+                    payer: Payer::Hamlet {
+                        hamlet: hamlet.clone(),
+                    },
+                })
+                .change(steps::Change::Begin {
+                    row: hire::row(mayor),
+                })
+                .record(record::Entry::Founded {
+                    hamlet,
+                    by: by.by(),
+                }),
+        )
     }
 
-    fn answer(&self, done: Self::Done, made: &Made) -> Self::Output {
-        todo!()
+    fn answer(
+        &self,
+        (hamlet, mayor): Self::Done,
+        _made: &Made,
+    ) -> Self::Output {
+        FoundAnswer::Founded { hamlet, mayor }
     }
 }
 

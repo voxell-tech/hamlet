@@ -1,28 +1,24 @@
 //! The `step` table and its one walk: an operation that spans actors
 //! is a row, driven from its last step done.
 
-#![expect(
-    unused_variables,
-    dead_code,
-    reason = "the scaffold: U2 fills this file"
-)]
-
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::collections::hash_map::Entry;
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
-use anyhow::Result;
-use hamlet_actor::Ctx;
+use anyhow::{Context as _, Result, bail};
+use hamlet_actor::{BindParam, Ctx};
 use serde::{Deserialize, Serialize};
 use tokio::sync::watch;
 
-use super::change::{self, Affected, Rows, Writer};
+use super::change::{self, Affected, Column as _, Rows, Writer};
 use super::peer::Peers;
-use super::{Realm, hire};
+use super::{Realm, calls, hire};
 
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize,
 )]
+#[serde(rename_all = "snake_case")]
 pub(super) enum Kind {
     Hire,
 }
@@ -75,7 +71,26 @@ pub(super) async fn apply(
 }
 
 async fn begin(writer: &Writer<'_>, row: StepId) -> Result<Affected> {
-    todo!()
+    let mut params = key(row)?;
+    params.push(BindParam::Integer(writer.at().0));
+    writer
+        .execute(
+            "INSERT INTO step (kind, n, at) VALUES (?1, ?2, ?3)",
+            params,
+        )
+        .await?;
+    Ok(Affected {
+        begun: vec![row],
+        ..Affected::default()
+    })
+}
+
+/// The row's key as `?1` and `?2`.
+fn key(row: StepId) -> Result<Vec<BindParam>> {
+    Ok(vec![
+        BindParam::Text(change::name(&row.kind)?),
+        BindParam::Integer(i64::try_from(row.n)?),
+    ])
 }
 
 async fn advance(
@@ -101,7 +116,21 @@ pub(super) async fn row(
     rows: &Rows<'_>,
     id: StepId,
 ) -> Result<Option<Row>> {
-    todo!()
+    rows.select(
+        "SELECT done, closed FROM step WHERE kind = ?1 AND n = ?2",
+        key(id)?,
+    )
+    .await?
+    .first()
+    .map(|found| match found.as_slice() {
+        [done, closed] => Ok(Row {
+            id,
+            done: Option::<String>::of(done)?,
+            closed: i64::of(closed)? != 0,
+        }),
+        _ => bail!("a step row of another form: {found:?}"),
+    })
+    .transpose()
 }
 
 pub(super) struct Cx<'a> {
@@ -124,7 +153,12 @@ impl Cx<'_> {
         &self,
         changes: Vec<change::Change>,
     ) -> Result<()> {
-        todo!()
+        for made in
+            change::commit(self.realm, self.ctx, changes).await?
+        {
+            calls::push(self.realm, self.ctx, made).await?;
+        }
+        Ok(())
     }
 }
 
@@ -135,7 +169,7 @@ async fn drive(realm: Arc<Realm>, ctx: Ctx<Realm>, row: StepId) {
     };
     let driven = match row.kind {
         Kind::Hire => {
-            walk(&cx, row, async |cx: &Cx<'_>, step| {
+            walk(&cx, row, async move |cx: &Cx<'_>, step| {
                 hire::run(cx, row.n, step).await
             })
             .await
@@ -152,7 +186,42 @@ async fn walk<S: Steps>(
     id: StepId,
     run: impl AsyncFn(&Cx<'_>, S) -> Result<Vec<change::Change>>,
 ) -> Result<()> {
-    todo!()
+    loop {
+        let Some(row) = row(&cx.rows()?, id).await? else {
+            return Ok(());
+        };
+        if row.closed {
+            return Ok(());
+        }
+        let next = match row.done.as_deref() {
+            None => 0,
+            Some(done) => {
+                S::ALL
+                    .iter()
+                    .position(|step| step.name() == done)
+                    .with_context(|| {
+                        format!("no step is named `{done}`")
+                    })?
+                    + 1
+            }
+        };
+        let Some(&step) = S::ALL.get(next) else {
+            return Ok(());
+        };
+        let mut changes = run(cx, step).await?;
+        changes.push(
+            Change::Advance {
+                row: id,
+                from: next
+                    .checked_sub(1)
+                    .and_then(|last| S::ALL.get(last))
+                    .map(|last| last.name()),
+                to: step.name(),
+            }
+            .into(),
+        );
+        cx.commit(changes).await?;
+    }
 }
 
 #[derive(Default)]
@@ -170,14 +239,45 @@ pub(super) struct Reserved {
 impl Reserved {
     /// Drives each row on a task of the realm's.
     pub fn start(self, realm: &Arc<Realm>, ctx: &Ctx<Realm>) {
-        todo!()
+        for (row, ended) in self.rows {
+            let running = self.running.clone();
+            let realm = realm.clone();
+            let driving = ctx.clone();
+            ctx.register_task(async move {
+                drive(realm, driving, row).await;
+                running
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .remove(&row);
+                // Wakes each waiter of `finished`.
+                drop(ended);
+            });
+        }
     }
 }
 
 impl Drives {
     /// Takes the entry of each of `rows` that no drive holds.
     pub fn reserve(&self, rows: &[StepId]) -> Reserved {
-        todo!()
+        let mut running = self
+            .running
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let rows = rows
+            .iter()
+            .filter_map(|&row| match running.entry(row) {
+                Entry::Occupied(_) => None,
+                Entry::Vacant(entry) => {
+                    let (ended, waits) = watch::channel(());
+                    entry.insert(waits);
+                    Some((row, ended))
+                }
+            })
+            .collect();
+        Reserved {
+            rows,
+            running: self.running.clone(),
+        }
     }
 
     pub fn start(
@@ -201,5 +301,24 @@ pub(super) async fn drive_undone(
     realm: &Arc<Realm>,
     ctx: &Ctx<Realm>,
 ) -> Result<()> {
-    todo!()
+    let open = Rows::outside(ctx)?
+        .select(
+            "SELECT kind, n FROM step WHERE closed = 0",
+            Vec::new(),
+        )
+        .await?;
+    for found in open {
+        let [kind, n] = found.as_slice() else {
+            bail!("a step row of another form: {found:?}");
+        };
+        realm.drives.start(
+            realm,
+            ctx,
+            StepId {
+                kind: change::named(String::of(kind)?)?,
+                n: u64::of(n)?,
+            },
+        );
+    }
+    Ok(())
 }

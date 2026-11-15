@@ -102,13 +102,13 @@ impl Default for RoadRules {
 
 /// The `limits` column of a new hamlet's row: the defaults.
 pub(super) fn new_hamlet() -> Result<String> {
-    todo!()
+    Ok(serde_json::to_string(&Limits::default())?)
 }
 
 /// The `limits` column of the realm's row at its first start: the
 /// defaults.
 pub(super) fn new_realm() -> Result<String> {
-    todo!()
+    Ok(serde_json::to_string(&RealmLimits::default())?)
 }
 
 pub(in crate::realm) async fn budget(

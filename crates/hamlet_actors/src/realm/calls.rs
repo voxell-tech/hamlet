@@ -1,11 +1,5 @@
 //! The calls the realm makes after a commit.
 
-#![expect(
-    unused_variables,
-    dead_code,
-    reason = "the scaffold: U2 fills this file"
-)]
-
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -87,7 +81,11 @@ impl Push {
     /// The pushes of a commit, in the order they are made: the
     /// drives, then the reaches, then the places.
     pub fn of(affected: &Affected) -> Vec<Self> {
-        todo!()
+        let drives = affected.begun.iter().copied().map(Self::Drive);
+        let reaches =
+            affected.reaches.iter().copied().map(Self::Reach);
+        let places = affected.places.iter().copied().map(Self::Place);
+        drives.chain(reaches).chain(places).collect()
     }
 }
 
@@ -145,5 +143,11 @@ pub(super) async fn after_answer(
     deliveries: Vec<Delivery>,
     pushes: Vec<Push>,
 ) {
-    todo!()
+    for made in pushes {
+        let shown = format!("{made:?}");
+        if let Err(error) = push(&realm, &ctx, made).await {
+            tracing::warn!(push = shown, "a push failed: {error:#}");
+        }
+    }
+    deliver_all(&realm, &ctx, deliveries, When::AfterAnswer).await;
 }
