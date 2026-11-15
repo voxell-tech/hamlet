@@ -178,7 +178,7 @@ export function db({
                 };
 
                 const client: RawAccess = {
-                    execute: <
+                    execute: async <
                         TRow extends Record<string, unknown> = Record<
                             string,
                             unknown
@@ -188,10 +188,10 @@ export function db({
                         ...args: unknown[]
                     ): Promise<TRow[]> =>
                         args.length === 0 && hasMultipleStatements(query)
-                            ? tracked(query, () =>
+                            ? await tracked(query, () =>
                                   execMultiStatement<TRow>(target, query),
                               )
-                            : rows<TRow>(query, args),
+                            : await rows<TRow>(query, args),
                     get: async <TRow extends Record<string, unknown>>(
                         query: string,
                         ...args: unknown[]

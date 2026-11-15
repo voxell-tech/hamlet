@@ -35,7 +35,7 @@ export const Address = {
 
 /** Internal: an address the host made, so not checked again. */
 export function addressFromHost(kind: string, key: string): Address {
-    // The one cast: the brand is type-only.
+    // The brand is type-only.
     return Object.freeze({ kind, key }) as Address;
 }
 
