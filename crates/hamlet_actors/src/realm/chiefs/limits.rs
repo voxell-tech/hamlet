@@ -3,9 +3,10 @@
 
 use anyhow::{Context as _, Result};
 use hamlet_actor::BindParam;
-use hamlet_messages::realm::budget::{BudgetLimit, Payer};
+use hamlet_messages::realm::budget::{self, BudgetLimit, Payer};
 use hamlet_messages::realm::{
-    Done, HamletId, HamletRefusal, Refusable, SetLimits,
+    Done, HamletId, HamletRefusal, Limit, Refusable, ReservedAct,
+    Review, SetLimits,
 };
 use hamlet_messages::sender::Client;
 use serde::{Deserialize, Serialize};
@@ -17,13 +18,31 @@ use super::super::change::{Affected, Rows, Writer};
 use super::super::record;
 use super::super::world::Part;
 
-#[derive(
-    Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize,
-)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub(in crate::realm) struct Limits {
     budget: Budget,
     pub road: RoadRules,
+    pub reserved: Reserved,
+    pub asking: Asking,
+    /// How many days of decisions each hire is told (H17).
+    pub told_days: u32,
+    /// How long after a chief's task a lead may not end the hire
+    /// (H7).
+    pub protected_minutes: u32,
+}
+
+impl Default for Limits {
+    fn default() -> Self {
+        Self {
+            budget: Budget::default(),
+            road: RoadRules::default(),
+            reserved: Reserved::default(),
+            asking: Asking::default(),
+            told_days: 7,
+            protected_minutes: 0,
+        }
+    }
 }
 
 impl Limits {
@@ -31,14 +50,89 @@ impl Limits {
     pub(super) fn of_row(text: &str) -> Result<Self> {
         Ok(serde_json::from_str(text)?)
     }
+
+    fn set(&mut self, limit: &Limit) -> Result<(), HamletRefusal> {
+        match *limit {
+            Limit::Questions { most } => self.asking.questions = most,
+            Limit::Refusals { most } => self.asking.refusals = most,
+            Limit::Review { review } => self.asking.review = review,
+            Limit::ProtectedMinutes { minutes } => {
+                self.protected_minutes = minutes;
+            }
+            Limit::ToldDays { days } => self.told_days = days,
+            Limit::Reserved { act, reserved } => {
+                *self.reserved.of(act) = reserved;
+            }
+            Limit::RoadPrice { micros } => self.road.price = micros,
+            Limit::RoadsMost { most } => self.road.most = most,
+            Limit::RoadsGrowOverDays { days } => {
+                self.road.grows_over_days = days;
+            }
+            Limit::RoadsBetween { .. } => {
+                return Err(HamletRefusal::RealmsLimit);
+            }
+        }
+        Ok(())
+    }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+struct RealmLimits {
+    budget: Budget,
+    /// Whether mayors may agree roads between their hamlets.
+    roads_between: bool,
+}
+
+impl Default for RealmLimits {
+    fn default() -> Self {
+        Self {
+            budget: Budget::default(),
+            roads_between: true,
+        }
+    }
+}
+
+/// The leads' acts a chief keeps for itself.
 #[derive(
     Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize,
 )]
 #[serde(default)]
-struct RealmLimits {
-    budget: Budget,
+pub(in crate::realm) struct Reserved {
+    pub end: bool,
+    pub hire: bool,
+    pub merge: bool,
+    pub roads: bool,
+}
+
+impl Reserved {
+    fn of(&mut self, act: ReservedAct) -> &mut bool {
+        match act {
+            ReservedAct::End => &mut self.end,
+            ReservedAct::Hire => &mut self.hire,
+            ReservedAct::Merge => &mut self.merge,
+            ReservedAct::Roads => &mut self.roads,
+        }
+    }
+}
+
+/// What may ask a chief in one turn (H10, H11).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub(in crate::realm) struct Asking {
+    pub questions: u32,
+    pub refusals: u32,
+    pub review: Review,
+}
+
+impl Default for Asking {
+    fn default() -> Self {
+        Self {
+            questions: 3,
+            refusals: 3,
+            review: Review::Remote,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -70,7 +164,12 @@ impl Budget {
             BudgetLimit::Time { ms } => {
                 self.ms = Some(ms);
             }
-            BudgetLimit::Period { .. } => {}
+            BudgetLimit::Period { period } => {
+                self.period = match period {
+                    budget::Period::Day => Period::Day,
+                    budget::Period::Month => Period::Month,
+                };
+            }
         }
     }
 }
@@ -163,6 +262,20 @@ impl Kept {
             Row::Hamlet(_, limits) => &mut limits.budget,
         }
     }
+
+    fn set(&mut self, limit: &Limit) -> Result<(), HamletRefusal> {
+        match (&mut self.0, limit) {
+            (
+                Row::Realm(limits),
+                &Limit::RoadsBetween { allowed },
+            ) => {
+                limits.roads_between = allowed;
+                Ok(())
+            }
+            (Row::Realm(_), _) => Err(HamletRefusal::HamletsLimit),
+            (Row::Hamlet(_, limits), limit) => limits.set(limit),
+        }
+    }
 }
 
 impl Act<Client> for SetLimits {
@@ -196,11 +309,16 @@ impl Act<Client> for SetLimits {
                 HamletRefusal::NoSuchHamlet,
             ));
         };
-        if self.budget.is_empty() {
+        if self.budget.is_empty() && self.limits.is_empty() {
             return Decision::Answer(Done::Done);
         }
         for limit in &self.budget {
             kept.budget_mut().set(limit);
+        }
+        for limit in &self.limits {
+            if let Err(refusal) = kept.set(limit) {
+                return Decision::Answer(Done::refused(refusal));
+            }
         }
         Decision::Change(
             Decided::new(())
@@ -285,7 +403,10 @@ mod tests {
             ms: Some(2),
             period: Period::Day,
         };
-        let kept = Kept(Row::Realm(RealmLimits { budget }));
+        let kept = Kept(Row::Realm(RealmLimits {
+            budget,
+            ..RealmLimits::default()
+        }));
         assert_eq!(
             decided.changes,
             [change::Change::from(super::super::Change::Limits(
