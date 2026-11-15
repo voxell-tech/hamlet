@@ -13,12 +13,12 @@ use std::time::{Duration, Instant};
 use bevy_app::{App, AppExit, PreUpdate};
 use bevy_ecs::entity::Entity;
 use bevy_ecs::error::Result;
-use bevy_ecs::message::Message;
+use bevy_ecs::message::{Message, MessageWriter};
 use bevy_ecs::query::With;
 use bevy_ecs::resource::Resource;
 use bevy_ecs::schedule::IntoScheduleConfigs;
 use bevy_ecs::schedule::common_conditions::on_message;
-use bevy_ecs::system::{Commands, Res, ResMut};
+use bevy_ecs::system::{Commands, Query, Res, ResMut};
 use bevy_ecs::world::World;
 use bevy_state::app::{AppExtStates, StatesPlugin};
 use bevy_state::condition::in_state;
@@ -180,34 +180,35 @@ fn wake() -> anyhow::Result<()> {
 
 /// Ends every tool run, whose task stops with its entity, and stops
 /// the runtimes on a task, which says when they have.
-fn stop(world: &mut World) -> Result {
-    let runs = world
-        .query_filtered::<Entity, With<ToolRun>>()
-        .iter(world)
-        .collect::<Vec<_>>();
-    for run in runs {
-        world.despawn(run);
+fn stop(
+    runs: Query<Entity, With<ToolRun>>,
+    mut runtimes: Runtimes,
+    inputs: Res<InputSender>,
+    mut commands: Commands,
+) {
+    for run in &runs {
+        commands.entity(run).despawn();
     }
-    let processes =
-        world.run_system_cached(|mut runtimes: Runtimes| {
-            runtimes.take_processes()
-        })?;
-    let inputs = world.resource::<InputSender>().clone();
+    let processes = runtimes.take_processes();
+    let inputs = inputs.clone();
     tokio::spawn(async move {
         for process in processes {
             process.stop(STOPPING).await;
         }
         let _ = inputs.send(RuntimesStopped);
     });
-    Ok(())
 }
 
 /// Once the runtimes stopped: what their commands left ends, the
 /// jobs runner stops, and the app exits.
-fn exit(world: &mut World) {
-    world.resource::<Leftovers>().end(|_| true);
-    drop(world.remove_resource::<Runner>());
-    world.write_message(AppExit::Success);
+fn exit(
+    leftovers: Res<Leftovers>,
+    mut commands: Commands,
+    mut exits: MessageWriter<AppExit>,
+) {
+    leftovers.end(|_| true);
+    commands.remove_resource::<Runner>();
+    exits.write(AppExit::Success);
 }
 
 /// The check that the server is stopping, when it takes in no

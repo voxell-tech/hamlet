@@ -21,8 +21,7 @@ use bevy_ecs::error::Result;
 use bevy_ecs::resource::Resource;
 use bevy_ecs::schedule::IntoScheduleConfigs;
 use bevy_ecs::schedule::common_conditions::{not, resource_exists};
-use bevy_ecs::system::ResMut;
-use bevy_ecs::world::World;
+use bevy_ecs::system::{Commands, Res, ResMut};
 use bevy_log::{info, warn};
 use hamlet_sandbox::Sandbox;
 use hamlet_store::ids::Actor;
@@ -83,22 +82,26 @@ pub(crate) fn plugin(app: &mut App) {
 }
 
 /// Probes the sandbox the agents' commands run in on this machine.
-fn open_sandbox(world: &mut World) -> Result {
-    let sandbox =
-        Sandbox::open(world.resource::<Options>().isolation)?;
+fn open_sandbox(
+    options: Res<Options>,
+    mut commands: Commands,
+) -> Result {
+    let sandbox = Sandbox::open(options.isolation)?;
     sandbox.probe()?;
-    world.insert_resource(Confined(sandbox));
-    world.insert_resource(Shells::local());
+    commands.insert_resource(Confined(sandbox));
+    commands.insert_resource(Shells::local());
     Ok(())
 }
 
 /// Opens the realm the options name, made if it is new, with its
 /// settings and the folders agents read even when empty.
-fn open_realm(world: &mut World) -> Result {
-    let options = world.resource::<Options>();
-    let (home, faux) = (options.home.clone(), options.faux.is_some());
-    let mut realm = Realm::open(&home, &chief_name(), clock::now())?;
-    let overrides = Overrides::from_env(faux);
+fn open_realm(
+    options: Res<Options>,
+    mut commands: Commands,
+) -> Result {
+    let mut realm =
+        Realm::open(&options.home, &chief_name(), clock::now())?;
+    let overrides = Overrides::from_env(options.faux.is_some());
     let saved = settings::stored(realm.store().connection())?;
     let layout = realm.layout().clone();
     crate::knowledge::library::open(&layout, clock::now())?;
@@ -107,8 +110,8 @@ fn open_realm(world: &mut World) -> Result {
             format!("making {}", folder.display())
         })?;
     }
-    world.insert_resource(realm);
-    world.insert_resource(Env {
+    commands.insert_resource(realm);
+    commands.insert_resource(Env {
         settings: overrides.apply(saved),
         overrides,
     });
@@ -117,94 +120,122 @@ fn open_realm(world: &mut World) -> Result {
 
 /// Opens the realm's credentials, and the remote workspace they
 /// name, if any.
-fn open_credentials(world: &mut World) -> Result {
-    let root = world.resource::<Realm>().layout().root().to_owned();
-    let credentials = Credentials::open(&root)?;
+fn open_credentials(
+    realm: Res<Realm>,
+    mut commands: Commands,
+) -> Result {
+    let credentials = Credentials::open(realm.layout().root())?;
     let workspace = credentials
         .workspace()
         .cloned()
         .map(Transport::new)
         .transpose()?;
-    world.insert_resource(Workspace(workspace));
-    world.insert_resource(credentials);
+    commands.insert_resource(Workspace(workspace));
+    commands.insert_resource(credentials);
     Ok(())
 }
 
-fn open_providers(world: &mut World) -> Result {
-    let layout = world.resource::<Realm>().layout().clone();
-    let faux = world.resource::<Env>().overrides.faux;
-    world.insert_resource(Providers::open(&layout, faux)?);
+fn open_providers(
+    realm: Res<Realm>,
+    env: Res<Env>,
+    mut commands: Commands,
+) -> Result {
+    let providers =
+        Providers::open(realm.layout(), env.overrides.faux)?;
+    commands.insert_resource(providers);
     Ok(())
 }
 
 /// Starts the jobs runner on a thread of its own.
-fn start_jobs_runner(world: &mut World) -> Result {
-    let layout = world.resource::<Realm>().layout().clone();
-    let inputs = world.resource::<InputSender>().clone();
+fn start_jobs_runner(
+    realm: Res<Realm>,
+    inputs: Res<InputSender>,
+    mut commands: Commands,
+) -> Result {
     let writing = RepositoryWriteLock::default();
-    let runner = Runner::start(&layout, inputs, writing.clone())?;
-    world.insert_resource(runner);
-    world.insert_resource(writing);
+    let runner = Runner::start(
+        realm.layout(),
+        inputs.clone(),
+        writing.clone(),
+    )?;
+    commands.insert_resource(runner);
+    commands.insert_resource(writing);
     Ok(())
 }
 
 /// Readies the harness the runtimes run, and the runtime new
 /// conversations go to.
-fn open_harness(world: &mut World) -> Result {
-    let pi = Pi::from_env(world.resource::<Options>().faux.clone())?;
-    let inputs = world.resource::<InputSender>().clone();
+fn open_harness(
+    options: Res<Options>,
+    mut realm: ResMut<Realm>,
+    inputs: Res<InputSender>,
+    mut commands: Commands,
+) -> Result {
+    let pi = Pi::from_env(options.faux.clone())?;
     runtimes::of_harness(
-        world.resource_mut::<Realm>().store().connection(),
+        realm.store().connection(),
         agents::HARNESS,
     )?;
-    world.insert_resource(Harness::new(pi, inputs));
+    commands.insert_resource(Harness::new(pi, inputs.clone()));
     Ok(())
 }
 
 /// Watches the folder of the tools added by hand, so they load again
 /// while the server runs; without a watch, they load only now.
-fn watch_added_tools(world: &mut World) -> Result {
-    let tools = world.resource::<Realm>().layout().tools();
-    let inputs = world.resource::<InputSender>().clone();
-    let watching = added::watch(&tools, inputs)
-        .inspect_err(|error| {
-            warn!(
-                "the tools added by hand load only at start: {error}"
-            );
-        })
-        .ok();
-    world.insert_resource(AddedToolsWatch(watching));
-    Ok(())
+fn watch_added_tools(
+    realm: Res<Realm>,
+    inputs: Res<InputSender>,
+    mut commands: Commands,
+) {
+    let watching =
+        added::watch(&realm.layout().tools(), inputs.clone())
+            .inspect_err(|error| {
+                warn!(
+                    "the tools added by hand load only at start: \
+                     {error}"
+                );
+            })
+            .ok();
+    commands.insert_resource(AddedToolsWatch(watching));
 }
 
-fn open_clients(world: &mut World) -> Result {
-    let inputs = world.resource::<InputSender>().clone();
-    world.insert_resource(Clients::new(inputs, clock::now())?);
+fn open_clients(
+    inputs: Res<InputSender>,
+    mut commands: Commands,
+) -> Result {
+    commands
+        .insert_resource(Clients::new(inputs.clone(), clock::now())?);
     Ok(())
 }
 
 /// Listens for clients on the port the options name. A client that
 /// connects now waits for the first update to end.
-fn listen(world: &mut World) -> Result {
-    let port = world.resource::<Options>().port;
-    let listener =
-        std::net::TcpListener::bind((Ipv4Addr::LOCALHOST, port))?;
+fn listen(
+    options: Res<Options>,
+    inputs: Res<InputSender>,
+    mut commands: Commands,
+) -> Result {
+    let listener = std::net::TcpListener::bind((
+        Ipv4Addr::LOCALHOST,
+        options.port,
+    ))?;
     listener.set_nonblocking(true)?;
     let listener = tokio::net::TcpListener::from_std(listener)?;
-    let inputs = world.resource::<InputSender>().clone();
-    world.insert_resource(Listening::start(listener, inputs)?);
+    commands
+        .insert_resource(Listening::start(listener, inputs.clone())?);
     Ok(())
 }
 
 /// Publishes the server's address in the realm's `server.json` once
 /// its first update is over, so a client finds it only when the
 /// start is done; it stays while the server serves.
-fn publish_address(world: &mut World) -> Result {
-    let url =
-        format!("ws://{}", world.resource::<Listening>().address);
-    let confinement =
-        world.run_system_cached(|core: Core| core.confinement())?;
-    let layout = world.resource::<Realm>().layout().clone();
+fn publish_address(
+    listening: Res<Listening>,
+    mut core: Core,
+) -> Result {
+    let url = format!("ws://{}", listening.address);
+    let confinement = core.confinement();
+    let layout = core.realm.layout().clone();
     let started = chrono::Utc::now()
         .to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
     let address = json!({
@@ -214,7 +245,7 @@ fn publish_address(world: &mut World) -> Result {
         "confinement": confinement,
     });
     write_whole(&layout.server(), &serde_json::to_vec(&address)?)?;
-    world.insert_resource(Published(layout.server()));
+    core.commands.insert_resource(Published(layout.server()));
     info!(
         "holding {}; serving at {url}; Ctrl-C stops",
         hamlet_os::fs::path::text(layout.root())
