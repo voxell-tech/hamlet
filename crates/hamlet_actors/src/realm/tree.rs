@@ -408,16 +408,8 @@ pub(super) enum Change {
         on: Vec<ToolName>,
     },
     /// A worker, live from its start and outside every hamlet's tree.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "U7 starts workers")
-    )]
     Worker { agent: AgentNumber },
     /// A worker ends `how`, when it had not.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "U7 ends workers")
-    )]
     WorkerEnded { agent: AgentNumber, how: HowEnded },
 }
 
