@@ -1,7 +1,7 @@
 //! The push of a place: after a commit that moved an agent's lead,
 //! its hires, its roads or its tools, the agent is sent its place as
 //! the rows give it then. The agent keeps only a newer version, so a
-//! push sent twice, or late, does no harm (bar §3.8).
+//! push sent twice, or late, does no harm.
 
 use std::sync::Arc;
 
@@ -35,6 +35,7 @@ pub(in crate::realm) async fn send(
 
 #[cfg(test)]
 mod tests {
+    use hamlet_actor_error::ActorError;
     use hamlet_messages::realm::HamletId;
 
     use super::super::super::record;
@@ -65,7 +66,12 @@ mod tests {
             .unwrap();
         let ended = send().await;
 
-        assert!(hiring.is_err(), "a hiring hire is sent its place");
+        let error = ActorError::extract(&hiring.unwrap_err());
+        assert_eq!(
+            (error.group(), error.code()),
+            ("actor", "not_registered"),
+            "a hiring hire is sent its place"
+        );
         ended.unwrap();
         started.stop().await;
     }

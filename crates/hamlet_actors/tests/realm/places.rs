@@ -101,7 +101,9 @@ impl Aside {
                 .is_some_and(|file| file.starts_with(&name))
         })
         .map(|path| {
-            let aside = path.with_extension("aside");
+            let mut aside = path.clone().into_os_string();
+            aside.push(".aside");
+            let aside = PathBuf::from(aside);
             std::fs::rename(&path, &aside).unwrap();
             (path, aside)
         })
@@ -194,12 +196,13 @@ async fn a_place_the_agent_fails_to_take_is_not_sent_again() {
     realm.seen.hold(Callee::Fill);
     let hired_4 = chief_hires(&realm, &hamlet).await;
     places_reach(&realm, MAYOR, 2).await;
+    let sent = places_of(&realm, MAYOR);
     realm.seen.release(Callee::Fill);
 
     assert_eq!(error_code(unreached), "actor.not_found");
     assert_eq!(hired_3, hired(3));
     assert_eq!(missed, [(1, vec![])]);
     assert_eq!(hired_4, hired(4));
-    assert_eq!(places_of(&realm, MAYOR), [(1, vec![]), (4, vec![3])]);
+    assert_eq!(sent, [(1, vec![]), (4, vec![3])]);
     realm.host.shutdown().await.unwrap();
 }
