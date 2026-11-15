@@ -3,6 +3,7 @@
 //! restart runs, and what each restart must show. A new scenario is a
 //! new row.
 
+mod agent;
 mod counter;
 mod link;
 mod workspace;
@@ -101,7 +102,12 @@ pub enum Is {
 }
 
 pub fn all() -> impl Iterator<Item = &'static Scenario> {
-    [counter::SCENARIOS, workspace::SCENARIOS, link::SCENARIOS]
-        .into_iter()
-        .flatten()
+    [
+        counter::SCENARIOS,
+        workspace::SCENARIOS,
+        link::SCENARIOS,
+        agent::SCENARIOS,
+    ]
+    .into_iter()
+    .flatten()
 }

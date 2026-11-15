@@ -74,6 +74,8 @@
 mod act;
 #[path = "demo/agent.rs"]
 mod agent;
+#[path = "demo/agent_host.rs"]
+mod agent_host;
 #[path = "demo/command.rs"]
 mod command;
 #[path = "demo/counter.rs"]
@@ -84,6 +86,8 @@ mod kinds;
 mod link;
 #[path = "demo/realm.rs"]
 mod realm;
+#[path = "demo/stand_in_realm.rs"]
+mod stand_in_realm;
 #[path = "demo/watch.rs"]
 mod watch;
 
@@ -149,15 +153,19 @@ async fn demo() -> Result<()> {
         Ok(sandbox) => start.options.with_value(Arc::new(sandbox)),
         Err(_) => start.options,
     };
-    let (host, link) = if start.link {
+    let (host, link, pi) = if start.link && agent_host::chosen()? {
+        let (host, pi) = agent_host::open(&home, options)?;
+        (host, None, Some(pi))
+    } else if start.link {
         let (host, link) = link::open(&home, factories, options)?;
-        (host, Some(link))
+        (host, Some(link), None)
     } else {
-        (Host::open_with(&home, factories, options)?, None)
+        (Host::open_with(&home, factories, options)?, None, None)
     };
     let demo = Demo {
         host,
         link,
+        pi,
         counters: kinds::counters(&start.kinds),
         watches: Mutex::default(),
     };
@@ -194,6 +202,8 @@ async fn demo() -> Result<()> {
 pub struct Demo {
     pub host: Host,
     pub link: Option<link::Link>,
+    /// The real agent's Node host, in place of `link`.
+    pub pi: Option<agent_host::PiHost>,
     /// The counter kinds the host runs.
     counters: Vec<String>,
     pub watches: Mutex<JoinSet<()>>,
@@ -206,11 +216,15 @@ impl Demo {
         &self,
         stop: impl Future<Output = ()>,
     ) -> Result<()> {
-        let Some(link) = &self.link else {
-            return Ok(());
+        let ready = async {
+            match (&self.link, &self.pi) {
+                (Some(link), _) => link.ready().await,
+                (None, Some(pi)) => pi.ready().await,
+                (None, None) => Ok(()),
+            }
         };
         tokio::select! {
-            ready = link.ready() => ready,
+            ready = ready => ready,
             () = stop => bail!(
                 "the Node host was not ready when the demo was stopped"
             ),
@@ -220,6 +234,9 @@ impl Demo {
     async fn shutdown(self) -> Result<()> {
         if let Some(link) = self.link {
             link.shutdown().await;
+        }
+        if let Some(pi) = self.pi {
+            pi.shutdown().await;
         }
         let (shut, _) = tokio::join!(
             self.host.shutdown(),
@@ -248,6 +265,9 @@ async fn run_line(demo: &Demo, words: &[String]) -> Result<()> {
         }
         Some((first, rest)) if first == "watch" => {
             watch::run(demo, rest).await
+        }
+        Some((first, rest)) if first == "pi" => {
+            agent_host::run(demo, rest).await
         }
         Some((first, rest))
             if link::COMMANDS.contains(&first.as_str()) =>

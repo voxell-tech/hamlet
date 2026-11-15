@@ -20,6 +20,7 @@
         "@earendil-works/pi-ai": "1.5.2",
         "@earendil-works/pi-coding-agent": "1.5.2",
         "@earendil-works/pi-durable": "1.5.2",
+        "@earendil-works/pi-schema": "1.5.2",
         "@earendil-works/pi-telemetry": "1.5.2",
         "@hamlet/actor-node": "file:../../crates/hamlet_actor_node",
         "@hamlet/bare-ts": "npm:@bare-ts/lib@0.7.0",
