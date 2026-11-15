@@ -8,8 +8,11 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = fileURLToPath(new URL("../../../..", import.meta.url));
 
-/** How long `ask` and `logged` wait. */
+/** How long `ask`, `printed` and `logged` wait. */
 const PATIENCE_MS = 30_000;
+
+/** A line of a `watch`'s stream, `watch/<n>/<what> ...`. */
+const STREAMED = /^watch\/[^/ ]+\//;
 
 /** The Node host's entry. */
 export const MAIN = fileURLToPath(
@@ -31,10 +34,15 @@ export interface Demo {
     /** The demo host's process id. */
     readonly pid: number;
     /**
-     * Writes one command line, and answers the next line the demo prints.
-     * Rejects when the demo exits first.
+     * Writes one command line, and answers the next line the demo prints,
+     * passing over those of a `watch`'s stream. Rejects when the demo exits
+     * first.
      */
     ask(line: string): Promise<string>;
+    /** Every line the demo has printed. */
+    lines(): readonly string[];
+    /** Waits until a line the demo printed matches `pattern`. */
+    printed(pattern: RegExp): Promise<void>;
     /** Everything the demo and its Node host have written to standard error. */
     stderr(): string;
     /** Waits until standard error holds `pattern`. */
@@ -64,36 +72,59 @@ export function startDemo(dir: string): Demo {
     child.stderr.on("data", (chunk) => {
         stderr += chunk;
     });
-    const lines = createInterface({ input: child.stdout })[
-        Symbol.asyncIterator
-    ]();
+    const printed: string[] = [];
+    /** How many lines of `printed` an `ask` has read past. */
+    let read = 0;
+    let ended = false;
+    createInterface({ input: child.stdout })
+        .on("line", (line) => printed.push(line))
+        .on("close", () => {
+            ended = true;
+        });
     const closed = once(child, "close");
+    /** Waits until `found` answers something, at most `PATIENCE_MS`. */
+    async function until<T>(
+        found: () => T | undefined,
+        what: string,
+    ): Promise<T> {
+        const end = Date.now() + PATIENCE_MS;
+        for (;;) {
+            const value = found();
+            if (value !== undefined) return value;
+            if (Date.now() > end) throw new Error(`${what}:\n${stderr}`);
+            await sleep(20);
+        }
+    }
     return {
         pid,
-        async ask(line) {
+        ask(line) {
             child.stdin.write(`${line}\n`);
-            const next = await Promise.race([
-                lines.next(),
-                sleep(PATIENCE_MS, undefined, { ref: false }).then(() => {
-                    throw new Error(`no answer to \`${line}\`:\n${stderr}`);
-                }),
-            ]);
-            if (next.done) {
-                throw new Error(
-                    `the demo ended before \`${line}\`:\n${stderr}`,
-                );
-            }
-            return next.value;
+            return until(() => {
+                while (read < printed.length) {
+                    const next = printed[read++] as string;
+                    if (!STREAMED.test(next)) return next;
+                }
+                if (ended) {
+                    throw new Error(
+                        `the demo ended before \`${line}\`:\n${stderr}`,
+                    );
+                }
+                return undefined;
+            }, `no answer to \`${line}\``);
+        },
+        lines: () => printed,
+        async printed(pattern) {
+            await until(
+                () => printed.some((line) => pattern.test(line)) || undefined,
+                `never printed ${pattern}`,
+            );
         },
         stderr: () => stderr,
         async logged(pattern) {
-            const until = Date.now() + PATIENCE_MS;
-            while (!pattern.test(stderr)) {
-                if (Date.now() > until) {
-                    throw new Error(`never logged ${pattern}:\n${stderr}`);
-                }
-                await sleep(20);
-            }
+            await until(
+                () => pattern.test(stderr) || undefined,
+                `never logged ${pattern}`,
+            );
         },
         async stop() {
             child.stdin.end();

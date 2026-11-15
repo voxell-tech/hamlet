@@ -69,6 +69,10 @@ const agent = actor({
     events: {
         /** The count of `step`, once its commit returned. */
         ticked: event<number>(),
+        /** The id of `note`'s note, refused to a client. */
+        noted: event<number>({
+            canSubscribe: (c) => c.caller !== "client",
+        }),
     },
     /**
      * Finishes each job a kill cut off, with a note naming `resumed`, and
@@ -86,10 +90,15 @@ const agent = actor({
             await c.call(REALM, "resumed", [finished], CALL);
         }
     },
+    /** Says on standard error that the agent goes to sleep. */
+    onSleep: (c) => {
+        console.error(`${c.address.kind}/${c.address.key} sleeps`);
+    },
     actions: {
         /**
          * Keeps a note that names the caller, in one statement, says who
-         * called on standard error, and answers how many notes there are.
+         * called on standard error, broadcasts the note's id as `noted`, and
+         * answers how many notes there are.
          */
         note: async (c) => {
             const { lastInsertRowId } = await c.db.run(
@@ -99,6 +108,7 @@ const agent = actor({
             console.error(
                 `${c.address.kind}/${c.address.key} called by ${shown(c.caller)}`,
             );
+            c.broadcast("noted", lastInsertRowId);
             return lastInsertRowId;
         },
         count: async (c) =>
