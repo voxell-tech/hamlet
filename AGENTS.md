@@ -150,9 +150,9 @@ no C compiler and without bundled SQLite), `deny` (`cargo deny check`), `test`
 with `-D warnings` and every feature, except that `hamlet_actor_core` is
 documented on its own at its default features, because its
 `native-runtime` and `wasm-runtime` features exclude each other) and
-`node` (pi's checks, then the Node host's checks and tests, then a
-debug build of `hamlet_actor_node` and the Node host's tests that load
-it).
+`node` (pi's checks, then, on Linux, `declarations`, then the Node
+host's checks and tests, then a debug build of `hamlet_actor_node` and
+the Node host's tests that load it).
 `deny` needs cargo-deny:
 `cargo install --locked cargo-deny`. `deny.toml` holds the allowed
 licences and the ignored advisories, each with its reason. With `CI`
@@ -204,6 +204,15 @@ npm run test:native --prefix hosts/node
 
 The native tests load whatever library is at that name, so build and
 copy again after the crate changes.
+
+The native module's `index.d.ts` and `index.js` in
+`crates/hamlet_actor_node/` are generated from its Rust, so never edit
+them. `cargo xtask declarations` builds the crate with the napi CLI from
+`hosts/node`'s packages, in `target/napi-types`, formats both files with
+Biome and the crate's `biome.json`, puts the notice line on top, and
+rewrites each one that changed. Then it fails if any did: commit them.
+`cargo xtask node` runs it before the Node host's check on Linux only,
+where CI checks them: the files do not differ by system.
 
 The acceptance suite in `crates/hamlet_acceptance` starts real server
 processes on scratch realms and drives them through the client protocol, so plain
