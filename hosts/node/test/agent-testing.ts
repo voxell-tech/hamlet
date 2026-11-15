@@ -393,7 +393,6 @@ export function interrupted(tool: string): ToolResult {
     };
 }
 
-/** Each tool result the model is sent, in order. */
 export async function toolResults(
     agent: Pick<Woken, "harness">,
 ): Promise<ToolResult[]> {

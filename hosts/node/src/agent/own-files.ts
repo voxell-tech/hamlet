@@ -32,7 +32,6 @@ import {
     wrote,
 } from "./workspace-tools.ts";
 
-/** Where a relative path starts, as today's folder commands run in. */
 function start(files: AgentFilesystem): string {
     // No message tells the agent its project folder, so paths start from
     // its own filesystem.
@@ -312,13 +311,11 @@ async function searched(
     );
 }
 
-/** `path` as today's search shows it: from `start`, or whole outside it. */
 function shown(files: AgentFilesystem, path: string): string {
     const from = `${start(files)}/`;
     return path.startsWith(from) ? path.slice(from.length) : path;
 }
 
-/** The most characters of a line a search shows. */
 const LINE_WIDTH = 300;
 
 /** `line` as today's search shows it (`crates/hamlet_server/src/work/tools/search.rs`). */
