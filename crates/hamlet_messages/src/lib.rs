@@ -48,11 +48,19 @@
 //! No answer has a case for either error.
 //!
 //! The client protocol's types a message carries keep that
-//! protocol's rules where they differ from these: an enum whose
-//! cases hold data is tagged by `kind`, a reader refuses `null` and a
-//! field it does not know, and an integer is a `u64`.
-//! [`realm::client::Say`], [`realm::client::Answer`] and the
-//! attachments of [`agent::Input::Line`] carry them.
+//! protocol's rules where they differ from these. A reader refuses a
+//! field it does not know, and refuses `null` in a field that may be
+//! absent. An integer is a `u64` or an `i64`. The pick of
+//! [`realm::client::Answer`] is tagged by `kind`, and a sign-in's
+//! `Login` and `LoginStep` are untagged: their fields tell the case.
+//! Rust writes them: in a chief's request ([`realm::client::Say`],
+//! [`realm::client::Answer`], the calls of [`agent::chat`] and of
+//! [`realm::choices`]), in the attachments of [`agent::Input::Line`]
+//! and the effort of [`agent::copies::ModelChoice`], and as the
+//! [`RequestId`](hamlet_protocol::client::RequestId) of a chief's or
+//! the realm's request. An agent writes three, which hold no integer:
+//! the kind of an item and of a chat, and the step of
+//! [`agent::chat::LoginAnswer`].
 //!
 //! The realm takes a repeat of a call that carries an id, a chief's
 //! [`realm::Asked`] or [`realm::client`] request or an agent's
