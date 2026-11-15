@@ -1,1 +1,406 @@
+use std::fmt::Debug;
 
+use hamlet_messages::agent::{
+    AgentInput, AgentKind, Brief, Place, PlaceVersion,
+};
+use hamlet_messages::realm::budget::{
+    Budget, Charge, MaySpend, ReadBudget, SpendRefusal,
+};
+use hamlet_messages::realm::choices::{
+    ModelOf, SetModel, SetNickname,
+};
+use hamlet_messages::realm::client::ReadWorld;
+use hamlet_messages::realm::oversight::{AskChief, Object};
+use hamlet_messages::realm::workers::{
+    Ended, ErrandDone, SetAllowance, StartWorker,
+};
+use hamlet_messages::realm::{
+    AgreeRoad, Ask, Done, End, LayRoad, Refusable, RequestRoad,
+    SetTools, Standing, TakeUpRoad, ToolCall,
+};
+use hamlet_messages::workspace::{
+    AgentNumber, CallId, ConversationId, ErrandNumber, RealmTask,
+};
+
+use super::{
+    MAYOR, Realm, THREE, hamlet_with, hire, standing, tell, to, tool,
+    until,
+};
+
+fn errand(n: u32) -> AgentNumber {
+    ErrandNumber::new(n).unwrap().agent()
+}
+
+fn brief() -> Brief {
+    Brief {
+        instructions: Some(
+            "Answer PASS or OBJECT: <reason>.".to_owned(),
+        ),
+        text: "the chief told hire#3: Plain line.".to_owned(),
+        tools: Vec::new(),
+        model: None,
+    }
+}
+
+/// Keeps errand `n`'s row and its step as a start commits them; the
+/// realm drives the step when it starts again.
+async fn seed(realm: &Realm, n: u32, task: &RealmTask, cap: u64) {
+    let task = &task.0;
+    let kept = serde_json::json!({
+        "purpose": {"type": "review", "task": task.parse::<u64>().unwrap()},
+        "brief": brief(),
+    });
+    realm
+        .write(&format!(
+            "INSERT INTO errand (n, purpose, task, cap, subject, \
+             at) VALUES ({n}, '{kept}', {task}, {cap}, {task}, 0); \
+             INSERT INTO step (kind, n, at) VALUES ('errand', {n}, \
+             0);"
+        ))
+        .await;
+}
+
+fn made(realm: &Realm, agent: AgentNumber) -> Option<AgentInput> {
+    realm
+        .seen
+        .made
+        .lock()
+        .unwrap()
+        .iter()
+        .find(|(made, _)| *made == agent)
+        .map(|(_, input)| input.clone())
+}
+
+async fn made_until(realm: &Realm, agent: AgentNumber) -> AgentInput {
+    until(&format!("agent {} is made", agent.0), || {
+        made(realm, agent).is_some()
+    })
+    .await;
+    made(realm, agent).unwrap()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_errand_is_a_numbered_agent_outside_the_tree() {
+    let (realm, _) = hamlet_with(0).await;
+    let task = standing(&realm, MAYOR);
+    seed(&realm, 0, &task, 1_000).await;
+
+    let input = made_until(&realm, errand(0)).await;
+
+    assert_eq!(
+        input,
+        AgentInput {
+            kind: AgentKind::Errand,
+            task,
+            place: Place {
+                version: PlaceVersion(1),
+                lead: None,
+                hires: Vec::new(),
+                roads: Vec::new(),
+                tools_off: Vec::new(),
+                folder: None,
+            },
+            brief: Some(brief()),
+        }
+    );
+    let world = realm.ask(&ReadWorld).await.unwrap();
+    assert!(
+        world.agents.iter().all(|seen| seen.agent != errand(0)),
+        "the world shows no errand: {world:?}"
+    );
+    assert!(
+        realm
+            .seen
+            .fills
+            .lock()
+            .unwrap()
+            .iter()
+            .all(|(filled, _)| *filled != errand(0)),
+        "an errand has no filesystem"
+    );
+}
+
+async fn refused<T>(
+    realm: &Realm,
+    agent: AgentNumber,
+    call: &str,
+    act: T,
+) where
+    T: ToolCall + Debug,
+    T::Answer: PartialEq + Debug,
+    <T::Answer as Refusable>::Why: From<Standing>,
+{
+    let shown = format!("{act:?}");
+    let answer = realm.tool(agent, &tool(call, act)).await.unwrap();
+    assert_eq!(
+        answer,
+        T::Answer::refused(Standing::NotAMember.into()),
+        "{shown} from agent {}",
+        agent.0
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_errand_is_refused_every_society_tool() {
+    let (realm, _) = hamlet_with(1).await;
+    let task = standing(&realm, MAYOR);
+    seed(&realm, 0, &task, 1_000).await;
+    made_until(&realm, errand(0)).await;
+    let conversation = || ConversationId("c".to_owned());
+
+    for agent in [errand(0), AgentNumber(77)] {
+        refused(&realm, agent, "hire", hire(None)).await;
+        refused(
+            &realm,
+            agent,
+            "end",
+            End {
+                hire: to(THREE),
+                why: None,
+            },
+        )
+        .await;
+        refused(&realm, agent, "tell", tell(to(MAYOR), "hi")).await;
+        refused(
+            &realm,
+            agent,
+            "ask",
+            Ask {
+                to: to(MAYOR),
+                text: "how?".to_owned(),
+                conversation: conversation(),
+                task: None,
+                paths: Vec::new(),
+            },
+        )
+        .await;
+        refused(
+            &realm,
+            agent,
+            "lay",
+            LayRoad {
+                a: to(MAYOR),
+                b: to(THREE),
+                why: None,
+            },
+        )
+        .await;
+        refused(
+            &realm,
+            agent,
+            "take_up",
+            TakeUpRoad {
+                a: to(MAYOR),
+                b: to(THREE),
+                why: None,
+            },
+        )
+        .await;
+        refused(
+            &realm,
+            agent,
+            "request",
+            RequestRoad {
+                to: to(MAYOR),
+                why: None,
+                task: None,
+            },
+        )
+        .await;
+        refused(
+            &realm,
+            agent,
+            "agree",
+            AgreeRoad {
+                mine: to(THREE),
+                theirs: to(MAYOR),
+                why: None,
+            },
+        )
+        .await;
+        refused(
+            &realm,
+            agent,
+            "tools",
+            SetTools {
+                hire: to(THREE),
+                off: Vec::new(),
+                on: Vec::new(),
+                why: None,
+            },
+        )
+        .await;
+        refused(
+            &realm,
+            agent,
+            "ask_chief",
+            AskChief {
+                task: task.clone(),
+                conversation: conversation(),
+                message: None,
+                questions: Vec::new(),
+            },
+        )
+        .await;
+        refused(
+            &realm,
+            agent,
+            "object",
+            Object {
+                task: task.clone(),
+                conversation: conversation(),
+                reason: "no".to_owned(),
+            },
+        )
+        .await;
+        refused(
+            &realm,
+            agent,
+            "worker",
+            StartWorker {
+                brief: "look".to_owned(),
+                tools: Vec::new(),
+                task: None,
+                hamlet: None,
+            },
+        )
+        .await;
+        refused(
+            &realm,
+            agent,
+            "allowance",
+            SetAllowance {
+                hire: to(THREE),
+                micros: None,
+                why: None,
+            },
+        )
+        .await;
+        refused(&realm, agent, "budget", ReadBudget { task: None })
+            .await;
+        refused(
+            &realm,
+            agent,
+            "nickname",
+            SetNickname {
+                hire: to(THREE),
+                name: None,
+                why: None,
+            },
+        )
+        .await;
+        refused(
+            &realm,
+            agent,
+            "model",
+            SetModel {
+                of: ModelOf::Hire { hire: to(THREE) },
+                model: None,
+                effort: None,
+                fast: None,
+                why: None,
+            },
+        )
+        .await;
+    }
+}
+
+async fn outcome(
+    realm: &Realm,
+    n: u32,
+) -> (Option<String>, Option<String>) {
+    realm
+        .rows(|db| {
+            db.query_row(
+                "SELECT ended, answer FROM errand WHERE n = ?1",
+                [n],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+        })
+        .await
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_errand_done_twice_ends_once() {
+    let (realm, _) = hamlet_with(0).await;
+    let task = standing(&realm, MAYOR);
+    seed(&realm, 0, &task, 1_000).await;
+    made_until(&realm, errand(0)).await;
+    let done = |ended| ErrandDone { ended };
+    let pass = || Ended::Answered {
+        text: "PASS".to_owned(),
+    };
+
+    realm.tool(errand(0), &done(pass())).await.unwrap();
+    realm
+        .tool(
+            errand(0),
+            &done(Ended::Failed {
+                why: "too late".to_owned(),
+            }),
+        )
+        .await
+        .unwrap();
+    let by_a_hire = realm.tool(MAYOR, &done(pass())).await;
+
+    assert_eq!(
+        outcome(&realm, 0).await,
+        (Some("answered".to_owned()), Some("PASS".to_owned()))
+    );
+    assert!(by_a_hire.is_err(), "only an errand ends an errand");
+}
+
+fn charge(call: &str, task: &RealmTask, micros: u32) -> Charge {
+    Charge {
+        call: CallId(call.to_owned()),
+        task: task.clone(),
+        micros,
+        took_ms: 1,
+        tokens: None,
+    }
+}
+
+async fn may_spend(
+    realm: &Realm,
+    agent: AgentNumber,
+    task: &RealmTask,
+) -> Done<SpendRefusal> {
+    let may = MaySpend { task: task.clone() };
+    realm.tool(agent, &may).await.unwrap()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_errand_spends_under_its_cap() {
+    let (realm, _) = hamlet_with(1).await;
+    let task = standing(&realm, MAYOR);
+    let other = standing(&realm, THREE);
+    seed(&realm, 0, &task, 10).await;
+    made_until(&realm, errand(0)).await;
+
+    let under = may_spend(&realm, errand(0), &task).await;
+    realm
+        .tool(errand(0), &charge("c1", &task, 10))
+        .await
+        .unwrap();
+    let at_cap = may_spend(&realm, errand(0), &task).await;
+    let elsewhere = may_spend(&realm, errand(0), &other).await;
+
+    assert_eq!(under, Done::Done);
+    let Done::Refused {
+        why:
+            SpendRefusal::Budget(Budget::OverCost {
+                spent_micros: 10,
+                budget_micros: 10,
+                ..
+            }),
+    } = at_cap
+    else {
+        panic!("an errand at its cap spends no more: {at_cap:?}");
+    };
+    assert_eq!(
+        elsewhere,
+        Done::Refused {
+            why: SpendRefusal::Budget(Budget::NoSuchTask)
+        }
+    );
+}

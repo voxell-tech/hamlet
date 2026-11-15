@@ -32,7 +32,6 @@ pub(super) async fn intercept(
 }
 
 /// The changes the end of the review of `task`'s line makes.
-#[expect(dead_code, reason = "U5 calls it")]
 pub(super) fn ended(
     _task: TaskId,
     _ended: &Ended,
