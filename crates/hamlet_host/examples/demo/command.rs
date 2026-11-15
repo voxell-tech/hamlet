@@ -17,7 +17,7 @@ pub async fn run(
     kinds: &[String],
     words: &[String],
 ) -> Result<()> {
-    let kind = kinds.first().context("the demo runs no kind")?;
+    let kind = counter_kind(kinds)?;
     if words.first().is_some_and(|word| word == "calls") {
         return calls(host, kinds, kind, &words[1..]).await;
     }
@@ -140,19 +140,31 @@ async fn calls(
         micros.push(took);
         last = n;
     }
+    let (p50, p99) = p50_p99(&mut micros);
+    writeln!(
+        std::io::stdout(),
+        "calls {from} {to} count={count} p50={p50}us p99={p99}us \
+         from={last}",
+    )?;
+    Ok(())
+}
+
+pub fn p50_p99(micros: &mut [u64]) -> (u64, u64) {
     micros.sort_unstable();
     let at = |percent: usize| {
         let rank = (micros.len() * percent).div_ceil(100);
         micros[rank.saturating_sub(1)]
     };
-    writeln!(
-        std::io::stdout(),
-        "calls {from} {to} count={count} p50={}us p99={}us \
-         from={last}",
-        at(50),
-        at(99)
-    )?;
-    Ok(())
+    (at(50), at(99))
+}
+
+/// The first of the counter kinds `kinds`, which a key with no kind
+/// names.
+pub fn counter_kind(kinds: &[String]) -> Result<&str> {
+    kinds
+        .first()
+        .map(String::as_str)
+        .context("the host runs no counter kind")
 }
 
 /// Starts the actor at `at`, made if it has none, when its kind is
@@ -206,13 +218,17 @@ fn address(kind: &str, word: &str) -> Result<Address> {
     })
 }
 
+/// The first `ActorError` in `error`'s chain.
+pub fn actor_error(error: &anyhow::Error) -> Option<&ActorError> {
+    error
+        .chain()
+        .find_map(|cause| cause.downcast_ref::<ActorError>())
+}
+
 /// `error` as the demo prints it, led by the `group.code` of the
 /// first `ActorError` in its chain, as `actor.not_found`.
 pub fn shown(error: &anyhow::Error) -> String {
-    match error
-        .chain()
-        .find_map(|cause| cause.downcast_ref::<ActorError>())
-    {
+    match actor_error(error) {
         Some(found) => {
             format!("{}.{}: {error:#}", found.group(), found.code())
         }

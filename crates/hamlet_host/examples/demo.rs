@@ -1,14 +1,30 @@
 //! A host that runs counter actors in the realm folder `HAMLET_HOME`.
 //!
 //! ```text
-//! demo [--name <name>] [--kind <kind>]... [--realm-actor] <command> ...
+//! demo [--name <name>] [--kind <kind>]... [--link] [--realm-actor]
+//!     <command> ...
 //!
 //! --name <name>                 the host's name, `host` by default
-//! --kind <kind>                 a counter kind the host runs, as many
-//!                               as given, `counter` by default
+//! --kind <kind>                 a kind the host runs, as many as
+//!                               given. `workspace`, `profile` and
+//!                               `library` are those actors, and
+//!                               `realm` and `agent` the stand-ins
+//!                               of demo/realm.rs and demo/agent.rs;
+//!                               any other name is a counter kind.
+//!                               With none given the host runs
+//!                               `counter`, `workspace`, `profile`,
+//!                               `library`, `realm` and `agent`, or
+//!                               with --link `realm` alone
+//! --link                        run the agents in a Node host, this
+//!                               host's child, and wait for it
+//!                               before the first command. Its
+//!                               commands, and the route table the
+//!                               host then uses whatever --kind
+//!                               says, are in demo/link.rs
 //! --realm-actor                 run the realm actor with a stand-in
 //!                               agent and profile, in place of the
-//!                               stub realm and the stub agent
+//!                               stub realm and the stub agent; not
+//!                               with --link
 //!
 //! demo increment <key> [times]  add one per time, each in a transaction
 //! demo get <key>                print the count
@@ -36,6 +52,8 @@
 //!                               demo/realm.rs
 //! demo agent ...                the stub agent's commands, in
 //!                               demo/agent.rs
+//! demo watch <n> <event>        follow <event> of agent <n> as a
+//!                               client, in demo/watch.rs
 //! demo profile ...              a profile's commands, in
 //!                               demo/profile.rs; not in serve
 //! demo library ...              the library's commands, in
@@ -45,24 +63,25 @@
 //!                               demo/realm.rs
 //! ```
 //!
-//! A `<key>` names a counter of the first kind, and `<kind>/<key>` an
-//! actor of any kind. A command on a counter makes it first if there
-//! is none, except `timers` and `rearm`, which then fail. `call`
-//! makes only its caller: a call to a `<to>` with no actor fails with
-//! `actor.not_found` and makes none. Each command prints
-//! `<kind>/<key> <count>`, the count the actor replied with. Booting
-//! prints `boot <kind>/<key> <count>` for each actor it started, once
-//! its start ends. `timers` prints `timer <kind>/<key> <event_id>
-//! <action> due=<ms> tries=<n> error=<code>` for each timer, and
-//! `rearm` prints `rearm <kind>/<key> <event_id> <true|false>`.
-//! `call` prints `call <from> <to> <n> <us>us`, where `<n>` counts
-//! the calls `<to>` had from `<from>`, and `calls` prints `calls
-//! <from> <to> count=<n> p50=<us>us p99=<us>us from=<n>`, the times
-//! of the calls measured in the calling counter. A counter that is
-//! called logs its caller. An error is printed with the `group.code`
-//! of the actor's error it holds first, as `actor.not_found`. Logs go
-//! to standard error. The demo exits once its host has shut down,
-//! also when an actor it could not stop still blocks a thread.
+//! A `<key>` names a counter of the first counter kind, and
+//! `<kind>/<key>` an actor of any kind. A command on a counter makes
+//! it first if there is none, except `timers` and `rearm`, which then
+//! fail. `call` makes only its caller: a call to a `<to>` with no
+//! actor fails with `actor.not_found` and makes none. Each command
+//! prints `<kind>/<key> <count>`, the count the actor replied with.
+//! Booting prints `boot <kind>/<key> <count>` for each actor it
+//! started, once its start ends. `timers` prints `timer <kind>/<key>
+//! <event_id> <action> due=<ms> tries=<n> error=<code>` for each
+//! timer, and `rearm` prints `rearm <kind>/<key> <event_id>
+//! <true|false>`. `call` prints `call <from> <to> <n> <us>us`, where
+//! `<n>` counts the calls `<to>` had from `<from>`, and `calls`
+//! prints `calls <from> <to> count=<n> p50=<us>us p99=<us>us
+//! from=<n>`, the times of the calls measured in the calling counter.
+//! A counter that is called logs its caller. An error is printed with
+//! the `group.code` of the actor's error it holds first, as
+//! `actor.not_found`. Logs go to standard error. The demo exits once
+//! its host has shut down, also when an actor it could not stop still
+//! blocks a thread.
 
 #[path = "demo/act.rs"]
 mod act;
@@ -72,12 +91,20 @@ mod agent;
 mod command;
 #[path = "demo/counter.rs"]
 mod counter;
+#[path = "demo/kinds.rs"]
+mod kinds;
 #[path = "demo/library.rs"]
 mod library;
+#[path = "demo/link.rs"]
+mod link;
 #[path = "demo/profile.rs"]
 mod profile;
 #[path = "demo/realm.rs"]
 mod realm;
+#[path = "demo/tell.rs"]
+mod tell;
+#[path = "demo/watch.rs"]
+mod watch;
 
 use std::io::{IsTerminal, Write};
 use std::path::PathBuf;
@@ -86,14 +113,13 @@ use std::time::Duration;
 
 use act::act;
 use anyhow::{Context, Result, anyhow, bail};
-use command::{number, print_reply, run, shown};
-use hamlet_actors::{
-    library as library_actor, profile as profile_actor, workspace,
-};
+use command::{counter_kind, number, print_reply, run, shown};
 use hamlet_host::{Address, Host, HostOptions};
-use hamlet_messages::address::{self, Party};
+use hamlet_messages::address::{Library, Party, Profile, Workspace};
 use hamlet_sandbox::{Isolation, Sandbox};
+use parking_lot::Mutex;
 use tokio::sync::mpsc;
+use tokio::task::JoinSet;
 use tracing_subscriber::EnvFilter;
 
 #[tokio::main]
@@ -124,7 +150,7 @@ async fn demo() -> Result<()> {
         .map(PathBuf::from)
         .context("set HAMLET_HOME to the realm folder")?;
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let (options, kinds, realm_actor, args) = options(&args)?;
+    let (start, args) = options(&args)?;
     let command = args.first().map(String::as_str);
     let loaded = match command {
         Some("serve") => {
@@ -137,33 +163,9 @@ async fn demo() -> Result<()> {
     } else {
         counter::Sleep::WhenIdle
     };
-    let mut factories = counter::factories(
-        &kinds.iter().map(String::as_str).collect::<Vec<_>>(),
-        sleep,
-    );
-    factories.insert(
-        address::Workspace::KIND.to_owned(),
-        workspace::factory(),
-    );
-    factories.insert(
-        address::Profile::KIND.to_owned(),
-        profile_actor::factory(),
-    );
-    factories.insert(
-        address::Library::KIND.to_owned(),
-        library_actor::factory(),
-    );
-    if realm_actor {
+    let mut factories = kinds::factories(&start.kinds, sleep);
+    if start.realm_actor {
         factories.extend(realm::actor_kinds());
-    } else {
-        factories.insert(
-            address::Realm::KIND.to_owned(),
-            realm::factory(),
-        );
-        factories.insert(
-            address::Agent::KIND.to_owned(),
-            agent::factory(),
-        );
     }
     // A profile's and the library's commands call as stand-ins, in a
     // process of their own: `serve` keeps the stub realm and agents.
@@ -172,77 +174,148 @@ async fn demo() -> Result<()> {
     }
     // The workspace does not start where there is no sandbox.
     let options = match Sandbox::open(Isolation::Sandboxed) {
-        Ok(sandbox) => options.with_value(Arc::new(sandbox)),
-        Err(_) => options,
+        Ok(sandbox) => start.options.with_value(Arc::new(sandbox)),
+        Err(_) => start.options,
     };
-    let host = Host::open_with(&home, factories, options)?;
+    let (host, link) = if start.link {
+        let (host, link) = link::open(&home, factories, options)?;
+        (host, Some(link))
+    } else {
+        (Host::open_with(&home, factories, options)?, None)
+    };
+    let demo = Demo {
+        host,
+        link,
+        counters: kinds::counters(&start.kinds),
+        realm_actor: start.realm_actor,
+        watches: Mutex::default(),
+    };
     let result = match command {
-        Some("serve") => {
-            serve(&host, &kinds, realm_actor, loaded.unwrap_or(0))
-                .await
-        }
+        Some("serve") => serve(&demo, loaded.unwrap_or(0)).await,
         Some("boot") => {
-            let ms = number(args.get(1))?;
-            let began = host.boot().await?;
-            tokio::time::sleep(Duration::from_millis(ms)).await;
-            print_began(&host, began).await
+            async {
+                let ms = number(args.get(1))?;
+                let began = demo.host.boot().await?;
+                tokio::time::sleep(Duration::from_millis(ms)).await;
+                print_began(&demo.host, began).await
+            }
+            .await
         }
         Some("profile") => {
-            host.boot().await?;
-            profile::run(&host, &args[1..]).await
+            async {
+                demo.host.boot().await?;
+                profile::run(&demo.host, &args[1..]).await
+            }
+            .await
         }
         Some("library") => {
-            host.boot().await?;
-            library::run(&host, &args[1..]).await
+            async {
+                demo.host.boot().await?;
+                library::run(&demo.host, &args[1..]).await
+            }
+            .await
         }
         Some(_) => {
-            host.boot().await?;
-            run_line(&host, &kinds, realm_actor, args).await
+            async {
+                demo.host.boot().await?;
+                demo.ready(std::future::pending()).await?;
+                run_line(&demo, args).await
+            }
+            .await
         }
         None => Err(anyhow!(
-            "usage: demo [--name <name>] [--kind <kind>]... \
-             increment|get|schedule|sleep|destroy|block|call|calls|\
-             timers|rearm|boot|serve ..."
+            "usage: demo [--name <name>] [--kind <kind>]... [--link] \
+             [--realm-actor] increment|get|schedule|sleep|destroy|\
+             block|call|calls|timers|rearm|boot|serve|realm|agent|link|\
+             make|tell|heard|watch ..."
         )),
     };
-    host.shutdown().await?;
+    demo.shutdown().await?;
     result
 }
 
-/// Runs one command line split into words: the realm actor's when
-/// `realm_actor` is set, else the stub realm's or a stub agent's, or
-/// one for the counters of `kinds`.
-async fn run_line(
-    host: &Host,
-    kinds: &[String],
+pub struct Demo {
+    pub host: Host,
+    pub link: Option<link::Link>,
+    /// The counter kinds the host runs.
+    counters: Vec<String>,
+    /// Whether `realm` and `agent` lines drive the realm actor.
     realm_actor: bool,
-    words: &[String],
-) -> Result<()> {
-    match words.split_first() {
-        Some((first, _))
-            if realm_actor
-                && (first == "realm" || first == "agent") =>
-        {
-            realm::drive(host, words).await
+    pub watches: Mutex<JoinSet<()>>,
+}
+
+impl Demo {
+    /// Waits for the Node host, where the demo has one, until `stop`
+    /// ends.
+    async fn ready(
+        &self,
+        stop: impl Future<Output = ()>,
+    ) -> Result<()> {
+        let Some(link) = &self.link else {
+            return Ok(());
+        };
+        tokio::select! {
+            ready = link.ready() => ready,
+            () = stop => bail!(
+                "the Node host was not ready when the demo was stopped"
+            ),
         }
-        Some((first, rest)) if first == "realm" => {
-            realm::run(host, rest).await
+    }
+
+    async fn shutdown(self) -> Result<()> {
+        if let Some(link) = self.link {
+            link.shutdown().await;
         }
-        Some((first, rest)) if first == "agent" => {
-            agent::run(host, rest).await
-        }
-        _ => run(host, kinds, words).await,
+        let (shut, _) = tokio::join!(
+            self.host.shutdown(),
+            self.watches.into_inner().join_all()
+        );
+        shut
     }
 }
 
-/// The host's options, its counter kinds and whether it runs the
-/// realm actor, read from the options before the command, and the
-/// words from the command on.
-fn options(
-    args: &[String],
-) -> Result<(HostOptions, Vec<String>, bool, &[String])> {
+/// The options before the command.
+struct Start {
+    options: HostOptions,
+    /// The kinds the host runs, in the order given.
+    kinds: Vec<String>,
+    /// Whether the host runs the agents in a Node child.
+    link: bool,
+    realm_actor: bool,
+}
+
+async fn run_line(demo: &Demo, words: &[String]) -> Result<()> {
+    match words.split_first() {
+        Some((first, _))
+            if demo.realm_actor
+                && (first == "realm" || first == "agent") =>
+        {
+            realm::drive(&demo.host, words).await
+        }
+        Some((first, rest)) if first == "realm" => {
+            realm::run(&demo.host, rest).await
+        }
+        Some((first, rest)) if first == "agent" => {
+            agent::run(&demo.host, rest).await
+        }
+        Some((first, rest)) if first == "watch" => {
+            watch::run(demo, rest).await
+        }
+        Some((first, rest))
+            if link::COMMANDS.contains(&first.as_str()) =>
+        {
+            link::run(demo, first, rest).await
+        }
+        _ => run(&demo.host, &demo.counters, words).await,
+    }
+}
+
+/// The options before the command, and the words from the command
+/// on.
+fn options(args: &[String]) -> Result<(Start, &[String])> {
     let mut options = HostOptions::default();
     let mut kinds = Vec::new();
+    let mut link = false;
     let mut realm_actor = false;
     let mut rest = args;
     loop {
@@ -259,6 +332,10 @@ fn options(
                 kinds.push(value.clone());
                 rest = more;
             }
+            [option, more @ ..] if option == "--link" => {
+                link = true;
+                rest = more;
+            }
             [option, ..] if option.starts_with("--") => {
                 bail!(
                     "`{option}` is not an option, or lacks its value"
@@ -267,25 +344,60 @@ fn options(
             _ => break,
         }
     }
-    if kinds.is_empty() {
-        kinds.push("counter".to_owned());
+    if link && realm_actor {
+        bail!(
+            "--link and --realm-actor do not go together: the Node \
+             host and the realm actor's stand-in agent would both \
+             run the kind `agent`"
+        );
     }
-    Ok((options, kinds, realm_actor, rest))
+    if kinds.is_empty() {
+        let default = if link { kinds::LINKED } else { kinds::LOCAL };
+        kinds =
+            default.iter().map(|kind| (*kind).to_owned()).collect();
+    }
+    let mut needed = Vec::new();
+    // The realm actor calls the workspace.
+    if realm_actor {
+        needed.push(Workspace::KIND);
+    }
+    if matches!(
+        rest.first().map(String::as_str),
+        Some("profile" | "library")
+    ) {
+        needed.extend([Profile::KIND, Library::KIND]);
+    }
+    for kind in needed {
+        if !kinds.iter().any(|named| named == kind) {
+            kinds.push(kind.to_owned());
+        }
+    }
+    Ok((
+        Start {
+            options,
+            kinds,
+            link,
+            realm_actor,
+        },
+        rest,
+    ))
 }
 
-/// Boots, starts `loaded` counters of the first of `kinds`, then runs
-/// each line of stdin as a command until stdin ends or the process
-/// gets SIGTERM or Ctrl-C, also while a command runs.
-async fn serve(
-    host: &Host,
-    kinds: &[String],
-    realm_actor: bool,
-    loaded: u64,
-) -> Result<()> {
+/// Boots, waits for the Node host where there is one, starts
+/// `loaded` counters of the first counter kind, then runs each line
+/// of stdin as a command until stdin ends or the process gets
+/// SIGTERM or Ctrl-C, also while a command runs.
+async fn serve(demo: &Demo, loaded: u64) -> Result<()> {
+    let host = &demo.host;
     print_began(host, host.boot().await?).await?;
+    // One for the whole of serve, so no signal falls between two
+    // waits.
+    let mut stop = std::pin::pin!(stop_signal());
+    demo.ready(&mut stop).await?;
     if loaded > 0 {
+        let kind = counter_kind(&demo.counters)?;
         for n in 1..=loaded {
-            let at = Address::new(&kinds[0], format!("load-{n}"))?;
+            let at = Address::new(kind, format!("load-{n}"))?;
             host.get_or_start(&at).await?;
         }
         writeln!(std::io::stdout(), "loaded {loaded}")?;
@@ -301,8 +413,6 @@ async fn serve(
             }
         }
     });
-    // One for the whole loop, so no signal falls between two.
-    let mut stop = std::pin::pin!(stop_signal());
     loop {
         let line = tokio::select! {
             line = lines.recv() => line,
@@ -315,7 +425,7 @@ async fn serve(
             continue;
         }
         let ran = tokio::select! {
-            ran = run_line(host, kinds, realm_actor, &words) => ran,
+            ran = run_line(demo, &words) => ran,
             () = &mut stop => return Ok(()),
         };
         if let Err(error) = ran {

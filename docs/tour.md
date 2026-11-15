@@ -44,7 +44,9 @@ no task covers: the mingw clippy of the server and CLI, and the macOS and
 Windows jobs. `deny.toml` at the root configures cargo deny,
 which `deny` runs. `doc` documents `hamlet_actor_core` apart from the
 rest, at its default features, because its two runtime features exclude
-each other. `killkit` and `idle` are the tools of the actor runtime,
+each other. On Linux, `node` also runs `declarations`, which writes the
+native module's `index.d.ts` and `index.js` from its Rust and fails when
+either changed. `killkit` and `idle` are the tools of the actor runtime,
 described below.
 
 `vendor/fynix` is the submodule that supplies `bevy_fynix`, the panels'
@@ -212,7 +214,10 @@ parameters: none
 for `call`, a client for `call_for_client`, and the calling actor's
 address for `HostRef::call`. One check, `admit`, runs before every
 call, create and get-or-start reaches the directory, and refuses an
-actor's call, create or get-or-start of itself. A call fails at once
+actor's call, create or get-or-start of itself, and any with a caller
+that the route table, `HostOptions::routes`, a `Routes` from
+`route.rs`, does not allow: that fails with `actor.refused`, and the
+host reports it in `HostEvent::Refused` and its log. A call fails at once
 when its host begins to shut down. `Host::open` refuses a kind that
 cannot read the stamp: the authoring layer gives each factory the
 decode its connection preflight runs. `local/access.rs` gives an actor
@@ -220,8 +225,45 @@ its view of the host, `HostRef::of(ctx)`: its own address, the realm
 folder, the values the program gave with `HostOptions::with_value`, and
 the calls, creates and get-or-starts it makes as itself, each refused
 with `actor.stopping` once its generation has ended. `directory.rs` maps
-each actor kind to where its actors run, here always this host; a call
-to a kind it does not hold fails at once with `actor.not_registered`.
+each actor kind to where its actors run: this host, or the host at the
+other end of the link; a call to a kind it does not hold fails at once
+with `actor.not_registered`.
+
+`child.rs` and `link.rs` join a Rust host to its Node child, the Node
+host, over the child's pipe. `child::open` opens a host whose other
+kinds run in the child, and its `Supervisor` starts the child, ends it
+with its tree, and starts another when it is lost: a second later at
+first, and up to a minute later while each child ends before it has
+stayed ready for a minute. The
+child takes its ends with `take_link` and runs `link::serve`. The two
+say hello, welcome and ready (`link/frame.rs` holds the frames and their
+codec, `link.fingerprint` the frames' shapes), and then each takes the
+other's calls and creates through its `Port` (`link/port.rs`). The Node
+host's entry is `hosts/node/src/main.ts`: it takes the link before the
+actor layer loads, serves the kinds of `hosts/node/src/demo.ts` its
+`--kind` arguments name through `serveLink` in
+`hosts/node/src/actor/registry/link.ts`, and exits 1 on any failure. A
+peer's request is checked against who that host speaks for (`link/peer.rs`),
+then runs on the host's own call or start path, so `admit` checks it
+again. A call, a create and a subscribe cross the link. A call to the
+child fails with `link.down`, and nothing is sent, until the child is
+ready, and with `link.lost`, its outcome unknown, when the child is lost
+with the call out. Nothing sends a call again.
+
+`local/subscribe.rs` holds `subscribe_for_client`, a client's
+`Subscription` to one event of an actor. It takes the call's path: the
+route table's check, then the start of a local actor from its file, or
+an `Ask::Subscribe` request to the child. A local subscription is a
+connection to the actor, opened with `RunningActor::subscribe`, which
+keeps the actor awake. The reader's drop closes it; the actor's close
+and the start of the actor's stop, which the host records on the
+generation, end it. Across the link the child serves the subscribe
+through the same path and writes `Event`, `Gap` and `SubscriptionEnded`
+frames (`link/port/follow.rs`); the Rust host's `Unsubscribe` ends it.
+When the child is lost, the subscription asks the next child once it is
+ready and gives one `Item::Gap`. Each hop's queue is `local/feed.rs`: it
+holds up to 1 MiB, or one larger event alone, never makes its writer
+wait, and drops what does not fit, with one gap where the loss was.
 
 Each actor that is not stopped with no deadline is one `Life` in the
 host's map: read by boot, stopped with a deadline, starting, running,
@@ -292,8 +334,13 @@ tries counted from none. A set-aside timer leaves only by a re-arm that
 succeeds, or with its actor's file at a destroy.
 
 `examples/demo.rs` drives
-the host from the command line, under a host name and with counter kinds
-of its options, each line run by `examples/demo/command.rs`, with the
+the host from the command line, under a host name and with the kinds of
+its options (`examples/demo/kinds.rs`: a host registers only those, or
+by default the counter, the workspace, the profile, the library and
+both stand-ins, or with `--link` the stand-in realm alone; whatever the
+kinds, it also registers the workspace with `--realm-actor`, and the
+profile and the library for `demo profile` and `demo library`), each counter
+line run by `examples/demo/command.rs`, with the
 counter actor in `examples/demo/counter.rs`; a counter calls another as
 itself, and `calls --count <n>` times those calls. The demo also
 registers the [workspace](#the-workspace-actor), given a sandbox where
@@ -303,19 +350,26 @@ reaches, answers for the realm's secrets with one made-up secret and
 answers waits as a chief; and `examples/demo/agent.rs`, the actor
 `agent/<n>`, which makes `actors/agent/<n>.fs/` as it starts, runs
 scripts and tools, reads and writes files, and keeps each `Finished` it
-is told. With `--realm-actor` before the command, the demo runs the
-[realm actor](#the-realm-actor) in place of both stand-ins, with a
-stand-in agent and a stand-in profile from `examples/demo/realm.rs`:
-its `realm` and `agent` lines found, hire, say, tell, charge and run
-commands through it, and print `<name> <number>` lines. They work
-one per line under `demo --realm-actor serve`, because a one-shot
-command exits before a hire's steps finish. The
-`faults` feature of `hamlet_actors` makes a realm action panic when
+is told. `demo --link` runs the agents in a Node host instead, its child
+(`examples/demo/link.rs`): the TypeScript agent of
+`hosts/node/src/demo.ts`, reached through the realm's `tell` and, as a
+client, through `watch` (`examples/demo/watch.rs`), which follows an
+agent's event. Its route table lets the realm and an agent call each
+other and a client call either. With `--realm-actor` before the
+command, the demo runs the [realm actor](#the-realm-actor) in place of
+both stand-ins, with a stand-in agent and a stand-in profile from
+`examples/demo/realm.rs`: its `realm` and `agent` lines found, hire,
+say, tell, charge and run commands through it, and print `<name>
+<number>` lines. They work one per line under `demo --realm-actor
+serve`, because a one-shot command exits before a hire's steps finish.
+The `faults` feature of `hamlet_actors` makes a realm action panic when
 `HAMLET_REALM_PANIC` names it. `demo profile` and `demo library`, in
 `examples/demo/profile.rs` and `examples/demo/library.rs`, drive a
 [profile and the library](#the-profile-and-library-actors) through
 stand-ins for the realm and the agents, which call as themselves and
-print what they are told. `tests/local.rs` tests the host,
+print what they are told. `tests/demo.rs` starts the demo as its
+lanes do, and `hosts/node/test/link/` drives the linked demo.
+`tests/local.rs` tests the host,
 `tests/create.rs` tests `create`, and `tests/access.rs` tests what an
 actor reaches of its host, its calls to other actors included.
 `tests/timer.rs` tests one-shots that come due as their actor sleeps or
@@ -336,12 +390,17 @@ library by a `#[path]` line, most of them in the module they test.
 Most of the library's tests run on `TestHost` in `src/testing.rs`, a
 host that serves one in-memory database through `hamlet_sqlite`.
 
-`cargo xtask killkit` runs `hamlet_killkit`. Its scenarios are rows of
-`src/scenario.rs`: the commands that set up, the fault point or the time to kill at,
+`cargo xtask killkit` installs the Node host's packages, builds the
+native module and the demo, and runs `hamlet_killkit`. Its scenarios are rows,
+one file of them per actor in `src/scenario/`, which `all()` in
+`src/scenario.rs` lists: the commands that set up, the fault point or the time to kill at,
 the commands after each restart, and what each restart must show.
 `workspace-command` kills the host while a command answered `Running`
 still runs, and checks after each restart that the command did not go
-on, that its row reads cut off and that the agent was told nothing.
+on, that its row reads cut off and that the agent was told nothing. A
+row's `Demo::Linked` starts `demo --link`; `link-kill-node` has an agent
+kill its own Node host (`Kill::NodeHost`), and `link-kill-rust` and
+`ts-schedule` kill the Rust host with the Node host running.
 `cargo xtask idle` is `xtask/src/idle.rs`. It reads `/proc` for the
 resident memory of a process tree and the growth of each thread's
 `voluntary_ctxt_switches`.
@@ -728,12 +787,17 @@ built-in ones.
 | Where actors' files are, deadlines and timers, shutdown, the folder lock | `hamlet_host/src/local.rs`, `plain_sqlite.rs` |
 | An actor's address, the name rule, and who made a call | `hamlet_address/src/lib.rs` |
 | Calls between actors | `hamlet_host/src/local/call.rs` |
+| Which caller may call or make an actor of which kind | `hamlet_host/src/route.rs`; the check, `admit`, in `hamlet_host/src/local/call.rs` |
 | Making an actor with an input | `hamlet_host/src/local/create.rs` |
 | What an actor reaches of its host: its address, the realm folder, the program's values, and its calls, creates and get-or-starts as itself | `hamlet_host/src/local/access.rs` |
 | Where each actor kind runs | `hamlet_host/src/directory.rs` |
+| The link to the Node host: its child, handshake, frames, and calls each way | `hamlet_host/src/child.rs`, `link.rs`, `link/`; the stand-in Node host `hamlet_host/examples/link_child.rs` |
+| The Node host's entry and the demo's TypeScript kinds | `hosts/node/src/main.ts`, `demo.ts`, `actor/registry/link.ts`; the linked demo in `hamlet_host/examples/demo/link.rs` |
+| What a TypeScript actor can do: call another actor with a deadline, its address and caller, `get`, `all` and `run` on its rows | `hosts/node/src/actor/actor/calls.ts`, `config.ts`; `registry/native.ts`, `runtime.ts`, `napi-runtime.ts`; `common/database/`; the native side in `hamlet_actor_node/src/address.rs`, `actor_context.rs` |
+| The native module's TypeScript declarations | `hamlet_actor_node/index.d.ts` and `index.js`, written by `cargo xtask declarations`, never by hand |
 | What the host reports on `Host::events` | `hamlet_host/src/event.rs` |
 | A one-shot timer's tries, and the timers set aside after them | `hamlet_actor_core/src/actor/schedule.rs`; `Host::set_aside_timers` and `Host::rearm_timer` in `hamlet_host/src/local.rs` |
-| A kill scenario | `hamlet_killkit/src/scenario.rs`, and a fault point with `hamlet_host::fault::point` |
+| A kill scenario | the actor's file in `hamlet_killkit/src/scenario/`, a new actor's file listed in `all()` of `src/scenario.rs`, and a fault point with `hamlet_host::fault::point` |
 | A message between actors, or its fixture | `hamlet_messages/src/`, then `cargo test -p hamlet_messages` rewrites `fixtures/` |
 | An agent's reach on the workspace, and the gate | `hamlet_actors/src/workspace/reach.rs` (`apply`, `gate`, `placement`); [the workspace actor](#the-workspace-actor) |
 | A command's life: its row, `Ended` or `Running`, `Finished`, its status, a repeat, a cut-off command | `hamlet_actors/src/workspace.rs`, `workspace/run.rs`, `workspace/calls.rs` |

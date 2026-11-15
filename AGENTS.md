@@ -117,16 +117,22 @@ sleep, and takes one command per line on stdin until stdin ends or the
 process gets SIGTERM. A running host holds `host.lock` and each actor's
 file, so open a file with `sqlite3 -readonly` only after the host stops.
 
-`cargo xtask killkit <scenario> --runs <n>` builds the demo, kills it
+`demo --link serve` runs the agents in a Node host, the demo's child,
+started with `HAMLET_NODE` or `node` from `PATH`; it needs the Node host
+installed and its native module built, as `cargo xtask node` does.
+
+`cargo xtask killkit <scenario> --runs <n>` installs the Node host's
+packages, builds the native module and the demo, kills the demo
 with SIGKILL at a scenario's step, restarts it twice and prints one line
 per run; `--list` names the scenarios. Each kit process makes a new
 folder of its own under the system's temporary folder, with a folder per
 run inside it, and removes a run's folder when the run passes.
 The kit stops the host at a step through `HAMLET_FAULT`, which works only
 in a build with `hamlet_host`'s `faults` feature; the crate's own tests
-and examples turn it on. `cargo xtask idle <command>` starts a command
-and reports the memory, in MB of 1,000,000 bytes, and wakeups per second
-of its process tree while it is idle, on Linux only.
+and examples turn it on. `cargo xtask idle <command>` starts a command,
+writes each `--send <line>` to its standard input, and reports the
+memory, in MB of 1,000,000 bytes, and wakeups per second of its process
+tree while it is idle, on Linux only.
 
 ## Checks
 
@@ -141,15 +147,19 @@ fetches it itself. Nothing inside it changes. `cargo xtask check` runs
 every check a commit needs, as nine steps in this order, each of which
 `cargo xtask <step>` runs alone and CI calls by name: `format`
 (rustfmt's check on the workspace and on xtask), `clippy` (with
-`-D warnings` on both), `cross` (clippy on `hamlet_os` for
+`-D warnings` on both), `cross` (clippy on `hamlet_os` and on the
+native module for Node, `hamlet_actor_node`, for
 `x86_64-pc-windows-gnu`, the target `rust-toolchain.toml` installs, with
-no C compiler), `deny` (`cargo deny check`), `test`
+no C compiler and without bundled SQLite), `deny` (`cargo deny check`), `test`
 (`cargo build --all-targets`, then `cargo test`, doc tests included),
 `acceptance` and `harness` (the two suites below), `doc` (`cargo doc`
 with `-D warnings` and every feature, except that `hamlet_actor_core` is
 documented on its own at its default features, because its
 `native-runtime` and `wasm-runtime` features exclude each other) and
-`node` (pi's checks). `deny` needs cargo-deny:
+`node` (pi's checks, then, on Linux, `declarations`, then the Node
+host's checks and tests, then a debug build of `hamlet_actor_node` and
+the Node host's tests that load it).
+`deny` needs cargo-deny:
 `cargo install --locked cargo-deny`. `deny.toml` holds the allowed
 licences and the ignored advisories, each with its reason. With `CI`
 set, as on GitHub, the steps pass `--locked` to cargo. `cargo xtask fmt`
@@ -176,6 +186,44 @@ a commit too. `cargo xtask node` runs both; by hand, in that folder:
 npm run check   # TypeScript and Biome
 npm test
 ```
+
+`hosts/node/` is the Node package of the Node host, with the TypeScript
+actor layer in `src/actor/`. Install it with `npm ci --prefix hosts/node`
+and the same Node version. Its TypeScript and Biome check and its tests,
+on Node's own test runner, must be clean before a commit too. The tests
+in `test/native/` load the native module, so `npm test` leaves them out
+and `npm run test:native` runs them; those in `test/link/` drive
+`demo --link` and the Node host's entry `src/main.ts`, and
+`npm run test:link` runs them. `cargo xtask node` runs all four
+after pi's: it builds the module, copies the library into
+`crates/hamlet_actor_node/` under the name its `index.js` loads (on
+Linux x64, `actor-node.linux-x64-gnu.node`), builds `hamlet_os`'s example
+`bound`, which the native tests start Node through, then runs them, and
+last builds the demo and runs the link tests.
+By hand, on Linux:
+
+```sh
+npm run check --prefix hosts/node
+npm test --prefix hosts/node
+cargo build -p hamlet_actor_node
+cp target/debug/libhamlet_actor_node.so crates/hamlet_actor_node/actor-node.linux-x64-gnu.node
+cargo build -p hamlet_os --example bound
+npm run test:native --prefix hosts/node
+cargo build -p hamlet_host --example demo
+npm run test:link --prefix hosts/node
+```
+
+The native tests load whatever library is at that name, so build and
+copy again after the crate changes.
+
+The native module's `index.d.ts` and `index.js` in
+`crates/hamlet_actor_node/` are generated from its Rust, so never edit
+them. `cargo xtask declarations` builds the crate with the napi CLI from
+`hosts/node`'s packages, in `target/napi-types`, formats both files with
+Biome and the crate's `biome.json`, puts the notice line on top, and
+rewrites each one that changed. Then it fails if any did: commit them.
+`cargo xtask node` runs it before the Node host's check on Linux only,
+where CI checks them: the files do not differ by system.
 
 The acceptance suite in `crates/hamlet_acceptance` starts real server
 processes on scratch realms and drives them through the client protocol, so plain

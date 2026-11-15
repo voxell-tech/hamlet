@@ -6,7 +6,7 @@
 
 mod idle;
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, ExitStatus};
 use std::{env, fmt, fs, io};
 
@@ -27,28 +27,38 @@ Usage: cargo xtask <task> [args]
   format           check that Rust is formatted (fmt formats it)
   clippy           clippy with warnings as errors, on the workspace \
      and on xtask
-  cross            clippy with warnings as errors on hamlet_os for \
-     Windows, which needs no C compiler
+  cross            clippy with warnings as errors on hamlet_os and \
+     the native module for Node for Windows, which needs no C \
+     compiler
   deny             cargo deny check: licences and advisories
   test             build every target, then cargo test
   acceptance       the acceptance suite, on the plain CLI and server
   harness          the server's tests that start pi, built with \
      fault points
   doc              the documentation, with warnings as errors
-  node             pi's TypeScript, Biome and tests
+  node             pi's TypeScript, Biome and tests, the native \
+     module's declarations (Linux only), the Node host's \
+     TypeScript, Biome and tests, then the native module for Node \
+     (debug) and the Node host's tests that load it, and the demo \
+     actor host and the Node host's tests that drive it
+  declarations     write the native module's index.d.ts and index.js \
+     from its Rust, and fail if either changed
   fmt              format Rust, with the latest nightly, and pi
   workspace-image  build the remote workspace image; args go to \
      docker build
-  killkit          build the demo actor host and kill it at a \
-     scenario's step: <scenario> --runs <n>, or --list
+  killkit          build the demo actor host and the Node host's \
+     native module, and kill the demo at a scenario's step: \
+     <scenario> --runs <n>, or --list
   idle             a command tree's memory, in MB of 1,000,000 \
      bytes, and wakeups per second while idle: [--settle <s>] \
-     [--window <s>] <command> [args], 30 and 60 seconds by default; \
+     [--window <s>] [--send <line>]... <command> [args], 30 and 60 \
+     seconds by default, each line written to its stdin first; \
      Linux only
 
 Every task but help and uninstall first fetches the vendored fynix
 when it is missing. Tasks that build, run or check pi install its
-packages when they are missing or stale. The installed server finds
+packages when they are missing or stale, and node installs the Node
+host's too. The installed server finds
 pi in this checkout, so keep it where it was installed from, and run
 `cargo xtask install` again after pulling.
 
@@ -57,6 +67,22 @@ set, the steps pass --locked to cargo.";
 
 /// This crate's manifest, outside the main workspace.
 const XTASK: &str = "xtask/Cargo.toml";
+
+/// The pi harness's Node package.
+const PI: &str = "harnesses/pi";
+
+/// The Node host's package, which holds the TypeScript actor layer.
+const NODE_HOST: &str = "hosts/node";
+
+/// The native module for Node, the crate the Node host loads.
+const NATIVE: &str = "crates/hamlet_actor_node";
+
+/// The cargo target folder the declarations are built in, apart
+/// from `target`: the napi CLI's environment would make every plain
+/// build there compile the native module again.
+const NAPI_TYPES: &str = "target/napi-types";
+
+const DECLARATIONS: [&str; 2] = ["index.d.ts", "index.js"];
 
 /// The toolchain that formats Rust: `rustfmt.toml` uses unstable
 /// options, so stable cannot.
@@ -109,7 +135,7 @@ impl Step {
         match self {
             Self::Format => format(),
             Self::Clippy => clippy(),
-            Self::Cross => cross(),
+            Self::Cross => cross(root),
             Self::Deny => deny(),
             Self::Test => test(),
             Self::Acceptance => acceptance(root),
@@ -153,6 +179,19 @@ enum Failure {
     Exit { command: String, status: ExitStatus },
     #[error("idle: {0}")]
     Idle(String),
+    #[error("cross: cannot write a placeholder libnode.dll: {0}")]
+    Libnode(io::Error),
+    #[error("node: cannot put the native module where it loads: {0}")]
+    Native(io::Error),
+    #[error("declarations: {0}")]
+    Declarations(io::Error),
+    #[error("declarations: napi build wrote no {0}")]
+    NoDeclarations(&'static str),
+    #[error(
+        "{NATIVE}/{0} did not match the Rust: rewritten, commit the \
+         change"
+    )]
+    StaleDeclarations(String),
 }
 
 /// The binaries a chief runs, with the packages that hold them.
@@ -256,10 +295,20 @@ fn run(task: &str, rest: &[String]) -> Result<(), Failure> {
                 "--manifest-path",
                 XTASK,
             ]))?;
-            status(&mut npm(&["run", "format"]))
+            status(&mut npm(PI, &["run", "format"]))
+        }
+        "declarations" => {
+            install(&root, NODE_HOST)?;
+            declarations(&root)
         }
         "workspace-image" => workspace_image(rest),
         "killkit" => {
+            install(&root, NODE_HOST)?;
+            native(
+                &root,
+                "killkit",
+                "the Node host's native module",
+            )?;
             status(&mut cargo(&[
                 "build",
                 "-p",
@@ -311,8 +360,11 @@ fn clippy() -> Result<(), Failure> {
 }
 
 /// Only `hamlet_os` and the test helpers it uses: the server's
-/// dependencies compile C, which needs mingw-w64.
-fn cross() -> Result<(), Failure> {
+/// dependencies compile C, which needs mingw-w64. Then the native
+/// module for Node, which links nothing in a check: SQLite is named
+/// from the system instead of compiled, and napi-build, which wants
+/// Node's `libnode.dll` for a GNU target, gets an empty one.
+fn cross(root: &Path) -> Result<(), Failure> {
     status(&mut locked(
         "clippy",
         &[
@@ -327,7 +379,28 @@ fn cross() -> Result<(), Failure> {
             "-D",
             "warnings",
         ],
-    ))
+    ))?;
+    let libnode = root.join("target/cross-libnode");
+    fs::create_dir_all(&libnode)
+        .and_then(|()| fs::write(libnode.join("libnode.dll"), []))
+        .map_err(Failure::Libnode)?;
+    status(
+        locked(
+            "clippy",
+            &[
+                "-p",
+                "hamlet_actor_node",
+                "--all-targets",
+                "--target",
+                WINDOWS,
+                "--",
+                "-D",
+                "warnings",
+            ],
+        )
+        .env("LIBSQLITE3_SYS_USE_PKG_CONFIG", "1")
+        .env("LIBNODE_PATH", &libnode),
+    )
 }
 
 fn deny() -> Result<(), Failure> {
@@ -424,8 +497,172 @@ fn doc() -> Result<(), Failure> {
 
 fn node(root: &Path) -> Result<(), Failure> {
     prepare(root)?;
-    status(&mut npm(&["run", "check"]))?;
-    status(&mut npm(&["test"]))
+    status(&mut npm(PI, &["run", "check"]))?;
+    status(&mut npm(PI, &["test"]))?;
+    install(root, NODE_HOST)?;
+    if env::consts::OS == "linux" {
+        declarations(root)?;
+    } else {
+        eprintln!(
+            "xtask: node: skips the native module's declarations: \
+             CI checks them on Linux"
+        );
+    }
+    status(&mut npm(NODE_HOST, &["run", "check"]))?;
+    status(&mut npm(NODE_HOST, &["test"]))?;
+    if !native(root, "node", "the native module and its tests")? {
+        return Ok(());
+    }
+    status(&mut locked(
+        "build",
+        &["-p", "hamlet_os", "--example", "bound"],
+    ))?;
+    status(&mut npm(
+        NODE_HOST,
+        &["run", "test:native", "--if-present"],
+    ))?;
+    status(&mut locked(
+        "build",
+        &["-p", "hamlet_host", "--example", "demo"],
+    ))?;
+    status(&mut npm(NODE_HOST, &["run", "test:link"]))
+}
+
+fn unnamed(task: &str, what: &str) {
+    eprintln!(
+        "xtask: {task}: skips {what}: its loader has no name for \
+         {}-{}",
+        env::consts::OS,
+        env::consts::ARCH,
+    );
+}
+
+/// The native module's library as cargo builds it on this system, and
+/// the name the module's `index.js` loads it by, or `None` where the
+/// loader has no name this builds for.
+fn native_names() -> Option<(&'static str, &'static str)> {
+    match (env::consts::OS, env::consts::ARCH) {
+        ("linux", "x86_64") => Some((
+            "libhamlet_actor_node.so",
+            "actor-node.linux-x64-gnu.node",
+        )),
+        ("linux", "aarch64") => Some((
+            "libhamlet_actor_node.so",
+            "actor-node.linux-arm64-gnu.node",
+        )),
+        ("macos", "x86_64") => Some((
+            "libhamlet_actor_node.dylib",
+            "actor-node.darwin-x64.node",
+        )),
+        ("macos", "aarch64") => Some((
+            "libhamlet_actor_node.dylib",
+            "actor-node.darwin-arm64.node",
+        )),
+        ("windows", "x86_64") => Some((
+            "hamlet_actor_node.dll",
+            "actor-node.win32-x64-msvc.node",
+        )),
+        _ => None,
+    }
+}
+
+/// Builds the native module and puts it in its crate under the name
+/// its loader looks for, so the Node host loads this build. Answers
+/// false, saying that `task` skips `what`, where the loader has no
+/// name for this system.
+fn native(
+    root: &Path,
+    task: &str,
+    what: &str,
+) -> Result<bool, Failure> {
+    let Some((library, loaded)) = native_names() else {
+        unnamed(task, what);
+        return Ok(false);
+    };
+    status(&mut locked("build", &["-p", "hamlet_actor_node"]))?;
+    let target = env::var_os("CARGO_TARGET_DIR")
+        .map_or_else(|| root.join("target"), PathBuf::from);
+    let folder = root.join(NATIVE);
+    // A new file renamed over the old one, never the old one
+    // rewritten: macOS kills a process that loads a signed library
+    // changed in place. The partial name ends in .node, which git
+    // ignores there.
+    let partial = folder.join(format!("partial-{loaded}"));
+    fs::copy(target.join("debug").join(library), &partial)
+        .and_then(|_| fs::rename(&partial, folder.join(loaded)))
+        .map_err(Failure::Native)?;
+    Ok(true)
+}
+
+fn declarations(root: &Path) -> Result<(), Failure> {
+    let Some((_, loaded)) = native_names() else {
+        unnamed("declarations", "the native module's declarations");
+        return Ok(());
+    };
+    let target = root.join(NAPI_TYPES);
+    // napi-derive writes the type file the CLI reads only while the
+    // crate compiles, and the CLI writes nothing without it.
+    status(
+        locked("clean", &["-p", "hamlet_actor_node", "--target-dir"])
+            .arg(&target),
+    )?;
+    let written = target.join("declarations");
+    if written.exists() {
+        fs::remove_dir_all(&written)
+            .map_err(Failure::Declarations)?;
+    }
+    let tools = root.join(NODE_HOST).join("node_modules");
+    let mut napi = Command::new("node");
+    napi.arg(tools.join("@napi-rs/cli/scripts/index.js"))
+        .args(["build", "--platform", "--dts", "index.d.ts"])
+        .args(["--js", "index.js"])
+        // The CLI joins this folder to its working directory even
+        // when it is absolute.
+        .arg(Path::new("../..").join(NAPI_TYPES).join("declarations"))
+        .current_dir(root.join(NATIVE))
+        .env("CARGO_TARGET_DIR", &target);
+    if ci() {
+        napi.arg("--cargo-flags=--locked");
+    }
+    status(&mut napi)?;
+    fs::remove_file(written.join(loaded))
+        .map_err(Failure::Declarations)?;
+    for file in DECLARATIONS {
+        if !written.join(file).exists() {
+            return Err(Failure::NoDeclarations(file));
+        }
+    }
+    status(
+        Command::new("node")
+            .arg(tools.join("@biomejs/biome/bin/biome"))
+            .args(["format", "--write", "--config-path", NATIVE])
+            .args(DECLARATIONS.map(|file| written.join(file))),
+    )?;
+    let mut stale = Vec::new();
+    for file in DECLARATIONS {
+        let body = fs::read_to_string(written.join(file))
+            .map_err(Failure::Declarations)?;
+        let text = format!(
+            "// This file was changed for Hamlet. See NOTICE in \
+             this crate.\n{body}"
+        );
+        let committed = root.join(NATIVE).join(file);
+        if fs::read_to_string(&committed).ok().as_deref()
+            != Some(&text)
+        {
+            fs::write(&committed, text)
+                .map_err(Failure::Declarations)?;
+            stale.push(file);
+        }
+    }
+    match stale.as_slice() {
+        [] => Ok(()),
+        [file] => Err(Failure::StaleDeclarations((*file).to_owned())),
+        files => Err(Failure::StaleDeclarations(format!(
+            "{{{}}}",
+            files.join(",")
+        ))),
+    }
 }
 
 /// Builds the remote workspace image, tagged with the short commit
@@ -465,17 +702,23 @@ fn fynix(root: &Path) -> Result<(), Failure> {
 
 /// Installs pi's packages when they are missing or stale.
 fn prepare(root: &Path) -> Result<(), Failure> {
-    let pi = root.join("harnesses/pi");
+    install(root, PI)
+}
+
+/// Installs the packages of the Node package in `package` when they
+/// are missing or stale.
+fn install(root: &Path, package: &str) -> Result<(), Failure> {
+    let folder = root.join(package);
     // npm ci rewrites this file, so it is newer than the lockfile it
     // installed from.
     let installed =
-        modified(&pi.join("node_modules/.package-lock.json"));
+        modified(&folder.join("node_modules/.package-lock.json"));
     let wanted = ["package.json", "package-lock.json"]
         .iter()
-        .filter_map(|file| modified(&pi.join(file)))
+        .filter_map(|file| modified(&folder.join(file)))
         .max();
     if installed.is_none() || installed < wanted {
-        status(&mut npm(&["ci"]))?;
+        status(&mut npm(package, &["ci"]))?;
     }
     Ok(())
 }
@@ -496,16 +739,21 @@ fn cargo(args: &[&str]) -> Command {
 /// so CI fails on a stale `Cargo.lock` that a local run updates.
 fn locked(subcommand: &str, args: &[&str]) -> Command {
     let mut command = cargo(&[subcommand]);
-    if env::var_os("CI").is_some() {
+    if ci() {
         command.arg("--locked");
     }
     command.args(args);
     command
 }
 
-fn npm(args: &[&str]) -> Command {
+fn ci() -> bool {
+    env::var_os("CI").is_some()
+}
+
+/// npm running `args` on the Node package in `package`.
+fn npm(package: &str, args: &[&str]) -> Command {
     let mut command = Command::new("npm");
-    command.args(args).args(["--prefix", "harnesses/pi"]);
+    command.args(args).args(["--prefix", package]);
     command
 }
 
