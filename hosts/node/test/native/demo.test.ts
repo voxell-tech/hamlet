@@ -46,11 +46,16 @@ const notes = actor({
                 );
                 return { changed, open: open?.n ?? 0 };
             }),
+        /** Fails with the open count it read after its UPDATE, on the transaction. */
         finishThenFail: async (c) =>
             await c.db.transaction(async (tx) => {
                 await tx.run("UPDATE notes SET done = 1");
+                const open = await tx.get<{ n: number }>(
+                    "SELECT count(*) AS n FROM notes WHERE done = 0",
+                );
                 throw new UserError("changed my mind", {
                     code: "changed_mind",
+                    metadata: { open: open?.n },
                 });
             }),
         list: async (c) =>
@@ -96,7 +101,9 @@ test("an actor's rows, their count and an inserted id outlive the action and the
         });
         await assert.rejects(
             first.call(n1, "finishThenFail", [], CALL),
-            (error) => isActorErrorCode(error, "user", "changed_mind"),
+            (error) =>
+                isActorErrorCode(error, "user", "changed_mind") &&
+                (error.metadata as { open?: unknown }).open === 0,
         );
         assert.deepEqual(await first.call(n1, "note", [3], CALL), {
             id: 3,
@@ -127,7 +134,9 @@ test("run answers no id after a read, and refuses a text of two statements", asy
             changes: 0,
             lastInsertRowId: null,
         });
-        await assert.rejects(host.call(n1, "runTwo", [], CALL));
+        await assert.rejects(host.call(n1, "runTwo", [], CALL), (error) =>
+            isActorErrorCode(error, "core", "internal_error"),
+        );
         assert.deepEqual(await host.call(n1, "list", [], CALL), []);
         await host.shutdown();
     });

@@ -139,15 +139,19 @@ test("Address.of and the native call accept and refuse the same names, with one 
             "a".repeat(129),
             "Bad",
         ];
-        for (const name of names) {
+        const positions = names.flatMap((name): [string, string][] => [
+            [name, "k"],
+            ["k", name],
+        ]);
+        for (const [kind, key] of positions) {
             let typed: unknown;
             try {
-                Address.of(name, "k");
+                Address.of(kind, key);
             } catch (error) {
                 typed = error;
             }
             const native = await host
-                .getOrStart(addressFromHost(name, "k"))
+                .getOrStart(addressFromHost(kind, key))
                 .then(
                     () => undefined,
                     (error: unknown) => error,
@@ -155,7 +159,7 @@ test("Address.of and the native call accept and refuse the same names, with one 
             assert.equal(
                 typed !== undefined,
                 isActorErrorCode(native, "napi", "invalid_argument"),
-                JSON.stringify(name),
+                JSON.stringify({ kind, key }),
             );
             if (typed !== undefined) {
                 assert.deepEqual(readAll(typed), readAll(native));

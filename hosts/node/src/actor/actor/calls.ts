@@ -116,9 +116,13 @@ export interface Calls {
     /**
      * Calls the action `name` of the actor at `to` as this actor. The answer
      * is decoded with `decodeCborJsonCompat`. Rejects with an `ActorError`
-     * for every failure the call reports, and with a `TypeError`, before
-     * anything is sent, for an argument that cannot be encoded. Nothing
-     * calls again.
+     * for every failure the call reports. Nothing calls again.
+     *
+     * Before anything is sent, and with the callee running nothing, it
+     * rejects instead with the encoder's error for an argument it cannot
+     * encode (a `TypeError` for a function or a symbol, a `RangeError` for
+     * a cycle), and with napi's `Error` or `TypeError` for an address or
+     * options of the wrong JavaScript type, which only a cast lets through.
      */
     call<A, N extends ActionName<A>>(
         to: Address<A>,

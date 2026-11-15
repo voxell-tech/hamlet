@@ -78,6 +78,16 @@ const tally = actor({
     },
 });
 
+/** Options of the wrong JavaScript type, which only a cast lets through. */
+const WRONG_OPTIONS: Readonly<Record<string, unknown>> = {
+    "a string": { deadlineMs: "100" },
+    "no deadline": {},
+    "an undefined deadline": { deadlineMs: undefined },
+    "a null deadline": { deadlineMs: null },
+    "undefined options": undefined,
+    "null options": null,
+};
+
 const relay = actor({
     actions: {
         /** Calls `tally/t`'s `bump`, and answers what it read of an error. */
@@ -98,6 +108,19 @@ const relay = actor({
                 };
             }
         },
+        /** Calls `tally/t`'s `bump` with `WRONG_OPTIONS[wrong]`, and answers whether it rejected. */
+        bumpWrong: async (c, wrong: string) =>
+            await c
+                .call(
+                    Address.of<ActionsOf<typeof tally>>("tally", "t"),
+                    "bump",
+                    [],
+                    WRONG_OPTIONS[wrong] as CallOptions,
+                )
+                .then(
+                    () => false,
+                    () => true,
+                ),
         /** Calls `thrower/t`'s `name`, and answers what it read of the error. */
         through: async (c, name: string, deadlineMs: number) => {
             try {
@@ -201,7 +224,9 @@ test("a deadline that is not a whole number of milliseconds from 1 to 2^32 - 1 i
             1.5,
             Number.NaN,
             Number.POSITIVE_INFINITY,
+            Number.NEGATIVE_INFINITY,
             2 ** 32,
+            2 ** 53,
         ]) {
             const viaActor = await host.call(r, "bump", [deadlineMs], CALL);
             assert.deepEqual(
@@ -222,6 +247,17 @@ test("a deadline that is not a whole number of milliseconds from 1 to 2^32 - 1 i
                     isActorErrorCode(error, "napi", "invalid_argument") &&
                     (error.metadata as { argument?: unknown }).argument ===
                         "options.deadlineMs",
+            );
+        }
+        for (const [wrong, options] of Object.entries(WRONG_OPTIONS)) {
+            assert.equal(
+                await host.call(r, "bumpWrong", [wrong], CALL),
+                true,
+                wrong,
+            );
+            await assert.rejects(
+                host.call(t, "bump", [], options as CallOptions),
+                wrong,
             );
         }
         assert.equal(await host.call(t, "count", [], CALL), 0);

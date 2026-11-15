@@ -288,8 +288,9 @@ export interface SqliteRunResult {
 }
 
 /**
- * One statement, bound as `execute` binds. A text of two statements fails
- * with SQLite's error.
+ * One statement, bound as `execute` binds. A text of two statements rejects
+ * with `core.internal_error`, SQLite's words in its metadata, and writes
+ * nothing.
  */
 export interface RowAccess {
     /** The first row, or `undefined` when there is none. */
