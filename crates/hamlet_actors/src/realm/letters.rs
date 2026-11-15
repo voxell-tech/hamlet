@@ -1,31 +1,36 @@
 //! Letters, questions and answers along roads: the `letter` table,
 //! and `Tell`, `Ask` and `Reply` (H30).
 
-#![expect(
-    unused_variables,
-    dead_code,
-    reason = "the scaffold: U6 fills this file"
-)]
-
 use std::sync::Arc;
 
-use anyhow::Result;
-use hamlet_actor::Ctx;
+use anyhow::{Context as _, Result, bail};
+use hamlet_actor::{BindParam, Ctx};
 use hamlet_messages::address::Agent;
+use hamlet_messages::agent::{Author, Input, InputId, Submit};
 use hamlet_messages::realm::{
-    AgentRefusal, Ask, Done, LetterId, LetterRefusal, Reply,
-    ReplyRefusal, Tell,
+    AgentRefusal, Ask, Done, LetterId, LetterRefusal, Named,
+    Refusable, Reply, ReplyRefusal, Tell,
 };
-use hamlet_messages::workspace::{AgentNumber, ConversationId};
+use hamlet_messages::workspace::{
+    AgentNumber, ConversationId, RealmTask,
+};
+use serde::{Deserialize, Serialize};
 
-use super::act::{Act, Decision};
+use super::act::{Act, Decided, Decision};
 use super::calls::{Calls, Delivery, Made};
-use super::change::{Affected, Rows, Writer};
-use super::roads::{Ends, Way};
+use super::change::{self, Affected, Rows, Writer, number};
+use super::peer::When;
+use super::roads::{self, Ends, Way};
 use super::tasks::TaskId;
-use super::{Realm, not_built};
+use super::tree::Status;
+use super::{Realm, hire, laid};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+type Sent = Done<AgentRefusal<LetterRefusal>>;
+
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize,
+)]
+#[serde(rename_all = "snake_case")]
 pub(super) enum Kind {
     Letter,
     Question,
@@ -93,7 +98,28 @@ async fn keep(
     task: Option<TaskId>,
     conversation: Option<ConversationId>,
 ) -> Result<Affected> {
-    todo!()
+    writer
+        .execute(
+            "INSERT INTO letter (id, kind, sender, receiver, way, \
+             text, task, conversation, at) VALUES (?1, ?2, ?3, ?4, \
+             ?5, ?6, ?7, ?8, ?9)",
+            vec![
+                id(letter),
+                BindParam::Text(change::case_name(&kind)?),
+                number(from),
+                number(to),
+                BindParam::Text(way_name(way).to_owned()),
+                BindParam::Text(text),
+                task_column(task)?,
+                conversation
+                    .map_or(BindParam::Null, |conversation| {
+                        BindParam::Text(conversation.0)
+                    }),
+                BindParam::Integer(writer.at().0),
+            ],
+        )
+        .await?;
+    Ok(Affected::default())
 }
 
 async fn keep_answer(
@@ -101,12 +127,45 @@ async fn keep_answer(
     question: LetterId,
     text: String,
 ) -> Result<Affected> {
-    todo!()
+    writer
+        .execute(
+            "UPDATE letter SET answer = ?2 WHERE id = ?1 AND answer \
+             IS NULL",
+            vec![id(question), BindParam::Text(text)],
+        )
+        .await?;
+    Ok(Affected::default())
+}
+
+fn id(letter: LetterId) -> BindParam {
+    BindParam::Integer(i64::from(letter.0))
+}
+
+fn way_name(way: Way) -> &'static str {
+    match way {
+        Way::Tree => "tree",
+        Way::Mayors => "mayors",
+        Way::Laid => "laid",
+    }
+}
+
+// A task's column holds the number its wire form spells.
+fn task_column(task: Option<TaskId>) -> Result<BindParam> {
+    Ok(match task {
+        Some(task) => {
+            BindParam::Integer(task.on_the_wire().0.parse::<i64>()?)
+        }
+        None => BindParam::Null,
+    })
+}
+
+fn task_of(column: Option<u64>) -> Option<RealmTask> {
+    column.map(|task| RealmTask(task.to_string()))
 }
 
 /// The next letter's id.
 pub(super) async fn fresh(rows: &Rows<'_>) -> Result<LetterId> {
-    todo!()
+    Ok(LetterId(u32::try_from(rows.next_id("letter").await?)?))
 }
 
 /// Makes `delivery`, a letter or an answer, from its row as it is
@@ -117,7 +176,82 @@ pub(super) async fn deliver(
     ctx: &Ctx<Realm>,
     delivery: Delivery,
 ) -> Result<()> {
-    Err(not_built("U6"))
+    let rows = Rows::outside(ctx)?;
+    let (to, submit) = match delivery {
+        Delivery::Letter(letter) => {
+            letter_input(&rows, letter).await?
+        }
+        Delivery::Answer(question) => {
+            answer_input(&rows, question).await?
+        }
+        other => bail!("{other:?} is not a letter's"),
+    };
+    realm
+        .peers
+        .call(&Agent(to), &submit, When::AfterAnswer)
+        .await
+}
+
+async fn letter_input(
+    rows: &Rows<'_>,
+    letter: LetterId,
+) -> Result<(AgentNumber, Submit)> {
+    let (kind, sender, receiver, text, task) = rows
+        .row::<(String, u32, u32, String, Option<u64>)>(
+            "SELECT kind, sender, receiver, text, task FROM letter \
+             WHERE id = ?1",
+            vec![id(letter)],
+        )
+        .await?
+        .with_context(|| format!("no letter {}", letter.0))?;
+    let from = author(sender);
+    let input = match change::from_case_name::<Kind>(kind)? {
+        Kind::Letter => Input::Letter { from, text },
+        Kind::Question => Input::Question { letter, from, text },
+    };
+    let submit = Submit {
+        id: InputId(format!("letter/{}", letter.0)),
+        task: task_of(task),
+        input,
+    };
+    Ok((AgentNumber(receiver), submit))
+}
+
+// The asker's turn on the answer is paid as its question was.
+async fn answer_input(
+    rows: &Rows<'_>,
+    question: LetterId,
+) -> Result<(AgentNumber, Submit)> {
+    let found = rows
+        .row::<(u32, u32, Option<String>, Option<String>, Option<u64>)>(
+            "SELECT sender, receiver, answer, conversation, task FROM \
+             letter WHERE id = ?1",
+            vec![id(question)],
+        )
+        .await?;
+    let Some((asker, asked, Some(text), Some(conversation), task)) =
+        found
+    else {
+        bail!("question {} has no answer", question.0);
+    };
+    let submit = Submit {
+        id: InputId(format!("answer/{}", question.0)),
+        task: task_of(task),
+        input: Input::Answer {
+            question,
+            from: author(asked),
+            text,
+            conversation: ConversationId(conversation),
+        },
+    };
+    Ok((AgentNumber(asker), submit))
+}
+
+fn author(agent: u32) -> Author {
+    Author {
+        agent: AgentNumber(agent),
+        name: None,
+    }
 }
 
 pub(super) struct Letter {
@@ -125,8 +259,83 @@ pub(super) struct Letter {
     id: LetterId,
 }
 
+impl Letter {
+    async fn load(
+        rows: &Rows<'_>,
+        by: &Agent,
+        to: &Named,
+    ) -> Result<Self> {
+        Ok(Self {
+            ends: roads::ends(rows, by, to).await?,
+            id: fresh(rows).await?,
+        })
+    }
+}
+
+/// A letter or a question as its sender wrote it.
+struct Written<'a> {
+    kind: Kind,
+    text: &'a str,
+    task: Option<&'a RealmTask>,
+    conversation: Option<&'a ConversationId>,
+}
+
+impl Written<'_> {
+    fn decide(self, letter: Letter) -> Decision<LetterId, Sent> {
+        let refuse = |why| {
+            Decision::Answer(Done::refused(AgentRefusal::Act(why)))
+        };
+        let Letter { ends, id } = letter;
+        let Some(to) = &ends.to else {
+            return refuse(LetterRefusal::NoSuchAgent);
+        };
+        if to.agent == ends.from.agent {
+            return refuse(LetterRefusal::Yourself);
+        }
+        if self.text.trim().is_empty() {
+            return refuse(LetterRefusal::Empty);
+        }
+        match &to.status {
+            Status::Ended(left) => {
+                return refuse(LetterRefusal::Left {
+                    to: to.agent,
+                    left: left.clone(),
+                });
+            }
+            Status::Hiring => {
+                return Decision::WaitFor {
+                    row: hire::row(to.agent),
+                    refusal: Done::refused(AgentRefusal::Act(
+                        LetterRefusal::StillHiring { to: to.agent },
+                    )),
+                };
+            }
+            Status::Live => {}
+        }
+        let Some(way) = ends.way() else {
+            return refuse(LetterRefusal::NoRoad { to: to.agent });
+        };
+        let mut decided = Decided::new(id).change(Change::Keep {
+            letter: id,
+            kind: self.kind,
+            from: ends.from.agent,
+            to: to.agent,
+            way,
+            text: self.text.to_owned(),
+            task: self.task.and_then(TaskId::of),
+            conversation: self.conversation.cloned(),
+        });
+        if way == Way::Laid {
+            decided = decided.change(laid::Change::Used {
+                between: (ends.from.agent, to.agent),
+            });
+        }
+        Decision::Change(decided)
+    }
+}
+
 impl Act<Agent> for Tell {
-    type Output = Done<AgentRefusal<LetterRefusal>>;
+    type Output = Sent;
     type Loaded = Letter;
     type Done = LetterId;
 
@@ -135,28 +344,34 @@ impl Act<Agent> for Tell {
         by: &Agent,
         rows: &Rows<'_>,
     ) -> Result<Letter> {
-        todo!()
+        Letter::load(rows, by, &self.to).await
     }
 
     fn decide(
         &self,
-        by: &Agent,
+        _by: &Agent,
         letter: Letter,
-    ) -> Decision<LetterId, Self::Output> {
-        todo!()
+    ) -> Decision<LetterId, Sent> {
+        let written = Written {
+            kind: Kind::Letter,
+            text: &self.text,
+            task: self.task.as_ref(),
+            conversation: None,
+        };
+        written.decide(letter)
     }
 
-    fn deliveries(&self, by: &Agent, letter: &LetterId) -> Calls {
-        todo!()
+    fn deliveries(&self, _by: &Agent, letter: &LetterId) -> Calls {
+        Calls::after_answer(Delivery::Letter(*letter))
     }
 
-    fn answer(&self, letter: LetterId, made: &Made) -> Self::Output {
-        todo!()
+    fn answer(&self, _letter: LetterId, _made: &Made) -> Sent {
+        Done::Done
     }
 }
 
 impl Act<Agent> for Ask {
-    type Output = Done<AgentRefusal<LetterRefusal>>;
+    type Output = Sent;
     type Loaded = Letter;
     type Done = LetterId;
 
@@ -165,23 +380,29 @@ impl Act<Agent> for Ask {
         by: &Agent,
         rows: &Rows<'_>,
     ) -> Result<Letter> {
-        todo!()
+        Letter::load(rows, by, &self.to).await
     }
 
     fn decide(
         &self,
-        by: &Agent,
+        _by: &Agent,
         letter: Letter,
-    ) -> Decision<LetterId, Self::Output> {
-        todo!()
+    ) -> Decision<LetterId, Sent> {
+        let written = Written {
+            kind: Kind::Question,
+            text: &self.text,
+            task: self.task.as_ref(),
+            conversation: Some(&self.conversation),
+        };
+        written.decide(letter)
     }
 
-    fn deliveries(&self, by: &Agent, letter: &LetterId) -> Calls {
-        todo!()
+    fn deliveries(&self, _by: &Agent, letter: &LetterId) -> Calls {
+        Calls::after_answer(Delivery::Letter(*letter))
     }
 
-    fn answer(&self, letter: LetterId, made: &Made) -> Self::Output {
-        todo!()
+    fn answer(&self, _letter: LetterId, _made: &Made) -> Sent {
+        Done::Done
     }
 }
 
@@ -196,10 +417,24 @@ impl Act<Agent> for Reply {
 
     async fn load(
         &self,
-        by: &Agent,
+        _by: &Agent,
         rows: &Rows<'_>,
     ) -> Result<Option<Question>> {
-        todo!()
+        let asked = rows
+            .value::<u32>(
+                "SELECT receiver FROM letter WHERE id = ?1 AND kind \
+                 = ?2",
+                vec![
+                    id(self.question),
+                    BindParam::Text(change::case_name(
+                        &Kind::Question,
+                    )?),
+                ],
+            )
+            .await?;
+        Ok(asked.map(|asked| Question {
+            asked: AgentNumber(asked),
+        }))
     }
 
     fn decide(
@@ -207,19 +442,34 @@ impl Act<Agent> for Reply {
         by: &Agent,
         question: Option<Question>,
     ) -> Decision<LetterId, Self::Output> {
-        todo!()
+        let Some(question) = question else {
+            return Decision::Answer(Done::refused(
+                ReplyRefusal::NoSuchQuestion,
+            ));
+        };
+        if question.asked != by.0 {
+            return Decision::Answer(Done::refused(
+                ReplyRefusal::NotAsked,
+            ));
+        }
+        Decision::Change(Decided::new(self.question).change(
+            Change::Answer {
+                question: self.question,
+                text: self.text.clone(),
+            },
+        ))
     }
 
-    fn deliveries(&self, by: &Agent, question: &LetterId) -> Calls {
-        todo!()
+    fn deliveries(&self, _by: &Agent, question: &LetterId) -> Calls {
+        Calls::after_answer(Delivery::Answer(*question))
     }
 
     fn answer(
         &self,
-        question: LetterId,
-        made: &Made,
+        _question: LetterId,
+        _made: &Made,
     ) -> Self::Output {
-        todo!()
+        Done::Done
     }
 }
 
@@ -228,9 +478,7 @@ mod tests {
     use hamlet_messages::realm::{HamletId, Named};
 
     use super::*;
-    use crate::realm::hire;
     use crate::realm::roads::End;
-    use crate::realm::tree::Status;
 
     fn end(agent: u32, lead: Option<u32>) -> End {
         End {
@@ -257,7 +505,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "the scaffold: U6 fills it"]
     fn a_tell_with_no_road_is_refused() {
         let letter = Letter {
             ends: Ends {
@@ -278,7 +525,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "the scaffold: U6 fills it"]
     fn a_tell_to_a_hire_still_hiring_waits_for_its_steps() {
         let mut to = end(4, Some(3));
         to.status = Status::Hiring;

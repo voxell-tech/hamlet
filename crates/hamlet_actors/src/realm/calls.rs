@@ -48,7 +48,6 @@ impl Calls {
         }
     }
 
-    #[expect(dead_code, reason = "U6, U8 and U11 call it")]
     pub fn after_answer(delivery: Delivery) -> Self {
         Self {
             before_answer: Vec::new(),
