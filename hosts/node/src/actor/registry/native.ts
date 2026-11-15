@@ -781,10 +781,6 @@ export async function callNative<T>(invoke: () => Promise<T>): Promise<T> {
     }
 }
 
-/**
- * Encodes `args`, sends them through `callNative` and decodes the answer with
- * `decodeCborJsonCompat`, so an integer up to 2^53 - 1 is a `number`.
- */
 export async function callThrough(
     send: (args: RuntimeBytes) => Promise<RuntimeBytes>,
     args: readonly unknown[],
@@ -794,11 +790,7 @@ export async function callThrough(
     return answer.length === 0 ? undefined : decodeCborJsonCompat(answer);
 }
 
-/**
- * Gives `context` the caller read from `conn`'s raw parameters, never from
- * `conn.params`, which the actor's `connParamsSchema` may rewrite.
- */
-export function withConnCaller<T extends object>(
+function withConnCaller<T extends object>(
     context: T,
     runtime: CoreRuntime,
     conn: ConnHandle,
@@ -2880,7 +2872,6 @@ export class ActorContextHandleAdapter implements ContextCalls {
         args: ActionArgs<A, N>,
         options: CallOptions,
     ): Promise<ActionAnswer<A, N>> {
-        // The answer's type is the address's claim, unchecked here.
         return (await callThrough(
             (bytes) =>
                 this.#runtime.actorCall(this.#ctx, to, name, bytes, options),
@@ -2899,7 +2890,6 @@ export class ActorContextHandleAdapter implements ContextCalls {
         return addressFromHost(this.name, only);
     }
 
-    /** `null` with no connection: a fire of this actor's own schedule, or a hook. */
     get caller(): Caller | null {
         return null;
     }

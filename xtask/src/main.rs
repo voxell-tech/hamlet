@@ -79,7 +79,6 @@ const NATIVE: &str = "crates/hamlet_actor_node";
 /// build there compile the native module again.
 const NAPI_TYPES: &str = "target/napi-types";
 
-/// The files `napi build` writes from the native module's Rust.
 const DECLARATIONS: [&str; 2] = ["index.d.ts", "index.js"];
 
 /// The toolchain that formats Rust: `rustfmt.toml` uses unstable
@@ -492,8 +491,6 @@ fn node(root: &Path) -> Result<(), Failure> {
     status(&mut npm(PI, &["run", "check"]))?;
     status(&mut npm(PI, &["test"]))?;
     install(root, NODE_HOST)?;
-    // The declarations do not differ by system, and one CI job is
-    // enough to catch stale ones.
     if env::consts::OS == "linux" {
         declarations(root)?;
     } else {
@@ -519,8 +516,6 @@ fn node(root: &Path) -> Result<(), Failure> {
     ))
 }
 
-/// Says that `task` skips `what` because the native module's loader
-/// has no name for this system.
 fn unnamed(task: &str, what: &str) {
     eprintln!(
         "xtask: {task}: skips {what}: its loader has no name for \
@@ -579,10 +574,6 @@ fn native(
         .map_err(Failure::Native)
 }
 
-/// Writes the native module's `index.d.ts` and `index.js` from its
-/// Rust with the napi CLI, Biome and the changed-file notice, copies
-/// each one that changed over the committed one, and fails if any
-/// did.
 fn declarations(root: &Path) -> Result<(), Failure> {
     let Some((_, loaded)) = native_names() else {
         unnamed("declarations", "the native module's declarations");
@@ -735,7 +726,6 @@ fn locked(subcommand: &str, args: &[&str]) -> Command {
     command
 }
 
-/// Whether this runs in CI, where cargo must not update `Cargo.lock`.
 fn ci() -> bool {
     env::var_os("CI").is_some()
 }

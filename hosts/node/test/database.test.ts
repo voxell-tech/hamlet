@@ -8,7 +8,6 @@ import { db } from "../src/actor/db/mod.ts";
 
 type Result = Awaited<ReturnType<SqliteDatabase["execute"]>>;
 
-/** A database whose every statement answers `answers[sql]`, and logs what it ran. */
 function fake(answers: Record<string, Result>) {
     const ran: [string, string, SqliteBindings | undefined][] = [];
     const on =

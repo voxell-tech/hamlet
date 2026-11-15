@@ -61,10 +61,11 @@ test("callerOf reads each form of the host's stamp", () => {
     }
 });
 
-// `a1616e1b0000010000000000` is the CBOR Rust writes for `{ n: 2^40 }`.
+const RUST_CBOR_OF_N_2_POW_40 = "a1616e1b0000010000000000";
+
 test("an answer's integer from 2^32 reaches the caller as a number", async () => {
     const answer = await callThrough(
-        async () => Buffer.from("a1616e1b0000010000000000", "hex"),
+        async () => Buffer.from(RUST_CBOR_OF_N_2_POW_40, "hex"),
         [],
     );
     assert.deepEqual(answer, { n: 2 ** 40 });

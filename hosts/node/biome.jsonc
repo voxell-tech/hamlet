@@ -28,8 +28,6 @@
             }
         },
         {
-            // The package has no exports map, so this is what keeps the
-            // actor layer's internals out of the code built on it.
             "includes": ["src/**", "!src/actor/**"],
             "linter": {
                 "rules": {
@@ -49,7 +47,7 @@
                                         "group": [
                                             "**/actor/registry/native.ts"
                                         ],
-                                        "importNamePattern": "(callThrough|withConnCaller|callNative)",
+                                        "importNamePattern": "(callThrough|callNative)",
                                         "message": "Only the actor layer calls through the native module."
                                     }
                                 ]

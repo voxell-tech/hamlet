@@ -24,9 +24,7 @@ import { encodeCborCompat } from "../../src/actor/serde.ts";
 
 type Kinds = Readonly<Record<string, AnyActorDefinition>>;
 
-/** The all-local host of `K`'s kinds, every route allowed, as a test holds it. */
 export interface LocalHost<K extends Kinds> extends Calls {
-    /** The address of `kind`'s actor `key`, typed by the kind's definition. */
     at<N extends Extract<keyof K, string>>(
         kind: N,
         key: string,
@@ -36,10 +34,6 @@ export interface LocalHost<K extends Kinds> extends Calls {
     shutdown(): Promise<void>;
 }
 
-/**
- * Registers `kinds` and opens the host on `dir`. Its calls take the path of
- * `c.call`, with no caller.
- */
 export async function startLocalHost<K extends Kinds>(
     dir: string,
     kinds: K,
@@ -74,7 +68,6 @@ export async function startLocalHost<K extends Kinds>(
     };
 }
 
-/** Runs `body` in a new scratch folder, removed after. */
 export async function inFolder<T>(
     body: (dir: string) => Promise<T>,
 ): Promise<T> {
@@ -86,7 +79,6 @@ export async function inFolder<T>(
     }
 }
 
-/** Reads every 50 ms until `done` holds, for at most `ms`. */
 export async function eventually<T>(
     read: () => Promise<T>,
     done: (value: T) => boolean,

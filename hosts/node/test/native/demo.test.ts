@@ -11,6 +11,8 @@ import { db } from "../../src/actor/db/mod.ts";
 import { eventually, inFolder, startLocalHost } from "./support.ts";
 
 const CALL: CallOptions = { deadlineMs: 10_000 };
+const DOWN_PAST_THE_FIRE_MS = 800;
+const ROOM_FOR_A_SECOND_FIRE_MS = 300;
 
 type Note = { id: number; text: string; done: number };
 
@@ -30,7 +32,6 @@ const notes = actor({
             );
             return { id: lastInsertRowId };
         },
-        /** Answers how many rows changed and how many stay open, read on the transaction. */
         finish: async (c, ids: readonly number[]) =>
             await c.db.transaction(async (tx) => {
                 let changed = 0;
@@ -46,7 +47,6 @@ const notes = actor({
                 );
                 return { changed, open: open?.n ?? 0 };
             }),
-        /** Fails with the open count it read after its UPDATE, on the transaction. */
         finishThenFail: async (c) =>
             await c.db.transaction(async (tx) => {
                 await tx.run("UPDATE notes SET done = 1");
@@ -86,7 +86,6 @@ test("an actor's rows, their count and an inserted id outlive the action and the
         assert.deepEqual(await first.call(n1, "add", ["eggs"], CALL), {
             id: 2,
         });
-        // The third UPDATE changes no row.
         assert.deepEqual(await first.call(n1, "finish", [[1, 2, 2]], CALL), {
             changed: 2,
             open: 0,
@@ -187,14 +186,13 @@ test("an actor's own schedule fires once, also when the host was down at the tim
 
         await first.call(t1, "arm", [400, 8], CALL);
         await first.shutdown();
-        await sleep(800);
+        await sleep(DOWN_PAST_THE_FIRE_MS);
         const second = await startLocalHost(dir, { ticker });
         const rows = await eventually(
             () => second.call(second.at("ticker", "t1"), "fired", [], CALL),
             (rows) => rows.length > 1,
         );
-        // Long enough for a second firing to show.
-        await sleep(300);
+        await sleep(ROOM_FOR_A_SECOND_FIRE_MS);
         assert.deepEqual(
             await second.call(second.at("ticker", "t1"), "fired", [], CALL),
             rows,

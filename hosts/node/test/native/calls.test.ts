@@ -31,7 +31,6 @@ const answerer = actor({
 
 const asker = actor({
     actions: {
-        /** Calls `answerer/<key>` and tells it this actor's own address. */
         ask: async (c, key: string) =>
             await c.call(
                 Address.of<ActionsOf<typeof answerer>>("answerer", key),
@@ -43,7 +42,6 @@ const asker = actor({
     },
 });
 
-/** Calls `answerer/b` from its start hook, and keeps what it was told. */
 const greeter = actor({
     db: db({
         onMigrate: async (raw) => {
@@ -85,7 +83,6 @@ test("an actor names another and itself, and the callee reads the caller the hos
         });
         assert.ok(existsSync(join(dir, "actors", "answerer", "b.sqlite")));
 
-        // The program's call carries no caller, also right after an actor's.
         assert.deepEqual(await host.call(b, "who", [a], CALL), {
             me: { kind: "answerer", key: "b" },
             caller: null,
@@ -118,7 +115,6 @@ test("an actor calls another actor while it starts", async () => {
     });
 });
 
-/** Every field of an error a caller can read. */
 function readAll(error: unknown) {
     assert.ok(error instanceof ActorError, String(error));
     const { group, code, message, metadata, public: shown, statusCode } = error;

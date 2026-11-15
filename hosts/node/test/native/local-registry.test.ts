@@ -46,7 +46,6 @@ function hit(host: LocalHost<typeof KINDS>, key = "a1") {
     return host.call(host.at("counter", key), "hit", [], CALL);
 }
 
-/** Asserts that `promise` fails with the actor error `actor.<code>`. */
 async function failsWith(promise: Promise<unknown>, code: string) {
     await assert.rejects(promise, (error) =>
         isActorErrorCode(error, "actor", code),

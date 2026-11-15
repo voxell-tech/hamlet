@@ -112,8 +112,6 @@ export function db({
                 transactionScoped = false,
                 stateTransactionContext?: NativeStateTransactionContext,
             ): RawAccess => {
-                // `execute`'s accounting of one SQL text: the open check,
-                // the manual-transaction warning, metrics and the debug log.
                 const tracked = async <T>(
                     query: string,
                     run: () => Promise<T>,

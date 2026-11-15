@@ -49,19 +49,16 @@ const thrower = actor({
     },
 });
 
-/** What a caller reads of an error. */
 function read(error: unknown) {
     assert.ok(error instanceof ActorError, String(error));
     return {
         group: error.group,
         code: error.code,
         message: error.message,
-        // The bridge writes no metadata as null.
         metadata: error.metadata ?? null,
     };
 }
 
-/** Counts the calls that reached it. */
 const tally = actor({
     db: db({
         onMigrate: async (raw) => {
@@ -78,7 +75,6 @@ const tally = actor({
     },
 });
 
-/** Options of the wrong JavaScript type, which only a cast lets through. */
 const WRONG_OPTIONS: Readonly<Record<string, unknown>> = {
     "a string": { deadlineMs: "100" },
     "no deadline": {},
@@ -90,7 +86,6 @@ const WRONG_OPTIONS: Readonly<Record<string, unknown>> = {
 
 const relay = actor({
     actions: {
-        /** Calls `tally/t`'s `bump`, and answers what it read of an error. */
         bump: async (c, deadlineMs: number) => {
             try {
                 await c.call(
@@ -108,7 +103,6 @@ const relay = actor({
                 };
             }
         },
-        /** Calls `tally/t`'s `bump` with `WRONG_OPTIONS[wrong]`, and answers whether it rejected. */
         bumpWrong: async (c, wrong: string) =>
             await c
                 .call(
@@ -121,7 +115,6 @@ const relay = actor({
                     () => false,
                     () => true,
                 ),
-        /** Calls `thrower/t`'s `name`, and answers what it read of the error. */
         through: async (c, name: string, deadlineMs: number) => {
             try {
                 await c.call(Address.of("thrower", "t"), name, [], {
@@ -261,7 +254,6 @@ test("a deadline that is not a whole number of milliseconds from 1 to 2^32 - 1 i
             );
         }
         assert.equal(await host.call(t, "count", [], CALL), 0);
-        // 1 ms may time out, but is not refused.
         const one = await host.call(r, "bump", [1], CALL);
         assert.notEqual(one?.code, "napi.invalid_argument");
         assert.equal(await host.call(r, "bump", [2 ** 32 - 1], CALL), null);

@@ -1,5 +1,3 @@
-// Checked by `npm run check`'s tsc, never run: each `@ts-expect-error`
-// fails the check when the line under it compiles.
 import {
     type ActionsOf,
     Address,

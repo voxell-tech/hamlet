@@ -191,7 +191,6 @@ export interface JsAddress {
     kind: string;
     key: string;
 }
-/** The options of one call. */
 export interface JsCallOptions {
     /** Milliseconds, whole, from 1 to 2^32 - 1. */
     deadlineMs: number;

@@ -14,11 +14,7 @@ export interface Address<A = unknown> {
     readonly [actionsOf]: A;
 }
 
-/**
- * Internal: `hamlet_address::plain`. Every character it accepts is one
- * byte, so its length in characters is its length in bytes.
- */
-export const PLAIN_NAME = /^(?!\.)[a-z0-9._-]{1,128}$/;
+const PLAIN_NAME = /^(?!\.)[a-z0-9._-]{1,128}$/;
 
 export const Address = {
     /** Throws `napi.invalid_argument` for a name that is not plain. */
@@ -33,17 +29,11 @@ export const Address = {
     },
 } as const;
 
-/** Internal: an address the host made, so not checked again. */
 export function addressFromHost(kind: string, key: string): Address {
-    // The brand is type-only.
     return Object.freeze({ kind, key }) as Address;
 }
 
-/**
- * Internal: equal in group, code, message, metadata, `public` and
- * `statusCode` to the error `JsAddress::checked` gives for `to`.
- */
-export function invalidName(name: string): ActorError {
+function invalidName(name: string): ActorError {
     const reason = `\`${name}\` is not a valid actor kind or key: use lower-case letters, digits, \`-\`, \`_\` and \`.\`, and do not start with \`.\``;
     return new ActorError(
         "napi",
@@ -56,10 +46,6 @@ export function invalidName(name: string): ActorError {
 /** Who made a call, in `hamlet_host::Caller`'s serde form. */
 export type Caller = { readonly actor: Address } | "client";
 
-/**
- * Internal: the caller in a call's raw connection parameters, the CBOR of
- * `Option<hamlet_host::Caller>`.
- */
 export function callerOf(stamp: unknown): Caller | null {
     if (stamp === null || stamp === "client") return stamp;
     if (typeof stamp === "object" && stamp !== null && "actor" in stamp) {

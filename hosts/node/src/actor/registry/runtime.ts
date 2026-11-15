@@ -479,10 +479,6 @@ export interface CoreRuntime {
         actorName: string,
         actionName: string,
     ): RuntimeOutboundCall | undefined;
-    /**
-     * Calls the action `name` of the actor at `to` as the actor of `ctx`.
-     * `args` and the answer are CBOR.
-     */
     actorCall(
         ctx: ActorContextHandle,
         to: { kind: string; key: string },
