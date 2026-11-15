@@ -4,8 +4,14 @@
 //! demo [--name <name>] [--kind <kind>]... <command> ...
 //!
 //! --name <name>                 the host's name, `host` by default
-//! --kind <kind>                 a counter kind the host runs, as many
-//!                               as given, `counter` by default
+//! --kind <kind>                 a kind the host runs, as many as
+//!                               given. `workspace`, `realm` and
+//!                               `agent` are the workspace actor and
+//!                               the stand-ins of demo/realm.rs and
+//!                               demo/agent.rs; any other name is a
+//!                               counter kind. With none given the
+//!                               host runs `counter`, `workspace`,
+//!                               `realm` and `agent`
 //!
 //! demo increment <key> [times]  add one per time, each in a transaction
 //! demo get <key>                print the count
@@ -35,24 +41,25 @@
 //!                               demo/agent.rs
 //! ```
 //!
-//! A `<key>` names a counter of the first kind, and `<kind>/<key>` an
-//! actor of any kind. A command on a counter makes it first if there
-//! is none, except `timers` and `rearm`, which then fail. `call`
-//! makes only its caller: a call to a `<to>` with no actor fails with
-//! `actor.not_found` and makes none. Each command prints
-//! `<kind>/<key> <count>`, the count the actor replied with. Booting
-//! prints `boot <kind>/<key> <count>` for each actor it started, once
-//! its start ends. `timers` prints `timer <kind>/<key> <event_id>
-//! <action> due=<ms> tries=<n> error=<code>` for each timer, and
-//! `rearm` prints `rearm <kind>/<key> <event_id> <true|false>`.
-//! `call` prints `call <from> <to> <n> <us>us`, where `<n>` counts
-//! the calls `<to>` had from `<from>`, and `calls` prints `calls
-//! <from> <to> count=<n> p50=<us>us p99=<us>us from=<n>`, the times
-//! of the calls measured in the calling counter. A counter that is
-//! called logs its caller. An error is printed with the `group.code`
-//! of the actor's error it holds first, as `actor.not_found`. Logs go
-//! to standard error. The demo exits once its host has shut down,
-//! also when an actor it could not stop still blocks a thread.
+//! A `<key>` names a counter of the first counter kind, and
+//! `<kind>/<key>` an actor of any kind. A command on a counter makes
+//! it first if there is none, except `timers` and `rearm`, which then
+//! fail. `call` makes only its caller: a call to a `<to>` with no
+//! actor fails with `actor.not_found` and makes none. Each command
+//! prints `<kind>/<key> <count>`, the count the actor replied with.
+//! Booting prints `boot <kind>/<key> <count>` for each actor it
+//! started, once its start ends. `timers` prints `timer <kind>/<key>
+//! <event_id> <action> due=<ms> tries=<n> error=<code>` for each
+//! timer, and `rearm` prints `rearm <kind>/<key> <event_id>
+//! <true|false>`. `call` prints `call <from> <to> <n> <us>us`, where
+//! `<n>` counts the calls `<to>` had from `<from>`, and `calls`
+//! prints `calls <from> <to> count=<n> p50=<us>us p99=<us>us
+//! from=<n>`, the times of the calls measured in the calling counter.
+//! A counter that is called logs its caller. An error is printed with
+//! the `group.code` of the actor's error it holds first, as
+//! `actor.not_found`. Logs go to standard error. The demo exits once
+//! its host has shut down, also when an actor it could not stop still
+//! blocks a thread.
 
 #[path = "demo/act.rs"]
 mod act;
@@ -62,6 +69,8 @@ mod agent;
 mod command;
 #[path = "demo/counter.rs"]
 mod counter;
+#[path = "demo/kinds.rs"]
+mod kinds;
 #[path = "demo/realm.rs"]
 mod realm;
 
@@ -72,10 +81,8 @@ use std::time::Duration;
 
 use act::act;
 use anyhow::{Context, Result, anyhow, bail};
-use command::{number, print_reply, run, shown};
-use hamlet_actors::workspace;
+use command::{counter_kind, number, print_reply, run, shown};
 use hamlet_host::{Address, Host, HostOptions};
-use hamlet_messages::address::{self, Party};
 use hamlet_sandbox::{Isolation, Sandbox};
 use tokio::sync::mpsc;
 use tracing_subscriber::EnvFilter;
@@ -121,18 +128,8 @@ async fn demo() -> Result<()> {
     } else {
         counter::Sleep::WhenIdle
     };
-    let mut factories = counter::factories(
-        &kinds.iter().map(String::as_str).collect::<Vec<_>>(),
-        sleep,
-    );
-    factories.insert(
-        address::Workspace::KIND.to_owned(),
-        workspace::factory(),
-    );
-    factories
-        .insert(address::Realm::KIND.to_owned(), realm::factory());
-    factories
-        .insert(address::Agent::KIND.to_owned(), agent::factory());
+    let factories = kinds::factories(&kinds, sleep);
+    let counters = kinds::counters(&kinds);
     // The workspace does not start where there is no sandbox.
     let options = match Sandbox::open(Isolation::Sandboxed) {
         Ok(sandbox) => options.with_value(Arc::new(sandbox)),
@@ -141,7 +138,7 @@ async fn demo() -> Result<()> {
     let host = Host::open_with(&home, factories, options)?;
     let result = match command {
         Some("serve") => {
-            serve(&host, &kinds, loaded.unwrap_or(0)).await
+            serve(&host, &counters, loaded.unwrap_or(0)).await
         }
         Some("boot") => {
             let ms = number(args.get(1))?;
@@ -151,7 +148,7 @@ async fn demo() -> Result<()> {
         }
         Some(_) => {
             host.boot().await?;
-            run_line(&host, &kinds, args).await
+            run_line(&host, &counters, args).await
         }
         None => Err(anyhow!(
             "usage: demo [--name <name>] [--kind <kind>]... \
@@ -164,10 +161,10 @@ async fn demo() -> Result<()> {
 }
 
 /// Runs one command line split into words: the stub realm's, a stub
-/// agent's, or one for the counters of `kinds`.
+/// agent's, or one for the counter kinds `counters`.
 async fn run_line(
     host: &Host,
-    kinds: &[String],
+    counters: &[String],
     words: &[String],
 ) -> Result<()> {
     match words.split_first() {
@@ -177,12 +174,12 @@ async fn run_line(
         Some((first, rest)) if first == "agent" => {
             agent::run(host, rest).await
         }
-        _ => run(host, kinds, words).await,
+        _ => run(host, counters, words).await,
     }
 }
 
-/// The host's options and its counter kinds, read from the options
-/// before the command, and the words from the command on.
+/// The host's options and its kinds, read from the options before
+/// the command, and the words from the command on.
 fn options(
     args: &[String],
 ) -> Result<(HostOptions, Vec<String>, &[String])> {
@@ -208,23 +205,27 @@ fn options(
         }
     }
     if kinds.is_empty() {
-        kinds.push("counter".to_owned());
+        kinds = kinds::LOCAL
+            .iter()
+            .map(|kind| (*kind).to_owned())
+            .collect();
     }
     Ok((options, kinds, rest))
 }
 
-/// Boots, starts `loaded` counters of the first of `kinds`, then runs
-/// each line of stdin as a command until stdin ends or the process
-/// gets SIGTERM or Ctrl-C, also while a command runs.
+/// Boots, starts `loaded` counters of the first of `counters`, then
+/// runs each line of stdin as a command until stdin ends or the
+/// process gets SIGTERM or Ctrl-C, also while a command runs.
 async fn serve(
     host: &Host,
-    kinds: &[String],
+    counters: &[String],
     loaded: u64,
 ) -> Result<()> {
     print_began(host, host.boot().await?).await?;
     if loaded > 0 {
+        let kind = counter_kind(counters)?;
         for n in 1..=loaded {
-            let at = Address::new(&kinds[0], format!("load-{n}"))?;
+            let at = Address::new(kind, format!("load-{n}"))?;
             host.get_or_start(&at).await?;
         }
         writeln!(std::io::stdout(), "loaded {loaded}")?;
@@ -254,7 +255,7 @@ async fn serve(
             continue;
         }
         let ran = tokio::select! {
-            ran = run_line(host, kinds, &words) => ran,
+            ran = run_line(host, counters, &words) => ran,
             () = &mut stop => return Ok(()),
         };
         if let Err(error) = ran {

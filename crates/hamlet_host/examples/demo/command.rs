@@ -17,7 +17,7 @@ pub async fn run(
     kinds: &[String],
     words: &[String],
 ) -> Result<()> {
-    let kind = kinds.first().context("the demo runs no kind")?;
+    let kind = counter_kind(kinds)?;
     if words.first().is_some_and(|word| word == "calls") {
         return calls(host, kinds, kind, &words[1..]).await;
     }
@@ -153,6 +153,15 @@ async fn calls(
         at(99)
     )?;
     Ok(())
+}
+
+/// The first of the counter kinds `kinds`, which a key with no kind
+/// names.
+pub fn counter_kind(kinds: &[String]) -> Result<&str> {
+    kinds
+        .first()
+        .map(String::as_str)
+        .context("the host runs no counter kind")
 }
 
 /// Starts the actor at `at`, made if it has none, when its kind is
