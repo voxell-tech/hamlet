@@ -226,10 +226,9 @@ pub(super) async fn first_start(
 }
 
 pub(super) struct Founding {
-    profile: Option<tree::Profile>,
+    of: Result<tree::Of, ProfileId>,
     hamlet: HamletId,
     mayor: AgentNumber,
-    blank: ProfileId,
 }
 
 impl<By: RealmWide> Act<By> for Found {
@@ -243,15 +242,10 @@ impl<By: RealmWide> Act<By> for Found {
         _by: &By,
         rows: &Rows<'_>,
     ) -> Result<Founding> {
-        let profile = match self.mayor {
-            Some(id) => tree::profile(rows, id).await?,
-            None => None,
-        };
         Ok(Founding {
-            profile,
+            of: tree::made_of(rows, self.mayor).await?,
             hamlet: fresh(),
             mayor: tree::fresh(rows).await?,
-            blank: tree::fresh_profile(rows).await?,
         })
     }
 
@@ -265,16 +259,15 @@ impl<By: RealmWide> Act<By> for Found {
                 FoundRefusal::EmptyName,
             ));
         }
-        let of = match (self.mayor, founding.profile) {
-            (None, _) => tree::Of::Blank(founding.blank),
-            (Some(_), Some(profile)) => tree::Of::Profile(profile.id),
-            (Some(profile), None) => {
+        let Founding { of, hamlet, mayor } = founding;
+        let of = match of {
+            Ok(of) => of,
+            Err(profile) => {
                 return Decision::Answer(FoundAnswer::refused(
                     FoundRefusal::NoSuchProfile { profile },
                 ));
             }
         };
-        let Founding { hamlet, mayor, .. } = founding;
         Decision::Change(
             Decided::new((hamlet.clone(), mayor))
                 .change(Change::Found {
@@ -344,10 +337,9 @@ mod tests {
 
     fn founding() -> Founding {
         Founding {
-            profile: None,
+            of: Ok(tree::Of::Blank(ProfileId(2))),
             hamlet: HamletId("h".to_owned()),
             mayor: AgentNumber(2),
-            blank: ProfileId(2),
         }
     }
 
@@ -382,9 +374,13 @@ mod tests {
             found(" ", None).decide(&Client, founding()),
             refused(FoundRefusal::EmptyName)
         );
+        let missing = Founding {
+            of: Err(ProfileId(7)),
+            ..founding()
+        };
         assert_eq!(
             found("Mill", Some(ProfileId(7)))
-                .decide(&Client, founding()),
+                .decide(&Client, missing),
             refused(FoundRefusal::NoSuchProfile {
                 profile: ProfileId(7)
             })

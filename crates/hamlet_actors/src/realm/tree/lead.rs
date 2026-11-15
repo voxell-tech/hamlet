@@ -30,10 +30,8 @@ pub(in crate::realm) struct Hiring {
     under: Option<Lineage>,
     /// How many living hires the lead's hamlet holds.
     living: u32,
-    /// The profile named, when it is there.
-    profile: Option<super::Profile>,
+    of: Result<Of, ProfileId>,
     agent: AgentNumber,
-    blank: ProfileId,
 }
 
 impl<By: Lead> Act<By> for Hire {
@@ -72,17 +70,12 @@ impl<By: Lead> Act<By> for Hire {
             Some(hamlet) => super::living(rows, &hamlet.id).await?,
             None => 0,
         };
-        let profile = match self.profile {
-            Some(id) => super::profile(rows, id).await?,
-            None => None,
-        };
         Ok(Hiring {
             hamlet,
             under,
             living,
-            profile,
+            of: super::made_of(rows, self.profile).await?,
             agent: super::fresh(rows).await?,
-            blank: super::fresh_profile(rows).await?,
         })
     }
 
@@ -133,10 +126,9 @@ impl<By: Lead> Act<By> for Hire {
                 most: hamlet.most(),
             });
         }
-        let of = match (self.profile, hiring.profile) {
-            (None, _) => Of::Blank(hiring.blank),
-            (Some(_), Some(profile)) => Of::Profile(profile.id),
-            (Some(profile), None) => {
+        let of = match hiring.of {
+            Ok(of) => of,
+            Err(profile) => {
                 return refuse(HireRefusal::NoSuchProfile {
                     profile,
                 });
@@ -529,23 +521,21 @@ mod tests {
     #[test]
     fn a_hire_refuses_a_lead_elsewhere_a_full_hamlet_and_a_missing_profile()
      {
-        let decide =
-            |hire: Hire, hiring| hire.decide(&Client, hiring);
+        let hire = Hire {
+            hamlet: None,
+            under: None,
+            profile: None,
+            purpose: None,
+        };
+        let decide = |hiring| hire.decide(&Client, hiring);
         let refused =
             |why| Decision::Answer(HireAnswer::refused(why));
         let under_5 = || Hiring {
             hamlet: None,
             under: Some(lineage_of_5()),
             living: 3,
-            profile: None,
+            of: Ok(Of::Blank(ProfileId(6))),
             agent: AgentNumber(6),
-            blank: ProfileId(6),
-        };
-        let hire = Hire {
-            hamlet: None,
-            under: None,
-            profile: None,
-            purpose: None,
         };
         let elsewhere = Hiring {
             hamlet: Some(Some(HamletId("k".to_owned()))),
@@ -555,28 +545,25 @@ mod tests {
             living: 50,
             ..under_5()
         };
-        let missing = Hire {
-            profile: Some(ProfileId(9)),
-            ..hire.clone()
+        let missing = Hiring {
+            of: Err(ProfileId(9)),
+            ..under_5()
         };
 
-        assert!(matches!(
-            decide(hire.clone(), under_5()),
-            Decision::Change(_)
-        ));
+        assert!(matches!(decide(under_5()), Decision::Change(_)));
         assert_eq!(
-            decide(hire.clone(), elsewhere),
+            decide(elsewhere),
             refused(HireRefusal::NoSuchAgent)
         );
         assert_eq!(
-            decide(hire, full),
+            decide(full),
             refused(HireRefusal::Full {
                 hamlet: HamletId("h".to_owned()),
                 most: 50,
             })
         );
         assert_eq!(
-            decide(missing, under_5()),
+            decide(missing),
             refused(HireRefusal::NoSuchProfile {
                 profile: ProfileId(9)
             })

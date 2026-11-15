@@ -230,28 +230,23 @@ pub(super) async fn fresh(rows: &Rows<'_>) -> Result<AgentNumber> {
     Ok(AgentNumber(u32::try_from(rows.next_id("agent").await?)?))
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) struct Profile {
-    pub id: ProfileId,
-}
-
-pub(super) async fn profile(
+/// The profile a new hire is made of: the one `named`, else a new
+/// blank one. `Err` is the one named when it is missing.
+pub(super) async fn made_of(
     rows: &Rows<'_>,
-    id: ProfileId,
-) -> Result<Option<Profile>> {
-    Ok(rows
+    named: Option<ProfileId>,
+) -> Result<Result<Of, ProfileId>> {
+    let Some(named) = named else {
+        let blank = u32::try_from(rows.next_id("profile").await?)?;
+        return Ok(Ok(Of::Blank(ProfileId(blank))));
+    };
+    let found = rows
         .value::<u32>(
             "SELECT id FROM profile WHERE id = ?1",
-            vec![BindParam::Integer(i64::from(id.0))],
+            vec![BindParam::Integer(i64::from(named.0))],
         )
-        .await?
-        .map(|id| Profile { id: ProfileId(id) }))
-}
-
-pub(super) async fn fresh_profile(
-    rows: &Rows<'_>,
-) -> Result<ProfileId> {
-    Ok(ProfileId(u32::try_from(rows.next_id("profile").await?)?))
+        .await?;
+    Ok(found.map(|_| Of::Profile(named)).ok_or(named))
 }
 
 pub(super) async fn profile_of(
