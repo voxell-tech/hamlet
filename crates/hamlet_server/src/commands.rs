@@ -10,6 +10,7 @@ mod versions;
 
 use anyhow::{Result, anyhow};
 use bevy_app::App;
+use bevy_ecs::message::Messages;
 use bevy_ecs::resource::Resource;
 use bevy_ecs::system::{In, SystemId};
 use bevy_ecs::world::World;
@@ -18,7 +19,9 @@ use hamlet_protocol::client::{self as protocol, Choice};
 use hamlet_store::ids::{Actor, AgentId, HamletId, ScholarId};
 
 use crate::change::Done;
+use crate::clients::asked::FromClient;
 use crate::core::Core;
+use crate::server::AddHandler;
 use crate::society::addresses::{self, Reach};
 use crate::society::agents::{self, AgentKind};
 use crate::society::hires::{self, Hiring};
@@ -31,7 +34,8 @@ const BLANK: &str = "blank";
 type Run = fn(&mut Core<'_, '_>, &Line) -> Answer;
 
 pub(crate) fn plugin(app: &mut App) {
-    app.add_commands(SESSIONS)
+    app.add_handler::<FromClient<ChiefCommand>, _>(said)
+        .add_commands(SESSIONS)
         .add_commands(OVERSIGHT)
         .add_commands(VERSIONS)
         .add_commands(SHELVES)
@@ -363,13 +367,24 @@ impl AddCommands for App {
     }
 }
 
+/// A chief's line to an agent that begins with `/`.
+pub(crate) struct ChiefCommand(pub protocol::Say);
+
 /// A line to an agent that begins with `/`: a command (H24, H26),
 /// run by the system it was added with, answered once the state it
 /// leaves is published.
-pub(crate) fn said(
-    In((client, say)): In<(u64, protocol::Say)>,
-    world: &mut World,
-) -> Result<()> {
+fn said(world: &mut World) -> bevy_ecs::error::Result {
+    let taken = world
+        .resource_mut::<Messages<FromClient<ChiefCommand>>>()
+        .drain()
+        .next();
+    let Some(FromClient {
+        client,
+        request: ChiefCommand(say),
+    }) = taken
+    else {
+        return Ok(());
+    };
     let line = world
         .run_system_cached_with(line_of, (client, say.clone()))
         .map_err(|error| anyhow!("{error}"))??;
@@ -386,9 +401,11 @@ pub(crate) fn said(
             }
         }
     };
-    world
-        .run_system_cached_with(answered, (client, say.id, answer))
-        .map_err(|error| anyhow!("{error}"))?
+    world.run_system_cached_with(
+        answered,
+        (client, say.id, answer),
+    )??;
+    Ok(())
 }
 
 /// The command `say` holds, said to the agent it names; none when

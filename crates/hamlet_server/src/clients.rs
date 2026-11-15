@@ -32,7 +32,8 @@ use crate::diagnostic::{Secrets, tell};
 
 pub(crate) fn plugin(app: &mut bevy_app::App) {
     app.add_message::<OutgoingClientMessage>()
-        .add_observer(requests::left);
+        .add_observer(requests::left)
+        .add_plugins(asked::plugin);
 }
 
 /// A conversation a client watches, as one of its chats: an entity

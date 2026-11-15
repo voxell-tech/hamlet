@@ -1,11 +1,12 @@
-//! The server as a Bevy app. The realm's live state is the world's
-//! resources; a runner of its own sleeps until an input comes, runs
-//! it, and sleeps again. Nothing runs on a frame.
+//! The runner's side of the server. The realm's live state is the
+//! world's resources; the runner sleeps until an input comes, writes
+//! it as a message and updates the app once, then sleeps again.
+//! Nothing runs on a frame.
 //!
-//! Every input goes through [`Server::run`]: one that fails or
-//! panics is rolled back and logged, and the server goes on. Only a
-//! [`Fatal`] error, or a database that is no longer a realm's, stops
-//! it.
+//! Every input is one update in one transaction: one whose system
+//! fails or panics is rolled back and logged, and the server goes on.
+//! Only a [`Fatal`] error, or a database that is no longer a
+//! realm's, stops it.
 
 use std::cell::RefCell;
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -13,47 +14,58 @@ use std::sync::{Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context as _, Result};
-use bevy_app::App;
+use bevy_app::{App, First, Update};
 use bevy_ecs::entity::Entity;
 use bevy_ecs::error::{BevyError, ErrorContext};
+use bevy_ecs::message::{Message, Messages};
 use bevy_ecs::query::With;
 use bevy_ecs::resource::Resource;
-use bevy_ecs::system::{In, IntoSystem, ResMut, SystemState};
-use bevy_ecs::world::World;
-use hamlet_protocol::runtime::{
-    ErrorCode, ProtocolError, RuntimeMessage, ServerMessage,
+use bevy_ecs::schedule::common_conditions::on_message;
+use bevy_ecs::schedule::{IntoScheduleConfigs, ScheduleConfigs};
+use bevy_ecs::system::{
+    ResMut, ScheduleSystem, SystemParam, SystemState,
 };
+use bevy_ecs::world::World;
+use hamlet_protocol::client::RequestId;
 use hamlet_sandbox::Sandbox;
 use notify::RecommendedWatcher;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{mpsc, watch};
 
-use crate::after_input::{InputEffects, discard};
-use crate::background::BackgroundResult;
-use crate::calls::{Ran, ToolRun};
-use crate::clients::check::{failed, fault};
+use crate::background::{BackgroundFinished, BackgroundResult};
+use crate::calls::{Ran, ToolRun, ToolRunEnded};
+use crate::clients::Clients;
+use crate::clients::asked::{ClientConnected, ClientEvent};
 use crate::clients::connection::Event;
-use crate::clients::{Clients, asked};
-use crate::core::{
-    Confined, Core, Leftovers, RemoteWorkspace, UnpushedLodge,
-    Workspace,
-};
+use crate::clock;
+use crate::core::{Confined, Core, Leftovers, Workspace};
 use crate::credentials::Credentials;
 use crate::diagnostic::{self, Secrets, tell};
+use crate::follow_up::discard;
 use crate::jobs::Job;
-use crate::knowledge::runner::{RepositoryWriteLock, Runner};
+use crate::knowledge::runner::{
+    JobsDone, RepositoryWriteLock, Runner,
+};
 use crate::providers::Providers;
 use crate::realm::Realm;
 use crate::society::agents;
+use crate::talk::Env;
+use crate::talk::heard::RuntimeLineReceived;
 use crate::talk::process::{Pi, Received};
 use crate::talk::runtimes::{self, Harness, Runtimes};
-use crate::talk::sync::FittedImages;
-use crate::talk::{Env, heard};
-use crate::timers::{self, TimerSystem};
-use crate::work::added;
+use crate::talk::sync::{FittedImages, ImagesFitted};
+use crate::timers::{self, TimerFired, TimerSystem};
+use crate::work::added::{self, AddedToolsChanged};
 use crate::work::tools::shell::Shells;
 use crate::workspace::Transport;
-use crate::{AfterInput, ServerStartup, clock};
+
+/// The error handler, where each input begins, and who is told when
+/// one fails.
+pub(crate) fn plugin(app: &mut App) {
+    app.set_error_handler(record)
+        .init_resource::<InputOrigin>()
+        .add_systems(First, begin_input);
+}
 
 /// An input that wakes the server.
 pub(crate) enum Input {
@@ -77,6 +89,109 @@ pub(crate) enum Input {
     TimerDue,
     /// A timer that was due runs.
     TimerFired(TimerSystem),
+}
+
+impl Input {
+    /// Writes the input as the message its area's systems read.
+    fn write(self, world: &mut World) {
+        match self {
+            Input::RuntimeLine(received) => {
+                world.write_message(RuntimeLineReceived(received));
+            }
+            Input::JobsDone(done) => {
+                world.write_message(JobsDone(done));
+            }
+            Input::ConnectionEvent(event) => {
+                world.write_message(ClientEvent(event));
+            }
+            Input::ClientConnected(stream) => {
+                world.write_message(ClientConnected(stream));
+            }
+            Input::ToolRunEnded(ran) => {
+                world.write_message(ToolRunEnded(ran));
+            }
+            Input::ImagesFitted(fitted) => {
+                world.write_message(ImagesFitted(fitted));
+            }
+            Input::BackgroundWorkFinished(finished) => {
+                world.write_message(BackgroundFinished(*finished));
+            }
+            Input::AddedToolsChanged => {
+                world.write_message(AddedToolsChanged);
+            }
+            Input::TimerFired(fire) => {
+                world.write_message(TimerFired(fire));
+            }
+            // The input channels give a deadline as the timers it
+            // is.
+            Input::TimerDue => {}
+        }
+    }
+}
+
+/// Who sent the input being run, so a failure can tell them.
+#[derive(Resource, Default, Clone)]
+pub(crate) enum InputOrigin {
+    /// The server itself: a timer, a task, the jobs runner.
+    #[default]
+    Server,
+    /// A client's request, answered with the failure.
+    Client {
+        client: u64,
+        request: Option<RequestId>,
+    },
+    /// A runtime's message, answered with the failure when the
+    /// runtime awaits an answer to `awaited`.
+    Runtime {
+        runtime: Entity,
+        awaited: Option<String>,
+    },
+}
+
+/// Begins the input's transaction, which `PostUpdate` keeps or rolls
+/// back.
+fn begin_input(
+    mut realm: ResMut<Realm>,
+    mut origin: ResMut<InputOrigin>,
+) -> bevy_ecs::error::Result {
+    *origin = InputOrigin::Server;
+    hamlet_store::begin(realm.store().connection())?;
+    Ok(())
+}
+
+/// The message of type `T` the input brought, which its system takes
+/// once.
+#[derive(SystemParam)]
+pub(crate) struct InputMessage<'w, T: Message> {
+    messages: ResMut<'w, Messages<T>>,
+}
+
+impl<T: Message> InputMessage<'_, T> {
+    /// The message, taken; none when the input brought none.
+    pub fn take(&mut self) -> Option<T> {
+        self.messages.drain().next()
+    }
+}
+
+/// Adds the systems that take in inputs.
+pub(crate) trait AddHandler {
+    /// Adds `handler` to `Update` for the input message `T`, run only
+    /// when an input brought one.
+    fn add_handler<T: Message, M>(
+        &mut self,
+        handler: impl IntoScheduleConfigs<ScheduleSystem, M>,
+    ) -> &mut Self;
+}
+
+impl AddHandler for App {
+    fn add_handler<T: Message, M>(
+        &mut self,
+        handler: impl IntoScheduleConfigs<ScheduleSystem, M>,
+    ) -> &mut Self {
+        let handler: ScheduleConfigs<ScheduleSystem> =
+            handler.run_if(on_message::<T>);
+        self.add_message::<T>().add_systems(Update, handler)
+    }
 }
 
 /// The time the changes to the tools added by hand settle before they
@@ -185,16 +300,15 @@ impl InputChannels {
 #[error("{0:#}")]
 pub(crate) struct Fatal(pub anyhow::Error);
 
+/// SQLite's own words for SQLITE_CORRUPT and SQLITE_NOTADB, which are
+/// all diesel keeps of the code.
+const BROKEN: [&str; 2] =
+    ["database disk image is malformed", "file is not a database"];
+
 /// The check that `error` means the realm cannot be served safely:
 /// built as [`Fatal`], or a database SQLite calls corrupt or not a
 /// database.
 fn is_fatal(error: &anyhow::Error) -> bool {
-    // SQLite's own words for SQLITE_CORRUPT and SQLITE_NOTADB, which
-    // are all diesel keeps of the code.
-    const BROKEN: [&str; 2] = [
-        "database disk image is malformed",
-        "file is not a database",
-    ];
     error.chain().any(|cause| {
         cause.is::<Fatal>()
             || cause
@@ -208,22 +322,90 @@ fn is_fatal(error: &anyhow::Error) -> bool {
     })
 }
 
+/// A failure of an input: the words whoever sent it is told, every
+/// cause for the log, and whether the realm can still be served.
+#[derive(Clone, Debug)]
+pub(crate) struct Failure {
+    pub shown: String,
+    pub logged: String,
+    pub fatal: bool,
+}
+
+impl Failure {
+    pub fn of(error: &anyhow::Error) -> Self {
+        Self {
+            shown: format!("{error}"),
+            logged: format!("{error:#}"),
+            fatal: is_fatal(error),
+        }
+    }
+
+    /// The failure a system returned or panicked with. Its causes
+    /// are kept only in its debug form, as `anyhow` writes them.
+    fn of_system(mut error: BevyError) -> Self {
+        if let Some(panic) = error.take_payload() {
+            return Self::panicked(&*panic);
+        }
+        let whole = format!("{error:?}");
+        Self {
+            shown: error.to_string().trim_end().to_owned(),
+            fatal: BROKEN.iter().any(|words| whole.contains(words)),
+            logged: causes(&whole),
+        }
+    }
+
+    fn panicked(panic: &(dyn std::any::Any + Send)) -> Self {
+        let words = diagnostic::panicked(panic);
+        Self {
+            shown: words.clone(),
+            logged: words,
+            fatal: false,
+        }
+    }
+}
+
+/// The causes of an error's debug form on one line, as `{:#}` writes
+/// them: `anyhow` writes each on a line of its own under "Caused
+/// by:", numbered when there are several.
+fn causes(debug: &str) -> String {
+    debug
+        .lines()
+        .map(str::trim)
+        .take_while(|line| *line != "Stack backtrace:")
+        .filter(|line| !line.is_empty() && *line != "Caused by:")
+        .map(|line| {
+            line.split_once(": ")
+                .filter(|(number, _)| number.parse::<usize>().is_ok())
+                .map_or(line, |(_, cause)| cause)
+        })
+        .collect::<Vec<_>>()
+        .join(": ")
+}
+
 thread_local! {
-    /// The failures of systems since the runner last looked, as the
-    /// error handler records them. The server runs on one thread.
-    static FAILURES: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
+    /// The failures of the input being run, as the error handler
+    /// records them. The server runs on one thread.
+    static FAILURES: RefCell<Vec<Failure>> = const { RefCell::new(Vec::new()) };
 }
 
 /// The world's error handler: a system that fails or panics fails
-/// only the input it ran for, which the runner rolls back.
-fn record(error: BevyError, context: ErrorContext) {
-    FAILURES.with_borrow_mut(|failures| {
-        failures.push(format!("{context}: {error}"));
-    });
+/// only the input it ran for, which `PostUpdate` rolls back.
+fn record(error: BevyError, _: ErrorContext) {
+    fail(Failure::of_system(error));
+}
+
+/// Fails the input being run with `failure`.
+pub(crate) fn fail(failure: Failure) {
+    FAILURES.with_borrow_mut(|failures| failures.push(failure));
+}
+
+/// The input's first failure so far, if it failed.
+pub(crate) fn first_failure() -> Option<Failure> {
+    FAILURES.with_borrow(|failures| failures.first().cloned())
 }
 
 /// The failures recorded since the last call.
-fn recorded() -> Vec<String> {
+fn recorded() -> Vec<Failure> {
     FAILURES.with_borrow_mut(std::mem::take)
 }
 
@@ -241,8 +423,9 @@ pub(crate) struct Server {
 
 impl Server {
     /// Takes `realm` on in `app`, which has [`crate::ServerPlugin`]:
-    /// its jobs runner and its harness's runtime, and follows the
-    /// turns that ended before the last stop but were not followed.
+    /// its jobs runner and its harness's runtime. Its first update
+    /// runs `Startup`, which follows the turns that ended before the
+    /// last stop but were not followed.
     pub fn start(
         mut app: App,
         mut realm: Realm,
@@ -293,8 +476,7 @@ impl Server {
         )?;
         let clients = Clients::new(events_to, closing, clock::now())?;
         // What the areas start from, which only the start knows.
-        app.set_error_handler(record)
-            .insert_resource(realm)
+        app.insert_resource(realm)
             .insert_resource(env)
             .insert_resource(Harness::new(pi, lines_to))
             .insert_resource(credentials)
@@ -322,14 +504,9 @@ impl Server {
             inbox,
             watching,
         };
-        server.app.world_mut().run_schedule(ServerStartup);
-        if let Some(failure) = recorded().into_iter().next() {
-            anyhow::bail!("starting the realm: {failure}");
-        }
-        if let Some(failure) = server.apply().into_iter().next() {
-            anyhow::bail!(
-                "following the last stop's turns: {failure}"
-            );
+        let failures = server.update().map_err(|fatal| fatal.0)?;
+        if let Some(failure) = failures.first() {
+            anyhow::bail!("starting the realm: {}", failure.logged);
         }
         Ok(server)
     }
@@ -372,58 +549,40 @@ impl Server {
         }
     }
 
-    /// Runs `input` in one transaction, keeps it, then runs what
-    /// follows it. One that fails or panics is rolled back whole,
-    /// nothing it queued goes out, and it is logged; the server goes
-    /// on unless the realm cannot be served. Nothing here awaits:
-    /// what awaits runs on a task, whose result is an input.
+    /// Runs `input`: writes it as its message and updates the app
+    /// once, in one transaction. One that fails or panics is rolled
+    /// back whole, nothing it queued goes out, and it is logged; the
+    /// server goes on unless the realm cannot be served. Nothing here
+    /// awaits: what awaits runs on a task, whose result is an input.
     pub fn run(&mut self, input: Input) -> Result<(), Fatal> {
-        let ran = catch_unwind(AssertUnwindSafe(|| {
-            hamlet_store::begin(
-                self.core()?.realm.store().connection(),
-            )?;
-            self.handle(input)?;
-            // What the input spawned and despawned takes effect in
-            // its transaction, with what that sets off.
-            self.core.apply(self.app.world_mut());
-            hamlet_store::commit(
-                self.core()?.realm.store().connection(),
-            )
-        }));
-        let failure = match ran {
-            Ok(Ok(())) => None,
-            Ok(Err(error)) if is_fatal(&error) => {
-                return Err(Fatal(error));
-            }
-            Ok(Err(error)) => Some(format!("{error:#}")),
-            Err(panic) => Some(diagnostic::panicked(&*panic)),
-        };
-        if failure.is_some() {
-            self.core.apply(self.app.world_mut());
-            // A connection that cannot roll back what a panic left
-            // open cannot be trusted with the next change.
-            self.unwind()
-                .context("rolling back a failed input")
-                .map_err(Fatal)?;
-        } else if let Some(point) = self
-            .app
-            .world()
-            .resource::<InputEffects>()
-            .crash_test_fault_point
-        {
-            crate::fault::point(point);
-        }
-        let mut failures = recorded();
-        failures.extend(failure);
-        failures.extend(self.apply());
+        input.write(self.app.world_mut());
+        let failures = self.update()?;
         let core = self.core().map_err(Fatal)?;
         for failure in failures {
             tell(
                 Secrets::Of(&core.credentials),
-                format!("an input failed: {failure}"),
+                format!("an input failed: {}", failure.logged),
             );
         }
         Ok(())
+    }
+
+    /// Updates the app once. Gives what failed in it.
+    fn update(&mut self) -> Result<Vec<Failure>, Fatal> {
+        let updated =
+            catch_unwind(AssertUnwindSafe(|| self.app.update()));
+        let mut failures = recorded();
+        if let Err(panic) = updated {
+            // A panic no system caught leaves the input open.
+            failures.push(Failure::panicked(&*panic));
+            self.unwind()
+                .context("rolling back a failed input")
+                .map_err(Fatal)?;
+        }
+        if let Some(fatal) = failures.iter().find(|f| f.fatal) {
+            return Err(Fatal(anyhow::anyhow!(fatal.logged.clone())));
+        }
+        Ok(failures)
     }
 
     /// Rolls back the input that failed, and drops what it queued.
@@ -432,203 +591,6 @@ impl Server {
             self.core()?.realm.store().connection(),
         )?;
         discard(self.app.world_mut())
-    }
-
-    /// Runs [`AfterInput`]: what follows the input's changes. Gives
-    /// the failures of its steps.
-    fn apply(&mut self) -> Vec<String> {
-        let world = self.app.world_mut();
-        let applied = catch_unwind(AssertUnwindSafe(|| {
-            world.run_schedule(AfterInput);
-        }));
-        let mut failures = recorded();
-        if let Err(panic) = applied {
-            failures.push(diagnostic::panicked(&*panic));
-        }
-        failures
-    }
-
-    fn handle(&mut self, input: Input) -> Result<()> {
-        let world = self.app.world_mut();
-        match input {
-            Input::RuntimeLine(received) => self.line(received),
-            Input::ConnectionEvent(event) => self.connection(event),
-            Input::ClientConnected(stream) => {
-                // A connection is an entity until it goes.
-                let connection = self.core()?.clients.accept(stream);
-                self.app.world_mut().spawn(connection);
-                Ok(())
-            }
-            Input::TimerFired(fire) => world
-                .run_system(fire)
-                .map_err(|error| anyhow::anyhow!("{error}"))?,
-            Input::JobsDone(done) => once(world, worked, done),
-            Input::ToolRunEnded(ran) => once(world, ran_one, ran),
-            Input::ImagesFitted(fitted) => {
-                once(world, fitted_one, fitted)
-            }
-            Input::BackgroundWorkFinished(finished) => {
-                self.finished(*finished)
-            }
-            Input::AddedToolsChanged => world
-                .run_system_cached(added::reload)
-                .map_err(|error| anyhow::anyhow!("{error}"))?,
-            // The input channels give a deadline as the timers it
-            // is.
-            Input::TimerDue => Ok(()),
-        }
-    }
-
-    /// Takes in what a task finished with.
-    fn finished(&mut self, finished: BackgroundResult) -> Result<()> {
-        let mut core = self.core()?;
-        match finished {
-            BackgroundResult::Reply { client, message } => {
-                core.answer(client, message)
-            }
-            BackgroundResult::Moving { progress, answer } => {
-                core.remote.moving.0 = Some(progress);
-                core.changed.state_changed_outside_change = true;
-                if let Some((client, message)) = answer {
-                    core.answer(client, message)?;
-                }
-                Ok(())
-            }
-            BackgroundResult::Looked { call, found, again } => {
-                if let Some(receiver) = core.looks.found(call, found)
-                {
-                    core.remote
-                        .unpushed
-                        .write(UnpushedLodge(receiver));
-                }
-                // A runtime that started again since asks again.
-                if core.runtimes.generation(again.from)
-                    != Some(again.generation)
-                {
-                    return Ok(());
-                }
-                // The request asked again finds what was found.
-                self.core.apply(self.app.world_mut());
-                heard::hear(
-                    self.app.world_mut(),
-                    again.from,
-                    again.message,
-                )
-            }
-        }
-    }
-
-    /// Takes in what a connection did. A request is run by the system
-    /// for it; one whose handling fails leaves its transaction rolled
-    /// back, and the client is told.
-    fn connection(&mut self, event: Event) -> Result<()> {
-        let (client, text) = match event {
-            Event::Late(client) => {
-                self.core()?.late(client);
-                return Ok(());
-            }
-            Event::Gone(client) => {
-                // Its hooks and observers take what the client held,
-                // and its uploads go with it.
-                let gone = self.core()?.connections.entity(client);
-                if let Some(gone) = gone {
-                    self.app.world_mut().despawn(gone);
-                }
-                return Ok(());
-            }
-            Event::Message(client, text) => (client, text),
-        };
-        let Some(message) = self.core()?.checked(client, &text)?
-        else {
-            return Ok(());
-        };
-        let id = message.id().cloned();
-        let world = self.app.world_mut();
-        let asked = catch_unwind(AssertUnwindSafe(|| {
-            asked::ask(world, client, message)
-        }));
-        let (shown, logged) = match asked {
-            Ok(Ok(())) => return Ok(()),
-            Ok(Err(error)) => {
-                (format!("{error}"), format!("{error:#}"))
-            }
-            Err(panic) => {
-                let words = diagnostic::panicked(&*panic);
-                (words.clone(), words)
-            }
-        };
-        self.unwind()?;
-        let mut core = self.core()?;
-        tell(
-            Secrets::Of(&core.credentials),
-            format!("a request failed: {logged}"),
-        );
-        core.answer(client, fault(id.as_ref(), failed(shown)))
-    }
-
-    /// Takes in a runtime's line: its message is run by the system
-    /// for it. A message whose handling fails leaves its transaction
-    /// rolled back, and a runtime that waits is told; it goes on.
-    fn line(&mut self, received: Received) -> Result<()> {
-        let mut core = self.core()?;
-        if !core.runtimes.is_current(&received) {
-            return Ok(());
-        }
-        let from = received.runtime;
-        let Some(line) = received.line else {
-            core.runtimes.failed(from);
-            core.leases.gone(from);
-            return Ok(());
-        };
-        let message =
-            match serde_json::from_str::<RuntimeMessage>(&line) {
-                Ok(message) => message,
-                Err(error) => {
-                    tell(
-                        Secrets::Of(&core.credentials),
-                        format!(
-                            "a runtime's line is not a message: \
-                             {error}"
-                        ),
-                    );
-                    return Ok(());
-                }
-            };
-        let reply_address = heard::awaited(&message);
-        let world = self.app.world_mut();
-        let heard = catch_unwind(AssertUnwindSafe(|| {
-            heard::hear(world, from, message)
-        }));
-        let failure = match heard {
-            Ok(Ok(())) => None,
-            Ok(Err(error)) => Some(format!("{error:#}")),
-            Err(panic) => Some(diagnostic::panicked(&*panic)),
-        };
-        if failure.is_some() {
-            self.unwind()?;
-        }
-        let mut core = self.core()?;
-        if let Some(failure) = failure {
-            tell(
-                Secrets::Of(&core.credentials),
-                format!("a runtime's line failed: {failure}"),
-            );
-            if let Some(reply_address) = reply_address {
-                let message =
-                    core.credentials.scrub_text(&failed(failure));
-                core.runtimes.send(from, |v, id| {
-                    ServerMessage::Error(ProtocolError {
-                        code: ErrorCode::Failed,
-                        id,
-                        message,
-                        re: Some(reply_address),
-                        v,
-                    })
-                });
-            }
-        }
-        core.answer_credentials();
-        Ok(())
     }
 
     /// Readies the realm to stop: every sign-in ends, and a
@@ -680,48 +642,6 @@ impl Server {
     }
 }
 
-/// Runs `system` once with `input`, as a cached one-shot system.
-fn once<I, M>(
-    world: &mut World,
-    system: impl IntoSystem<In<I>, Result<()>, M> + 'static,
-    input: I,
-) -> Result<()>
-where
-    I: Send + 'static,
-{
-    world
-        .run_system_cached_with(system, input)
-        .map_err(|error| anyhow::anyhow!("{error}"))?
-}
-
-/// A pass of the jobs runner did jobs: the lodges they changed are
-/// owed a push, and the clients see what they did.
-fn worked(
-    In(done): In<Vec<Job>>,
-    mut realm: ResMut<Realm>,
-    mut remote: RemoteWorkspace,
-    mut changed: ResMut<InputEffects>,
-) -> Result<()> {
-    remote.owe_pushes(realm.store().connection(), &done);
-    changed.state_changed_outside_change = true;
-    Ok(())
-}
-
-/// A tool run ended.
-fn ran_one(In(ran): In<Ran>, mut core: Core) -> Result<()> {
-    core.ran(ran)
-}
-
-/// The images of an input were fitted: it may go to its runtime.
-fn fitted_one(
-    In(fitted): In<FittedImages>,
-    mut core: Core,
-) -> Result<()> {
-    core.fitting.fitted(fitted);
-    core.changed.runtime_answered = true;
-    Ok(())
-}
-
 /// A test's wait on a condition of the realm.
 #[cfg(all(test, feature = "harness"))]
 pub(crate) async fn until(
@@ -730,12 +650,15 @@ pub(crate) async fn until(
     mut done: impl FnMut(&mut Core<'_, '_>) -> Result<bool>,
 ) -> Result<()> {
     let deadline = Instant::now() + Duration::from_secs(20);
-    // What the test changed itself is kept as an input's end keeps
-    // it, and followed.
+    // What the test changed itself is kept and followed as an
+    // input's changes are.
     server.core.apply(server.app.world_mut());
-    hamlet_store::commit(server.core()?.realm.store().connection())?;
-    if let Some(failure) = server.apply().into_iter().next() {
-        anyhow::bail!("following the test's changes: {failure}");
+    let failures = server.update()?;
+    if let Some(failure) = failures.first() {
+        anyhow::bail!(
+            "following the test's changes: {}",
+            failure.logged
+        );
     }
     while !done(&mut server.core()?)? {
         anyhow::ensure!(
@@ -805,7 +728,7 @@ mod tests {
             Sandbox::open(hamlet_sandbox::Isolation::Sandboxed)
                 .unwrap();
         let (_closing, closed) = watch::channel(false);
-        let mut app = App::empty();
+        let mut app = App::new();
         app.add_plugins(crate::ServerPlugin {
             options: crate::options::Options {
                 home: dir.join("realm"),

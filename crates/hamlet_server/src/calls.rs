@@ -42,6 +42,7 @@ use crate::images::fitting::kept_pictures;
 use crate::knowledge::CHARACTER;
 use crate::oversight::gate::{Asked, Session};
 use crate::oversight::{self, Raise, Ruling, WaitKind};
+use crate::server::{AddHandler, InputMessage};
 use crate::talk::conversations::{Conversation, Kind};
 use crate::talk::marks::Mark;
 use crate::talk::{asking, conversations, inputs, models};
@@ -67,7 +68,23 @@ const NO_CHIEF: &str =
 /// The channel of ended tool runs.
 pub(crate) fn plugin(app: &mut bevy_app::App) {
     let ran = crate::server::input_channel::<Ran>(app);
-    app.insert_resource(Calls { ran });
+    app.insert_resource(Calls { ran })
+        .add_handler::<ToolRunEnded, _>(take_in_ran);
+}
+
+/// A tool run ended.
+#[derive(bevy_ecs::message::Message)]
+pub(crate) struct ToolRunEnded(pub Ran);
+
+/// Takes in a tool run that ended.
+fn take_in_ran(
+    mut ended: InputMessage<ToolRunEnded>,
+    mut core: Core,
+) -> bevy_ecs::error::Result {
+    if let Some(ToolRunEnded(ran)) = ended.take() {
+        core.ran(ran)?;
+    }
+    Ok(())
 }
 
 /// A tool call, by its runtime and key.

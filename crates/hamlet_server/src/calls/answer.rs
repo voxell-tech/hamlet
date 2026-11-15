@@ -6,9 +6,9 @@ use hamlet_protocol::client::{Choice, Permission, Pick};
 use hamlet_store::ids::{Actor, ChiefId, WaitId};
 
 use super::{chat_session, held};
-use crate::after_input::WakeHeldCall;
 use crate::change::Change;
 use crate::core::Core;
+use crate::follow_up::WakeHeldCall;
 use crate::oversight::gate::{self, Asked};
 use crate::oversight::{self, Danger, Ruling, Wait, WaitKind};
 use crate::society::addresses;

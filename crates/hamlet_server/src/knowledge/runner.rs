@@ -8,18 +8,47 @@ use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
 use anyhow::Result;
+use bevy_ecs::message::Message;
 use bevy_ecs::resource::Resource;
+use bevy_ecs::system::ResMut;
 use diesel::connection::SimpleConnection;
 use hamlet_store::Store;
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::clock;
+use crate::core::RemoteWorkspace;
 use crate::diagnostic::{Secrets, panicked, tell};
+use crate::follow_up::InputEffects;
 use crate::jobs::Job;
 use crate::layout::Layout;
+use crate::realm::Realm;
+use crate::server::{AddHandler, InputMessage};
 
 /// The longest the runner sleeps with nothing due.
 const IDLE: Duration = Duration::from_secs(60);
+
+/// What a pass of the runner did comes back as an input.
+pub(crate) fn plugin(app: &mut bevy_app::App) {
+    app.add_handler::<JobsDone, _>(take_in_jobs_done);
+}
+
+/// A pass of the runner that did jobs.
+#[derive(Message)]
+pub(crate) struct JobsDone(pub Vec<Job>);
+
+/// The lodges the runner's jobs changed are owed a push, and the
+/// clients see what they did.
+fn take_in_jobs_done(
+    mut done: InputMessage<JobsDone>,
+    mut realm: ResMut<Realm>,
+    mut remote: RemoteWorkspace,
+    mut changed: ResMut<InputEffects>,
+) {
+    if let Some(JobsDone(done)) = done.take() {
+        remote.owe_pushes(realm.store().connection(), &done);
+        changed.state_changed_outside_change = true;
+    }
+}
 
 #[derive(Resource)]
 pub(crate) struct Runner {

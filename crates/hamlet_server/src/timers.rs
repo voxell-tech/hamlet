@@ -1,17 +1,40 @@
 //! The server's timers. Each area adds its own: a system that says
 //! when it is next due, or a period, and a system that runs then. The
-//! runner sleeps until the soonest, so nothing runs on a tick.
+//! runner sleeps until the soonest, so nothing runs on a tick, and
+//! each due timer is an input of its own.
 
 use std::time::{Duration, Instant};
 
 use anyhow::{Result, anyhow};
 use bevy_app::App;
+use bevy_ecs::message::{Message, Messages};
 use bevy_ecs::resource::Resource;
 use bevy_ecs::system::{IntoSystem, SystemId};
 use bevy_ecs::world::World;
 
+use crate::server::AddHandler;
+
+/// A due timer runs as the input that fired it.
+pub(crate) fn plugin(app: &mut App) {
+    app.add_handler::<TimerFired, _>(fire);
+}
+
 /// The system a timer runs when it is due.
 pub(crate) type TimerSystem = SystemId<(), Result<()>>;
+
+/// A due timer, fired.
+#[derive(Message)]
+pub(crate) struct TimerFired(pub TimerSystem);
+
+/// Runs the timer the input fired.
+fn fire(world: &mut World) -> bevy_ecs::error::Result {
+    let fired =
+        world.resource_mut::<Messages<TimerFired>>().drain().next();
+    if let Some(TimerFired(system)) = fired {
+        world.run_system(system)??;
+    }
+    Ok(())
+}
 
 /// A timer's next due time.
 enum TimerDueTime {

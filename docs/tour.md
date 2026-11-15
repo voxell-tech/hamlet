@@ -19,14 +19,15 @@ Window / terminal -- client protocol --> hamlet_server -- runtime protocol --> p
 
 The server is a Bevy app with no frame
 ([ADR 0015](adr/0015-the-server-runs-as-a-bevy-app-with-no-frame.md)): its runner sleeps until
-an input comes and runs it alone (`server.rs`). A typed line reaches the
-system for its request (`clients/asked.rs`). A line that begins with `/` is a
-command, run by the system it was added with (`commands.rs`); other words
-become a kept input of the agent's chat (`talk/chats.rs`). Every change an
-input makes is in its one transaction, which also keeps the jobs its changes
-need; once it is kept, the `AfterInput` schedule (`after_input.rs`) follows the inputs
-that ended, runs the jobs, starts the tool runs, sends the runtimes what they
-are owed and the clients the state, then their replies. A handler never
+an input comes and updates the app once for it (`server.rs`). A typed line
+is read into a request of its kind and reaches the system for that kind
+(`clients/asked.rs`). A line that begins with `/` is a command, run by the
+system it was added with (`commands.rs`); other words become a kept input of
+the agent's chat (`talk/chats.rs`). Every change an input makes is in its one
+transaction, which also keeps the jobs its changes need; `PostUpdate` keeps it
+(`follow_up.rs`), follows the inputs that ended, runs the jobs and starts the
+tool runs, and `Last` sends the runtimes what they are owed and the clients
+the state, then their replies. A handler never
 awaits: what awaits runs on a task whose result comes back as an input
 (`background.rs`). Pi asks the server for its prompt, tool permissions and
 model budget. The server checks calls again when executing them, including
@@ -161,9 +162,9 @@ double of the remote workspace worker.
 
 | Module | Responsibility and interface |
 |---|---|
-| `lib.rs`, `options.rs` | The way in: `ServerPlugin`, which `main` adds to an empty app with the `Options` read from the command line, adds the `ServerStartup` and `AfterInput` schedules, the order of `AfterInput`'s steps, every area's plugin and the runner. The crate's first comment says in which order to read the rest |
+| `lib.rs`, `options.rs` | The way in: `ServerPlugin`, which `main` adds to `App::new()` with the `Options` read from the command line, adds the order of the `ServerSystems` in `PostUpdate` and `Last`, every area's plugin and the runner. The crate's first comment says in which order to read the rest |
 | `serve.rs`, `realm.rs`, `claim.rs`, `layout.rs` | `runner` is the app's runner; `serve` goes from start to stop: probes the sandbox, opens the realm, starts the server and the harness, publishes `server.json`, and closes in order. `Realm::open` claims a folder, opens its `Store`, checks the `realm.id` pair, and makes a new realm with its first chief and its Hand. `Layout` names every path of the realm's folder |
-| `server.rs`, `core.rs`, `startup.rs`, `after_input.rs`, `background.rs`, `timers.rs` | `Server` takes in each `Input` (a runtime's line, a client's message, a tool run that ended, a task that finished, the jobs runner's pass, a change to the tools added by hand, a timer) and runs it in one transaction through one wrapper that commits it, or rolls back, drops what it queued and logs one that fails or panics; only a `Fatal` error stops it. Each area's plugin inserts the resources it keeps, and a task's results come back on a channel `server::input_channel` hands it. `Core` is the realm's live state as handlers reach it, a `SystemParam` of the world's resources and queries, some grouped as params of their own (`ModelTools`, `RemoteWorkspace`, `Uploads`) that narrower systems take alone, with `change` and `attempt` (the second rolling back a refusal, its result a `Done`). `startup.rs` holds the systems of `ServerStartup`, run once before the first input; `after_input.rs` those of `AfterInput`, run after each input, with the observers that follow an input that ended; `background.rs` runs what awaits on tasks; `timers.rs` the timers each area adds |
+| `server.rs`, `core.rs`, `startup.rs`, `follow_up.rs`, `background.rs`, `timers.rs` | `Server` takes in each `Input` (a runtime's line, a client's message, a tool run that ended, a task that finished, the jobs runner's pass, a change to the tools added by hand, a timer), writes it as a message and updates the app once, in one transaction; it logs what failed, and only a `Fatal` error stops it. `add_handler` adds an area's system for one kind of input message, and `InputMessage` takes that message; `InputOrigin` names who is told when an input fails. Each area's plugin inserts the resources it keeps, and a task's results come back on a channel `server::input_channel` hands it. `Core` is the realm's live state as handlers reach it, a `SystemParam` of the world's resources and queries, some grouped as params of their own (`ModelTools`, `RemoteWorkspace`, `Uploads`) that narrower systems take alone, with `change` and `attempt` (the second rolling back a refusal, its result a `Done`). `startup.rs` holds the systems of `Startup`, which the first update runs; `follow_up.rs` those of `PostUpdate` and `Last`: the input kept or rolled back and its sender told, then followed, with the observers that follow an input that ended, and what it queued sent; `background.rs` runs what awaits on tasks; `timers.rs` the timers each area adds |
 | `change.rs`, `jobs.rs` | `Change`, a change in progress: its transaction, its time, its actor and what it touched. `Job` names each effect a change keeps for after its commit |
 | `society.rs`, `society/` | The society's domain functions, each taking a `Change`: `agents` (what every agent has), `chiefs`, `hand`, `city` (scholars), `hamlets`, `hires`, `tree`, `workers`, `roads`, `merges`, `dreams`, `library`, `record` (decisions), `limits`, `addresses`, `names` and `authority`, the one place that says who may do what. A refusal is a `Refusal`, in words for a chief or an agent |
 | `knowledge.rs`, `knowledge/` | What agents know, on disk: `run.rs` and `runner.rs` run the jobs on a thread of their own with a connection of their own (plant, lodge, commit, take-in, erase); `folder.rs` is a folder held open and reached without following links; `merging.rs`, `dreaming.rs` and `library.rs` are the repositories' side of merging hires, dreams and the library |

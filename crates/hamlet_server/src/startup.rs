@@ -1,17 +1,16 @@
-//! The steps the runner takes once, before the first input: the
-//! runtimes start, the tools added by hand load, each agent's tools
-//! are narrowed to its role, the providers are asked what they
-//! serve, and the turns the last stop left are followed.
-//! [`crate::AfterInput`] keeps what they changed.
+//! The systems of `Startup`, which the first update runs before
+//! anything else: the runtimes start, the tools added by hand load,
+//! each agent's tools are narrowed to its role, the providers are
+//! asked what they serve, and the turns the last stop left are
+//! followed. `PostUpdate` keeps what they changed.
 
-use bevy_app::App;
+use bevy_app::{App, Startup};
 use bevy_ecs::error::Result;
 use bevy_ecs::schedule::IntoScheduleConfigs;
-use bevy_ecs::system::{Res, ResMut};
+use bevy_ecs::system::ResMut;
 use hamlet_store::ids::Actor;
 
-use crate::ServerStartup;
-use crate::core::{Core, ModelTools};
+use crate::core::Core;
 use crate::realm::Realm;
 use crate::talk::follow::follow;
 use crate::talk::inputs;
@@ -20,11 +19,11 @@ use crate::work::added;
 
 pub(crate) fn plugin(app: &mut App) {
     app.add_systems(
-        ServerStartup,
+        Startup,
         (
             start_runtimes,
-            load_tools,
-            crate::after_input::narrow_tools_to_roles,
+            added::reload,
+            crate::follow_up::narrow_tools_to_roles,
             ask_providers,
             follow_unfollowed,
         )
@@ -37,16 +36,6 @@ fn start_runtimes(
     runtimes: Runtimes,
 ) -> Result {
     runtimes::start(realm, runtimes)?;
-    Ok(())
-}
-
-fn load_tools(
-    realm: Res<Realm>,
-    tools: ModelTools,
-    runtimes: Runtimes,
-    changed: ResMut<crate::after_input::InputEffects>,
-) -> Result {
-    added::reload(realm, tools, runtimes, changed)?;
     Ok(())
 }
 

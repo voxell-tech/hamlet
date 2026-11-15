@@ -5,6 +5,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use bevy_app::App;
+use bevy_ecs::message::Message;
 use bevy_ecs::system::{Res, ResMut};
 use hamlet_os::fs::path::{resolve, text};
 use hamlet_protocol::runtime::{
@@ -19,10 +21,11 @@ use serde::Deserialize;
 use serde_json::{Map, Value, json};
 use tokio::sync::mpsc::UnboundedSender;
 
-use crate::after_input::InputEffects;
 use crate::core::{Catalogue, ModelTools};
 use crate::diagnostic::{Secrets, tell};
+use crate::follow_up::InputEffects;
 use crate::realm::Realm;
+use crate::server::AddHandler;
 use crate::talk::runtimes::Runtimes;
 use crate::work::tools::{Network, Outcome, diagnostic};
 
@@ -66,6 +69,16 @@ enum Unloaded {
     Taken(String),
 }
 
+/// The tools added by hand load again whenever their folder changes.
+pub(crate) fn plugin(app: &mut App) {
+    app.add_handler::<AddedToolsChanged, _>(reload);
+}
+
+/// The folder of the tools added by hand changed, and its changes
+/// settled.
+#[derive(Message)]
+pub(crate) struct AddedToolsChanged;
+
 /// Watches the folder of the tools added by hand, sending on
 /// `changed` whenever anything in it changes, so they load again
 /// while the server runs. The watch ends when the watcher drops.
@@ -92,7 +105,7 @@ pub(crate) fn reload(
     mut tools: ModelTools,
     mut runtimes: Runtimes,
     mut changed: ResMut<InputEffects>,
-) -> anyhow::Result<()> {
+) {
     let (added, faults) = load(realm.layout().root());
     for fault in faults.iter().filter(|f| !tools.faults.contains(f)) {
         tell(
@@ -106,7 +119,7 @@ pub(crate) fn reload(
     // The prompt names the tools that did not load.
     changed.state_changed_outside_change = true;
     if catalogue == tools.catalogue.0 {
-        return Ok(());
+        return;
     }
     tools.catalogue.0 = catalogue;
     changed.agents_or_hamlets_changed = true;
@@ -118,7 +131,6 @@ pub(crate) fn reload(
             });
         }
     }
-    Ok(())
 }
 
 /// The tools that load, in folder order, and diagnostics for those

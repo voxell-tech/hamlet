@@ -9,7 +9,7 @@ use anyhow::{Context, Result};
 use bevy_ecs::component::Component;
 use bevy_ecs::entity::Entity;
 use bevy_ecs::resource::Resource;
-use bevy_ecs::system::{Commands, Query, Res, SystemParam};
+use bevy_ecs::system::{Commands, Query, Res, ResMut, SystemParam};
 use hamlet_protocol::runtime::{
     self, ModelRef, Picture, ServerMessage,
 };
@@ -22,14 +22,33 @@ use super::inputs::{self, Input, Resend};
 use super::runtimes::{Pending, Runtimes};
 use super::{Env, models};
 use crate::diagnostic::{self, Secrets, tell};
+use crate::follow_up::InputEffects;
 use crate::images::Limits;
 use crate::images::fitting::pictures;
 use crate::providers::Providers;
+use crate::server::{AddHandler, InputMessage};
 
 /// The fitting of images, whose results come back as inputs.
 pub(crate) fn plugin(app: &mut bevy_app::App) {
     let done = crate::server::input_channel::<FittedImages>(app);
-    app.insert_resource(FittedSender(done));
+    app.insert_resource(FittedSender(done))
+        .add_handler::<ImagesFitted, _>(take_in_fitted);
+}
+
+/// The images of an input were fitted to its model.
+#[derive(bevy_ecs::message::Message)]
+pub(crate) struct ImagesFitted(pub FittedImages);
+
+/// Keeps the fitted images of an input: it may go to its runtime.
+fn take_in_fitted(
+    mut fitted: InputMessage<ImagesFitted>,
+    mut fitting: ImageFitting,
+    mut changed: ResMut<InputEffects>,
+) {
+    if let Some(ImagesFitted(fitted)) = fitted.take() {
+        fitting.fitted(fitted);
+        changed.runtime_answered = true;
+    }
 }
 
 /// The images of one input, fitted to its model.

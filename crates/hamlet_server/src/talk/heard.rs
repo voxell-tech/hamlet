@@ -1,15 +1,18 @@
-//! A runtime's messages: one system for each kind. The
-//! runner takes a runtime's line apart into its message and runs the
-//! message's system once, with the runtime it came from
-//! ([`hear`]). A tool call's request awaits the workspace, so it goes
-//! to the calls instead.
+//! A runtime's messages: one system for each kind. `PreUpdate` reads
+//! a runtime's line into its message, written as a [`FromRuntime`] of
+//! its kind, and `Update` runs the system for that kind. A tool
+//! call's request awaits the workspace, so it goes to the calls
+//! instead.
 
 use std::collections::BTreeMap;
 
-use anyhow::{Result, anyhow};
+use bevy_app::{App, PostUpdate, PreUpdate};
 use bevy_ecs::entity::Entity;
-use bevy_ecs::system::{In, IntoSystem, Res, ResMut};
-use bevy_ecs::world::World;
+use bevy_ecs::error::Result;
+use bevy_ecs::message::Message;
+use bevy_ecs::schedule::IntoScheduleConfigs;
+use bevy_ecs::schedule::common_conditions::on_message;
+use bevy_ecs::system::{Commands, Res, ResMut};
 use hamlet_protocol::runtime::{
     self, AdmittedStatus, ProtocolError, RuntimeMessage,
     ServerMessage, SettledStatus,
@@ -18,100 +21,152 @@ use hamlet_store::ids::Actor;
 
 use super::inputs::{self, Resend, Status};
 use super::leases::Authority;
+use super::process::Received;
 use super::runtimes::{Pending, Runtimes};
 use super::turns::{self, Admission};
 use super::{conversations, items, verdicts};
-use crate::after_input::InputEffects;
-use crate::clock;
 use crate::core::Core;
 use crate::credentials::Credentials;
 use crate::diagnostic::{Secrets, tell};
+use crate::follow_up::{InputEffects, keep_or_roll_back_input};
 use crate::providers::FAUX;
 use crate::realm::Realm;
+use crate::server::{AddHandler, InputMessage, InputOrigin};
+use crate::{ServerSystems, clock};
 
-/// A message of a runtime, with the runtime it came from, as a
-/// system's input.
-type RuntimeMessageInput<M> = In<(Entity, M)>;
+pub(crate) fn plugin(app: &mut App) {
+    app.add_message::<RuntimeLineReceived>()
+        .add_systems(
+            PreUpdate,
+            take_in_runtime_line
+                .run_if(on_message::<RuntimeLineReceived>),
+        )
+        .add_systems(
+            PostUpdate,
+            answer_credentials
+                .run_if(is_from_runtime)
+                .after(keep_or_roll_back_input)
+                .in_set(ServerSystems::KeepOrRollBackInput),
+        )
+        .add_handler::<FromRuntime<runtime::Allow>, _>(allow)
+        .add_handler::<FromRuntime<runtime::Operation>, _>(operation)
+        .add_handler::<FromRuntime<runtime::Hello>, _>(hello)
+        .add_handler::<FromRuntime<runtime::Created>, _>(created)
+        .add_handler::<FromRuntime<runtime::Admitted>, _>(admitted)
+        .add_handler::<FromRuntime<runtime::Settled>, _>(settled)
+        .add_handler::<FromRuntime<runtime::Kept>, _>(kept)
+        .add_handler::<FromRuntime<runtime::Live>, _>(live)
+        .add_handler::<FromRuntime<runtime::Cancelled>, _>(cancelled)
+        .add_handler::<FromRuntime<runtime::Configured>, _>(
+            configured,
+        )
+        .add_handler::<FromRuntime<runtime::Prompt>, _>(prompt)
+        .add_handler::<FromRuntime<runtime::Attempt>, _>(attempt)
+        .add_handler::<FromRuntime<runtime::UsageReport>, _>(usage)
+        .add_handler::<FromRuntime<runtime::Yield>, _>(yielded)
+        .add_handler::<FromRuntime<runtime::Scrub>, _>(scrub)
+        .add_handler::<FromRuntime<ProtocolError>, _>(error)
+        .add_handler::<FromRuntime<runtime::CredentialRequest>, _>(
+            credential_request,
+        )
+        .add_handler::<FromRuntime<runtime::ProviderResult>, _>(
+            provider_result,
+        )
+        .add_handler::<FromRuntime<runtime::ProviderEvent>, _>(
+            provider_event,
+        );
+}
 
-/// Runs the system for `message` from the runtime `from`.
-pub(crate) fn hear(
-    world: &mut World,
+/// A line from a runtime, or the end of its output.
+#[derive(Message)]
+pub(crate) struct RuntimeLineReceived(pub Received);
+
+/// A message of the kind `M` from the runtime `runtime`.
+#[derive(Message)]
+pub(crate) struct FromRuntime<M: Send + Sync + 'static> {
+    pub runtime: Entity,
+    pub message: M,
+}
+
+/// Takes in a runtime's line: the end of its output fails the
+/// runtime, and a message is written as one of its kind.
+fn take_in_runtime_line(
+    mut lines: InputMessage<RuntimeLineReceived>,
+    mut core: Core,
+    mut origin: ResMut<InputOrigin>,
+    mut commands: Commands,
+) -> Result {
+    let Some(RuntimeLineReceived(received)) = lines.take() else {
+        return Ok(());
+    };
+    if !core.runtimes.is_current(&received) {
+        return Ok(());
+    }
+    let from = received.runtime;
+    let Some(line) = received.line else {
+        core.runtimes.failed(from);
+        core.leases.gone(from);
+        return Ok(());
+    };
+    let message = match serde_json::from_str::<RuntimeMessage>(&line)
+    {
+        Ok(message) => message,
+        Err(error) => {
+            tell(
+                Secrets::Of(&core.credentials),
+                format!("a runtime's line is not a message: {error}"),
+            );
+            return Ok(());
+        }
+    };
+    *origin = InputOrigin::Runtime {
+        runtime: from,
+        awaited: awaited(&message),
+    };
+    write(&mut commands, from, message);
+    Ok(())
+}
+
+/// Writes `message` from the runtime `from` as a [`FromRuntime`] of
+/// its kind, for its system to read.
+pub(crate) fn write(
+    commands: &mut Commands,
     from: Entity,
     message: RuntimeMessage,
-) -> Result<()> {
+) {
+    fn to<M: Send + Sync + 'static>(
+        commands: &mut Commands,
+        runtime: Entity,
+        message: M,
+    ) {
+        commands.write_message(FromRuntime { runtime, message });
+    }
     match message {
-        RuntimeMessage::Allow(m) => once(world, allow, (from, m)),
-        RuntimeMessage::Operation(m) => {
-            once(world, operation, (from, m))
-        }
-        RuntimeMessage::Hello(m) => once(world, hello, (from, m)),
-        RuntimeMessage::Created(m) => once(world, created, (from, m)),
-        RuntimeMessage::Admitted(m) => {
-            once(world, admitted, (from, m))
-        }
-        RuntimeMessage::Settled(m) => once(world, settled, (from, m)),
-        RuntimeMessage::Kept(m) => once(world, kept, (from, m)),
-        RuntimeMessage::Live(m) => once(world, live, (from, m)),
-        RuntimeMessage::Cancelled(m) => {
-            once(world, cancelled, (from, m))
-        }
-        RuntimeMessage::Configured(m) => {
-            once(world, configured, (from, m))
-        }
-        RuntimeMessage::Prompt(m) => once(world, prompt, (from, m)),
-        RuntimeMessage::Attempt(m) => once(world, attempt, (from, m)),
-        RuntimeMessage::Usage(m) => once(world, usage, (from, m)),
-        RuntimeMessage::Yield(m) => once(world, yielded, (from, m)),
-        RuntimeMessage::Scrub(m) => once(world, scrub, (from, m)),
-        RuntimeMessage::Error(m) => once(world, error, (from, m)),
-        RuntimeMessage::CredentialRequest(m) => {
-            once(world, credential_request, (from, m))
-        }
-        RuntimeMessage::ProviderResult(m) => {
-            once(world, provider_result, (from, m))
-        }
-        RuntimeMessage::ProviderEvent(m) => {
-            once(world, provider_event, (from, m))
-        }
-        RuntimeMessage::Page(_) | RuntimeMessage::Statuses(_) => {
-            Ok(())
-        }
+        RuntimeMessage::Allow(m) => to(commands, from, m),
+        RuntimeMessage::Operation(m) => to(commands, from, m),
+        RuntimeMessage::Hello(m) => to(commands, from, m),
+        RuntimeMessage::Created(m) => to(commands, from, m),
+        RuntimeMessage::Admitted(m) => to(commands, from, m),
+        RuntimeMessage::Settled(m) => to(commands, from, m),
+        RuntimeMessage::Kept(m) => to(commands, from, m),
+        RuntimeMessage::Live(m) => to(commands, from, m),
+        RuntimeMessage::Cancelled(m) => to(commands, from, m),
+        RuntimeMessage::Configured(m) => to(commands, from, m),
+        RuntimeMessage::Prompt(m) => to(commands, from, m),
+        RuntimeMessage::Attempt(m) => to(commands, from, m),
+        RuntimeMessage::Usage(m) => to(commands, from, m),
+        RuntimeMessage::Yield(m) => to(commands, from, m),
+        RuntimeMessage::Scrub(m) => to(commands, from, m),
+        RuntimeMessage::Error(m) => to(commands, from, m),
+        RuntimeMessage::CredentialRequest(m) => to(commands, from, m),
+        RuntimeMessage::ProviderResult(m) => to(commands, from, m),
+        RuntimeMessage::ProviderEvent(m) => to(commands, from, m),
+        RuntimeMessage::Page(_) | RuntimeMessage::Statuses(_) => {}
     }
 }
 
-/// The permission check of a tool call, made before it is kept as
-/// begun.
-fn allow(
-    In((from, asked)): RuntimeMessageInput<runtime::Allow>,
-    mut core: Core,
-) -> Result<()> {
-    core.allow_call(from, asked)
-}
-
-/// A tool call carried out, once under its key.
-fn operation(
-    In((from, asked)): RuntimeMessageInput<runtime::Operation>,
-    mut core: Core,
-) -> Result<()> {
-    core.operation(from, asked)
-}
-
-/// Runs `system` once with `input`, as a cached one-shot system.
-fn once<I, M>(
-    world: &mut World,
-    system: impl IntoSystem<In<I>, Result<()>, M> + 'static,
-    input: I,
-) -> Result<()>
-where
-    I: Send + 'static,
-{
-    world
-        .run_system_cached_with(system, input)
-        .map_err(|error| anyhow!("{error}"))?
-}
-
 /// The id of `message` when the runtime waits for its answer.
-pub(crate) fn awaited(message: &RuntimeMessage) -> Option<String> {
+fn awaited(message: &RuntimeMessage) -> Option<String> {
     let id = match message {
         RuntimeMessage::Prompt(asked) => &asked.id,
         RuntimeMessage::Attempt(asked) => &asked.id,
@@ -126,12 +181,63 @@ pub(crate) fn awaited(message: &RuntimeMessage) -> Option<String> {
     Some(id.clone())
 }
 
+/// Run condition for an input from a runtime.
+fn is_from_runtime(origin: Res<InputOrigin>) -> bool {
+    matches!(*origin, InputOrigin::Runtime { .. })
+}
+
+/// Answers the credentials the leases now let through, after every
+/// line of a runtime, failed or not.
+fn answer_credentials(mut core: Core) {
+    core.answer_credentials();
+}
+
+/// The permission check of a tool call, made before it is kept as
+/// begun.
+fn allow(
+    mut heard: InputMessage<FromRuntime<runtime::Allow>>,
+    mut core: Core,
+) -> Result {
+    let Some(FromRuntime {
+        runtime: from,
+        message: asked,
+    }) = heard.take()
+    else {
+        return Ok(());
+    };
+    core.allow_call(from, asked)?;
+    Ok(())
+}
+
+/// A tool call carried out, once under its key.
+fn operation(
+    mut heard: InputMessage<FromRuntime<runtime::Operation>>,
+    mut core: Core,
+) -> Result {
+    let Some(FromRuntime {
+        runtime: from,
+        message: asked,
+    }) = heard.take()
+    else {
+        return Ok(());
+    };
+    core.operation(from, asked)?;
+    Ok(())
+}
+
 /// A runtime started: taken on and sent what it is owed, or refused
 /// for good (S24).
 fn hello(
-    In((from, hello)): RuntimeMessageInput<runtime::Hello>,
+    mut heard: InputMessage<FromRuntime<runtime::Hello>>,
     mut core: Core,
-) -> Result<()> {
+) -> Result {
+    let Some(FromRuntime {
+        runtime: from,
+        message: hello,
+    }) = heard.take()
+    else {
+        return Ok(());
+    };
     let refusal = core.runtimes.hello(
         core.realm.store().connection(),
         from,
@@ -170,11 +276,18 @@ fn hello(
 
 /// A conversation was made or forked: its handle is kept.
 fn created(
-    In((from, created)): RuntimeMessageInput<runtime::Created>,
+    mut heard: InputMessage<FromRuntime<runtime::Created>>,
     mut realm: ResMut<Realm>,
     mut runtimes: Runtimes,
     mut changed: ResMut<InputEffects>,
-) -> Result<()> {
+) -> Result {
+    let Some(FromRuntime {
+        runtime: from,
+        message: created,
+    }) = heard.take()
+    else {
+        return Ok(());
+    };
     changed.runtime_answered = true;
     if let Some((_, Pending::Create(conversation))) =
         runtimes.reply(&created.re)
@@ -194,9 +307,15 @@ fn created(
 
 /// An input was admitted, and may have ended there.
 fn admitted(
-    In((_, admitted)): RuntimeMessageInput<runtime::Admitted>,
+    mut heard: InputMessage<FromRuntime<runtime::Admitted>>,
     mut core: Core,
-) -> Result<()> {
+) -> Result {
+    let Some(FromRuntime {
+        message: admitted, ..
+    }) = heard.take()
+    else {
+        return Ok(());
+    };
     core.changed.runtime_answered = true;
     let Some((_, Pending::Submit(conversation, request))) =
         core.runtimes.reply(&admitted.re)
@@ -227,9 +346,16 @@ fn admitted(
 
 /// An input admitted before ended.
 fn settled(
-    In((from, settled)): RuntimeMessageInput<runtime::Settled>,
+    mut heard: InputMessage<FromRuntime<runtime::Settled>>,
     mut core: Core,
-) -> Result<()> {
+) -> Result {
+    let Some(FromRuntime {
+        runtime: from,
+        message: settled,
+    }) = heard.take()
+    else {
+        return Ok(());
+    };
     let runtime = core.runtimes.id(from)?;
     let db = core.realm.store().connection();
     let conversation =
@@ -254,9 +380,16 @@ fn settled(
 
 /// An item of a transcript was kept, once, and its watchers see it.
 fn kept(
-    In((from, kept)): RuntimeMessageInput<runtime::Kept>,
+    mut heard: InputMessage<FromRuntime<runtime::Kept>>,
     mut core: Core,
-) -> Result<()> {
+) -> Result {
+    let Some(FromRuntime {
+        runtime: from,
+        message: kept,
+    }) = heard.take()
+    else {
+        return Ok(());
+    };
     let runtime = core.runtimes.id(from)?;
     let db = core.realm.store().connection();
     let conversation =
@@ -279,9 +412,16 @@ fn kept(
 
 /// A turn's current doing, for its watchers and the realm's state.
 fn live(
-    In((from, running)): RuntimeMessageInput<runtime::Live>,
+    mut heard: InputMessage<FromRuntime<runtime::Live>>,
     mut core: Core,
-) -> Result<()> {
+) -> Result {
+    let Some(FromRuntime {
+        runtime: from,
+        message: running,
+    }) = heard.take()
+    else {
+        return Ok(());
+    };
     let runtime = core.runtimes.id(from)?;
     let db = core.realm.store().connection();
     let conversation =
@@ -306,11 +446,17 @@ fn live(
 
 /// A cancel was acknowledged: later inputs may go to the runtime.
 fn cancelled(
-    In((_, cancelled)): RuntimeMessageInput<runtime::Cancelled>,
+    mut heard: InputMessage<FromRuntime<runtime::Cancelled>>,
     mut realm: ResMut<Realm>,
     mut runtimes: Runtimes,
     mut changed: ResMut<InputEffects>,
-) -> Result<()> {
+) -> Result {
+    let Some(FromRuntime {
+        message: cancelled, ..
+    }) = heard.take()
+    else {
+        return Ok(());
+    };
     changed.runtime_answered = true;
     if let Some((_, Pending::Cancel(conversation))) =
         runtimes.reply(&cancelled.re)
@@ -326,11 +472,18 @@ fn cancelled(
 
 /// A conversation's tools were told.
 fn configured(
-    In((_, configured)): RuntimeMessageInput<runtime::Configured>,
+    mut heard: InputMessage<FromRuntime<runtime::Configured>>,
     mut realm: ResMut<Realm>,
     mut runtimes: Runtimes,
     mut changed: ResMut<InputEffects>,
-) -> Result<()> {
+) -> Result {
+    let Some(FromRuntime {
+        message: configured,
+        ..
+    }) = heard.take()
+    else {
+        return Ok(());
+    };
     changed.runtime_answered = true;
     if let Some((_, Pending::Configure(conversation, told))) =
         runtimes.reply(&configured.re)
@@ -347,9 +500,16 @@ fn configured(
 /// The prompt of a conversation's next call, or what it waits for
 /// first.
 fn prompt(
-    In((from, asked)): RuntimeMessageInput<runtime::Prompt>,
+    mut heard: InputMessage<FromRuntime<runtime::Prompt>>,
     mut core: Core,
-) -> Result<()> {
+) -> Result {
+    let Some(FromRuntime {
+        runtime: from,
+        message: asked,
+    }) = heard.take()
+    else {
+        return Ok(());
+    };
     let runtime = core.runtimes.id(from)?;
     let db = core.realm.store().connection();
     let conversation =
@@ -384,9 +544,16 @@ fn prompt(
 /// The ruling on a model call: it goes on or stops, and with which
 /// model and credential.
 fn attempt(
-    In((from, asked)): RuntimeMessageInput<runtime::Attempt>,
+    mut heard: InputMessage<FromRuntime<runtime::Attempt>>,
     mut core: Core,
-) -> Result<()> {
+) -> Result {
+    let Some(FromRuntime {
+        runtime: from,
+        message: asked,
+    }) = heard.take()
+    else {
+        return Ok(());
+    };
     let runtime = core.runtimes.id(from)?;
     let at = clock::now();
     let admission = turns::allow(
@@ -455,9 +622,16 @@ fn attempt(
 
 /// A model call's usage, charged once.
 fn usage(
-    In((from, report)): RuntimeMessageInput<runtime::UsageReport>,
+    mut heard: InputMessage<FromRuntime<runtime::UsageReport>>,
     mut core: Core,
-) -> Result<()> {
+) -> Result {
+    let Some(FromRuntime {
+        runtime: from,
+        message: report,
+    }) = heard.take()
+    else {
+        return Ok(());
+    };
     let runtime = core.runtimes.id(from)?;
     core.leases.finish(from, &report.key);
     let charged = turns::charge(
@@ -480,9 +654,16 @@ fn usage(
 
 /// A turn's answer, ruled on.
 fn yielded(
-    In((from, answer)): RuntimeMessageInput<runtime::Yield>,
+    mut heard: InputMessage<FromRuntime<runtime::Yield>>,
     mut core: Core,
-) -> Result<()> {
+) -> Result {
+    let Some(FromRuntime {
+        runtime: from,
+        message: answer,
+    }) = heard.take()
+    else {
+        return Ok(());
+    };
     let runtime = core.runtimes.id(from)?;
     let db = core.realm.store().connection();
     let conversation =
@@ -506,10 +687,17 @@ fn yielded(
 
 /// A value given back with every secret taken out.
 fn scrub(
-    In((from, asked)): RuntimeMessageInput<runtime::Scrub>,
+    mut heard: InputMessage<FromRuntime<runtime::Scrub>>,
     credentials: Res<Credentials>,
     mut runtimes: Runtimes,
-) -> Result<()> {
+) -> Result {
+    let Some(FromRuntime {
+        runtime: from,
+        message: asked,
+    }) = heard.take()
+    else {
+        return Ok(());
+    };
     let mut value = asked.value;
     credentials.scrub(&mut value);
     let re = asked.id;
@@ -526,10 +714,17 @@ fn scrub(
 
 /// A message of the server's the runtime could not handle.
 fn error(
-    In((from, error)): RuntimeMessageInput<ProtocolError>,
+    mut heard: InputMessage<FromRuntime<ProtocolError>>,
     credentials: Res<Credentials>,
     runtimes: Runtimes,
-) -> Result<()> {
+) -> Result {
+    let Some(FromRuntime {
+        runtime: from,
+        message: error,
+    }) = heard.take()
+    else {
+        return Ok(());
+    };
     tell(
         Secrets::Of(&credentials),
         format!("{}: {}", runtimes.id(from)?, error.message),
@@ -539,25 +734,46 @@ fn error(
 
 /// A credential asked for, answered once the leases let it through.
 fn credential_request(
-    In((from, request)): RuntimeMessageInput<
-        runtime::CredentialRequest,
-    >,
+    mut heard: InputMessage<FromRuntime<runtime::CredentialRequest>>,
     mut leases: ResMut<Authority>,
-) -> Result<()> {
+) -> Result {
+    let Some(FromRuntime {
+        runtime: from,
+        message: request,
+    }) = heard.take()
+    else {
+        return Ok(());
+    };
     leases.request(from, request);
     Ok(())
 }
 
 fn provider_result(
-    In((from, result)): RuntimeMessageInput<runtime::ProviderResult>,
+    mut heard: InputMessage<FromRuntime<runtime::ProviderResult>>,
     mut core: Core,
-) -> Result<()> {
-    core.provider_result(Some(from), result)
+) -> Result {
+    let Some(FromRuntime {
+        runtime: from,
+        message: result,
+    }) = heard.take()
+    else {
+        return Ok(());
+    };
+    core.provider_result(Some(from), result)?;
+    Ok(())
 }
 
 fn provider_event(
-    In((from, event)): RuntimeMessageInput<runtime::ProviderEvent>,
+    mut heard: InputMessage<FromRuntime<runtime::ProviderEvent>>,
     mut core: Core,
-) -> Result<()> {
-    core.provider_event(from, event)
+) -> Result {
+    let Some(FromRuntime {
+        runtime: from,
+        message: event,
+    }) = heard.take()
+    else {
+        return Ok(());
+    };
+    core.provider_event(from, event)?;
+    Ok(())
 }

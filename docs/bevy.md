@@ -185,39 +185,41 @@ the chief typed and for what is about the open chat or the whole realm.
 What differs from the window:
 
 - **`lib.rs` is the way in.** As in a Bevy crate, it holds the crate's
-  plugin, `ServerPlugin`, which `main` adds to an empty app, and the
-  schedules and steps every area adds its systems to. Its first
+  plugin, `ServerPlugin`, which `main` adds to `App::new()`, and the
+  `ServerSystems` every area adds its follow-up systems to. Its first
   comment says in which order to read the rest.
-- **The runner runs inputs, not frames.** `server.rs` sleeps until an
-  input comes and runs it; the `AfterInput` schedule, its systems in
-  `after_input.rs`, runs once after it. The `ServerStartup` schedule,
-  its systems in `startup.rs`, runs once before the first input.
-  `ServerPlugin` sets the runner, `serve::runner`. There is no `Main`
-  schedule, so nothing runs that an input or a timer did not ask for,
-  and messages are turned over by `AfterInput`'s last step instead of
-  by a frame.
-- **A handler is a one-shot system, and never awaits.**
-  `world.run_system_cached_with` runs the system for a runtime message or
-  a client request; a command's system is registered with its usage
-  (`AddCommands`), and a timer's with when it is due (`AddTimer`).
+- **An input is an update, not a frame.** `server.rs` sleeps until an
+  input comes, writes it as a message and updates the app once, through
+  Bevy's own `Main`: `PreUpdate` reads the input into a message of its
+  kind, `Update` runs the system for that kind, `PostUpdate` keeps the
+  input and follows it (`follow_up.rs`), and `Last` sends what it
+  queued. The first update runs `Startup` (`startup.rs`).
+  `ServerPlugin` sets the runner, `serve::runner`. Nothing updates that
+  an input or a timer did not ask for.
+- **A handler is a system for one kind of input, and never awaits.**
+  A runtime's message is a `FromRuntime<M>` and a client's request a
+  `FromClient<M>` of its kind; `add_handler` adds the system that takes
+  it, run only when one came. A command's system is registered with its
+  usage (`AddCommands`), and a timer's with when it is due (`AddTimer`).
   What awaits runs on a task (`background.rs`), whose result is an
   input.
-- **An input is one transaction.** `Core::change` and `attempt` make
-  their changes in the input's transaction, which the runner commits at
-  its end. What an input sets off goes out only after: queue a runtime's
-  line with `Runtimes::send`, a client's message with `Connections::send`,
-  and write what follows as a message `AfterInput` reads, as
-  `InputEnded` is. A tool run is spawned with its work in
-  `UnstartedToolRun`, which `AfterInput` starts.
+- **An input is one transaction.** `First` begins it; `Core::change`
+  and `attempt` make their changes in it; the first step of
+  `PostUpdate` keeps it. What an input sets off goes out only after:
+  queue a runtime's line with `Runtimes::send`, a client's message with
+  `Connections::send`, and write what follows as a message `PostUpdate`
+  reads, as `InputEnded` is. A tool run is spawned with its work in
+  `UnstartedToolRun`, which `PostUpdate` starts.
 - **The database is the truth.** An entity stands only for what lives in
   the process: a connection with what its client watches and is owed,
   an upload, a tool run, a runtime and the lines sent to it. A decision inside a transaction reads the database,
   never an entity. An entity spawned by an input appears only once its
   commands apply, so what the same input must read back is a component
   of an entity that is there already, or a resource.
-- **A system that fails fails its input.** The world's error handler
-  records the failure for the runner, which logs it, rolls the input
-  back and drops what it queued; it never panics.
+- **A system that fails fails its input.** Handlers return Bevy's
+  `Result`, and the world's error handler records a failure or a panic.
+  `PostUpdate` then rolls the input back, drops what it queued and tells
+  whoever sent it (`InputOrigin`); the runner logs it and goes on.
 - **`Core` gathers the realm's live state** as one `SystemParam`, which
   older handlers take whole. Parts of it are params of their own
   (`ModelTools`, `RemoteWorkspace`, `Uploads`) that a narrower system

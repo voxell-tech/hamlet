@@ -3,31 +3,32 @@
 //!
 //! Read it in the order it runs:
 //!
-//! 1. `main` adds [`ServerPlugin`] to an empty app and runs it.
-//! 2. [`ServerPlugin`] adds the schedules [`ServerStartup`] and
-//!    [`AfterInput`], every area's plugin, and the runner.
+//! 1. `main` adds [`ServerPlugin`] to an app and runs it.
+//! 2. [`ServerPlugin`] adds every area's plugin, the order of the
+//!    [`ServerSystems`], and the runner.
 //! 3. The runner, `serve::runner`, opens the realm and starts
-//!    `server::Server` on it, which runs [`ServerStartup`] once. It
+//!    `server::Server` on it, whose first update runs `Startup`. It
 //!    then listens for clients and runs each input until a signal
 //!    comes, and closes in order.
-//! 4. `server::Server::run` runs one input in one transaction, then
-//!    [`AfterInput`], in the order of [`AfterInputStep`].
-//! 5. Each input is handled by its area: a runtime's message in
-//!    `talk::heard`, a client's request in `clients::requests`, a
-//!    chief's command in `commands`.
+//! 4. `server::Server::run` writes one input as a message and updates
+//!    the app once, in one transaction:
+//!    - `PreUpdate` takes the input in and reads it into a message of
+//!      its kind: a runtime's message in `talk::heard`, a client's
+//!      request in `clients::asked`;
+//!    - `Update` runs the system for that kind;
+//!    - `PostUpdate` keeps the input, or rolls it back when a system
+//!      for it failed, then follows it and runs its jobs;
+//!    - `Last` sends the runtimes and the clients what it queued.
 
-use bevy_app::{App, Plugin};
-use bevy_ecs::schedule::{
-    IntoScheduleConfigs, Schedule, ScheduleLabel,
-    SingleThreadedExecutor, SystemSet,
-};
+use bevy_app::{App, Last, Plugin, PostUpdate};
+use bevy_ecs::schedule::{IntoScheduleConfigs, SystemSet};
 
 use crate::options::Options;
 
-// The app, its runner and what runs around each input.
-mod after_input;
+// The app, its runner and what follows each input.
 mod background;
 mod core;
+mod follow_up;
 pub mod options;
 mod serve;
 mod server;
@@ -73,77 +74,81 @@ mod fault;
 mod testing;
 mod text;
 
-/// The server: its schedules, every area, and the runner that serves
-/// the realm `options` name.
+/// The server: every area, the order of its systems, and the runner
+/// that serves the realm `options` name.
 pub struct ServerPlugin {
     pub options: Options,
 }
 
 impl Plugin for ServerPlugin {
     fn build(&self, app: &mut App) {
-        app.add_schedule(single_threaded(ServerStartup))
-            .add_schedule(single_threaded(AfterInput))
-            .configure_sets(
-                AfterInput,
-                (
-                    AfterInputStep::FollowEndedInputs,
-                    AfterInputStep::NarrowToolsToRoles,
-                    AfterInputStep::CommitInput,
-                    AfterInputStep::RunKeptJobs,
-                    AfterInputStep::StopCancelledToolRuns,
-                    AfterInputStep::StartToolRunsAndBackgroundWork,
-                    AfterInputStep::SendRuntimesWhatTheyAreOwed,
-                    AfterInputStep::PublishState,
-                    AfterInputStep::SendClientMessages,
-                    AfterInputStep::WriteRuntimeLines,
-                    AfterInputStep::PushOwedLodges,
-                )
-                    .chain(),
+        app.configure_sets(
+            PostUpdate,
+            (
+                ServerSystems::KeepOrRollBackInput,
+                ServerSystems::FollowEndedInputs,
+                ServerSystems::NarrowToolsToRoles,
+                ServerSystems::CommitFollowUps,
+                ServerSystems::RunKeptJobs,
+                ServerSystems::StopCancelledToolRuns,
+                ServerSystems::StartToolRunsAndBackgroundWork,
             )
-            .add_plugins((
-                core::plugin,
-                after_input::plugin,
-                startup::plugin,
-                background::plugin,
-                calls::plugin,
-                talk::sync::plugin,
-                clients::plugin,
-                commands::plugin,
-                talk::runtimes::plugin,
-                providers::plugin,
-                dreaming::plugin,
-                images::plugin,
-                files::plugin,
-            ))
-            .set_runner(serve::runner(self.options.clone()));
+                .chain(),
+        )
+        .configure_sets(
+            Last,
+            (
+                ServerSystems::SendRuntimesWhatTheyAreOwed,
+                ServerSystems::PublishState,
+                ServerSystems::SendClientMessages,
+                ServerSystems::WriteRuntimeLines,
+                ServerSystems::PushOwedLodges,
+                ServerSystems::ForgetInput,
+            )
+                .chain(),
+        )
+        // The runner's side: inputs, what follows them, and what runs
+        // off the loop.
+        .add_plugins((
+            server::plugin,
+            core::plugin,
+            follow_up::plugin,
+            startup::plugin,
+            background::plugin,
+            timers::plugin,
+            knowledge::runner::plugin,
+        ))
+        // The areas, each with the systems for the inputs it takes.
+        .add_plugins((
+            calls::plugin,
+            talk::heard::plugin,
+            talk::sync::plugin,
+            talk::runtimes::plugin,
+            clients::plugin,
+            commands::plugin,
+            providers::plugin,
+            dreaming::plugin,
+            images::plugin,
+            files::plugin,
+            work::added::plugin,
+        ))
+        .set_runner(serve::runner(self.options.clone()));
     }
 }
 
-/// A schedule run on one thread: SQLite has one writer, and the gain
-/// is the order.
-fn single_threaded(label: impl ScheduleLabel) -> Schedule {
-    let mut schedule = Schedule::new(label);
-    schedule.set_executor(SingleThreadedExecutor::new());
-    schedule
-}
-
-/// The schedule the runner runs once, before the first input.
-#[derive(ScheduleLabel, Clone, Debug, PartialEq, Eq, Hash)]
-pub struct ServerStartup;
-
-/// The schedule the runner runs after each input.
-#[derive(ScheduleLabel, Clone, Debug, PartialEq, Eq, Hash)]
-pub struct AfterInput;
-
-/// The steps of [`AfterInput`], in their order.
+/// What follows each input, in its order: in `PostUpdate` the input
+/// kept and followed, in `Last` what it queued sent.
 #[derive(SystemSet, Clone, Debug, PartialEq, Eq, Hash)]
-pub enum AfterInputStep {
+pub enum ServerSystems {
+    /// The input's changes are kept, or rolled back when a system for
+    /// it failed, and whoever sent it is told.
+    KeepOrRollBackInput,
     /// The inputs that ended are followed.
     FollowEndedInputs,
     /// Each agent's tools are narrowed to its role.
     NarrowToolsToRoles,
-    /// The changes of the input and of the steps before are kept.
-    CommitInput,
+    /// The changes of the follows and the narrowing are kept.
+    CommitFollowUps,
     /// The jobs the kept changes left are run.
     RunKeptJobs,
     /// The tool runs of the stopped turns end.
@@ -161,4 +166,6 @@ pub enum AfterInputStep {
     WriteRuntimeLines,
     /// The lodges the input owes the remote workspace are pushed.
     PushOwedLodges,
+    /// What the input left is cleared for the next.
+    ForgetInput,
 }

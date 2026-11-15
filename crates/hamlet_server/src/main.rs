@@ -12,7 +12,7 @@ use hamlet_server::options::Options;
 fn main() -> AppExit {
     match Options::parse(std::env::args_os().skip(1)) {
         Ok(options) => {
-            App::empty().add_plugins(ServerPlugin { options }).run()
+            App::new().add_plugins(ServerPlugin { options }).run()
         }
         Err(error) => {
             eprintln!("Error: {error:?}");

@@ -2,7 +2,7 @@
 //! the handlers of the server's inputs reach. Every change of an
 //! input is made in its one transaction, and what it needs woken
 //! after, the jobs, the runtimes and the clients, is left for
-//! [`crate::AfterInput`] once it is kept.
+//! `PostUpdate` and `Last` once it is kept.
 
 use std::collections::{BTreeMap, HashMap};
 
@@ -17,7 +17,6 @@ use hamlet_protocol::client as protocol;
 use hamlet_protocol::runtime::{self, ServerMessage, ToolSpec};
 use hamlet_store::ids::{Actor, AgentId, ConversationId};
 
-use crate::after_input::{InputEffects, InputEnded, WakeHeldCall};
 use crate::background::BackgroundWork;
 use crate::calls::looks::LookFindings;
 use crate::calls::{Calls, ToolRuns};
@@ -29,6 +28,7 @@ use crate::clock;
 use crate::commands::Deeds;
 use crate::credentials::Credentials;
 use crate::files::FileUpload;
+use crate::follow_up::{InputEffects, InputEnded, WakeHeldCall};
 use crate::images::sent::ImageUpload;
 use crate::knowledge::runner::RepositoryWriteLock;
 use crate::providers::Providers;
@@ -252,9 +252,8 @@ impl Core<'_, '_> {
         Ok(made)
     }
 
-    /// Leaves what a change touched for
-    /// [`crate::AfterInput`] to follow up once the input
-    /// is kept.
+    /// Leaves what a change touched for `PostUpdate` to follow up
+    /// once the input is kept.
     fn after(&mut self, touched: &Touched) {
         self.changed.change_kept = true;
         self.changed.jobs_kept |= touched.jobs;
