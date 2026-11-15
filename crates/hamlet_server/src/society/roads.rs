@@ -2,11 +2,16 @@
 //! H30): the tree's, the mayors', and those laid or agreed.
 
 use anyhow::Result;
+use diesel::deserialize::FromSqlRow;
+use diesel::expression::AsExpression;
 use diesel::prelude::*;
+use diesel::sql_types::Text;
 use hamlet_store::Db;
 use hamlet_store::ids::{Actor, AgentId, HamletId, RoadId, TaskId};
 use hamlet_store::schema::{agreement, road, road_charge};
+use serde::{Deserialize, Serialize};
 use serde_json::json;
+use strum::{Display, EnumString, IntoStaticStr};
 
 use super::addresses::name_of;
 use super::agents::{self, AgentKind};
@@ -15,16 +20,32 @@ use super::record::{self, Decision, DecisionKind};
 use super::refusal::Refusal;
 use super::{hamlets, limits, tree};
 use crate::change::{Change, Done, done, refuse};
-use crate::text::text_enum;
 
-text_enum! {
-    pub(crate) enum RoadKind {
-        /// Between two hires of a hamlet.
-        Laid = "laid",
-        /// Between hires of two hamlets, once both mayors agreed.
-        Agreed = "agreed",
-    }
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    Serialize,
+    Deserialize,
+    AsExpression,
+    FromSqlRow,
+    IntoStaticStr,
+    EnumString,
+    Display,
+)]
+#[serde(rename_all = "kebab-case")]
+#[strum(serialize_all = "kebab-case")]
+#[diesel(sql_type = Text)]
+pub(crate) enum RoadKind {
+    /// Between two hires of a hamlet.
+    Laid,
+    /// Between hires of two hamlets, once both mayors agreed.
+    Agreed,
 }
+hamlet_store::named_text!(RoadKind);
 
 /// How two agents are joined.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

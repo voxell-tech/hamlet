@@ -3,28 +3,49 @@
 //! turn it causes.
 
 use anyhow::{Context, Result};
+use diesel::deserialize::FromSqlRow;
+use diesel::expression::AsExpression;
 use diesel::prelude::*;
+use diesel::sql_types::Text;
 use hamlet_store::Db;
 use hamlet_store::ids::{AgentId, ChiefId, HamletId, TaskId};
 use hamlet_store::schema::{conversation, input, task};
+use serde::{Deserialize, Serialize};
+use strum::{Display, EnumString, IntoStaticStr};
 
 use super::inputs::{State, Status};
 use crate::change::Change;
 use crate::society::agents::{self, AgentKind};
 use crate::society::{hires, workers};
-use crate::text::text_enum;
 
-text_enum! {
-    pub(crate) enum Origin {
-        Chief = "chief",
-        Retry = "retry",
-        Reflection = "reflection",
-        Errand = "errand",
-        Dream = "dream",
-        Worker = "worker",
-        Notice = "notice",
-    }
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    Serialize,
+    Deserialize,
+    AsExpression,
+    FromSqlRow,
+    IntoStaticStr,
+    EnumString,
+    Display,
+)]
+#[serde(rename_all = "kebab-case")]
+#[strum(serialize_all = "kebab-case")]
+#[diesel(sql_type = Text)]
+pub(crate) enum Origin {
+    Chief,
+    Retry,
+    Reflection,
+    Errand,
+    Dream,
+    Worker,
+    Notice,
 }
+hamlet_store::named_text!(Origin);
 
 #[derive(Clone, Debug, PartialEq, Queryable, Selectable)]
 #[diesel(table_name = task)]

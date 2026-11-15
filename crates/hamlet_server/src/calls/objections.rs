@@ -77,7 +77,7 @@ impl Core<'_, '_> {
         Ok(kept(db, task)?
             .and_then(|found| found.ruling)
             .is_some_and(|ruling| {
-                ruling == Ruling::Withdraw.as_str()
+                ruling == <&'static str>::from(Ruling::Withdraw)
             }))
     }
 
@@ -143,7 +143,10 @@ impl Core<'_, '_> {
                 format!(" The chief says: {text}")
             };
             return Ok(
-                match found.ruling.as_deref().and_then(Ruling::named)
+                match found
+                    .ruling
+                    .as_deref()
+                    .and_then(|text| text.parse::<Ruling>().ok())
                 {
                     Some(Ruling::Go) => Ok(said(format!(
                         "The chief rules: go on with the \
@@ -222,7 +225,7 @@ pub(super) fn rule(
 ) -> Result<()> {
     diesel::update(objection::table.filter(objection::wait.eq(on)))
         .set((
-            objection::ruling.eq(ruling.as_str()),
+            objection::ruling.eq(<&'static str>::from(ruling)),
             objection::ruled_at.eq(at),
         ))
         .execute(db)?;

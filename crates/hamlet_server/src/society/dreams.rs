@@ -3,32 +3,70 @@
 //! scholar's dream tidies its `main`.
 
 use anyhow::{Context, Result};
+use diesel::deserialize::FromSqlRow;
+use diesel::expression::AsExpression;
 use diesel::prelude::*;
+use diesel::sql_types::Text;
 use hamlet_store::Db;
 use hamlet_store::ids::{
     AgentId, ConversationId, DreamId, ScholarId, TaskId,
 };
 use hamlet_store::schema::dream;
+use serde::{Deserialize, Serialize};
+use strum::{Display, EnumString, IntoStaticStr};
 
 use crate::change::Change;
-use crate::text::text_enum;
 
-text_enum! {
-    pub(crate) enum DreamKind {
-        Hire = "hire",
-        Scholar = "scholar",
-    }
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    Serialize,
+    Deserialize,
+    AsExpression,
+    FromSqlRow,
+    IntoStaticStr,
+    EnumString,
+    Display,
+)]
+#[serde(rename_all = "kebab-case")]
+#[strum(serialize_all = "kebab-case")]
+#[diesel(sql_type = Text)]
+pub(crate) enum DreamKind {
+    Hire,
+    Scholar,
 }
+hamlet_store::named_text!(DreamKind);
 
-text_enum! {
-    pub(crate) enum Outcome {
-        Done = "done",
-        /// It changed nothing.
-        Nothing = "nothing",
-        Failed = "failed",
-        Stopped = "stopped",
-    }
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    Serialize,
+    Deserialize,
+    AsExpression,
+    FromSqlRow,
+    IntoStaticStr,
+    EnumString,
+    Display,
+)]
+#[serde(rename_all = "kebab-case")]
+#[strum(serialize_all = "kebab-case")]
+#[diesel(sql_type = Text)]
+pub(crate) enum Outcome {
+    Done,
+    /// It changed nothing.
+    Nothing,
+    Failed,
+    Stopped,
 }
+hamlet_store::named_text!(Outcome);
 
 #[derive(Clone, Debug, PartialEq, Queryable, Selectable)]
 #[diesel(table_name = dream)]

@@ -6,12 +6,17 @@
 use std::f64::consts::PI;
 
 use anyhow::{Context, Result};
+use diesel::deserialize::FromSqlRow;
+use diesel::expression::AsExpression;
 use diesel::prelude::*;
+use diesel::sql_types::Text;
 use hamlet_protocol::client::{Choice, HouseAt, Newcomers};
 use hamlet_store::Db;
 use hamlet_store::ids::{Actor, AgentId, ChiefId, ScholarId};
 use hamlet_store::schema::{agent, hamlet, hire, scholar, wait};
+use serde::{Deserialize, Serialize};
 use serde_json::json;
+use strum::{Display, EnumString, IntoStaticStr};
 
 use super::addresses::scholar_address;
 use super::agents::EndHow;
@@ -22,7 +27,6 @@ use super::{hand, hires};
 use crate::change::{Change, Done, done, refuse};
 use crate::jobs::{self, Fork, Job};
 use crate::oversight::{self, Raise, Ruling, WaitKind};
-use crate::text::text_enum;
 
 /// The most characters a character may have (C11, C13).
 pub(crate) const CHARACTER_MOST: usize = 4000;
@@ -33,28 +37,62 @@ pub(crate) const MIDDLE: f64 = HouseAt::MIDDLE;
 /// The least distance between the middles of two houses.
 pub(crate) const APART: f64 = HouseAt::APART;
 
-text_enum! {
-    pub(crate) enum ScholarKind {
-        Scholar = "scholar",
-        /// The Hand's own knowledge, never hired or listed.
-        Hand = "hand",
-    }
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    Serialize,
+    Deserialize,
+    AsExpression,
+    FromSqlRow,
+    IntoStaticStr,
+    EnumString,
+    Display,
+)]
+#[serde(rename_all = "kebab-case")]
+#[strum(serialize_all = "kebab-case")]
+#[diesel(sql_type = Text)]
+pub(crate) enum ScholarKind {
+    Scholar,
+    /// The Hand's own knowledge, never hired or listed.
+    Hand,
 }
+hamlet_store::named_text!(ScholarKind);
 
-text_enum! {
-    /// Where a scholar stands with the city.
-    pub(crate) enum Arrival {
-        /// It lives in its house in the city.
-        Housed = "housed",
-        /// It waits at the harbor to be let in.
-        Waiting = "waiting",
-        /// It was turned away, and waits at the harbor until a chief
-        /// lets it in.
-        Turned = "turned",
-        /// It is a blank hire's alone, and never of the city.
-        Apart = "apart",
-    }
+/// Where a scholar stands with the city.
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    Serialize,
+    Deserialize,
+    AsExpression,
+    FromSqlRow,
+    IntoStaticStr,
+    EnumString,
+    Display,
+)]
+#[serde(rename_all = "kebab-case")]
+#[strum(serialize_all = "kebab-case")]
+#[diesel(sql_type = Text)]
+pub(crate) enum Arrival {
+    /// It lives in its house in the city.
+    Housed,
+    /// It waits at the harbor to be let in.
+    Waiting,
+    /// It was turned away, and waits at the harbor until a chief
+    /// lets it in.
+    Turned,
+    /// It is a blank hire's alone, and never of the city.
+    Apart,
 }
+hamlet_store::named_text!(Arrival);
 
 #[derive(Clone, Debug, PartialEq, Queryable, Selectable)]
 #[diesel(table_name = scholar)]

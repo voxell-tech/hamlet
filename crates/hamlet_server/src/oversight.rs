@@ -5,7 +5,10 @@
 pub(crate) mod gate;
 
 use anyhow::{Context, Result};
+use diesel::deserialize::FromSqlRow;
+use diesel::expression::AsExpression;
 use diesel::prelude::*;
+use diesel::sql_types::Text;
 use hamlet_protocol::client::{
     self as protocol, Choice, Lasting, Questions, WaitDanger,
     WaitDetail,
@@ -15,44 +18,79 @@ use hamlet_store::ids::{
     AgentId, ChiefId, ConversationId, ScholarId, TaskId, WaitId,
 };
 use hamlet_store::schema::wait;
+use serde::{Deserialize, Serialize};
+use strum::{Display, EnumString, IntoStaticStr};
 
 use crate::change::Change;
 use crate::clients::state::{wire_agent, wire_scholar};
 use crate::society::addresses;
 use crate::talk::conversations::{self, Kind};
-use crate::text::text_enum;
 
-text_enum! {
-    pub(crate) enum WaitKind {
-        /// A call the gate asks a chief to let run.
-        Approval = "approval",
-        /// A turn that failed, which a chief can only dismiss.
-        Fault = "fault",
-        /// `ask_chief`'s questions.
-        Question = "question",
-        /// An objection to a chief's instruction.
-        Objection = "objection",
-        /// A scholar an agent made, waiting at the harbor to be let
-        /// into the city.
-        Newcomer = "newcomer",
-    }
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    Serialize,
+    Deserialize,
+    AsExpression,
+    FromSqlRow,
+    IntoStaticStr,
+    EnumString,
+    Display,
+)]
+#[serde(rename_all = "kebab-case")]
+#[strum(serialize_all = "kebab-case")]
+#[diesel(sql_type = Text)]
+pub(crate) enum WaitKind {
+    /// A call the gate asks a chief to let run.
+    Approval,
+    /// A turn that failed, which a chief can only dismiss.
+    Fault,
+    /// `ask_chief`'s questions.
+    Question,
+    /// An objection to a chief's instruction.
+    Objection,
+    /// A scholar an agent made, waiting at the harbor to be let
+    /// into the city.
+    Newcomer,
 }
+hamlet_store::named_text!(WaitKind);
 
-text_enum! {
-    /// What an approval would let through.
-    pub(crate) enum Danger {
-        Network = "network",
-        Unconfined = "unconfined",
-        /// An act a chief keeps for itself (H22).
-        Reserved = "reserved",
-        /// An edit in the hamlet's folder in manual mode.
-        Edit = "edit",
-        /// A command in manual mode.
-        Command = "command",
-        /// Files sent to another agent, over the cap of one send.
-        Send = "send",
-    }
+/// What an approval would let through.
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    Serialize,
+    Deserialize,
+    AsExpression,
+    FromSqlRow,
+    IntoStaticStr,
+    EnumString,
+    Display,
+)]
+#[serde(rename_all = "kebab-case")]
+#[strum(serialize_all = "kebab-case")]
+#[diesel(sql_type = Text)]
+pub(crate) enum Danger {
+    Network,
+    Unconfined,
+    /// An act a chief keeps for itself (H22).
+    Reserved,
+    /// An edit in the hamlet's folder in manual mode.
+    Edit,
+    /// A command in manual mode.
+    Command,
+    /// Files sent to another agent, over the cap of one send.
+    Send,
 }
+hamlet_store::named_text!(Danger);
 
 impl Danger {
     /// The words after the asker's name.
@@ -99,26 +137,43 @@ impl Danger {
     }
 }
 
-text_enum! {
-    /// How a wait ended: a chief's answer, or its asker gone.
-    pub(crate) enum Ruling {
-        Allow = "allow",
-        Always = "always",
-        Deny = "deny",
-        Go = "go",
-        Withdraw = "withdraw",
-        Reply = "reply",
-        Dismiss = "dismiss",
-        /// A newcomer was let into the city.
-        Welcome = "welcome",
-        /// The turn that asked was stopped.
-        Stopped = "stopped",
-        /// The agent that asked ended.
-        Ended = "ended",
-        /// A rewind took the turn that asked back.
-        Rewound = "rewound",
-    }
+/// How a wait ended: a chief's answer, or its asker gone.
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    Serialize,
+    Deserialize,
+    AsExpression,
+    FromSqlRow,
+    IntoStaticStr,
+    EnumString,
+    Display,
+)]
+#[serde(rename_all = "kebab-case")]
+#[strum(serialize_all = "kebab-case")]
+#[diesel(sql_type = Text)]
+pub(crate) enum Ruling {
+    Allow,
+    Always,
+    Deny,
+    Go,
+    Withdraw,
+    Reply,
+    Dismiss,
+    /// A newcomer was let into the city.
+    Welcome,
+    /// The turn that asked was stopped.
+    Stopped,
+    /// The agent that asked ended.
+    Ended,
+    /// A rewind took the turn that asked back.
+    Rewound,
 }
+hamlet_store::named_text!(Ruling);
 
 impl Ruling {
     pub fn of(choice: &Choice) -> Self {

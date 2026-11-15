@@ -2,27 +2,48 @@
 //! (S17).
 
 use anyhow::{Context, Result};
+use diesel::deserialize::FromSqlRow;
+use diesel::expression::AsExpression;
 use diesel::prelude::*;
+use diesel::sql_types::Text;
 use hamlet_protocol::runtime::{
     ConfigureTools, ConversationKind, ModelRef,
 };
 use hamlet_store::Db;
 use hamlet_store::ids::{AgentId, ChiefId, ConversationId};
 use hamlet_store::schema::{conversation, item};
+use serde::{Deserialize, Serialize};
+use strum::{Display, EnumString, IntoStaticStr};
 
 use crate::change::Change;
-use crate::text::text_enum;
 
-text_enum! {
-    pub(crate) enum Kind {
-        Chat = "chat",
-        Letters = "letters",
-        Questions = "questions",
-        Worker = "worker",
-        Errand = "errand",
-        Dream = "dream",
-    }
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    Serialize,
+    Deserialize,
+    AsExpression,
+    FromSqlRow,
+    IntoStaticStr,
+    EnumString,
+    Display,
+)]
+#[serde(rename_all = "kebab-case")]
+#[strum(serialize_all = "kebab-case")]
+#[diesel(sql_type = Text)]
+pub(crate) enum Kind {
+    Chat,
+    Letters,
+    Questions,
+    Worker,
+    Errand,
+    Dream,
 }
+hamlet_store::named_text!(Kind);
 
 impl Kind {
     pub fn wire(self) -> ConversationKind {
@@ -37,14 +58,31 @@ impl Kind {
     }
 }
 
-text_enum! {
-    /// How a conversation's latest turn ended.
-    pub(crate) enum Last {
-        Done = "done",
-        Failed = "failed",
-        Stopped = "stopped",
-    }
+/// How a conversation's latest turn ended.
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    Serialize,
+    Deserialize,
+    AsExpression,
+    FromSqlRow,
+    IntoStaticStr,
+    EnumString,
+    Display,
+)]
+#[serde(rename_all = "kebab-case")]
+#[strum(serialize_all = "kebab-case")]
+#[diesel(sql_type = Text)]
+pub(crate) enum Last {
+    Done,
+    Failed,
+    Stopped,
 }
+hamlet_store::named_text!(Last);
 
 #[derive(Clone, Debug, PartialEq, Queryable, Selectable)]
 #[diesel(table_name = conversation)]

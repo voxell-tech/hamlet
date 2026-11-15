@@ -3,11 +3,16 @@
 //! per tool call, and a question's answer carried back to its asker.
 
 use anyhow::Result;
+use diesel::deserialize::FromSqlRow;
+use diesel::expression::AsExpression;
 use diesel::prelude::*;
+use diesel::sql_types::Text;
 use hamlet_protocol::client::ImageId;
 use hamlet_store::Db;
 use hamlet_store::ids::{AgentId, ConversationId, TaskId};
 use hamlet_store::schema::{input, message, tool_call};
+use serde::{Deserialize, Serialize};
+use strum::{Display, EnumString, IntoStaticStr};
 
 use super::conversations::{self, Begin, Kind};
 use super::inputs::{self, InputKind, Keep};
@@ -15,14 +20,30 @@ use super::marks::{From, Mark};
 use super::{Env, items, models, runtimes};
 use crate::change::Change;
 use crate::society::{addresses, agents};
-use crate::text::text_enum;
 
-text_enum! {
-    pub(crate) enum MessageKind {
-        Letter = "letter",
-        Question = "question",
-    }
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    Serialize,
+    Deserialize,
+    AsExpression,
+    FromSqlRow,
+    IntoStaticStr,
+    EnumString,
+    Display,
+)]
+#[serde(rename_all = "kebab-case")]
+#[strum(serialize_all = "kebab-case")]
+#[diesel(sql_type = Text)]
+pub(crate) enum MessageKind {
+    Letter,
+    Question,
 }
+hamlet_store::named_text!(MessageKind);
 
 #[derive(Clone, Debug, PartialEq, Queryable, Selectable)]
 #[diesel(table_name = message)]

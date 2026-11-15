@@ -34,9 +34,9 @@ const APPLICATION: i64 = 1_212_239_181;
 
 const SCHEMA: &str = include_str!("schema.sql");
 
-/// Stores a type as the text of its `as_str`, read back by its
-/// `named`. The type derives `AsExpression` and `FromSqlRow` as
-/// `Text`.
+/// Stores a type as the text it converts into, read back by parsing
+/// it, as strum's `IntoStaticStr` and `EnumString` derive. The type
+/// derives `AsExpression` and `FromSqlRow` as `Text`.
 #[macro_export]
 macro_rules! named_text {
     ($type:ty) => {
@@ -54,7 +54,7 @@ macro_rules! named_text {
                     ::diesel::sqlite::Sqlite,
                 >,
             ) -> ::diesel::serialize::Result {
-                out.set_value(self.as_str());
+                out.set_value(<&'static str>::from(self));
                 Ok(::diesel::serialize::IsNull::No)
             }
         }
@@ -73,7 +73,7 @@ macro_rules! named_text {
                         ::diesel::sql_types::Text,
                         ::diesel::sqlite::Sqlite,
                     >>::from_sql(value)?;
-                Self::named(&name).ok_or_else(|| {
+                name.parse::<Self>().map_err(|_| {
                     format!("not a {}: {name:?}", stringify!($type))
                         .into()
                 })

@@ -628,9 +628,9 @@ fn effort(core: &mut Core<'_, '_>, line: &Line) -> Answer {
     found!(core.steers(agent));
     let effort = match *value {
         "none" => None,
-        level => match Effort::named(level) {
-            Some(effort) => Some(effort),
-            None => return usage(core, line),
+        level => match level.parse::<Effort>() {
+            Ok(effort) => Some(effort),
+            Err(_) => return usage(core, line),
         },
     };
     let done = core.attempt(by(core), |cx, _| {

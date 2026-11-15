@@ -2,59 +2,116 @@
 //! of its new conversations, and how it ended.
 
 use anyhow::{Context, Result};
+use diesel::deserialize::FromSqlRow;
+use diesel::expression::AsExpression;
 use diesel::prelude::*;
+use diesel::sql_types::Text;
 use hamlet_store::Db;
 use hamlet_store::ids::{Actor, AgentId};
 use hamlet_store::schema::{agent, hand, permission_grant, worker};
+use serde::{Deserialize, Serialize};
+use strum::{Display, EnumString, IntoStaticStr};
 
 use super::hires;
 use crate::change::{Change, Done, done};
-use crate::text::text_enum;
 
 /// The harness an agent's conversations run in unless it is given
 /// another.
 pub(crate) const HARNESS: &str = "pi";
 
-text_enum! {
-    pub(crate) enum AgentKind {
-        Hand = "hand",
-        Hire = "hire",
-        Worker = "worker",
-    }
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    Serialize,
+    Deserialize,
+    AsExpression,
+    FromSqlRow,
+    IntoStaticStr,
+    EnumString,
+    Display,
+)]
+#[serde(rename_all = "kebab-case")]
+#[strum(serialize_all = "kebab-case")]
+#[diesel(sql_type = Text)]
+pub(crate) enum AgentKind {
+    Hand,
+    Hire,
+    Worker,
 }
+hamlet_store::named_text!(AgentKind);
 
-text_enum! {
-    /// How an agent ended.
-    pub(crate) enum EndHow {
-        /// A lead or a chief ended the hire.
-        Ended = "ended",
-        /// The hire was merged into another.
-        Merged = "merged",
-        /// Its scholar left the city.
-        Scholar = "scholar",
-        /// Its hamlet was removed.
-        Hamlet = "hamlet",
-        /// The worker answered its task.
-        Answered = "answered",
-        /// The worker's task failed.
-        Failed = "failed",
-        /// The worker was stopped.
-        Stopped = "stopped",
-    }
+/// How an agent ended.
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    Serialize,
+    Deserialize,
+    AsExpression,
+    FromSqlRow,
+    IntoStaticStr,
+    EnumString,
+    Display,
+)]
+#[serde(rename_all = "kebab-case")]
+#[strum(serialize_all = "kebab-case")]
+#[diesel(sql_type = Text)]
+pub(crate) enum EndHow {
+    /// A lead or a chief ended the hire.
+    Ended,
+    /// The hire was merged into another.
+    Merged,
+    /// Its scholar left the city.
+    Scholar,
+    /// Its hamlet was removed.
+    Hamlet,
+    /// The worker answered its task.
+    Answered,
+    /// The worker's task failed.
+    Failed,
+    /// The worker was stopped.
+    Stopped,
 }
+hamlet_store::named_text!(EndHow);
 
-text_enum! {
-    /// How hard an agent's model thinks (H29a), weakest first.
-    pub(crate) enum Effort {
-        Off = "off",
-        Minimal = "minimal",
-        Low = "low",
-        Medium = "medium",
-        High = "high",
-        XHigh = "xhigh",
-        Max = "max",
-    }
+/// How hard an agent's model thinks (H29a), weakest first.
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    Serialize,
+    Deserialize,
+    AsExpression,
+    FromSqlRow,
+    IntoStaticStr,
+    EnumString,
+    Display,
+)]
+#[serde(rename_all = "kebab-case")]
+#[strum(serialize_all = "kebab-case")]
+#[diesel(sql_type = Text)]
+pub(crate) enum Effort {
+    Off,
+    Minimal,
+    Low,
+    Medium,
+    High,
+    #[serde(rename = "xhigh")]
+    #[strum(serialize = "xhigh")]
+    XHigh,
+    Max,
 }
+hamlet_store::named_text!(Effort);
 
 impl Effort {
     /// Every effort, weakest first.

@@ -2,31 +2,69 @@
 //! the librarian judged it, and what came to and left the shelves.
 
 use anyhow::{Context, Result};
+use diesel::deserialize::FromSqlRow;
+use diesel::expression::AsExpression;
 use diesel::prelude::*;
+use diesel::sql_types::Text;
 use hamlet_store::Db;
 use hamlet_store::ids::{AgentId, ChiefId, OfferId, TaskId};
 use hamlet_store::schema::{library_event, skill_offer};
+use serde::{Deserialize, Serialize};
+use strum::{Display, EnumString, IntoStaticStr};
 
 use crate::change::Change;
-use crate::text::text_enum;
 
-text_enum! {
-    pub(crate) enum Verdict {
-        Accepted = "accepted",
-        Refused = "refused",
-        /// The librarian could not judge it.
-        Failed = "failed",
-    }
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    Serialize,
+    Deserialize,
+    AsExpression,
+    FromSqlRow,
+    IntoStaticStr,
+    EnumString,
+    Display,
+)]
+#[serde(rename_all = "kebab-case")]
+#[strum(serialize_all = "kebab-case")]
+#[diesel(sql_type = Text)]
+pub(crate) enum Verdict {
+    Accepted,
+    Refused,
+    /// The librarian could not judge it.
+    Failed,
 }
+hamlet_store::named_text!(Verdict);
 
-text_enum! {
-    pub(crate) enum EventKind {
-        Starter = "starter",
-        Shelved = "shelved",
-        Refused = "refused",
-        Unshelved = "unshelved",
-    }
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    Serialize,
+    Deserialize,
+    AsExpression,
+    FromSqlRow,
+    IntoStaticStr,
+    EnumString,
+    Display,
+)]
+#[serde(rename_all = "kebab-case")]
+#[strum(serialize_all = "kebab-case")]
+#[diesel(sql_type = Text)]
+pub(crate) enum EventKind {
+    Starter,
+    Shelved,
+    Refused,
+    Unshelved,
 }
+hamlet_store::named_text!(EventKind);
 
 #[derive(Clone, Debug, PartialEq, Queryable, Selectable)]
 #[diesel(table_name = skill_offer)]

@@ -72,7 +72,6 @@ mod diagnostic;
 mod fault;
 #[cfg(test)]
 mod testing;
-mod text;
 
 /// The server: every area, the order of its systems, and the runner
 /// that serves the realm `options` name.

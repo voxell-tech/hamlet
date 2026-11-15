@@ -1159,9 +1159,9 @@ impl Card {
             Effort::ALL
                 .into_iter()
                 .filter(|effort| {
-                    match levels
-                        .and_then(|map| map.get(effort.as_str()))
-                    {
+                    match levels.and_then(|map| {
+                        map.get(<&'static str>::from(effort))
+                    }) {
                         Some(Value::Null) => false,
                         Some(_) => true,
                         None => !matches!(

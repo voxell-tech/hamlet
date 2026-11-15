@@ -2,49 +2,104 @@
 //! taken in once, in order (S23).
 
 use anyhow::Result;
+use diesel::deserialize::FromSqlRow;
+use diesel::expression::AsExpression;
 use diesel::prelude::*;
+use diesel::sql_types::Text;
 use hamlet_store::Db;
 use hamlet_store::ids::{AgentId, ConversationId, TaskId};
 use hamlet_store::schema::{conversation, input};
+use serde::{Deserialize, Serialize};
+use strum::{Display, EnumString, IntoStaticStr};
 
 use super::marks::Mark;
 use crate::change::Change;
-use crate::text::text_enum;
 
-text_enum! {
-    pub(crate) enum InputKind {
-        Chief = "chief",
-        Retry = "retry",
-        Reflection = "reflection",
-        Notice = "notice",
-        Letter = "letter",
-        Question = "question",
-        Reply = "reply",
-        Errand = "errand",
-        Worker = "worker",
-        Dream = "dream",
-    }
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    Serialize,
+    Deserialize,
+    AsExpression,
+    FromSqlRow,
+    IntoStaticStr,
+    EnumString,
+    Display,
+)]
+#[serde(rename_all = "kebab-case")]
+#[strum(serialize_all = "kebab-case")]
+#[diesel(sql_type = Text)]
+pub(crate) enum InputKind {
+    Chief,
+    Retry,
+    Reflection,
+    Notice,
+    Letter,
+    Question,
+    Reply,
+    Errand,
+    Worker,
+    Dream,
 }
+hamlet_store::named_text!(InputKind);
 
-text_enum! {
-    /// Where an input is on its way to its runtime.
-    pub(crate) enum State {
-        Kept = "kept",
-        Admitted = "admitted",
-        /// Never to be sent: its conversation was stopped first.
-        Dropped = "dropped",
-    }
+/// Where an input is on its way to its runtime.
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    Serialize,
+    Deserialize,
+    AsExpression,
+    FromSqlRow,
+    IntoStaticStr,
+    EnumString,
+    Display,
+)]
+#[serde(rename_all = "kebab-case")]
+#[strum(serialize_all = "kebab-case")]
+#[diesel(sql_type = Text)]
+pub(crate) enum State {
+    Kept,
+    Admitted,
+    /// Never to be sent: its conversation was stopped first.
+    Dropped,
 }
+hamlet_store::named_text!(State);
 
-text_enum! {
-    /// What its runtime last said of an admitted input.
-    pub(crate) enum Status {
-        Queued = "queued",
-        Placed = "placed",
-        Done = "done",
-        Unanswered = "unanswered",
-    }
+/// What its runtime last said of an admitted input.
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    Serialize,
+    Deserialize,
+    AsExpression,
+    FromSqlRow,
+    IntoStaticStr,
+    EnumString,
+    Display,
+)]
+#[serde(rename_all = "kebab-case")]
+#[strum(serialize_all = "kebab-case")]
+#[diesel(sql_type = Text)]
+pub(crate) enum Status {
+    Queued,
+    Placed,
+    Done,
+    Unanswered,
 }
+hamlet_store::named_text!(Status);
 
 impl Status {
     pub fn is_ended(self) -> bool {
