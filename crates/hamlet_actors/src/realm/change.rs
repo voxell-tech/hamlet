@@ -70,6 +70,16 @@ pub(super) struct Affected {
 }
 
 impl Affected {
+    /// A change a client sees in `parts`, and nothing else.
+    pub fn seen(
+        parts: impl IntoIterator<Item = world::Part>,
+    ) -> Self {
+        Self {
+            seen: parts.into_iter().collect(),
+            ..Self::default()
+        }
+    }
+
     fn merge(&mut self, other: Affected) {
         self.places.extend(other.places);
         self.reaches.extend(other.reaches);
@@ -124,8 +134,7 @@ impl<'a> Rows<'a> {
         })
     }
 
-    /// The one column of each row `sql` finds.
-    pub async fn values<T: Column>(
+    pub async fn rows<T: Columns>(
         &self,
         sql: &str,
         params: Vec<BindParam>,
@@ -133,11 +142,27 @@ impl<'a> Rows<'a> {
         self.select(sql, params)
             .await?
             .iter()
-            .map(|row| match row.as_slice() {
-                [value] => T::of(value),
-                _ => bail!("a row of another form: {row:?}"),
-            })
+            .map(|row| T::of(row))
             .collect()
+    }
+
+    /// The first row `sql` finds.
+    pub async fn row<T: Columns>(
+        &self,
+        sql: &str,
+        params: Vec<BindParam>,
+    ) -> Result<Option<T>> {
+        Ok(self.rows(sql, params).await?.into_iter().next())
+    }
+
+    /// The one column of each row `sql` finds.
+    pub async fn values<T: Column>(
+        &self,
+        sql: &str,
+        params: Vec<BindParam>,
+    ) -> Result<Vec<T>> {
+        let rows = self.rows::<(T,)>(sql, params).await?;
+        Ok(rows.into_iter().map(|(value,)| value).collect())
     }
 
     /// The one column of the first row `sql` finds.
@@ -146,7 +171,19 @@ impl<'a> Rows<'a> {
         sql: &str,
         params: Vec<BindParam>,
     ) -> Result<Option<T>> {
-        Ok(self.values(sql, params).await?.into_iter().next())
+        Ok(self.row::<(T,)>(sql, params).await?.map(|(value,)| value))
+    }
+
+    /// The id after the highest of `table`, 1 for an empty one.
+    pub async fn next_id(&self, table: &str) -> Result<u64> {
+        let highest = self
+            .value::<Option<u64>>(
+                &format!("SELECT MAX(id) FROM {table}"),
+                Vec::new(),
+            )
+            .await?
+            .flatten();
+        Ok(highest.unwrap_or(0) + 1)
     }
 
     pub fn at(&self) -> At {
@@ -180,6 +217,21 @@ impl Column for u32 {
     }
 }
 
+impl Column for bool {
+    fn of(value: &ColumnValue) -> Result<Self> {
+        Ok(i64::of(value)? != 0)
+    }
+}
+
+impl Column for Vec<u8> {
+    fn of(value: &ColumnValue) -> Result<Self> {
+        match value {
+            ColumnValue::Blob(bytes) => Ok(bytes.clone()),
+            other => bail!("a blob column holds {other:?}"),
+        }
+    }
+}
+
 impl Column for String {
     fn of(value: &ColumnValue) -> Result<Self> {
         match value {
@@ -196,6 +248,31 @@ impl<T: Column> Column for Option<T> {
             value => T::of(value).map(Some),
         }
     }
+}
+
+/// A Rust value of one row.
+pub(super) trait Columns: Sized {
+    fn of(row: &[ColumnValue]) -> Result<Self>;
+}
+
+macro_rules! columns {
+    ($(($($column:ident $value:ident),+)),+ $(,)?) => {$(
+        impl<$($column: Column),+> Columns for ($($column,)+) {
+            fn of(row: &[ColumnValue]) -> Result<Self> {
+                match row {
+                    [$($value),+] => Ok(($($column::of($value)?,)+)),
+                    _ => bail!("a row of another form: {row:?}"),
+                }
+            }
+        }
+    )+};
+}
+
+columns!((A a), (A a, B b), (A a, B b, C c), (A a, B b, C c, D d));
+
+/// An agent's number as a statement's parameter.
+pub(super) fn number(agent: AgentNumber) -> BindParam {
+    BindParam::Integer(i64::from(agent.0))
 }
 
 /// The serde name of an enum's case, as a column holds it.

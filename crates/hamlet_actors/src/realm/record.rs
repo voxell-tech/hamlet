@@ -8,7 +8,7 @@ use hamlet_messages::realm::{HamletId, Tier};
 use hamlet_messages::workspace::AgentNumber;
 
 use super::callers::Witness;
-use super::change::Writer;
+use super::change::{Writer, number};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum By {
@@ -22,34 +22,41 @@ pub(super) enum Entry {
         hamlet: HamletId,
         by: By,
     },
+    #[expect(dead_code, reason = "U4 records it")]
     Hired {
         hire: AgentNumber,
         by: By,
         why: Option<String>,
     },
+    #[expect(dead_code, reason = "U4 records it")]
     Ended {
         hire: AgentNumber,
         by: By,
         why: Option<String>,
     },
+    #[expect(dead_code, reason = "U4 records it")]
     Seated {
         hire: AgentNumber,
         by: By,
     },
+    #[expect(dead_code, reason = "U11 records it")]
     Road {
         a: AgentNumber,
         b: AgentNumber,
         by: By,
     },
+    #[expect(dead_code, reason = "U11 records it")]
     Unroad {
         a: AgentNumber,
         b: AgentNumber,
         by: By,
     },
+    #[expect(dead_code, reason = "U11 records it")]
     Tools {
         hire: AgentNumber,
         by: By,
     },
+    #[expect(dead_code, reason = "U11 records it")]
     Tier {
         hamlet: HamletId,
         tier: Tier,
@@ -107,9 +114,7 @@ pub(super) async fn write(
                     hamlet.map_or(BindParam::Null, |hamlet| {
                         BindParam::Text(hamlet.0)
                     }),
-                    hire.map_or(BindParam::Null, |hire| {
-                        BindParam::Integer(i64::from(hire.0))
-                    }),
+                    hire.map_or(BindParam::Null, number),
                     BindParam::Text(by.name()),
                     why.map_or(BindParam::Null, BindParam::Text),
                     BindParam::Integer(writer.at().0),

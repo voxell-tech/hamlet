@@ -11,7 +11,7 @@ use hamlet_actor::{BindParam, Ctx};
 use serde::{Deserialize, Serialize};
 use tokio::sync::watch;
 
-use super::change::{self, Affected, Column as _, Rows, Writer};
+use super::change::{self, Affected, Rows, Writer};
 use super::peer::Peers;
 use super::{Realm, calls, hire};
 
@@ -52,6 +52,10 @@ pub(super) enum Change {
         to: &'static str,
     },
     /// The row is driven no further.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "U4 and U8 close rows with it")
+    )]
     Close { row: StepId },
 }
 
@@ -99,15 +103,35 @@ async fn advance(
     from: Option<&'static str>,
     to: &'static str,
 ) -> Result<Affected> {
-    todo!()
+    let mut params = key(row)?;
+    params.push(BindParam::Text(to.to_owned()));
+    params.push(from.map_or(BindParam::Null, |from| {
+        BindParam::Text(from.to_owned())
+    }));
+    let moved = writer
+        .execute(
+            "UPDATE step SET done = ?3 WHERE kind = ?1 AND n = ?2 \
+             AND done IS ?4 AND closed = 0",
+            params,
+        )
+        .await?;
+    if moved == 0 {
+        bail!("{row:?} moved or closed before `{to}`");
+    }
+    Ok(Affected::default())
 }
 
 async fn close(writer: &Writer<'_>, row: StepId) -> Result<Affected> {
-    todo!()
+    writer
+        .execute(
+            "UPDATE step SET closed = 1 WHERE kind = ?1 AND n = ?2",
+            key(row)?,
+        )
+        .await?;
+    Ok(Affected::default())
 }
 
 pub(super) struct Row {
-    pub id: StepId,
     pub done: Option<String>,
     pub closed: bool,
 }
@@ -116,21 +140,14 @@ pub(super) async fn row(
     rows: &Rows<'_>,
     id: StepId,
 ) -> Result<Option<Row>> {
-    rows.select(
-        "SELECT done, closed FROM step WHERE kind = ?1 AND n = ?2",
-        key(id)?,
-    )
-    .await?
-    .first()
-    .map(|found| match found.as_slice() {
-        [done, closed] => Ok(Row {
-            id,
-            done: Option::<String>::of(done)?,
-            closed: i64::of(closed)? != 0,
-        }),
-        _ => bail!("a step row of another form: {found:?}"),
-    })
-    .transpose()
+    Ok(rows
+        .row::<(Option<String>, bool)>(
+            "SELECT done, closed FROM step WHERE kind = ?1 AND n = \
+             ?2",
+            key(id)?,
+        )
+        .await?
+        .map(|(done, closed)| Row { done, closed }))
 }
 
 pub(super) struct Cx<'a> {
@@ -143,6 +160,7 @@ impl Cx<'_> {
         Rows::outside(self.ctx)
     }
 
+    #[expect(dead_code, reason = "U3 calls it")]
     pub fn peers(&self) -> &Peers {
         &self.realm.peers
     }
@@ -292,7 +310,17 @@ impl Drives {
     /// Waits until `row`'s drive ends, at most `within`, and at once
     /// when none runs.
     pub async fn finished(&self, row: StepId, within: Duration) {
-        todo!()
+        let Some(mut ended) = self
+            .running
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(&row)
+            .cloned()
+        else {
+            return;
+        };
+        // The drive sends nothing: its sender's drop ends the wait.
+        let _ = tokio::time::timeout(within, ended.changed()).await;
     }
 }
 
@@ -302,23 +330,88 @@ pub(super) async fn drive_undone(
     ctx: &Ctx<Realm>,
 ) -> Result<()> {
     let open = Rows::outside(ctx)?
-        .select(
+        .rows::<(String, u64)>(
             "SELECT kind, n FROM step WHERE closed = 0",
             Vec::new(),
         )
         .await?;
-    for found in open {
-        let [kind, n] = found.as_slice() else {
-            bail!("a step row of another form: {found:?}");
-        };
+    for (kind, n) in open {
         realm.drives.start(
             realm,
             ctx,
             StepId {
-                kind: change::named(String::of(kind)?)?,
-                n: u64::of(n)?,
+                kind: change::named(kind)?,
+                n,
             },
         );
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use super::super::testing::Started;
+    use super::*;
+
+    const ROW: StepId = StepId {
+        kind: Kind::Hire,
+        n: 99,
+    };
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_step_moves_only_from_the_last_one_done_of_an_open_row()
+    {
+        let started = Started::new().await;
+        let commit = async |made: Change| started.commit(made).await;
+        commit(Change::Begin { row: ROW }).await.unwrap();
+        commit(Change::Advance {
+            row: ROW,
+            from: None,
+            to: "a",
+        })
+        .await
+        .unwrap();
+        commit(Change::Advance {
+            row: ROW,
+            from: None,
+            to: "b",
+        })
+        .await
+        .unwrap_err();
+        commit(Change::Close { row: ROW }).await.unwrap();
+        commit(Change::Advance {
+            row: ROW,
+            from: Some("a"),
+            to: "b",
+        })
+        .await
+        .unwrap_err();
+
+        let read = row(&started.rows(), ROW).await.unwrap().unwrap();
+        assert_eq!(
+            (read.done.as_deref(), read.closed),
+            (Some("a"), true)
+        );
+        started.stop().await;
+    }
+
+    #[tokio::test]
+    async fn a_wait_for_a_drive_ends_with_it() {
+        let drives = Drives::default();
+        tokio::time::timeout(
+            Duration::from_secs(1),
+            drives.finished(ROW, Duration::from_secs(60)),
+        )
+        .await
+        .expect("no drive runs, so the wait ends at once");
+
+        let reserved = drives.reserve(&[ROW]);
+        let waiting = drives.finished(ROW, Duration::from_secs(60));
+        drop(reserved);
+        tokio::time::timeout(Duration::from_secs(1), waiting)
+            .await
+            .expect("the wait ends with the drive");
+    }
 }

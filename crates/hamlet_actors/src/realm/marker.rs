@@ -2,8 +2,8 @@
 //! tool call that changed the realm made, under the id its repeat
 //! carries (S19).
 
-use anyhow::{Result, bail};
-use hamlet_actor::{BindParam, ColumnValue};
+use anyhow::Result;
+use hamlet_actor::BindParam;
 use hamlet_messages::bytes::Sha256;
 use hamlet_messages::sender::id_reused;
 use hamlet_messages::workspace::CallId;
@@ -76,8 +76,8 @@ pub(super) async fn find<D: DeserializeOwned>(
     rows: &Rows<'_>,
     key: &Key,
 ) -> Result<Option<Found<D>>> {
-    let found = rows
-        .select(
+    let Some((action, digest, done, pushes)) = rows
+        .row::<(String, Vec<u8>, Vec<u8>, Vec<u8>)>(
             "SELECT action, digest, done, pushes FROM marker WHERE \
              caller = ?1 AND id = ?2",
             vec![
@@ -85,18 +85,9 @@ pub(super) async fn find<D: DeserializeOwned>(
                 BindParam::Text(key.id.clone()),
             ],
         )
-        .await?;
-    let Some(row) = found.first() else {
-        return Ok(None);
-    };
-    let [
-        ColumnValue::Text(action),
-        ColumnValue::Blob(digest),
-        ColumnValue::Blob(done),
-        ColumnValue::Blob(pushes),
-    ] = row.as_slice()
+        .await?
     else {
-        bail!("a marker row of another form: {row:?}");
+        return Ok(None);
     };
     if action != key.action || digest[..] != key.digest.0.0 {
         return Ok(Some(Found::Other));

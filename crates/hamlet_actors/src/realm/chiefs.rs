@@ -18,7 +18,7 @@ use hamlet_messages::workspace::reach::Mode;
 use super::act::{Act, Decided, Decision};
 use super::callers::RealmWide;
 use super::calls::Made;
-use super::change::{self, Affected, Rows, Writer};
+use super::change::{self, Affected, Rows, Writer, number};
 use super::world::Part;
 use super::{hire, record, steps, tasks, tree};
 
@@ -35,8 +35,14 @@ pub(super) struct Hamlet {
 
 impl Hamlet {
     /// The most hires the hamlet holds (H6).
+    #[cfg_attr(not(test), expect(dead_code, reason = "U4 calls it"))]
     pub fn most(&self) -> u32 {
-        todo!()
+        match self.tier {
+            Tier::Fifty => 50,
+            Tier::Hundred => 100,
+            Tier::TwoHundred => 200,
+            Tier::FiveHundred => 500,
+        }
     }
 }
 
@@ -44,7 +50,20 @@ pub(super) async fn hamlet(
     rows: &Rows<'_>,
     id: &HamletId,
 ) -> Result<Option<Hamlet>> {
-    todo!()
+    rows.row::<(u32, String, String)>(
+        "SELECT mayor, tier, limits FROM hamlet WHERE id = ?1",
+        vec![BindParam::Text(id.0.clone())],
+    )
+    .await?
+    .map(|(mayor, tier, limits)| {
+        Ok(Hamlet {
+            id: id.clone(),
+            mayor: AgentNumber(mayor),
+            tier: change::named(tier)?,
+            limits: limits::Limits::of_row(&limits)?,
+        })
+    })
+    .transpose()
 }
 
 pub(super) async fn mayors(
@@ -75,10 +94,15 @@ pub(super) enum Change {
         mayor: AgentNumber,
         tier: Tier,
     },
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "U4 seats a mayor with it")
+    )]
     Mayor {
         hamlet: HamletId,
         mayor: AgentNumber,
     },
+    #[expect(dead_code, reason = "U11 sets a tier with it")]
     Tier {
         hamlet: HamletId,
         tier: Tier,
@@ -122,7 +146,7 @@ async fn first(writer: &Writer<'_>) -> Result<Affected> {
     writer
         .execute("INSERT INTO chief (id) VALUES (1)", Vec::new())
         .await?;
-    Ok(seen(&[Part::Spend]))
+    Ok(Affected::seen([Part::Spend]))
 }
 
 async fn found(
@@ -140,7 +164,7 @@ async fn found(
             vec![
                 BindParam::Text(hamlet.0.clone()),
                 BindParam::Text(name),
-                BindParam::Integer(i64::from(mayor.0)),
+                number(mayor),
                 BindParam::Text(change::name(&tier)?),
                 BindParam::Text(change::name(&Mode::Manual)?),
                 BindParam::Text(limits::new_hamlet()?),
@@ -154,14 +178,7 @@ async fn found(
             vec![BindParam::Text(hamlet.0)],
         )
         .await?;
-    Ok(seen(&[Part::Hamlets, Part::Spend]))
-}
-
-fn seen(parts: &[Part]) -> Affected {
-    Affected {
-        seen: parts.iter().copied().collect(),
-        ..Affected::default()
-    }
+    Ok(Affected::seen([Part::Hamlets, Part::Spend]))
 }
 
 async fn set_mayor(
@@ -169,7 +186,13 @@ async fn set_mayor(
     hamlet: HamletId,
     mayor: AgentNumber,
 ) -> Result<Affected> {
-    todo!()
+    writer
+        .execute(
+            "UPDATE hamlet SET mayor = ?2 WHERE id = ?1",
+            vec![BindParam::Text(hamlet.0), number(mayor)],
+        )
+        .await?;
+    Ok(Affected::seen([Part::Hamlets]))
 }
 
 pub(super) fn first_start() -> Vec<change::Change> {
@@ -282,6 +305,100 @@ impl<By: RealmWide> Act<By> for Found {
 
 /// The payer of an agent's own spending: its hamlet, or the realm
 /// for the Hand.
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "U4 and U5 call it")
+)]
 pub(super) fn payer_of(lineage: &tree::Lineage) -> Payer {
-    todo!()
+    lineage.hamlet.as_ref().map_or(Payer::Realm, |hamlet| {
+        Payer::Hamlet {
+            hamlet: hamlet.id.clone(),
+        }
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use hamlet_messages::sender::Client;
+
+    use super::super::testing::Started;
+    use super::*;
+
+    fn found(name: &str, mayor: Option<ProfileId>) -> Found {
+        Found {
+            name: name.to_owned(),
+            mayor,
+            tier: Tier::Fifty,
+            purpose: None,
+        }
+    }
+
+    fn founding() -> Founding {
+        Founding {
+            profile: None,
+            hamlet: HamletId("h".to_owned()),
+            mayor: AgentNumber(2),
+            blank: ProfileId(2),
+        }
+    }
+
+    #[test]
+    fn a_found_refuses_an_empty_name_and_a_missing_profile() {
+        let refused =
+            |why| Decision::Answer(FoundAnswer::refused(why));
+        assert_eq!(
+            found(" ", None).decide(&Client, founding()),
+            refused(FoundRefusal::EmptyName)
+        );
+        assert_eq!(
+            found("Mill", Some(ProfileId(7)))
+                .decide(&Client, founding()),
+            refused(FoundRefusal::NoSuchProfile {
+                profile: ProfileId(7)
+            })
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_hamlet_reads_back_with_its_new_mayor() {
+        let started = Started::new().await;
+        let hamlet = HamletId("h".to_owned());
+        started.found(&hamlet, AgentNumber(2)).await;
+        started
+            .hire(&hamlet, AgentNumber(3), Some(AgentNumber(2)))
+            .await;
+        started
+            .commit(Change::Mayor {
+                hamlet: hamlet.clone(),
+                mayor: AgentNumber(3),
+            })
+            .await
+            .unwrap();
+        let rows = started.rows();
+
+        let read =
+            super::hamlet(&rows, &hamlet).await.unwrap().unwrap();
+        assert_eq!(
+            (read.mayor, read.tier, read.most()),
+            (AgentNumber(3), Tier::Fifty, 50)
+        );
+        assert_eq!(mayors(&rows).await.unwrap(), [AgentNumber(3)]);
+        let missing = HamletId("x".to_owned());
+        assert_eq!(
+            super::hamlet(&rows, &missing).await.unwrap(),
+            None
+        );
+        let lineage = async |agent| {
+            tree::lineage(&rows, agent).await.unwrap().unwrap()
+        };
+        assert_eq!(
+            payer_of(&lineage(AgentNumber(3)).await),
+            Payer::Hamlet { hamlet }
+        );
+        assert_eq!(
+            payer_of(&lineage(Hand::NUMBER).await),
+            Payer::Realm
+        );
+        started.stop().await;
+    }
 }

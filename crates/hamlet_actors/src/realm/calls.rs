@@ -16,6 +16,7 @@ use super::{Realm, letters, place, reach, steps, waits};
 
 /// A call that carries an act's content.
 #[derive(Debug, PartialEq)]
+#[expect(dead_code, reason = "U5, U6 and U8 deliver these")]
 pub(super) enum Delivery {
     /// A chief's line.
     Line { to: AgentNumber, submit: Submit },
@@ -40,6 +41,7 @@ impl Calls {
         Self::default()
     }
 
+    #[expect(dead_code, reason = "U5 calls it")]
     pub fn before_answer(delivery: Delivery) -> Self {
         Self {
             before_answer: vec![delivery],
@@ -47,6 +49,7 @@ impl Calls {
         }
     }
 
+    #[expect(dead_code, reason = "U6, U8 and U11 call it")]
     pub fn after_answer(delivery: Delivery) -> Self {
         Self {
             before_answer: Vec::new(),
@@ -61,6 +64,7 @@ pub(super) struct Made {
 }
 
 impl Made {
+    #[expect(dead_code, reason = "U5 calls it")]
     pub fn all_taken(&self) -> bool {
         self.failed.is_empty()
     }
