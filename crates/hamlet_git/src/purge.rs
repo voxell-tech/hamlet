@@ -111,8 +111,8 @@ pub fn purge(
 
 /// Finishes a purge of `path` that was cut off: a whole fresh
 /// repository takes the old one's place, and a partial one is
-/// dropped.
-fn settle(path: &Path) -> Result<()> {
+/// dropped. Changes nothing when no purge was cut off.
+pub fn settle(path: &Path) -> Result<()> {
     let fresh = sibling(path, "purging");
     let old = sibling(path, "purged");
     if fresh.join("PURGED").exists() {
