@@ -32,9 +32,7 @@ use anyhow::{Context, Result, anyhow, bail, ensure};
 use rand::Rng;
 use rusqlite::{Connection, OpenFlags};
 
-use crate::scenario::{
-    Demo, Is, Kill, Probe, Read, SCENARIOS, Scenario,
-};
+use crate::scenario::{Demo, Is, Kill, Probe, Read, Scenario};
 
 /// How long the kit waits for a reply, a fault point or a restart.
 const PATIENCE: Duration = Duration::from_secs(30);
@@ -65,7 +63,7 @@ struct Options {
 fn run() -> Result<bool> {
     let mut out = std::io::stdout();
     let Some(options) = options(std::env::args().skip(1))? else {
-        for scenario in SCENARIOS {
+        for scenario in scenario::all() {
             writeln!(out, "{:<22}{}", scenario.name, scenario.about)?;
         }
         return Ok(true);
@@ -155,8 +153,7 @@ fn options(
          hamlet_killkit <scenario> [--runs <n>] [--demo <path>] \
          [--keep]",
     )?;
-    let scenario = SCENARIOS
-        .iter()
+    let scenario = scenario::all()
         .find(|scenario| scenario.name == name)
         .ok_or_else(|| {
             anyhow!("no scenario `{name}`; --list lists them")
@@ -797,8 +794,7 @@ mod tests {
 
     #[test]
     fn an_error_no_expectation_names_fails_the_restart() {
-        let lost = SCENARIOS
-            .iter()
+        let lost = scenario::all()
             .find(|scenario| scenario.name == "link-kill-node")
             .unwrap();
         let shown = [
@@ -823,7 +819,7 @@ mod tests {
                 "restart 2: an unexpected error link.lost",
             ]
         );
-        let counters = &SCENARIOS[0];
+        let counters = scenario::all().next().unwrap();
         assert!(
             report(&[("error actor.not_found", 1)])
                 .failures(counters)
@@ -836,7 +832,7 @@ mod tests {
 
     #[test]
     fn a_scenario_that_kills_the_node_host_is_linked() {
-        for scenario in SCENARIOS {
+        for scenario in scenario::all() {
             if let Kill::NodeHost = scenario.kill {
                 assert!(
                     matches!(scenario.demo, Demo::Linked { .. }),
@@ -849,7 +845,7 @@ mod tests {
 
     #[test]
     fn a_scenario_that_arms_a_one_shot_is_down_past_its_due_time() {
-        for scenario in SCENARIOS {
+        for scenario in scenario::all() {
             let words: Vec<&str> =
                 scenario.trigger.split(' ').collect();
             if let ["tell", _, "arm", ms] = words.as_slice() {
