@@ -369,7 +369,7 @@ pub(super) async fn undone(
 
 #[cfg(test)]
 mod tests {
-    use std::cell::RefCell;
+    use std::cell::{Cell, RefCell};
     use std::time::Duration;
 
     use super::super::testing::Started;
@@ -469,36 +469,36 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
-    async fn a_wait_for_a_drive_ends_with_it() {
+    async fn a_wait_for_a_drive_ends_after_its_commit() {
         let started = Started::new().await;
-        let abandoned = async || {
-            change::Transaction::begin(&started.ctx)
-                .await
-                .unwrap()
-                .abandon()
-        };
         let drives = Drives::default();
-        tokio::time::timeout(
-            Duration::from_secs(1),
-            drives.finished(
-                ROW,
-                Duration::from_secs(60),
-                abandoned().await,
-            ),
-        )
-        .await
-        .expect("no drive runs, so the wait ends at once");
-
+        let held =
+            change::Transaction::begin(&started.ctx).await.unwrap();
         let reserved = drives.take(&[ROW]);
-        let waiting = drives.finished(
-            ROW,
-            Duration::from_secs(60),
-            abandoned().await,
-        );
-        drop(reserved);
-        tokio::time::timeout(Duration::from_secs(1), waiting)
+        let committed = Cell::new(false);
+        // Its commit waits for `held` to roll back.
+        let drive = async {
+            started.commit(Change::Close { row: ROW }).await.unwrap();
+            committed.set(true);
+            drop(reserved);
+        };
+        let wait = async {
+            drives
+                .finished(
+                    ROW,
+                    Duration::from_secs(60),
+                    held.abandon(),
+                )
+                .await;
+            committed.get()
+        };
+        let ((), ended_after_commit) =
+            tokio::time::timeout(Duration::from_secs(5), async {
+                tokio::join!(drive, wait)
+            })
             .await
             .expect("the wait ends with the drive");
+        assert!(ended_after_commit);
         started.stop().await;
     }
 }
