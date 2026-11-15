@@ -126,8 +126,10 @@ they start in, and the most one may cost.
 
 `hamlet_server --home <folder> --port 0` publishes a free loopback address.
 `main` runs a Bevy app with `ServerPlugin` (`lib.rs`), whose runner,
-`serve::runner`, serves; `serve::serve` owns
-the ordered start and shutdown, `clients/connection.rs` the sockets,
+`serve::runner`, serves. The app's first update opens the realm and
+the rest in `PreStartup`, starts them in `Startup`, and only then
+publishes `server.json` (`startup.rs`); `serve::serve` owns the ordered
+shutdown, `clients/connection.rs` the sockets,
 `clients/requests.rs` authentication, and `clients/asked.rs` the system
 that answers each request. `--faux` selects an offline
 response script, not a harness entry. `HAMLET_PI_HARNESS` selects that entry

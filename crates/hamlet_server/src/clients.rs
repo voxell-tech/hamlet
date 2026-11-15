@@ -10,6 +10,8 @@ pub(crate) mod fold;
 pub(crate) mod requests;
 pub(crate) mod state;
 
+use std::net::SocketAddr;
+
 use anyhow::Result;
 use bevy_ecs::change_detection::Mut;
 use bevy_ecs::component::Component;
@@ -21,10 +23,11 @@ use hamlet_protocol::client::{
     self as protocol, ChatRef, RequestId, ServerMessage, Update,
 };
 use hamlet_store::ids::ConversationId;
-use tokio::net::TcpStream;
+use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::watch;
-use tokio::task::JoinSet;
+use tokio::task::{AbortHandle, JoinSet};
 
+use self::asked::ClientConnected;
 use self::check::Protocol;
 use self::connection::Connection;
 use crate::credentials::Credentials;
@@ -354,7 +357,8 @@ pub(crate) struct Clients {
     next_client_id: u64,
     /// Where each connection's events go, as inputs.
     inputs: InputSender,
-    closing_signal: watch::Receiver<bool>,
+    /// Tells every connection to close, once the server closes.
+    closing_signal: watch::Sender<bool>,
     pub connection_tasks: JoinSet<()>,
     /// The state the clients were sent last.
     pub last_sent_state: Option<protocol::State>,
@@ -363,16 +367,12 @@ pub(crate) struct Clients {
 }
 
 impl Clients {
-    pub fn new(
-        inputs: InputSender,
-        closing: watch::Receiver<bool>,
-        epoch: i64,
-    ) -> Result<Self> {
+    pub fn new(inputs: InputSender, epoch: i64) -> Result<Self> {
         Ok(Self {
             protocol_schema: Protocol::new()?,
             next_client_id: 0,
             inputs,
-            closing_signal: closing,
+            closing_signal: watch::Sender::new(false),
             connection_tasks: JoinSet::new(),
             last_sent_state: None,
             state_epoch: epoch,
@@ -387,9 +387,52 @@ impl Clients {
             stream,
             self.next_client_id,
             self.inputs.clone(),
-            self.closing_signal.clone(),
+            self.closing_signal.subscribe(),
             &mut self.connection_tasks,
         )
+    }
+
+    /// Tells every connection to close.
+    pub fn close_connections(&self) {
+        self.closing_signal.send_replace(true);
+    }
+}
+
+/// The task taking clients' connections on `address`, each an input;
+/// it stops taking them when this goes.
+#[derive(Resource)]
+pub(crate) struct Listening {
+    pub address: SocketAddr,
+    accepting: AbortHandle,
+}
+
+impl Listening {
+    /// Takes clients' connections from `listener`, sending each to
+    /// `inputs`.
+    pub fn start(
+        listener: TcpListener,
+        inputs: InputSender,
+    ) -> Result<Self> {
+        let address = listener.local_addr()?;
+        let accepting = tokio::spawn(async move {
+            loop {
+                if let Ok((stream, _)) = listener.accept().await
+                    && inputs.send(ClientConnected(stream)).is_err()
+                {
+                    return;
+                }
+            }
+        });
+        Ok(Self {
+            address,
+            accepting: accepting.abort_handle(),
+        })
+    }
+}
+
+impl Drop for Listening {
+    fn drop(&mut self) {
+        self.accepting.abort();
     }
 }
 

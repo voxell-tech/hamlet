@@ -4,13 +4,14 @@ use std::ffi::OsString;
 use std::path::PathBuf;
 
 use anyhow::{Context, Result, bail};
+use bevy_ecs::resource::Resource;
 use hamlet_sandbox::Isolation;
 
 const USAGE: &str = "usage: hamlet_server [--home <dir>] [--port \
                      <n>] [--faux <file>] [--insecure]";
 
 /// The options the server is started with.
-#[derive(Clone)]
+#[derive(Resource, Clone)]
 pub struct Options {
     pub home: PathBuf,
     pub port: u16,

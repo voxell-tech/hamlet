@@ -6,10 +6,11 @@
 //! 1. `main` adds [`ServerPlugin`] to an app and runs it.
 //! 2. [`ServerPlugin`] adds every area's plugin, the order of the
 //!    [`ServerSystems`], and the runner.
-//! 3. The runner, `serve::runner`, opens the realm and starts
-//!    `server::Server` on it, whose first update runs `Startup`. It
-//!    then listens for clients and runs each input until a signal
-//!    comes, and closes in order.
+//! 3. The runner, `serve::runner`, updates the app a first time:
+//!    `PreStartup` opens what the server serves, from the sandbox and
+//!    the realm to the listener, and `Startup` starts it (`startup`).
+//!    It then runs each input until a signal comes, and closes in
+//!    order.
 //! 4. `server::Server::run` writes one input as a message and updates
 //!    the app once, in one transaction:
 //!    - `PreUpdate` takes the input in and reads it into a message of
@@ -131,7 +132,8 @@ impl Plugin for ServerPlugin {
             files::plugin,
             work::added::plugin,
         ))
-        .set_runner(serve::runner(self.options.clone()));
+        .insert_resource(self.options.clone())
+        .set_runner(serve::runner);
     }
 }
 

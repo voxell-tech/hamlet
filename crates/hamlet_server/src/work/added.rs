@@ -7,6 +7,7 @@ use std::time::Duration;
 
 use bevy_app::App;
 use bevy_ecs::message::Message;
+use bevy_ecs::resource::Resource;
 use bevy_ecs::system::{Res, ResMut};
 use hamlet_os::fs::path::{resolve, text};
 use hamlet_protocol::runtime::{
@@ -78,6 +79,14 @@ pub(crate) fn plugin(app: &mut App) {
 /// settled.
 #[derive(Message)]
 pub(crate) struct AddedToolsChanged;
+
+/// The watch on the folder of the tools added by hand, which lasts as
+/// long as it is held; none when it could not begin.
+#[derive(Resource)]
+pub(crate) struct AddedToolsWatch(
+    #[expect(dead_code, reason = "held, so the watch goes on")]
+    pub  Option<RecommendedWatcher>,
+);
 
 /// The time the changes to the tools added by hand settle before they
 /// load again.

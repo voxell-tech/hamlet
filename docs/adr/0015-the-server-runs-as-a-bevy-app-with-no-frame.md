@@ -17,7 +17,10 @@ a client's message, a tool run that ended, a task that finished, the jobs
 runner's pass, a change to the tools added by hand, a timer that is due),
 writes it as a message, and updates the app once through Bevy's own
 `Main`; then it sleeps again. Nothing updates on a tick. The first update
-runs `Startup`. A timer is added by its area as a system that says when
+opens what the server serves in `PreStartup` (the sandbox, the realm,
+the credentials, the providers, the jobs runner, the harness, the
+clients and the listener, each a resource) and starts it in `Startup`;
+the server's address is published only once it is over. A timer is added by its area as a system that says when
 it is next due, or as a period, with the system that runs then
 (`timers.rs`).
 

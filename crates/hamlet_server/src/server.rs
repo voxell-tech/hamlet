@@ -27,31 +27,17 @@ use bevy_ecs::system::{
 };
 use bevy_ecs::world::World;
 use hamlet_protocol::client::RequestId;
-use hamlet_sandbox::Sandbox;
-use notify::RecommendedWatcher;
-use tokio::net::TcpListener;
-use tokio::sync::{mpsc, watch};
-use tokio::task::AbortHandle;
+use tokio::sync::mpsc;
 
 use crate::calls::ToolRun;
-use crate::clients::Clients;
-use crate::clients::asked::ClientConnected;
-use crate::clock;
-use crate::core::{Confined, Core, Leftovers, Workspace};
-use crate::credentials::Credentials;
+use crate::clients::Listening;
+use crate::core::{Core, Leftovers};
 use crate::diagnostic::{self, Secrets, tell};
 use crate::follow_up::discard;
-use crate::knowledge::runner::{RepositoryWriteLock, Runner};
-use crate::providers::Providers;
+use crate::knowledge::runner::Runner;
 use crate::realm::Realm;
-use crate::society::agents;
-use crate::talk::Env;
-use crate::talk::process::Pi;
-use crate::talk::runtimes::{self, Harness, Runtimes};
+use crate::talk::runtimes::Runtimes;
 use crate::timers::{self, TimerFired};
-use crate::work::added;
-use crate::work::tools::shell::Shells;
-use crate::workspace::Transport;
 
 /// The one channel inputs arrive on, the error handler, where each
 /// input begins, and who is told when one fails.
@@ -285,78 +271,13 @@ pub(crate) struct Server {
     pub app: App,
     core: SystemState<Core<'static, 'static>>,
     inputs: mpsc::UnboundedReceiver<Input>,
-    /// The task taking clients' connections, while it listens.
-    listening: Option<AbortHandle>,
-    /// The watch on the folder of the tools added by hand, which
-    /// lasts as long as this; none when it could not begin.
-    #[expect(dead_code, reason = "held, so the watch goes on")]
-    watching: Option<RecommendedWatcher>,
 }
 
 impl Server {
-    /// Takes `realm` on in `app`, which has [`crate::ServerPlugin`]:
-    /// its jobs runner and its harness's runtime. Its first update
-    /// runs `Startup`, which follows the turns that ended before the
-    /// last stop but were not followed.
-    pub fn start(
-        mut app: App,
-        mut realm: Realm,
-        env: Env,
-        pi: Pi,
-        sandbox: Sandbox,
-        closing: watch::Receiver<bool>,
-    ) -> Result<Self> {
-        let credentials = Credentials::open(realm.layout().root())?;
-        let inputs = app.world().resource::<InputSender>().clone();
-        let writing = RepositoryWriteLock::default();
-        let runner = Runner::start(
-            realm.layout(),
-            inputs.clone(),
-            writing.clone(),
-        )?;
-        let layout = realm.layout().clone();
-        crate::knowledge::library::open(&layout, clock::now())?;
-        // Agents read it, so it is there even with nothing in it.
-        for folder in [layout.tools(), layout.images()] {
-            std::fs::create_dir_all(&folder).with_context(|| {
-                format!("making {}", folder.display())
-            })?;
-        }
-        let watching = added::watch(&layout.tools(), inputs.clone())
-            .inspect_err(|error| {
-                tell(
-                    Secrets::Fixed,
-                    format!(
-                        "the tools added by hand load only at \
-                         start: {error}"
-                    ),
-                );
-            })
-            .ok();
-        let providers = Providers::open(&layout, env.overrides.faux)?;
-        let workspace = credentials
-            .workspace()
-            .cloned()
-            .map(Transport::new)
-            .transpose()?;
-        runtimes::of_harness(
-            realm.store().connection(),
-            agents::HARNESS,
-        )?;
-        let clients =
-            Clients::new(inputs.clone(), closing, clock::now())?;
-        // What the areas start from, which only the start knows.
-        app.insert_resource(realm)
-            .insert_resource(env)
-            .insert_resource(Harness::new(pi, inputs))
-            .insert_resource(credentials)
-            .insert_resource(clients)
-            .insert_resource(Confined(sandbox))
-            .insert_resource(Shells::local())
-            .insert_resource(providers)
-            .insert_resource(Workspace(workspace))
-            .insert_resource(runner)
-            .insert_resource(writing);
+    /// Serves `app`, which has [`crate::ServerPlugin`]: its first
+    /// update opens what it serves in `PreStartup` and starts it in
+    /// `Startup`.
+    pub fn start(mut app: App) -> Result<Self> {
         let inputs = app
             .world_mut()
             .remove_resource::<InputReceiver>()
@@ -368,8 +289,6 @@ impl Server {
             core: SystemState::new(app.world_mut()),
             app,
             inputs,
-            listening: None,
-            watching,
         };
         let failures = server.update().map_err(|fatal| fatal.0)?;
         if let Some(failure) = failures.first() {
@@ -381,22 +300,6 @@ impl Server {
     /// The realm's live state, for one input.
     pub fn core(&mut self) -> Result<Core<'_, '_>> {
         Ok(self.core.get_mut(self.app.world_mut())?)
-    }
-
-    /// Takes clients' connections from `listener` too, each an input.
-    pub fn listen(&mut self, listener: TcpListener) {
-        let inputs =
-            self.app.world().resource::<InputSender>().clone();
-        let accepting = tokio::spawn(async move {
-            loop {
-                if let Ok((stream, _)) = listener.accept().await
-                    && inputs.send(ClientConnected(stream)).is_err()
-                {
-                    return;
-                }
-            }
-        });
-        self.listening = Some(accepting.abort_handle());
     }
 
     /// Runs the next input, a timer that came due, or nothing after
@@ -481,9 +384,8 @@ impl Server {
     /// credential rotation begun may finish within `grace`, so no
     /// refreshed token is lost.
     pub async fn close(&mut self, grace: Duration) -> Result<()> {
-        if let Some(listening) = self.listening.take() {
-            listening.abort();
-        }
+        // No client connects from now on.
+        self.app.world_mut().remove_resource::<Listening>();
         {
             let mut core = self.core()?;
             core.providers.close_all();
@@ -563,7 +465,6 @@ mod tests {
     use hamlet_testing::Scratch;
 
     use super::*;
-    use crate::settings::{Overrides, Settings};
     use crate::society::hand;
     use crate::talk::{chats, inputs, items};
 
@@ -599,40 +500,18 @@ mod tests {
     ) -> (Server, chats::Said) {
         let faux = dir.join("faux.json");
         std::fs::write(&faux, script).unwrap();
-        let realm =
-            Realm::open(&dir.join("realm"), "chief", clock::now())
-                .unwrap();
-        let chief_id = realm.chief();
-        let env = Env {
-            settings: Settings::default(),
-            overrides: Overrides {
-                faux: true,
-                ..Overrides::default()
-            },
-        };
-        let sandbox =
-            Sandbox::open(hamlet_sandbox::Isolation::Sandboxed)
-                .unwrap();
-        let (_closing, closed) = watch::channel(false);
         let mut app = App::new();
         app.add_plugins(crate::ServerPlugin {
             options: crate::options::Options {
                 home: dir.join("realm"),
                 port: 0,
-                faux: Some(faux.clone()),
+                faux: Some(faux),
                 isolation: hamlet_sandbox::Isolation::Sandboxed,
             },
         });
-        let mut server = Server::start(
-            app,
-            realm,
-            env,
-            Pi::from_env(Some(faux)).unwrap(),
-            sandbox,
-            closed,
-        )
-        .unwrap();
+        let mut server = Server::start(app).unwrap();
         let mut core = server.core().unwrap();
+        let chief_id = core.realm.chief();
         let hand = hand::id(core.realm.store().connection()).unwrap();
         let said = core
             .change(Actor::Chief(chief_id), |cx, env| {

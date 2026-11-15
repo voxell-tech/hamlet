@@ -1,71 +1,34 @@
-//! The runner, the server from start to stop: the claim (S2), the
-//! harness, the published address, the inputs one at a time, then
-//! the ordered close (S3).
+//! The app's runner: the server from start to stop. Its first update
+//! opens and starts what it serves (`startup.rs`); then it runs the
+//! inputs one at a time until a signal, and closes in order (S3).
 
-use std::path::PathBuf;
 use std::time::Duration;
 
 use anyhow::Result;
 use bevy_app::{App, AppExit};
-use hamlet_sandbox::Sandbox;
-use serde_json::json;
-use tokio::net::TcpListener;
-use tokio::sync::watch;
 
 use crate::clients::connection::GRACE;
-use crate::credentials::write_whole;
-use crate::options::Options;
-use crate::realm::Realm;
 use crate::server::{Fatal, Server};
-use crate::settings::{self, Overrides};
-use crate::talk::Env;
-use crate::talk::process::Pi;
 
 /// The time a closing realm waits for its runtimes to stop.
 const STOPPING: Duration = Duration::from_secs(30);
 /// The time a closing realm waits for a credential rotation begun.
 const ROTATING: Duration = Duration::from_secs(15);
 
-/// The published address, removed when the server stops.
-struct Published(PathBuf);
-
-impl Drop for Published {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_file(&self.0);
-    }
-}
-
-/// The chief's name (C7): `HAMLET_USER` when set, else the account
-/// the server runs as, else "chief".
-fn chief_name() -> String {
-    ["HAMLET_USER", "USER", "USERNAME", "LOGNAME"]
-        .iter()
-        .find_map(|name| {
-            std::env::var(name).ok().filter(|v| !v.is_empty())
-        })
-        .unwrap_or_else(|| "chief".into())
-}
-
 /// The app's runner: serves it on a Tokio runtime of one thread until
 /// SIGTERM or Ctrl-C, sleeping until an input comes. A server that
 /// fails says why.
-pub(crate) fn runner(
-    options: Options,
-) -> impl FnOnce(App) -> AppExit + 'static {
-    move |app| {
-        let served = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .map_err(anyhow::Error::from)
-            .and_then(|runtime| {
-                runtime.block_on(serve(app, options))
-            });
-        match served {
-            Ok(()) => AppExit::Success,
-            Err(error) => {
-                failed(&error);
-                AppExit::error()
-            }
+pub(crate) fn runner(app: App) -> AppExit {
+    let served = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(anyhow::Error::from)
+        .and_then(|runtime| runtime.block_on(serve(app)));
+    match served {
+        Ok(()) => AppExit::Success,
+        Err(error) => {
+            failed(&error);
+            AppExit::error()
         }
     }
 }
@@ -82,56 +45,10 @@ fn failed(error: &anyhow::Error) {
 
 /// Serves `app` until SIGTERM or Ctrl-C, closing every client before
 /// letting the realm go.
-#[expect(
-    clippy::print_stderr,
-    reason = "the banner is the server's output for whoever started \
-              it"
-)]
-async fn serve(app: App, options: Options) -> Result<()> {
+async fn serve(app: App) -> Result<()> {
     let mut signals = Signals::new()?;
     hamlet_os::process::reap_with_server()?;
-    let sandbox = Sandbox::open(options.isolation)?;
-    sandbox.probe()?;
-    let realm = Realm::open(
-        &options.home,
-        &chief_name(),
-        crate::clock::now(),
-    )?;
-    let overrides = Overrides::from_env(options.faux.is_some());
-    let mut realm = realm;
-    let saved = settings::stored(realm.store().connection())?;
-    let env = Env {
-        settings: overrides.apply(saved),
-        overrides,
-    };
-    let pi = Pi::from_env(options.faux.clone())?;
-    let (shutdown, closing) = watch::channel(false);
-    let mut server =
-        Server::start(app, realm, env, pi, sandbox, closing)?;
-    let listener = TcpListener::bind((
-        std::net::Ipv4Addr::LOCALHOST,
-        options.port,
-    ))
-    .await?;
-    let url = format!("ws://{}", listener.local_addr()?);
-    server.listen(listener);
-    let core = server.core()?;
-    let root = core.realm.layout().root().to_owned();
-    let published = core.realm.layout().server();
-    let started = chrono::Utc::now()
-        .to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
-    let address = json!({
-        "url": url,
-        "pid": std::process::id(),
-        "started": started,
-        "confinement": core.confinement(),
-    });
-    write_whole(&published, &serde_json::to_vec(&address)?)?;
-    let published = Published(published);
-    eprintln!(
-        "hamlet_server: holding {}; serving at {url}; Ctrl-C stops",
-        hamlet_os::fs::path::text(&root)
-    );
+    let mut server = Server::start(app)?;
     let served = async {
         loop {
             server.step(Duration::from_secs(60)).await?;
@@ -146,9 +63,11 @@ async fn serve(app: App, options: Options) -> Result<()> {
         result = served => result.map_err(|fatal| fatal.0),
         () = signals.next() => Ok(()),
     };
-    shutdown.send_replace(true);
-    let mut tasks =
-        std::mem::take(&mut server.core()?.clients.connection_tasks);
+    let mut tasks = {
+        let mut core = server.core()?;
+        core.clients.close_connections();
+        std::mem::take(&mut core.clients.connection_tasks)
+    };
     let drained =
         async { while tasks.join_next().await.is_some() {} };
     tokio::select! {
@@ -166,7 +85,6 @@ async fn serve(app: App, options: Options) -> Result<()> {
         () = signals.next() => std::process::exit(130),
         stopped = stopped => stopped?,
     }
-    drop(published);
     result
 }
 

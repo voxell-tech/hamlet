@@ -193,7 +193,9 @@ What differs from the window:
   Bevy's own `Main`: `PreUpdate` reads the input into a message of its
   kind, `Update` runs the system for that kind, `PostUpdate` keeps the
   input and follows it (`follow_up.rs`), and `Last` sends what it
-  queued. The first update runs `Startup` (`startup.rs`).
+  queued. The first update opens what the server serves in
+  `PreStartup`, each as a resource, and starts it in `Startup`
+  (`startup.rs`).
   `ServerPlugin` sets the runner, `serve::runner`. Nothing updates that
   an input or a timer did not ask for.
 - **A handler is a system for one kind of input, and never awaits.**
