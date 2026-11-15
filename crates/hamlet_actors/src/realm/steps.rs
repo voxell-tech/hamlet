@@ -326,7 +326,12 @@ impl Drives {
 
     /// Waits until `row`'s drive ends, at most `within`, and at once
     /// when none runs.
-    pub async fn finished(&self, row: StepId, within: Duration) {
+    pub async fn finished(
+        &self,
+        row: StepId,
+        within: Duration,
+        _abandoned: change::Abandoned,
+    ) {
         let Some(mut ended) = self
             .running
             .lock()
@@ -364,7 +369,7 @@ pub(super) async fn undone(
 
 #[cfg(test)]
 mod tests {
-    use std::cell::RefCell;
+    use std::cell::{Cell, RefCell};
     use std::time::Duration;
 
     use super::super::testing::Started;
@@ -463,21 +468,55 @@ mod tests {
         assert_eq!(drives.take(&[ROW]).rows.len(), 1);
     }
 
-    #[tokio::test]
-    async fn a_wait_for_a_drive_ends_with_it() {
-        let drives = Drives::default();
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_wait_for_no_drive_ends_at_once() {
+        let started = Started::new().await;
+        let held =
+            change::Transaction::begin(&started.ctx).await.unwrap();
         tokio::time::timeout(
-            Duration::from_secs(1),
-            drives.finished(ROW, Duration::from_secs(60)),
+            Duration::from_secs(5),
+            Drives::default().finished(
+                ROW,
+                Duration::from_secs(60),
+                held.abandon(),
+            ),
         )
         .await
         .expect("no drive runs, so the wait ends at once");
+        started.stop().await;
+    }
 
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_wait_for_a_drive_ends_after_its_commit() {
+        let started = Started::new().await;
+        let drives = Drives::default();
+        let held =
+            change::Transaction::begin(&started.ctx).await.unwrap();
         let reserved = drives.take(&[ROW]);
-        let waiting = drives.finished(ROW, Duration::from_secs(60));
-        drop(reserved);
-        tokio::time::timeout(Duration::from_secs(1), waiting)
+        let committed = Cell::new(false);
+        // Its commit waits for `held` to roll back.
+        let drive = async {
+            started.commit(Change::Close { row: ROW }).await.unwrap();
+            committed.set(true);
+            drop(reserved);
+        };
+        let wait = async {
+            drives
+                .finished(
+                    ROW,
+                    Duration::from_secs(60),
+                    held.abandon(),
+                )
+                .await;
+            committed.get()
+        };
+        let ((), ended_after_commit) =
+            tokio::time::timeout(Duration::from_secs(5), async {
+                tokio::join!(drive, wait)
+            })
             .await
             .expect("the wait ends with the drive");
+        assert!(ended_after_commit);
+        started.stop().await;
     }
 }
