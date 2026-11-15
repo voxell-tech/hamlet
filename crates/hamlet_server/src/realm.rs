@@ -44,13 +44,13 @@ impl Realm {
         let layout = Layout::new(&root);
         let mut store = if layout.database().try_exists()? {
             let mut store = Store::open(&layout.database())?;
-            let kept = std::fs::read_to_string(layout.identity())
+            let realm_id = std::fs::read_to_string(layout.identity())
                 .context(
                     "reading realm.id; restore the whole realm from \
                      a backup if it is missing",
                 )?;
             ensure!(
-                kept == store.realm()?,
+                realm_id == store.realm_id()?,
                 "the realm's database belongs to another realm; \
                  restore the matching database and realm.id from a \
                  whole backup"

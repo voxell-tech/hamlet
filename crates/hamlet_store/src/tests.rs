@@ -216,11 +216,11 @@ fn a_realm_opens_only_as_its_own_database() {
     let path = dir.join("realm.sqlite");
     assert!(Store::open(&path).is_err(), "a missing database opens");
     let mut created = store(&dir);
-    assert_eq!(created.realm().unwrap(), "realm-1");
+    assert_eq!(created.realm_id().unwrap(), "realm-1");
     drop(created);
     assert!(Store::create(&path, "realm-2", 1).is_err());
     assert_eq!(
-        Store::open(&path).unwrap().realm().unwrap(),
+        Store::open(&path).unwrap().realm_id().unwrap(),
         "realm-1"
     );
 

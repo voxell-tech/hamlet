@@ -142,7 +142,7 @@ impl Store {
     }
 
     /// The realm's identity, as its folder's realm.id holds it too.
-    pub fn realm(&mut self) -> Result<String> {
+    pub fn realm_id(&mut self) -> Result<String> {
         Ok(schema::realm::table
             .select(schema::realm::identity)
             .get_result(&mut self.db)?)
@@ -154,12 +154,12 @@ impl Store {
     }
 
     /// A transaction that takes the write lock at its first write.
-    pub fn transaction(&mut self) -> Result<Tx<'_>> {
+    pub fn transaction(&mut self) -> QueryResult<Tx<'_>> {
         Tx::begin(&mut self.db, "BEGIN")
     }
 
     /// A transaction that holds the write lock from its start.
-    pub fn immediate(&mut self) -> Result<Tx<'_>> {
+    pub fn immediate(&mut self) -> QueryResult<Tx<'_>> {
         Tx::begin(&mut self.db, "BEGIN IMMEDIATE")
     }
 }
@@ -222,15 +222,21 @@ pub struct Tx<'a> {
 }
 
 impl<'a> Tx<'a> {
-    fn begin(db: &'a mut Db, sql: &str) -> Result<Self> {
+    fn begin(db: &'a mut Db, sql: &str) -> QueryResult<Self> {
         AnsiTransactionManager::begin_transaction_sql(db, sql)?;
         Ok(Self { db, open: true })
     }
 
-    pub fn commit(mut self) -> Result<()> {
+    pub fn commit(mut self) -> QueryResult<()> {
         self.open = false;
-        AnsiTransactionManager::commit_transaction(self.db)?;
-        Ok(())
+        AnsiTransactionManager::commit_transaction(self.db)
+    }
+
+    /// Ends the transaction leaving nothing of it, with the error a
+    /// drop cannot return.
+    pub fn rollback(mut self) -> QueryResult<()> {
+        self.open = false;
+        AnsiTransactionManager::rollback_transaction(self.db)
     }
 }
 
@@ -279,10 +285,11 @@ fn check(db: &mut Db) -> Result<()> {
         pragma("application_id")? == APPLICATION,
         "the database is not a realm's"
     );
-    let kept = schema::realm::table
+
+    let version = schema::realm::table
         .select(schema::realm::version)
-        .get_result::<String>(db)?;
-    let version = kept.parse::<Version>()?;
+        .get_result::<String>(db)?
+        .parse::<Version>()?;
     ensure!(
         VERSION.is_compatible(&version),
         "the realm's database is version {version}; this server \
