@@ -18,7 +18,7 @@ use super::super::calls::Made;
 use super::super::change::{Affected, Rows, Writer, number};
 use super::super::world::Part;
 use super::super::{
-    chiefs, hire, record, roads, steps, tasks, waits,
+    chiefs, hire, laid, record, roads, steps, tasks, waits,
 };
 use super::{Change, Lineage, Member, Of, Status};
 
@@ -313,6 +313,8 @@ pub(in crate::realm) async fn end(
         .chain(lead)
         .chain(moved.iter().copied())
         .collect::<BTreeSet<_>>();
+    let roads_seen = (!laid::of(&rows, agent).await?.is_empty())
+        .then_some(Part::Roads);
     let how = match by {
         record::By::Chief => HowEnded::ByTheChief,
         record::By::Agent(Hand::NUMBER) => HowEnded::ByTheHand,
@@ -335,7 +337,11 @@ pub(in crate::realm) async fn end(
     Ok(Affected {
         places,
         reaches: BTreeSet::from([agent]),
-        ..Affected::seen([Part::Agents, Part::Reaches])
+        ..Affected::seen(
+            [Part::Agents, Part::Reaches]
+                .into_iter()
+                .chain(roads_seen),
+        )
     })
 }
 

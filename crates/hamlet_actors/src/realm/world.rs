@@ -8,8 +8,8 @@ use hamlet_messages::realm::HamletId;
 use hamlet_messages::realm::budget::Payer;
 use hamlet_messages::realm::client::ReadWorld;
 use hamlet_messages::realm::world::{
-    AgentSeen, HamletSeen, ReachSeen, Revision, RoadSeen, Seen,
-    Spend, Status, WaitId, WaitSeen,
+    AgentSeen, HamletSeen, ReachSeen, Revision, Seen, Spend, Status,
+    WaitId, WaitSeen,
 };
 use hamlet_messages::sender::Client;
 use hamlet_messages::workspace::{AgentNumber, CallId, ReachVersion};
@@ -17,7 +17,7 @@ use tokio::sync::Mutex;
 
 use super::act::Look;
 use super::change::{self, Affected, Column as _, Rows};
-use super::{Realm, budget, tree, versions};
+use super::{Realm, budget, laid, tree, versions};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) enum Part {
@@ -127,7 +127,7 @@ async fn rebuilt(
         world.hamlets = hamlets(rows).await?;
     }
     if parts.contains(&Part::Roads) {
-        world.roads = roads(rows).await?;
+        world.roads = laid::live_roads(rows).await?;
     }
     if parts.contains(&Part::Waits) {
         world.waits = waits(rows).await?;
@@ -209,21 +209,6 @@ async fn hamlets(rows: &Rows<'_>) -> Result<Vec<HamletSeen>> {
         })
     })
     .collect()
-}
-
-async fn roads(rows: &Rows<'_>) -> Result<Vec<RoadSeen>> {
-    Ok(rows
-        .rows::<(u32, u32)>(
-            "SELECT a, b FROM road WHERE up_at IS NULL ORDER BY a, b",
-            Vec::new(),
-        )
-        .await?
-        .into_iter()
-        .map(|(a, b)| RoadSeen {
-            a: AgentNumber(a),
-            b: AgentNumber(b),
-        })
-        .collect())
 }
 
 async fn waits(rows: &Rows<'_>) -> Result<Vec<WaitSeen>> {

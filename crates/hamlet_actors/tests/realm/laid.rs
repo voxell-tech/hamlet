@@ -1,5 +1,6 @@
 use hamlet_messages::agent::{Author, Input, Place};
 use hamlet_messages::realm::budget::Payer;
+use hamlet_messages::realm::client::ReadWorld;
 use hamlet_messages::realm::world::{RoadSeen, Seen};
 use hamlet_messages::realm::{
     AgentRefusal, Asked, Done, End, FoundAnswer, Gate, HamletId,
@@ -376,6 +377,38 @@ async fn a_road_request_to_a_lead_still_hiring_waits_for_its_steps() {
         }
     );
     assert!(submits_to(&realm, THREE).is_empty());
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_road_leaves_the_world_when_an_end_is_ended() {
+    // lay 3-4, then end 3: the world read after the end shows no
+    // road, at a later revision.
+    let (realm, _) = hamlet_with(2).await;
+    realm
+        .tool(MAYOR, &tool("r1", lay(THREE, FOUR)))
+        .await
+        .unwrap();
+    let laid = roads_seen(&realm, &[(3, 4)]).await;
+
+    let ended = realm
+        .tool(
+            MAYOR,
+            &tool(
+                "e1",
+                End {
+                    hire: to(THREE),
+                    why: None,
+                },
+            ),
+        )
+        .await
+        .unwrap();
+    let after = realm.ask(&ReadWorld).await.unwrap();
+
+    assert_eq!(ended, Done::Done);
+    assert_eq!(after.roads, []);
+    assert!(after.revision > laid.revision, "{after:?}");
     realm.host.shutdown().await.unwrap();
 }
 

@@ -7,6 +7,7 @@ use anyhow::Result;
 use hamlet_actor::BindParam;
 use hamlet_messages::address::Agent;
 use hamlet_messages::agent::AgentKind;
+use hamlet_messages::realm::world::RoadSeen;
 use hamlet_messages::realm::{
     AgentRefusal, Done, HamletId, LayRefusal, LayRoad, LetterId,
     Named, Refusable, RequestRoad, RequestRoadRefusal, TakeUpRefusal,
@@ -166,16 +167,42 @@ pub(super) async fn laid_at(
         .map(At))
 }
 
+/// The open laid roads whose two ends are not ended.
+const LIVE_ROADS: &str = "road JOIN agent AS one ON one.id = road.a \
+                          JOIN agent AS other ON other.id = road.b \
+                          WHERE road.up_at IS NULL AND one.status \
+                          != 'ended' AND other.status != 'ended'";
+
+pub(super) async fn live_roads(
+    rows: &Rows<'_>,
+) -> Result<Vec<RoadSeen>> {
+    Ok(rows
+        .rows::<(u32, u32)>(
+            &format!(
+                "SELECT road.a, road.b FROM {LIVE_ROADS} ORDER BY \
+                 road.a, road.b"
+            ),
+            Vec::new(),
+        )
+        .await?
+        .into_iter()
+        .map(|(a, b)| RoadSeen {
+            a: AgentNumber(a),
+            b: AgentNumber(b),
+        })
+        .collect())
+}
+
 async fn live_roads_in(
     rows: &Rows<'_>,
     hamlet: &HamletId,
 ) -> Result<u32> {
     Ok(rows
         .value(
-            "SELECT COUNT(*) FROM road JOIN agent AS one ON one.id \
-             = road.a JOIN agent AS other ON other.id = road.b \
-             WHERE road.hamlet = ?1 AND road.up_at IS NULL AND \
-             one.status != 'ended' AND other.status != 'ended'",
+            &format!(
+                "SELECT COUNT(*) FROM {LIVE_ROADS} AND road.hamlet \
+                 = ?1"
+            ),
             vec![BindParam::Text(hamlet.0.clone())],
         )
         .await?
