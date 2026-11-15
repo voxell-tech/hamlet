@@ -20,10 +20,6 @@ use super::world::Part;
 use super::{chiefs, record};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "`lineage` reads these for U3 to U6")
-)]
 pub(super) enum Status {
     Hiring,
     Live,
@@ -71,10 +67,6 @@ impl Lineage {
     }
 }
 
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "U3, U4 and U5 call it")
-)]
 pub(super) async fn lineage(
     rows: &Rows<'_>,
     agent: AgentNumber,
@@ -127,13 +119,6 @@ pub(super) async fn lineage(
     }))
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "U3, U4 and U5 call it through `lineage`"
-    )
-)]
 async fn member(
     rows: &Rows<'_>,
     agent: AgentNumber,
