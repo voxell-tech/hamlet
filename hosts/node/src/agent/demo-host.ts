@@ -48,7 +48,7 @@ const [{ serveLink }, { agentActor }, { openAgentFilesystem }, ai] =
     await Promise.all([
         import("../actor/registry/link.ts"),
         import("./actor.ts"),
-        import("./filesystem.ts"),
+        import("./native-filesystem.ts"),
         import("@earendil-works/pi-ai"),
     ]);
 

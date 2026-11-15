@@ -10,7 +10,7 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
-import { openAgentFilesystem } from "../../src/agent/filesystem.ts";
+import { openAgentFilesystem } from "../../src/agent/native-filesystem.ts";
 import { context, scratchFolder } from "../testing.ts";
 
 /** How many rounds of file tools run while the folder is swapped. */

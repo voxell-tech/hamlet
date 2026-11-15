@@ -9,7 +9,7 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { type TestContext, test } from "node:test";
-import { openAgentFilesystem } from "../../src/agent/filesystem.ts";
+import { openAgentFilesystem } from "../../src/agent/native-filesystem.ts";
 import { context, scratchFolder } from "../testing.ts";
 
 const decoder = new TextDecoder();
