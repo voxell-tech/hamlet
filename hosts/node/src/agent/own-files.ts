@@ -32,6 +32,13 @@ import {
     wrote,
 } from "./workspace-tools.ts";
 
+/** Where a relative path starts, as today's folder commands run in. */
+function start(files: AgentFilesystem): string {
+    // No message tells the agent its project folder, so paths start from
+    // its own filesystem.
+    return files.root;
+}
+
 /**
  * A relative path is joined, not normalised, so one that climbs out of the
  * root stays own and the adapter refuses it.
@@ -40,15 +47,9 @@ function reached(
     files: AgentFilesystem,
     path: string | undefined,
 ): { readonly own: boolean; readonly path: string } {
-    // No message tells the agent its project folder, so paths start from
-    // its own filesystem.
-    const start = files.root;
+    const from = start(files);
     const absolute =
-        path === undefined
-            ? start
-            : isAbsolute(path)
-              ? path
-              : `${start}/${path}`;
+        path === undefined ? from : isAbsolute(path) ? path : `${from}/${path}`;
     return {
         own: absolute === files.root || absolute.startsWith(`${files.root}/`),
         path: absolute,
@@ -285,6 +286,9 @@ async function searched(
     args: AbsoluteFileCall<"search">,
     context: Context,
 ): Promise<ToolExecutionResult> {
+    if (args.pattern === "") {
+        return failed("`pattern` is required. Supply a regular expression.");
+    }
     const found = await files.search(
         args.pattern,
         args.path,
@@ -300,11 +304,30 @@ async function searched(
         {
             ...found.value,
             found: found.value.found.map(
-                (match) => `${match.path}:${match.line}: ${match.text}`,
+                (match) =>
+                    `${shown(files, match.path)}:${match.line}: ${clipped(match.text)}`,
             ),
         },
         "no match",
     );
+}
+
+/** `path` as today's search shows it: from `start`, or whole outside it. */
+function shown(files: AgentFilesystem, path: string): string {
+    const from = `${start(files)}/`;
+    return path.startsWith(from) ? path.slice(from.length) : path;
+}
+
+/** The most characters of a line a search shows. */
+const LINE_WIDTH = 300;
+
+/** `line` as today's search shows it (`crates/hamlet_server/src/work/tools/search.rs`). */
+function clipped(line: string): string {
+    // `trimEnd` takes exactly pi's spaces.
+    const characters = [...line.trimEnd()];
+    return characters.length > LINE_WIDTH
+        ? `${characters.slice(0, LINE_WIDTH).join("")}...`
+        : characters.join("");
 }
 
 async function found(

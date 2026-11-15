@@ -257,7 +257,7 @@ test("an own search gives the adapter its name, and a search or a find answers i
 
     assert.deepEqual(named, ["*.md", "*.rs"]);
     assert.deepEqual(await results(agent), [
-        `${md}:1: the plan`,
+        "memory/plan.md:1: the plan",
         "no match",
         `${md}\n[more than 100. Narrow it with \`path\` or \`name\`]`,
         "no file by that name\n[stopped after 20000 files. Narrow it with `path`]",

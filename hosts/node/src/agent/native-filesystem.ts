@@ -102,14 +102,18 @@ export function openAgentFilesystem(
             ),
         search: (pattern, path, options, context) =>
             call(path, context, async () => {
-                const searched = await folder.search(
-                    path,
-                    pattern,
-                    options?.ignoreCase ?? false,
-                    options?.name,
-                    FOUND + 1,
-                    LOOKED,
-                );
+                const searched = await folder
+                    .search(
+                        path,
+                        pattern,
+                        options?.ignoreCase ?? false,
+                        options?.name,
+                        FOUND + 1,
+                        LOOKED,
+                    )
+                    .catch((error: unknown) => {
+                        throw patternRefusal(error, path) ?? error;
+                    });
                 return bounded(
                     searched.matches.map((match) => ({
                         path: absolute(match.path),
@@ -132,6 +136,29 @@ export function openAgentFilesystem(
                 await folder.write(to, await folder.read(from));
             }),
     };
+}
+
+/**
+ * A native refusal of a search's pattern by the regex crate, in today's
+ * words (`crates/hamlet_server/src/work/tools/walk.rs`).
+ */
+function patternRefusal(error: unknown, path: string): FileError | undefined {
+    const message = error instanceof Error ? error.message : "";
+    if (!/^EINVAL: (regex parse error:|Compiled regex )/.test(message)) {
+        return undefined;
+    }
+    const words = message.slice("EINVAL: ".length);
+    const last = words.lastIndexOf("error: ");
+    const reason = (
+        last < 0 ? words : words.slice(last + "error: ".length)
+    ).trim();
+    return new FileError(
+        "invalid",
+        reason.includes("look-around") || reason.includes("backreferences")
+            ? "`pattern` holds a backreference, a lookaround or another part a search in linear time cannot take. Use a linear-time pattern."
+            : `\`pattern\` is not a regular expression: ${reason}. Correct the pattern.`,
+        path,
+    );
 }
 
 /** As today's, a cut walk that also found more says only the more. */
