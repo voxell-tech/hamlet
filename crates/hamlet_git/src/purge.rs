@@ -111,18 +111,20 @@ pub fn purge(
 
 /// Finishes a purge of `path` that was cut off: a whole fresh
 /// repository takes the old one's place, and a partial one is
-/// dropped.
-fn settle(path: &Path) -> Result<()> {
+/// dropped. Changes nothing when no purge was cut off.
+pub fn settle(path: &Path) -> Result<()> {
     let fresh = sibling(path, "purging");
     let old = sibling(path, "purged");
     if fresh.join("PURGED").exists() {
         if path.exists() {
             std::fs::rename(path, &old)?;
         }
-        std::fs::remove_file(fresh.join("PURGED"))?;
         std::fs::rename(&fresh, path)?;
     } else if fresh.exists() {
         std::fs::remove_dir_all(&fresh)?;
+    }
+    if path.join("PURGED").exists() {
+        std::fs::remove_file(path.join("PURGED"))?;
     }
     if old.exists() {
         std::fs::remove_dir_all(&old)?;

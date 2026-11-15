@@ -1,7 +1,10 @@
 //! Hamlet's actors, each run by `hamlet_host` in a SQLite file of its
 //! own.
 
+pub mod library;
+pub mod profile;
 pub mod realm;
+mod repo;
 pub mod workspace;
 
 use std::time::Duration;

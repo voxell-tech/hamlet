@@ -90,6 +90,8 @@ fn enums() -> Vec<Cases> {
     .into_iter()
     .chain(realm::enums())
     .chain(chat::enums())
+    .chain(profile::enums())
+    .chain(library::enums())
     .collect()
 }
 
@@ -107,7 +109,9 @@ macro_rules! union {
     }};
 }
 
-// After `union!`, which it uses.
+// After `union!`, which they use.
+mod library;
+mod profile;
 mod realm;
 
 fn unions() -> Vec<Union> {
@@ -153,6 +157,8 @@ fn unions() -> Vec<Union> {
     ]
     .into_iter()
     .chain(realm::unions())
+    .chain(profile::unions())
+    .chain(library::unions())
     .collect()
 }
 
@@ -393,6 +399,15 @@ impl Fixtures {
         kept
     }
 
+    /// Checks an answer a row keeps, and stores it.
+    fn kept<T>(&mut self, name: &str, value: &T)
+    where
+        T: Serialize + DeserializeOwned + PartialEq + Debug,
+    {
+        self.answer(name, value);
+        self.stored(&name.replace('/', "."), value);
+    }
+
     fn stored_request<T>(&mut self, name: &str, value: &T)
     where
         T: Serialize + DeserializeOwned + PartialEq + Debug,
@@ -605,6 +620,8 @@ fn every_message_and_every_case_matches_its_fixture() {
     the_stored_rows(&mut fixtures);
     realm::the_realms_messages(&mut fixtures);
     chat::the_agents_chat(&mut fixtures);
+    profile::the_profiles_messages(&mut fixtures);
+    library::the_librarys_messages(&mut fixtures);
     fixtures.remove_unwritten();
     fixtures.assert_unchanged_and_covered();
 }

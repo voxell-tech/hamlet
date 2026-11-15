@@ -406,3 +406,374 @@ fn a_purge_leaves_nothing_of_the_path() {
         Some("h")
     );
 }
+
+#[test]
+fn a_commit_on_a_base_moves_no_branch() {
+    let dir = Scratch::new("git-commit-on");
+    let repo = repository(&dir);
+    let base = repo
+        .commit(MAIN, &[write("memory/a.md", "a")], "made", by(1))
+        .unwrap();
+    let on = repo
+        .commit_on(
+            Some(base),
+            &[write("memory/b.md", "b")],
+            "on",
+            by(2),
+        )
+        .unwrap();
+    assert_eq!(repo.tip(MAIN).unwrap(), Some(base));
+    assert_eq!(repo.history(on, 1).unwrap()[0].parents, [base]);
+    assert_eq!(text(&repo, on, "memory/a.md").as_deref(), Some("a"));
+    assert_eq!(text(&repo, on, "memory/b.md").as_deref(), Some("b"));
+    assert_eq!(
+        repo.commit_on(
+            Some(base),
+            &[write("memory/a.md", "a")],
+            "same",
+            by(3)
+        )
+        .unwrap(),
+        base,
+        "a change that leaves the files as they were makes no commit"
+    );
+
+    let root = repo
+        .commit_on(None, &[write("SKILL.md", "s")], "offer", by(4))
+        .unwrap();
+    assert!(repo.history(root, 1).unwrap()[0].parents.is_empty());
+    assert_eq!(repo.entries(root).unwrap().len(), 1);
+    assert_eq!(repo.branches().unwrap().len(), 1);
+}
+
+#[test]
+fn a_commit_if_the_tip_moved_moves_nothing() {
+    let dir = Scratch::new("git-commit-if");
+    let repo = repository(&dir);
+    let read = repo
+        .commit_if(
+            MAIN,
+            None,
+            &[write("memory/a.md", "a")],
+            "made",
+            by(1),
+        )
+        .unwrap();
+    let moved = repo
+        .commit(MAIN, &[write("memory/a.md", "moved")], "e", by(2))
+        .unwrap();
+
+    assert!(
+        repo.commit_if(
+            MAIN,
+            Some(read),
+            &[write("memory/b.md", "b")],
+            "late",
+            by(3)
+        )
+        .is_err()
+    );
+    assert!(
+        repo.commit_if(
+            MAIN,
+            Some(read),
+            &[write("memory/a.md", "moved")],
+            "same",
+            by(3)
+        )
+        .is_err()
+    );
+    assert!(
+        repo.commit_if(
+            MAIN,
+            None,
+            &[write("memory/c.md", "c")],
+            "anew",
+            by(3)
+        )
+        .is_err()
+    );
+    assert_eq!(repo.tip(MAIN).unwrap(), Some(moved));
+
+    let kept = repo
+        .commit_if(
+            MAIN,
+            Some(moved),
+            &[write("memory/b.md", "b")],
+            "on time",
+            by(4),
+        )
+        .unwrap();
+    assert_eq!(repo.tip(MAIN).unwrap(), Some(kept));
+    assert_eq!(repo.history(kept, 1).unwrap()[0].parents, [moved]);
+}
+
+#[test]
+fn a_merge_of_two_commits_keeps_the_winning_side_of_a_clash() {
+    let dir = Scratch::new("git-merge-commits");
+    let repo = repository(&dir);
+    let base = repo
+        .commit(
+            MAIN,
+            &[write("memory/notes.md", "a\n")],
+            "made",
+            by(1),
+        )
+        .unwrap();
+    let tip = repo
+        .commit(
+            MAIN,
+            &[
+                write("memory/notes.md", "chief\n"),
+                write("memory/other.md", "o\n"),
+            ],
+            "e",
+            by(2),
+        )
+        .unwrap();
+    let saved = repo
+        .commit_on(
+            Some(base),
+            &[write("memory/notes.md", "hire\n")],
+            "save",
+            by(3),
+        )
+        .unwrap();
+
+    let merged = repo
+        .merge_commits(tip, saved, Wins::From, "joined", by(4))
+        .unwrap();
+    assert_eq!(merged.joined, Joined::Committed);
+    assert_eq!(merged.clashes, ["memory/notes.md"]);
+    assert_eq!(
+        text(&repo, merged.commit, "memory/notes.md").as_deref(),
+        Some("hire\n")
+    );
+    assert_eq!(
+        text(&repo, merged.commit, "memory/other.md").as_deref(),
+        Some("o\n")
+    );
+    assert_eq!(
+        repo.history(merged.commit, 1).unwrap()[0].parents,
+        [tip, saved]
+    );
+    assert_eq!(repo.tip(MAIN).unwrap(), Some(tip));
+
+    let kept = repo
+        .merge_commits(tip, saved, Wins::Onto, "joined", by(4))
+        .unwrap();
+    assert_eq!(
+        text(&repo, kept.commit, "memory/notes.md").as_deref(),
+        Some("chief\n")
+    );
+}
+
+#[test]
+fn a_merge_where_one_side_holds_the_other_adds_no_commit() {
+    let dir = Scratch::new("git-merge-held");
+    let repo = repository(&dir);
+    let old = repo
+        .commit(MAIN, &[write("memory/a.md", "a")], "made", by(1))
+        .unwrap();
+    let new = repo
+        .commit(MAIN, &[write("memory/b.md", "b")], "e", by(2))
+        .unwrap();
+
+    let held = repo
+        .merge_commits(new, old, Wins::From, "m", by(3))
+        .unwrap();
+    assert_eq!((held.commit, held.joined), (new, Joined::UpToDate));
+    let forward = repo
+        .merge_commits(old, new, Wins::Onto, "m", by(3))
+        .unwrap();
+    assert_eq!(
+        (forward.commit, forward.joined),
+        (new, Joined::FastForward)
+    );
+    assert_eq!(repo.history(new, 10).unwrap().len(), 2);
+}
+
+#[test]
+fn a_save_repeated_later_onto_a_tip_that_holds_it_adds_no_commit() {
+    let dir = Scratch::new("git-merge-repeat");
+    let repo = repository(&dir);
+    let base = repo
+        .commit(MAIN, &[write("memory/a.md", "a")], "made", by(1))
+        .unwrap();
+    let moved = repo
+        .commit(MAIN, &[write("memory/m.md", "m")], "e", by(2))
+        .unwrap();
+    let changes = [write("memory/a.md", "saved")];
+    let save = |at| {
+        let saved = repo
+            .commit_on(Some(base), &changes, "save", by(at))
+            .unwrap();
+        let tip = repo.tip(MAIN).unwrap().unwrap();
+        let merged = repo
+            .merge_commits(tip, saved, Wins::From, "save", by(at))
+            .unwrap();
+        if merged.commit != tip {
+            repo.set_branch(MAIN, merged.commit, tip).unwrap();
+        }
+        merged
+    };
+
+    let first = save(3);
+    assert_eq!(first.joined, Joined::Committed);
+    let again = save(4);
+    assert_eq!(
+        (again.commit, again.joined),
+        (first.commit, Joined::UpToDate)
+    );
+    assert_eq!(repo.tip(MAIN).unwrap(), Some(first.commit));
+    assert_eq!(
+        repo.first_parents(first.commit, Some(base), 10)
+            .unwrap()
+            .into_iter()
+            .map(|c| c.id)
+            .collect::<Vec<_>>(),
+        [first.commit, moved],
+        "the branch's own commits stay on its first parents"
+    );
+}
+
+#[test]
+fn a_first_parent_walk_skips_what_a_merge_brought_in() {
+    let dir = Scratch::new("git-first-parents");
+    let repo = repository(&dir);
+    let first = repo
+        .commit(MAIN, &[write("memory/a.md", "a")], "made", by(1))
+        .unwrap();
+    repo.branch("hires/2", first).unwrap();
+    let own = repo
+        .commit(
+            "hires/2",
+            &[write("memory/h.md", "h")],
+            "turn",
+            by(2),
+        )
+        .unwrap();
+    let main = repo
+        .commit(MAIN, &[write("memory/m.md", "m")], "e", by(3))
+        .unwrap();
+    let merged =
+        repo.merge("hires/2", main, "took in main", by(4)).unwrap();
+    assert_eq!(repo.history(merged.commit, 10).unwrap().len(), 4);
+
+    let ids = |walk: Vec<Commit>| {
+        walk.into_iter().map(|c| c.id).collect::<Vec<_>>()
+    };
+    assert_eq!(
+        ids(repo.first_parents(merged.commit, None, 10).unwrap()),
+        [merged.commit, own, first]
+    );
+    assert_eq!(
+        ids(repo
+            .first_parents(merged.commit, Some(first), 10)
+            .unwrap()),
+        [merged.commit, own]
+    );
+    assert_eq!(
+        ids(repo.first_parents(merged.commit, None, 1).unwrap()),
+        [merged.commit]
+    );
+}
+
+#[test]
+fn a_settle_cut_after_its_own_renames_keeps_the_purged_repository() {
+    let dir = Scratch::new("git-settle-cut");
+    let path = dir.join("profile.git");
+    let old =
+        Repository::create(&dir.join("profile.git.purged")).unwrap();
+    old.commit(
+        MAIN,
+        &[write("memory/key.md", "secret")],
+        "made",
+        by(1),
+    )
+    .unwrap();
+    let fresh = Repository::create(&path).unwrap();
+    let kept = fresh
+        .commit(MAIN, &[write("CHARACTER.md", "a")], "made", by(1))
+        .unwrap();
+    drop((old, fresh));
+    std::fs::write(path.join("PURGED"), b"").unwrap();
+
+    settle(&path).unwrap();
+    assert_eq!(
+        Repository::open(&path).unwrap().tip(MAIN).unwrap(),
+        Some(kept)
+    );
+    assert!(!path.join("PURGED").exists());
+    assert!(!dir.join("profile.git.purged").exists());
+}
+
+#[test]
+fn a_purge_cut_between_its_renames_is_settled_whole() {
+    let dir = Scratch::new("git-settle");
+    let path = dir.join("profile.git");
+    let old =
+        Repository::create(&dir.join("profile.git.purged")).unwrap();
+    old.commit(
+        MAIN,
+        &[write("memory/key.md", "secret")],
+        "made",
+        by(1),
+    )
+    .unwrap();
+    let fresh =
+        Repository::create(&dir.join("profile.git.purging")).unwrap();
+    let kept = fresh
+        .commit(MAIN, &[write("CHARACTER.md", "a")], "made", by(1))
+        .unwrap();
+    drop((old, fresh));
+    std::fs::write(dir.join("profile.git.purging/PURGED"), b"")
+        .unwrap();
+
+    settle(&path).unwrap();
+    let repo = Repository::open(&path).unwrap();
+    assert_eq!(repo.tip(MAIN).unwrap(), Some(kept));
+    assert!(!dir.join("profile.git.purged").exists());
+    assert!(!dir.join("profile.git.purging").exists());
+    settle(&path).unwrap();
+    assert_eq!(
+        Repository::open(&path).unwrap().tip(MAIN).unwrap(),
+        Some(kept)
+    );
+}
+
+#[test]
+fn a_write_keeps_whether_its_file_runs() {
+    let dir = Scratch::new("git-executable");
+    let repo = repository(&dir);
+    let tip = repo.tip(MAIN).unwrap();
+    let runs = repo
+        .commit_on(
+            tip,
+            &[Change::WriteExecutable {
+                path: "skills/run.sh".into(),
+                bytes: b"echo".to_vec(),
+            }],
+            "runs",
+            by(2),
+        )
+        .unwrap();
+    let plain = repo
+        .commit_on(
+            Some(runs),
+            &[write("skills/run.sh", "echo")],
+            "plain",
+            by(3),
+        )
+        .unwrap();
+
+    let runs_at = |at| {
+        repo.entries(at)
+            .unwrap()
+            .into_iter()
+            .find(|entry| entry.path == "skills/run.sh")
+            .map(|entry| entry.executable)
+    };
+    assert_eq!(runs_at(runs), Some(true));
+    assert_eq!(runs_at(plain), Some(false));
+}
