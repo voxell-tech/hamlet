@@ -448,7 +448,7 @@ async fn a_start_given_up_during_the_drain_ends() {
     release.add_permits(1);
 }
 
-/// What [`watcher`] refuses a subscribe with.
+/// The error [`watcher`] refuses a subscribe with.
 #[derive(ActorError)]
 #[error("auth", "forbidden", "Not allowed to follow this event.")]
 struct Forbidden;
@@ -456,7 +456,7 @@ struct Forbidden;
 /// Connection parameters for which [`watcher`]'s `onConnect` is slow.
 const SLOW: &[u8] = b"slow";
 
-/// How long [`watcher`] takes over a slow `onConnect` or subscribe.
+/// The time [`watcher`] takes over a slow `onConnect` or subscribe.
 const WEIGHS: Duration = Duration::from_millis(300);
 
 /// An actor that refuses a subscribe to the event `secret`, and takes

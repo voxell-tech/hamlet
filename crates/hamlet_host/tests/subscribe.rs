@@ -27,10 +27,10 @@ mod logs;
 #[path = "support/ticker.rs"]
 mod ticker;
 
-/// How long a ticker stays awake with nothing open.
+/// The time a ticker stays awake with nothing open.
 const IDLE: Duration = Duration::from_secs(3600);
 
-/// How long a subscription takes to give what it holds or its end.
+/// The time a subscription has to give what it holds or its end.
 const PROMPT: Duration = Duration::from_secs(1);
 
 fn open(dir: &Scratch, options: HostOptions) -> Host {
@@ -60,7 +60,7 @@ async fn subscribe(
     host.subscribe_for_client(to, event).await.unwrap()
 }
 
-/// Why the subscribe failed.
+/// The error the subscribe fails with.
 async fn refusal(
     host: &Host,
     to: &Address,
@@ -230,6 +230,39 @@ async fn a_subscribe_that_outlasts_the_start_deadline_fails_with_not_ready_and_l
     assert_eq!(watching, []);
 }
 
+/// The stop lands while the actor's `onConnect` runs, and the
+/// subscribe reaches the actor once its event loop has ended.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_stop_that_overtakes_a_subscribe_while_its_connection_opens_fails_it_with_the_stops_end()
+ {
+    for destroy in [false, true] {
+        let dir = Scratch::new("subscribe-overtaken");
+        let host = open(&dir, HostOptions::default());
+        let a = make(&host).await;
+        ask(&host, &a, "slow_open").await.unwrap();
+        let subscribing = tokio::spawn({
+            let (host, a) = (host.clone(), a.clone());
+            async move { refusal(&host, &a, TICKED).await }
+        });
+        // Time for the subscribe to reach the actor's `onConnect`.
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        let how = if destroy {
+            ShutdownKind::Destroy
+        } else {
+            ShutdownKind::Sleep
+        };
+        host.stop(&a, how).await.unwrap();
+        let error = subscribing.await.unwrap();
+        host.shutdown().await.unwrap();
+        let stop = if destroy {
+            "actor.destroyed"
+        } else {
+            "actor.stopping"
+        };
+        assert!(code(&error) == stop, "{error:#}");
+    }
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn an_open_subscription_keeps_its_actor_awake_and_a_dropped_one_lets_it_sleep()
  {
@@ -302,11 +335,32 @@ async fn the_stream_ends_with_destroyed_when_the_actor_is_destroyed()
             async || !any_file_of(&dir, "ticker", "a"),
         )
         .await;
-        host.shutdown().await.unwrap();
+        // The ended subscription, still held, keeps no host open: a
+        // second one opens the folder and makes the actor again.
+        drop(host);
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let second = loop {
+            match Host::open_with(
+                &dir,
+                ticker::factories(IDLE),
+                HostOptions::default(),
+            ) {
+                Ok(second) => break second,
+                Err(error) => {
+                    assert!(Instant::now() < deadline, "{error:#}");
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        };
+        make(&second).await;
+        let again = tick(&second, &a, 0).await;
+        second.shutdown().await.unwrap();
+        drop(ticks);
         assert_eq!(
             ended, "actor.destroyed",
             "destroyed by the host: {by_host}"
         );
+        assert_eq!(again, 1);
     }
 }
 
@@ -456,6 +510,35 @@ fn a_subscription_dropped_after_its_runtime_is_gone_does_not_panic() {
     });
     drop(runtime);
     std::thread::spawn(move || drop(ticks)).join().unwrap();
+}
+
+#[test]
+fn a_subscription_made_on_another_runtime_closes_its_connection_when_dropped()
+ {
+    let dir = Scratch::new("subscribe-other-runtime");
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let (host, a) = runtime.block_on(async {
+        let host = open(&dir, HostOptions::default());
+        let a = make(&host).await;
+        (host, a)
+    });
+    let other = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let ticks = other.block_on(subscribe(&host, &a, TICKED));
+    drop(other);
+    drop(ticks);
+    runtime.block_on(async {
+        eventually("a connection is open", PROMPT, async || {
+            watchers(&host, &a).await.is_empty()
+        })
+        .await;
+        host.shutdown().await.unwrap();
+    });
 }
 
 #[tokio::test(flavor = "multi_thread")]

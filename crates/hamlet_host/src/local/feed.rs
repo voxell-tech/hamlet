@@ -16,8 +16,8 @@ use super::subscribe::Item;
 /// [`OVERHEAD`]. An empty queue takes one event of any size.
 const BUDGET: usize = 1 << 20;
 
-/// What an event with no arguments, or the mark of a loss, counts
-/// for, so the budget bounds the number of events too.
+/// The weight of an event with no arguments, or of the mark of a
+/// loss, so the budget bounds the number of events too.
 const OVERHEAD: usize = 64;
 
 /// A queue for one reader: its writing end and its reading end.
@@ -49,7 +49,7 @@ struct Shared {
 
 struct State {
     queue: VecDeque<Item>,
-    /// What `queue` counts for, of [`BUDGET`].
+    /// The weight of `queue`, against [`BUDGET`].
     weight: usize,
     /// An event was dropped after the last item queued, and no gap
     /// is queued for it yet.
@@ -77,7 +77,7 @@ fn cost(item: &Item) -> usize {
     }
 }
 
-/// Why a feed gives no more.
+/// The reason a feed gives no more.
 #[derive(Clone)]
 pub(crate) enum Closed {
     /// The source closed it, and said why.

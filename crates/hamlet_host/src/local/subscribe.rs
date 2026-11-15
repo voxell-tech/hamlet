@@ -40,6 +40,9 @@ impl Host {
     /// - `actor.not_registered` for a kind no host holds;
     /// - `actor.not_found` for a key with no actor;
     /// - the actor's own error when it refuses the subscriber;
+    /// - `actor.stopping` or `actor.destroyed`, as
+    ///   [`Subscription::next`] ends, when the actor begins to stop
+    ///   before it lets the subscribe through;
     /// - `actor.not_ready` when the subscribe is not answered within
     ///   the start deadline, or the host shuts down first;
     /// - as a start fails, for an actor that is being destroyed or
@@ -60,7 +63,7 @@ impl Host {
     }
 }
 
-/// What a [`Subscription`] gives.
+/// An item of a [`Subscription`].
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Item {
     /// One broadcast of the event: its arguments, as the actor's
@@ -120,7 +123,13 @@ impl Subscription {
     }
 }
 
-/// Where the actor runs.
+const _: () = {
+    const fn send_and_sync<T: Send + Sync>() {}
+    send_and_sync::<Subscription>();
+};
+
+/// The host the actor runs in: this one, or the other across the
+/// link.
 enum Source {
     Local(Local),
     Linked(Across),
@@ -183,9 +192,9 @@ fn ended(how: Option<Ended>) -> Failed {
 }
 
 /// Closes a local subscription's connection when dropped, on the
-/// host's runtime, from any thread. On a runtime that is gone the
-/// spawn drops the close where it was called, and nothing runs there
-/// to close.
+/// runtime its actor runs on, from any thread. On a runtime that is
+/// gone the spawn drops the close where it was called, and nothing
+/// runs there to close.
 struct Closing {
     conn: Option<Subscribed>,
     runtime: tokio::runtime::Handle,
@@ -210,13 +219,13 @@ struct Across {
     now: Now,
 }
 
-/// What was asked, to ask it again.
+/// The subscribe asked, kept to ask it again.
 struct Asked {
     port: Port,
     stamp: Stamp,
     to: Address,
     event: String,
-    /// How long each ask may take.
+    /// The time each ask may take.
     within: Duration,
 }
 
@@ -224,7 +233,9 @@ enum Now {
     Live(Routed),
     /// The session was lost. Kept here, not in `next`'s frame, so a
     /// dropped `next` does not drop an ask that is out.
-    Again(Pin<Box<dyn Future<Output = Result<Routed>> + Send>>),
+    Again(
+        Pin<Box<dyn Future<Output = Result<Routed>> + Send + Sync>>,
+    ),
 }
 
 impl Across {
@@ -378,13 +389,19 @@ impl HostInner {
                     }
                 },
             )
-            .await?;
+            .await
+            // A stop that overtook the subscribe fails it with the
+            // core's error, which names no stop.
+            .map_err(|error| match *stopped.borrow() {
+                Some(how) => ended(Some(how)).to_error(),
+                None => error,
+            })?;
         Ok(Local {
             feed,
             stopped,
             _conn: Closing {
                 conn: Some(conn),
-                runtime: tokio::runtime::Handle::current(),
+                runtime: generation.runtime.clone(),
             },
         })
     }

@@ -8,6 +8,8 @@
 //!   stop the actor with an error.
 //! - `fail` ends the actor's event loop with an error.
 //! - `hang` makes the next sleep or destroy hook wait for ever.
+//! - `slow_open` makes each later `onConnect` of the generation take
+//!   [`WEIGHS`].
 //! - `close` closes the connections open beside its own call's.
 //! - `watchers` answers the callers of the connections open beside
 //!   its own call's, as the CBOR of `Vec<Option<Caller>>`.
@@ -21,14 +23,15 @@ use std::time::Duration;
 use anyhow::anyhow;
 use hamlet_actor_core::{
     ActorConfig, ActorContext, ActorEvent, ActorFactory, ActorStart,
-    ConnHandle,
+    ConnHandle, Reply,
 };
 use hamlet_actor_error::ActorError;
 use hamlet_host::{Address, Caller, Host, Item};
 
 pub const TICKED: &str = "ticked";
 
-/// How long a subscribe to the event `slow` takes.
+/// The time a subscribe to the event `slow` takes, and an
+/// `onConnect` after `slow_open`.
 pub const WEIGHS: Duration = Duration::from_secs(3);
 
 const DEADLINE: Duration = Duration::from_secs(10);
@@ -58,6 +61,7 @@ async fn run(start: ActorStart) -> anyhow::Result<()> {
     let mut ticks = 0_u64;
     let mut hangs = false;
     let mut hung = Vec::new();
+    let mut slow_opens = false;
     while let Some(event) = events.recv().await {
         match event {
             ActorEvent::Action {
@@ -87,6 +91,10 @@ async fn run(start: ActorStart) -> anyhow::Result<()> {
                         hangs = true;
                         Ok(Vec::new())
                     }
+                    "slow_open" => {
+                        slow_opens = true;
+                        Ok(Vec::new())
+                    }
                     "close" => ctx
                         .disconnect_conns(|other| {
                             !is_own(other, conn.as_ref())
@@ -104,12 +112,7 @@ async fn run(start: ActorStart) -> anyhow::Result<()> {
                 ..
             } => match event_name.as_str() {
                 "secret" => reply.send(Err(Forbidden.build())),
-                "slow" => {
-                    tokio::spawn(async move {
-                        tokio::time::sleep(WEIGHS).await;
-                        reply.send(Ok(()));
-                    });
-                }
+                "slow" => answer_after_weighs(reply),
                 _ => reply.send(Ok(())),
             },
             // As the authoring layer answers it: the connection's
@@ -127,6 +130,11 @@ async fn run(start: ActorStart) -> anyhow::Result<()> {
             ActorEvent::RunGracefulCleanup { reply, .. } if hangs => {
                 hung.push(reply);
             }
+            ActorEvent::ConnectionOpen { reply, .. }
+                if slow_opens =>
+            {
+                answer_after_weighs(reply);
+            }
             ActorEvent::SerializeState { reply, .. } => {
                 reply.send(Ok(Vec::new()));
             }
@@ -139,6 +147,13 @@ async fn run(start: ActorStart) -> anyhow::Result<()> {
         }
     }
     Ok(())
+}
+
+fn answer_after_weighs(reply: Reply<()>) {
+    tokio::spawn(async move {
+        tokio::time::sleep(WEIGHS).await;
+        reply.send(Ok(()));
+    });
 }
 
 /// Broadcasts tick `n`, padded as `args` asks, and answers `n`.
