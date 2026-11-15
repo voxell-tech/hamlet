@@ -71,7 +71,7 @@ impl PlainSqlite {
         let (tx, rx) = mpsc::channel::<Command>();
         thread::Builder::new()
             .name("plain-sqlite".into())
-            .spawn(move || serve(conn, &rx))?;
+            .spawn(move || serve(conn, rx))?;
         Ok(Self { tx })
     }
 
@@ -162,7 +162,7 @@ async fn received<T>(rx: oneshot::Receiver<Result<T>>) -> Result<T> {
     rx.await.map_err(|_| anyhow!("sqlite thread stopped"))?
 }
 
-fn serve(conn: Connection, rx: &mpsc::Receiver<Command>) {
+fn serve(conn: Connection, rx: mpsc::Receiver<Command>) {
     // The work `when_idle` holds until no transaction is open, in the
     // order it came.
     let mut idle = Vec::new();
@@ -187,6 +187,7 @@ fn serve(conn: Connection, rx: &mpsc::Receiver<Command>) {
                         "sqlite file did not close"
                     );
                 }
+                drop(rx);
                 answer();
                 return;
             }
