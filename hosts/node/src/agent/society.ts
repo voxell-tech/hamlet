@@ -43,7 +43,7 @@ import {
 type Invalid = { readonly invalid: string };
 
 /** One society tool, whose act on the wire is `N`. */
-export interface Definition<N extends SocietyTool> {
+interface Definition<N extends SocietyTool> {
     /** The tool's name for the model, as today's server gives it. */
     readonly name: string;
     /** Today's text for the model, word for word. */
@@ -84,10 +84,18 @@ const object = (properties: object, required: readonly string[]) => ({
 });
 const names = { type: "array", items: { type: "string" } };
 
-/** The number of `<kind>#<number>`, or `undefined` when `text` is not one. */
+const U32_MAX = 2 ** 32 - 1;
+
+/**
+ * The number of `<kind>#<number>`, read as today's server reads it (an
+ * `i64`), or `undefined` when `text` is not one or the act's `u32` cannot
+ * carry it.
+ */
 function numberOf(kind: "hire" | "scholar", text: string): number | undefined {
-    const found = new RegExp(`^${kind}#([1-9][0-9]*)$`).exec(text);
-    return found?.[1] === undefined ? undefined : Number(found[1]);
+    const found = new RegExp(`^${kind}#([+-]?[0-9]+)$`).exec(text);
+    if (found?.[1] === undefined) return undefined;
+    const number = Number(found[1]);
+    return number >= 0 && number <= U32_MAX ? number : undefined;
 }
 
 /** `text` trimmed, or `undefined` when nothing is left: today's server reads an empty parameter as one left out. */
@@ -96,11 +104,19 @@ function present(text: string | undefined): string | undefined {
     return trimmed === "" ? undefined : trimmed;
 }
 
-/** The agent an address names, or what is wrong with it. Written once, for every tool. */
-function named(address: string): Named | Invalid {
+/**
+ * The agent an address names, or what is wrong with it, read as today's
+ * server reads it (`crates/hamlet_server/src/society/addresses.rs`, `parse`).
+ * Written once, for every tool.
+ */
+function named(given: string): Named | Invalid {
+    const address = given.trim();
     if (address === "hand" || address === "mayor") return { type: address };
     if (address.startsWith("mayor@")) {
-        return { type: "mayor_of", hamlet: address.slice("mayor@".length) };
+        const hamlet = address.slice("mayor@".length).trim();
+        return hamlet === ""
+            ? { invalid: `\`${address}\` is not an address` }
+            : { type: "mayor_of", hamlet };
     }
     const agent = numberOf("hire", address);
     if (agent !== undefined) return { type: "agent", agent };
@@ -113,7 +129,7 @@ function named(address: string): Named | Invalid {
  * (`crates/hamlet_server/src/society/addresses.rs`, `parse_scholar`). The act
  * has no field for a pinned `@<version>`, so a pin is refused, not hired at `main`.
  */
-function scholarOf(text: string | undefined): ProfileId | Invalid | undefined {
+function profileOf(text: string | undefined): ProfileId | Invalid | undefined {
     const given = present(text);
     if (given === undefined) return undefined;
     return (
@@ -211,7 +227,7 @@ const TOOLS: { readonly [N in SocietyTool]: Definition<N> } = {
             ["name", "purpose"],
         ),
         act: (args: { name: string; scholar?: string; purpose: string }) => {
-            const mayor = scholarOf(args.scholar);
+            const mayor = profileOf(args.scholar);
             if (typeof mayor === "object") return mayor;
             return {
                 name: args.name,
@@ -253,7 +269,7 @@ const TOOLS: { readonly [N in SocietyTool]: Definition<N> } = {
             under?: string;
             hamlet?: string;
         }) => {
-            const profile = scholarOf(args.scholar);
+            const profile = profileOf(args.scholar);
             if (typeof profile === "object") return profile;
             const hamlet = present(args.hamlet);
             const under = present(args.under);
@@ -395,9 +411,7 @@ async function reply(
 ): Promise<undefined> {
     try {
         const input = await peers.turns.of(api.conversationId);
-        if (input.kind !== "question" || input.question === undefined) {
-            return undefined;
-        }
+        if (input.question === undefined) return undefined;
         const text = answer.content
             .map((block) => (block.type === "text" ? block.text : ""))
             .join("");
