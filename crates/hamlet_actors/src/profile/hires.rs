@@ -1,19 +1,22 @@
-//! The `hire` table and the hires' branches: making one, and taking
-//! `main` into those that follow it.
+//! The `hire` table and the hires' branches: making one, pinning
+//! one, and taking `main` into those that follow it.
 
 use anyhow::{Context, Result, bail};
 use hamlet_actor::{BindParam, ColumnValue};
 use hamlet_git::{Joined, MAIN, blob_id};
 use hamlet_messages::address::Agent;
 use hamlet_messages::profile::{
-    Branch, Character, Moved, VersionName,
+    Branch, Character, Missing, Moved, NotAHire, Pin, PinAnswer,
+    VersionName,
 };
 use hamlet_messages::workspace::AgentNumber;
 
 use super::{CHARACTER, Profile, commit_id};
 use crate::repo::git::Reads;
-use crate::repo::store::{self, Rows, Writes};
-use crate::repo::{Before, Call, Ended, Reply, Settle, Takes};
+use crate::repo::store::{self, Rows, Store, Writes};
+use crate::repo::{
+    Admits, Before, Call, Ended, Reply, Settle, Takes,
+};
 
 /// The message of a take-in of `main`.
 const TOOK_IN: &str = "Took in main";
@@ -78,6 +81,19 @@ pub(super) fn of(
     .transpose()
 }
 
+/// An agent is admitted by its hire's row: it reads and saves its
+/// own branch.
+impl Admits<Agent> for Profile {
+    type Known = Hire;
+
+    fn known(
+        store: &Store<'_>,
+        from: &Agent,
+    ) -> Result<Option<Hire>> {
+        of(&store.rows(Table(())), from.0)
+    }
+}
+
 fn all(rows: &Rows<'_, Table>) -> Result<Vec<Hire>> {
     rows.select(
         &format!("SELECT {COLUMNS} FROM hire ORDER BY agent"),
@@ -95,6 +111,18 @@ fn hire_of(name: &str) -> Option<AgentNumber> {
             n.parse::<u32>().ok().filter(|m| m.to_string() == n)
         })
         .map(AgentNumber)
+}
+
+/// The character at `at` under the version the hire's row counts.
+pub(super) fn character(
+    git: &Reads,
+    hire: &Hire,
+    at: hamlet_git::CommitId,
+) -> Result<Character> {
+    Ok(Character {
+        version: hire.character,
+        text: character_at(git, at)?.1,
+    })
 }
 
 /// The blob of `CHARACTER.md` at `at` as the `hire` row keeps it, and
@@ -175,21 +203,102 @@ pub(super) fn follow_main(
         if merged.joined == Joined::UpToDate {
             continue;
         }
-        let character = next_character(
+        let moved = moved(
             &settle.table(Table(())),
             settle.git()?,
             &hire,
             merged.commit,
         )?;
-        settle.tell(
-            &Agent(hire.agent),
-            &Moved {
-                tip: commit_id(merged.commit)?,
-                character,
-            },
-        )?;
+        settle.tell(&Agent(hire.agent), &moved)?;
     }
     Ok(())
+}
+
+impl Takes<Pin> for Profile {
+    async fn take(call: Call<Self, Pin>) -> Result<Reply<Pin>> {
+        call.once(pin).await
+    }
+}
+
+/// Keeps the hire's pin and takes the pinned commit, or `main`'s tip,
+/// into its branch, the hire's side winning.
+fn pin(unit: Before<'_, Profile, Pin>) -> Result<Ended<Pin>> {
+    let Pin { hire, to, .. } = unit.message().clone();
+    let Some(row) = of(&unit.rows(Table(())), hire)? else {
+        return unit.refuse(NotAHire::NoHire { hire }.into());
+    };
+    let at = match &to {
+        Some(version) => {
+            let Some(at) = version_at(unit.git()?, version)? else {
+                let version = version.clone();
+                return unit
+                    .refuse(Missing::NoVersion { version }.into());
+            };
+            at
+        }
+        None => {
+            unit.git()?.tip(MAIN)?.context("a profile has a main")?
+        }
+    };
+    let mut writer = unit.write();
+    let (pin, pin_commit) = match &to {
+        Some(version) => (
+            BindParam::Text(version.0.clone()),
+            BindParam::Text(at.to_string()),
+        ),
+        None => (BindParam::Null, BindParam::Null),
+    };
+    writer.table(Table(())).execute(
+        "UPDATE hire SET pin = ?1, pin_commit = ?2 WHERE agent = ?3",
+        vec![pin, pin_commit, BindParam::Integer(i64::from(hire.0))],
+    )?;
+    let message = match &to {
+        Some(version) => format!("Took in {}", version.0),
+        None => TOOK_IN.to_owned(),
+    };
+    let merged =
+        writer.writes()?.take_in(&row.branch, at, &message)?;
+    if merged.joined != Joined::UpToDate {
+        let moved = moved(
+            &writer.table(Table(())),
+            writer.git()?,
+            &row,
+            merged.commit,
+        )?;
+        writer.tell(&Agent(hire), &moved)?;
+    }
+    writer.kept(match to {
+        Some(version) => PinAnswer::Pinned {
+            version,
+            commit: commit_id(at)?,
+        },
+        None => PinAnswer::FollowsMain,
+    })
+}
+
+/// The commit the version `version` tags.
+fn version_at(
+    git: &Reads,
+    version: &VersionName,
+) -> Result<Option<hamlet_git::CommitId>> {
+    Ok(git
+        .versions()?
+        .into_iter()
+        .find(|seen| seen.name == version.0)
+        .map(|seen| seen.commit))
+}
+
+/// What the agent of a hire whose branch moved to `tip` is told.
+fn moved(
+    table: &Writes<'_, Table>,
+    git: &Reads,
+    hire: &Hire,
+    tip: hamlet_git::CommitId,
+) -> Result<Moved> {
+    Ok(Moved {
+        tip: commit_id(tip)?,
+        character: next_character(table, git, hire, tip)?,
+    })
 }
 
 /// The character at `tip` under the hire's next version, kept in its
