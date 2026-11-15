@@ -59,8 +59,7 @@ impl std::fmt::Display for Reading {
 pub struct Options {
     pub settle: Duration,
     pub window: Duration,
-    /// Lines for the command's standard input, in order.
-    pub send: Vec<String>,
+    pub stdin_lines: Vec<String>,
     pub command: Vec<String>,
 }
 
@@ -69,7 +68,7 @@ impl Options {
         let mut options = Self {
             settle: Duration::from_secs(30),
             window: Duration::from_secs(60),
-            send: Vec::new(),
+            stdin_lines: Vec::new(),
             command: Vec::new(),
         };
         let mut args = args.iter();
@@ -80,7 +79,7 @@ impl Options {
                 "--send" => {
                     let line =
                         args.next().ok_or("--send takes a line")?;
-                    options.send.push(line.clone());
+                    options.stdin_lines.push(line.clone());
                     continue;
                 }
                 "--" => {
@@ -119,9 +118,10 @@ pub fn measure(options: &Options) -> Result<Reading, String> {
         .spawn()
         .map_err(|error| format!("{program}: {error}"))?;
     let copied = child.stdout.take().map(copy_out);
-    let reading = send(&mut child, &options.send).and_then(|()| {
-        read_tree(&mut child, options.settle, options.window)
-    });
+    let reading =
+        send(&mut child, &options.stdin_lines).and_then(|()| {
+            read_tree(&mut child, options.settle, options.window)
+        });
     stop(&mut child);
     if let Some(copied) = copied {
         let _ = copied.join();
@@ -371,7 +371,7 @@ mod tests {
         let options = Options {
             settle: Duration::from_millis(500),
             window: Duration::from_secs(3),
-            send: Vec::new(),
+            stdin_lines: Vec::new(),
             command: vec![
                 exe.to_string_lossy().into_owned(),
                 "--exact".to_owned(),
@@ -427,7 +427,7 @@ mod tests {
         .map(str::to_owned)
         .into();
         let options = Options::parse(&args).unwrap();
-        assert_eq!(options.send, ["link", "make 1"]);
+        assert_eq!(options.stdin_lines, ["link", "make 1"]);
         assert_eq!(options.command, ["demo", "--send", "x"]);
         assert!(Options::parse(&["--send".to_owned()]).is_err());
     }

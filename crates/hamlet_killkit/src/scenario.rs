@@ -100,7 +100,6 @@ pub enum Is {
     Absent,
 }
 
-/// Every scenario, in the order `--list` shows them.
 pub fn all() -> impl Iterator<Item = &'static Scenario> {
     [counter::SCENARIOS, workspace::SCENARIOS, link::SCENARIOS]
         .into_iter()

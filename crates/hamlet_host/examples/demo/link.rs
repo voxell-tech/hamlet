@@ -216,9 +216,6 @@ async fn make(host: &Host, at: &Address) -> Result<()> {
     Ok(())
 }
 
-/// Has the realm call `action` of the actor at `at`, with `words` as
-/// its arguments but for `--count <times>` and `--time`, and prints
-/// the last answer.
 async fn tell(
     host: &Host,
     at: &Address,
@@ -249,18 +246,18 @@ async fn tell(
     let mut answer = Vec::new();
     let mut micros = Vec::new();
     for _ in 0..times {
-        let took;
-        (answer, took) = match realm::ask(host, &tell).await {
+        let told = match realm::ask(host, &tell).await {
             Ok(told) => told,
             Err(error) => {
-                let Some(shown) = failure(&error) else {
+                let Some(shown) = non_link_failure(&error) else {
                     return Err(error);
                 };
                 writeln!(std::io::stdout(), "{at}/{action} {shown}")?;
                 return Ok(());
             }
         };
-        micros.push(u64::try_from(took.as_micros())?);
+        micros.push(u64::try_from(told.took.as_micros())?);
+        answer = told.answer;
     }
     let value = if answer.is_empty() {
         serde_json::Value::Null
@@ -280,10 +277,9 @@ async fn tell(
     Ok(())
 }
 
-/// The first actor's error that `error` holds, as the JSON printed
-/// for a call that failed, or `None` where it holds none or one of
-/// the group `link`.
-pub fn failure(error: &anyhow::Error) -> Option<serde_json::Value> {
+pub fn non_link_failure(
+    error: &anyhow::Error,
+) -> Option<serde_json::Value> {
     let found =
         actor_error(error).filter(|found| found.group() != "link")?;
     Some(serde_json::json!({

@@ -15,7 +15,7 @@ test(
             const refused = answer(await demo.ask("watch 1 noted"), "watch/1");
             assert.equal(await demo.ask("watch 1 ticked"), "watch/1 1");
             await demo.ask("tell 1 tick 50");
-            await demo.printed(/^watch\/1\/ticked \[2\]$/);
+            await demo.streamedLine(/^watch\/1\/ticked \[2\]$/);
             assert.equal(await demo.stop(), 0, demo.stderr());
             assert.deepEqual(refused, {
                 error: {
@@ -39,9 +39,9 @@ test(
             assert.equal(await demo.ask("watch 1 undeclared"), "watch/1 1");
             assert.equal(await demo.ask("watch 1 ticked"), "watch/1 1");
             await demo.ask("tell 1 tick 50");
-            await demo.printed(/^watch\/1\/ticked \[5\]$/);
+            await demo.streamedLine(/^watch\/1\/ticked \[5\]$/);
             const streamed = demo
-                .lines()
+                .streamed()
                 .filter((line) => line.startsWith("watch/1/"));
             assert.equal(await demo.stop(), 0, demo.stderr());
             assert.deepEqual(

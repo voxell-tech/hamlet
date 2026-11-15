@@ -97,10 +97,14 @@ pub struct Tell {
     pub args: Vec<u8>,
 }
 
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct Told {
+    pub answer: Vec<u8>,
+    pub took: Duration,
+}
+
 impl Action for Tell {
-    /// The other actor's answer, as it encoded it, and how long the
-    /// call of it took.
-    type Output = (Vec<u8>, Duration);
+    type Output = Told;
     const NAME: &'static str = "tell";
 }
 
@@ -225,7 +229,7 @@ impl Handler<Tell> for Realm {
         self: Arc<Self>,
         ctx: Ctx<Self>,
         tell: Tell,
-    ) -> Result<(Vec<u8>, Duration)> {
+    ) -> Result<Told> {
         from_program(&ctx, Tell::NAME)?;
         let host = HostRef::of(ctx.inner())?;
         let start = std::time::Instant::now();
@@ -234,7 +238,7 @@ impl Handler<Tell> for Realm {
             .await?;
         let took = start.elapsed();
         hamlet_host::fault::point(&format!("told/{}", tell.name));
-        Ok((answer, took))
+        Ok(Told { answer, took })
     }
 }
 

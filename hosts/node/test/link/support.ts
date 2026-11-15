@@ -8,10 +8,8 @@ import { eventually } from "../native/support.ts";
 
 const ROOT = fileURLToPath(new URL("../../../..", import.meta.url));
 
-/** How long `ask`, `printed` and `logged` wait. */
 const PATIENCE_MS = 30_000;
 
-/** A line of a `watch`'s stream, `watch/<n>/<what> ...`. */
 const STREAMED = /^watch\/[^/ ]+\//;
 
 /** The Node host's entry. */
@@ -33,16 +31,9 @@ export function example(name: string): string {
 export interface Demo {
     /** The demo host's process id. */
     readonly pid: number;
-    /**
-     * Writes one command line, and answers the next line the demo prints,
-     * passing over those of a `watch`'s stream. Rejects when the demo exits
-     * first.
-     */
     ask(line: string): Promise<string>;
-    /** Every line the demo has printed. */
-    lines(): readonly string[];
-    /** Waits until a line the demo printed matches `pattern`. */
-    printed(pattern: RegExp): Promise<void>;
+    streamed(): readonly string[];
+    streamedLine(pattern: RegExp): Promise<void>;
     /** Everything the demo and its Node host have written to standard error. */
     stderr(): string;
     /** Waits until standard error holds `pattern`. */
@@ -72,17 +63,18 @@ export function startDemo(dir: string): Demo {
     child.stderr.on("data", (chunk) => {
         stderr += chunk;
     });
-    const printed: string[] = [];
-    /** How many lines of `printed` an `ask` has read past. */
-    let read = 0;
+    const replies: string[] = [];
+    const streamed: string[] = [];
+    let asked = 0;
     let ended = false;
     createInterface({ input: child.stdout })
-        .on("line", (line) => printed.push(line))
+        .on("line", (line) =>
+            (STREAMED.test(line) ? streamed : replies).push(line),
+        )
         .on("close", () => {
             ended = true;
         });
     const closed = once(child, "close");
-    /** Waits until `found` answers something, at most `PATIENCE_MS`. */
     async function until<T>(
         found: () => T | undefined,
         what: string,
@@ -102,10 +94,7 @@ export function startDemo(dir: string): Demo {
         ask(line) {
             child.stdin.write(`${line}\n`);
             return until(() => {
-                while (read < printed.length) {
-                    const next = printed[read++] as string;
-                    if (!STREAMED.test(next)) return next;
-                }
+                if (asked < replies.length) return replies[asked++];
                 if (ended) {
                     throw new Error(
                         `the demo ended before \`${line}\`:\n${stderr}`,
@@ -114,11 +103,11 @@ export function startDemo(dir: string): Demo {
                 return undefined;
             }, `no answer to \`${line}\``);
         },
-        lines: () => printed,
-        async printed(pattern) {
+        streamed: () => streamed,
+        async streamedLine(pattern) {
             await until(
-                () => printed.some((line) => pattern.test(line)) || undefined,
-                `never printed ${pattern}`,
+                () => streamed.some((line) => pattern.test(line)) || undefined,
+                `never streamed ${pattern}`,
             );
         },
         stderr: () => stderr,

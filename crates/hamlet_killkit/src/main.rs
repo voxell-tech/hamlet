@@ -819,7 +819,9 @@ mod tests {
                 "restart 2: an unexpected error link.lost",
             ]
         );
-        let counters = scenario::all().next().unwrap();
+        let counters = scenario::all()
+            .find(|scenario| scenario.name == "counter-transaction")
+            .unwrap();
         assert!(
             report(&[("error actor.not_found", 1)])
                 .failures(counters)

@@ -196,7 +196,6 @@ pub struct Demo {
     pub link: Option<link::Link>,
     /// The counter kinds the host runs.
     counters: Vec<String>,
-    /// The tasks that print each `watch`'s stream.
     pub watches: Mutex<JoinSet<()>>,
 }
 
@@ -218,14 +217,14 @@ impl Demo {
         }
     }
 
-    /// Shuts the host down, which ends every `watch`, and waits for
-    /// each to print its end.
     async fn shutdown(self) -> Result<()> {
         if let Some(link) = self.link {
             link.shutdown().await;
         }
-        let shut = self.host.shutdown().await;
-        self.watches.into_inner().join_all().await;
+        let (shut, _) = tokio::join!(
+            self.host.shutdown(),
+            self.watches.into_inner().join_all()
+        );
         shut
     }
 }
@@ -239,9 +238,6 @@ struct Start {
     link: bool,
 }
 
-/// Runs one command line split into words: the stub realm's, a stub
-/// agent's, a client's `watch`, one of the Node host's, or one for
-/// the counters.
 async fn run_line(demo: &Demo, words: &[String]) -> Result<()> {
     match words.split_first() {
         Some((first, rest)) if first == "realm" => {

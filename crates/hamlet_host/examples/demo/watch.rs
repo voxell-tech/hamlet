@@ -21,7 +21,7 @@ use hamlet_host::{Item, Subscription};
 
 use crate::Demo;
 use crate::command::{actor_error, shown};
-use crate::link::{agent, failure};
+use crate::link::{agent, non_link_failure};
 
 pub async fn run(demo: &Demo, words: &[String]) -> Result<()> {
     let [n, event] = words else {
@@ -32,7 +32,7 @@ pub async fn run(demo: &Demo, words: &[String]) -> Result<()> {
         match demo.host.subscribe_for_client(&at, event).await {
             Ok(subscription) => subscription,
             Err(error) => {
-                let Some(shown) = failure(&error) else {
+                let Some(shown) = non_link_failure(&error) else {
                     return Err(error);
                 };
                 writeln!(std::io::stdout(), "watch/{n} {shown}")?;
@@ -48,11 +48,9 @@ pub async fn run(demo: &Demo, words: &[String]) -> Result<()> {
     Ok(())
 }
 
-/// Prints each item of `subscription`, each line led by `name`, until
-/// it ends.
 async fn print_items(
     mut subscription: Subscription,
-    name: String,
+    prefix: String,
     event: String,
 ) {
     loop {
@@ -61,11 +59,11 @@ async fn print_items(
                 match ciborium::from_reader::<serde_json::Value, _>(
                     args.as_slice(),
                 ) {
-                    Ok(args) => format!("{name}/{event} {args}"),
-                    Err(error) => format!("{name}/{event} {error}"),
+                    Ok(args) => format!("{prefix}/{event} {args}"),
+                    Err(error) => format!("{prefix}/{event} {error}"),
                 }
             }
-            Ok(Item::Gap) => format!("{name}/gap 1"),
+            Ok(Item::Gap) => format!("{prefix}/gap 1"),
             Err(error) => {
                 let why = actor_error(&error).map_or_else(
                     || shown(&error),
@@ -74,7 +72,7 @@ async fn print_items(
                     },
                 );
                 let _ =
-                    writeln!(std::io::stdout(), "{name}/end {why}");
+                    writeln!(std::io::stdout(), "{prefix}/end {why}");
                 return;
             }
         };

@@ -1,5 +1,3 @@
-//! The files this process holds open.
-
 use std::path::Path;
 
 use crate::files::files_of;

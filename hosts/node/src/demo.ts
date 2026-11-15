@@ -69,7 +69,6 @@ const agent = actor({
     events: {
         /** The count of `step`, once its commit returned. */
         ticked: event<number>(),
-        /** The id of `note`'s note, refused to a client. */
         noted: event<number>({
             canSubscribe: (c) => c.caller !== "client",
         }),
@@ -90,26 +89,20 @@ const agent = actor({
             await c.call(REALM, "resumed", [finished], CALL);
         }
     },
-    /** Says on standard error that the agent goes to sleep. */
     onSleep: (c) => {
         console.error(`${c.address.kind}/${c.address.key} sleeps`);
     },
     actions: {
-        /**
-         * Keeps a note that names the caller, in one statement, says who
-         * called on standard error, broadcasts the note's id as `noted`, and
-         * answers how many notes there are.
-         */
         note: async (c) => {
-            const { lastInsertRowId } = await c.db.run(
+            const { lastInsertRowId: notes } = await c.db.run(
                 "INSERT INTO notes (caller) VALUES (?)",
                 shown(c.caller),
             );
             console.error(
                 `${c.address.kind}/${c.address.key} called by ${shown(c.caller)}`,
             );
-            c.broadcast("noted", lastInsertRowId);
-            return lastInsertRowId;
+            c.broadcast("noted", notes);
+            return notes;
         },
         count: async (c) =>
             (await c.db.get<{ n: number }>("SELECT count(*) AS n FROM notes"))

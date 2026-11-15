@@ -149,7 +149,6 @@ async fn calls(
     Ok(())
 }
 
-/// The 50th and the 99th percentile of `micros`, by nearest rank.
 pub fn p50_p99(micros: &mut [u64]) -> (u64, u64) {
     micros.sort_unstable();
     let at = |percent: usize| {
