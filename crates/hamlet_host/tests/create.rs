@@ -4,6 +4,7 @@
 //! nothing, and one whose destroy is unfinished brings none of the
 //! old data back. An actor makes another as the program does.
 
+use std::cell::RefCell;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -20,9 +21,12 @@ use hamlet_actor_core::{ActorContext, ShutdownKind};
 use hamlet_actor_error::ActorError;
 use hamlet_host::{Address, Caller, Host, HostOptions, HostRef};
 use hamlet_testing::Scratch;
+use logs::Logs;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use tokio::sync::Notify;
+use tracing::dispatcher::DefaultGuard;
+use tracing_subscriber::filter::LevelFilter;
 
 #[path = "support/at.rs"]
 mod at;
@@ -34,6 +38,8 @@ mod call;
 mod code;
 #[path = "support/files.rs"]
 mod files;
+#[path = "support/logs.rs"]
+mod logs;
 
 /// What the kind counts: the runs of `on_create`, which reads the
 /// input, and the starts that reached `create`.
@@ -541,29 +547,59 @@ async fn a_failed_start_tells_each_caller_why() {
 /// Of two creates of one key at once, one with an input the kind
 /// cannot read, the other makes the actor, also when it waited for
 /// the failed one's start: that start tells its waiters nothing.
-#[tokio::test(flavor = "multi_thread")]
-async fn a_create_that_fails_leaves_the_key_to_a_create_that_waited()
-{
-    let dir = Scratch::new("create-fails-race");
-    let made = Arc::new(Counts::default());
-    let host =
-        open(&dir, HostOptions::default().with_value(made.clone()));
-    for round in 0..50 {
-        let key = format!("k{round}");
-        let to = at("made", &key);
-        let (bad, good) = tokio::join!(
-            host.create(&to, vec![0xff]),
-            host.create(&to, cbor("good")),
+#[test]
+fn a_create_that_fails_leaves_the_key_to_a_create_that_waited() {
+    let logs = Logs::default();
+    let _recording = logs.record(LevelFilter::WARN);
+    logged_runtime(&logs, LevelFilter::WARN).block_on(async {
+        let dir = Scratch::new("create-fails-race");
+        let made = Arc::new(Counts::default());
+        let host = open(
+            &dir,
+            HostOptions::default().with_value(made.clone()),
         );
-        let bad = failed(bad);
-        if let Err(error) = good {
-            panic!("round {round}: {error:#}; the other: {bad:#}");
+        for round in 0..50 {
+            let key = format!("k{round}");
+            let to = at("made", &key);
+            let (bad, good) = tokio::join!(
+                host.create(&to, vec![0xff]),
+                host.create(&to, cbor("good")),
+            );
+            let bad = failed(bad);
+            if let Err(error) = good {
+                panic!(
+                    "round {round}: {error:#}; the other: {bad:#}; \
+                     logged:\n{}",
+                    logs.text()
+                );
+            }
+            let notes = call(&host, &key, &Notes).await.unwrap();
+            assert_eq!(notes, ["good"], "round {round}");
         }
-        let notes = call(&host, &key, &Notes).await.unwrap();
-        assert_eq!(notes, ["good"], "round {round}");
+        host.shutdown().await.unwrap();
+        assert_eq!(made.created.load(Ordering::SeqCst), 50);
+    });
+}
+
+fn logged_runtime(
+    logs: &Logs,
+    level: LevelFilter,
+) -> tokio::runtime::Runtime {
+    thread_local! {
+        static LOGGING: RefCell<Option<DefaultGuard>> =
+            const { RefCell::new(None) };
     }
-    host.shutdown().await.unwrap();
-    assert_eq!(made.created.load(Ordering::SeqCst), 50);
+    let dispatch = logs.dispatch(level);
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .on_thread_start(move || {
+            LOGGING.set(Some(tracing::dispatcher::set_default(
+                &dispatch,
+            )));
+        })
+        .on_thread_stop(|| drop(LOGGING.take()))
+        .build()
+        .unwrap()
 }
 
 /// A create whose start a shutdown cuts off fails with

@@ -16,7 +16,7 @@ use std::fmt;
 use std::path::Path;
 use std::str::FromStr;
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, bail, ensure};
 use gix::ObjectId;
 use gix::bstr::ByteSlice;
 use gix::merge::tree::{FileFavor, TreatAsUnresolved, TreeFavor};
@@ -24,7 +24,7 @@ use gix::object::tree::EntryKind;
 use gix::objs::Write as _;
 use gix::refs::Target;
 use gix::refs::transaction::PreviousValue;
-pub use purge::purge;
+pub use purge::{purge, settle};
 use serde::{Deserialize, Serialize};
 
 /// The branch that is the scholar itself.
@@ -105,8 +105,18 @@ pub struct Entry {
 /// A change to one file on a branch.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Change {
-    Write { path: String, bytes: Vec<u8> },
-    Remove { path: String },
+    Write {
+        path: String,
+        bytes: Vec<u8>,
+    },
+    /// A write of a file that runs.
+    WriteExecutable {
+        path: String,
+        bytes: Vec<u8>,
+    },
+    Remove {
+        path: String,
+    },
 }
 
 /// Who made a commit, as the record names it, and when in
@@ -177,12 +187,32 @@ pub enum Joined {
 }
 
 /// The branch's tip after a merge or a revert, and the paths both
-/// sides changed, where the branch's side was kept.
+/// sides changed, where the winning side was kept.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Merged {
     pub commit: CommitId,
     pub joined: Joined,
     pub clashes: Vec<String>,
+}
+
+/// The side of a merge of two commits that keeps its lines where
+/// both changed the same ones.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Wins {
+    /// The commit merged into, which becomes the first parent.
+    Onto,
+    /// The commit merged in.
+    From,
+}
+
+/// Two commits joined by their ancestry alone, or the tree that
+/// merges them.
+enum Join {
+    Held(Merged),
+    Tree {
+        tree: ObjectId,
+        clashes: Vec<String>,
+    },
 }
 
 /// One write that brings a folder to a commit's files.
@@ -412,35 +442,71 @@ impl Repository {
         message: &str,
         by: Author<'_>,
     ) -> Result<CommitId> {
-        let parent = self.tip(branch)?;
-        let base = self.tree_of(parent)?;
-        let mut editor = self.0.edit_tree(base)?;
+        self.commit_if(
+            branch,
+            self.tip(branch)?,
+            changes,
+            message,
+            by,
+        )
+    }
+
+    /// Commits `changes` on top of `branch` only while its tip is
+    /// still `was`, or while it does not exist for `None`; otherwise
+    /// fails and moves nothing. Returns the new commit, or `was` when
+    /// the changes leave the files as they were.
+    pub fn commit_if(
+        &self,
+        branch: &str,
+        was: Option<CommitId>,
+        changes: &[Change],
+        message: &str,
+        by: Author<'_>,
+    ) -> Result<CommitId> {
+        let commit = self.commit_on(was, changes, message, by)?;
+        match was {
+            Some(was) if commit == was => ensure!(
+                self.tip(branch)? == Some(was),
+                "{branch} is not at {was}"
+            ),
+            Some(was) => self.set_branch(branch, commit, was)?,
+            None => self.branch(branch, commit)?,
+        }
+        Ok(commit)
+    }
+
+    /// Commits `changes` onto the files of `base`, or onto no files,
+    /// as a commit whose one parent is `base`, moving no branch.
+    /// Returns `base` when the changes leave its files as they were.
+    pub fn commit_on(
+        &self,
+        base: Option<CommitId>,
+        changes: &[Change],
+        message: &str,
+        by: Author<'_>,
+    ) -> Result<CommitId> {
+        let tree = self.tree_of(base)?;
+        let mut editor = self.0.edit_tree(tree)?;
         for change in changes {
             match change {
-                Change::Write { path, bytes } => {
+                Change::Write { path, bytes }
+                | Change::WriteExecutable { path, bytes } => {
+                    let runs = matches!(
+                        change,
+                        Change::WriteExecutable { .. }
+                    );
                     let blob = self.0.write_blob(bytes)?.detach();
-                    editor.upsert(
-                        path.as_str(),
-                        EntryKind::Blob,
-                        blob,
-                    )?;
+                    editor.upsert(path.as_str(), kind(runs), blob)?;
                 }
                 Change::Remove { path } => {
                     editor.remove(path.as_str())?;
                 }
             }
         }
-        let tree = editor.write()?.detach();
-        match parent {
-            Some(parent) if tree == base => Ok(parent),
-            _ => self.commit_tree(
-                branch,
-                tree,
-                parent,
-                &[],
-                message,
-                by,
-            ),
+        let edited = editor.write()?.detach();
+        match base {
+            Some(base) if edited == tree => Ok(base),
+            _ => self.write_commit(edited, base, message, by),
         }
     }
 
@@ -609,23 +675,44 @@ impl Repository {
             if out.len() == limit {
                 break;
             }
-            let info = info?;
-            let commit = self.0.find_commit(info.id)?;
-            let decoded = commit.decode()?;
-            let author = decoded.author()?;
-            out.push(Commit {
-                id: CommitId(info.id),
-                parents: decoded.parents().map(CommitId).collect(),
-                author: author.name.to_str_lossy().into_owned(),
-                at: author.seconds() * 1000,
-                message: decoded
-                    .message
-                    .to_str_lossy()
-                    .trim()
-                    .to_owned(),
-            });
+            out.push(self.describe(CommitId(info?.id))?);
         }
         Ok(out)
+    }
+
+    /// The commits from `from` back along first parents, newest
+    /// first, at most `limit`, stopping before `until`: the commits
+    /// made on a branch itself, without those a merge brought in.
+    pub fn first_parents(
+        &self,
+        from: CommitId,
+        until: Option<CommitId>,
+        limit: usize,
+    ) -> Result<Vec<Commit>> {
+        let mut out = Vec::new();
+        let mut next = Some(from);
+        while let Some(id) = next {
+            if out.len() == limit || Some(id) == until {
+                break;
+            }
+            let commit = self.describe(id)?;
+            next = commit.parents.first().copied();
+            out.push(commit);
+        }
+        Ok(out)
+    }
+
+    fn describe(&self, id: CommitId) -> Result<Commit> {
+        let commit = self.0.find_commit(id.0)?;
+        let decoded = commit.decode()?;
+        let author = decoded.author()?;
+        Ok(Commit {
+            id,
+            parents: decoded.parents().map(CommitId).collect(),
+            author: author.name.to_str_lossy().into_owned(),
+            at: author.seconds() * 1000,
+            message: decoded.message.to_str_lossy().trim().to_owned(),
+        })
     }
 
     /// The best common ancestor of `one` and `two`.
@@ -652,42 +739,103 @@ impl Repository {
         let ours = self.tip(branch)?.with_context(|| {
             format!("merging into {branch}, which is empty")
         })?;
-        let base = self.merge_base(ours, from)?;
+        let merged = match self.join(ours, from, Wins::Onto)? {
+            Join::Held(merged) => merged,
+            Join::Tree { tree, clashes } => self.commit_merge(
+                ours, from, tree, clashes, message, by,
+            )?,
+        };
+        if merged.joined != Joined::UpToDate {
+            self.set_branch(branch, merged.commit, ours)?;
+        }
+        Ok(merged)
+    }
+
+    /// Merges the commit `from` into the commit `onto`, moving no
+    /// branch. Where both changed the same lines, the side `wins`
+    /// names keeps its lines and the path is a clash. The answer is
+    /// `onto` when it holds `from` already or the merge leaves its
+    /// files as they were, `from` when it holds `onto`, and otherwise
+    /// a new commit whose first parent is `onto`.
+    pub fn merge_commits(
+        &self,
+        onto: CommitId,
+        from: CommitId,
+        wins: Wins,
+        message: &str,
+        by: Author<'_>,
+    ) -> Result<Merged> {
+        match self.join(onto, from, wins)? {
+            Join::Held(merged) => Ok(merged),
+            Join::Tree { tree, clashes }
+                if tree == self.tree_of(Some(onto))? =>
+            {
+                Ok(Merged {
+                    commit: onto,
+                    joined: Joined::UpToDate,
+                    clashes,
+                })
+            }
+            Join::Tree { tree, clashes } => self
+                .commit_merge(onto, from, tree, clashes, message, by),
+        }
+    }
+
+    fn join(
+        &self,
+        onto: CommitId,
+        from: CommitId,
+        wins: Wins,
+    ) -> Result<Join> {
+        let base = self.merge_base(onto, from)?;
         if base == Some(from) {
-            return Ok(Merged {
-                commit: ours,
+            return Ok(Join::Held(Merged {
+                commit: onto,
                 joined: Joined::UpToDate,
                 clashes: Vec::new(),
-            });
+            }));
         }
-        if base == Some(ours) {
-            self.set_branch(branch, from, ours)?;
-            return Ok(Merged {
+        if base == Some(onto) {
+            return Ok(Join::Held(Merged {
                 commit: from,
                 joined: Joined::FastForward,
                 clashes: Vec::new(),
-            });
+            }));
         }
+        let (ours, theirs) = match wins {
+            Wins::Onto => (onto, from),
+            Wins::From => (from, onto),
+        };
         let options =
             gix::merge::commit::Options::from(self.ours_win()?);
         let mut outcome = self.0.merge_commits(
             ours.0,
-            from.0,
+            theirs.0,
             Default::default(),
             options,
         )?;
-        let clashes = clashes(&outcome.tree_merge.conflicts);
-        let tree = outcome.tree_merge.tree.write()?.detach();
-        let commit = self.commit_tree(
-            branch,
-            tree,
-            Some(ours),
-            &[from],
-            message,
-            by,
-        )?;
+        Ok(Join::Tree {
+            clashes: clashes(&outcome.tree_merge.conflicts),
+            tree: outcome.tree_merge.tree.write()?.detach(),
+        })
+    }
+
+    fn commit_merge(
+        &self,
+        onto: CommitId,
+        from: CommitId,
+        tree: ObjectId,
+        clashes: Vec<String>,
+        message: &str,
+        by: Author<'_>,
+    ) -> Result<Merged> {
         Ok(Merged {
-            commit,
+            commit: self.write_commit(
+                tree,
+                [onto, from],
+                message,
+                by,
+            )?,
             joined: Joined::Committed,
             clashes,
         })
@@ -825,20 +973,42 @@ impl Repository {
         message: &str,
         by: Author<'_>,
     ) -> Result<CommitId> {
+        let parents = parent.iter().chain(also).copied();
+        let commit = self.write_commit(tree, parents, message, by)?;
+        let expected = match parent {
+            Some(parent) => PreviousValue::ExistingMustMatch(
+                Target::Object(parent.0),
+            ),
+            None => PreviousValue::MustNotExist,
+        };
+        self.0.reference(
+            heads(branch),
+            commit.0,
+            expected,
+            "commit",
+        )?;
+        Ok(commit)
+    }
+
+    /// Keeps a commit of `tree` with `parents`, moving no branch.
+    fn write_commit(
+        &self,
+        tree: ObjectId,
+        parents: impl IntoIterator<Item = CommitId>,
+        message: &str,
+        by: Author<'_>,
+    ) -> Result<CommitId> {
         let signature = signature(by);
         let mut time = gix::date::parse::TimeBuf::default();
         let signature = signature.to_ref(&mut time);
-        let parents =
-            parent.iter().chain(also).map(|commit| commit.0);
-        let id = self.0.commit_as(
+        let commit = self.0.new_commit_as(
             signature,
             signature,
-            heads(branch),
             message,
             tree,
-            parents,
+            parents.into_iter().map(|commit| commit.0),
         )?;
-        Ok(CommitId(id.detach()))
+        Ok(CommitId(commit.id))
     }
 }
 

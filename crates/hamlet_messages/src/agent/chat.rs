@@ -1,0 +1,435 @@
+//! The calls a client makes to an agent about its chat, and their
+//! answers. A time in them is in whole seconds.
+
+use hamlet_actor::Action;
+use hamlet_protocol::client as protocol;
+use serde::de::Error as _;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+use crate::address::Agent;
+use crate::bytes::Sha256;
+use crate::realm::Done;
+use crate::sender::Client;
+use crate::workspace::AgentNumber;
+use crate::{Message, worded};
+
+macro_rules! from_client {
+    ($ty:ty, $name:literal, $out:ty) => {
+        impl Action for $ty {
+            type Output = $out;
+            const NAME: &'static str = $name;
+        }
+        impl Message for $ty {
+            type To = Agent;
+            type From = Client;
+        }
+    };
+}
+
+/// Stops the agent's running turns and their calls out.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct Stop(pub protocol::Stop);
+from_client!(Stop, "stop", Stopped);
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Stopped {
+    pub turns: u32,
+}
+
+/// Begins a new session in the chief's chat.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct NewSession(pub protocol::New);
+from_client!(NewSession, "new_session", Began);
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Began {
+    pub number: u32,
+}
+
+/// Goes back to an earlier session by its number.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct Resume(pub protocol::Resume);
+from_client!(Resume, "resume", ResumeAnswer);
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum ResumeAnswer {
+    Back {
+        number: u32,
+    },
+    #[serde(serialize_with = "worded")]
+    Refused {
+        why: ResumeRefusal,
+    },
+}
+
+#[derive(
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    Serialize,
+    Deserialize,
+    thiserror::Error,
+)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum ResumeRefusal {
+    #[error("there is no session {number}")]
+    NoSuchSession { number: u32 },
+}
+
+/// Carries on the current session's last turn, which failed or was
+/// stopped (C26).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct Retry(pub protocol::Retry);
+from_client!(Retry, "retry", Done<RetryRefusal>);
+
+#[derive(
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    Serialize,
+    Deserialize,
+    thiserror::Error,
+)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum RetryRefusal {
+    #[error("a turn is running; stop it first")]
+    Running,
+    #[error(
+        "the last turn was answered; there is nothing to carry on"
+    )]
+    Answered,
+    #[error("this session has no turn to carry on")]
+    NoTurn,
+}
+
+/// Takes a session back to before a chief's line.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct Rewind(pub protocol::Rewind);
+from_client!(Rewind, "rewind", RewindAnswer);
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum RewindAnswer {
+    /// The line taken back, to return to the chief's input (C33).
+    Rewound {
+        text: String,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        images: Vec<ChatImage>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        files: Vec<ChatFile>,
+    },
+    #[serde(serialize_with = "worded")]
+    Refused { why: RewindRefusal },
+}
+
+#[derive(
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    Serialize,
+    Deserialize,
+    thiserror::Error,
+)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum RewindRefusal {
+    #[error("only a chief's own line can be taken back")]
+    NotAChiefLine,
+    #[error("no line {item} is in this session")]
+    NoSuchItem { item: String },
+    #[error("only the current session of a chief's chat goes back")]
+    NotCurrent,
+    #[error("work is running or waiting; stop it first")]
+    Working,
+}
+
+/// Reads a page of a chat: a session of the chief's, or a peer's
+/// letters or questions.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct ReadChat(pub protocol::Open);
+from_client!(ReadChat, "read_chat", ChatPage);
+
+/// A page of a chat.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ChatPage {
+    /// The agent's wake the numbers count in; a new wake starts them
+    /// again.
+    pub epoch: u32,
+    /// The number of the agent's last change this page holds: a
+    /// [`ChatEvent`] numbered at most this is already in it.
+    pub number: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session: Option<u32>,
+    pub items: Vec<ChatItem>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub earlier: Option<String>,
+    pub working: bool,
+    pub pending: u32,
+    pub usage: Usage,
+}
+
+/// What a conversation's model calls used, summed over it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Usage {
+    pub calls: Count,
+    /// The calls whose provider told no usage.
+    pub unreported: Count,
+    pub input: Count,
+    pub cached: Count,
+    pub output: Count,
+    pub reasoning: Count,
+    pub ms: Count,
+    /// Millionths of a dollar.
+    pub micros: Count,
+    /// The input of the last call.
+    pub last_input: Count,
+    pub summary: String,
+}
+
+/// A sum that can pass 2^32, written as decimal text: the agent's
+/// encoder writes a larger integer as a float.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Count(pub u64);
+
+impl Serialize for Count {
+    fn serialize<S: Serializer>(
+        &self,
+        to: S,
+    ) -> Result<S::Ok, S::Error> {
+        to.collect_str(&self.0)
+    }
+}
+
+impl<'de> Deserialize<'de> for Count {
+    fn deserialize<D: Deserializer<'de>>(
+        from: D,
+    ) -> Result<Self, D::Error> {
+        String::deserialize(from)?.parse().map(Self).map_err(|_| {
+            D::Error::custom(
+                "a count is a whole number in decimal text",
+            )
+        })
+    }
+}
+
+/// One item of a chat, as the client protocol's `Item` but with its
+/// time in whole seconds.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ChatItem {
+    pub id: String,
+    pub at: u32,
+    pub kind: protocol::ItemKind,
+    pub text: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub author: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub images: Vec<ChatImage>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub files: Vec<ChatFile>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rewindable: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool: Option<ChatTool>,
+}
+
+/// An image a chief's line carried, as the client protocol's
+/// `AttachedImage`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ChatImage {
+    /// The byte offset in the line's text where it sits; absent when
+    /// it goes after the text.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub at: Option<u32>,
+    pub id: Sha256,
+}
+
+/// A file a chief's line carried, as the client protocol's
+/// `AttachedFile`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ChatFile {
+    /// The byte offset in the line's text where it sits; absent when
+    /// it goes after the text.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub at: Option<u32>,
+    pub id: Sha256,
+    pub name: String,
+    pub size: u32,
+}
+
+/// A tool call's details, as the client protocol's `ItemTool`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ChatTool {
+    pub name: String,
+    pub summary: String,
+    /// The exit code's 32 bits, so a negative code `c` is
+    /// `c + 2^32`: TypeScript writes `c >>> 0` and Rust reads it
+    /// back with `as i32`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exit: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ms: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub failure: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub change: Option<ToolChange>,
+}
+
+/// The change a tool call made to a file, as the client protocol's
+/// `Change`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ToolChange {
+    pub path: String,
+    pub created: bool,
+    pub added: u32,
+    pub removed: u32,
+    /// The lines of the changed stretch, with those around it.
+    pub total: u32,
+    /// `added` and `removed` in words.
+    pub count: String,
+    /// The first 200 lines of that stretch.
+    pub lines: Vec<ChangeLine>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ChangeLine {
+    pub mark: LineMark,
+    pub text: String,
+}
+
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum LineMark {
+    Same,
+    Added,
+    Removed,
+}
+
+/// The event `chat` the agent publishes when a chat changes.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ChatEvent {
+    pub chat: ChatRef,
+    pub epoch: u32,
+    /// One more than the agent's last change before it, in this
+    /// epoch.
+    pub number: u32,
+    pub ops: Vec<ChatOp>,
+}
+
+/// The chat an event is of, as the client protocol's `ChatRef`.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ChatRef {
+    /// The agent whose conversation it is.
+    pub with: AgentNumber,
+    /// The peer whose letters or questions it is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from: Option<AgentNumber>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<protocol::ChatRefKind>,
+    /// The number of an earlier session of the chief's chat.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub past: Option<u32>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum ChatOp {
+    Add {
+        item: Box<ChatItem>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        replaces: Option<String>,
+    },
+    Append {
+        item: String,
+        /// The place in the item's text `text` is written at, so a
+        /// repeat writes the same.
+        at: u32,
+        text: String,
+    },
+    Status {
+        working: bool,
+        pending: u32,
+    },
+    Usage {
+        usage: Usage,
+    },
+    /// The chat must be read again.
+    Reset,
+}
+
+/// Lists the sessions of the chief's chat, newest first.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReadHistory;
+from_client!(ReadHistory, "read_history", History);
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct History {
+    pub sessions: Vec<Session>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Session {
+    pub number: u32,
+    pub began: u32,
+    pub modified: u32,
+    pub current: bool,
+    pub messages: u32,
+    pub tokens: Count,
+    pub title: String,
+}
+
+/// Reads the agent's whole system prompt as it would be sent now
+/// (C14).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReadPrompt;
+from_client!(ReadPrompt, "read_prompt", Prompt);
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Prompt {
+    pub text: String,
+}
+
+/// Asks the agent to reflect now (`/reflect`).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Reflect;
+from_client!(Reflect, "reflect", Reflecting);
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Reflecting {
+    Asked,
+    Already,
+}
+
+/// A step of a sign-in to a provider, which a client makes on the
+/// Hand.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct Login(pub protocol::Login);
+from_client!(Login, "login", LoginAnswer);
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum LoginAnswer {
+    Step {
+        login: String,
+        step: protocol::LoginStep,
+    },
+    Done {
+        login: String,
+    },
+    Failed {
+        login: String,
+        words: String,
+    },
+}

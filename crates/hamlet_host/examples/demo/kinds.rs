@@ -4,14 +4,16 @@
 use std::collections::HashMap;
 
 use hamlet_actor_core::ActorFactory;
-use hamlet_actors::workspace;
+use hamlet_actors::{library, profile, workspace};
 use hamlet_messages::address::{self, Party};
 
 use crate::{agent, counter, realm};
 
 /// The kinds with a factory of their own. Any other is a counter.
-const NAMED: [(&str, fn() -> ActorFactory); 3] = [
+const NAMED: [(&str, fn() -> ActorFactory); 5] = [
     (address::Workspace::KIND, workspace::factory),
+    (address::Profile::KIND, profile::factory),
+    (address::Library::KIND, library::factory),
     (address::Realm::KIND, realm::factory),
     (address::Agent::KIND, agent::factory),
 ];
@@ -20,6 +22,8 @@ const NAMED: [(&str, fn() -> ActorFactory); 3] = [
 pub const LOCAL: &[&str] = &[
     "counter",
     address::Workspace::KIND,
+    address::Profile::KIND,
+    address::Library::KIND,
     address::Realm::KIND,
     address::Agent::KIND,
 ];

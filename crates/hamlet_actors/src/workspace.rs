@@ -2,7 +2,7 @@
 //! commands and file changes under the sandbox, within each agent's
 //! reach.
 
-mod calls;
+pub(crate) mod calls;
 mod files;
 mod pending;
 mod reach;
@@ -10,8 +10,9 @@ mod run;
 mod tools;
 mod workers;
 
-use std::collections::HashMap;
 use std::convert::Infallible;
+use std::io;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
@@ -21,7 +22,6 @@ use hamlet_actor_core::{
     ActorConfig, ActorFactory, SqliteTransaction,
 };
 use hamlet_host::{Caller, HostRef};
-use hamlet_messages::Message;
 use hamlet_messages::address::{self, Party};
 use hamlet_messages::agent::{Finished, Outcome};
 use hamlet_messages::realm::{NeedsChief, Secrets};
@@ -42,6 +42,7 @@ use hamlet_messages::workspace::{
 use hamlet_sandbox::{AllLeftovers, Sandbox};
 
 use self::reach::{Gate, Purpose, RealmFolder};
+use crate::call;
 
 /// The most lines and bytes of a command's output or a file handed
 /// to an agent at once (C16).
@@ -50,12 +51,25 @@ const MOST_BYTES: usize = 50 * 1024;
 
 const CALL_WITHIN: Duration = Duration::from_secs(10);
 
-/// The workspace's answer settings, given by its host as a value of
-/// [`hamlet_host::HostOptions`]. Without one, it waits 5 seconds.
+/// The workspace's settings, given by its host as a value of
+/// [`hamlet_host::HostOptions`]. Without one, it takes the default.
 pub struct Options {
     /// The longest a call waits for its command before it answers
     /// `Running`.
     pub answer_within: Duration,
+    /// The most bytes of an agent's saved output: a command that
+    /// saves its own first removes the files of finished commands,
+    /// oldest first, until the rest is under it.
+    pub saved_output: u64,
+}
+
+impl Default for Options {
+    fn default() -> Self {
+        Self {
+            answer_within: run::ANSWER_WITHIN,
+            saved_output: 1024 * 1024 * 1024,
+        }
+    }
 }
 
 /// The workspace's kind. Its host gives it the [`Sandbox`] its
@@ -83,8 +97,8 @@ struct Workspace {
     secrets: Mutex<Option<Held>>,
     leftovers: AllLeftovers,
     answer_within: Duration,
-    /// Each running command, until its end was heard.
-    running: Mutex<HashMap<CommandId, run::Running>>,
+    saved_output: u64,
+    running: run::RunningCommands,
     /// The paths a change is at work on.
     paths: files::Paths,
 }
@@ -135,17 +149,15 @@ impl Actor for Workspace {
         files::cut_off_changes(ctx).await?;
         let home = RealmFolder::new(host.folder())?;
         workers::sweep(ctx, &home).await?;
+        let options = host.value::<Options>().unwrap_or_default();
         Ok(Self {
             home,
             sandbox,
             secrets: Mutex::new(None),
             leftovers: AllLeftovers::default(),
-            answer_within: host
-                .value::<Options>()
-                .map_or(run::ANSWER_WITHIN, |options| {
-                    options.answer_within
-                }),
-            running: Mutex::new(HashMap::new()),
+            answer_within: options.answer_within,
+            saved_output: options.saved_output,
+            running: Arc::default(),
             paths: files::Paths::default(),
         })
     }
@@ -294,7 +306,7 @@ impl Handler<Run> for Workspace {
         if let Some(why) = checked(&run) {
             return Ok(RunAnswer::Refused { why });
         }
-        let request_hash = calls::request_hash(&run)?;
+        let request_hash = crate::request_hash(&run)?.to_vec();
         // Read before the row is opened: past its commit, nothing
         // returns before the command starts.
         let leftovers = self.leftovers.of(i64::from(agent.0));
@@ -374,10 +386,12 @@ impl Workspace {
             timeout,
             secrets,
             leftovers,
-            output: self
-                .home
-                .spill(running.agent)
-                .join(format!("{}.log", running.command.0)),
+            output: run::Saved {
+                folder: self.home.spill(running.agent),
+                command: running.command,
+                limit: self.saved_output,
+                running: self.running.clone(),
+            },
             cancel: running.cancel.clone(),
         }
     }
@@ -680,17 +694,25 @@ async fn read_only<T>(
     done
 }
 
-async fn call<M: Message>(
-    host: &HostRef,
-    to: &M::To,
-    message: &M,
-    deadline: Duration,
-) -> Result<M::Output> {
-    let args = hamlet_actor::action::encode_positional(message)?;
-    let answer =
-        host.call(&to.address()?, M::NAME, args, deadline).await?;
-    ciborium::from_reader(answer.as_slice())
-        .with_context(|| format!("decode the answer to {}", M::NAME))
+async fn remove_folder(folder: PathBuf) {
+    let removed = tokio::task::spawn_blocking({
+        let folder = folder.clone();
+        move || std::fs::remove_dir_all(folder)
+    })
+    .await;
+    let error = match removed {
+        Ok(Ok(())) => return,
+        Ok(Err(error)) if error.kind() == io::ErrorKind::NotFound => {
+            return;
+        }
+        Ok(Err(error)) => error.to_string(),
+        Err(error) => error.to_string(),
+    };
+    tracing::warn!(
+        %error,
+        folder = %folder.display(),
+        "remove a folder"
+    );
 }
 
 /// Calls `agent` with how its call `id` ended, once. A failed call,
@@ -951,10 +973,10 @@ const LAPSED: WaitEnd = WaitEnd::Lapsed {
 
 impl Workspace {
     /// Ends what `agent`, whose reach ended, has running: its
-    /// commands, what they left under Seatbelt, and then its scratch
-    /// folder when it was a worker. Its waits in `closed` ended with
-    /// the reach, and the agent is told of each apart from this call,
-    /// which a gone agent would hold up.
+    /// commands, what they left under Seatbelt, and then its saved
+    /// output and its scratch folder when it was a worker. Its waits
+    /// in `closed` ended with the reach, and the agent is told of
+    /// each apart from this call, which a gone agent would hold up.
     async fn end_agent(
         &self,
         ctx: &Ctx<Self>,
@@ -964,7 +986,8 @@ impl Workspace {
         self.cancel(ctx, agent, &Which::All).await;
         let owner = i64::from(agent.0);
         self.leftovers.end(|of| of == owner);
-        workers::remove(&self.home, agent).await;
+        remove_folder(self.home.spill(agent)).await;
+        remove_folder(self.home.scratch(agent)).await;
         let task_ctx = ctx.clone();
         ctx.register_task(async move {
             for (call, why) in closed {
@@ -977,11 +1000,12 @@ impl Workspace {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeSet;
+    use std::collections::{BTreeSet, HashMap};
 
     use hamlet_actor::ActionSet;
     use hamlet_actor_error::ActorError;
     use hamlet_host::{Host, HostOptions};
+    use hamlet_messages::Message;
     use hamlet_messages::workspace::reach::Reach;
     use hamlet_messages::workspace::{
         Answer, CallId, ConversationId, ReachVersion,

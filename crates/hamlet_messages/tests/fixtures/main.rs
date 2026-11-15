@@ -5,7 +5,10 @@
 //! is committed with it.
 
 mod cases;
+mod chat;
+mod integers;
 
+use std::any::TypeId;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Debug;
 use std::path::{Path, PathBuf};
@@ -15,11 +18,12 @@ use hamlet_actor::Action;
 use hamlet_actor::action::{decode_positional, encode_positional};
 use hamlet_actor_error::ActorError;
 use hamlet_address::Caller;
+use hamlet_messages::Message;
 use hamlet_messages::address::{Agent, Party, Realm, Workspace};
 use hamlet_messages::agent::{Finished, Outcome};
 use hamlet_messages::bytes::{Base64, Sha256};
 use hamlet_messages::realm::{NeedsChief, SecretList, Secrets};
-use hamlet_messages::sender::{id_reused, wrong_caller};
+use hamlet_messages::sender::{Hand, id_reused, wrong_caller};
 use hamlet_messages::workspace::files::{
     Change, ChangeAnswer, ChangeEnd, CutBy, EditDiff, EditFile, Find,
     Hashed, Image, Note, ReadAnswer, ReadFile, Replace, Search,
@@ -48,6 +52,7 @@ use serde::{Deserialize, Serialize};
 use self::cases::{
     Cases, Found, InUnion, Union, family, named, tagged, union,
 };
+use self::integers::{Sample, Writer, reads_answer, reads_args};
 
 const AGENT: AgentNumber = AgentNumber(7);
 
@@ -88,6 +93,9 @@ fn enums() -> Vec<Cases> {
     ]
     .into_iter()
     .chain(realm::enums())
+    .chain(chat::enums())
+    .chain(profile::enums())
+    .chain(library::enums())
     .collect()
 }
 
@@ -105,7 +113,9 @@ macro_rules! union {
     }};
 }
 
-// After `union!`, which it uses.
+// After `union!`, which they use.
+mod library;
+mod profile;
 mod realm;
 
 fn unions() -> Vec<Union> {
@@ -151,6 +161,8 @@ fn unions() -> Vec<Union> {
     ]
     .into_iter()
     .chain(realm::unions())
+    .chain(profile::unions())
+    .chain(library::unions())
     .collect()
 }
 
@@ -252,6 +264,7 @@ impl Coverage {
 }
 
 struct Fixtures {
+    writes_fixtures: bool,
     unions: Vec<Union>,
     written: BTreeSet<String>,
     rewritten: Vec<String>,
@@ -262,6 +275,8 @@ struct Fixtures {
     held: Vec<Value>,
     /// Each type a row keeps, with what reads a value as one.
     kept: BTreeMap<String, Under>,
+    samples: Vec<Sample>,
+    agent_answers: BTreeSet<TypeId>,
 }
 
 type Under = fn(&Value, &[Union], &mut Found);
@@ -278,8 +293,9 @@ fn under<T: DeserializeOwned>(
 }
 
 impl Fixtures {
-    fn new() -> Self {
+    fn new(writes_fixtures: bool) -> Self {
         Self {
+            writes_fixtures,
             unions: unions(),
             written: BTreeSet::new(),
             rewritten: Vec::new(),
@@ -288,13 +304,15 @@ impl Fixtures {
             stored: Coverage::default(),
             held: Vec::new(),
             kept: BTreeMap::new(),
+            samples: Vec::new(),
+            agent_answers: BTreeSet::new(),
         }
     }
 
     /// Checks the arguments of a call.
     fn args<T>(&mut self, name: &str, value: &T)
     where
-        T: Serialize + DeserializeOwned + PartialEq + Debug,
+        T: Message + Serialize + DeserializeOwned + PartialEq + Debug,
     {
         let (name, bytes) = self.unprobed_args(name, value);
         let Value::Array(arguments) =
@@ -315,23 +333,66 @@ impl Fixtures {
         value: &T,
     ) -> (String, Vec<u8>)
     where
-        T: Serialize + DeserializeOwned + PartialEq + Debug,
+        T: Message + Serialize + DeserializeOwned + PartialEq + Debug,
     {
         let bytes = encode_positional(value).unwrap();
         let name = format!("{name}.args");
         self.check(&name, &bytes);
         self.read_back(&name, value, decode_positional::<T>(&bytes));
+        let is = |id| {
+            [TypeId::of::<Agent>(), TypeId::of::<Hand>()]
+                .contains(&id)
+        };
+        if is(TypeId::of::<T::To>()) {
+            self.agent_answers.insert(TypeId::of::<T::Output>());
+        }
+        if is(TypeId::of::<T::From>()) {
+            self.samples.push(Sample {
+                name: name.clone(),
+                value: ciborium::from_reader(bytes.as_slice())
+                    .unwrap(),
+                reads: reads_args::<T>,
+                writer: Writer::Agent,
+            });
+        }
         (name, bytes)
     }
 
     fn answer<T>(&mut self, name: &str, value: &T)
     where
-        T: Serialize + DeserializeOwned + PartialEq + Debug,
+        T: Serialize + DeserializeOwned + PartialEq + Debug + 'static,
+    {
+        self.written_by(
+            name,
+            value,
+            Writer::Answerer {
+                answer: TypeId::of::<T>(),
+            },
+        );
+    }
+
+    fn event<T>(&mut self, name: &str, value: &T)
+    where
+        T: Serialize + DeserializeOwned + PartialEq + Debug + 'static,
+    {
+        self.written_by(name, value, Writer::Agent);
+    }
+
+    fn written_by<T>(&mut self, name: &str, value: &T, writer: Writer)
+    where
+        T: Serialize + DeserializeOwned + PartialEq + Debug + 'static,
     {
         let json = serde_json::to_value(value).unwrap();
         let mut bytes = Vec::new();
         ciborium::into_writer(&json, &mut bytes).unwrap();
-        self.decoded(&format!("{name}.answer"), value, &bytes);
+        let name = format!("{name}.answer");
+        self.decoded(&name, value, &bytes);
+        self.samples.push(Sample {
+            name,
+            value: ciborium::from_reader(bytes.as_slice()).unwrap(),
+            reads: reads_answer::<T>,
+            writer,
+        });
     }
 
     /// Checks the input an actor is created with.
@@ -371,6 +432,9 @@ impl Fixtures {
         ciborium::into_writer(value, &mut bytes).unwrap();
         let path = folder().join(format!("{name}.cbor"));
         let Ok(kept) = std::fs::read(&path) else {
+            if !self.writes_fixtures {
+                return bytes;
+            }
             std::fs::create_dir_all(path.parent().unwrap()).unwrap();
             std::fs::write(&path, &bytes).unwrap();
             self.rewritten.push(format!("{name} (new)"));
@@ -389,6 +453,15 @@ impl Fixtures {
             &mut self.problems,
         );
         kept
+    }
+
+    /// Checks an answer a row keeps, and stores it.
+    fn kept<T>(&mut self, name: &str, value: &T)
+    where
+        T: Serialize + DeserializeOwned + PartialEq + Debug + 'static,
+    {
+        self.answer(name, value);
+        self.stored(&name.replace('/', "."), value);
     }
 
     fn stored_request<T>(&mut self, name: &str, value: &T)
@@ -444,7 +517,9 @@ impl Fixtures {
     fn check(&mut self, name: &str, bytes: &[u8]) {
         self.written.insert(format!("{name}.cbor"));
         let path = folder().join(format!("{name}.cbor"));
-        if std::fs::read(&path).ok().as_deref() == Some(bytes) {
+        if !self.writes_fixtures
+            || std::fs::read(&path).ok().as_deref() == Some(bytes)
+        {
             return;
         }
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -589,19 +664,26 @@ fn is_snake_case(name: &str) -> bool {
         .all(|byte| matches!(byte, b'a'..=b'z' | b'0'..=b'9' | b'_'))
 }
 
+fn every_fixture(fixtures: &mut Fixtures) {
+    the_workspaces_messages(fixtures);
+    the_chiefs_answers(fixtures);
+    the_answers_about_a_command(fixtures);
+    the_reads(fixtures);
+    the_changes(fixtures);
+    the_realms_and_the_agents(fixtures);
+    the_addresses(fixtures);
+    the_errors(fixtures);
+    the_stored_rows(fixtures);
+    realm::the_realms_messages(fixtures);
+    chat::the_agents_chat(fixtures);
+    profile::the_profiles_messages(fixtures);
+    library::the_librarys_messages(fixtures);
+}
+
 #[test]
 fn every_message_and_every_case_matches_its_fixture() {
-    let mut fixtures = Fixtures::new();
-    the_workspaces_messages(&mut fixtures);
-    the_chiefs_answers(&mut fixtures);
-    the_answers_about_a_command(&mut fixtures);
-    the_reads(&mut fixtures);
-    the_changes(&mut fixtures);
-    the_realms_and_the_agents(&mut fixtures);
-    the_addresses(&mut fixtures);
-    the_errors(&mut fixtures);
-    the_stored_rows(&mut fixtures);
-    realm::the_realms_messages(&mut fixtures);
+    let mut fixtures = Fixtures::new(true);
+    every_fixture(&mut fixtures);
     fixtures.remove_unwritten();
     fixtures.assert_unchanged_and_covered();
 }
@@ -1748,36 +1830,11 @@ fn a_changed_file_is_told_by_its_hashes() {
     );
 }
 
-/// Each integer TypeScript writes reads up to 2^32 - 1 and fails
-/// from 2^32.
 #[test]
 fn an_integer_typescript_writes_is_a_u32() {
-    fn reads<T: DeserializeOwned>(args: serde_json::Value) -> bool {
-        let args = encode_positional(&args).unwrap();
-        decode_positional::<T>(&args).is_ok()
-    }
-    let read = |number| serde_json::json!({"path": "/a", "offset": number, "limit": number});
-    let script = |number| {
-        serde_json::json!({
-            "call": "c", "conversation": "c",
-            "program": {"type": "script", "script": "true",
-                        "network": false, "timeout_ms": number}
-        })
-    };
-    let status = |number| serde_json::json!({"command": number});
-    let cancel = |number| serde_json::json!({"agent": number, "which": {"type": "all"}});
-    for (number, fits) in
-        [(u64::from(u32::MAX), true), (1 << 32, false)]
-    {
-        assert_eq!(
-            [
-                reads::<ReadFile>(read(number)),
-                reads::<Run>(script(number)),
-                reads::<CommandStatus>(status(number)),
-                reads::<CancelAgent>(cancel(number)),
-            ],
-            [fits; 4],
-            "{number}"
-        );
-    }
+    let mut fixtures = Fixtures::new(false);
+    every_fixture(&mut fixtures);
+    let problems =
+        integers::not_u32(&fixtures.samples, &fixtures.agent_answers);
+    assert!(problems.is_empty(), "{}", problems.join("\n"));
 }

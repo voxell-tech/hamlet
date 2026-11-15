@@ -181,6 +181,9 @@ struct Report {
     killed: String,
     /// Each actor's last acknowledged count before the kill.
     acked: BTreeMap<String, i64>,
+    /// How long after the scenario's due time the first restart
+    /// started, in milliseconds.
+    past_due: Option<i64>,
     restarts: Vec<Restart>,
 }
 
@@ -256,6 +259,10 @@ impl Report {
             self.killed,
             values(&self.acked)
         );
+        if let Some(past_due) = self.past_due {
+            let _ =
+                write!(text, ", restarted {past_due} ms past due");
+        }
         for (n, restart) in self.restarts.iter().enumerate() {
             let _ = write!(
                 text,
@@ -356,10 +363,37 @@ fn run_once(
         );
     }
 
-    std::thread::sleep(
-        (sent + Duration::from_millis(scenario.down_ms))
-            .saturating_duration_since(Instant::now()),
+    let due = scenario
+        .due
+        .as_ref()
+        .map(|probe| {
+            read_probe(&home, probe)
+                .with_context(|| format!("probe {}", probe.name))
+        })
+        .transpose()?;
+    let down = (sent + Duration::from_millis(scenario.down_ms))
+        .saturating_duration_since(Instant::now());
+    let to_due = due.map_or(Duration::ZERO, |due| {
+        Duration::from_millis(
+            (due + 1 - unix_ms()).max(0).unsigned_abs(),
+        )
+    });
+    ensure!(
+        to_due <= Duration::from_millis(scenario.down_ms),
+        "the one-shot is due {} ms from now, past the downtime of \
+         {} ms",
+        to_due.as_millis(),
+        scenario.down_ms
     );
+    std::thread::sleep(down.max(to_due));
+    let past_due = due.map(|due| unix_ms() - due);
+    if let Some(past_due) = past_due {
+        ensure!(
+            past_due > 0,
+            "the first restart started {} ms before the due time",
+            -past_due
+        );
+    }
     let mut nodes = Vec::from_iter(node);
     let mut restarts = Vec::new();
     for (n, lines) in (1..).zip(scenario.restart) {
@@ -376,8 +410,16 @@ fn run_once(
         for line in lines {
             host.send(line)?;
         }
+        let (mut printed, children) = match scenario.demo {
+            Demo::Local => (Vec::new(), Vec::new()),
+            Demo::Linked { pid } => {
+                let printed = host.lines_through(pid)?;
+                (printed, children(host.child.id())?)
+            }
+        };
+        printed.extend(host.finish()?);
         let mut restart = Restart::new();
-        for line in host.finish()? {
+        for line in printed {
             if let Some(code) = error_code(&line) {
                 *restart
                     .entry(format!("{ERROR}{code}"))
@@ -399,6 +441,11 @@ fn run_once(
                 !nodes.contains(&pid),
                 "restart {n} ran on the Node host {pid} of before"
             );
+            ensure!(
+                children == [pid],
+                "restart {n}'s demo host ran the processes \
+                 {children:?}, not its one Node host {pid}"
+            );
             if !ended_within(pid, GONE_WAIT)? {
                 end(pid);
                 bail!(
@@ -418,6 +465,7 @@ fn run_once(
     Ok(Report {
         killed,
         acked,
+        past_due,
         restarts,
     })
 }
@@ -533,13 +581,8 @@ fn ended_within(pid: u32, within: Duration) -> Result<bool> {
 #[cfg(target_os = "linux")]
 fn has_ended(pid: u32) -> Result<bool> {
     match std::fs::read_to_string(format!("/proc/{pid}/stat")) {
-        // The state follows the command's name, which is in
-        // parentheses and may hold any character.
-        Ok(stat) => {
-            Ok(stat.rsplit_once(')').is_some_and(|(_, rest)| {
-                rest.trim_start().starts_with('Z')
-            }))
-        }
+        Ok(stat) => Ok(stat_field(&stat, 0)
+            .is_some_and(|state| state.starts_with('Z'))),
         Err(error)
             if error.kind() == std::io::ErrorKind::NotFound =>
         {
@@ -556,6 +599,51 @@ fn has_ended(_pid: u32) -> Result<bool> {
         "the kit tells that a Node host has ended only on Linux, \
          from /proc"
     )
+}
+
+#[cfg(target_os = "linux")]
+fn children(parent: u32) -> Result<Vec<u32>> {
+    let mut children = Vec::new();
+    for entry in std::fs::read_dir("/proc")? {
+        let Some(pid) = entry?
+            .file_name()
+            .to_str()
+            .and_then(|name| name.parse::<u32>().ok())
+        else {
+            continue;
+        };
+        // A process may end between the listing and the read.
+        let Ok(stat) =
+            std::fs::read_to_string(format!("/proc/{pid}/stat"))
+        else {
+            continue;
+        };
+        if stat_field(&stat, 1) == Some(&parent.to_string()) {
+            children.push(pid);
+        }
+    }
+    Ok(children)
+}
+
+/// The field `n` of a process's `/proc/<pid>/stat` after the
+/// command's name, which is in parentheses and may hold any
+/// character: 0 is the state, 1 the parent's id.
+#[cfg(target_os = "linux")]
+fn stat_field(stat: &str, n: usize) -> Option<&str> {
+    stat.rsplit_once(')')?.1.split_whitespace().nth(n)
+}
+
+#[cfg(not(target_os = "linux"))]
+fn children(_parent: u32) -> Result<Vec<u32>> {
+    bail!("the kit counts a demo host's children only on Linux")
+}
+
+fn unix_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |since| {
+            since.as_millis().try_into().unwrap_or(i64::MAX)
+        })
 }
 
 /// Kills the Node host `pid`, which outlived its demo host, so that
@@ -628,6 +716,25 @@ impl Host {
         writeln!(stdin, "{line}")?;
         stdin.flush()?;
         Ok(())
+    }
+
+    /// The lines the host prints up to the one that names `value`,
+    /// that one included.
+    fn lines_through(&self, value: &str) -> Result<Vec<String>> {
+        let mut lines = Vec::new();
+        loop {
+            let line =
+                self.lines.recv_timeout(PATIENCE).with_context(
+                    || format!("the host printed no {value}"),
+                )?;
+            let named = line
+                .split_once(' ')
+                .is_some_and(|(name, _)| name == value);
+            lines.push(line);
+            if named {
+                return Ok(lines);
+            }
+        }
     }
 
     /// The next reply, as an actor and its count.
@@ -788,6 +895,7 @@ mod tests {
         Report {
             killed: String::new(),
             acked: BTreeMap::from([("agent/1/note".to_owned(), 3)]),
+            past_due: None,
             restarts: vec![restart.clone(), restart],
         }
     }
@@ -855,6 +963,27 @@ mod tests {
                 assert!(scenario.down_ms > due, "{}", scenario.name);
             }
         }
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_processs_children_are_the_processes_it_started() {
+        let started: Vec<Child> = (0..2)
+            .map(|_| {
+                Command::new(std::env::current_exe().unwrap())
+                    .arg("--list")
+                    .stdout(Stdio::null())
+                    .spawn()
+                    .unwrap()
+            })
+            .collect();
+        // Other tests of this binary start children too.
+        let found = children(std::process::id()).unwrap();
+        for mut child in started {
+            assert!(found.contains(&child.id()), "{found:?}");
+            child.wait().unwrap();
+        }
+        assert!(children(u32::MAX).unwrap().is_empty());
     }
 
     #[cfg(target_os = "linux")]

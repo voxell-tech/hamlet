@@ -22,6 +22,14 @@ const FIRED: Probe = Probe {
     read: Read::Sql("SELECT COUNT(*) FROM fired"),
 };
 
+const DUE: Probe = Probe {
+    name: "agent.due",
+    file: "actors/agent/1.sqlite",
+    read: Read::Sql(
+        "SELECT MAX(trigger_at) FROM _actor_schedule_events",
+    ),
+};
+
 const ONE_SHOTS: Probe = Probe {
     name: "agent.one_shots",
     file: "actors/agent/1.sqlite",
@@ -124,6 +132,7 @@ pub const SCENARIOS: &[Scenario] = &[
         trigger_replies: false,
         kill: Kill::NodeHost,
         down_ms: 0,
+        due: None,
         restart: [
             &["link", "heard 1 10000", "tell 1 note", "tell 1 pid"],
             &["heard 1 0", "tell 1 count", "tell 1 pid"],
@@ -135,8 +144,8 @@ pub const SCENARIOS: &[Scenario] = &[
         name: "link-kill-rust",
         about: "kill the Rust host once its realm's fourth call to \
                 an agent has answered and before the realm answers; \
-                the Node host is gone within 2 s, the next start \
-                runs a Node host of its own, and the agent holds \
+                the Node host is gone within 2 s, each next start \
+                runs one Node host, its own, and the agent holds \
                 the three acknowledged notes and the fourth",
         demo: Demo::Linked { pid: NODE_PID },
         setup: &[
@@ -150,6 +159,7 @@ pub const SCENARIOS: &[Scenario] = &[
         trigger_replies: false,
         kill: Kill::Fault("told/note:4"),
         down_ms: 0,
+        due: None,
         restart: [
             &["tell 1 count", "tell 1 pid"],
             &["tell 1 count", "tell 1 pid"],
@@ -170,6 +180,7 @@ pub const SCENARIOS: &[Scenario] = &[
         trigger_replies: false,
         kill: Kill::Fault("told/arm"),
         down_ms: 4500,
+        due: Some(DUE),
         restart: [
             &["tell 1 fired 1 10000", "tell 1 pid"],
             &["tell 1 fired 2 500", "tell 1 pid"],

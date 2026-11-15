@@ -1,13 +1,18 @@
 //! The calls an `agent` actor takes from the other actors, and their
 //! answers.
 
+pub mod chat;
+pub mod copies;
+
+use std::path::PathBuf;
+
 use hamlet_actor::Action;
 use hamlet_protocol::client::{AttachedFile, AttachedImage};
 use serde::{Deserialize, Serialize};
 
 use crate::Message;
 use crate::address::{Agent, Realm, Workspace};
-use crate::realm::{LetterId, ProfileId, SocietyTool};
+use crate::realm::{LetterId, ProfileId, ToolName};
 use crate::workspace::files::ChangeEnd;
 use crate::workspace::{
     AgentNumber, CallId, ConversationId, RealmTask, RunEnd,
@@ -49,6 +54,8 @@ pub enum Outcome {
 pub enum AgentKind {
     Hand,
     Hire,
+    Worker,
+    Errand,
 }
 
 /// The input `agent/<n>` is created with.
@@ -58,6 +65,30 @@ pub struct AgentInput {
     /// The task that pays for a turn no chief's line started.
     pub task: RealmTask,
     pub place: Place,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub brief: Option<Brief>,
+}
+
+/// The one turn a worker or an errand runs when it is created.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Brief {
+    /// An errand's whole prompt (C11); absent for a worker.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub instructions: Option<String>,
+    /// The turn's input.
+    pub text: String,
+    /// The built-in tools it may use. Empty is its starter's for a
+    /// worker, and none for an errand.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tools: Vec<BuiltIn>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+}
+
+/// One of an agent's built-in tools, by name.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BuiltIn {
+    pub name: String,
 }
 
 /// The id an input is taken under. A second [`Submit`] with the same
@@ -98,6 +129,20 @@ pub enum Input {
         images: Vec<AttachedImage>,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         files: Vec<AttachedFile>,
+        /// The note of the lead who reviewed the line.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        note: Option<String>,
+    },
+    /// A chief's ruling, or news the realm tells the agent.
+    Notice {
+        text: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        conversation: Option<ConversationId>,
+    },
+    /// The answer of a worker the agent started.
+    WorkerAnswer {
+        worker: AgentNumber,
+        text: String,
     },
     Letter {
         from: Author,
@@ -153,7 +198,11 @@ pub struct Place {
     pub hires: Vec<AgentNumber>,
     /// The agents it has a road to, its lead and its hires left out.
     pub roads: Vec<AgentNumber>,
-    pub tools_off: Vec<SocietyTool>,
+    pub tools_off: Vec<ToolName>,
+    /// Its hamlet's project folder, where its commands run and a
+    /// relative path starts; absent when unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub folder: Option<PathBuf>,
 }
 
 impl Action for Place {

@@ -444,3 +444,31 @@ async fn a_peers_request_for_a_kind_of_its_own_is_not_sent_back() {
     }
     host.shutdown().await.unwrap();
 }
+
+#[cfg(windows)]
+#[test]
+fn a_file_another_handle_holds_for_a_moment_is_still_removed() {
+    use std::os::windows::fs::OpenOptionsExt;
+
+    /// `FILE_SHARE_READ | FILE_SHARE_WRITE`, without
+    /// `FILE_SHARE_DELETE`.
+    const NOT_DELETE: u32 = 1 | 2;
+
+    let dir = Scratch::new("destroy-held");
+    let path = dir.join("held.sqlite");
+    let conn = plain_sqlite::open(&path, true).unwrap();
+    conn.close().map_err(|(_, error)| error).unwrap();
+    let held = std::fs::OpenOptions::new()
+        .read(true)
+        .share_mode(NOT_DELETE)
+        .open(&path)
+        .unwrap();
+    let holder = std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(300));
+        drop(held);
+    });
+    let destroyed = destroy_file(&path);
+    holder.join().unwrap();
+    destroyed.unwrap();
+    assert!(!path.exists());
+}

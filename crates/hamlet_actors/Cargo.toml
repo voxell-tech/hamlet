@@ -5,17 +5,21 @@ edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 publish.workspace = true
-description = "Hamlet's actors on the actor host: the workspace"
+description = "Hamlet's actors on the actor host: the workspace, the realm, the profile and the library"
 
 [dependencies]
 anyhow.workspace = true
 async-trait.workspace = true
 ciborium.workspace = true
+futures.workspace = true
 hamlet_actor.workspace = true
 hamlet_actor_core.workspace = true
+hamlet_actor_error.workspace = true
+hamlet_git.workspace = true
 hamlet_host.workspace = true
 hamlet_messages.workspace = true
 hamlet_os.workspace = true
+hamlet_protocol.workspace = true
 hamlet_sandbox.workspace = true
 hamlet_workspace_wire.workspace = true
 jsonschema = { version = "0.33", default-features = false }
@@ -30,8 +34,12 @@ tracing.workspace = true
 unicode-normalization = "0.1"
 uuid.workspace = true
 
+[features]
+# A realm action that panics when `HAMLET_REALM_PANIC` names it.
+faults = []
+
 [dev-dependencies]
-hamlet_actor_error.workspace = true
+hamlet_protocol.workspace = true
 hamlet_testing.workspace = true
 rusqlite.workspace = true
 

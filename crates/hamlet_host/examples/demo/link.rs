@@ -47,12 +47,14 @@ use hamlet_host::child::{self, ChildOptions, LinkState, Supervisor};
 use hamlet_host::route::{CallerKind, Routes};
 use hamlet_host::{Address, Host, HostOptions};
 use hamlet_messages::address::{self, Party};
+use hamlet_messages::bytes::Base64;
 use hamlet_messages::workspace::AgentNumber;
 use tokio::time::Instant;
 
 use crate::Demo;
 use crate::command::{actor_error, number, p50_p99};
-use crate::realm::{self, Heard, Tell};
+use crate::realm::{self, Heard};
+use crate::tell::TellAny;
 
 /// The kinds the Node host runs, each a kind of `demo.ts`.
 pub const NODE_KINDS: &[&str] = &[address::Agent::KIND];
@@ -238,10 +240,10 @@ async fn tell(
         }
     }
     ensure!(times > 0, "tell takes a count above 0");
-    let tell = Tell {
+    let tell = TellAny {
         to: at.clone(),
         name: action.to_owned(),
-        args: encode_positional(&args)?,
+        args: Base64(encode_positional(&args)?),
     };
     let mut answer = Vec::new();
     let mut micros = Vec::new();
@@ -257,7 +259,7 @@ async fn tell(
             }
         };
         micros.push(u64::try_from(told.took.as_micros())?);
-        answer = told.answer;
+        answer = told.answer.0;
     }
     let value = if answer.is_empty() {
         serde_json::Value::Null

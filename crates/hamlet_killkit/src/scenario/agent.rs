@@ -168,6 +168,7 @@ pub const SCENARIOS: &[Scenario] = &[
         trigger_replies: true,
         kill: Kill::NodeHost,
         down_ms: 0,
+        due: None,
         restart: [
             &["pi charges 1 2 30000", "pi recorded", "pi pid"],
             &["pi charges 1 2 3000", "pi recorded", "pi pid"],
@@ -197,6 +198,7 @@ pub const SCENARIOS: &[Scenario] = &[
         trigger_replies: true,
         kill: Kill::NodeHost,
         down_ms: 0,
+        due: None,
         restart: [
             &[
                 "pi charges 1 4 30000",
@@ -237,6 +239,7 @@ pub const SCENARIOS: &[Scenario] = &[
             max_ms: 200,
         },
         down_ms: 22000,
+        due: None,
         restart: [
             &["pi charges 1 3 30000", "pi recorded", "pi pid"],
             &["pi charges 1 3 3000", "pi recorded", "pi pid"],

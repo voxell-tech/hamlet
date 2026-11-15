@@ -4,7 +4,14 @@ use std::process::{Child, ChildStdin, Command, Output, Stdio};
 use std::sync::mpsc;
 use std::time::Duration;
 
+use hamlet_actor::action::encode_positional;
+use hamlet_messages::address::{self, Party};
+use hamlet_messages::bytes::Base64;
 use hamlet_testing::{Scratch, names_in, strip_overrides};
+use tell::{TellAny, Told};
+
+#[path = "../examples/demo/tell.rs"]
+mod tell;
 
 /// How long a test waits for a line of the demo.
 const PATIENCE: Duration = Duration::from_secs(30);
@@ -131,14 +138,78 @@ fn two_demo_hosts_with_kinds_of_their_own_share_a_folder_and_a_third_of_one_name
 }
 
 #[test]
-fn a_demo_host_with_no_kind_runs_the_counter_the_workspace_and_both_stand_ins()
- {
+fn a_demo_host_with_no_kind_runs_the_counter_and_every_named_kind() {
     let home = Scratch::new("demo-default-kinds");
     let got = once(&home, &["get", "a"]);
     assert!(got.status.success());
     assert_eq!(String::from_utf8_lossy(&got.stdout), "counter/a 0\n");
     assert_eq!(
         names_in(&home.join("actors")),
-        ["agent", "counter", "realm", "workspace"]
+        [
+            "agent",
+            "counter",
+            "library",
+            "profile",
+            "realm",
+            "workspace"
+        ]
     );
+}
+
+#[test]
+fn a_profile_or_library_command_runs_both_beside_the_kinds_it_names()
+{
+    let home = Scratch::new("demo-profile-kinds");
+    let got = once(&home, &["--kind", "x", "profile"]);
+    assert!(!got.status.success());
+    let stderr = String::from_utf8_lossy(&got.stderr);
+    assert!(stderr.contains("usage: demo profile"), "{stderr}");
+    assert_eq!(
+        names_in(&home.join("actors")),
+        ["agent", "library", "profile", "realm", "x"]
+    );
+}
+
+#[test]
+#[cfg_attr(
+    windows,
+    ignore = "the demo opens no sandbox on Windows, so its \
+              workspace cannot start"
+)]
+fn a_demo_host_with_the_realm_actor_runs_the_workspace_beside_the_kinds_it_names()
+ {
+    let home = Scratch::new("demo-realm-actor");
+    let mut serve =
+        Serve::start(&home, &["--kind", "x", "--realm-actor"]);
+    assert_eq!(serve.ask("realm found h1"), "founded/h1 2");
+    assert_eq!(serve.ask("get k1"), "x/k1 0");
+    assert!(serve.stop());
+}
+
+/// A `tell`'s arguments and its answer cross as base64 text, a third
+/// over their size, and not as a list of numbers, which takes two
+/// bytes for each byte of `0xff`.
+#[test]
+fn a_tells_bytes_cross_as_text() {
+    const MIB: usize = 1 << 20;
+    let bytes = Base64(vec![0xff; MIB]);
+    let tell = TellAny {
+        to: address::Realm.address().unwrap(),
+        name: "note".to_owned(),
+        args: bytes.clone(),
+    };
+    let told = Told {
+        answer: bytes,
+        took: Duration::ZERO,
+    };
+    for encoded in [
+        encode_positional(&tell).unwrap(),
+        encode_positional(&told).unwrap(),
+    ] {
+        assert!(
+            encoded.len() < MIB * 4 / 3 + 64,
+            "{}",
+            encoded.len()
+        );
+    }
 }

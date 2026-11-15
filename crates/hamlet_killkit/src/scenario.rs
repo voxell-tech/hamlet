@@ -25,6 +25,9 @@ pub struct Scenario {
     pub kill: Kill,
     /// How long after the trigger was sent the first restart starts.
     pub down_ms: u64,
+    /// A due time, in Unix milliseconds, read once the host and its
+    /// Node host are down. The first restart must start after it.
+    pub due: Option<Probe>,
     /// Lines the first and the second restart's `demo serve` run
     /// after it boots. After [`Kill::NodeHost`] the first restart is
     /// the Rust host's own, of its Node host: the demo host that
@@ -44,7 +47,8 @@ pub enum Demo {
     /// host's child. `pid` names the value that holds the Node
     /// host's process id, which a TypeScript actor answers. The kit
     /// checks that each Node host a run saw has ended once its demo
-    /// host has, and that each start has a Node host of its own.
+    /// host has, and that each start has a Node host of its own and
+    /// no other child when that value comes.
     Linked { pid: &'static str },
 }
 

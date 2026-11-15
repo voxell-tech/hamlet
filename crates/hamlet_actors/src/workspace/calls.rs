@@ -7,8 +7,6 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use anyhow::{Context, Result, bail};
 use hamlet_actor_core::{BindParam, ColumnValue, SqliteTransaction};
 use hamlet_messages::workspace::{AgentNumber, CallId};
-use serde::Serialize;
-use sha2::{Digest, Sha256};
 
 /// One row per call. A command's id is its row's. A change records
 /// the path of the new file it is about to make in `temp` until it
@@ -25,7 +23,6 @@ pub(super) const SCHEMA: &str = "CREATE TABLE IF NOT EXISTS calls (
 	state TEXT NOT NULL,
 	answer BLOB,
 	temp TEXT,
-	opened_at INTEGER NOT NULL,
 	ended_at INTEGER,
 	UNIQUE (agent, call)) STRICT";
 
@@ -45,19 +42,6 @@ impl Call {
     pub fn is(&self, op: &str, request_hash: &[u8]) -> bool {
         self.op == op && self.request_hash == request_hash
     }
-}
-
-/// The hash of `request` that a repeat of its call must match.
-pub(super) fn request_hash(
-    request: &impl Serialize,
-) -> Result<Vec<u8>> {
-    Ok(Sha256::digest(cbor(request)?).to_vec())
-}
-
-pub(super) fn cbor(value: &impl Serialize) -> Result<Vec<u8>> {
-    let mut bytes = Vec::new();
-    ciborium::into_writer(value, &mut bytes)?;
-    Ok(bytes)
 }
 
 const COLUMNS: &str = "id, op, request_hash, state, answer, temp";
@@ -150,8 +134,8 @@ pub(super) async fn insert(
     let inserted = tx
         .execute(
             "INSERT INTO calls (agent, call, op, request_hash, \
-             state, answer, temp, opened_at) VALUES (?1, ?2, ?3, \
-             ?4, ?5, ?6, ?7, ?8)",
+             state, answer, temp) VALUES (?1, ?2, ?3, ?4, ?5, ?6, \
+             ?7)",
             Some(vec![
                 BindParam::Integer(i64::from(agent.0)),
                 BindParam::Text(call.0.clone()),
@@ -162,7 +146,6 @@ pub(super) async fn insert(
                 temp.map_or(BindParam::Null, |temp| {
                     BindParam::Text(temp.to_owned())
                 }),
-                BindParam::Integer(now_ms()?),
             ]),
         )
         .await?;
@@ -171,7 +154,7 @@ pub(super) async fn insert(
         .context("the insert of a call gave no id")
 }
 
-pub(super) fn now_ms() -> Result<i64> {
+pub(crate) fn now_ms() -> Result<i64> {
     let now = SystemTime::now().duration_since(UNIX_EPOCH)?;
     Ok(i64::try_from(now.as_millis())?)
 }

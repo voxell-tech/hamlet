@@ -537,7 +537,7 @@ mod handshake {
     }
 
     #[tokio::test]
-    async fn a_refused_child_is_followed_by_a_new_one_a_second_later_each_time()
+    async fn a_refused_child_is_followed_by_a_new_one_after_pauses_that_double()
      {
         let home = Scratch::new("link-restart");
         let record = home.join("starts");
@@ -550,11 +550,13 @@ mod handshake {
                 record.to_str().unwrap(),
             ],
         );
-        let starts = wait_for_starts(&record, 3).await;
+        let starts = wait_for_starts(&record, 4).await;
         supervisor.shutdown().await;
-        for pair in starts.windows(2) {
-            let gap = pair[1].1 - pair[0].1;
-            assert!((1000..1800).contains(&gap), "{starts:?}");
+        assert!(starts[1].1 - starts[0].1 < 1800, "{starts:?}");
+        let gaps =
+            starts.windows(2).map(|pair| pair[1].1 - pair[0].1);
+        for (gap, least) in gaps.zip([1000, 2000, 4000]) {
+            assert!(gap >= least, "{starts:?}");
         }
     }
 

@@ -66,7 +66,7 @@ use hamlet_messages::agent::{
     AgentInput, AgentKind, Fill, Input, InputId, Place, PlaceVersion,
     Submit,
 };
-use hamlet_messages::realm::ProfileId;
+use hamlet_messages::realm::{ProfileId, ToolName};
 use hamlet_messages::workspace::reach::{
     Footing, Reach, SecretsVersion,
 };
@@ -289,7 +289,9 @@ async fn make(host: &Host, n: AgentNumber) -> Result<()> {
             hires: Vec::new(),
             roads: Vec::new(),
             tools_off: Vec::new(),
+            folder: None,
         },
+        brief: None,
     };
     // The agent asks the workspace for its tools when it wakes.
     host.get_or_start(&address::Workspace.address()?).await?;
@@ -355,6 +357,7 @@ async fn say(
             text,
             images: Vec::new(),
             files: Vec::new(),
+            note: None,
         },
     };
     send(host, n, &submit).await?;
@@ -376,6 +379,7 @@ async fn place(
         hires: Vec::new(),
         roads: Vec::new(),
         tools_off: Vec::new(),
+        folder: None,
     };
     for word in words {
         match word.split_once('=') {
@@ -387,15 +391,10 @@ async fn place(
             Some(("off", list)) => {
                 place.tools_off = list
                     .split(',')
-                    .map(|tool| {
-                        serde_json::from_value(serde_json::json!(
-                            tool
-                        ))
-                        .with_context(
-                            || format!("`{tool}` is no society tool"),
-                        )
+                    .map(|name| ToolName {
+                        name: name.to_owned(),
                     })
-                    .collect::<Result<_>>()?;
+                    .collect();
             }
             _ => bail!("`{word}` is not a part of a place"),
         }

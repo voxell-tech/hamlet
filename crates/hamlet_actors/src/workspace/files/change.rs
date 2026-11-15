@@ -179,14 +179,14 @@ impl<'a> Request<'a> {
                 conversation: &asked.conversation,
                 path: &asked.path,
                 asked: Asked::Write(&asked.content),
-                request_hash: calls::request_hash(asked)?,
+                request_hash: crate::request_hash(asked)?.to_vec(),
             },
             Pending::Edit(asked) => Self {
                 call: &asked.call,
                 conversation: &asked.conversation,
                 path: &asked.path,
                 asked: Asked::Edit(&asked.edits),
-                request_hash: calls::request_hash(asked)?,
+                request_hash: crate::request_hash(asked)?.to_vec(),
             },
             Pending::Run(_) => bail!("a command is not a change"),
         })
@@ -455,7 +455,7 @@ impl Workspace {
                 let end = ChangeEnd::Failed {
                     words: scrub_text(&secrets, &words),
                 };
-                let bytes = Some(calls::cbor(&end)?);
+                let bytes = Some(crate::cbor(&end)?);
                 if pending::settled(ctx, wait, "ended", bytes, None)
                     .await?
                     .is_none()
@@ -921,7 +921,7 @@ async fn end(
     id: i64,
     ended: &ChangeEnd,
 ) -> Result<()> {
-    let bytes = calls::cbor(ended)?;
+    let bytes = crate::cbor(ended)?;
     tx.execute(
         "UPDATE calls SET state = 'ended', answer = ?1, temp = \
          NULL, ended_at = ?2 WHERE id = ?3",
@@ -1046,7 +1046,7 @@ mod tests {
             request_hash: vec![1],
         };
         let end = ChangeEnd::Failed { words: "no".into() };
-        let bytes = calls::cbor(&end).unwrap();
+        let bytes = crate::cbor(&end).unwrap();
         let row =
             |op: &str, hash: u8, state: &str, answer| calls::Call {
                 id: 4,
