@@ -44,7 +44,7 @@ no task covers: the mingw clippy of the server and CLI, and the macOS and
 Windows jobs. `deny.toml` at the root configures cargo deny,
 which `deny` runs. `doc` documents `hamlet_actor_core` apart from the
 rest, at its default features, because its two runtime features exclude
-each other. `node` runs `declarations` first on Linux, which writes the
+each other. On Linux, `node` also runs `declarations`, which writes the
 native module's `index.d.ts` and `index.js` from its Rust and fails when
 either changed. `killkit` and `idle` are the tools of the actor runtime,
 described below.
