@@ -29,7 +29,7 @@ use std::marker::PhantomData;
 use std::ops::Deref;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 use anyhow::{Context, Result, ensure};
 use hamlet_actor::{Actor, Ctx, SqliteDb};
@@ -43,6 +43,8 @@ use tokio::sync::RwLock;
 
 use self::git::{Folder, Git, Held, Reads};
 use self::store::{Rows, Sql, Store, Table, UnitSql, Writes, marker};
+use crate::call;
+use crate::workspace::calls::now_ms;
 
 /// The longest a call made after a unit waits.
 const TELL_WITHIN: Duration = Duration::from_secs(10);
@@ -110,7 +112,7 @@ impl Repo {
             .exec(format!("{};{schema}", marker::SCHEMA))
             .await?;
         let home = host.folder().to_owned();
-        let at = now()?;
+        let at = now_ms()?;
         let folder = tokio::task::spawn_blocking(move || {
             let folder = Folder::start(path, home, at, make)?;
             ready(&folder.open(at)?)?;
@@ -181,16 +183,10 @@ where
         caller,
         from,
         message,
-        at: now()?,
+        at: now_ms()?,
     };
     let Reply(answer) = A::take(Call { owner, ctx, asked }).await?;
     Ok(answer)
-}
-
-fn now() -> Result<i64> {
-    Ok(i64::try_from(
-        SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis(),
-    )?)
 }
 
 impl<A: Takes<M>, M: Message> Deref for Call<A, M> {
@@ -774,19 +770,6 @@ fn is_refused<T: serde::Serialize>(answer: &T) -> Result<bool> {
         }
         _ => false,
     })
-}
-
-async fn call<T: Message>(
-    host: &HostRef,
-    to: &T::To,
-    message: &T,
-    deadline: Duration,
-) -> Result<T::Output> {
-    let args = hamlet_actor::action::encode_positional(message)?;
-    let answer =
-        host.call(&to.address()?, T::NAME, args, deadline).await?;
-    ciborium::from_reader(answer.as_slice())
-        .with_context(|| format!("decode the answer to {}", T::NAME))
 }
 
 async fn tell_all(host: HostRef, told: Vec<Told>) {

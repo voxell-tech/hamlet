@@ -1,7 +1,8 @@
 //! The calls a hire's agent makes on its own branch: its files in
 //! parts, and a save of what its filesystem changed, in parts. Also
 //! the `save` table, the parts of a save whose last part has not
-//! come.
+//! come. A part other than the next one fails. The parts kept outlive
+//! a sleep and a restart; a purge drops them.
 
 use std::collections::BTreeMap;
 

@@ -223,7 +223,6 @@ pub(crate) mod marker {
     use hamlet_messages::sender::id_reused;
     use hamlet_messages::workspace::CallId;
     use hamlet_messages::{Changes, Repeat};
-    use sha2::{Digest, Sha256};
 
     use super::Sql;
 
@@ -258,14 +257,12 @@ pub(crate) mod marker {
                 Repeat::Part { id, part } => (id, part),
                 Repeat::Finds => return Ok(None),
             };
-            let mut bytes = Vec::new();
-            ciborium::into_writer(message, &mut bytes)?;
             Ok(Some(Self {
                 caller: caller.to_string(),
                 id: id.to_owned(),
                 part,
                 action: M::NAME,
-                digest: Sha256::digest(bytes).into(),
+                digest: crate::request_hash(message)?,
             }))
         }
 

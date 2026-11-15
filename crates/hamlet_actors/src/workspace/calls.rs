@@ -154,7 +154,7 @@ pub(super) async fn insert(
         .context("the insert of a call gave no id")
 }
 
-pub(super) fn now_ms() -> Result<i64> {
+pub(crate) fn now_ms() -> Result<i64> {
     let now = SystemTime::now().duration_since(UNIX_EPOCH)?;
     Ok(i64::try_from(now.as_millis())?)
 }

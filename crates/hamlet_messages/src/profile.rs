@@ -323,7 +323,8 @@ message!(Purge, "purge", Realm => Profile, PurgeAnswer, |purge| {
 /// Writes one file on `main`, or removes it when `text` is empty; a
 /// chief's empty character is written empty. A chief writes the
 /// character or a file of memory, and an agent, the Hand, any file.
-/// `message` names the commit; absent, the edit's own words do.
+/// `message` names the commit; absent or empty, the edit's own words
+/// do.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Edit {
     pub id: RequestId,
@@ -504,10 +505,11 @@ pub enum FileChange {
 
 /// One part of what the caller's filesystem changed since `base`, the
 /// commit it holds. The parts of one save share `call`, count `part`
-/// from 0 and come in order: a part whose earlier part was not kept
-/// fails. A first part drops the caller's save that did not end. The
-/// `last` one commits them all on `base` as one commit and
-/// joins it to the branch, the hire's side winning.
+/// from 0 and come in order: a part other than the next one fails.
+/// The parts kept outlive a sleep and a restart. A first part drops
+/// the caller's save that did not end. The `last` one commits them
+/// all on `base` as one commit and joins it to the branch, the hire's
+/// side winning.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Save {
     pub call: CallId,

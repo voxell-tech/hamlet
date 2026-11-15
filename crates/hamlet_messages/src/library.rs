@@ -56,9 +56,10 @@ message!(ReadShelves, "read_shelves", Realm => Library, ShelfList);
 
 /// One part of the files of `skills/<skill>/` in the caller's
 /// filesystem, offered to the library. The parts of one offer share
-/// `call`, count `part` from 0 and come in order: a part whose
-/// earlier part was not kept fails. A first part drops the caller's
-/// offers that did not end. The `last` one keeps the offer.
+/// `call`, count `part` from 0 and come in order: a part other than
+/// the next one fails. The parts kept outlive a sleep and a restart.
+/// A first part drops the caller's offers that did not end. The
+/// `last` one keeps the offer.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Offer {
     pub call: CallId,
