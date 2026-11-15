@@ -247,7 +247,8 @@ pub(super) struct Drives {
     running: Arc<Mutex<HashMap<StepId, watch::Receiver<()>>>>,
 }
 
-/// The entries of rows about to be committed.
+/// The entries of rows about to be committed. Dropped unstarted, it
+/// gives them back.
 #[must_use]
 pub(super) struct Reserved {
     rows: Vec<(StepId, watch::Sender<()>)>,
@@ -256,8 +257,8 @@ pub(super) struct Reserved {
 
 impl Reserved {
     /// Drives each row on a task of the realm's.
-    pub fn start(self, realm: &Arc<Realm>, ctx: &Ctx<Realm>) {
-        for (row, ended) in self.rows {
+    pub fn start(mut self, realm: &Arc<Realm>, ctx: &Ctx<Realm>) {
+        for (row, ended) in std::mem::take(&mut self.rows) {
             let running = self.running.clone();
             let realm = realm.clone();
             let driving = ctx.clone();
@@ -270,6 +271,18 @@ impl Reserved {
                 // Wakes each waiter of `finished`.
                 drop(ended);
             });
+        }
+    }
+}
+
+impl Drop for Reserved {
+    fn drop(&mut self) {
+        let mut running = self
+            .running
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        for (row, _) in &self.rows {
+            running.remove(row);
         }
     }
 }
@@ -395,6 +408,13 @@ mod tests {
             (Some("a"), true)
         );
         started.stop().await;
+    }
+
+    #[test]
+    fn a_reservation_dropped_unstarted_gives_its_rows_back() {
+        let drives = Drives::default();
+        drop(drives.reserve(&[ROW]));
+        assert_eq!(drives.reserve(&[ROW]).rows.len(), 1);
     }
 
     #[tokio::test]
