@@ -39,14 +39,16 @@ Usage: cargo xtask <task> [args]
   node             pi's TypeScript, Biome and tests, the native \
      module's declarations (Linux only), the Node host's \
      TypeScript, Biome and tests, then the native module for Node \
-     (debug) and the Node host's tests that load it
+     (debug) and the Node host's tests that load it, and the demo \
+     actor host and the Node host's tests that drive it
   declarations     write the native module's index.d.ts and index.js \
      from its Rust, and fail if either changed
   fmt              format Rust, with the latest nightly, and pi
   workspace-image  build the remote workspace image; args go to \
      docker build
-  killkit          build the demo actor host and kill it at a \
-     scenario's step: <scenario> --runs <n>, or --list
+  killkit          build the demo actor host and the Node host's \
+     native module, and kill the demo at a scenario's step: \
+     <scenario> --runs <n>, or --list
   idle             a command tree's memory, in MB of 1,000,000 \
      bytes, and wakeups per second while idle: [--settle <s>] \
      [--window <s>] <command> [args], 30 and 60 seconds by default; \
@@ -300,6 +302,16 @@ fn run(task: &str, rest: &[String]) -> Result<(), Failure> {
         }
         "workspace-image" => workspace_image(rest),
         "killkit" => {
+            // The linked rows start the Node host, which loads the
+            // native module from its crate's folder.
+            install(&root, NODE_HOST)?;
+            match native_names() {
+                Some(names) => native(&root, names)?,
+                None => unnamed(
+                    "killkit",
+                    "the Node host's native module",
+                ),
+            }
             status(&mut cargo(&[
                 "build",
                 "-p",
@@ -513,7 +525,12 @@ fn node(root: &Path) -> Result<(), Failure> {
     status(&mut npm(
         NODE_HOST,
         &["run", "test:native", "--if-present"],
-    ))
+    ))?;
+    status(&mut locked(
+        "build",
+        &["-p", "hamlet_host", "--example", "demo"],
+    ))?;
+    status(&mut npm(NODE_HOST, &["run", "test:link"]))
 }
 
 fn unnamed(task: &str, what: &str) {
