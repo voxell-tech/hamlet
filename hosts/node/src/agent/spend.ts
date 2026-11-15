@@ -10,9 +10,12 @@
  *
  * | `Models` method | Asks `may_spend` | Charges |
  * |---|---|---|
- * | `stream`, `streamSimple` (a generation) | before | when the stream ends |
- * | `complete`, `completeSimple` (a compaction) | before | on the answer |
+ * | `streamSimple` (a generation) | before | when the stream ends |
+ * | `completeSimple` (a compaction) | before | on the answer |
  * | every other method | no | no |
+ *
+ * pi-durable sends every request through the two `Simple` methods, so
+ * `stream` and `complete` pass through as the other methods do.
  *
  * A deferred poll (`fetchDeferred`, `streamDeferred`) passes through: no
  * provider P5 runs defers.
@@ -38,24 +41,9 @@ export function gated(models: Models, peers: Peers): Models {
         model: Model<Api>,
         asked: { sessionId?: string; signal?: AbortSignal } | undefined,
     ): Promise<{ task: RealmTask } | { ended: AssistantMessage }> => {
-        let task: RealmTask;
         try {
-            task = (await peers.turns.ofSession(asked?.sessionId)).task.task;
-        } catch (error) {
-            if (!(error instanceof Closing)) {
-                return {
-                    ended: refusalOf(
-                        model,
-                        `it could not be asked (${reasonOf(error)})`,
-                    ),
-                };
-            }
-            // The close aborts this run and drops what the request ends
-            // with. A refusal here would be wrong: the next wake asks again.
-            await abortOf(asked?.signal);
-            return { ended: brokenOf(model, error) };
-        }
-        try {
+            const { task } = (await peers.turns.ofSession(asked?.sessionId))
+                .task;
             const may = await cutOff(
                 asked?.signal,
                 peers.reach.may_spend({ task }),
@@ -63,7 +51,14 @@ export function gated(models: Models, peers: Peers): Models {
             if (may.type === "refused") {
                 return { ended: refusalOf(model, may.words) };
             }
+            return { task };
         } catch (error) {
+            if (error instanceof Closing) {
+                // The close aborts this run and drops what the request ends
+                // with. A refusal here would be wrong: the next wake asks again.
+                await abortOf(asked?.signal);
+                return { ended: brokenOf(model, error) };
+            }
             return {
                 ended: refusalOf(
                     model,
@@ -71,7 +66,6 @@ export function gated(models: Models, peers: Peers): Models {
                 ),
             };
         }
-        return { task };
     };
     const charge = async (
         task: RealmTask,
@@ -133,14 +127,8 @@ export function gated(models: Models, peers: Peers): Models {
             if (key === "streamSimple") {
                 return streamed((...args) => target.streamSimple(...args));
             }
-            if (key === "stream") {
-                return streamed((...args) => target.stream(...args));
-            }
             if (key === "completeSimple") {
                 return completed((...args) => target.completeSimple(...args));
-            }
-            if (key === "complete") {
-                return completed((...args) => target.complete(...args));
             }
             const value: unknown = Reflect.get(target, key, receiver);
             return typeof value === "function" ? value.bind(target) : value;

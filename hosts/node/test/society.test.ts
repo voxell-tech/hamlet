@@ -9,6 +9,7 @@ import {
     fakeCalls,
     from,
     named,
+    timedOut,
     toolCall,
     type Woken,
     wakeAgent,
@@ -690,4 +691,193 @@ test("a scholar's address is read as today's server reads it, and one it cannot 
         ],
     );
     await agent.stop();
+});
+
+/** Calls `seat_mayor` on each of `hires`, then `hire` on each of `scholars`: the acts sent and the tools' results. */
+async function seatAndHire(
+    t: Parameters<typeof wakeAgent>[0],
+    hires: string[],
+    scholars: string[] = [],
+): Promise<{ seat: unknown[]; hire: unknown[]; results: string[] }> {
+    const { calls, sent } = fakeCalls({
+        realm: {
+            seat: () => ({ type: "done" }),
+            hire: () => ({ type: "hired", agent: 22 }),
+        },
+    });
+    const agent = await wakeAgent(t, {
+        calls,
+        responses: [
+            ...hires.map((hire, n) =>
+                toolCall("seat_mayor", { hire }, `seat${n}`),
+            ),
+            ...scholars.map((scholar, n) =>
+                toolCall("hire", { scholar, purpose: "Dig" }, `hire${n}`),
+            ),
+            fauxAssistantMessage("Done."),
+        ],
+    });
+    await agent.actions.submit(agent.by(from.realm), line("input-1", "Seat."));
+    await agent.idle();
+    const results = (await agent.entries())
+        .filter((entry) => entry.kind === "pi.tool-result")
+        .map((entry) => entry.text);
+    await agent.stop();
+    return { seat: acts(sent, "seat"), hire: acts(sent, "hire"), results };
+}
+
+const seated = (agent: number) => ({ hire: { type: "agent", agent } });
+
+test("an address is trimmed, as today's server trims it", async (t) => {
+    const { seat } = await seatAndHire(t, [
+        " hire#4 ",
+        " mayor ",
+        "mayor@ h1 ",
+    ]);
+    assert.deepEqual(seat, [
+        seated(4),
+        { hire: { type: "mayor" } },
+        { hire: { type: "mayor_of", hamlet: "h1" } },
+    ]);
+});
+
+test("an address's number is read as today's server reads it, where the act can carry it", async (t) => {
+    const read = [
+        "hire#007",
+        "hire#+3",
+        "hire#0",
+        "hire#-0",
+        "hire#4294967295",
+    ];
+    // `worker#3` is an address today, but the act has no worker.
+    const refused = [
+        "mayor@",
+        "hire#",
+        "hire#-1",
+        "hire#4294967296",
+        "hire#0x10",
+        "hire#1e3",
+        "worker#3",
+    ];
+    const { seat, hire, results } = await seatAndHire(
+        t,
+        [...read, ...refused],
+        ["scholar#007", "scholar#0", "scholar#+3", "scholar#-3"],
+    );
+
+    assert.deepEqual(seat, [
+        seated(7),
+        seated(3),
+        seated(0),
+        seated(0),
+        seated(4294967295),
+    ]);
+    assert.deepEqual(hire, [
+        { purpose: "Dig", profile: 7 },
+        { purpose: "Dig", profile: 0 },
+        { purpose: "Dig", profile: 3 },
+    ]);
+    assert.deepEqual(results.slice(read.length, read.length + refused.length), [
+        "`mayor@` is not an address",
+        ...refused
+            .slice(1)
+            .map(
+                (address) =>
+                    `\`${address}\` is not an address. An agent's address: \`hand\`, \`mayor\`, \`mayor@<hamlet id>\` or \`hire#<number>\`.`,
+            ),
+    ]);
+    assert.equal(results.at(-1), "`scholar#-3` is not an address");
+});
+
+test("a reply the realm refuses, or one that fails, is reported and leaves the run and the next turn as they were", async (t) => {
+    let replies = 0;
+    const { calls, sent } = fakeCalls({
+        realm: {
+            reply: () => {
+                replies += 1;
+                if (replies > 1) throw timedOut();
+                return {
+                    type: "refused",
+                    why: { type: "no_question" },
+                    words: "the question is answered",
+                };
+            },
+        },
+    });
+    const agent = await wakeAgent(t, {
+        calls,
+        responses: [
+            fauxAssistantMessage("Two of them."),
+            fauxAssistantMessage("Three of them."),
+            fauxAssistantMessage("Done."),
+        ],
+    });
+    const question = (id: string, letter: number) => ({
+        id,
+        input: {
+            type: "question" as const,
+            letter,
+            from: { agent: 12, name: "Ada" },
+            text: "How many fail?",
+        },
+    });
+    await agent.actions.submit(agent.by(from.realm), question("input-1", 5));
+    await agent.idle();
+    await agent.actions.submit(agent.by(from.realm), question("input-2", 6));
+    await agent.idle();
+    await agent.actions.submit(agent.by(from.realm), line("input-3", "On."));
+    await agent.idle();
+    const answers = (await agent.entries())
+        .filter((entry) => entry.kind === "pi.assistant")
+        .map((entry) => entry.text);
+    const harness = await agent.harness();
+    const root = await harness.root(context);
+    const settled = await harness.commit(
+        async (tx) =>
+            Promise.all(
+                ["input-1", "input-2", "input-3"].map(
+                    async (id) =>
+                        (await tx.submissionByRequest(root.id, id))?.status,
+                ),
+            ),
+        context,
+    );
+    await agent.stop();
+
+    assert.deepEqual(
+        named(sent, "reply").map((call) => call.message),
+        [
+            { question: 5, text: "Two of them." },
+            { question: 6, text: "Three of them." },
+        ],
+    );
+    assert.deepEqual(answers, ["Two of them.", "Three of them.", "Done."]);
+    assert.deepEqual(settled, ["done", "done", "done"]);
+    assert.deepEqual(agent.reported, [
+        "a reply was refused: the question is answered",
+        "a reply was not taken: actor.action_timed_out: The action timed out.",
+    ]);
+});
+
+test("end_hire's reason is trimmed, and a blank one is left out", async (t) => {
+    const { calls, sent } = fakeCalls({
+        realm: { end: () => ({ type: "done" }) },
+    });
+    const agent = await wakeAgent(t, {
+        calls,
+        responses: [
+            toolCall("end_hire", { hire: "hire#4", reason: " Done. " }, "c1"),
+            toolCall("end_hire", { hire: "hire#4", reason: "  " }, "c2"),
+            fauxAssistantMessage("Ended."),
+        ],
+    });
+    await agent.actions.submit(agent.by(from.realm), line("input-1", "End."));
+    await agent.idle();
+    await agent.stop();
+
+    const four = { type: "agent", agent: 4 };
+    assert.deepEqual(acts(sent, "end"), [
+        { hire: four, why: "Done." },
+        { hire: four },
+    ]);
 });

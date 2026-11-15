@@ -19,8 +19,23 @@ import {
     priced,
     timedOut,
     wakeAgent,
+    within,
 } from "./agent-testing.ts";
 import { context, fauxModels } from "./testing.ts";
+
+/** The peers of an agent whose every request is charged to `task-1`. */
+const onTask = (calls: Parameters<typeof peersOf>[0]["calls"]) =>
+    peersOf({
+        calls,
+        files: fakeFiles({}),
+        turns: {
+            of: async () => ({ task: { from: "input", task: "task-1" } }),
+            ofSession: async () => ({
+                task: { from: "input", task: "task-1" },
+            }),
+        },
+        report: () => {},
+    });
 
 const line = (id: string, text: string, task?: string) => ({
     id,
@@ -332,18 +347,7 @@ test("a charge too large for a u32 is held at 2^32 - 1, whether its time is meas
             };
         },
     });
-    const peers = peersOf({
-        calls,
-        files: fakeFiles({}),
-        turns: {
-            of: async () => ({ task: { from: "input", task: "task-1" } }),
-            ofSession: async () => ({
-                task: { from: "input", task: "task-1" },
-            }),
-        },
-        report: () => {},
-    });
-    const gate = gated(huge, peers);
+    const gate = gated(huge, onTask(calls));
     for (const _ of ["measured", "given"]) {
         await gate.completeSimple(faux.getModel(), {
             messages: [{ role: "user", content: "hi", timestamp: 0 }],
@@ -482,4 +486,57 @@ test("a provider's stream that breaks is worded as the provider's failure, retri
     assert.ok(texts.includes("Done."));
     assert.ok(!texts.some((text) => text.includes("billing")));
     await agent.stop();
+});
+
+test("a stream's charge is taken before its last event reaches pi-durable", async () => {
+    const order: string[] = [];
+    const { calls } = fakeCalls({
+        realm: {
+            charge: async () => {
+                await new Promise((resolve) => setTimeout(resolve, 30));
+                order.push("charged");
+                return null;
+            },
+        },
+    });
+    const { faux, models } = fauxModels();
+    faux.setResponses([fauxAssistantMessage("ok")]);
+    const stream = gated(models, onTask(calls)).streamSimple(faux.getModel(), {
+        messages: [{ role: "user", content: "hi", timestamp: 0 }],
+    });
+    const result = stream.result().then(() => order.push("result"));
+    for await (const event of stream) {
+        if (event.type === "done") order.push("done");
+    }
+    await result;
+
+    assert.equal(order[0], "charged");
+    assert.deepEqual(order.slice(1).sort(), ["done", "result"]);
+});
+
+test("the run's abort cuts off a question the realm never answers", async () => {
+    const { calls, sent } = fakeCalls({
+        realm: { may_spend: () => new Promise(() => {}) },
+    });
+    const { faux, models } = fauxModels();
+    faux.setResponses([fauxAssistantMessage("never sent")]);
+    const run = new AbortController();
+    setTimeout(() => run.abort(), 20);
+    const ended = await within(
+        gated(models, onTask(calls)).completeSimple(
+            faux.getModel(),
+            { messages: [] },
+            { signal: run.signal },
+        ),
+        1_000,
+        "still asking",
+    );
+
+    assert.notEqual(ended, "still asking");
+    assert.equal(typeof ended === "string" ? ended : ended.stopReason, "error");
+    assert.equal(faux.state.callCount, 0);
+    assert.deepEqual(
+        sent.map((call) => call.name),
+        ["may_spend"],
+    );
 });

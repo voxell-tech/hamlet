@@ -2,16 +2,19 @@
  * U11: `wake`, the agent's timer.
  */
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { type TestContext, test } from "node:test";
 import { fauxAssistantMessage } from "@earendil-works/pi-ai";
 import {
+    type ConversationId,
     createRegistry,
     defineExtension,
+    type Extension,
     LiveDoc,
     type ToolRegistration,
+    type Tx,
 } from "@earendil-works/pi-durable";
 import type { RawAccess } from "../src/actor/db/mod.ts";
-import { timers } from "../src/agent/timers.ts";
+import { timers, Wake } from "../src/agent/timers.ts";
 import {
     closeHarness,
     createPiRuntime,
@@ -26,6 +29,7 @@ import {
     toolCall,
     until,
     wakeAgent,
+    within,
 } from "./agent-testing.ts";
 import { context, fauxModels, plainDatabase, scratchFile } from "./testing.ts";
 
@@ -75,6 +79,49 @@ test("a timer arms one alarm, and its input is taken once when pi.wake fires", a
     await agent.stop();
 });
 
+test("a timer with no date sets nothing and arms no alarm, and the model is told so", async (t) => {
+    const { calls } = fakeCalls({});
+    const agent = await wakeAgent(t, {
+        calls,
+        responses: [
+            toolCall("wake", { in_seconds: 1e13, note: "later" }, "c1"),
+            toolCall("wake", { in_seconds: -1e13, note: "earlier" }, "c2"),
+            fauxAssistantMessage("No timer."),
+        ],
+    });
+    await agent.actions.submit(agent.by(from.realm), {
+        id: "input-1",
+        input: { type: "line", text: "Wake me much later." },
+    });
+    await agent.idle();
+
+    const harness = await agent.harness();
+    const root = await harness.root(context);
+    const set = await harness.commit(
+        async (tx) =>
+            (
+                await tx.scanTasks(
+                    { conversationId: root.id, kind: "hamlet.wake" },
+                    100,
+                )
+            ).items.length,
+        context,
+    );
+    const results = (await agent.entries())
+        .filter((entry) => entry.kind === "pi.tool-result")
+        .map((entry) => entry.text);
+    await agent.stop();
+
+    assert.equal(set, 0);
+    assert.deepEqual(agent.alarms, []);
+    assert.deepEqual(
+        results,
+        Array(2).fill(
+            "`in_seconds` is out of range: no time that far off has a date. No timer is set.",
+        ),
+    );
+});
+
 /** One generation of a `pi()` actor over a plain SQLite file, with no host. */
 function generation(database: RawAccess): PiContext {
     return {
@@ -89,38 +136,30 @@ function generation(database: RawAccess): PiContext {
     } as unknown as PiContext;
 }
 
-test("a wake cut off after it set its timer sets no second one on its rerun, and the timer admits once", {
-    timeout: 30_000,
-}, async (t) => {
+/**
+ * Two generations of a `pi()` actor on one file. The first runs `Wake me.`
+ * until `cut` resolves and is closed there; the second resumes and runs until
+ * no timer noted `check` is pending and no run is live. Returns what the
+ * second finds: the states of those timers and the inputs they admitted.
+ */
+async function cutOffAndResumed(
+    t: TestContext,
+    given: {
+        extension: Extension;
+        cut: Promise<void>;
+        seed?: (tx: Tx, conversation: ConversationId) => Promise<void>;
+    },
+): Promise<{ set: string[]; inputs: number }> {
     const database = plainDatabase(scratchFile(t));
     await migratePiTables(database);
-    const real = timers();
-    const wake = real.tools?.find((tool) => tool.name === "wake");
-    assert.ok(wake, "timers() offers wake");
-    let runs = 0;
-    const cutOff = Promise.withResolvers<void>();
-    // The real `wake` runs whole, then its first run hangs until the close cuts it off.
-    const hanging: ToolRegistration = {
-        ...wake,
-        execute: async (args, api, toolContext) => {
-            runs += 1;
-            const result = await wake.execute(args, api, toolContext);
-            if (runs > 1) return result;
-            cutOff.resolve();
-            return new Promise((_, reject) =>
-                toolContext.abortSignal?.addEventListener("abort", () =>
-                    reject(new Error("cut off")),
-                ),
-            );
-        },
-    };
     const registry = createRegistry();
-    registry.install(defineExtension({ ...real, tools: [hanging] }));
+    registry.install(given.extension);
     const { faux, models, model } = fauxModels();
     faux.setResponses([
         toolCall("wake", { in_seconds: 1.5, note: "check" }),
         fauxAssistantMessage("set"),
         fauxAssistantMessage("woke"),
+        fauxAssistantMessage("woke again"),
     ]);
     const options = { registry, models, model };
 
@@ -128,18 +167,21 @@ test("a wake cut off after it set its timer sets no second one on its rerun, and
     const firstHarness = await openOnWake(first, options);
     firstHarness.resume();
     const root = await firstHarness.root(context);
-    const submission = await root.submit(
+    const seed = given.seed;
+    if (seed !== undefined)
+        await firstHarness.commit((tx) => seed(tx, root.id), context);
+    await root.submit(
         { type: "input", content: "Wake me.", requestId: "r1" },
         context,
     );
-    await Promise.race([
-        cutOff.promise,
-        submission.wait(context).then((settled) => {
-            throw new Error(
-                `the run ended before wake was cut off: ${settled.status}`,
-            );
-        }),
-    ]);
+    assert.equal(
+        await within(
+            given.cut.then(() => "cut off"),
+            10_000,
+            "never cut off",
+        ),
+        "cut off",
+    );
     await closeHarness(first, { reason: "destroy" });
 
     const second = generation(database);
@@ -152,9 +194,14 @@ test("a wake cut off after it set its timer sets no second one on its rerun, and
                 (
                     await tx.scanTasks(
                         { conversationId: root2.id, kind: "hamlet.wake" },
-                        100,
+                        2000,
                     )
-                ).items.map((task) => task.state.status),
+                ).items
+                    .filter(
+                        (task) =>
+                            (task.input as { note: string }).note === "check",
+                    )
+                    .map((task) => task.state.status),
             context,
         );
     const admitted = async () =>
@@ -171,8 +218,130 @@ test("a wake cut off after it set its timer sets no second one on its rerun, and
     const set = await timersSet();
     const inputs = await admitted();
     await closeHarness(second, { reason: "destroy" });
+    return { set, inputs };
+}
 
-    assert.equal(runs, 2);
+/** A `wake` that runs whole, then hangs on its first run until the close cuts it off. */
+function hangingOnce(): {
+    extension: Extension;
+    cut: Promise<void>;
+    runs: () => number;
+} {
+    let runs = 0;
+    const cut = Promise.withResolvers<void>();
+    const real = timers();
+    const wake = real.tools?.find((tool) => tool.name === "wake");
+    assert.ok(wake, "timers() offers wake");
+    const hanging: ToolRegistration = {
+        ...wake,
+        execute: async (args, api, toolContext) => {
+            runs += 1;
+            const result = await wake.execute(args, api, toolContext);
+            if (runs > 1) return result;
+            cut.resolve();
+            return untilAborted(toolContext.abortSignal);
+        },
+    };
+    return {
+        extension: defineExtension({ ...real, tools: [hanging] }),
+        cut: cut.promise,
+        runs: () => runs,
+    };
+}
+
+/** Rejects when `signal` aborts, and never settles otherwise. */
+function untilAborted(signal: AbortSignal | undefined): Promise<never> {
+    return new Promise((_, reject) =>
+        signal?.addEventListener("abort", () => reject(new Error("cut off"))),
+    );
+}
+
+test("a wake cut off after it set its timer sets no second one on its rerun, and the timer admits once", {
+    timeout: 30_000,
+}, async (t) => {
+    const hanging = hangingOnce();
+    const { set, inputs } = await cutOffAndResumed(t, hanging);
+    assert.equal(hanging.runs(), 2);
+    assert.deepEqual(set, ["terminal"]);
+    assert.equal(inputs, 1);
+});
+
+test("a wake's rerun finds its timer behind a thousand older ones", {
+    timeout: 60_000,
+}, async (t) => {
+    const hanging = hangingOnce();
+    const later = Date.now() + 3_600_000;
+    const { set, inputs } = await cutOffAndResumed(t, {
+        ...hanging,
+        seed: async (tx, conversationId) => {
+            for (let n = 0; n < 1000; n += 1) {
+                await tx.createTask(
+                    Wake,
+                    { call: `older-${n}`, at: later, note: "older" },
+                    {
+                        ownership: { kind: "conversation" },
+                        conversationId,
+                        background: true,
+                    },
+                );
+            }
+        },
+    });
+    assert.equal(hanging.runs(), 2);
+    assert.deepEqual(set, ["terminal"]);
+    assert.equal(inputs, 1);
+});
+
+test("a timer admits its input and ends in one commit, so a kill between the two cannot admit it twice", {
+    timeout: 30_000,
+}, async (t) => {
+    const real = timers();
+    const cut = Promise.withResolvers<void>();
+    let commits = 0;
+    // The admit phase's first commit lands, then the phase hangs as a kill
+    // right after it would leave it.
+    const killedAfterOneCommit: typeof Wake.definition.phases.admit = (
+        task,
+        runtime,
+        phaseContext,
+    ) =>
+        Wake.definition.phases.admit(
+            task,
+            new Proxy(runtime, {
+                get(target, key, receiver) {
+                    if (key !== "commit")
+                        return Reflect.get(target, key, receiver);
+                    return async (
+                        ...args: Parameters<typeof target.commit>
+                    ) => {
+                        const done = await target.commit(...args);
+                        commits += 1;
+                        if (commits > 1) return done;
+                        cut.resolve();
+                        return untilAborted(phaseContext.abortSignal);
+                    };
+                },
+            }),
+            phaseContext,
+        );
+    const extension = defineExtension({
+        ...real,
+        tasks: [
+            {
+                definition: {
+                    ...Wake.definition,
+                    phases: {
+                        ...Wake.definition.phases,
+                        admit: killedAfterOneCommit,
+                    },
+                },
+            },
+        ],
+    });
+    const { set, inputs } = await cutOffAndResumed(t, {
+        extension,
+        cut: cut.promise,
+    });
     assert.deepEqual(set, ["terminal"]);
     assert.equal(inputs, 1);
 });
