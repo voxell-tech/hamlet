@@ -195,8 +195,8 @@ async fn set_mayor(
     Ok(Affected::seen([Part::Hamlets]))
 }
 
-/// None once the realm's row is written: the host runs the first
-/// start again when the start after it fails.
+/// No changes once the realm's row is written: the host runs the
+/// first start again when the start after it fails.
 pub(super) async fn first_start(
     rows: &Rows<'_>,
 ) -> Result<Vec<change::Change>> {
