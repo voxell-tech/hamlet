@@ -27,17 +27,22 @@ async function nodePid(demo: Demo, n: number): Promise<number> {
     return number(await demo.ask(`tell ${n} pid`), `agent/${n}/pid`);
 }
 
-/** Stops `demo`, and checks that it and the Node host `node` ended. */
-async function stopped(demo: Demo, node: number): Promise<void> {
-    assert.equal(await demo.stop(), 0, demo.stderr());
+/** Waits until the Node host `node` has ended, at most `GONE_WAIT_MS`. */
+async function ended(node: number): Promise<void> {
     const until = Date.now() + GONE_WAIT_MS;
     while (!hasEnded(node)) {
         if (Date.now() > until) {
             process.kill(node, "SIGKILL");
-            assert.fail(`the Node host ${node} outlived its demo host`);
+            assert.fail(`the Node host ${node} did not end`);
         }
         await sleep(20);
     }
+}
+
+/** Stops `demo`, and checks that it and the Node host `node` ended. */
+async function stopped(demo: Demo, node: number): Promise<void> {
+    assert.equal(await demo.stop(), 0, demo.stderr());
+    await ended(node);
 }
 
 test(
@@ -210,7 +215,7 @@ test(
                 await demo.ask("tell 2 begin"),
                 /^error: link\.lost: /,
             );
-            assert.ok(hasEnded(first));
+            await ended(first);
             assert.equal(await demo.ask("link"), "link/ready 1");
             await grown(before);
             const second = await nodePid(demo, 1);
