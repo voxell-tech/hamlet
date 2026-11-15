@@ -177,22 +177,12 @@ async fn a_repeated_end_sends_the_end_again() {
     let hired_3 = realm.tool(MAYOR, &tool("h1", hire(None))).await;
     realm.reach_held(MAYOR).await;
     realm.reach_held(AgentNumber(3)).await;
-    realm
-        .seen
-        .fail_once
-        .lock()
-        .unwrap()
-        .insert(Callee::SetReach);
+    realm.seen.fail_once(Callee::SetReach, AgentNumber(3));
     let end_3 = tool("e1", end(3));
 
     let ended = realm.tool(MAYOR, &end_3).await.unwrap();
     until("the workspace fails the end once", || {
-        !realm
-            .seen
-            .fail_once
-            .lock()
-            .unwrap()
-            .contains(&Callee::SetReach)
+        realm.seen.has_failed(Callee::SetReach, AgentNumber(3))
     })
     .await;
     let after_the_failure =
@@ -311,17 +301,12 @@ async fn a_repeated_hire_hires_once() {
     realm.live(Hand::NUMBER).await;
     founded(&realm).await;
     realm.reach_held(MAYOR).await;
-    realm.seen.fail_once.lock().unwrap().insert(Callee::Branch);
+    realm.seen.fail_once(Callee::Branch, AgentNumber(3));
     let call = tool("h1", hire(None));
 
     let first = realm.tool(MAYOR, &call).await.unwrap();
     until("the profile fails the branch once", || {
-        !realm
-            .seen
-            .fail_once
-            .lock()
-            .unwrap()
-            .contains(&Callee::Branch)
+        realm.seen.has_failed(Callee::Branch, AgentNumber(3))
     })
     .await;
     let other = realm

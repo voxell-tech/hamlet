@@ -64,10 +64,10 @@ fn hire_seen(realm: &Realm) -> HireSeen {
 async fn failed_once_at(callee: Callee) -> Realm {
     let realm = Realm::start().await;
     realm.live(Hand::NUMBER).await;
-    realm.seen.fail_once.lock().unwrap().insert(callee);
+    realm.seen.fail_once(callee, MAYOR);
     founded(&realm).await;
     until("the stand-in fails its call", || {
-        !realm.seen.fail_once.lock().unwrap().contains(&callee)
+        realm.seen.has_failed(callee, MAYOR)
     })
     .await;
     realm

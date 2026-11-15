@@ -92,22 +92,38 @@ struct Seen {
     reaches: Mutex<Vec<SetReach>>,
     chief_answers: Mutex<Vec<ChiefAnswer>>,
     branches: Mutex<Vec<(ProfileId, Branch)>>,
-    fail_once: Mutex<HashSet<Callee>>,
+    failing: Mutex<HashSet<(Callee, AgentNumber)>>,
     held: watch::Sender<HashSet<Callee>>,
 }
 
 impl Seen {
     /// Waits while the test holds `callee`, then fails it if the
-    /// test asked it to fail once.
-    async fn called(&self, callee: Callee) -> anyhow::Result<()> {
+    /// test asked it to fail once for `agent`.
+    async fn called(
+        &self,
+        callee: Callee,
+        agent: AgentNumber,
+    ) -> anyhow::Result<()> {
         self.held
             .subscribe()
             .wait_for(|held| !held.contains(&callee))
             .await?;
-        if self.fail_once.lock().unwrap().remove(&callee) {
-            bail!("the stand-in fails {callee:?} once");
+        if self.failing.lock().unwrap().remove(&(callee, agent)) {
+            bail!(
+                "the stand-in fails {callee:?} of {} once",
+                agent.0
+            );
         }
         Ok(())
+    }
+
+    /// Fails the next `callee` call for `agent`, and no other.
+    fn fail_once(&self, callee: Callee, agent: AgentNumber) {
+        self.failing.lock().unwrap().insert((callee, agent));
+    }
+
+    fn has_failed(&self, callee: Callee, agent: AgentNumber) -> bool {
+        !self.failing.lock().unwrap().contains(&(callee, agent))
     }
 
     fn hold(&self, callee: Callee) {
@@ -190,7 +206,7 @@ impl Actor for AgentStandIn {
         self: Arc<Self>,
         ctx: Ctx<Self>,
     ) -> anyhow::Result<()> {
-        self.seen.called(Callee::Create).await?;
+        self.seen.called(Callee::Create, self.agent).await?;
         if let Some(input) = ctx.input()? {
             self.seen.made.lock().unwrap().push((self.agent, input));
         }
@@ -204,7 +220,7 @@ impl Handler<Submit> for AgentStandIn {
         _: Ctx<Self>,
         submit: Submit,
     ) -> anyhow::Result<()> {
-        self.seen.called(Callee::Submit).await?;
+        self.seen.called(Callee::Submit, self.agent).await?;
         self.seen.submits.lock().unwrap().push((self.agent, submit));
         Ok(())
     }
@@ -216,7 +232,7 @@ impl Handler<Place> for AgentStandIn {
         _: Ctx<Self>,
         place: Place,
     ) -> anyhow::Result<()> {
-        self.seen.called(Callee::Place).await?;
+        self.seen.called(Callee::Place, self.agent).await?;
         self.seen.places.lock().unwrap().push((self.agent, place));
         Ok(())
     }
@@ -228,7 +244,7 @@ impl Handler<Fill> for AgentStandIn {
         _: Ctx<Self>,
         fill: Fill,
     ) -> anyhow::Result<()> {
-        self.seen.called(Callee::Fill).await?;
+        self.seen.called(Callee::Fill, self.agent).await?;
         self.seen.fills.lock().unwrap().push((self.agent, fill));
         Ok(())
     }
@@ -271,7 +287,12 @@ impl Handler<Branch> for ProfileStandIn {
         _: Ctx<Self>,
         branch: Branch,
     ) -> anyhow::Result<()> {
-        self.seen.called(Callee::Branch).await?;
+        let agent = branch
+            .name
+            .strip_prefix("hires/")
+            .context("a hire's branch is hires/<n>")?
+            .parse()?;
+        self.seen.called(Callee::Branch, AgentNumber(agent)).await?;
         self.seen
             .branches
             .lock()
@@ -304,7 +325,7 @@ impl Handler<SetReach> for WorkspaceStandIn {
         _: Ctx<Self>,
         set: SetReach,
     ) -> anyhow::Result<InForce> {
-        self.seen.called(Callee::SetReach).await?;
+        self.seen.called(Callee::SetReach, set.agent).await?;
         let mut kept = self.seen.reaches.lock().unwrap();
         let in_force = kept
             .iter()
@@ -771,7 +792,7 @@ fn error_code<T: std::fmt::Debug>(
 async fn the_workspace_stand_in_keeps_only_a_newer_reach() {
     let scratch = Scratch::new("realm-stand-ins");
     let seen = Arc::new(Seen::default());
-    seen.fail_once.lock().unwrap().insert(Callee::SetReach);
+    seen.fail_once(Callee::SetReach, AgentNumber(2));
     let host = open(&scratch, &seen, None).await;
     let set = async |version| {
         let set = SetReach {

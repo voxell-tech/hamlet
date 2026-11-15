@@ -108,11 +108,11 @@ async fn a_place_the_agent_fails_to_take_is_not_sent_again() {
     })
     .await;
     realm.seen.hold(Callee::Fill);
-    realm.seen.fail_once.lock().unwrap().insert(Callee::Place);
+    realm.seen.fail_once(Callee::Place, MAYOR);
 
     let hired_3 = chief_hires(&realm, &hamlet, hire(None)).await;
     until("the mayor fails a place", || {
-        realm.seen.fail_once.lock().unwrap().is_empty()
+        realm.seen.has_failed(Callee::Place, MAYOR)
     })
     .await;
     let missed = places_of(&realm, MAYOR);
@@ -148,7 +148,7 @@ async fn a_failed_place_at_a_step_leaves_the_others_sent() {
     places_reach(&realm, Hand::NUMBER, before[0] + 1).await;
     places_reach(&realm, MAYOR, before[1] + 1).await;
 
-    realm.seen.fail_once.lock().unwrap().insert(Callee::Place);
+    realm.seen.fail_once(Callee::Place, Hand::NUMBER);
     realm.seen.release(Callee::Fill);
     realm.live(THREE).await;
     until("mayor 2 has its road to 3", || {
@@ -160,7 +160,7 @@ async fn a_failed_place_at_a_step_leaves_the_others_sent() {
         pond,
         FoundAnswer::Founded { mayor: THREE, .. }
     ));
-    assert!(realm.seen.fail_once.lock().unwrap().is_empty());
+    assert!(realm.seen.has_failed(Callee::Place, Hand::NUMBER));
     assert!(!sent_a_road(&realm, Hand::NUMBER, THREE));
     realm.host.shutdown().await.unwrap();
 }

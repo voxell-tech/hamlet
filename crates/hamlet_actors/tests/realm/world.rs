@@ -100,20 +100,10 @@ async fn the_revision_survives_a_restart() {
     // world; restart: the world is the same, its revision with it.
     let (realm, _) = hamlet_with(1).await;
     realm.call_as_workspace(&needs(MAYOR, "c1")).await.unwrap();
-    realm
-        .seen
-        .fail_once
-        .lock()
-        .unwrap()
-        .insert(Callee::SetReach);
+    realm.seen.fail_once(Callee::SetReach, THREE);
     end_the_hire(&realm).await;
     until("the workspace fails the end's SetReach", || {
-        !realm
-            .seen
-            .fail_once
-            .lock()
-            .unwrap()
-            .contains(&Callee::SetReach)
+        realm.seen.has_failed(Callee::SetReach, THREE)
     })
     .await;
 
