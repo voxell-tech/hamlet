@@ -12,7 +12,7 @@ use super::change::{self, Affected, Rows, Writer, number};
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize,
 )]
-pub(super) struct TaskId(pub u64);
+pub(super) struct TaskId(u64);
 
 impl TaskId {
     #[cfg_attr(
