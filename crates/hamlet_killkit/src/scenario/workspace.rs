@@ -63,6 +63,7 @@ pub const SCENARIOS: &[Scenario] = &[Scenario {
     // Past the 8 s at which a command that outlived the kill
     // would touch its file, counted from the trigger.
     down_ms: 11_000,
+    due: None,
     restart: [&["agent 1 status 1"], &["agent 1 status 1"]],
     probes: &[LATE_FILE, CUT_OFF_ROWS, TOLD],
     expect: [COMMAND_CUT_OFF, COMMAND_CUT_OFF],
