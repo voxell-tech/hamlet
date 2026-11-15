@@ -369,7 +369,7 @@ and `NeedsChief`, and an agent with `Finished`. In this repository
 the realm and the agent are only the demo's stand-ins. The host gives the workspace its
 `Sandbox` as a value of `HostOptions`, and the workspace does not start
 without one; `workspace::Options` there sets how long a call waits for
-its command.
+its command and how much saved output an agent keeps.
 
 `workspace/reach.rs` keeps the reach: one row per agent in the table
 `reach`, with its version and its `Reach`, an agent's, a worker's (with
@@ -416,7 +416,10 @@ taken out as it streams. Its end carries the tail, the last 2000 lines
 or 50 KiB. Once the output passes the tail, all of it goes to a spill
 file, `actors/workspace/local.output/<agent>/<command>.log`, up to
 512 MiB (`SPILL_CAP`), which the end's `Cut` names and the agent may
-read.
+read. An agent's folder holds at most 1 GiB (`Options::saved_output`):
+before a command opens its file, the files of that agent's finished
+commands go, least recently written first, until the rest is under the
+limit. A running command's file is never removed.
 
 `workspace/files.rs` passes the file tools through the gate and runs
 them on the sandbox's `Env`, off the runtime, with the secrets taken out
@@ -455,8 +458,8 @@ the named agent's: one call's, one conversation's or all of them, as
 `Exit::Cancelled`. Each answers once every command has stopped, and
 ends no wait. A `SetReach` to `Reach::Ended` ends
 the agent's waits as lapsed and tells the agent of each, cancels all its
-commands, ends what they left running under Seatbelt, and removes a
-worker's scratch folder.
+commands, ends what they left running under Seatbelt, and removes its
+saved output and a worker's scratch folder.
 
 `workspace/workers.rs` keeps the workers' scratch folders,
 `workers/<n>/` (H42): made when a worker's reach arrives, and again
