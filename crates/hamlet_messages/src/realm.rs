@@ -550,12 +550,17 @@ pub enum HireRefusal {
     NoSuchHamlet,
     #[error("no agent is at that address")]
     NoSuchAgent,
+    #[error("`hire#{}` is in another hamlet", lead.0)]
+    OtherHamlet { lead: AgentNumber },
     #[error("`hire#{}` has left: {left}", lead.0)]
     LeadLeft { lead: AgentNumber, left: Left },
     #[error("the hamlet `{}` holds its most hires, {most}", hamlet.0)]
     Full { hamlet: HamletId, most: u32 },
     #[error("there is no `profile#{}`", profile.0)]
     NoSuchProfile { profile: ProfileId },
+    /// An agent's hire only: a chief may leave the purpose out (H40).
+    #[error("say what it is for")]
+    NoPurpose,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
