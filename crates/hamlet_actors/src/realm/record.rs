@@ -54,7 +54,6 @@ pub(super) enum Entry {
         b: AgentNumber,
         by: By,
     },
-    #[expect(dead_code, reason = "U11 records it")]
     Tools {
         hire: AgentNumber,
         by: By,
