@@ -29,6 +29,7 @@ import {
     type Refused,
     type RunEnd,
     type Text,
+    u32,
     WORKSPACE,
 } from "./messages.ts";
 import { callOut, failed, listTools, type Peers, words } from "./turn.ts";
@@ -298,7 +299,14 @@ function read(peers: Peers): ToolRegistration {
             "read_file",
             {
                 path: args.path,
-                ...omitUndefined({ offset: args.offset, limit: args.limit }),
+                ...omitUndefined({
+                    offset:
+                        args.offset === undefined
+                            ? undefined
+                            : u32(args.offset),
+                    limit:
+                        args.limit === undefined ? undefined : u32(args.limit),
+                }),
             },
             readResult,
         ),
@@ -356,7 +364,7 @@ function bash(peers: Peers): ToolRegistration {
                 network: args.network ?? false,
                 ...(args.timeout === undefined
                     ? {}
-                    : { timeout_ms: Math.round(args.timeout * 1000) }),
+                    : { timeout_ms: u32(args.timeout * 1000) }),
             }),
     });
 }

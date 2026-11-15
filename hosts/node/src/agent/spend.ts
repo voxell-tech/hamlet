@@ -27,7 +27,7 @@ import {
     type Model,
     type Models,
 } from "@earendil-works/pi-ai";
-import type { RealmTask } from "./messages.ts";
+import { type RealmTask, u32 } from "./messages.ts";
 import { Closing, cutOff, modelCall, type Peers, reasonOf } from "./turn.ts";
 
 /**
@@ -194,9 +194,3 @@ function abortOf(signal: AbortSignal | undefined): Promise<void> {
 /** Holds "billing", which pi-ai's `isRetryableAssistantError` never retries. */
 const NEVER_RETRIED =
     "The realm's billing did not allow this model request, and it was not sent";
-
-/** A whole number that a `u32` holds: rounded, and held at the ends. */
-function u32(value: number): number {
-    if (!Number.isFinite(value) || value <= 0) return 0;
-    return Math.min(Math.round(value), 2 ** 32 - 1);
-}

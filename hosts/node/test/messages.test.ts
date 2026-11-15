@@ -19,11 +19,13 @@ import {
     type AgentInput,
     REALM,
     type Submit,
+    U32_MAX,
     WORKSPACE,
 } from "../src/agent/messages.ts";
 import {
     fakeCalls,
     from,
+    named,
     priced,
     toolCall,
     until,
@@ -38,7 +40,6 @@ const FOLDER = new URL(
 );
 /** The folders whose every fixture this file accounts for. */
 const FOLDERS = ["agent", "realm", "workspace", "address", "error"] as const;
-const U32_MAX = 2 ** 32 - 1;
 
 /**
  * A fixture as the host decodes it: an answer as `Calls.call` does, and a
@@ -68,37 +69,16 @@ function fixtures(pattern: RegExp): string[] {
         .sort();
 }
 
-/** One call the agent made, with every positional argument. */
-interface Out {
-    readonly to: string;
-    readonly name: string;
-    readonly args: readonly unknown[];
-}
-
 type Answers = Parameters<typeof fakeCalls>[0];
-
-/** `fakeCalls`, keeping each call's whole argument list: `list_tools` sends none. */
-function recorded(answers: Answers): { calls: Calls; out: Out[] } {
-    const fake = fakeCalls(answers);
-    const out: Out[] = [];
-    const calls: Calls = {
-        call: (to, name, args, options) => {
-            out.push({
-                to: `${to.kind}/${to.key}`,
-                name,
-                args: args as readonly unknown[],
-            });
-            return fake.calls.call(to, name, args, options);
-        },
-    };
-    return { calls, out };
-}
 
 /** The input every agent here is created with: the hand's, with the standing task `standing-12`. */
 const HAND = fixture("agent/hand.input") as AgentInput;
 
 /** The model's last answer in every turn here, which a reply carries. */
 const LAST_WORDS = "Two of them";
+
+/** What a field read from the wrong place looks like in the words the model is given. */
+const NOT_WORDS = /undefined|NaN|\[object /;
 
 function submitted(
     task: string | undefined,
@@ -161,30 +141,34 @@ interface Written {
     readonly models?: (models: Models) => Models;
     /**
      * Fields of the first argument the agent makes itself, which the test
-     * cannot steer: `call` (`t<task id>` or `m<uuid>`), `conversation`
-     * (pi-durable's id) and a charge's measured `took_ms`. Each is checked
-     * for the agent's form and then taken from the fixture, which holds a
-     * fixed one (`call-5`, `c1`, 830).
+     * cannot steer: `call` (`m<uuid>` in a charge, `t<task id>` elsewhere),
+     * `conversation` (pi-durable's id) and a charge's measured `took_ms`.
+     * Each is checked for the agent's form and then taken from the fixture,
+     * which holds a fixed one (`call-5`, `c1`, 830).
      */
     readonly own?: readonly string[];
     /** Fields the agent always writes the same, checked and then taken from the fixture. */
     readonly constant?: Readonly<Record<string, unknown>>;
 }
 
-/** The form of each field the agent makes itself. */
-const OWN_FORMS: Readonly<Record<string, (value: unknown) => boolean>> = {
-    call: (value) =>
-        typeof value === "string" &&
-        /^(t[1-9][0-9]*|m[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12})$/.test(
-            value,
-        ),
-    conversation: (value) =>
-        typeof value === "string" && /^[1-9][0-9]*$/.test(value),
-    took_ms: (value) =>
-        Number.isInteger(value) &&
-        (value as number) >= 0 &&
-        (value as number) <= U32_MAX,
-};
+/** The form of each field the agent makes itself in a message of `action`. */
+function ownForms(
+    action: string,
+): Readonly<Record<string, (value: unknown) => boolean>> {
+    const call =
+        action === "charge"
+            ? /^m[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/
+            : /^t[1-9][0-9]*$/;
+    return {
+        call: (value) => typeof value === "string" && call.test(value),
+        conversation: (value) =>
+            typeof value === "string" && /^[1-9][0-9]*$/.test(value),
+        took_ms: (value) =>
+            Number.isInteger(value) &&
+            (value as number) >= 0 &&
+            (value as number) <= U32_MAX,
+    };
+}
 
 const WRITTEN: readonly Written[] = [
     {
@@ -403,7 +387,7 @@ function actionOf(name: string): { to: string; action: string } {
 
 for (const row of WRITTEN) {
     test(`the agent's ${row.fixture} equals its fixture`, async (t) => {
-        const { calls, out } = recorded(row.answers ?? {});
+        const { calls, sent } = fakeCalls(row.answers ?? {});
         const agent = await turn(t, calls, {
             submit: submitted(row.task, row.input),
             responses: row.tool === undefined ? [] : [toolCall(...row.tool)],
@@ -413,15 +397,17 @@ for (const row of WRITTEN) {
         await agent.stop();
 
         const { to, action } = actionOf(row.fixture);
-        const sent = out.find((call) => call.to === to && call.name === action);
-        assert.ok(sent, `the agent sent no ${action}`);
+        const call = sent.find((one) => one.to === to && one.name === action);
+        assert.ok(call, `the agent sent no ${action}`);
         const expected = fixture(`${row.fixture}.args`) as unknown[];
-        const args = structuredClone(sent.args) as unknown[];
+        // Each action takes one message, but `list_tools` takes none.
+        const args =
+            call.message === undefined ? [] : [structuredClone(call.message)];
         for (const path of row.own ?? []) {
             const mine = field(args[0], path);
             const value = mine.holder[mine.key];
             assert.ok(
-                OWN_FORMS[mine.key]?.(value),
+                ownForms(action)[mine.key]?.(value),
                 `${path} has the agent's form: ${String(value)}`,
             );
             const theirs = field(expected[0], path);
@@ -464,7 +450,7 @@ const SENDER = {
 for (const name of fixtures(/^agent\/.*\.args$/)) {
     test(`${name} is read and taken, and answered as its answer fixture holds`, async (t) => {
         const action = actionOf(name).action as keyof typeof SENDER;
-        const { calls } = recorded({
+        const { calls } = fakeCalls({
             realm: { reply: () => answer("realm/reply.done") },
         });
         const agent = await wakeAgent(t, {
@@ -485,13 +471,29 @@ for (const name of fixtures(/^agent\/.*\.args$/)) {
         );
         await agent.idle();
         assert.deepEqual(agent.reported, []);
+        const entries = await agent.entries();
         await agent.stop();
+
+        if (action === "finished") {
+            const ends = entries.filter(
+                (entry) => entry.kind === "hamlet.finished",
+            );
+            assert.equal(ends.length, 1, name);
+            assert.notEqual(ends[0]?.text, "", name);
+        }
+        for (const entry of entries) {
+            assert.doesNotMatch(
+                entry.text,
+                NOT_WORDS,
+                `${name}: ${entry.kind}`,
+            );
+        }
     });
 }
 
 for (const name of fixtures(/^agent\/.*\.input$/)) {
     test(`${name} is read and creates the agent`, async (t) => {
-        const { calls } = recorded({});
+        const { calls } = fakeCalls({});
         // `onCreate` reads its input with `read.agentInput`.
         const agent = await wakeAgent(t, {
             calls,
@@ -552,7 +554,7 @@ for (const action of ANSWERED_BY_TOOLS) {
         const answers = answersTo(action);
         const queue = [...answers];
         const [folder = "", name = ""] = action.split("/");
-        const { calls } = recorded({
+        const { calls } = fakeCalls({
             [folder]: { [name]: () => fixture(queue.shift() as string) },
         });
         const agent = await turn(t, calls, {
@@ -573,6 +575,7 @@ for (const action of ANSWERED_BY_TOOLS) {
                 assert.equal(result.text, given.words, name);
             } else {
                 assert.notEqual(result.text, "", name);
+                assert.doesNotMatch(result.text, NOT_WORDS, name);
             }
         });
     });
@@ -581,7 +584,7 @@ for (const action of ANSWERED_BY_TOOLS) {
 for (const name of answersTo("realm/may_spend")) {
     test(`${name} is read by the model gate, and the charge's answer by its sender`, async (t) => {
         const given = fixture(name) as { type: string; words?: string };
-        const { calls } = recorded({
+        const { calls } = fakeCalls({
             realm: {
                 may_spend: () => given as never,
                 charge: () => answer("realm/charge"),
@@ -610,7 +613,7 @@ for (const name of answersTo("realm/may_spend")) {
 for (const name of answersTo("realm/reply")) {
     test(`${name} is read by the reply`, async (t) => {
         const given = fixture(name) as { type: string; words?: string };
-        const { calls } = recorded({ realm: { reply: () => given as never } });
+        const { calls } = fakeCalls({ realm: { reply: () => given as never } });
         const row = WRITTEN.find(
             (written) => written.fixture === "realm/reply",
         );
@@ -636,7 +639,7 @@ for (const name of fixtures(/^error\/.*\.run\./)) {
             message: string;
             metadata: unknown;
         };
-        const { calls } = recorded({
+        const { calls } = fakeCalls({
             workspace: {
                 run: () => {
                     throw new ActorError(
@@ -721,16 +724,16 @@ test("every fixture of the five folders is one the agent writes or takes, or is 
 test("a charge's micros and took_ms are held at 2^32 - 1", async (t) => {
     // Five thousand dollars is five billion micros. A request that took
     // fifty days is `spend.test.ts`'s.
-    const { calls, out } = recorded({});
+    const { calls, sent } = fakeCalls({});
     const agent = await turn(t, calls, {
         submit: submitted(undefined),
         models: (models) => priced(models, 5_000),
     });
     await agent.stop();
 
-    const charges = out
+    const charges = sent
         .filter((call) => call.name === "charge")
-        .map((call) => call.args[0] as { micros: number; took_ms: number });
+        .map((call) => call.message as { micros: number; took_ms: number });
     assert.equal(charges.length, 1);
     for (const { micros, took_ms } of charges) {
         assert.equal(micros, U32_MAX);
@@ -738,10 +741,8 @@ test("a charge's micros and took_ms are held at 2^32 - 1", async (t) => {
     }
 });
 
-test("a reply's question is never above 2^32 - 1", {
-    todo: "the agent reads `letter` as any integer and replies with it as it came: neither held nor refused",
-}, async (t) => {
-    const { calls, out } = recorded({
+test("a reply's question is never above 2^32 - 1", async (t) => {
+    const { calls, sent } = fakeCalls({
         realm: { reply: () => answer("realm/reply.done") },
     });
     const agent = await wakeAgent(t, {
@@ -767,16 +768,14 @@ test("a reply's question is never above 2^32 - 1", {
         await agent.stop();
     }
 
-    for (const call of out.filter((call) => call.name === "reply")) {
-        const { question } = call.args[0] as { question: number };
+    for (const call of named(sent, "reply")) {
+        const { question } = call.message as { question: number };
         assert.ok(question <= U32_MAX, `question ${question}`);
     }
 });
 
-test("an agent's number in Named is never above 2^32 - 1", {
-    todo: "`hire#<number>` is read with no bound and sent as it came: neither held nor refused",
-}, async (t) => {
-    const { calls, out } = recorded({
+test("an agent's number in Named is never above 2^32 - 1", async (t) => {
+    const { calls, sent } = fakeCalls({
         realm: { tell: () => answer("realm/tell.done") },
     });
     const agent = await turn(t, calls, {
@@ -785,8 +784,8 @@ test("an agent's number in Named is never above 2^32 - 1", {
     });
     await agent.stop();
 
-    for (const call of out.filter((call) => call.name === "tell")) {
-        const { act } = call.args[0] as { act: { to: { agent?: number } } };
+    for (const call of named(sent, "tell")) {
+        const { act } = call.message as { act: { to: { agent?: number } } };
         assert.ok((act.to.agent ?? 0) <= U32_MAX, `agent ${act.to.agent}`);
     }
 });

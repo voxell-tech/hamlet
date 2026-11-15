@@ -47,6 +47,15 @@ export type ProfileId = number;
 export type HamletId = string;
 export type CommandId = number;
 
+/** The largest integer a `u32` holds, the type of every integer the agent writes. */
+export const U32_MAX = 2 ** 32 - 1;
+
+/** A whole number that a `u32` holds: rounded, and held at the ends. */
+export function u32(value: number): number {
+    if (Number.isNaN(value) || value <= 0) return 0;
+    return Math.min(Math.round(value), U32_MAX);
+}
+
 /** The arm of an answer whose taker kept nothing of the request. `words` are for the model. */
 export interface Refused {
     readonly type: "refused";
@@ -487,13 +496,14 @@ export const SENDERS = {
 // ---------------------------------------------------------------------------
 
 const OPEN = { open: true } as const;
-const AUTHOR = obj({ agent: int(), name: opt(str()) }, OPEN);
+const U32 = int({ minimum: 0, maximum: U32_MAX });
+const AUTHOR = obj({ agent: U32, name: opt(str()) }, OPEN);
 const PLACE = obj(
     {
         version: union([int(), bigint()]),
-        lead: opt(int()),
-        hires: arr(int()),
-        roads: arr(int()),
+        lead: opt(U32),
+        hires: arr(U32),
+        roads: arr(U32),
         tools_off: arr(str()),
     },
     OPEN,
@@ -510,13 +520,13 @@ const INPUT = union([
     ),
     obj({ type: lit("letter"), from: AUTHOR, text: str() }, OPEN),
     obj(
-        { type: lit("question"), letter: int(), from: AUTHOR, text: str() },
+        { type: lit("question"), letter: U32, from: AUTHOR, text: str() },
         OPEN,
     ),
     obj(
         {
             type: lit("answer"),
-            question: int(),
+            question: U32,
             from: AUTHOR,
             text: str(),
             conversation: str(),
@@ -562,7 +572,7 @@ export const read: {
         (finished) => finished as unknown as Finished,
     ),
     place: reader(PLACE, placeOf),
-    fill: reader(obj({ profile: int(), branch: str() }, OPEN), (fill) => fill),
+    fill: reader(obj({ profile: U32, branch: str() }, OPEN), (fill) => fill),
 };
 
 function reader<S extends Schema, T>(

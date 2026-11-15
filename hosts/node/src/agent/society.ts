@@ -29,6 +29,7 @@ import {
     type SocietyActs,
     type SocietyTool,
     type Tier,
+    U32_MAX,
 } from "./messages.ts";
 import {
     type ActOf,
@@ -83,8 +84,6 @@ const object = (properties: object, required: readonly string[]) => ({
     required,
 });
 const names = { type: "array", items: { type: "string" } };
-
-const U32_MAX = 2 ** 32 - 1;
 
 /**
  * The number of `<kind>#<number>`, read as today's server reads it (an

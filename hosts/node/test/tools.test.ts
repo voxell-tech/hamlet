@@ -82,6 +82,50 @@ test("a project path goes to the workspace and an own path to the adapter", asyn
     await agent.stop();
 });
 
+test("a number the model gives past a u32's ends is held at them before it is sent", async (t) => {
+    const { calls, sent } = fakeCalls({
+        workspace: {
+            run: () => ({ type: "running", command: 4 }),
+            read_file: () => ({ type: "text", text: "", notes: [] }),
+        },
+    });
+    const agent = await wakeAgent(t, {
+        calls,
+        responses: [
+            toolCall("bash", { command: "sleep 1", timeout: 1e7 }, "c1"),
+            toolCall(
+                "read",
+                {
+                    path: "/work/project/notes.md",
+                    offset: 2 ** 32 + 5,
+                    limit: -3,
+                },
+                "c2",
+            ),
+            fauxAssistantMessage("Done."),
+        ],
+    });
+    await agent.actions.submit(
+        agent.by(from.realm),
+        line("input-1", "Run it and read on.", "task-1"),
+    );
+    await agent.idle();
+
+    const [run] = named(sent, "run");
+    const [read] = named(sent, "read_file");
+    assert.ok(run);
+    assert.equal(
+        (run.message as { program: { timeout_ms: number } }).program.timeout_ms,
+        2 ** 32 - 1,
+    );
+    assert.deepEqual(read?.message, {
+        path: "/work/project/notes.md",
+        offset: 2 ** 32 - 1,
+        limit: 0,
+    });
+    await agent.stop();
+});
+
 test("a relative path, and a left-out one, start from the agent's filesystem", async (t) => {
     const { calls, sent } = fakeCalls({});
     const fake = fakeFiles({ [`${ROOT}/memory/plan.md`]: "own:plan" });
