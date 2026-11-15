@@ -80,7 +80,7 @@ it, and it is not edited here.
 | `hamlet_actor_error`, `hamlet_actor_error_macros` | The actor runtime's structured errors and the derive that declares them |
 | `hamlet_host` | Runs actors in this process, each in one plain SQLite file; the `demo` example, its counter actor and its stand-ins for the realm and an agent; fault points behind the `faults` feature |
 | `hamlet_address` | An actor's address, the name rule for its kind and key, and `Caller`, who made a call, as a host stamps it |
-| `hamlet_actors` | Hamlet's actors on the actor host: the `workspace`, which runs the agents' commands and file changes within each agent's reach |
+| `hamlet_actors` | Hamlet's actors on the actor host: the `workspace`, which runs the agents' commands and file changes within each agent's reach; the `profile`, a profile's repository; the `library`, the shared skills |
 | `hamlet_messages` | The calls Hamlet's actors make to each other and their answers, one module per actor that takes them, and the CBOR fixture of each |
 | `hamlet_sqlite` | The actor runtime's SQL requests run on a rusqlite connection, for `hamlet_host` and for the core's tests |
 | `hamlet_killkit` | Kills the demo host at a scenario's step and checks what survived, the workspace's commands included, as `cargo xtask killkit` |
@@ -484,6 +484,37 @@ host, called by test actors in the realm's and agents' places: the
 reach and commands in `workspace.rs`, then `files.rs`, `changes.rs`,
 `waits.rs`, `cancel.rs`, `workers.rs`, `tools.rs` and `realm_folder.rs`. `hamlet_messages/tests/fixtures/main.rs` checks the messages.
 
+## The profile and library actors
+
+The server does not use them either. `hamlet_actors/src/profile.rs`
+and `src/profile/` are the kind `profile`, one actor per profile keyed
+by its `ProfileId`: the only writer of the repository
+`scholars/<n>.git` and of the store beside it. `main` is what the
+profile knows, `hires/<agent>` each hire's branch, and annotated tags
+its versions. `versions.rs` tags, reverts, edits, purges and erases;
+`hires.rs` makes and pins a hire's branch and takes `main` into it;
+`files.rs` gives an agent the files of its branch in parts (`Files`)
+and takes its changes back (`Save`); `dreams.rs` checks
+`main`, and a hire's branch, out for a dream and commits what the
+dream changed when it ends. `src/library.rs` and `src/library/` are
+the kind `library`, keyed `local`: the only writer of `library.git`
+and its checkout `library/`, which every agent reads. An agent offers
+a skill in parts, the librarian's verdict, sent by the realm,
+shelves it, and unshelving takes it off; each change moves the list's version and is told to the
+agents.
+
+Both take every call through `src/repo.rs`, the one way to a
+repository and the store beside it: `admit` checks the caller, and an
+action runs a closure through `Call::read`, `Call::once` (once per id,
+alone, the store's marker written in the same commit) or
+`Call::refuse`. A unit a kill cut off is finished by its repeat;
+a start finishes a cut-off purge, removes stale locks and the rows of
+a cut-off save, and writes `library/` again.
+`repo/git.rs` reaches the repository through `hamlet_git`,
+`repo/store.rs` the store, `repo/checkout.rs` a checkout on disk, and
+`repo/parts.rs` the files sent in parts. `hamlet_git/src/purge.rs`
+takes a path out of a repository's whole history.
+
 ## The server
 
 Paths below are under `crates/hamlet_server/src/`. Modules use a file
@@ -625,6 +656,12 @@ built-in ones.
 | Cancelling an agent's commands, and an ended reach | `hamlet_actors/src/workspace.rs` (`cancel`, `end_agent`) |
 | Workers' scratch folders on the workspace | `hamlet_actors/src/workspace/workers.rs` |
 | Tools added by hand on the workspace | `hamlet_actors/src/workspace/tools.rs` |
+| A profile's versions, edits, purge and erase | `hamlet_actors/src/profile/versions.rs`; [the profile and library actors](#the-profile-and-library-actors) |
+| A hire's branch, its pin and taking `main` in | `hamlet_actors/src/profile/hires.rs` |
+| The files an agent is given, and its saves | `hamlet_actors/src/profile/files.rs`, `repo/parts.rs` |
+| A dream's checkouts and its end | `hamlet_actors/src/profile/dreams.rs`, `repo/checkout.rs` |
+| Offering, shelving and unshelving a skill | `hamlet_actors/src/library.rs`, `library/offers.rs` |
+| An actor that keeps a repository: admitting a call, once per id, settling after a kill | `hamlet_actors/src/repo.rs` |
 
 `hamlet_realm/src/hamlet.rs` bridges received entities to the generator's
 plots and roads. `Hire` marks an agent that is a hire; `HamletId` is a

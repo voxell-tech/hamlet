@@ -33,6 +33,10 @@
 //!                               demo/realm.rs
 //! demo agent ...                the stub agent's commands, in
 //!                               demo/agent.rs
+//! demo profile ...              a profile's commands, in
+//!                               demo/profile.rs; not in serve
+//! demo library ...              the library's commands, in
+//!                               demo/library.rs; not in serve
 //! ```
 //!
 //! A `<key>` names a counter of the first kind, and `<kind>/<key>` an
@@ -62,6 +66,10 @@ mod agent;
 mod command;
 #[path = "demo/counter.rs"]
 mod counter;
+#[path = "demo/library.rs"]
+mod library;
+#[path = "demo/profile.rs"]
+mod profile;
 #[path = "demo/realm.rs"]
 mod realm;
 
@@ -73,7 +81,9 @@ use std::time::Duration;
 use act::act;
 use anyhow::{Context, Result, anyhow, bail};
 use command::{number, print_reply, run, shown};
-use hamlet_actors::workspace;
+use hamlet_actors::{
+    library as library_actor, profile as profile_actor, workspace,
+};
 use hamlet_host::{Address, Host, HostOptions};
 use hamlet_messages::address::{self, Party};
 use hamlet_sandbox::{Isolation, Sandbox};
@@ -133,6 +143,19 @@ async fn demo() -> Result<()> {
         .insert(address::Realm::KIND.to_owned(), realm::factory());
     factories
         .insert(address::Agent::KIND.to_owned(), agent::factory());
+    factories.insert(
+        address::Profile::KIND.to_owned(),
+        profile_actor::factory(),
+    );
+    factories.insert(
+        address::Library::KIND.to_owned(),
+        library_actor::factory(),
+    );
+    // A profile's and the library's commands call as stand-ins, in a
+    // process of their own: `serve` keeps the stub realm and agents.
+    if matches!(command, Some("profile" | "library")) {
+        factories.extend(profile::stand_ins());
+    }
     // The workspace does not start where there is no sandbox.
     let options = match Sandbox::open(Isolation::Sandboxed) {
         Ok(sandbox) => options.with_value(Arc::new(sandbox)),
@@ -148,6 +171,14 @@ async fn demo() -> Result<()> {
             let began = host.boot().await?;
             tokio::time::sleep(Duration::from_millis(ms)).await;
             print_began(&host, began).await
+        }
+        Some("profile") => {
+            host.boot().await?;
+            profile::run(&host, &args[1..]).await
+        }
+        Some("library") => {
+            host.boot().await?;
+            library::run(&host, &args[1..]).await
         }
         Some(_) => {
             host.boot().await?;
