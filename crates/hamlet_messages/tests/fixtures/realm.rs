@@ -18,7 +18,7 @@ use hamlet_messages::realm::client::{
 };
 use hamlet_messages::realm::world::{
     AgentSeen, HamletSeen, ReachSeen, Revision, RoadSeen, Seen,
-    Spend, Status, WaitSeen,
+    Spend, Status, WaitId, WaitSeen,
 };
 use hamlet_messages::realm::{
     AgentRefusal, Ask, Asked, Done, End, EndRefusal, Found,
@@ -316,6 +316,10 @@ fn the_founding_and_the_hires(fixtures: &mut Fixtures) {
             ("no_such_hamlet", HireRefusal::NoSuchHamlet),
             ("no_such_agent", HireRefusal::NoSuchAgent),
             (
+                "other_hamlet",
+                HireRefusal::OtherHamlet { lead: MAYOR },
+            ),
+            (
                 "lead_left",
                 HireRefusal::LeadLeft {
                     lead: HIRE,
@@ -347,7 +351,13 @@ fn the_founding_and_the_hires(fixtures: &mut Fixtures) {
         fixtures,
         "realm/hire",
         [("hired", HireAnswer::Hired { agent: HIRE })],
-        by_a_lead(SocietyTool::Hire, hire_refusals()),
+        by_a_lead(
+            SocietyTool::Hire,
+            hire_refusals()
+                .into_iter()
+                .chain([("no_purpose", HireRefusal::NoPurpose)])
+                .collect(),
+        ),
     );
     fixtures.args(
         "realm/chief_end",
@@ -500,6 +510,20 @@ fn the_roads_and_the_tools(fixtures: &mut Fixtures) {
                 LayRefusal::NotTwoHiresOfOneHamlet,
             ),
             (
+                "left",
+                LayRefusal::Left {
+                    hire: HIRE,
+                    left: left(HowEnded::ByTheHand),
+                },
+            ),
+            (
+                "road_exists",
+                LayRefusal::RoadExists {
+                    a: HIRE,
+                    b: AgentNumber(13),
+                },
+            ),
+            (
                 "full",
                 LayRefusal::Full {
                     hamlet: hamlet(),
@@ -520,8 +544,12 @@ fn the_roads_and_the_tools(fixtures: &mut Fixtures) {
     };
     fixtures.args("realm/chief_take_up_road", &asked(take_up()));
     fixtures.args("realm/take_up_road", &tool(take_up()));
-    let take_up_refusals =
-        || vec![("no_such_agent", TakeUpRefusal::NoSuchAgent)];
+    let take_up_refusals = || {
+        vec![
+            ("no_such_agent", TakeUpRefusal::NoSuchAgent),
+            ("no_road", TakeUpRefusal::NoRoad { a: HIRE, b: MAYOR }),
+        ]
+    };
     done(fixtures, "realm/chief_take_up_road", take_up_refusals());
     done(
         fixtures,
@@ -546,6 +574,10 @@ fn the_roads_and_the_tools(fixtures: &mut Fixtures) {
             vec![
                 ("no_such_agent", RequestRoadRefusal::NoSuchAgent),
                 ("no_lead", RequestRoadRefusal::NoLead),
+                (
+                    "still_hiring",
+                    RequestRoadRefusal::StillHiring { lead: HIRE },
+                ),
             ],
         ),
     );
@@ -753,7 +785,7 @@ fn the_clients_calls(fixtures: &mut Fixtures) {
                 .unwrap(),
             picks: None,
             text: Some("Yes, go on".into()),
-            wait: "wait-3".into(),
+            wait: "3".into(),
         }),
     );
     done(
@@ -762,9 +794,7 @@ fn the_clients_calls(fixtures: &mut Fixtures) {
         vec![
             (
                 "nothing_waits",
-                AnswerRefusal::NothingWaits {
-                    wait: "wait-3".into(),
-                },
+                AnswerRefusal::NothingWaits { wait: "3".into() },
             ),
             ("not_offered", AnswerRefusal::NotOffered),
         ],
@@ -825,6 +855,7 @@ fn seen() -> Seen {
         }],
         roads: vec![RoadSeen { a: MAYOR, b: HIRE }],
         waits: vec![WaitSeen {
+            wait: WaitId(3),
             agent: HIRE,
             call: call("call-1"),
             subject: "curl https://example.com".into(),

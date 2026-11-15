@@ -2,6 +2,7 @@
 //! process, started under the sandbox on a thread of its own, which
 //! lives until the command ends.
 
+use std::collections::HashMap;
 use std::io;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError};
@@ -23,6 +24,7 @@ use hamlet_sandbox::{
 use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 
+pub(super) use self::output::Saved;
 use self::output::{Output, SPILL_CAP};
 use super::calls::{self, Call};
 
@@ -129,7 +131,7 @@ pub(super) async fn end(
     tx: &SqliteTransaction,
     end: &CommandEnd,
 ) -> Result<()> {
-    let answer = calls::cbor(end)?;
+    let answer = crate::cbor(end)?;
     tx.execute(
         "UPDATE calls SET state = 'ended', answer = ?1, ended_at = \
          ?2 WHERE id = ?3 AND state = 'running'",
@@ -158,6 +160,9 @@ pub(super) fn without_output(
         took_ms: 0,
     }
 }
+
+pub(super) type RunningCommands =
+    Arc<Mutex<HashMap<CommandId, Running>>>;
 
 /// A command while it runs, as a cancel finds it.
 #[derive(Clone)]
@@ -324,8 +329,7 @@ pub struct Spec {
     pub timeout: Duration,
     pub secrets: Arc<Vec<String>>,
     pub leftovers: Leftovers,
-    /// The file its output spills to.
-    pub output: PathBuf,
+    pub output: Saved,
     /// Fired to end it as cancelled, also before it started.
     pub cancel: CancellationToken,
 }
@@ -518,7 +522,12 @@ mod tests {
             timeout: Duration::from_secs(10),
             secrets: Arc::default(),
             leftovers: hamlet_sandbox::AllLeftovers::default().of(1),
-            output: cwd.join("output.log"),
+            output: Saved {
+                folder: cwd.to_owned(),
+                command: CommandId(1),
+                limit: u64::MAX,
+                running: Arc::default(),
+            },
             cancel: CancellationToken::new(),
         }
     }

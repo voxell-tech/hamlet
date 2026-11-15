@@ -550,12 +550,16 @@ pub enum HireRefusal {
     NoSuchHamlet,
     #[error("no agent is at that address")]
     NoSuchAgent,
+    #[error("`hire#{}` is in another hamlet", lead.0)]
+    OtherHamlet { lead: AgentNumber },
     #[error("`hire#{}` has left: {left}", lead.0)]
     LeadLeft { lead: AgentNumber, left: Left },
     #[error("the hamlet `{}` holds its most hires, {most}", hamlet.0)]
     Full { hamlet: HamletId, most: u32 },
     #[error("there is no `profile#{}`", profile.0)]
     NoSuchProfile { profile: ProfileId },
+    #[error("say what it is for")]
+    NoPurpose,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -753,6 +757,10 @@ pub enum LayRefusal {
     NoSuchAgent,
     #[error("a road joins two hires of one hamlet")]
     NotTwoHiresOfOneHamlet,
+    #[error("`hire#{}` has left: {left}", hire.0)]
+    Left { hire: AgentNumber, left: Left },
+    #[error("`hire#{}` and `hire#{}` already have a road", a.0, b.0)]
+    RoadExists { a: AgentNumber, b: AgentNumber },
     #[error("the hamlet `{}` has its most roads, {most}", hamlet.0)]
     Full { hamlet: HamletId, most: u32 },
 }
@@ -786,6 +794,8 @@ impl ToolCall for TakeUpRoad {
 pub enum TakeUpRefusal {
     #[error("no agent is at that address")]
     NoSuchAgent,
+    #[error("`hire#{}` and `hire#{}` have no road to take up", a.0, b.0)]
+    NoRoad { a: AgentNumber, b: AgentNumber },
 }
 
 /// Asks the caller's lead for a road to `to`, as a letter to the
@@ -818,6 +828,8 @@ pub enum RequestRoadRefusal {
     NoSuchAgent,
     #[error("you have no lead to ask")]
     NoLead,
+    #[error("your lead `hire#{}` is still being hired", lead.0)]
+    StillHiring { lead: AgentNumber },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

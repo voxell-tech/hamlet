@@ -63,7 +63,7 @@ pub(super) async fn apply(
     set: &SetReach,
 ) -> anyhow::Result<ReachVersion> {
     let agent = BindParam::Integer(i64::from(set.agent.0));
-    let body = super::calls::cbor(&set.reach)?;
+    let body = crate::cbor(&set.reach)?;
     tx.execute(
         "INSERT INTO reach (agent, version, body, applied_at) \
          VALUES (?1, ?2, ?3, ?4) ON CONFLICT (agent) DO UPDATE SET \

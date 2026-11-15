@@ -78,9 +78,9 @@ it, and it is not edited here.
 | `hamlet_actor_client` | A Rust client that calls actors |
 | `hamlet_actor_wire` | The actor runtime's shared types and versioned wire formats, generated from the schemas in `schemas/` |
 | `hamlet_actor_error`, `hamlet_actor_error_macros` | The actor runtime's structured errors and the derive that declares them |
-| `hamlet_host` | Runs actors in this process, each in one plain SQLite file; the `demo` example, its counter actor, its stand-ins for the realm and an agent, and its `demo profile` and `demo library` commands; fault points behind the `faults` feature |
+| `hamlet_host` | Runs actors in this process, each in one plain SQLite file; the `demo` example, its counter actor, its stand-ins for the realm and an agent, with `--realm-actor` the realm actor with stand-ins for an agent and a profile, and its `demo profile` and `demo library` commands; fault points behind the `faults` feature |
 | `hamlet_address` | An actor's address, the name rule for its kind and key, and `Caller`, who made a call, as a host stamps it |
-| `hamlet_actors` | Hamlet's actors on the actor host: the `workspace`, which runs the agents' commands and file changes within each agent's reach; the `profile`, a profile's repository; the `library`, the shared skills |
+| `hamlet_actors` | Hamlet's actors on the actor host: the `workspace`, which runs the agents' commands and file changes within each agent's reach; the `realm`, which keeps the hamlets, the tree of hires, roads, letters, budgets and waits; the `profile`, a profile's repository; the `library`, the shared skills |
 | `hamlet_messages` | The calls Hamlet's actors make to each other and their answers, one module per actor that takes them, and the CBOR fixture of each |
 | `hamlet_sqlite` | The actor runtime's SQL requests run on a rusqlite connection, for `hamlet_host` and for the core's tests |
 | `hamlet_killkit` | Kills the demo host at a scenario's step and checks what survived, the workspace's commands included, as `cargo xtask killkit` |
@@ -303,7 +303,15 @@ reaches, answers for the realm's secrets with one made-up secret and
 answers waits as a chief; and `examples/demo/agent.rs`, the actor
 `agent/<n>`, which makes `actors/agent/<n>.fs/` as it starts, runs
 scripts and tools, reads and writes files, and keeps each `Finished` it
-is told. `demo profile` and `demo library`, in
+is told. With `--realm-actor` before the command, the demo runs the
+[realm actor](#the-realm-actor) in place of both stand-ins, with a
+stand-in agent and a stand-in profile from `examples/demo/realm.rs`:
+its `realm` and `agent` lines found, hire, say, tell, charge and run
+commands through it, and print `<name> <number>` lines. They work
+one per line under `demo --realm-actor serve`, because a one-shot
+command exits before a hire's steps finish. The
+`faults` feature of `hamlet_actors` makes a realm action panic when
+`HAMLET_REALM_PANIC` names it. `demo profile` and `demo library`, in
 `examples/demo/profile.rs` and `examples/demo/library.rs`, drive a
 [profile and the library](#the-profile-and-library-actors) through
 stand-ins for the realm and the agents, which call as themselves and
@@ -341,7 +349,8 @@ resident memory of a process tree and the growth of each thread's
 ## The workspace actor
 
 The server does not use it. `hamlet_actors` holds Hamlet's actors on the
-actor host. Its one kind is `workspace`, in `src/workspace.rs` and
+actor host: the workspace, and the [realm](#the-realm-actor). The
+workspace is the kind `workspace`, in `src/workspace.rs` and
 `src/workspace/`: one actor per machine, keyed `local`, that runs the
 agents' commands and file changes under the sandbox, within each agent's
 reach (C18 to C21). `hamlet_messages` holds the calls between actors
@@ -370,10 +379,11 @@ caller the host stamped, with `sender::sender`, and any other caller
 fails with the error `message.wrong_caller`. An agent's call is for
 the agent that made it. The workspace calls the realm with `Secrets`
 and `NeedsChief`, and an agent with `Finished`. In this repository
-the realm and the agent are only the demo's stand-ins. The host gives the workspace its
+the agent is only the demo's stand-in, and the realm is the realm actor
+or the demo's stand-in. The host gives the workspace its
 `Sandbox` as a value of `HostOptions`, and the workspace does not start
 without one; `workspace::Options` there sets how long a call waits for
-its command.
+its command and how much saved output an agent keeps.
 
 `workspace/reach.rs` keeps the reach: one row per agent in the table
 `reach`, with its version and its `Reach`, an agent's, a worker's (with
@@ -420,7 +430,10 @@ taken out as it streams. Its end carries the tail, the last 2000 lines
 or 50 KiB. Once the output passes the tail, all of it goes to a spill
 file, `actors/workspace/local.output/<agent>/<command>.log`, up to
 512 MiB (`SPILL_CAP`), which the end's `Cut` names and the agent may
-read.
+read. An agent's folder holds at most 1 GiB (`Options::saved_output`):
+before a command opens its file, the files of that agent's finished
+commands go, least recently written first, until the rest is under the
+limit. A running command's file is never removed.
 
 `workspace/files.rs` passes the file tools through the gate and runs
 them on the sandbox's `Env`, off the runtime, with the secrets taken out
@@ -459,8 +472,8 @@ the named agent's: one call's, one conversation's or all of them, as
 `Exit::Cancelled`. Each answers once every command has stopped, and
 ends no wait. A `SetReach` to `Reach::Ended` ends
 the agent's waits as lapsed and tells the agent of each, cancels all its
-commands, ends what they left running under Seatbelt, and removes a
-worker's scratch folder.
+commands, ends what they left running under Seatbelt, and removes its
+saved output and a worker's scratch folder.
 
 `workspace/workers.rs` keeps the workers' scratch folders,
 `workers/<n>/` (H42): made when a worker's reach arrives, and again
@@ -487,6 +500,74 @@ what holds on each OS, is in [`sandbox.md`](sandbox.md#the-workspace-actor).
 host, called by test actors in the realm's and agents' places: the
 reach and commands in `workspace.rs`, then `files.rs`, `changes.rs`,
 `waits.rs`, `cancel.rs`, `workers.rs`, `tools.rs` and `realm_folder.rs`. `hamlet_messages/tests/fixtures/main.rs` checks the messages.
+
+## The realm actor
+
+The server does not use it yet. The realm actor, `realm/local` in
+`hamlet_actors/src/realm.rs` and `src/realm/`, keeps the realm in its
+own file, whose tables are in `realm/schema.sql`: the chief and the
+hamlets, the tree of hires, laid roads, letters, tasks, charges, waits,
+the steps of a hire, and the record of what was decided. `realm::factory`
+registers it, and `realm::Options`, a value of `HostOptions`, sets how
+long a line or a letter to a hire still hiring waits for its steps.
+
+Each action is an `Act` in the module of what it changes, run by
+`act::exec`. `load` reads rows, `decide` gives a `Decision` from what
+was read and nothing else, and `answer` builds the answer once the
+changes are committed. `exec` looks up the action's marker
+(`marker.rs`) by its request id or tool call id, so a repeat gets the
+first answer; opens one transaction; and commits the decided changes
+with the marker. A `Decision::WaitFor` waits, outside the transaction,
+for a hire's steps to end, and the action runs again. `callers.rs`
+says who may call each action: a chief's request, a society tool of an
+agent (refused while the agent ended or the tool is turned off), a
+lead (the chief, or an agent with a lead's powers), or the workspace.
+Any other caller fails with the error `message.wrong_caller`, and an id
+used again with another request with `message.id_reused`. `Reply`,
+`Charge` and `NeedsChief` keep no marker: a repeat writes nothing, as a
+question keeps its first answer and a charge or a wait is kept once
+per call.
+
+A change is a value of the `Change` enum of the module that owns its
+tables, and only that module's `apply` writes them;
+`tests/realm/writers.rs` fails otherwise. `change.rs` holds the
+transaction and `Affected`, what a commit moved: the agents whose
+place or reach changed, the steps begun, and the parts of the world a
+client sees. After the commit, the steps begun start, and `calls.rs`
+pushes each moved place (`place/push.rs`) and reach (`reach.rs`,
+through `versions.rs`, which keeps each version wanted and in force)
+and makes the action's deliveries, such as `Submit` to an agent or
+`ChiefAnswer` to the workspace, before or after the answer. `peer.rs`
+is the one way to another actor. A failed call is logged, and `Say`
+answers whether its line reached the agent; what was committed stays.
+
+A hire is one transaction, then six steps in `hire.rs`, each recorded
+done by a transaction of its own (`steps.rs`). The first four call
+another actor: the profile's actor, its branch `hires/<n>`, the agent
+made with its place and its task, and the agent's filesystem filled.
+`Reach` commits the hire's first reach as wanted, which the push after
+that commit sends to the workspace, and `Live` calls no actor: the
+transaction that records it makes the hire live and closes the row. At
+the realm's start, each step row not closed goes on from its last done
+step, and `End` closes the row.
+
+The rest is by module: `chiefs.rs` founds a hamlet, with
+`chiefs/limits.rs` and `chiefs/tier.rs`; `tree.rs` keeps the tree, with
+`Hire`, `End` and `Seat` in `tree/lead.rs` and the tools a lead turns
+off in `tree/tools.rs`; `roads.rs` says which agents have a road, and
+`laid.rs` keeps the roads a lead lays; `say.rs` is a chief's line, and
+`letters.rs` letters, questions and answers; `tasks.rs` keeps what a
+line or an agent's turns are charged to; `budget.rs` answers
+`MaySpend` and keeps `Charge`; `waits.rs` keeps the waits for a chief
+and their answers; `secrets.rs` answers the workspace's `Secrets`;
+`record.rs` keeps the decisions. `world.rs` keeps the world a client
+reads with `ReadWorld` as a copy in memory, rebuilt after each commit
+that changes it, and `versions.rs` numbers those commits in the file.
+
+`tests/realm.rs` runs the realm on a host with stand-ins for the
+workspace, the agents and the profiles, which keep what they were sent
+and can hold a call, or fail it once for one agent. The files in
+`tests/realm/` group its tests by subject.
 
 ## The profile and library actors
 
@@ -662,6 +743,9 @@ built-in ones.
 | Cancelling an agent's commands, and an ended reach | `hamlet_actors/src/workspace.rs` (`cancel`, `end_agent`) |
 | Workers' scratch folders on the workspace | `hamlet_actors/src/workspace/workers.rs` |
 | Tools added by hand on the workspace | `hamlet_actors/src/workspace/tools.rs` |
+| How the realm actor runs an action: the marker, the transaction, the calls after it | `hamlet_actors/src/realm/act.rs`, `change.rs`, `calls.rs`; [the realm actor](#the-realm-actor) |
+| The realm actor's hires, ends and steps | `hamlet_actors/src/realm/tree/lead.rs`, `hire.rs`, `steps.rs` |
+| The realm actor's roads, letters, budgets and waits | `hamlet_actors/src/realm/roads.rs`, `laid.rs`, `letters.rs`, `budget.rs`, `waits.rs` |
 | A profile's versions, edits, purge and erase | `hamlet_actors/src/profile/versions.rs`; [the profile and library actors](#the-profile-and-library-actors) |
 | A hire's branch, its pin and taking `main` in | `hamlet_actors/src/profile/hires.rs` |
 | The files an agent is given, and its saves | `hamlet_actors/src/profile/files.rs`, `repo/parts.rs` |
