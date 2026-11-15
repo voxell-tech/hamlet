@@ -223,11 +223,6 @@ impl Laying {
     }
 }
 
-fn is_living_hire(lineage: &Lineage) -> bool {
-    lineage.agent.kind == AgentKind::Hire
-        && !matches!(lineage.agent.status, Status::Ended(_))
-}
-
 impl<By: Lead> Act<By> for LayRoad {
     type Output = Done<By::Why<LayRefusal>>;
     type Loaded = Laying;
@@ -257,13 +252,19 @@ impl<By: Lead> Act<By> for LayRoad {
             }
         }
         let (one, two) = (a.agent.agent, b.agent.agent);
+        if one == two {
+            return refuse(LayRefusal::NotTwoHiresOfOneHamlet);
+        }
+        for end in [a, b] {
+            if let Status::Ended(left) = &end.agent.status {
+                return refuse(LayRefusal::Left {
+                    hire: end.agent.agent,
+                    left: left.clone(),
+                });
+            }
+        }
         let hamlet = match (&a.hamlet, &b.hamlet) {
-            (Some(hamlet), Some(other))
-                if hamlet.id == other.id
-                    && one != two
-                    && is_living_hire(a)
-                    && is_living_hire(b) =>
-            {
+            (Some(hamlet), Some(other)) if hamlet.id == other.id => {
                 hamlet
             }
             _ => return refuse(LayRefusal::NotTwoHiresOfOneHamlet),
@@ -272,7 +273,7 @@ impl<By: Lead> Act<By> for LayRoad {
             || a.agent.lead == Some(two)
             || b.agent.lead == Some(one)
         {
-            return Decision::Again(());
+            return refuse(LayRefusal::RoadExists { a: one, b: two });
         }
         let most = hamlet.limits.road.most;
         if laying.in_hamlet >= most {
@@ -330,10 +331,12 @@ impl<By: Lead> Act<By> for TakeUpRoad {
                 return Decision::Answer(Done::refused(not_a_lead));
             }
         }
-        if !laying.laid {
-            return Decision::Again(());
-        }
         let (a, b) = (a.agent.agent, b.agent.agent);
+        if !laying.laid {
+            return Decision::Answer(Done::refused(By::refused(
+                TakeUpRefusal::NoRoad { a, b },
+            )));
+        }
         Decision::Change(
             Decided::new(())
                 .change(Change::TakeUp { a, b })

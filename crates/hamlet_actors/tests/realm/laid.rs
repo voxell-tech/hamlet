@@ -2,9 +2,10 @@ use hamlet_messages::agent::{Author, Input, Place};
 use hamlet_messages::realm::world::{RoadSeen, Seen};
 use hamlet_messages::realm::{
     AgentRefusal, Asked, Done, End, FoundAnswer, Gate, HamletId,
-    LayRefusal, LayRoad, LeadRefusal, LetterRefusal, Named, Rank,
-    RequestRoad, RequestRoadRefusal, SetTier, SetTools, SocietyTool,
-    TakeUpRoad, Tier, TierRefusal, ToolsRefusal,
+    HowEnded, LayRefusal, LayRoad, LeadRefusal, Left, LetterRefusal,
+    Named, Rank, RequestRoad, RequestRoadRefusal, SetTier, SetTools,
+    SocietyTool, TakeUpRefusal, TakeUpRoad, Tier, TierRefusal,
+    ToolsRefusal,
 };
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::AgentNumber;
@@ -78,10 +79,10 @@ async fn road_charges(realm: &Realm) -> i64 {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_laid_road_carries_letters_and_is_charged_once() {
     // the mayor lays a road between its hires 3 and 4, who have no
-    // road by the tree, then lays it again with the same call and
-    // with another: all Done. 3 tells 4 twice with two call ids:
-    // both delivered. The road's charge is one row, the world shows
-    // the road, and both ends' places hold each other.
+    // road by the tree, then lays it again with the same call: Done;
+    // and with another: `RoadExists`. 3 tells 4 twice with two call
+    // ids: both delivered. The road's charge is one row, the world
+    // shows the road, and both ends' places hold each other.
     let (realm, _) = hamlet_with(2).await;
     let laying = tool("r1", lay(THREE, FOUR));
 
@@ -100,9 +101,15 @@ async fn a_laid_road_carries_letters_and_is_charged_once() {
     placed(&realm, THREE, |place| place.roads == [FOUR]).await;
     placed(&realm, FOUR, |place| place.roads == [THREE]).await;
 
+    assert_eq!([laid, repeated], [Done::Done, Done::Done]);
     assert_eq!(
-        [laid, repeated, again],
-        [Done::Done, Done::Done, Done::Done]
+        again,
+        Done::Refused {
+            why: LeadRefusal::Act(LayRefusal::RoadExists {
+                a: FOUR,
+                b: THREE
+            })
+        }
     );
     assert_eq!(
         [first.unwrap(), second.unwrap()],
@@ -249,8 +256,8 @@ async fn a_road_is_asked_for_by_a_letter_to_the_lead() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_road_taken_up_carries_no_letter_and_is_charged_again() {
     // lay 3-4 and take it up: a tell across it is `NoRoad`, and
-    // taking it up again changes nothing. Laid again, it is charged
-    // again: two charges.
+    // taking it up again is refused `NoRoad`. Laid again, it is
+    // charged again: two charges.
     let (realm, _) = hamlet_with(2).await;
     let take_up = TakeUpRoad {
         a: to(FOUR),
@@ -276,7 +283,16 @@ async fn a_road_taken_up_carries_no_letter_and_is_charged_again() {
         .unwrap();
     roads_seen(&realm, &[(3, 4)]).await;
 
-    assert_eq!([taken, again], [Done::Done, Done::Done]);
+    assert_eq!(taken, Done::Done);
+    assert_eq!(
+        again,
+        Done::Refused {
+            why: LeadRefusal::Act(TakeUpRefusal::NoRoad {
+                a: FOUR,
+                b: THREE
+            })
+        }
+    );
     assert_eq!(relaid, Done::Done);
     assert_eq!(
         told.unwrap(),
@@ -293,10 +309,10 @@ async fn a_road_taken_up_carries_no_letter_and_is_charged_again() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_road_joins_two_hires_of_one_hamlet_under_its_layer() {
     // the chief lays no road to the Hand, across hamlets, from a hire
-    // to itself, to an ended hire or to no agent; a hire lays none it
-    // does not lead both ends of. A road between a hire and its own
-    // lead is there by the tree, so none is laid and nothing is
-    // charged.
+    // to itself, to an ended hire (`Left`) or to no agent; a hire
+    // lays none it does not lead both ends of. A road between a hire
+    // and its own lead is there by the tree: `RoadExists`, and
+    // nothing is charged.
     let (realm, _) = hamlet_with(2).await;
     let other = realm
         .ask(&Asked {
@@ -350,9 +366,15 @@ async fn a_road_joins_two_hires_of_one_hamlet_under_its_layer() {
             refused(LayRefusal::NotTwoHiresOfOneHamlet),
             refused(LayRefusal::NotTwoHiresOfOneHamlet),
             refused(LayRefusal::NotTwoHiresOfOneHamlet),
-            refused(LayRefusal::NotTwoHiresOfOneHamlet),
+            refused(LayRefusal::Left {
+                hire: FOUR,
+                left: Left {
+                    how: HowEnded::ByTheChief,
+                    why: None
+                }
+            }),
             refused(LayRefusal::NoSuchAgent),
-            Done::Done
+            refused(LayRefusal::RoadExists { a: MAYOR, b: THREE }),
         ]
     );
     assert_eq!(

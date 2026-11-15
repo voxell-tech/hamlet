@@ -758,6 +758,10 @@ pub enum LayRefusal {
     NoSuchAgent,
     #[error("a road joins two hires of one hamlet")]
     NotTwoHiresOfOneHamlet,
+    #[error("`hire#{}` has left: {left}", hire.0)]
+    Left { hire: AgentNumber, left: Left },
+    #[error("`hire#{}` and `hire#{}` already have a road", a.0, b.0)]
+    RoadExists { a: AgentNumber, b: AgentNumber },
     #[error("the hamlet `{}` has its most roads, {most}", hamlet.0)]
     Full { hamlet: HamletId, most: u32 },
 }
@@ -791,6 +795,8 @@ impl ToolCall for TakeUpRoad {
 pub enum TakeUpRefusal {
     #[error("no agent is at that address")]
     NoSuchAgent,
+    #[error("`hire#{}` and `hire#{}` have no road to take up", a.0, b.0)]
+    NoRoad { a: AgentNumber, b: AgentNumber },
 }
 
 /// Asks the caller's lead for a road to `to`, as a letter to the
